@@ -282,3 +282,59 @@ for (const failure of [false, true]) test(`access removal submits once and ${fai
   expect(await page.evaluate(() => (window as unknown as { removeCalls: number }).removeCalls)).toBe(failure ? 2 : 1);
   expect(errors).toEqual([]);
 });
+
+for (const scenario of ['update', 'late list', 'failed update', 'remove', 'failed remove'] as const) test(`a Share list refresh preserves a pending ${scenario}`, async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate((scenario) => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { getShares: () => Promise<unknown>; share: (path: string, person: { username: string }, mode: string) => Promise<unknown>; unshare: () => Promise<unknown> } }; releaseMutation: () => void; releaseRefresh: () => void; mutationStarted: boolean; refreshStarted: boolean; refreshDelivered: boolean };
+    const w = window as unknown as W;
+    const people = new Map([['friend', 'write']]);
+    const mutation = new Promise<void>((resolve) => { w.releaseMutation = resolve; });
+    const refresh = new Promise<void>((resolve) => { w.releaseRefresh = resolve; });
+    let reads = 0;
+    w.puter.fs.getShares = async () => {
+      const snapshot = [...people].map(([holder, mode]) => ({ holder, mode }));
+      if (++reads === 2 && scenario === 'late list') { w.refreshStarted = true; await refresh; w.refreshDelivered = true; }
+      return snapshot;
+    };
+    w.puter.fs.share = async (_path, person, mode) => {
+      if (person.username === 'friend') { w.mutationStarted = true; await mutation; if (scenario === 'failed update') throw new Error('Update failed'); }
+      people.set(person.username, mode); return [{ isNew: true }];
+    };
+    w.puter.fs.unshare = async () => {
+      w.mutationStarted = true; await mutation;
+      if (scenario === 'failed remove') throw new Error('Removal failed');
+      people.delete('friend'); return { revoked: 1 };
+    };
+    w.__parametric.commands.run('share');
+  }, scenario);
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  const access = dialog.getByRole('combobox', { name: 'Access for friend', exact: true });
+  const remove = dialog.getByRole('button', { name: 'Remove friend', exact: true });
+  if (scenario.includes('remove')) await remove.click();
+  else await access.selectOption('read');
+  await page.waitForFunction(() => (window as unknown as { mutationStarted: boolean }).mutationStarted);
+  await dialog.getByRole('textbox', { name: 'Person to share with' }).fill('other');
+  await dialog.getByRole('button', { name: 'Share', exact: true }).click();
+  if (scenario === 'late list') {
+    await page.waitForFunction(() => (window as unknown as { refreshStarted: boolean }).refreshStarted);
+    await page.evaluate(() => (window as unknown as { releaseMutation: () => void }).releaseMutation());
+    await expect(dialog).toContainText('Updated access for friend');
+    await page.evaluate(() => (window as unknown as { releaseRefresh: () => void }).releaseRefresh());
+    await page.waitForFunction(() => (window as unknown as { refreshDelivered: boolean }).refreshDelivered);
+  } else {
+    await expect(dialog.getByRole('combobox', { name: 'Access for other', exact: true })).toBeVisible();
+    await expect(access).toBeDisabled();
+    await expect(remove).toBeDisabled();
+    await page.evaluate(() => (window as unknown as { releaseMutation: () => void }).releaseMutation());
+  }
+  if (scenario === 'remove') await expect(access).toHaveCount(0);
+  else {
+    await expect(access).toBeEnabled();
+    await expect(remove).toBeEnabled();
+    await expect(access).toHaveValue(scenario.startsWith('failed') ? 'write' : 'read');
+  }
+  await expect(dialog.getByRole('combobox', { name: 'Access for other', exact: true })).toHaveValue('read');
+  if (scenario.startsWith('failed')) await expect(dialog).toContainText(scenario === 'failed update' ? 'Update failed' : 'Removal failed');
+  expect(errors).toEqual([]);
+});

@@ -76,10 +76,14 @@ export async function shareDialog(app: App, files: FileOps) {
   const status = h('div', { class: 'field-label', role: 'status', style: { minHeight: '18px' } });
   const list = h('div');
 
+  type AccessRow = { element: HTMLElement; pending: boolean; settled: number; removed: boolean };
+  const accessRows = new Map<string, AccessRow>();
+  let mutationRevision = 0;
   let renderSequence = 0;
   const render = async () => {
     if (!isCurrent()) return;
     const sequence = ++renderSequence;
+    const revision = mutationRevision;
     clear(list);
     let shares: ShareRecord[] = [];
     try {
@@ -91,19 +95,24 @@ export async function shareDialog(app: App, files: FileOps) {
     }
     if (!isCurrent() || sequence !== renderSequence) return;
     const direct = shares.filter((s) => !s.inheritedFrom);
-    if (!direct.length) { list.append(h('p', {}, 'Not shared with anyone yet.')); return; }
+    const seen = new Set<string>();
     const rows = direct.map((s) => {
       const name = holderName(s);
+      seen.add(name);
+      const previous = accessRows.get(name);
+      // Refreshes started before a row's operation settled cannot replace
+      // its pending controls or its newly confirmed result.
+      if (previous && !previous.removed && (previous.pending || previous.settled > revision)) return previous.element;
+      const state: AccessRow = { element: h('tr'), pending: false, settled: 0, removed: false };
       const sel = h('select', { class: 'input', 'aria-label': `Access for ${name}`, style: { width: 'auto' } }, [...MODES, ['manage', 'Can edit and share'] as [string, string]].map(([v, l]) => {
         const o = h('option', { value: v }, l) as HTMLOptionElement;
         if (v === s.mode) o.selected = true;
         return o;
       })) as HTMLSelectElement;
-      let updating = false;
       sel.addEventListener('change', async () => {
-        if (updating || !isCurrent()) return;
+        if (state.pending || !isCurrent()) return;
         const next = sel.value;
-        updating = true;
+        state.pending = true;
         sel.disabled = remove.disabled = true;
         status.textContent = `Updating access for ${name}...`;
         try {
@@ -114,30 +123,41 @@ export async function shareDialog(app: App, files: FileOps) {
           sel.value = s.mode;
           status.textContent = `Could not update access for ${name}: ${storageError(e)}`;
         } finally {
-          updating = false;
+          state.pending = false;
+          state.settled = ++mutationRevision;
           sel.disabled = remove.disabled = false;
         }
       });
       // An icon button keeps the table within the dialog at phone widths.
       const remove = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Remove ${name}`, title: 'Remove access' }, icon('trash', 16));
       remove.addEventListener('click', async () => {
-        if (updating || !isCurrent()) return;
-        updating = true;
+        if (state.pending || !isCurrent()) return;
+        state.pending = true;
         sel.disabled = remove.disabled = true;
         status.textContent = `Removing access for ${name}...`;
         try {
           await fs.unshare(path, recipient(name));
+          state.removed = true;
           status.textContent = `${name} no longer has access.`;
           await render();
         } catch (e) {
           status.textContent = `Could not remove access for ${name}: ${storageError(e)}`;
         } finally {
-          updating = false;
+          state.pending = false;
+          state.settled = ++mutationRevision;
           sel.disabled = remove.disabled = false;
         }
       });
-      return h('tr', {}, h('td', {}, name, s.pending ? h('span', { class: 'field-label' }, ' (invited)') : null), h('td', {}, sel), h('td', { style: { textAlign: 'right' } }, remove));
+      state.element.append(h('td', {}, name, s.pending ? h('span', { class: 'field-label' }, ' (invited)') : null), h('td', {}, sel), h('td', { style: { textAlign: 'right' } }, remove));
+      accessRows.set(name, state);
+      return state.element;
     });
+    for (const [name, state] of accessRows) {
+      if (seen.has(name)) continue;
+      if (!state.removed && (state.pending || state.settled > revision)) rows.push(state.element);
+      else accessRows.delete(name);
+    }
+    if (!rows.length) { list.append(h('p', {}, 'Not shared with anyone yet.')); return; }
     list.append(h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Access'), h('th', {}, h('span', { class: 'sr-only' }, 'Actions')))), h('tbody', {}, rows)));
   };
 
