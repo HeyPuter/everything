@@ -20,7 +20,7 @@ import { icon } from '../ui/icons';
 import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
-import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
+import { type PickFilter, PropertyPanel, refreshKeepingNumberField, type UnitContext } from './pm';
 import { Selection, faceRef, type SelItem } from './selection';
 import { type Shell, buildShell, renderRibbon, syncCommandButtons, type RibbonTab } from './shell';
 import { SketchEditor } from './sketch/editor';
@@ -1250,11 +1250,13 @@ export class App {
     announce(`Editing ${sk.name}`);
   }
 
-  refreshSketchPanel() {
+  refreshSketchPanel(keepNumberField = false) {
     if (!this.sketchEditor || this.panel) return;
     if (this.leftTab !== 'pm' || !this.shell.lpBody.querySelector('.pm')) this.showLeft('pm');
     const p = this.hooks.sketchPanel();
-    this.shell.lpBody.replaceChildren(this.panelElement(p));
+    const refresh = () => this.shell.lpBody.replaceChildren(this.panelElement(p));
+    if (keepNumberField) refreshKeepingNumberField(this.shell.lpBody, refresh);
+    else refresh();
   }
 
   /** Leaves sketch mode. */

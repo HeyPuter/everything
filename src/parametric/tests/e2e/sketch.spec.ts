@@ -39,6 +39,46 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  test('typing a sketch dimension keeps focus and unfinished decimal text through delayed updates', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.click(x + 100, y + 20);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('d');
+    await page.mouse.click(x, y + 40);
+    await page.mouse.click(x - 20, y + 100);
+    await page.getByRole('dialog', { name: /Modify/ }).getByRole('textbox').press('Enter');
+    await page.keyboard.press('Escape');
+    await page.locator('.dim-label').click();
+    const field = page.getByRole('textbox', { name: 'Value', exact: true });
+    const original = await field.inputValue();
+    await field.fill('25.');
+    await page.waitForTimeout(500);
+    await expect(field).toBeFocused();
+    await expect(field).toHaveValue('25.');
+    await page.keyboard.type('5');
+    await page.waitForTimeout(500);
+    await expect(field).toBeFocused();
+    await expect(field).toHaveValue('25.5');
+    await field.evaluate((input: HTMLInputElement) => input.setSelectionRange(1, 1));
+    await page.keyboard.type('0');
+    await page.waitForTimeout(500);
+    await expect(field).toHaveValue('205.5');
+    expect(await field.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([2, 2]);
+    await field.press('Escape');
+    await expect(field).toHaveValue(original);
+    await field.fill('25.5');
+    await page.waitForTimeout(500);
+    await field.press('ArrowUp');
+    await expect(field).toHaveValue('26.5');
+    await field.press('Tab');
+    await page.locator('.dim-label').dblclick();
+    await expect(page.getByRole('dialog', { name: /Modify/ }).getByRole('textbox')).toHaveValue('26.5');
+    expect(errors).toEqual([]);
+  });
+
   test('correcting an invalid dimension still accepts the value on an outside click', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

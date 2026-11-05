@@ -131,7 +131,7 @@ export class SketchEditor implements ViewportTool {
   }
 
   /** Applies a sketch change as one undo step and re-solves. */
-  edit(label: string, fn: (sk: SketchFeature, newId: (p: string) => Id) => void, opts: { select?: Id[]; solve?: boolean } = {}) {
+  edit(label: string, fn: (sk: SketchFeature, newId: (p: string) => Id) => void, opts: { select?: Id[]; solve?: boolean; keepNumberField?: boolean } = {}) {
     this.app.store.change(label, (doc) => {
       const sk = doc.features.find((f) => f.id === this.sketchId) as SketchFeature;
       fn(sk, idFactory(sk));
@@ -140,7 +140,7 @@ export class SketchEditor implements ViewportTool {
     }, 'sketch');
     if (opts.select) this.app.selection.set(opts.select.map((id) => this.selItem(id)));
     this.render();
-    this.app.refreshSketchPanel();
+    this.app.refreshSketchPanel(opts.keepNumberField);
   }
 
   private selItem(id: Id) {
