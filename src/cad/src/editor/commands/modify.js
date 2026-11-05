@@ -420,13 +420,22 @@ async function filletOrChamfer(ed, isChamfer) {
     if (first.option === 'radius') {
       const v = await ed.getDistance('Fillet radius', { default: r });
       if (typeof v === 'number' && v >= 0) ed.filletR = v;
+      else if (typeof v === 'number') ed.ui.log('The radius cannot be negative.', 'error');
       continue;
     }
     if (first.option === 'distance') {
       const d1 = await ed.getDistance('First chamfer distance', { default: r[0] });
       if (typeof d1 !== 'number') continue;
+      if (d1 < 0) {
+        ed.ui.log('Chamfer distances cannot be negative.', 'error');
+        continue;
+      }
       const d2 = await ed.getDistance('Second chamfer distance', { default: d1 });
       if (typeof d2 !== 'number') continue;
+      if (d2 < 0) {
+        ed.ui.log('Chamfer distances cannot be negative.', 'error');
+        continue;
+      }
       ed.chamferD = [d1, d2];
       continue;
     }

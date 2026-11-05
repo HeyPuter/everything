@@ -107,3 +107,22 @@ describe('LENGTHEN', () => {
     expect(t.logs.some(([k]) => k === 'error')).toBe(true);
   });
 });
+
+describe('FILLET and CHAMFER', () => {
+  it('rejects negative chamfer distances and fillet radii', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 20, y2: 0 });
+    add({ type: 'line', x1: 0, y1: 0, x2: 0, y2: 20 });
+    await t.type('CHAMFER', 'D', '-3');
+    expect(t.ed.chamferD).toBeUndefined();
+    await t.type('D', '2', '-3');
+    expect(t.ed.chamferD).toBeUndefined();
+    t.ed.cancel();
+    await flush();
+    await t.type('FILLET', 'R', '-2');
+    expect(t.ed.filletR).toBeUndefined();
+    expect(t.logs.filter(([k]) => k === 'error')).toHaveLength(3);
+    t.ed.cancel();
+    await flush();
+    expect(t.all()).toHaveLength(2);
+  });
+});
