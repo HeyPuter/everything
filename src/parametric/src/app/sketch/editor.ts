@@ -7,7 +7,7 @@ import type { Frame, Vec2, Vec3 } from '../../math/vec';
 import { dist2, toLocal, toWorld } from '../../math/vec';
 import type { Id, Param, SkConstraint, SkCurve, SkDimension, SkEntity, SketchFeature } from '../../model/types';
 import { isDimension } from '../../model/types';
-import { UNIT_SYSTEMS, formatNumber } from '../../model/units';
+import { UNIT_SYSTEMS, formatEditable, formatNumber } from '../../model/units';
 import { evaluate } from '../../model/expr';
 import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf, sketchBounds, tessellate } from '../../sketch/geom';
 import { type SolveResult, solveSketch } from '../../sketch/solver';
@@ -529,7 +529,7 @@ export class SketchEditor implements ViewportTool {
     }
     const units = this.app.store.doc.units;
     const scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
-    const initial = typeof d.value === 'string' ? d.value : String(Number((Number(d.value) / scale).toFixed(8)));
+    const initial = typeof d.value === 'string' ? d.value : formatEditable(d.value / scale);
     const input = h('input', { class: 'input', value: initial, 'aria-label': `Value of ${d.name}`, spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off' }) as HTMLInputElement;
     const err = h('div', { class: 'err', role: 'alert' });
     const original = d.value;

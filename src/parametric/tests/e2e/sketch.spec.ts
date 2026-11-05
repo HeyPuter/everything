@@ -1,5 +1,32 @@
 import { type Page, expect, test } from '@playwright/test';
 import { canvasCenter, openApp } from './helpers';
+import type { SketchFeature, UnitSystem } from '../../src/model/types';
+
+for (const units of ['MMGS', 'MKS', 'IPS'] as const) test(`accepting an unchanged sketch dimension preserves precision in ${units}`, async ({ page }) => {
+  const errors = await openApp(page);
+  await startSketch(page);
+  await page.evaluate((units) => {
+    const app = (window as unknown as { __parametric: {
+      store: { doc: { units: UnitSystem } };
+      sketchEditor: { edit(label: string, fn: (sk: SketchFeature) => void): void; openModify(id: string): void };
+    } }).__parametric;
+    app.store.doc.units = units;
+    app.sketchEditor.edit('Add precise circle', (sk) => {
+      sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 30.123456789 / 2 });
+      sk.constraints.push({ id: 'diameter', type: 'diameter', refs: ['circle'], value: 30.123456789, at: [20, 20], name: 'D1' });
+    });
+    app.sketchEditor.openModify('diameter');
+  }, units);
+  const modify = page.getByRole('dialog', { name: 'Modify D1' });
+  await modify.getByRole('textbox').press('Enter');
+  await expect(modify).toHaveCount(0);
+  const value = await page.evaluate(() => {
+    const ed = (window as unknown as { __parametric: { sketchEditor: { sketch: SketchFeature } } }).__parametric.sketchEditor;
+    return (ed.sketch.constraints.find((c) => c.id === 'diameter') as { value: number }).value;
+  });
+  expect(value).toBeCloseTo(30.123456789, 12);
+  expect(errors).toEqual([]);
+});
 
 /** Opens a sketch on the Front plane once the camera faces it. */
 async function startSketch(page: Page) {
