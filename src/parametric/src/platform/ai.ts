@@ -185,6 +185,11 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
   if (!p?.ai?.chat) throw Object.assign(new Error('The assistant needs Puter, which is not available right now. Check your connection and reload.'), { code: 'puter_unavailable' });
   const options: Record<string, unknown> = { stream: true };
   if (opts.model) options.model = opts.model;
+  // Puter starts a request on the healthiest route that serves the model: after
+  // anyone's recent failure on Anthropic's, that is a reseller, which has none of
+  // this conversation in its prompt cache and may drop images. Pinned, Anthropic
+  // serves first, and Puter still falls back when it fails.
+  if (opts.model?.startsWith('claude-')) options.provider = 'claude';
   if (opts.tools?.length) {
     options.tools = opts.tools;
     // Puter lets the model call one tool per reply unless asked: independent

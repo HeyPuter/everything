@@ -463,6 +463,17 @@ describe('assistant agent', () => {
     expect(text).toBe('finished');
   });
 
+  it('asks Puter for Anthropic\'s own route for Claude, not whichever route is healthiest', async () => {
+    const seen: Record<string, unknown>[] = [];
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (_m: unknown, o: Record<string, unknown>) => { seen.push(o); return { message: { content: 'ok' } }; } } };
+    try {
+      for (const model of ['claude-opus-5-5', 'gpt-6.1-sol']) for await (const _ of puterChat([{ role: 'user', content: 'hi' }], { model })) { /* drain */ }
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+    expect(seen.map((o) => o.provider)).toEqual(['claude', undefined]);
+  });
+
   it('lets the model call several tools in one reply, and runs no further changes after one fails', async () => {
     let options: Record<string, unknown> = {};
     (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (_m: unknown, o: Record<string, unknown>) => { options = o; return { message: { content: 'ok' } }; } } };
@@ -473,6 +484,7 @@ describe('assistant agent', () => {
     }
     // Puter allows one call per reply unless asked.
     expect(options.parallelToolCalls).toBe(true);
+    expect(options.provider).toBeUndefined();
 
     const ran: string[] = [];
     const requests: ChatMessage[][] = [];
