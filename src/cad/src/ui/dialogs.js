@@ -268,7 +268,22 @@ export async function exportDialog(app) {
   const bg = select([['white', 'White'], ['transparent', 'Transparent'], ['dark', 'Dark']], 'white');
   const mono = check('Black and white', false);
   const lw = check('Plot lineweights', true);
-  body.append(h('fieldset.fs', h('legend', 'Format'), fmt), field('Area', areaSel), h('div.row2', field('PNG width (pixels)', width), field('Background', bg)), mono, lw);
+  const areaField = field('Area', areaSel);
+  const widthField = field('PNG width (pixels)', width);
+  const bgField = field('Background', bg);
+  const row = h('div.row2', widthField, bgField);
+  body.append(h('fieldset.fs', h('legend', 'Format'), fmt), areaField, row, mono, lw);
+  // Show only the options the chosen format uses.
+  const sync = () => {
+    const k = radioValue(body, 'fmt');
+    const image = k === 'pdf' || k === 'svg' || k === 'png';
+    areaField.hidden = mono.hidden = lw.hidden = !image;
+    widthField.hidden = k !== 'png';
+    bgField.hidden = k !== 'svg' && k !== 'png';
+    row.hidden = widthField.hidden && bgField.hidden;
+  };
+  body.addEventListener('change', sync);
+  sync();
   const r = await openDialog({ title: 'Export', body, size: 'md', actions: [{ label: 'Cancel' }, { label: 'Export', primary: true, onClick: () => true }] });
   if (!r) return;
   const kind = radioValue(body, 'fmt');
