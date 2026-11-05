@@ -1059,3 +1059,19 @@ it('keeps the paragraphs of a tagged PDF apart, and the lines of one paragraph t
     'Second paragraph is set below with the very same line spacing.',
   ]);
 });
+
+it('keeps a paragraph whole across a line that ends in a hyphenated word', async () => {
+  // Ragged right: the second line ends mid-word because the whole word did not fit, though
+  // the fragment that starts the next line would fit within the widest line.
+  for (const hyphen of ['-', '\\255']) {
+    const r = await read(
+      await fixture(
+        `BT /F 12 Tf 15 TL 40 330 Td (This first line of the paragraph is quite wide indeed) Tj T* (and here is a short exam${hyphen}) Tj T* (ple of the text that follows on.) Tj ET`,
+      ),
+    );
+    expect(
+      groupTextParagraphs(r.groups).map((b) => b.text.slice(0, 20)),
+      hyphen,
+    ).toEqual(['This first line of t']);
+  }
+});

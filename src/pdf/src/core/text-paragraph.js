@@ -166,8 +166,11 @@ export function groupTextParagraphs(lines) {
         previous.text.trim().split(/\s+/).length >= 3 &&
         // A line wraps early only when the next word would not fit after it. Where that word
         // would have fit within the widest line, the break is a hard one: a paragraph ends.
-        width(previous) + h * 0.28 + wordWidth(line) >=
-          Math.max(width(line), ...(block.paragraph?.lines ?? [block]).map(width)) - h * 0.1
+        // A line ending mid-word in a hyphen wrapped because the whole word did not fit, so
+        // the fragment after it says nothing about the break.
+        (/\p{L}[-\u00ad\u2010]\s*$/u.test(previous.text) ||
+          width(previous) + h * 0.28 + wordWidth(line) >=
+            Math.max(width(line), ...(block.paragraph?.lines ?? [block]).map(width)) - h * 0.1)
       )
         leading = -y;
     }
