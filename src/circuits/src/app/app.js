@@ -54,6 +54,10 @@ function pickFiles(accept) {
   });
 }
 
+/** A project file error in words: JSON syntax errors mean a damaged or foreign file. */
+const fileError = (err) =>
+  err instanceof SyntaxError ? 'This file is not a Circuits project, or it is damaged.' : err?.message || String(err);
+
 export const REPO_URL = 'https://github.com/heyputer/everything';
 const ALPHA_KEY = 'circuits:alpha-notice-seen';
 const LAST_KEY = 'circuits:last-project';
@@ -587,7 +591,8 @@ export class App extends Emitter {
       storage.rememberRecent({ location, name: project.name });
       return true;
     } catch (err) {
-      if (!quiet) toast(`Could not open the project: ${P.isMissing(err) ? 'the file no longer exists.' : err.message}`, { kind: 'error' });
+      const why = P.isMissing(err) ? 'the file no longer exists.' : fileError(err);
+      if (!quiet) toast(`Could not open the project: ${why}`, { kind: 'error' });
       if (P.isMissing(err)) storage.forgetRecent(location);
       return false;
     }
@@ -612,10 +617,18 @@ export class App extends Emitter {
     if (!files.length) return;
     if (files.some((f) => /\.kicad_(sch|pcb|pro)$/i.test(f.name))) { await this.importKicad(files); return; }
     const f = { text: await files[0].text(), name: files[0].name.replace(/\.(circuits|json)$/i, '') };
+    let project;
+    try {
+      project = parseProject(f.text);
+    } catch (err) {
+      toast(fileError(err), { kind: 'error', title: 'Could not open the file' });
+      return;
+    }
     if (!(await this._confirmLeave())) return;
     try {
-      const project = parseProject(f.text);
-      // Imported projects get a fresh identity and a new storage location.
+      // Imported projects get a fresh identity and a new storage location, so
+      // opening a downloaded copy never overwrites the project it came from.
+      project.id = uid('p');
       const location = await storage.newLocation(project.name, project.id).catch(() => null);
       this.setProject(project, location);
       if (location) await this.save({ quiet: true });

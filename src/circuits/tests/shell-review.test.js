@@ -270,3 +270,47 @@ describe('saving', () => {
     expect(app.saveBadge.textContent).toBe('Not saved');
   });
 });
+
+describe('opening a file from the device', () => {
+  /** Makes the next file input "choose" these files. */
+  function chooseFiles(files) {
+    const orig = HTMLInputElement.prototype.click;
+    HTMLInputElement.prototype.click = function () {
+      HTMLInputElement.prototype.click = orig;
+      Object.defineProperty(this, 'files', { value: files });
+      this.dispatchEvent(new Event('change'));
+    };
+  }
+
+  it('gives the opened copy its own identity, so it never overwrites the original', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const project = new Project(newProjectData('Gamma'));
+    app.setProject(project, await storage.newLocation('Gamma', project.id));
+    await app.save();
+    const backup = JSON.stringify(project.toJSON());
+    project.rename('Gamma edited');
+    await app.save();
+    chooseFiles([new File([backup], 'Gamma.circuits')]);
+    await app.importFromDevice();
+    expect(app.project.name).toBe('Gamma');
+    expect(app.project.id).not.toBe(project.id);
+    const names = (await storage.listProjects()).map((p) => p.name).sort();
+    expect(names).toEqual(['Gamma', 'Gamma edited']);
+  });
+
+  it('explains a damaged file without asking to leave the open project', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const project = new Project(newProjectData('Delta'));
+    app.setProject(project, null);
+    project.rename('Delta 2'); // unsaved changes, nowhere to save them
+    chooseFiles([new File(['{"format": nope'], 'broken.circuits')]);
+    await app.importFromDevice();
+    expect(document.querySelector('.dialog')).toBeNull();
+    expect(document.querySelector('.toast.error').textContent).toContain(
+      'not a Circuits project, or it is damaged',
+    );
+    expect(app.project).toBe(project);
+  });
+});
