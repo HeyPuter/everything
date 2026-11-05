@@ -491,42 +491,53 @@ export class FileOps {
    * Closing the question keeps the copy for next time; only Discard deletes it.
    */
   async checkRecovery(): Promise<boolean> {
-    for (const { file, text } of await orphanRecoveries()) {
-      let data: { location: Location | null; savedAt: number; doc: PartDocument } | null = null;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = null;
-      }
-      // Recovery copies contain unsaved work. An empty model can still hold
-      // drawing notes, part properties, or an intentional deletion of geometry.
-      if (!data?.doc) { await removeRecovery(file); continue; }
-      const when = new Date(data.savedAt).toLocaleString();
-      const v = await showDialog({
-        title: 'Recover unsaved work?',
-        body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. Do you want to restore them?`),
-        buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
-      });
-      if (v === 'restore') {
-        let doc: PartDocument;
+    if (this.app.store.dirty || this.app.panel?.edited) return false;
+    const controller = new AbortController();
+    const stopWatching = this.app.store.on((reason) => { if (reason !== 'saved') controller.abort(); });
+    const canRecover = () => !controller.signal.aborted && !this.app.store.dirty && !this.app.panel?.edited;
+    try {
+      for (const { file, text } of await orphanRecoveries()) {
+        if (!canRecover()) return false;
+        let data: { location: Location | null; savedAt: number; doc: PartDocument } | null = null;
         try {
-          doc = parseDocument(JSON.stringify(data.doc));
-        } catch (e) {
-          toast({ kind: 'error', message: (e as Error).message });
-          await removeRecovery(file);
-          continue;
+          data = JSON.parse(text);
+        } catch {
+          data = null;
         }
-        this.app.loadDocument(doc, data.location);
-        this.app.store.dirty = true;
-        this.app.store.emit('restored');
-        this.recoverySource = file;
-        await this.writeRecoveryCopy(text);
-        return true;
+        // Recovery copies contain unsaved work. An empty model can still hold
+        // drawing notes, part properties, or an intentional deletion of geometry.
+        if (!data?.doc) { await removeRecovery(file); continue; }
+        const when = new Date(data.savedAt).toLocaleString();
+        const v = await showDialog({
+          title: 'Recover unsaved work?', signal: controller.signal,
+          body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. Do you want to restore them?`),
+          buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
+        });
+        if (!canRecover()) return false;
+        if (v === 'restore') {
+          let doc: PartDocument;
+          try {
+            doc = parseDocument(JSON.stringify(data.doc));
+          } catch (e) {
+            toast({ kind: 'error', message: (e as Error).message });
+            await removeRecovery(file);
+            continue;
+          }
+          stopWatching();
+          this.app.loadDocument(doc, data.location);
+          this.app.store.dirty = true;
+          this.app.store.emit('restored');
+          this.recoverySource = file;
+          await this.writeRecoveryCopy(text);
+          return true;
+        }
+        if (v !== 'discard') return false;
+        await removeRecovery(file);
       }
-      if (v !== 'discard') return false;
-      await removeRecovery(file);
+      return false;
+    } finally {
+      stopWatching();
     }
-    return false;
   }
 
   /**

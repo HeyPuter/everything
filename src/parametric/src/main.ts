@@ -55,6 +55,7 @@ async function boot() {
   bindAccountMenu(app);
   root.removeAttribute('aria-busy');
   app.newDocument('Part1');
+  const startupDocument = app.documentSignal;
 
   await loadPuter();
   void refreshAccount(app);
@@ -62,8 +63,8 @@ async function boot() {
   files.handleLaunchItems();
   files.handleWindowClose();
   const launched = !!puter()?.ui?.wasLaunchedWithItems?.();
-  const restored = launched ? false : await files.checkRecovery();
-  if (!restored && !launched) start.show();
+  const restored = launched || startupDocument.aborted ? false : await files.checkRecovery();
+  if (!restored && !launched && !startupDocument.aborted && !app.store.dirty && !app.panel?.edited) start.show();
 }
 
 window.addEventListener('unhandledrejection', (e) => {

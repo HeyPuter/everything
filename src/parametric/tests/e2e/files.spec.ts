@@ -1013,3 +1013,86 @@ for (const target of ['same part', 'new part', 'renamed part'] as const) test(`S
   await expect(page.locator('.toast', { hasText: 'Waiting for the current file operation' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+for (const change of ['new part', 'edit current part', 'clean new part', 'during discovery'] as const) test(`startup recovery cannot overwrite ${change} started while recovery is pending`, async ({ context }) => {
+  const source = await context.newPage();
+  await mockPuter(source);
+  await openApp(source);
+  await source.getByRole('button', { name: /New part/ }).click();
+  await source.evaluate(async (url) => {
+    const { writeRecovery } = await import(url);
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const doc = { ...a.store.doc, name: 'Older backup', variables: [{ id: 'v1', name: 'Older', expr: '17' }] };
+    await writeRecovery(JSON.stringify({ doc, location: null, savedAt: Date.now() }));
+  }, '/src/platform/files.ts');
+  await source.close();
+  const page = await context.newPage();
+  await mockPuter(page);
+  if (change === 'during discovery') await page.addInitScript(() => {
+    const w = window as unknown as { discoveryStarted: boolean; discoveryRead: boolean; releaseDiscovery: () => void };
+    const gate = new Promise<void>((resolve) => { w.releaseDiscovery = resolve; });
+    const getFile = FileSystemFileHandle.prototype.getFile;
+    FileSystemFileHandle.prototype.getFile = async function () {
+      const file = await getFile.call(this);
+      if (this.name.startsWith('recovery-')) {
+        w.discoveryStarted = true;
+        await gate;
+        const text = file.text.bind(file);
+        file.text = async () => { const value = await text(); w.discoveryRead = true; return value; };
+      }
+      return file;
+    };
+  });
+  const errors = await openApp(page);
+  const dialog = page.getByRole('dialog', { name: 'Recover unsaved work?', exact: true });
+  if (change === 'during discovery') await page.waitForFunction(() => (window as unknown as { discoveryStarted: boolean }).discoveryStarted);
+  else await expect(dialog).toContainText('Older backup');
+  await page.evaluate((change) => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    if (change !== 'edit current part') a.newDocument('Current work');
+    if (change !== 'clean new part') a.store.change('Newer work', (d) => { d.name = 'Current work'; d.variables = [{ id: 'v2', name: 'Newer', expr: '42' }]; });
+  }, change);
+  if (change === 'during discovery') {
+    await page.evaluate(() => (window as unknown as { releaseDiscovery: () => void }).releaseDiscovery());
+    await page.waitForFunction(() => (window as unknown as { discoveryRead: boolean }).discoveryRead);
+  }
+  if (await dialog.isVisible()) await dialog.getByRole('button', { name: 'Restore', exact: true }).click();
+  expect(await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return { name: a.store.doc.name, variables: a.store.doc.variables.map((v) => v.name), dirty: a.store.dirty };
+  })).toEqual({ name: 'Current work', variables: change === 'clean new part' ? [] : ['Newer'], dirty: change !== 'clean new part' });
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.start')).toHaveCount(0);
+  const retained = await page.evaluate(async (url) => (await import(url)).orphanRecoveries(), '/src/platform/files.ts');
+  expect(retained).toHaveLength(1);
+  expect(retained[0].text).toContain('Older backup');
+  expect(errors).toEqual([]);
+});
+
+test('a clean part chosen before the SDK arrives skips startup recovery and the start screen', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    type W = { puter?: { auth: { getUser: () => Promise<unknown> } }; releaseSDK: () => void; sdkReady: boolean; recoveryCalls: number };
+    const w = window as unknown as W;
+    const sdk = w.puter!;
+    const getUser = sdk.auth.getUser;
+    sdk.auth.getUser = async () => { const user = await getUser(); w.sdkReady = true; return user; };
+    delete w.puter;
+    w.releaseSDK = () => { w.puter = sdk; };
+    w.recoveryCalls = 0;
+  });
+  const errors = await openApp(page);
+  await app(page);
+  await page.evaluate(async (url) => {
+    const { FileOps } = await import(url);
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; releaseSDK: () => void; recoveryCalls: number };
+    FileOps.prototype.checkRecovery = async () => { w.recoveryCalls++; return false; };
+    w.__parametric.newDocument('Chosen part');
+    w.releaseSDK();
+  }, '/src/app/fileops.ts');
+  await page.waitForFunction(() => (window as unknown as { sdkReady: boolean }).sdkReady);
+  expect(await page.evaluate(() => (window as unknown as { recoveryCalls: number }).recoveryCalls)).toBe(0);
+  await expect(page.locator('.start')).toHaveCount(0);
+  await expect(page).toHaveTitle('Chosen part - Parametric');
+  expect(errors).toEqual([]);
+});
