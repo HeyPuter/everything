@@ -424,6 +424,55 @@ describe('editing commands', () => {
       expect(filled(h, 2, 2)).toBe(false);
     });
   });
+
+  describe('draw order', () => {
+    const ids = () => [...t.drawing.entities.keys()];
+
+    it('marks reordered objects as one group, and undo takes it back', async () => {
+      await t.type('LINE', '0,0', '10,0', '');
+      await t.type('LINE', '0,5', '10,5', '');
+      const [a, b] = t.all('line');
+      t.ed.setSelection([a.id]);
+      await t.type('DRAWORDER', 'F');
+      expect(ids()).toEqual([b.id, a.id]);
+      expect(t.drawing.get(a.id).orderGroup).toBeGreaterThan(0);
+      expect(t.drawing.get(b.id).orderGroup).toBeUndefined();
+      t.drawing.undo();
+      expect(ids()).toEqual([a.id, b.id]);
+      expect(t.drawing.get(a.id).orderGroup).toBeUndefined();
+    });
+
+    it('leaves a new hatch last while the drawing has no draw order set', async () => {
+      await t.type('RECTANG', '0,0', '20,20');
+      await t.type('HATCH');
+      await t.pick(5, 5);
+      await t.type('');
+      expect(t.drawing.get(ids().at(-1)).type).toBe('hatch');
+    });
+
+    it('puts a new hatch behind its boundary when a later band would lift it over', async () => {
+      await t.type('RECTANG', '0,0', '20,20');
+      await t.type('LINE', '50,0', '60,0', '');
+      await t.type('RECTANG', '100,0', '120,20');
+      const [rect, rect2] = t.all('polyline');
+      const line = t.all('line')[0];
+      t.ed.setSelection([line.id]);
+      await t.type('DRAWORDER', 'F');
+      await t.type('HATCH');
+      await t.pick(5, 5);
+      await t.type('');
+      const h = t.all('hatch')[0];
+      expect(ids()).toEqual([h.id, rect.id, rect2.id, line.id]);
+      // Select objects mode, and one undo takes back hatch and move together.
+      await t.type('HATCH', 'S');
+      await t.pick(100, 10);
+      await t.type('');
+      const h2 = t.all('hatch')[1];
+      expect(ids()).toEqual([h.id, rect.id, h2.id, rect2.id, line.id]);
+      t.drawing.undo();
+      expect(ids()).toEqual([h.id, rect.id, rect2.id, line.id]);
+    });
+  });
 });
 
 describe('command flow', () => {

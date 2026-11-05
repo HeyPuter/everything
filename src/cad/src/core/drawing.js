@@ -267,6 +267,19 @@ export class Drawing {
     this._record({ kind: 'order', before, after });
   }
 
+  /** Reorder: move the given ids to just before `target` (drawn under it). */
+  moveBefore(ids, target) {
+    const set = new Set(ids);
+    if (set.has(target) || !this.entities.has(target)) return;
+    const before = [...this.entities.keys()];
+    const after = [];
+    for (const id of before) {
+      if (id === target) for (const m of before) if (set.has(m)) after.push(m);
+      if (!set.has(id)) after.push(id);
+    }
+    this._record({ kind: 'order', before, after });
+  }
+
   // Tables -------------------------------------------------------------
 
   /** Set or delete (value = null) a table entry. table: layers | linetypes | textStyles | dimStyles */

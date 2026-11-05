@@ -12,6 +12,16 @@ precision highp float;
 precision highp int;
 `;
 
+/**
+ * Depth of a draw-order band: later bands are nearer, band 0 is the far
+ * plane. Steps of 2^-21 stay distinct in a 24-bit depth buffer.
+ */
+const BAND_DEPTH = `
+float bandDepth(float band) {
+  return 1.0 - min(band, 4194303.0) * 4.76837158203125e-7;
+}
+`;
+
 /** Instanced anti-aliased segments with lineweights and linetype patterns. */
 export const SEG_VS = `${PRECISION}
 layout(location = 0) in vec4 a_hi;
@@ -19,6 +29,7 @@ layout(location = 1) in vec4 a_lo;
 layout(location = 2) in vec2 a_dist;
 layout(location = 3) in vec4 a_color;
 layout(location = 4) in uvec4 a_style;
+layout(location = 5) in float a_band;
 
 uniform vec2 u_camHi;
 uniform vec2 u_camLo;
@@ -44,7 +55,7 @@ flat out vec4 v_cut;        // joint bisector normals at the start (xy) and end 
 flat out vec4 v_joint;      // start (xy) and end (zw) points in window pixels
 
 const float JOIN_STEP = 0.024639942; // 2 PI / 255, see batch.js
-
+${BAND_DEPTH}
 void main() {
   vec2 p1 = (a_hi.xy - u_camHi) + (a_lo.xy - u_camLo);
   vec2 p2 = (a_hi.zw - u_camHi) + (a_lo.zw - u_camLo);
@@ -95,7 +106,7 @@ void main() {
   v_row = a_style.y;
   v_flags = flags;
   v_color = a_color;
-  gl_Position = vec4(pos / u_half, 0.0, 1.0);
+  gl_Position = vec4(pos / u_half, bandDepth(a_band), 1.0);
 }
 `;
 
@@ -168,6 +179,7 @@ void main() {
 export const TRI_VS = `${PRECISION}
 layout(location = 0) in vec4 a_pos;
 layout(location = 1) in vec4 a_color;
+layout(location = 2) in float a_band;
 uniform vec2 u_camHi;
 uniform vec2 u_camLo;
 uniform vec2 u_half;
@@ -176,11 +188,12 @@ uniform mat2 u_xm;
 uniform vec2 u_xt;
 uniform vec2 u_xp;
 out vec4 v_color;
+${BAND_DEPTH}
 void main() {
   vec2 p = (a_pos.xy - u_camHi) + (a_pos.zw - u_camLo);
   p = u_xm * (p - u_xp) + u_xp + u_xt;
   v_color = a_color;
-  gl_Position = vec4(p * u_ppu / u_half, 0.0, 1.0);
+  gl_Position = vec4(p * u_ppu / u_half, bandDepth(a_band), 1.0);
 }
 `;
 

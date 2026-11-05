@@ -11,7 +11,7 @@ import { COLOR_BYLAYER, COLOR_BYBLOCK, UNITS } from '../core/schema.js';
 import { STANDARD_LINETYPES } from '../core/linetypes.js';
 import { defaultTextStyle, defaultDimStyle } from '../core/styles.js';
 import { formatLinear, formatAngle } from '../core/units.js';
-import { RecordingSink } from '../core/display.js';
+import { RecordingSink, drawBands, bandOrder } from '../core/display.js';
 import { emitEntity, makeContext } from '../core/tessellate.js';
 import { SNAP_MODES } from '../editor/snap.js';
 import { PAPER_SIZES, computePlot, standardScale } from '../io/export/plot.js';
@@ -228,16 +228,21 @@ export function recordDrawing(app, { tol, area } = {}) {
   const ids = area ? doc.index.search(area[0], area[1], area[2], area[3], true) : [...doc.drawing.entities.keys()];
   const order = new Map([...doc.drawing.entities.keys()].map((id, i) => [id, i]));
   ids.sort((a, b) => order.get(a) - order.get(b));
+  // Draw-order bands, as on screen: each band's fills beneath its lines.
+  const bands = drawBands(doc.drawing.entities.values()).of;
+  const groups = [];
   for (const id of ids) {
     const e = doc.drawing.get(id);
     if (!e) continue;
+    sink.items = [];
     try {
       emitEntity(e, sink, ctx);
     } catch {
       /* skip broken entity */
     }
+    groups.push({ band: bands.get(id) ?? 0, items: sink.items });
   }
-  return sink.items;
+  return bandOrder(groups);
 }
 
 function areaFor(app, mode, win) {

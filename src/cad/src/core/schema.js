@@ -15,6 +15,8 @@
  *   lineweight number   LW_BYLAYER (-1) | LW_BYBLOCK (-2) | LW_DEFAULT (-3)
  *                       | hundredths of a millimetre (0, 5, 9, 13, ... 211)
  *   ltscale    number   per-entity linetype scale (default 1)
+ *   orderGroup number   set by DRAWORDER on the objects it moved together; groups
+ *                       are drawn strictly in order (see drawBands in display.js)
  *
  * Type-specific fields:
  *

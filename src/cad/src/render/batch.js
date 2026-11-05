@@ -9,20 +9,21 @@
  *
  * Segment instance (SEG_STRIDE bytes):
  *   f32 x1h y1h x2h y2h | f32 x1l y1l x2l y2l | f32 dist0 | f32 patScale
- *   | u8 r g b a | u8 lwIndex+flags<<5 patternRow join0 join1
+ *   | u8 r g b a | u8 lwIndex+flags<<5 patternRow join0 join1 | f32 band
  * join0 and join1 describe the start and end of a polyline segment: 0 is a
  * free end (square cap), otherwise the joint's bisector, given by the angle
  * (code - 1) * JOIN_STEP of its normal in world space. Both segments at a
  * joint cut themselves along that same line, so the joint is covered exactly
  * once: transparent and highlighted curves get no darker dots at vertices.
  * Fill vertex (TRI_STRIDE bytes):
- *   f32 xh yh xl yl | u8 r g b a
+ *   f32 xh yh xl yl | u8 r g b a | f32 band
+ * band is the object's draw-order band (see drawBands in core/display.js).
  */
 import earcut from 'earcut';
 
-export const SEG_STRIDE = 48;
+export const SEG_STRIDE = 52;
 export const SEG_FLOATS = SEG_STRIDE / 4;
-export const TRI_STRIDE = 20;
+export const TRI_STRIDE = 24;
 export const TRI_FLOATS = TRI_STRIDE / 4;
 
 /** Segment flags. */
@@ -92,6 +93,8 @@ export class Batch {
     this.triU = new Uint8Array(this.triBuf);
     this.vertCount = 0;
     this.flags = 0;
+    /** Draw-order band stored with everything emitted next. */
+    this.band = 0;
     this.alphaScale = 1;
     this.minX = Infinity;
     this.minY = Infinity;
@@ -185,6 +188,7 @@ export class Batch {
     if (row) for (const v of base) period += Math.abs(v);
     period *= patScale;
     const flags = this.flags;
+    const band = this.band;
     let dist = 0;
     let o = this.segCount * SEG_FLOATS;
     // Length and unit direction of the current segment, each computed once.
@@ -252,6 +256,7 @@ export class Batch {
       U[b + 5] = row;
       U[b + 6] = prevJoin;
       U[b + 7] = endJoin;
+      F[o + 12] = band;
       prevJoin = endJoin;
       dist += len;
       len = nlen;
@@ -275,6 +280,7 @@ export class Batch {
     const a = Math.round(255 * (style.alpha ?? 1) * this.alphaScale);
     const lw = style.lwIndex ?? 0;
     const flags = this.flags;
+    const band = this.band;
     let o = this.segCount * SEG_FLOATS;
     for (let i = 0; i < s.length; i += 4) {
       const x1 = s[i],
@@ -304,6 +310,7 @@ export class Batch {
       U[b + 5] = 0;
       U[b + 6] = 0;
       U[b + 7] = 0;
+      F[o + 12] = band;
       this._bound(x1, y1);
       this._bound(x2, y2);
       o += SEG_FLOATS;
@@ -331,6 +338,7 @@ export class Batch {
       U = this.triU;
     const rgb = style.rgb;
     const a = Math.round(255 * (style.alpha ?? 1) * this.alphaScale);
+    const band = this.band;
     let o = this.vertCount * TRI_FLOATS;
     for (let i = 0; i < idx.length; i++) {
       const x = flat[idx[i] * 2],
@@ -346,6 +354,7 @@ export class Batch {
       U[b + 1] = rgb[1];
       U[b + 2] = rgb[2];
       U[b + 3] = a;
+      F[o + 5] = band;
       this._bound(x, y);
       o += TRI_FLOATS;
     }

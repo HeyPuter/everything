@@ -1063,7 +1063,12 @@ export const DRAWORDER = {
     if (!ids.length) return;
     const where = args?.where ?? (await ed.getKeyword('Draw order', [{ key: 'F', label: 'Front', value: 'front' }, { key: 'B', label: 'Back', value: 'back' }], 'front'));
     if (!where) return;
-    ed.commit('Draw order', () => ed.drawing.reorder(ids, where === 'front'));
+    ed.commit('Draw order', () => {
+      // Objects ordered together form one draw-order band (see drawBands).
+      const group = ed.drawing.newId();
+      for (const id of ids) ed.drawing.update(id, { orderGroup: group });
+      ed.drawing.reorder(ids, where === 'front');
+    });
     ed.clearSelection();
   },
 };

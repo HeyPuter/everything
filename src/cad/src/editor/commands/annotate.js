@@ -8,6 +8,7 @@ import { loopsToRings, pointInRing } from '../../core/hatch/fill.js';
 import { getPattern, patternNames } from '../../core/hatch/patterns.js';
 import { tessellate, transformEntity } from '../../core/geom/index.js';
 import { insertMatrix } from '../../core/tessellate.js';
+import { drawBands } from '../../core/display.js';
 import { angleOf, loopFromEntity } from './util.js';
 
 const JUSTIFY = [
@@ -464,7 +465,8 @@ export const LEADER = {
 /**
  * Curves (polylines in world space) of visible geometry in rect, for boundary
  * detection. Block references contribute their objects; construction lines
- * and rays are cut to a segment that spans the rectangle.
+ * and rays are cut to a segment that spans the rectangle. Each curve carries
+ * the id of the object it came from.
  */
 function curvesNear(ed, rect) {
   const out = [];
@@ -474,6 +476,7 @@ function curvesNear(ed, rect) {
     cy = (rect[1] + rect[3]) / 2;
   const reach = Math.hypot(rect[2] - rect[0], rect[3] - rect[1]);
   const blocks = new Set();
+  let top = null;
   const add = (e, depth) => {
     switch (e.type) {
       case 'hatch':
@@ -483,7 +486,7 @@ function curvesNear(ed, rect) {
       case 'point':
         return;
       case 'line':
-        out.push({ pts: [e.x1, e.y1, e.x2, e.y2], closed: false });
+        out.push({ pts: [e.x1, e.y1, e.x2, e.y2], closed: false, id: top });
         return;
       case 'xline':
       case 'ray': {
@@ -494,7 +497,7 @@ function curvesNear(ed, rect) {
         const far = Math.hypot(e.x - cx, e.y - cy) + reach;
         const t0 = e.type === 'ray' ? 0 : -far;
         const pts = [e.x + ux * t0, e.y + uy * t0, e.x + ux * far, e.y + uy * far];
-        out.push({ pts, closed: false });
+        out.push({ pts, closed: false, id: top });
         return;
       }
       case 'insert': {
@@ -511,7 +514,7 @@ function curvesNear(ed, rect) {
       }
       default:
         try {
-          for (const p of tessellate(e, tol)) out.push(p);
+          for (const p of tessellate(e, tol)) out.push({ ...p, id: top });
         } catch {
           /* skip */
         }
@@ -519,9 +522,91 @@ function curvesNear(ed, rect) {
   };
   for (const id of ed.doc.index.search(rect[0], rect[1], rect[2], rect[3])) {
     const e = d.get(id);
+    top = id;
     if (e && d.layerVisible(e.layer)) add(e, 0);
   }
   return out;
+}
+
+/** Ids of the objects that the edges of picked loops (straight edges) lie on. */
+function boundaryIds(ed, loops) {
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity;
+  for (const l of loops) {
+    for (let i = 0; i < l.length; i += 3) {
+      x0 = Math.min(x0, l[i]);
+      y0 = Math.min(y0, l[i + 1]);
+      x1 = Math.max(x1, l[i]);
+      y1 = Math.max(y1, l[i + 1]);
+    }
+  }
+  const tol = 2 / ed.camera.scale;
+  const curves = curvesNear(ed, [x0 - tol, y0 - tol, x1 + tol, y1 + tol]).map((c) => {
+    let bx0 = Infinity,
+      by0 = Infinity,
+      bx1 = -Infinity,
+      by1 = -Infinity;
+    for (let i = 0; i < c.pts.length; i += 2) {
+      bx0 = Math.min(bx0, c.pts[i]);
+      by0 = Math.min(by0, c.pts[i + 1]);
+      bx1 = Math.max(bx1, c.pts[i]);
+      by1 = Math.max(by1, c.pts[i + 1]);
+    }
+    return { ...c, box: [bx0 - tol, by0 - tol, bx1 + tol, by1 + tol] };
+  });
+  const ids = new Set();
+  const onCurve = (c, x, y) => {
+    const p = c.pts,
+      n = p.length >> 1;
+    const m = c.closed ? n : n - 1;
+    for (let i = 0; i < m; i++) {
+      const j = (i + 1) % n;
+      const ax = p[i * 2],
+        ay = p[i * 2 + 1],
+        dx = p[j * 2] - ax,
+        dy = p[j * 2 + 1] - ay;
+      const l2 = dx * dx + dy * dy;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)) : 0;
+      if (Math.hypot(ax + dx * t - x, ay + dy * t - y) <= tol) return true;
+    }
+    return false;
+  };
+  for (const l of loops) {
+    const n = l.length / 3;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const x = (l[i * 3] + l[j * 3]) / 2,
+        y = (l[i * 3 + 1] + l[j * 3 + 1]) / 2;
+      for (const c of curves) {
+        if (c.id == null || ids.has(c.id)) continue;
+        const b = c.box;
+        if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3] && onCurve(c, x, y)) ids.add(c.id);
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * Put a new hatch behind its boundary objects, as AutoCAD does by default
+ * (HPDRAWORDER). Fills already go beneath lines within a draw-order band, so
+ * this only moves it when the boundary lies in an earlier band than the end
+ * of the drawing, where the hatch would otherwise cover it.
+ */
+function placeBehindBoundary(ed, id, loops, selected) {
+  const d = ed.drawing;
+  const bands = drawBands(d.entities.values());
+  if (!bands.band) return;
+  const ids = boundaryIds(ed, loops);
+  for (const k of selected) ids.add(k);
+  const mine = bands.of.get(id) ?? 0;
+  for (const k of d.entities.keys()) {
+    if (!ids.has(k)) continue;
+    if ((bands.of.get(k) ?? 0) < mine) d.moveBefore([id], k);
+    return;
+  }
 }
 
 /** True when (x, y) lies in the area of the picked loops (even-odd). */
@@ -563,6 +648,8 @@ export const HATCH = {
     const history = [];
     const pendingPreview = () => (loops.length ? [ed.make('hatch', { loops, pattern: st.pattern, scale: st.scale, angle: st.angle })] : []);
     let mode = 'pick';
+    // Boundary objects chosen with Select objects.
+    const selected = new Set();
     try {
       for (;;) {
         if (mode === 'pick') {
@@ -614,7 +701,10 @@ export const HATCH = {
           ed.clearSelection();
           for (const id of ids) {
             const l = loopFromEntity(ed.drawing.get(id));
-            if (l) loops.push(l);
+            if (l) {
+              loops.push(l);
+              selected.add(id);
+            }
           }
           if (!loops.length) {
             ed.ui.log('Select closed polylines, circles, ellipses or splines.', 'error');
@@ -625,7 +715,11 @@ export const HATCH = {
         }
       }
       if (!loops.length) return;
-      ed.commit('Hatch', () => ed.drawing.add(ed.make('hatch', { loops, pattern: st.pattern, scale: st.scale, angle: st.angle })));
+      ed.commit('Hatch', () => {
+        const { pattern, scale, angle } = st;
+        const h = ed.drawing.add(ed.make('hatch', { loops, pattern, scale, angle }));
+        placeBehindBoundary(ed, h.id, loops, selected);
+      });
     } finally {
       ed.ui.showHatchPanel?.(null);
     }

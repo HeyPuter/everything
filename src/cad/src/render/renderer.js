@@ -12,6 +12,7 @@
 import { SEG_VS, SEG_FS, TRI_VS, TRI_FS, GRID_VS, GRID_FS } from './shaders.js';
 import { Batch, SEG_STRIDE, TRI_STRIDE, F_HIGHLIGHT } from './batch.js';
 import { makeContext, emitEntity } from '../core/tessellate.js';
+import { drawBands, nextBand } from '../core/display.js';
 import { LINEWEIGHTS } from '../core/schema.js';
 
 const CHUNK_SIZE = 1024;
@@ -82,12 +83,17 @@ class GpuBatch {
     gl.enableVertexAttribArray(4);
     gl.vertexAttribIPointer(4, 4, gl.UNSIGNED_BYTE, SEG_STRIDE, 44);
     gl.vertexAttribDivisor(4, 1);
+    gl.enableVertexAttribArray(5);
+    gl.vertexAttribPointer(5, 1, gl.FLOAT, false, SEG_STRIDE, 48);
+    gl.vertexAttribDivisor(5, 1);
     gl.bindVertexArray(this.triVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.triBuf);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 4, gl.FLOAT, false, TRI_STRIDE, 0);
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, true, TRI_STRIDE, 16);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, TRI_STRIDE, 20);
     gl.bindVertexArray(null);
   }
 
@@ -138,6 +144,8 @@ export class Renderer {
     /** Chunk an erased object was drawn in, so undo can put it back without a full rebuild. */
     this.homeOf = new Map();
     this.infinite = new Set();
+    /** Draw-order bands (see drawBands): drawn in order, each band's fills beneath its lines. */
+    this.bands = drawBands([]);
     this.selection = new Set();
     this.hover = null;
     this.hidden = new Set();
@@ -254,6 +262,7 @@ export class Renderer {
     this.homeOf = new Map();
     this.infinite = new Set();
     this._resetPatterns();
+    this.bands = drawBands(this.drawing ? this.drawing.entities.values() : []);
     if (this.drawing) for (const id of this.drawing.entities.keys()) this._place(id);
     this.selDirty = this.hoverDirty = this.previewDirty = this.infDirty = true;
     this.invalidate();
@@ -307,11 +316,23 @@ export class Renderer {
     if (this.infinite.delete(id)) this.infDirty = true;
   }
 
+  /** True once any object has its own draw order, so bands must be kept apart. */
+  _banded() {
+    return this.bands.band > 0 || this.bands.key != null;
+  }
+
   /** Apply a change record from Drawing (see drawing.js). */
   applyChange(change) {
     // Draw order changes, and block redefinitions (which may add or remove
-    // construction lines inside references), re-partition everything.
-    if (change.order || change.blocks.size || (change.resort && !this._restoreHomes(change))) {
+    // construction lines inside references), re-partition everything; so do
+    // objects coming back in a drawing with draw-order bands.
+    const ents = this.drawing.entities;
+    const back =
+      change.resort &&
+      (this._banded() ||
+        [...change.ids].some((id) => ents.get(id)?.orderGroup != null) ||
+        !this._restoreHomes(change));
+    if (change.order || change.blocks.size || back) {
       this.rebuildAll();
       return;
     }
@@ -335,7 +356,12 @@ export class Renderer {
         this._place(id);
       } else if (c) c.dirty = true;
       else if (this.infinite.has(id)) this.infDirty = true;
-      else this._place(id);
+      else {
+        // New objects are appended to the draw order.
+        const band = nextBand(this.bands, ent);
+        if (band) this.bands.of.set(id, band);
+        this._place(id);
+      }
       if (this.selection.has(id)) this.selDirty = true;
       if (this.hover === id) this.hoverDirty = true;
     }
@@ -481,6 +507,7 @@ export class Renderer {
     b.flags = 0;
     const ents = this.drawing.entities;
     const hidden = this.hidden;
+    const bands = this._banded() ? this.bands.of : null;
     const layers = new Set();
     let hasInsert = false;
     if (c.unsorted) {
@@ -494,8 +521,10 @@ export class Renderer {
       layers.add(e.layer);
       if (e.type === 'insert') hasInsert = true;
       if (hidden.size && hidden.has(id)) continue;
+      if (bands) b.band = bands.get(id) ?? 0;
       emitSafe(e, b, ctx);
     }
+    b.band = 0;
     c.layers = layers;
     c.hasInsert = hasInsert;
     if (!c.gpu) c.gpu = new GpuBatch(this.gl);
@@ -506,16 +535,18 @@ export class Renderer {
     b.shrink();
   }
 
-  _buildIds(gpu, ids, flags, ctx) {
+  _buildIds(gpu, ids, flags, ctx, bands = null) {
     const b = this.batch;
     b.reset();
     b.flags = flags;
     const ents = this.drawing.entities;
     for (const id of ids) {
       const e = ents.get(id);
+      if (bands) b.band = bands.get(id) ?? 0;
       if (e) emitSafe(e, b, ctx);
     }
     b.flags = 0;
+    b.band = 0;
     gpu.upload(b);
     b.shrink();
   }
@@ -561,7 +592,7 @@ export class Renderer {
     // Construction lines are clipped to the view, so they follow every frame.
     if (this.infDirty || this.infinite.size) {
       const ids = this.hidden.size ? [...this.infinite].filter((id) => !this.hidden.has(id)) : this.infinite;
-      this._buildIds(this.infGpu, ids, 0, ctx);
+      this._buildIds(this.infGpu, ids, 0, ctx, this._banded() ? this.bands.of : null);
       this.infDirty = false;
     }
     // Selected construction lines follow the view on their own, so panning
@@ -603,7 +634,8 @@ export class Renderer {
     gl.viewport(0, 0, W, H);
     const bg = this.theme.bg;
     gl.clearColor(bg[0], bg[1], bg[2], 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clearDepth(1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
@@ -620,8 +652,14 @@ export class Renderer {
 
     let segs = 0,
       tris = 0;
-    const tri = this.triProg,
-      seg = this.segProg;
+    // Draw-order bands: fills go in first and record their band as depth;
+    // lines then only show where no fill of a later band covers them.
+    const banded = this._banded();
+    if (banded) {
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LEQUAL);
+      gl.depthMask(true);
+    }
     this._useTri(common, IDENTITY2, ZERO2, ZERO2, null, 1);
     for (const c of this.chunks) {
       if (!c.gpu || !c.gpu.vertCount || !c.bounds || !overlaps(c.bounds, view)) continue;
@@ -629,6 +667,7 @@ export class Renderer {
       gl.drawArrays(gl.TRIANGLES, 0, c.gpu.vertCount);
       tris += c.gpu.vertCount / 3;
     }
+    if (banded) gl.depthMask(false);
     this._useSeg(common, IDENTITY2, ZERO2, ZERO2, 1);
     for (const c of this.chunks) {
       if (!c.gpu || !c.gpu.segCount || !c.bounds || !overlaps(c.bounds, view)) continue;
@@ -637,6 +676,10 @@ export class Renderer {
       segs += c.gpu.segCount;
     }
     this._drawGpu(this.infGpu, common, false);
+    if (banded) {
+      gl.disable(gl.DEPTH_TEST);
+      gl.depthMask(true);
+    }
 
     // Highlights and previews.
     const hl = this.theme.highlight;
