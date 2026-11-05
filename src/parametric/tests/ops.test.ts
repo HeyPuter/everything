@@ -6,6 +6,7 @@ import {
   offsetCurves, relationsOf, smartDimension, trimAt,
 } from '../src/sketch/ops';
 import { solveSketch } from '../src/sketch/solver';
+import { buildProfiles } from '../src/sketch/profiles';
 import { rect, sketch } from './helpers';
 
 const sk = (entities: SkEntity[]): SketchFeature => sketch('S', entities);
@@ -562,6 +563,23 @@ describe('editing tools', () => {
     expect(shared?.t === 'circle' ? shared.c : shared?.t === 'spline' ? shared.pts[0] : shared?.t === 'arc' ? shared.a : null).toBe('corner');
     expect(ix.get('corner')?.construction).toBeFalsy();
     expect(s.constraints.filter((c) => c.type === 'coincident').map((c) => c.refs)).toEqual([['corner', 'h'], ['corner', 'v']]);
+  });
+
+  it.each([[false, false], [true, false], [false, true], [true, true]])('preserves construction fillets for source flags %s,%s', (first, second) => {
+    const s = sk([
+      { id: 'corner', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 10, y: 0 }, { id: 'b', t: 'point', x: 0, y: 10 },
+      { id: 'h', t: 'line', a: 'corner', b: 'a', construction: first },
+      { id: 'v', t: 'line', a: 'b', b: 'corner', construction: second },
+      { id: 'c', t: 'point', x: 1, y: 0 }, { id: 'd', t: 'point', x: 0, y: 1 }, { id: 'chord', t: 'line', a: 'c', b: 'd' },
+    ]);
+    expect(buildProfiles(s.entities).regions).toHaveLength(0);
+    expect(filletCorner(s, 'corner', 1, idFactory(s))).toBeNull();
+    // A construction fillet must not close an otherwise open solid profile.
+    expect(buildProfiles(s.entities).regions).toHaveLength(first && second ? 0 : 1);
+    expect(!!s.entities.find((e) => e.t === 'arc')?.construction).toBe(first && second);
+    expect(s.entities.find((e) => e.id === 'h')?.construction).toBe(first);
+    expect(s.entities.find((e) => e.id === 'v')?.construction).toBe(second);
+    expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
   });
 
   it('keeps a dimensioned rectangle in shape when a corner is filleted', () => {

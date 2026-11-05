@@ -516,7 +516,7 @@ export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, new
   // Counter-clockwise from the start tangent point to the end one.
   const ccw = cross2(sub2(t1, c), sub2(t2, c)) > 0;
   const arcId = newId('a');
-  sk.entities.push({ id: arcId, t: 'arc', c: pc, a: ccw ? p1 : p2, b: ccw ? p2 : p1 });
+  sk.entities.push({ id: arcId, t: 'arc', c: pc, a: ccw ? p1 : p2, b: ccw ? p2 : p1, construction: lines.every((l) => l.construction) || undefined });
   // The old corner point keeps its relations (e.g. dimensions) as a virtual sharp.
   const cornerUsed = usedPoints(sk.entities).has(pointId);
   const keepCorner = cornerUsed || sk.constraints.some((k) => k.refs.includes(pointId));

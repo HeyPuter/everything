@@ -39,6 +39,33 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  test('filleting construction lines keeps the arc out of solid profiles through Undo/Redo', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add construction corner', (sk) => sk.entities.push(
+        { id: 'corner', t: 'point', x: 20, y: 20 }, { id: 'a', t: 'point', x: 40, y: 20 }, { id: 'b', t: 'point', x: 20, y: 40 },
+        { id: 'h', t: 'line', a: 'corner', b: 'a', construction: true }, { id: 'v', t: 'line', a: 'b', b: 'corner', construction: true },
+        { id: 'c', t: 'point', x: 25, y: 20 }, { id: 'd', t: 'point', x: 20, y: 25 }, { id: 'chord', t: 'line', a: 'c', b: 'd' },
+      ));
+      a.commands.run('tool:sketchFillet');
+      a.sketchEditor!.tool!.click!({ p: [20, 20], raw: [20, 20], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+    });
+    const state = () => page.evaluate(async (url) => {
+      const { buildProfiles } = await import(url);
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const entities = a.sketchEditor!.sketch.entities;
+      return { arcs: entities.filter((e) => e.t === 'arc'), profiles: buildProfiles(entities).regions.length };
+    }, '/src/sketch/profiles.ts');
+    expect(await state()).toMatchObject({ arcs: [expect.objectContaining({ construction: true })], profiles: 0 });
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+    expect(await state()).toEqual({ arcs: [], profiles: 0 });
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+    expect(await state()).toMatchObject({ arcs: [expect.objectContaining({ construction: true })], profiles: 0 });
+    expect(errors).toEqual([]);
+  });
+
   for (const action of ['delete', 'driven', 'replaced'] as const) test(`an open Modify box retires when its dimension becomes ${action}`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
