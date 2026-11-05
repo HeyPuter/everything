@@ -245,7 +245,10 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     timer = window.setTimeout(() => commit(), 350);
   });
   input.addEventListener('change', () => { clearTimeout(timer); commit(); });
-  input.addEventListener('focus', () => input.select());
+  // Esc takes back what was typed since the field got focus; with nothing to
+  // take back it goes on to the panel or tool (which it cancels).
+  let atFocus: Param = current;
+  input.addEventListener('focus', () => { atFocus = current; input.select(); });
   const step = (dir: number) => {
     const r = parseParam(input.value, o.kind, o.ctx, false);
     const base = r.ok ? r.num : 0;
@@ -261,6 +264,18 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     if (e.key === 'ArrowUp') { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); step(-1); }
     else if (e.key === 'Enter') { clearTimeout(timer); commit(); }
+    else if (e.key === 'Escape') {
+      const text = paramText(atFocus, o.kind, o.ctx);
+      if (input.value === text && current === atFocus) return;
+      e.preventDefault();
+      clearTimeout(timer);
+      input.value = text;
+      input.classList.remove('invalid');
+      input.removeAttribute('aria-invalid');
+      input.title = '';
+      input.select();
+      if (current !== atFocus) { current = atFocus; mark(); o.onChange(atFocus); }
+    }
   });
   const spin = h('div', { class: 'spin' }, input, h('div', { class: 'spin-btns' },
     h('button', { type: 'button', tabindex: '-1', 'aria-label': `Increase ${o.label}`, onclick: () => step(1) }, icon('chevronUp', 12)),

@@ -1361,7 +1361,8 @@ export class App {
       return;
     }
     if (e.key === 'Escape') {
-      if (inText) return;
+      // A number field passes on an Esc it had nothing to take back for (pm.ts).
+      if (inText && (e.defaultPrevented || !target.closest('.spin'))) return;
       closeMenus();
       this.hideContextToolbar();
       if (this.sketchEditor?.modifyOpen) { this.sketchEditor.closeModify(); return; }

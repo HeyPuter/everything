@@ -174,6 +174,38 @@ describe('PropertyManager number fields', () => {
     expect(input.getAttribute('autocapitalize')).toBe('off');
     expect(input.getAttribute('autocorrect')).toBe('off');
   });
+
+  it('takes back typed text on Escape, and passes Escape on when there is nothing to take back', () => {
+    const onChange = vi.fn();
+    const el = numberField({ label: 'Depth', value: 10, kind: 'length', ctx: ctx(), min: 0, onChange });
+    document.body.append(el);
+    const input = el.querySelector('input')!;
+    const passed: boolean[] = [];
+    const onKey = (e: KeyboardEvent) => passed.push(!e.defaultPrevented);
+    window.addEventListener('keydown', onKey);
+    input.focus();
+    // Invalid text, not committed: Esc restores the value.
+    input.value = 'abc';
+    key(input, 'Enter', { cancelable: true });
+    expect(input.classList.contains('invalid')).toBe(true);
+    key(input, 'Escape', { cancelable: true });
+    expect(input.value).toBe('10');
+    expect(input.classList.contains('invalid')).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+    // A committed edit since focus is taken back too.
+    input.value = '25';
+    key(input, 'Enter', { cancelable: true });
+    expect(onChange).toHaveBeenLastCalledWith(25);
+    key(input, 'Escape', { cancelable: true });
+    expect(input.value).toBe('10');
+    expect(onChange).toHaveBeenLastCalledWith(10);
+    expect(passed).toEqual([true, false, true, false]);
+    // Nothing left to take back: Esc goes on (to the panel, which it cancels).
+    key(input, 'Escape', { cancelable: true });
+    expect(passed.at(-1)).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(2);
+    window.removeEventListener('keydown', onKey);
+  });
 });
 
 describe('selection', () => {

@@ -356,6 +356,26 @@ test('OK keeps a feature panel open while a value cannot be read', async ({ page
   expect(await page.evaluate(() => (window as unknown as { __parametric: { store: { doc: { features: { name: string; depth?: number }[] } } } }).__parametric.store.doc.features.find((f) => f.name === 'Extrude1')?.depth)).toBe(25);
 });
 
+test('Escape in a feature panel field takes back the typed value, then cancels the panel', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const depthOf = () => page.evaluate(() => (window as unknown as { __parametric: { store: { doc: { features: { name: string; depth?: number }[] } } } }).__parametric.store.doc.features.find((f) => f.name === 'Extrude1')?.depth);
+  const before = await depthOf();
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const depth = page.getByRole('textbox', { name: 'Depth' }).first();
+  await depth.click();
+  await depth.fill('-');
+  await page.keyboard.press('Escape');
+  await expect(depth).toHaveValue(String(before));
+  await expect(depth).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toHaveCount(0);
+  expect(await depthOf()).toBe(before);
+  expect(errors).toEqual([]);
+});
+
 test('dragging the rollback bar rolls back past several features in one undo step', async ({ page }) => {
   await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();
