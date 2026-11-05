@@ -116,9 +116,23 @@ test('a number refused on the page points at its own field, not another one fill
   await expect(value).toHaveAttribute('aria-errormessage', 'form-edit-error');
   await expect(name).toHaveAttribute('aria-invalid', 'false');
   await expect(name).not.toHaveAttribute('aria-errormessage');
+  // The field is outlined in the error color, also while it has the focus.
+  const outline = (control) =>
+    control.evaluate((node) => getComputedStyle(node.parentElement).outlineColor);
+  const danger = await page.evaluate(() => {
+    const probe = document.createElement('i');
+    probe.style.color = 'var(--danger)';
+    document.querySelector('.editor').append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  expect(await outline(value)).toBe(danger);
+  expect(await outline(name)).not.toBe(danger);
   // Corrected, both fields are saved.
   await value.fill('12');
   await value.press('Enter');
   await expect(page.getByRole('alert')).toBeHidden();
   await expect(value).toHaveAttribute('aria-invalid', 'false');
+  expect(await outline(value)).not.toBe(danger);
 });

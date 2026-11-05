@@ -2683,6 +2683,11 @@ kbd {
 .form-widget.has-draft {
   outline-color: var(--brand);
 }
+/* The field an error above the page is about. */
+.form-widget:has(.form-control[aria-invalid='true']),
+.form-widget:has(.form-control[aria-invalid='true']):focus-within {
+  outline: 2px solid var(--danger);
+}
 .form-widget .form-control:disabled {
   cursor: default;
 }
