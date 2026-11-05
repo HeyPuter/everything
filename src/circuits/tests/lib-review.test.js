@@ -263,3 +263,107 @@ describe('component editor dialogs', () => {
     expect(v.rot).toBe(270);
   });
 });
+
+describe('built-in footprints match their packages', () => {
+  // Pad centres in mm, top view, +y up.
+  const centres = (id) => {
+    const fp = findComponent(id).footprint;
+    return Object.fromEntries(fp.pads.map((p) => [p.num, [p.x / 1e6, p.y / 1e6]]));
+  };
+  const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
+
+  it('SOIC-8: 1.27 mm pitch, pin 1 top left, counter-clockwise', () => {
+    const c = centres('ic-555-soic8');
+    expect(near(c[1], [-2.7, 1.905])).toBe(true);
+    expect(near(c[4], [-2.7, -1.905])).toBe(true);
+    expect(near(c[5], [2.7, -1.905])).toBe(true);
+    expect(near(c[8], [2.7, 1.905])).toBe(true);
+    expect(c[1][1] - c[2][1]).toBeCloseTo(1.27);
+  });
+
+  it('DIP-8: 7.62 mm rows, 2.54 mm pitch, square pin 1 top left', () => {
+    const fp = findComponent('ic-555-dip8').footprint;
+    const c = centres('ic-555-dip8');
+    expect(near(c[1], [-3.81, 3.81])).toBe(true);
+    expect(near(c[4], [-3.81, -3.81])).toBe(true);
+    expect(near(c[5], [3.81, -3.81])).toBe(true);
+    expect(near(c[8], [3.81, 3.81])).toBe(true);
+    expect(fp.pads.find((p) => p.num === '1').shape).toBe('rect');
+  });
+
+  it('SOT-23 and SOT-23-5 pin positions', () => {
+    const c = centres('npn-sot23');
+    expect(c[1][0]).toBeCloseTo(-0.95);
+    expect(c[2][0]).toBeCloseTo(0.95);
+    expect(c[1][1]).toBeLessThan(0);
+    expect(c[3][0]).toBeCloseTo(0);
+    expect(c[3][1]).toBeGreaterThan(0);
+    const c5 = centres('opamp-single-sot23-5');
+    expect([1, 2, 3].map((n) => c5[n][0])).toEqual([-0.95, 0, 0.95]);
+    expect(c5[4][0]).toBeCloseTo(0.95);
+    expect(c5[5][0]).toBeCloseTo(-0.95);
+    expect(c5[4][1]).toBeGreaterThan(0);
+  });
+
+  it('power packages: SOT-223 2.3 mm, DPAK 2.28 mm, TO-220 and TO-92 2.54 mm', () => {
+    const s = centres('reg-ldo-1117-sot223');
+    expect(s[2][0] - s[1][0]).toBeCloseTo(2.3);
+    expect(s[3][0] - s[2][0]).toBeCloseTo(2.3);
+    const d = centres('nmos-dpak');
+    expect(d[3][0] - d[1][0]).toBeCloseTo(4.56);
+    for (const id of ['reg-7805-to220', 'npn-to92']) {
+      const t = centres(id);
+      expect(t[2][0] - t[1][0]).toBeCloseTo(2.54);
+      expect(t[3][0] - t[2][0]).toBeCloseTo(2.54);
+    }
+  });
+
+  it('TQFP-32: 0.8 mm pitch, pin 1 at the top of the left side, counter-clockwise', () => {
+    const c = centres('mcu-atmega328p-tqfp32');
+    expect(c[1][0]).toBeLessThan(0);
+    expect(c[1][1]).toBeCloseTo(2.8);
+    expect(c[1][1] - c[2][1]).toBeCloseTo(0.8);
+    expect(c[9][1]).toBeLessThan(0);
+    expect(c[9][0]).toBeCloseTo(-2.8);
+    expect(c[17][0]).toBeGreaterThan(0);
+    expect(c[17][1]).toBeCloseTo(-2.8);
+    expect(c[25][1]).toBeGreaterThan(0);
+    expect(c[25][0]).toBeCloseTo(2.8);
+  });
+
+  it('crystals, LEDs, electrolytics and headers', () => {
+    const x = centres('xtal-3225');
+    expect(near(x[1], [-1.1, -0.8]) && near(x[2], [1.1, -0.8])).toBe(true);
+    expect(near(x[3], [1.1, 0.8]) && near(x[4], [-1.1, 0.8])).toBe(true);
+    const hc = centres('xtal-hc49');
+    expect(hc[2][0] - hc[1][0]).toBeCloseTo(4.88);
+    const led = centres('led-5mm-red');
+    expect(led[2][0] - led[1][0]).toBeCloseTo(2.54);
+    expect(led[1][0]).toBeLessThan(0);
+    for (const [id, pitch] of [
+      ['cap-elec-rad-5x11', 2],
+      ['cap-elec-rad-6.3x11', 2.5],
+      ['cap-elec-rad-8x11.5', 3.5],
+      ['cap-elec-rad-10x16', 5],
+    ]) {
+      const c = centres(id);
+      expect(c[2][0] - c[1][0], id).toBeCloseTo(pitch);
+    }
+    const h = centres('hdr-2x05');
+    expect(near(h[1], [-1.27, 5.08]) && near(h[2], [1.27, 5.08]) && near(h[3], [-1.27, 2.54])).toBe(
+      true,
+    );
+  });
+
+  it('chip sizes keep their pads on the IPC nominal centres', () => {
+    for (const [size, gap] of [
+      ['0402', 1.0],
+      ['0603', 1.6],
+      ['0805', 1.9],
+      ['1206', 3.0],
+    ]) {
+      const c = centres(`res-${size}`);
+      expect(c[2][0] - c[1][0], size).toBeCloseTo(gap);
+    }
+  });
+});
