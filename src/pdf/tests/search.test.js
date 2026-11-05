@@ -173,3 +173,19 @@ it('folds each distinct character of a huge page once, not every time it appears
   // Two normalizations for each of the page's few distinct characters, at most.
   expect(calls).toBeLessThan(100);
 });
+
+it('matches hyphens typed in a query to the non-breaking hyphens and dashes on the page', () => {
+  // Word sets phone numbers with non-breaking hyphens (U+2011) to keep them on one line.
+  for (const dash of ['‐', '‑', '‒', '–', '−']) {
+    const index = indexPageText([{ str: `Call 555${dash}123${dash}4567 now` }]);
+    expect(index.text.indexOf(searchQuery('555-123-4567'))).toBe(5);
+    expect(index.text.indexOf(searchQuery(`555${dash}123`))).toBe(5);
+    // One character on the page for each in the index, so highlights stay on the digits.
+    expect(index.origins[0]).toEqual([...index.text].map((_, i) => i));
+  }
+  // A dash at the end of a line is not a word broken there, as a hyphen is.
+  expect(indexPageText([{ str: 'Paris–', hasEOL: true }, { str: 'nice' }]).text).toBe(
+    'paris- nice',
+  );
+  expect(indexPageText([{ str: 'exam‐', hasEOL: true }, { str: 'ple' }]).text).toBe('example');
+});
