@@ -245,3 +245,40 @@ test('marking a selected word leaves the letters of the lines around it', async 
   for (const line of ['Charlie Delta Echo', 'Foxtrot Golf Hotel']) expect(text).toContain(line);
   expect(text).toMatch(/Alpha.*Bravo/);
 });
+
+test('text found by both the typed words and a pattern is listed and marked once', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([300, 300]).drawText('Call 555-123-4567', { x: 40, y: 200, size: 14, font });
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'call.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Find text and redact…' }).click();
+  const finder = page.getByRole('dialog', { name: 'Find text and redact' });
+  await finder.getByLabel('Find text').fill('555-123-4567');
+  await finder.getByLabel('Phone numbers').check();
+  await finder.getByRole('button', { name: 'Search' }).click();
+  // The number was listed twice, and marking it made two marks over the same words.
+  await expect(finder.getByRole('status')).toHaveText(/^1 match found/);
+  await expect(finder.getByRole('checkbox', { name: /^Page 1:/ })).toHaveCount(1);
+  await finder.getByRole('button', { name: 'Mark selected' }).click();
+  await expect(finder).toBeHidden();
+  await settled(page);
+  await expect(pane.getByText('1 mark to apply')).toBeVisible();
+});

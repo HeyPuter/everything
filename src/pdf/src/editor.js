@@ -8790,12 +8790,18 @@ export function createEditor({
             ...patterns.map((entry) => REDACTION_PATTERNS[entry.key]),
           ];
           const report = {};
+          // Text found by both the typed words and a pattern (or two patterns) is listed once.
+          const seen = new Set();
           for (const q of queries)
             for (const match of await findTextRects(doc, page, q, {
               wholeWord: whole.checked,
               report,
-            }))
+            })) {
+              const key = JSON.stringify(match.rects);
+              if (seen.has(key)) continue;
+              seen.add(key);
               found.push({ page, ...match });
+            }
           if (report.unsearchable) unsearchable.push(page);
         }
         status.textContent = [
