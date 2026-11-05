@@ -176,6 +176,23 @@ export function describeFace(w: Sh): SurfDesc {
   }
 }
 
+/**
+ * The point at the middle of a face's parameter range. On a face swept from
+ * a curve it lies on the face, over the middle of the curve (the centroid of
+ * a curved face can lie nearer another curve of the profile).
+ */
+export function faceMidPoint(w: Sh): Vec3 {
+  const ad = new oc.BRepAdaptor_Surface(w.wrapped, true);
+  try {
+    const p = ad.Value((ad.FirstUParameter() + ad.LastUParameter()) / 2, (ad.FirstVParameter() + ad.LastVParameter()) / 2);
+    const out = xyz(p);
+    p.delete();
+    return out;
+  } finally {
+    ad.delete();
+  }
+}
+
 /** Approximate outward normal at the middle of the face's parameter range. */
 function faceNormalAtCenter(face: any, ad: any): Vec3 {
   try {

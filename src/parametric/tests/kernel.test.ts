@@ -308,6 +308,20 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(30 * 20 * 25 - 4 * (4 - Math.PI) * 25, 2);
   });
 
+  it('names the side face of a wide arc after the arc, not after a nearby line', async () => {
+    const b = new ModelBuilder();
+    // A 270 degree arc closed by two radii: the arc face's centroid lies nearer the radii.
+    const c = 20 * Math.SQRT1_2;
+    const ents: SketchFeature['entities'] = [
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'pa', t: 'point', x: c, y: c }, { id: 'pb', t: 'point', x: c, y: -c },
+      { id: 'arc', t: 'arc', c: 'o', a: 'pa', b: 'pb' }, { id: 'la', t: 'line', a: 'o', b: 'pa' }, { id: 'lb', t: 'line', a: 'pb', b: 'o' },
+    ];
+    const r = await b.build(req([sketch('S1', ents), extrude('E1', 'S1', 10)]));
+    expect(r.faces.find((f) => f.type === 'cylinder')!.name).toBe('E1:side:arc');
+    expect(new Set(r.faces.map((f) => f.name)).size).toBe(r.faces.length);
+    expect(r.edges.map((e) => e.name)).toContain('E1:cap1|E1:side:arc');
+  });
+
   it('keeps the names of fillet and loft faces that a later cut trims', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', circle(0, 0, 20, 'cc')), extrude('E1', 'S1', 10)];

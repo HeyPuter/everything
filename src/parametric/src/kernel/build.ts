@@ -28,7 +28,7 @@ import type {
   ProjectionRequest, ProjectionResult,
 } from './protocol';
 import {
-  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, fuse, getOc, gdir,
+  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, getOc, gdir,
   hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
@@ -603,12 +603,12 @@ export class ModelBuilder {
         tool = fuse(tool, this.draftLateral(extrudeAll(0, -start, back), frame, back, 0, angle));
       }
     } else tool = extrudeAll(start, d1, dir);
-    const classify = (d: SurfDesc) => {
+    const classify = (d: SurfDesc, _k: number, shape: Sh) => {
       if (d.type === 'plane' && Math.abs(dot(d.d, frame.n)) > 1 - 1e-6) {
         const s = dot(sub(d.center, frame.o), dir);
         return Math.abs(s - start) < Math.abs(s - (start + d1)) ? 'cap0' : 'cap1';
       }
-      return 'side:' + this.nearestSrc(regions, toLocal(frame, d.center));
+      return 'side:' + this.nearestSrc(regions, toLocal(frame, faceMidPoint(shape)));
     };
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, classify), f.cut);
   }
