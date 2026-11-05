@@ -1121,6 +1121,12 @@ export class App {
     new ResizeObserver(apply).observe(wrap);
     window.addEventListener('resize', apply);
     document.addEventListener('visibilitychange', apply);
+    // Moving the window to a screen with another pixel ratio changes no size.
+    const watchRatio = () => {
+      const mq = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      mq?.addEventListener?.('change', () => (apply(), watchRatio()), { once: true });
+    };
+    watchRatio();
   }
 
   layoutChanged() {
