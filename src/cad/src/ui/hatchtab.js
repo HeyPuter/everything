@@ -57,15 +57,25 @@ export function hatchTab(app, st, onChange) {
       }
       // The gallery fills two rows column by column.
       const syncRoving = roving(gallery, '.hatch-pat', { h: 2, v: 1 });
-      const num = (label, value, onSet, attrs) => {
-        const inp = h('input.input.sm', { type: 'number', value, 'aria-label': label, ...attrs });
+      // onSet returns false to reject a value: the box then goes back to the current one.
+      const num = (label, get, onSet, attrs) => {
+        const inp = h('input.input.sm', {
+          type: 'number',
+          value: get(),
+          'aria-label': label,
+          ...attrs,
+        });
         inp.addEventListener('keydown', (e) => e.stopPropagation());
         inp.addEventListener('change', () => {
           const v = Number(inp.value);
-          if (Number.isFinite(v)) {
-            onSet(v);
+          if (inp.value.trim() !== '' && Number.isFinite(v) && onSet(v) !== false) {
+            inp.removeAttribute('aria-invalid');
             onChange?.();
+            return;
           }
+          inp.value = get();
+          inp.setAttribute('aria-invalid', 'true');
+          setTimeout(() => inp.removeAttribute('aria-invalid'), 1200);
         });
         return h('label.rb-field', h('span', label), inp);
       };
@@ -90,8 +100,16 @@ export function hatchTab(app, st, onChange) {
           'Properties',
           h(
             'div.rb-fields',
-            num('Scale', st.scale, (v) => v > 0 && (st.scale = v), { min: 0.001, step: 0.1 }),
-            num('Angle', +((st.angle * 180) / Math.PI).toFixed(4), (v) => (st.angle = (v * Math.PI) / 180), { step: 15 }),
+            num('Scale', () => st.scale, (v) => (v > 0 ? void (st.scale = v) : false), {
+              min: 0.001,
+              step: 0.1,
+            }),
+            num(
+              'Angle',
+              () => +((st.angle * 180) / Math.PI).toFixed(4),
+              (v) => void (st.angle = (v * Math.PI) / 180),
+              { step: 15 },
+            ),
           ),
         ),
         panel('Close', big('check', 'Close Hatch', () => app.cmdline.submit())),
