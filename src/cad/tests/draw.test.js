@@ -244,6 +244,15 @@ describe('angle lock', () => {
     expect(l.x2).toBeCloseTo(55);
     expect(l.y2).toBeCloseTo(55);
   });
+
+  it('releases the lock on Enter, and the next Enter ends the command', async () => {
+    await t.type('LINE', '0,0', '<45', '');
+    expect(t.ed.angleLock).toBe(null);
+    expect(t.logs.at(-1)).toEqual(['muted', 'Angle lock released']);
+    expect(t.ed.request?.prompt).toMatch(/^Next point/);
+    await t.type('');
+    expect(t.ed.request).toBe(null);
+  });
 });
 
 describe('number prompts', () => {

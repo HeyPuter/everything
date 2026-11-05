@@ -517,7 +517,13 @@ export class Editor {
     }
     if (!t) {
       // Enter with nothing typed.
-      if (r.kind === 'point' && this.angleLock !== null) return;
+      // With a typed <angle lock, Enter releases the lock first.
+      if (r.kind === 'point' && this.angleLock !== null) {
+        this.angleLock = null;
+        this.ui.log('Angle lock released', 'muted');
+        this._updateCursor(this.cursor.sx, this.cursor.sy, true);
+        return;
+      }
       this._resolve(null);
       return;
     }
