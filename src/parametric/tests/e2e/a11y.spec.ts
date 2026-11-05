@@ -272,3 +272,15 @@ test('F6 and Shift+F6 move between the window regions', async ({ page }) => {
   await page.keyboard.press('F1');
   await expect(page.getByRole('dialog', { name: 'Keyboard Shortcuts' })).toContainText('F6, Shift + F6');
 });
+
+test('Shift+Tab after clicking a dialog\'s text stays in the dialog', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run('about'));
+  const dialog = page.getByRole('dialog');
+  await dialog.locator('.dialog-body').click({ position: { x: 4, y: 4 } });
+  await page.keyboard.press('Shift+Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
+});
