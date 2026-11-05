@@ -442,6 +442,26 @@ export class FileOps {
     return false;
   }
 
+  /**
+   * Inside the Puter desktop the window's close button removes the app without
+   * a beforeunload prompt; with a close handler the app closes itself, after
+   * asking about unsaved changes.
+   */
+  handleWindowClose() {
+    const p = puter();
+    if (!p?.ui?.onWindowClose || typeof p.exit !== 'function') return;
+    let asking = false;
+    p.ui.onWindowClose(async () => {
+      if (asking) return;
+      asking = true;
+      try {
+        if (await this.confirmDiscard('close Parametric')) p.exit!();
+      } finally {
+        asking = false;
+      }
+    });
+  }
+
   /** Files opened from the Puter desktop (double-click / Open With). */
   handleLaunchItems() {
     const ui = puter()?.ui;

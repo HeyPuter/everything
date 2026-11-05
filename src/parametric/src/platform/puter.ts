@@ -16,6 +16,8 @@ export interface PuterFSItem {
 export interface PuterSDK {
   env?: string;
   appID?: string;
+  /** Closes the app's window (inside the Puter desktop). */
+  exit?(): void;
   auth: {
     isSignedIn(): boolean;
     signIn(opts?: Record<string, unknown>): Promise<unknown>;

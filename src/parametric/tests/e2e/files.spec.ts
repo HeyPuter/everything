@@ -278,6 +278,31 @@ test('a save that fails offers to download a copy of the part', async ({ page })
   await expect(page).toHaveTitle('* Part1 - Parametric');
 });
 
+test('closing the Puter desktop window asks about unsaved changes first', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as { puter: { env: string; exit(): void; ui: { onWindowClose(fn: () => void): void } }; __close?: () => void; __exited: number };
+    w.__exited = 0;
+    w.puter.env = 'app';
+    w.puter.exit = () => { w.__exited++; };
+    w.puter.ui.onWindowClose = (fn) => { w.__close = fn; };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  type W = { __close: () => void; __exited: number; __parametric: AppHandle };
+  const close = () => page.evaluate(() => { void (window as unknown as W).__close(); });
+  const exited = () => page.evaluate(() => (window as unknown as W).__exited);
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); }));
+  await close();
+  const ask = page.getByRole('dialog', { name: 'Save changes?' });
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  expect(await exited()).toBe(0);
+  await close();
+  await ask.getByRole('button', { name: "Don't save" }).click();
+  await expect.poll(exited).toBe(1);
+});
+
 test('parts are deleted from the Open dialog with a button, and stay listed when that fails', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {
