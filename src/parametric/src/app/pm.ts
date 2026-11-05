@@ -193,10 +193,16 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
 
 export function numberField(o: NumberFieldOptions): HTMLElement {
   const id = nextDomId('num');
+  // Phone keypads: the decimal pad (iOS) has no minus, equals or letters, so it
+  // is only for a value that is a plain positive number; the others take
+  // negatives, units and expressions such as =Width/2 on the full keyboard.
+  const plainNumber = o.allowExpr === false && o.min !== undefined && o.min >= 0;
   const input = h('input', {
     class: 'input',
     id,
-    inputmode: 'decimal',
+    inputmode: plainNumber ? 'decimal' : 'text',
+    autocapitalize: 'off',
+    autocorrect: 'off',
     autocomplete: 'off',
     spellcheck: 'false',
     'aria-label': o.label,

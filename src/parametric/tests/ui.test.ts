@@ -163,6 +163,17 @@ describe('PropertyManager number fields', () => {
     expect(onChange).toHaveBeenLastCalledWith('=Len+1');
     expect(input.classList.contains('expr')).toBe(true);
   });
+
+  it('offers the full keyboard where minus signs, units or expressions can be typed', () => {
+    const mode = (o: Partial<Parameters<typeof numberField>[0]>) => numberField({ label: 'X', value: 1, kind: 'length', ctx: ctx(), onChange: () => {}, ...o }).querySelector('input')!.getAttribute('inputmode');
+    expect(mode({})).toBe('text');
+    expect(mode({ min: 1e-6 })).toBe('text');
+    expect(mode({ allowExpr: false })).toBe('text');
+    expect(mode({ allowExpr: false, min: 3, kind: 'count' })).toBe('decimal');
+    const input = numberField({ label: 'X', value: 1, kind: 'length', ctx: ctx(), onChange: () => {} }).querySelector('input')!;
+    expect(input.getAttribute('autocapitalize')).toBe('off');
+    expect(input.getAttribute('autocorrect')).toBe('off');
+  });
 });
 
 describe('selection', () => {
