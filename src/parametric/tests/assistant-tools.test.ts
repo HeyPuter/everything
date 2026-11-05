@@ -284,4 +284,15 @@ describe('assistant tools', () => {
     expect(e.content).toMatch(/stand-alone points of its sketch s\d+: move or add them with edit_sketch/);
     expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 9 * 10, 1);
   });
+
+  it('gives a revolve\'s arguments in a form edit_feature takes back', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'centerline', from: [0, 0], to: [0, 30] }, { type: 'rectangle', corner1: [10, 0], corner2: [20, 25] }] });
+    await h.call('add_revolve', { sketch: 's1', angle: 360 });
+    const m = await h.call('get_model', { features: ['f2'] });
+    const args = JSON.parse(/Arguments: (.*)/.exec(m.content)![1]);
+    expect(args.axis).toBeNull();
+    await h.call('edit_feature', { feature: 'f2', params: { ...args, angle: 180 } });
+    expect(await h.volume()).toBeCloseTo((Math.PI * (400 - 100) * 25) / 2, 0);
+  });
 });

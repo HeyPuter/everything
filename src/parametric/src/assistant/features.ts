@@ -263,7 +263,7 @@ export class FeatureCodec {
         direction2: f.dir2 ? { end: END_OUT[f.dir2.end], depth: f.dir2.end === 'throughAll' ? undefined : L(f.dir2.depth) } : null,
         draft: A(f.draft), draft_outward: f.draftOutward, ...thin(f.thin), regions: regions(f.contours),
       };
-      case 'revolve': return { sketch: f.sketch, cut: f.cut, axis: axisSpec(f.axis) ?? 'first centerline of the sketch', angle: A(f.angle), end: END_OUT[f.end], reverse: f.flip, ...thin(f.thin), regions: regions(f.contours) };
+      case 'revolve': return { sketch: f.sketch, cut: f.cut, axis: axisSpec(f.axis), angle: A(f.angle), end: END_OUT[f.end], reverse: f.flip, ...thin(f.thin), regions: regions(f.contours) };
       case 'fillet': return { edges: f.edges.map((e) => e.name), faces: f.faces.map((x) => x.name), radius: L(f.radius) };
       case 'chamfer': return { edges: f.edges.map((e) => e.name), faces: f.faces.map((x) => x.name), mode: CHAMFER_OUT[f.mode], distance: L(f.distance), distance2: L(f.distance2), angle: A(f.angle), flip: f.flip };
       case 'shell': return { faces_to_remove: f.faces.map((x) => x.name), thickness: L(f.thickness), outward: f.outward };
