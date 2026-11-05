@@ -538,4 +538,12 @@ describe('assistant tools', () => {
     expect(r.content).toBe('Nothing changed: f2 "Plate" is already as given.');
     expect(r.changed).toBe(false);
   });
+
+  it('ends an undone change\'s reason with one full stop', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] });
+    // "… Use Blind.. It was undone".
+    const r = await h.call('add_extrude', { sketch: 's1', depth: 10, direction2: { end: 'through_all' } }, false);
+    expect(r.content).toMatch(/Use Blind\. It was undone/);
+  });
 });

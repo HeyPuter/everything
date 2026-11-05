@@ -444,7 +444,8 @@ class Toolkit {
       const names = (id: Id) => { const f = this.store.feature(id); return f ? `${id} "${f.name}"` : id; };
       this.store.revertTo(mark);
       await this.host.settle();
-      throw new ToolError(`the change made ${fresh.map(([id, msg]) => `${names(id)} fail: ${msg}`).join('; ')}. It was undone; the part is as it was before this call.`);
+      // Kernel messages end with their own full stop ("Use Blind.. It was undone").
+      throw new ToolError(`the change made ${fresh.map(([id, msg]) => `${names(id)} fail: ${msg.replace(/\.$/, '')}`).join('; ')}. It was undone; the part is as it was before this call.`);
     }
     this.changed = true;
     const lines: string[] = [];
