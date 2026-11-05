@@ -221,6 +221,24 @@ describe('offset', () => {
       close(distanceTo(s, o.pts[i], o.pts[i + 1]), 0.5, 1e-9);
     }
   });
+  it('trims closed ellipse and spline offsets beyond the curve radius', () => {
+    const e = { type: 'ellipse', cx: 0, cy: 0, mx: 10, my: 0, ratio: 0.3, start: 0, end: TWO_PI };
+    // Wider than the minor semi-axis: nothing is left inside.
+    expect(offsetEntity(e, 4, 0, 0)).toBe(null);
+    const fit = [0, 0, 5, 1, 10, 0, 10, 10, 5, 9, 0, 10];
+    const s = { type: 'spline', ...splineFromFitPoints(fit, true), fit, closed: true };
+    for (const [src, d, sx, sy] of [
+      [e, 2, 0, 0],
+      [s, 2, 5, 5],
+    ]) {
+      const o = offsetEntity(src, d, sx, sy);
+      expect(o.closed).toBe(true);
+      expect(selfIntersections(o)).toEqual([]);
+      for (let i = 0; i < o.pts.length; i += 3) {
+        expect(distanceTo(src, o.pts[i], o.pts[i + 1])).toBeGreaterThan(d - 1e-6);
+      }
+    }
+  });
   it('offsets ellipses and splines as polylines within tolerance', () => {
     const e = { type: 'ellipse', cx: 0, cy: 0, mx: 10, my: 0, ratio: 0.5, start: 0, end: TWO_PI };
     const o = offsetEntity(e, 1, 0, 20);

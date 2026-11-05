@@ -603,10 +603,11 @@ function wedgeTester(wedges, eps) {
  * Remove the invalid parts of a closed raw offset: split it at its
  * self-intersections, drop the pieces that come closer than d to the source
  * primitives, lie inside a sharp corner's wedge or leave the side accepted by
- * onSide (optional), and stitch the rest into closed loops. Returns a list of
- * stride-3 point lists (empty when nothing is valid).
+ * onSide (optional), and stitch the rest into closed loops. slack widens
+ * the distance tolerance for approximate sources. Returns a list of stride-3
+ * point lists (empty when nothing is valid).
  */
-function clipClosedOffset(pts, srcPrims, d, onSide, wedges) {
+function clipClosedOffset(pts, srcPrims, d, onSide, wedges, slack = 0) {
   const m = segmentCount(pts, true);
   const prims = toPrims({ type: 'polyline', pts, closed: true });
   let scale = 0,
@@ -642,7 +643,7 @@ function clipClosedOffset(pts, srcPrims, d, onSide, wedges) {
       cuts.push(ua, ub);
     }
   });
-  const minD = d - Math.max(d * 1e-6, tol);
+  const minD = d - Math.max(d * 1e-6, tol, slack);
   const inWedge = wedgeTester(wedges, Math.max(d * 1e-6, tol * 100));
   let tooNear = null;
   const valid = (u0, u1) => {
@@ -832,5 +833,29 @@ function offsetCurve(ent, d, sideX, sideY, relTol) {
     const k = out.length;
     if (Math.hypot(out[k - 3] - out[0], out[k - 2] - out[1]) <= tolFor(out[0], out[1]) * 1e3) out.length -= 3;
   }
-  return polylineFrom(ent, out, closed);
+  if (!closed || out.length < 9) return polylineFrom(ent, out, closed);
+  // Where the distance exceeds the curve's radius the offset loops back on
+  // itself: keep only the parts at the full distance, on the picked side.
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity;
+  for (let i = 0; i + 1 < p.length; i += 2) {
+    x0 = Math.min(x0, p[i]);
+    y0 = Math.min(y0, p[i + 1]);
+    x1 = Math.max(x1, p[i]);
+    y1 = Math.max(y1, p[i + 1]);
+  }
+  const src = [];
+  for (let i = 0; i + 3 < p.length; i += 2) {
+    src.push({ t: 'seg', x1: p[i], y1: p[i + 1], x2: p[i + 2], y2: p[i + 3] });
+  }
+  const inside = pointInPolygon(sideX, sideY, p);
+  const onSide = (x, y) => pointInPolygon(x, y, p) === inside;
+  // The source is a chord approximation within relTol of its size.
+  const slack = 4 * relTol * Math.max(x1 - x0, y1 - y0);
+  const loops = clipClosedOffset(out, src, d, onSide, [], slack);
+  if (!loops.length) return null;
+  const res = loops.map((pts) => polylineFrom(ent, pts, true));
+  return res.length === 1 ? res[0] : res;
 }
