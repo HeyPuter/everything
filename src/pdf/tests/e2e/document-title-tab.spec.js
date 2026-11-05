@@ -32,6 +32,9 @@ test('the tab shows the document title after it is changed, undone, or removed',
   await expect(page).toHaveTitle('Original title · PDF Editor');
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await expect(page).toHaveTitle('* Quarterly report · PDF Editor');
+  // The title changes as the redo begins redrawing the page, and the app's shortcuts (Ctrl+D
+  // among them) do nothing until the redraw is done.
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   // Removing the metadata removes the title, so the tab goes back to the file name.
   await page.keyboard.press('ControlOrMeta+d');
   await details.getByLabel('Title', { exact: true }).fill('');
