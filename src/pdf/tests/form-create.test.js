@@ -504,9 +504,12 @@ it('takes only numbers in number and percent fields', async () => {
     'Enter a number in Amount due, such as 1234.5.',
   );
   await expect(fillFields(doc, { Rate: '5%' })).rejects.toThrow('Enter a number in Rate');
-  await fillFields(doc, { Amount: '-1234.5', Rate: '0,25', Note: 'twelve' });
+  // The fields group thousands with commas: 0,25 would read as 25 thousandths to some and as
+  // 25 to others.
+  await expect(fillFields(doc, { Rate: '0,25' })).rejects.toThrow('such as 1234.5.');
+  await fillFields(doc, { Amount: '-1234.5', Rate: '0.25', Note: 'twelve' });
   await fillFields(doc, { Amount: '' });
-  expect(listFields(doc).map((field) => field.value)).toEqual(['', '0,25', 'twelve']);
+  expect(listFields(doc).map((field) => field.value)).toEqual(['', '0.25', 'twelve']);
 });
 
 it('shows number and percent fields as their formats do, keeping the value typed', async () => {

@@ -78,12 +78,6 @@ export function simpleCalculation(field) {
   return { operation: call[1], names: names.map((name) => name.trim()).filter(Boolean) };
 }
 
-/** The number typed, with either decimal mark and no grouping, or null when it is none. */
-export function typedNumber(text) {
-  const value = String(text).trim();
-  return /^[+-]?(\d+([.,]\d*)?|[.,]\d+)$/.test(value) ? Number(value.replace(',', '.')) : null;
-}
-
 /** Acrobat's separator styles: thousands groups and decimal mark. */
 const SEPARATORS = [
   [',', '.'],
@@ -92,6 +86,23 @@ const SEPARATORS = [
   ['', ','],
   ["'", '.'],
 ];
+
+const separators = (format) => SEPARATORS[format.separators] ?? SEPARATORS[0];
+/** The decimal mark of a number format: a point, or a comma for its comma styles. */
+export const decimalMark = (format) => separators(format)[1];
+
+/**
+ * The number typed, with either decimal mark and no grouping, or null when it is none. Given
+ * a field's `format`, the mark it groups thousands with is not taken for a decimal mark: 1,234
+ * typed in a dollar field showing 1,234.00 is not 1.234.
+ */
+export function typedNumber(text, format) {
+  const value = String(text).trim();
+  const marks = format ? '.,'.replace(separators(format)[0], '') : '.,';
+  return new RegExp(`^[+-]?(\\d+([${marks}]\\d*)?|[${marks}]\\d+)$`).test(value)
+    ? Number(value.replace(',', '.'))
+    : null;
+}
 
 /** The value as the format shows it; text that is not a number shows as it is. */
 export function formattedNumber(text, format) {
