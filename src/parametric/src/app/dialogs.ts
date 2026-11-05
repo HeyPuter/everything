@@ -577,7 +577,6 @@ export class SectionPanel extends PropertyPanel {
       const k = (['front', 'top', 'right'] as const).find((b) => BASE_FRAMES[b].n.every((v, i) => Math.abs(v - this.custom!.normal[i]) < 1e-9));
       if (k) { this.base = k; this.custom = null; } else this.base = 'custom';
     }
-    this.apply();
   }
 
   private apply() {
@@ -587,6 +586,8 @@ export class SectionPanel extends PropertyPanel {
   }
 
   render(): HTMLElement[] {
+    // Mount after the previous panel cancels, so its cleanup cannot clear this plane.
+    this.apply();
     const app = this.app;
     const offset = numberField({ label: 'Offset', icon: 'ruler', value: this.offset, kind: 'length', ctx: app.unitContext(), onChange: (v) => { this.offset = app.store.evalParam(v, 'length'); this.apply(); }, onLive: (v) => { this.offset = v; this.apply(); } });
     const custom = this.custom;

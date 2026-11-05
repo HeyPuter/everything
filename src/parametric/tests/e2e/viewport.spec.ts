@@ -4,6 +4,46 @@ import { canvasCenter, openApp, waitForFeature } from './helpers';
 type Win = { __parametric: import('../../src/app/app').App };
 
 test.describe('viewport', () => {
+  for (const flipped of [false, true]) test(`reopening Section View keeps its active plane (flipped ${flipped})`, async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const section = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.section);
+    await page.getByRole('button', { name: 'Section View', exact: true }).click();
+    await page.getByRole('group', { name: 'Section plane' }).getByRole('button', { name: 'Top', exact: true }).click();
+    const input = page.getByRole('textbox', { name: 'Offset', exact: true });
+    await input.fill('7');
+    await input.press('Tab');
+    if (flipped) await page.getByRole('checkbox', { name: 'Flip side', exact: true }).check();
+    const original = await section();
+    expect(original).toEqual({ normal: flipped ? [-0, -1, -0] : [0, 1, 0], offset: flipped ? -7 : 7 });
+    await page.getByRole('button', { name: 'Section View', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Section View', exact: true })).toBeVisible();
+    expect(await section()).toEqual(original);
+    await input.fill('9');
+    await input.press('Tab');
+    expect((await section())?.offset).toBe(9);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+    expect(await section()).toEqual(original);
+    await page.getByRole('button', { name: 'Section View', exact: true }).click();
+    expect(await section()).toBeNull();
+    expect(errors).toEqual([]);
+  });
+
+  test('cancelling the first Section View restores the uncut view', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('button', { name: 'Section View', exact: true }).click();
+    const input = page.getByRole('textbox', { name: 'Offset', exact: true });
+    await input.fill('7');
+    await input.press('Tab');
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.section?.offset)).toBe(7);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.section)).toBeNull();
+    expect(errors).toEqual([]);
+  });
+
   for (const units of ['MMGS', 'IPS'] as const) for (const expression of ['=2+3', '=Gap/2', '2+3']) test(`Section View evaluates ${expression} in ${units} before applying its plane`, async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
@@ -339,6 +379,7 @@ test.describe('viewport', () => {
     await page.evaluate(() => { (window as unknown as Win).__parametric.renderer.section = { normal: [Math.SQRT1_2, Math.SQRT1_2, 0], offset: 5 }; });
     await page.getByRole('button', { name: 'Section View' }).click();
     await expect(planes.getByRole('button', { name: 'Current' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await normal()).toEqual([0.707, 0.707, 0]);
     await planes.getByRole('button', { name: 'Front' }).click();
     expect(await normal()).toEqual([0, 0, 1]);
     await planes.getByRole('button', { name: 'Current' }).click();
