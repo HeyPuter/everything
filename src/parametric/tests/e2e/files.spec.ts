@@ -307,6 +307,34 @@ test('each tab keeps its own recovery copy, and only copies from closed tabs are
   expect(await recovery(b)).toContain('"name":"Beta"');
 });
 
+test('a cloud part renamed in another tab is saved under its new name, not again under the old one', async ({ context }) => {
+  type W = Mock & { __parametric: import('../../src/app/app').App };
+  const start = async () => {
+    const p = await context.newPage();
+    await mockPuter(p);
+    await openApp(p);
+    await app(p);
+    return p;
+  };
+  const a = await start();
+  await a.getByRole('button', { name: /New part/ }).click();
+  await a.evaluate(() => { const p = (window as unknown as W).__parametric; p.store.change('X', (d) => { d.variables.push({ id: 'v1', name: 'X', expr: '1' }); }); p.commands.run('save'); });
+  await expect(a).toHaveTitle('Part1 - Parametric');
+  await expect.poll(() => a.evaluate(() => (window as unknown as W).__parametric.store.dirty)).toBe(false);
+  const text = await a.evaluate(() => (window as unknown as W).__files.get('/tester/AppData/parametric/Parts/Part1.parametric')!.text);
+  // The second tab opens the same file (each page has its own stand-in, so it gets a copy).
+  const b = await start();
+  await b.evaluate((t) => { (window as unknown as W).__files.set('/tester/AppData/parametric/Parts/Part1.parametric', { text: t }); }, text);
+  await b.getByRole('button', { name: /Part1\.parametric/ }).click();
+  await expect.poll(() => b.evaluate(() => (window as unknown as W).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/AppData/parametric/Parts/Part1.parametric' });
+  await a.evaluate(() => { void (window as unknown as W).__parametric.commands.get('rename')!.run(); });
+  await a.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Renamed');
+  await a.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(b).toHaveTitle(/Renamed - Parametric/);
+  await b.evaluate(() => { (window as unknown as W).__files.delete('/tester/AppData/parametric/Parts/Part1.parametric'); (window as unknown as W).__parametric.commands.run('save'); });
+  await expect.poll(() => b.evaluate(() => [...(window as unknown as W).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Renamed.parametric']);
+});
+
 test('a pending recovery copy is written as soon as the tab is hidden', async ({ page }) => {
   await mockPuter(page);
   await openApp(page);

@@ -7,7 +7,7 @@ import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
-  onSavedElsewhere, sameLocation,
+  onRenamedElsewhere, onSavedElsewhere, sameLocation,
 } from '../platform/files';
 import { cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -55,6 +55,14 @@ export class FileOps {
         actions: [{ label: 'Reopen', run: () => void this.openLocation(loc, name) }],
         timeout: 12000,
       });
+    });
+    // Another tab renamed the open part's file: save to the new file, under the new name.
+    onRenamedElsewhere((from, to, name) => {
+      if (sameLocation(from, this.savedElsewhere)) this.savedElsewhere = to;
+      if (!sameLocation(from, app.location)) return;
+      app.location = to;
+      if (app.store.doc.name !== name) app.store.change('Rename part', (doc) => { doc.name = name; });
+      toast({ message: `This part was renamed to "${name}" in another tab.`, timeout: 6000 });
     });
     window.addEventListener('beforeunload', (e) => {
       if (this.app.store.dirty || this.app.panel?.edited) {

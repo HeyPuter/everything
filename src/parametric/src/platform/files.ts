@@ -205,12 +205,25 @@ export function announceSaved(location: Location) {
   }
 }
 
+const messageLocation = (loc: unknown): Location | null =>
+  !record(loc) ? null
+    : loc.type === 'cloud' && nonempty(loc.path) ? { type: 'cloud', path: loc.path }
+      : loc.type === 'local' && nonempty(loc.id) ? { type: 'local', id: loc.id } : null;
+
 /** Calls `fn` when another tab of this browser saves a part. */
 export function onSavedElsewhere(fn: (location: Location) => void) {
   savesChannel?.addEventListener('message', (e: MessageEvent) => {
-    const loc = record(e.data) && e.data.type === 'saved' && record(e.data.location) ? e.data.location : null;
-    if (loc?.type === 'cloud' && nonempty(loc.path)) fn({ type: 'cloud', path: loc.path });
-    else if (loc?.type === 'local' && nonempty(loc.id)) fn({ type: 'local', id: loc.id });
+    const loc = record(e.data) && e.data.type === 'saved' ? messageLocation(e.data.location) : null;
+    if (loc) fn(loc);
+  });
+}
+
+/** Calls `fn` when another tab of this browser renames a cloud part's file. */
+export function onRenamedElsewhere(fn: (from: Location, to: Location, name: string) => void) {
+  savesChannel?.addEventListener('message', (e: MessageEvent) => {
+    if (!record(e.data) || e.data.type !== 'renamed' || !nonempty(e.data.name)) return;
+    const from = messageLocation(e.data.from), to = messageLocation(e.data.to);
+    if (from && to) fn(from, to, e.data.name);
   });
 }
 
@@ -228,8 +241,15 @@ export async function deletePart(location: Location) {
 export async function renameCloud(location: Location & { type: 'cloud' }, newName: string): Promise<Location> {
   if (!cloudAvailable()) throw new Error('Sign in to Puter to rename parts saved in your cloud.');
   const item = await puter()!.fs.rename(location.path, `${safeName(newName)}${EXT}`);
+  const renamed: Location = { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
   partsChanged();
-  return { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
+  // Another tab with the part open would otherwise save it under its old name again.
+  try {
+    savesChannel?.postMessage({ type: 'renamed', from: location, to: renamed, name: safeName(newName) });
+  } catch {
+    /* other tabs are not told */
+  }
+  return renamed;
 }
 
 /**
