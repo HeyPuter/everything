@@ -181,6 +181,16 @@ describe('document store', () => {
     for (const ex of EXAMPLES) expect(() => parseDocument(serializeDocument(ex.make()))).not.toThrow();
   });
 
+  it('repairs creation and modification times a date cannot hold', () => {
+    const raw = { format: 'parametric-part', version: 1, features: [] };
+    for (const t of ['2026', null, 1e300]) {
+      const doc = parseDocument(JSON.stringify({ ...raw, created: t, modified: t }));
+      expect(Number.isNaN(new Date(doc.modified).getTime())).toBe(false);
+      expect(Number.isNaN(new Date(doc.created).getTime())).toBe(false);
+    }
+    expect(parseDocument(JSON.stringify({ ...raw, modified: 1700000000000 })).modified).toBe(1700000000000);
+  });
+
   it('refuses features of unknown type, including prototype member names', () => {
     for (const type of ['banana', 'constructor', '__proto__', 'toString']) {
       const text = JSON.stringify({ format: 'parametric-part', version: 1, features: [{ id: 'f1', type, name: 'X' }] });

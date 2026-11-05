@@ -76,6 +76,8 @@ export function parseDocument(text: string): PartDocument {
   if (!Number.isInteger(doc.decimals) || doc.decimals < 0 || doc.decimals > 8) doc.decimals = base.decimals;
   if (doc.rollback != null && !Number.isInteger(doc.rollback)) doc.rollback = null;
   if (typeof doc.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(doc.color)) doc.color = base.color;
+  // Times a Date can hold (the drawing's title block shows the modified day).
+  for (const k of ['created', 'modified'] as const) if (!Number.isFinite(doc[k]) || Math.abs(doc[k]) > 8.64e15) doc[k] = base[k];
   if (doc.material != null && !(isObj(doc.material) && typeof doc.material.name === 'string' && Number.isFinite(doc.material.density) && doc.material.density > 0)) doc.material = null;
   if (doc.drawing != null && !validDrawing(doc.drawing)) throw new Error('The part file is damaged (invalid drawing).');
   for (const f of doc.features) if (typeof f.name !== 'string' || !f.name) f.name = f.id;
