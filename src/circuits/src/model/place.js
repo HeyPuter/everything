@@ -106,7 +106,13 @@ export function placeFootprint(def, comp, copperCount = 2) {
       compId: comp.id,
     };
   });
-  const graphics = (fp.graphics || []).map((g) => transformGraphic(g, t, mapLayer));
+  const graphics = (fp.graphics || []).map((g) => {
+    const out = transformGraphic(g, t, mapLayer);
+    // Mirrored text turns the other way, like pads: rotate(c) * mirror * rotate(g)
+    // is rotate(c - g) * mirror.
+    if (bottom && g.t === 'text') out.rot = norm360((comp.rot || 0) - (g.rot || 0));
+    return out;
+  });
   let courtyard = null;
   if (fp.courtyard) {
     const c = fp.courtyard;

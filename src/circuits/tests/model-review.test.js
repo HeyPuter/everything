@@ -11,6 +11,8 @@ import { buildNetlist } from '../src/model/netlist.js';
 import { runErc } from '../src/model/erc.js';
 import { portShape } from '../src/model/sch.js';
 import { planAnnotation } from '../src/model/annotate.js';
+import { placeFootprint } from '../src/model/place.js';
+import { textStrokes } from '../src/render/font.js';
 import { mil, mm } from '../src/core/units.js';
 
 describe('schematic to board sync: renamed nets', () => {
@@ -327,4 +329,39 @@ describe('parseProject: damaged files', () => {
     expect(new Set(p.docs.map((d) => d.id)).size).toBe(2);
     expect(p.getDoc(p.boards[0].id)).toBe(p.boards[0]);
   });
+});
+
+describe('footprint placement: text on the bottom side', () => {
+  const def = (rot) => ({
+    id: 'f',
+    symbol: { pins: [], graphics: [] },
+    footprint: {
+      name: 'f',
+      pads: [],
+      graphics: [
+        { t: 'text', x: mm(1), y: mm(0.5), text: 'AB', size: mm(1), rot, layer: 'topOverlay' },
+      ],
+    },
+  });
+  const strokes = (g) => textStrokes(g.text, g.x, g.y, g.size, g.rot, g.align, !!g.mirror).flat();
+
+  for (const rot of [0, 90, 30, 270]) {
+    it(`mirrors text at ${rot} degrees exactly like the rest of the footprint`, () => {
+      for (const crot of [0, 90]) {
+        const top = placeFootprint(def(rot), { x: 0, y: 0, rot: crot, side: 'top' }).graphics[0];
+        const bot = placeFootprint(def(rot), { x: 0, y: 0, rot: -crot, side: 'bottom' })
+          .graphics[0];
+        expect(bot.layer).toBe('bottomOverlay');
+        // Flipping a part at rot r to the bottom gives rot -r: the bottom copy is the
+        // top copy mirrored across the y axis.
+        const a = strokes(top),
+          b = strokes(bot);
+        expect(b.length).toBe(a.length);
+        for (let i = 0; i < a.length; i += 2) {
+          expect(b[i]).toBeCloseTo(-a[i], -1);
+          expect(b[i + 1]).toBeCloseTo(a[i + 1], -1);
+        }
+      }
+    });
+  }
 });
