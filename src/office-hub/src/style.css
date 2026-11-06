@@ -1,0 +1,17 @@
+:root { --bg:#f3f0ea; --ink:#1c1830; --muted:#5c5670; --accent:#5b4bdb; --panel:#fff; --font:'DM Sans',system-ui,sans-serif; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font); background:radial-gradient(900px 500px at 0% 0%, #ddd6ff, transparent 55%), var(--bg); color:var(--ink); }
+#app { max-width:960px; margin:0 auto; padding:1rem 1rem 2rem; }
+.brand { display:flex; gap:.65rem; align-items:center; margin-bottom:1rem; }
+.brand h1 { margin:0; font-size:1.35rem; }
+.lead { color:var(--muted); max-width:40rem; }
+.actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:1rem 0; }
+.btn { font:inherit; font-weight:600; border:0; border-radius:.65rem; padding:.55rem .9rem; background:var(--accent); color:#fff; cursor:pointer; }
+#apps { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.75rem; }
+.card { display:block; background:var(--panel); border-radius:1rem; padding:1rem; text-decoration:none; color:inherit; border:1px solid rgba(28,24,48,.08); box-shadow:0 10px 24px rgba(40,30,80,.06); }
+.card h2 { margin:0 0 .35rem; font-size:1.05rem; }
+.card p { margin:0 0 .6rem; color:var(--muted); font-size:.9rem; }
+.card span { font-size:.75rem; color:var(--accent); word-break:break-word; }
+#status { min-height:1.2rem; color:var(--muted); }
+.help { margin-top:1.25rem; color:var(--muted); }
+.help summary { cursor:pointer; color:var(--ink); font-weight:600; }
