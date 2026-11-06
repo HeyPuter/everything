@@ -1,0 +1,23 @@
+{
+  "name": "document-scanner",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Document Scanner: digitize paper from a camera or image — crop, perspective-correct, enhance, and export a multi-page PDF in the browser.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.0"
+  }
+}
