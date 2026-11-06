@@ -1,0 +1,64 @@
+# Self-host a small reference set of Everything apps.
+# Requires Docker BuildKit. From the repository root:
+#
+#   docker compose up -d --build documents spreadsheet
+#   # Documents  → http://localhost:8081/
+#   # Spreadsheet → http://localhost:8082/
+#
+# Optional profiles: chess (CSP headers), parametric (wasm Content-Type via shared nginx).
+# Cloudflare Workers used by some apps are not started here — keep those external.
+#
+# Add another app by copying a service block and changing APP_DIR / ports.
+# Use NGINX_PROFILE=chess (or backgammon/checkers when those .inc files exist)
+# for the board-game CSP set.
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: deploy/Dockerfile
+  restart: unless-stopped
+
+services:
+  documents:
+    <<: *app
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args:
+        APP_DIR: src/documents
+        NGINX_PROFILE: default
+    ports:
+      - "8081:8080"
+
+  spreadsheet:
+    <<: *app
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args:
+        APP_DIR: src/spreadsheet
+        NGINX_PROFILE: default
+    ports:
+      - "8082:8080"
+
+  chess:
+    <<: *app
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args:
+        APP_DIR: src/chess
+        NGINX_PROFILE: chess
+    ports:
+      - "8083:8080"
+
+  parametric:
+    <<: *app
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args:
+        APP_DIR: src/parametric
+        NGINX_PROFILE: default
+    ports:
+      - "8084:8080"
