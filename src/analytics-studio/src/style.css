@@ -1,0 +1,14 @@
+:root { --bg:#071018; --ink:#e8f0f6; --muted:#8fa3b5; --accent:#3ecfbf; --panel:#101a24; --font:'DM Sans',system-ui,sans-serif; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font); color:var(--ink); background:radial-gradient(700px 360px at 85% 0%,#123040,transparent 55%),var(--bg); }
+#app { max-width:1100px; margin:0 auto; padding:1rem; }
+.brand { display:flex; gap:.6rem; align-items:center; margin-bottom:1rem; }
+.brand h1 { margin:0; font-size:1.25rem; }
+.brand img { border-radius:.45rem; }
+.board { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:.75rem; }
+.card { background:var(--panel); border:1px solid rgba(255,255,255,.08); border-radius:1rem; padding:.85rem; }
+.card h2 { margin:0 0 .65rem; font-size:.95rem; color:var(--muted); font-weight:600; }
+.kpi { margin:0; font-size:2.4rem; font-weight:800; color:var(--accent); }
+.card svg { width:100%; height:auto; display:block; }
+.help { margin-top:1rem; color:var(--muted); }
+.help summary { cursor:pointer; color:var(--ink); font-weight:700; }
