@@ -143,6 +143,7 @@ import { promptDialog, openModal, confirmDialog, fieldAlert } from '../ui/modal.
 import { toast } from '../ui/toast.js';
 import { confirmValidation, validationAlertStyle } from '../ui/validation-alert.js';
 import { openAppMenu, openLocaleDialog, openAbout, renderAccountButton } from '../ui/appmenu.js';
+import { appsButton } from '../ui/apps-panel.js';
 import { createMenubar, SPECIAL_KINDS } from '../ui/menubar.js';
 import { paletteCommands, openCommandPalette } from '../ui/palette.js';
 import { openVersionHistory } from '../ui/versions.js';
@@ -6559,7 +6560,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       el('button.icon-btn.desktop-only.topbar-comments', { type: 'button', html: icon('chat', 20), 'aria-label': t('editor.topbar.comments'), title: t('editor.topbar.comments'), onclick: () => run('toggleComments') }),
       peopleBar?.el,
       ...(P.canShare() ? [el('button.btn.share-btn.desktop-only', { type: 'button', title: t('editor.topbar.shareTip'), onclick: () => run('share') },
-      el('span', { html: icon('share', 16) }), el('span', {}, t('editor.topbar.share')))] : []), avatar));
+      el('span', { html: icon('share', 16) }), el('span', {}, t('editor.topbar.share')))] : []), appsButton(), avatar));
   const header = el('header.editor-header', {}, topbar);
 
   function refreshStatus() {

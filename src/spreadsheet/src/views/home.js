@@ -12,6 +12,7 @@ import { openMenu } from '../ui/menu.js';
 import { confirmDialog, promptDialog } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import { openAppMenu, renderAccountButton } from '../ui/appmenu.js';
+import { appsButton } from '../ui/apps-panel.js';
 import { openTemplatePicker } from '../ui/templates.js';
 import { templateThumbnail } from '../ui/template-thumbnail.js';
 import { openShareDialog } from '../ui/share.js';
@@ -354,6 +355,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     el('header.home-head', {},
       el('div.brand', {}, el('span.brand-mark', { html: icon('brand', 20, 2) }), el('h1.brand-name', {}, t('common.spreadsheet'))),
       el('div.grow'),
+      appsButton(),
       avatar),
     el('main.home-main', {},
       el('section.home-start', { 'aria-labelledby': ids.start },

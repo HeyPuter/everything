@@ -7,6 +7,7 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
+import { closeAppsPanel } from './apps-panel.js';
 import { openModal, confirmDialog } from './modal.js';
 import { openShortcuts } from './shortcuts.js';
 import { openOptionsDialog } from './options-dialog.js';
@@ -32,6 +33,8 @@ import { t } from '../i18n/index.js';
 
 /** `onOptions` opens File ▸ Options from the editor, which knows the workbook; elsewhere the options open on their own. */
 export function openAppMenu(anchor, { onOptions = null } = {}) {
+  // The Apps panel hangs from the same corner: never both at once.
+  closeAppsPanel();
   const theme = currentTheme();
   // Three radios in a row are a radio group, named, so a screen reader announces one choice of three
   // and not three loose radios; the menu moves between them with Left and Right as well as Up and Down.
