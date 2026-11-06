@@ -238,3 +238,58 @@ describe('lost connections', () => {
     await expect(P.saveFile('a', new Uint8Array([1]))).rejects.toBe(refusal);
   });
 });
+describe('a tab Puter opened', () => {
+  const inTab = (sdk) => {
+    vi.stubGlobal('location', { search: '?puter.app_instance_id=abc&puter.item.uid=u1' });
+    vi.stubGlobal('puter', { env: 'web', ...sdk });
+  };
+  it('counts as a Puter launch, but not as a desktop window', () => {
+    inTab({});
+    expect(P.launchedByPuter()).toBe(true);
+    expect(P.isApp()).toBe(false);
+  });
+  it('leaves a plain visit and a missing SDK out', () => {
+    vi.stubGlobal('location', { search: '' });
+    vi.stubGlobal('puter', { env: 'web' });
+    expect(P.launchedByPuter()).toBe(false);
+    vi.stubGlobal('location', { search: '?puter.app_instance_id=abc' });
+    vi.stubGlobal('puter', undefined);
+    expect(P.launchedByPuter()).toBe(false);
+  });
+  it('reads the session only after the dashboard hands over the token', async () => {
+    let token = null;
+    let hand;
+    const getUser = vi.fn(async () => ({ username: 'u' }));
+    inTab({
+      auth: { isSignedIn: () => !!token, getUser },
+      openerLaunch_: new Promise((resolve) => {
+        hand = () => {
+          token = 't';
+          resolve();
+        };
+      }),
+    });
+    const signedIn = P.isSignedIn();
+    const account = P.currentUser();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getUser).not.toHaveBeenCalled();
+    hand();
+    expect(await signedIn).toBe(true);
+    expect(await account).toEqual({ username: 'u' });
+  });
+  it('reports signed out when the handoff fails', async () => {
+    inTab({ auth: { isSignedIn: () => false }, openerLaunch_: Promise.reject(new Error('gone')) });
+    expect(await P.isSignedIn()).toBe(false);
+    expect(await P.currentUser()).toBe(null);
+  });
+  it('keeps desktop-window behavior to desktop windows', async () => {
+    const signOut = vi.fn();
+    const setWindowTitle = vi.fn();
+    inTab({ auth: { signOut }, ui: { setWindowTitle, onWindowClose: vi.fn() }, exit: vi.fn() });
+    expect(P.onWindowClose(() => {})).toBe(false);
+    P.setWindowTitle('a.pdf');
+    expect(setWindowTitle).not.toHaveBeenCalled();
+    await P.signOut();
+    expect(signOut).toHaveBeenCalled();
+  });
+});

@@ -304,9 +304,12 @@ function shortcuts() {
       'div',
       { class: 'shortcut-list' },
       ...[
-        [P.isApp() ? 'Open from Puter' : 'Open a PDF', 'Ctrl / ⌘ O'],
+        [P.launchedByPuter() ? 'Open from Puter' : 'Open a PDF', 'Ctrl / ⌘ O'],
         ['Save to Puter', 'Ctrl / ⌘ S'],
-        [P.isApp() ? 'Save to another Puter folder' : 'Download', 'Ctrl / ⌘ Shift S'],
+        [
+          P.launchedByPuter() ? 'Save to another Puter folder' : 'Download',
+          'Ctrl / ⌘ Shift S',
+        ],
         ['Undo', 'Ctrl / ⌘ Z'],
         ['Redo', 'Ctrl / ⌘ Shift Z or Ctrl Y'],
         ['Find in PDF', 'Ctrl / ⌘ F'],
@@ -1123,9 +1126,10 @@ window.addEventListener('keydown', (e) => {
     e.key.toLowerCase() === 'o' || (e.code === 'KeyO' && !e.altKey && !/[\x00-\x7f]/.test(e.key));
   if ((e.ctrlKey || e.metaKey) && o) {
     e.preventDefault();
-    // On the Puter desktop the files are in the cloud, so Open browses it, as other desktop
-    // apps do; the device picker stays in the File menu.
-    if (P.isApp()) pickCloud();
+    // When Puter opened the app (a desktop window, or a tab from the dashboard) the files are
+    // in the cloud, so Open browses it, as other desktop apps do; the device picker stays in
+    // the File menu.
+    if (P.launchedByPuter()) pickCloud();
     else pickDevice();
   }
 });
@@ -1206,16 +1210,20 @@ start();
 const initPuter = async () => {
   // The SDK signs the user in on its own before some cloud calls; the views follow.
   P.onAuth(run(refreshSDKAccount));
-  if (P.isApp()) {
-    // The desktop already has a session. File and close events must not wait for its profile.
-    setAccount({ username: 'Puter user' });
+  // A tab Puter opened (a file opened from the dashboard, say) gets its file the same way as a
+  // desktop window, once the dashboard tab hands it over with the token.
+  if (P.launchedByPuter()) {
     const onItems = (items) => {
       items = Array.isArray(items) ? items : [items];
       if (items.length) run(() => openDesktopItems(items))();
     };
     // onItemsOpened also replays the launch file. Subscribing to both reads it twice.
-    if (globalThis.puter.ui.onItemsOpened) globalThis.puter.ui.onItemsOpened(onItems);
-    else globalThis.puter.ui.onLaunchedWithItems?.(onItems);
+    if (globalThis.puter.ui?.onItemsOpened) globalThis.puter.ui.onItemsOpened(onItems);
+    else globalThis.puter.ui?.onLaunchedWithItems?.(onItems);
+  }
+  if (P.isApp()) {
+    // The desktop already has a session. File and close events must not wait for its profile.
+    setAccount({ username: 'Puter user' });
     // A second press of the close button while its question is open must not stack another
     // on top; the first answer decides. Only the question counts: a save it started that
     // never settles must not leave the button dead.
@@ -1227,6 +1235,9 @@ const initPuter = async () => {
     );
     if (!editor) P.setWindowTitle('PDF Editor');
   }
+  // A tab Puter opened gets its token from the dashboard tab moments after loading; read the
+  // account once it is in rather than reporting the person signed out first.
+  await P.puterLaunchSettled();
   // A sign-in or sign-out can finish while the SDK's initial session/profile read is
   // pending. Its older answer must not change the newer account or reset library work.
   const version = accountGeneration;

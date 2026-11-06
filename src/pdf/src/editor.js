@@ -2367,8 +2367,8 @@ export function createEditor({
             safe(() => downloadPdf()),
             {
               class: 'icon-btn download-btn',
-              // On the Puter desktop the shortcut saves to another folder instead.
-              ...(!P.isApp() && { title: withShortcut('Download', 'Mod+Shift+S') }),
+              // When Puter opened the app the shortcut saves to another folder instead.
+              ...(!P.launchedByPuter() && { title: withShortcut('Download', 'Mod+Shift+S') }),
             },
           ),
           iconButton(
@@ -8201,9 +8201,10 @@ export function createEditor({
   // Menus are built as they open, so every disabled and checked state is current.
   function fileItems(folded) {
     const cloud = saving || busy;
-    // On the Puter desktop the shortcuts belong to the cloud, where its files are: Open
-    // browses Puter and Save As chooses a Puter folder. Elsewhere they use this device.
-    const desktop = P.isApp() && !!onOpenCloud;
+    // When Puter opened the app (a desktop window, or a tab from the dashboard) the shortcuts
+    // belong to the cloud, where its files are: Open browses Puter and Save As chooses a Puter
+    // folder. Elsewhere they use this device.
+    const desktop = P.launchedByPuter() && !!onOpenCloud;
     return [
       { label: 'New blank PDF', icon: 'FilePlus2', onSelect: onNew },
       desktop
@@ -13213,8 +13214,8 @@ export function createEditor({
         ));
     if (modifier && key === 's') {
       e.preventDefault();
-      // On the Puter desktop, Save As chooses a folder in the cloud; elsewhere it downloads.
-      if (e.shiftKey) safe(P.isApp() ? saveAs : downloadPdf)();
+      // When Puter opened the app, Save As chooses a folder in the cloud; elsewhere it downloads.
+      if (e.shiftKey) safe(P.launchedByPuter() ? saveAs : downloadPdf)();
       else safe(() => save())();
     } else if (modifier && key === 'f') {
       e.preventDefault();
