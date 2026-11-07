@@ -49393,13 +49393,18 @@ test("Share is a labelled button set apart from the header's icons", async () =>
     assert.ok(share.classList.contains("primary"));
     assert.equal(share.textContent.trim(), "Share");
     assert.equal(share.getAttribute("aria-label"), "Share board");
-    // It sits after the header's icons, beside the account, as in Miro.
+    // It sits after the header's icons, beside the account, as in Miro;
+    // only the Apps launcher comes between them.
     const after = [...share.parentElement.children].slice(
       [...share.parentElement.children].indexOf(share) + 1,
     );
     assert.equal(
-      after.some((el) => el.matches(".icon-btn")),
+      after.some((el) => el.matches(".icon-btn:not([data-apps])")),
       false,
+    );
+    assert.deepEqual(
+      after.map((el) => (el.matches("[data-apps]") ? "apps" : el.className)),
+      ["apps", "account"],
     );
   } finally {
     await app.close();

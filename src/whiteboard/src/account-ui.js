@@ -26,6 +26,9 @@ export function createAccountUI({
   icon,
   action,
   refresh = () => {},
+  // The Apps panel shares the corner and follows the account.
+  onMenuOpen = () => {},
+  onChange = () => {},
 }) {
   let user = null,
     picture = null,
@@ -94,6 +97,7 @@ export function createAccountUI({
   }
   function open(button) {
     close();
+    onMenuOpen();
     const host = button.closest("[data-account]");
     host.insertAdjacentHTML("beforeend", menuMarkup());
     const menu = host.querySelector(".account-menu");
@@ -180,6 +184,7 @@ export function createAccountUI({
     }
     if (reopen?.isConnected) open(reopen.firstElementChild);
     refresh(root);
+    onChange();
   }
   return {
     // The container both headers include; its content follows the account.
