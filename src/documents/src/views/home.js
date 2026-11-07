@@ -12,6 +12,7 @@ import { openMenu, clickClosedMenu, menuAnchor, closeMenu } from '../ui/menu.js'
 import { confirmDialog, promptDialog } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import { openAppMenu, renderAccountButton } from '../ui/appmenu.js';
+import { appsButton } from '../ui/apps-panel.js';
 import { openShortcuts } from '../ui/shortcuts.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
@@ -138,6 +139,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
     el('header.home-head', {},
       el('h1.brand', {}, el('img.brand-mark', { src: `${import.meta.env.BASE_URL}icons/icon-64.png`, width: 30, height: 30, alt: '' }), el('span', {}, 'Documents')),
       el('div.grow'),
+      appsButton(),
       avatar),
     el('main.home-main', {},
       el('div.home-actions', {},

@@ -114,7 +114,8 @@ input:disabled + .ed-switch { opacity: .5; }
   .ed-header .canvas-save-status:is(.saved, .local, .unsaved, .saving) .save-label { display: inline-grid; }
   .ed-header .canvas-save-status:is(.saved, .local, .unsaved, .saving) .save-label::before { content: 'Unsaved changes'; height: 0; overflow: hidden; visibility: hidden; }
 }
-@media (max-width: 1360px) { .ed-mode-label, .ed-autosave-label { display: none; } .ed-header .ed-search { width: 150px; } }
+/* The search box gives up the Apps button's width, so the name still shows whole at 1280px. */
+@media (max-width: 1360px) { .ed-mode-label, .ed-autosave-label { display: none; } .ed-header .ed-search { width: 112px; } }
 @media (max-width: 1100px) { .ed-header .ed-menubar { display: none; } .ed-menus-button { display: inline-flex; } }
 @media (max-width: 900px) { .ed-header .ed-search { width: 34px; padding: 0 8px; } .ed-header .ed-search:focus-within { width: 200px; } .ed-header .ed-search-input:not(:focus) { width: 0; } }
 @media (max-width: 700px) {

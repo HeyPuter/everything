@@ -7,6 +7,7 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
+import { closeAppsPanel } from './apps-panel.js';
 import { openModal, confirmDialog } from './modal.js';
 import { toast } from './toast.js';
 import { openShortcuts } from './shortcuts.js';
@@ -19,6 +20,8 @@ import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
 
 export function openAppMenu(anchor, { extraItems = [] } = {}) {
+  // The Apps panel hangs from the same corner: never both at once.
+  closeAppsPanel();
   let opened = null;
   // One radio group, like the dialogs' choices: Left and Right move between the themes.
   const themeRow = el('div.menu-theme', {},
