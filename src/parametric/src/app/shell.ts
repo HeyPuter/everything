@@ -1,5 +1,5 @@
 // Builds the application chrome: title bar (brand, menus, quick access,
-// document title, command search, GitHub link, account), CommandManager
+// document title, command search, GitHub link, Apps launcher, account), CommandManager
 // (tool groups and tabs), left pane, viewport host, task pane and status bar.
 
 import { h, formatShortcut } from '../ui/dom';
@@ -7,6 +7,7 @@ import { icon } from '../ui/icons';
 import { attachTooltip } from '../ui/overlay';
 import { dropdown, type MenuItem, closeMenus } from '../ui/menu';
 import type { CommandRegistry } from './commands';
+import { appsButton } from './apps-panel';
 
 export const REPO_URL = 'https://github.com/heyputer/everything';
 
@@ -28,6 +29,7 @@ export interface Shell {
   search: HTMLInputElement;
   searchResults: HTMLElement;
   account: HTMLButtonElement;
+  apps: HTMLButtonElement;
   cmTools: HTMLElement;
   cmTabs: HTMLElement;
   leftpane: HTMLElement;
@@ -131,6 +133,7 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   const searchResults = h('div', { class: 'cmd-results', role: 'listbox', id: 'cmd-results', hidden: true });
   const github = h('a', { class: 'icon-btn', href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub' }, icon('github', 18));
   attachTooltip(github, 'Source code on GitHub');
+  const apps = appsButton();
   const account = h('button', { class: 'avatar-btn', type: 'button', 'aria-label': 'Account', 'aria-haspopup': 'menu' }) as HTMLButtonElement;
 
   const titlebar = h('header', { class: 'titlebar' },
@@ -140,7 +143,7 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
     h('div', { class: 'tb-center' }, docTitle, docState),
     h('div', { class: 'tb-right' }, h('div', { class: 'cmd-search' }, icon('search', 14), search, searchResults),
       commandButton(cmds, 'assistant'),
-      (() => { const b = commandButton(cmds, 'share'); b.classList.add('hide-mobile'); return b; })(), github, account));
+      (() => { const b = commandButton(cmds, 'share'); b.classList.add('hide-mobile'); return b; })(), github, apps, account));
 
   const cmTools = h('div', { class: 'cm-tools', role: 'toolbar', 'aria-label': 'Commands' });
   // A narrow window clips the tools on the right and the strip has no
@@ -176,7 +179,7 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
 
   const root = h('div', { class: 'app' }, titlebar, cm, workspace, statusbar);
   return {
-    root, menubar, docTitle, docState, search, searchResults, account, cmTools, cmTabs, leftpane, lpTabs, lpBody, splitter, viewport, hud,
+    root, menubar, docTitle, docState, search, searchResults, account, apps, cmTools, cmTabs, leftpane, lpTabs, lpBody, splitter, viewport, hud,
     confirm, taskpane, tpStrip, tpPanel, statusMsg, statusSketch, statusUnits, statusRebuild, statusCoords, treeToggle, mobileMenu,
   };
 }

@@ -10,6 +10,7 @@ import { icon } from '../ui/icons';
 import { dropdown, type MenuItem } from '../ui/menu';
 import { toast } from '../ui/overlay';
 import type { App } from './app';
+import { closeAppsPanel, syncAppsLauncher } from './apps-panel';
 import { EXAMPLES } from './examples';
 import type { FileOps } from './fileops';
 import { REPO_URL } from './shell';
@@ -121,6 +122,8 @@ export async function doSignIn(app: App): Promise<boolean> {
 /** Updates the account button (profile picture or initial). */
 export async function refreshAccount(app: App) {
   const btn = app.shell.account;
+  // The SDK has loaded, or the account changed.
+  syncAppsLauncher(app.shell.apps);
   btn.textContent = '';
   if (!isSignedIn() && env() !== 'app') {
     btn.append(icon('signIn', 16));
@@ -137,6 +140,8 @@ export async function refreshAccount(app: App) {
 export function bindAccountMenu(app: App) {
   const btn = app.shell.account;
   btn.addEventListener('click', async () => {
+    // The Apps panel hangs from the same corner: never both at once.
+    closeAppsPanel();
     const signedIn = isSignedIn() || env() === 'app';
     const user = signedIn ? await getUser() : null;
     const theme = getThemeChoice();

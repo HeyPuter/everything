@@ -8,7 +8,7 @@ import {
   Palette, Pencil, Redo2, Save, Search, Settings, Share2, Sigma, Sun, Trash2, Undo2, Upload, X, Info, TriangleAlert,
   CircleX, Ruler, Weight, Lock, Unlock, ListTree, PanelLeft, PanelRight, Files, Plus, Minus, GripVertical, RotateCcw,
   Cloud, HardDrive, Pin, Scissors, MousePointer2, Hand, ZoomIn, ZoomOut, Rotate3d, Type, FileText, Users, Sparkles, ArrowUp, Square,
-  SquarePen, Camera, Paperclip, Image as ImageIcon,
+  SquarePen, Camera, Paperclip, Image as ImageIcon, ExternalLink,
 } from 'lucide';
 
 type IconNode = [string, Record<string, string | number>][];
@@ -94,6 +94,8 @@ const CAD: Record<string, IconNode> = {
   sketchFeature: [P('M3 17l5-4h13l-5 4z', 's'), P('M7 15l4-6 4 4 3-5', 'thin')],
   rollback: [P('M3 12h18', 'thick'), P('M8 8l-4 4 4 4')],
   github: [P('M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.7.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.57 2.34 1.12 2.91.85.09-.66.35-1.12.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.4 9.4 0 0 1 12 6.94c.85 0 1.71.12 2.51.34 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.64 1.03 2.76 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.6.69.49A10.13 10.13 0 0 0 22 12.23C22 6.58 17.52 2 12 2z', 'f nostroke')],
+  // The 3×3 dot grid of the Apps launcher.
+  apps: [5, 12, 19].flatMap((y) => [5, 12, 19].map((x) => C(x, y, 2, 'f'))),
 };
 
 // Relation glyphs shown next to sketch geometry (16px grid).
@@ -183,6 +185,7 @@ const LUCIDE: Record<string, IconNode> = {
   camera: Camera as unknown as IconNode,
   attach: Paperclip as unknown as IconNode,
   image: ImageIcon as unknown as IconNode,
+  external: ExternalLink as unknown as IconNode,
 };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';

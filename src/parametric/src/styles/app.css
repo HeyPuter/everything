@@ -104,6 +104,64 @@ input, textarea, [contenteditable] { user-select: text; -webkit-user-select: tex
 .cmd-results [role='option'][aria-selected='true'] .kbd, .cmd-results [role='option']:hover .kbd { color: var(--text-2); }
 .avatar-btn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: var(--panel-2); padding: 0; overflow: hidden; display: grid; place-items: center; font-weight: 600; font-size: var(--fs-sm); color: var(--text-2); }
 .avatar-btn img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------- Apps launcher (src/app/apps-panel.ts) ----------
+   A card under the 3×3 button showing puter.com/embed/apps, with a caret on the
+   button. Fixed on <body>; --apps-panel-top comes from the button, so the height
+   fits the space below. An edge-to-edge sheet on phones. */
+.apps-btn[hidden] { display: none; }
+.apps-btn[aria-expanded='true'] { background: var(--active); color: var(--text); }
+.apps-panel {
+  position: fixed;
+  top: var(--apps-panel-top, 50px);
+  right: max(8px, env(safe-area-inset-right));
+  z-index: 90; /* over the app's panels and toolbars, under menus (100) and dialogs (200) */
+  width: 400px;
+  max-width: calc(100vw - 16px);
+  height: min(580px, calc(100dvh - var(--apps-panel-top, 50px) - 12px));
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
+  user-select: none;
+  -webkit-user-select: none;
+  animation: apps-panel-in 0.14s ease-out;
+}
+.apps-panel[hidden] { display: none; }
+.apps-panel:focus, .apps-panel:focus-visible { outline: none; }
+@keyframes apps-panel-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+/* The caret: an outlined triangle (::before) under a filled one (::after) that covers the card's top edge. */
+.apps-panel::before, .apps-panel::after {
+  content: ''; position: absolute; top: -8px; left: var(--apps-caret-x, calc(100% - 40px)); transform: translateX(-50%);
+  border: 8px solid transparent; border-top: none; border-bottom-color: var(--border-strong); pointer-events: none;
+}
+.apps-panel::after { top: -7px; border-bottom-color: var(--panel); }
+.apps-panel.caret-hidden::before, .apps-panel.caret-hidden::after { display: none; }
+.apps-panel-header {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--border);
+}
+.apps-panel-title { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.apps-panel-actions { display: flex; align-items: center; gap: 2px; }
+.apps-panel-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px); }
+.apps-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
+.apps-panel-loading { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; pointer-events: none; }
+.apps-panel-loading .spinner { width: 22px; height: 22px; }
+.apps-panel-body.is-loading .apps-panel-loading { display: flex; }
+.apps-panel-body.is-loading .apps-frame { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) { .apps-panel { animation: none; } }
+@media (max-width: 600px) {
+  .apps-panel {
+    left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); width: auto; max-width: none;
+    height: calc(100dvh - var(--apps-panel-top, 50px) - max(8px, env(safe-area-inset-bottom)));
+  }
+  .apps-panel-header { padding: 4px 4px 4px 16px; }
+  .apps-panel-title { font-size: var(--fs-lg); }
+  .apps-panel-action { width: 40px; height: 40px; min-width: 40px; border-radius: var(--radius); }
+}
 .mobile-only { display: none !important; }
 
 /* Buttons */
