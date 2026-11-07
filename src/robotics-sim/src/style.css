@@ -1,0 +1,15 @@
+:root { --bg:#071018; --ink:#e8f2f8; --muted:#8aa4b5; --accent:#5ad0ff; --panel:#102030; --font:'DM Sans',system-ui,sans-serif; }
+* { box-sizing:border-box; }
+body { margin:0; min-height:100dvh; font-family:var(--font); background:radial-gradient(900px 500px at 20% 0%, #123049, transparent 55%), var(--bg); color:var(--ink); }
+#app { max-width:1000px; margin:0 auto; padding:1rem; }
+.topbar { display:flex; justify-content:space-between; align-items:center; gap:.75rem; margin-bottom:1rem; }
+.brand { display:flex; gap:.6rem; align-items:center; }
+.brand h1 { margin:0; font-size:1.25rem; }
+.panel { background:color-mix(in srgb, var(--panel) 90%, transparent); border:1px solid rgba(255,255,255,.08); border-radius:1rem; padding:.85rem; }
+#stage { width:100%; height:auto; border-radius:.8rem; background:#0d1a24; cursor:crosshair; display:block; }
+.controls { display:grid; gap:.75rem; margin-top:.85rem; }
+label { display:flex; flex-direction:column; gap:.35rem; color:var(--muted); font-size:.85rem; }
+input[type=range] { width:100%; }
+#status { font-variant-numeric:tabular-nums; color:var(--accent); }
+.help { margin-top:1rem; color:var(--muted); }
+.help summary { color:var(--ink); cursor:pointer; font-weight:600; }

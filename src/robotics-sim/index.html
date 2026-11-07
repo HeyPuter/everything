@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Robotics Sim — planar arm FK/IK sandbox inspired by robotics teaching workflows (not NVIDIA Isaac Sim)." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Robotics Sim</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <img src="icon-128.png" width="28" height="28" alt="" />
+          <h1>Robotics Sim</h1>
+        </div>
+      </header>
+      <main class="panel">
+        <canvas id="stage" width="900" height="520" aria-label="Robot arm stage"></canvas>
+        <div class="controls">
+          <label>Shoulder θ1 <input id="j1" type="range" min="-180" max="180" value="35" /></label>
+          <label>Elbow θ2 <input id="j2" type="range" min="-150" max="150" value="40" /></label>
+          <p id="status" role="status"></p>
+        </div>
+      </main>
+      <details class="help">
+        <summary>About / #29</summary>
+        <p>
+          Open-source, browser-first robotics sandbox answering
+          <a href="https://github.com/HeyPuter/everything/issues/29">#29</a>. Original FK/IK for a planar 2R arm —
+          click the canvas to IK to a target. Not NVIDIA Isaac Sim; no Omniverse/PhysX/proprietary assets.
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
