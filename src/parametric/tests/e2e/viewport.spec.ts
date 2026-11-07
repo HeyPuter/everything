@@ -208,7 +208,7 @@ test.describe('viewport', () => {
     await page.mouse.click(x + 160, y - 90);
     await page.keyboard.press('Escape');
     // The bottom edge's Horizontal badge sits up and right of its midpoint.
-    const badge = page.locator('.rel-badge[aria-label="horizontal relation"]').filter({ visible: true });
+    const badge = page.locator('.rel-badge[aria-label="horizontal constraint"]').filter({ visible: true });
     const boxes = await badge.evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; }));
     boxes.sort((a, b) => b[1] - a[1]);
     const [bx, by] = boxes[0];

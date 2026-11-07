@@ -19,13 +19,28 @@ function plane(v: unknown): boolean {
   return typeof s.type === 'string' && vector(s.c, 3) && Number.isFinite(s.area) && (s.n === undefined || vector(s.n, 3));
 }
 
+function edgeRef(v: unknown): boolean {
+  if (!object(v) || !id(v.name) || !object(v.sig)) return false;
+  const s = v.sig;
+  return typeof s.type === 'string' && vector(s.m, 3) && Number.isFinite(s.len);
+}
+
+/** A link to the model on an entity of type t. */
+function ext(v: unknown, t: unknown): boolean {
+  if (v === undefined) return true;
+  if (!object(v)) return false;
+  if (v.kind === 'edge') return ['point', 'line', 'circle', 'arc'].includes(String(t)) && edgeRef(v.edge);
+  if (v.kind === 'vertex') return t === 'point' && Array.isArray(v.edges) && v.edges.length > 0 && v.edges.every(edgeRef) && vector(v.p, 3);
+  return false;
+}
+
 export function validSketch(sk: SketchFeature): boolean {
   if (!plane(sk.plane) || !Array.isArray(sk.entities) || !Array.isArray(sk.constraints)) return false;
   const frame: unknown = sk.frame;
   if (frame !== undefined && (!object(frame) || !['o', 'x', 'y', 'n'].every((k) => vector(frame[k], 3)))) return false;
   const entities = new Map<string, string>([['O', 'point']]);
   for (const e of sk.entities) {
-    if (!object(e) || !id(e.id) || entities.has(e.id) || !optionalBool(e.construction)) return false;
+    if (!object(e) || !id(e.id) || entities.has(e.id) || !optionalBool(e.construction) || !ext(e.ext, e.t)) return false;
     switch (e.t) {
       case 'point': if (!Number.isFinite(e.x) || !Number.isFinite(e.y)) return false; break;
       case 'line': if (!id(e.a) || !id(e.b)) return false; break;

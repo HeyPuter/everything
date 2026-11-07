@@ -199,6 +199,13 @@ a.icon-btn { text-decoration: none; }
 .cm-group { display: flex; align-items: stretch; gap: 1px; padding: 0 4px; border-right: 1px solid var(--border); flex: none; }
 .cm-group:last-child { border-right: 0; }
 .cm-stack { display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+@media (min-width: 761px) {
+  /* Narrow windows: constraint buttons keep their icons; tooltips name them. */
+  .cm-tools.compact .cm-group[data-group='constrain'] .tool.row { padding: 2px 4px; }
+  .cm-tools.compact .cm-group[data-group='constrain'] .tool.row .lbl {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+}
 .tool {
   position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px;
   min-width: 52px; max-width: 78px; padding: 4px 4px 3px; background: none; border: 1px solid transparent;

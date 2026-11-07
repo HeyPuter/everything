@@ -12,6 +12,7 @@ import { validFeature } from './validate-feature';
 import { validSketch } from './validate-sketch';
 import { validDrawing } from './validate-drawing';
 import { solveSketch } from '../sketch/solver';
+import { hasExternal } from '../sketch/external';
 
 export const FORMAT = 'parametric-part';
 
@@ -512,6 +513,9 @@ export class DocStore {
         const sk = structuredClone(f) as SketchFeature;
         try {
           solveSketch(sk.entities, sk.constraints, { value: (d) => this.dimensionValue(d, values), analyze: false });
+          // The geometry worker solves again sketches whose projected model
+          // geometry moved; it has no variables, so it gets the values.
+          if (hasExternal(sk)) for (const c of sk.constraints) if (isDimension(c) && typeof c.value === 'string') c.value = this.dimensionValue(c, values);
         } catch (e) {
           errors.set(f.id, (e as Error).message);
         }

@@ -4,7 +4,8 @@
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
 import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
-import { extendAt, filletCorner, smartDimension, trimAt, zeroDimensionReason } from '../../sketch/ops';
+import { PROJECTED_LOCKED, extendAt, filletCorner, smartDimension, trimAt, zeroDimensionReason } from '../../sketch/ops';
+import { isExternal } from '../../sketch/external';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
 import { numberField } from '../pm';
@@ -682,6 +683,7 @@ export function trimTool(ed: SketchEditor): SkTool {
     click(s) {
       const hit = ed.pickAt(s.p, 8);
       if (!hit || hit.kind !== 'curve') return true;
+      if (isExternal(ed.sketch, hit.id)) { toast({ kind: 'warning', message: PROJECTED_LOCKED }); return true; }
       let changed = false;
       ed.edit('Trim', (sk, newId) => { changed = trimAt(sk, hit.id, s.p, newId); });
       ed.app.setStatus(changed ? this.hint : 'Nothing trimmed. Click between intersections on a line, arc, or circle.');
@@ -705,6 +707,7 @@ export function extendTool(ed: SketchEditor): SkTool {
     click(s) {
       const hit = ed.pickAt(s.p, 8);
       if (!hit || hit.kind !== 'curve') return true;
+      if (isExternal(ed.sketch, hit.id)) { toast({ kind: 'warning', message: PROJECTED_LOCKED }); return true; }
       let ok = false;
       ed.edit('Extend', (sk, newId) => { ok = extendAt(sk, hit.id, s.p, newId); });
       if (!ok) ed.app.setStatus('Nothing to extend to in that direction.');

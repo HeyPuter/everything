@@ -72,6 +72,9 @@ export function cleanupConstraints(sk: SketchFeature) {
   sk.constraints = sk.constraints.filter((c) => c.refs.every((r) => ids.has(r)));
 }
 
+/** Why trim, extend and sketch fillet leave projected geometry alone. */
+export const PROJECTED_LOCKED = 'Projected geometry follows its model edge, so it cannot be trimmed, extended or filleted. Unlink it in the PropertyManager first.';
+
 // ---------- relations ----------
 
 export type EntityKind = 'point' | 'line' | 'circle' | 'arc' | 'spline';
@@ -323,14 +326,14 @@ export function zeroDimensionReason(sk: SketchFeature, spec: DimSpec): string | 
   if (spec.type === 'angle' || spec.value > 1e-9) return null;
   const k = spec.refs.map((id) => kindOf(sk, id));
   const lines = k.filter((x) => x === 'line').length;
-  if (lines === 2) return 'These lines are in line with each other, so there is no distance to dimension. Use a Collinear relation to keep them that way.';
+  if (lines === 2) return 'These lines are in line with each other, so there is no distance to dimension. Use a Collinear constraint to keep them that way.';
   if (lines === 1) {
     const l = sk.entities.find((e) => e.id === spec.refs[k.indexOf('line')]) as SkLine;
     if (spec.refs.length === 2 && (spec.refs.includes(l.a) || spec.refs.includes(l.b))) return 'That point is an end of the line, so its distance to the line is always zero. Pick another point or line to dimension to.';
-    return 'That point lies on the line, so there is no distance to dimension. Use a Coincident relation to keep it on the line.';
+    return 'That point lies on the line, so there is no distance to dimension. Use a Coincident constraint to keep it on the line.';
   }
-  if (k.some((x) => x === 'circle' || x === 'arc')) return 'These centres are at the same place, so there is no distance to dimension. Use a Concentric or Coincident relation to keep them together.';
-  return 'These points are at the same place, so there is no distance to dimension. Use a Coincident relation to keep them together.';
+  if (k.some((x) => x === 'circle' || x === 'arc')) return 'These centres are at the same place, so there is no distance to dimension. Use a Concentric or Coincident constraint to keep them together.';
+  return 'These points are at the same place, so there is no distance to dimension. Use a Coincident constraint to keep them together.';
 }
 
 export function lineIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | null {
@@ -400,7 +403,8 @@ function dropLengthDimensions(sk: SketchFeature, lineId: Id) {
 export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: string) => Id): boolean {
   const ix = new SketchIndex(sk.entities);
   const found = ix.get(curveId);
-  if (!found || found.t === 'point') return false;
+  // Projected geometry is where its model edge is: trimming it would not last.
+  if (!found || found.t === 'point' || found.ext) return false;
   const e: SkCurve = found;
   const cuts = cutPoints(sk, e).map((c) => ({ ...c, t: curveParam(ix, e, c.p) }));
   const tc = curveParam(ix, e, at);
@@ -507,7 +511,7 @@ function moveConstraintsOnPoint(sk: SketchFeature, pointId: Id, newCurve: Id, ol
 export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: string) => Id): boolean {
   const ix = new SketchIndex(sk.entities);
   const l = ix.get(lineId);
-  if (!l || l.t !== 'line') return false;
+  if (!l || l.t !== 'line' || l.ext) return false;
   const a = ix.pt(l.a), b = ix.pt(l.b);
   const fromB = dist2(at, b) < dist2(at, a);
   const start = fromB ? a : b, end = fromB ? b : a;
@@ -545,6 +549,7 @@ export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, new
   // the full length an earlier fillet keeps) stay on the virtual sharp.
   if (lines.length > 2 && lines.filter((l) => !l.construction).length === 2) lines = lines.filter((l) => !l.construction);
   if (lines.length !== 2) return 'Select a corner where exactly two lines meet';
+  if (lines.some((l) => l.ext)) return PROJECTED_LOCKED;
   const corner = ix.pt(pointId);
   const far = lines.map((l) => ix.pt(l.a === pointId ? l.b : l.a));
   const u1 = norm2(sub2(far[0], corner)), u2 = norm2(sub2(far[1], corner));

@@ -14,7 +14,6 @@ import { MATERIALS } from '../model/materials';
 import { uniqueId } from '../model/ids';
 import { mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
 import { SketchIndex } from '../sketch/geom';
-import { convertEdges } from '../sketch/convert';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
 import { h, formatShortcut, isMac, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -24,6 +23,7 @@ import { PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, se
 import { type SelItem, remapItem } from './selection';
 import type { MeasureTarget } from '../kernel/protocol';
 import { REPO_URL } from './shell';
+import { convertTool, projectModelItems } from './sketch/constrain';
 
 // ---------- equations ----------
 
@@ -708,22 +708,18 @@ export function mirrorSketchEntities(app: App) {
   ed.edit('Mirror entities', (s2, newId) => { mirrorEntities(s2, ids.filter((x) => x !== axis), axis, newId); });
 }
 
-/** Projects selected model edges onto the sketch plane as fixed geometry. */
+/**
+ * Convert Entities: projects the selected model edges, faces and vertices into
+ * the sketch, linked to the model. With nothing selected, pick them one by one.
+ */
 export function convertEntities(app: App) {
   const ed = app.sketchEditor;
   if (!ed) return;
-  const edges = app.selection.ofKind('edge').map((s) => app.edges[s.index]).filter(Boolean);
-  const faces = app.selection.ofKind('face').map((s) => app.faces[s.index]).filter(Boolean);
-  // A selected face converts all of its edges.
-  for (const f of faces) {
-    const fi = app.faces.indexOf(f);
-    for (const e of app.edges) if (e.faces.includes(fi) && !edges.includes(e)) edges.push(e);
-  }
-  if (!edges.length) { toast({ kind: 'warning', message: 'Select model edges or faces to convert into the sketch.' }); return; }
-  let skipped = 0;
-  ed.edit('Convert entities', (sk, newId) => { skipped = convertEdges(sk, ed.frame, edges, newId).skipped; });
+  if (ed.tool?.id === 'convertEntities') { ed.setTool(null); return; }
+  const items = app.selection.items.filter((it) => it.kind === 'edge' || it.kind === 'face' || it.kind === 'vertex');
+  if (!items.length) { ed.setTool(convertTool(ed)); return; }
+  projectModelItems(ed, items);
   app.selection.clear();
-  if (skipped) toast({ kind: 'warning', message: `${skipped} edge(s) could not be converted (only lines, and circles parallel to the sketch plane are supported).` });
 }
 
 export function dimensionValueText(app: App, d: SkDimension): string {

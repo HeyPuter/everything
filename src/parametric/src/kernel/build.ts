@@ -17,12 +17,15 @@ import { add, dist, dot, len, normalize, scale, sub, toLocal, toWorld } from '..
 import type {
   AxisRef, ChamferFeature, CircularPatternFeature, DraftFeature, EdgeRef, ExtrudeFeature, FaceRef, Feature,
   FilletFeature, HoleFeature, Id, ImportFeature, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature,
-  PlaneRef, RevolveFeature, ShellFeature, SketchFeature, SweepFeature,
+  PlaneRef, RevolveFeature, ShellFeature, SkDimension, SketchFeature, SweepFeature,
 } from '../model/types';
 import { dependencies } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
 import { type Region, type Seg2, buildProfiles, inRegion, pointInPoly, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, splineBeziers } from '../sketch/geom';
+import { hasExternal, resolveExternal } from '../sketch/external';
+import { solveSketch } from '../sketch/solver';
+import { measureDimension } from '../sketch/ops';
 import type {
   BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MassProperties, MeasureResult, MeasureTarget, MeshData,
   ProjectionRequest, ProjectionResult,
@@ -69,6 +72,8 @@ interface State {
   edges: NamedEdge[] | null;
   frames: Map<Id, Frame>;
   sketches: Map<Id, SketchFeature>;
+  /** Projected sketch entities whose model edge or vertex is gone, by sketch. */
+  lostRefs: Map<Id, Id[]>;
   tools: Map<Id, Tool>;
 }
 
@@ -78,7 +83,7 @@ interface Step {
   status: FeatureStatus;
 }
 
-const emptyState = (): State => ({ body: null, faces: [], edges: null, frames: new Map(), sketches: new Map(), tools: new Map() });
+const emptyState = (): State => ({ body: null, faces: [], edges: null, frames: new Map(), sketches: new Map(), lostRefs: new Map(), tools: new Map() });
 
 const cloneState = (s: State): State => ({
   body: s.body,
@@ -86,6 +91,7 @@ const cloneState = (s: State): State => ({
   edges: s.edges,
   frames: new Map(s.frames),
   sketches: new Map(s.sketches),
+  lostRefs: new Map(s.lostRefs),
   tools: new Map(s.tools),
 });
 
@@ -212,6 +218,9 @@ export class ModelBuilder {
     }
     const frames: Record<Id, Frame> = {};
     for (const [k, v] of state.frames) frames[k] = v;
+    const sketches: NonNullable<BuildResult['sketches']> = {};
+    const linked = (s: State, id: Id, sk: SketchFeature) => { if (hasExternal(sk)) sketches[id] = { entities: sk.entities, lost: s.lostRefs.get(id) ?? [] }; };
+    for (const [k, v] of state.sketches) linked(state, k, v);
     // Frames of features beyond the rollback bar that were built before stay
     // useful for display; take them from the deepest cached step.
     const last = this.steps[this.steps.length - 1]?.state;
@@ -226,6 +235,7 @@ export class ModelBuilder {
       bbox: state.body ? boxOf(state.body) : null,
       ms: performance.now() - t0,
       preview: null,
+      sketches,
     };
 
     if (req.preview) {
@@ -247,6 +257,10 @@ export class ModelBuilder {
           const fr = p.frames.get(req.preview.id);
           if (fr) result.frames[req.preview.id] = fr;
         }
+        if (req.preview.type === 'sketch') {
+          const sk = p.sketches.get(req.preview.id);
+          if (sk) linked(p, req.preview.id, sk);
+        }
       } catch (e) {
         if (isFatal(e)) throw e;
         result.previewError = errorText(e);
@@ -261,8 +275,9 @@ export class ModelBuilder {
   private async apply(f: Feature, st: State, req: BuildRequest): Promise<'tool' | 'body' | 'none'> {
     switch (f.type) {
       case 'sketch': {
-        st.frames.set(f.id, this.resolvePlane(f.plane, st));
-        st.sketches.set(f.id, f);
+        const frame = this.resolvePlane(f.plane, st);
+        st.frames.set(f.id, frame);
+        st.sketches.set(f.id, this.linkSketch(f, frame, st));
         return 'none';
       }
       case 'plane': this.applyPlane(f, st); return 'none';
@@ -280,6 +295,38 @@ export class ModelBuilder {
       case 'draft': this.applyDraft(f, st); return 'body';
       case 'import': await this.applyImport(f, st, req); return 'body';
     }
+  }
+
+  /**
+   * A sketch with geometry projected from the model, its projected entities
+   * moved onto their model edges as the model now stands. When they moved,
+   * the sketch is solved again so the geometry constrained to them follows.
+   */
+  private linkSketch(f: SketchFeature, frame: Frame, st: State): SketchFeature {
+    if (!hasExternal(f)) return f;
+    const sk = structuredClone(f);
+    const find = (ref: EdgeRef) => {
+      try {
+        return this.edgesOf(st)[this.resolveEdge(ref, st)].desc;
+      } catch (e) {
+        if (e instanceof FeatureError) return null;
+        throw e;
+      }
+    };
+    const { moved, lost } = resolveExternal(sk, frame, find);
+    if (lost.length) {
+      st.lostRefs.set(f.id, lost);
+      this.warning = lost.length === 1
+        ? 'A projected sketch entity lost its model edge and stays where it was. Delete it or project the edge again.'
+        : `${lost.length} projected sketch entities lost their model edges and stay where they were. Delete them or project the edges again.`;
+    } else st.lostRefs.delete(f.id);
+    if (moved) {
+      // Dimension values arrive evaluated; one that could not be keeps the size it has.
+      const ix = new SketchIndex(sk.entities);
+      const value = (d: SkDimension) => (typeof d.value === 'number' ? d.value : measureDimension(sk, d, ix));
+      solveSketch(sk.entities, sk.constraints, { value, analyze: false });
+    }
+    return sk;
   }
 
   // ---- references ----

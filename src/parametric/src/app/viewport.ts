@@ -684,16 +684,17 @@ export class Viewport {
   }
 
   sketchPolylines(f: SketchFeature, fr: Frame, seg: (a: Vec3, b: Vec3, construction: boolean) => void, point?: (p: Vec3) => void) {
-    const ix = new SketchIndex(f.entities);
+    const entities = this.app.builtEntities(f);
+    const ix = new SketchIndex(entities);
     const tol = this.camera.pixelSize * 0.5;
     const used = new Set<string>();
-    for (const e of f.entities) {
+    for (const e of entities) {
       if (e.t === 'point') continue;
       for (const id of e.t === 'spline' ? e.pts : e.t === 'circle' ? [e.c] : e.t === 'arc' ? [e.a, e.b, e.c] : [e.a, e.b]) used.add(id);
       const poly = tessellate(ix, e, Math.max(tol, 1e-4));
       for (let i = 0; i + 1 < poly.length; i++) seg(toWorld(fr, poly[i]), toWorld(fr, poly[i + 1]), !!e.construction);
     }
-    if (point) for (const e of f.entities) if (e.t === 'point' && !used.has(e.id)) point(toWorld(fr, [e.x, e.y]));
+    if (point) for (const e of entities) if (e.t === 'point' && !used.has(e.id)) point(toWorld(fr, [e.x, e.y]));
   }
 
   // ---------- view helpers ----------

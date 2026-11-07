@@ -8,7 +8,7 @@ import { DocStore, newDocument } from '../model/document';
 import { evaluateVariables } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
 import { BASE_FRAMES, BASE_PLANE_NAMES } from '../model/planes';
-import type { BasePlane, Feature, Id, PlaneRef, SketchFeature } from '../model/types';
+import type { BasePlane, Feature, Id, PlaneRef, SkEntity, SketchFeature } from '../model/types';
 import { UNIT_SYSTEMS, formatLength } from '../model/units';
 import { Renderer, type Theme } from '../render/renderer';
 import { VIEWS } from '../render/camera';
@@ -37,6 +37,7 @@ export interface Colors {
   sketchFull: number[];
   sketchOver: number[];
   sketchConstruction: number[];
+  sketchExternal: number[];
   sketchSelected: number[];
   hover: number[];
   dimension: number[];
@@ -84,6 +85,8 @@ export class App {
   faces: FaceInfo[] = [];
   edges: EdgeInfo[] = [];
   frames: Record<Id, Frame> = {};
+  /** Sketches with projected model geometry, as the last rebuild placed it. */
+  linkedSketches: NonNullable<BuildResult['sketches']> = {};
   bbox: { min: Vec3; max: Vec3 } | null = null;
   colors!: Colors;
   kernelReady = false;
@@ -201,7 +204,7 @@ export class App {
   readColors(): Colors {
     const c = (n: string) => cssColor(n);
     return {
-      sketchUnder: c('--sketch-under'), sketchFull: c('--sketch-full'), sketchOver: c('--sketch-over'), sketchConstruction: c('--sketch-construction'),
+      sketchUnder: c('--sketch-under'), sketchFull: c('--sketch-full'), sketchOver: c('--sketch-over'), sketchConstruction: c('--sketch-construction'), sketchExternal: c('--sketch-external'),
       sketchSelected: c('--sketch-selected'), hover: c('--hover-3d'), dimension: c('--dimension'), dimensionDriven: c('--dimension-driven'),
     };
   }
@@ -884,6 +887,7 @@ export class App {
     this.faces = res.faces;
     this.edges = res.edges;
     this.frames = res.frames;
+    this.linkedSketches = res.sketches ?? {};
     this.bbox = res.bbox;
     if (!res.meshUnchanged) {
       this.vertices = res.mesh?.vertices ?? new Float32Array(0);
@@ -900,6 +904,8 @@ export class App {
     if (this.sketchEditor) {
       const fr = res.frames[this.sketchEditor.sketchId];
       if (fr) this.sketchEditor.frame = fr;
+      // Projected geometry follows the model: put it where this build found its edges.
+      this.sketchEditor.syncExternal(res.sketches?.[this.sketchEditor.sketchId] ?? null);
       this.sketchEditor.render();
     }
     this.selection.revalidate(res.faces, res.edges);
@@ -951,6 +957,17 @@ export class App {
     if (ref.kind === 'feature') return this.frames[ref.id] ?? null;
     const f = this.faces.find((x) => x.name === ref.face.name);
     return f?.frame ?? null;
+  }
+
+  /**
+   * A sketch's geometry as built: projected entities on their model edges as
+   * the last rebuild found them. The stored geometry until a rebuild has seen
+   * the sketch as it is now.
+   */
+  builtEntities(f: SketchFeature): SkEntity[] {
+    const linked = this.linkedSketches[f.id]?.entities;
+    if (!linked || linked.length !== f.entities.length || linked.some((e, i) => e.id !== f.entities[i].id || e.t !== f.entities[i].t)) return f.entities;
+    return linked;
   }
 
   frameOfSketch(f: SketchFeature): Frame | null {
@@ -1039,8 +1056,11 @@ export class App {
     }
     if (this.sketchEditor) {
       // Model edges/vertices can be selected (e.g. for Convert Entities).
-      if (item) { if (e.shift || e.ctrl) this.selection.toggle(item); else this.selection.set([item]); }
-      else if (!e.shift && !e.ctrl) this.selection.clear();
+      if (item) {
+        if (e.shift || e.ctrl) this.selection.toggle(item); else this.selection.set([item]);
+        // With sketch geometry, a model edge or vertex can take constraints (it is projected first).
+        this.sketchEditor.showQuickRelations(e);
+      } else if (!e.shift && !e.ctrl) this.selection.clear();
       return;
     }
     if (!item) { if (!e.shift && !e.ctrl) this.selection.clear(); return; }
@@ -1079,7 +1099,7 @@ export class App {
   }
 
   openRelationMenu(id: Id, x: number, y: number) {
-    openMenu(this.hooks.contextItems('viewport', id), x, y, { label: 'Relation menu' });
+    openMenu(this.hooks.contextItems('viewport', id), x, y, { label: 'Constraint menu' });
   }
 
   private ctxToolbar: HTMLElement | null = null;

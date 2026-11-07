@@ -58,6 +58,7 @@
   --sketch-full: #14181d;
   --sketch-over: #d22d2d;
   --sketch-construction: #6f8db8;
+  --sketch-external: #a23bb0;
   --sketch-selected: #f0821e;
   --sketch-inactive: #5c6b80;
   --dimension: #1b1f24;
@@ -133,6 +134,7 @@
   --sketch-full: #f1f3f6;
   --sketch-over: #ff6b62;
   --sketch-construction: #8ea6c8;
+  --sketch-external: #d98ce6;
   --sketch-selected: #ffa04a;
   --sketch-inactive: #9aa8bb;
   --dimension: #e9ecf0;

@@ -5,7 +5,7 @@
 
 import type { Frame, Vec2, Vec3 } from '../../math/vec';
 import { dist2, toLocal, toWorld } from '../../math/vec';
-import type { Id, Param, SkConstraint, SkCurve, SkDimension, SkEntity, SketchFeature } from '../../model/types';
+import type { Id, Param, RelationType, SkConstraint, SkCurve, SkDimension, SkEntity, SketchFeature } from '../../model/types';
 import { isDimension } from '../../model/types';
 import { UNIT_SYSTEMS, formatEditable, formatNumber } from '../../model/units';
 import { evaluate, evaluateVariables, variableReferenceChanges } from '../../model/expr';
@@ -13,6 +13,8 @@ import { changeFeatureUnits } from '../../model/document';
 import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf, sketchBounds, tessellate } from '../../sketch/geom';
 import { type SolveResult, solveSketch } from '../../sketch/solver';
 import { RELATION_LABELS, availableRelations, cleanupConstraints, deleteItems, idFactory, makeRelations, measureDimension, nextDimName, usedPoints } from '../../sketch/ops';
+import { externalPointIds, hasExternal, isExternal, projectEdgeInto, projectVertexInto } from '../../sketch/external';
+import type { SelItem } from '../selection';
 import { h } from '../../ui/dom';
 import { icon, relationGlyph } from '../../ui/icons';
 import { toast } from '../../ui/overlay';
@@ -55,6 +57,11 @@ export interface SkTool {
   /** Pick entities instead of snapping (trim, dimension...). */
   picks?: boolean;
 }
+
+/** Selected items a constraint can use: sketch entities, and model edges and vertices (projected when it is added). */
+export type TargetItem = Extract<SelItem, { kind: 'sk' | 'edge' | 'vertex' }>;
+
+export const isTargetItem = (it: SelItem): it is TargetItem => it.kind === 'sk' || it.kind === 'edge' || it.kind === 'vertex';
 
 type Pickable = { kind: 'point'; id: Id } | { kind: 'curve'; id: Id };
 
@@ -169,6 +176,82 @@ export class SketchEditor implements ViewportTool {
   // ---------- model changes ----------
 
   dimValue = (d: SkDimension): number => this.app.store.dimensionValue(d);
+
+  /** Projected entities whose model edge or vertex the last rebuild did not find. */
+  lostExternal = new Set<Id>();
+
+  /**
+   * Puts projected geometry where the last rebuild found its model edges
+   * (without an undo step, like re-solving), then solves the sketch again so
+   * the geometry constrained to it follows. Entities created or unlinked since
+   * that rebuild are left alone.
+   */
+  syncExternal(built: { entities: SkEntity[]; lost: Id[] } | null) {
+    const sk = this.sketch;
+    if (!sk) return;
+    this.lostExternal = new Set(built?.lost ?? []);
+    if (!built || !hasExternal(sk)) return;
+    const owned = externalPointIds(sk.entities);
+    const src = new Map(built.entities.map((e) => [e.id, e]));
+    let moved = false;
+    for (const e of sk.entities) {
+      const b = src.get(e.id);
+      if (!b || b.t !== e.t) continue;
+      if (e.t === 'point' && b.t === 'point' && owned.has(e.id) && (e.x !== b.x || e.y !== b.y)) { e.x = b.x; e.y = b.y; moved = true; }
+      else if (e.t === 'circle' && b.t === 'circle' && e.ext && e.r !== b.r) { e.r = b.r; moved = true; }
+    }
+    if (!moved) return;
+    this.resolve(false);
+    this.app.refreshSketchPanel();
+  }
+
+  /**
+   * Sketch ids for the items, projecting model edges and vertices into `sk`
+   * as linked reference (construction) geometry. Null for an item that
+   * cannot be projected.
+   */
+  targetIds(sk: SketchFeature, items: TargetItem[], newId: (p: string) => Id): (Id | null)[] {
+    return items.map((it) => {
+      if (it.kind === 'sk') return it.id;
+      if (it.kind === 'edge') {
+        const e = this.app.edges[it.index];
+        return e ? projectEdgeInto(sk, this.frame, e, newId, { construction: true }) : null;
+      }
+      return projectVertexInto(sk, this.frame, it.p, this.app.edges, newId);
+    });
+  }
+
+  /**
+   * Constraints that fit the selection (model edges and vertices count as
+   * their projections). None while anything else is selected.
+   */
+  selectionRelations(items: SelItem[] = this.app.selection.items): RelationType[] {
+    const picked = items.filter((it) => it.kind !== 'skdim' && it.kind !== 'skrel');
+    if (!picked.length || !picked.every(isTargetItem)) return [];
+    const model = picked.some((it) => it.kind !== 'sk');
+    const sk = model ? structuredClone(this.sketch) : this.sketch;
+    const ids = this.targetIds(sk, picked, idFactory(sk));
+    if (ids.some((id) => !id)) return [];
+    const unique = [...new Set(ids as Id[])];
+    if (unique.length !== ids.length) return [];
+    // Projected geometry is fixed: a constraint among it alone holds nothing.
+    if (unique.every((id) => isExternal(sk, id))) return [];
+    const types = availableRelations(sk, unique);
+    return model ? types.filter((t) => t !== 'fix') : types;
+  }
+
+  /** Adds a constraint between the items as one undo step, projecting model edges and vertices first. */
+  addRelation(type: RelationType, items: SelItem[] = this.app.selection.items) {
+    const picked = items.filter(isTargetItem);
+    let ids: Id[] = [];
+    this.edit(`Add ${RELATION_LABELS[type].toLowerCase()} constraint`, (sk, newId) => {
+      const found = this.targetIds(sk, picked, newId);
+      if (found.some((id) => !id)) return;
+      ids = found as Id[];
+      sk.constraints.push(...makeRelations(sk, type, ids, newId));
+    });
+    if (ids.length) this.app.selection.set(ids.map((id) => this.selItem(id)));
+  }
 
   /** Re-solves the sketch in the document (no undo step). */
   resolve(render = true) {
@@ -487,20 +570,22 @@ export class SketchEditor implements ViewportTool {
     } else this.app.selection.setHover(null);
   }
 
-  /** Context toolbar with the relations that fit the selection. */
-  private showQuickRelations(e: VPEvent) {
+  /** Context toolbar with the constraints that fit the selection (model edges and vertices included). */
+  showQuickRelations(e: VPEvent) {
     if (e.pointerType === 'touch') return;
+    const items = this.app.selection.items.filter(isTargetItem);
     const ids = this.selectedIds();
-    if (!ids.length) { this.app.hideContextToolbar(); return; }
-    const types = availableRelations(this.sketch, ids).filter((t) => t !== 'fix' || ids.length === 1);
+    if (!items.length) { this.app.hideContextToolbar(); return; }
+    const types = this.selectionRelations().filter((t) => t !== 'fix' || items.length === 1);
     const buttons = types.map((t) => ({
       icon: 'relation', label: `Make ${RELATION_LABELS[t]}`, glyph: relationGlyph(t, 16),
-      run: () => this.edit(`Add ${RELATION_LABELS[t].toLowerCase()} relation`, (sk, newId) => { sk.constraints.push(...makeRelations(sk, t, ids, newId)); }, { select: ids }),
+      run: () => this.addRelation(t, items),
     }));
     if (ids.some((id) => this.sketch.entities.find((x) => x.id === id && x.t !== 'point'))) {
       buttons.push({ icon: 'construction', label: 'Construction Geometry', glyph: icon('construction', 18), run: () => this.toggleConstruction() });
     }
-    this.app.showFloatingToolbar(buttons, e.x + 14, e.y - 48, 'Sketch relations', 5000);
+    if (!buttons.length) { this.app.hideContextToolbar(); return; }
+    this.app.showFloatingToolbar(buttons, e.x + 14, e.y - 48, 'Sketch constraints', 5000);
   }
 
   // ---------- box selection ----------
@@ -804,11 +889,13 @@ export class SketchEditor implements ViewportTool {
     });
   }
 
-  private colorFor(e: SkEntity, selected: boolean, hovered: boolean, conflicted: Set<Id>): number[] {
+  private colorFor(e: SkEntity, selected: boolean, hovered: boolean, conflicted: Set<Id>, external: Set<Id>): number[] {
     const css = this.app.colors;
     if (selected) return css.sketchSelected;
     if (hovered) return css.hover;
-    if (conflicted.has(e.id)) return css.sketchOver;
+    if (conflicted.has(e.id) || this.lostExternal.has(e.id)) return css.sketchOver;
+    // Projected geometry: where the model puts it, in its own colour.
+    if (external.has(e.id)) return css.sketchExternal;
     if (e.construction) return css.sketchConstruction;
     const free = !this.solve || this.solve.freeEntities.has(e.id);
     return free ? css.sketchUnder : css.sketchFull;
@@ -826,6 +913,8 @@ export class SketchEditor implements ViewportTool {
     // Entities referenced by a constraint that cannot be satisfied (drawn red).
     const conflicted = new Set<Id>();
     if (this.solve?.conflicting.size) for (const c of sk.constraints) if (this.solve.conflicting.has(c.id)) c.refs.forEach((r) => conflicted.add(r));
+    const external = externalPointIds(sk.entities);
+    for (const e of sk.entities) if (e.ext) external.add(e.id);
     const pos: number[] = [], col: number[] = [];
     const dpos: number[] = [], dcol: number[] = [];
     const push = (arr: number[], carr: number[], a: Vec3, b: Vec3, c: number[], alpha = 255) => {
@@ -834,7 +923,7 @@ export class SketchEditor implements ViewportTool {
     };
     for (const e of sk.entities) {
       if (e.t === 'point') continue;
-      const c = this.colorFor(e, selected.has(e.id), hoverId === e.id, conflicted);
+      const c = this.colorFor(e, selected.has(e.id), hoverId === e.id, conflicted, external);
       const poly = tessellate(ix, e, tol);
       const target = e.construction ? dpos : pos;
       const ctarget = e.construction ? dcol : col;
@@ -852,7 +941,7 @@ export class SketchEditor implements ViewportTool {
     for (const e of sk.entities) {
       if (e.t !== 'point') continue;
       const isSel = selected.has(e.id), isHov = hoverId === e.id;
-      const c = this.colorFor(e, isSel, isHov, conflicted);
+      const c = this.colorFor(e, isSel, isHov, conflicted, external);
       ppos.push(...toWorld(fr, [e.x, e.y]));
       pcol.push(c[0] * 255, c[1] * 255, c[2] * 255, 255);
       const standalone = !used.has(e.id);
@@ -1040,7 +1129,7 @@ export class SketchEditor implements ViewportTool {
   }
 
   private makeBadge(id: Id, type: string): HTMLElement {
-    const el = h('div', { class: 'rel-badge', role: 'button', tabindex: '-1', title: type[0].toUpperCase() + type.slice(1), 'aria-label': `${type} relation` }, relationGlyph(type, 12));
+    const el = h('div', { class: 'rel-badge', role: 'button', tabindex: '-1', title: type[0].toUpperCase() + type.slice(1), 'aria-label': `${type} constraint` }, relationGlyph(type, 12));
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       if (e.shiftKey || e.ctrlKey || e.metaKey) this.app.selection.toggle({ kind: 'skrel', id });

@@ -2,7 +2,7 @@
 // (not copied) to keep large models cheap to update.
 
 import type { Frame, Vec3 } from '../math/vec';
-import type { Feature, Id } from '../model/types';
+import type { Feature, Id, SkEntity } from '../model/types';
 
 /** Features with every Param already evaluated to a number. */
 export type ResolvedFeature = Feature;
@@ -83,6 +83,12 @@ export interface BuildResult {
   frames: Record<Id, Frame>;
   /** Resolved axes used by features (for display). */
   bbox: { min: Vec3; max: Vec3 } | null;
+  /**
+   * Sketches with geometry projected from the model, as built: projected
+   * entities moved onto their model edges and the sketch solved again. `lost`
+   * lists projected entities whose edge or vertex is gone.
+   */
+  sketches?: Record<Id, { entities: SkEntity[]; lost: Id[] }>;
   /** Milliseconds spent building (excluding cached steps). */
   ms: number;
   /** Preview tool body for the feature being edited. */

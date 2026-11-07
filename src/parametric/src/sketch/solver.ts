@@ -85,6 +85,8 @@ export class SketchSystem {
       } else if (e.t === 'circle') this.x[this.radiusVar.get(e.id)!] = e.r;
     }
     for (const e of entities) this.entityVars.set(e.id, this.varsOfEntity(e));
+    // Geometry projected from the model is where the model puts it.
+    for (const e of entities) if (e.ext) for (const v of this.entityVars.get(e.id)!) this.fixed[v] = 1;
     this.buildEquations();
   }
 

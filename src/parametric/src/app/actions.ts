@@ -28,6 +28,8 @@ import {
 } from './sketch/tools';
 import { h } from '../ui/dom';
 import type { PlaneRef } from '../model/types';
+import { RELATION_LABELS } from '../sketch/ops';
+import { CONSTRAINTS, CONSTRAINT_HINTS, runConstraint } from './sketch/constrain';
 
 const SKETCH_TOOLS: Record<string, { label: string; shortcut?: string; desc: string; make: (ed: SketchEditor) => SkTool }> = {
   line: { label: 'Line', shortcut: 'L', desc: 'Sketch straight lines.', make: (ed) => lineTool(ed) },
@@ -192,12 +194,25 @@ export function registerCommands(app: App, files: FileOps) {
     ...Object.keys(SKETCH_TOOLS).map(tool),
     { id: 'offset', label: 'Offset Entities', icon: 'offset', description: 'Copy selected sketch curves at a distance.', enabled: inSketch, run: () => { void app.openPanel(new OffsetPanel(app)); } },
     { id: 'mirrorEntities', label: 'Mirror Entities', icon: 'mirrorEntities', description: 'Mirror selected sketch entities about a line.', enabled: inSketch, run: () => mirrorSketchEntities(app) },
-    { id: 'convertEntities', label: 'Convert Entities', icon: 'convertEntities', description: 'Project selected model edges into the sketch.', enabled: inSketch, run: () => convertEntities(app) },
+    {
+      id: 'convertEntities', label: 'Convert Entities', icon: 'convertEntities', keywords: 'project projection external geometry use reference model edge vertex link',
+      description: 'Project model edges, faces or vertices into the sketch. The projected geometry stays linked to the model and follows it when it changes.',
+      enabled: inSketch, checked: () => app.sketchEditor?.tool?.id === 'convertEntities', run: () => convertEntities(app),
+    },
     { id: 'construction', label: 'Construction Geometry', icon: 'construction', shortcut: 'Q', description: 'Toggle selected sketch entities between normal and construction geometry.', enabled: inSketch, run: () => app.sketchEditor?.toggleConstruction() },
     {
-      id: 'addRelation', label: 'Add Relation', icon: 'relation', description: 'Add geometric relations between selected sketch entities.', enabled: inSketch,
-      run: () => { app.sketchEditor?.setTool(null); app.refreshSketchPanel(); app.setStatus('Select entities; the available relations appear in the PropertyManager.'); },
+      id: 'addRelation', label: 'Add Constraint', icon: 'relation', keywords: 'relation constrain geometric', description: 'Add geometric constraints between selected sketch entities.', enabled: inSketch,
+      run: () => { app.sketchEditor?.setTool(null); app.refreshSketchPanel(); app.setStatus('Select geometry; the constraints that fit appear in the PropertyManager. Or pick a constraint in the Constrain group of the Sketch tab.'); },
     },
+    ...CONSTRAINTS.map((t): Command => ({
+      id: `constraint:${t}`, label: RELATION_LABELS[t], icon: `rel:${t}`, keywords: 'constraint constrain relation sketch geometric', description: CONSTRAINT_HINTS[t],
+      enabled: inSketch, checked: () => app.sketchEditor?.tool?.id === `constraint:${t}`,
+      run: () => {
+        if (!app.sketchEditor) return;
+        if (app.panel) void app.closePanel(false);
+        runConstraint(app.sketchEditor, t);
+      },
+    })),
     // ---- features ----
     feature('extrude', 'Extruded Boss', 'extrude', 'Extrude a sketch to add material.', { shortcut: 'E', keywords: 'extrusion pad boss' }),
     feature('revolve', 'Revolved Boss', 'revolve', 'Revolve a sketch around an axis to add material.', { keywords: 'revolution lathe' }),
@@ -275,7 +290,7 @@ export function registerCommands(app: App, files: FileOps) {
     toggle('showPlanes', 'Planes', () => app.viewport.showPlanes, (v) => app.changeSettings({ showPlanes: v })),
     toggle('showOrigin', 'Origins', () => app.viewport.showOrigin, (v) => app.changeSettings({ showOrigin: v })),
     toggle('showSketches', 'Sketches', () => app.viewport.showSketches, (v) => app.changeSettings({ showSketches: v })),
-    toggle('showRelations', 'Sketch Relations', () => app.settings.showRelations, (v) => app.changeSettings({ showRelations: v })),
+    toggle('showRelations', 'Sketch Constraints', () => app.settings.showRelations, (v) => app.changeSettings({ showRelations: v })),
     toggle('showDimensions', 'Sketch Dimensions', () => app.settings.showDimensions, (v) => app.changeSettings({ showDimensions: v })),
     { id: 'theme:system', label: 'System Theme', icon: 'system', checked: () => getThemeChoice() === 'system', run: () => { setThemeChoice('system'); c.changed(); } },
     { id: 'theme:light', label: 'Light Theme', icon: 'light', checked: () => getThemeChoice() === 'light', run: () => { setThemeChoice('light'); c.changed(); } },
@@ -324,7 +339,7 @@ export const RIBBON: RibbonTab[] = [
   {
     id: 'sketch', label: 'Sketch',
     groups: [
-      [{ cmd: 'sketch' }, { cmd: 'tool:smartDimension' }],
+      [{ cmd: 'sketch' }],
       [
         { stack: [{ cmd: 'tool:line' }, { cmd: 'tool:centerline' }, { cmd: 'tool:point' }] },
         { stack: [{ cmd: 'tool:rectangle' }, { cmd: 'tool:centerRectangle' }, { cmd: 'tool:polygon' }] },
@@ -332,8 +347,16 @@ export const RIBBON: RibbonTab[] = [
         { stack: [{ cmd: 'tool:centerArc' }, { cmd: 'tool:tangentArc' }, { cmd: 'tool:arc3' }] },
         { stack: [{ cmd: 'tool:spline' }, { cmd: 'tool:sketchFillet' }] },
       ],
-      [{ cmd: 'tool:trim' }, { stack: [{ cmd: 'tool:extend' }, { cmd: 'offset' }, { cmd: 'convertEntities' }] }, { stack: [{ cmd: 'mirrorEntities' }, { cmd: 'construction' }, { cmd: 'addRelation' }] }],
+      [{ stack: [{ cmd: 'tool:trim' }, { cmd: 'tool:extend' }, { cmd: 'offset' }] }, { stack: [{ cmd: 'mirrorEntities' }, { cmd: 'convertEntities' }, { cmd: 'construction' }] }],
+      [
+        { cmd: 'tool:smartDimension' },
+        { stack: [{ cmd: 'constraint:coincident' }, { cmd: 'constraint:horizontal' }, { cmd: 'constraint:vertical' }] },
+        { stack: [{ cmd: 'constraint:parallel' }, { cmd: 'constraint:perpendicular' }, { cmd: 'constraint:tangent' }] },
+        { stack: [{ cmd: 'constraint:equal' }, { cmd: 'constraint:concentric' }, { cmd: 'constraint:midpoint' }] },
+        { stack: [{ cmd: 'constraint:collinear' }, { cmd: 'constraint:symmetric' }, { cmd: 'constraint:fix' }] },
+      ],
     ],
+    labels: ['Sketch', 'Draw', 'Modify', 'Constrain'],
   },
   {
     id: 'evaluate', label: 'Evaluate',
@@ -403,7 +426,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
       label: 'Tools', items: () => [
         { label: 'Sketch Entities', icon: 'line', submenu: () => ['line', 'centerline', 'rectangle', 'centerRectangle', 'circle', 'perimeterCircle', 'centerArc', 'tangentArc', 'arc3', 'polygon', 'slot', 'spline', 'point'].map((t) => m(`tool:${t}`)) },
         { label: 'Sketch Tools', icon: 'trim', submenu: () => [m('tool:sketchFillet'), m('tool:trim'), m('tool:extend'), m('offset'), m('mirrorEntities'), m('convertEntities'), m('construction')] },
-        { label: 'Dimensions and Relations', icon: 'smartDimension', submenu: () => [m('tool:smartDimension'), m('addRelation')] },
+        { label: 'Dimensions and Constraints', icon: 'smartDimension', submenu: () => [m('tool:smartDimension'), sep, ...CONSTRAINTS.map((t) => m(`constraint:${t}`))] },
         { label: 'Evaluate', icon: 'measure', submenu: () => [m('measure'), m('massProperties'), m('sectionView')] },
         sep, m('equations'), m('material'), m('options'),
       ],
@@ -434,12 +457,18 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
         sep, { label: 'Delete Dimension', icon: 'trash', run: () => ed.edit('Delete dimension', (sk) => { sk.constraints = sk.constraints.filter((k) => k.id !== id); }) },
       ];
     }
-    if (con) return [{ label: 'Delete Relation', icon: 'trash', run: () => ed.edit('Delete relation', (sk) => { sk.constraints = sk.constraints.filter((k) => k.id !== id); }) }];
+    if (con) return [{ label: 'Delete Constraint', icon: 'trash', run: () => ed.edit('Delete constraint', (sk) => { sk.constraints = sk.constraints.filter((k) => k.id !== id); }) }];
   }
   if (ed) {
     const items: MenuItem[] = [];
     const ids = ed.selectedIds();
+    const fits = ed.selectionRelations();
+    if (fits.length) {
+      const sel = [...app.selection.items];
+      items.push({ label: 'Add Constraint', icon: 'relation', submenu: () => fits.map((t) => ({ label: RELATION_LABELS[t], icon: `rel:${t}`, run: () => ed.addRelation(t, sel) })) });
+    }
     if (ids.length) items.push(m('construction'), m('delete'), sep);
+    else if (fits.length) items.push(sep);
     items.push(m('tool:smartDimension'), m('tool:line'), m('tool:rectangle'), m('tool:circle'), sep, m('convertEntities'), m('exitSketch'), sep, m('zoomFit'), m('normalTo'));
     return items;
   }

@@ -19,6 +19,8 @@ export interface RibbonTab {
   id: string;
   label: string;
   groups: RibbonItem[][];
+  /** Names of the groups, shown under them. */
+  labels?: string[];
 }
 
 export interface Shell {
@@ -146,6 +148,7 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
       (() => { const b = commandButton(cmds, 'share'); b.classList.add('hide-mobile'); return b; })(), github, apps, account));
 
   const cmTools = h('div', { class: 'cm-tools', role: 'toolbar', 'aria-label': 'Commands' });
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => fitRibbon(cmTools)).observe(cmTools);
   // A narrow window clips the tools on the right and the strip has no
   // scrollbar: a plain mouse wheel scrolls it sideways (trackpads and touch
   // already can).
@@ -187,8 +190,9 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
 /** Renders one CommandManager tab's tools. */
 export function renderRibbon(target: HTMLElement, tab: RibbonTab, cmds: CommandRegistry) {
   target.textContent = '';
-  for (const group of tab.groups) {
-    const g = h('div', { class: 'cm-group', role: 'group' });
+  tab.groups.forEach((group, i) => {
+    const name = tab.labels?.[i];
+    const g = h('div', { class: 'cm-group', role: 'group', ...(name ? { 'aria-label': name, 'data-group': name.toLowerCase() } : {}) });
     for (const it of group) {
       if ('stack' in it) {
         const st = h('div', { class: 'cm-stack' });
@@ -197,8 +201,18 @@ export function renderRibbon(target: HTMLElement, tab: RibbonTab, cmds: CommandR
       } else g.append(commandButton(cmds, it.cmd, it.size === 'row' ? 'row' : 'big', 26, it.menu));
     }
     target.append(g);
-  }
+  });
   syncCommandButtons(target, cmds);
+  fitRibbon(target);
+}
+
+/**
+ * When a tab's tools are wider than the window, groups that can (the sketch
+ * constraints) show their row buttons as icons only, named in tooltips.
+ */
+export function fitRibbon(tools: HTMLElement) {
+  tools.classList.remove('compact');
+  if (tools.scrollWidth > tools.clientWidth + 1) tools.classList.add('compact');
 }
 
 export function shortcutLabel(s?: string) {

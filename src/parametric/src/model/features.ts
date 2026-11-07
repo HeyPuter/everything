@@ -192,7 +192,14 @@ export function dependencies(f: Feature): Id[] {
     else if (a?.kind === 'edge') visitName(a.edge.name);
     else if (a?.kind === 'face') visitName(a.face.name);
   };
-  if (f.type === 'sketch') visitPlane(f.plane);
+  if (f.type === 'sketch') {
+    visitPlane(f.plane);
+    // Geometry projected from the model depends on the features that made its edges.
+    for (const e of f.entities) {
+      if (e.ext?.kind === 'edge') visitName(e.ext.edge.name);
+      else if (e.ext?.kind === 'vertex') e.ext.edges.forEach((r) => visitName(r.name));
+    }
+  }
   if (f.type === 'plane') visitPlane(f.ref);
   if (f.type === 'mirror') { visitPlane(f.plane); f.seeds.forEach((s) => out.add(s)); }
   if (f.type === 'draft') { visitPlane(f.neutral); f.faces.forEach((r) => visitName(r.name)); }

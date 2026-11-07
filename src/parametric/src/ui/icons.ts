@@ -214,6 +214,8 @@ function build(nodes: IconNode, size: number, viewBox: number): SVGSVGElement {
 export type IconName = keyof typeof CAD | keyof typeof LUCIDE;
 
 export function icon(name: string, size = 18): SVGSVGElement {
+  // Constraint commands use the glyphs of their relation badges.
+  if (name.startsWith('rel:')) return relationGlyph(name.slice(4), size);
   const nodes = CAD[name] ?? LUCIDE[name];
   if (!nodes) return build([], size, 24);
   return build(nodes, size, 24);
@@ -223,4 +225,4 @@ export function relationGlyph(type: string, size = 14): SVGSVGElement {
   return build(RELATION_GLYPHS[type] ?? [], size, 16);
 }
 
-export const hasIcon = (name: string) => name in CAD || name in LUCIDE;
+export const hasIcon = (name: string) => name in CAD || name in LUCIDE || (name.startsWith('rel:') && name.slice(4) in RELATION_GLYPHS);

@@ -159,8 +159,8 @@ export class TaskPane {
 export function renderHelp(body: HTMLElement) {
   const steps: [string, string][] = [
     ['1. Sketch', 'Select a plane (Front, Top or Right) or a flat face and click Sketch. The view turns to face the plane.'],
-    ['2. Draw', 'Use Line (L), Rectangle (R), Circle (C) and the other tools. Geometry snaps to points, midpoints and horizontal or vertical directions and adds matching relations.'],
-    ['3. Constrain', 'Use Smart Dimension (D) to set sizes, and add relations from the PropertyManager. Blue geometry can still move; black is fully defined; red conflicts.'],
+    ['2. Draw', 'Use Line (L), Rectangle (R), Circle (C) and the other tools. Geometry snaps to points, midpoints and horizontal or vertical directions and adds matching constraints.'],
+    ['3. Constrain', 'Use Smart Dimension (D) to set sizes, and the Constrain group of the Sketch tab (Coincident, Parallel, Tangent...) to fix how geometry relates. Convert Entities projects model edges into the sketch, linked to the model. Blue geometry can still move; black is fully defined; red conflicts.'],
     ['4. Build', 'Exit the sketch and use Extruded Boss, Revolved Boss or a Cut. Then add fillets, chamfers, holes, shells and patterns.'],
     ['5. Change', 'Double-click a feature in the design tree or a face in the model to edit it. Everything after it rebuilds.'],
     ['6. Save and share', 'Save to your Puter cloud (or this browser), or export STEP and STL files.'],

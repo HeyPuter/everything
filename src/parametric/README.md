@@ -17,10 +17,11 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 **Sketching**
 - Lines, centerlines, corner and center rectangles, circles (center or 3 points), arcs (centerpoint, tangent, 3 point), polygons, straight slots, splines and points.
 - Inference while drawing: snapping to points, midpoints, curves and the origin, horizontal and vertical directions, and alignment guides. Matching relations are added automatically.
-- Geometric relations: coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, midpoint, collinear, symmetric and fix.
+- Geometric constraints (relations): coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, midpoint, collinear, symmetric and fix. Pick one in the Constrain group of the Sketch tab and click the geometry it applies to, or select geometry first and choose from the constraints that fit.
 - Smart Dimension: distances (aligned, horizontal, vertical), point to line, parallel lines, angles, radius and diameter, chosen from what you select and where you place the label. Driven (reference) dimensions.
 - A constraint solver with live dragging and definition status: blue geometry can still move, black is fully defined, red conflicts. The status bar shows the remaining degrees of freedom.
-- Sketch fillet, trim, extend, offset, mirror, convert model edges, construction geometry.
+- Sketch fillet, trim, extend, offset, mirror, construction geometry.
+- External geometry: Convert Entities projects model edges, faces and vertices into the sketch, and a sketch point or curve can be constrained to a model edge or vertex directly. Projected geometry stays linked to the model: when an earlier feature changes, it moves with the model and the sketch geometry constrained to it follows.
 
 **Features**
 - Extruded boss and cut (blind, through all, mid plane, two directions, draft).
