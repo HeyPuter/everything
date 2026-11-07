@@ -85,6 +85,11 @@ import {
   cleanName,
 } from "./model.js";
 import * as cloud from "./cloud.js";
+import {
+  appsButton,
+  closeAppsPanel,
+  setAppsPanelAccount,
+} from "./apps-panel.js";
 import { createAssistantPanel } from "./assistant-panel.js";
 import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
@@ -521,6 +526,7 @@ function appIcon(className = "brand-mark") {
   });
 }
 function accountMenu(e) {
+  closeAppsPanel();
   openMenu({
     anchor: e.currentTarget,
     label: "Account",
@@ -559,6 +565,7 @@ function accountItems() {
 // A picture is optional and never holds up signing in or opening a document.
 function setAccount(connected) {
   account = connected;
+  setAppsPanelAccount(account?.uuid || account?.username || "");
   accountPicture = null;
   const request = ++accountPictureRequest;
   if (!account) return;
@@ -931,6 +938,7 @@ async function loadLibrary(req = ++homeRequest, requestOwner = owner()) {
 }
 function renderHome() {
   dismissMenuWithin(app);
+  closeAppsPanel();
   canvasObserver?.disconnect();
   app.replaceChildren(
     el(
@@ -944,6 +952,7 @@ function renderHome() {
           "div",
           { class: "header-right" },
           button("Open from Puter", "FolderOpen", run(openPicker), "secondary"),
+          appsButton(),
           accountButton(),
         ),
       ),
@@ -3231,6 +3240,7 @@ function renderReadOnly() {
   assistant?.destroy();
   assistant = null;
   dismissMenuWithin(app);
+  closeAppsPanel();
   view = "viewer";
   const slides = P.getSlides(doc.pres);
   const image = el("img", { class: "slide-image", alt: "" });
@@ -3339,6 +3349,7 @@ function renderEditor() {
   clearTimeout(fileDateTimer);
   view = "editor";
   dismissMenuWithin(app);
+  closeAppsPanel();
   app.replaceChildren(
     el(
       "div",
@@ -3613,6 +3624,8 @@ function editorTopbar() {
           (e) => fileMenu(e.currentTarget),
           { class: "btn icon-btn mobile-only", ...MENU_BUTTON },
         ),
+        // Phones keep the account menu in File options and leave this out too.
+        appsButton("desktop-only"),
         accountButton(),
       ),
     ),
@@ -15412,6 +15425,7 @@ const BACKGROUND_LABELS = {
 // A show on its way up (its inserted media still loading) counts as open.
 let presentOpening = false;
 async function present(options = {}) {
+  closeAppsPanel();
   // Before anything waits: a window for the audience needs the click.
   options = showFeatures.begin(options);
   await settled();
@@ -16341,7 +16355,7 @@ document.addEventListener("keydown", (e) => {
     e.isComposing ||
     view !== "editor" ||
     document.querySelector("dialog[open]") ||
-    e.target.closest(".menu")
+    e.target.closest(".menu, .apps-panel")
   )
     return;
   // Keys pressed in a field, or anywhere in the find bar, edit text rather
