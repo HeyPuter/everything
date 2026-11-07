@@ -388,6 +388,14 @@ describe('createStore', () => {
     expect((await createStore(kv).load()).settings.mailInvitesShowUnknown).toBe(true);
   });
 
+  it('load() keeps only a real boolean under showWeekNumbers, defaulting it to false', async () => {
+    expect(store.getSettings().showWeekNumbers).toBe(false);
+    kv.map.set('cal:settings', { showWeekNumbers: 'yes' });
+    expect((await createStore(kv).load()).settings.showWeekNumbers).toBe(false);
+    kv.map.set('cal:settings', { showWeekNumbers: true });
+    expect((await createStore(kv).load()).settings.showWeekNumbers).toBe(true);
+  });
+
   it('load() cleans a categoryNames map that came in hand-written', async () => {
     kv.map.set('cal:settings', {
       categoryNames: {

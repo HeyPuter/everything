@@ -20,6 +20,7 @@ import {
   isWeekend,
   formatTime,
   formatFullDate,
+  displayedWeekNumber,
   WEEKDAYS_SHORT,
 } from '../date-utils.js';
 
@@ -28,11 +29,17 @@ const DROP_TARGET_CLASS = 'is-drop-target'; // the cell a dragged chip would lan
 export function renderMonth(ctx) {
   const { store, settings, cursor, now, actions } = ctx;
   const grid = getMonthGrid(cursor, settings.weekStartsOn);
+  const showWeeks = settings.showWeekNumbers === true;
 
-  const root = el('div', { class: 'view month' });
+  const root = el('div', { class: 'view month' + (showWeeks ? ' month--weeks' : '') });
 
   // Weekday header.
   const dow = el('div', { class: 'month__dow' });
+  if (showWeeks) {
+    // Empty corner above the week-number gutter, so the seven weekday labels
+    // still line up with the day cells.
+    dow.append(el('div', { class: 'month__weeknum month__weeknum--head', 'aria-hidden': 'true' }));
+  }
   orderedWeekdays(settings.weekStartsOn).forEach((idx) => {
     dow.append(el('div', { class: 'month__dow-cell', text: WEEKDAYS_SHORT[idx] }));
   });
@@ -41,7 +48,26 @@ export function renderMonth(ctx) {
   const gridEl = el('div', { class: 'month__grid' });
   const cellData = [];
 
-  grid.forEach((day) => {
+  grid.forEach((day, i) => {
+    if (showWeeks && i % 7 === 0) {
+      const weekStart = day;
+      const week = displayedWeekNumber(weekStart);
+      gridEl.append(
+        el('button', {
+          class: 'month__weeknum',
+          type: 'button',
+          text: String(week),
+          title: `Open week ${week}`,
+          'aria-label': `Open week ${week}`,
+          on: {
+            click: (e) => {
+              e.stopPropagation();
+              actions.gotoWeekView(weekStart);
+            },
+          },
+        }),
+      );
+    }
     const inMonth = isSameMonth(day, cursor);
     const cell = el('div', {
       class:
