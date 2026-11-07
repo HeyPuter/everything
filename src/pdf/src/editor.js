@@ -33,6 +33,7 @@ import { addNote, listNotes, editNote, NOTE_SIZE } from './core/notes.js';
 import { pageSpeechText, speechChunks } from './core/speech.js';
 import { createOutlinePanel, destinationPage, destinationTarget } from './outline.js';
 import { createCommentsPanel } from './comments.js';
+import { appsButton } from './apps-panel.js';
 import { createAttachmentsPanel, createLayersPanel } from './side-panels.js';
 import { createSignaturesPanel, createSignatureBar } from './signatures-panel.js';
 import { chooseDigitalId, signatureDetailsDialog } from './digital-id-dialog.js';
@@ -2345,6 +2346,7 @@ export function createEditor({
             'div',
             { class: 'header-right' },
             menuButton,
+            appsButton(),
             iconButton('Settings', 'Settings2', settings),
           ),
         ),

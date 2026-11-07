@@ -20,6 +20,7 @@ import {
 } from './lib/ui.js';
 import * as P from './lib/puter.js';
 import { waitFor } from './lib/abort.js';
+import { appsButton, closeAppsPanel, refreshAppsButtons, setAppsAccount } from './apps-panel.js';
 import {
   PdfSession,
   safeName,
@@ -100,6 +101,7 @@ function setAccount(account, { profileOnly = false } = {}) {
     accountRefreshRequest = null;
   }
   user = account;
+  setAppsAccount(account);
   accountToken = P.sessionToken();
   sessionState = account ? 'in' : 'out';
   for (const refresh of settingsAccountViews) refresh();
@@ -207,6 +209,8 @@ async function ensureSignedIn({ signal = accountController.signal } = {}) {
   return signInRequest;
 }
 function settings() {
+  // Settings holds the account, as the account menu does elsewhere: the Apps panel gives way.
+  closeAppsPanel();
   const accountSummary = el('p', { class: 'muted' });
   const accountActions = el('div', { class: 'stack' });
   const select = el(
@@ -1039,6 +1043,7 @@ function showHome({ accountRefresh = false } = {}) {
             { class: 'account-label', title: user?.username || 'Local workspace' },
             user?.username || 'Local workspace',
           ),
+          appsButton(),
           iconButton('Settings', 'Settings2', settings),
         ),
       ),
@@ -1210,6 +1215,8 @@ start();
 const initPuter = async () => {
   // The SDK signs the user in on its own before some cloud calls; the views follow.
   P.onAuth(run(refreshSDKAccount));
+  // The desktop has its own app launcher.
+  refreshAppsButtons();
   // A tab Puter opened (a file opened from the dashboard, say) gets its file the same way as a
   // desktop window, once the dashboard tab hands it over with the token.
   if (P.launchedByPuter()) {
