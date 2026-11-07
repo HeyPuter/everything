@@ -1219,6 +1219,53 @@ select:focus-visible {
   flex: 1;
 }
 
+.pgn-dialog {
+  width: min(92vw, 480px);
+  text-align: left;
+}
+
+.pgn-dialog .dialog-title,
+.pgn-dialog .dialog-sub {
+  text-align: left;
+}
+
+.pgn-dialog textarea {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 8.5em;
+}
+
+.pgn-dialog textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.pgn-dialog textarea::placeholder {
+  color: var(--muted);
+}
+
+.pgn-error {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--danger);
+}
+
+.pgn-dialog-buttons {
+  flex-wrap: wrap;
+}
+
 /* Promotion picker */
 .promo-choices {
   display: flex;
