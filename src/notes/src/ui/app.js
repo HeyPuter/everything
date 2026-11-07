@@ -23,6 +23,7 @@ import { FindBar } from './find.js';
 import { Dictation } from './dictation.js';
 import { createAi } from './assist.js';
 import { KeyTips } from './keytips.js';
+import { appsButton, closeAppsPanel, destroyAppsPanel } from './apps-panel.js';
 
 /**
  * The application controller: owns navigation state and wires the store,
@@ -78,6 +79,7 @@ export class App {
     this.disposers = [];
     this.editor.destroy();
     this.removeThemeListener?.();
+    destroyAppsPanel();
     document.getElementById('tag-styles')?.remove();
   }
 
@@ -106,8 +108,11 @@ export class App {
     this.syncBtn = h('button.icon-btn.sync-btn', { type: 'button', 'aria-label': 'All changes saved', 'data-tip': 'All changes saved', 'data-status': 'saved', onclick: () => this.syncNow() }, icon('cloudCheck', 18));
     this.shareBtn = h('button.share-btn', { type: 'button', 'data-tip': 'Share', 'aria-label': 'Share', onclick: () => this.runCommand('share') }, icon('share', 16), h('span', 'Share'));
     this.mobileMore = h('button.icon-btn.mobile-only', { type: 'button', 'aria-label': 'More commands' }, icon('more', 20));
+    // Puter's apps, just left of the right-most control (Share; More on phones).
+    this.appsBtn = appsButton({ env: this.env });
     this.mobileMore.addEventListener('click', () => {
       if (this.mobileMore._menuJustClosed) return;
+      closeAppsPanel();
       openMenu(this.mobileMore, [...fileMenu(this), { type: 'sep' }, ...this.accountItems()], { label: 'More commands', align: 'end' });
     });
     this.titlebar = h('header.titlebar', { role: 'banner' },
@@ -117,7 +122,7 @@ export class App {
         h('span.desktop-only', { style: { display: 'contents' } }, this.undoBtn, this.redoBtn, moreBtn),
       ),
       this.titleText,
-      h('div.titlebar-end', this.syncBtn, this.shareBtn, this.mobileMore),
+      h('div.titlebar-end', this.syncBtn, this.appsBtn, this.shareBtn, this.mobileMore),
     );
 
     // Ribbon
@@ -139,6 +144,7 @@ export class App {
     this.avatar = h('button.avatar-btn', { type: 'button', 'aria-label': 'Account', 'data-tip': this.user?.username || 'Account', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, this.initials());
     this.avatar.addEventListener('click', () => {
       if (this.avatar._menuJustClosed) return;
+      closeAppsPanel();
       const r = this.avatar.getBoundingClientRect();
       openMenu({ x: r.right + 6, y: r.bottom }, this.accountItems(), { label: 'Account' });
     });
