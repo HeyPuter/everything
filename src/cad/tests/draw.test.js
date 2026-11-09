@@ -335,6 +335,20 @@ describe('grip base point', () => {
   });
 });
 
+describe('polyline arcs', () => {
+  it('asks again for an arc end point straight behind the start direction', async () => {
+    await t.type('PLINE', '0,0', '10,0', 'A', '5,0');
+    expect(t.ed.request?.prompt).toBe('Arc end point');
+    await t.type('C');
+    expect(t.ed.request?.prompt).toBe('Arc end point');
+    await t.type('10,10', '');
+    const [p] = t.all('polyline');
+    expect(p.pts.length / 3).toBe(3);
+    expect(p.pts.every((v) => Math.abs(v) < 100)).toBe(true);
+    expect(p.pts[5]).toBeCloseTo(Math.tan(Math.PI / 4), 12);
+  });
+});
+
 describe('polyline cancel', () => {
   it('keeps the segments drawn so far when Escape ends the polyline', async () => {
     await t.type('PLINE', '0,0', '10,0', 'A', '20,0');

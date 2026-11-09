@@ -136,6 +136,21 @@ export const PLINE = {
       const t = endTangent(verts) ?? { x: 1, y: 0 };
       return tangentBulge(last, t.x, t.y, p);
     };
+    // No arc leaves along the tangent and ends straight behind it (it would
+    // be a circle of infinite radius).
+    const behind = (p) => {
+      const last = verts.at(-1);
+      const t = endTangent(verts) ?? { x: 1, y: 0 };
+      const cx = p.x - last.x,
+        cy = p.y - last.y;
+      const cl = Math.hypot(cx, cy);
+      return cl > 1e-12 && Math.abs(t.x * cy - t.y * cx) <= 1e-9 * cl && t.x * cx + t.y * cy < 0;
+    };
+    const rejectBehind = (p) => {
+      if (!arcMode || !behind(p)) return false;
+      ed.ui.log('The arc cannot end straight behind its start direction.', 'error');
+      return true;
+    };
     for (;;) {
       const last = verts.at(-1);
       const options = arcMode ? opts('Line', 'Close', 'Undo', 'Width') : opts('Arc', 'Close', 'Undo', 'Width');
@@ -146,7 +161,7 @@ export const PLINE = {
           base: last,
           options,
           preview: (p) => {
-            const b = arcMode ? arcBulge(p) : 0;
+            const b = arcMode && !behind(p) ? arcBulge(p) : 0;
             const tmp = verts.map((v) => ({ ...v }));
             tmp[tmp.length - 1].b = b;
             const pts = [];
@@ -188,12 +203,14 @@ export const PLINE = {
         continue;
       }
       if (r.option === 'close') {
+        if (rejectBehind(first)) continue;
         if (arcMode) last.b = arcBulge(first);
         const pts = [];
         for (const v of verts) pts.push(v.x, v.y, v.b);
         ed.commit('Polyline', () => ed.drawing.add(ed.make('polyline', { pts, closed: true, width })));
         return;
       }
+      if (rejectBehind(r)) continue;
       last.b = arcMode ? arcBulge(r) : 0;
       verts.push({ x: r.x, y: r.y, b: 0 });
     }
