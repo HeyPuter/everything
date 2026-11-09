@@ -118,3 +118,23 @@ describe('SpatialIndex', () => {
     expect(idx.bounds(dim.id)).toEqual(new SpatialIndex(d).bounds(dim.id));
   });
 });
+
+describe('SpatialIndex block changes', () => {
+  it('moves references to a block that nests a redefined block', () => {
+    const { d, idx } = setup();
+    const line = (x2) => ({ ...P, type: 'line', x1: 0, y1: 0, x2, y2: 0 });
+    const insert = (name) => ({ ...P, type: 'insert', name, x: 0, y: 0, sx: 1, sy: 1, rot: 0 });
+    let y, other;
+    d.transaction('Add', () => {
+      d.setBlock('X', { name: 'X', bx: 0, by: 0, entities: [line(10)] });
+      d.setBlock('Y', { name: 'Y', bx: 0, by: 0, entities: [insert('X')] });
+      d.setBlock('Z', { name: 'Z', bx: 0, by: 0, entities: [line(5)] });
+      y = d.add(insert('Y')).id;
+      other = d.add(insert('Z')).id;
+    });
+    expect(idx.bounds(y)[2]).toBeCloseTo(10, 9);
+    d.transaction('Redefine', () => d.setBlock('X', { name: 'X', bx: 0, by: 0, entities: [line(50)] }));
+    expect(idx.bounds(y)[2]).toBeCloseTo(50, 9);
+    expect(idx.bounds(other)[2]).toBeCloseTo(5, 9);
+  });
+});

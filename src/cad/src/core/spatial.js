@@ -6,6 +6,7 @@
 import RBush from 'rbush';
 import { entityBounds } from './geom/index.js';
 import { emitEntity, makeContext, BoundsSink } from './tessellate.js';
+import { blocksUsing } from './display.js';
 
 const COMPLEX = new Set(['text', 'mtext', 'dimension', 'leader', 'insert', 'point']);
 /** Header keys that change dimension text, and so dimension and block extents. */
@@ -85,11 +86,12 @@ export class SpatialIndex {
       this.rebuild();
       return;
     }
-    // A redefined block moves only the references that use it.
+    // A redefined block moves only the references that use it (or a block nesting it).
     let ids = change.ids;
     if (change.blocks.size) {
       ids = new Set(ids);
-      for (const [id, e] of this.drawing.entities) if (e.type === 'insert') ids.add(id);
+      const affected = blocksUsing(this.drawing, change.blocks);
+      for (const [id, e] of this.drawing.entities) if (e.type === 'insert' && affected.has(e.name)) ids.add(id);
     }
     for (const id of ids) {
       const old = this.items.get(id);

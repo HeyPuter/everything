@@ -12,7 +12,7 @@
 import { SEG_VS, SEG_FS, TRI_VS, TRI_FS, GRID_VS, GRID_FS } from './shaders.js';
 import { Batch, SEG_STRIDE, TRI_STRIDE, F_HIGHLIGHT } from './batch.js';
 import { makeContext, emitEntity } from '../core/tessellate.js';
-import { drawBands, nextBand } from '../core/display.js';
+import { drawBands, nextBand, blocksUsing, blocksReferenced } from '../core/display.js';
 import { LINEWEIGHTS } from '../core/schema.js';
 
 const CHUNK_SIZE = 1024;
@@ -342,9 +342,22 @@ export class Renderer {
       (this._banded() ||
         [...change.ids].some((id) => ents.get(id)?.orderGroup != null) ||
         !this._restoreHomes(change));
-    if (change.order || change.blocks.size || back) {
+    if (change.order || back) {
       this.rebuildAll();
       return;
+    }
+    if (change.blocks.size) {
+      // Only blocks drawn by existing references matter (new references are
+      // placed below); others, such as a new or purged block, need no rebuild.
+      const affected = blocksUsing(this.drawing, change.blocks);
+      if (blocksReferenced(this.drawing, affected, change.ids)) {
+        this.rebuildAll();
+        return;
+      }
+      for (const n of affected) {
+        const b = this.drawing.blocks.get(n);
+        if (b) this.infiniteBlocks.delete(b);
+      }
     }
     const drawn = change.headerKeys && [...change.headerKeys].some((k) => DRAWN_HEADER_KEYS.has(k));
     const names = change.tableNames ?? new Set();
