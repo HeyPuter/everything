@@ -1497,8 +1497,9 @@ export class App {
   private onKey(e: KeyboardEvent) {
     if (e.isComposing || e.keyCode === 229 || dialogOpen()) return;
     const target = e.target as HTMLElement;
-    // The Apps panel takes its own keys: no shortcuts while focus is in it.
-    if (target instanceof Element && target.closest('.apps-panel')) return;
+    // The Apps panel and puter.js's user menu (keys from its shadow root come
+    // from the element) take their own keys: no shortcuts while focus is in them.
+    if (target instanceof Element && target.closest('.apps-panel, puter-user-menu')) return;
     const inText = isTextInput(target);
     // F6 / Shift+F6 move between the window's regions, from text fields too.
     if (e.key === 'F6' && !e.ctrlKey && !e.metaKey && !e.altKey) {

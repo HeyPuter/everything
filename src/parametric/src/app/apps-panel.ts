@@ -28,7 +28,7 @@ const accountKey = () => (isSignedIn() ? 'in' : 'out');
 
 // Puter opens app windows with this in the URL, so the button can stay hidden
 // before the SDK has loaded; puter.env decides once it has.
-function inPuterApp() {
+export function inPuterApp() {
   if (env() !== 'none') return env() === 'app';
   try {
     return new URLSearchParams(location.search).has('puter.app_instance_id');
@@ -51,9 +51,13 @@ export function appsButton(): HTMLButtonElement {
   return b;
 }
 
-/** After the SDK loads and after signing in or out: shows or hides the button, and drops an embed loaded for another account. */
-export function syncAppsLauncher(button: HTMLButtonElement) {
-  button.hidden = inPuterApp();
+/**
+ * After the SDK loads and after signing in or out: shows or hides the button,
+ * and drops an embed loaded for another account. `standDown` hides it for
+ * puter.js's <puter-user-menu>, which has its own Apps button.
+ */
+export function syncAppsLauncher(button: HTMLButtonElement, standDown = false) {
+  button.hidden = standDown || inPuterApp();
   if (button.hidden && trigger === button) closeAppsPanel();
   if (panel && builtFor !== accountKey()) discard();
 }

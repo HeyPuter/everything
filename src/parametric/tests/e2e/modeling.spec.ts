@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { canvasCenter, openApp, waitForFeature } from './helpers';
+import { canvasCenter, chooseTheme, openApp, waitForFeature } from './helpers';
 
 test.describe('part modeling', () => {
   test('opens an example and rebuilds it without errors', async ({ page }) => {
@@ -234,8 +234,7 @@ test.describe('part modeling', () => {
 
   test('switches themes and keeps the choice', async ({ page }) => {
     await openApp(page);
-    await page.getByRole('button', { name: /Account/ }).click();
-    await page.getByRole('menuitemradio', { name: 'Dark' }).click();
+    await chooseTheme(page, 'Dark');
     await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', 'dark');
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', 'dark');

@@ -1,5 +1,6 @@
 // Builds the application chrome: title bar (brand, menus, quick access,
-// document title, command search, GitHub link, Apps launcher, account), CommandManager
+// document title, command search, GitHub link, Apps launcher, account; or
+// puter.js's <puter-user-menu> in place of the last two), CommandManager
 // (tool groups and tabs), left pane, viewport host, task pane and status bar.
 
 import { h, formatShortcut } from '../ui/dom';
@@ -8,6 +9,7 @@ import { attachTooltip } from '../ui/overlay';
 import { dropdown, type MenuItem, closeMenus } from '../ui/menu';
 import type { CommandRegistry } from './commands';
 import { appsButton } from './apps-panel';
+import { userMenuElement } from './user-menu';
 
 export const REPO_URL = 'https://github.com/heyputer/everything';
 
@@ -32,6 +34,8 @@ export interface Shell {
   searchResults: HTMLElement;
   account: HTMLButtonElement;
   apps: HTMLButtonElement;
+  /** puter.js's <puter-user-menu>, when the loaded SDK defines it (see user-menu.ts). */
+  userMenu: HTMLElement | null;
   cmTools: HTMLElement;
   cmTabs: HTMLElement;
   leftpane: HTMLElement;
@@ -137,6 +141,11 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   attachTooltip(github, 'Source code on GitHub');
   const apps = appsButton();
   const account = h('button', { class: 'avatar-btn', type: 'button', 'aria-label': 'Account', 'aria-haspopup': 'menu' }) as HTMLButtonElement;
+  // puter.js was loaded (deferred) before this module ran, so it has defined
+  // <puter-user-menu> by now if it has one. Where it renders, the app's own
+  // launcher and account button stand down from the first paint.
+  const userMenu = userMenuElement();
+  if (userMenu && !userMenu.hidden) apps.hidden = account.hidden = true;
 
   const titlebar = h('header', { class: 'titlebar' },
     mobileMenu,
@@ -145,7 +154,7 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
     h('div', { class: 'tb-center' }, docTitle, docState),
     h('div', { class: 'tb-right' }, h('div', { class: 'cmd-search' }, icon('search', 14), search, searchResults),
       commandButton(cmds, 'assistant'),
-      (() => { const b = commandButton(cmds, 'share'); b.classList.add('hide-mobile'); return b; })(), github, apps, account));
+      (() => { const b = commandButton(cmds, 'share'); b.classList.add('hide-mobile'); return b; })(), github, apps, account, userMenu));
 
   const cmTools = h('div', { class: 'cm-tools', role: 'toolbar', 'aria-label': 'Commands' });
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => fitRibbon(cmTools)).observe(cmTools);
@@ -182,7 +191,7 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
 
   const root = h('div', { class: 'app' }, titlebar, cm, workspace, statusbar);
   return {
-    root, menubar, docTitle, docState, search, searchResults, account, apps, cmTools, cmTabs, leftpane, lpTabs, lpBody, splitter, viewport, hud,
+    root, menubar, docTitle, docState, search, searchResults, account, apps, userMenu, cmTools, cmTabs, leftpane, lpTabs, lpBody, splitter, viewport, hud,
     confirm, taskpane, tpStrip, tpPanel, statusMsg, statusSketch, statusUnits, statusRebuild, statusCoords, treeToggle, mobileMenu,
   };
 }

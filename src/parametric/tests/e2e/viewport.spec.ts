@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { canvasCenter, openApp, waitForFeature } from './helpers';
+import { canvasCenter, chooseTheme, openApp, waitForFeature } from './helpers';
 
 type Win = { __parametric: import('../../src/app/app').App };
 
@@ -762,8 +762,7 @@ test.describe('viewport', () => {
       return (a + 0.05) / (b + 0.05);
     });
     expect(await contrast()).toBeGreaterThan(4.5);
-    await page.getByRole('button', { name: /Account/ }).click();
-    await page.getByRole('menuitemradio', { name: 'Dark' }).click();
+    await chooseTheme(page, 'Dark');
     await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', 'dark');
     expect(await contrast()).toBeGreaterThan(4.5);
   });
@@ -788,8 +787,7 @@ test.describe('viewport', () => {
       app.selection.set([{ kind: 'origin' }]);
     });
     for (const theme of ['Dark', 'Light']) {
-      await page.getByRole('button', { name: /Account/ }).click();
-      await page.getByRole('menuitemradio', { name: theme }).click();
+      await chooseTheme(page, theme as 'Light' | 'Dark');
       await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', theme.toLowerCase());
       const c = await colours();
       expect(c.sketch).toBe(c.token);
@@ -868,8 +866,7 @@ test.describe('viewport', () => {
       });
     });
     for (const theme of ['Light', 'Dark']) {
-      await page.getByRole('button', { name: /Account/ }).click();
-      await page.getByRole('menuitemradio', { name: theme }).click();
+      await chooseTheme(page, theme as 'Light' | 'Dark');
       await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', theme.toLowerCase());
       for (const c of await contrasts()) expect(c).toBeGreaterThanOrEqual(4.5);
     }

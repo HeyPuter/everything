@@ -403,9 +403,11 @@ test('a submenu with no room on the right opens beside its parent menu, not over
     m.openMenu([{ label: 'Edit Extrude1 with a rather long descriptive name' }, { label: 'View Orientation', submenu: () => [{ label: 'Front' }] }], 1270, 300);
   });
   await page.getByRole('menuitem', { name: 'View Orientation' }).hover();
-  await expect(page.locator('.menu')).toHaveCount(2);
-  const parent = (await page.locator('.menu').nth(0).boundingBox())!;
-  const sub = (await page.locator('.menu').nth(1).boundingBox())!;
+  // The app's menus, not the one inside puter.js's <puter-user-menu> (CSS locators reach into shadow roots).
+  const menus = page.locator('body > .menu');
+  await expect(menus).toHaveCount(2);
+  const parent = (await menus.nth(0).boundingBox())!;
+  const sub = (await menus.nth(1).boundingBox())!;
   expect(sub.x + sub.width).toBeLessThanOrEqual(parent.x + 4);
 });
 
