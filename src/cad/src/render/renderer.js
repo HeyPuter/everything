@@ -18,6 +18,8 @@ import { LINEWEIGHTS } from '../core/schema.js';
 const CHUNK_SIZE = 1024;
 const PATTERN_W = 18;
 const PATTERN_ROWS = 64;
+/** The pattern texture grows (doubling) up to this many rows: rows are a byte per segment. */
+const MAX_PATTERN_ROWS = 256;
 const TOL_PX = 0.25;
 const LOD_UP = 3;
 const LOD_DOWN = 8;
@@ -218,7 +220,14 @@ export class Renderer {
     let row = this.patternRows.get(key);
     if (row !== undefined) return row;
     row = this.patternRows.size + 1;
-    if (row >= PATTERN_ROWS) return 0;
+    if (row >= this.patternData.length / PATTERN_W) {
+      // More distinct patterns than rows (large imported drawings): grow.
+      const rows = (this.patternData.length / PATTERN_W) * 2;
+      if (rows > MAX_PATTERN_ROWS) return 0;
+      const grown = new Float32Array(PATTERN_W * rows);
+      grown.set(this.patternData);
+      this.patternData = grown;
+    }
     this.patternRows.set(key, row);
     const o = row * PATTERN_W;
     const n = Math.min(p.length, PATTERN_W - 2);
@@ -631,7 +640,7 @@ export class Renderer {
     }
     if (this.patternDirty) {
       gl.bindTexture(gl.TEXTURE_2D, this.patternTex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, PATTERN_W, PATTERN_ROWS, 0, gl.RED, gl.FLOAT, this.patternData);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, PATTERN_W, this.patternData.length / PATTERN_W, 0, gl.RED, gl.FLOAT, this.patternData);
       this.patternDirty = false;
     }
 

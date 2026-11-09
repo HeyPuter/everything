@@ -163,3 +163,18 @@ describe('Renderer draw-order bands', () => {
     expect(r.bands.of.get(l)).toBe(1);
   });
 });
+
+describe('Renderer linetype patterns', () => {
+  it('gives every distinct pattern its own row, past the first 63', () => {
+    const { r } = setup(1);
+    const rows = [];
+    for (let i = 0; i < 300; i++) rows.push(r._patternRow([1 + i, -1]));
+    // Rows are stored in a byte per segment: 255 patterns, the rest drawn solid.
+    expect(rows.slice(0, 255)).toEqual(Array.from({ length: 255 }, (_, i) => i + 1));
+    expect(rows.slice(255).every((x) => x === 0)).toBe(true);
+    expect(r._patternRow([70, -1])).toBe(70);
+    // The texture holds what was written for the earlier rows.
+    expect(r.patternData[1 * 18 + 2]).toBe(1);
+    expect(r.patternData[200 * 18 + 2]).toBe(200);
+  });
+});
