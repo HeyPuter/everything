@@ -68,7 +68,6 @@ export class Editor {
     this.active = null;
     this.lastCommand = null;
     this.lastPoint = null;
-    this.previousSelection = new Set();
     this.cursor = { sx: -1, sy: -1, x: 0, y: 0, fx: 0, fy: 0, inside: false };
     this.snap = null;
     this.tracks = [];
@@ -119,6 +118,15 @@ export class Editor {
 
   get selection() {
     return this.doc.selection;
+  }
+
+  /** The last selection made in a command ("Previous"); ids belong to its drawing. */
+  get previousSelection() {
+    return this.doc?.previousSelection ?? new Set();
+  }
+
+  set previousSelection(ids) {
+    if (this.doc) this.doc.previousSelection = ids;
   }
 
   /** New entity object with the current layer/color/linetype/lineweight. */
