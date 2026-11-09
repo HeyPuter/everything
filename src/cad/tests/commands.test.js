@@ -384,6 +384,26 @@ describe('editing commands', () => {
     expect(v.rot).toBeCloseTo(Math.PI / 2);
   });
 
+  it('dimensions a selected circle across the diameter in the chosen direction', async () => {
+    await t.type('CIRCLE', '0,0', '10');
+    const dim = async (...after) => {
+      await t.type('DIMLINEAR', '');
+      await t.pick(10, 0);
+      await t.type(...after);
+      return t.all('dimension').at(-1);
+    };
+    const v = await dim('V', '30,0');
+    expect([v.x1, v.y1, v.x2, v.y2].map((n) => Math.round(n * 1e9) / 1e9 + 0)).toEqual([0, -10, 0, 10]);
+    expect(v.rot).toBeCloseTo(Math.PI / 2);
+    // Beside the circle without an option: vertical; above it: horizontal.
+    const side = await dim('30,2');
+    expect(side.rot).toBeCloseTo(Math.PI / 2);
+    expect(Math.hypot(side.x2 - side.x1, side.y2 - side.y1)).toBeCloseTo(20);
+    const top = await dim('2,30');
+    expect(top.rot).toBe(0);
+    expect([top.x1, top.x2]).toEqual([-10, 10]);
+  });
+
   it('dimensions the angle between two lines in the quadrant of the location', async () => {
     await t.type('LINE', '0,0', '20,0', '');
     await t.type('LINE', '-10,-10', '10,10', '');
