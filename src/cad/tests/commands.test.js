@@ -184,6 +184,24 @@ describe('drawing commands', () => {
     expect(t.all('polyline')).toHaveLength(3);
   });
 
+  it('draws three-point circles and arcs precisely far from the origin', async () => {
+    const X = 512345.678,
+      Y = 4512345.678;
+    const P = (dx, dy) => `${X + dx},${Y + dy}`;
+    await t.type('CIRCLE', '3P', P(0, 0), P(1, 1), P(2, 0));
+    const [c] = t.all('circle');
+    expect(c.r).toBeCloseTo(1, 9);
+    expect(c.cx - X).toBeCloseTo(1, 9);
+    await t.type('ARC', P(0, 0), P(1, 1), P(2, 0));
+    const [a] = t.all('arc');
+    expect(a.r).toBeCloseTo(1, 9);
+    const end = (ang) => [a.cx + a.r * Math.cos(ang) - X, a.cy + a.r * Math.sin(ang) - Y];
+    const ends = [end(a.start), end(a.end)].sort((p, q) => p[0] - q[0]);
+    expect(ends[0][0]).toBeCloseTo(0, 8);
+    expect(ends[1][0]).toBeCloseTo(2, 8);
+    expect(ends[0][1]).toBeCloseTo(0, 8);
+  });
+
   it('draws three-point arcs', async () => {
     await t.type('ARC', '10,0', '0,10', '-10,0');
     const [a] = t.all('arc');

@@ -36,14 +36,18 @@ export const M = {
 
 /** Circle through three points, or null when collinear. */
 export function circle3(a, b, c) {
-  const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
-  if (Math.abs(d) < 1e-12 * Math.max(1, Math.abs(a.x) + Math.abs(b.y))) return null;
-  const a2 = a.x * a.x + a.y * a.y,
-    b2 = b.x * b.x + b.y * b.y,
-    c2 = c.x * c.x + c.y * c.y;
-  const cx = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d;
-  const cy = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
-  return { cx, cy, r: Math.hypot(a.x - cx, a.y - cy) };
+  // Relative to a, so points far from the origin keep their precision.
+  const bx = b.x - a.x,
+    by = b.y - a.y,
+    cx = c.x - a.x,
+    cy = c.y - a.y;
+  const b2 = bx * bx + by * by,
+    c2 = cx * cx + cy * cy;
+  const d = 2 * (bx * cy - by * cx);
+  if (!(Math.abs(d) > 1e-12 * Math.max(b2, c2))) return null;
+  const ux = (cy * b2 - by * c2) / d,
+    uy = (bx * c2 - cx * b2) / d;
+  return { cx: a.x + ux, cy: a.y + uy, r: Math.hypot(ux, uy) };
 }
 
 /** Arc fields {cx, cy, r, start, end} from start, a point on the arc, and end. */
