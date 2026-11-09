@@ -282,7 +282,9 @@ const ATTACH_Y = { t: 0, m: 0.5, b: 1 };
 function mtextFrame(ent, style) {
   const p = params(ent, style);
   const { h, wf } = p;
-  const str = decodeSpecial(String(ent.value ?? '').replace(/\r\n?/g, '\n').replace(/\\P/g, '\n'));
+  // Paragraph breaks are '\n' in the model (readers turn MTEXT's \P into
+  // it); a backslash left in the value is a real one, as in C:\Projects.
+  const str = decodeSpecial(String(ent.value ?? '').replace(/\r\n?/g, '\n'));
   const width = ent.width > 0 ? ent.width : 0;
   const { texts, widths } = wrapLines(str, width / (h * wf), p.mono);
   const n = texts.length;

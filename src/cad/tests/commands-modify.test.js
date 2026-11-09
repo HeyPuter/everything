@@ -218,7 +218,7 @@ describe('EXPLODE', () => {
       y: 4,
       h: 2,
       rot: 0.3,
-      value: 'Hello wide world\\Pbar\n\nlast line',
+      value: 'Hello wide world\nbar\n\nlast line',
       style: 'Standard',
       width: 14,
       attach: 'mc',

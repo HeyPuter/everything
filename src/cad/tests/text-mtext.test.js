@@ -9,7 +9,8 @@ describe('layoutMText', () => {
   it('splits paragraphs at newlines', () => {
     expect(layoutMText(mtext({ value: 'one\ntwo\nthree' })).lines).toBe(3);
     expect(layoutMText(mtext({ value: 'one' })).lines).toBe(1);
-    expect(layoutMText(mtext({ value: 'a\\Pb' })).lines).toBe(2);
+    // A backslash in the value is a real one (as in a path), not a break.
+    expect(layoutMText(mtext({ value: 'See C:\\Projects\\Plans' })).lines).toBe(1);
   });
 
   it('wraps words at the width', () => {
