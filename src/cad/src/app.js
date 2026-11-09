@@ -259,10 +259,15 @@ export class App {
     doc.index.applyChange(change);
     if (doc === this.doc) {
       this.renderer.applyChange(change);
-      // Drop deleted objects from the selection.
+      // Drop deleted objects from the selection, and objects that can no
+      // longer be edited (their layer was locked, frozen or turned off).
       let dropped = false;
-      for (const id of change.ids) {
-        if (doc.selection.has(id) && !doc.drawing.entities.has(id)) {
+      const d = doc.drawing;
+      const check = change.tableNames.has('layers') ? [...doc.selection] : change.ids;
+      for (const id of check) {
+        if (!doc.selection.has(id)) continue;
+        const e = d.entities.get(id);
+        if (!e || !d.layerEditable(e.layer)) {
           doc.selection.delete(id);
           dropped = true;
         }
