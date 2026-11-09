@@ -594,7 +594,7 @@ class Builder {
         base: begin ? begin.pt(10) : [0, 0, 0],
         xrefPath: '',
         insertCount: 0,
-        description: '',
+        description: begin ? unescape(begin.str(4, '')) : '',
         previewSize: 0,
         xref: hard(0),
         blockEntity: owner(bh),
