@@ -293,4 +293,11 @@ describe('snaps', () => {
     close(g.y, 1);
     expect(geometricCenter({ type: 'line', x1: 0, y1: 0, x2: 1, y2: 1 })).toBe(null);
   });
+  it('geometric center of two-vertex closed polylines (donuts)', () => {
+    const g = geometricCenter({ type: 'polyline', pts: [8, 7, 1, 2, 7, 1], closed: true, width: 1 });
+    close(g.x, 5);
+    close(g.y, 7);
+    // Two straight vertices enclose nothing.
+    expect(geometricCenter({ type: 'polyline', pts: [0, 0, 0, 4, 0, 0], closed: true })).toBe(null);
+  });
 });

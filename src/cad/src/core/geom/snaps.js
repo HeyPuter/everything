@@ -284,7 +284,7 @@ export function tangentsFrom(ent, bx, by) {
  * or full ellipse. Null otherwise.
  */
 export function geometricCenter(ent) {
-  if (ent.type === 'polyline' && ent.closed && ent.pts.length >= 9) {
+  if (ent.type === 'polyline' && ent.closed && ent.pts.length >= 6) {
     const c = centroidPolyline(ent.pts);
     return c ? { x: c.x, y: c.y } : null;
   }
