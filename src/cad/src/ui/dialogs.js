@@ -346,6 +346,9 @@ export async function plotDialog(app, state) {
   const st = { paper: 'A3', orientation: 'landscape', areaMode: 'extents', fit: true, paperMm: 1, units: 100, center: true, margins: 10, monochrome: true, lineweights: true, ...saved, ...(state || {}) };
   // The plot window belongs to its drawing (it is not saved with the other
   // settings): without one, Window would silently plot the extents.
+  if (!(st.paperMm > 0)) st.paperMm = 1;
+  if (!(st.units > 0)) st.units = 100;
+  if (!(st.margins >= 0 && st.margins <= 50)) st.margins = 10;
   st.window ??= doc.plotWindow;
   if (st.areaMode === 'window' && !st.window) st.areaMode = 'extents';
   const paper = select(PAPER_SIZES.map((p) => [p.id, `${p.label} (${Math.round(p.w)} x ${Math.round(p.h)} mm)`]), st.paper);
@@ -380,15 +383,23 @@ export async function plotDialog(app, state) {
       h('div.plot-prev', preview),
     ),
   );
+  const valid = (inp, ok, prev) => {
+    const v = Number(inp.value);
+    const good = inp.value.trim() !== '' && Number.isFinite(v) && ok(v);
+    if (good) inp.removeAttribute('aria-invalid');
+    else inp.setAttribute('aria-invalid', 'true');
+    return good ? v : prev;
+  };
   const read = () => {
     st.paper = paper.value;
     st.orientation = orient.value;
     st.areaMode = areaSel.value;
     st.fit = fit.querySelector('input').checked;
-    st.paperMm = Number(mmIn.value) || 1;
-    st.units = Number(unitsIn.value) || 1;
+    // Invalid entries are flagged and the last valid value is kept.
+    st.paperMm = valid(mmIn, (v) => v > 0, st.paperMm);
+    st.units = valid(unitsIn, (v) => v > 0, st.units);
     st.center = center.querySelector('input').checked;
-    st.margins = Math.max(0, Number(margins.value) || 0);
+    st.margins = valid(margins, (v) => v >= 0 && v <= 50, st.margins);
     st.monochrome = mono.querySelector('input').checked;
     st.lineweights = lw.querySelector('input').checked;
     scaleRow.classList.toggle('disabled', st.fit);

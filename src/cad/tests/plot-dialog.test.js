@@ -65,3 +65,35 @@ describe('plot dialog area', () => {
     expect(await open(app)).toEqual(win);
   });
 });
+
+describe('plot dialog values', () => {
+  it('flags invalid scale and margins and keeps the last valid value', async () => {
+    const app = plotApp();
+    const p = plotDialog(app, { fit: false, paperMm: 1, units: 100 });
+    await wait();
+    const dlg = document.querySelector('dialog[open]');
+    const hint = () => [...dlg.querySelectorAll('.field-hint')].find((x) => /Scale/.test(x.textContent)).textContent;
+    const before = hint();
+    const [mm, units] = dlg.querySelectorAll('.scale-row input');
+    for (const bad of ['-1', '0', '', 'abc']) {
+      mm.value = bad;
+      mm.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(hint()).toBe(before);
+      expect(mm.getAttribute('aria-invalid')).toBe('true');
+    }
+    mm.value = '2';
+    mm.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(mm.hasAttribute('aria-invalid')).toBe(false);
+    expect(hint()).toBe('Scale 1:50');
+    units.value = '-5';
+    units.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(hint()).toBe('Scale 1:50');
+    const margins = [...dlg.querySelectorAll('input[type=number]')].find((i) => i.max === '50');
+    margins.value = '110';
+    margins.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(margins.getAttribute('aria-invalid')).toBe('true');
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Cancel').click();
+    await p;
+    expect(JSON.parse(localStorage.getItem('cad.plot'))).toMatchObject({ paperMm: 2, units: 100, margins: 10 });
+  });
+});
