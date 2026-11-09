@@ -328,7 +328,8 @@ describe('native text replacement', () => {
           doc,
           0,
           result.runs.find((r) => r.text),
-          '你好',
+          // Thai is in neither the Noto Sans nor the CJK faces.
+          'สวัสดี',
         ),
       ),
     ).rejects.toThrow('does not support');
@@ -338,7 +339,7 @@ describe('native text replacement', () => {
   it('keeps a bold or italic run in its own weight when the fallback font takes over', async () => {
     // Serve whichever Noto face the embedder asks for, so the fallback's weight can be checked.
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-      const file = String(url).split('/').pop();
+      const file = String(url).split('/fonts/').pop();
       return new Response(await readFile(new URL(`../public/fonts/${file}`, import.meta.url)));
     });
     for (const [file, start, added, expected] of [
@@ -446,7 +447,7 @@ it('reads a kerning gap before a real space as one space, and leaves an untouche
 it('keeps a line in its own typeface when only its color or size changes', async () => {
   // A subset font with no space glyph spaces its words by kerning, as many producers write it.
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-    const file = String(url).split('/').pop();
+    const file = String(url).split('/fonts/').pop();
     return new Response(await readFile(new URL(`../public/fonts/${file}`, import.meta.url)));
   });
   const doc = await PDFDocument.create();

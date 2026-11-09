@@ -52,6 +52,7 @@ import { shiftPageLabels } from './page-labels.js';
 import { retargetDeletedPages, stabilizeLocalDestinations } from './destinations.js';
 import { addHighlight, rectQuad } from './highlight.js';
 import { checkedFontData } from './font-data.js';
+import { CjkFace, cjkRegions, cjkScriptName, hasCjkText, hasKoreanText } from './cjk-fonts.js';
 import { normalizeJpegPadding } from './jpeg.js';
 import {
   prepareImageOrientation,
@@ -764,14 +765,20 @@ export const TEXT_FONTS = {
   italic: 'NotoSans-Italic.ttf',
   boldItalic: 'NotoSans-BoldItalic.ttf',
 };
-export const hasKoreanText = (text) => /\p{Script=Hangul}/u.test(text);
-/** Pick a bundled face before loading it; no external font service is needed. */
-export function textFontFile(variant = 'regular', text = '') {
+export { hasCjkText, hasKoreanText };
+/** The bundled Noto Sans file for a style; CJK text instead takes a sliced face (cjk-fonts.js). */
+export function textFontFile(variant = 'regular') {
   if (!TEXT_FONTS[variant]) throw new Error('Choose a supported text style.');
-  if (!hasKoreanText(text)) return TEXT_FONTS[variant];
+  return TEXT_FONTS[variant];
+}
+/** The CJK face weight for a style. CJK faces have no italic, so say so rather than guess. */
+export function cjkWeight(variant = 'regular', text = '') {
+  if (!TEXT_FONTS[variant]) throw new Error('Choose a supported text style.');
   if (variant.toLowerCase().includes('italic'))
-    throw new Error('Korean text supports regular and bold styles. Turn off italic to apply.');
-  return variant === 'bold' ? 'NotoSansKR-Bold.ttf' : 'NotoSansKR-Regular.ttf';
+    throw new Error(
+      `${cjkScriptName(text)} text supports regular and bold styles. Turn off italic to apply.`,
+    );
+  return variant === 'bold' ? 'bold' : 'regular';
 }
 export const textVariant = (bold, italic) =>
   bold ? (italic ? 'boldItalic' : 'bold') : italic ? 'italic' : 'regular';
@@ -779,10 +786,46 @@ const fontBytes = new Map();
 // One subset per face per document: every edit in the same transaction shares it instead of
 // embedding a fresh copy of the font program per changed line or field.
 const embeddedFonts = new WeakMap();
-export function embedFont(doc, variant = 'regular', text = '') {
-  const file = textFontFile(variant, text);
+const documentFonts = (doc) => {
   let fonts = embeddedFonts.get(doc);
   if (!fonts) embeddedFonts.set(doc, (fonts = new Map()));
+  return fonts;
+};
+/**
+ * Embed the face for text in a style. Latin, Greek, Cyrillic, and the like take bundled Noto
+ * Sans; Chinese, Japanese, and Korean take a face built from only the glyphs they need. Text
+ * Noto Sans cannot write otherwise, such as circled numbers, falls back to the CJK face when
+ * that covers it.
+ */
+export async function embedFont(doc, variant = 'regular', text = '') {
+  if (hasCjkText(text)) return embedCjkFont(doc, cjkWeight(variant, text), text);
+  const font = await embedTextFont(doc, textFontFile(variant));
+  // Emoji are in neither face; do not download CJK glyphs only to report them.
+  if (
+    !text ||
+    /italic/i.test(variant) ||
+    writes(font, text) ||
+    /\p{Extended_Pictographic}/u.test(text)
+  )
+    return font;
+  try {
+    const fallback = await embedCjkFont(doc, cjkWeight(variant, text), text);
+    if (writes(fallback, text)) return fallback;
+  } catch {
+    // The person's text is reported as unsupported by the Noto Sans face below.
+  }
+  return font;
+}
+function writes(font, text) {
+  try {
+    assertSupportedText(font, text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function embedTextFont(doc, file) {
+  const fonts = documentFonts(doc);
   let font = fonts.get(file);
   if (!font) {
     font = (async () => {
@@ -807,23 +850,15 @@ export function embedFont(doc, variant = 'regular', text = '') {
         request,
         import('@pdf-lib/fontkit'),
       ]);
-      doc.registerFontkit(fontkit);
       let embedded;
       try {
-        embedded = await doc.embedFont(bytes, { subset: true });
+        embedded = await embedChecked(doc, fontkit, bytes);
       } catch (error) {
         // A complete download can still contain an invalid font table. Do not evict
         // a newer request if another document has already started its own retry.
         if (fontBytes.get(file) === request) fontBytes.delete(file);
-        throw new Error('Could not load the text font. Please retry.', { cause: error });
+        throw error;
       }
-      // pdf-lib uses these public methods for page text and form appearances alike.
-      // Normalize both so measuring and encoding cannot choose different glyphs.
-      const encode = embedded.encodeText.bind(embedded);
-      const measure = embedded.widthOfTextAtSize.bind(embedded);
-      embedded.encodeText = (text) => encode(assertSupportedText(embedded, text));
-      embedded.widthOfTextAtSize = (text, size) =>
-        measure(assertSupportedText(embedded, text), size);
       return embedded;
     })().catch((error) => {
       fonts.delete(file);
@@ -832,6 +867,64 @@ export function embedFont(doc, variant = 'regular', text = '') {
     fonts.set(file, font);
   }
   return font;
+}
+async function embedChecked(doc, fontkit, bytes) {
+  doc.registerFontkit(fontkit);
+  let embedded;
+  try {
+    embedded = await doc.embedFont(bytes, { subset: true });
+  } catch (error) {
+    throw new Error('Could not load the text font. Please retry.', { cause: error });
+  }
+  // pdf-lib uses these public methods for page text and form appearances alike.
+  // Normalize both so measuring and encoding cannot choose different glyphs.
+  const encode = embedded.encodeText.bind(embedded);
+  const measure = embedded.widthOfTextAtSize.bind(embedded);
+  embedded.encodeText = (text) => encode(assertSupportedText(embedded, text));
+  embedded.widthOfTextAtSize = (text, size) => measure(assertSupportedText(embedded, text), size);
+  return embedded;
+}
+/**
+ * The document's CJK face for the text's regions and weight, grown to cover the text. The
+ * same PDF font is returned each time: when the text needs new glyphs, the face is rebuilt
+ * with every earlier glyph at its old number and swapped in beneath pdf-lib's subset, which
+ * reads glyph outlines only when the document is saved.
+ */
+function embedCjkFont(doc, weight, text) {
+  const fonts = documentFonts(doc);
+  const key = `cjk:${cjkRegions(text).join(',')}:${weight}`;
+  let entry = fonts.get(key);
+  if (!entry) fonts.set(key, (entry = { face: new CjkFace(cjkRegions(text), weight) }));
+  // One growth at a time, so two edits never rebuild the face from the same old glyphs.
+  const grow = async () => {
+    await entry.face.include(text);
+    // Compare with what was last built, not whether this call grew the face: a build that
+    // failed after an earlier call added glyphs must still be retried.
+    const size = entry.face.characters.size;
+    if (entry.font && entry.built === size) return entry.font;
+    const { default: fontkit } = await import('@pdf-lib/fontkit');
+    const bytes = entry.face.bytes();
+    if (!entry.font) {
+      entry.font = await embedChecked(doc, fontkit, bytes);
+      entry.built = size;
+      return entry.font;
+    }
+    let face;
+    try {
+      face = fontkit.create(bytes);
+    } catch (error) {
+      throw new Error('Could not load the text font. Please retry.', { cause: error });
+    }
+    const { embedder } = entry.font;
+    embedder.font = face;
+    embedder.fontData = bytes;
+    embedder.subset.font = face;
+    characterSets.delete(entry.font);
+    entry.built = size;
+    return entry.font;
+  };
+  entry.pending = (entry.pending || Promise.resolve()).catch(() => {}).then(grow);
+  return entry.pending;
 }
 export async function addText(
   doc,
@@ -916,7 +1009,7 @@ export async function addText(
 }
 /**
  * The bundled faces flattening needs for fields it draws anew whose text the standard font
- * cannot write, such as Polish, Cyrillic, or Korean values in a form that leaves its drawing to
+ * cannot write, such as Polish, Cyrillic, Chinese, or Korean values in a form that leaves its drawing to
  * the viewer. Pass them to flattenDocument.
  */
 export function flattenFonts(doc) {
@@ -1768,7 +1861,7 @@ export async function fillFields(doc, values) {
     changedFields.push(field);
     changedText.set(field, textValue(field));
   }
-  // Each field is drawn with the bundled face its own text needs, such as the Korean one.
+  // Each field is drawn with the bundled face its own text needs, such as a CJK one.
   const fonts = new Map();
   for (const field of changedFields) {
     const text = changedText.get(field) ?? '';

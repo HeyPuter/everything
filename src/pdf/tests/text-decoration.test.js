@@ -55,7 +55,9 @@ function serveFonts() {
   vi.spyOn(globalThis, 'fetch').mockImplementation(
     async (url) =>
       new Response(
-        await readFile(new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url)),
+        await readFile(
+          new URL(`../public/fonts/${String(url).split('/fonts/').pop()}`, import.meta.url),
+        ),
       ),
   );
 }

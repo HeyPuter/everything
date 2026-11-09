@@ -1172,7 +1172,7 @@ it('detects check boxes typed as box characters, named after the words beside th
   doc.registerFontkit(fontkit);
   // A word processor's "□ Yes □ No": the boxes are characters of a font that has them.
   const font = await doc.embedFont(
-    await readFile(new URL('../public/fonts/NotoSansKR-Regular.ttf', import.meta.url)),
+    await readFile(new URL('./fixtures/fonts/NotoSansKR-Regular.ttf', import.meta.url)),
     { subset: true },
   );
   const page = doc.addPage([612, 792]);

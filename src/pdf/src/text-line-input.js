@@ -1,6 +1,6 @@
 import { paragraphLayout } from './paragraph-layout.js';
 import { groupLineHeight } from './core/text-group.js';
-import { koreanDraftFace } from './text-fonts.js';
+import { cjkDraftFace } from './text-fonts.js';
 import { caretAt } from './text-caret.js';
 
 /**
@@ -106,7 +106,7 @@ export function textLineInput(group) {
       const ratio =
         Math.hypot(run.transform[2], run.transform[3]) /
         Math.hypot(group.transform[2], group.transform[3]);
-      const fallback = face?.(run) || koreanDraftFace(run, span.textContent);
+      const fallback = face?.(run) || cjkDraftFace(run, span.textContent);
       Object.assign(span.style, {
         fontFamily: fallback?.family ? `${fallback.family}, sans-serif` : run.fontFamily,
         fontWeight: fallback?.weight || run.fontWeight,

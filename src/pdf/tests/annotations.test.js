@@ -28,7 +28,7 @@ import { collectComments } from '../src/core/comments.js';
 const fonts = new Map();
 beforeEach(() => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-    const file = String(url).split('/').pop();
+    const file = String(url).split('/fonts/').pop();
     if (!fonts.has(file))
       fonts.set(file, await readFile(new URL(`../public/fonts/${file}`, import.meta.url)));
     return new Response(fonts.get(file));

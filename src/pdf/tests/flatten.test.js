@@ -391,7 +391,9 @@ it('redraws fields in Polish, Cyrillic, or Korean when the form leaves drawing t
   vi.spyOn(globalThis, 'fetch').mockImplementation(
     async (url) =>
       new Response(
-        await readFile(new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url)),
+        await readFile(
+          new URL(`../public/fonts/${String(url).split('/fonts/').pop()}`, import.meta.url),
+        ),
       ),
   );
   const source = await PDFDocument.create();
@@ -427,7 +429,9 @@ it('copies, inserts, and extracts the pages of such a form, its Polish values dr
   vi.spyOn(globalThis, 'fetch').mockImplementation(
     async (url) =>
       new Response(
-        await readFile(new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url)),
+        await readFile(
+          new URL(`../public/fonts/${String(url).split('/fonts/').pop()}`, import.meta.url),
+        ),
       ),
   );
   const source = await PDFDocument.create();

@@ -1,0 +1,26 @@
+Noto Sans CJK SC, TC, JP, and KR Regular and Bold, version 2.004
+
+Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+
+Glyph slices (public/fonts/cjk/) of static TrueType instances (wght=400 and wght=700) of the
+regional variable fonts from the Noto CJK project, generated with fonttools 4.59.2:
+https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/Variable/TTF/Subset/
+
+Character frequency order from the Unicode Han Database (Unihan) 16.0.0:
+https://www.unicode.org/Public/16.0.0/ucd/Unihan.zip
+
+Reproduce from the repository root with: python scripts/cjk-fonts.py
+The app builds a TrueType font from the slices a document's text needs and embeds only the
+used glyphs. TrueType is used because the current PDF writer corrupts CID-keyed CFF subsets.
+Glyph data is padded to four bytes for fontkit's short loca subset offsets.
+
+License: SIL Open Font License 1.1 (NotoSansCJK-OFL.txt).
+Upstream license: https://github.com/notofonts/noto-cjk/blob/Sans2.004/LICENSE
+
+SHA-256:
+d68bafcb48a2707749396aa12bbbd833cb70401f3a9a689fd2902c7e0d295964  upstream NotoSansSC-VF.ttf
+ac091cc8cd19e848202afc8fe6d3809b4526c8fdbdb4be82da20c4f785949591  upstream NotoSansTC-VF.ttf
+f4b373b226668ee33a6e54b02823dcd2d1209f17159f777421ae8c2275160369  upstream NotoSansJP-VF.ttf
+9e1d729e7e2b36f9ef439da102f8c134c10aabe46f1c843bf0aca5c043b86f76  upstream NotoSansKR-VF.ttf
+b8f000df69de7828d21326a2ffea462b04bc7560022989f7cc704f10521ef3e0  upstream Unihan.zip
+c32574bff1652301dee0d3c6f03bf6d077dca45942059f6461d69bc9b902a02c  public/fonts/cjk/ (each file's relative path, a NUL byte, then its bytes)

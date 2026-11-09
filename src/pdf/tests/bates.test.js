@@ -53,7 +53,9 @@ it('writes a Bates prefix in Korean with the Korean face', async () => {
   vi.mocked(globalThis.fetch).mockImplementation(
     async (url) =>
       new Response(
-        await readFile(new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url)),
+        await readFile(
+          new URL(`../public/fonts/${String(url).split('/fonts/').pop()}`, import.meta.url),
+        ),
       ),
   );
   const doc = await PDFDocument.create();

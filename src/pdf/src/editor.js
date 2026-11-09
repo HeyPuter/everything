@@ -66,7 +66,7 @@ import {
   annotationAccepts,
   REVIEW_STATES,
 } from './core/annotations.js';
-import { ensureStyledFontFaces, ensureKoreanFontFaces, koreanDraftFace } from './text-fonts.js';
+import { ensureStyledFontFaces, ensureCjkFontFaces, cjkDraftFace } from './text-fonts.js';
 import {
   documentAccess,
   requireDocumentAccess,
@@ -137,7 +137,7 @@ import {
   duplicatePages,
   addText,
   textVariant,
-  hasKoreanText,
+  hasCjkText,
   addImage,
   drawMark,
   arrowHead,
@@ -1581,12 +1581,12 @@ export function createEditor({
     const bold = edit.run && edit.bold === edit.original.bold ? isBoldRun(run) : edit.bold;
     const italic =
       edit.run && edit.italic === edit.original.italic ? isItalicRun(run) : edit.italic;
-    const korean = koreanDraftFace(
+    const cjk = cjkDraftFace(
       run,
       edit.input.value,
       !edit.run || styleChanged(edit) ? textVariant(bold, italic) : undefined,
     );
-    if (korean) return korean;
+    if (cjk) return cjk;
     if (edit.run && !styleChanged(edit))
       return {
         weight: edit.run?.fontWeight || 'normal',
@@ -1602,8 +1602,8 @@ export function createEditor({
     };
   }
   function applyDraftStyle(edit) {
-    if (hasKoreanText(edit.input.value))
-      ensureKoreanFontFaces(edit.input.value).then(() => {
+    if (hasCjkText(edit.input.value))
+      ensureCjkFontFaces(edit.input.value).then(() => {
         if (textEdit === edit) layoutTextEdit();
       });
     const face = draftFace(edit);
@@ -5317,8 +5317,8 @@ export function createEditor({
       if (edit.panel.contains(field) && field.matches('input')) field.blur();
       edit.positionControl.validate();
       edit.widthControl?.validate();
-      if (hasKoreanText(edit.input.value)) {
-        await ensureKoreanFontFaces(edit.input.value);
+      if (hasCjkText(edit.input.value)) {
+        await ensureCjkFontFaces(edit.input.value);
         if (textEdit !== edit) return;
         layoutTextEdit();
       }

@@ -376,7 +376,7 @@ it('draws only the pages that their words cannot tell apart', async () => {
 it('writes the report in the letters of the compared files, beyond Western European ones', async () => {
   // The app's own text faces, as the browser fetches them.
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-    const file = String(url).split('/').pop();
+    const file = String(url).split('/fonts/').pop();
     return new Response(await readFile(new URL(`../public/fonts/${file}`, import.meta.url)));
   });
   try {
