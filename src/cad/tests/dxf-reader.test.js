@@ -288,6 +288,15 @@ describe('parseDxf: text', () => {
     expect(close(t.rot, Math.PI / 2)).toBe(true);
   });
 
+  it('ignores the embedded column object of R2018+ MTEXT', () => {
+    const mt = [0, 'MTEXT', 10, 100, 20, 200, 40, 2.5, 41, 60, 71, 1, 1, 'Hello', 7, 'Standard', 11, 1, 21, 0, 44, 1];
+    const embedded = [101, 'Embedded Object', 70, 1, 10, 1, 20, 0, 11, 100, 21, 200, 40, 60, 41, 0, 42, 20, 43, 3, 71, 2, 72, 1, 44, 60, 45, 12.5, 73, 0, 74, 0];
+    const plain = parseDxf(dxf(mt)).drawing.entities[0];
+    const cols = parseDxf(dxf([...mt, ...embedded])).drawing.entities[0];
+    expect(cols).toMatchObject({ x: 100, y: 200, h: 2.5, rot: 0, width: 60, attach: 'tl', lineSpacing: 1, value: 'Hello' });
+    expect(cols).toEqual(plain);
+  });
+
   it('maps TEXT alignment groups 72/73 and the second alignment point', () => {
     const { drawing } = parseDxf(
       dxf([

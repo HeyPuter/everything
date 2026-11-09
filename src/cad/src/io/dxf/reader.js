@@ -1742,6 +1742,9 @@ class DxfParser {
     const vals = R.vals;
     for (let i = 0; i < R.end; i++) {
       const v = vals[i];
+      // R2018+ MTEXT with columns ends with an embedded object (101) that
+      // reuses 10, 11, 40, 41, 46, 71 ... with other meanings.
+      if (codes[i] === 101) break;
       switch (codes[i]) {
         case 5:
           handle = v;
