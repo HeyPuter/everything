@@ -244,8 +244,12 @@ function wrapLines(str, limit, mono) {
           lw += spaceW + ww;
           continue;
         }
-        texts.push(line);
-        widths.push(lw);
+        // Spaces at a break belong to neither line: one that does not fit
+        // does not start a new line, and the line ends without them.
+        if (!word) continue;
+        const trimmed = line.replace(/ +$/, '');
+        texts.push(trimmed);
+        widths.push(lw - (line.length - trimmed.length) * spaceW);
       }
       if (ww > limit + eps) {
         // Break the word: fill each line with as many characters as fit (at least one).
