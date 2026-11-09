@@ -186,12 +186,16 @@ function splitSign(str) {
   return [1, s];
 }
 
-/** Feet and inch marks are accepted when a drawing unit is an inch. */
+/**
+ * Feet and inch marks are accepted when a drawing unit is an inch: in inch
+ * drawings, and whenever lengths are shown in feet and inches (those formats
+ * treat a unit as an inch whatever the insertion units), so that every value
+ * shown can be typed back.
+ */
 function feetInches(header) {
-  const u = header?.units;
-  if (u === 'in') return true;
+  if (header?.units === 'in') return true;
   const f = header?.linearFormat ?? header?.format;
-  return (u == null || u === 'unitless') && (f === 'architectural' || f === 'engineering');
+  return f === 'architectural' || f === 'engineering';
 }
 
 /**

@@ -126,6 +126,15 @@ describe('parseLength', () => {
     expect(parseLength('5\'', { units: 'mm' })).toBeNaN();
   });
 
+  it('accepts feet and inches whenever lengths are shown in them', () => {
+    for (const units of ['mm', 'm', 'ft']) {
+      const arch = { units, linearFormat: 'architectural', linearPrecision: 4 };
+      expect(parseLength(formatLinear(18.5, arch), arch)).toBeCloseTo(18.5, 9);
+      const eng = { units, linearFormat: 'engineering', linearPrecision: 2 };
+      expect(parseLength(formatLinear(40.5, eng), eng)).toBeCloseTo(40.5, 9);
+    }
+  });
+
   it('rejects junk', () => {
     expect(parseLength('')).toBeNaN();
     expect(parseLength('abc')).toBeNaN();
