@@ -192,6 +192,9 @@ function safe(fn) {
   }
 }
 
+/** The drawing each rendered selection belongs to. */
+const owners = new WeakMap();
+
 export class PropertiesPalette {
   constructor(app) {
     this.app = app;
@@ -233,8 +236,9 @@ export class PropertiesPalette {
     const app = this.app;
     const doc = app.doc;
     if (!doc) return;
-    // Keep focus on an input that is being edited.
-    if (!this._forceRender && this.el.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return;
+    // Keep focus on an input that is being edited, unless the fields belong
+    // to a drawing that is no longer active.
+    if (!this._forceRender && doc === this._doc && this.el.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return;
     const d = doc.drawing;
     const sel = [...doc.selection].map((id) => d.get(id)).filter(Boolean);
     const groups = new Map();
@@ -255,12 +259,16 @@ export class PropertiesPalette {
       this.typeSelect.value = this.filter;
     }
     clear(this.body);
+    this._doc = doc;
     if (!sel.length) {
       this.body.append(this.section('General', this.currentFields()));
       this.body.append(this.section('View', this.viewFields(), true));
       return;
     }
     const ents = this.filter === 'all' ? sel : groups.get(this.filter) || sel;
+    // Fields commit to the drawing they were built for, even if another one
+    // has become active since (see apply).
+    owners.set(ents, d);
     this.body.append(this.section('General', this.generalFields(ents)));
     if (this.filter !== 'all' || groups.size === 1) {
       const type = ents[0].type;
@@ -295,7 +303,7 @@ export class PropertiesPalette {
 
   /** Commit a patch function to every entity in `ents` as one step. */
   apply(ents, patchFn, label = 'Change properties') {
-    const d = this.app.doc.drawing;
+    const d = owners.get(ents) ?? this.app.doc.drawing;
     d.transaction(label, () => {
       for (const e of ents) {
         const cur = d.get(e.id);
