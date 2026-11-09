@@ -131,7 +131,8 @@ export function dimensionText(ent, style, header) {
   } else {
     num = formatLinear(m, { format: header?.linearFormat ?? 'decimal', precision: st.precision, trimZeros });
   }
-  const sym = ent.dimType === 'radius' ? 'R' : ent.dimType === 'diameter' ? DIAMETER_SIGN : '';
+  // A style prefix replaces the radius and diameter symbols, as AutoCAD's DIMPOST does.
+  const sym = st.prefix ? '' : ent.dimType === 'radius' ? 'R' : ent.dimType === 'diameter' ? DIAMETER_SIGN : '';
   const full = `${st.prefix ?? ''}${sym}${num}${st.suffix ?? ''}`;
   const t = ent.text ?? '';
   if (t === '') return full;
