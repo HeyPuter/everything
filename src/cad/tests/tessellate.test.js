@@ -161,6 +161,21 @@ describe('emitEntity', () => {
     expect(ray.pts[0]).toBe(0);
   });
 
+  it('starts dashed construction lines on a whole pattern from their base point', () => {
+    const d = drawing();
+    // Dashed: 12 + 6 = 18 units per pattern; the start must not follow the view.
+    for (const cx of [0, 0.37, 1.1, 2.9, -500.3]) {
+      const [x] = emit(d, { ...P, linetype: 'Dashed', type: 'xline', x: 3, y: 0, dx: 1, dy: 0 }, { view: [cx - 10, -10, cx + 10, 10] });
+      const phase = (((x.pts[0] - 3) % 18) + 18) % 18;
+      expect(Math.min(phase, 18 - phase)).toBeLessThan(1e-9);
+      expect(x.pts[0]).toBeLessThan(cx - 10);
+      expect(x.pts[2]).toBeGreaterThan(cx + 10);
+    }
+    const [ray] = emit(d, { ...P, linetype: 'Dashed', type: 'ray', x: 3, y: 0, dx: 1, dy: 0 }, { view: [90, -10, 110, 10] });
+    expect((ray.pts[0] - 3) % 18).toBeCloseTo(0, 9);
+    expect(ray.pts[0]).toBeGreaterThanOrEqual(3);
+  });
+
   it('draws text and dimensions as strokes', () => {
     const d = drawing();
     const t = emit(d, { ...P, type: 'text', x: 0, y: 0, h: 2, rot: 0, value: 'AB', style: 'Standard', halign: 'left', valign: 'baseline', widthFactor: 1, oblique: 0 });
