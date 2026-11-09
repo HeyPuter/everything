@@ -135,10 +135,12 @@ export const AREA = {
     if (pts.length < 3) return;
     let a = 0,
       per = 0;
+    // Relative to the first point, so far from the origin stays precise.
+    const o = pts[0];
     for (let i = 0; i < pts.length; i++) {
       const p1 = pts[i],
         p2 = pts[(i + 1) % pts.length];
-      a += p1.x * p2.y - p2.x * p1.y;
+      a += (p1.x - o.x) * (p2.y - o.y) - (p2.x - o.x) * (p1.y - o.y);
       per += dist(p1, p2);
     }
     a = Math.abs(a) / 2;

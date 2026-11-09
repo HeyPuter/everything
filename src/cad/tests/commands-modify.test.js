@@ -544,3 +544,14 @@ describe('selection options', () => {
     expect(t.all().map((e) => e.type)).toEqual(['line']);
   });
 });
+
+describe('AREA', () => {
+  it('measures by points precisely far from the origin', async () => {
+    const X = 512345.678,
+      Y = 4512345.678;
+    const pts = [`${X},${Y}`, `${X + 1},${Y}`, `${X + 1},${Y + 1}`, `${X},${Y + 1}`];
+    await t.type('AREA', ...pts, '');
+    const [, text] = t.logs.filter(([k]) => k === 'result').at(-1);
+    expect(text).toMatch(/^Area = 1\.0000 /);
+  });
+});
