@@ -309,7 +309,9 @@ export function patternSegments(rings, pattern, scale = 1, angleRad = 0, opts = 
   const eKmin = new Float64Array(ne),
     eKmax = new Float64Array(ne),
     eA = new Float64Array(ne),
-    eB = new Float64Array(ne);
+    eB = new Float64Array(ne),
+    eLo = new Float64Array(ne),
+    eHi = new Float64Array(ne);
   let xs = new Float64Array(64);
   const ca = Math.cos(angleRad),
     sa = Math.sin(angleRad);
@@ -363,6 +365,8 @@ export function patternSegments(rings, pattern, scale = 1, angleRad = 0, opts = 
       eKmax[e] = k1;
       eA[e] = S[a] - t1 * slope;
       eB[e] = dy * slope;
+      eLo[e] = Math.min(S[a], S[b]);
+      eHi[e] = Math.max(S[a], S[b]);
       order.push(e);
       if (k0 < kLo) kLo = k0;
       if (k1 > kHi) kHi = k1;
@@ -387,7 +391,10 @@ export function patternSegments(rings, pattern, scale = 1, angleRad = 0, opts = 
         const e = active[i];
         if (eKmax[e] < k) continue;
         active[w++] = e;
-        xs[m++] = eA[e] + eB[e] * k;
+        // A crossing lies on its edge. For an edge almost along the lines
+        // (rounding in T) the slope is huge and the formula meaningless.
+        const x = eA[e] + eB[e] * k;
+        xs[m++] = x < eLo[e] ? eLo[e] : x > eHi[e] ? eHi[e] : x;
       }
       active.length = w;
       work++;
