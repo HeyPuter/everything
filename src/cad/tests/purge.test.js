@@ -2,7 +2,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Drawing } from '../src/core/drawing.js';
 import { defaultLayer } from '../src/core/schema.js';
-import { purgeDialog } from '../src/ui/dialogs.js';
+import { purgeDialog, linetypesDialog } from '../src/ui/dialogs.js';
+import { STANDARD_LINETYPES } from '../src/core/linetypes.js';
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -50,5 +51,31 @@ describe('PURGE', () => {
     expect(d.blocks.has('A')).toBe(false);
     expect(d.blocks.has('B')).toBe(false);
     expect(d.layers.has('Bolt')).toBe(false);
+  });
+
+  it('keeps the current linetype', async () => {
+    const d = new Drawing();
+    d.transaction('setup', () => {
+      d.setTable('linetypes', 'Dashed', { ...STANDARD_LINETYPES.find((l) => l.name === 'Dashed') });
+      d.setHeader({ cltype: 'Dashed' });
+    });
+    await purge(d);
+    expect(d.linetypes.has('Dashed')).toBe(true);
+  });
+});
+
+describe('Linetypes dialog', () => {
+  it('does not unload the current linetype', async () => {
+    const d = new Drawing();
+    d.transaction('setup', () => {
+      d.setTable('linetypes', 'Dashed', { ...STANDARD_LINETYPES.find((l) => l.name === 'Dashed') });
+      d.setHeader({ cltype: 'Dashed' });
+    });
+    const p = linetypesDialog({ doc: { drawing: d } });
+    const dlg = document.querySelector('dialog[open]');
+    dlg.querySelector('input[data-name="Dashed"]').checked = false;
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'OK').click();
+    await p;
+    expect(d.linetypes.has('Dashed')).toBe(true);
   });
 });

@@ -885,7 +885,9 @@ export async function linetypesDialog(app) {
   const body = h('form', { onSubmit: (e) => e.preventDefault() }, h('p.field-hint', 'Checked linetypes are available in this drawing.'), h('div.lt-list', rows), field('Global linetype scale', lts));
   const r = await openDialog({ title: 'Linetypes', body, size: 'md', actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, value: true }] });
   if (!r) return;
+  // The current linetype is in use too (new objects get it).
   const used = new Set([...d.layers.values()].map((l) => l.linetype));
+  used.add(d.header.cltype);
   for (const e of d.entities.values()) used.add(e.linetype);
   for (const b of d.blocks.values()) for (const e of b.entities) used.add(e.linetype);
   d.transaction('Linetypes', () => {
@@ -946,7 +948,7 @@ export async function quickSelectDialog(app) {
 export async function purgeDialog(app) {
   const d = app.doc.drawing;
   const usedLayers = new Set(['0', d.header.clayer]);
-  const usedLts = new Set(['Continuous', 'ByLayer', 'ByBlock']);
+  const usedLts = new Set(['Continuous', 'ByLayer', 'ByBlock', d.header.cltype]);
   const usedText = new Set(['Standard', d.header.textStyle]);
   const usedDim = new Set(['Standard', d.header.dimStyle]);
   const usedBlocks = new Set();
