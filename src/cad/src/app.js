@@ -1025,6 +1025,9 @@ export class App {
 
   setSetting(key, value) {
     this.settings[key] = value;
+    // Ortho and polar tracking are mutually exclusive: turning one on turns the other off.
+    if (value === true && key === 'ortho') this.settings.polar = false;
+    else if (value === true && key === 'polar') this.settings.ortho = false;
     this.applySettings();
     saveJSON(SETTINGS_KEY, this.settings);
     this.pushSettingsToCloud();
@@ -1034,9 +1037,6 @@ export class App {
     this.setSetting(key, !this.settings[key]);
     const labels = { grid: 'Grid', snap: 'Snap', ortho: 'Ortho', polar: 'Polar tracking', osnap: 'Object snap', otrack: 'Object snap tracking', dyn: 'Dynamic input', lwDisplay: 'Lineweight display' };
     if (labels[key]) this.cmdline.log(`${labels[key]} ${this.settings[key] ? 'on' : 'off'}`, 'muted');
-    // Ortho and polar are mutually exclusive.
-    if (key === 'ortho' && this.settings.ortho && this.settings.polar) this.setSetting('polar', false);
-    if (key === 'polar' && this.settings.polar && this.settings.ortho) this.setSetting('ortho', false);
   }
 
   applySettings() {
