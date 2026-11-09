@@ -63,10 +63,16 @@ export class LayerManager {
       this.live,
     );
     this.el.addEventListener('keydown', (e) => {
-      if (e.altKey && e.key.toLowerCase() === 'n') {
+      if (!e.altKey) return;
+      // On macOS, Option changes the key (Option+N is a dead key, Option+C
+      // types ç), so use the physical key, except in text fields where those
+      // characters are being typed.
+      const typing = e.target instanceof HTMLElement && e.target.matches('input, textarea');
+      const k = /^[a-z]$/i.test(e.key) || typing ? e.key.toLowerCase() : e.code.replace(/^Key/, '').toLowerCase();
+      if (k === 'n') {
         e.preventDefault();
         this.newLayer();
-      } else if (e.altKey && e.key.toLowerCase() === 'c') {
+      } else if (k === 'c') {
         e.preventDefault();
         this.makeCurrent();
       }
