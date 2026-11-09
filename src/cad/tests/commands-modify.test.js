@@ -189,6 +189,12 @@ describe('STRETCH', () => {
     expect(t.drawing.get(1)).toMatchObject({ x1: 10, y1: 0, x2: 0, y2: 10, x3: -2, y3: -2, lx: 5 });
   });
 
+  it('moves a whole linear dimension away from the origin when it is all inside', async () => {
+    await t.type('DIMLINEAR', '100,100', '120,100', '110,110');
+    await t.type('STRETCH', '90,90', '130,130', '0,0', '0,50');
+    expect(t.drawing.get(1)).toMatchObject({ x1: 100, y1: 150, x2: 120, y2: 150, ly: 160 });
+  });
+
   it('stretches hatch boundary vertices inside the window only', async () => {
     const loop = [0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0];
     add({ type: 'hatch', pattern: 'SOLID', scale: 1, angle: 0, loops: [loop] });
