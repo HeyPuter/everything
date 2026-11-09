@@ -49,6 +49,8 @@ class Doc {
     this.index = new SpatialIndex(drawing);
     this.name = name;
     this.view = null;
+    // A zoom extents is waiting for the canvas or for this drawing to be active.
+    this.fitPending = false;
     this.viewStack = [];
     this.selection = new Set();
     this.file = null;
@@ -221,6 +223,7 @@ export class App {
     this.whenSized(() => {
       if (this.doc !== doc) return;
       // An empty A4-landscape-sized area in millimetres.
+      doc.fitPending = false;
       this.camera.fit(-10, -10, 290, 200);
       this.editor.viewChanged();
       doc.view = this.camera.state;
@@ -234,18 +237,26 @@ export class App {
     if (this.editor.busy) this.editor.cancelAll();
     this.doc = doc;
     this.renderer.setDrawing(doc.drawing);
-    if (doc.view) this.camera.state = doc.view;
-    else this.zoomExtentsSoon();
+    if (doc.view && !doc.fitPending) this.camera.state = doc.view;
+    else this.zoomExtentsSoon(doc);
     this.editor.attach(doc);
     this.shell.emptyState.hidden = true;
     this.refreshAll();
     this.saveSession();
   }
 
-  zoomExtentsSoon() {
+  /**
+   * Zoom doc to its extents once the canvas is sized. Waits until doc is
+   * active, and is cancelled by a view set meanwhile (fitPending = false).
+   */
+  zoomExtentsSoon(doc = this.doc) {
+    if (!doc) return;
+    doc.fitPending = true;
     this.whenSized(() => {
+      if (!doc.fitPending || this.doc !== doc) return;
+      doc.fitPending = false;
       this.editor.zoomExtents();
-      if (this.doc) this.doc.view = this.camera.state;
+      doc.view = this.camera.state;
     });
   }
 
@@ -415,7 +426,7 @@ export class App {
   /** Open the built-in sample drawing in a new tab. */
   openSample() {
     const doc = this.addDoc(sampleDrawing(), 'Sample plate');
-    this.zoomExtentsSoon();
+    this.zoomExtentsSoon(doc);
     return doc;
   }
 
@@ -514,8 +525,12 @@ export class App {
         const drawing = new Drawing(data);
         if (r.modified) drawing.savedRevision = -1;
         const doc = this.addDoc(drawing, r.name, r.file, r.id);
-        doc.view = r.view;
-        if (r.view) this.camera.state = r.view;
+        if (r.view) {
+          // The saved view wins over the zoom extents queued when it was added.
+          doc.view = r.view;
+          doc.fitPending = false;
+          this.camera.state = r.view;
+        }
         if (id === session.active) active = doc;
       } catch (err) {
         console.warn('Could not restore a drawing', err);
@@ -594,7 +609,7 @@ export class App {
       // Replace an untouched empty drawing.
       const blank = this.docs.find((d) => d !== doc && !d.file && !d.drawing.entities.size && !d.drawing.modified && !d.drawing.canUndo);
       if (blank) this.closeDrawing(blank);
-      this.zoomExtentsSoon();
+      this.zoomExtentsSoon(doc);
       if (file.path) storage.addRecent({ name, path: file.path, source: file.source });
       this.cmdline.log(`Opened ${name} (${drawing.entities.size.toLocaleString()} objects)`, 'muted');
       return doc;
