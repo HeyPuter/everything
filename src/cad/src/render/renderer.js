@@ -353,14 +353,14 @@ export class Renderer {
       const c = this.chunkOf.get(id);
       if (!ent) this._unplace(id);
       else if (this._isInfinite(ent) !== this.infinite.has(id)) {
+        // New objects are appended to the draw order (construction lines too).
+        if (!c) this._appendBand(id, ent);
         this._unplace(id);
         this._place(id);
       } else if (c) c.dirty = true;
       else if (this.infinite.has(id)) this.infDirty = true;
       else {
-        // New objects are appended to the draw order.
-        const band = nextBand(this.bands, ent);
-        if (band) this.bands.of.set(id, band);
+        this._appendBand(id, ent);
         this._place(id);
       }
       if (this.selection.has(id)) this.selDirty = true;
@@ -375,6 +375,12 @@ export class Renderer {
       });
     }
     this.invalidate();
+  }
+
+  /** Give a new object the draw-order band after the last one. */
+  _appendBand(id, ent) {
+    const band = nextBand(this.bands, ent);
+    if (band) this.bands.of.set(id, band);
   }
 
   /**

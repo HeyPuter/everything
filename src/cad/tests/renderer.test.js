@@ -137,3 +137,29 @@ describe('Renderer chunks', () => {
     }
   });
 });
+
+describe('Renderer draw-order bands', () => {
+  it('puts a new construction line in the last band, as a full rebuild does', () => {
+    const { r, d } = setup(1);
+    let hatch;
+    d.transaction('add', () => {
+      hatch = d.add({ type: 'hatch', layer: '0', color: 1, loops: [[0, 0, 0, 100, 0, 0, 100, 100, 0, 0, 100, 0]], pattern: 'SOLID', scale: 1, angle: 0 }).id;
+    });
+    r.frame();
+    // DRAWORDER Back on the line: the hatch moves to band 1.
+    d.transaction('Draw order', () => {
+      d.update(1, { orderGroup: d.newId() });
+      d.reorder([1], false);
+    });
+    r.frame();
+    expect(r.bands.of.get(hatch)).toBe(1);
+    let x;
+    d.transaction('xline', () => (x = d.add({ type: 'xline', layer: '0', color: 256, x: 50, y: 50, dx: 1, dy: 0 }).id));
+    r.frame();
+    expect(r.bands.of.get(x)).toBe(1);
+    // and objects added after it continue in the same band
+    let l;
+    d.transaction('line', () => (l = d.add({ type: 'line', layer: '0', color: 256, x1: 0, y1: 5, x2: 9, y2: 5 }).id));
+    expect(r.bands.of.get(l)).toBe(1);
+  });
+});
