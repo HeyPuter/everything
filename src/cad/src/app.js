@@ -54,7 +54,6 @@ class Doc {
     this.viewStack = [];
     this.selection = new Set();
     this.file = null;
-    this.isolated = null;
   }
 }
 

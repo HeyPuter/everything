@@ -555,3 +555,36 @@ describe('AREA', () => {
     expect(text).toMatch(/^Area = 1\.0000 /);
   });
 });
+
+describe('LAYISO and LAYUNISO', () => {
+  const layer = (name, on = true) => t.drawing.transaction('Layer', () => t.drawing.setTable('layers', name, { name, color: 7, linetype: 'Continuous', lineweight: -1, on, frozen: false, locked: false, plot: true }));
+  const on = (name) => t.drawing.layers.get(name).on;
+  const setOn = (name, v) => t.drawing.transaction('Layer', () => t.drawing.setTable('layers', name, { ...t.drawing.layers.get(name), on: v }));
+  beforeEach(() => {
+    for (const n of ['A', 'B']) layer(n);
+    layer('C', false);
+    add({ type: 'line', layer: 'A', x1: 0, y1: 0, x2: 10, y2: 0 });
+  });
+  it('turns back on only the layers it turned off', async () => {
+    t.ed.setSelection([1]);
+    await t.type('LAYISO');
+    expect([on('A'), on('B'), on('C'), on('0')]).toEqual([true, false, false, false]);
+    setOn('C', true); // changed after isolating: kept
+    await t.type('LAYUNISO');
+    expect([on('A'), on('B'), on('C'), on('0')]).toEqual([true, true, true, true]);
+    setOn('C', false);
+    setOn('B', false);
+    await t.type('LAYUNISO'); // nothing is isolated any more
+    expect([on('B'), on('C')]).toEqual([false, false]);
+  });
+  it('forgets the isolation when LAYISO is undone', async () => {
+    t.ed.setSelection([1]);
+    await t.type('LAYISO');
+    t.drawing.undo();
+    expect(on('B')).toBe(true);
+    setOn('B', false);
+    await t.type('LAYUNISO');
+    expect(on('B')).toBe(false);
+    expect(t.logs.at(-1)[1]).toBe('No layers are isolated.');
+  });
+});
