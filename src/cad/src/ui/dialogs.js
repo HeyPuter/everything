@@ -763,10 +763,10 @@ async function styleManager(app, { title, table, headerKey, make, fields, label,
         ctl.addEventListener('change', () => (st[f.key] = ctl.value));
       } else {
         const shown = () => (f.deg ? +((st[f.key] * 180) / Math.PI).toFixed(6) : st[f.key]);
-        const inp = (ctl = num(shown(), { min: f.min ?? null }));
+        const inp = (ctl = num(shown(), { min: f.min ?? null, max: f.max ?? null }));
         inp.addEventListener('change', () => {
           const v = Number(inp.value);
-          if (inp.value.trim() !== '' && Number.isFinite(v) && !(v < (f.min ?? -Infinity))) {
+          if (inp.value.trim() !== '' && Number.isFinite(v) && !(v < (f.min ?? -Infinity)) && !(v > (f.max ?? Infinity))) {
             st[f.key] = f.deg ? (v * Math.PI) / 180 : v;
             inp.removeAttribute('aria-invalid');
             return;
@@ -833,7 +833,7 @@ export function textStylesDialog(app) {
       { key: 'font', label: 'Font', options: [['sans', 'Drafting (proportional)'], ['mono', 'Drafting (fixed width)']] },
       { key: 'height', label: 'Height', min: 0, hint: '0 asks for the height each time text is placed.' },
       { key: 'widthFactor', label: 'Width factor', min: 0.01 },
-      { key: 'oblique', label: 'Oblique angle (degrees)', deg: true },
+      { key: 'oblique', label: 'Oblique angle (degrees)', deg: true, min: -85, max: 85, hint: 'From -85 to 85.' },
     ],
   });
 }

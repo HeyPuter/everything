@@ -73,6 +73,13 @@ export function measureText(value, h, widthFactor = 1, font = 'sans') {
   return advanceUnits(decodeSpecial(value), font === 'mono') * h * widthFactor;
 }
 
+/** Slant limit: obliquing angles are limited to ±85 degrees, as in AutoCAD. */
+const MAX_TAN = Math.tan((85 * Math.PI) / 180);
+const slant = (a) => {
+  const t = Math.tan(a);
+  return Number.isFinite(t) ? Math.max(-MAX_TAN, Math.min(MAX_TAN, t)) : 0;
+};
+
 /** Resolve font, width factor and oblique from the entity, then the style. */
 function params(ent, style) {
   const font = typeof style === 'string' ? style : (style?.font ?? ent.font ?? 'sans');
@@ -80,7 +87,7 @@ function params(ent, style) {
   return {
     h: ent.h > 0 ? ent.h : 1,
     wf: ent.widthFactor > 0 ? ent.widthFactor : so?.widthFactor > 0 ? so.widthFactor : 1,
-    tan: Math.tan(ent.oblique ?? so?.oblique ?? 0),
+    tan: slant(ent.oblique ?? so?.oblique ?? 0),
     mono: font === 'mono',
     rot: ent.rot || 0,
   };

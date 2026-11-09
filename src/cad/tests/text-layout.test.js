@@ -140,6 +140,17 @@ describe('layoutText', () => {
     expect(topX - straight[0]).toBeCloseTo(2 * Math.tan(Math.PI / 12), 5);
   });
 
+  it('limits the slant to 85 degrees', () => {
+    for (const oblique of [Math.PI / 2, -Math.PI / 2, (89.9 * Math.PI) / 180]) {
+      const b = textBounds(text({ value: 'I', oblique }));
+      expect(b.every(Number.isFinite)).toBe(true);
+      expect(Math.max(Math.abs(b[0]), Math.abs(b[2]))).toBeLessThan(2 * Math.tan((85.1 * Math.PI) / 180) + 2);
+    }
+    // Angles inside the limit are unchanged.
+    const ok = layoutText(text({ value: 'I', oblique: (80 * Math.PI) / 180 })).strokes[0];
+    expect(Math.abs(ok[0] - ok[2])).toBeCloseTo(2 * Math.tan((80 * Math.PI) / 180), 5);
+  });
+
   it('applies the width factor', () => {
     const a = strokeBounds(layoutText(text({ value: 'W' })).strokes);
     const b = strokeBounds(layoutText(text({ value: 'W', widthFactor: 0.5 })).strokes);

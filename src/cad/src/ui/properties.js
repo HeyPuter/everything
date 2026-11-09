@@ -45,6 +45,9 @@ const TYPE_LABEL = {
 const L = (label, key, extra) => ({ label, kind: 'length', get: (e) => e[key], set: (e, v) => ({ [key]: v }), ...extra });
 const A = (label, key, extra) => ({ label, kind: 'angle', get: (e) => e[key], set: (e, v) => ({ [key]: v }), ...extra });
 const RO = (label, get, kind = 'length') => ({ label, kind: 'ro', fmt: kind, get });
+/** Obliquing angles are limited to ±85 degrees, as in AutoCAD: the slant grows as tan(angle). */
+const MAX_OBLIQUE = (85 * Math.PI) / 180;
+const obliqueOk = (a) => Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) <= MAX_OBLIQUE + 1e-9;
 
 const GEOMETRY = {
   line: [
@@ -133,7 +136,7 @@ const GEOMETRY = {
     L('Height', 'h', { min: 1e-9 }),
     A('Rotation', 'rot'),
     { label: 'Width factor', kind: 'number', get: (e) => e.widthFactor ?? 1, set: (e, v) => ({ widthFactor: Math.max(0.01, v) }) },
-    A('Obliquing', 'oblique'),
+    A('Obliquing', 'oblique', { valid: obliqueOk }),
     L('Position X', 'x'),
     L('Position Y', 'y'),
   ],
@@ -415,7 +418,7 @@ export class PropertiesPalette {
         control = this.numberInput(v, (x) => x > 0 && commit(x));
         break;
       case 'angle':
-        control = this.angleInput(v, commit);
+        control = this.angleInput(v, (x) => (!f.valid || f.valid(x)) && commit(x));
         break;
       case 'number':
         control = this.numberInput(v, commit);
