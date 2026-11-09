@@ -126,6 +126,11 @@ export const PLINE = {
       for (const v of all) pts.push(v.x, v.y, v.b);
       return ed.make('polyline', { pts, closed, width });
     };
+    // Escape keeps the segments drawn so far, as LINE does (unless the
+    // drawing itself was switched or closed).
+    const keepOnCancel = () => {
+      if (verts.length >= 2 && ed.doc?.drawing === drawing) ed.commit('Polyline', () => ed.drawing.add(build(null)));
+    };
     const arcBulge = (p) => {
       const last = verts.at(-1);
       const t = endTangent(verts) ?? { x: 1, y: 0 };
@@ -151,11 +156,7 @@ export const PLINE = {
           },
         });
       } catch (err) {
-        // Escape keeps the segments drawn so far, as LINE does (unless the
-        // drawing itself was switched or closed).
-        if (verts.length >= 2 && ed.doc?.drawing === drawing) {
-          ed.commit('Polyline', () => ed.drawing.add(build(null)));
-        }
+        keepOnCancel();
         throw err;
       }
       if (r === null) break;
@@ -175,7 +176,13 @@ export const PLINE = {
         continue;
       }
       if (r.option === 'width') {
-        const w = await ed.getDistance('Width', { default: width });
+        let w;
+        try {
+          w = await ed.getDistance('Width', { default: width });
+        } catch (err) {
+          keepOnCancel();
+          throw err;
+        }
         if (typeof w === 'number' && w >= 0) width = ed.plineWidth = w;
         else if (typeof w === 'number') ed.ui.log('The width cannot be negative.', 'error');
         continue;

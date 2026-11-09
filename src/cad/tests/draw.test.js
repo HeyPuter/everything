@@ -327,6 +327,16 @@ describe('polyline cancel', () => {
     expect(t.all()).toHaveLength(0);
   });
 
+  it('keeps the segments drawn so far when Escape ends the Width prompt', async () => {
+    await t.type('PLINE', '0,0', '10,0', '10,10', 'W');
+    expect(t.ed.request?.prompt).toMatch(/^Width/);
+    t.ed.cancel();
+    await flush();
+    expect(t.ed.busy).toBe(false);
+    const [p] = t.all('polyline');
+    expect(p.pts).toEqual([0, 0, 0, 10, 0, 0, 10, 10, 0]);
+  });
+
   it('draws nothing when Escape comes before a second point', async () => {
     await t.type('PLINE', '0,0');
     t.ed.cancel();
