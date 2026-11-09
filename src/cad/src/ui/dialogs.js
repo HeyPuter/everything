@@ -344,6 +344,10 @@ export async function plotDialog(app, state) {
     /* ignore */
   }
   const st = { paper: 'A3', orientation: 'landscape', areaMode: 'extents', fit: true, paperMm: 1, units: 100, center: true, margins: 10, monochrome: true, lineweights: true, ...saved, ...(state || {}) };
+  // The plot window belongs to its drawing (it is not saved with the other
+  // settings): without one, Window would silently plot the extents.
+  st.window ??= doc.plotWindow;
+  if (st.areaMode === 'window' && !st.window) st.areaMode = 'extents';
   const paper = select(PAPER_SIZES.map((p) => [p.id, `${p.label} (${Math.round(p.w)} x ${Math.round(p.h)} mm)`]), st.paper);
   const orient = select([['landscape', 'Landscape'], ['portrait', 'Portrait']], st.orientation);
   const areaSel = select([['extents', 'Extents'], ['display', 'Display'], ['window', 'Window']], st.areaMode);
@@ -490,7 +494,7 @@ export async function plotDialog(app, state) {
       app.editor.window = null;
       app.editor._endRequest();
       app.cmdline.prompt(null);
-      if (b && !b.option) st.window = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
+      if (b && !b.option) st.window = doc.plotWindow = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
     }
     return plotDialog(app, { ...st, areaMode: 'window' });
   }
