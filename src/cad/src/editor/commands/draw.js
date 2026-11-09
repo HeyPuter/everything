@@ -524,13 +524,15 @@ async function arcStartEndRadius(ed, s) {
     if (dist(s, e) > 1e-12) break;
     ed.ui.log('The end point must differ from the start point.', 'error');
   }
-  const mk = (p) => {
-    const r = Math.max(dist(s, e) / 2, dist(s, p));
-    // Centre on the left of start->end for a counter-clockwise minor arc.
+  // A negative radius gives the major arc, as in AutoCAD.
+  const mkR = (signed) => {
+    const r = Math.max(dist(s, e) / 2, Math.abs(signed));
+    // Centre on the left of start->end for a counter-clockwise minor arc,
+    // on the right for the major one.
     const mx = (s.x + e.x) / 2,
       my = (s.y + e.y) / 2;
     const half = dist(s, e) / 2;
-    const h = Math.sqrt(Math.max(0, r * r - half * half));
+    const h = Math.sign(signed || 1) * Math.sqrt(Math.max(0, r * r - half * half));
     const ux = (e.x - s.x) / (2 * half),
       uy = (e.y - s.y) / (2 * half);
     const cx = mx - uy * h,
@@ -538,11 +540,11 @@ async function arcStartEndRadius(ed, s) {
     return ed.make('arc', { cx, cy, r, start: norm(Math.atan2(s.y - cy, s.x - cx)), end: norm(Math.atan2(e.y - cy, e.x - cx)) });
   };
   for (;;) {
-    const r = await ed.getDistance('Radius', { base: s, preview: (p) => [mk(p)] });
+    const r = await ed.getDistance('Radius', { base: s, preview: (p) => [mkR(dist(s, p))] });
     if (typeof r !== 'number') return;
     // A radius under half the chord cannot reach both ends.
-    if (r >= dist(s, e) / 2 - 1e-9) {
-      ed.commit('Arc', () => ed.drawing.add(mk(polar(s, 0, r))));
+    if (Math.abs(r) >= dist(s, e) / 2 - 1e-9) {
+      ed.commit('Arc', () => ed.drawing.add(mkR(r)));
       return;
     }
     ed.ui.log(`The radius must be at least ${formatLinear(dist(s, e) / 2, ed.header)}.`, 'error');

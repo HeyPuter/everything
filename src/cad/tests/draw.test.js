@@ -107,6 +107,21 @@ describe('arcs', () => {
     expect(a.cy).toBeCloseTo(0);
     expect(t.all()).toHaveLength(1);
   });
+
+  it('draws the major arc for a negative start-end-radius radius', async () => {
+    await t.type('ARC', '0,0', 'E', '10,0', '-10');
+    const [a] = t.all('arc');
+    expect(a.r).toBeCloseTo(10);
+    // Centre to the right of start->end: the counter-clockwise arc sweeps more than half a turn.
+    expect(a.cx).toBeCloseTo(5);
+    expect(a.cy).toBeCloseTo(-Math.sqrt(75));
+    const sweep = (((a.end - a.start) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    expect(sweep).toBeGreaterThan(Math.PI);
+    await t.type('ARC', '0,0', 'E', '10,0', '10');
+    const b = t.all('arc')[1];
+    expect(b.cy).toBeCloseTo(Math.sqrt(75));
+    expect((((b.end - b.start) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)).toBeLessThan(Math.PI);
+  });
 });
 
 describe('centre arcs', () => {
