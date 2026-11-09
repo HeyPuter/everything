@@ -950,6 +950,7 @@ export async function purgeDialog(app) {
   const usedText = new Set(['Standard', d.header.textStyle]);
   const usedDim = new Set(['Standard', d.header.dimStyle]);
   const usedBlocks = new Set();
+  const pending = [];
   const scan = (list) => {
     for (const e of list) {
       usedLayers.add(e.layer);
@@ -958,11 +959,18 @@ export async function purgeDialog(app) {
         usedText.add(e.style);
         usedDim.add(e.style);
       }
-      if (e.type === 'insert') usedBlocks.add(e.name);
+      if (e.type === 'insert' && !usedBlocks.has(e.name)) {
+        usedBlocks.add(e.name);
+        pending.push(e.name);
+      }
     }
   };
   scan(d.entities.values());
-  for (const b of d.blocks.values()) if (usedBlocks.has(b.name)) scan(b.entities);
+  // Blocks nested in used blocks are used too, whatever order they were defined in.
+  while (pending.length) {
+    const b = d.blocks.get(pending.pop());
+    if (b) scan(b.entities);
+  }
   for (const l of d.layers.values()) usedLts.add(l.linetype);
   for (const s of d.dimStyles.values()) usedText.add(s.textStyle);
   const groups = [
