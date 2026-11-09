@@ -77,9 +77,12 @@ function siblings(url, code) {
   return out;
 }
 
-/** Build files are named chunk-hash.ext: keep only the newest of each chunk. */
+/**
+ * Build files are named chunk-hash.ext: keep only the newest of each chunk.
+ * Hashes are exactly 8 characters and may contain '-' (index-B-9aQzzz.js).
+ */
 function chunkKey(url) {
-  const m = /\/assets\/(.+)-[\w-]{6,}\.(\w+)$/.exec(new URL(url).pathname);
+  const m = /\/assets\/(.+)-[\w-]{8}\.(\w+)$/.exec(new URL(url).pathname);
   return m ? `${m[1]}.${m[2]}` : null;
 }
 
