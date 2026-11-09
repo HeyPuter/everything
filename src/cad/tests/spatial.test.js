@@ -12,6 +12,25 @@ function setup() {
 }
 
 describe('SpatialIndex', () => {
+  it('bounds wide polylines by the band they draw', () => {
+    const { d, idx } = setup();
+    const [w, arc] = d.transaction('Add', () => [
+      d.add({ ...P, type: 'polyline', pts: [0, 0, 0, 100, 0, 0], closed: false, width: 20 }),
+      d.add({ ...P, type: 'polyline', pts: [200, 0, 1, 220, 0, 0], closed: false, width: 2 }),
+    ]);
+    const b = idx.bounds(w.id);
+    [0, -10, 100, 10].forEach((v, i) => expect(b[i]).toBeCloseTo(v, 9));
+    // Picking on the band finds it; a window around the centre line only does not enclose it.
+    expect(idx.search(49, 7, 51, 9)).toContain(w.id);
+    expect(idx.searchInside(-1, -5, 101, 5)).not.toContain(w.id);
+    expect(idx.searchInside(-1, -11, 101, 11)).toContain(w.id);
+    // A half-circle arc segment: the band reaches 1 beyond the arc (radius 10),
+    // within the tessellation tolerance.
+    const a = idx.bounds(arc.id);
+    expect(a[1]).toBeLessThan(-10.99);
+    expect(a[1]).toBeGreaterThanOrEqual(-11 - 1e-9);
+  });
+
   it('indexes lines, circles and text', () => {
     const { d, idx } = setup();
     const [l, c, t] = d.transaction('Add', () => [

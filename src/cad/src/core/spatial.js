@@ -24,19 +24,31 @@ export class SpatialIndex {
   boundsOf(ent) {
     if (!COMPLEX.has(ent.type)) {
       const b = entityBounds(ent);
+      if (b && ent.type === 'polyline' && ent.width > 0) return this._drawnBounds(ent, b);
       if (b) return b;
     }
     if (ent.type === 'point') return [ent.x, ent.y, ent.x, ent.y];
+    return this._drawnBounds(ent, null);
+  }
+
+  /**
+   * Bounds of the entity as drawn (text strokes, blocks, the band of a wide
+   * polyline), joined with `base` when given.
+   */
+  _drawnBounds(ent, base) {
     const sink = new BoundsSink();
-    const ctx = makeContext(this.drawing, { tol: boundsTol(ent), pointSize: 0, patterns: false, bounds: true });
+    const tol = base ? Math.max(base[2] - base[0], base[3] - base[1], ent.width || 0) * 1e-4 || 1e-6 : boundsTol(ent);
+    const ctx = makeContext(this.drawing, { tol, pointSize: 0, patterns: false, bounds: true });
     // Bounds must not depend on layer visibility, so resolve as if visible.
     ctx.ignoreVisibility = true;
     try {
       emitEntity(ent, sink, ctx);
     } catch {
-      return null;
+      return base;
     }
-    return sink.bounds;
+    const b = sink.bounds;
+    if (!base || !b) return b ?? base;
+    return [Math.min(b[0], base[0]), Math.min(b[1], base[1]), Math.max(b[2], base[2]), Math.max(b[3], base[3])];
   }
 
   rebuild() {
