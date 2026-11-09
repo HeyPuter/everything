@@ -9,6 +9,8 @@ import { emitEntity, makeContext, BoundsSink } from './tessellate.js';
 import { blocksUsing } from './display.js';
 
 const COMPLEX = new Set(['text', 'mtext', 'dimension', 'leader', 'insert', 'point']);
+/** Objects whose extents depend on text and dimension styles and unit formats. */
+const STYLED = new Set(['text', 'mtext', 'dimension', 'leader', 'insert']);
 /** Header keys that change dimension text, and so dimension and block extents. */
 const BOUNDS_HEADER_KEYS = ['linearFormat', 'linearPrecision', 'angularFormat', 'angularPrecision'];
 
@@ -78,16 +80,20 @@ export class SpatialIndex {
 
   /** Apply a Drawing change record. */
   applyChange(change) {
-    // Block, style and unit format changes can move any extent; bulk loading also beats
-    // item-by-item inserts for very large edits.
+    // Bulk loading beats item-by-item inserts for very large edits.
     const styles = change.tableNames && (change.tableNames.has('textStyles') || change.tableNames.has('dimStyles'));
     const units = change.headerKeys && BOUNDS_HEADER_KEYS.some((k) => change.headerKeys.has(k));
-    if (styles || units || change.ids.size > Math.max(5000, this.items.size / 4)) {
+    let ids = change.ids;
+    // Styles and unit formats only move text, dimensions and the blocks that may hold them.
+    if (styles || units) {
+      ids = new Set(ids);
+      for (const [id, e] of this.drawing.entities) if (STYLED.has(e.type)) ids.add(id);
+    }
+    if (ids.size > Math.max(5000, this.items.size / 4)) {
       this.rebuild();
       return;
     }
     // A redefined block moves only the references that use it (or a block nesting it).
-    let ids = change.ids;
     if (change.blocks.size) {
       ids = new Set(ids);
       const affected = blocksUsing(this.drawing, change.blocks);

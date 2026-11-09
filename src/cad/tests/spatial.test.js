@@ -138,3 +138,32 @@ describe('SpatialIndex block changes', () => {
     expect(idx.bounds(other)[2]).toBeCloseTo(5, 9);
   });
 });
+
+describe('SpatialIndex style changes', () => {
+  it('moves text, dimensions and blocks holding text when a style changes', () => {
+    const { d, idx } = setup();
+    // No width factor of its own: the style's applies.
+    const text = { ...P, type: 'text', x: 0, y: 0, h: 2, rot: 0, value: 'Hello', style: 'Standard', halign: 'left', valign: 'baseline' };
+    let t, ins, l, dim;
+    d.transaction('Add', () => {
+      d.setBlock('T', { name: 'T', bx: 0, by: 0, entities: [text] });
+      t = d.add(text).id;
+      ins = d.add({ ...P, type: 'insert', name: 'T', x: 0, y: 50, sx: 1, sy: 1, rot: 0 }).id;
+      l = d.add({ ...P, type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }).id;
+      dim = d.add({ ...P, type: 'dimension', dimType: 'linear', x1: 0, y1: 0, x2: 100, y2: 0, x3: 0, y3: 0, x4: 0, y4: 0, lx: 50, ly: -10, rot: 0, text: '', style: 'Standard' }).id;
+    });
+    const w0 = idx.bounds(t)[2],
+      wi0 = idx.bounds(ins)[2],
+      lb = idx.bounds(l).slice();
+    d.transaction('Style', () => d.setTable('textStyles', 'Standard', { ...d.textStyles.get('Standard'), widthFactor: 3 }));
+    expect(idx.bounds(t)[2]).toBeCloseTo(w0 * 3, 6);
+    expect(idx.bounds(ins)[2]).toBeCloseTo(wi0 * 3, 6);
+    expect(idx.bounds(l)).toEqual(lb);
+    const db0 = idx.bounds(dim).slice();
+    d.transaction('Dim style', () => d.setTable('dimStyles', 'Standard', { ...d.dimStyles.get('Standard'), textHeight: 20 }));
+    expect(idx.bounds(dim)).not.toEqual(db0);
+    // Same as an index built from scratch.
+    const fresh = new SpatialIndex(d);
+    for (const id of [t, ins, l, dim]) expect(idx.bounds(id)).toEqual(fresh.bounds(id));
+  });
+});
