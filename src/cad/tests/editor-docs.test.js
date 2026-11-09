@@ -84,4 +84,22 @@ describe('editor state per drawing', () => {
     ed.cancel();
     await flush();
   });
+
+  it('leaves the selection of the drawing switched to alone when a command is cancelled', async () => {
+    const { ed, type } = setup();
+    const A = makeDoc(1);
+    const B = makeDoc(2);
+    B.selection = new Set([1, 2]);
+    ed.attach(A);
+    await type('BREAKATPOINT');
+    ed._resolve({ id: 1, ent: A.drawing.get(1), x: 2, y: 0 });
+    await flush();
+    expect(ed.request?.prompt).toBe('Break point');
+    expect([...A.selection]).toEqual([1]);
+    ed.attach(B);
+    await flush();
+    await flush();
+    expect([...B.selection]).toEqual([1, 2]);
+    expect(A.selection.size).toBe(0);
+  });
 });

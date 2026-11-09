@@ -48,11 +48,14 @@ function showSelection(ed, ids) {
 
 /** Select ids while fn runs (to highlight a pick) and deselect them however it ends. */
 async function whileSelected(ed, ids, fn) {
+  const doc = ed.doc;
   ed.setSelection(ids);
   try {
     return await fn();
   } finally {
-    ed.clearSelection();
+    // Not if the user switched drawings meanwhile: that one's selection is its own.
+    if (ed.doc === doc) ed.clearSelection();
+    else doc.selection = new Set();
   }
 }
 
