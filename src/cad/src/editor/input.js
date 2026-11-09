@@ -71,6 +71,8 @@ export function matchOption(s, options) {
   const t = s.trim().toLowerCase();
   if (!t) return null;
   for (const o of options) if (o.key.toLowerCase() === t) return o.value ?? o.key;
+  // A whole label wins over labels it starts ("Middle" vs "Middle left").
+  for (const o of options) if (o.label.toLowerCase() === t) return o.value ?? o.key;
   const hits = options.filter((o) => o.label.toLowerCase().startsWith(t));
   if (hits.length === 1) return hits[0].value ?? hits[0].key;
   return null;

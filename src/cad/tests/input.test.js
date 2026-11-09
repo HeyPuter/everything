@@ -77,4 +77,15 @@ describe('options', () => {
     expect(matchOption('c', o)).toBeNull();
     expect(matchOption('ce', o)).toBe('center');
   });
+
+  it('takes a whole label even when it starts other labels', () => {
+    const o = [
+      { key: 'M', label: 'Middle', value: 'center|middle' },
+      { key: 'ML', label: 'Middle left', value: 'left|middle' },
+      { key: 'MC', label: 'Middle center', value: 'center|middle' },
+    ];
+    expect(matchOption('Middle', o)).toBe('center|middle');
+    expect(matchOption('middle l', o)).toBe('left|middle');
+    expect(matchOption('mid', o)).toBeNull();
+  });
 });
