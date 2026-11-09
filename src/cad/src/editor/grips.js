@@ -214,6 +214,9 @@ export function applyGrip(ent, i, x, y) {
       const ctrl = ent.ctrl.slice();
       ctrl[g.v * 2] = x;
       ctrl[g.v * 2 + 1] = y;
+      // Keep the knots (as imported splines have): moving one control point
+      // then changes the curve only near it.
+      if (ent.knots?.length === (ctrl.length >> 1) + ent.degree + 1) return { ...ent, ctrl, fit: [] };
       return { ...ent, ...splineFromControlPoints(ctrl, ent.degree), fit: [] };
     }
     case 'point':
