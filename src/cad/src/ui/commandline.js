@@ -120,10 +120,7 @@ export class CommandLine {
     const text = this.input.value;
     this.input.value = '';
     this._hideSuggest();
-    if (text.trim()) {
-      this.typed.push(text);
-      if (this.typed.length > 100) this.typed.shift();
-    }
+    if (text.trim()) this._remember(text);
     this.typedIndex = -1;
     this.app.editor.submit(text);
     this.app.editor.drawOverlay();
@@ -266,7 +263,14 @@ export class CommandLine {
     if (!s) return;
     this.input.value = '';
     this._hideSuggest();
-    this.typed.push(s.c.name);
+    this._remember(s.c.name);
+    this.typedIndex = -1;
     this.app.run(s.c.name);
+  }
+
+  /** Add an entry to the typed history (ArrowUp), keeping the last 100. */
+  _remember(text) {
+    this.typed.push(text);
+    if (this.typed.length > 100) this.typed.shift();
   }
 }
