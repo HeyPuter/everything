@@ -61,4 +61,27 @@ describe('editor state per drawing', () => {
     await type('ERASE', 'P', '');
     expect(A.drawing.entities.size).toBe(0);
   });
+
+  it('continues dimensions only from a dimension of the same drawing', async () => {
+    const { ed, type } = setup();
+    const A = makeDoc(0);
+    const B = makeDoc(0);
+    B.drawing.transaction('Add', () =>
+      B.drawing.add({ ...base, type: 'dimension', dimType: 'linear', x1: 50, y1: 50, x2: 60, y2: 50, x3: 0, y3: 0, x4: 0, y4: 0, lx: 55, ly: 55, rot: 0, style: 'Standard', text: '' }),
+    );
+    ed.attach(A);
+    await type('DIMLINEAR', '0,0', '10,0', '5,5');
+    expect(A.drawing.get(1).type).toBe('dimension');
+    ed.attach(B);
+    await type('DIMCONTINUE');
+    expect(ed.request.kind).toBe('entity');
+    ed.cancel();
+    await flush();
+    // In A, it continues from A's dimension without asking.
+    ed.attach(A);
+    await type('DIMCONTINUE');
+    expect(ed.request.kind).toBe('point');
+    ed.cancel();
+    await flush();
+  });
 });

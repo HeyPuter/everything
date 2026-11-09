@@ -129,6 +129,15 @@ export class Editor {
     if (this.doc) this.doc.previousSelection = ids;
   }
 
+  /** The last linear or aligned dimension drawn (DIMCONTINUE, DIMBASELINE) in this drawing. */
+  get lastDim() {
+    return this.doc?.lastDim ?? null;
+  }
+
+  set lastDim(ent) {
+    if (this.doc) this.doc.lastDim = ent;
+  }
+
   /** New entity object with the current layer/color/linetype/lineweight. */
   make(type, fields) {
     return { type, ...baseProps(this.header), ...fields };
