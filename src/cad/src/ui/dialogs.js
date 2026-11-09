@@ -697,9 +697,11 @@ export async function draftingDialog(app) {
   app.setSetting('osnap', val(osOn));
   app.setSetting('otrack', val(otOn));
   app.setSetting('snap', val(snapOn));
-  app.setSetting('snapSpacing', Math.max(1e-6, Number(snapSp.value) || 10));
+  // A spacing that is not a positive number keeps the current one.
+  const spacing = (inp, cur) => (Number(inp.value) > 0 && Number.isFinite(Number(inp.value)) ? Number(inp.value) : cur);
+  app.setSetting('snapSpacing', spacing(snapSp, s.snapSpacing));
   app.setSetting('grid', val(gridOn));
-  app.setSetting('gridSpacing', Math.max(1e-6, Number(gridSp.value) || 10));
+  app.setSetting('gridSpacing', spacing(gridSp, s.gridSpacing));
   app.setSetting('polar', val(polarOn));
   app.setSetting('polarInc', Number(inc.value));
   // Ortho and polar tracking cannot both be on; polar wins.
