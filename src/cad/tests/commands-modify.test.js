@@ -533,3 +533,14 @@ describe('typed table names ignore letter case', () => {
     expect(t.logs.at(-1)).toEqual(['error', 'There is no layer named "Windows".']);
   });
 });
+
+describe('selection options', () => {
+  it('Last selects the newest object, not the topmost one', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    add({ type: 'circle', cx: 0, cy: 0, r: 5 });
+    t.drawing.transaction('Draw order', () => t.drawing.reorder([2], false));
+    expect([...t.drawing.entities.keys()]).toEqual([2, 1]);
+    await t.type('ERASE', 'L', '');
+    expect(t.all().map((e) => e.type)).toEqual(['line']);
+  });
+});

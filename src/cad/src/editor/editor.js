@@ -472,7 +472,9 @@ export class Editor {
       if (r === null) break;
       if (r.option === 'all') this.addToSelection(this._allEditable(opts.filter));
       else if (r.option === 'last') {
-        const last = [...this.drawing.entities.keys()].reverse().find((id) => this._editable(id));
+        // The newest object (ids only increase), not the topmost in draw order.
+        let last = 0;
+        for (const id of this.drawing.entities.keys()) if (id > last && this._editable(id)) last = id;
         if (last) this.addToSelection([last]);
       } else if (r.option === 'previous') this.addToSelection([...this.previousSelection].filter((id) => this.drawing.entities.has(id)));
       else if (r.option === 'remove') this.selMode = 'remove';
