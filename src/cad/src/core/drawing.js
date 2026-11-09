@@ -319,6 +319,8 @@ export class Drawing {
 
   setHeader(patch) {
     const before = this.header;
+    // Setting values that are already current is not a change (no undo step, not modified).
+    if (Object.keys(patch).every((k) => Object.is(before[k], patch[k]) && k in before)) return;
     const after = { ...before, ...patch };
     this._record({ kind: 'header', before, after });
   }

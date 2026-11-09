@@ -358,6 +358,20 @@ describe('trim', () => {
     close(p.x, 7, 1e-9);
     expect(closestPoint(s, p.x, p.y).d).toBeLessThan(1e-9);
   });
+  it('keeps the same piece of a closed spline on either side of its seam', () => {
+    const fit = [];
+    for (let i = 0; i < 8; i++) fit.push(10 * Math.cos((i * Math.PI) / 4), 10 * Math.sin((i * Math.PI) / 4));
+    const s = { type: 'spline', ...splineFromFitPoints(fit, true), fit, closed: true };
+    // The seam is at (10, 0): one pick is before it, the other after the last cut.
+    const a = trimEntity(s, [vline(5)], 9.66, 2.59).add[0];
+    const b = trimEntity(s, [vline(5)], 9.66, -2.59).add[0];
+    close(lengthOf(b), lengthOf(a), 1e-6);
+    const [, d1] = splineDomain(b);
+    const end = evalSpline(b, d1);
+    close(end.x, 5, 1e-9);
+    expect(end.y).toBeLessThan(0);
+    close(lengthOf(a), (20 * Math.PI * 2) / 3, 0.1);
+  });
 });
 
 describe('extend', () => {

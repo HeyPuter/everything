@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { gripsOf, applyGrip } from '../src/editor/grips.js';
 import { stretchEntity } from '../src/editor/commands/modify.js';
-import { splineFromFitPoints } from '../src/core/geom/index.js';
+import { splineFromFitPoints, evalSpline } from '../src/core/geom/index.js';
 
 const P = { layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ltscale: 1 };
 
@@ -13,6 +13,21 @@ describe('grips', () => {
       [5, 0],
       [10, 0],
     ]);
+  });
+
+  it('keeps the knots of a control-point spline when a control point moves', () => {
+    const knots = [0, 0, 0, 0, 0.05, 0.1, 1, 1, 1, 1];
+    const ctrl = [0, 0, 1, 2, 2, 0, 3, 2, 10, 0, 20, 5];
+    const s = { ...P, type: 'spline', degree: 3, ctrl, knots, fit: [], closed: false };
+    const moved = applyGrip(s, 0, 0.01, 0);
+    expect(moved.knots).toEqual(knots);
+    expect(moved.ctrl).toEqual([0.01, ...ctrl.slice(1)]);
+    // Far from the grip (past the span it influences) the curve does not move.
+    for (const u of [0.2, 0.5, 0.9]) {
+      const a = evalSpline(s, u),
+        b = evalSpline(moved, u);
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(1e-12);
+    }
   });
 
   it('keeps a fit-point spline when a grip would make all fit points coincide', () => {

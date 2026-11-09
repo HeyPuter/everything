@@ -109,6 +109,32 @@ describe('DWG writer', () => {
     }
   });
 
+  it('keeps linetypes with non-ASCII names on objects, layers and the header', () => {
+    const d = everything();
+    d.linetypes.push({ name: 'Strichlinie_ä', description: '', pattern: [1, -0.5] });
+    d.layers.push({ ...defaultLayer('L1'), linetype: 'Strichlinie_ä' });
+    d.entities = [ent('line', { x1: 0, y1: 0, x2: 1, y2: 0, linetype: 'Strichlinie_ä' })];
+    d.header.cltype = 'Strichlinie_ä';
+    const opts = { dimensionEntities, hatchPatterns };
+    for (const version of [2004, 2000]) {
+      const back = parseDwg(writeDwg(d, { ...opts, version })).drawing;
+      expect(back.entities[0].linetype).toBe('Strichlinie_ä');
+      expect(back.layers.find((l) => l.name === 'L1').linetype).toBe('Strichlinie_ä');
+      expect(back.header.cltype).toBe('Strichlinie_ä');
+    }
+  });
+
+  it('keeps block descriptions through DXF and DWG', () => {
+    const d = everything();
+    d.blocks[0].description = 'M8 bolt, ISO 4017 – é';
+    const opts = { dimensionEntities, hatchPatterns };
+    for (const back of [parseDxf(writeDxf(d, opts)), parseDwg(writeDwg(d, opts)), parseDwg(writeDwg(d, { ...opts, version: 2000 }))]) {
+      expect(back.drawing.blocks.find((b) => b.name === 'Bolt').description).toBe('M8 bolt, ISO 4017 – é');
+    }
+    d.blocks[0].description = '';
+    expect(parseDxf(writeDxf(d, opts)).drawing.blocks[0].description).toBe('');
+  });
+
   it('keeps draw-order bands through DXF and DWG in a SORTENTS table', () => {
     const d = everything();
     const line = (y, g) => ent('line', { x1: 0, y1: y, x2: 10, y2: y, ...(g == null ? {} : { orderGroup: g }) });

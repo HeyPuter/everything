@@ -119,8 +119,21 @@ function navBtn(app, ic, label, fn) {
   return h('button.icon-btn.nav-btn', { type: 'button', 'aria-label': label, 'data-tip': label, onClick: fn }, icon(ic, 17));
 }
 
+function focusVisible(el) {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return true;
+  }
+}
+
 /** Render drawing tabs. */
 export function renderDocTabs(app, el) {
+  // Re-rendering removes the focused tab: keyboard focus moves to the active
+  // one. Not after a mouse click, so that keys then go to the drawing as before
+  // (Delete erases the selection instead of closing the tab).
+  const focused = document.activeElement;
+  const hadFocus = el.contains(focused) && focusVisible(focused);
   clear(el);
   app.docs.forEach((doc, i) => {
     const active = doc === app.doc;
@@ -170,6 +183,7 @@ export function renderDocTabs(app, el) {
     );
     el.append(tab);
   });
+  if (hadFocus) el.querySelector('.doctab.active .doctab-btn')?.focus();
   // Keep the active tab in view, as when a new drawing is added past the right edge.
   const a = el.querySelector('.doctab.active')?.getBoundingClientRect();
   const b = el.getBoundingClientRect();

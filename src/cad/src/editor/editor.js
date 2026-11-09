@@ -68,7 +68,6 @@ export class Editor {
     this.active = null;
     this.lastCommand = null;
     this.lastPoint = null;
-    this.previousSelection = new Set();
     this.cursor = { sx: -1, sy: -1, x: 0, y: 0, fx: 0, fy: 0, inside: false };
     this.snap = null;
     this.tracks = [];
@@ -119,6 +118,24 @@ export class Editor {
 
   get selection() {
     return this.doc.selection;
+  }
+
+  /** The last selection made in a command ("Previous"); ids belong to its drawing. */
+  get previousSelection() {
+    return this.doc?.previousSelection ?? new Set();
+  }
+
+  set previousSelection(ids) {
+    if (this.doc) this.doc.previousSelection = ids;
+  }
+
+  /** The last linear or aligned dimension drawn (DIMCONTINUE, DIMBASELINE) in this drawing. */
+  get lastDim() {
+    return this.doc?.lastDim ?? null;
+  }
+
+  set lastDim(ent) {
+    if (this.doc) this.doc.lastDim = ent;
   }
 
   /** New entity object with the current layer/color/linetype/lineweight. */
@@ -455,7 +472,9 @@ export class Editor {
       if (r === null) break;
       if (r.option === 'all') this.addToSelection(this._allEditable(opts.filter));
       else if (r.option === 'last') {
-        const last = [...this.drawing.entities.keys()].reverse().find((id) => this._editable(id));
+        // The newest object (ids only increase), not the topmost in draw order.
+        let last = 0;
+        for (const id of this.drawing.entities.keys()) if (id > last && this._editable(id)) last = id;
         if (last) this.addToSelection([last]);
       } else if (r.option === 'previous') this.addToSelection([...this.previousSelection].filter((id) => this.drawing.entities.has(id)));
       else if (r.option === 'remove') this.selMode = 'remove';
@@ -1541,6 +1560,9 @@ async function gripEdit(ed, grip, fromPointer) {
   }
 }
 
+/** Objects whose grips are a list of vertices. */
+const VERTEX_GRIPS = new Set(['polyline', 'spline', 'leader', 'hatch']);
+
 /**
  * Grips of the selection that sit on the picked grip, so a shared corner
  * stretches every object meeting there. Returns [{ id, ent, idx: [grip indices] }].
@@ -1552,8 +1574,13 @@ function coincidentGrips(ed, ids, grip) {
     const ent = ed.drawing.get(id);
     if (!ent || !ed.drawing.layerEditable(ent.layer)) continue;
     const idx = [];
-    gripsOf(ent).forEach((g, i) => {
-      if (id === grip.id && i === grip.i) return;
+    const grips = gripsOf(ent);
+    // Within the picked object only repeated vertices move together (a
+    // polyline closed by repeating its first vertex), never a midpoint or
+    // center grip that happens to sit there (as on a zero-length line).
+    const own = id === grip.id && VERTEX_GRIPS.has(ent.type) && !grips[grip.i]?.kind;
+    grips.forEach((g, i) => {
+      if (id === grip.id && (i === grip.i || !own || g.kind)) return;
       if (Math.abs(g.x - grip.x) <= tol && Math.abs(g.y - grip.y) <= tol) idx.push(i);
     });
     if (!idx.length) continue;

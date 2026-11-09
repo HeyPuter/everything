@@ -183,9 +183,13 @@ const DB_NAME = 'cad';
 const DB_VERSION = 1;
 let dbPromise = null;
 
+/**
+ * The open database. A failed open, or a connection the browser closes
+ * (Safari can drop it), is forgotten so that the next call opens it again.
+ */
 function db() {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
+  const p = new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('No IndexedDB'));
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
@@ -193,24 +197,46 @@ function db() {
       if (!d.objectStoreNames.contains('docs')) d.createObjectStore('docs', { keyPath: 'id' });
       if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const d = req.result;
+      d.onclose = () => forgetDb(p);
+      d.onversionchange = () => {
+        d.close();
+        forgetDb(p);
+      };
+      resolve(d);
+    };
     req.onerror = () => reject(req.error);
   });
-  return dbPromise;
+  dbPromise = p;
+  p.catch(() => forgetDb(p));
+  return p;
 }
 
-function tx(store, mode, fn) {
-  return db().then(
-    (d) =>
-      new Promise((resolve, reject) => {
-        const t = d.transaction(store, mode);
-        const s = t.objectStore(store);
-        const r = fn(s);
-        t.oncomplete = () => resolve(r?.result);
-        t.onerror = () => reject(t.error);
-        t.onabort = () => reject(t.error);
-      }),
-  );
+function forgetDb(p) {
+  if (dbPromise === p) dbPromise = null;
+}
+
+function tx(store, mode, fn, retry = true) {
+  const p = db();
+  return p.then((d) => {
+    let t;
+    try {
+      t = d.transaction(store, mode);
+    } catch (err) {
+      // The connection was closed under us: open it again, once.
+      if (!retry || err?.name !== 'InvalidStateError') throw err;
+      forgetDb(p);
+      return tx(store, mode, fn, false);
+    }
+    return new Promise((resolve, reject) => {
+      const s = t.objectStore(store);
+      const r = fn(s);
+      t.oncomplete = () => resolve(r?.result);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error);
+    });
+  });
 }
 
 export const recovery = {

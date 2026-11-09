@@ -344,6 +344,13 @@ export async function plotDialog(app, state) {
     /* ignore */
   }
   const st = { paper: 'A3', orientation: 'landscape', areaMode: 'extents', fit: true, paperMm: 1, units: 100, center: true, margins: 10, monochrome: true, lineweights: true, ...saved, ...(state || {}) };
+  // The plot window belongs to its drawing (it is not saved with the other
+  // settings): without one, Window would silently plot the extents.
+  if (!(st.paperMm > 0)) st.paperMm = 1;
+  if (!(st.units > 0)) st.units = 100;
+  if (!(st.margins >= 0 && st.margins <= 50)) st.margins = 10;
+  st.window ??= doc.plotWindow;
+  if (st.areaMode === 'window' && !st.window) st.areaMode = 'extents';
   const paper = select(PAPER_SIZES.map((p) => [p.id, `${p.label} (${Math.round(p.w)} x ${Math.round(p.h)} mm)`]), st.paper);
   const orient = select([['landscape', 'Landscape'], ['portrait', 'Portrait']], st.orientation);
   const areaSel = select([['extents', 'Extents'], ['display', 'Display'], ['window', 'Window']], st.areaMode);
@@ -376,15 +383,23 @@ export async function plotDialog(app, state) {
       h('div.plot-prev', preview),
     ),
   );
+  const valid = (inp, ok, prev) => {
+    const v = Number(inp.value);
+    const good = inp.value.trim() !== '' && Number.isFinite(v) && ok(v);
+    if (good) inp.removeAttribute('aria-invalid');
+    else inp.setAttribute('aria-invalid', 'true');
+    return good ? v : prev;
+  };
   const read = () => {
     st.paper = paper.value;
     st.orientation = orient.value;
     st.areaMode = areaSel.value;
     st.fit = fit.querySelector('input').checked;
-    st.paperMm = Number(mmIn.value) || 1;
-    st.units = Number(unitsIn.value) || 1;
+    // Invalid entries are flagged and the last valid value is kept.
+    st.paperMm = valid(mmIn, (v) => v > 0, st.paperMm);
+    st.units = valid(unitsIn, (v) => v > 0, st.units);
     st.center = center.querySelector('input').checked;
-    st.margins = Math.max(0, Number(margins.value) || 0);
+    st.margins = valid(margins, (v) => v >= 0 && v <= 50, st.margins);
     st.monochrome = mono.querySelector('input').checked;
     st.lineweights = lw.querySelector('input').checked;
     scaleRow.classList.toggle('disabled', st.fit);
@@ -490,7 +505,7 @@ export async function plotDialog(app, state) {
       app.editor.window = null;
       app.editor._endRequest();
       app.cmdline.prompt(null);
-      if (b && !b.option) st.window = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
+      if (b && !b.option) st.window = doc.plotWindow = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
     }
     return plotDialog(app, { ...st, areaMode: 'window' });
   }
@@ -682,9 +697,11 @@ export async function draftingDialog(app) {
   app.setSetting('osnap', val(osOn));
   app.setSetting('otrack', val(otOn));
   app.setSetting('snap', val(snapOn));
-  app.setSetting('snapSpacing', Math.max(1e-6, Number(snapSp.value) || 10));
+  // A spacing that is not a positive number keeps the current one.
+  const spacing = (inp, cur) => (Number(inp.value) > 0 && Number.isFinite(Number(inp.value)) ? Number(inp.value) : cur);
+  app.setSetting('snapSpacing', spacing(snapSp, s.snapSpacing));
   app.setSetting('grid', val(gridOn));
-  app.setSetting('gridSpacing', Math.max(1e-6, Number(gridSp.value) || 10));
+  app.setSetting('gridSpacing', spacing(gridSp, s.gridSpacing));
   app.setSetting('polar', val(polarOn));
   app.setSetting('polarInc', Number(inc.value));
   // Ortho and polar tracking cannot both be on; polar wins.
@@ -763,10 +780,10 @@ async function styleManager(app, { title, table, headerKey, make, fields, label,
         ctl.addEventListener('change', () => (st[f.key] = ctl.value));
       } else {
         const shown = () => (f.deg ? +((st[f.key] * 180) / Math.PI).toFixed(6) : st[f.key]);
-        const inp = (ctl = num(shown(), { min: f.min ?? null }));
+        const inp = (ctl = num(shown(), { min: f.min ?? null, max: f.max ?? null }));
         inp.addEventListener('change', () => {
           const v = Number(inp.value);
-          if (inp.value.trim() !== '' && Number.isFinite(v) && !(v < (f.min ?? -Infinity))) {
+          if (inp.value.trim() !== '' && Number.isFinite(v) && !(v < (f.min ?? -Infinity)) && !(v > (f.max ?? Infinity))) {
             st[f.key] = f.deg ? (v * Math.PI) / 180 : v;
             inp.removeAttribute('aria-invalid');
             return;
@@ -833,7 +850,7 @@ export function textStylesDialog(app) {
       { key: 'font', label: 'Font', options: [['sans', 'Drafting (proportional)'], ['mono', 'Drafting (fixed width)']] },
       { key: 'height', label: 'Height', min: 0, hint: '0 asks for the height each time text is placed.' },
       { key: 'widthFactor', label: 'Width factor', min: 0.01 },
-      { key: 'oblique', label: 'Oblique angle (degrees)', deg: true },
+      { key: 'oblique', label: 'Oblique angle (degrees)', deg: true, min: -85, max: 85, hint: 'From -85 to 85.' },
     ],
   });
 }
@@ -885,7 +902,9 @@ export async function linetypesDialog(app) {
   const body = h('form', { onSubmit: (e) => e.preventDefault() }, h('p.field-hint', 'Checked linetypes are available in this drawing.'), h('div.lt-list', rows), field('Global linetype scale', lts));
   const r = await openDialog({ title: 'Linetypes', body, size: 'md', actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, value: true }] });
   if (!r) return;
+  // The current linetype is in use too (new objects get it).
   const used = new Set([...d.layers.values()].map((l) => l.linetype));
+  used.add(d.header.cltype);
   for (const e of d.entities.values()) used.add(e.linetype);
   for (const b of d.blocks.values()) for (const e of b.entities) used.add(e.linetype);
   d.transaction('Linetypes', () => {
@@ -946,10 +965,11 @@ export async function quickSelectDialog(app) {
 export async function purgeDialog(app) {
   const d = app.doc.drawing;
   const usedLayers = new Set(['0', d.header.clayer]);
-  const usedLts = new Set(['Continuous', 'ByLayer', 'ByBlock']);
+  const usedLts = new Set(['Continuous', 'ByLayer', 'ByBlock', d.header.cltype]);
   const usedText = new Set(['Standard', d.header.textStyle]);
   const usedDim = new Set(['Standard', d.header.dimStyle]);
   const usedBlocks = new Set();
+  const pending = [];
   const scan = (list) => {
     for (const e of list) {
       usedLayers.add(e.layer);
@@ -958,11 +978,18 @@ export async function purgeDialog(app) {
         usedText.add(e.style);
         usedDim.add(e.style);
       }
-      if (e.type === 'insert') usedBlocks.add(e.name);
+      if (e.type === 'insert' && !usedBlocks.has(e.name)) {
+        usedBlocks.add(e.name);
+        pending.push(e.name);
+      }
     }
   };
   scan(d.entities.values());
-  for (const b of d.blocks.values()) if (usedBlocks.has(b.name)) scan(b.entities);
+  // Blocks nested in used blocks are used too, whatever order they were defined in.
+  while (pending.length) {
+    const b = d.blocks.get(pending.pop());
+    if (b) scan(b.entities);
+  }
   for (const l of d.layers.values()) usedLts.add(l.linetype);
   for (const s of d.dimStyles.values()) usedText.add(s.textStyle);
   const groups = [

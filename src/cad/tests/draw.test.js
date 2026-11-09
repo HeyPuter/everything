@@ -107,6 +107,21 @@ describe('arcs', () => {
     expect(a.cy).toBeCloseTo(0);
     expect(t.all()).toHaveLength(1);
   });
+
+  it('draws the major arc for a negative start-end-radius radius', async () => {
+    await t.type('ARC', '0,0', 'E', '10,0', '-10');
+    const [a] = t.all('arc');
+    expect(a.r).toBeCloseTo(10);
+    // Centre to the right of start->end: the counter-clockwise arc sweeps more than half a turn.
+    expect(a.cx).toBeCloseTo(5);
+    expect(a.cy).toBeCloseTo(-Math.sqrt(75));
+    const sweep = (((a.end - a.start) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    expect(sweep).toBeGreaterThan(Math.PI);
+    await t.type('ARC', '0,0', 'E', '10,0', '10');
+    const b = t.all('arc')[1];
+    expect(b.cy).toBeCloseTo(Math.sqrt(75));
+    expect((((b.end - b.start) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)).toBeLessThan(Math.PI);
+  });
 });
 
 describe('centre arcs', () => {
@@ -302,6 +317,27 @@ describe('shared grips', () => {
   });
 });
 
+describe('coincident grips of one object', () => {
+  const add = (e) => t.drawing.transaction('Add', () => t.drawing.add({ layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ...e }));
+  it('moves only the picked end of a zero-length line', async () => {
+    add({ type: 'line', x1: 5, y1: 5, x2: 5, y2: 5 });
+    t.ed.setSelection([...t.drawing.entities.keys()]);
+    t.ed._startGripEdit(0, null);
+    await flush();
+    await t.type('10,10');
+    const [l] = t.all('line');
+    expect([l.x1, l.y1, l.x2, l.y2]).toEqual([10, 10, 5, 5]);
+  });
+  it('moves the repeated first and last vertex of a polyline together', async () => {
+    add({ type: 'polyline', pts: [0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 0, 0], closed: false, width: 0 });
+    t.ed.setSelection([...t.drawing.entities.keys()]);
+    t.ed._startGripEdit(0, null);
+    await flush();
+    await t.type('-2,-3');
+    expect(t.all('polyline')[0].pts).toEqual([-2, -3, 0, 10, 0, 0, 10, 10, 0, -2, -3, 0]);
+  });
+});
+
 describe('grip base point', () => {
   it('stretches by the displacement from a new base point', async () => {
     await t.type('LINE', '0,0', '10,0', '');
@@ -311,6 +347,40 @@ describe('grip base point', () => {
     await t.type('B', '5,5', '6,7');
     const [l] = t.all('line');
     expect([l.x1, l.y1, l.x2, l.y2]).toEqual([0, 0, 11, 2]);
+  });
+});
+
+describe('invalid sizes', () => {
+  it('asks again for a negative rectangle fillet or a zero tangent circle radius', async () => {
+    await t.type('RECTANG', 'F', '-5');
+    expect(t.ed.request?.prompt).toMatch(/^Fillet radius for rectangles/);
+    expect(t.logs.at(-1)).toEqual(['error', 'The fillet radius cannot be negative.']);
+    await t.type('2', '0,0', '10,10');
+    expect(t.all('polyline')[0].pts.some((v, i) => i % 3 === 2 && v !== 0)).toBe(true);
+    await t.type('LINE', '0,-20', '50,-20', '');
+    await t.type('LINE', '20,-40', '20,0', '');
+    await t.type('CIRCLE', 'T');
+    await t.pick(40, -20);
+    await t.pick(20, -35);
+    await t.type('0');
+    expect(t.ed.request?.prompt).toMatch(/^Radius of circle/);
+    expect(t.logs.at(-1)).toEqual(['error', 'The radius must be greater than zero.']);
+    await t.type('3');
+    expect(t.all('circle')[0].r).toBe(3);
+  });
+});
+
+describe('polyline arcs', () => {
+  it('asks again for an arc end point straight behind the start direction', async () => {
+    await t.type('PLINE', '0,0', '10,0', 'A', '5,0');
+    expect(t.ed.request?.prompt).toBe('Arc end point');
+    await t.type('C');
+    expect(t.ed.request?.prompt).toBe('Arc end point');
+    await t.type('10,10', '');
+    const [p] = t.all('polyline');
+    expect(p.pts.length / 3).toBe(3);
+    expect(p.pts.every((v) => Math.abs(v) < 100)).toBe(true);
+    expect(p.pts[5]).toBeCloseTo(Math.tan(Math.PI / 4), 12);
   });
 });
 
@@ -325,6 +395,16 @@ describe('polyline cancel', () => {
     expect(p.closed).toBe(false);
     t.drawing.undo();
     expect(t.all()).toHaveLength(0);
+  });
+
+  it('keeps the segments drawn so far when Escape ends the Width prompt', async () => {
+    await t.type('PLINE', '0,0', '10,0', '10,10', 'W');
+    expect(t.ed.request?.prompt).toMatch(/^Width/);
+    t.ed.cancel();
+    await flush();
+    expect(t.ed.busy).toBe(false);
+    const [p] = t.all('polyline');
+    expect(p.pts).toEqual([0, 0, 0, 10, 0, 0, 10, 10, 0]);
   });
 
   it('draws nothing when Escape comes before a second point', async () => {

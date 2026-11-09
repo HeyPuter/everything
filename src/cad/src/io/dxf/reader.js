@@ -957,7 +957,8 @@ class DxfParser {
   }
 
   ltName(raw, fallback = 'Continuous') {
-    const name = raw.trim();
+    // Names are stored decoded (ltypeEntry); references may hold \U+ escapes.
+    const name = decodeUnicode(raw.trim());
     const key = name.toLowerCase();
     if (key === 'bylayer') return 'ByLayer';
     if (key === 'byblock') return 'ByBlock';
@@ -977,12 +978,12 @@ class DxfParser {
 
   // No name or an unknown one means the file's own STANDARD entry, in whatever case it has.
   styleName(raw) {
-    const st = this.styleMap.get(raw.trim().toLowerCase()) ?? this.styleMap.get('standard');
+    const st = this.styleMap.get(decodeUnicode(raw.trim()).toLowerCase()) ?? this.styleMap.get('standard');
     return st ? st.name : 'Standard';
   }
 
   dimStyleName(raw) {
-    const ds = this.dimMap.get(raw.trim().toLowerCase()) ?? this.dimMap.get('standard');
+    const ds = this.dimMap.get(decodeUnicode(raw.trim()).toLowerCase()) ?? this.dimMap.get('standard');
     return ds ? ds.name : 'Standard';
   }
 
@@ -1741,6 +1742,9 @@ class DxfParser {
     const vals = R.vals;
     for (let i = 0; i < R.end; i++) {
       const v = vals[i];
+      // R2018+ MTEXT with columns ends with an embedded object (101) that
+      // reuses 10, 11, 40, 41, 46, 71 ... with other meanings.
+      if (codes[i] === 101) break;
       switch (codes[i]) {
         case 5:
           handle = v;
@@ -2457,7 +2461,8 @@ class DxfParser {
 
     // header references
     const raw = this.headerRaw;
-    h.clayer = raw.clayer && this.layerMap.has(raw.clayer.toLowerCase()) ? this.layerMap.get(raw.clayer.toLowerCase()).name : '0';
+    const clayer = raw.clayer && decodeUnicode(raw.clayer).toLowerCase();
+    h.clayer = clayer && this.layerMap.has(clayer) ? this.layerMap.get(clayer).name : '0';
     h.textStyle = this.styleName(raw.textStyle ?? '');
     h.dimStyle = this.dimStyleName(raw.dimStyle ?? '');
     if (raw.cltype) h.cltype = this.ltName(raw.cltype, 'ByLayer');

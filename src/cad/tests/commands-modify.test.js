@@ -189,6 +189,12 @@ describe('STRETCH', () => {
     expect(t.drawing.get(1)).toMatchObject({ x1: 10, y1: 0, x2: 0, y2: 10, x3: -2, y3: -2, lx: 5 });
   });
 
+  it('moves a whole linear dimension away from the origin when it is all inside', async () => {
+    await t.type('DIMLINEAR', '100,100', '120,100', '110,110');
+    await t.type('STRETCH', '90,90', '130,130', '0,0', '0,50');
+    expect(t.drawing.get(1)).toMatchObject({ x1: 100, y1: 150, x2: 120, y2: 150, ly: 160 });
+  });
+
   it('stretches hatch boundary vertices inside the window only', async () => {
     const loop = [0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0];
     add({ type: 'hatch', pattern: 'SOLID', scale: 1, angle: 0, loops: [loop] });
@@ -212,7 +218,7 @@ describe('EXPLODE', () => {
       y: 4,
       h: 2,
       rot: 0.3,
-      value: 'Hello wide world\\Pbar\n\nlast line',
+      value: 'Hello wide world\nbar\n\nlast line',
       style: 'Standard',
       width: 14,
       attach: 'mc',
@@ -525,5 +531,60 @@ describe('typed table names ignore letter case', () => {
     await t.type('LAYULK', 'Windows');
     expect(t.drawing.layers.get('Doors').locked).toBe(true);
     expect(t.logs.at(-1)).toEqual(['error', 'There is no layer named "Windows".']);
+  });
+});
+
+describe('selection options', () => {
+  it('Last selects the newest object, not the topmost one', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    add({ type: 'circle', cx: 0, cy: 0, r: 5 });
+    t.drawing.transaction('Draw order', () => t.drawing.reorder([2], false));
+    expect([...t.drawing.entities.keys()]).toEqual([2, 1]);
+    await t.type('ERASE', 'L', '');
+    expect(t.all().map((e) => e.type)).toEqual(['line']);
+  });
+});
+
+describe('AREA', () => {
+  it('measures by points precisely far from the origin', async () => {
+    const X = 512345.678,
+      Y = 4512345.678;
+    const pts = [`${X},${Y}`, `${X + 1},${Y}`, `${X + 1},${Y + 1}`, `${X},${Y + 1}`];
+    await t.type('AREA', ...pts, '');
+    const [, text] = t.logs.filter(([k]) => k === 'result').at(-1);
+    expect(text).toMatch(/^Area = 1\.0000 /);
+  });
+});
+
+describe('LAYISO and LAYUNISO', () => {
+  const layer = (name, on = true) => t.drawing.transaction('Layer', () => t.drawing.setTable('layers', name, { name, color: 7, linetype: 'Continuous', lineweight: -1, on, frozen: false, locked: false, plot: true }));
+  const on = (name) => t.drawing.layers.get(name).on;
+  const setOn = (name, v) => t.drawing.transaction('Layer', () => t.drawing.setTable('layers', name, { ...t.drawing.layers.get(name), on: v }));
+  beforeEach(() => {
+    for (const n of ['A', 'B']) layer(n);
+    layer('C', false);
+    add({ type: 'line', layer: 'A', x1: 0, y1: 0, x2: 10, y2: 0 });
+  });
+  it('turns back on only the layers it turned off', async () => {
+    t.ed.setSelection([1]);
+    await t.type('LAYISO');
+    expect([on('A'), on('B'), on('C'), on('0')]).toEqual([true, false, false, false]);
+    setOn('C', true); // changed after isolating: kept
+    await t.type('LAYUNISO');
+    expect([on('A'), on('B'), on('C'), on('0')]).toEqual([true, true, true, true]);
+    setOn('C', false);
+    setOn('B', false);
+    await t.type('LAYUNISO'); // nothing is isolated any more
+    expect([on('B'), on('C')]).toEqual([false, false]);
+  });
+  it('forgets the isolation when LAYISO is undone', async () => {
+    t.ed.setSelection([1]);
+    await t.type('LAYISO');
+    t.drawing.undo();
+    expect(on('B')).toBe(true);
+    setOn('B', false);
+    await t.type('LAYUNISO');
+    expect(on('B')).toBe(false);
+    expect(t.logs.at(-1)[1]).toBe('No layers are isolated.');
   });
 });

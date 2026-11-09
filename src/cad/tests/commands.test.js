@@ -164,6 +164,44 @@ describe('drawing commands', () => {
     expect(areaOf(p)).toBeCloseTo((3 * Math.sqrt(3) / 2) * 100);
   });
 
+  it('draws a polygon with a typed radius with its bottom edge horizontal', async () => {
+    for (const [mode, r] of [['I', 10], ['C', 10]]) {
+      await t.type('POLYGON', '4', '50,50', mode, String(r));
+      const p = t.all('polyline').at(-1);
+      const ys = [];
+      for (let i = 1; i < p.pts.length; i += 3) ys.push(p.pts[i]);
+      const minY = Math.min(...ys);
+      // Two vertices on the bottom edge, at the same height.
+      expect(ys.filter((y) => Math.abs(y - minY) < 1e-9)).toHaveLength(2);
+      // Inscribed: vertices on the circle; circumscribed: edges touch it.
+      expect(minY).toBeCloseTo(mode === 'I' ? 50 - r * Math.SQRT1_2 : 50 - r, 9);
+    }
+    await t.type('POLYGON', '5', '0,0', 'I', '0');
+    expect(t.ed.request?.prompt).toBe('Radius of circle');
+    await t.type('-3');
+    expect(t.ed.request?.prompt).toBe('Radius of circle');
+    await t.type('@0,5');
+    expect(t.all('polyline')).toHaveLength(3);
+  });
+
+  it('draws three-point circles and arcs precisely far from the origin', async () => {
+    const X = 512345.678,
+      Y = 4512345.678;
+    const P = (dx, dy) => `${X + dx},${Y + dy}`;
+    await t.type('CIRCLE', '3P', P(0, 0), P(1, 1), P(2, 0));
+    const [c] = t.all('circle');
+    expect(c.r).toBeCloseTo(1, 9);
+    expect(c.cx - X).toBeCloseTo(1, 9);
+    await t.type('ARC', P(0, 0), P(1, 1), P(2, 0));
+    const [a] = t.all('arc');
+    expect(a.r).toBeCloseTo(1, 9);
+    const end = (ang) => [a.cx + a.r * Math.cos(ang) - X, a.cy + a.r * Math.sin(ang) - Y];
+    const ends = [end(a.start), end(a.end)].sort((p, q) => p[0] - q[0]);
+    expect(ends[0][0]).toBeCloseTo(0, 8);
+    expect(ends[1][0]).toBeCloseTo(2, 8);
+    expect(ends[0][1]).toBeCloseTo(0, 8);
+  });
+
   it('draws three-point arcs', async () => {
     await t.type('ARC', '10,0', '0,10', '-10,0');
     const [a] = t.all('arc');
@@ -344,6 +382,26 @@ describe('editing commands', () => {
     const [h, v] = t.all('dimension');
     expect(h.rot).toBe(0);
     expect(v.rot).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('dimensions a selected circle across the diameter in the chosen direction', async () => {
+    await t.type('CIRCLE', '0,0', '10');
+    const dim = async (...after) => {
+      await t.type('DIMLINEAR', '');
+      await t.pick(10, 0);
+      await t.type(...after);
+      return t.all('dimension').at(-1);
+    };
+    const v = await dim('V', '30,0');
+    expect([v.x1, v.y1, v.x2, v.y2].map((n) => Math.round(n * 1e9) / 1e9 + 0)).toEqual([0, -10, 0, 10]);
+    expect(v.rot).toBeCloseTo(Math.PI / 2);
+    // Beside the circle without an option: vertical; above it: horizontal.
+    const side = await dim('30,2');
+    expect(side.rot).toBeCloseTo(Math.PI / 2);
+    expect(Math.hypot(side.x2 - side.x1, side.y2 - side.y1)).toBeCloseTo(20);
+    const top = await dim('2,30');
+    expect(top.rot).toBe(0);
+    expect([top.x1, top.x2]).toEqual([-10, 10]);
   });
 
   it('dimensions the angle between two lines in the quadrant of the location', async () => {

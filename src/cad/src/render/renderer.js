@@ -12,12 +12,14 @@
 import { SEG_VS, SEG_FS, TRI_VS, TRI_FS, GRID_VS, GRID_FS } from './shaders.js';
 import { Batch, SEG_STRIDE, TRI_STRIDE, F_HIGHLIGHT } from './batch.js';
 import { makeContext, emitEntity } from '../core/tessellate.js';
-import { drawBands, nextBand } from '../core/display.js';
+import { drawBands, nextBand, blocksUsing, blocksReferenced } from '../core/display.js';
 import { LINEWEIGHTS } from '../core/schema.js';
 
 const CHUNK_SIZE = 1024;
 const PATTERN_W = 18;
 const PATTERN_ROWS = 64;
+/** The pattern texture grows (doubling) up to this many rows: rows are a byte per segment. */
+const MAX_PATTERN_ROWS = 256;
 const TOL_PX = 0.25;
 const LOD_UP = 3;
 const LOD_DOWN = 8;
@@ -218,7 +220,14 @@ export class Renderer {
     let row = this.patternRows.get(key);
     if (row !== undefined) return row;
     row = this.patternRows.size + 1;
-    if (row >= PATTERN_ROWS) return 0;
+    if (row >= this.patternData.length / PATTERN_W) {
+      // More distinct patterns than rows (large imported drawings): grow.
+      const rows = (this.patternData.length / PATTERN_W) * 2;
+      if (rows > MAX_PATTERN_ROWS) return 0;
+      const grown = new Float32Array(PATTERN_W * rows);
+      grown.set(this.patternData);
+      this.patternData = grown;
+    }
     this.patternRows.set(key, row);
     const o = row * PATTERN_W;
     const n = Math.min(p.length, PATTERN_W - 2);
@@ -333,9 +342,22 @@ export class Renderer {
       (this._banded() ||
         [...change.ids].some((id) => ents.get(id)?.orderGroup != null) ||
         !this._restoreHomes(change));
-    if (change.order || change.blocks.size || back) {
+    if (change.order || back) {
       this.rebuildAll();
       return;
+    }
+    if (change.blocks.size) {
+      // Only blocks drawn by existing references matter (new references are
+      // placed below); others, such as a new or purged block, need no rebuild.
+      const affected = blocksUsing(this.drawing, change.blocks);
+      if (blocksReferenced(this.drawing, affected, change.ids)) {
+        this.rebuildAll();
+        return;
+      }
+      for (const n of affected) {
+        const b = this.drawing.blocks.get(n);
+        if (b) this.infiniteBlocks.delete(b);
+      }
     }
     const drawn = change.headerKeys && [...change.headerKeys].some((k) => DRAWN_HEADER_KEYS.has(k));
     const names = change.tableNames ?? new Set();
@@ -353,14 +375,14 @@ export class Renderer {
       const c = this.chunkOf.get(id);
       if (!ent) this._unplace(id);
       else if (this._isInfinite(ent) !== this.infinite.has(id)) {
+        // New objects are appended to the draw order (construction lines too).
+        if (!c) this._appendBand(id, ent);
         this._unplace(id);
         this._place(id);
       } else if (c) c.dirty = true;
       else if (this.infinite.has(id)) this.infDirty = true;
       else {
-        // New objects are appended to the draw order.
-        const band = nextBand(this.bands, ent);
-        if (band) this.bands.of.set(id, band);
+        this._appendBand(id, ent);
         this._place(id);
       }
       if (this.selection.has(id)) this.selDirty = true;
@@ -375,6 +397,12 @@ export class Renderer {
       });
     }
     this.invalidate();
+  }
+
+  /** Give a new object the draw-order band after the last one. */
+  _appendBand(id, ent) {
+    const band = nextBand(this.bands, ent);
+    if (band) this.bands.of.set(id, band);
   }
 
   /**
@@ -625,7 +653,7 @@ export class Renderer {
     }
     if (this.patternDirty) {
       gl.bindTexture(gl.TEXTURE_2D, this.patternTex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, PATTERN_W, PATTERN_ROWS, 0, gl.RED, gl.FLOAT, this.patternData);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, PATTERN_W, this.patternData.length / PATTERN_W, 0, gl.RED, gl.FLOAT, this.patternData);
       this.patternDirty = false;
     }
 

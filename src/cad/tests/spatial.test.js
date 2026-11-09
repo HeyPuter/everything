@@ -12,6 +12,25 @@ function setup() {
 }
 
 describe('SpatialIndex', () => {
+  it('bounds wide polylines by the band they draw', () => {
+    const { d, idx } = setup();
+    const [w, arc] = d.transaction('Add', () => [
+      d.add({ ...P, type: 'polyline', pts: [0, 0, 0, 100, 0, 0], closed: false, width: 20 }),
+      d.add({ ...P, type: 'polyline', pts: [200, 0, 1, 220, 0, 0], closed: false, width: 2 }),
+    ]);
+    const b = idx.bounds(w.id);
+    [0, -10, 100, 10].forEach((v, i) => expect(b[i]).toBeCloseTo(v, 9));
+    // Picking on the band finds it; a window around the centre line only does not enclose it.
+    expect(idx.search(49, 7, 51, 9)).toContain(w.id);
+    expect(idx.searchInside(-1, -5, 101, 5)).not.toContain(w.id);
+    expect(idx.searchInside(-1, -11, 101, 11)).toContain(w.id);
+    // A half-circle arc segment: the band reaches 1 beyond the arc (radius 10),
+    // within the tessellation tolerance.
+    const a = idx.bounds(arc.id);
+    expect(a[1]).toBeLessThan(-10.99);
+    expect(a[1]).toBeGreaterThanOrEqual(-11 - 1e-9);
+  });
+
   it('indexes lines, circles and text', () => {
     const { d, idx } = setup();
     const [l, c, t] = d.transaction('Add', () => [
@@ -97,5 +116,54 @@ describe('SpatialIndex', () => {
     d.transaction('Units', () => d.setHeader({ linearFormat: 'scientific', linearPrecision: 8 }));
     expect(idx.bounds(dim.id)[2]).toBeGreaterThan(before[2]);
     expect(idx.bounds(dim.id)).toEqual(new SpatialIndex(d).bounds(dim.id));
+  });
+});
+
+describe('SpatialIndex block changes', () => {
+  it('moves references to a block that nests a redefined block', () => {
+    const { d, idx } = setup();
+    const line = (x2) => ({ ...P, type: 'line', x1: 0, y1: 0, x2, y2: 0 });
+    const insert = (name) => ({ ...P, type: 'insert', name, x: 0, y: 0, sx: 1, sy: 1, rot: 0 });
+    let y, other;
+    d.transaction('Add', () => {
+      d.setBlock('X', { name: 'X', bx: 0, by: 0, entities: [line(10)] });
+      d.setBlock('Y', { name: 'Y', bx: 0, by: 0, entities: [insert('X')] });
+      d.setBlock('Z', { name: 'Z', bx: 0, by: 0, entities: [line(5)] });
+      y = d.add(insert('Y')).id;
+      other = d.add(insert('Z')).id;
+    });
+    expect(idx.bounds(y)[2]).toBeCloseTo(10, 9);
+    d.transaction('Redefine', () => d.setBlock('X', { name: 'X', bx: 0, by: 0, entities: [line(50)] }));
+    expect(idx.bounds(y)[2]).toBeCloseTo(50, 9);
+    expect(idx.bounds(other)[2]).toBeCloseTo(5, 9);
+  });
+});
+
+describe('SpatialIndex style changes', () => {
+  it('moves text, dimensions and blocks holding text when a style changes', () => {
+    const { d, idx } = setup();
+    // No width factor of its own: the style's applies.
+    const text = { ...P, type: 'text', x: 0, y: 0, h: 2, rot: 0, value: 'Hello', style: 'Standard', halign: 'left', valign: 'baseline' };
+    let t, ins, l, dim;
+    d.transaction('Add', () => {
+      d.setBlock('T', { name: 'T', bx: 0, by: 0, entities: [text] });
+      t = d.add(text).id;
+      ins = d.add({ ...P, type: 'insert', name: 'T', x: 0, y: 50, sx: 1, sy: 1, rot: 0 }).id;
+      l = d.add({ ...P, type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }).id;
+      dim = d.add({ ...P, type: 'dimension', dimType: 'linear', x1: 0, y1: 0, x2: 100, y2: 0, x3: 0, y3: 0, x4: 0, y4: 0, lx: 50, ly: -10, rot: 0, text: '', style: 'Standard' }).id;
+    });
+    const w0 = idx.bounds(t)[2],
+      wi0 = idx.bounds(ins)[2],
+      lb = idx.bounds(l).slice();
+    d.transaction('Style', () => d.setTable('textStyles', 'Standard', { ...d.textStyles.get('Standard'), widthFactor: 3 }));
+    expect(idx.bounds(t)[2]).toBeCloseTo(w0 * 3, 6);
+    expect(idx.bounds(ins)[2]).toBeCloseTo(wi0 * 3, 6);
+    expect(idx.bounds(l)).toEqual(lb);
+    const db0 = idx.bounds(dim).slice();
+    d.transaction('Dim style', () => d.setTable('dimStyles', 'Standard', { ...d.dimStyles.get('Standard'), textHeight: 20 }));
+    expect(idx.bounds(dim)).not.toEqual(db0);
+    // Same as an index built from scratch.
+    const fresh = new SpatialIndex(d);
+    for (const id of [t, ins, l, dim]) expect(idx.bounds(id)).toEqual(fresh.bounds(id));
   });
 });

@@ -82,7 +82,11 @@ export function openDialog({ title, body, actions = [], size = 'md', className, 
         const primary = dlg.querySelector('.dialog-actions .btn.primary');
         if (primary) {
           e.preventDefault();
+          // Leaving the field commits it ('change'), which not every browser
+          // does by itself when the dialog closes.
+          t.blur();
           primary.click();
+          if (dlg.open) t.focus();
         }
       }
     });

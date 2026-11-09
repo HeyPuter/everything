@@ -232,6 +232,12 @@ function emitInfinite(ent, sink, ctx, style) {
     if (t1 < 0) return;
     t0 = Math.max(0, t0);
   }
+  // Dashes start at the segment start: start on a whole pattern from the
+  // base point so they stay put while the view moves.
+  let period = 0;
+  for (const v of style.basePattern ?? EMPTY) period += Math.abs(v);
+  period *= style.ltscale ?? 1;
+  if (period > 0 && Number.isFinite(t0 / period)) t0 = Math.floor(t0 / period) * period;
   sink.line([ent.x + ent.dx * t0, ent.y + ent.dy * t0, ent.x + ent.dx * t1, ent.y + ent.dy * t1], false, style);
 }
 

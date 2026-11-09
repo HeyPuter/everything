@@ -122,3 +122,35 @@ export function bandOrder(groups) {
   for (const it of lines) out.push(it);
   return out;
 }
+
+/**
+ * Names of the blocks whose content depends on any of `names`: those blocks
+ * and every block that inserts one of them, directly or nested.
+ */
+export function blocksUsing(drawing, names) {
+  const parents = new Map();
+  for (const [bn, b] of drawing.blocks) {
+    for (const e of b.entities) {
+      if (e.type !== 'insert') continue;
+      if (!parents.has(e.name)) parents.set(e.name, []);
+      parents.get(e.name).push(bn);
+    }
+  }
+  const out = new Set(names);
+  const todo = [...out];
+  while (todo.length) {
+    for (const p of parents.get(todo.pop()) ?? []) {
+      if (!out.has(p)) {
+        out.add(p);
+        todo.push(p);
+      }
+    }
+  }
+  return out;
+}
+
+/** True when a model space reference other than those in `skip` uses one of `blocks`. */
+export function blocksReferenced(drawing, blocks, skip) {
+  for (const [id, e] of drawing.entities) if (e.type === 'insert' && blocks.has(e.name) && !skip?.has(id)) return true;
+  return false;
+}

@@ -52,6 +52,14 @@ describe('computePlot', () => {
     expect(p.scaleText).toBe('1:100');
   });
 
+  it('labels the true scale of drawings in other units', () => {
+    // 1 mm on paper = 0.5 m (500 mm): 1:500, not "2:1".
+    const m = computePlot({ paper: 'A3', area: [0, 0, 100, 50], units: 'm', scale: { paper: 1, drawing: 0.5 } });
+    expect(m.scaleText).toBe('1:500');
+    expect(computePlot({ paper: 'A3', area: [0, 0, 100, 50], units: 'in', scale: { ratio: 100 } }).scaleText).toBe('1:100');
+    expect(computePlot({ paper: 'A3', area: [0, 0, 100, 50], units: 'ft', scale: { ratio: 48 } }).scaleText).toBe('1:48');
+  });
+
   it('converts drawing units for a true-scale ratio', () => {
     const mm = computePlot({ paper: 'A3', area: [0, 0, 1, 1], scale: 100, units: 'mm' });
     expect(mm.scale).toBeCloseTo(0.01, 12);

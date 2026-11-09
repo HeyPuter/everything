@@ -213,7 +213,8 @@ export function computePlot(settings = {}, drawingBounds = null) {
     printable,
     area,
     scale: s,
-    scaleText: scaleText(s),
+    // The true scale: paper mm to real mm (s is paper mm per drawing unit).
+    scaleText: scaleText(s / (UNIT_MM[settings.units] ?? 1)),
     transform: [s, 0, 0, s, e, f],
     transformDown: [s, 0, 0, -s, e, pageH - f],
     clip,

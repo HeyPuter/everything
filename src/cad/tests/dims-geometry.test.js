@@ -75,6 +75,9 @@ describe('dimensionText', () => {
   it('marks radius, diameter and angles', () => {
     expect(dimensionText(dim({ dimType: 'radius', x2: 5 }), style(), header)).toBe('R5');
     expect(dimensionText(dim({ dimType: 'diameter', x2: 5 }), style(), header)).toBe(DIAMETER_SIGN + '10');
+    // A style prefix takes the place of the symbol (AutoCAD's DIMPOST).
+    expect(dimensionText(dim({ dimType: 'radius', x2: 5 }), style({ prefix: 'MAX R' }), header)).toBe('MAX R5');
+    expect(dimensionText(dim({ dimType: 'diameter', x2: 5 }), style({ prefix: '%%c' }), header)).toBe('%%c10');
     const a = dim({ dimType: 'angular', x1: 10, y1: 0, x2: 0, y2: 10, lx: 5, ly: 5 });
     expect(dimensionText(a, style(), header)).toBe('90°');
     expect(dimensionText(a, style({ precision: 1, trailingZeros: true }), header)).toBe('90.0°');

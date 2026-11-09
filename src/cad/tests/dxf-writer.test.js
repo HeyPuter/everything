@@ -474,3 +474,30 @@ describe('round trip', () => {
     });
   });
 });
+
+describe('round trip of non-ASCII table names', () => {
+  it('keeps references to styles, linetypes and layers named with \\U+ escapes', () => {
+    const src = sampleDrawing();
+    src.layers.push({ ...defaultLayer('Wände'), linetype: 'Strichlinie_ä' });
+    src.linetypes.push({ name: 'Strichlinie_ä', description: '', pattern: [1, -0.5] });
+    src.textStyles.push({ ...defaultTextStyle('Schrift_ö'), height: 4 });
+    src.dimStyles.push({ ...defaultDimStyle('Maß'), textStyle: 'Schrift_ö' });
+    const n = src.entities.length;
+    src.entities.push(
+      ent('line', { id: n + 1, layer: 'Wände', x1: 0, y1: 0, x2: 1, y2: 0, linetype: 'Strichlinie_ä' }),
+      ent('text', { id: n + 2, x: 0, y: 0, h: 2, rot: 0, value: 'x', style: 'Schrift_ö', halign: 'left', valign: 'baseline', widthFactor: 1, oblique: 0 }),
+      ent('dimension', { ...dimBase, id: n + 3, dimType: 'aligned', x2: 10, lx: 5, ly: 5, style: 'Maß' }),
+    );
+    Object.assign(src.header, { clayer: 'Wände', textStyle: 'Schrift_ö', dimStyle: 'Maß', cltype: 'Strichlinie_ä', nextId: n + 4 });
+    const text = writeDxf(src, { dimensionEntities });
+    expect(text).toContain('Schrift_\\U+00F6');
+    const { drawing: back, warnings } = parseDxf(text);
+    expect(warnings.filter((w) => /Strichlinie/.test(w))).toEqual([]);
+    const [line, txt, dim] = back.entities.slice(-3);
+    expect(line).toMatchObject({ layer: 'Wände', linetype: 'Strichlinie_ä' });
+    expect(txt.style).toBe('Schrift_ö');
+    expect(dim.style).toBe('Maß');
+    expect(back.layers.find((l) => l.name === 'Wände').linetype).toBe('Strichlinie_ä');
+    expect(back.header).toMatchObject({ clayer: 'Wände', textStyle: 'Schrift_ö', dimStyle: 'Maß', cltype: 'Strichlinie_ä' });
+  });
+});

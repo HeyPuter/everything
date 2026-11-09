@@ -138,7 +138,7 @@ async function dimOrigins(ed) {
     const e = pick.ent;
     if (e.type === 'line') return [{ x: e.x1, y: e.y1 }, { x: e.x2, y: e.y2 }];
     if (e.type === 'arc') return [{ x: e.cx + e.r * Math.cos(e.start), y: e.cy + e.r * Math.sin(e.start) }, { x: e.cx + e.r * Math.cos(e.end), y: e.cy + e.r * Math.sin(e.end) }];
-    if (e.type === 'circle') return [{ x: e.cx - e.r, y: e.cy }, { x: e.cx + e.r, y: e.cy }];
+    if (e.type === 'circle') return Object.assign([{ x: e.cx - e.r, y: e.cy }, { x: e.cx + e.r, y: e.cy }], { circle: e });
     if (e.type === 'polyline') {
       // The segment under the pick.
       const p = e.pts;
@@ -213,8 +213,16 @@ export const DIMLINEAR = {
     const o = await dimOrigins(ed);
     if (!o) return;
     const [a, b] = o;
+    const c = o.circle;
     const make = (p, text, fixedRot) => {
       let rot = fixedRot;
+      if (c) {
+        // A circle's diameter along the dimension: horizontal above or below it, vertical beside it.
+        if (rot === null) rot = Math.abs(p.y - c.cy) >= Math.abs(p.x - c.cx) ? 0 : Math.PI / 2;
+        const ux = Math.cos(rot) * c.r,
+          uy = Math.sin(rot) * c.r;
+        return dimBase(ed, { dimType: 'linear', x1: c.cx - ux, y1: c.cy - uy, x2: c.cx + ux, y2: c.cy + uy, lx: p.x, ly: p.y, rot, text });
+      }
       if (rot === null) {
         const inX = p.x > Math.min(a.x, b.x) && p.x < Math.max(a.x, b.x);
         const inY = p.y > Math.min(a.y, b.y) && p.y < Math.max(a.y, b.y);

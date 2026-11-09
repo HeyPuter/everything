@@ -57,4 +57,20 @@ describe('command line', () => {
     expect(enter('LINE')).toBe('LINE');
     expect(enter('CIRC')).toBe('CIRCLE');
   });
+
+  it('recalls a command run from the suggestions first, after browsing history', () => {
+    const { cl, key, enter } = setup();
+    enter('LINE');
+    enter('CIRCLE');
+    key('ArrowUp');
+    expect(cl.input.value).toBe('CIRCLE');
+    cl.input.value = 'ARC';
+    cl.input.dispatchEvent(new Event('input'));
+    key('Enter');
+    cl.input.value = '';
+    key('ArrowUp');
+    expect(cl.input.value).toBe('ARC');
+    key('ArrowUp');
+    expect(cl.input.value).toBe('CIRCLE');
+  });
 });

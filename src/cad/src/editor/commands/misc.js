@@ -135,10 +135,12 @@ export const AREA = {
     if (pts.length < 3) return;
     let a = 0,
       per = 0;
+    // Relative to the first point, so far from the origin stays precise.
+    const o = pts[0];
     for (let i = 0; i < pts.length; i++) {
       const p1 = pts[i],
         p2 = pts[(i + 1) % pts.length];
-      a += p1.x * p2.y - p2.x * p1.y;
+      a += (p1.x - o.x) * (p2.y - o.y) - (p2.x - o.x) * (p1.y - o.y);
       per += dist(p1, p2);
     }
     a = Math.abs(a) / 2;
@@ -387,15 +389,19 @@ export const LAYISO = {
     const ids = await ed.getSelection('Select objects on the layers to isolate');
     if (!ids.length) return;
     const keep = new Set(ids.map((id) => ed.drawing.get(id).layer));
-    const before = {};
+    // The layers turned off are kept in the drawing, in the same step, so
+    // that undoing LAYISO also forgets them.
     ed.commit('Isolate layers', () => {
+      const off = [...(ed.header.layiso ?? [])];
       for (const l of ed.drawing.layers.values()) {
-        before[l.name] = l.on;
-        if (!keep.has(l.name) && l.on) ed.drawing.setTable('layers', l.name, { ...l, on: false });
+        if (!keep.has(l.name) && l.on) {
+          ed.drawing.setTable('layers', l.name, { ...l, on: false });
+          off.push(l.name);
+        }
       }
       if (!keep.has(ed.header.clayer)) ed.drawing.setHeader({ clayer: [...keep][0] });
+      ed.drawing.setHeader({ layiso: off });
     });
-    ed.doc.isolated = before;
     ed.clearSelection();
     ed.ui.log(`Isolated ${keep.size} layer${keep.size === 1 ? '' : 's'}. Use Unisolate to restore.`, 'muted');
   },
@@ -406,15 +412,17 @@ export const LAYUNISO = {
   label: 'Unisolate layers',
   icon: 'layer-uniso',
   run(ed) {
-    const before = ed.doc.isolated;
-    if (!before) return ed.ui.log('No layers are isolated.', 'muted');
+    const off = ed.header.layiso;
+    if (!off?.length) return ed.ui.log('No layers are isolated.', 'muted');
+    // Only the layers LAYISO turned off, if they are still off: other
+    // changes made since are kept.
     ed.commit('Unisolate layers', () => {
-      for (const [name, on] of Object.entries(before)) {
+      for (const name of off) {
         const l = ed.drawing.layers.get(name);
-        if (l && l.on !== on) ed.drawing.setTable('layers', name, { ...l, on });
+        if (l && !l.on) ed.drawing.setTable('layers', name, { ...l, on: true });
       }
+      ed.drawing.setHeader({ layiso: undefined });
     });
-    ed.doc.isolated = null;
   },
 };
 

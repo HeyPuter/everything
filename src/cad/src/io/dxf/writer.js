@@ -734,7 +734,7 @@ class DxfWriter {
     this.blockDef('*Model_Space', this.brModel, 0, 0, 0, false, null);
     this.blockDef('*Paper_Space', this.brPaper, 0, 0, 0, true, null);
     for (const b of this.blocks) {
-      this.blockDef(b.name, b.br, b.name.startsWith('*') ? 1 : 0, +b.src.bx || 0, +b.src.by || 0, false, b.src.entities, b.src.name);
+      this.blockDef(b.name, b.br, b.name.startsWith('*') ? 1 : 0, +b.src.bx || 0, +b.src.by || 0, false, b.src.entities, b.src.name, false, b.src.description);
     }
     for (const ab of this.arrowBlocks.values()) {
       if (ab.arrow) this.blockDef(ab.name, ab.br, 0, 0, 0, false, ab.src.entities, ab.name);
@@ -743,7 +743,7 @@ class DxfWriter {
     this.g(0, 'ENDSEC');
   }
 
-  blockDef(name, br, flags, bx, by, paper, entities, srcName = null, isDim = false) {
+  blockDef(name, br, flags, bx, by, paper, entities, srcName = null, isDim = false, description = '') {
     this.g(0, 'BLOCK');
     this.g(5, this.h());
     this.g(330, br);
@@ -756,6 +756,7 @@ class DxfWriter {
     this.pt(10, bx, by);
     this.s(3, name);
     this.g(1, '');
+    if (description) this.s(4, description);
     if (entities) for (const e of entities) this.entity(e, br, isDim ? null : srcName);
     this.g(0, 'ENDBLK');
     this.g(5, this.h());

@@ -268,6 +268,10 @@ describe('measure', () => {
       ],
     };
     close(areaOf(hatch), 96);
+    // Circles and donuts become two-vertex loops of half-circle bulges.
+    close(areaOf({ type: 'hatch', loops: [[10, 0, 1, -10, 0, 1]] }), 100 * Math.PI, 1e-9);
+    const holed = { type: 'hatch', loops: [[-20, -20, 0, 20, -20, 0, 20, 20, 0, -20, 20, 0], [10, 0, 1, -10, 0, 1]] };
+    close(areaOf(holed), 1600 - 100 * Math.PI, 1e-9);
   });
   it('tests points in polygons', () => {
     const sq = [0, 0, 4, 0, 4, 4, 0, 4];

@@ -48,11 +48,14 @@ function showSelection(ed, ids) {
 
 /** Select ids while fn runs (to highlight a pick) and deselect them however it ends. */
 async function whileSelected(ed, ids, fn) {
+  const doc = ed.doc;
   ed.setSelection(ids);
   try {
     return await fn();
   } finally {
-    ed.clearSelection();
+    // Not if the user switched drawings meanwhile: that one's selection is its own.
+    if (ed.doc === doc) ed.clearSelection();
+    else doc.selection = new Set();
   }
 }
 
@@ -672,7 +675,8 @@ export function stretchEntity(e, inside, dx, dy) {
     case 'dimension': {
       // Definition points (the angular vertex too) move one by one; with all
       // of them inside, the whole dimension moves with its line.
-      const keys = DIM_POINTS.filter(([kx]) => e[kx] !== undefined);
+      // (x3, y3) is only a point of angular dimensions (the others hold 0, 0).
+      const keys = DIM_POINTS.filter(([kx]) => e[kx] !== undefined && (kx !== 'x3' || e.dimType === 'angular'));
       if (keys.every(([kx, ky]) => inside(e[kx], e[ky]))) return transformEntity(e, M.translate(dx, dy));
       const out = { ...e };
       for (const [kx, ky] of keys) [out[kx], out[ky]] = mv(e[kx], e[ky]);

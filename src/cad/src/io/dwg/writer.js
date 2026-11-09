@@ -347,7 +347,7 @@ class Builder {
         xref: hard(0),
         plotstyle: hard(r.hnd(390)),
         material: hard(0),
-        ltype: hard(this.named('LTYPE', r.str(6, 'Continuous')) || this.named('LTYPE', 'Continuous')),
+        ltype: hard(this.named('LTYPE', unescape(r.str(6, 'Continuous'))) || this.named('LTYPE', 'Continuous')),
         unknownHandle: hard(0),
         __eed: this.eedFrom(r),
       });
@@ -501,10 +501,12 @@ class Builder {
     const tc = r.first(420);
     v.color = { index: ci, rgb: tc !== undefined && this.ver >= R2004 ? r.int(420) & 0xffffff : null, alpha: null, book: false };
     v.ltscale = r.num(48, 1);
-    const lt = r.str(6, 'ByLayer').toLowerCase();
-    if (lt === 'bylayer') v.ltFlags = 0;
-    else if (lt === 'byblock') v.ltFlags = 1;
-    else if (lt === 'continuous') v.ltFlags = 2;
+    // Decode \U+ escapes before changing case (the escape is upper case).
+    const lt = unescape(r.str(6, 'ByLayer'));
+    const ltKey = lt.toLowerCase();
+    if (ltKey === 'bylayer') v.ltFlags = 0;
+    else if (ltKey === 'byblock') v.ltFlags = 1;
+    else if (ltKey === 'continuous') v.ltFlags = 2;
     else {
       v.ltFlags = 3;
       v.ltype = hard(this.named('LTYPE', lt));
@@ -592,7 +594,7 @@ class Builder {
         base: begin ? begin.pt(10) : [0, 0, 0],
         xrefPath: '',
         insertCount: 0,
-        description: '',
+        description: begin ? unescape(begin.str(4, '')) : '',
         previewSize: 0,
         xref: hard(0),
         blockEntity: owner(bh),
@@ -743,7 +745,7 @@ class Builder {
     hv.PDSIZE = +one('$PDSIZE', 0);
     hv.CECOLOR = { index: +one('$CECOLOR', 256), rgb: null };
     hv.CLAYER = hard(this.named('LAYER', unescape(one('$CLAYER', '0'))) || this.named('LAYER', '0'));
-    hv.CELTYPE = hard(this.named('LTYPE', one('$CELTYPE', 'ByLayer')) || byLayer);
+    hv.CELTYPE = hard(this.named('LTYPE', unescape(one('$CELTYPE', 'ByLayer'))) || byLayer);
     hv.TEXTSTYLE = hard(this.named('STYLE', unescape(one('$TEXTSTYLE', 'Standard'))) || this.named('STYLE', 'Standard'));
     hv.DIMSTYLE = hard(this.named('DIMSTYLE', unescape(one('$DIMSTYLE', 'Standard'))) || this.named('DIMSTYLE', 'Standard'));
     const celw = +one('$CELWEIGHT', -1);

@@ -137,3 +137,83 @@ describe('Renderer chunks', () => {
     }
   });
 });
+
+describe('Renderer draw-order bands', () => {
+  it('puts a new construction line in the last band, as a full rebuild does', () => {
+    const { r, d } = setup(1);
+    let hatch;
+    d.transaction('add', () => {
+      hatch = d.add({ type: 'hatch', layer: '0', color: 1, loops: [[0, 0, 0, 100, 0, 0, 100, 100, 0, 0, 100, 0]], pattern: 'SOLID', scale: 1, angle: 0 }).id;
+    });
+    r.frame();
+    // DRAWORDER Back on the line: the hatch moves to band 1.
+    d.transaction('Draw order', () => {
+      d.update(1, { orderGroup: d.newId() });
+      d.reorder([1], false);
+    });
+    r.frame();
+    expect(r.bands.of.get(hatch)).toBe(1);
+    let x;
+    d.transaction('xline', () => (x = d.add({ type: 'xline', layer: '0', color: 256, x: 50, y: 50, dx: 1, dy: 0 }).id));
+    r.frame();
+    expect(r.bands.of.get(x)).toBe(1);
+    // and objects added after it continue in the same band
+    let l;
+    d.transaction('line', () => (l = d.add({ type: 'line', layer: '0', color: 256, x1: 0, y1: 5, x2: 9, y2: 5 }).id));
+    expect(r.bands.of.get(l)).toBe(1);
+  });
+});
+
+describe('Renderer linetype patterns', () => {
+  it('gives every distinct pattern its own row, past the first 63', () => {
+    const { r } = setup(1);
+    const rows = [];
+    for (let i = 0; i < 300; i++) rows.push(r._patternRow([1 + i, -1]));
+    // Rows are stored in a byte per segment: 255 patterns, the rest drawn solid.
+    expect(rows.slice(0, 255)).toEqual(Array.from({ length: 255 }, (_, i) => i + 1));
+    expect(rows.slice(255).every((x) => x === 0)).toBe(true);
+    expect(r._patternRow([70, -1])).toBe(70);
+    // The texture holds what was written for the earlier rows.
+    expect(r.patternData[1 * 18 + 2]).toBe(1);
+    expect(r.patternData[200 * 18 + 2]).toBe(200);
+  });
+});
+
+describe('Renderer block changes', () => {
+  const line = (x2) => ({ type: 'line', layer: '0', color: 256, x1: 0, y1: 0, x2, y2: 1 });
+  const insert = (name) => ({ type: 'insert', layer: '0', color: 256, name, x: 0, y: 0, sx: 1, sy: 1, rot: 0 });
+
+  it('does not rebuild everything for a block no reference uses', () => {
+    const { r, d } = setup(3000);
+    let rebuilds = 0;
+    const orig = r.rebuildAll.bind(r);
+    r.rebuildAll = () => (rebuilds++, orig());
+    d.transaction('block', () => d.setBlock('Unused', { name: 'Unused', bx: 0, by: 0, entities: [line(1)] }));
+    d.transaction('purge', () => d.setBlock('Unused', null));
+    expect(rebuilds).toBe(0);
+    // A block made from objects and inserted in the same step (BLOCK command).
+    d.transaction('BLOCK', () => {
+      d.remove(1);
+      d.setBlock('B', { name: 'B', bx: 0, by: 0, entities: [line(2)] });
+      d.add(insert('B'));
+    });
+    expect(rebuilds).toBe(0);
+    // Redefining a block that is in use still rebuilds.
+    d.transaction('redefine', () => d.setBlock('B', { ...d.blocks.get('B'), entities: [line(3)] }));
+    expect(rebuilds).toBe(1);
+  });
+
+  it('places a later reference to a nested block that gained a construction line as infinite', () => {
+    const { r, d } = setup(1);
+    d.transaction('blocks', () => {
+      d.setBlock('X', { name: 'X', bx: 0, by: 0, entities: [line(1)] });
+      d.setBlock('Y', { name: 'Y', bx: 0, by: 0, entities: [insert('X')] });
+    });
+    // Ask once so the "has construction lines" answer for Y is cached.
+    expect(r._isInfinite(insert('Y'))).toBe(false);
+    d.transaction('redefine', () => d.setBlock('X', { name: 'X', bx: 0, by: 0, entities: [{ type: 'xline', layer: '0', color: 256, x: 0, y: 0, dx: 1, dy: 0 }] }));
+    let id;
+    d.transaction('insert', () => (id = d.add(insert('Y')).id));
+    expect(r.infinite.has(id)).toBe(true);
+  });
+});

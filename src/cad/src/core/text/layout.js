@@ -73,6 +73,13 @@ export function measureText(value, h, widthFactor = 1, font = 'sans') {
   return advanceUnits(decodeSpecial(value), font === 'mono') * h * widthFactor;
 }
 
+/** Slant limit: obliquing angles are limited to ±85 degrees, as in AutoCAD. */
+const MAX_TAN = Math.tan((85 * Math.PI) / 180);
+const slant = (a) => {
+  const t = Math.tan(a);
+  return Number.isFinite(t) ? Math.max(-MAX_TAN, Math.min(MAX_TAN, t)) : 0;
+};
+
 /** Resolve font, width factor and oblique from the entity, then the style. */
 function params(ent, style) {
   const font = typeof style === 'string' ? style : (style?.font ?? ent.font ?? 'sans');
@@ -80,7 +87,7 @@ function params(ent, style) {
   return {
     h: ent.h > 0 ? ent.h : 1,
     wf: ent.widthFactor > 0 ? ent.widthFactor : so?.widthFactor > 0 ? so.widthFactor : 1,
-    tan: Math.tan(ent.oblique ?? so?.oblique ?? 0),
+    tan: slant(ent.oblique ?? so?.oblique ?? 0),
     mono: font === 'mono',
     rot: ent.rot || 0,
   };
@@ -237,8 +244,12 @@ function wrapLines(str, limit, mono) {
           lw += spaceW + ww;
           continue;
         }
-        texts.push(line);
-        widths.push(lw);
+        // Spaces at a break belong to neither line: one that does not fit
+        // does not start a new line, and the line ends without them.
+        if (!word) continue;
+        const trimmed = line.replace(/ +$/, '');
+        texts.push(trimmed);
+        widths.push(lw - (line.length - trimmed.length) * spaceW);
       }
       if (ww > limit + eps) {
         // Break the word: fill each line with as many characters as fit (at least one).
@@ -275,7 +286,9 @@ const ATTACH_Y = { t: 0, m: 0.5, b: 1 };
 function mtextFrame(ent, style) {
   const p = params(ent, style);
   const { h, wf } = p;
-  const str = decodeSpecial(String(ent.value ?? '').replace(/\r\n?/g, '\n').replace(/\\P/g, '\n'));
+  // Paragraph breaks are '\n' in the model (readers turn MTEXT's \P into
+  // it); a backslash left in the value is a real one, as in C:\Projects.
+  const str = decodeSpecial(String(ent.value ?? '').replace(/\r\n?/g, '\n'));
   const width = ent.width > 0 ? ent.width : 0;
   const { texts, widths } = wrapLines(str, width / (h * wf), p.mono);
   const n = texts.length;

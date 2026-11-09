@@ -264,6 +264,11 @@ select.input {
   border-color: var(--danger);
 }
 
+/* The focus outline replaces the border: keep an invalid entry visible while typing. */
+.input[aria-invalid='true']:focus-visible {
+  outline-color: var(--danger);
+}
+
 input[type='checkbox'],
 input[type='radio'] {
   accent-color: var(--accent);

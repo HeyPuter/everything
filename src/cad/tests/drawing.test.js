@@ -106,6 +106,21 @@ describe('Drawing', () => {
     expect([...changes[2].headerKeys]).toEqual(['ltscale']);
   });
 
+  it('does not record a header change to the current values', () => {
+    const d = new Drawing();
+    const changes = [];
+    d.on((c) => changes.push(c));
+    d.transaction('Same', () => d.setHeader({ ltscale: d.header.ltscale, clayer: d.header.clayer }));
+    expect(changes).toHaveLength(0);
+    expect(d.canUndo).toBe(false);
+    expect(d.modified).toBe(false);
+    d.transaction('New key', () => d.setHeader({ someNewKey: undefined }));
+    expect(d.canUndo).toBe(true);
+    d.transaction('Partly new', () => d.setHeader({ ltscale: d.header.ltscale, textHeight: 7 }));
+    expect(d.header.textHeight).toBe(7);
+    expect(changes).toHaveLength(2);
+  });
+
   it('reorders draw order and undoes it', () => {
     const d = new Drawing();
     const ids = d.transaction('Add', () => [d.add(line(0, 0, 1, 1)).id, d.add(line(0, 0, 2, 2)).id, d.add(line(0, 0, 3, 3)).id]);
