@@ -164,6 +164,26 @@ describe('drawing commands', () => {
     expect(areaOf(p)).toBeCloseTo((3 * Math.sqrt(3) / 2) * 100);
   });
 
+  it('draws a polygon with a typed radius with its bottom edge horizontal', async () => {
+    for (const [mode, r] of [['I', 10], ['C', 10]]) {
+      await t.type('POLYGON', '4', '50,50', mode, String(r));
+      const p = t.all('polyline').at(-1);
+      const ys = [];
+      for (let i = 1; i < p.pts.length; i += 3) ys.push(p.pts[i]);
+      const minY = Math.min(...ys);
+      // Two vertices on the bottom edge, at the same height.
+      expect(ys.filter((y) => Math.abs(y - minY) < 1e-9)).toHaveLength(2);
+      // Inscribed: vertices on the circle; circumscribed: edges touch it.
+      expect(minY).toBeCloseTo(mode === 'I' ? 50 - r * Math.SQRT1_2 : 50 - r, 9);
+    }
+    await t.type('POLYGON', '5', '0,0', 'I', '0');
+    expect(t.ed.request?.prompt).toBe('Radius of circle');
+    await t.type('-3');
+    expect(t.ed.request?.prompt).toBe('Radius of circle');
+    await t.type('@0,5');
+    expect(t.all('polyline')).toHaveLength(3);
+  });
+
   it('draws three-point arcs', async () => {
     await t.type('ARC', '10,0', '0,10', '-10,0');
     const [a] = t.all('arc');

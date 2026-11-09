@@ -333,11 +333,24 @@ export const POLYGON = {
     ], ed.polyMode ?? 'i');
     if (!mode) return;
     ed.polyMode = mode;
-    const mk = (p) => ed.make('polyline', { pts: polygonPoints(c, sides, dist(c, p), angleOf(c, p), mode === 'c'), closed: true, width: 0 });
-    const preview = (p) => (dist(c, p) > 1e-12 ? [mk(p)] : []);
-    const r = await pointAwayFrom(ed, 'Radius of circle', c, { preview });
-    if (!r) return;
-    ed.commit('Polygon', () => ed.drawing.add(mk(r)));
+    const circ = mode === 'c';
+    const mk = (r, a) => ed.make('polyline', { pts: polygonPoints(c, sides, r, a, circ), closed: true, width: 0 });
+    const preview = (p) => (dist(c, p) > 1e-12 ? [mk(dist(c, p), angleOf(c, p))] : []);
+    for (;;) {
+      // A picked point sets the size and rotation; a typed radius draws the
+      // bottom edge horizontal, as in AutoCAD.
+      const r = await ed._ask('distance', 'Radius of circle', { base: c, preview });
+      if (r === null || r?.option) return;
+      const typed = typeof r === 'number';
+      const radius = typed ? r : dist(c, r);
+      if (!(radius > 1e-12)) {
+        ed.ui.log(ZERO_RADIUS, 'error');
+        continue;
+      }
+      const angle = typed ? -Math.PI / 2 - (circ ? 0 : Math.PI / sides) : angleOf(c, r);
+      ed.commit('Polygon', () => ed.drawing.add(mk(radius, angle)));
+      return;
+    }
   },
 };
 
