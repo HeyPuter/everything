@@ -350,6 +350,26 @@ describe('grip base point', () => {
   });
 });
 
+describe('invalid sizes', () => {
+  it('asks again for a negative rectangle fillet or a zero tangent circle radius', async () => {
+    await t.type('RECTANG', 'F', '-5');
+    expect(t.ed.request?.prompt).toMatch(/^Fillet radius for rectangles/);
+    expect(t.logs.at(-1)).toEqual(['error', 'The fillet radius cannot be negative.']);
+    await t.type('2', '0,0', '10,10');
+    expect(t.all('polyline')[0].pts.some((v, i) => i % 3 === 2 && v !== 0)).toBe(true);
+    await t.type('LINE', '0,-20', '50,-20', '');
+    await t.type('LINE', '20,-40', '20,0', '');
+    await t.type('CIRCLE', 'T');
+    await t.pick(40, -20);
+    await t.pick(20, -35);
+    await t.type('0');
+    expect(t.ed.request?.prompt).toMatch(/^Radius of circle/);
+    expect(t.logs.at(-1)).toEqual(['error', 'The radius must be greater than zero.']);
+    await t.type('3');
+    expect(t.all('circle')[0].r).toBe(3);
+  });
+});
+
 describe('polyline arcs', () => {
   it('asks again for an arc end point straight behind the start direction', async () => {
     await t.type('PLINE', '0,0', '10,0', 'A', '5,0');

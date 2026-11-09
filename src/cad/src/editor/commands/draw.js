@@ -231,8 +231,13 @@ export const RECTANG = {
     for (;;) {
       if (!a) return;
       if (a.option === 'fillet') {
-        const r = await ed.getDistance('Fillet radius for rectangles', { default: ed.rectFillet ?? 0 });
-        if (typeof r === 'number') fillet = ed.rectFillet = Math.max(0, r);
+        let r;
+        for (;;) {
+          r = await ed.getDistance('Fillet radius for rectangles', { default: ed.rectFillet ?? 0 });
+          if (!(typeof r === 'number' && r < 0)) break;
+          ed.ui.log('The fillet radius cannot be negative.', 'error');
+        }
+        if (typeof r === 'number') fillet = ed.rectFillet = r;
         a = await ed.getPoint('First corner', { options: opts('Fillet') });
         continue;
       }
@@ -404,8 +409,13 @@ export const CIRCLE = {
       if (!e1 || e1.option) return;
       const e2 = await ed.getEntity('Second tangent object', { filter });
       if (!e2 || e2.option) return;
-      const r = await ed.getDistance('Radius of circle', { default: ed.lastRadius ?? 10 });
-      if (typeof r !== 'number' || r <= 0) return;
+      let r;
+      for (;;) {
+        r = await ed.getDistance('Radius of circle', { default: ed.lastRadius ?? 10 });
+        if (typeof r !== 'number') return;
+        if (r > 0) break;
+        ed.ui.log(ZERO_RADIUS, 'error');
+      }
       const k = circleTTR(e1.ent, e1, e2.ent, e2, r);
       if (!k) {
         ed.ui.log('No circle with that radius touches both objects.', 'error');
