@@ -143,6 +143,12 @@ export async function signIn(): Promise<boolean> {
   return isSignedIn();
 }
 
+/** The account changed without signIn or signOut (puter.js's <puter-user-menu>): drops what belonged to the previous one. */
+export function accountChanged() {
+  invalidateQueuedKVWrites();
+  pictureCache = null;
+}
+
 export async function signOut(): Promise<void> {
   if (!sdk) return;
   invalidateQueuedKVWrites();

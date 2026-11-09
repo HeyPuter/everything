@@ -2,7 +2,7 @@ import './styles/app.css';
 import { App } from './app/app';
 import { makeHooks, registerCommands } from './app/actions';
 import { FileOps } from './app/fileops';
-import { StartScreen, bindAccountMenu, refreshAccount } from './app/start';
+import { StartScreen, bindAccountMenu, bindUserMenu, refreshAccount } from './app/start';
 import { TaskPane, recentItems } from './app/taskpane';
 import { AssistantPanel } from './assistant/panel';
 import { normalizeSettings } from './app/settings';
@@ -64,6 +64,7 @@ async function boot() {
   if (matchMedia('(min-width: 981px)').matches) taskPane.open('assistant', false);
   start = new StartScreen(app, files);
   bindAccountMenu(app);
+  bindUserMenu(app);
   root.removeAttribute('aria-busy');
   app.newDocument('Part1');
   const startupDocument = app.documentSignal;

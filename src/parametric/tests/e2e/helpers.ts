@@ -19,3 +19,10 @@ export async function waitForFeature(page: Page, name: string) {
   await expect(page.getByRole('treeitem', { name })).toBeVisible();
   await expect(page.locator('.loading-kernel')).toHaveCount(0, { timeout: 30_000 });
 }
+
+/** Picks a theme from View › Theme (the account menu may be puter.js's, which has none). */
+export async function chooseTheme(page: Page, theme: 'Light' | 'Dark' | 'System') {
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'View' }).click();
+  await page.getByRole('menuitem', { name: 'Theme' }).click();
+  await page.getByRole('menuitemradio', { name: `${theme} Theme` }).click();
+}

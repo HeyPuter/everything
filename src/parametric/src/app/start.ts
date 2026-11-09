@@ -1,9 +1,9 @@
-// Start screen and account menu.
+// Start screen and account menu (or puter.js's <puter-user-menu>, see user-menu.ts).
 
 import { UNIT_SYSTEMS } from '../model/units';
 import type { UnitSystem } from '../model/types';
 import { locationLabel, recentParts, sameLocation } from '../platform/files';
-import { canSignOut, cloudAvailable, env, getProfilePicture, getUser, isSignedIn, puter, signIn, signOut } from '../platform/puter';
+import { accountChanged, canSignOut, cloudAvailable, env, getProfilePicture, getUser, isSignedIn, puter, signIn, signOut } from '../platform/puter';
 import { getThemeChoice, setThemeChoice } from '../platform/theme';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -11,6 +11,7 @@ import { dropdown, type MenuItem } from '../ui/menu';
 import { toast } from '../ui/overlay';
 import type { App } from './app';
 import { closeAppsPanel, syncAppsLauncher } from './apps-panel';
+import { syncUserMenu, syncUserMenuTheme } from './user-menu';
 import { EXAMPLES } from './examples';
 import type { FileOps } from './fileops';
 import { REPO_URL } from './shell';
@@ -107,11 +108,7 @@ export class StartScreen {
 export async function doSignIn(app: App): Promise<boolean> {
   try {
     const ok = await signIn();
-    if (ok) {
-      toast({ kind: 'success', message: 'Signed in. Your parts will now be saved to your Puter cloud.' });
-      await refreshAccount(app);
-      app.loadRemoteSettings();
-    }
+    if (ok) await signedIn(app);
     return ok;
   } catch (e) {
     toast({ kind: 'error', title: 'Sign-in failed', message: (e as Error).message });
@@ -119,11 +116,21 @@ export async function doSignIn(app: App): Promise<boolean> {
   }
 }
 
+async function signedIn(app: App) {
+  toast({ kind: 'success', message: 'Signed in. Your parts will now be saved to your Puter cloud.' });
+  await refreshAccount(app);
+  app.loadRemoteSettings();
+}
+
 /** Updates the account button (profile picture or initial). */
 export async function refreshAccount(app: App) {
   const btn = app.shell.account;
-  // The SDK has loaded, or the account changed.
-  syncAppsLauncher(app.shell.apps);
+  // The SDK has loaded, or the account changed. Where puter.js's user menu
+  // renders, it has the Apps button and the account, and keeps them current.
+  const sdkMenu = syncUserMenu(app.shell.userMenu);
+  syncAppsLauncher(app.shell.apps, sdkMenu);
+  btn.hidden = sdkMenu;
+  if (sdkMenu) return;
   btn.textContent = '';
   if (!isSignedIn() && env() !== 'app') {
     btn.append(icon('signIn', 16));
@@ -170,5 +177,24 @@ export function bindAccountMenu(app: App) {
       });
     }
     dropdown(btn, items, { label: 'Account' });
+  });
+}
+
+/**
+ * puter.js's <puter-user-menu> signs in and out by itself, then says so: the
+ * app follows as it does for its own Sign in and Sign out.
+ */
+export function bindUserMenu(app: App) {
+  const el = app.shell.userMenu;
+  if (!el) return;
+  window.addEventListener('themechange', () => syncUserMenuTheme(el));
+  el.addEventListener('signin', () => {
+    accountChanged();
+    if (isSignedIn()) void signedIn(app);
+  });
+  el.addEventListener('signout', () => {
+    accountChanged();
+    void refreshAccount(app);
+    toast({ message: 'Signed out. New parts will be saved in this browser.' });
   });
 }
