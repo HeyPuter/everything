@@ -302,6 +302,27 @@ describe('shared grips', () => {
   });
 });
 
+describe('coincident grips of one object', () => {
+  const add = (e) => t.drawing.transaction('Add', () => t.drawing.add({ layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ...e }));
+  it('moves only the picked end of a zero-length line', async () => {
+    add({ type: 'line', x1: 5, y1: 5, x2: 5, y2: 5 });
+    t.ed.setSelection([...t.drawing.entities.keys()]);
+    t.ed._startGripEdit(0, null);
+    await flush();
+    await t.type('10,10');
+    const [l] = t.all('line');
+    expect([l.x1, l.y1, l.x2, l.y2]).toEqual([10, 10, 5, 5]);
+  });
+  it('moves the repeated first and last vertex of a polyline together', async () => {
+    add({ type: 'polyline', pts: [0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 0, 0], closed: false, width: 0 });
+    t.ed.setSelection([...t.drawing.entities.keys()]);
+    t.ed._startGripEdit(0, null);
+    await flush();
+    await t.type('-2,-3');
+    expect(t.all('polyline')[0].pts).toEqual([-2, -3, 0, 10, 0, 0, 10, 10, 0, -2, -3, 0]);
+  });
+});
+
 describe('grip base point', () => {
   it('stretches by the displacement from a new base point', async () => {
     await t.type('LINE', '0,0', '10,0', '');

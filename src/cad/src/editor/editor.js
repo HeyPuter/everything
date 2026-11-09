@@ -1560,6 +1560,9 @@ async function gripEdit(ed, grip, fromPointer) {
   }
 }
 
+/** Objects whose grips are a list of vertices. */
+const VERTEX_GRIPS = new Set(['polyline', 'spline', 'leader', 'hatch']);
+
 /**
  * Grips of the selection that sit on the picked grip, so a shared corner
  * stretches every object meeting there. Returns [{ id, ent, idx: [grip indices] }].
@@ -1571,8 +1574,13 @@ function coincidentGrips(ed, ids, grip) {
     const ent = ed.drawing.get(id);
     if (!ent || !ed.drawing.layerEditable(ent.layer)) continue;
     const idx = [];
-    gripsOf(ent).forEach((g, i) => {
-      if (id === grip.id && i === grip.i) return;
+    const grips = gripsOf(ent);
+    // Within the picked object only repeated vertices move together (a
+    // polyline closed by repeating its first vertex), never a midpoint or
+    // center grip that happens to sit there (as on a zero-length line).
+    const own = id === grip.id && VERTEX_GRIPS.has(ent.type) && !grips[grip.i]?.kind;
+    grips.forEach((g, i) => {
+      if (id === grip.id && (i === grip.i || !own || g.kind)) return;
       if (Math.abs(g.x - grip.x) <= tol && Math.abs(g.y - grip.y) <= tol) idx.push(i);
     });
     if (!idx.length) continue;
