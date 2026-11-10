@@ -2,6 +2,7 @@
 // dialogs, panel fields and accessibility.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { setPuterForTests } from '../src/app/puter.js';
+import * as storage from '../src/app/storage.js';
 import { UserLibrary } from '../src/app/user-library.js';
 import { App } from '../src/app/app.js';
 import { Project, newProjectData } from '../src/model/project.js';
@@ -231,5 +232,75 @@ describe('app shortcuts while a dialog is open', () => {
     expect(document.querySelectorAll('.dialog').length).toBe(1);
     document.querySelector('.dialog [aria-label="Close dialog"]').click();
     shutDown(app);
+  });
+});
+
+describe('a project saved in the browser when the project list cannot be written', () => {
+  /** Minimal in-memory private file system. */
+  function memoryDir() {
+    const kids = new Map();
+    return {
+      async getDirectoryHandle(name) {
+        if (!kids.has(name)) kids.set(name, memoryDir());
+        return kids.get(name);
+      },
+      async getFileHandle(name, { create } = {}) {
+        if (!kids.has(name)) {
+          if (!create) throw new DOMException('missing', 'NotFoundError');
+          const f = { text: '' };
+          kids.set(name, {
+            getFile: async () => ({
+              text: async () => f.text,
+              size: f.text.length,
+              lastModified: 1234,
+            }),
+            createWritable: async () => {
+              let next = '';
+              return {
+                write: async (t) => void (next += t),
+                close: async () => void (f.text = next),
+              };
+            },
+          });
+        }
+        return kids.get(name);
+      },
+      async *entries() {
+        yield* kids.entries();
+      },
+    };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it('is still listed, so it can be opened again', async () => {
+    setPuterForTests(null);
+    localStorage.clear();
+    const root = memoryDir();
+    Object.defineProperty(navigator, 'storage', {
+      value: { getDirectory: async () => root },
+      configurable: true,
+    });
+    // The browser refuses the write, as when its site storage is full.
+    const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    const text = JSON.stringify({ format: 'circuits-project', id: 'p1', name: 'Amplifier' });
+    await storage.saveText({ type: 'local', id: 'p1' }, 'Amplifier', text);
+    expect(await storage.loadText({ type: 'local', id: 'p1' })).toBe(text);
+    const listed = await storage.listProjects();
+    expect(listed.map((p) => [p.name, p.location])).toEqual([
+      ['Amplifier', { type: 'local', id: 'p1' }],
+    ]);
+    // A project the list does know about is not listed twice.
+    refuse.mockRestore();
+    await storage.saveText({ type: 'local', id: 'p2' }, 'Second', '{"name":"Second"}');
+    expect((await storage.listProjects()).map((p) => p.name).sort()).toEqual([
+      'Amplifier',
+      'Second',
+    ]);
   });
 });
