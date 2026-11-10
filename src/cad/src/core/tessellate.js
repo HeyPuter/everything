@@ -289,9 +289,12 @@ function emitBand(pts, closed, hw, sink, style) {
   const loop = closed && n > 2;
   const segs = loop ? n : n - 1;
   // Unit direction and length of the current segment, starting with the first.
-  let cl = Math.hypot(P[2] - P[0], P[3] - P[1]);
-  let cx = (P[2] - P[0]) / cl,
-    cy = (P[3] - P[1]) / cl;
+  // (sqrt of the squares, not Math.hypot: several times faster, and lengths here need no overflow care)
+  let dx = P[2] - P[0],
+    dy = P[3] - P[1];
+  let cl = Math.sqrt(dx * dx + dy * dy);
+  let cx = dx / cl,
+    cy = dy / cl;
   const fx = cx,
     fy = cy;
   // Mitre offset to the left at the start of the current segment (sm: there is one).
@@ -299,9 +302,11 @@ function emitBand(pts, closed, hw, sink, style) {
     sx = 0,
     sy = 0;
   if (loop) {
-    const l = Math.hypot(P[0] - P[2 * n - 2], P[1] - P[2 * n - 1]);
-    const px = (P[0] - P[2 * n - 2]) / l,
-      py = (P[1] - P[2 * n - 1]) / l;
+    dx = P[0] - P[2 * n - 2];
+    dy = P[1] - P[2 * n - 1];
+    const l = Math.sqrt(dx * dx + dy * dy);
+    const px = dx / l,
+      py = dy / l;
     const k = 1 + px * cx + py * cy;
     if (k > MITER_MIN) {
       sm = true;
@@ -327,9 +332,11 @@ function emitBand(pts, closed, hw, sink, style) {
     if (i + 1 < segs || loop) {
       if (i + 1 < segs) {
         const m = ((j + 1) % n) * 2;
-        tl = Math.hypot(P[m] - bx, P[m + 1] - by);
-        tx = (P[m] - bx) / tl;
-        ty = (P[m + 1] - by) / tl;
+        dx = P[m] - bx;
+        dy = P[m + 1] - by;
+        tl = Math.sqrt(dx * dx + dy * dy);
+        tx = dx / tl;
+        ty = dy / tl;
       } else {
         tx = fx;
         ty = fy;
