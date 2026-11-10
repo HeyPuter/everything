@@ -272,6 +272,8 @@ describe('parseDxf: text', () => {
     expect(stripMtext('{\\fArial|b1|i0;Hello}\\PWorld')).toBe('Hello\nWorld');
     expect(stripMtext('\\H2.5x;Big \\C1;red\\~x')).toBe('Big red\u00a0x');
     expect(stripMtext('\\S1^2; and \\S3#4;')).toBe('1/2 and 3/4');
+    // %% right before a formatting code or a closing brace does not swallow it
+    expect(stripMtext('50%%\\Pnext {\\fArial;100%%} %%c5 %%%')).toBe('50%%\nnext 100%% %%c5 %%%');
     expect(stripMtext('a\\\\b \\{c\\} \\U+00E9 \\Lunder\\l %%d')).toBe('a\\b {c} \u00e9 under %%d');
     // %% codes are drawn by the text and stay in the value, as AutoCAD keeps them
     expect(decodeText('25%%d %%c10 %%p0.1 %%% %%176')).toBe('25%%d %%c10 %%p0.1 %%% %%176');

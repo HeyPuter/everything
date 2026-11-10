@@ -288,9 +288,11 @@ export function stripMtext(s) {
     } else if (c === '{' || c === '}') {
       i++;
     } else if (c === '%' && s[i + 1] === '%' && i + 2 < n) {
-      // %% codes stay, the text decodes them
-      out += s.slice(i, i + 3);
-      i += 3;
+      // %% codes stay, the text decodes them; a formatting code or brace after %% is not part of one
+      const d = s[i + 2];
+      const k = d === '\\' || d === '{' || d === '}' ? 2 : 3;
+      out += s.slice(i, i + k);
+      i += k;
     } else if (c === '^' && i + 1 < n) {
       const d = s.charCodeAt(i + 1);
       if (d === 32 || d === 73 || d === 74 || d === 77) {
