@@ -3,7 +3,7 @@
  * Edge cases of commands, prompts and grips (degenerate picks, extreme
  * counts, state after cancel), driven headlessly like tests/commands.test.js.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Editor } from '../src/editor/editor.js';
 import { Camera } from '../src/render/camera.js';
 import { Drawing } from '../src/core/drawing.js';
@@ -305,5 +305,39 @@ describe('dynamic input tooltip', () => {
     // On the end of the line: an object snap, not a polar point.
     expect(lines(20.3, 10.2)).toEqual(['Next point']);
     expect(t.ed.snap).toMatchObject({ x: 20, y: 10, mode: 'end' });
+  });
+});
+
+describe('object snap tracking points', () => {
+  it('stay acquired while the cursor rests on them, and clear on a second visit', async () => {
+    add({ type: 'line', x1: 20, y1: 10, x2: 40, y2: 30 });
+    await t.type('LINE');
+    const at = t.ed.camera.toScreen(20.2, 10.1);
+    const away = t.ed.camera.toScreen(-50, -50);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      t.ed._updateCursor(at.x, at.y);
+      vi.advanceTimersByTime(600);
+      expect(t.ed.acquired).toHaveLength(1);
+      // Small movements over the same point, with pauses, keep it.
+      t.ed._updateCursor(at.x + 1, at.y);
+      vi.advanceTimersByTime(600);
+      t.ed._updateCursor(at.x, at.y + 1);
+      vi.advanceTimersByTime(600);
+      expect(t.ed.acquired).toHaveLength(1);
+      // A pass too short to count changes nothing.
+      t.ed._updateCursor(away.x, away.y);
+      t.ed._updateCursor(at.x, at.y);
+      vi.advanceTimersByTime(100);
+      t.ed._updateCursor(away.x, away.y);
+      vi.advanceTimersByTime(600);
+      expect(t.ed.acquired).toHaveLength(1);
+      // Coming back and pausing clears the point.
+      t.ed._updateCursor(at.x, at.y);
+      vi.advanceTimersByTime(600);
+      expect(t.ed.acquired).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

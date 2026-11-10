@@ -74,7 +74,7 @@ export class Editor {
     this.snap = null;
     this.tracks = [];
     this.acquired = [];
-    this._acq = null;
+    this._acqKey = null;
     this.angleLock = null;
     this.window = null;
     this.hoverId = null;
@@ -99,6 +99,7 @@ export class Editor {
     this.lastLineEnd = doc.lastLineEnd ?? null;
     this.doc = doc;
     this.acquired = [];
+    this._acqKey = null;
     this.renderer.setSelection(doc.selection);
     this.refreshGrips();
     this.drawOverlay();
@@ -252,6 +253,7 @@ export class Editor {
     this.selMode = 'add';
     clearTimeout(this._acqTimer);
     this.acquired = [];
+    this._acqKey = null;
   }
 
   /**
@@ -1198,9 +1200,13 @@ export class Editor {
   /** Hovering an object snap point for a moment acquires it for tracking. */
   _acquire(s) {
     if (!this.settings.otrack && this.snapOverride !== 'ext') return;
+    const key = s ? `${s.x.toFixed(9)},${s.y.toFixed(9)}` : null;
+    // One visit toggles a point once: resting on it (a hand is never quite
+    // still) must not start over and toggle it back.
+    if (key === this._acqKey) return;
+    this._acqKey = key;
     clearTimeout(this._acqTimer);
     if (!s) return;
-    const key = `${s.x.toFixed(9)},${s.y.toFixed(9)}`;
     this._acqTimer = setTimeout(() => {
       const i = this.acquired.findIndex((p) => p.key === key);
       if (i >= 0) this.acquired.splice(i, 1);
