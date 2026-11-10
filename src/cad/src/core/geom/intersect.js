@@ -119,6 +119,16 @@ function onArc(C, ext, x, y, tol) {
   return angleInSweep(Math.atan2(y - C.cy, x - C.cx), C.a0, sw, tol / C.r);
 }
 
+/**
+ * Tolerance for telling a tangent circle from a crossing one. It follows the
+ * circle's size and the rounding noise at its position, not its distance
+ * from the origin like `tol`: with that, far from the origin a line cutting
+ * well into a circle would count as tangent and give one hit for its two.
+ */
+function tangentTol(tol, r, cx, cy) {
+  return Math.min(tol, Math.max(EPS * Math.max(1, r), 64 * Number.EPSILON * (Math.abs(cx) + Math.abs(cy) + r)));
+}
+
 function lineArc(L, C, extC, tol, out, swap) {
   const a = L.dx * L.dx + L.dy * L.dy;
   if (!(a > 0) || !(C.r > 0)) return;
@@ -139,7 +149,7 @@ function lineArc(L, C, extC, tol, out, swap) {
     if (!onArc(C, extC, x, y, tol)) return;
     hit(out, x, y, t, arcParam(C, x, y), swap);
   };
-  if (Math.abs(d - r) <= tol) {
+  if (d >= r - tangentTol(tol, r, C.cx, C.cy)) {
     emit(t0);
     return;
   }
@@ -152,13 +162,14 @@ function arcArc(A, B, extA, extB, tol, out) {
   const dx = B.cx - A.cx,
     dy = B.cy - A.cy;
   const d = Math.hypot(dx, dy);
-  if (d <= tol || !(A.r > 0) || !(B.r > 0)) return;
+  const tight = tangentTol(tol, Math.max(A.r, B.r), A.cx, A.cy);
+  if (d <= tight || !(A.r > 0) || !(B.r > 0)) return;
   const sum = A.r + B.r,
     diff = Math.abs(A.r - B.r);
   if (d > sum + tol || d < diff - tol) return;
   const a = (d * d + A.r * A.r - B.r * B.r) / (2 * d);
   const h2 = A.r * A.r - a * a;
-  const tangent = Math.abs(d - sum) <= tol || Math.abs(d - diff) <= tol || h2 <= 0;
+  const tangent = Math.abs(d - sum) <= tight || Math.abs(d - diff) <= tight || h2 <= 0;
   const ux = dx / d,
     uy = dy / d;
   const bx = A.cx + a * ux,

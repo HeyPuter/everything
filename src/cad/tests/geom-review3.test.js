@@ -272,3 +272,42 @@ describe('fillet between arcs far from the origin', () => {
     expect(f.e1.x2).not.toBe(line.x2);
   });
 });
+
+describe('near-tangent intersections far from the origin', () => {
+  for (const O of [0, 1e6, 1e7]) {
+    it(`finds both crossings of a line that cuts 0.005 into a circle at ${O}`, () => {
+      const c = { type: 'circle', cx: O, cy: O, r: 5 };
+      const l = { type: 'line', x1: O - 10, y1: O + 4.995, x2: O + 10, y2: O + 4.995 };
+      const xs = G.intersectEntities(c, l)
+        .map((p) => p.x - O)
+        .sort((a, b) => a - b);
+      const h = Math.sqrt(25 - 4.995 ** 2);
+      expect(xs).toHaveLength(2);
+      expect(xs[0]).toBeCloseTo(-h, 5);
+      expect(xs[1]).toBeCloseTo(h, 5);
+    });
+
+    it(`finds both crossings of two circles that overlap by 0.005 at ${O}`, () => {
+      const a = { type: 'circle', cx: O, cy: O, r: 5 };
+      const b = { type: 'circle', cx: O + 9.995, cy: O, r: 5 };
+      const ys = G.intersectEntities(a, b)
+        .map((p) => p.y - O)
+        .sort((p, q) => p - q);
+      const h = Math.sqrt(25 - (9.995 / 2) ** 2);
+      expect(ys).toHaveLength(2);
+      expect(ys[0]).toBeCloseTo(-h, 5);
+      expect(ys[1]).toBeCloseTo(h, 5);
+    });
+
+    it(`still gives one point for a tangent line and tangent circles at ${O}`, () => {
+      const c = { type: 'circle', cx: O + 3, cy: O - 2, r: 5 };
+      const [t] = G.tangentsFrom(c, O + 20, O + 9);
+      const l = { type: 'line', x1: O + 20, y1: O + 9, x2: 2 * t.x - (O + 20), y2: 2 * t.y - (O + 9) };
+      expect(G.intersectEntities(c, l)).toHaveLength(1);
+      const outer = { type: 'circle', cx: O + 3 + 7, cy: O - 2, r: 2 };
+      const inner = { type: 'circle', cx: O + 3 + 4.99, cy: O - 2, r: 0.01 };
+      expect(G.intersectEntities(c, outer)).toHaveLength(1);
+      expect(G.intersectEntities(c, inner)).toHaveLength(1);
+    });
+  }
+});
