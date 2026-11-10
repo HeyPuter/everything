@@ -584,3 +584,31 @@ describe('starting while puter.js is slow to load', () => {
     shutDown(third.app);
   });
 });
+
+describe('printing and SVG export in the component editor', () => {
+  it('are unavailable instead of producing a page that says "null"', async () => {
+    const app = await boot();
+    app.setProject(new Project(newProjectData('Parts')), null);
+    const def = structuredClone(findComponent('res-0603'));
+    app.project.putComponent(def);
+    app.openComponentEditor(def.id);
+    expect(app.activeEditor.kind).toBe('lib');
+    const saved = [];
+    URL.createObjectURL ??= () => 'blob:test';
+    URL.revokeObjectURL ??= () => {};
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => (saved.push(blob), 'blob:x'));
+    await app.commands.run('export.svg');
+    await app.exportSvg();
+    await app.print();
+    expect(saved).toEqual([]);
+    expect(document.querySelector('iframe[title="Print preview"]')).toBe(null);
+    expect(app.commands.get('export.svg').enabled()).toBe(false);
+    expect(app.commands.get('file.print').enabled()).toBe(false);
+    // Still available on a sheet.
+    app.openDoc(app.project.docs[0].id);
+    expect(app.commands.get('export.svg').enabled()).toBe(true);
+    expect(app.commands.get('file.print').enabled()).toBe(true);
+    vi.restoreAllMocks();
+    shutDown(app);
+  });
+});

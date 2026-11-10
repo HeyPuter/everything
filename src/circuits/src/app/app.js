@@ -1545,6 +1545,7 @@ export class App extends Emitter {
     const ed = this.activeEditor;
     if (!ed) return;
     const svg = await this._svgOf(ed, 'light');
+    if (!svg) return;
     storage.download(svg, `${storage.safeName(ed.doc.name.replace(/\.(sch|pcb)$/i, ''))}.svg`, 'image/svg+xml');
   }
 
@@ -1553,6 +1554,7 @@ export class App extends Emitter {
     const ed = this.activeEditor;
     if (!ed) return;
     const svg = await this._svgOf(ed, 'print');
+    if (!svg) return;
     const frame = h('iframe', { title: 'Print preview', style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
     document.body.append(frame);
     const landscape = ed.kind === 'sch' ? ed.doc.sheet.orientation !== 'portrait' : true;
