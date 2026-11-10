@@ -932,6 +932,11 @@ export class App extends Emitter {
     this.hideStart();
     if (!this.openTabs.includes(id)) this.openTabs.push(id);
     let ed = this.editors.get(id);
+    // Browsers keep a limited number of WebGL contexts and drop the oldest
+    // for good, which leaves that editor's canvas blank: with many documents
+    // open, an editor that lost its context is rebuilt when it is shown.
+    let view = null;
+    if (ed?.renderer?.gl?.isContextLost?.()) { view = { ...ed.renderer.view }; ed.dispose(); this.editors.delete(id); ed = null; }
     if (!ed) { ed = this._createEditor(doc); this.editors.set(id, ed); }
     if (this.view3dOpen && this.activeDocId !== id) this.set3d(false);
     this.activeDocId = id;
@@ -947,6 +952,7 @@ export class App extends Emitter {
     if (this.isCompact) this.closeDrawers();
     // Size the view now (layout is synchronous) so coordinates are valid at once.
     ed._resize();
+    if (view && ed.renderer) { Object.assign(ed.renderer.view, view); ed.onViewChanged(); }
     ed.requestRender(true);
     ed.canvas.focus({ preventScroll: true });
   }
@@ -1360,7 +1366,9 @@ export class App extends Emitter {
         this.view3dOpen = false;
         this.updateActiveBar();
         this.refreshMenus();
-        ed?.canvas.focus();
+        // The 3D view's context may have pushed out the board's own (see openDoc).
+        if (ed?.renderer?.gl?.isContextLost?.() && this.activeDocId === ed.doc.id) this.openDoc(ed.doc.id);
+        else ed?.canvas.focus();
       }
       return;
     }

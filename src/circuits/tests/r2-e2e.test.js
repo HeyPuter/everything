@@ -161,3 +161,49 @@ describe('messages across projects', () => {
     expect(app.panels.messages.el.querySelectorAll('.list-row')).toHaveLength(0);
   });
 });
+
+describe('editors whose WebGL context was dropped', () => {
+  // Browsers keep about 16 WebGL contexts and drop the oldest for good, so
+  // with many documents open the first ones come back as blank canvases.
+  const lostRenderer = () => ({
+    gl: { isContextLost: () => true },
+    view: { cx: 1, cy: 2, scale: 3 },
+    resize() {},
+    release() {},
+    dispose() {},
+  });
+
+  it('rebuilds a sheet editor when its tab is shown again', async () => {
+    const app = await boot();
+    ctx = { app };
+    await app.openExample();
+    const sheet = app.project.sheets[0];
+    const board = app.project.boards[0];
+    const first = app.activeEditor;
+    app.openDoc(board.id);
+    first.renderer = lostRenderer();
+    app.openDoc(sheet.id);
+    const again = app.activeEditor;
+    expect(again).not.toBe(first);
+    expect(first.disposed).toBe(true);
+    expect(first.el.isConnected).toBe(false);
+    expect(again.doc).toBe(sheet);
+    expect(again.el.isConnected).toBe(true);
+    expect(again.el.hidden).toBe(false);
+    expect([...app.editors.values()].filter((e) => e.doc === sheet)).toHaveLength(1);
+    // The document and its undo history are untouched.
+    again.doc.store.transact('Add', (s) => s.add({ t: 'junction', x: 0, y: 0 }));
+    expect(app.commands.get('edit.undo').enabled()).toBe(true);
+  });
+
+  it('leaves editors with a working canvas alone', async () => {
+    const app = await boot();
+    ctx = { app };
+    await app.openExample();
+    const first = app.activeEditor;
+    app.openDoc(app.project.boards[0].id);
+    app.openDoc(app.project.sheets[0].id);
+    expect(app.activeEditor).toBe(first);
+    expect(first.disposed).toBe(false);
+  });
+});
