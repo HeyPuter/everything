@@ -401,6 +401,48 @@ button {
   gap: 8px;
 }
 
+/* <puter-user-menu> (puter.js; src/ui/usermenu.js): where the loaded puter.js
+   has it, it ends the bar with the Apps launcher and the account, after the
+   Settings button. Its parts take the bar's icon button and primary button
+   looks; its menu and Apps panel take the app's menu card, in both themes. */
+puter-user-menu {
+  flex: none;
+}
+puter-user-menu::part(apps-button) {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+}
+puter-user-menu::part(sign-in) {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  puter-user-menu::part(sign-in):hover {
+    background: var(--accent-hover);
+  }
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--bg-elev);
+  border-color: var(--border);
+  --caret-border: var(--border);
+  --caret-fill: var(--bg-elev);
+}
+
 .layout {
   flex: 1;
   display: flex;
@@ -1774,6 +1816,17 @@ textarea.input {
   }
   .hide-xs {
     display: none !important;
+  }
+  /* A phone's bar has no room for a fifth control: the Apps launcher goes,
+     and the rest sit closer for the times the element shows Sign in. */
+  puter-user-menu::part(apps-button) {
+    display: none;
+  }
+  puter-user-menu::part(sign-in) {
+    padding: 0 10px;
+  }
+  .topbar__actions:has(puter-user-menu) {
+    gap: 6px;
   }
   .form-row {
     grid-template-columns: 1fr;

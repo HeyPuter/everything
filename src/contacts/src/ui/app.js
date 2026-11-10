@@ -26,6 +26,7 @@ import { filterContacts, sortContacts, allTags, SORT_KEYS } from '../search.js'
 import { escapeHtml, escapeAttr } from '../format.js'
 import { contactToVCard, contactsToVCard, vCardToContacts } from '../vcard.js'
 import { setPref, getPref } from '../env.js'
+import { hasUserMenu, userMenu, syncUserMenuTheme } from './usermenu.js'
 
 const SORT_LABELS = {
   first: 'First name',
@@ -76,6 +77,7 @@ function applyTheme(mode) {
   setPref('theme', mode === 'light' || mode === 'dark' ? mode : '') // '' → follow system
   document.documentElement.setAttribute('data-theme', theme)
   setThemeColor(theme)
+  syncUserMenuTheme()
 }
 
 // Roughly the point where parsing a .vcf stops being instant (a card runs a
@@ -331,7 +333,10 @@ function openAccountMenu(btn) {
     action: () => applyTheme(value),
   })
   const items = []
-  if (userEmail) {
+  // With puter.js's <puter-user-menu> beside it (usermenu.js) this is the
+  // Settings menu: the element names the account and signs out.
+  const account = !hasUserMenu()
+  if (account && userEmail) {
     // A bare username (no "@") reads like a truncated email — show it as a handle.
     const identity = userEmail.includes('@') ? userEmail : `@${userEmail}`
     items.push({ label: identity, disabled: true }, '-')
@@ -340,23 +345,28 @@ function openAccountMenu(btn) {
     label: 'Theme',
     items: [themeItem('System', 'system'), themeItem('Light', 'light'), themeItem('Dark', 'dark')],
   })
-  if (!isPuterApp()) {
-    items.push('-', {
-      label: 'Sign out',
-      danger: true,
-      action: async () => {
-        // Let go of the calendar first: it holds a service window open in this
-        // user's session, and nothing of theirs should outlive the sign-out.
-        disposeCalendar()
-        try {
-          await window.puter.auth.signOut()
-        } finally {
-          location.reload()
-        }
-      },
-    })
+  if (account && !isPuterApp()) {
+    items.push('-', { label: 'Sign out', danger: true, action: signOut })
   }
   showAnchoredMenu(btn, items)
+}
+
+async function signOut() {
+  // Let go of the calendar first: it holds a service window open in this
+  // user's session, and nothing of theirs should outlive the sign-out.
+  disposeCalendar()
+  try {
+    await window.puter.auth.signOut()
+  } finally {
+    location.reload()
+  }
+}
+
+// A sign-in or sign-out <puter-user-menu> did by itself (usermenu.js): the
+// session is already another one, so the page starts over for it.
+function sessionChanged() {
+  disposeCalendar()
+  location.reload()
 }
 
 // Build a synthetic event so a button click can position a context menu at the
@@ -927,6 +937,9 @@ function onContextMenu(e) {
 }
 
 function onKeydown(e) {
+  // A key pressed inside puter.js's account menu (usermenu.js) is that menu's:
+  // it arrives here from the element itself, and its arrows must not walk the list.
+  if (e.target.closest && e.target.closest('puter-user-menu')) return
   const tag = (e.target.tagName || '').toLowerCase()
   const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable
   if (document.body.classList.contains('has-overlay')) return
@@ -977,6 +990,12 @@ function onKeydown(e) {
 }
 
 function shellHtml() {
+  // The account button; with puter.js's <puter-user-menu> (usermenu.js) it is
+  // the Settings button just before the element, at the end of the bar.
+  const withUserMenu = hasUserMenu()
+  const accountBtn = withUserMenu
+    ? `<button class="icon-btn" data-action="account" title="Settings" aria-label="Settings">${icons.settings}</button>`
+    : `<button class="icon-btn" data-action="account" title="Account menu" aria-label="Account menu">${icons.user}</button>`
   return `
     <div class="app-shell" data-mobile="list">
       <header class="topbar">
@@ -985,9 +1004,10 @@ function shellHtml() {
           <span class="topbar__name">Contacts</span>
         </div>
         <div class="topbar__actions">
-          <button class="icon-btn" data-action="account" title="Account menu" aria-label="Account menu">${icons.user}</button>
+          ${withUserMenu ? '' : accountBtn}
           <button class="btn btn--soft btn--sm" data-action="smart-add" title="Smart add" aria-label="Smart add">${icons.sparkles}<span class="hide-sm">Smart add</span></button>
           <button class="btn btn--primary btn--sm" data-action="new" title="New contact" aria-label="New contact">${icons.plus}<span class="hide-xs">New</span></button>
+          ${withUserMenu ? accountBtn : ''}
         </div>
       </header>
       <div class="layout">
@@ -1031,6 +1051,8 @@ export function mountApp(root, { email = '' } = {}) {
   userEmail = email
   root.innerHTML = shellHtml()
   root.removeAttribute('aria-busy')
+  const accountMenu = userMenu({ onSignOut: signOut, onSessionChanged: sessionChanged })
+  if (accountMenu) root.querySelector('.topbar__actions').append(accountMenu)
 
   els = {
     shell: root.querySelector('.app-shell'),
