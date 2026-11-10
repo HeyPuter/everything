@@ -357,7 +357,9 @@ export class App {
       if (this.editor.page?.id === id) this.editor.renameAssets(map);
     });
     this.store.on('page-replaced', async ({ id }) => {
-      if (id === this.state.pageId) await this.editor.open(await this.store.loadPage(id));
+      if (id !== this.state.pageId) return;
+      await this.editor.open(await this.store.loadPage(id));
+      this.find.refresh();
     });
     this.listen(window, 'beforeunload', (e) => {
       this.editor.flush();
@@ -1026,9 +1028,12 @@ export class App {
   bindEditor() {
     const ed = this.editor;
     ed.on('selection', () => this.updateFormatSoon());
+    const refind = debounce(() => this.find.refresh(), 200);
     ed.on('change', () => {
       this.updateTitle();
       this.updateFormatSoon();
+      // An open Find bar follows the edit instead of pointing at old text.
+      if (!this.find.el.hidden) refind();
     });
     ed.on('insert-failed', ({ file, err }) => toast(`Couldn't insert ${file.name || 'the file'}: ${err?.message || 'upload failed'}`, { kind: 'error' }));
     ed.on('title-input', (title) => {
