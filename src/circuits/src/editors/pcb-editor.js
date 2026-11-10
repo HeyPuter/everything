@@ -809,7 +809,17 @@ export class PcbEditor extends CanvasView {
       objs(x, y) { let objs = clip.objects; for (let i = 0; i < this.ops; i++) objs = objs.map((o) => rotatePcb(o, 0, 0, 90)); return objs.map((o) => translatePcb(o, x, y)); },
       click(ev) {
         const ids = [];
-        ed.doc.store.transact('Paste', (s) => { for (const o of this.objs(ev.x, ev.y)) { const n = { ...o, id: uid() }; if (n.t === 'comp') { n.uid = uid('u'); } s.add(n); ids.push(n.id); } });
+        // A component that was cut comes back as itself, still linked to its
+        // schematic part by uid; a copy gets a uid of its own.
+        const uids = new Set([...ed.doc.items()].filter((c) => c.t === 'comp').map((c) => c.uid));
+        ed.doc.store.transact('Paste', (s) => {
+          for (const o of this.objs(ev.x, ev.y)) {
+            const n = { ...o, id: uid() };
+            if (n.t === 'comp') { if (!n.uid || uids.has(n.uid)) n.uid = uid('u'); uids.add(n.uid); }
+            s.add(n);
+            ids.push(n.id);
+          }
+        });
         ed.endTool();
         ed.setSelection(ids);
       },

@@ -542,3 +542,25 @@ describe('cutting and pasting schematic parts', () => {
     expect(copy.designator).toMatch(/^R\d+$/);
   });
 });
+
+describe('cutting and pasting board components', () => {
+  it('keeps a cut component linked to its schematic part', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const r2 = [...ed.doc.items()].find((o) => o.t === 'comp' && o.designator === 'R2');
+    ed.setSelection([r2.id]);
+    app.cut();
+    await app.paste();
+    ed.tool.click({ x: 10_000_000, y: 5_000_000 });
+    const pasted = ed.selectedObjects()[0];
+    expect(pasted.uid).toBe(r2.uid);
+    const kinds = planSync(app.project, ed.doc).map((c) => c.kind);
+    expect(kinds).not.toContain('add');
+    expect(kinds).not.toContain('remove');
+    // A second paste, like a copy, is a component of its own.
+    await app.paste();
+    ed.tool.click({ x: 20_000_000, y: 5_000_000 });
+    const comps = [...ed.doc.items()].filter((o) => o.t === 'comp');
+    expect(new Set(comps.map((c) => c.uid)).size).toBe(comps.length);
+  });
+});
