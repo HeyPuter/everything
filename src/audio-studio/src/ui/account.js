@@ -1,17 +1,32 @@
 // Account control in the app bar: a sign-in button when signed out, the
 // user's profile picture with a menu when signed in. Sign-out is hidden when
-// running inside the Puter desktop (puter.env === 'app').
+// running inside the Puter desktop (puter.env === 'app'). Where the loaded
+// puter.js has <puter-user-menu> (user-menu.js), that element is the control.
 
 import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
 import * as puter from '../storage/puter.js';
+import { userMenu } from './user-menu.js';
 
 export function createAccount(app) {
   const el = h('div.account');
   let user = null;
   let picture = null;
 
+  // puter.js's own menu keeps itself current; the app only follows its sign-ins and sign-outs.
+  const sdkMenu = userMenu({
+    onSessionChange: () => {
+      user = null;
+      picture = null;
+      refresh();
+    },
+  });
+
   const render = () => {
+    if (sdkMenu) {
+      if (sdkMenu.parentNode !== el) el.replaceChildren(sdkMenu);
+      return;
+    }
     el.replaceChildren();
     if (!puter.sdk()) return;
     if (!puter.isSignedIn()) {
