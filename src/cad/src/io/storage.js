@@ -277,11 +277,12 @@ export const recovery = {
       /* ignore */
     }
   },
+  /** Every stored record, or null when they cannot be read (which is not the same as none). */
   async all() {
     try {
       return (await tx('docs', 'readonly', (s) => s.getAll())) || [];
     } catch {
-      return [];
+      return null;
     }
   },
   async setSession(value) {
@@ -291,6 +292,7 @@ export const recovery = {
       /* ignore */
     }
   },
+  /** The stored session, undefined when there is none, or null when it cannot be read. */
   async getSession() {
     try {
       return await tx('meta', 'readonly', (s) => s.get('session'));

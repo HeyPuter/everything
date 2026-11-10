@@ -518,7 +518,7 @@ export class App {
     if (!this.ownsSession) return;
     clearTimeout(this._sessionTimer);
     this._sessionTimer = setTimeout(() => {
-      storage.recovery.setSession({ docs: this.docs.map((d) => d.id), active: this.doc?.id ?? null });
+      this.writeSession();
       // Make sure every open drawing has a recovery copy.
       for (const d of this.docs) if (!d._recorded) {
         d._recorded = true;
@@ -527,10 +527,30 @@ export class App {
     }, 300);
   }
 
+  async writeSession() {
+    if (this._sessionUnread) {
+      // The drawings of last time were not restored because they could not be
+      // read. Keep them listed, or the next start would delete their copies.
+      const last = await storage.recovery.getSession();
+      if (last === null) return;
+      this._sessionUnread = false;
+      this._sessionKept = Array.isArray(last?.docs) ? last.docs : [];
+    }
+    const docs = this.docs.map((d) => d.id);
+    const kept = (this._sessionKept || []).filter((id) => !docs.includes(id));
+    storage.recovery.setSession({ docs: [...kept, ...docs], active: this.doc?.id ?? null });
+  }
+
   async restoreSession() {
     const session = await storage.recovery.getSession();
+    const all = session === null ? null : session?.docs?.length ? await storage.recovery.all() : [];
+    if (all === null) {
+      this._sessionUnread = true;
+      // Without a session it is not known whether there were any (storage may just be off).
+      if (session) toast('The drawings of your last visit could not be read from this browser. They are kept: reload the page to try again.', { kind: 'error', timeout: 9000 });
+      return;
+    }
     if (!session || !session.docs?.length) return;
-    const all = await storage.recovery.all();
     const byId = new Map(all.map((r) => [r.id, r]));
     let active = null;
     const damaged = [];
