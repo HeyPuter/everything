@@ -179,6 +179,61 @@
   .main { padding: 26px 32px 60px; }
 }
 
+/* <puter-user-menu> (puter.js; src/ui/usermenu.js): where the loaded puter.js
+   has it, the account and the Apps launcher sit at the far end of the view's
+   head on the desktop layout. The app has no bar of its own across the top,
+   so the element is laid over the head from a zero-height row above it, and
+   the head keeps that much room free at its end. On the phone layout the row
+   is not shown and Settings keeps its own Sign out. Its parts take the icon
+   button and primary button looks; its menu and Apps panel take the app's
+   menu card, in both themes. */
+.main-account { display: none; }
+@media (min-width: 900px) {
+  .main-account {
+    display: block;
+    position: relative;
+    z-index: 2;
+    height: 0;
+    max-width: var(--content-max);
+    margin: 0 auto;
+  }
+  .main-account-inner {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    height: 38px;
+  }
+  .has-user-menu .view-head { padding-right: calc(var(--account-w, 76px) + 14px); }
+  .has-user-menu .settings-signout { display: none; }
+}
+puter-user-menu { flex: none; }
+puter-user-menu::part(apps-button) { border-radius: var(--r-sm); color: var(--ink-2); }
+puter-user-menu::part(sign-in) {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover { background: var(--surface-2); color: var(--ink); }
+  puter-user-menu::part(sign-in):hover { filter: brightness(1.06); }
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--surface);
+  border-color: var(--hairline-strong);
+  --caret-border: var(--hairline-strong);
+  --caret-fill: var(--surface);
+}
+
 /* Auth / intro page */
 .auth-view {
   min-height: 100dvh;

@@ -1,3 +1,5 @@
+import { syncUserMenuTheme } from './usermenu.js';
+
 const LS_KEY = 'signatures:theme';
 const LIGHT = '#f6f6f4';
 const DARK = '#101013';
@@ -15,6 +17,7 @@ export function applyTheme(mode) {
     else localStorage.removeItem(LS_KEY);
   } catch {}
   updateThemeColorMeta();
+  syncUserMenuTheme();
 }
 
 export function currentTheme() {

@@ -878,6 +878,10 @@ export function editorView({ navigate, docId }) {
   const onKey = (e) => {
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '');
     const inDialog = Boolean(document.querySelector('.modal-root:not(.closing)'));
+    // A key pressed inside puter.js's account menu (usermenu.js) is that
+    // menu's: it arrives here from the element itself, and its Escape must
+    // not drop the selection nor a Delete there remove the selected fields.
+    if (e.target.closest?.('puter-user-menu')) return;
     if (e.key === 'Escape') {
       if (inDialog || typing) return;
       if (editor?.cancelPlacement()) return;

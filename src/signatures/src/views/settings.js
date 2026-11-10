@@ -275,7 +275,9 @@ export function settingsView({ navigate } = {}) {
         el('div.grow', {},
           el('div.title', {}, 'Puter'),
           el('div.sub', {}, 'Your documents live in your own Puter cloud')))),
-    !inPuterApp && el('button.btn.btn-danger.btn-block', {
+    // Hidden on the desktop layout while puter.js's account menu is at the
+    // head of the view (shell.css): Sign out is there.
+    !inPuterApp && el('button.btn.btn-danger.btn-block.settings-signout', {
       type: 'button', style: { marginTop: '14px' }, html: icon('logout', 15, 2),
       onclick: confirmSignOut,
     }, ' Sign out')
