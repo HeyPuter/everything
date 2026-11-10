@@ -122,6 +122,11 @@ that way, so the newer of the two wins. A read that failed is never treated as a
 empty store, which is the mistake that would let a flaky connection wipe a
 player's records.
 
+On the web, where the loaded puter.js provides `<puter-user-menu>`, that element
+is the account button at the end of the top bar (with the Apps launcher on
+puter.com), and the app's own button stands down. The app follows the
+element's sign-in, and its Sign out still goes through the app's confirmation.
+
 Inside a Puter app window (`puter.env === 'app'` or `'gui'`) the session belongs
 to the shell, so the app shows who is signed in and offers no sign-out.
 

@@ -302,6 +302,80 @@ svg.lucide {
   white-space: nowrap;
 }
 
+/* <puter-user-menu> (puter.js's; see ui/userMenu.js): where the loaded SDK has
+   it, the account button above stands down and this takes its place, with the
+   Apps launcher on puter.com. Its parts take the top bar's looks: the icon
+   button for Apps, the account button for Sign in. Its panels are the cards'
+   surface, flat like everything else here. Nothing in it is taller than the
+   buttons beside it, so the bar keeps its height. */
+puter-user-menu {
+  flex: none;
+  font-family: inherit;
+}
+
+puter-user-menu::part(apps-button) {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+puter-user-menu::part(sign-in) {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
+}
+
+puter-user-menu::part(avatar) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+puter-user-menu::part(apps-button):focus-visible,
+puter-user-menu::part(sign-in):focus-visible,
+puter-user-menu::part(avatar):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  puter-user-menu::part(sign-in):hover {
+    background: var(--bg);
+  }
+}
+
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  box-shadow: none;
+  --caret-border: var(--border-strong);
+  --caret-fill: var(--surface);
+}
+
+/* On phones the Apps launcher gives way, so the account button costs the row
+   no more than the app's own did. */
+@media (max-width: 480px) {
+  puter-user-menu::part(apps-button) {
+    display: none;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Layout                                                              */
 /* ------------------------------------------------------------------ */

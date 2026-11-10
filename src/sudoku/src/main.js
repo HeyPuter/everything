@@ -68,6 +68,7 @@ import {
 import * as account from './net/puter.js';
 import { createBoardView } from './ui/boardView.js';
 import { createKeypad } from './ui/keypad.js';
+import { inUserMenu, mountUserMenu, setUserMenuTheme } from './ui/userMenu.js';
 
 // Every icon index.html and this module reference. Named imports rather than
 // the whole set, so the bundle carries twenty glyphs instead of sixteen hundred.
@@ -126,6 +127,7 @@ const el = {
   controlsHint: $('controls-hint'),
   statsBtn: $('stats-btn'),
   settingsBtn: $('settings-btn'),
+  topbarRight: document.querySelector('.topbar-right'),
   accountBtn: $('account-btn'),
   accountName: $('account-name'),
   srStatus: $('sr-status'),
@@ -179,6 +181,8 @@ const state = {
 
 let boardView;
 let keypad;
+/** puter.js's <puter-user-menu>, where it stands in for the account button. */
+let userMenu = null;
 
 /** True while the board is behind the veil: paused, or a puzzle is being built. */
 const isVeiled = () => state.paused || state.generating;
@@ -206,6 +210,7 @@ function applyTheme() {
       button.dataset.themeChoice === state.settings.theme ? 'true' : 'false',
     );
   }
+  setUserMenuTheme(userMenu, state.settings.theme);
 }
 
 darkQuery.addEventListener('change', () => {
@@ -970,7 +975,9 @@ function openSettings() {
 /* ------------------------------------------------------------------ */
 
 function renderAccount() {
-  if (!account.isAvailable()) {
+  // With puter.js's <puter-user-menu> in the top bar, that is the account
+  // button, and this one stands down.
+  if (!account.isAvailable() || userMenu) {
     el.accountBtn.hidden = true;
     return;
   }
@@ -1005,27 +1012,69 @@ async function onAccountClick() {
   if (!state.signedIn) {
     const ok = await account.signIn();
     if (!ok) return;
-    await refreshAccount();
-    const adopted = await syncEverything({ adoptCloudGame: !state.interacted });
-    toast(
-      adopted
-        ? 'Signed in, and picked up the puzzle you left on another device.'
-        : 'Signed in. Your times and puzzles now follow you.',
-    );
+    await followSignIn();
     return;
   }
 
+  await requestSignOut();
+}
+
+/**
+ * A session has just begun, from this app's button or from <puter-user-menu>:
+ * reconcile with the account and say what happened.
+ */
+async function followSignIn() {
+  await refreshAccount();
+  if (!state.signedIn) return;
+  const adopted = await syncEverything({ adoptCloudGame: !state.interacted });
+  toast(
+    adopted
+      ? 'Signed in, and picked up the puzzle you left on another device.'
+      : 'Signed in. Your times and puzzles now follow you.',
+  );
+}
+
+/**
+ * Sign out, once the player has confirmed it. Also what a click on Sign out in
+ * <puter-user-menu> runs, in place of the element's own immediate sign-out.
+ */
+async function requestSignOut() {
   const ok = await confirmAction({
     title: 'Sign out?',
     body: 'Your records stay in your account. This device keeps its own copy.',
     confirmLabel: 'Sign out',
   });
   if (!ok) return;
+  // The account's copy of the puzzle trails the board by a few seconds (see
+  // scheduleSave), and after this there is no writing to it. Bring it up to
+  // date first, so the puzzle picked up on another device is this one.
+  if (state.signedIn && state.game && !state.solved) {
+    state.game.elapsedMs = state.timer.elapsedMs;
+    await pushSavedGame(state.game);
+  }
   await account.signOut();
+  followSignOut();
+}
+
+/** The session has ended, here or in <puter-user-menu>. */
+function followSignOut() {
   state.signedIn = false;
   state.accountName = null;
   renderAccount();
   toast('Signed out.');
+}
+
+/**
+ * Where the loaded puter.js has <puter-user-menu>, it takes the account
+ * button's place at the end of the top bar (see ui/userMenu.js).
+ */
+function mountAccountMenu() {
+  userMenu = mountUserMenu(el.topbarRight, {
+    theme: state.settings.theme,
+    signOutGuard: () => requestSignOut,
+    onSignIn: followSignIn,
+    onSignOut: followSignOut,
+  });
 }
 
 async function refreshAccount() {
@@ -1112,6 +1161,8 @@ function moveSelection(dRow, dCol) {
 document.addEventListener('keydown', (event) => {
   // Leave the platform's own handling alone inside dialogs and form controls.
   if (document.querySelector('dialog[open]')) return;
+  // Keys in the account menu are its own; they arrive here as the element's.
+  if (inUserMenu(event.target)) return;
   const tag = event.target?.tagName;
   if (tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA') return;
 
@@ -1299,6 +1350,7 @@ async function main() {
 
   buildDifficultySelect();
   wire();
+  mountAccountMenu();
   renderAccount();
 
   const saved = loadSavedGame();
