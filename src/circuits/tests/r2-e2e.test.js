@@ -6,6 +6,7 @@ import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { placedOf } from '../src/render/pcb-scene.js';
 import { planSync } from '../src/model/sync.js';
+import { createKernel } from '../src/kernel/ops.js';
 import { buildBom, toCsv } from '../src/io/bom.js';
 import { pickAndPlace, unpopulated } from '../src/io/pnp.js';
 import { buildFabricationZip } from '../src/io/fabrication.js';
@@ -587,5 +588,71 @@ describe('cutting and pasting board components', () => {
     ed.tool.click({ x: 20_000_000, y: 5_000_000 });
     const comps = [...ed.doc.items()].filter((o) => o.t === 'comp');
     expect(new Set(comps.map((c) => c.uid)).size).toBe(comps.length);
+  });
+});
+
+describe('Delete while dragging', () => {
+  it('deletes the part without leaving its wires stretched to the pointer', async () => {
+    const app = await boot();
+    ctx = { app };
+    await app.openExample();
+    const ed = app.activeEditor;
+    const r1 = [...ed.doc.items()].find((o) => o.t === 'part' && o.designator === 'R1');
+    const wires = () => JSON.stringify([...ed.doc.items()].filter((o) => o.t === 'wire'));
+    const before = wires();
+    ed.setSelection([r1.id]);
+    const at = (x, y) => ({ x, y, rawX: x, rawY: y });
+    ed.tool.dragStart(at(r1.x, r1.y));
+    ed.tool.drag(at(r1.x + 5_080_000, r1.y + 2_540_000));
+    expect(ed.tool.move).toBeTruthy();
+    // The key is not the tool's own: it ends the drag and goes on to the Delete command.
+    expect(ed.tool.key({ key: 'Delete' }, 'Delete')).toBe(false);
+    app.commands.run('edit.delete');
+    ed.tool.dragEnd(at(r1.x + 5_080_000, r1.y + 2_540_000));
+    expect(ed.doc.store.get(r1.id)).toBeUndefined();
+    expect(wires()).toBe(before);
+    expect(ed.hidden.size).toBe(0);
+    // One step to undo, and the part is back where it was.
+    app.undo();
+    expect(ed.doc.store.get(r1.id)).toMatchObject({ x: r1.x, y: r1.y });
+    expect(ed.doc.store.undoLabel).not.toBe('Move');
+  });
+});
+
+describe('autorouting a board with a copper pour', () => {
+  it('routes the other nets across a plane on the component side', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const wasm = fs.readFileSync(path.resolve(__dirname, '../src/kernel/kernel.wasm'));
+    app.kernel = await createKernel(wasm);
+    // A ground plane over the whole top layer, where every pad is.
+    const o = ed.doc.board.outline;
+    const pts = [
+      o[0] + 1e6,
+      o[1] + 1e6,
+      o[2] - 1e6,
+      o[3] + 1e6,
+      o[4] - 1e6,
+      o[5] - 1e6,
+      o[6] + 1e6,
+      o[7] - 1e6,
+    ];
+    const rules = ed.doc.rules;
+    const pour = { t: 'pour', layer: 'top', pts, net: 'GND', clearance: rules.pourClearance };
+    ed.doc.store.transact('Pour', (s) =>
+      s.add({ ...pour, removeIslands: true, thermals: true, priority: 0 }),
+    );
+    await ed.repour();
+    expect([...ed.pourFills.values()].some((f) => f.length)).toBe(true);
+    const before = ed.analysis().unrouted;
+    expect(before.get('THR')).toBeGreaterThan(0);
+
+    await app.autoroute();
+    const tracks = [...ed.doc.items()].filter((x) => x.t === 'track');
+    // The plane is refilled around new tracks: it must not wall the router in.
+    expect(tracks.length).toBeGreaterThan(0);
+    expect(new Set(tracks.map((t) => t.net)).size).toBeGreaterThan(2);
+    expect(ed.analysis().unrouted.get('THR') || 0).toBeLessThan(before.get('THR'));
+    expect(document.querySelector('.dialog')).toBeNull();
   });
 });

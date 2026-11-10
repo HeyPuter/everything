@@ -186,7 +186,13 @@ describe('autoroute progress dialog', () => {
       toast: (m) => toasts.push(m),
     };
     const store = { transact: (label, fn) => fn({ add: (o) => added.push(o) }) };
-    const ed = { doc: { snapshot: () => ({}), store }, lib: {}, pourFills: null };
+    const ed = {
+      doc: { snapshot: () => ({}), store },
+      lib: {},
+      pourFills: null,
+      currentFills: async () => null,
+      analysis: () => ({ unrouted: new Map([['N1', 1]]) }),
+    };
     const done = autorouteDialog(app, ed, null);
     await tick(5);
     const dialog = document.querySelector('.dialog');

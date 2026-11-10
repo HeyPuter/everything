@@ -272,6 +272,13 @@ export async function annotateDialog(app) {
 // ---- Autorouter ----
 
 export async function autorouteDialog(app, ed, nets = null) {
+  // Pours are refilled around new tracks, so they must not stand in the
+  // router's way: the kernel takes every fill for fixed copper, and a plane
+  // on the component side would leave it nowhere to go. The fills stay out of
+  // its input; the nets a pour already joins are left out of the work instead.
+  await ed.currentFills();
+  const todo = nets || [...ed.analysis().unrouted.keys()];
+  if (!todo.length) { app.toast('Nothing to route: every connection is already routed.', { kind: 'info' }); return; }
   const bar = h('div', { style: { width: '0%' } });
   const status = h('p', { 'aria-live': 'polite' }, 'Preparing...');
   let cancelled = false;
@@ -285,7 +292,7 @@ export async function autorouteDialog(app, ed, nets = null) {
   });
   try {
     const t0 = performance.now();
-    const res = await app.kernel.autoroute(ed.doc.snapshot(), ed.lib, { nets: nets || undefined, pourFills: ed.pourFills }, (p) => {
+    const res = await app.kernel.autoroute(ed.doc.snapshot(), ed.lib, { nets: todo }, (p) => {
       const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
       bar.style.width = `${pct}%`;
       bar.parentElement.setAttribute('aria-valuenow', String(pct));
