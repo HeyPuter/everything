@@ -618,8 +618,22 @@ export class PageEditor extends Emitter {
     if (!m) return;
     const offset = textOffset(block, range.startContainer, range.startOffset);
     if (offset !== m[0].length) return;
-    // Clear the marker, then turn the block into a list.
-    for (const n of [...block.childNodes]) if (n.nodeType === 3 || n.nodeName === 'BR') n.remove();
+    // Clear the marker, then turn the block into a list. The marker may sit
+    // inside the span of a font, size or color carried over from the line
+    // before: it goes too, or the item would start with a literal "* ".
+    const texts = [];
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) texts.push(walker.currentNode);
+    for (const t of texts) {
+      let parent = t.parentNode;
+      t.remove();
+      while (parent !== block && !parent.firstChild && !/\bnt-/.test(parent.className)) {
+        const up = parent.parentNode;
+        parent.remove();
+        parent = up;
+      }
+    }
+    for (const br of [...block.querySelectorAll('br')]) br.remove();
     block.append(document.createElement('br'));
     placeCaret(block, false);
     toggleList(m[1] !== '*' && m[1] !== '-');
