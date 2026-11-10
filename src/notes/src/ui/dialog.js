@@ -26,11 +26,21 @@ export function openDialog({ title, body, actions = [], width = 440, className =
   );
   const content = h('div.dialog-body', body);
   const footer = h('div.dialog-actions');
+  // One action at a time: a second click or Enter while an action is still
+  // working (copying a page, publishing a link) must not run it again.
+  let busy = false;
   for (const a of actions) {
     const btn = h(`button.btn${a.primary ? '.primary' : ''}${a.danger ? '.danger' : ''}`, { type: a.primary ? 'submit' : 'button', disabled: a.disabled }, a.label);
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
-      const result = await a.run?.(btn);
+      if (busy) return;
+      busy = true;
+      let result;
+      try {
+        result = await a.run?.(btn);
+      } finally {
+        busy = false;
+      }
       if (result === false) return;
       // A function result runs once the dialog is closed, when the page is
       // no longer inert and the caret can be restored.

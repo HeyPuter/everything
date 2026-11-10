@@ -54,6 +54,29 @@ describe('selection helpers', () => {
     expect(textOffset(el, r.startContainer, r.startOffset)).toBe(7);
   });
 
+  it('finds the block of a caret that sits between blocks', () => {
+    // A new or re-entered container: the caret is at (body, n), not in a paragraph.
+    const el = body('<p>one</p><ul><li>two</li><li>three</li></ul><hr><table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>');
+    const at = (offset) => {
+      const r = document.createRange();
+      r.setStart(el, offset);
+      r.collapse(true);
+      return blocksInRange(r, el).map((b) => b.textContent);
+    };
+    expect(at(1)).toEqual(['one']);
+    expect(at(0)).toEqual(['one']);
+    expect(at(2)).toEqual(['three']);
+    expect(at(3)).toEqual([]);
+    expect(at(4)).toEqual(['b']);
+    const empty = body('<p><br></p>');
+    const r = document.createRange();
+    r.selectNodeContents(empty);
+    r.collapse(false);
+    selectRange(r);
+    expect(toggleTag('todo')).toBeTruthy();
+    expect(empty.querySelector('p > .nt-tag')).not.toBeNull();
+  });
+
   it('finds the blocks a selection touches', () => {
     const el = body('<p>one</p><p>two</p><p>three</p>');
     const r = document.createRange();
@@ -216,6 +239,15 @@ describe('tables', () => {
     tableToText();
     expect(el.querySelector('table')).toBeNull();
     expect(el.textContent).toContain('a');
+  });
+
+  it('keeps pictures, attachments and links when converting a table to text', () => {
+    el = body('<table><tbody><tr><td>A</td><td><img data-asset="a1" alt="pic"><a href="https://example.com">link</a></td></tr><tr><td><br></td><td><b>bold</b></td></tr></tbody></table>');
+    caretIn(el.querySelector('td').firstChild, 0);
+    tableToText();
+    expect(el.innerHTML).toBe('<p>A\t<img data-asset="a1" alt="pic"><a href="https://example.com">link</a></p><p>\t<b>bold</b></p>');
+    // The caret is in the text, not left where the table was.
+    expect(el.firstChild.contains(document.getSelection().getRangeAt(0).startContainer)).toBe(true);
   });
 
   it('sorts body rows without moving them into a <thead>', () => {
@@ -419,6 +451,47 @@ describe('paragraph formatting', () => {
     expect(el.textContent).toBe('cab');
   });
 
+  it('applies a font size chosen with nothing selected to the text typed next', async () => {
+    const { setFontSize } = await import('../src/editor/format.js');
+    const el = body('<p>abc </p>');
+    caretIn(el.firstChild.firstChild, 4);
+    setFontSize(20);
+    const span = el.querySelector('span');
+    expect(span.style.fontSize).toBe('20pt');
+    // The caret waits inside the span, which is not saved while it is empty.
+    const at = document.getSelection().getRangeAt(0);
+    expect(span.contains(at.startContainer)).toBe(true);
+    expect(serialize(el)).toBe('<p>abc </p>');
+    // Typing fills it, and the placeholder goes with the first character.
+    at.startContainer.appendData('big');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(serialize(el)).toBe('<p>abc <span style="font-size: 20pt;">big</span></p>');
+    expect(span.textContent).toBe('big');
+    // Chosen and then left without typing: nothing stays behind.
+    const again = body('<p>abc </p>');
+    caretIn(again.firstChild.firstChild, 4);
+    setFontSize(20);
+    caretIn(again.firstChild.firstChild, 0);
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(again.innerHTML).toBe('<p>abc </p>');
+    // A new container's caret sits between its blocks: the span goes in the paragraph.
+    const fresh = body('<p><br></p>');
+    const r = document.createRange();
+    r.selectNodeContents(fresh);
+    r.collapse(false);
+    selectRange(r);
+    setFontSize(20);
+    expect(fresh.querySelector('p > span')).not.toBeNull();
+  });
+
+  it('does not swap table cells when asked to move a paragraph', () => {
+    const el = body('<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>');
+    caretIn(el.querySelectorAll('td')[1].firstChild, 0);
+    expect(moveBlock(-1)).toBe(false);
+    expect(moveBlock(1)).toBe(false);
+    expect(el.textContent).toBe('ABCD');
+  });
+
   it('retags elements keeping attributes', () => {
     const el = body('<p style="text-align: center">x</p>');
     expect(retag(el.firstChild, 'H1').outerHTML).toBe('<h1 style="text-align: center">x</h1>');
@@ -430,6 +503,13 @@ describe('page helpers', () => {
     expect(textToHtml('see https://example.com.')).toBe('see <a href="https://example.com">https://example.com</a>.');
     expect(textToHtml('a\n\nb')).toBe('<p>a</p><p><br></p><p>b</p>');
     expect(textToHtml('<b>')).toBe('&lt;b&gt;');
+    // Quotes and brackets around an address stay outside the link.
+    expect(textToHtml('"https://a.com/x"')).toBe('&quot;<a href="https://a.com/x">https://a.com/x</a>&quot;');
+    expect(textToHtml('<https://a.com/x?a=1&b=2>')).toBe('&lt;<a href="https://a.com/x?a=1&amp;b=2">https://a.com/x?a=1&amp;b=2</a>&gt;');
+    // Indentation, aligned columns and tabs survive.
+    expect(textToHtml('def f():\n    return 1')).toBe('<p>def f():</p><p>&nbsp;&nbsp;&nbsp;&nbsp;return 1</p>');
+    expect(textToHtml('a   b')).toBe('a&nbsp;&nbsp; b');
+    expect(textToHtml('a\tb')).toBe('a&emsp;b');
   });
 
   it('draws rule lines and grids as SVG tiles', () => {
@@ -724,6 +804,47 @@ describe('copying and pasting embeds', () => {
     expect(failed).toEqual(['lost.txt']);
     expect(ed.page.outlines[0].html).toContain('data-asset="new1.txt"');
     expect(ed.page.outlines[0].html).not.toContain('gone1');
+    ed.destroy();
+    host.remove();
+  });
+
+  it('pastes copied cells as a table, not as the picture of them that comes along', async () => {
+    const { ed, body, host } = await setup('<p>A </p>');
+    caretIn(body.querySelector('p').firstChild, 2);
+    const calls = [];
+    ed.insertFiles = async (files) => calls.push(['files', files.map((f) => f.name)]);
+    ed.pasteHtml = async (html) => calls.push(['html', html]);
+    const paste = async (types, files) => {
+      const ev = new Event('paste', { bubbles: true, cancelable: true });
+      ev.clipboardData = { files, getData: (t) => types[t] || '' };
+      body.dispatchEvent(ev);
+      await new Promise((r) => setTimeout(r));
+    };
+    const png = new File(['x'], 'image.png', { type: 'image/png' });
+    // A spreadsheet: the cells as HTML and a rendering of them.
+    await paste({ 'text/html': '<meta charset="utf-8"><table><tr><td>1</td><td>2</td></tr></table>', 'text/plain': '1\t2' }, [png]);
+    // An image copied from a web page: HTML that is only the picture.
+    await paste({ 'text/html': '<meta charset="utf-8"><img src="https://example.com/a.png" alt="">' }, [png]);
+    // A screenshot: only the file.
+    await paste({}, [png]);
+    expect(calls.map((c) => c[0])).toEqual(['html', 'files', 'files']);
+    expect(calls[0][1]).toContain('<td>1</td>');
+    ed.destroy();
+    host.remove();
+  });
+
+  it('does not put an upload on the page opened while it was uploading', async () => {
+    let finish;
+    const { ed, host } = await setup('<p>A </p>', { saveAsset: () => new Promise((r) => (finish = r)) });
+    const first = ed.page;
+    const insert = ed.insertAttachment(new File(['x'], 'big.pdf', { type: 'application/pdf' }));
+    const second = { id: 'p2', title: '', created: new Date().toISOString(), outlines: [], ink: [] };
+    await ed.open(second);
+    finish('new.pdf');
+    await expect(insert).rejects.toThrow(/page was closed/);
+    expect(second.outlines).toHaveLength(0);
+    expect(host.querySelector('.nt-file')).toBeNull();
+    expect(first.outlines[0].html).toBe('<p>A </p>');
     ed.destroy();
     host.remove();
   });

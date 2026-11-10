@@ -56,6 +56,78 @@ describe('App shell', () => {
     expect(store.findPage(app.state.pageId).meta.title).toBe('Renamed');
   });
 
+  it('types AltGr characters instead of running Ctrl+Alt shortcuts', async () => {
+    const pages = () => store.findNode(app.state.sectionId).node.pages.length;
+    const before = pages();
+    const body = app.editor.createOutlineAt(100, 300).querySelector('.outline-body');
+    // Polish "ń" is AltGr+N, which Windows reports as Ctrl+Alt+N (New Page).
+    const e = keydown(body, 'ń', { code: 'KeyN', ctrlKey: true, altKey: true, modifierAltGraph: true });
+    expect(e.defaultPrevented).toBe(false);
+    expect(pages()).toBe(before);
+    // The real shortcut still works.
+    expect(keydown(body, 'n', { code: 'KeyN', ctrlKey: true, altKey: true }).defaultPrevented).toBe(true);
+    expect(pages()).toBe(before + 1);
+  });
+
+  it('runs a dialog action once when it is clicked twice', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    let runs = 0;
+    const { dialog } = openDialog({ title: 'Copy', body: document.createElement('p'), actions: [{ label: 'Copy', primary: true, run: async () => { runs++; await tick(5); } }] });
+    const btn = dialog.querySelector('.btn.primary');
+    btn.click();
+    btn.click();
+    await tick(20);
+    expect(runs).toBe(1);
+    expect(dialog.isConnected).toBe(false);
+    // An action that keeps the dialog open can run again.
+    let tries = 0;
+    const again = openDialog({ title: 'Check', body: document.createElement('p'), actions: [{ label: 'OK', primary: true, run: async () => { tries++; return false; } }] });
+    again.dialog.querySelector('.btn.primary').click();
+    await tick();
+    again.dialog.querySelector('.btn.primary').click();
+    await tick();
+    expect(tries).toBe(2);
+    again.close();
+  });
+
+  it('leaves focus where a click that ended a rename put it', async () => {
+    const row = app.nav.pagesList.querySelector('.row[aria-selected="true"]');
+    row.focus();
+    keydown(row, 'F2');
+    const input = app.nav.pagesList.querySelector('input.row-rename');
+    input.value = 'Renamed';
+    app.editor.titleEl.focus();
+    await tick();
+    expect(store.findPage(app.state.pageId).meta.title).toBe('Renamed');
+    expect(document.activeElement).toBe(app.editor.titleEl);
+  });
+
+  it('leaves Enter to the input method while it is composing', async () => {
+    const row = app.nav.pagesList.querySelector('.row[aria-selected="true"]');
+    row.focus();
+    keydown(row, 'F2');
+    const input = app.nav.pagesList.querySelector('input.row-rename');
+    input.value = 'にほ';
+    // Enter accepts the candidate: the rename box stays open.
+    expect(keydown(input, 'Enter', { isComposing: true, keyCode: 229 }).defaultPrevented).toBe(false);
+    await tick();
+    expect(app.nav.pagesList.querySelector('input.row-rename')).toBe(input);
+    keydown(input, 'Escape');
+    await tick();
+    // The page title: focus stays in it.
+    app.editor.titleEl.focus();
+    expect(keydown(app.editor.titleEl, 'Enter', { isComposing: true, keyCode: 229 }).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(app.editor.titleEl);
+    // Tell Me does not run the first result.
+    const tell = document.querySelector('.tell-me input');
+    tell.value = 'about';
+    tell.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(200);
+    keydown(tell, 'Enter', { isComposing: true, keyCode: 229 });
+    await tick();
+    expect(document.querySelector('dialog[open]')).toBeNull();
+  });
+
   it('keeps focus in the page list after deleting a page with the Delete key', async () => {
     app.newPage({ title: 'Two' });
     app.newPage({ title: 'Three' });
@@ -256,6 +328,36 @@ describe('App shell', () => {
     expect(app.nav.sectionsList.textContent).not.toContain('This notebook');
   });
 
+  it('moves to the parent page with Left Arrow, leaving one tab stop', async () => {
+    app.renamePage(app.state.pageId, 'Parent');
+    app.newPage({ sub: true, title: 'Child' });
+    await tick();
+    const rows = () => [...app.nav.pagesList.querySelectorAll('.row')];
+    const child = rows().find((r) => r.textContent === 'Child');
+    child.focus();
+    keydown(child, 'ArrowLeft');
+    await tick();
+    expect(document.activeElement.textContent).toBe('Parent');
+    expect(rows().filter((r) => r.tabIndex === 0).map((r) => r.textContent)).toEqual(['Parent']);
+    expect(app.nav.pagesList.querySelector('.row[aria-selected="true"]').textContent).toBe('Parent');
+  });
+
+  it('shows key tips for Alt alone, not for Alt held during a click or a wheel zoom', () => {
+    const alt = (type) => document.dispatchEvent(new KeyboardEvent(type, { key: 'Alt', altKey: type === 'keydown', bubbles: true, cancelable: true }));
+    alt('keydown');
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    alt('keyup');
+    expect(app.keytips.active).toBe(false);
+    alt('keydown');
+    document.body.dispatchEvent(new Event('wheel', { bubbles: true }));
+    alt('keyup');
+    expect(app.keytips.active).toBe(false);
+    alt('keydown');
+    alt('keyup');
+    expect(app.keytips.active).toBe(true);
+    app.keytips.stop();
+  });
+
   it('closes the collapsed ribbon panel when KeyTips are cancelled', () => {
     app.ribbon.toggleCollapsed(true);
     try {
@@ -310,6 +412,26 @@ describe('App shell', () => {
     await tick();
     expect(app.editor.zoom).toBeGreaterThan(before);
     app.editor.setZoom(before);
+  });
+
+  it('groups the Tags Summary by day, newest first', async () => {
+    const section = store.section(app.state.sectionId);
+    const day = (n, hour) => {
+      const d = new Date();
+      d.setDate(d.getDate() - n);
+      d.setHours(hour, 0, 0, 0);
+      return d.toISOString();
+    };
+    const item = (text, modified) => ({ tag: 'todo', done: false, text, index: 0, outlineId: 'o', section, meta: { id: text, title: text, modified } });
+    store.collectTags = async () => [item('old', day(40, 9)), item('this morning', day(0, 1)), item('yesterday', day(1, 9)), item('earlier today', day(0, 0))];
+    app.runCommand('findTags');
+    const group = app.taskPanes.el.querySelector('select[aria-label="Group tags by"]');
+    group.value = 'date';
+    group.dispatchEvent(new Event('change'));
+    await tick(20);
+    const labels = [...app.taskPanes.el.querySelectorAll('.group-label')].map((l) => l.textContent);
+    expect(labels.slice(0, 2)).toEqual(['Today (2)', 'Yesterday (1)']);
+    expect(labels).toHaveLength(3);
   });
 
   it('keeps the Tags Summary for the scope chosen last when an earlier search finishes later', async () => {
@@ -536,6 +658,26 @@ describe('Find on Page', () => {
     const { app } = await mount();
     app.newPage({ title: 'Find', outlines: [{ id: 'o1', x: 48, y: 140, w: 600, html: '<p>form fold fox food</p>' }] });
     await tick(10);
+    // A match runs across formatting inside a paragraph, not across paragraphs.
+    const body = app.editor.createOutlineAt(100, 400).querySelector('.outline-body');
+    body.innerHTML = '<p>The <b>quar</b>terly bud<i>get</i></p><p>quar</p><p>terly</p>';
+    app.find.open('quarterly budget');
+    expect(app.find.ranges.map((r) => r.toString())).toEqual(['quarterly budget']);
+    // From Search, whose results hold every word in any order: the words.
+    app.find.open({ text: 'budget quarterly', words: true });
+    expect(app.find.ranges.map((r) => r.toString())).toEqual(['quarterly', 'budget']);
+    app.find.input.dispatchEvent(new Event('input'));
+    app.find.run();
+    expect(app.find.ranges).toHaveLength(0);
+    // The page changing under the open bar keeps the place in the matches.
+    body.innerHTML = '<p>fig one</p><p>fig two</p><p>fig three</p>';
+    app.find.open('fig');
+    app.find.step(1);
+    expect(app.find.count.textContent).toBe('2 of 3');
+    body.firstChild.remove();
+    app.find.refresh();
+    expect(app.find.count.textContent).toBe('2 of 2');
+    body.remove();
     app.find.open('fo');
     expect(app.find.ranges).toHaveLength(4);
     app.find.input.value = 'fox';

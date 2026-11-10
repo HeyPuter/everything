@@ -160,3 +160,109 @@ describe('equation dialog', () => {
     expect(span.dataset.tex).toBe('x^2');
   });
 });
+
+describe('opening attachments', () => {
+  it('opens only files that cannot run script in a tab, and downloads the rest', async () => {
+    const { viewType } = await import('../src/ui/features.js');
+    expect(viewType('image/png')).toBe('image/png');
+    expect(viewType('application/pdf')).toBe('application/pdf');
+    expect(viewType('audio/webm;codecs=opus')).toBe('audio/webm');
+    expect(viewType('text/csv')).toBe('text/plain;charset=utf-8');
+    for (const type of ['text/html', 'TEXT/HTML; charset=utf-8', 'image/svg+xml', 'application/xhtml+xml', 'text/xml', 'application/javascript', '']) expect(viewType(type)).toBe('');
+    const clicked = [];
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      clicked.push({ download: this.getAttribute('download'), target: this.target });
+    };
+    const createObjectURL = URL.createObjectURL;
+    const blobs = [];
+    URL.createObjectURL = (b) => (blobs.push(b), 'blob:x');
+    try {
+      const id = await store.saveAsset(new File(['<script>alert(1)</script>'], 'invoice.html', { type: 'text/html' }), 'invoice.html', {});
+      const { openAttachment } = await import('../src/ui/features.js');
+      await openAttachment(app, { asset: id, name: 'invoice.html', type: 'text/html' });
+      await openAttachment(app, { asset: id, name: 'notes.md', type: 'text/markdown' });
+    } finally {
+      HTMLAnchorElement.prototype.click = click;
+      URL.createObjectURL = createObjectURL;
+    }
+    expect(clicked[0].download).toBe('invoice.html');
+    expect(clicked[1].download).toBeNull();
+    expect(blobs.at(-1).type).toBe('text/plain;charset=utf-8');
+  });
+});
+
+describe('recording', () => {
+  const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+  let recorders;
+  let tracks;
+  let allow;
+
+  beforeEach(() => {
+    recorders = [];
+    tracks = [];
+    globalThis.MediaRecorder = class {
+      constructor() {
+        this.state = 'inactive';
+        this.mimeType = 'audio/webm';
+        recorders.push(this);
+      }
+      start() {
+        this.state = 'recording';
+      }
+      stop() {
+        this.state = 'inactive';
+        this.ondataavailable?.({ data: new Blob(['sound']) });
+        this.onstop?.();
+      }
+    };
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: () => new Promise((resolve) => {
+          allow = () => {
+            const track = { stopped: false, stop() { this.stopped = true; } };
+            tracks.push(track);
+            resolve({ getTracks: () => [track] });
+          };
+        }),
+      },
+    });
+  });
+
+  afterEach(() => {
+    delete globalThis.MediaRecorder;
+    delete navigator.mediaDevices;
+    document.querySelector('.toasts')?.replaceChildren();
+  });
+
+  it('starts one recording when the button is clicked twice during the permission prompt', async () => {
+    app.record('audio');
+    // The second click stops the pending one rather than starting another.
+    app.record('audio');
+    allow();
+    await tick();
+    expect(recorders).toHaveLength(1);
+    expect(document.querySelectorAll('.recording-bar')).toHaveLength(1);
+    document.querySelector('.recording-bar .btn').click();
+    await tick(10);
+    expect(tracks.every((t) => t.stopped)).toBe(true);
+    expect(app.recorder).toBeNull();
+    expect(document.querySelector('.recording-bar')).toBeNull();
+    expect(app.editor.page.outlines.map((o) => o.html).join('')).toContain('data-kind="audio"');
+  });
+
+  it('offers to save a recording that has no page to go on', async () => {
+    app.record('audio');
+    allow();
+    await tick();
+    // The page closes under the recording (its section locked, or it was deleted).
+    app.editor.page = null;
+    document.querySelector('.recording-bar .btn').click();
+    await tick(10);
+    const toastEl = document.querySelector('.toast.error');
+    expect(toastEl.textContent).toContain("Couldn't add the recording");
+    expect(toastEl.querySelector('.toast-action').textContent).toBe('Save to device');
+    expect(tracks[0].stopped).toBe(true);
+  });
+});

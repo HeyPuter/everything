@@ -60,6 +60,16 @@ export class Store extends Emitter {
     // Re-encrypted assets' old copies, by page id: removed once the page
     // pointing at the new copies is saved.
     this.staleAssets = new Map();
+    // Loaded pages that another device has saved a newer copy of (refresh).
+    this.stalePages = new Set();
+    // What each notebook's file held when this session last read or wrote
+    // it (noteBase), and the notebooks whose file another window may have
+    // written since (markStale): their next save merges instead of
+    // writing over it.
+    this.notebookBase = new Map();
+    this.staleNotebooks = new Set();
+    this.syncJobs = new Map();
+    this.merges = 0;
     this.loadedSnapshots = new Map();
     this.status = 'saved';
     // Keys of unlocked password-protected sections, by section id. Never stored.
@@ -94,6 +104,7 @@ export class Store extends Emitter {
     })));
     this.unreadable = loaded.filter((nb) => nb?.unreadable).map((nb) => nb.unreadable);
     this.notebooks = loaded.filter((nb) => nb && nb.id && Array.isArray(nb.sections));
+    for (const nb of this.notebooks) this.noteBase(nb);
     this.syncLibraryOrder();
     if (!this.notebooks.length && !this.unreadable.length) await this.createStarterNotebook(defaultName);
     this.purgeExpiredTrash();
@@ -161,27 +172,29 @@ export class Store extends Emitter {
     for (const [n, id] of ids.entries()) {
       const remote = remotes[n];
       if (!remote || dirty(id)) continue;
+      // Read while nothing was waiting to be saved: this is the file now.
+      this.staleNotebooks.delete(id);
       const i = this.notebooks.findIndex((n) => n.id === id);
       if (i < 0) {
         if (this.trash.some((t) => t.kind === 'notebook' && t.notebook.id === id)) continue;
         this.notebooks.push(remote);
+        this.noteBase(remote);
         changed = true;
       } else if (remote.modified > this.notebooks[i].modified) {
-        for (const s of this.sectionsOf(remote)) {
-          const key = this.keys.get(s.id);
-          if (!key) continue;
-          const pages = s.locked && s.sealed ? await openJSON(key, s.sealed).catch(() => null) : null;
-          if (pages) s.pages = pages;
-          else {
-            // Password changed or removed on another device: this key no
-            // longer fits, so the section locks rather than look empty (and
-            // save an empty page list over the real one).
-            this.keys.delete(s.id);
-            if (s.locked) for (const m of this.section(s.id)?.pages || []) this.pages.delete(m.id);
-          }
-        }
+        await this.openSections(remote);
+        this.noteBase(remote);
         this.notebooks[i] = remote;
         changed = true;
+        // Pages already loaded here (a search or the tag summary loads them
+        // all) that the other device edited: they are read again when next
+        // asked for, or the old copy would be shown, searched and, once
+        // edited, saved over the newer one.
+        for (const s of this.sectionsOf(remote)) {
+          for (const m of s.pages || []) {
+            const cached = this.pages.get(m.id);
+            if (cached && String(m.modified || '') > String(cached.modified || '')) this.stalePages.add(m.id);
+          }
+        }
       }
     }
     if (changed) {
@@ -189,6 +202,149 @@ export class Store extends Emitter {
       this.emit('change', { type: 'refresh' });
     }
     return changed;
+  }
+
+  /**
+   * Decrypts the page lists of a notebook read from storage for the sections
+   * unlocked here.
+   */
+  async openSections(remote) {
+    for (const s of this.sectionsOf(remote)) {
+      const key = this.keys.get(s.id);
+      if (!key) continue;
+      const pages = s.locked && s.sealed ? await openJSON(key, s.sealed).catch(() => null) : null;
+      if (pages) s.pages = pages;
+      else {
+        // Password changed or removed on another device: this key no
+        // longer fits, so the section locks rather than look empty (and
+        // save an empty page list over the real one).
+        this.keys.delete(s.id);
+        if (s.locked) for (const m of this.section(s.id)?.pages || []) this.pages.delete(m.id);
+      }
+    }
+  }
+
+  /** Remembers what a notebook's file holds, as just read or written. */
+  noteBase(nb) {
+    const ids = new Set();
+    const visit = (node) => {
+      ids.add(node.id);
+      if (node.type === 'group') node.children.forEach(visit);
+      else for (const id of [...(node.pages || []).map((p) => p.id), ...(node.pageIds || [])]) ids.add(id);
+    };
+    nb.sections.forEach(visit);
+    this.notebookBase.set(nb.id, { modified: nb.modified, ids });
+  }
+
+  /**
+   * Another window or device may have saved since this one last looked (the
+   * window just got focus back). Until refresh() has read a notebook, its
+   * next save here reads the file first and merges (mergeNotebook).
+   */
+  markStale() {
+    for (const nb of this.notebooks) this.staleNotebooks.add(nb.id);
+  }
+
+  /**
+   * Before anything of a notebook that may be stale is saved (the notebook
+   * itself, one of its pages, a page version): reads its file and merges
+   * what another window saved. A page must not be written before this has
+   * looked, or it could go out in plain text over a page the other window
+   * has just encrypted. Resolves to true when the notebook here changed.
+   */
+  syncStale(nbId) {
+    if (this.syncJobs.has(nbId)) return this.syncJobs.get(nbId);
+    if (!nbId || !this.staleNotebooks.has(nbId)) return Promise.resolve(false);
+    const path = `notebooks/${nbId}.json`;
+    const job = (async () => {
+      const remote = await this.readDamaged(path);
+      this.staleNotebooks.delete(nbId);
+      if (!(await this.mergeNotebook(nbId, remote))) return false;
+      this.merges++;
+      this.schedule(path, () => this.notebook(nbId) || null, 0);
+      this.emit('change', { type: 'merged', id: nbId });
+      return true;
+    })().finally(() => this.syncJobs.delete(nbId));
+    this.syncJobs.set(nbId, job);
+    return job;
+  }
+
+  /**
+   * Called when this session is about to save a notebook whose file another
+   * window saved since this one read it. Writing would undo what the other
+   * window did: a page it added would vanish from the notebook, and a
+   * section it protected would lose its lock while its pages stay
+   * encrypted, for good. So the other window's notebook is taken as it is,
+   * and what this session made since it last read the file (new pages,
+   * sections and groups, newer page titles) is put back into it. True when
+   * the notebook here changed.
+   */
+  async mergeNotebook(id, remote) {
+    const i = this.notebooks.findIndex((n) => n.id === id);
+    const base = this.notebookBase.get(id);
+    if (i < 0 || !base || !remote?.id || !Array.isArray(remote.sections)) return false;
+    if (!(String(remote.modified || '') > String(base.modified || ''))) return false;
+    const local = this.notebooks[i];
+    await this.openSections(remote);
+    const groups = new Map();
+    const sections = new Map();
+    const pages = new Map();
+    const index = (node) => {
+      if (node.type === 'group') {
+        groups.set(node.id, node);
+        node.children.forEach(index);
+      } else {
+        sections.set(node.id, node);
+        for (const m of node.pages || []) pages.set(m.id, m);
+      }
+    };
+    remote.sections.forEach(index);
+    // Something made here goes where it was, without whatever of it the
+    // other notebook already has somewhere.
+    const fresh = (node) => (node.type === 'group'
+      ? { ...node, children: node.children.filter((c) => !groups.has(c.id) && !sections.has(c.id)).map(fresh) }
+      : { ...node, pages: (node.pages || []).filter((m) => !pages.has(m.id)) });
+    const place = (node, parent) => (groups.get(parent)?.children || remote.sections).push(fresh(node));
+    const visit = (nodes, parent) => {
+      for (const node of nodes) {
+        const isNew = !base.ids.has(node.id);
+        if (node.type === 'group') {
+          if (groups.has(node.id)) visit(node.children, node.id);
+          else if (isNew) place(node, parent);
+          continue;
+        }
+        const theirs = sections.get(node.id);
+        if (!theirs) {
+          if (isNew) place(node, parent);
+          continue;
+        }
+        if (theirs.locked && !this.keys.has(theirs.id)) {
+          // Protected (or given another password) by the other window: what
+          // is loaded or waiting to be saved here would be written in plain
+          // text, or under the old password, over its encrypted pages.
+          for (const m of node.pages || []) {
+            this.cancel(`pages/${m.id}.json`);
+            this.pages.delete(m.id);
+            this.textCache.delete(m.id);
+          }
+          // Its pages stay known as protected (protectionOf) even if the
+          // other window's file doesn't list their ids.
+          theirs.pageIds = [...new Set([...(theirs.pageIds || []), ...(node.pages || []).map((m) => m.id)])];
+          continue;
+        }
+        for (const m of node.pages || []) {
+          const there = pages.get(m.id);
+          if (there) {
+            if (String(m.modified || '') > String(there.modified || '')) Object.assign(there, { title: m.title, modified: m.modified });
+          } else if (!base.ids.has(m.id)) theirs.pages.push(m);
+        }
+        normalizeLevels(theirs.pages);
+      }
+    };
+    visit(local.sections, null);
+    remote.modified = this.now();
+    this.notebooks[i] = remote;
+    return true;
   }
 
   /**
@@ -238,6 +394,7 @@ export class Store extends Emitter {
       const key = this.keys.get(this.findPage(id)?.section.id);
       remote = key ? await openJSON(key, remote.sealed).catch(() => null) : null;
     }
+    if (remote) this.stalePages.delete(id);
     // Edits made while the copy was read win: never replace them.
     if (unsaved() || local.modified !== modified) return false;
     if (!remote?.modified || remote.modified <= local.modified) return false;
@@ -450,9 +607,15 @@ export class Store extends Emitter {
     const target = this.notebook(notebookId || f.notebook.id);
     const list = parentId ? this.findNode(parentId)?.node.children : target.sections;
     const now = this.now();
+    // A locked section's pages can't be read to copy them.
+    if (f.node.locked && !this.keys.has(id)) return null;
     const copy = { ...structuredClone(f.node), id: uid('s'), created: now, modified: now, pages: [] };
-    delete copy.locked;
+    // The copy of a protected section is protected by the same password:
+    // an unprotected copy would put everything in it in storage as plain
+    // text, without a word.
+    if (f.node.locked) this.keys.set(copy.id, this.keys.get(id));
     delete copy.sealed;
+    delete copy.pageIds;
     const copiedPages = [];
     if (target === f.notebook) copy.name = `${f.node.name} (copy)`;
     // Load every page first: a failed load then leaves no half-made copy behind.
@@ -462,6 +625,8 @@ export class Store extends Emitter {
       const page = sources[i];
       const newId = uid('p');
       const dup = { ...structuredClone(page), id: newId };
+      // The read-only link belongs to the page that was shared.
+      delete dup.published;
       this.pages.set(newId, dup);
       copiedPages.push(dup);
       this.schedule(`pages/${newId}.json`, () => this.pages.get(newId), 0);
@@ -469,7 +634,25 @@ export class Store extends Emitter {
     }
     list.splice(index ?? list.length, 0, copy);
     this.touchNotebook(target);
-    for (const page of copiedPages) await this.copyAssets(page);
+    try {
+      for (const page of copiedPages) await this.copyAssets(page);
+    } catch (err) {
+      // A picture or file that has to be encrypted for the copy couldn't
+      // be: take the half-made copy out again rather than leave pages that
+      // point at the original's files.
+      const at = list.indexOf(copy);
+      if (at >= 0) list.splice(at, 1);
+      for (const page of copiedPages) {
+        this.cancel(`pages/${page.id}.json`);
+        this.pages.delete(page.id);
+        this.staleAssets.delete(page.id);
+        this.backend.remove(`pages/${page.id}.json`).catch(() => {});
+      }
+      this.keys.delete(copy.id);
+      this.touchNotebook(target);
+      this.emit('change', { type: 'section', id: copy.id });
+      throw err;
+    }
     this.emit('change', { type: 'section', id: copy.id });
     return copy;
   }
@@ -514,7 +697,10 @@ export class Store extends Emitter {
   }
 
   async loadPage(id) {
-    if (this.pages.has(id)) return this.pages.get(id);
+    if (this.pages.has(id)) {
+      if (this.stalePages.has(id)) await this.refreshPage(id);
+      return this.pages.get(id);
+    }
     if (this.pageLoads.has(id)) return this.pageLoads.get(id);
     const job = (async () => {
       // A sealed save still waiting to be retried is newer than the file.
@@ -629,6 +815,7 @@ export class Store extends Emitter {
         this.loadPage(m.id).then((page) => {
           this.rekeyAssets(page);
           this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
+          if (target.node.locked) this.unpublish(page);
         }).catch(() => {});
       }
     }
@@ -647,6 +834,8 @@ export class Store extends Emitter {
     const sameSection = target === f.section;
     const title = sameSection && page.title ? `${page.title} (copy)` : page.title;
     const dup = { ...structuredClone(page), id, title, modified: now };
+    // The read-only link belongs to the page that was shared.
+    delete dup.published;
     this.pages.set(id, dup);
     this.schedule(`pages/${id}.json`, () => this.pages.get(id), 0);
     const meta = { id, title, level: sameSection ? f.meta.level || 0 : 0, created: page.created, modified: now };
@@ -818,7 +1007,9 @@ export class Store extends Emitter {
     const job = (async () => {
       // A failed read must not save a list holding only this version.
       const list = (await this.readDamaged(`versions/${page.id}.json`)) || [];
-      // The section may have been protected while the list was read.
+      // The section may have been protected while the list was read, or by
+      // another window since this one last looked.
+      if (this.staleNotebooks.size) await this.syncStale(this.findPage(page.id)?.notebook.id);
       if (this.protectionOf(page.id)) return;
       const newest = list[0] ? Date.parse(list[0].at) : 0;
       if (Date.now() - newest >= VERSION_INTERVAL && before.modified !== list[0]?.page.modified) {
@@ -877,6 +1068,10 @@ export class Store extends Emitter {
   protectionOf(pageId) {
     const found = this.findPage(pageId);
     if (found) return found.section.locked ? found.section.id : null;
+    // A page of a section that is locked here (protected in another window
+    // while this one had the page open) is not in any page list, but the
+    // section still names it.
+    for (const { section } of this.allSections()) if (section.locked && section.pageIds?.includes(pageId)) return section.id;
     for (const entry of this.trash) {
       if (entry.kind === 'page' && entry.lockedSection && (entry.pageIds?.includes(pageId) || entry.pages.some((p) => p.id === pageId))) return entry.lockedSection;
       const node = entry.node || entry.notebook;
@@ -920,8 +1115,11 @@ export class Store extends Emitter {
         }
         if (node.type === 'section' && node.locked) {
           const key = this.keys.get(node.id);
+          // The ids stay readable (they say nothing about the pages): a
+          // locked section deleted for good must still find its page files.
           if (key) jobs.push(sealJSON(key, node.pages).then((sealed) => {
             node.sealed = sealed;
+            node.pageIds = node.pages.map((p) => p.id);
             node.pages = [];
           }));
           else node.pages = [];
@@ -980,6 +1178,7 @@ export class Store extends Emitter {
       }
     }
     node.sealed = await sealJSON(key, node.pages);
+    node.pageIds = pageIds;
     this.keys.delete(id);
     node.pages = [];
     for (const pid of [...pageIds, ...trashed]) {
@@ -1016,31 +1215,63 @@ export class Store extends Emitter {
     const pages = await Promise.all(f.node.pages.map((m) => this.loadPage(m.id)));
     const { lock, key } = await createLock(password);
     const oldKey = this.keys.get(id);
+    const oldLock = f.node.locked;
     f.node.locked = lock;
     delete f.node.sealed;
     this.keys.set(id, key);
-    if (oldKey) {
-      // Deleted pages of this section move to the new key too.
-      for (const entry of this.trash) {
-        if (entry.kind !== 'page' || entry.lockedSection !== id) continue;
-        if (entry.sealedPages) {
-          entry.pages = await openJSON(oldKey, entry.sealedPages).catch(() => entry.pages);
-          delete entry.sealedPages;
+    // Every page and file has to move to the new key, or none: a read or
+    // write that fails halfway (the connection drops) must not leave some of
+    // them under a key that the saved section no longer has. `log` is what
+    // was re-saved so far, to put back.
+    const log = [];
+    const trashed = [];
+    try {
+      if (oldKey) {
+        // Deleted pages of this section, and their pictures and files, move
+        // to the new key too.
+        for (const entry of this.trash) {
+          if (entry.kind !== 'page' || entry.lockedSection !== id) continue;
+          if (entry.sealedPages) {
+            entry.pages = await openJSON(oldKey, entry.sealedPages).catch(() => entry.pages);
+            delete entry.sealedPages;
+          }
+          for (const m of entry.pages) {
+            const raw = await this.backend.readJSON(`pages/${m.id}.json`);
+            if (!raw?.sealed) continue;
+            const page = await openJSON(oldKey, raw.sealed).catch(() => null);
+            if (!page) continue;
+            page.outlines ||= [];
+            this.pages.set(m.id, page);
+            trashed.push(page);
+            await this.rekeyAssets(page, { from: oldKey, sectionId: id, force: true, log });
+            this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
+          }
         }
-        for (const m of entry.pages) {
-          const raw = await this.backend.readJSON(`pages/${m.id}.json`).catch(() => null);
-          if (!raw?.sealed) continue;
-          const page = await openJSON(oldKey, raw.sealed).catch(() => null);
-          if (!page) continue;
-          this.pages.set(m.id, page);
-          this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
-        }
+        this.scheduleTrash();
       }
-      this.scheduleTrash();
+      for (const page of pages) {
+        await this.rekeyAssets(page, { from: oldKey, sectionId: id, force: Boolean(oldKey), log });
+        this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
+      }
+    } catch (err) {
+      if (oldLock) f.node.locked = oldLock;
+      else delete f.node.locked;
+      if (oldKey) this.keys.set(id, oldKey);
+      else this.keys.delete(id);
+      this.undoRekey(log);
+      // Anything saved meanwhile was sealed with the key that is gone again.
+      for (const page of [...pages, ...trashed]) this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
+      if (oldKey) this.scheduleTrash();
+      this.touchNotebook(f.notebook);
+      await this.flush().catch(() => {});
+      throw err;
     }
+    this.retireAssets(log);
+    if (!oldLock) await Promise.all(pages.map((page) => this.unpublish(page)));
+    // Saved again so the old copies go: a page saved while the others were
+    // still being moved had nothing marked for removal yet.
+    for (const pid of new Set(log.map((e) => e.pageId))) this.schedule(`pages/${pid}.json`, () => this.pages.get(pid), 0);
     for (const page of pages) {
-      await this.rekeyAssets(page, { from: oldKey, sectionId: id, force: Boolean(oldKey) });
-      this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
       // A version being written right now would land after the removal.
       await this.versionJobs.get(page.id);
       this.loadedSnapshots.delete(page.id);
@@ -1050,6 +1281,22 @@ export class Store extends Emitter {
     await this.flush();
     this.emit('change', { type: 'protect', id });
     return true;
+  }
+
+  /**
+   * Ends a page's read-only link when the page becomes protected: the link
+   * serves a plain copy of the page to anyone who has it.
+   */
+  async unpublish(page) {
+    if (!page?.published) return;
+    try {
+      await this.backend.remove(`published/${page.id}.json`);
+    } catch {
+      // Still shared: the Share dialog keeps showing it, to stop it there.
+      return;
+    }
+    delete page.published;
+    this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
   }
 
   /** Removes a section's password (the section must be unlocked). */
@@ -1074,22 +1321,34 @@ export class Store extends Emitter {
       }
       entry.pages = metas;
     }
+    // The pictures and files are decrypted first, while the section is still
+    // protected: if one can't be read or saved, the password stays, nothing
+    // is left sealed under a key that is about to go, and it can be tried
+    // again.
+    const log = [];
+    for (const page of trashed) {
+      page.outlines ||= [];
+      this.pages.set(page.id, page);
+    }
+    try {
+      for (const page of [...pages, ...trashed]) await this.rekeyAssets(page, { from: key, sectionId: null, log });
+    } catch (err) {
+      this.undoRekey(log);
+      for (const page of [...pages, ...trashed]) this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
+      await this.flush().catch(() => {});
+      throw err;
+    }
     delete f.node.locked;
     delete f.node.sealed;
+    delete f.node.pageIds;
     for (const entry of entries) {
       delete entry.sealedPages;
       delete entry.lockedSection;
       delete entry.pageIds;
       entry.sectionName ||= f.node.name;
     }
-    for (const page of trashed) {
-      page.outlines ||= [];
-      this.pages.set(page.id, page);
-    }
-    for (const page of [...pages, ...trashed]) {
-      await this.rekeyAssets(page, { from: key, sectionId: null });
-      this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
-    }
+    for (const page of [...pages, ...trashed]) this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
+    this.retireAssets(log);
     if (entries.length) this.scheduleTrash();
     this.keys.delete(id);
     this.touchNotebook(f.notebook);
@@ -1104,7 +1363,7 @@ export class Store extends Emitter {
    * after the page that points at the new ones is saved, so a failure in
    * between never leaves the stored page pointing at a deleted file.
    */
-  async rekeyAssets(page, { from = null, sectionId, force = false } = {}) {
+  async rekeyAssets(page, { from = null, sectionId, force = false, log = null } = {}) {
     const target = sectionId === undefined ? this.findPage(page.id)?.section : this.section(sectionId);
     const wantSection = target?.locked && this.keys.has(target.id) ? target.id : null;
     let changed = false;
@@ -1132,12 +1391,32 @@ export class Store extends Emitter {
         o.html = o.html.split(`data-asset="${assetId}"`).join(`data-asset="${newId}"`);
         // An open editor still shows (and would save back) the old id.
         this.emit('assets-renamed', { id: page.id, map: { [assetId]: newId } });
-        this.staleAssets.set(page.id, [...(this.staleAssets.get(page.id) || []), assetId]);
+        // With a log, the caller decides what happens to the old copy once
+        // it knows whether the whole change went through (retireAssets,
+        // undoRekey); without one it goes when the page is next saved.
+        if (log) log.push({ pageId: page.id, from: assetId, to: newId });
+        else this.retireAssets([{ pageId: page.id, from: assetId }]);
         changed = true;
       }
     }
     if (changed) this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
     return changed;
+  }
+
+  /** Marks re-saved assets' old copies for removal once their page is saved without them. */
+  retireAssets(log) {
+    for (const { pageId, from } of log) this.staleAssets.set(pageId, [...(this.staleAssets.get(pageId) || []), from]);
+  }
+
+  /** Points pages back at the assets they had before a re-save that could not be finished. */
+  undoRekey(log) {
+    for (const { pageId, from, to } of [...log].reverse()) {
+      const page = this.pages.get(pageId);
+      for (const o of page?.outlines || []) o.html = o.html.split(`data-asset="${to}"`).join(`data-asset="${from}"`);
+      this.emit('assets-renamed', { id: pageId, map: { [to]: from } });
+      // The new copy is the one nothing uses now.
+      this.retireAssets([{ pageId, from: to }]);
+    }
   }
 
   /**
@@ -1325,6 +1604,7 @@ export class Store extends Emitter {
       return this.updateStatus();
     }
     let snapshot = JSON.parse(JSON.stringify(value));
+    const merges = this.merges;
     // Writes to one path run one at a time, in order.
     const prev = this.writers.get(path) || Promise.resolve();
     const job = prev.then(async () => {
@@ -1337,11 +1617,22 @@ export class Store extends Emitter {
           snapshot = JSON.parse(JSON.stringify(this.trash));
           this.emit('change', { type: 'trash' });
         }
-        const plain = snapshot;
+        const nbId = path.startsWith('notebooks/') ? path.slice(10, -5) : null;
+        if (nbId) {
+          await this.syncStale(nbId);
+          // Merged with what another window saved since this save was
+          // queued: the notebook as it is now is what to write.
+          if (this.merges !== merges && this.notebook(nbId)) {
+            this.cancel(path);
+            snapshot = JSON.parse(JSON.stringify(this.notebook(nbId)));
+          }
+        } else if (path.startsWith('pages/') && this.staleNotebooks.size) await this.syncStale(this.findPage(snapshot?.id)?.notebook.id);
+        const plain = nbId ? JSON.parse(JSON.stringify(snapshot)) : snapshot;
         snapshot = await this.seal(path, snapshot);
         if (snapshot !== null) {
           await this.backend.writeJSON(path, snapshot);
           if (path.startsWith('pages/')) await this.dropStaleAssets(plain);
+          if (nbId) this.noteBase(plain);
         }
         if (path === 'trash.json' && snapshot) {
           this.trashBase = new Set(snapshot.map((t) => t.id));
@@ -1429,11 +1720,13 @@ export function normalizeLevels(pages) {
 }
 
 function trashPageIds(entry) {
-  if (entry.kind === 'page') return entry.pages.map((p) => p.id);
+  // What is deleted from a locked section keeps only its page ids readable
+  // (pageIds); the page list itself is sealed.
+  if (entry.kind === 'page') return entry.pages.length ? entry.pages.map((p) => p.id) : entry.pageIds || [];
   const ids = [];
   const visit = (node) => {
     if (node.type === 'group') node.children.forEach(visit);
-    else ids.push(...node.pages.map((p) => p.id));
+    else ids.push(...(node.pages.length ? node.pages.map((p) => p.id) : node.pageIds || []));
   };
   if (entry.kind === 'notebook') entry.notebook.sections.forEach(visit);
   else visit(entry.node);

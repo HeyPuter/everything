@@ -440,3 +440,215 @@ describe('asset ids', () => {
     expect(sanitizeHtml('<img data-asset="../notebooks/x.json">')).not.toContain('../');
   });
 });
+
+describe('password-protected sections: a change that fails halfway', () => {
+  /** Two pages with a picture each in a protected, unlocked section. */
+  async function withPictures() {
+    const { backend, store, section, meta } = await setup();
+    const second = store.createPage(section.id, { title: 'Second', outlines: [{ id: 'o', x: 0, y: 0, html: '<p>more</p>' }] });
+    await store.protectSection(section.id, 'pw1');
+    for (const m of [meta, second]) {
+      const page = await store.loadPage(m.id);
+      const asset = await store.saveAsset(new Blob([`png of ${m.id}`], { type: 'image/png' }), 'a.png', { sectionId: section.id });
+      page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+      store.pageChanged(page);
+    }
+    await store.flush();
+    return { backend, store, section, metas: [meta, second] };
+  }
+
+  /** Makes the n-th asset read from now on fail, once. */
+  function failAssetRead(backend, n) {
+    const readBlob = backend.readBlob;
+    let seen = 0;
+    backend.readBlob = async (path) => {
+      if (path.startsWith('assets/') && ++seen === n) throw new Error('network');
+      return readBlob(path);
+    };
+    return () => (backend.readBlob = readBlob);
+  }
+
+  async function expectReadable(backend, section, password, metas) {
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    if (password) expect(await fresh.unlockSection(section.id, password)).toBe(true);
+    for (const m of metas) {
+      const page = await fresh.loadPage(m.id);
+      const img = page.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+      expect(await (await fresh.assetBlob(img)).text()).toBe(`png of ${m.id}`);
+    }
+    return fresh;
+  }
+
+  it('keeps the old password working when a file cannot be read during a password change', async () => {
+    const { backend, store, section, metas } = await withPictures();
+    const heal = failAssetRead(backend, 2);
+    await expect(store.protectSection(section.id, 'pw2')).rejects.toThrow('network');
+    heal();
+    // Something else saves the section afterwards.
+    store.renameNode(section.id, 'Diary 2');
+    await store.flush();
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(await fresh.unlockSection(section.id, 'pw2')).toBe(false);
+    await expectReadable(backend, section, 'pw1', metas);
+    // Trying again works, and nothing is left under the first password.
+    expect(await store.protectSection(section.id, 'pw2')).toBe(true);
+    await expectReadable(backend, section, 'pw2', metas);
+  });
+
+  it('keeps the section protected and readable when a file cannot be read while removing the password', async () => {
+    const { backend, store, section, metas } = await withPictures();
+    const heal = failAssetRead(backend, 2);
+    await expect(store.unprotectSection(section.id)).rejects.toThrow('network');
+    heal();
+    store.renameNode(section.id, 'Diary 2');
+    await store.flush();
+    expect(store.section(section.id).locked).toBeTruthy();
+    await expectReadable(backend, section, 'pw1', metas);
+    expect(await store.unprotectSection(section.id)).toBe(true);
+    await expectReadable(backend, section, null, metas);
+    expect(allText(backend)).toContain('treasure');
+  });
+
+  it("moves a deleted page's picture to the new password", async () => {
+    const { backend, store, section, metas } = await withPictures();
+    const entry = store.deletePage(metas[1].id);
+    await store.flush();
+    expect(await store.protectSection(section.id, 'pw2')).toBe(true);
+    await store.lockSection(section.id);
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(await fresh.unlockSection(section.id, 'pw2')).toBe(true);
+    expect(await fresh.openTrash(entry.id)).toBe(true);
+    fresh.restore(entry.id);
+    const page = await fresh.loadPage(metas[1].id);
+    const img = page.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+    expect(await (await fresh.assetBlob(img)).text()).toBe(`png of ${metas[1].id}`);
+  });
+});
+
+describe('password-protected sections: deleting for good', () => {
+  const pageFiles = (backend) => [...backend.files.keys()].filter((k) => k.startsWith('pages/') || k.startsWith('published/'));
+
+  it('removes the files of a page deleted from a section that is locked again', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    backend.files.set(`published/${meta.id}.json`, '{}');
+    const entry = store.deletePage(meta.id);
+    await store.lockSection(section.id);
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(pageFiles(backend).some((k) => k.includes(meta.id))).toBe(true);
+    await fresh.purge(entry.id);
+    await fresh.flush();
+    expect(pageFiles(backend).filter((k) => k.includes(meta.id))).toEqual([]);
+  });
+
+  it('removes the page files of a locked section emptied from Deleted Notes', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    await store.lockSection(section.id);
+    store.deleteNode(section.id);
+    await store.flush();
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    await fresh.emptyTrash();
+    await fresh.flush();
+    expect(pageFiles(backend).filter((k) => k.includes(meta.id))).toEqual([]);
+    // A live locked section keeps its pages.
+    const other = await setup();
+    await other.store.protectSection(other.section.id, 'pw');
+    await other.store.lockSection(other.section.id);
+    await other.store.emptyTrash();
+    expect(pageFiles(other.backend).some((k) => k.includes(other.meta.id))).toBe(true);
+  });
+});
+
+describe('password-protected sections: shared links', () => {
+  async function published() {
+    const s = await setup();
+    const page = await s.store.loadPage(s.meta.id);
+    await s.backend.writeJSON(`published/${page.id}.json`, { format: 'notes-shared-page', outlines: page.outlines });
+    page.published = { at: new Date().toISOString(), expires: '30d' };
+    s.store.pageChanged(page);
+    await s.store.flush();
+    return s;
+  }
+
+  it('ends a page\'s read-only link when its section is protected', async () => {
+    const { backend, store, section, meta } = await published();
+    expect(allText(backend)).toContain('treasure');
+    await store.protectSection(section.id, 'pw');
+    await store.flush();
+    expect(backend.files.has(`published/${meta.id}.json`)).toBe(false);
+    expect(allText(backend)).not.toContain('treasure');
+    expect((await store.loadPage(meta.id)).published).toBeUndefined();
+  });
+
+  it('ends the link of a page moved into a protected section', async () => {
+    const { backend, store, meta } = await published();
+    const vault = store.createSection(store.notebooks[0].id, { name: 'Vault' });
+    await store.protectSection(vault.id, 'pw');
+    expect(store.movePage(meta.id, { sectionId: vault.id })).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    await store.flush();
+    expect(backend.files.has(`published/${meta.id}.json`)).toBe(false);
+    expect(allText(backend)).not.toContain('treasure');
+  });
+});
+
+describe('password-protected sections: copies', () => {
+  it('protects the copy of a protected section with the same password', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    const page = await store.loadPage(meta.id);
+    const asset = await store.saveAsset(new Blob(['png bytes'], { type: 'image/png' }), 'a.png', { sectionId: section.id });
+    page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+    page.published = { at: new Date().toISOString(), expires: '30d' };
+    store.pageChanged(page);
+    await store.flush();
+    const copy = await store.copySection(section.id);
+    await store.flush();
+    expect(copy.locked).toBeTruthy();
+    const text = allText(backend);
+    expect(text).not.toContain('treasure');
+    expect(text).not.toContain('Secret plans');
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(fresh.isLocked(copy.id)).toBe(true);
+    expect(await fresh.unlockSection(copy.id, 'wrong')).toBe(false);
+    expect(await fresh.unlockSection(copy.id, 'pw')).toBe(true);
+    const copied = await fresh.loadPage(fresh.section(copy.id).pages[0].id);
+    expect(copied.outlines[0].html).toContain('treasure');
+    expect(copied.published).toBeUndefined();
+    const img = copied.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+    expect(img).not.toBe(asset);
+    expect(await (await fresh.assetBlob(img)).text()).toBe('png bytes');
+    // The original is untouched and a locked section can't be copied.
+    await store.lockSection(section.id);
+    expect(await store.copySection(section.id)).toBeNull();
+  });
+
+  it('takes a copy out again when its pictures cannot be encrypted for it', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    const page = await store.loadPage(meta.id);
+    const asset = await store.saveAsset(new Blob(['png bytes'], { type: 'image/png' }), 'a.png', { sectionId: section.id });
+    page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+    store.pageChanged(page);
+    await store.flush();
+    const sections = [...store.sectionsOf(store.notebooks[0])].length;
+    const writeBlob = backend.writeBlob;
+    backend.writeBlob = async () => {
+      throw new Error('network');
+    };
+    await expect(store.copySection(section.id)).rejects.toThrow('network');
+    backend.writeBlob = writeBlob;
+    await store.flush();
+    expect([...store.sectionsOf(store.notebooks[0])].length).toBe(sections);
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect([...fresh.sectionsOf(fresh.notebooks[0])].length).toBe(sections);
+  });
+});

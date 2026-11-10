@@ -1,4 +1,4 @@
-import { h, debounce, clamp, announce } from '../lib/dom.js';
+import { h, debounce, clamp, announce, trackPointer } from '../lib/dom.js';
 import { uid } from '../lib/ids.js';
 import { sanitizeHtml, safeUrl, htmlToText } from '../lib/sanitize.js';
 import { formatPageDate, formatPageTime } from '../lib/dates.js';
@@ -107,11 +107,21 @@ export class PageEditor extends Emitter {
     this.titleEl.dataset.placeholder = this.readOnly ? '' : '';
     this.updateDate();
     this.applyBackground();
+    // Every container is rebuilt: what pointed at the old elements (the
+    // selection after an undo, the picture being resized) follows or goes.
+    const selected = new Set([...this.selectedOutlines].map((el) => el.dataset.id));
+    this.selectedOutlines = new Set();
+    this.activeOutline = null;
+    this.clearImageSelection();
     this.outlinesEl.replaceChildren();
     const jobs = [];
     for (const o of page.outlines) {
       const el = this.buildOutline(o);
       this.outlinesEl.append(el);
+      if (selected.has(o.id)) {
+        el.classList.add('selected');
+        this.selectedOutlines.add(el);
+      }
       jobs.push(hydrate(el.querySelector('.outline-body'), this.store));
     }
     this.ink.render();
@@ -187,6 +197,20 @@ export class PageEditor extends Emitter {
     const z = this.zoom;
     const viewW = this.scroller.clientWidth / z;
     const viewH = this.scroller.clientHeight / z;
+    const phone = window.innerWidth <= 760;
+    // A container that sizes to its text grows up to 640px, which on a phone
+    // runs off the screen and scrolls the page sideways as you type. There it
+    // wraps at the screen edge instead, when it starts far enough to the left
+    // to leave a readable column. Only the display changes: the note keeps
+    // its automatic width, so wider screens still show it at full measure.
+    const auto = [...this.outlinesEl.children].filter((el) => el.classList.contains('auto-width') || el.style.maxWidth);
+    const caps = auto.map((el) => {
+      const room = Math.floor(viewW - el.offsetLeft - 16);
+      return phone && el.classList.contains('auto-width') && room >= 160 && room < 640 ? `${room}px` : '';
+    });
+    auto.forEach((el, i) => {
+      if (el.style.maxWidth !== caps[i]) el.style.maxWidth = caps[i];
+    });
     let right = 0;
     let bottom = 0;
     for (const el of this.outlinesEl.children) {
@@ -202,7 +226,6 @@ export class PageEditor extends Emitter {
     // 760px breakpoint) have no room to spare: there the page is as wide as
     // the screen unless its content is wider, so it does not always scroll
     // sideways. Note positions are absolute either way.
-    const phone = window.innerWidth <= 760;
     const w = Math.max(viewW, right + (phone ? 16 : 240), phone ? 0 : 960);
     const hgt = Math.max(viewH, bottom + 320);
     this.pageEl.style.width = `${w}px`;
@@ -261,8 +284,18 @@ export class PageEditor extends Emitter {
     s.addEventListener('copy', (e) => this.onCopy(e));
     s.addEventListener('cut', (e) => this.onCopy(e, { cut: true }));
     s.addEventListener('drop', (e) => this.onDrop(e));
+    // A drag that starts in the page moves the note's own text.
+    s.addEventListener('dragstart', () => {
+      this.draggingOwn = true;
+    });
+    s.addEventListener('dragend', () => {
+      this.draggingOwn = false;
+    });
     s.addEventListener('dragover', (e) => {
-      if (!this.readOnly && [...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
+      const types = [...(e.dataTransfer?.types || [])];
+      // Files anywhere on the page; formatted text from outside too, where
+      // there is no note under it to take the drop by itself.
+      if (!this.readOnly && (types.includes('Files') || (types.includes('text/html') && !this.draggingOwn && !e.target.closest?.('.outline-body')))) e.preventDefault();
     });
     s.addEventListener('click', (e) => this.onClick(e));
     s.addEventListener('wheel', (e) => {
@@ -272,7 +305,8 @@ export class PageEditor extends Emitter {
       }
     }, { passive: false });
     this.titleEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
+      // Enter that accepts an input method's candidate belongs to the IME.
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
         e.preventDefault();
         this.focusFirstOutline();
       }
@@ -370,11 +404,16 @@ export class PageEditor extends Emitter {
     if (!this.selectedOutlines.has(outline)) this.selectOutlines([outline]);
     const moving = [...this.selectedOutlines].map((el) => ({ el, model: this.outlineModel(el), x: el.offsetLeft, y: el.offsetTop }));
     const inkSel = this.ink.selected.size ? this.ink.beginMove() : null;
+    // Everything selected moves together and stops at the page's top and
+    // left edges as one (see InkTools.dragSelection).
+    const box = this.ink.selectionBounds();
+    const minX = Math.max(0, Math.min(box ? box.x : Infinity, ...moving.map((m) => m.x)));
+    const minY = Math.max(0, Math.min(box ? box.y : Infinity, ...moving.map((m) => m.y)));
     let moved = false;
     const onMove = (ev) => {
       const p = this.pagePoint(ev);
-      const dx = p.x - start.x;
-      const dy = p.y - start.y;
+      const dx = Math.max(p.x - start.x, -minX);
+      const dy = Math.max(p.y - start.y, -minY);
       if (!moved && Math.hypot(dx, dy) < 2) return;
       moved = true;
       for (const m of moving) {
@@ -384,8 +423,6 @@ export class PageEditor extends Emitter {
       inkSel?.move(dx, dy);
     };
     const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
       if (!moved) return;
       for (const m of moving) {
         m.model.x = Math.round(m.el.offsetLeft);
@@ -395,8 +432,7 @@ export class PageEditor extends Emitter {
       this.layout();
       this.changed({ structural: true });
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    trackPointer(e, onMove, onUp);
   }
 
   startResize(e, outline) {
@@ -412,18 +448,16 @@ export class PageEditor extends Emitter {
       resized = true;
       const w = Math.max(80, Math.round(w0 + p.x - start.x));
       outline.style.width = `${w}px`;
+      outline.style.maxWidth = '';
       outline.classList.remove('auto-width');
     };
     const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
       if (!resized) return;
       model.w = Math.round(outline.offsetWidth);
       this.layout();
       this.changed({ structural: true });
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    trackPointer(e, onMove, onUp);
   }
 
   selectOutlines(list) {
@@ -476,6 +510,7 @@ export class PageEditor extends Emitter {
         outline.remove();
         if (model) this.removedEmpty = { x: model.x, y: model.y };
         this.dirty.delete(outline);
+        if (this.selectedOutlines.delete(outline)) this.emit('selection');
         // A container that never held anything was never saved: no edit to record.
         if (model?.html) this.changed({ structural: true });
         this.layout();
@@ -498,6 +533,10 @@ export class PageEditor extends Emitter {
     const outline = e.target.closest?.('.outline');
     if (!outline) return;
     this.dirty.add(outline);
+    // Where this edit left the caret, for a step recorded after the
+    // selection has moved on (undoBoundary).
+    const at = currentRange();
+    this.inputCaret = at?.collapsed ? [at.startContainer, at.startOffset] : null;
     // The resize handle follows its picture, and goes when the picture is deleted.
     if (this.selectedImage) {
       if (this.selectedImage.isConnected) this.placeImageHandle?.();
@@ -588,8 +627,22 @@ export class PageEditor extends Emitter {
     if (!m) return;
     const offset = textOffset(block, range.startContainer, range.startOffset);
     if (offset !== m[0].length) return;
-    // Clear the marker, then turn the block into a list.
-    for (const n of [...block.childNodes]) if (n.nodeType === 3 || n.nodeName === 'BR') n.remove();
+    // Clear the marker, then turn the block into a list. The marker may sit
+    // inside the span of a font, size or color carried over from the line
+    // before: it goes too, or the item would start with a literal "* ".
+    const texts = [];
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) texts.push(walker.currentNode);
+    for (const t of texts) {
+      let parent = t.parentNode;
+      t.remove();
+      while (parent !== block && !parent.firstChild && !/\bnt-/.test(parent.className)) {
+        const up = parent.parentNode;
+        parent.remove();
+        parent = up;
+      }
+    }
+    for (const br of [...block.querySelectorAll('br')]) br.remove();
     block.append(document.createElement('br'));
     placeCaret(block, false);
     toggleList(m[1] !== '*' && m[1] !== '-');
@@ -607,7 +660,31 @@ export class PageEditor extends Emitter {
     } else if (e.inputType === 'historyRedo') {
       e.preventDefault();
       this.redo();
-    } else this.noteOwnStyles(e);
+    } else {
+      this.undoBoundary(e);
+      this.noteOwnStyles(e);
+    }
+  }
+
+  /**
+   * Typing is recorded as one undo step per burst (commitSoon). An edit that
+   * replaces or removes a selection, a paste, a cut or a drop right after
+   * typing must not join that burst, or one Undo would take the typed text
+   * away along with it: the burst is recorded first.
+   */
+  undoBoundary(e) {
+    if (!this.commitSoon.pending() || e.isComposing || /Composition/.test(e.inputType || '')) return;
+    const range = currentRange();
+    const replaces = Boolean(range && !range.collapsed && this.scroller.contains(range.commonAncestorContainer));
+    // A drag-move is one step: its drop follows its delete.
+    const drop = e.inputType === 'insertFromDrop' && !this.ownStyles?.drag;
+    if (replaces || drop || ['insertFromPaste', 'deleteByCut', 'deleteByDrag'].includes(e.inputType)) this.commitTyping();
+  }
+
+  /** Records the typing so far as its own undo step, with the caret where the typing left it. */
+  commitTyping() {
+    if (!this.commitSoon.pending()) return;
+    this.commit({ caret: this.caretAt(this.inputCaret) });
   }
 
   /**
@@ -668,6 +745,15 @@ export class PageEditor extends Emitter {
       return;
     }
     if (!inBody) {
+      // The title and the date and time buttons keep their own keys: Enter
+      // presses the button, Delete does not remove the selected container.
+      if (e.target.closest?.('.page-header')) {
+        if (e.key === 'Escape') {
+          this.selectOutlines([]);
+          this.ink.clearSelection();
+        }
+        return;
+      }
       if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selectedOutlines.size || this.ink.selected.size) && !e.target.closest?.('.page-title')) {
         e.preventDefault();
         this.deleteSelectedOutlines();
@@ -678,6 +764,7 @@ export class PageEditor extends Emitter {
         const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
         for (const el of this.selectedOutlines) {
           const m = this.outlineModel(el);
+          if (!m) continue;
           m.x = Math.max(0, m.x + dx);
           m.y = Math.max(0, m.y + dy);
           this.place(el, m);
@@ -723,7 +810,8 @@ export class PageEditor extends Emitter {
       e.preventDefault();
       inBody.blur();
       this.scroller.focus({ preventScroll: true });
-      if (outline.isConnected) {
+      // An empty container goes when it loses focus: nothing to select.
+      if (outline.isConnected && !isEmptyBody(inBody)) {
         this.selectOutlines([outline]);
         announce('Note container selected. Arrow keys move it, Delete removes it, Enter edits it.');
       }
@@ -815,19 +903,25 @@ export class PageEditor extends Emitter {
     if (this.readOnly) return;
     // Pasted text is new: nothing of it was the user's own formatting here.
     this.ownStyles = null;
+    // Its own undo step, apart from the typing just before it.
+    this.commitTyping();
     const inBody = e.target.closest?.('.outline-body');
     const inTitle = e.target.closest?.('.page-title');
     if (inTitle) return; // plaintext-only handles it
     const dt = e.clipboardData;
     if (!dt) return;
     const files = [...dt.files];
-    if (files.length) {
+    const html = dt.getData('text/html');
+    const text = dt.getData('text/plain');
+    // Spreadsheets and word processors put a picture of the selection on the
+    // clipboard next to its HTML: the cells or text are what was copied. A
+    // file is pasted when it comes alone or with HTML that is only a picture
+    // (an image copied from a web page).
+    if (files.length && !hasPastedText(html)) {
       e.preventDefault();
       await this.insertFiles(files);
       return;
     }
-    const html = dt.getData('text/html');
-    const text = dt.getData('text/plain');
     if (!inBody) {
       // Pasting onto the page with no caret starts a container.
       if (!html && !text) return;
@@ -916,7 +1010,11 @@ export class PageEditor extends Emitter {
   async onDrop(e) {
     if (this.readOnly) return;
     const files = [...(e.dataTransfer?.files || [])];
-    if (!files.length) return;
+    // Formatted text dragged in from another page or app is cleaned like a
+    // paste; the browser would insert it as it is, classes and styles and
+    // all. Text dragged within the page is the note's own and moves as is.
+    const html = !files.length && !this.draggingOwn ? e.dataTransfer?.getData('text/html') : '';
+    if (!files.length && !html) return;
     e.preventDefault();
     const body = e.target.closest?.('.outline-body');
     if (body) {
@@ -932,7 +1030,10 @@ export class PageEditor extends Emitter {
       const p = this.pagePoint(e);
       this.createOutlineAt(p.x, p.y);
     }
-    await this.insertFiles(files);
+    if (html) {
+      this.commitTyping();
+      await this.pasteHtml(cleanPastedHtml(html));
+    } else await this.insertFiles(files);
   }
 
   nextFreeY() {
@@ -1001,18 +1102,33 @@ export class PageEditor extends Emitter {
     const width = await imageWidth(probe);
     URL.revokeObjectURL(probe);
     if (width === null) return this.insertAttachment(file);
+    const page = this.requirePage();
     this.ensureCaret();
-    const id = await this.store.saveAsset(file, file.name || 'picture.png', { sectionId: this.store.findPage?.(this.page.id)?.section.id });
+    const id = await this.store.saveAsset(file, file.name || 'picture.png', { sectionId: this.store.findPage?.(page.id)?.section.id });
     const url = await this.store.assetUrl(id);
+    this.requirePage(page);
     const style = width > 600 ? ' style="width: 600px"' : '';
     this.ensureCaret();
     insertHtml(`<img data-asset="${id}" src="${url}" alt="${escapeAttr(alt || file.name || '')}"${style}>`);
     this.markActiveDirty();
   }
 
+  /**
+   * The open page, for an insert that uploads first. Called again with that
+   * page once the upload is done: if another page was opened meanwhile (or
+   * the section locked), the insert stops instead of landing on that page,
+   * with a file saved for the first page's section.
+   */
+  requirePage(page) {
+    if (!this.page || (page && this.page !== page)) throw new Error(page ? 'its page was closed before the upload finished' : 'no page is open');
+    return this.page;
+  }
+
   async insertAttachment(file, kind) {
+    const page = this.requirePage();
     this.ensureCaret();
-    const id = await this.store.saveAsset(file, file.name, { sectionId: this.store.findPage?.(this.page.id)?.section.id });
+    const id = await this.store.saveAsset(file, file.name, { sectionId: this.store.findPage?.(page.id)?.section.id });
+    this.requirePage(page);
     this.ensureCaret();
     const span = fileSpan({ asset: id, name: file.name || 'Attachment', size: file.size, type: file.type, kind: kind || (file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'file') });
     insertNode(span);
@@ -1058,14 +1174,11 @@ export class PageEditor extends Emitter {
         placeHandle();
       };
       const onUp = () => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
         this.dirty.add(outline);
         this.commit();
         this.layout();
       };
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
+      trackPointer(ev, onMove, onUp);
     });
     if (e) {
       // Select the image as a node so Delete and copy act on it.
@@ -1087,9 +1200,16 @@ export class PageEditor extends Emitter {
   // ------------------------------------------------------------ commit/undo
 
   /** Copies edited outlines back into the page model and saves. */
-  commit({ structural = false } = {}) {
+  commit({ structural = false, caret = null } = {}) {
     if (!this.page || this.readOnly) return;
     this.commitSoon.cancel();
+    this.inputCaret = null;
+    // A container moved with the arrow keys is recorded with a delay of its
+    // own: whatever commits first takes the move along.
+    if (this.commitNudge?.pending()) {
+      this.commitNudge.cancel();
+      structural = true;
+    }
     let any = structural;
     for (const outline of this.dirty) {
       const model = this.outlineModel(outline);
@@ -1111,7 +1231,7 @@ export class PageEditor extends Emitter {
       return;
     }
     this.store.pageChanged(this.page, { title: this.page.title });
-    this.history.push(snapshotOf(this.page), this.caret(), this.caretBefore);
+    this.history.push(snapshotOf(this.page), caret ?? this.caret(), this.caretBefore);
     this.caretBefore = undefined;
     this.emit('change', {});
   }
@@ -1138,7 +1258,7 @@ export class PageEditor extends Emitter {
   }
 
   flush() {
-    if (this.commitSoon.pending() || this.dirty.size) this.commit();
+    if (this.commitSoon.pending() || this.dirty.size || this.commitNudge?.pending()) this.commit();
   }
 
   caret() {
@@ -1282,6 +1402,15 @@ export function cleanPastedHtml(html) {
   return root.innerHTML;
 }
 
+/** Whether clipboard HTML holds text or a table, not just a picture. */
+function hasPastedText(html) {
+  if (!html) return false;
+  const root = document.implementation.createHTMLDocument('').createElement('div');
+  root.innerHTML = stripPasteWrapper(String(html));
+  for (const el of root.querySelectorAll('style, script, meta, title, head')) el.remove();
+  return Boolean(root.textContent.trim());
+}
+
 /*
  * Word writes a bulleted or numbered list as paragraphs styled
  * "mso-list:l1 level2 lfo1" whose bullet or number is literal text in a
@@ -1326,10 +1455,26 @@ function wordLists(root, doc) {
 /** Plain text to paragraphs, keeping URLs as links. */
 export function textToHtml(text) {
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-  const linkify = (s) => esc(s).replace(/\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g, (u) => `<a href="${u}">${u}</a>`);
+  // Addresses are found in the text as it is, before escaping: found after,
+  // a quote or bracket around one ended up inside the link as "&quot" or "&gt".
+  const linkify = (s) => {
+    let out = '';
+    let last = 0;
+    for (const m of s.matchAll(/\bhttps?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]']/g)) {
+      out += `${esc(s.slice(last, m.index))}<a href="${esc(m[0])}">${esc(m[0])}</a>`;
+      last = m.index + m[0].length;
+    }
+    return out + esc(s.slice(last));
+  };
+  // A note collapses runs of spaces: indentation and aligned columns keep
+  // theirs as non-breaking spaces, and tabs as wide ones.
+  const line = (s) => linkify(s)
+    .replace(/\t/g, '&emsp;')
+    .replace(/^ +/, (m) => '&nbsp;'.repeat(m.length))
+    .replace(/ {2,}/g, (m) => `${'&nbsp;'.repeat(m.length - 1)} `);
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
-  if (lines.length === 1) return linkify(lines[0]);
-  return lines.map((l) => `<p>${l ? linkify(l).replace(/\t/g, '&emsp;') : '<br>'}</p>`).join('');
+  if (lines.length === 1) return line(lines[0]);
+  return lines.map((l) => `<p>${l ? line(l) : '<br>'}</p>`).join('');
 }
 
 function escapeAttr(s) {

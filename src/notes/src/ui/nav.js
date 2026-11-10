@@ -400,8 +400,9 @@ export class Nav {
             const level = Number(row.getAttribute('aria-level'));
             for (let k = i - 1; k >= 0; k--) {
               if (Number(rows[k].getAttribute('aria-level')) < level) {
-                rows[k].tabIndex = 0;
-                rows[k].focus();
+                // Like the other arrows: the parent becomes the list's one
+                // tab stop and is opened.
+                go(k);
                 break;
               }
             }
@@ -494,10 +495,17 @@ export class Nav {
       // Renaming the open page changes its title without redrawing the
       // list, so put the label back whenever the box is still there.
       if (input.isConnected) this.app.renderNav();
-      setTimeout(() => this.focusRow(row.dataset.id));
+      // Back to the row, unless the rename ended by clicking somewhere
+      // else: then focus stays where the click put it.
+      setTimeout(() => {
+        const at = document.activeElement;
+        if (!at || at === document.body || at === input || !at.isConnected) this.focusRow(row.dataset.id);
+      });
     };
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      // Enter that accepts an input method's candidate is not the rename's Enter.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         finish(true);

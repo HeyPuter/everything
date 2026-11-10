@@ -22,6 +22,9 @@ function ensure() {
 
 function show(target) {
   const t = ensure();
+  // Inside the modal dialog the target is in, or it would sit under it.
+  const layer = target.closest('dialog[open]') || document.body;
+  if (t.parentNode !== layer) layer.append(t);
   current = target;
   t.replaceChildren();
   const key = target.dataset.tipKey;

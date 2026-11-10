@@ -207,7 +207,10 @@ export function openMenu(anchor, items, { label = 'Menu', onClose, align = 'star
   };
   const blurClose = () => closeAllMenus();
 
-  document.body.append(menu);
+  // A modal dialog covers everything outside it and makes it inert: a menu
+  // opened from inside one has to live in it to be seen and used.
+  const layer = (anchor instanceof Element && anchor.closest('dialog[open]')) || document.body;
+  layer.append(menu);
   position(menu, anchor, align);
   if (anchor instanceof Element) anchor.setAttribute('aria-expanded', 'true');
   setTimeout(() => {

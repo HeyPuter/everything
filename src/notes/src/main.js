@@ -139,7 +139,7 @@ async function viewShared(url) {
   // Tab stop: arrow keys and Page Down then scroll it.
   editor.scroller.tabIndex = 0;
   const outlines = Array.isArray(data.outlines)
-    ? data.outlines.map((o, i) => ({ id: `s${i}`, x: Number(o.x) || 0, y: Number(o.y) || 0, w: Number(o.w) || null, html: sanitizeHtml(o.html || '') }))
+    ? data.outlines.map((o, i) => ({ id: `s${i}`, x: Number(o?.x) || 0, y: Number(o?.y) || 0, w: Number(o?.w) || null, html: sanitizeHtml(str(o?.html)) }))
     : [{ id: 's0', x: 48, y: 140, w: 760, html: sanitizeHtml(data.html || '') }];
   // Shared ink is untrusted: keep only well-formed numbers and hex colors.
   const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -159,7 +159,15 @@ async function viewShared(url) {
 async function boot() {
   const hash = location.hash;
   if (hash.startsWith('#view=')) {
-    viewShared(decodeURIComponent(hash.slice(6)));
+    let url;
+    try {
+      url = decodeURIComponent(hash.slice(6));
+    } catch {
+      // A link cut short or mangled on the way: not a blank page.
+      errorScreen("This link doesn't work", 'It may have been cut short. Ask the person who shared it to send it again.');
+      return;
+    }
+    viewShared(url);
     return;
   }
   if (import.meta.env.DEV && new URLSearchParams(location.search).has('local')) {
@@ -185,5 +193,20 @@ async function boot() {
   if (env === 'app' || puter.auth.isSignedIn()) begin();
   else signInScreen(begin);
 }
+
+// A shared link pasted into a tab that already shows the app (or a link to
+// the app pasted into a shared page) only changes the hash: the page that
+// is loaded can't show it, so load the one that can.
+window.addEventListener('hashchange', (e) => {
+  const shared = (url) => {
+    try {
+      return new URL(url).hash.startsWith('#view=');
+    } catch {
+      return false;
+    }
+  };
+  const now = location.hash.startsWith('#view=');
+  if (now !== shared(e.oldURL) || (now && e.oldURL !== e.newURL)) location.reload();
+});
 
 boot();

@@ -344,13 +344,25 @@ export class App {
     this.store.on('change', (e) => {
       if (e.type === 'page-title') return;
       this.renderNav();
+      // A section that locks takes its text off the screen everywhere, not
+      // only off the page: the tag summary, an Assist answer and the
+      // reading view may still show it. (Search follows every change.)
+      if (e.type === 'lock') {
+        this.reader?.close();
+        if (!this.taskPanes.el.hidden) this.taskPanes.render();
+      }
+      // The notebook was merged with what another window saved: the open
+      // page or section may be gone, or locked, there.
+      if (e.type === 'merged') this.ensureSelection();
     });
     this.store.on('status', (s) => this.updateSync(s));
     this.store.on('assets-renamed', ({ id, map }) => {
       if (this.editor.page?.id === id) this.editor.renameAssets(map);
     });
     this.store.on('page-replaced', async ({ id }) => {
-      if (id === this.state.pageId) await this.editor.open(await this.store.loadPage(id));
+      if (id !== this.state.pageId) return;
+      await this.editor.open(await this.store.loadPage(id));
+      this.find.refresh();
     });
     this.listen(window, 'beforeunload', (e) => {
       this.editor.flush();
@@ -367,11 +379,18 @@ export class App {
       if (document.visibilityState === 'hidden') {
         this.editor.flush();
         this.store.flush();
-      } else this.refreshFromCloud();
+      } else {
+        this.store.markStale();
+        this.refreshFromCloud();
+      }
     });
     // Switching between visible windows (or Puter app windows) changes
-    // focus, not visibility.
-    this.listen(window, 'focus', () => this.refreshFromCloud());
+    // focus, not visibility. Another window may have saved meanwhile: until
+    // the refresh has looked, a save here merges instead of writing over it.
+    this.listen(window, 'focus', () => {
+      this.store.markStale();
+      this.refreshFromCloud();
+    });
     this.refreshFromCloud = debounce(async () => {
       try {
         if (await this.store.refresh()) this.ensureSelection();
@@ -680,7 +699,10 @@ export class App {
     clearTimeout(this.lockTimer);
     if (!this.store.keys.size) return;
     this.lockTimer = setTimeout(() => {
-      if (this.store.keys.size) this.lockAll();
+      // A recording in progress is use: locking would close the page it
+      // goes on. Ask again in ten minutes.
+      if (this.recorder) this.touchProtected();
+      else if (this.store.keys.size) this.lockAll();
     }, 10 * 60 * 1000);
   }
 
@@ -1016,9 +1038,12 @@ export class App {
   bindEditor() {
     const ed = this.editor;
     ed.on('selection', () => this.updateFormatSoon());
+    const refind = debounce(() => this.find.refresh(), 200);
     ed.on('change', () => {
       this.updateTitle();
       this.updateFormatSoon();
+      // An open Find bar follows the edit instead of pointing at old text.
+      if (!this.find.el.hidden) refind();
     });
     ed.on('insert-failed', ({ file, err }) => toast(`Couldn't insert ${file.name || 'the file'}: ${err?.message || 'upload failed'}`, { kind: 'error' }));
     ed.on('title-input', (title) => {
@@ -1140,6 +1165,8 @@ export class App {
       this.updateFormatState();
     };
     const openList = () => {
+      // The press that closed the open list is not a request to open it again.
+      if (wrap._menuJustClosed) return;
       const items = isName
         ? FONTS.map((f) => ({ label: f.label, radio: true, checked: this.format.fontName === f.label, run: () => apply(f.label) }))
         : SIZES.map((s) => ({ label: String(s), radio: true, checked: this.format.fontSize === s, run: () => apply(s) }));
@@ -1149,6 +1176,8 @@ export class App {
     btn.addEventListener('mousedown', (e) => e.preventDefault());
     btn.addEventListener('click', openList);
     input.addEventListener('keydown', (e) => {
+      // Keys pressed while an input method is composing belong to it.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         apply(input.value);
@@ -1212,6 +1241,8 @@ export class App {
       show();
     };
     input.addEventListener('keydown', (e) => {
+      // Keys pressed while an input method is composing belong to it.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         showNow();
@@ -1330,22 +1361,19 @@ export class App {
       if (navigator.clipboard?.read) {
         const items = await navigator.clipboard.read();
         for (const item of items) {
+          // Everything the item offers goes to the editor's own paste, which
+          // picks the same way as Ctrl+V: copied cells or text come with a
+          // picture of themselves, and the picture is not what was copied.
+          const dt = new DataTransfer();
           const imageType = item.types.find((t) => t.startsWith('image/'));
-          if (imageType) {
-            const blob = await item.getType(imageType);
-            this.editor.restoreRange();
-            await this.editor.insertImage(new File([blob], `pasted.${imageType.split('/')[1]}`, { type: imageType }));
-            return;
-          }
-          if (item.types.includes('text/html') || item.types.includes('text/plain')) {
-            const dt = new DataTransfer();
-            if (item.types.includes('text/html')) dt.setData('text/html', await (await item.getType('text/html')).text());
-            if (item.types.includes('text/plain')) dt.setData('text/plain', await (await item.getType('text/plain')).text());
-            this.editor.restoreRange();
-            const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
-            document.activeElement.dispatchEvent(ev);
-            return;
-          }
+          if (imageType) dt.items.add(new File([await item.getType(imageType)], `pasted.${imageType.split('/')[1]}`, { type: imageType }));
+          if (item.types.includes('text/html')) dt.setData('text/html', await (await item.getType('text/html')).text());
+          if (item.types.includes('text/plain')) dt.setData('text/plain', await (await item.getType('text/plain')).text());
+          if (!dt.items.length) continue;
+          this.editor.restoreRange();
+          const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+          document.activeElement.dispatchEvent(ev);
+          return;
         }
       }
       throw new Error('no clipboard access');
@@ -1400,7 +1428,10 @@ export class App {
   // ------------------------------------------------------------ feature entry points
 
   copyLink(kind, id) {
-    const url = `${location.origin}${location.pathname}${location.search}#${kind}=${id}`;
+    // Without the query string, like the link in the Share dialog: inside
+    // Puter it holds the app window's launch parameters, which are not part
+    // of a link to keep or pass on.
+    const url = `${location.origin}${location.pathname}#${kind}=${id}`;
     navigator.clipboard?.writeText(url).then(() => toast('Link copied'), () => toast("Couldn't copy the link."));
   }
 

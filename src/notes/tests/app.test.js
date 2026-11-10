@@ -428,3 +428,64 @@ describe('App: keyboard and layout regressions', () => {
     expect(document.activeElement.getAttribute('aria-selected')).toBe('true');
   });
 });
+
+describe('App: section passwords', () => {
+  afterEach(() => {
+    closeAllMenus();
+    document.querySelectorAll('dialog').forEach((d) => d.remove());
+    document.querySelector('.toasts')?.replaceChildren();
+    for (const a of mounted) a.destroy();
+    mounted = [];
+  });
+
+  it('does not report a password change that did not happen', async () => {
+    const { passwordDialog } = await import('../src/ui/features.js');
+    const { app, store } = await mount();
+    const section = store.section(app.state.sectionId);
+    await store.protectSection(section.id, 'first one');
+    passwordDialog(app, section);
+    const dialog = document.querySelector('dialog[open]');
+    // The section locks again (ten idle minutes) while the dialog is open.
+    await store.lockSection(section.id);
+    const [a, b] = dialog.querySelectorAll('input');
+    a.value = 'second one';
+    b.value = 'second one';
+    dialog.querySelector('.btn.primary').click();
+    await tick(20);
+    expect(document.querySelector('.toasts')?.textContent || '').not.toContain('Password changed');
+    expect(dialog.isConnected).toBe(true);
+    expect(dialog.querySelector('.field-error').textContent).toContain('locked');
+    expect(await store.unlockSection(section.id, 'second one')).toBe(false);
+    expect(await store.unlockSection(section.id, 'first one')).toBe(true);
+  });
+});
+
+describe('App: locking a section', () => {
+  afterEach(() => {
+    document.querySelectorAll('dialog').forEach((d) => d.remove());
+    document.querySelector('.toasts')?.replaceChildren();
+    for (const a of mounted) a.destroy();
+    mounted = [];
+  });
+
+  it('takes the section\'s text out of the tag summary and the reading view', async () => {
+    const { openReader } = await import('../src/ui/features.js');
+    const { app, store } = await mount();
+    const section = store.section(app.state.sectionId);
+    const page = await store.loadPage(app.state.pageId);
+    page.outlines.push({ id: 'o9', x: 40, y: 200, w: null, html: '<p><span class="nt-tag" data-tag="todo" data-done="false"></span>buy the secret gift</p>' });
+    store.pageChanged(page);
+    await app.editor.open(page);
+    await store.protectSection(section.id, 'pw');
+    app.unlocked.add(section.id);
+    app.taskPanes.toggle('tags');
+    await tick(30);
+    expect(app.taskPanes.el.textContent).toContain('secret gift');
+    openReader(app);
+    expect(document.querySelector('.reader').textContent).toContain('secret gift');
+    await app.lockSection(section.id);
+    await tick(30);
+    expect(document.querySelector('.reader')).toBeNull();
+    expect(app.taskPanes.el.textContent).not.toContain('secret gift');
+  });
+});

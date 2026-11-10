@@ -83,6 +83,27 @@ describe('assist pane', () => {
     expect(button('Replace Selection')).toBeFalsy();
   });
 
+  it('shows the answer to the newest request when an older one arrives late', async () => {
+    await mount();
+    const waiting = [];
+    app.ai = { available: () => true, ask: () => new Promise((resolve) => waiting.push(resolve)) };
+    const body = app.editor.createOutlineAt(100, 200).querySelector('.outline-body');
+    body.innerHTML = '<p>Some text to work on.</p>';
+    body.dispatchEvent(new Event('input', { bubbles: true }));
+    app.runCommand('assist');
+    await new Promise((r) => setTimeout(r, 20));
+    const pane = document.querySelector('.task-pane');
+    const button = (label) => [...pane.querySelectorAll('button')].find((b) => b.textContent.includes(label));
+    button('Summarize').click();
+    button('action items').click();
+    waiting[1]('ACTION ITEMS');
+    await new Promise((r) => setTimeout(r, 0));
+    waiting[0]('SUMMARY');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pane.textContent).toContain('ACTION ITEMS');
+    expect(pane.textContent).not.toContain('SUMMARY');
+  });
+
   it('replaces a triple-clicked paragraph without taking the next paragraph with it', async () => {
     await mount();
     app.ai = { available: () => true, ask: async () => 'Better text.' };
@@ -209,6 +230,77 @@ describe('email page', () => {
   });
 });
 
+describe('read aloud', () => {
+  afterEach(() => {
+    delete window.speechSynthesis;
+    delete globalThis.SpeechSynthesisUtterance;
+    document.querySelector('.reader')?.remove();
+    app?.destroy();
+  });
+
+  it('goes on from the paragraph being read when the voice speed changes', async () => {
+    await mount();
+    const { openReader } = await import('../src/ui/features.js');
+    const page = app.editor.page;
+    page.title = 'Title';
+    page.outlines.push({ id: 'o1', x: 40, y: 140, w: null, html: '<p>para one</p><p>para two</p><p>para three</p>' });
+    await app.editor.open(page);
+    const spoken = [];
+    let current = null;
+    globalThis.SpeechSynthesisUtterance = class {
+      constructor(text) {
+        this.text = text;
+      }
+    };
+    // An engine that reports the end of a cancelled utterance, as some do.
+    window.speechSynthesis = {
+      paused: false,
+      speak(u) {
+        spoken.push(`${u.text}@${u.rate}`);
+        current = u;
+      },
+      cancel() {
+        const u = current;
+        current = null;
+        if (u) setTimeout(() => u.onend?.());
+      },
+    };
+    const finish = () => current.onend();
+    openReader(app);
+    const reader = document.querySelector('.reader');
+    reader.querySelector('.reader-play').click();
+    finish();
+    finish();
+    const rate = reader.querySelector('select[aria-label="Voice speed"]');
+    rate.value = '1.5';
+    rate.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 10));
+    finish();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(spoken).toEqual(['Title@1', 'para one@1', 'para two@1', 'para two@1.5', 'para three@1.5']);
+  });
+});
+
+describe('importing Markdown', () => {
+  it('takes the title from a first-line heading only', async () => {
+    const { markdownTitle } = await import('../src/ui/features.js');
+    expect(markdownTitle('# Trip plan\n\nPack the tent')).toEqual({ title: 'Trip plan', body: '\nPack the tent' });
+    expect(markdownTitle('\n# 2\\*3\n')).toEqual({ title: '2*3', body: '' });
+    for (const text of ['## Agenda\n\ntext\n\n# Appendix\n', '#todo buy milk\n\n# Later\n', 'Intro\n\n# Heading\n']) expect(markdownTitle(text)).toEqual({ title: '', body: text });
+  });
+});
+
+describe('link addresses', () => {
+  it('completes what was typed into a usable link', async () => {
+    const { completeAddress } = await import('../src/ui/features.js');
+    expect(completeAddress('example.com/a')).toBe('https://example.com/a');
+    expect(completeAddress('sam@example.com')).toBe('mailto:sam@example.com');
+    expect(completeAddress('localhost:3000')).toBe('https://localhost:3000');
+    expect(completeAddress('example.com:8080/docs')).toBe('https://example.com:8080/docs');
+    for (const as of ['#page=p1', 'http://a.b', 'mailto:a@b.c', 'tel:5551234', 'javascript:alert(1)']) expect(completeAddress(as)).toBe(as);
+  });
+});
+
 describe('page width', () => {
   const width = Object.getOwnPropertyDescriptor(window, 'innerWidth');
   afterEach(() => {
@@ -224,5 +316,29 @@ describe('page width', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
     app.editor.layout();
     expect(app.editor.pageEl.style.width).toBe('960px');
+  });
+
+  it('wraps an automatic-width note at the edge of a phone screen', async () => {
+    await mount();
+    const editor = app.editor;
+    const el = editor.createOutlineAt(150, 300);
+    Object.defineProperty(editor.scroller, 'clientWidth', { configurable: true, value: 390 });
+    Object.defineProperty(el, 'offsetLeft', { configurable: true, value: 150 });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    editor.layout();
+    expect(el.style.maxWidth).toBe('224px');
+    // The note itself keeps its automatic width.
+    expect(editor.outlineModel(el).w).toBe(null);
+    // Too far right to leave a readable column: left at its full measure.
+    Object.defineProperty(el, 'offsetLeft', { configurable: true, value: 300 });
+    editor.layout();
+    expect(el.style.maxWidth).toBe('');
+    // Wider screens show it at full measure again.
+    Object.defineProperty(el, 'offsetLeft', { configurable: true, value: 150 });
+    editor.layout();
+    expect(el.style.maxWidth).toBe('224px');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    editor.layout();
+    expect(el.style.maxWidth).toBe('');
   });
 });

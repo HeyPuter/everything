@@ -9,11 +9,16 @@ import { TAG_BY_ID } from '../data/tags.js';
 
 // ------------------------------------------------------------ HTML -> Markdown
 
+/** A link destination: in angle brackets when it has a space or a parenthesis, which would end it early. */
+function dest(url) {
+  return /[\s()<>]/.test(url) ? `<${url.replace(/[<>]/g, (c) => encodeURIComponent(c))}>` : url;
+}
+
 function inline(node) {
   let out = '';
   for (const c of node.childNodes) {
     if (c.nodeType === 3) {
-      out += c.nodeValue.replace(/ /g, ' ').replace(/([\\`*_[\]])/g, '\\$1');
+      out += c.nodeValue.replace(/ /g, ' ').replace(/([\\`*_[\]~])/g, '\\$1');
       continue;
     }
     if (c.nodeType !== 1) continue;
@@ -34,11 +39,20 @@ function inline(node) {
     else if (tag === 'I' || tag === 'EM' || /font-style:\s*italic/.test(style)) out += inner.trim() ? `*${inner}*` : inner;
     else if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL' || /line-through/.test(style)) out += inner.trim() ? `~~${inner}~~` : inner;
     else if (tag === 'CODE' || tag === 'KBD') out += `\`${c.textContent}\``;
-    else if (tag === 'A') out += `[${inner}](${c.getAttribute('href') || ''})`;
-    else if (tag === 'IMG') out += `![${c.getAttribute('alt') || ''}](${c.dataset.mdSrc || c.getAttribute('src') || ''})`;
+    else if (tag === 'A') out += `[${inner}](${dest(c.getAttribute('href') || '')})`;
+    else if (tag === 'IMG') out += `![${(c.getAttribute('alt') || '').replace(/([\\\[\]])/g, '\\$1')}](${dest(c.dataset.mdSrc || c.getAttribute('src') || '')})`;
     else out += inner;
   }
   return out;
+}
+
+/**
+ * Escapes what would make a paragraph's line read back as something else:
+ * "2026. A great year" as a numbered list (losing the "2026."), "- x" as a
+ * bullet, "> x" as a quote, "# x" as a heading, "---" as a rule.
+ */
+function plainLines(text) {
+  return text.split('\n').map((l) => l.replace(/^(\s*)(?:(#{1,6}(?=\s))|([-+>])|(\d+)(?=[.)]\s))/, (m, lead, hash, mark, num) => (hash ? `${lead}\\${hash}` : mark ? `${lead}\\${mark}` : `${lead}${num}\\`))).join('\n');
 }
 
 function tagPrefix(block) {
@@ -93,7 +107,7 @@ function blocks(root) {
   let run = [];
   const flush = () => {
     const text = inline({ childNodes: run }).trim();
-    if (text) out.push(text);
+    if (text) out.push(plainLines(text));
     run = [];
   };
   for (const c of root.childNodes) {
@@ -107,7 +121,12 @@ function blocks(root) {
     if (/^H[1-6]$/.test(tag)) out.push(`${'#'.repeat(Number(tag[1]))} ${tagPrefix(c)}${inline(c).trim()}`);
     else if (tag === 'UL' || tag === 'OL') out.push(list(c, 0).join('\n'));
     else if (tag === 'BLOCKQUOTE') out.push(blocks(c).split('\n').map((l) => `> ${l}`).join('\n'));
-    else if (tag === 'PRE') out.push('```\n' + c.textContent.replace(/\n$/, '') + '\n```');
+    else if (tag === 'PRE') {
+      // A fence longer than any run of backticks that starts a line of the code.
+      const code = c.textContent.replace(/\n$/, '');
+      const fence = '`'.repeat(Math.max(3, ...[...code.matchAll(/^`+/gm)].map((m) => m[0].length + 1)));
+      out.push(`${fence}\n${code}\n${fence}`);
+    }
     else if (tag === 'TABLE') out.push(table(c));
     else if (tag === 'HR') out.push('---');
     else if ((tag === 'DIV' || tag === 'FIGURE') && [...c.children].some((k) => BLOCK_TAGS.has(k.tagName))) out.push(blocks(c));
@@ -115,7 +134,7 @@ function blocks(root) {
       const prefix = tagPrefix(c);
       const text = inline(c).trim();
       if (prefix.startsWith('[')) out.push(`- ${prefix}${text}`);
-      else out.push(prefix + text);
+      else out.push(prefix + (prefix ? text : plainLines(text)));
     }
   }
   flush();
@@ -139,17 +158,24 @@ export function inlineMd(s) {
   // Pull out escapes and code spans in one left-to-right pass, so an escaped
   // character never opens formatting and a backslash inside code stays literal.
   const held = [];
-  let t = s.replace(/\\([\\`*_[\]])|`([^`]+)`/g, (_, ch, code) => {
+  let t = s.replace(/\\([\\`*_[\]~#+\-.>)])|`([^`]+)`/g, (_, ch, code) => {
     held.push(ch !== undefined ? esc(ch) : `<code>${esc(code)}</code>`);
     return `\u0000${held.length - 1}\u0000`;
   });
   t = esc(t);
-  t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, src) => `<img alt="${alt}" src="${src}">`);
-  t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text, href) => `<a href="${href}">${text}</a>`);
-  t = t.replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, a, b) => `<b>${a || b}</b>`);
+  // Addresses are held like code spans: "__init__.py" or "/_a" in one is
+  // not emphasis. They may be in angle brackets, or have balanced
+  // parentheses of their own ("Mercury_(planet)").
+  const hold = (html) => `\u0000${held.push(html) - 1}\u0000`;
+  const DEST = '\\((?:&lt;(.+?)&gt;|((?:[^()\\s]|\\([^()\\s]*\\))+))\\)';
+  t = t.replace(new RegExp(`!\\[([^\\]]*)\\]${DEST}`, 'g'), (_, alt, a, b) => hold(`<img alt="${alt}" src="${a ?? b}">`));
+  t = t.replace(new RegExp(`\\[([^\\]]+)\\]${DEST}`, 'g'), (_, text, a, b) => `<a href="${hold(a ?? b)}">${text}</a>`);
+  // Bold may hold italic: "**bold with *italic* inside**".
+  t = t.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*|__([^_]+)__/g, (_, a, b) => `<b>${a || b}</b>`);
   t = t.replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\*)/g, '$1<i>$2</i>').replace(/(^|[^_\w])_([^_\s][^_]*)_(?!_)/g, '$1<i>$2</i>');
   t = t.replace(/~~([^~]+)~~/g, '<s>$1</s>');
-  t = t.replace(/\u0000(\d+)\u0000/g, (_, i) => held[Number(i)]);
+  // Held pieces may hold others (an escaped character inside an address).
+  for (let pass = 0; pass < 4 && t.includes('\u0000'); pass++) t = t.replace(/\u0000(\d+)\u0000/g, (_, i) => held[Number(i)]);
   return t;
 }
 
@@ -166,11 +192,14 @@ export function markdownToHtml(md) {
   };
   while (i < lines.length) {
     const line = lines[i];
-    if (/^```/.test(line)) {
+    const fence = line.match(/^`{3,}/)?.[0];
+    if (fence) {
       closeLists();
       const code = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]);
+      // Closed by a fence at least as long: shorter ones are part of the code.
+      const closes = (l) => l.startsWith(fence) && /^`+\s*$/.test(l);
+      while (i < lines.length && !closes(lines[i])) code.push(lines[i++]);
       i++;
       out.push(`<pre>${esc(code.join('\n'))}</pre>`);
       continue;
@@ -221,16 +250,18 @@ export function markdownToHtml(md) {
         i++;
         continue;
       }
+      // A numbered list keeps the number it starts at.
+      const first = tag === 'ol' && parseInt(item[2], 10) > 1 ? `<ol start="${parseInt(item[2], 10)}"><li>` : `<${tag}><li>`;
       if (listStack.length < depth) {
         while (listStack.length < depth) {
-          out.push(`<${tag}><li>`);
+          out.push(listStack.length === depth - 1 ? first : `<${tag}><li>`);
           listStack.push({ tag });
         }
       } else {
         closeLists(depth);
         if (listStack[depth - 1].tag !== tag) {
           closeLists(depth - 1);
-          out.push(`<${tag}><li>`);
+          out.push(first);
           listStack.push({ tag });
         } else out.push('</li><li>');
       }

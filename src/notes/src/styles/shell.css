@@ -1445,6 +1445,16 @@ puter-user-menu::part(apps-panel) {
     width: 100%;
     box-shadow: none;
   }
+  /* The arrow that folds subpages and groups is the only way to do it by
+     touch: a finger-sized target around the 18px glyph, without moving it. */
+  .row-twisty {
+    position: relative;
+  }
+  .row-twisty::before {
+    content: "";
+    position: absolute;
+    inset: -15px -6px -15px -14px;
+  }
 }
 
 .rb-gallery-fallback {
@@ -1609,4 +1619,26 @@ puter-user-menu::part(apps-panel) {
   .ribbon-panel .rb-split:hover { box-shadow: none; }
   .ribbon-panel .rb-btn[aria-pressed="true"] { border-color: Highlight; }
   .ribbon-panel .rb-btn.big > svg.ico { filter: none; }
+}
+
+/* Forced colors (Windows contrast themes) drop box-shadows and paint every
+   background with the system's: focus rings and selections drawn with them
+   need an outline to show at all. */
+@media (forced-colors: active) {
+  .row[aria-selected="true"],
+  .result[aria-current="true"] {
+    outline: 1px solid Highlight;
+    outline-offset: -1px;
+  }
+  .row:focus-visible,
+  .result:focus-visible,
+  .menu-item:focus,
+  .menu-item:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .ribbon-tab[aria-selected="true"]::after {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
 }

@@ -247,6 +247,9 @@
   --reader-fg: #1d1d1d;
   background: var(--reader-bg);
   color: var(--reader-fg);
+  /* The reader has its own page theme: its controls follow it, not the
+     app's (dark boxes on a light bar when the app is dark, and the reverse). */
+  color-scheme: light;
 }
 .reader[data-theme="sepia"] {
   --reader-bg: #f4ecd8;
@@ -255,6 +258,7 @@
 .reader[data-theme="dark"] {
   --reader-bg: #1c1c1c;
   --reader-fg: #e8e8e8;
+  color-scheme: dark;
 }
 .reader-bar {
   display: flex;
@@ -280,6 +284,12 @@
 .reader-opt .select {
   min-height: 28px;
   padding: 2px 6px;
+  border-color: color-mix(in srgb, var(--reader-fg) 35%, transparent);
+  background-color: color-mix(in srgb, var(--reader-fg) 5%, var(--reader-bg));
+  color: var(--reader-fg);
+}
+.reader-bar .icon-btn:hover {
+  background: color-mix(in srgb, var(--reader-fg) 10%, transparent);
 }
 .reader-scroll {
   flex: 1;

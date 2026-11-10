@@ -92,11 +92,31 @@ export function ensureBlocks(root) {
   }
 }
 
+/**
+ * The block a caret between blocks belongs to. A new or re-entered container
+ * has its caret at (body, n), after its last paragraph, not inside it: the
+ * block before the caret is the one a command there acts on (else the one
+ * after).
+ */
+function blockAtBoundary(container, offset) {
+  if (container.nodeType !== 1) return null;
+  const before = container.childNodes[offset - 1];
+  let node = before || container.childNodes[offset];
+  const end = Boolean(before);
+  while (node?.nodeType === 1 && isBlock(node)) {
+    const inner = end ? node.lastElementChild : node.firstElementChild;
+    if (!inner || !isBlock(inner) || inner.tagName === 'HR') break;
+    node = inner;
+  }
+  if (node?.nodeType !== 1 || !isBlock(node) || ['UL', 'OL', 'TABLE', 'TBODY', 'THEAD', 'TR', 'HR', 'FIGURE'].includes(node.tagName)) return null;
+  return node.matches('div.nt-embed') ? null : node;
+}
+
 /** The blocks touched by a range, in document order. */
 export function blocksInRange(range, root) {
   if (!range || !root.contains(range.commonAncestorContainer)) return [];
   if (range.collapsed) {
-    const b = blockOf(range.startContainer, root);
+    const b = blockOf(range.startContainer, root) || blockAtBoundary(range.startContainer, range.startOffset);
     return b ? [b] : [];
   }
   // Walk the nodes from the start boundary to the end one. Range.intersectsNode

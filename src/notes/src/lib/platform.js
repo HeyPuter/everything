@@ -36,6 +36,10 @@ export function matchShortcut(e, spec) {
     else if (p === 'Alt') want.alt = true;
     else if (p === 'Shift') want.shift = true;
   }
+  // Windows and Linux report AltGr as Ctrl+Alt. AltGr types characters ("@"
+  // and "#" on French keyboards, "ń" and "ł" on Polish ones): it never runs
+  // a Ctrl+Alt shortcut.
+  if (!isMac && e.getModifierState?.('AltGraph')) return false;
   const modDown = isMac ? e.metaKey : e.ctrlKey;
   const ctrlDown = isMac ? e.ctrlKey : false;
   // Off Apple platforms Ctrl is the command key, so "Ctrl+" means "Mod+".

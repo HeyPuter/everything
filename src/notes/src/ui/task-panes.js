@@ -1,6 +1,6 @@
 import { h } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { formatRelative } from '../lib/dates.js';
+import { formatDay } from '../lib/dates.js';
 import { TAG_BY_ID, tagLabel, setTagDoneInHtml, extractTags } from '../data/tags.js';
 import { pageText } from '../data/store.js';
 import { insertHtml } from '../editor/format.js';
@@ -110,7 +110,7 @@ export class TaskPanes {
       tag: (t) => tagLabel(t.tag),
       section: (t) => t.section.name,
       title: (t) => t.meta.title || 'Untitled Page',
-      date: (t) => formatRelative(t.meta.modified || t.meta.created),
+      date: (t) => formatDay(t.meta.modified || t.meta.created),
       text: (t) => (t.text[0] || '#').toUpperCase(),
     }[o.group];
     const groups = new Map();
@@ -120,7 +120,11 @@ export class TaskPanes {
       groups.get(k).push(t);
     }
     const nodes = [];
-    for (const [k, group] of [...groups].sort((a, b) => a[0].localeCompare(b[0]))) {
+    // Days go newest first; their labels ("Today", "Friday", "Sep 30") say
+    // nothing about their order. Everything else is alphabetical.
+    const newest = (group) => Math.max(...group.map((t) => Date.parse(t.meta.modified || t.meta.created) || 0));
+    const order = o.group === 'date' ? (a, b) => newest(b[1]) - newest(a[1]) : (a, b) => a[0].localeCompare(b[0]);
+    for (const [k, group] of [...groups].sort(order)) {
       nodes.push(h('div.group-label', { role: 'presentation' }, `${k} (${group.length})`));
       for (const t of group) nodes.push(this.tagItem(t));
     }
@@ -150,7 +154,14 @@ export class TaskPanes {
   }
 
   async setDone(t, done) {
-    const page = await this.app.store.loadPage(t.meta.id);
+    let page;
+    try {
+      page = await this.app.store.loadPage(t.meta.id);
+    } catch {
+      // Its section locked, or the page is gone, since the list was made.
+      toast("That note can't be opened now. Refresh Results and try again.");
+      return false;
+    }
     if (this.app.state.pageId === page.id) this.app.editor.flush();
     const outline = page.outlines.find((o) => o.id === t.outlineId);
     // The note may have changed since the list was made: find the listed
@@ -252,16 +263,24 @@ export class TaskPanes {
     const outputActions = h('div', { style: { display: 'flex', gap: '6px', margin: '8px 0' }, hidden: true });
     let result = '';
     let lastSelection = null;
+    let latest = null;
     const run = async (prompt, label) => {
+      // Only the newest request's answer is shown: a slower, earlier one
+      // must not replace it (Insert would then put that answer where the
+      // newer request's selection was).
+      const request = (latest = {});
       output.replaceChildren(h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', color: 'var(--text-3)' } }, h('div.spinner'), `${label}...`));
       outputActions.hidden = true;
       try {
-        result = (await app.ai.ask(prompt)).trim();
+        const answer = (await app.ai.ask(prompt)).trim();
+        if (request !== latest) return;
+        result = answer;
         output.textContent = result || 'No answer.';
         // Rewrite and proofread replace the text they were given.
         insert.replaceChildren(icon('plus', 14), lastSelection ? 'Replace Selection' : 'Insert on Page');
         outputActions.hidden = !result;
       } catch (err) {
+        if (request !== latest) return;
         output.textContent = `Assist could not answer: ${err?.message || err?.error?.message || 'request failed'}`;
       }
     };

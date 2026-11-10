@@ -36,7 +36,15 @@ export class KeyTips {
     this.altAlone = false;
     app.listen(document, 'keydown', (e) => this.onKeyDown(e), true);
     app.listen(document, 'keyup', (e) => this.onKeyUp(e), true);
-    app.listen(document, 'pointerdown', () => this.stop(), true);
+    // Alt held for a click, a drag or a wheel zoom is not Alt on its own.
+    const used = () => {
+      this.altAlone = false;
+    };
+    app.listen(document, 'pointerdown', () => {
+      used();
+      this.stop();
+    }, true);
+    app.listen(document, 'wheel', used, { capture: true, passive: true });
     app.listen(window, 'blur', () => {
       this.altAlone = false;
       this.stop();

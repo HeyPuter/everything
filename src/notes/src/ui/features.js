@@ -142,7 +142,10 @@ async function printout(app, file, range) {
     if (range) app.editor.lastRange = range;
     app.editor.restoreRange();
     await app.editor.insertAttachment(file);
-    const sectionId = app.store.findPage(app.editor.page.id)?.section.id;
+    // The pages take a while to draw: if another page is opened meanwhile,
+    // they must not land on it.
+    const target = app.editor.page;
+    const sectionId = app.store.findPage(target.id)?.section.id;
     const images = [];
     for (let i = 1; i <= count; i++) {
       const page = await doc.getPage(i);
@@ -155,9 +158,11 @@ async function printout(app, file, range) {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport, canvas }).promise;
       const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+      if (app.editor.page !== target) throw new Error('its page was closed before it finished');
       const id = await app.store.saveAsset(blob, `printout-${i}.png`, { sectionId });
       images.push(`<p><img data-asset="${id}" alt="${escapeHtml(`Page ${i} of ${file.name}`)}" style="width: 640px"></p>`);
     }
+    if (app.editor.page !== target) throw new Error('its page was closed before it finished');
     const el = app.editor.createOutlineAt(48, app.editor.nextFreeY(), '');
     const body = el.querySelector('.outline-body');
     body.innerHTML = sanitizeHtml(images.join(''));
@@ -224,12 +229,29 @@ export async function insertScreenshot(app) {
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+    if (!blob) throw new Error('the screen could not be captured');
     if (range) app.editor.lastRange = range;
     app.editor.restoreRange();
     await app.editor.insertImage(new File([blob], `Screenshot ${new Date().toLocaleString()}.png`, { type: 'image/png' }), { alt: 'Screenshot' });
+  } catch (err) {
+    toast(`Couldn't insert the screenshot: ${err?.message || 'the screen could not be captured'}`, { kind: 'error' });
   } finally {
     stream.getTracks().forEach((t) => t.stop());
   }
+}
+
+/**
+ * The type to open an attachment as in a new tab, or '' to download it.
+ * The tab shows a blob: URL, which belongs to this app's origin: a file
+ * that can run script there (HTML, SVG, XML) would run it with the app's
+ * access to the account, so only types that can't are shown. Other text
+ * (CSV, Markdown, code) is shown as plain text.
+ */
+export function viewType(type) {
+  const t = String(type).toLowerCase().split(';')[0].trim();
+  if (/^image\/(png|jpeg|gif|webp|bmp|avif|x-icon|vnd\.microsoft\.icon)$/.test(t) || /^(audio|video)\//.test(t) || t === 'application/pdf') return t;
+  if (/^text\//.test(t) && !/html|xml|svg/.test(t)) return 'text/plain;charset=utf-8';
+  return '';
 }
 
 export async function openAttachment(app, data) {
@@ -239,10 +261,10 @@ export async function openAttachment(app, data) {
       toast("This attachment couldn't be found.", { kind: 'error' });
       return;
     }
-    const file = new Blob([blob], { type: data.type || blob.type || 'application/octet-stream' });
+    const view = viewType(data.type || blob.type || '');
+    const file = new Blob([blob], { type: view || data.type || blob.type || 'application/octet-stream' });
     const url = URL.createObjectURL(file);
-    const previewable = /^(image|audio|video|text)\/|application\/pdf/.test(file.type);
-    const a = h('a', { href: url, download: previewable ? null : data.name || 'attachment', target: '_blank', rel: 'noopener' });
+    const a = h('a', { href: url, download: view ? null : data.name || 'attachment', target: '_blank', rel: 'noopener' });
     document.body.append(a);
     a.click();
     a.remove();
@@ -261,16 +283,30 @@ export async function record(app, kind) {
   }
   app.editor.ensureCaret();
   const range = currentRange()?.cloneRange();
+  // Taken before the permission prompt: a second click while it is open
+  // must not start a second recording, whose microphone nothing could stop.
+  const starting = { kind, stop() {} };
+  app.recorder = starting;
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia(kind === 'video' ? { audio: true, video: true } : { audio: true });
   } catch {
+    if (app.recorder === starting) app.recorder = null;
     toast(`Allow ${kind === 'video' ? 'camera and microphone' : 'microphone'} access to record.`, { kind: 'error' });
     return;
   }
   const types = kind === 'video' ? ['video/webm;codecs=vp9,opus', 'video/webm', 'video/mp4'] : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
-  const mimeType = types.find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
-  const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  let mimeType = '';
+  let rec;
+  try {
+    mimeType = types.find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
+    rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  } catch {
+    stream.getTracks().forEach((t) => t.stop());
+    if (app.recorder === starting) app.recorder = null;
+    toast("This browser can't record here.", { kind: 'error' });
+    return;
+  }
   const chunks = [];
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   let started = Date.now();
@@ -302,13 +338,11 @@ export async function record(app, kind) {
       pauseBtn.setAttribute('aria-label', 'Pause recording');
     }
   });
-  stopBtn.addEventListener('click', () => app.recorder.stop());
-  app.recorder = {
-    kind,
-    stop: () => {
-      if (rec.state !== 'inactive') rec.stop();
-    },
+  const stop = () => {
+    if (rec.state !== 'inactive') rec.stop();
   };
+  stopBtn.addEventListener('click', stop);
+  app.recorder = { kind, stop };
   rec.onstop = async () => {
     clearInterval(tick);
     stream.getTracks().forEach((t) => t.stop());
@@ -322,11 +356,15 @@ export async function record(app, kind) {
     const name = `${kind === 'video' ? 'Video' : 'Audio'} recording ${new Date().toLocaleString().replace(/[/:]/g, '-')}.${ext}`;
     if (range) app.editor.lastRange = range;
     app.editor.restoreRange();
+    const file = new File([blob], name, { type });
     try {
-      await app.editor.insertAttachment(new File([blob], name, { type }), kind);
+      await app.editor.insertAttachment(file, kind);
       toast('Recording added to the page');
     } catch (err) {
-      app.reportError(err);
+      // No page to put it on (its section locked, the page was deleted) or
+      // the upload failed: the recording is still worth keeping.
+      console.error(err);
+      toast("Couldn't add the recording to a page.", { kind: 'error', duration: 120000, action: { label: 'Save to device', run: () => download(name, file) } });
     }
   };
   rec.start(1000);
@@ -336,6 +374,18 @@ export async function record(app, kind) {
 }
 
 // ------------------------------------------------------------ links
+
+/**
+ * A typed address as a link: "example.com" gets https://, "sam@example.com"
+ * mailto:. "localhost:3000" and "example.com:8080/docs" are a host and a
+ * port, not a scheme named "localhost".
+ */
+export function completeAddress(href) {
+  if (href.startsWith('#')) return href;
+  if (/^[^\s/:@?#]+:\d{1,5}([/?#]|$)/.test(href) && !/^tel:/i.test(href)) return `https://${href}`;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return href;
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(href) ? `mailto:${href}` : `https://${href}`;
+}
 
 export function linkDialog(app) {
   app.editor.ensureCaret();
@@ -389,7 +439,7 @@ export function linkDialog(app) {
         address.focus();
         return false;
       }
-      if (!href.startsWith('#') && !/^[a-z][a-z0-9+.-]*:/i.test(href)) href = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(href) ? `mailto:${href}` : `https://${href}`;
+      href = completeAddress(href);
       if (!safeUrl(href)) {
         error.textContent = "That address can't be used as a link.";
         address.focus();
@@ -731,15 +781,20 @@ export function openReader(app) {
   };
   const synth = window.speechSynthesis;
   let speaking = false;
+  let reading = 0;
+  let readingAt = 0;
   const playBtn = h('button.reader-play', { type: 'button', 'aria-label': 'Read aloud' }, icon('play', 26));
   const stopSpeech = () => {
+    // Ends this reading for good: a cancelled utterance may still report
+    // its end, which must not read on.
+    reading++;
     synth?.cancel();
     speaking = false;
     playBtn.replaceChildren(icon('play', 26));
     playBtn.setAttribute('aria-label', 'Read aloud');
     if (globalThis.CSS?.highlights) CSS.highlights.delete('nt-read');
   };
-  const speak = () => {
+  const speak = (from = 0) => {
     if (!synth) {
       toast('Read aloud is not available in this browser.');
       return;
@@ -755,12 +810,15 @@ export function openReader(app) {
       return;
     }
     const paras = [...content.children];
-    let i = 0;
+    let i = Number.isInteger(from) ? from : 0;
+    const mine = ++reading;
     speaking = true;
     playBtn.replaceChildren(icon('pause', 26));
     playBtn.setAttribute('aria-label', 'Pause reading');
     const next = () => {
+      if (mine !== reading) return;
       if (!speaking || i >= paras.length) return stopSpeech();
+      readingAt = i;
       const el = paras[i++];
       const text = el.textContent;
       const u = new SpeechSynthesisUtterance(text);
@@ -779,13 +837,15 @@ export function openReader(app) {
     };
     next();
   };
-  playBtn.addEventListener('click', speak);
+  playBtn.addEventListener('click', () => speak());
   const close = () => {
     stopSpeech();
     overlay.remove();
     document.removeEventListener('keydown', onKey, true);
+    app.reader = null;
     app.editor.restoreRange() || app.editor.scroller.focus();
   };
+  app.reader = { close };
   const onKey = (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -831,8 +891,10 @@ export function openReader(app) {
   rateSel.addEventListener('change', () => {
     settings.rate = Number(rateSel.value);
     if (speaking) {
+      // Go on from the paragraph being read, at the new speed.
+      const at = readingAt;
       stopSpeech();
-      speak();
+      speak(at);
     }
     apply();
   });
@@ -1022,6 +1084,17 @@ export async function exportNotebook(app, notebookId) {
   download(`${safeName(nb.name)}.notes.json`, new Blob([JSON.stringify(backup)], { type: 'application/json' }));
 }
 
+/**
+ * A Markdown file's title: its first line when that is a level 1 heading,
+ * which then leaves the body. A file that opens with "## Agenda" or "#todo"
+ * has none (a "# " heading further down is not the page's title).
+ */
+export function markdownTitle(text) {
+  const m = String(text).match(/^\s*#[ \t]+(.+?)[ \t]*(?:\r?\n|$)/);
+  if (!m) return { title: '', body: text };
+  return { title: m[1].replace(/\\([\\`*_[\]~#+\-.>)])/g, '$1').trim(), body: text.slice(m[0].length) };
+}
+
 /** Rebuilds a notebook from a backup with fresh ids so it never collides. */
 export async function importBackup(app, backup) {
   const store = app.store;
@@ -1030,6 +1103,12 @@ export async function importBackup(app, backup) {
     if (!idMap.has(old)) idMap.set(old, uid(prefix));
     return idMap.get(old);
   };
+  // The structure is read first: a file that isn't a notebook backup after
+  // all is refused before anything is uploaded or an empty notebook made.
+  const cloneNodes = (nodes) => nodes.map((n) => (n.type === 'group'
+    ? { ...n, id: fresh(n.id, 'g'), children: cloneNodes(n.children || []) }
+    : { ...n, id: fresh(n.id, 's'), locked: undefined, pages: (n.pages || []).map((p) => ({ ...p, id: fresh(p.id, 'p') })) }));
+  const sections = cloneNodes(backup.notebook.sections || []);
   const assetMap = new Map();
   let failed = 0;
   for (const [oldId, dataUrl] of Object.entries(backup.assets || {})) {
@@ -1049,13 +1128,13 @@ export async function importBackup(app, backup) {
   }
   if (failed) toast(`${failed} ${failed === 1 ? 'picture or file' : 'pictures or files'} couldn't be imported. Check your connection and import the backup again.`, { kind: 'error' });
   const nb = store.createNotebook(store.notebooks.some((n) => n.name === backup.notebook.name) ? `${backup.notebook.name} (imported)` : backup.notebook.name, { color: backup.notebook.color, silent: true });
-  const cloneNodes = (nodes) => nodes.map((n) => (n.type === 'group'
-    ? { ...n, id: fresh(n.id, 'g'), children: cloneNodes(n.children || []) }
-    : { ...n, id: fresh(n.id, 's'), locked: undefined, pages: (n.pages || []).map((p) => ({ ...p, id: fresh(p.id, 'p') })) }));
-  nb.sections = cloneNodes(backup.notebook.sections || []);
+  nb.sections = sections;
   for (const [oldId, page] of Object.entries(backup.pages || {})) {
     const id = fresh(oldId, 'p');
-    const copy = { ...page, id, outlines: (page.outlines || []).map((o) => ({ ...o, html: sanitizeHtml(String(o.html || '').replace(/data-asset="([^"]+)"/g, (m, a) => `data-asset="${assetMap.get(a) || a}"`).replace(/#page=([\w-]+)/g, (m, p) => `#page=${idMap.get(p) || p}`)) })) };
+    // The copy's links go to the copy's pages and sections, and it is not
+    // shared: the read-only link belongs to the page it was made from.
+    const { published, ...rest } = page;
+    const copy = { ...rest, id, outlines: (page.outlines || []).map((o) => ({ ...o, html: sanitizeHtml(String(o.html || '').replace(/data-asset="([^"]+)"/g, (m, a) => `data-asset="${assetMap.get(a) || a}"`).replace(/#(page|section)=([\w-]+)/g, (m, kind, p) => `#${kind}=${idMap.get(p) || p}`)) })) };
     store.pages.set(id, copy);
     store.schedule(`pages/${id}.json`, () => store.pages.get(id), 0);
   }
@@ -1089,11 +1168,9 @@ export function importFiles(app) {
           title = doc.querySelector('title')?.textContent?.trim() || doc.querySelector('h1')?.textContent?.trim() || title;
           html = sanitizeHtml(doc.body?.innerHTML || '');
         } else if (/\.(md|markdown)$/i.test(file.name)) {
-          const m = text.match(/^#\s+(.+)$/m);
-          if (m && text.trimStart().startsWith('#')) {
-            title = m[1].trim();
-            html = markdownToHtml(text.replace(/^\s*#\s+.+\n?/, ''));
-          } else html = markdownToHtml(text);
+          const { title: heading, body } = markdownTitle(text);
+          if (heading) title = heading;
+          html = markdownToHtml(body);
         } else html = sanitizeHtml(textToHtml(text));
         if (!app.store.section(app.state.sectionId)) app.newSection();
         const meta = app.store.createPage(app.state.sectionId, { title, outlines: [{ id: uid('o'), x: 48, y: 140, w: 720, html }] });
@@ -1324,7 +1401,8 @@ export function passwordDialog(app, section) {
     actions.push({ label: 'Remove Password', run: async () => {
       if (!(await confirmDialog({ title: 'Remove password?', message: `"${section.name}" will no longer be encrypted. Anyone signed in to your account will be able to read it.`, okLabel: 'Remove' }))) return false;
       try {
-        await store.unprotectSection(section.id);
+        // False: the section locked again while this dialog was open.
+        if (!(await store.unprotectSection(section.id))) throw new Error('the section is locked. Unlock it and try again.');
       } catch (err) {
         error.textContent = `Couldn't remove the password: ${err.message}`;
         return false;
@@ -1353,7 +1431,7 @@ export function passwordDialog(app, section) {
       btn.disabled = true;
       app.editor.flush();
       try {
-        await store.protectSection(section.id, a);
+        if (!(await store.protectSection(section.id, a))) throw new Error('the section is locked. Unlock it and try again.');
       } catch (err) {
         error.textContent = `Couldn't protect the section: ${err.message}`;
         btn.disabled = false;
@@ -1370,7 +1448,7 @@ export function passwordDialog(app, section) {
     title: isNew ? 'Password Protection' : 'Change Password',
     width: 420,
     body: h('div',
-      h('p.dialog-message', isNew ? `Pages in "${section.name}" will be encrypted with this password. They lock again after 10 minutes without use, or with Lock All.` : `Change the password for "${section.name}", or remove it.`),
+      h('p.dialog-message', isNew ? `Pages in "${section.name}" will be encrypted with this password. They lock again after 10 minutes without use, or with Lock All. Read-only links to its pages stop working.` : `Change the password for "${section.name}", or remove it.`),
       first.field,
       second.field,
       error,

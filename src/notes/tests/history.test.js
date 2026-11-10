@@ -119,6 +119,113 @@ describe('PageEditor undo', () => {
   });
 });
 
+describe('PageEditor arrow-key moves', () => {
+  it('records a move with the page it was made on', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const saved = [];
+    const ed = new PageEditor({ store: { pageChanged: (page) => saved.push(page.id), assetUrl: async () => null }, host });
+    const page = (id) => ({ id, title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>a</p>' }], ink: [] });
+    const p1 = page('p1');
+    await ed.open(p1);
+    ed.selectOutlines([ed.outlineEl('o1')]);
+    ed.scroller.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    // Switching pages before the move's own delay has passed still saves it.
+    await ed.open(page('p2'));
+    expect(p1.outlines[0].x).toBe(50);
+    expect(saved).toEqual(['p1']);
+    await new Promise((r) => setTimeout(r, 450));
+    expect(saved).toEqual(['p1']);
+    ed.destroy();
+    host.remove();
+  });
+
+  it('undoes a move made just before', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>a</p>' }], ink: [] });
+    ed.selectOutlines([ed.outlineEl('o1')]);
+    ed.scroller.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    expect(await ed.undo()).toBe(true);
+    expect(ed.page.outlines[0].x).toBe(40);
+    expect(await ed.redo()).toBe(true);
+    expect(ed.page.outlines[0].x).toBe(50);
+    ed.destroy();
+    host.remove();
+  });
+});
+
+describe('PageEditor undo with a selected container', () => {
+  it('keeps the selection on the rebuilt container', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>a</p>' }], ink: [] });
+    const key = (k) => ed.scroller.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    ed.selectOutlines([ed.outlineEl('o1')]);
+    key('ArrowRight');
+    ed.flush();
+    expect(ed.page.outlines[0].x).toBe(50);
+    await ed.undo();
+    const live = ed.outlineEl('o1');
+    expect([...ed.selectedOutlines]).toEqual([live]);
+    expect(live.classList.contains('selected')).toBe(true);
+    // The keys act on what is on screen, not on a detached element.
+    key('ArrowRight');
+    expect(live.style.left).toBe('50px');
+    key('Delete');
+    expect(ed.page.outlines).toHaveLength(0);
+    expect(host.querySelectorAll('.outline')).toHaveLength(0);
+    ed.destroy();
+    host.remove();
+  });
+});
+
+describe('PageEditor Escape in an empty container', () => {
+  it('does not select a container that is about to be removed', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [], ink: [] });
+    const el = ed.createOutlineAt(100, 200);
+    el.querySelector('.outline-body').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(el.isConnected).toBe(false);
+    expect(ed.selectedOutlines.size).toBe(0);
+    // An arrow key afterwards has nothing to move, and does not throw.
+    ed.scroller.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    ed.destroy();
+    host.remove();
+  });
+});
+
+describe('PageEditor keys on the page header', () => {
+  it('leaves Enter and Delete on the date button alone while a container is selected', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>a</p>' }], ink: [] });
+    ed.selectOutlines([ed.outlineEl('o1')]);
+    ed.dateBtn.focus();
+    for (const key of ['Enter', 'Delete', 'ArrowRight']) {
+      const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      ed.dateBtn.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(false);
+    }
+    expect(document.activeElement).toBe(ed.dateBtn);
+    expect(ed.page.outlines).toHaveLength(1);
+    expect(ed.page.outlines[0].x).toBe(40);
+    ed.destroy();
+    host.remove();
+  });
+});
+
 describe('PageEditor undo selection', () => {
   it('puts back the selection a formatting change started from', async () => {
     const { PageEditor } = await import('../src/editor/page-editor.js');
@@ -148,6 +255,65 @@ describe('PageEditor undo selection', () => {
     await ed.undo();
     expect(host.querySelector('.outline-body').innerHTML).toBe('<p>alpha beta gamma</p>');
     expect(document.getSelection().toString()).toBe('beta');
+    ed.destroy();
+    host.remove();
+  });
+});
+
+describe('PageEditor undo steps', () => {
+  it('keeps the typing before a deleted selection as its own step', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>alpha</p>' }], ink: [] });
+    const bodyEl = host.querySelector('.outline-body');
+    bodyEl.focus();
+    const text = bodyEl.querySelector('p').firstChild;
+    const sel = document.getSelection();
+    // Typing, still inside its burst...
+    text.nodeValue = 'alpha beta';
+    sel.setBaseAndExtent(text, 10, text, 10);
+    bodyEl.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'a' }));
+    expect(ed.history.stack.length).toBe(1);
+    // ...then everything is selected and deleted at once.
+    sel.selectAllChildren(bodyEl);
+    bodyEl.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'deleteContentBackward' }));
+    expect(ed.history.stack.length).toBe(2);
+    bodyEl.innerHTML = '<p><br></p>';
+    bodyEl.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+    ed.commit();
+    expect(ed.history.stack.length).toBe(3);
+    await ed.undo();
+    expect(host.querySelector('.outline-body').innerHTML).toBe('<p>alpha beta</p>');
+    // Redoing the typing leaves the caret where the typing did, not the later selection.
+    await ed.undo();
+    await ed.redo();
+    expect(sel.isCollapsed).toBe(true);
+    expect(sel.getRangeAt(0).startOffset).toBe(10);
+    ed.destroy();
+    host.remove();
+  });
+
+  it('keeps a burst of plain typing and backspacing as one step', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>alpha</p>' }], ink: [] });
+    const bodyEl = host.querySelector('.outline-body');
+    bodyEl.focus();
+    const text = bodyEl.querySelector('p').firstChild;
+    const sel = document.getSelection();
+    for (const [value, inputType] of [['alphab', 'insertText'], ['alpha', 'deleteContentBackward'], ['alphac', 'insertText']]) {
+      sel.setBaseAndExtent(text, text.length, text, text.length);
+      bodyEl.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType }));
+      text.nodeValue = value;
+      bodyEl.dispatchEvent(new InputEvent('input', { bubbles: true, inputType }));
+    }
+    expect(ed.history.stack.length).toBe(1);
+    ed.commit();
+    expect(ed.history.stack.length).toBe(2);
     ed.destroy();
     host.remove();
   });
