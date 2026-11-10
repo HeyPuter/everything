@@ -854,3 +854,29 @@ describe('parseDxf: draw order', () => {
     expect(front.entities[3].orderGroup).not.toBe(front.entities[4].orderGroup);
   });
 });
+
+describe('parseDxf: stray blank lines', () => {
+  const line = (x) => [0, 'LINE', 8, '0', 10, x, 20, 0, 11, x + 1, 21, 1];
+  const text = dxf([...line(1), ...line(5)]);
+  // put the stray line where the group code of the second LINE belongs
+  const cut = text.indexOf('  0\r\nLINE', 40);
+
+  for (const [what, stray] of [
+    ['an empty line', '\r\n'],
+    ['a line of spaces', '   \r\n'],
+    ['a line with a tab', '\t\r\n'],
+  ]) {
+    it(`reads on past ${what} between two groups`, () => {
+      const { drawing, warnings } = parseDxf(text.slice(0, cut) + stray + text.slice(cut));
+      expect(drawing.entities.map((e) => e.x1)).toEqual([1, 5]);
+      expect(warnings).toEqual([]);
+    });
+  }
+
+  it('still stops at a group code that is not a number', () => {
+    const { drawing, warnings } = parseDxf(text.slice(0, cut) + ' - \r\n' + text.slice(cut));
+    // the record that was being read may be incomplete, so it is not kept either
+    expect(drawing.entities).toEqual([]);
+    expect(warnings.join(' ')).toMatch(/Malformed group code/);
+  });
+});

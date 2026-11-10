@@ -344,8 +344,8 @@ class Tokenizer {
         i++;
       }
       if (i >= end) {
-        if (end === this.pos && e < len) {
-          // tolerate a blank line between groups
+        if (!neg && e < len) {
+          // tolerate a blank line between groups (empty, or only spaces and tabs)
           this.pos = e + 1;
           this.line++;
           continue;
