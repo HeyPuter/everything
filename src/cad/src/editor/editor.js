@@ -1317,6 +1317,13 @@ export class Editor {
     const b = this.doc.index.extents((id) => this.drawing.layerVisible(this.drawing.get(id)?.layer));
     if (!b) {
       this.camera.fit(-10, -10, 290, 200);
+    } else if (b[2] - b[0] <= 0 && b[3] - b[1] <= 0) {
+      // A single point has no size to fit (it would zoom in as far as the
+      // view goes): centre it at the current zoom.
+      const c = this.camera;
+      const ins = this.ui.viewInsets?.();
+      c.cx = b[0] - (ins ? (ins.left - ins.right) / (2 * c.scale) : 0);
+      c.cy = b[1] + (ins ? (ins.top - ins.bottom) / (2 * c.scale) : 0);
     } else {
       const pad = Math.max(b[2] - b[0], b[3] - b[1]) * 0.02;
       this.fitView(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad, 24);

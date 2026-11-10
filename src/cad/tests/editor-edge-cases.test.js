@@ -513,3 +513,25 @@ describe('BREAK', () => {
     ]);
   });
 });
+
+describe('zoom extents', () => {
+  it('centres a drawing that is a single point instead of zooming in all the way', () => {
+    add({ type: 'point', x: 5, y: 7 });
+    t.ed.zoomExtents();
+    expect(t.ed.camera.state).toEqual({ cx: 5, cy: 7, scale: 4 });
+    // Clear of the floating command line and navigation bar, like any extents.
+    t.ed.ui.viewInsets = () => ({ top: 0, right: 40, bottom: 80, left: 0 });
+    t.ed.zoomExtents();
+    const s = t.ed.camera.toScreen(5, 7);
+    expect(s.x).toBeCloseTo((1000 - 40) / 2);
+    expect(s.y).toBeCloseTo((800 - 80) / 2);
+    expect(t.ed.camera.scale).toBe(4);
+  });
+
+  it('still fits a drawing with a size', () => {
+    add({ type: 'line', x1: 0, y1: 5, x2: 100, y2: 5 });
+    t.ed.zoomExtents();
+    expect(t.ed.camera.scale).toBeGreaterThan(8);
+    expect(t.ed.camera.scale).toBeLessThan(10);
+  });
+});
