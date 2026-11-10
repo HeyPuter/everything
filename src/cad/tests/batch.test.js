@@ -212,3 +212,53 @@ describe('Batch', () => {
     });
   });
 });
+
+describe('Batch fills reaching far beyond the view', () => {
+  const style = { rgb: [255, 0, 0], alpha: 1 };
+  const verts = (b) => {
+    const out = [];
+    for (let i = 0; i < b.vertCount; i++) out.push([b.triF[i * TRI_FLOATS] + b.triF[i * TRI_FLOATS + 2], b.triF[i * TRI_FLOATS + 1] + b.triF[i * TRI_FLOATS + 3]]);
+    return out;
+  };
+  const area = (v) => {
+    let s = 0;
+    for (let i = 0; i < v.length; i += 3) {
+      s += Math.abs((v[i + 1][0] - v[i][0]) * (v[i + 2][1] - v[i][1]) - (v[i + 2][0] - v[i][0]) * (v[i + 1][1] - v[i][1])) / 2;
+    }
+    return s;
+  };
+
+  it('cuts their triangles to the clip box', () => {
+    const b = new Batch(() => 0);
+    b.longLen = 1000;
+    b.box = [-500, -500, 500, 500];
+    // a slanted band a million units long through the box, and a small fill beside it
+    b.fill([[-1e6, -5e5 - 10, 1e6, 5e5 - 10, 1e6, 5e5 + 10, -1e6, -5e5 + 10]], style);
+    b.fill([[0, 100, 10, 100, 10, 110, 0, 110]], style);
+    expect(b.clipped).toBe(true);
+    const v = verts(b);
+    expect(v.length % 3).toBe(0);
+    for (const [x, y] of v) {
+      expect(Math.abs(x)).toBeLessThanOrEqual(500);
+      expect(Math.abs(y)).toBeLessThanOrEqual(500);
+    }
+    // the band is 20 high over the 1000 wide box, plus the 10 x 10 square
+    expect(area(v)).toBeCloseTo(20 * 1000 + 100, 6);
+    // the whole polygon still counts for the bounds
+    expect(b.bounds).toEqual([-1e6, -5e5 - 10, 1e6, 5e5 + 10]);
+  });
+
+  it('drops triangles wholly outside the box and leaves ordinary fills alone', () => {
+    const b = new Batch(() => 0);
+    b.longLen = 1000;
+    b.box = [-500, -500, 500, 500];
+    b.fill([[5000, 5000, 9000, 5000, 9000, 9000]], style);
+    expect(b.vertCount).toBe(0);
+    expect(b.clipped).toBe(true);
+    b.reset();
+    b.fill([[0, 0, 10, 0, 10, 10, 0, 10]], style);
+    expect(b.clipped).toBe(false);
+    expect(b.vertCount).toBe(6);
+    expect(area(verts(b))).toBeCloseTo(100, 9);
+  });
+});

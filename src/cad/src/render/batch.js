@@ -103,6 +103,36 @@ function clipSeg(x1, y1, x2, y2, box) {
   return true;
 }
 
+/** The part of triangle a, b, c inside box [minX, minY, maxX, maxY], as a flat convex polygon (may be empty). */
+function clipTri(ax, ay, bx, by, cx, cy, box) {
+  let poly = [ax, ay, bx, by, cx, cy];
+  for (let e = 0; e < 4 && poly.length >= 6; e++) {
+    const axis = e & 1,
+      lim = box[e],
+      keepAbove = e < 2;
+    const out = [];
+    const n = poly.length >> 1;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const px = poly[2 * i],
+        py = poly[2 * i + 1],
+        qx = poly[2 * j],
+        qy = poly[2 * j + 1];
+      const pv = axis ? py : px,
+        qv = axis ? qy : qx;
+      const pin = keepAbove ? pv >= lim : pv <= lim,
+        qin = keepAbove ? qv >= lim : qv <= lim;
+      if (pin) out.push(px, py);
+      if (pin !== qin) {
+        const t = (lim - pv) / (qv - pv);
+        out.push(axis ? px + t * (qx - px) : lim, axis ? lim : py + t * (qy - py));
+      }
+    }
+    poly = out;
+  }
+  return poly;
+}
+
 /** Grown buffers are kept this long after a build last needed them (ms). */
 const KEEP_GROWN_MS = 10000;
 
@@ -424,17 +454,34 @@ export class Batch {
     }
     const idx = earcut(flat, holes.length ? holes : null, 2);
     if (!idx.length) return;
-    this._growTri(idx.length);
-    const F = this.triF,
-      U = this.triU;
+    // Bounds of the polygon: also tells whether any triangle can be too long.
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    for (let i = 0; i < total; i += 2) {
+      const x = flat[i],
+        y = flat[i + 1];
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    if (x0 < this.minX) this.minX = x0;
+    if (x1 > this.maxX) this.maxX = x1;
+    if (y0 < this.minY) this.minY = y0;
+    if (y1 > this.maxY) this.maxY = y1;
     const rgb = style.rgb;
     const a = Math.round(255 * (style.alpha ?? 1) * this.alphaScale);
     if (a < 255) this.translucent = true;
     const band = this.band;
+    const long = x1 - x0 + (y1 - y0) > this.longLen;
+    this._growTri(idx.length);
+    let F = this.triF,
+      U = this.triU;
     let o = this.vertCount * TRI_FLOATS;
-    for (let i = 0; i < idx.length; i++) {
-      const x = flat[idx[i] * 2],
-        y = flat[idx[i] * 2 + 1];
+    let count = 0;
+    const put = (x, y) => {
       const xh = fround(x),
         yh = fround(y);
       F[o] = xh;
@@ -447,10 +494,62 @@ export class Batch {
       U[b + 2] = rgb[2];
       U[b + 3] = a;
       F[o + 5] = band;
-      this._bound(x, y);
       o += TRI_FLOATS;
+      count++;
+    };
+    if (!long) {
+      for (let i = 0; i < idx.length; i++) {
+        const x = flat[idx[i] * 2],
+          y = flat[idx[i] * 2 + 1];
+        const xh = fround(x),
+          yh = fround(y);
+        F[o] = xh;
+        F[o + 1] = yh;
+        F[o + 2] = x - xh;
+        F[o + 3] = y - yh;
+        const b = (o + 4) * 4;
+        U[b] = rgb[0];
+        U[b + 1] = rgb[1];
+        U[b + 2] = rgb[2];
+        U[b + 3] = a;
+        F[o + 5] = band;
+        o += TRI_FLOATS;
+      }
+      this.vertCount += idx.length;
+      return;
     }
-    this.vertCount += idx.length;
+    for (let i = 0; i < idx.length; i += 3) {
+      const ax = flat[idx[i] * 2],
+        ay = flat[idx[i] * 2 + 1],
+        bx = flat[idx[i + 1] * 2],
+        by = flat[idx[i + 1] * 2 + 1],
+        cx = flat[idx[i + 2] * 2],
+        cy = flat[idx[i + 2] * 2 + 1];
+      // Triangles reaching far beyond the view are cut to the box, as long
+      // segments are in line(): their far corners cannot be placed exactly.
+      if (Math.max(ax, bx, cx) - Math.min(ax, bx, cx) + Math.max(ay, by, cy) - Math.min(ay, by, cy) > this.longLen) {
+        this.clipped = true;
+        const poly = clipTri(ax, ay, bx, by, cx, cy, this.box);
+        const n = poly.length >> 1;
+        if (n < 3) continue;
+        // A cut triangle has up to seven corners: more vertices than it had.
+        this.vertCount += count;
+        count = 0;
+        this._growTri((n - 2) * 3 + (idx.length - i));
+        F = this.triF;
+        U = this.triU;
+        for (let k = 1; k + 1 < n; k++) {
+          put(poly[0], poly[1]);
+          put(poly[2 * k], poly[2 * k + 1]);
+          put(poly[2 * k + 2], poly[2 * k + 3]);
+        }
+        continue;
+      }
+      put(ax, ay);
+      put(bx, by);
+      put(cx, cy);
+    }
+    this.vertCount += count;
   }
 
   get bounds() {
