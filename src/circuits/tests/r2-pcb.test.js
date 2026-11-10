@@ -76,3 +76,40 @@ describe('routing a trace without a net', () => {
     expect(ed.tool.trace).toBeNull();
   });
 });
+
+describe('starting a trace', () => {
+  it('routes on copper when the current layer is silkscreen', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    ed.setActiveLayer('topOverlay');
+    ed.startTool('route');
+    const p = padOf(ed, 'U1', '1');
+    ed.tool.click(ev(p.x, p.y));
+    expect(ed.tool.trace.layer).toBe('top');
+    expect(ed.tool.trace.net).toBe('GND');
+    ed.tool.click(ev(p.x - mm(3), p.y));
+    expect(tracks(ed).map((t) => [t.layer, t.net])).toEqual([['top', 'GND']]);
+  });
+
+  it('starts on the layer of a surface-mount pad on the other side', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const r1 = [...ed.doc.items()].find((o) => o.designator === 'R1');
+    ed.setSelection([r1.id]);
+    ed.flipSelection();
+    const p = padOf(ed, 'R1', '1');
+    expect(p.side).toBe('bottom');
+    ed.startTool('route');
+    ed.tool.click(ev(p.x, p.y));
+    expect(ed.tool.trace.net).toBe('DIS');
+    expect(ed.tool.trace.layer).toBe('bottom');
+    expect(ed.activeLayer).toBe('bottom');
+    ed.tool.finish();
+    // A pad on a hidden layer is not picked up.
+    ed.setActiveLayer('top');
+    ed.setLayerVisible('bottom', false);
+    ed.tool.click(ev(p.x, p.y));
+    expect(ed.tool.trace.net).toBe('');
+    expect(ed.tool.trace.layer).toBe('top');
+  });
+});

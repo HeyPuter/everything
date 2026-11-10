@@ -62,7 +62,14 @@ export class RouteTool {
 
   _start(ev) {
     const ed = this.editor;
-    const hit = ed.copperAt(ev.rawX, ev.rawY, ed.activeLayer);
+    // Tracks are copper: from a silkscreen or mechanical layer, route on that side's copper.
+    if (!isCopper(ed.activeLayer)) ed.setActiveLayer(LAYERS[ed.activeLayer].side === 'bottom' ? 'bottom' : 'top');
+    let hit = ed.copperAt(ev.rawX, ev.rawY, ed.activeLayer);
+    if (!hit) {
+      // Nothing on the current layer: a pad on another visible layer starts the trace there.
+      const other = ed.copperAt(ev.rawX, ev.rawY, null);
+      if (other?.isPad && ed.isLayerVisible(other.layers[0])) hit = other;
+    }
     let x = ev.x, y = ev.y, net = '';
     if (hit) {
       net = hit.net || '';
