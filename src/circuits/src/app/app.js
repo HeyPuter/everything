@@ -569,6 +569,8 @@ export class App extends Emitter {
   setProject(project, location) {
     this._disposeEditors();
     this._unsubProject?.();
+    // Check results belong to the project they were run on.
+    this.panels.messages.set([], '');
     this.project = project;
     this.location = location;
     this.saveState = project.dirty ? 'dirty' : 'saved';
@@ -882,10 +884,12 @@ export class App extends Emitter {
     this._unsubProject?.();
     this.project = null;
     this.location = null;
+    this.panels.messages.set([], '');
     try { localStorage.removeItem(LAST_KEY); } catch { /* storage unavailable */ }
     this.showStart();
     this.panels.projects.refresh();
     this.updateTitle();
+    this.updateStatus();
     this.emit('project', null);
   }
 
