@@ -5,6 +5,7 @@ import { setPuterForTests } from '../src/app/puter.js';
 import * as storage from '../src/app/storage.js';
 import { LibDoc, LibEditor } from '../src/editors/lib-editor.js';
 import { findComponent } from '../src/model/library/builtin.js';
+import { shareDialog } from '../src/app/share.js';
 import { UserLibrary } from '../src/app/user-library.js';
 import { App } from '../src/app/app.js';
 import { Project, newProjectData } from '../src/model/project.js';
@@ -659,5 +660,63 @@ describe('long lists that are cut short', () => {
     panel.query = 'n200';
     panel.render();
     expect(panel.list.lastElementChild.querySelector('.list-row')).toBeTruthy();
+  });
+});
+
+describe('share dialog', () => {
+  /** A signed-in cloud whose share calls the test answers by hand. */
+  function shareCloud() {
+    const pending = [];
+    const shares = [];
+    const state = { pending, shares, failShare: false };
+    const fs = {
+      getShares: () => new Promise((resolve) => pending.push(() => resolve(shares.slice()))),
+      share: async (path, who, mode) => {
+        if (state.failShare) throw new Error('No permission to share');
+        const holder = who.username || who.email;
+        const had = shares.find((s) => s.holder === holder);
+        if (had) had.mode = mode;
+        else shares.push({ holder, mode });
+        return [{ isNew: !had }];
+      },
+      unshare: async () => {},
+    };
+    setPuterForTests({ env: 'web', auth: { isSignedIn: () => true }, fs });
+    return state;
+  }
+  const open = () => {
+    document.body.innerHTML = '';
+    const app = {
+      location: { type: 'cloud', path: 'Projects/P.circuits' },
+      project: { dirty: false, name: 'P' },
+      toast: () => {},
+    };
+    shareDialog(app);
+    return document.querySelector('.dialog');
+  };
+  const close = (dialog) => dialog.querySelector('[aria-label="Close dialog"]').click();
+
+  afterEach(() => {
+    setPuterForTests(null);
+    document.body.innerHTML = '';
+  });
+
+  it('lists the people once when sharing before the first list arrived', async () => {
+    const cloud = shareCloud();
+    const dialog = open();
+    await tick();
+    dialog.querySelector('input').value = 'grace';
+    dialog.querySelector('.btn.primary').click();
+    await tick();
+    expect(cloud.pending.length).toBe(2);
+    // The answers arrive, the older request last.
+    cloud.pending[1]();
+    await tick();
+    cloud.pending[0]();
+    await tick();
+    expect(dialog.querySelectorAll('table').length).toBe(1);
+    expect(dialog.querySelectorAll('tbody tr').length).toBe(1);
+    expect(dialog.textContent).not.toContain('Not shared with anyone yet');
+    close(dialog);
   });
 });

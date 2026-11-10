@@ -22,10 +22,15 @@ export async function shareDialog(app) {
   const status = h('div.small', { role: 'status', style: { minHeight: '18px', marginTop: '6px' } });
   const list = h('div');
 
+  let listing = 0;
   const render = async () => {
-    clear(list);
+    // Lists can overlap (sharing while the first is on its way): only the
+    // last one asked for is shown, or the people would be listed twice.
+    const mine = ++listing;
     let shares = [];
     try { shares = await fs.getShares(loc.path); } catch { shares = []; }
+    if (mine !== listing) return;
+    clear(list);
     if (!shares?.length) { list.append(h('p.muted', 'Not shared with anyone yet.')); return; }
     const rows = shares.map((s) => {
       const holder = typeof s.holder === 'string' ? s.holder : s.holder?.username || s.holder?.email || '';
