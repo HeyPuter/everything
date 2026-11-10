@@ -440,3 +440,74 @@ describe('asset ids', () => {
     expect(sanitizeHtml('<img data-asset="../notebooks/x.json">')).not.toContain('../');
   });
 });
+
+describe('password-protected sections: a change that fails halfway', () => {
+  /** Two pages with a picture each in a protected, unlocked section. */
+  async function withPictures() {
+    const { backend, store, section, meta } = await setup();
+    const second = store.createPage(section.id, { title: 'Second', outlines: [{ id: 'o', x: 0, y: 0, html: '<p>more</p>' }] });
+    await store.protectSection(section.id, 'pw1');
+    for (const m of [meta, second]) {
+      const page = await store.loadPage(m.id);
+      const asset = await store.saveAsset(new Blob([`png of ${m.id}`], { type: 'image/png' }), 'a.png', { sectionId: section.id });
+      page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+      store.pageChanged(page);
+    }
+    await store.flush();
+    return { backend, store, section, metas: [meta, second] };
+  }
+
+  /** Makes the n-th asset read from now on fail, once. */
+  function failAssetRead(backend, n) {
+    const readBlob = backend.readBlob;
+    let seen = 0;
+    backend.readBlob = async (path) => {
+      if (path.startsWith('assets/') && ++seen === n) throw new Error('network');
+      return readBlob(path);
+    };
+    return () => (backend.readBlob = readBlob);
+  }
+
+  async function expectReadable(backend, section, password, metas) {
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    if (password) expect(await fresh.unlockSection(section.id, password)).toBe(true);
+    for (const m of metas) {
+      const page = await fresh.loadPage(m.id);
+      const img = page.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+      expect(await (await fresh.assetBlob(img)).text()).toBe(`png of ${m.id}`);
+    }
+    return fresh;
+  }
+
+  it('keeps the old password working when a file cannot be read during a password change', async () => {
+    const { backend, store, section, metas } = await withPictures();
+    const heal = failAssetRead(backend, 2);
+    await expect(store.protectSection(section.id, 'pw2')).rejects.toThrow('network');
+    heal();
+    // Something else saves the section afterwards.
+    store.renameNode(section.id, 'Diary 2');
+    await store.flush();
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(await fresh.unlockSection(section.id, 'pw2')).toBe(false);
+    await expectReadable(backend, section, 'pw1', metas);
+    // Trying again works, and nothing is left under the first password.
+    expect(await store.protectSection(section.id, 'pw2')).toBe(true);
+    await expectReadable(backend, section, 'pw2', metas);
+  });
+
+  it('keeps the section protected and readable when a file cannot be read while removing the password', async () => {
+    const { backend, store, section, metas } = await withPictures();
+    const heal = failAssetRead(backend, 2);
+    await expect(store.unprotectSection(section.id)).rejects.toThrow('network');
+    heal();
+    store.renameNode(section.id, 'Diary 2');
+    await store.flush();
+    expect(store.section(section.id).locked).toBeTruthy();
+    await expectReadable(backend, section, 'pw1', metas);
+    expect(await store.unprotectSection(section.id)).toBe(true);
+    await expectReadable(backend, section, null, metas);
+    expect(allText(backend)).toContain('treasure');
+  });
+});

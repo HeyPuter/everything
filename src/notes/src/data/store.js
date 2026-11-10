@@ -1016,31 +1016,60 @@ export class Store extends Emitter {
     const pages = await Promise.all(f.node.pages.map((m) => this.loadPage(m.id)));
     const { lock, key } = await createLock(password);
     const oldKey = this.keys.get(id);
+    const oldLock = f.node.locked;
     f.node.locked = lock;
     delete f.node.sealed;
     this.keys.set(id, key);
-    if (oldKey) {
-      // Deleted pages of this section move to the new key too.
-      for (const entry of this.trash) {
-        if (entry.kind !== 'page' || entry.lockedSection !== id) continue;
-        if (entry.sealedPages) {
-          entry.pages = await openJSON(oldKey, entry.sealedPages).catch(() => entry.pages);
-          delete entry.sealedPages;
+    // Every page and file has to move to the new key, or none: a read or
+    // write that fails halfway (the connection drops) must not leave some of
+    // them under a key that the saved section no longer has. `log` is what
+    // was re-saved so far, to put back.
+    const log = [];
+    const trashed = [];
+    try {
+      if (oldKey) {
+        // Deleted pages of this section move to the new key too.
+        for (const entry of this.trash) {
+          if (entry.kind !== 'page' || entry.lockedSection !== id) continue;
+          if (entry.sealedPages) {
+            entry.pages = await openJSON(oldKey, entry.sealedPages).catch(() => entry.pages);
+            delete entry.sealedPages;
+          }
+          for (const m of entry.pages) {
+            const raw = await this.backend.readJSON(`pages/${m.id}.json`);
+            if (!raw?.sealed) continue;
+            const page = await openJSON(oldKey, raw.sealed).catch(() => null);
+            if (!page) continue;
+            page.outlines ||= [];
+            this.pages.set(m.id, page);
+            trashed.push(page);
+            this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
+          }
         }
-        for (const m of entry.pages) {
-          const raw = await this.backend.readJSON(`pages/${m.id}.json`).catch(() => null);
-          if (!raw?.sealed) continue;
-          const page = await openJSON(oldKey, raw.sealed).catch(() => null);
-          if (!page) continue;
-          this.pages.set(m.id, page);
-          this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
-        }
+        this.scheduleTrash();
       }
-      this.scheduleTrash();
+      for (const page of pages) {
+        await this.rekeyAssets(page, { from: oldKey, sectionId: id, force: Boolean(oldKey), log });
+        this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
+      }
+    } catch (err) {
+      if (oldLock) f.node.locked = oldLock;
+      else delete f.node.locked;
+      if (oldKey) this.keys.set(id, oldKey);
+      else this.keys.delete(id);
+      this.undoRekey(log);
+      // Anything saved meanwhile was sealed with the key that is gone again.
+      for (const page of [...pages, ...trashed]) this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
+      if (oldKey) this.scheduleTrash();
+      this.touchNotebook(f.notebook);
+      await this.flush().catch(() => {});
+      throw err;
     }
+    this.retireAssets(log);
+    // Saved again so the old copies go: a page saved while the others were
+    // still being moved had nothing marked for removal yet.
+    for (const pid of new Set(log.map((e) => e.pageId))) this.schedule(`pages/${pid}.json`, () => this.pages.get(pid), 0);
     for (const page of pages) {
-      await this.rekeyAssets(page, { from: oldKey, sectionId: id, force: Boolean(oldKey) });
-      this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
       // A version being written right now would land after the removal.
       await this.versionJobs.get(page.id);
       this.loadedSnapshots.delete(page.id);
@@ -1074,6 +1103,23 @@ export class Store extends Emitter {
       }
       entry.pages = metas;
     }
+    // The pictures and files are decrypted first, while the section is still
+    // protected: if one can't be read or saved, the password stays, nothing
+    // is left sealed under a key that is about to go, and it can be tried
+    // again.
+    const log = [];
+    for (const page of trashed) {
+      page.outlines ||= [];
+      this.pages.set(page.id, page);
+    }
+    try {
+      for (const page of [...pages, ...trashed]) await this.rekeyAssets(page, { from: key, sectionId: null, log });
+    } catch (err) {
+      this.undoRekey(log);
+      for (const page of [...pages, ...trashed]) this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
+      await this.flush().catch(() => {});
+      throw err;
+    }
     delete f.node.locked;
     delete f.node.sealed;
     for (const entry of entries) {
@@ -1082,14 +1128,8 @@ export class Store extends Emitter {
       delete entry.pageIds;
       entry.sectionName ||= f.node.name;
     }
-    for (const page of trashed) {
-      page.outlines ||= [];
-      this.pages.set(page.id, page);
-    }
-    for (const page of [...pages, ...trashed]) {
-      await this.rekeyAssets(page, { from: key, sectionId: null });
-      this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
-    }
+    for (const page of [...pages, ...trashed]) this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
+    this.retireAssets(log);
     if (entries.length) this.scheduleTrash();
     this.keys.delete(id);
     this.touchNotebook(f.notebook);
@@ -1104,7 +1144,7 @@ export class Store extends Emitter {
    * after the page that points at the new ones is saved, so a failure in
    * between never leaves the stored page pointing at a deleted file.
    */
-  async rekeyAssets(page, { from = null, sectionId, force = false } = {}) {
+  async rekeyAssets(page, { from = null, sectionId, force = false, log = null } = {}) {
     const target = sectionId === undefined ? this.findPage(page.id)?.section : this.section(sectionId);
     const wantSection = target?.locked && this.keys.has(target.id) ? target.id : null;
     let changed = false;
@@ -1132,12 +1172,32 @@ export class Store extends Emitter {
         o.html = o.html.split(`data-asset="${assetId}"`).join(`data-asset="${newId}"`);
         // An open editor still shows (and would save back) the old id.
         this.emit('assets-renamed', { id: page.id, map: { [assetId]: newId } });
-        this.staleAssets.set(page.id, [...(this.staleAssets.get(page.id) || []), assetId]);
+        // With a log, the caller decides what happens to the old copy once
+        // it knows whether the whole change went through (retireAssets,
+        // undoRekey); without one it goes when the page is next saved.
+        if (log) log.push({ pageId: page.id, from: assetId, to: newId });
+        else this.retireAssets([{ pageId: page.id, from: assetId }]);
         changed = true;
       }
     }
     if (changed) this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
     return changed;
+  }
+
+  /** Marks re-saved assets' old copies for removal once their page is saved without them. */
+  retireAssets(log) {
+    for (const { pageId, from } of log) this.staleAssets.set(pageId, [...(this.staleAssets.get(pageId) || []), from]);
+  }
+
+  /** Points pages back at the assets they had before a re-save that could not be finished. */
+  undoRekey(log) {
+    for (const { pageId, from, to } of [...log].reverse()) {
+      const page = this.pages.get(pageId);
+      for (const o of page?.outlines || []) o.html = o.html.split(`data-asset="${to}"`).join(`data-asset="${from}"`);
+      this.emit('assets-renamed', { id: pageId, map: { [to]: from } });
+      // The new copy is the one nothing uses now.
+      this.retireAssets([{ pageId, from: to }]);
+    }
   }
 
   /**
