@@ -171,6 +171,9 @@ export function decodeObject(u8, loc, ctx) {
   const start = r.pos;
   const end = start + size * 8;
   if (end > u8.length * 8) throw new RangeError('object extends past the end of the file');
+  // Objects do not overlap, so together they are no larger than their
+  // section. Damaged sizes that claim more would each be decoded in full.
+  if (ctx.budget !== undefined && (ctx.budget -= size) < 0) throw new RangeError('object sizes exceed the file size');
   r.end = end;
   const typeNum = r.OT();
   let bitsize = ver >= R2000 && ver <= R2007 ? r.RL() : 0;
@@ -239,7 +242,7 @@ export function readDatabase(input, opts = {}) {
     warnings.push(`Class definitions could not be read (${err.message}).`);
   }
   const map = readObjectMap(c.sections.handles);
-  const ctx = { ver, classes, decoder, check: !!opts.check };
+  const ctx = { ver, classes, decoder, check: !!opts.check, budget: c.sections.objects.length * 4 + 0x10000 };
   const objects = new Map();
   let bad = 0;
   for (const [handle, loc] of map) {

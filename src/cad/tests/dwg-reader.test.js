@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { parseDwg } from '../src/io/dwg/import.js';
 import { readDatabase } from '../src/io/dwg/database.js';
 import { dwgVersion, readContainer } from '../src/io/dwg/container.js';
+import { BitReader } from '../src/io/dwg/bits.js';
 import { parseDxf } from '../src/io/dxf/reader.js';
 import { handleMessage } from '../src/io/dxf/worker.js';
 
@@ -218,6 +219,28 @@ describe('DWG reader: other files', () => {
       globalThis.Uint8Array = Real;
     }
     expect(Math.max(...sizes)).toBeLessThan(64 * 1024 * 1024);
+  });
+
+  it('does not decode the rest of the file once for every object with a damaged size', () => {
+    // a damaged page leaves 280 objects that each claim the rest of the section
+    const b = fx('sample-r2004.dwg').slice();
+    b[774] = 0x7a;
+    b.set([0xff, 0xff, 0xff, 0x7f], 16330);
+    const real = BitReader.prototype.RC;
+    let reads = 0;
+    BitReader.prototype.RC = function () {
+      reads++;
+      return real.call(this);
+    };
+    let res;
+    try {
+      res = parseDwg(b);
+    } finally {
+      BitReader.prototype.RC = real;
+    }
+    expect(res.warnings.some((w) => /damaged objects were skipped/.test(w))).toBe(true);
+    // it was 33 million byte reads for this 20 KB file
+    expect(reads).toBeLessThan(2e6);
   });
 
   it('reads drawings with a damaged dictionary that has names but no entries', () => {
