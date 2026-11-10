@@ -352,3 +352,24 @@ describe('trim, extend and break far from the origin', () => {
     expect([a.cx, a.cy, a.r]).toEqual([arc.cx, arc.cy, 5]);
   });
 });
+
+describe('fillet of an arc picked at its start point', () => {
+  it('keeps the picked end of the arc', () => {
+    // Many centres and start angles: for some of them the start point's angle
+    // rounds to just below the start angle.
+    for (let i = 0; i < 1000; i++) {
+      const start = (i * 0.37) % 6.2,
+        r = 1 + (i % 7),
+        cx = (i % 11) - 5,
+        cy = (i % 13) - 6;
+      const arc = { id: 1, type: 'arc', cx, cy, r, start, end: start + 2 };
+      // a line crossing the arc in the middle of its sweep
+      const a = start + 1;
+      const line = { id: 2, type: 'line', x1: cx + 0.5 * r * Math.cos(a), y1: cy + 0.5 * r * Math.sin(a), x2: cx + 2 * r * Math.cos(a), y2: cy + 2 * r * Math.sin(a) };
+      const p1 = { x: cx + r * Math.cos(start), y: cy + r * Math.sin(start) };
+      const f = G.fillet(arc, p1, line, { x: line.x2, y: line.y2 }, 0);
+      expect(G.closestPoint(f.e1, p1.x, p1.y).d).toBeLessThan(1e-9);
+      expect(G.lengthOf(f.e1)).toBeCloseTo(r, 6);
+    }
+  });
+});

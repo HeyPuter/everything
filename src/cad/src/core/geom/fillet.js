@@ -7,7 +7,7 @@
  * connecting entity (no id) or null. The functions return null when the
  * operation is not possible.
  */
-import { TWO_PI, normAngle, ccwSweep, tolFor, clamp } from './vec.js';
+import { TWO_PI, normAngle, ccwSweep, sweepOffset, tolFor, clamp } from './vec.js';
 import { BULGE_EPS } from './bulge.js';
 import { update, arcFrom, lineFrom } from './entity.js';
 import { intersectPrims } from './intersect.js';
@@ -173,7 +173,9 @@ function trimTo(e, T, p) {
   const sw = ccwSweep(e.start, e.end);
   const aT = Math.atan2(T.y - e.cy, T.x - e.cx);
   const uT = normAngle(aT - e.start);
-  const up = normAngle(Math.atan2(p.y - e.cy, p.x - e.cx) - e.start);
+  // A pick at the very start of the arc may come out a rounding error before
+  // it; that still is the start, not a full turn later.
+  const up = sweepOffset(Math.atan2(p.y - e.cy, p.x - e.cx), e.start, sw);
   let keepStart;
   if (uT <= sw) keepStart = up < uT;
   else keepStart = uT - sw < TWO_PI - uT;
