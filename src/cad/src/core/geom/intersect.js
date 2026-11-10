@@ -479,7 +479,8 @@ export function selfIntersections(poly) {
   return out;
 }
 
-function primBox(p) {
+/** Box [minX, minY, maxX, maxY] of a primitive: an arc's whole circle, a curve's chords. */
+export function primBox(p) {
   if (p.t === 'seg') return [Math.min(p.x1, p.x2), Math.min(p.y1, p.y2), Math.max(p.x1, p.x2), Math.max(p.y1, p.y2)];
   if (p.t === 'arc') return [p.cx - p.r, p.cy - p.r, p.cx + p.r, p.cy + p.r];
   if (p.t === 'pl') return plBox(p);

@@ -11,7 +11,7 @@ import { TWO_PI, normAngle, ccwSweep, tolFor } from './vec.js';
 import { arcFromBulge, BULGE_EPS } from './bulge.js';
 import { derive, update, lineFrom, arcFrom, polylineFrom } from './entity.js';
 import { toPrims } from './prims.js';
-import { intersectPrims } from './intersect.js';
+import { intersectPrims, primBox, primScale, primSize } from './intersect.js';
 import { closestOnPrims } from './nearest.js';
 import { segmentCount, subPolyline, vertexCount } from './poly.js';
 import { isFullEllipse, ellipseSweep } from './ellipse.js';
@@ -152,12 +152,28 @@ export function paramModel(ent) {
   }
 }
 
+/** Box of a primitive grown past the intersection tolerance and a curve's chord error. */
+function paddedBox(p) {
+  const b = primBox(p);
+  const pad = 1e-7 * Math.max(1, primScale(p)) + (p.t === 'pl' ? 1e-3 * primSize(p) : 0);
+  return [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad];
+}
+
 /** Sorted, de-duplicated parameters where cutter primitives cross the entity. */
 function cutParams(model, cutters, opts) {
   const out = [];
   const per = model.hi - model.lo;
+  // A cutter whose box is clear of a piece cannot cross it (extended ones
+  // can): skipping those keeps a long polyline among many cutters fast.
+  const boxes = opts?.extA || opts?.extB ? null : cutters.map(paddedBox);
   for (const p of model.prims) {
-    for (const c of cutters) {
+    const pb = boxes && paddedBox(p);
+    for (let k = 0; k < cutters.length; k++) {
+      const c = cutters[k];
+      if (pb) {
+        const cb = boxes[k];
+        if (cb[0] > pb[2] || cb[2] < pb[0] || cb[1] > pb[3] || cb[3] < pb[1]) continue;
+      }
       for (const h of intersectPrims(p, c, opts)) {
         let u = model.param(p, h.ta);
         if (model.cyclic) {

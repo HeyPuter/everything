@@ -111,3 +111,31 @@ describe('mirroring text across its baseline direction', () => {
     });
   }
 });
+
+describe('trimming a long polyline among many cutters', () => {
+  it('cuts at the two crossings next to the pick and nowhere else', () => {
+    const pts = [];
+    for (let i = 0; i <= 2000; i++) pts.push(i, i % 2, i % 5 === 0 ? 0.3 : 0);
+    const poly = { type: 'polyline', pts, closed: false, width: 0 };
+    const cutters = [];
+    // Crossing cutters every 100 units, and many more that only come close.
+    for (let x = 50.5; x < 2000; x += 100) cutters.push({ t: 'seg', x1: x, y1: -3, x2: x, y2: 3 });
+    for (let x = 0.5; x < 2000; x += 1) cutters.push({ t: 'seg', x1: x, y1: 2.5, x2: x + 0.4, y2: 9 });
+    cutters.push({ t: 'arc', cx: 1000, cy: 500, r: 100, a0: 0, a1: G.TWO_PI, full: true });
+    const r = G.trimEntity(poly, cutters, 1000.2, 0.5);
+    expect(r.add).toHaveLength(2);
+    const [a, b] = r.add;
+    expect(a.pts[0]).toBe(0);
+    expect(a.pts.at(-3)).toBeCloseTo(950.5, 9);
+    expect(b.pts[0]).toBeCloseTo(1050.5, 9);
+    expect(b.pts.at(-3)).toBe(2000);
+    expect(G.lengthOf(a) + G.lengthOf(b)).toBeLessThan(G.lengthOf(poly));
+  });
+
+  it('still finds cutters that only touch the object with an end', () => {
+    const line = { type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 };
+    const touch = [{ t: 'seg', x1: 4, y1: 0, x2: 4, y2: 5 }, { t: 'seg', x1: 7, y1: -5, x2: 7, y2: 0 }];
+    const r = G.trimEntity(line, touch, 5, 0);
+    expect(r.add.map((e) => [e.x1, e.x2])).toEqual([[0, 4], [7, 10]]);
+  });
+});
