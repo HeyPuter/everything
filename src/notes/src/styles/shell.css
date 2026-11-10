@@ -1445,6 +1445,16 @@ puter-user-menu::part(apps-panel) {
     width: 100%;
     box-shadow: none;
   }
+  /* The arrow that folds subpages and groups is the only way to do it by
+     touch: a finger-sized target around the 18px glyph, without moving it. */
+  .row-twisty {
+    position: relative;
+  }
+  .row-twisty::before {
+    content: "";
+    position: absolute;
+    inset: -15px -6px -15px -14px;
+  }
 }
 
 .rb-gallery-fallback {
