@@ -167,3 +167,35 @@ describe('opening a project while another is still loading', () => {
     app.kernel.dispose();
   });
 });
+
+describe('autoroute progress dialog', () => {
+  it('stops routing when it is dismissed with Escape', async () => {
+    const { autorouteDialog } = await import('../src/app/dialogs.js');
+    const job = deferred();
+    let cancels = 0;
+    const added = [];
+    const toasts = [];
+    const app = {
+      kernel: {
+        autoroute: () => job.promise,
+        cancel: () => {
+          cancels++;
+          job.resolve({ tracks: [{ x1: 0, y1: 0, x2: 1, y2: 1 }], vias: [], routed: 1, total: 1 });
+        },
+      },
+      toast: (m) => toasts.push(m),
+    };
+    const store = { transact: (label, fn) => fn({ add: (o) => added.push(o) }) };
+    const ed = { doc: { snapshot: () => ({}), store }, lib: {}, pourFills: null };
+    const done = autorouteDialog(app, ed, null);
+    await tick(5);
+    const dialog = document.querySelector('.dialog');
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('.dialog')).toBeNull();
+    await done;
+    expect(cancels).toBe(1);
+    // Nothing lands on the board after the user backed out.
+    expect(added).toEqual([]);
+    expect(toasts).toEqual([]);
+  });
+});

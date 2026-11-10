@@ -255,10 +255,13 @@ export async function autorouteDialog(app, ed, nets = null) {
   const bar = h('div', { style: { width: '0%' } });
   const status = h('p', { 'aria-live': 'polite' }, 'Preparing...');
   let cancelled = false;
+  let finished = false;
   const dlg = openDialog({
     title: nets ? `Autoroute ${nets.join(', ')}` : 'Autoroute all nets',
     body: [status, h('div.progress', { role: 'progressbar', 'aria-label': 'Routing progress' }, bar)],
-    actions: [{ label: 'Stop', run: () => { cancelled = true; app.kernel.cancel(); return true; } }],
+    actions: [{ label: 'Stop' }],
+    // Stop, Escape, the close button and a click outside all stop the router.
+    onClose: () => { if (!finished) { cancelled = true; app.kernel.cancel(); } },
   });
   try {
     const t0 = performance.now();
@@ -268,6 +271,8 @@ export async function autorouteDialog(app, ed, nets = null) {
       bar.parentElement.setAttribute('aria-valuenow', String(pct));
       status.textContent = `${p.pass > 1 ? `Trying another order (pass ${p.pass}). ` : ''}Routing connection ${p.done} of ${p.total}...`;
     });
+    if (cancelled) return;
+    finished = true;
     dlg.close();
     if (!res.tracks.length && !res.vias.length) {
       app.toast(res.total ? 'The autorouter could not route any connection. Try more room, a finer grid or more layers.' : 'Nothing to route: every connection is already routed.', { kind: res.total ? 'warning' : 'info' });
@@ -281,6 +286,7 @@ export async function autorouteDialog(app, ed, nets = null) {
     const failed = res.failed?.length || 0;
     app.toast(`Routed ${res.routed} of ${res.total} connections in ${secs} s${failed ? `; ${failed} could not be routed` : ''}${res.timedOut ? ' (time limit reached)' : ''}.`, { kind: failed ? 'warning' : 'success', title: 'Autoroute', timeout: 8000 });
   } catch (err) {
+    finished = true;
     dlg.close();
     if (!cancelled) app.toast(`Autorouting failed: ${err.message}`, { kind: 'error' });
   }
