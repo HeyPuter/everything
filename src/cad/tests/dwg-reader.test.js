@@ -193,6 +193,33 @@ describe('DWG reader: other files', () => {
     expect(() => parseDwg(c)).toThrow(/Damaged DWG 2007 file/);
   });
 
+  it('does not allocate the sizes a damaged DWG 2004+ section map asks for', () => {
+    const big = [0xff, 0xff, 0xff, 0x7f];
+    const sizes = [];
+    const Real = globalThis.Uint8Array;
+    globalThis.Uint8Array = new Proxy(Real, {
+      construct(target, args) {
+        if (typeof args[0] === 'number') sizes.push(args[0]);
+        return new target(...args);
+      },
+    });
+    try {
+      // the size of the page map, of a section, of a section's pages, and a page offset
+      for (const at of [13380, 13640, 13747, 13892]) {
+        const b = fx('extras-r2018.dwg').slice();
+        b.set(big, at);
+        try {
+          parseDwg(b);
+        } catch (err) {
+          expect(err.message).toMatch(/^Damaged DWG file/);
+        }
+      }
+    } finally {
+      globalThis.Uint8Array = Real;
+    }
+    expect(Math.max(...sizes)).toBeLessThan(64 * 1024 * 1024);
+  });
+
   it('reads drawings with a damaged dictionary that has names but no entries', () => {
     const b = fx('sample-r2000.dwg').slice();
     b[16867] = 0;

@@ -13,7 +13,7 @@
  * is the whole file.
  */
 import { R13, R14, R2000, R2004, R2007, R2010, R2013, R2018 } from './bits.js';
-import { readR2007 } from './r2007.js';
+import { readR2007, maxSectionSize } from './r2007.js';
 
 export const VERSIONS = {
   AC1012: R13,
@@ -130,6 +130,9 @@ export function headerMask(n) {
 
 /** Decompress the R2004 LZ77 variant. */
 export function decompress2004(src, start, end, outSize) {
+  // no opcode yields more than 255 bytes per byte read, so a larger size
+  // (from a damaged file) is never filled and must not be allocated
+  outSize = Math.min(outSize, Math.max(0, end - start) * 255 + 64);
   const out = new Uint8Array(outSize);
   let o = 0;
   let i = start;
@@ -334,6 +337,7 @@ function readR2004(u8) {
     if (!s || s.encrypted === 1) return null;
     let total = s.size;
     for (const pg of s.pages) total = Math.max(total, pg.offset + s.maxSize);
+    if (total > maxSectionSize(u8.length)) throw new Error('Damaged DWG file: a section size is not valid.');
     const buf = new Uint8Array(total);
     for (const pg of s.pages) {
       const loc = pages.get(pg.num);
