@@ -578,7 +578,8 @@ class DxfParser {
       if (this.sawEof || !more) break;
     }
     if (!this.sawSection) throw new Error('Not a DXF file: no SECTION found.');
-    if (tk.bad) this.warn(`Malformed group code near line ${tk.line + 1}; the rest of the file was ignored.`);
+    // Whatever follows EOF (a DOS end-of-file character, padding) is not part of the drawing.
+    if (tk.bad && !this.sawEof) this.warn(`Malformed group code near line ${tk.line + 1}; the rest of the file was ignored.`);
     else if (!this.sawEof) this.warn('Unexpected end of file; the file may be truncated.');
     this.finish();
     return { drawing: this.drawing, warnings: this.collectWarnings(), stats: this.stats };

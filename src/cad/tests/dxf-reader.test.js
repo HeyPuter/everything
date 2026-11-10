@@ -744,6 +744,14 @@ describe('parseDxf: encodings and robustness', () => {
     expect(drawing.entities[0]).toMatchObject({ type: 'point', x: 1.5, y: 2.5 });
   });
 
+  it('does not report text after EOF, such as a DOS end-of-file character, as damage', () => {
+    for (const tail of ['\x1a', '\x1a\r\n', '  \r\n\r\n', 'trailing junk\r\n']) {
+      const { drawing, warnings } = parseDxf(dxf([0, 'POINT', 10, 1, 20, 2]) + tail);
+      expect(drawing.entities).toHaveLength(1);
+      expect(warnings).toEqual([]);
+    }
+  });
+
   it('reads overflowing and infinite numbers as 0, never as Infinity', () => {
     const { drawing } = parseDxf(
       dxf([0, 'LINE', 10, '1e400', 20, '-1e999', 11, 'Infinity', 21, 4, 0, 'CIRCLE', 10, 1, 20, 2, 40, '-Infinity', 0, 'POINT', 10, '1e308', 20, 5]),
