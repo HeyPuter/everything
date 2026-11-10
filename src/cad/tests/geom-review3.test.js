@@ -311,3 +311,44 @@ describe('near-tangent intersections far from the origin', () => {
     });
   }
 });
+
+describe('trim, extend and break far from the origin', () => {
+  const O = 1e7;
+  const at = (v) => v + O;
+
+  it('trims between two cutting edges 0.005 apart', () => {
+    const line = { type: 'line', x1: at(5), y1: at(-3), x2: at(5), y2: at(3) };
+    const cutters = G.toPrims({ type: 'polyline', pts: [at(0), at(0), 0, at(10), at(0), 0, at(10), at(0.005), 0, at(0), at(0.005), 0], closed: false });
+    const r = G.trimEntity(line, cutters, at(5), at(0.0025));
+    expect(r.add).toHaveLength(2);
+    expect(r.add[0].y1).toBe(line.y1);
+    expect(r.add[0].y2 - O).toBeCloseTo(0, 7);
+    expect(r.add[1].y1 - O).toBeCloseTo(0.005, 7);
+    expect(r.add[1].y2).toBe(line.y2);
+    expect(r.add[1].x2).toBe(line.x2);
+  });
+
+  it('extends a line across a gap of 0.005', () => {
+    const line = { id: 7, type: 'line', x1: at(0), y1: at(1), x2: at(4.995), y2: at(1) };
+    const boundary = G.toPrims({ type: 'line', x1: at(5), y1: at(-2), x2: at(5), y2: at(4) });
+    const r = G.extendEntity(line, boundary, at(4.9), at(1));
+    expect(r).toBeTruthy();
+    expect(r.id).toBe(7);
+    expect(r.x2 - O).toBeCloseTo(5, 7);
+    expect(r.x1).toBe(line.x1);
+    expect(r.y1).toBe(line.y1);
+  });
+
+  it('breaks a line 0.004 from its end and keeps arc angles untouched', () => {
+    const line = { type: 'line', x1: at(0), y1: at(0), x2: at(10), y2: at(0) };
+    const parts = G.breakAtPoint(line, at(9.996), at(0));
+    expect(parts).toHaveLength(2);
+    expect(parts[1].x1 - O).toBeCloseTo(9.996, 7);
+    expect(parts[1].x2).toBe(line.x2);
+    const arc = { type: 'arc', cx: at(3), cy: at(4), r: 5, start: 0.3, end: 2.9 };
+    const [a, b] = G.breakAtPoint(arc, at(3), at(9));
+    expect(a.start).toBe(0.3);
+    expect(b.end).toBe(2.9);
+    expect([a.cx, a.cy, a.r]).toEqual([arc.cx, arc.cy, 5]);
+  });
+});

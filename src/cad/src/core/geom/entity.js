@@ -54,3 +54,85 @@ export function polylineFrom(src, pts, closed = false) {
   if (out.width === undefined) out.width = 0;
   return out;
 }
+
+function shiftFlat(pts, dx, dy, stride) {
+  const out = pts.slice();
+  for (let i = 0; i + 1 < out.length; i += stride) {
+    out[i] += dx;
+    out[i + 1] += dy;
+  }
+  return out;
+}
+
+/**
+ * Copy of a curve entity moved by (dx, dy). Only coordinates change (angles,
+ * bulges and radii are kept bit for bit), so moving by -p and back by p, with
+ * p one of the entity's own points, restores every original coordinate exactly.
+ */
+export function shiftEntity(ent, dx, dy) {
+  const out = { ...ent };
+  switch (ent.type) {
+    case 'line':
+      out.x1 += dx;
+      out.y1 += dy;
+      out.x2 += dx;
+      out.y2 += dy;
+      break;
+    case 'xline':
+    case 'ray':
+    case 'point':
+      out.x += dx;
+      out.y += dy;
+      break;
+    case 'circle':
+    case 'arc':
+    case 'ellipse':
+      out.cx += dx;
+      out.cy += dy;
+      break;
+    case 'polyline':
+      out.pts = shiftFlat(ent.pts, dx, dy, 3);
+      break;
+    case 'spline':
+      out.ctrl = shiftFlat(ent.ctrl, dx, dy, 2);
+      if (ent.fit) out.fit = shiftFlat(ent.fit, dx, dy, 2);
+      break;
+    default:
+      break;
+  }
+  return out;
+}
+
+/** The first point of a curve entity when it is not the origin, else null. */
+export function localOrigin(ent) {
+  let x = 0,
+    y = 0;
+  switch (ent.type) {
+    case 'line':
+      x = ent.x1;
+      y = ent.y1;
+      break;
+    case 'xline':
+    case 'ray':
+      x = ent.x;
+      y = ent.y;
+      break;
+    case 'circle':
+    case 'arc':
+    case 'ellipse':
+      x = ent.cx;
+      y = ent.cy;
+      break;
+    case 'polyline':
+      x = ent.pts[0];
+      y = ent.pts[1];
+      break;
+    case 'spline':
+      x = ent.ctrl?.[0];
+      y = ent.ctrl?.[1];
+      break;
+    default:
+      break;
+  }
+  return Number.isFinite(x) && Number.isFinite(y) && (x !== 0 || y !== 0) ? { x, y } : null;
+}

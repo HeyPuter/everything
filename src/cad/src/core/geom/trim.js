@@ -9,8 +9,8 @@
  */
 import { TWO_PI, normAngle, ccwSweep, tolFor } from './vec.js';
 import { arcFromBulge, BULGE_EPS } from './bulge.js';
-import { derive, update, lineFrom, arcFrom, polylineFrom } from './entity.js';
-import { toPrims } from './prims.js';
+import { derive, update, lineFrom, arcFrom, polylineFrom, shiftEntity, localOrigin } from './entity.js';
+import { toPrims, shiftPrim } from './prims.js';
 import { intersectPrims, primBox, primScale, plSlack } from './intersect.js';
 import { closestOnPrims } from './nearest.js';
 import { segmentCount, subPolyline, vertexCount } from './poly.js';
@@ -203,6 +203,15 @@ function pickParam(model, px, py) {
  * nothing would be trimmed.
  */
 export function trimEntity(ent, cutters, px, py, opts) {
+  // Work relative to the object: tolerances follow the coordinates, and far
+  // from the origin they would merge cuts a few thousandths apart.
+  const o = localOrigin(ent);
+  if (o) {
+    const near = cutters?.map((p) => shiftPrim(p, -o.x, -o.y));
+    const r = trimEntity(shiftEntity(ent, -o.x, -o.y), near, px - o.x, py - o.y, opts);
+    if (r) r.add = r.add.map((e) => shiftEntity(e, o.x, o.y));
+    return r;
+  }
   const model = paramModel(ent);
   if (!model || !cutters?.length) return null;
   const u = pickParam(model, px, py);
@@ -297,6 +306,13 @@ function extendArcAngle(cx, cy, r, endAngle, ccwDir, sweepAbs, boundaries, opts)
  */
 export function extendEntity(ent, boundaries, px, py, opts) {
   if (!boundaries?.length) return null;
+  // Relative to the object, as for trimming.
+  const o = localOrigin(ent);
+  if (o) {
+    const near = boundaries.map((p) => shiftPrim(p, -o.x, -o.y));
+    const r = extendEntity(shiftEntity(ent, -o.x, -o.y), near, px - o.x, py - o.y, opts);
+    return r && shiftEntity(r, o.x, o.y);
+  }
   switch (ent.type) {
     case 'line': {
       const dx = ent.x2 - ent.x1,

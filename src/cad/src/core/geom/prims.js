@@ -22,6 +22,7 @@ import { arcFromBulge, BULGE_EPS } from './bulge.js';
 import { ellipseAxes, ellipseSweep, isFullEllipse } from './ellipse.js';
 import { appendEllipse, ellipseSegments } from './tessellate.js';
 import { sampleSpline } from './spline.js';
+import { shiftEntity } from './entity.js';
 
 /** Relative tolerance used for curve approximations inside primitives. */
 export const PL_REL_TOL = 1e-4;
@@ -88,6 +89,28 @@ export function splinePrim(s, relTol = PL_REL_TOL) {
   const dev = size > 0 ? size * relTol : 1e-9;
   const { pts, us } = sampleSpline(s, dev);
   return { t: 'pl', pts, us, src: s, dev };
+}
+
+/** Copy of a primitive moved by (dx, dy). */
+export function shiftPrim(p, dx, dy) {
+  switch (p.t) {
+    case 'seg':
+      return { ...p, x1: p.x1 + dx, y1: p.y1 + dy, x2: p.x2 + dx, y2: p.y2 + dy };
+    case 'arc':
+      return { ...p, cx: p.cx + dx, cy: p.cy + dy };
+    case 'inf':
+      return { ...p, x: p.x + dx, y: p.y + dy };
+    case 'pl': {
+      const pts = p.pts.slice();
+      for (let i = 0; i + 1 < pts.length; i += 2) {
+        pts[i] += dx;
+        pts[i + 1] += dy;
+      }
+      return { t: 'pl', pts, us: p.us, src: shiftEntity(p.src, dx, dy), dev: p.dev };
+    }
+    default:
+      return p;
+  }
 }
 
 /** Decompose an entity into primitives (see module comment). */
