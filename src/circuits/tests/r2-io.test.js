@@ -1,8 +1,10 @@
 // Round 2 review: manufacturing outputs, import, the project format and storage.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { exportGerbers } from '../src/io/gerber.js';
 import { importKicad } from '../src/io/kicad/index.js';
+import { UserLibrary } from '../src/app/user-library.js';
+import { setPuterForTests } from '../src/app/puter.js';
 import { mm } from '../src/core/units.js';
 import { defaultRules } from '../src/model/schema.js';
 
@@ -128,5 +130,86 @@ describe('KiCad symbols edited in the schematic', () => {
     const { project, warnings } = await importKicad([{ name: 'a.kicad_sch', text }]);
     expect(project.documents[0].objects.filter((o) => o.t === 'part').length).toBe(1);
     expect(warnings).toEqual([]);
+  });
+});
+
+describe('My library when it cannot be read', () => {
+  const PATH = 'Libraries/My components.circuitslib';
+  const def = (id) => ({ id, name: id, symbol: { pins: [], graphics: [] }, footprint: null });
+  const stored = JSON.stringify({
+    format: 'circuits-library',
+    version: 1,
+    components: [def('old-1'), def('old-2')],
+  });
+
+  /** A cloud whose reads fail (as when offline) while `down` is set. */
+  function flakyCloud() {
+    const files = new Map([[PATH, stored]]);
+    const state = { down: true, files };
+    const fs = {
+      async read(path) {
+        if (state.down) throw new Error('Failed to fetch');
+        if (!files.has(path))
+          throw Object.assign(new Error('subject_does_not_exist'), {
+            code: 'subject_does_not_exist',
+          });
+        return new Blob([files.get(path)]);
+      },
+      async write(path, text) {
+        files.set(path, text);
+        return { path };
+      },
+    };
+    setPuterForTests({ env: 'web', auth: { isSignedIn: () => true }, fs });
+    return state;
+  }
+  const idsIn = (text) =>
+    JSON.parse(text)
+      .components.map((c) => c.id)
+      .sort();
+
+  afterEach(() => {
+    setPuterForTests(null);
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the stored components when one is added after a failed load', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cloud = flakyCloud();
+    const lib = new UserLibrary();
+    await lib.load();
+    expect(lib.all()).toEqual([]);
+    cloud.down = false;
+    await lib.put(def('new'));
+    expect(idsIn(cloud.files.get(PATH))).toEqual(['new', 'old-1', 'old-2']);
+    expect(
+      lib
+        .all()
+        .map((d) => d.id)
+        .sort(),
+    ).toEqual(['new', 'old-1', 'old-2']);
+  });
+
+  it('does not overwrite the stored library while it still cannot be read', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cloud = flakyCloud();
+    const lib = new UserLibrary();
+    await lib.load();
+    await lib.put(def('new'));
+    expect(cloud.files.get(PATH)).toBe(stored);
+    // Once storage answers again the next change saves everything.
+    cloud.down = false;
+    await lib.put(def('newer'));
+    expect(idsIn(cloud.files.get(PATH))).toEqual(['new', 'newer', 'old-1', 'old-2']);
+  });
+
+  it('still creates the library when there is none yet', async () => {
+    const cloud = flakyCloud();
+    cloud.down = false;
+    cloud.files.clear();
+    const lib = new UserLibrary();
+    await lib.load();
+    await lib.put(def('first'));
+    expect(idsIn(cloud.files.get(PATH))).toEqual(['first']);
   });
 });
