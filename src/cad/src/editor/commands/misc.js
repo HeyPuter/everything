@@ -203,7 +203,7 @@ export const BLOCK = {
   label: 'Create block',
   icon: 'block-create',
   async run(ed) {
-    const ids = await ed.getSelection('Select objects for the block');
+    const ids = ed.inDrawOrder(await ed.getSelection('Select objects for the block'));
     if (!ids.length) return;
     let name;
     for (;;) {
@@ -483,7 +483,7 @@ export const COPYCLIP = {
   icon: 'copy-clip',
   noRepeat: true,
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     const b = boundsOf(ed, ids);
     await copyToClipboard(ed, ids, b ? { x: b[0], y: b[1] } : { x: 0, y: 0 });
@@ -497,7 +497,7 @@ export const CUTCLIP = {
   icon: 'cut',
   noRepeat: true,
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     const b = boundsOf(ed, ids);
     await copyToClipboard(ed, ids, b ? { x: b[0], y: b[1] } : { x: 0, y: 0 });
@@ -512,7 +512,7 @@ export const COPYBASE = {
   icon: 'copy-base',
   noRepeat: true,
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     ed.renderer.setSelection(new Set(ids));
     const base = await ed.getPoint('Base point');

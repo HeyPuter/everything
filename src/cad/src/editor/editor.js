@@ -521,6 +521,18 @@ export class Editor {
     this.setSelection(s);
   }
 
+  /**
+   * The ids in draw order (bottom first) instead of the order they were
+   * picked or found in, so that copies stack like their originals.
+   */
+  inDrawOrder(ids) {
+    if (ids.length < 2) return ids;
+    const set = new Set(ids);
+    const out = [];
+    for (const id of this.drawing.entities.keys()) if (set.has(id)) out.push(id);
+    return out;
+  }
+
   _editable(id) {
     const e = this.drawing.get(id);
     return !!e && this.drawing.layerEditable(e.layer);
@@ -1488,7 +1500,7 @@ async function gripEdit(ed, grip, fromPointer) {
   let base = { x: grip.x, y: grip.y };
   let copy = false;
   // Objects on layers locked since they were selected stay put.
-  const ids = [...ed.selection].filter((id) => ed._editable(id));
+  const ids = ed.inDrawOrder([...ed.selection].filter((id) => ed._editable(id)));
   ed.hotGrip = grip;
   const options = [
     { key: 'B', label: 'Base point', value: 'base' },

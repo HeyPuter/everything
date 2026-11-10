@@ -112,7 +112,7 @@ export const COPY = {
   label: 'Copy',
   icon: 'copy',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const base = await ed.getPoint('Base point');
@@ -155,7 +155,7 @@ export const ROTATE = {
   label: 'Rotate',
   icon: 'rotate',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const base = await ed.getPoint('Base point');
@@ -201,7 +201,7 @@ export const SCALE = {
   label: 'Scale',
   icon: 'scale',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const base = await ed.getPoint('Base point');
@@ -251,7 +251,7 @@ export const MIRROR = {
   label: 'Mirror',
   icon: 'mirror',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const a = await ed.getPoint('First point of mirror line');
@@ -533,7 +533,7 @@ export const ARRAYRECT = {
   label: 'Rectangular array',
   icon: 'array-rect',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const b = ids
@@ -575,7 +575,7 @@ export const ARRAYPOLAR = {
   label: 'Polar array',
   icon: 'array-polar',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const c = await ed.getPoint('Center point of array');
@@ -964,7 +964,7 @@ export const EXPLODE = {
   label: 'Explode',
   icon: 'explode',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     let count = 0;
     ed.commit('Explode', () => {

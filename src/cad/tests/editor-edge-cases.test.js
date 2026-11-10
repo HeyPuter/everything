@@ -341,3 +341,47 @@ describe('object snap tracking points', () => {
     }
   });
 });
+
+describe('draw order of copies', () => {
+  const square = (x, y) => [x, y, 0, x + 10, y, 0, x + 10, y + 10, 0, x, y + 10, 0];
+  const fill = (x, y, color) =>
+    add({ type: 'hatch', loops: [square(x, y)], pattern: 'SOLID', scale: 1, angle: 0, color });
+  // Red under blue, selected top first (as picking or a window may give them).
+  const setup2 = () => {
+    fill(0, 0, 1);
+    fill(5, 5, 5);
+    t.ed.setSelection([2, 1]);
+  };
+  const colors = () => t.all().map((e) => e.color);
+
+  it('COPY, MIRROR and arrays stack copies like the originals', async () => {
+    setup2();
+    await t.type('COPY', '0,0', '100,0', '');
+    expect(colors()).toEqual([1, 5, 1, 5]);
+    t.ed.setSelection([2, 1]);
+    await t.type('MIRROR', '50,0', '50,10', 'N');
+    expect(colors()).toEqual([1, 5, 1, 5, 1, 5]);
+    t.ed.setSelection([2, 1]);
+    await t.type('ARRAYRECT', '2', '1', '200', '200');
+    expect(colors()).toEqual([1, 5, 1, 5, 1, 5, 1, 5]);
+  });
+
+  it('blocks and the clipboard keep the order too', async () => {
+    setup2();
+    await t.type('COPYCLIP');
+    await flush();
+    expect(t.ed.app.clipboard.entities.map((e) => e.color)).toEqual([1, 5]);
+    t.ed.setSelection([2, 1]);
+    await t.type('BLOCK', 'B1', '0,0');
+    expect(t.drawing.blocks.get('B1').entities.map((e) => e.color)).toEqual([1, 5]);
+  });
+
+  it('grip copies keep the order', async () => {
+    setup2();
+    t.ed._startGripEdit(0, null);
+    await flush();
+    await t.type('', 'C', '@100,0', 'X');
+    expect(t.ed.busy).toBe(false);
+    expect(colors()).toEqual([1, 5, 1, 5]);
+  });
+});
