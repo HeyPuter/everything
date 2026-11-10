@@ -206,6 +206,36 @@ describe('DWG writer', () => {
     expect(parseDwg(bytes).drawing.entities[0].pattern).toBe('SCHRÄG');
   });
 
+  it('writes the current dimension style into the $DIM header variables', () => {
+    // where they differ, AutoCAD shows style overrides and uses them for new dimensions
+    for (const units of ['mm', 'in']) {
+      for (const textAlign of ['horizontal', 'aligned']) {
+        const d = everything();
+        d.header.units = units;
+        d.header.dimStyle = 'Cur';
+        d.dimStyles.push({ ...defaultDimStyle('Cur'), textAlign, textStyle: 'Notes', arrowType: 'open', lineColor: 3, textColor: 1, precision: 5, scale: 3, prefix: 'R' });
+        for (const version of [2004, 2000]) {
+          const db = readDatabase(writeDwg(d, { dimensionEntities, hatchPatterns, version }));
+          const h = db.header;
+          const s = db.objects.get(h.DIMSTYLE);
+          expect(s.name).toBe('Cur');
+          const index = (c) => (c && typeof c === 'object' ? c.index : c);
+          const differ = [];
+          for (const k of Object.keys(s)) {
+            if (!k.startsWith('DIM') || !(k in h)) continue;
+            if (index(s[k]) !== index(h[k])) differ.push(`${k}: style ${index(s[k])}, header ${index(h[k])}`);
+          }
+          for (const [a, b] of [['DIMBLKH', 'DIMBLK'], ['DIMBLK1H', 'DIMBLK1'], ['DIMBLK2H', 'DIMBLK2']]) if (s[a] !== h[b]) differ.push(a);
+          expect(differ).toEqual([]);
+          expect(s.DIMTIH).toBe(textAlign === 'horizontal' ? 1 : 0);
+          expect(db.objects.get(h.DIMTXSTY).name).toBe('Notes');
+          expect(db.objects.get(h.DIMBLK).name).toBe('_Open');
+          expect(index(h.DIMCLRD)).toBe(3);
+        }
+      }
+    }
+  });
+
   it('writes DWG 2000 on request, with colors as color numbers', () => {
     const d = everything();
     d.layers[1].color = '#ff8000';

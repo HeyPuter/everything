@@ -764,16 +764,52 @@ class Builder {
     const now = julian(new Date());
     hv.TDCREATE = now;
     hv.TDUPDATE = now;
+    // The $DIM variables are the current dimension style: where they differ,
+    // other programs see overrides of the style and use them for new dimensions.
+    hv.DIMTXSTY = hard(this.named('STYLE', 'Standard'));
     const ds = this.objs.get(hv.DIMSTYLE.value);
-    if (ds) for (const k of Object.keys(ds.v)) if (k.startsWith('DIM') && k.length > 3 && !k.endsWith('H') && typeof ds.v[k] !== 'object') hv[k] = ds.v[k];
+    if (ds) {
+      const dv = specValues(specFor('DIMSTYLE'), ver, ds.v);
+      for (const k of Object.keys(dv)) {
+        if (!k.startsWith('DIM')) continue;
+        const v = dv[k];
+        if (DIM_HANDLES[k]) {
+          if (v && v.value) hv[DIM_HANDLES[k]] = v;
+        } else if (v && typeof v === 'object') hv[k] = v.index ?? 0;
+        else hv[k] = v;
+      }
+    }
     hv.PUCSNAME = hard(0);
     hv.UCSNAME = hard(0);
     for (const k of ['PUCSORTHOREF', 'PUCSBASE', 'UCSORTHOREF', 'UCSBASE', 'DIMTXSTY', 'DIMLDRBLK', 'DIMBLK', 'DIMBLK1', 'DIMBLK2', 'DIMLTYPE', 'DIMLTEX1', 'DIMLTEX2', 'CMATERIAL', 'INTERFEREOBJVS', 'INTERFEREVPVS', 'DRAGVS', 'VPORT_ENTITY_HEADER']) hv[k] ??= hard(0);
-    hv.DIMTXSTY = hard(this.named('STYLE', 'Standard'));
     hv.HANDSEED = this.maxHandle + 1;
     void R2007;
     void R2010;
   }
+}
+
+/** Handles of a DIMSTYLE and the header variables that hold the same thing. */
+const DIM_HANDLES = { DIMTXSTY: 'DIMTXSTY', DIMLDRBLK: 'DIMLDRBLK', DIMBLKH: 'DIMBLK', DIMBLK1H: 'DIMBLK1', DIMBLK2H: 'DIMBLK2', DIMLTYPE: 'DIMLTYPE', DIMLTEX1: 'DIMLTEX1', DIMLTEX2: 'DIMLTEX2' };
+
+/** Every field a spec writes for `values`, with the spec's defaults filled in. */
+function specValues(spec, ver, values) {
+  const out = {};
+  const io = new Proxy(
+    { ver, o: values },
+    {
+      get(target, method) {
+        if (method in target) return target[method];
+        return (k, def) => {
+          let v = values[k];
+          if (v === undefined) v = def !== undefined ? def : method === 'T' ? '' : 0;
+          if (k) out[k] = v;
+          return v;
+        };
+      },
+    },
+  );
+  spec(io, values);
+  return out;
 }
 
 /** Imperial defaults for dimension variables of a drawing in inches. */
