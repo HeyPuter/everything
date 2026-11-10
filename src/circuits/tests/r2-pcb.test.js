@@ -275,3 +275,43 @@ describe('online rule check and pours', () => {
     expect(ed.pourFills.rev).toBe(ed.doc.store.revision);
   });
 });
+
+describe('changing layer while routing', () => {
+  const vias = (ed) => [...ed.doc.items()].filter((o) => o.t === 'via');
+
+  it('drops one via when stepping over an inner layer', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    await app.setCopperLayers(4);
+    const p = padOf(ed, 'U1', '1');
+    ed.startTool('route');
+    ed.tool.click(ev(p.x, p.y));
+    ed.tool.click(ev(p.x - mm(3), p.y + mm(2)));
+    key(ed, '*');
+    key(ed, '*');
+    expect(ed.tool.trace.layer).toBe('in2');
+    expect(ed.activeLayer).toBe('in2');
+    expect(vias(ed)).toHaveLength(1);
+    // Backspace takes the via back and returns to the layer the trace came from.
+    key(ed, 'Backspace');
+    expect(vias(ed)).toHaveLength(0);
+    expect(ed.tool.trace.layer).toBe('top');
+  });
+
+  it('takes the via back when the trace returns to the layer it left', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const p = padOf(ed, 'U1', '1');
+    ed.startTool('route');
+    ed.tool.click(ev(p.x, p.y));
+    ed.tool.click(ev(p.x - mm(3), p.y + mm(2)));
+    key(ed, '*');
+    expect(vias(ed)).toHaveLength(1);
+    key(ed, '*');
+    expect(ed.tool.trace.layer).toBe('top');
+    expect(vias(ed)).toHaveLength(0);
+    // The trace carries on from the same point on the top layer.
+    ed.tool.click(ev(p.x - mm(6), p.y + mm(2)));
+    expect(tracks(ed).every((t) => t.layer === 'top')).toBe(true);
+  });
+});

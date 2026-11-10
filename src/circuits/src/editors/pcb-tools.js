@@ -180,11 +180,22 @@ export class RouteTool {
     const next = layers[(cur + dir + layers.length) % layers.length];
     if (t) {
       const [x, y] = t.pts.slice(-2);
-      const cls = ed.netClassOf(t.net);
-      const via = { id: uid(), t: 'via', x, y, d: cls?.viaDiameter || ed.doc.rules.viaDiameter, drill: cls?.viaDrill || ed.doc.rules.viaDrill, from: layers[0], to: layers[layers.length - 1], net: t.net || undefined };
-      ed.doc.store.transact('Route', (s) => s.add(via), { mergeKey: `route:${t.id || (t.id = uid())}` });
-      t.placed.push(via.id);
-      (t.viaFrom ||= new Map()).set(via.id, t.layer);
+      const lastId = t.placed[t.placed.length - 1];
+      const last = lastId ? ed.doc.store.get(lastId) : null;
+      if (last?.t === 'via' && last.x === x && last.y === y) {
+        // Still at the via just dropped (stepping over an inner layer): it spans
+        // every layer already. Back on the layer it left, it is not needed at all.
+        if (next === t.viaFrom?.get(lastId)) {
+          ed.doc.store.transact('Route', (s) => s.remove(lastId), { mergeKey: `route:${t.id}` });
+          t.placed.pop();
+        }
+      } else {
+        const cls = ed.netClassOf(t.net);
+        const via = { id: uid(), t: 'via', x, y, d: cls?.viaDiameter || ed.doc.rules.viaDiameter, drill: cls?.viaDrill || ed.doc.rules.viaDrill, from: layers[0], to: layers[layers.length - 1], net: t.net || undefined };
+        ed.doc.store.transact('Route', (s) => s.add(via), { mergeKey: `route:${t.id || (t.id = uid())}` });
+        t.placed.push(via.id);
+        (t.viaFrom ||= new Map()).set(via.id, t.layer);
+      }
       t.layer = next;
     }
     ed.setActiveLayer(next);
