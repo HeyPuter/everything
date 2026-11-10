@@ -625,6 +625,8 @@ export class Store extends Emitter {
       const page = sources[i];
       const newId = uid('p');
       const dup = { ...structuredClone(page), id: newId };
+      // The read-only link belongs to the page that was shared.
+      delete dup.published;
       this.pages.set(newId, dup);
       copiedPages.push(dup);
       this.schedule(`pages/${newId}.json`, () => this.pages.get(newId), 0);
@@ -832,6 +834,8 @@ export class Store extends Emitter {
     const sameSection = target === f.section;
     const title = sameSection && page.title ? `${page.title} (copy)` : page.title;
     const dup = { ...structuredClone(page), id, title, modified: now };
+    // The read-only link belongs to the page that was shared.
+    delete dup.published;
     this.pages.set(id, dup);
     this.schedule(`pages/${id}.json`, () => this.pages.get(id), 0);
     const meta = { id, title, level: sameSection ? f.meta.level || 0 : 0, created: page.created, modified: now };

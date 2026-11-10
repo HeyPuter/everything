@@ -605,6 +605,7 @@ describe('password-protected sections: copies', () => {
     const page = await store.loadPage(meta.id);
     const asset = await store.saveAsset(new Blob(['png bytes'], { type: 'image/png' }), 'a.png', { sectionId: section.id });
     page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+    page.published = { at: new Date().toISOString(), expires: '30d' };
     store.pageChanged(page);
     await store.flush();
     const copy = await store.copySection(section.id);
@@ -620,6 +621,7 @@ describe('password-protected sections: copies', () => {
     expect(await fresh.unlockSection(copy.id, 'pw')).toBe(true);
     const copied = await fresh.loadPage(fresh.section(copy.id).pages[0].id);
     expect(copied.outlines[0].html).toContain('treasure');
+    expect(copied.published).toBeUndefined();
     const img = copied.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
     expect(img).not.toBe(asset);
     expect(await (await fresh.assetBlob(img)).text()).toBe('png bytes');
