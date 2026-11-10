@@ -666,6 +666,8 @@ export class App extends Emitter {
       const text = await storage.loadText(location);
       const project = parseProject(text);
       if (token !== this._openToken) return false;
+      // Edits made to the open project while this one loaded are saved or asked about.
+      if (this.project?.dirty && (!(await this._confirmLeave()) || token !== this._openToken)) return false;
       project.markSaved();
       this.setProject(project, location);
       storage.rememberRecent({ location, name: project.name });

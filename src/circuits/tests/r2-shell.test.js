@@ -150,4 +150,20 @@ describe('opening a project while another is still loading', () => {
     expect(app.location).toEqual(b.location);
     app.kernel.dispose();
   });
+
+  it('keeps edits made to the open project while the next one loads', async () => {
+    const { app, opfs } = await bootLocal();
+    const a = await stored(app, 'Next');
+    const c = await stored(app, 'Current');
+    const hold = deferred();
+    opfs.holdReads = { [`${a.location.id}${storage.EXT}`]: hold.promise };
+    const opening = app.openLocation(a.location);
+    await tick(5);
+    c.project.rename('Current, edited');
+    hold.resolve();
+    expect(await opening).toBe(true);
+    expect(app.project.name).toBe('Next');
+    expect(JSON.parse(await storage.loadText(c.location)).name).toBe('Current, edited');
+    app.kernel.dispose();
+  });
 });
