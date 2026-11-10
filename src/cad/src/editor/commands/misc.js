@@ -500,7 +500,11 @@ export const CUTCLIP = {
     const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     const b = boundsOf(ed, ids);
+    const doc = ed.doc;
     await copyToClipboard(ed, ids, b ? { x: b[0], y: b[1] } : { x: 0, y: 0 });
+    // The system clipboard can take a while: after a switch to another
+    // drawing the ids would name that drawing's objects.
+    if (ed.doc !== doc) return;
     ed.commit('Cut', () => ids.forEach((id) => ed.drawing.remove(id)));
     ed.clearSelection();
   },

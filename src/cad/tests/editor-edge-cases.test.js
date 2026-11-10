@@ -409,3 +409,38 @@ describe('picking overlapping objects', () => {
     expect(t.ed._pick(5, 0).id).toBe(1);
   });
 });
+
+describe('CUTCLIP', () => {
+  it('does not erase from another drawing when the clipboard answers after a switch', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    const other = new Drawing();
+    const index = new SpatialIndex(other);
+    other.on((c) => index.applyChange(c));
+    other.transaction('Add', () => other.add({ ...base, type: 'circle', cx: 0, cy: 0, r: 5 }));
+    let release;
+    const clipboard = { writeText: () => new Promise((r) => (release = r)) };
+    const had = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true });
+    try {
+      t.ed.setSelection([1]);
+      await t.type('CUTCLIP');
+      expect(t.ed.busy).toBe(true);
+      // What the app does when another drawing tab is chosen.
+      t.ed.cancelAll();
+      t.ed.attach({ drawing: other, index, selection: new Set(), viewStack: [] });
+      release();
+      await flush();
+      await flush();
+    } finally {
+      if (had) Object.defineProperty(navigator, 'clipboard', had);
+      else delete navigator.clipboard;
+    }
+    expect(t.ed.busy).toBe(false);
+    expect(other.entities.size).toBe(1);
+    expect(other.canUndo).toBe(true);
+    expect(other.undoStack).toHaveLength(1);
+    // The objects were copied; the first drawing keeps them.
+    expect(t.drawing.entities.size).toBe(1);
+    expect(t.ed.app.clipboard.entities).toHaveLength(1);
+  });
+});
