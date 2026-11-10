@@ -312,9 +312,12 @@ export function acquireSessionLock() {
 
 const RECENT_KEY = 'cad.recent';
 
+/** The stored list, without anything that is not a file entry (another version or a damaged value). */
 export function recentFiles() {
   try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    if (!Array.isArray(list)) return [];
+    return list.filter((r) => r && typeof r.name === 'string' && typeof r.path === 'string');
   } catch {
     return [];
   }

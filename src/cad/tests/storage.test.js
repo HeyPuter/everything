@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAuthError, isExistsError, errorText } from '../src/io/storage.js';
+import { isAuthError, isExistsError, errorText, recentFiles, addRecent, removeRecent } from '../src/io/storage.js';
 
 describe('storage: Puter error classification', () => {
   it('recognises an expired or missing session', () => {
@@ -29,5 +29,34 @@ describe('storage: Puter error classification', () => {
     expect(isExistsError({ error: { code: 'subject_does_not_exist', message: 'The file does not exist.' } })).toBe(false);
     expect(isExistsError({ code: 'item_with_same_name_exists', message: 'An item with name `a.cad` already exists.' })).toBe(true);
     expect(isExistsError({ message: 'File already exists' })).toBe(true);
+  });
+});
+
+describe('storage: recent files', () => {
+  const withStored = (value, fn) => {
+    const data = new Map([['cad.recent', value]]);
+    globalThis.localStorage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)) };
+    try {
+      return fn(data);
+    } finally {
+      delete globalThis.localStorage;
+    }
+  };
+
+  it('ignores stored entries the menu could not show', () => {
+    const good = { name: 'a.cad', path: '/u/Drawings/a.cad', source: 'cloud', at: 1 };
+    expect(withStored(JSON.stringify([null, 5, { name: 7 }, good, { path: '/x' }]), () => recentFiles())).toEqual([good]);
+    for (const bad of ['[null]', '{"a":1}', '5', 'null', '"x"', 'not json']) expect(withStored(bad, () => recentFiles())).toEqual([]);
+  });
+
+  it('adds and removes a file whatever was stored before', () => {
+    withStored('[null]', (data) => {
+      addRecent({ name: 'b.dxf', path: '/u/b.dxf', source: 'cloud' });
+      expect(JSON.parse(data.get('cad.recent')).map((r) => r.path)).toEqual(['/u/b.dxf']);
+    });
+    withStored('{"a":1}', (data) => {
+      removeRecent('/u/b.dxf');
+      expect(JSON.parse(data.get('cad.recent'))).toEqual([]);
+    });
   });
 });
