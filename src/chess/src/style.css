@@ -200,6 +200,77 @@ svg.lucide {
   outline-offset: 1px;
 }
 
+/* <puter-user-menu> (the Puter SDK's; see ui/userMenu.js): the account button
+   and, on puter.com, the Apps launcher, after the theme toggle once the SDK
+   has loaded. Its parts take this top bar's looks — a quiet icon button, the
+   primary button — and its panels the cards' surface, in both themes. Nothing
+   in it is taller than the theme toggle, so the bar keeps its height. */
+puter-user-menu {
+  flex: none;
+  font-family: inherit;
+}
+
+puter-user-menu::part(apps-button) {
+  border-radius: 10px;
+  color: var(--muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+puter-user-menu::part(sign-in) {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
+}
+
+puter-user-menu::part(apps-button):focus-visible,
+puter-user-menu::part(sign-in):focus-visible,
+puter-user-menu::part(avatar):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  puter-user-menu::part(sign-in):hover {
+    background: var(--accent-strong);
+  }
+}
+
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-dialog);
+  --caret-border: var(--border);
+  --caret-fill: var(--surface);
+}
+
+/* With it in the bar, the mode note is the first thing to give way. */
+@media (max-width: 600px) {
+  .topbar-right:has(puter-user-menu) .topbar-note {
+    display: none;
+  }
+}
+
+/* On the narrowest phones the Apps launcher gives way too, so the account
+   button never crowds the name. */
+@media (max-width: 380px) {
+  puter-user-menu::part(apps-button) {
+    display: none;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Layout                                                              */
 /* ------------------------------------------------------------------ */

@@ -15,9 +15,13 @@ customHeaders:
       # WebSockets whose hostnames are assigned dynamically per account
       # (e.g. signal-<id>.workers.dev, wss://puter.cafe as fallback), so
       # connect-src allows the wss: scheme rather than a brittle host list.
-      # TURN uses turn:/stun: schemes, which CSP does not govern, and the
-      # auth prompt opens as a popup (a new top-level context), so no
-      # frame-src is needed.
+      # TURN uses turn:/stun: schemes, which CSP does not govern.
+      #
+      # frame-src allows puter.com and nothing else. The SDK's account menu in
+      # the top bar (<puter-user-menu>, there once the SDK has loaded) opens
+      # Puter's app browser in a frame from puter.com, and the SDK frames
+      # puter.com for its sign-in and feedback dialogs where it may, falling
+      # back to a popup (a new top-level context) where it may not.
       #
       # style-src has to allow inline styles because the Puter SDK dresses its
       # own UI that way: the consent dialog every first-time player sees is a
@@ -36,7 +40,7 @@ customHeaders:
       # and any value it can carry would block framing in the browsers that
       # honour it (browsers that support frame-ancestors ignore it anyway).
       - key: 'Content-Security-Policy'
-        value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-Ae92DMlvhX2of26U5jhemEEtmQDwlfAX4yVGQ8Mrsfc=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
+        value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-Ae92DMlvhX2of26U5jhemEEtmQDwlfAX4yVGQ8Mrsfc=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; frame-src https://puter.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
       - key: 'X-Content-Type-Options'
         value: 'nosniff'
       - key: 'Referrer-Policy'

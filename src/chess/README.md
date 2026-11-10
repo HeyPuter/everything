@@ -11,7 +11,9 @@ Play chess against the computer or a friend. No frameworks — just vanilla Java
 - **Online play** — private peer-to-peer games over the
   [Puter Peer API](https://docs.puter.com/Peer/) (WebRTC): create a game,
   share the invite code or link, and play with resign and rematch support.
-  The Puter SDK is loaded only when online mode is opened.
+  The Puter SDK is loaded only when online mode is opened; once it has, the
+  top bar shows Puter's account menu (sign in and out, and the Apps launcher
+  on puter.com).
 - **Chess clocks** — Bullet, Blitz, and Rapid time controls with a Fischer
   increment, or no limit at all. The clock starts with the first move, so a
   board nobody has touched yet costs nothing. Running out of time loses the

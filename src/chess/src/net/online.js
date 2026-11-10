@@ -33,17 +33,47 @@ const PROTOCOL_VERSION = 2;
 const OPEN_TIMEOUT_MS = 30000;
 
 let puterPromise = null;
+const loadedListeners = new Set();
+
+/**
+ * Run `fn` once the SDK is on the page: right away if it already is, otherwise
+ * after the first loadPuter() that finds it there. It never starts a load
+ * itself.
+ */
+export function whenPuterLoaded(fn) {
+  if (globalThis.puter) fn(globalThis.puter);
+  else loadedListeners.add(fn);
+}
+
+function announceLoaded(puter) {
+  const listeners = [...loadedListeners];
+  loadedListeners.clear();
+  for (const fn of listeners) {
+    try {
+      fn(puter);
+    } catch {
+      // A listener's trouble must not fail the load it was waiting on.
+    }
+  }
+}
 
 /** Load the Puter SDK on demand; resolves with the `puter` global. */
 export function loadPuter() {
-  if (window.puter) return Promise.resolve(window.puter);
+  if (window.puter) {
+    announceLoaded(window.puter);
+    return Promise.resolve(window.puter);
+  }
   if (!puterPromise) {
     puterPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = PUTER_SRC;
       script.onload = () => {
-        if (window.puter) resolve(window.puter);
-        else reject(new Error('Puter SDK loaded but is unavailable.'));
+        if (window.puter) {
+          announceLoaded(window.puter);
+          resolve(window.puter);
+        } else {
+          reject(new Error('Puter SDK loaded but is unavailable.'));
+        }
       };
       script.onerror = () => {
         puterPromise = null; // allow a retry after transient network failures
