@@ -87,10 +87,16 @@ export function designatorAllocator(sheets) {
     const d = parseDes(o.designator);
     if (d) entry(d.prefix).set.add(d.n);
   }
-  return (prefix) => {
+  const next = (prefix) => {
     const e = entry(prefix);
     while (e.set.has(e.n)) e.n++;
     e.set.add(e.n);
     return `${prefix}${e.n}`;
   };
+  /** Marks a designator a new part keeps (R7) as taken. */
+  next.reserve = (designator) => {
+    const d = parseDes(designator);
+    if (d) entry(d.prefix).set.add(d.n);
+  };
+  return next;
 }

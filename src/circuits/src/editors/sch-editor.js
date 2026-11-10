@@ -599,18 +599,31 @@ class PasteTool {
   }
   click(ev) {
     const ed = this.editor;
+    const sheets = ed.project.sheetObjects();
     // One pass over the project for all pasted parts; a pass per part froze
     // the app for seconds when pasting a large selection.
-    const nextDes = designatorAllocator(ed.project.sheetObjects());
+    const nextDes = designatorAllocator(sheets);
+    const uids = new Set();
+    const designators = new Set();
+    for (const sh of sheets) for (const p of sh.objects) {
+      if (p.t === 'part') { uids.add(p.uid); designators.add(p.designator); }
+    }
     const ids = [];
     ed.doc.store.transact('Paste', (s) => {
       for (const o of this._objs(ev.x, ev.y)) {
         const n = { ...o, id: uid() };
         if (n.t === 'part') {
-          n.uid = uid('u');
-          // The leading letters: R12 -> R, R? -> R, and U1A (unit A) -> U, not U1A.
-          const prefix = /^[A-Za-z_]+/.exec(o.designator || '')?.[0] || ed.lib[o.comp]?.prefix || 'U';
-          n.designator = nextDes(prefix);
+          // A part that was cut comes back as itself: its uid links it to the
+          // component placed and routed on the board, which an update would
+          // otherwise remove and add again. A copy gets its own identity.
+          if (!o.uid || uids.has(o.uid)) n.uid = uid('u');
+          if (n.uid !== o.uid || !o.designator || designators.has(o.designator)) {
+            // The leading letters: R12 -> R, R? -> R, and U1A (unit A) -> U, not U1A.
+            const prefix = /^[A-Za-z_]+/.exec(o.designator || '')?.[0] || ed.lib[o.comp]?.prefix || 'U';
+            n.designator = nextDes(prefix);
+          } else nextDes.reserve(n.designator);
+          uids.add(n.uid);
+          designators.add(n.designator);
         }
         s.add(n);
         ids.push(n.id);

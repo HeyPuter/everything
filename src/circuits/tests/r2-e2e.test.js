@@ -5,6 +5,7 @@ import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { placedOf } from '../src/render/pcb-scene.js';
+import { planSync } from '../src/model/sync.js';
 import { buildBom, toCsv } from '../src/io/bom.js';
 import { pickAndPlace, unpopulated } from '../src/io/pnp.js';
 import { buildFabricationZip } from '../src/io/fabrication.js';
@@ -487,5 +488,57 @@ describe('parts marked do not populate', () => {
     expect(listed(strFromU8(zip['assembly/bom.csv']))).not.toContain('R1');
     expect(listed(strFromU8(zip['assembly/pick-and-place.csv']))).not.toContain('R1');
     expect(listed(strFromU8(zip['assembly/pick-and-place.csv']))).toContain('R2');
+  });
+});
+
+describe('cutting and pasting schematic parts', () => {
+  const parts = (app) =>
+    app.project.sheets.flatMap((d) => [...d.items()].filter((o) => o.t === 'part'));
+
+  it('keeps the part linked to its board component when it is moved to another sheet', async () => {
+    const app = await boot();
+    ctx = { app };
+    await app.openExample();
+    const board = app.project.boards[0];
+    expect(planSync(app.project, board)).toHaveLength(0);
+    const sheet = app.activeEditor;
+    const r2 = [...sheet.doc.items()].find((o) => o.t === 'part' && o.designator === 'R2');
+    sheet.setSelection([r2.id]);
+    app.cut();
+    expect(parts(app).some((p) => p.uid === r2.uid)).toBe(false);
+
+    const second = app.addDoc('sch');
+    await app.paste();
+    app.activeEditor.tool.click({ x: 50_800_000, y: 50_800_000 });
+    const moved = [...second.items()].find((o) => o.t === 'part');
+    expect(moved.uid).toBe(r2.uid);
+    expect(moved.designator).toBe('R2');
+    // The board keeps its placed component: nothing to remove and add again.
+    const kinds = planSync(app.project, board).map((c) => c.kind);
+    expect(kinds).not.toContain('add');
+    expect(kinds).not.toContain('remove');
+
+    // Pasting the same clipboard again makes a new part, like a copy.
+    await app.paste();
+    app.activeEditor.tool.click({ x: 76_200_000, y: 50_800_000 });
+    const all = parts(app);
+    expect(new Set(all.map((p) => p.uid)).size).toBe(all.length);
+    expect(new Set(all.map((p) => p.designator)).size).toBe(all.length);
+  });
+
+  it('gives a copied part its own identity and designator', async () => {
+    const app = await boot();
+    ctx = { app };
+    await app.openExample();
+    const sheet = app.activeEditor;
+    const r2 = [...sheet.doc.items()].find((o) => o.t === 'part' && o.designator === 'R2');
+    sheet.setSelection([r2.id]);
+    app.copy();
+    await app.paste();
+    sheet.tool.click({ x: 50_800_000, y: 50_800_000 });
+    const copy = sheet.selectedObjects()[0];
+    expect(copy.uid).not.toBe(r2.uid);
+    expect(copy.designator).not.toBe('R2');
+    expect(copy.designator).toMatch(/^R\d+$/);
   });
 });
