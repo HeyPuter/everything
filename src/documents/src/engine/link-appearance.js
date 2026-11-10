@@ -13,7 +13,8 @@ export function showLink(model) {
   const style = Object.values(model.styles.definitions).find(s => s.type === 'character' && !s.error && (s.id === 'Hyperlink' || String(s.name || '').toLowerCase() === 'hyperlink'));
   model.select(link.start, link.end);
   if (style) model.setCharacterStyle(style.id);
-  else model.setRunFormat({ color: LINK_COLOR, underlineStyle: 'single' });
+  // The link's look belongs to its text: on the paragraph mark it would color and underline a list label too.
+  else model.setRunFormat({ color: LINK_COLOR, underlineStyle: 'single' }, { mark: false });
   model.select(anchor, focus);
   if (continuing) {
     model.typingFormat = { color: before.color, underline: before.underlineStyle !== 'none', underlineStyle: before.underlineStyle, underlineColor: before.underlineColor };

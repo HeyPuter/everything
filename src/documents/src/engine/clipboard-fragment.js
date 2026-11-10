@@ -457,7 +457,9 @@ function applyParagraph(model, p, foreign, lists = new Map()) {
   } else if (current === 'bullet' || current === 'number') attempt(() => model.toggleList(current));
 }
 
-function applyRun(model, from, to, run, foreign) {
+// A run's formatting reaches the paragraph mark only when this document's own copy took that mark with it.
+// Otherwise text that fills its paragraph (a link pasted into a list item) would restyle the list label.
+function applyRun(model, from, to, run, foreign, mark = false) {
   model.select(from, to);
   const current = model.runFormatting, patch = {};
   for (const key of RUN_KEYS) {
@@ -471,8 +473,8 @@ function applyRun(model, from, to, run, foreign) {
   if ('bold' in patch) patch.boldCs = patch.bold;
   if ('italic' in patch) patch.italicCs = patch.italic;
   if (Object.keys(patch).length) {
-    try { model.setRunFormat(patch); }
-    catch { for (const [key, value] of Object.entries(patch)) attempt(() => model.setRunFormat({ [key]: value })); }
+    try { model.setRunFormat(patch, { mark }); }
+    catch { for (const [key, value] of Object.entries(patch)) attempt(() => model.setRunFormat({ [key]: value }, { mark })); }
   }
   if (run.link && !model.hyperlink) attempt(() => {
     // Another application's link without its own color gets the usual link look.
@@ -572,7 +574,7 @@ function applyFragment(model, fragment, start) {
     if (steps + cost > MAX_RUN_STEPS) applied = [];
     else steps += cost;
     applied = new Set(applied);
-    for (const run of p.runs) { if (applied.has(run)) applyRun(model, offset, offset + run.text.length, run, !!fragment.foreign); offset += run.text.length; }
+    for (const run of p.runs) { if (applied.has(run)) applyRun(model, offset, offset + run.text.length, run, !!fragment.foreign, !fragment.foreign && !!p.mark); offset += run.text.length; }
     at += p.text.length + 1;
   }
   model.select(after);

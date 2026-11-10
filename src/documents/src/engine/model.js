@@ -2025,8 +2025,12 @@ export class TextDocument {
     this.didChange(); return true;
   }
   setFontSize(fontSize) { return this.setRunFormat({ fontSize, fontSizeCs: fontSize }); }
-  setRunFormat(patch) {
-    const pass = this.blockCellPass(() => this.setRunFormat(patch));
+  /**
+   * `mark: false` formats the selected text alone. Formatting that belongs to the text itself (a link's look,
+   * a pasted run) must not reach the paragraph mark, which a list label and the next paragraph take their format from.
+   */
+  setRunFormat(patch, { mark = true } = {}) {
+    const pass = this.blockCellPass(() => this.setRunFormat(patch, { mark }));
     if (pass !== undefined) return pass;
     if (patch.cs || patch.rtl) throw new Error('Active complex-script and RTL editing is not supported yet.');
     const legacyUnderline = 'underline' in patch && !('underlineStyle' in patch);
@@ -2099,7 +2103,7 @@ export class TextDocument {
       // Direct formatting applies to the mark when all paragraph text is
       // selected, even when the selection stops immediately before that mark.
       // A trailing partial selection must not change subsequent Enter typing.
-      if (at + length >= start && at + length < end || start === end && at === start && !length || length > 0 && a === 0 && b === length) {
+      if (mark && (at + length >= start && at + length < end || start === end && at === start && !length || length > 0 && a === 0 && b === length)) {
         p.markFormat = { ...runFormat(p.markFormat), ...patch };
         p.markOverrides = { ...p.markOverrides, ...patch };
       }
