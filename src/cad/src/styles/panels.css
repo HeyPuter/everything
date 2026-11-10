@@ -309,13 +309,24 @@
 }
 
 .lm-name {
+  display: block;
   width: 100%;
+  /* The column stays in place while the others scroll: a long name must not take their room. */
+  max-width: min(240px, 45vw);
   height: 26px;
   border: 0;
   background: transparent;
   text-align: left;
   padding: 0 4px;
   border-radius: var(--r-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-c-name .input {
+  width: 100%;
+  max-width: min(240px, 45vw);
 }
 
 .lm-c-color .input {

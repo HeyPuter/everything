@@ -141,6 +141,8 @@ export class LayerManager {
           'data-key': `layer:${name}:name`,
           'aria-pressed': String(this.selected === name),
           'aria-label': `Layer ${name}${cur ? ', current' : ''}. Press F2 to rename.`,
+          // A long name is cut short in its column.
+          title: name.length > 24 ? name : null,
           onDblclick: () => this.rename(name, nameCell),
           onKeydown: (e) => {
             if (e.key === 'F2') {
