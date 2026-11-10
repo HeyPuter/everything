@@ -97,6 +97,24 @@ describe('drawing commands', () => {
     expect(t.drawing.modified).toBe(true);
   });
 
+  it('records no step when a move or rotation changes nothing', async () => {
+    await t.type('PLINE', '0,0', '10,0', '10,5', '');
+    await t.type('CIRCLE', '3,3', '2');
+    t.drawing.markSaved();
+    const steps = t.drawing.undoStack.length;
+    const before = t.all();
+    t.ed.setSelection(before.map((e) => e.id));
+    await t.type('MOVE', '5,5', '5,5');
+    t.ed.setSelection(before.map((e) => e.id));
+    await t.type('ROTATE', '0,0', '0');
+    expect(t.drawing.undoStack.length).toBe(steps);
+    expect(t.drawing.modified).toBe(false);
+    expect(t.all()).toEqual(before);
+    t.ed.setSelection(before.map((e) => e.id));
+    await t.type('MOVE', '5,5', '6,5');
+    expect(t.drawing.undoStack.length).toBe(steps + 1);
+  });
+
   it('records no step when Match properties changes nothing', async () => {
     await t.type('LINE', '0,0', '10,0', '');
     await t.type('LINE', '0,5', '10,5', '');

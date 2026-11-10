@@ -167,6 +167,13 @@ export class Drawing {
     }
     const tx = this._tx;
     this._tx = null;
+    // Entities replaced by equal copies (a move by nothing) are no edit: the
+    // originals go back, with no undo step and nothing marked as changed.
+    // A real edit is told apart at its first record.
+    if (tx.records.length && tx.records.every((r) => r.kind === 'ent' && r.before && r.after && sameEntity(r.before, r.after))) {
+      for (let i = tx.records.length - 1; i >= 0; i--) this._apply(tx.records[i], true, tx.change);
+      return result;
+    }
     if (tx.records.length) {
       // rev0/rev1: revision before and after the step (see groupSince).
       const rev0 = this.revision;
@@ -271,8 +278,16 @@ export class Drawing {
   update(id, patch) {
     const before = this.entities.get(id);
     if (!before) return null;
-    if (Object.keys(patch).every((k) => before[k] === patch[k])) return before;
-    return this.replace(id, { ...before, ...patch, id });
+    let same = true;
+    for (const k in patch) {
+      if (!sameValue(before[k], patch[k]) || !(k in before)) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return before;
+    this._record({ kind: 'ent', id, before, after: { ...before, ...patch, id } });
+    return this.entities.get(id);
   }
 
   get(id) {
@@ -430,6 +445,40 @@ export class Drawing {
     const l = this.layers.get(name);
     return !l || (l.on && !l.frozen && !l.locked);
   }
+}
+
+/** True when two values are equal in content (numbers, strings, arrays and plain objects, nested). */
+function sameValue(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i],
+        y = b[i];
+      if (x !== y && (typeof x !== 'object' || !sameValue(x, y))) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(b)) return false;
+  let n = 0;
+  for (const k in a) {
+    if (!(k in b) || !sameValue(a[k], b[k])) return false;
+    n++;
+  }
+  for (const k in b) n--;
+  return n === 0;
+}
+
+/** True when two stored entities are equal in content. */
+function sameEntity(before, next) {
+  let n = 0;
+  for (const k in before) {
+    if (!(k in next) || !sameValue(before[k], next[k])) return false;
+    n++;
+  }
+  for (const k in next) n--;
+  return n === 0;
 }
 
 /** True when a step's records add up to no change (each touched item ends as it began). */

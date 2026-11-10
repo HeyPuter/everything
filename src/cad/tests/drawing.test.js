@@ -222,4 +222,45 @@ describe('Drawing', () => {
     expect(freeTableName(t, 'Layer')).toBe('Layer3');
     expect(freeTableName(new Map(), 'Style')).toBe('Style1');
   });
+
+  it('records nothing for an edit that leaves an entity as it was', () => {
+    const d = new Drawing();
+    let id, pid;
+    d.transaction('Add', () => {
+      id = d.add(line(0, 0, 1, 1)).id;
+      pid = d.add({ type: 'hatch', layer: '0', loops: [[0, 0, 0, 4, 0, 0.5, 4, 4, 0]], pattern: 'SOLID', opts: { a: [1, { b: 2 }] } }).id;
+    });
+    d.markSaved();
+    let seen = 0;
+    d.on(() => seen++);
+    const before = d.get(id),
+      hatch = d.get(pid);
+    d.transaction('Move by nothing', () => {
+      // equal copies, as a transform by zero makes them
+      d.replace(id, { ...before });
+      d.replace(pid, { ...hatch, loops: [hatch.loops[0].slice()], opts: { a: [1, { b: 2 }] } });
+      expect(d.update(pid, { loops: [hatch.loops[0].slice()] })).toBe(d.get(pid));
+    });
+    expect(seen).toBe(0);
+    expect(d.undoStack).toHaveLength(1);
+    expect(d.modified).toBe(false);
+    expect(d.get(id)).toBe(before);
+    expect(d.get(pid)).toBe(hatch);
+    // any difference still counts: a value, a length, a missing or extra key, -0 and NaN aside
+    const edits = [
+      { ...hatch, loops: [[0, 0, 0, 4, 0, 0.5, 4, 5, 0]] },
+      { ...hatch, loops: [[0, 0, 0, 4, 0, 0.5]] },
+      { ...hatch, loops: [hatch.loops[0], hatch.loops[0]] },
+      { ...hatch, opts: { a: [1, { b: 3 }] } },
+      { ...hatch, opts: { a: [1, { b: 2, c: undefined }] } },
+      { ...hatch, extra: undefined },
+      { type: 'hatch', layer: '0', loops: hatch.loops, pattern: 'SOLID', id: pid },
+    ];
+    for (const next of edits) {
+      d.transaction('Edit', () => d.replace(pid, next));
+      expect(d.undoStack).toHaveLength(2);
+      d.undo();
+      expect(d.get(pid)).toBe(hatch);
+    }
+  });
 });
