@@ -408,18 +408,23 @@ function writeCopper(ctx, layer, opts) {
   return g;
 }
 
+/**
+ * Draws a free board drawing (line, arc, text or filled shape) of a
+ * non-copper layer, so every layer file shows what the canvas shows.
+ */
+function drawBoardDrawing(g, o, defaultWidth) {
+  if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w || defaultWidth);
+  else if (o.t === 'arc') g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w || defaultWidth);
+  else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w);
+  else if (o.t === 'region') g.region([o.pts]);
+  else if (o.t === 'fill') g.region([[o.x1, o.y1, o.x2, o.y1, o.x2, o.y2, o.x1, o.y2]]);
+}
+
 function writeOverlay(ctx, layer, opts) {
   const side = layer === 'topOverlay' ? 'Top' : 'Bot';
   const g = new GerberWriter({ fileFunction: `Legend,${side}`, origin: ctx.origin, date: opts.date });
   const { objects, comps, rules } = ctx;
-  for (const o of objects) {
-    if (o.layer !== layer) continue;
-    if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w || rules.silkWidth);
-    else if (o.t === 'arc') g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w || rules.silkWidth);
-    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w);
-    else if (o.t === 'region') g.region([o.pts]);
-    else if (o.t === 'fill') g.region([[o.x1, o.y1, o.x2, o.y1, o.x2, o.y2, o.x1, o.y2]]);
-  }
+  for (const o of objects) if (o.layer === layer) drawBoardDrawing(g, o, rules.silkWidth);
   for (const { comp, def, placed } of comps) {
     for (const prim of placed.graphics) if (prim.layer === layer) drawGraphic(g, prim, rules.silkWidth);
     for (const f of fieldTexts(comp, def)) {
@@ -449,12 +454,7 @@ function writeMask(ctx, layer, opts) {
     } else if (o.t === 'via' && (opts.untentVias || o.tented === false)) {
       if (!spanLayers(o.from || 'top', o.to || 'bottom', copper).includes(copperSide)) continue;
       g.flash(g.circle(o.d + 2 * rules.maskExpansion), o.x, o.y);
-    } else if (o.layer === layer) {
-      if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w);
-      else if (o.t === 'arc') g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w);
-      else if (o.t === 'region') g.region([o.pts]);
-      else if (o.t === 'fill') g.region([[o.x1, o.y1, o.x2, o.y1, o.x2, o.y2, o.x1, o.y2]]);
-    }
+    } else if (o.layer === layer) drawBoardDrawing(g, o, 0);
   }
   return g;
 }
@@ -472,7 +472,9 @@ function writePaste(ctx, layer, opts) {
     }
   }
   for (const o of objects) {
-    if (o.t === 'pad' && (o.side || 'top') === copperSide && !o.noPaste) flashPad(g, o, rules.pasteExpansion);
+    if (o.t === 'pad') {
+      if ((o.side || 'top') === copperSide && !o.noPaste) flashPad(g, o, rules.pasteExpansion);
+    } else if (o.layer === layer) drawBoardDrawing(g, o, 0);
   }
   return g;
 }
@@ -488,13 +490,7 @@ function writeProfile(ctx, opts) {
 function writeMechanical(ctx, layer, opts) {
   const g = new GerberWriter({ fileFunction: `Other,${LAYERS[layer]?.name.replace(/\s+/g, '') || layer}`, origin: ctx.origin, date: opts.date });
   const { objects, comps, rules } = ctx;
-  for (const o of objects) {
-    if (o.layer !== layer) continue;
-    if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w || rules.silkWidth);
-    else if (o.t === 'arc') g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w || rules.silkWidth);
-    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w);
-    else if (o.t === 'region') g.region([o.pts]);
-  }
+  for (const o of objects) if (o.layer === layer) drawBoardDrawing(g, o, rules.silkWidth);
   for (const { placed } of comps) for (const prim of placed.graphics) if (prim.layer === layer) drawGraphic(g, prim, rules.silkWidth);
   return g;
 }
