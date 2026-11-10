@@ -5,6 +5,7 @@ import { setPuterForTests } from '../src/app/puter.js';
 import { UserLibrary } from '../src/app/user-library.js';
 import { App } from '../src/app/app.js';
 import { Project, newProjectData } from '../src/model/project.js';
+import { isMac } from '../src/ui/dom.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { PropertiesPanel } from '../src/ui/panels/properties.js';
 
@@ -195,6 +196,40 @@ describe('document name in the Properties panel', () => {
     input.dispatchEvent(new Event('input'));
     expect(first.name).toBe('Renamed here');
     expect(input.getAttribute('aria-invalid')).toBe('false');
+    shutDown(app);
+  });
+});
+
+describe('app shortcuts while a dialog is open', () => {
+  const press = (el, key, init = {}) => {
+    const ev = new KeyboardEvent('keydown', {
+      key,
+      bubbles: true,
+      cancelable: true,
+      [isMac ? 'metaKey' : 'ctrlKey']: true,
+      ...init,
+    });
+    el.dispatchEvent(ev);
+    return ev;
+  };
+
+  it('keeps Save, Open and Print from reaching the browser, without running them', async () => {
+    const app = await boot();
+    app.setProject(new Project(newProjectData('Keys')), null);
+    const ran = [];
+    app.commands.on('ran', ({ id }) => ran.push(id));
+    app.preferences();
+    const field = document.querySelector('.dialog select');
+    expect(field).toBeTruthy();
+    for (const key of ['s', 'o', 'p', 'k']) expect(press(field, key).defaultPrevented).toBe(true);
+    expect(press(field, 'S', { shiftKey: true }).defaultPrevented).toBe(true);
+    // Text editing keys stay with the field.
+    const text = document.querySelector('.dialog input[type=number]');
+    for (const key of ['c', 'v', 'x', 'a', 'z'])
+      expect(press(text, key).defaultPrevented).toBe(false);
+    expect(ran).toEqual([]);
+    expect(document.querySelectorAll('.dialog').length).toBe(1);
+    document.querySelector('.dialog [aria-label="Close dialog"]').click();
     shutDown(app);
   });
 });
