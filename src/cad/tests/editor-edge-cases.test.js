@@ -287,3 +287,23 @@ describe('in-place text editing', () => {
     expect(t.ed.busy).toBe(false);
   });
 });
+
+describe('dynamic input tooltip', () => {
+  it('drops the polar readout once the cursor snaps to an object off the tracking line', async () => {
+    let state = null;
+    t.ed.overlay.draw = (s) => (state = s);
+    add({ type: 'line', x1: 20, y1: 10, x2: 40, y2: 30 });
+    await t.type('LINE', '0,0');
+    t.ed.cursor.inside = true;
+    const lines = (x, y) => {
+      const s = t.ed.camera.toScreen(x, y);
+      t.ed._updateCursor(s.x, s.y);
+      t.ed.drawOverlay(true);
+      return state.tooltip.lines;
+    };
+    expect(lines(30, 0.5)).toEqual(['Next point', 'Polar: 30.0000 < 0']);
+    // On the end of the line: an object snap, not a polar point.
+    expect(lines(20.3, 10.2)).toEqual(['Next point']);
+    expect(t.ed.snap).toMatchObject({ x: 20, y: 10, mode: 'end' });
+  });
+});

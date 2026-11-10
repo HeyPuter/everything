@@ -1004,6 +1004,8 @@ export class Editor {
     const wantsPoint = r && (r.kind === 'point' || r.kind === 'distance' || r.kind === 'angle');
     this.snap = null;
     this.tracks = [];
+    // Set again by _track when the point is on a tracking line.
+    this.trackLabel = null;
     let fx = w.x,
       fy = w.y;
     if (wantsPoint) {
