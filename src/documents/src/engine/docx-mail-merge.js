@@ -11,7 +11,7 @@
 // - mergeDocumentParts() produces a merged copy of a saved main document:
 //   every copy of the body with merge fields replaced by their results.
 import { strToU8, strFromU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { parseXml, declareContentType } from './docx-xml.js';
 import { relationshipPartPath, relativePartTarget } from './package-part-paths.js';
 import { planMerge, MERGE_TYPES, fieldKeyword } from './merge-fields.js';
 import { xmlAttributeText } from './text-limits.js';
@@ -20,7 +20,6 @@ export const MAIL_MERGE_NS = 'urn:puter-documents:mail-merge:1';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
-const CT = 'http://schemas.openxmlformats.org/package/2006/content-types';
 const DS = 'http://schemas.openxmlformats.org/officeDocument/2006/customXml';
 const CUSTOM_XML = `${R}/customXml`, CUSTOM_PROPS = `${R}/customXmlProps`, SETTINGS = `${R}/settings`;
 const PROPS_TYPE = 'application/vnd.openxmlformats-officedocument.customXmlProperties+xml';
@@ -143,14 +142,7 @@ const W_SETTINGS_ORDER = ['writeProtection', 'view', 'zoom', 'removePersonalInfo
 // CT_MailMerge child order (§17.14).
 const MAIL_MERGE_ORDER = ['mainDocumentType', 'linkToQuery', 'dataType', 'connectString', 'query', 'dataSource', 'headerSource', 'doNotSuppressBlankLines', 'destination', 'addressFieldName', 'mailSubject', 'mailAsAttachment', 'viewMergedData', 'activeRecord', 'checkErrors', 'odso'];
 
-function ensureContentType(parts, partName, type) {
-  const types = parseXml(parts['[Content_Types].xml']);
-  const overrides = [...types.documentElement.children].filter(n => n.localName === 'Override');
-  if (overrides.some(n => n.getAttribute('PartName') === partName)) return;
-  const node = types.createElementNS(types.documentElement.namespaceURI || CT, 'Override');
-  node.setAttribute('PartName', partName); node.setAttribute('ContentType', type);
-  types.documentElement.append(node); save(parts, '[Content_Types].xml', types);
-}
+const ensureContentType = declareContentType;
 function removeContentType(parts, partName) {
   const types = parseXml(parts['[Content_Types].xml']);
   const node = [...types.documentElement.children].find(n => n.localName === 'Override' && n.getAttribute('PartName') === partName);

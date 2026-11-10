@@ -1,5 +1,7 @@
 # Legal
 
+**Live app:** [legal.puter.com](https://legal.puter.com/)
+
 Free, open-source legal practice management for solo lawyers and small firms. An open-source alternative to Clio, MyCase, and PracticePanther.
 
 Built with vanilla JavaScript, Vite, [Lucide](https://lucide.dev) icons, and [Puter.js](https://docs.puter.com) as the only backend. There is no framework and no server of its own.

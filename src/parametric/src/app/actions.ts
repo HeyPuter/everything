@@ -28,6 +28,8 @@ import {
 } from './sketch/tools';
 import { h } from '../ui/dom';
 import type { PlaneRef } from '../model/types';
+import { RELATION_LABELS } from '../sketch/ops';
+import { CONSTRAINTS, CONSTRAINT_HINTS, runConstraint } from './sketch/constrain';
 
 const SKETCH_TOOLS: Record<string, { label: string; shortcut?: string; desc: string; make: (ed: SketchEditor) => SkTool }> = {
   line: { label: 'Line', shortcut: 'L', desc: 'Sketch straight lines.', make: (ed) => lineTool(ed) },
@@ -54,6 +56,9 @@ export function registerCommands(app: App, files: FileOps) {
   const inSketch = () => !!app.sketchEditor;
   const noModes = () => !app.panel;
   const hasBody = () => !!app.bbox;
+  // A feature panel holds a copy of its feature: OK after a Redo would write
+  // that copy back over the redone change, so the panel is cancelled first.
+  const redo = () => { if (app.panel?.preview()) void app.closePanel(false); app.store.redo(); };
   const feature = (type: Feature['type'], label: string, iconName: string, desc: string, opts: { cut?: boolean; needsBody?: boolean; shortcut?: string; keywords?: string } = {}): Command => ({
     id: opts.cut ? `${type}Cut` : type,
     label,
@@ -95,7 +100,7 @@ export function registerCommands(app: App, files: FileOps) {
   const toggle = (id: string, label: string, get: () => boolean, set: (v: boolean) => void, desc?: string): Command => ({
     id, label, description: desc, keywords: 'show hide visibility',
     checked: get,
-    run: () => { set(!get()); app.viewport.refreshStates(); app.sketchEditor?.render(); app.saveSettings(); c.changed(); },
+    run: () => { set(!get()); app.saveSettings(); },
   });
 
   const tool = (id: string): Command => {
@@ -122,7 +127,7 @@ export function registerCommands(app: App, files: FileOps) {
 
   c.register(
     // ---- file ----
-    { id: 'new', label: 'New', icon: 'new', shortcut: 'Ctrl+N', description: 'Start a new part.', run: () => files.newPart() },
+    { id: 'new', label: 'New', icon: 'new', shortcut: 'Control+N', description: 'Start a new part.', run: () => files.newPart() },
     { id: 'open', label: 'Open...', icon: 'open', shortcut: 'Ctrl+O', description: 'Open a saved part.', run: () => files.open() },
     { id: 'openDevice', label: 'Open from Device...', icon: 'upload', description: 'Open a part file, or a STEP or SolidWorks file, from this device.', run: () => files.openFromDevice() },
     { id: 'save', label: 'Save', icon: 'save', shortcut: 'Ctrl+S', description: 'Save the part.', run: () => { void files.save(); } },
@@ -141,13 +146,13 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'properties', label: 'Part Properties...', icon: 'part', keywords: 'units decimals', description: 'Name, units and precision.', run: () => propertiesDialog(app) },
     // ---- edit ----
     {
-      id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.store.canUndo,
+      id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.canUndo,
       run: () => { if (app.panel) void app.closePanel(false); app.store.undo(); },
     },
-    { id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', enabled: () => app.store.canRedo, run: () => app.store.redo() },
-    { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => app.store.redo() },
+    { id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', enabled: () => app.store.canRedo, run: () => redo() },
+    { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'rebuild', label: 'Rebuild', icon: 'rebuild', shortcut: 'Ctrl+B', description: 'Rebuild the model.', run: () => app.requestRebuild(true) },
-    { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Ctrl+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
+    { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Control+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
     { id: 'repeat', label: 'Repeat Last Command', shortcut: 'Enter', hidden: true, enabled: () => !!c.lastRun && !app.panel, run: () => { if (c.lastRun) c.run(c.lastRun); } },
     {
       id: 'delete', label: 'Delete', icon: 'trash', shortcut: 'Delete',
@@ -189,12 +194,25 @@ export function registerCommands(app: App, files: FileOps) {
     ...Object.keys(SKETCH_TOOLS).map(tool),
     { id: 'offset', label: 'Offset Entities', icon: 'offset', description: 'Copy selected sketch curves at a distance.', enabled: inSketch, run: () => { void app.openPanel(new OffsetPanel(app)); } },
     { id: 'mirrorEntities', label: 'Mirror Entities', icon: 'mirrorEntities', description: 'Mirror selected sketch entities about a line.', enabled: inSketch, run: () => mirrorSketchEntities(app) },
-    { id: 'convertEntities', label: 'Convert Entities', icon: 'convertEntities', description: 'Project selected model edges into the sketch.', enabled: inSketch, run: () => convertEntities(app) },
+    {
+      id: 'convertEntities', label: 'Convert Entities', icon: 'convertEntities', keywords: 'project projection external geometry use reference model edge vertex link',
+      description: 'Project model edges, faces or vertices into the sketch. The projected geometry stays linked to the model and follows it when it changes.',
+      enabled: inSketch, checked: () => app.sketchEditor?.tool?.id === 'convertEntities', run: () => convertEntities(app),
+    },
     { id: 'construction', label: 'Construction Geometry', icon: 'construction', shortcut: 'Q', description: 'Toggle selected sketch entities between normal and construction geometry.', enabled: inSketch, run: () => app.sketchEditor?.toggleConstruction() },
     {
-      id: 'addRelation', label: 'Add Relation', icon: 'relation', description: 'Add geometric relations between selected sketch entities.', enabled: inSketch,
-      run: () => { app.sketchEditor?.setTool(null); app.refreshSketchPanel(); app.setStatus('Select entities; the available relations appear in the PropertyManager.'); },
+      id: 'addRelation', label: 'Add Constraint', icon: 'relation', keywords: 'relation constrain geometric', description: 'Add geometric constraints between selected sketch entities.', enabled: inSketch,
+      run: () => { app.sketchEditor?.setTool(null); app.refreshSketchPanel(); app.setStatus('Select geometry; the constraints that fit appear in the PropertyManager. Or pick a constraint in the Constrain group of the Sketch tab.'); },
     },
+    ...CONSTRAINTS.map((t): Command => ({
+      id: `constraint:${t}`, label: RELATION_LABELS[t], icon: `rel:${t}`, keywords: 'constraint constrain relation sketch geometric', description: CONSTRAINT_HINTS[t],
+      enabled: inSketch, checked: () => app.sketchEditor?.tool?.id === `constraint:${t}`,
+      run: () => {
+        if (!app.sketchEditor) return;
+        if (app.panel) void app.closePanel(false);
+        runConstraint(app.sketchEditor, t);
+      },
+    })),
     // ---- features ----
     feature('extrude', 'Extruded Boss', 'extrude', 'Extrude a sketch to add material.', { shortcut: 'E', keywords: 'extrusion pad boss' }),
     feature('revolve', 'Revolved Boss', 'revolve', 'Revolve a sketch around an axis to add material.', { keywords: 'revolution lathe' }),
@@ -237,7 +255,8 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'drawing:svg', label: 'Export SVG', icon: 'download', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportSvg() },
     { id: 'zoomIn', label: 'Zoom In', icon: 'zoomIn', shortcut: 'Shift+Z', run: () => app.viewport.zoomBy(0.8) },
     { id: 'zoomOut', label: 'Zoom Out', icon: 'zoomOut', shortcut: 'Z', run: () => app.viewport.zoomBy(1.25) },
-    { id: 'previousView', label: 'Previous View', icon: 'previousView', shortcut: 'Ctrl+Shift+Z', run: () => app.viewport.previousView() },
+    // No shortcut: Ctrl+Shift+Z is Redo.
+    { id: 'previousView', label: 'Previous View', icon: 'previousView', run: () => app.viewport.previousView() },
     view('front', 'Front', 'viewFront', 'Ctrl+1'),
     view('back', 'Back', 'viewBack', 'Ctrl+2'),
     view('left', 'Left', 'viewLeft', 'Ctrl+3'),
@@ -268,11 +287,11 @@ export function registerCommands(app: App, files: FileOps) {
       id: 'perspective', label: 'Perspective', icon: 'perspective', checked: () => !app.renderer.camera.ortho,
       run: () => { const cam = app.renderer.camera; cam.ortho = !cam.ortho; cam.onChange(); c.changed(); },
     },
-    toggle('showPlanes', 'Planes', () => app.viewport.showPlanes, (v) => { app.viewport.showPlanes = v; app.settings.showPlanes = v; }),
-    toggle('showOrigin', 'Origins', () => app.viewport.showOrigin, (v) => { app.viewport.showOrigin = v; app.settings.showOrigin = v; }),
-    toggle('showSketches', 'Sketches', () => app.viewport.showSketches, (v) => { app.viewport.showSketches = v; app.settings.showSketches = v; }),
-    toggle('showRelations', 'Sketch Relations', () => app.settings.showRelations, (v) => { app.settings.showRelations = v; if (app.sketchEditor) app.sketchEditor.showRelations = v; }),
-    toggle('showDimensions', 'Sketch Dimensions', () => app.settings.showDimensions, (v) => { app.settings.showDimensions = v; if (app.sketchEditor) app.sketchEditor.showDimensions = v; }),
+    toggle('showPlanes', 'Planes', () => app.viewport.showPlanes, (v) => app.changeSettings({ showPlanes: v })),
+    toggle('showOrigin', 'Origins', () => app.viewport.showOrigin, (v) => app.changeSettings({ showOrigin: v })),
+    toggle('showSketches', 'Sketches', () => app.viewport.showSketches, (v) => app.changeSettings({ showSketches: v })),
+    toggle('showRelations', 'Sketch Constraints', () => app.settings.showRelations, (v) => app.changeSettings({ showRelations: v })),
+    toggle('showDimensions', 'Sketch Dimensions', () => app.settings.showDimensions, (v) => app.changeSettings({ showDimensions: v })),
     { id: 'theme:system', label: 'System Theme', icon: 'system', checked: () => getThemeChoice() === 'system', run: () => { setThemeChoice('system'); c.changed(); } },
     { id: 'theme:light', label: 'Light Theme', icon: 'light', checked: () => getThemeChoice() === 'light', run: () => { setThemeChoice('light'); c.changed(); } },
     { id: 'theme:dark', label: 'Dark Theme', icon: 'dark', checked: () => getThemeChoice() === 'dark', run: () => { setThemeChoice('dark'); c.changed(); } },
@@ -320,7 +339,7 @@ export const RIBBON: RibbonTab[] = [
   {
     id: 'sketch', label: 'Sketch',
     groups: [
-      [{ cmd: 'sketch' }, { cmd: 'tool:smartDimension' }],
+      [{ cmd: 'sketch' }],
       [
         { stack: [{ cmd: 'tool:line' }, { cmd: 'tool:centerline' }, { cmd: 'tool:point' }] },
         { stack: [{ cmd: 'tool:rectangle' }, { cmd: 'tool:centerRectangle' }, { cmd: 'tool:polygon' }] },
@@ -328,8 +347,16 @@ export const RIBBON: RibbonTab[] = [
         { stack: [{ cmd: 'tool:centerArc' }, { cmd: 'tool:tangentArc' }, { cmd: 'tool:arc3' }] },
         { stack: [{ cmd: 'tool:spline' }, { cmd: 'tool:sketchFillet' }] },
       ],
-      [{ cmd: 'tool:trim' }, { stack: [{ cmd: 'tool:extend' }, { cmd: 'offset' }, { cmd: 'convertEntities' }] }, { stack: [{ cmd: 'mirrorEntities' }, { cmd: 'construction' }, { cmd: 'addRelation' }] }],
+      [{ stack: [{ cmd: 'tool:trim' }, { cmd: 'tool:extend' }, { cmd: 'offset' }] }, { stack: [{ cmd: 'mirrorEntities' }, { cmd: 'convertEntities' }, { cmd: 'construction' }] }],
+      [
+        { cmd: 'tool:smartDimension' },
+        { stack: [{ cmd: 'constraint:coincident' }, { cmd: 'constraint:horizontal' }, { cmd: 'constraint:vertical' }] },
+        { stack: [{ cmd: 'constraint:parallel' }, { cmd: 'constraint:perpendicular' }, { cmd: 'constraint:tangent' }] },
+        { stack: [{ cmd: 'constraint:equal' }, { cmd: 'constraint:concentric' }, { cmd: 'constraint:midpoint' }] },
+        { stack: [{ cmd: 'constraint:collinear' }, { cmd: 'constraint:symmetric' }, { cmd: 'constraint:fix' }] },
+      ],
     ],
+    labels: ['Sketch', 'Draw', 'Modify', 'Constrain'],
   },
   {
     id: 'evaluate', label: 'Evaluate',
@@ -369,7 +396,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
     },
     {
       label: 'Edit', items: () => [
-        { ...m('undo'), label: app.store.canUndo ? `Undo ${app.store.undoLabel}` : 'Undo' },
+        { ...m('undo'), label: app.canUndo ? `Undo ${app.store.undoLabel}` : 'Undo' },
         { ...m('redo'), label: app.store.canRedo ? `Redo ${app.store.redoLabel}` : 'Redo' }, sep,
         m('rebuild'), m('forceRebuild'), sep, m('editFeature'), m('delete'), m('suppress'), m('unsuppress'), m('rollToEnd'), sep, m('appearance'), m('material'),
       ],
@@ -399,7 +426,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
       label: 'Tools', items: () => [
         { label: 'Sketch Entities', icon: 'line', submenu: () => ['line', 'centerline', 'rectangle', 'centerRectangle', 'circle', 'perimeterCircle', 'centerArc', 'tangentArc', 'arc3', 'polygon', 'slot', 'spline', 'point'].map((t) => m(`tool:${t}`)) },
         { label: 'Sketch Tools', icon: 'trim', submenu: () => [m('tool:sketchFillet'), m('tool:trim'), m('tool:extend'), m('offset'), m('mirrorEntities'), m('convertEntities'), m('construction')] },
-        { label: 'Dimensions and Relations', icon: 'smartDimension', submenu: () => [m('tool:smartDimension'), m('addRelation')] },
+        { label: 'Dimensions and Constraints', icon: 'smartDimension', submenu: () => [m('tool:smartDimension'), sep, ...CONSTRAINTS.map((t) => m(`constraint:${t}`))] },
         { label: 'Evaluate', icon: 'measure', submenu: () => [m('measure'), m('massProperties'), m('sectionView')] },
         sep, m('equations'), m('material'), m('options'),
       ],
@@ -426,33 +453,40 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
       const d = con as SkDimension;
       return [
         { label: 'Modify Value...', icon: 'edit', disabled: !!d.driven, run: () => ed.openModify(id) },
-        { label: d.driven ? 'Make Driving' : 'Make Driven (reference)', icon: 'smartDimension', run: () => ed.edit('Toggle driven', (sk) => { const x = sk.constraints.find((k) => k.id === id) as SkDimension; x.driven = !x.driven || undefined; }) },
+        { label: d.driven ? 'Make Driving' : 'Make Driven (reference)', icon: 'smartDimension', run: () => ed.setDriven(id, !d.driven) },
         sep, { label: 'Delete Dimension', icon: 'trash', run: () => ed.edit('Delete dimension', (sk) => { sk.constraints = sk.constraints.filter((k) => k.id !== id); }) },
       ];
     }
-    if (con) return [{ label: 'Delete Relation', icon: 'trash', run: () => ed.edit('Delete relation', (sk) => { sk.constraints = sk.constraints.filter((k) => k.id !== id); }) }];
+    if (con) return [{ label: 'Delete Constraint', icon: 'trash', run: () => ed.edit('Delete constraint', (sk) => { sk.constraints = sk.constraints.filter((k) => k.id !== id); }) }];
   }
   if (ed) {
     const items: MenuItem[] = [];
     const ids = ed.selectedIds();
+    const fits = ed.selectionRelations();
+    if (fits.length) {
+      const sel = [...app.selection.items];
+      items.push({ label: 'Add Constraint', icon: 'relation', submenu: () => fits.map((t) => ({ label: RELATION_LABELS[t], icon: `rel:${t}`, run: () => ed.addRelation(t, sel) })) });
+    }
     if (ids.length) items.push(m('construction'), m('delete'), sep);
+    else if (fits.length) items.push(sep);
     items.push(m('tool:smartDimension'), m('tool:line'), m('tool:rectangle'), m('tool:circle'), sep, m('convertEntities'), m('exitSketch'), sep, m('zoomFit'), m('normalTo'));
     return items;
   }
   if (target === 'feature' && id) {
     const f = app.store.feature(id)!;
     const idx = app.store.indexOf(id);
+    const ids = app.tree.targets(id);
     return [
       f.type === 'sketch' ? { label: 'Edit Sketch', icon: 'sketch', run: () => app.editSketch(id) } : { label: 'Edit Feature', icon: 'edit', run: () => app.editFeature(id) },
       { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.tree.startRename(id) },
       sep,
       ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: f.hidden ? 'Show' : 'Hide', icon: f.hidden ? 'eye' : 'eyeOff', run: () => app.toggleHidden([id]) } as MenuItem] : []),
-      { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress([id]) },
+      { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress(ids, !f.suppressed) },
       { label: 'Roll Back to Here', icon: 'upToLine', run: () => app.setRollback(idx) },
       { label: 'Roll to End', icon: 'downToLine', disabled: app.store.doc.rollback == null, run: () => app.setRollback(null) },
       ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: 'Normal To', icon: 'normalTo', run: () => { const fr = f.type === 'sketch' ? app.frameOfSketch(f) : app.frameOfPlane({ kind: 'feature', id }); if (fr) app.viewport.normalTo(fr); } } as MenuItem] : []),
       sep,
-      { label: 'Delete', icon: 'trash', shortcut: 'Delete', run: () => void app.deleteFeatures([id]) },
+      { label: 'Delete', icon: 'trash', shortcut: 'Delete', run: () => void app.deleteFeatures(ids) },
     ];
   }
   const sel = app.selection.items[0];

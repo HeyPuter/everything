@@ -16,7 +16,6 @@ export const CLOUD_DIR = 'Parts';
 const LOCAL_DIR = 'parametric-parts';
 const LOCAL_INDEX = 'parametric:local-parts';
 const RECENT_KEY = 'parametric:recent';
-const RECOVERY_FILE = 'recovery.json';
 
 export type Location = { type: 'cloud'; path: string } | { type: 'local'; id: string };
 
@@ -42,10 +41,21 @@ async function opfsDir(): Promise<FileSystemDirectoryHandle | null> {
   }
 }
 
+const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const nonempty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+const finiteNumber = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0;
+
 function readIndex(): { id: string; name: string; modified: number; size: number }[] {
   try {
-    const v = JSON.parse(localStorage.getItem(LOCAL_INDEX) || '[]');
-    return Array.isArray(v) ? v : [];
+    const v: unknown = JSON.parse(localStorage.getItem(LOCAL_INDEX) || '[]');
+    const rows: { id: string; name: string; modified: number; size: number }[] = [];
+    for (const p of Array.isArray(v) ? v : []) {
+      // One damaged metadata row must not hide all the user's other files or
+      // make the index update throw after a successful file write.
+      if (!record(p) || !nonempty(p.id) || typeof p.name !== 'string') continue;
+      rows.push({ id: p.id, name: p.name, modified: finiteNumber(p.modified), size: Math.max(0, finiteNumber(p.size)) });
+    }
+    return rows;
   } catch {
     return [];
   }
@@ -64,8 +74,14 @@ export const localAvailable = async () => !!(await opfsDir());
 async function writeFile(dir: FileSystemDirectoryHandle, name: string, text: string) {
   const fh = await dir.getFileHandle(name, { create: true });
   const w = await fh.createWritable();
-  await w.write(text);
-  await w.close();
+  try {
+    await w.write(text);
+    await w.close();
+  } catch (e) {
+    // The file keeps its old contents; drop the half-written copy and its storage.
+    await w.abort().catch(() => {});
+    throw e;
+  }
 }
 
 async function localWrite(id: string, name: string, text: string) {
@@ -86,10 +102,13 @@ async function localRead(id: string): Promise<string> {
 
 async function localDelete(id: string) {
   const dir = await opfsDir();
+  if (!dir) throw new Error('Browser storage is not available.');
   try {
-    await dir?.removeEntry(`${id}${EXT}`);
-  } catch {
-    /* already gone */
+    await dir.removeEntry(`${id}${EXT}`);
+  } catch (e) {
+    // Only a missing file counts as already deleted. Other failures must keep
+    // the part discoverable so the user can retry or download it.
+    if (!isMissing(e)) throw e;
   }
   writeIndex(readIndex().filter((p) => p.id !== id));
 }
@@ -99,11 +118,16 @@ async function localDelete(id: string) {
 async function cloudWrite(path: string, text: string) {
   const fs = puter()?.fs;
   if (!fs) throw new Error('Puter storage is not available.');
+  // Signed out (in another tab, say): writing would open Puter's sign-in instead.
+  if (!cloudAvailable()) throw new Error('Sign in to Puter to save this part to your cloud, or use Save As to keep it in this browser.');
   return fs.write(path, new Blob([text], { type: 'application/json' }), { overwrite: true, createMissingParents: true });
 }
 
 async function cloudRead(path: string): Promise<string> {
-  const blob = await puter()!.fs.read(path);
+  const p = puter();
+  if (!p?.fs) throw new Error('Puter is not available right now. Check your connection and try again.');
+  if (!cloudAvailable()) throw new Error('Sign in to Puter to open parts saved in your cloud.');
+  const blob = await p.fs.read(path);
   return blob.text();
 }
 
@@ -126,8 +150,13 @@ export async function uniqueCloudPath(name: string): Promise<string> {
 
 // ---- Public API ----
 
-export async function newLocation(name: string, id: string): Promise<Location> {
+export async function newLocation(name: string): Promise<Location> {
   if (cloudAvailable()) return { type: 'cloud', path: await uniqueCloudPath(name) };
+  const existing = new Set(readIndex().map((p) => p.id));
+  let id: string;
+  do {
+    id = `part-${crypto.getRandomValues(new Uint32Array(4)).join('-')}`;
+  } while (existing.has(id));
   return { type: 'local', id };
 }
 
@@ -137,11 +166,65 @@ export async function saveText(location: Location, name: string, text: string): 
     const item = await cloudWrite(location.path, text);
     const loc: Location = { type: 'cloud', path: item?.path || location.path };
     rememberRecent({ location: loc, name });
+    announceSaved(loc);
     return loc;
   }
   await localWrite(location.id, name, text);
   rememberRecent({ location, name });
+  announceSaved(location);
   return location;
+}
+
+// ---- Saves made in other tabs of this browser ----
+// A tab that still has an older version of the same part open must not
+// silently replace the newer file when it saves.
+
+const savesChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('parametric-saves') : null;
+
+// ---- The list of parts changed (a save, rename or delete here or in another tab) ----
+
+const partsListeners = new Set<() => void>();
+
+/** Calls `fn` after a part is saved, renamed or deleted (in this tab or another). Returns an unsubscribe. */
+export function onPartsChanged(fn: () => void): () => void {
+  partsListeners.add(fn);
+  return () => partsListeners.delete(fn);
+}
+
+function partsChanged() {
+  for (const fn of partsListeners) fn();
+}
+savesChannel?.addEventListener('message', () => partsChanged());
+
+export function announceSaved(location: Location) {
+  partsChanged();
+  try {
+    savesChannel?.postMessage({ type: 'saved', location });
+  } catch {
+    /* other tabs are not told */
+  }
+}
+
+const messageLocation = (loc: unknown): Location | null =>
+  !record(loc) ? null
+    : loc.type === 'cloud' && nonempty(loc.path) ? { type: 'cloud', path: loc.path }
+      : loc.type === 'local' && nonempty(loc.id) ? { type: 'local', id: loc.id } : null;
+
+/** Calls `fn` when another tab of this browser saves a part. */
+export function onSavedElsewhere(fn: (location: Location) => void) {
+  savesChannel?.addEventListener('message', (e: MessageEvent) => {
+    const loc = record(e.data) && e.data.type === 'saved' ? messageLocation(e.data.location) : null;
+    if (loc) fn(loc);
+  });
+}
+
+/** Calls `fn` when another tab of this browser renames a cloud part's file. */
+export function onRenamedElsewhere(fn: (from: Location, to: Location, name: string) => void) {
+  savesChannel?.addEventListener('message', (e: MessageEvent) => {
+    if (!record(e.data) || e.data.type !== 'renamed' || !nonempty(e.data.name)) return;
+    const from = messageLocation(e.data.from), to = messageLocation(e.data.to);
+    if (from && to) fn(from, to, e.data.name);
+  });
 }
 
 export async function loadText(location: Location): Promise<string> {
@@ -152,15 +235,29 @@ export async function deletePart(location: Location) {
   if (location.type === 'cloud') await puter()!.fs.delete(location.path);
   else await localDelete(location.id);
   forgetRecent(location);
+  partsChanged();
 }
 
 export async function renameCloud(location: Location & { type: 'cloud' }, newName: string): Promise<Location> {
+  if (!cloudAvailable()) throw new Error('Sign in to Puter to rename parts saved in your cloud.');
   const item = await puter()!.fs.rename(location.path, `${safeName(newName)}${EXT}`);
-  return { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
+  const renamed: Location = { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
+  partsChanged();
+  // Another tab with the part open would otherwise save it under its old name again.
+  try {
+    savesChannel?.postMessage({ type: 'renamed', from: location, to: renamed, name: safeName(newName) });
+  } catch {
+    /* other tabs are not told */
+  }
+  return renamed;
 }
 
-/** Parts the user can open: cloud folder listing plus browser storage. */
-export async function listParts(): Promise<FileEntry[]> {
+/**
+ * Parts the user can open: cloud folder listing plus browser storage. When
+ * the cloud cannot be listed (offline, say), the parts in this browser are
+ * still returned and `onCloudError` is told why the cloud ones are missing.
+ */
+export async function listParts(onCloudError?: (err: unknown) => void): Promise<FileEntry[]> {
   const out: FileEntry[] = [];
   if (cloudAvailable()) {
     try {
@@ -170,7 +267,7 @@ export async function listParts(): Promise<FileEntry[]> {
         out.push({ name: it.name.slice(0, -EXT.length), location: { type: 'cloud', path: it.path }, modified: toMs(it.modified), size: it.size });
       }
     } catch (err) {
-      if (!isMissing(err)) throw err;
+      if (!isMissing(err)) onCloudError?.(err);
     }
   }
   for (const p of readIndex()) out.push({ name: p.name, location: { type: 'local', id: p.id }, modified: p.modified, size: p.size });
@@ -183,8 +280,16 @@ export const sameLocation = (a?: Location | null, b?: Location | null) =>
 
 export function recentParts(): { location: Location; name: string; opened: number }[] {
   try {
-    const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
-    return Array.isArray(v) ? v : [];
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    const rows: { location: Location; name: string; opened: number }[] = [];
+    for (const p of Array.isArray(v) ? v : []) {
+      if (!record(p) || typeof p.name !== 'string' || !record(p.location)) continue;
+      const loc = p.location;
+      const location: Location | null = loc.type === 'cloud' && nonempty(loc.path) ? { type: 'cloud', path: loc.path }
+        : loc.type === 'local' && nonempty(loc.id) ? { type: 'local', id: loc.id } : null;
+      if (location) rows.push({ location, name: p.name, opened: finiteNumber(p.opened) });
+    }
+    return rows;
   } catch {
     return [];
   }
@@ -230,7 +335,9 @@ export async function pickCloudSave(text: string, name: string): Promise<Locatio
   const pick = p.ui.showSaveFilePicker(new Blob([text], { type: 'application/json' }), `${safeName(name)}${EXT}`);
   const item = await (pick?.undefinedOnCancel ?? pick);
   if (!item) return null;
-  return { type: 'cloud', path: item.path };
+  const location: Location = { type: 'cloud', path: item.path };
+  announceSaved(location);
+  return location;
 }
 
 /** Reads a file from the user's device. */
@@ -258,33 +365,94 @@ export function download(data: BlobPart | Blob, filename: string, type = 'applic
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-// ---- Crash recovery: one snapshot of unsaved work in browser storage ----
+// ---- Crash recovery: a snapshot of each open tab's unsaved work ----
+// Every tab writes its own file and holds a Web Lock named after it while it
+// is open, so another tab never offers (or deletes) work that is still open,
+// and two tabs never overwrite each other's copy. A copy whose tab is gone
+// (closed, crashed, reloaded) is offered when Parametric starts.
 
-export async function writeRecovery(text: string) {
-  const dir = await opfsDir();
-  if (!dir) return;
-  try {
-    await writeFile(dir, RECOVERY_FILE, text);
-  } catch {
-    /* best effort */
-  }
+const RECOVERY_PREFIX = 'recovery-';
+const LOCK_PREFIX = 'parametric-recovery-';
+const TAB_ID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+const ownRecovery = `${RECOVERY_PREFIX}${TAB_ID}.json`;
+
+type Locks = { request(name: string, cb: () => Promise<void>): Promise<void>; query(): Promise<{ held?: { name?: string }[] }> };
+const locks = (): Locks | undefined => (typeof navigator !== 'undefined' ? (navigator as unknown as { locks?: Locks }).locks : undefined);
+// Held until the tab goes away.
+void locks()?.request(`${LOCK_PREFIX}${TAB_ID}`, () => new Promise<void>(() => {})).catch(() => {});
+
+// Writes and removals run one at a time, so a removal never races a write in progress.
+let recoveryQueue: Promise<unknown> = Promise.resolve();
+function queued<T>(fn: () => Promise<T>): Promise<T> {
+  const run = recoveryQueue.then(fn, fn);
+  recoveryQueue = run.catch(() => {});
+  return run;
 }
 
+/** True only once the recovery copy has been written and closed successfully. */
+export function writeRecovery(text: string): Promise<boolean> {
+  return queued(async () => {
+    const dir = await opfsDir();
+    if (!dir) return false;
+    try {
+      await writeFile(dir, ownRecovery, text);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** This tab's own recovery copy, if one has been written. */
 export async function readRecovery(): Promise<string | null> {
-  const dir = await opfsDir();
-  if (!dir) return null;
-  try {
-    return await (await (await dir.getFileHandle(RECOVERY_FILE)).getFile()).text();
-  } catch {
-    return null;
-  }
+  return queued(async () => {
+    const dir = await opfsDir();
+    try {
+      return dir ? await (await (await dir.getFileHandle(ownRecovery)).getFile()).text() : null;
+    } catch {
+      return null;
+    }
+  });
 }
 
-export async function clearRecovery() {
+export function clearRecovery() {
+  return removeRecovery(ownRecovery);
+}
+
+export function removeRecovery(file: string) {
+  return queued(async () => {
+    try {
+      await (await opfsDir())?.removeEntry(file);
+    } catch {
+      /* nothing to clear */
+    }
+  });
+}
+
+/** Recovery copies left by tabs that are no longer open, newest first. */
+export async function orphanRecoveries(): Promise<{ file: string; text: string }[]> {
   const dir = await opfsDir();
+  if (!dir) return [];
+  let held: Set<string> | null = null;
   try {
-    await dir?.removeEntry(RECOVERY_FILE);
+    const q = await locks()?.query();
+    if (q) held = new Set((q.held ?? []).map((l) => l.name ?? ''));
   } catch {
-    /* nothing to clear */
+    held = null;
   }
+  const out: { file: string; text: string; at: number }[] = [];
+  try {
+    for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+      // recovery.json was the single copy written before there was one per tab.
+      const id = name === 'recovery.json' ? '' : name.startsWith(RECOVERY_PREFIX) && name.endsWith('.json') ? name.slice(RECOVERY_PREFIX.length, -5) : null;
+      if (id === null || name === ownRecovery || handle.kind !== 'file') continue;
+      // Without Web Locks every other copy counts as left behind.
+      if (id && held?.has(`${LOCK_PREFIX}${id}`)) continue;
+      const f = await (handle as FileSystemFileHandle).getFile();
+      out.push({ file: name, text: await f.text(), at: f.lastModified });
+    }
+  } catch {
+    /* listing failed: nothing to offer */
+  }
+  return out.sort((a, b) => b.at - a.at).map(({ file, text }) => ({ file, text }));
 }

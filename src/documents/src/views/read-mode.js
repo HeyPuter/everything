@@ -62,9 +62,12 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
     const columns = readingColumns(host.clientWidth - room, host.clientHeight - 8, width, ed.zoom);
     perScreen = columns.count; columnGap = columns.gap;
     host.dataset.cardPages = String(perScreen);
-    ed.setView({ kind: 'read', width: Math.floor(columns.width), height: Math.floor(columns.height), color, textSpacing: textSpacing ? { character: letterSpacing() ? 0.6 : 0 } : false });
+    // A screen narrower than an indent (or border, or list label) cannot be laid out: the editor keeps
+    // the screens it had (CanvasEditor.setView), one to a window, rather than failing the resize.
+    try { ed.setView({ kind: 'read', width: Math.floor(columns.width), height: Math.floor(columns.height), color, textSpacing: textSpacing ? { character: letterSpacing() ? 0.6 : 0 } : false }); }
+    catch (error) { if (ed.view?.kind !== 'read') throw error; perScreen = 1; host.dataset.cardPages = '1'; }
     host.style.setProperty('--read-gap', `${columnGap}px`);
-    const pageWidth = Math.floor(columns.width) * ed.zoom;
+    const pageWidth = (ed.view?.width ?? Math.floor(columns.width)) * ed.zoom;
     host.style.setProperty('--read-inset', `${Math.max(0, Math.floor((host.clientWidth - room - (perScreen * pageWidth + (perScreen - 1) * columnGap)) / 2))}px`);
     host.classList.toggle('read-inverse', color === 'inverse');
     host.classList.toggle('read-sepia', color === 'sepia');

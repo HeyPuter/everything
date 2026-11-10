@@ -5,12 +5,15 @@
 
 import { workerURL } from './protocol.js';
 import { authorize, refuseCredential } from './auth.js';
+import { t, tSource } from '../i18n/index.js';
 
 export const WORKER_KEY = 'spreadsheet-collab-worker-v1';
 export const WORKER_BUNDLE = 'worker/spreadsheet-worker.js';
 
-/** Why a request never reached the worker, as the status shows it. */
-export const UNREACHABLE = 'Could not reach the shared workbook. Check your connection; your changes are kept and sent when it returns.';
+/** Why a request never reached the worker, as the status shows it (in the interface language). */
+export const unreachableMessage = () => t('collabApi.unreachable');
+/** The same in English. Compare a status message with unreachableMessage(), which is what the status holds. */
+export const UNREACHABLE = tSource('collabApi.unreachable');
 
 export class CollabError extends Error {
   constructor(message, status = 0) {
@@ -25,7 +28,7 @@ export class CollabError extends Error {
 export function collabPuter() {
   const p = globalThis.puter;
   if (!p?.workers?.exec || !p.workers.create || !p.kv?.get || !p.fs?.getReadURL || !p.auth?.getUser) {
-    throw new Error('Editing together needs Puter. Open the spreadsheet from Puter or check your connection, then try again.');
+    throw new Error(t('collabApi.needsPuter'));
   }
   return p;
 }
@@ -43,7 +46,7 @@ export async function call(puter, server, input) {
         controller.signal.throwIfAborted();
         return await puter.workers.exec(`${server}/api`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body, signal: controller.signal, redirect: 'error' });
       } catch {
-        throw new CollabError(UNREACHABLE);
+        throw new CollabError(unreachableMessage());
       }
     };
     let res = await send();
@@ -52,8 +55,8 @@ export async function call(puter, server, input) {
       res = await send();
     }
     const data = await res.json().catch(() => null);
-    if (res.ok && !data) throw new CollabError('The shared workbook did not answer. Try again shortly.');
-    if (!res.ok) throw new CollabError(data?.message || 'Could not synchronize this workbook.', res.status || 500);
+    if (res.ok && !data) throw new CollabError(t('collabApi.noAnswer'));
+    if (!res.ok) throw new CollabError(data?.message || t('collabApi.couldNotSync'), res.status || 500);
     return data;
   } finally {
     clearTimeout(timer);
@@ -66,13 +69,13 @@ export async function call(puter, server, input) {
  */
 export async function deploy(puter, progress = () => {}, fetchBundle = defaultBundle) {
   const account = puter.authToken;
-  const check = () => { if (puter.authToken !== account) throw new Error('Your Puter account changed. Try again.'); };
+  const check = () => { if (puter.authToken !== account) throw new Error(t('collabApi.accountChanged')); };
   let config = await puter.kv.get(WORKER_KEY);
   check();
-  progress('Preparing the collaboration server…');
+  progress(t('collabApi.preparingServer'));
   const source = await fetchBundle();
   const build = /spreadsheet-worker build=([a-f0-9]+)/.exec(source)?.[1];
-  if (!build) throw new Error('The collaboration server bundle is invalid.');
+  if (!build) throw new Error(t('collabApi.bundleInvalid'));
   check();
   if (!config) {
     const name = `spreadsheet-${crypto.randomUUID().replaceAll('-', '').slice(0, 20)}`;
@@ -88,7 +91,7 @@ export async function deploy(puter, progress = () => {}, fetchBundle = defaultBu
     config = { ...config, build };
     await puter.kv.set(WORKER_KEY, config);
   }
-  progress('Starting the collaboration server…');
+  progress(t('collabApi.startingServer'));
   for (let attempt = 0; attempt < 20; attempt++) {
     try {
       const res = await puter.workers.exec(`${workerURL(config.server)}/health`, { headers: { 'x-puter-no-auth': '1' }, redirect: 'error' });
@@ -97,11 +100,11 @@ export async function deploy(puter, progress = () => {}, fetchBundle = defaultBu
     check();
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error('The collaboration server is still starting. Try again shortly.');
+  throw new Error(t('collabApi.stillStarting'));
 }
 
 async function defaultBundle() {
   const res = await fetch(new URL(WORKER_BUNDLE, document.baseURI), { cache: 'no-cache' });
-  if (!res.ok) throw new Error('The collaboration server bundle could not load.');
+  if (!res.ok) throw new Error(t('collabApi.bundleNotLoaded'));
   return res.text();
 }

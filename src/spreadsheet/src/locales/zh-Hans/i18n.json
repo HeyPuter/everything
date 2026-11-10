@@ -1,0 +1,9 @@
+{
+  "displayLanguage": "显示语言",
+  "displayLanguageHint": "菜单、对话框和消息使用的语言。电子表格的内容、工作表名称和函数名称保持不变。",
+  "group": "语言",
+  "matchBrowser": "与浏览器一致（{language}）",
+  "nextTime": "下次打开电子表格时将显示新语言。",
+  "pseudo": "伪本地化（用于测试）",
+  "relaunching": "正在切换语言…"
+}

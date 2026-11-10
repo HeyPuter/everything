@@ -1,0 +1,18 @@
+{
+  "keptBy.browserCloseTab": "That combination is kept by the browser (close the tab)",
+  "keptBy.browserCloseWindow": "That combination is kept by the browser (close the window)",
+  "keptBy.browserNewTab": "That combination is kept by the browser (new tab)",
+  "keptBy.browserNewWindow": "That combination is kept by the browser (new window)",
+  "keptBy.browserPrivateWindow": "That combination is kept by the browser (private window)",
+  "keptBy.browserQuit": "That combination is kept by the browser (quit)",
+  "keptBy.browserReload": "That combination is kept by the browser (reload)",
+  "keptBy.browserReopenTab": "That combination is kept by the browser (reopen a tab)",
+  "keptBy.copy": "That combination is kept by Copy",
+  "keptBy.cut": "That combination is kept by Cut",
+  "keptBy.paste": "That combination is kept by Paste",
+  "keptBy.systemCloseWindow": "That combination is kept by the system (close the window)",
+  "keptBy.systemSwitchApps": "That combination is kept by the system (switch apps)",
+  "movesFocus": "{key} moves the focus and closes dialogs, so it cannot be a shortcut",
+  "needsModifier": "Use Ctrl, ⌘, Alt or Option with the key, or a function key (F1 to F12), so typing into cells keeps working",
+  "pressCombination": "Press a key combination"
+}

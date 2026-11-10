@@ -45,10 +45,20 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const inner = host.clientWidth - parseFloat(style.paddingLeft || 0) - parseFloat(style.paddingRight || 0) - 2 - (kind === 'draft' ? styleArea : 0);
     return { kind, width: Math.max(240, Math.floor(inner / engine.zoom)) };
   }
+  // The screen view the document could not be laid out to, and the document as it was then.
+  let refused = null;
   function relayoutScreen() {
     const engine = ready(); if (!engine || !isContinuousView(mode)) return;
     const view = screenView(mode);
-    if (view && engine.setView(view)) { layoutChanged(); paintStyleArea(); }
+    // A width the document cannot be laid out to keeps the last one (CanvasEditor.setView). It is not
+    // tried again until the window, zoom or document changes: each refusal lays the document out again
+    // and reports an update, whose refresh asked again, so the tab never got to run anything else.
+    const body = engine.session.body, key = view && JSON.stringify([view, body.revision]);
+    if (key && refused?.key === key && refused.body === body) return;
+    let changed = false;
+    try { changed = !!view && engine.setView(view); } catch { refused = { key, body }; return; }
+    refused = null;
+    if (changed) { layoutChanged(); paintStyleArea(); }
   }
   // Hosts without ResizeObserver (test DOMs) relayout on editor updates instead.
   const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (isContinuousView(mode)) requestAnimationFrame(relayoutScreen); });
@@ -87,8 +97,12 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     ctx.stroke();
     ctx.restore();
   };
-  /** Split: the second pane copies the pages after every paint. */
-  const mirrorOverlay = () => { if (split && !mirrorOverlay.queued) { mirrorOverlay.queued = true; queueMicrotask(() => { mirrorOverlay.queued = false; paintMirror(); }); } };
+  /** Split: the second pane copies each page the editor paints. */
+  const mirrorOverlay = (ctx, index) => {
+    if (!split) return;
+    split.dirty.add(index);
+    if (!mirrorOverlay.queued) { mirrorOverlay.queued = true; queueMicrotask(() => { mirrorOverlay.queued = false; paintMirror(); }); }
+  };
   /** Side to side: the thumbnails follow the pages, each drawn again once its page has been painted. */
   const paintedThumbs = new Set();
   const thumbOverlay = (ctx, index) => {
@@ -124,13 +138,13 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   }
 
   /* ---- Switching views ---- */
-  function setDocumentView(next, { remember = true } = {}) {
+  function setDocumentView(next, { remember = true, reverting = false } = {}) {
     const engine = ready();
     if (!VIEW_LABELS[next]) return;
     if (!engine) { mode = next; return; }
     if (next === mode) { if (next !== 'outline') engine.focus(); else outline.focus(); return; }
     engine.finishComposition();
-    const previous = mode;
+    const previous = mode, zoomBefore = engine.zoom;
     // Leave the current view.
     let zoomBack = null;
     if (previous === 'read') zoomBack = read.leave();
@@ -144,7 +158,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     if (usesScreenGeometry(next) || next === 'outline') { setSideToSide(false, { silent: true }); engine.pages.classList.remove('is-multipage'); }
     try {
       if (next === 'read') {
-        beforeRead = previous;
+        if (!reverting) beforeRead = previous;
         const zoom = engine.zoom;
         w.setZoom?.(1);
         read.enter({ zoom });
@@ -160,6 +174,13 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
       if (next === 'outline') { host.hidden = true; outline.open(); } else if (next !== 'read') engine.focus();
     } catch (e) {
       error(e);
+      // The editor keeps the view it had when the document cannot be laid out in this one (indents wider
+      // than the window, a page-number restart in a section it makes continuous): so does the window.
+      if (!reverting && previous !== next && (engine.view?.kind ?? null) !== (usesScreenGeometry(next) ? next : null)) {
+        setDocumentView(previous, { remember: false, reverting: true });
+        if (previous !== 'read' && engine.zoom !== zoomBefore) w.setZoom?.(zoomBefore);
+        return;
+      }
     }
     if (remember && pkg() && next !== 'read') pkg().documentView = next;
     layoutChanged();
@@ -278,7 +299,49 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   // Safari's pinch gesture.
   let gestureZoom = null;
   host.addEventListener('gesturestart', e => { e.preventDefault(); gestureZoom = editor()?.zoom ?? 1; });
-  host.addEventListener('gesturechange', e => { e.preventDefault(); if (gestureZoom && mode !== 'read' && mode !== 'outline') w.setZoom?.(Math.max(0.1, Math.min(2, Math.round(gestureZoom * e.scale * 100) / 100)), { clientX: e.clientX, clientY: e.clientY }); });
+  host.addEventListener('gesturechange', e => { e.preventDefault(); if (gestureZoom && !pinch && mode !== 'read' && mode !== 'outline') w.setZoom?.(Math.max(0.1, Math.min(2, Math.round(gestureZoom * e.scale * 100) / 100)), { clientX: e.clientX, clientY: e.clientY }); });
+
+  // Two fingers on a touch screen pinch the zoom about the point between them and carry the pages in any direction.
+  // One finger scrolls up and down and a sideways drag selects text, so this is also how a page zoomed wider than
+  // the screen is moved sideways. The zoom changes without the keyboard: a pinch is not a tap on the text.
+  const fingers = new Map();
+  let pinch = null;
+  const between = () => { const [a, b] = [...fingers.values()]; return { span: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+  host.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch') return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch) { e.stopPropagation(); return; }
+    const engine = editor();
+    if (fingers.size !== 2 || !engine || mode === 'read' || mode === 'outline' || engine.pages.classList.contains('draws-with-touch')) return;
+    e.stopPropagation();
+    engine.cancelPointer();
+    const { span, x, y } = between();
+    pinch = { span, zoom: engine.zoom, x, y };
+  }, true);
+  host.addEventListener('pointermove', e => {
+    if (!fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!pinch) return;
+    e.stopPropagation();
+    const engine = editor(); if (!engine || fingers.size < 2) return;
+    const { span, x, y } = between();
+    // Whole pixels, as everywhere the pages scroll: the rest of a move is carried to the next.
+    const dx = Math.round(x - pinch.x), dy = Math.round(y - pinch.y);
+    if (dx) { host.scrollLeft -= dx; pinch.x += dx; }
+    if (dy) { host.scrollTop -= dy; pinch.y += dy; }
+    const to = Math.max(0.1, Math.min(2, Math.round(pinch.zoom * span / pinch.span * 100) / 100));
+    if (to !== engine.zoom) w.setZoom?.(to, { clientX: x, clientY: y }, { focus: false });
+  }, true);
+  const lift = e => {
+    if (!fingers.delete(e.pointerId) || !pinch) return;
+    // The finger still down after the pinch neither selects nor taps when it lifts.
+    e.stopPropagation();
+    if (!fingers.size) pinch = null;
+  };
+  host.addEventListener('pointerup', lift, true);
+  host.addEventListener('pointercancel', lift, true);
+  // The browser would scroll the pages up and down under the pinch.
+  host.addEventListener('touchmove', e => { if (pinch && e.cancelable) e.preventDefault(); }, { passive: false });
 
   /** View → Zoom: presets, fit choices, many pages and a percentage, previewed live. */
   function zoomDialog() {
@@ -286,8 +349,9 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     // Page width that follows the window is restored as that, not as the scale it worked out to.
     const start = engine.zoom, startSetting = w.zoomSetting?.() ?? start, startMulti = engine.pages.classList.contains('is-multipage');
     let choice = null, modal = null, many = [2, 1];
-    const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, value: Math.round(start * 100), 'aria-label': 'Percent' });
-    const preview = () => { if (!percent.checkValidity()) return; apply(Number(percent.value) / 100, true); };
+    const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, required: true, value: Math.round(start * 100), 'aria-label': 'Percent' });
+    // A field cleared to type another number is not a zoom of 0: it previews nothing until a number is there.
+    const preview = () => { if (percent.value === '' || !percent.checkValidity()) return; apply(Number(percent.value) / 100, true); };
     percent.addEventListener('input', () => { choice = null; for (const r of radios) r.checked = false; preview(); });
     const option = (label, value) => {
       const input = el('input', { type: 'radio', name: 'zoom-choice', value: String(value), onchange: () => { choice = value; if (typeof value === 'number') percent.value = String(Math.round(value * 100)); apply(value, true); } });
@@ -324,8 +388,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const disabledFit = mode !== 'print';
     if (disabledFit) for (const r of radios.slice(3)) { r.disabled = true; r.parentElement.title = 'Available in Print Layout'; }
     // The choice the zoom is at now starts checked: 100% at 100%, Page width while the page follows the window.
-    const current = startMulti ? null : radios.find(r => !r.disabled && (startSetting === 'fit' ? r.value === 'width' : Number(r.value) === startSetting));
-    if (current) { current.checked = true; choice = current.value === 'width' ? 'width' : Number(current.value); }
+    const current = startMulti ? null : radios.find(r => !r.disabled && (startSetting === 'fit' ? r.value === 'width' : startSetting === 'page' ? r.value === 'page' : Number(r.value) === startSetting));
+    if (current) { current.checked = true; choice = current.value === 'width' || current.value === 'page' ? current.value : Number(current.value); }
     function apply(value, live) {
       if (value === 'width') w.zoomTo?.('width');
       else if (value === 'page') w.zoomTo?.('page');
@@ -422,13 +486,14 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const pages = el('div.view-split-pages');
     const pane = el('div.view-split-pane', { 'aria-label': 'Second pane of this document', tabindex: 0 }, pages);
     const divider = el('div.view-split-divider', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Split position', tabindex: 0, 'aria-valuemin': 15, 'aria-valuemax': 85, 'aria-valuenow': 50 });
-    split = { pane, pages, divider, ratio: 0.5 };
+    split = { pane, pages, divider, ratio: 0.5, dirty: new Set() };
     surface.classList.add('is-split');
     host.after(divider, pane);
     const place = ratio => {
       split.ratio = Math.max(0.15, Math.min(0.85, ratio));
       host.style.flexBasis = `${split.ratio * 100}%`;
       divider.setAttribute('aria-valuenow', String(Math.round(split.ratio * 100)));
+      paintMirror();
     };
     place(0.5);
     divider.addEventListener('pointerdown', e => {
@@ -455,26 +520,34 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
       engine.model.select(e.shiftKey ? engine.model.selection.anchor : position, position);
       engine.focus(); engine.onSelection();
     });
+    pane.addEventListener('scroll', () => paintMirror(), { passive: true });
     paintMirror();
     onState(); layoutChanged();
   }
   function paintMirror() {
     const engine = editor(); if (!split || !engine) return;
-    // A long document paints pages off screen later; the mirror copies every page now.
-    engine.flushPaint?.();
-    const { pages } = split, sources = engine.canvases;
+    const { pages, pane, dirty } = split, sources = engine.canvases;
     pages.className = `view-split-pages ${engine.pages.className.replace('canvas-pages', '')}`;
     pages.style.gap = engine.pages.style.gap;
     while (pages.children.length > sources.length) pages.lastChild.remove();
     sources.forEach((source, index) => {
       let copy = pages.children[index];
-      if (!copy) { copy = el('canvas.canvas-page'); pages.append(copy); }
+      if (!copy) { copy = el('canvas.canvas-page'); pages.append(copy); dirty.add(index); }
       copy.dataset.page = index;
-      if (copy.width !== source.width) copy.width = source.width;
-      if (copy.height !== source.height) copy.height = source.height;
+      if (copy.width !== source.width || copy.height !== source.height) { copy.width = source.width; copy.height = source.height; dirty.add(index); }
       copy.style.width = source.style.width; copy.style.height = source.style.height;
-      copy.getContext('2d').drawImage(source, 0, 0);
     });
+    // Only the pages the second pane shows (and a screen around them) are painted and copied; the
+    // others follow when it scrolls to them. Copying every page of a long document, after painting
+    // the ones the editor had left for later, doubled the time each keystroke took.
+    const view = pane.getBoundingClientRect(), height = view.height, width = view.width;
+    const wanted = [...dirty].filter(index => {
+      const r = pages.children[index]?.getBoundingClientRect();
+      return r && r.bottom > view.top - height && r.top < view.bottom + height && r.right > view.left - width && r.left < view.right + width;
+    });
+    const stale = wanted.filter(index => engine.stalePages?.has(index));
+    if (stale.length) engine.paint({ pages: stale });
+    for (const index of wanted) { pages.children[index].getContext('2d').drawImage(sources[index], 0, 0); dirty.delete(index); }
   }
 
   /* ---- Navigation pane heading commands (drag to reorder, promote, demote, add, delete) ---- */

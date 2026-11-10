@@ -1,0 +1,6 @@
+{
+  "label": "打印预览",
+  "nextPage": "下一页",
+  "pageOf": "第 {page} 页，共 {total} 页",
+  "previousPage": "上一页"
+}

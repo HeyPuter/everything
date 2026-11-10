@@ -14,10 +14,15 @@
  */
 
 import { CELL_STYLES } from './cellstyles.js';
-import { NUMBER_FORMAT_KEYS, AUTOMATIC_FORMAT, fontName, XLSX_BORDER_STYLES, BORDER_LINE_CHOICES } from './format.js';
+import { NUMBER_FORMAT_KEYS, AUTOMATIC_FORMAT, fontName, XLSX_BORDER_STYLES } from './format.js';
 import { themedCellStyles } from './workbook-theme.js';
+import { t } from '../i18n/index.js';
 
-export const STYLE_PARTS = [['number', 'Number'], ['alignment', 'Alignment'], ['font', 'Font'], ['border', 'Border'], ['fill', 'Fill'], ['protection', 'Protection']];
+/** The six parts of a style, each [key, message key of its name]. */
+export const STYLE_PARTS = [
+  ['number', 'customCellStyles.part.number'], ['alignment', 'customCellStyles.part.alignment'], ['font', 'customCellStyles.part.font'],
+  ['border', 'customCellStyles.part.border'], ['fill', 'customCellStyles.part.fill'], ['protection', 'customCellStyles.part.protection'],
+];
 const PART_NAMES = STYLE_PARTS.map(([key]) => key);
 
 /** The style keys each part covers; borders are kept as edges of their own. */
@@ -83,12 +88,12 @@ export function normalizeCellStyles(list) {
 /** Why a name cannot be given to a custom style (null when it can). `except` is the style being renamed. */
 export function styleNameProblem(wb, name, except = null) {
   const text = String(name || '').trim();
-  if (!text) return 'Enter a name for the style';
-  if (text.length > MAX_NAME) return `A style name can be at most ${MAX_NAME} characters`;
+  if (!text) return t('customCellStyles.problem.noName');
+  if (text.length > MAX_NAME) return t('customCellStyles.problem.tooLong', { max: MAX_NAME });
   const lower = text.toLowerCase();
   if (except?.toLowerCase() === lower) return null;
-  if (builtinStyleNames().has(lower)) return `${text} is a built-in style. Choose another name, or modify the built-in style`;
-  if ((wb.cellStyles || []).some((s) => s.name.toLowerCase() === lower)) return `There is already a style named ${text}`;
+  if (builtinStyleNames().has(lower)) return t('customCellStyles.problem.builtIn', { name: text });
+  if ((wb.cellStyles || []).some((s) => s.name.toLowerCase() === lower)) return t('customCellStyles.problem.taken', { name: text });
   return null;
 }
 
@@ -200,42 +205,50 @@ export function foldFormat(s, { patch = {}, border = null, borders = null } = {}
   return out;
 }
 
-const CAP = (t) => t.charAt(0).toUpperCase() + t.slice(1);
-// Excel's names for an alignment and a line that are not the stored word ("centerContinuous", "mediumDashDot").
-const ALIGN_NAMES = { centerContinuous: 'Center across selection' };
-const LINE_NAMES = Object.fromEntries(BORDER_LINE_CHOICES.map(([key, name]) => [key, name.toLowerCase()]));
-const NUMBER_NAMES = { number: 'Number', currency: 'Currency', percent: 'Percentage', date: 'Date', time: 'Time', datetime: 'Date and time', scientific: 'Scientific', text: 'Text' };
+const CAP = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+// Each summary message names the stored words it knows (Excel's names, as Format Cells shows them: "Center across
+// selection" for centerContinuous, "medium dash-dot" for mediumDashDot); a word it does not know is shown as stored.
+/** A list of a summary's phrases: "a, b, c" (`sep` 'comma') or "a; b" ('semicolon'), in the interface language. */
+const joinPhrases = (bits, sep = 'comma') => bits.reduce((list, item) => t(sep === 'comma' ? 'customCellStyles.summary.joinComma' : 'customCellStyles.summary.joinSemicolon', { list, item }));
 
 /** One line saying what a part of a definition holds, for the style dialog. */
 export function partSummary(def, part) {
   const s = def.style;
   switch (part) {
     case 'number': {
-      if (s.fmt == null) return 'General';
-      if (s.fmt === 'custom') return `Custom: ${s.code || '0'}`;
-      const name = NUMBER_NAMES[s.fmt] || CAP(String(s.fmt));
-      return s.dec != null ? `${name}, ${s.dec} decimal place${s.dec === 1 ? '' : 's'}` : name;
+      if (s.fmt == null) return t('customCellStyles.summary.general');
+      if (s.fmt === 'custom') return t('customCellStyles.summary.custom', { code: s.code || '0' });
+      const name = t('customCellStyles.summary.numberName', { fmt: String(s.fmt), name: CAP(String(s.fmt)) });
+      return s.dec != null ? t('customCellStyles.summary.decimals', { name, dec: s.dec }) : name;
     }
     case 'alignment': {
-      const bits = [`${ALIGN_NAMES[s.align] || CAP(s.align || 'automatic')} horizontally`, `${s.valign || 'middle'} vertically`];
-      if (s.wrap) bits.push('wrapped'); else if (s.clip) bits.push('clipped');
-      if (s.shrink) bits.push('shrink to fit');
-      if (s.indent) bits.push(`indent ${s.indent}`);
-      if (s.rot) bits.push(`rotated ${s.rot}°`);
-      return bits.join(', ');
+      const bits = [t('customCellStyles.summary.horizontal', { align: s.align || 'automatic', name: CAP(s.align || 'automatic') }),
+        t('customCellStyles.summary.vertical', { valign: s.valign || 'middle' })];
+      if (s.wrap) bits.push(t('customCellStyles.summary.wrapped')); else if (s.clip) bits.push(t('customCellStyles.summary.clipped'));
+      if (s.shrink) bits.push(t('customCellStyles.summary.shrink'));
+      if (s.indent) bits.push(t('customCellStyles.summary.indent', { n: s.indent }));
+      if (s.rot) bits.push(t('customCellStyles.summary.rotated', { deg: s.rot }));
+      return joinPhrases(bits);
     }
     case 'font': {
-      const bits = [s.font ? fontName(s.font) || s.font : 'Default font', `${s.size ? Math.round(s.size * 3 / 4 * 10) / 10 : 10} pt`];
-      for (const k of ['bold', 'italic', 'underline', 'strike']) if (s[k]) bits.push(k === 'strike' ? 'strikethrough' : k);
-      if (hexColor(s.color)) bits.push(`text ${hexColor(s.color)}`);
-      return bits.join(', ');
+      const bits = [s.font ? fontName(s.font) || s.font : t('customCellStyles.summary.defaultFont'),
+        t('customCellStyles.summary.points', { size: s.size ? Math.round(s.size * 3 / 4 * 10) / 10 : 10 })];
+      if (s.bold) bits.push(t('customCellStyles.summary.bold'));
+      if (s.italic) bits.push(t('customCellStyles.summary.italic'));
+      if (s.underline) bits.push(t('customCellStyles.summary.underline'));
+      if (s.strike) bits.push(t('customCellStyles.summary.strikethrough'));
+      if (hexColor(s.color)) bits.push(t('customCellStyles.summary.textColor', { color: hexColor(s.color) }));
+      return joinPhrases(bits);
     }
     case 'border': {
-      if (!def.borders.length) return 'No borders';
-      return def.borders.map((b) => `${CAP(b.side)} ${LINE_NAMES[b.style] || b.style}${b.color ? ` ${b.color}` : ''}`).join('; ');
+      if (!def.borders.length) return t('customCellStyles.summary.noBorders');
+      return joinPhrases(def.borders.map((b) => {
+        const edge = t('customCellStyles.summary.edge', { side: b.side, sideName: CAP(b.side), line: b.style });
+        return b.color ? t('customCellStyles.summary.edgeColor', { edge, color: b.color }) : edge;
+      }), 'semicolon');
     }
-    case 'fill': return hexColor(s.bg) ? `Shaded ${hexColor(s.bg)}` : s.bg ? 'Shaded' : 'No shading';
-    case 'protection': return `${s.locked === false ? 'Unlocked' : 'Locked'}${s.formulaHidden ? ', formula hidden' : ''}`;
+    case 'fill': return hexColor(s.bg) ? t('customCellStyles.summary.shadedColor', { color: hexColor(s.bg) }) : s.bg ? t('customCellStyles.summary.shaded') : t('customCellStyles.summary.noShading');
+    case 'protection': return t(s.formulaHidden ? 'customCellStyles.summary.protectionHidden' : 'customCellStyles.summary.protection', { state: s.locked === false ? 'unlocked' : 'locked' });
     default: return '';
   }
 }

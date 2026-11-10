@@ -48,8 +48,21 @@ const ELEMENTS = {
 const JUSTIFICATION = ['left', 'centered', 'right'];
 const SUBTYPES = Object.fromEntries(Object.entries(ELEMENTS).map(([k, v]) => [v, k]));
 
+/**
+ * Text as XML 1.0 can hold it. PDF strings may carry control characters (a NUL some writers
+ * end strings with, Word's vertical tab for a line break) and unpaired surrogates, which no
+ * XML parser accepts: one would make Acrobat reject the whole file. Line and page breaks
+ * become line breaks; the rest are dropped.
+ */
+const xmlText = (value) =>
+  String(value)
+    .replace(/[\v\f]/g, '\n')
+    .replace(
+      /[\x00-\x08\x0E-\x1F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+      '',
+    );
 const escapeAttribute = (value) =>
-  String(value).replace(
+  xmlText(value).replace(
     /[&<>"\r\n\t]/g,
     (c) =>
       ({
@@ -63,7 +76,7 @@ const escapeAttribute = (value) =>
       })[c],
   );
 const escapeText = (value) =>
-  String(value).replace(
+  xmlText(value).replace(
     /[&<>\r]/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\r': '&#xD;' })[c],
   );
@@ -97,10 +110,51 @@ function richTextNode(dict) {
       },
     }).parseFromString(rc, 'application/xml');
     if (xml.doctype || xml.documentElement?.localName !== 'body') return null;
-    return new XMLSerializer().serializeToString(xml.documentElement);
+    return xmlText(new XMLSerializer().serializeToString(xml.documentElement));
   } catch {
     return null;
   }
+}
+
+/**
+ * The comments XFDF carries, page by page, each with the name it goes out under: its own (NM),
+ * or one after its object number. Shared or copied annotations can repeat a name, and one
+ * annotation on several pages is a comment on each, so a repeat takes a suffix: XFDF threads
+ * need one name per comment. `nameOf` names a comment's parent too.
+ */
+function xfdfComments(doc) {
+  const names = new Map(),
+    used = new Set();
+  const nameOf = (dict, ref, index) => {
+    if (!names.has(dict)) names.set(dict, new Map());
+    const byPage = names.get(dict);
+    if (byPage.has(index)) return byPage.get(index);
+    let value =
+      text(dict, 'NM') ||
+      (ref instanceof PDFRef
+        ? `annot-${ref.objectNumber}-${ref.generationNumber}`
+        : annotationName());
+    while (used.has(value)) value = `${value}-${used.size}`;
+    used.add(value);
+    byPage.set(index, value);
+    return value;
+  };
+  const items = [];
+  doc.getPages().forEach((page, index) => {
+    for (const ref of annotationsOf(page)?.asArray() || []) {
+      const dict = doc.context.lookup(ref);
+      if (!(dict instanceof PDFDict)) continue;
+      const subtype = dict.lookup(name('Subtype'))?.decodeText?.();
+      if (ELEMENTS[subtype]) items.push({ dict, ref, index, subtype });
+    }
+  });
+  for (const item of items) item.name = nameOf(item.dict, item.ref, item.index);
+  /** The name of a reply's parent: the parent on the reply's own page, else wherever it is. */
+  const parentName = (parent, ref, index) => {
+    const byPage = names.get(parent);
+    return byPage?.get(index) ?? byPage?.values().next().value ?? nameOf(parent, ref, index);
+  };
+  return { items, parentName };
 }
 
 /**
@@ -109,42 +163,17 @@ function richTextNode(dict) {
  * states. Comments without a name (NM) are named after their object number.
  */
 export function exportXfdf(doc) {
-  const pages = doc.getPages();
-  const names = new Map(),
-    used = new Set();
-  const nameOf = (dict, ref) => {
-    if (names.has(dict)) return names.get(dict);
-    let value =
-      text(dict, 'NM') ||
-      (ref instanceof PDFRef
-        ? `annot-${ref.objectNumber}-${ref.generationNumber}`
-        : annotationName());
-    // Shared or copied annotations can repeat a name; XFDF threads need one per comment.
-    while (used.has(value)) value = `${value}-${used.size}`;
-    used.add(value);
-    names.set(dict, value);
-    return value;
-  };
-  const items = [];
-  pages.forEach((page, index) => {
-    for (const ref of annotationsOf(page)?.asArray() || []) {
-      const dict = doc.context.lookup(ref);
-      if (!(dict instanceof PDFDict)) continue;
-      const subtype = dict.lookup(name('Subtype'))?.decodeText?.();
-      if (ELEMENTS[subtype]) items.push({ dict, ref, index, subtype });
-    }
-  });
-  for (const { dict, ref } of items) nameOf(dict, ref);
+  const { items, parentName } = xfdfComments(doc);
   const out = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<xfdf xmlns="${XFDF_NS}" xml:space="preserve">`,
     '<annots>',
   ];
-  for (const { dict, ref, index, subtype } of items) {
+  for (const { dict, index, subtype, name: commentName } of items) {
     const attributes = { page: index };
     const rect = numbers(dict.lookup(name('Rect')));
     if (rect?.length === 4 && rect.every(Number.isFinite)) attributes.rect = list(rect);
-    attributes.name = nameOf(dict, ref);
+    attributes.name = commentName;
     const author = text(dict, 'T');
     if (author) attributes.title = author;
     const subject = text(dict, 'Subj');
@@ -163,7 +192,7 @@ export function exportXfdf(doc) {
     if (opacity !== 1) attributes.opacity = fmt(opacity);
     const parent = dict.lookup(name('IRT'));
     if (parent instanceof PDFDict) {
-      attributes.inreplyto = nameOf(parent, dict.get(name('IRT')));
+      attributes.inreplyto = parentName(parent, dict.get(name('IRT')), index);
       attributes.replyType = dict.lookup(name('RT')) === name('Group') ? 'group' : 'reply';
     }
     if (dict.has(name('State'))) {
@@ -323,6 +352,17 @@ function flagBits(value) {
     .reduce((bits, flag) => bits | (FLAGS[flag.toLowerCase()] || 0), 0);
 }
 const hexText = (value) => PDFHexString.fromText(String(value));
+/**
+ * A PDF string of plain words from the file. pdf-lib writes a literal string as it is given,
+ * so a backslash or an unpaired parenthesis would run the string on into the rest of the file
+ * and leave the saved PDF unreadable; those are escaped, and other text is written in hex.
+ */
+const literal = (value) => {
+  const s = String(value);
+  return /^[\x20-\x7E]*$/.test(s)
+    ? PDFString.of(s.replace(/[\\()]/g, '\\$&'))
+    : PDFHexString.fromText(s);
+};
 const dateString = (value) => (value && parsePdfDate(value) ? PDFString.of(value) : null);
 
 /** A new annotation dictionary from an XFDF element, or null when it cannot be read. */
@@ -369,8 +409,8 @@ function dictFromElement(doc, page, element, subtype) {
   if (fringe.length === 4 && fringe.every((v) => Number.isFinite(v) && v >= 0))
     set('RD', doc.context.obj(fringe));
   if (attr('state') !== null) {
-    set('State', PDFString.of(attr('state')));
-    set('StateModel', PDFString.of(attr('statemodel') || 'Review'));
+    set('State', literal(attr('state')));
+    set('StateModel', literal(attr('statemodel') || 'Review'));
   }
   if (attr('icon')) set('Name', name(attr('icon')));
   const width = Number(attr('width'));
@@ -441,9 +481,9 @@ function dictFromElement(doc, page, element, subtype) {
     }
     case 'FreeText': {
       const da = textOf(child(element, 'defaultappearance'));
-      set('DA', PDFString.of(da || '/Helv 12 Tf 0 g'));
+      set('DA', literal(da || '/Helv 12 Tf 0 g'));
       const ds = textOf(child(element, 'defaultstyle'));
-      if (ds) set('DS', PDFString.of(ds));
+      if (ds) set('DS', literal(ds));
       // XFDF names the alignment; files once written by this editor number it.
       const justification = String(attr('justification') ?? '').toLowerCase();
       const q = JUSTIFICATION.includes(justification)
@@ -487,7 +527,7 @@ function dictFromElement(doc, page, element, subtype) {
  * Add the comments in an XFDF file to their pages, drawing each one's appearance. Comments
  * whose name a page already has are skipped, so importing the same file twice adds nothing;
  * replies follow their parents, which may be comments already in the document. Returns
- * { imported, skipped, duplicates }.
+ * { imported, comments, replies, statuses, skipped, duplicates }.
  */
 export async function importXfdf(doc, xfdf) {
   const source = String(xfdf ?? '');
@@ -525,6 +565,9 @@ export async function importXfdf(doc, xfdf) {
         unnamed.set(`annot-${ref.objectNumber}-${ref.generationNumber}`, { ref, dict, index });
     }
   });
+  // The names export gave the further pages of a named comment that several pages share.
+  for (const { dict, ref, name: nm } of xfdfComments(doc).items)
+    if (ref instanceof PDFRef && text(dict, 'NM') && !named.has(nm)) named.set(nm, ref);
   const sameComment = (element, entry) => {
     if (!entry || Number(element.getAttribute('page')) !== entry.index) return false;
     if (entry.dict.lookup(name('Subtype'))?.decodeText?.() !== SUBTYPES[element.localName])
@@ -537,7 +580,9 @@ export async function importXfdf(doc, xfdf) {
       rect.every((value, i) => Number.isFinite(value) && Math.abs(value - own[i]) < 0.01)
     );
   };
-  const result = { imported: 0, skipped: 0, duplicates: 0 };
+  // What was imported, also counted as a reader sees it: comments of their own, and the replies
+  // and review statuses in their threads (members of a comment's group are drawn as part of it).
+  const result = { imported: 0, comments: 0, replies: 0, statuses: 0, skipped: 0, duplicates: 0 };
   let pending = elements.filter((element) => {
     if (SUBTYPES[element.localName]) return true;
     result.skipped++;
@@ -613,6 +658,9 @@ export async function importXfdf(doc, xfdf) {
       }
       named.set(text(dict, 'NM'), ref);
       result.imported++;
+      if (!parentName) result.comments++;
+      else if (dict.has(name('State'))) result.statuses++;
+      else if (dict.lookup(name('RT')) !== name('Group')) result.replies++;
     }
     if (next.length === pending.length) {
       result.skipped += next.length;

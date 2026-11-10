@@ -135,6 +135,23 @@ describe('emitEntity', () => {
     expect(lines.every((i) => i.kind === 'line')).toBe(true);
   });
 
+  it('tints the whole area of a hatch too dense to generate, and warns', () => {
+    const d = drawing();
+    const big = [[0, 0, 0, 3000, 0, 0, 3000, 3000, 0, 0, 3000, 0]];
+    for (const pattern of ['CROSS', 'DASH']) {
+      for (const plot of [false, true]) {
+        const warnings = new Set();
+        const ent = { ...P, type: 'hatch', loops: big, pattern, scale: 1, angle: 0 };
+        const items = emit(d, ent, { hatchLimit: 1000, warnings, plot });
+        expect(items).toHaveLength(1);
+        expect(items[0].kind).toBe('fill');
+        expect(items[0].rings[0]).toHaveLength(8);
+        expect(items[0].style.alpha).toBeCloseTo(0.35);
+        expect([...warnings]).toEqual(['hatch-dense']);
+      }
+    }
+  });
+
   it('clips construction lines to the view', () => {
     const d = drawing();
     const [it] = emit(d, { ...P, type: 'xline', x: 0, y: 0, dx: 1, dy: 0 }, { view: [-10, -10, 10, 10] });
@@ -144,6 +161,21 @@ describe('emitEntity', () => {
     expect(ray.pts[0]).toBe(0);
   });
 
+  it('starts dashed construction lines on a whole pattern from their base point', () => {
+    const d = drawing();
+    // Dashed: 12 + 6 = 18 units per pattern; the start must not follow the view.
+    for (const cx of [0, 0.37, 1.1, 2.9, -500.3]) {
+      const [x] = emit(d, { ...P, linetype: 'Dashed', type: 'xline', x: 3, y: 0, dx: 1, dy: 0 }, { view: [cx - 10, -10, cx + 10, 10] });
+      const phase = (((x.pts[0] - 3) % 18) + 18) % 18;
+      expect(Math.min(phase, 18 - phase)).toBeLessThan(1e-9);
+      expect(x.pts[0]).toBeLessThan(cx - 10);
+      expect(x.pts[2]).toBeGreaterThan(cx + 10);
+    }
+    const [ray] = emit(d, { ...P, linetype: 'Dashed', type: 'ray', x: 3, y: 0, dx: 1, dy: 0 }, { view: [90, -10, 110, 10] });
+    expect((ray.pts[0] - 3) % 18).toBeCloseTo(0, 9);
+    expect(ray.pts[0]).toBeGreaterThanOrEqual(3);
+  });
+
   it('draws text and dimensions as strokes', () => {
     const d = drawing();
     const t = emit(d, { ...P, type: 'text', x: 0, y: 0, h: 2, rot: 0, value: 'AB', style: 'Standard', halign: 'left', valign: 'baseline', widthFactor: 1, oblique: 0 });
@@ -151,6 +183,17 @@ describe('emitEntity', () => {
     const dim = emit(d, { ...P, type: 'dimension', dimType: 'linear', x1: 0, y1: 0, x2: 100, y2: 0, lx: 50, ly: -10, rot: 0, text: '', style: 'Standard', x3: 0, y3: 0, x4: 0, y4: 0 });
     expect(dim.some((i) => i.kind === 'fill')).toBe(true);
     expect(dim.filter((i) => i.kind === 'line').length).toBeGreaterThan(3);
+  });
+
+  it('places dimension text by the width of its text style font', () => {
+    const d = drawing();
+    d.textStyles.set('Mono', { ...d.textStyles.get('Standard'), name: 'Mono', font: 'mono' });
+    d.dimStyles.set('Standard', { ...d.dimStyles.get('Standard'), textStyle: 'Mono' });
+    // radius text sits beyond the end of the leader at x = 20
+    const items = emit(d, { ...P, type: 'dimension', dimType: 'radius', x1: 0, y1: 0, x2: 10, y2: 0, lx: 20, ly: 0, rot: 0, text: 'iiiiiiii', style: 'Standard', x3: 0, y3: 0, x4: 0, y4: 0 });
+    const leader = items.findIndex((i) => i.kind === 'line' && i.pts[2] === 20);
+    const xs = items.slice(leader + 1).filter((i) => i.kind === 'line').flatMap((i) => i.pts.filter((_, k) => k % 2 === 0));
+    expect(Math.min(...xs)).toBeGreaterThan(20.5);
   });
 
   it('gives widths to wide polylines as fills', () => {

@@ -1,0 +1,13 @@
+{
+  "bringForward": "上移一层",
+  "close": "关闭选择窗格",
+  "empty": "此工作表上没有图表、图片、形状或文本框。",
+  "hideAll": "全部隐藏",
+  "hideObject": "隐藏 {name}",
+  "objectName": "对象名称",
+  "objects": "此工作表上的对象",
+  "sendBackward": "下移一层",
+  "showAll": "全部显示",
+  "showObject": "显示 {name}",
+  "title": "选择"
+}

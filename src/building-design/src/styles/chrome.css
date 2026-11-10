@@ -192,6 +192,80 @@
   font-size: var(--fs-sm);
 }
 
+/* <puter-user-menu> (puter.js; src/ui/user-menu.js): where the loaded puter.js
+   has it, it holds the Apps launcher and the account at the end of the title
+   bar. Its parts take the title bar's icon button, avatar and Sign in button
+   looks; its menu and Apps panel take the app's menu colours, in both themes. */
+
+puter-user-menu {
+  flex: none;
+  margin-left: 4px;
+}
+
+puter-user-menu::part(apps-button) {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+  color: var(--fg-muted);
+}
+
+puter-user-menu::part(avatar) {
+  width: 26px;
+  height: 26px;
+  margin: 0 2px;
+  line-height: 26px;
+  font-size: var(--fs-sm);
+}
+
+puter-user-menu::part(sign-in) {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+  }
+  puter-user-menu::part(sign-in):hover {
+    background: var(--bg-hover);
+  }
+}
+
+puter-user-menu::part(apps-button):active,
+puter-user-menu::part(sign-in):active {
+  background: var(--bg-pressed);
+}
+
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--bg-elev);
+  border-color: var(--border-strong);
+  --caret-border: var(--border-strong);
+  --caret-fill: var(--bg-elev);
+}
+
+/* Below this the title bar is full, and Apps would push the search into the title. */
+@media (max-width: 999px) {
+  puter-user-menu::part(apps-button) {
+    display: none;
+  }
+}
+
+/* On phones its Sign in is wider than the app's icon: Theme, which Options also has, makes room. */
+@media (max-width: 760px) {
+  .titlebar.has-user-menu .theme-btn {
+    display: none;
+  }
+}
+
 /* Ribbon --------------------------------------------------------------------- */
 
 .ribbon {

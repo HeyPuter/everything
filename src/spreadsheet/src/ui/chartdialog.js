@@ -14,6 +14,7 @@ import { changeSubtypePatch } from '../core/chart-subtypes.js';
 import { chartElementPatch, trendlineAllowed } from '../core/chart-design.js';
 import { DEFAULT_TREND, TREND_TYPES, normalizeTrend, trendFor } from '../core/trendline.js';
 import { ERROR_BAR_DEFAULT_VALUES, ERROR_BAR_TYPES, errorBarAmountInput, normalizeErrorBar, normalizeErrorBars } from '../core/error-bars.js';
+import { t } from '../i18n/index.js';
 
 const TYPE_ICONS = { column: 'chartColumn', bar: 'chartBar', line: 'chartLine', area: 'chartArea', pie: 'chartPie', donut: 'chartPie', scatter: 'chartScatter', combo: 'chartCombo', histogram: 'chartHistogram', waterfall: 'chartWaterfall', radar: 'chartRadar', bubble: 'chartBubble',
   treemap: 'chartTreemap', sunburst: 'chartSunburst', boxWhisker: 'chartBoxWhisker', funnel: 'chartFunnel', stock: 'chartStockOhlc', surface: 'chartSurface' };
@@ -40,7 +41,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
 
   function canChange() {
     if (!wb.isProtected(sheetId)) return true;
-    error.textContent = 'This sheet is protected. Unprotect it before changing charts.';
+    error.textContent = t('chartdialog.protected');
     error.hidden = false;
     return false;
   }
@@ -58,7 +59,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     restyled = patch && normalizeChart({ ...chart, ...patch });
     for (const k of SUBTYPE_KEYS) draft[k] = (restyled || chart)[k];
   }
-  const typeRow = el('div.chart-types', { role: 'radiogroup', 'aria-label': 'Chart type' }, ...typeBtns);
+  const typeRow = el('div.chart-types', { role: 'radiogroup', 'aria-label': t('chartdialog.chartType') }, ...typeBtns);
   typeRow.addEventListener('keydown', (e) => {
     if (isComposing(e)) return;
     const step = ['ArrowRight', 'ArrowDown'].includes(e.key) ? 1 : ['ArrowLeft', 'ArrowUp'].includes(e.key) ? -1 : 0;
@@ -92,9 +93,10 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     y2TitleField.hidden = draft.type !== 'combo' || !axis2Box.checked;
     boundsRow.hidden = pieLike || radar && draft.type !== 'radar';
     xBoundsRow.hidden = !xyChart();
-    const valueAxis = xyChart() ? 'Vertical axis' : 'Value axis';
-    yMinLabel.textContent = `${valueAxis} minimum`; yMaxLabel.textContent = `${valueAxis} maximum`;
-    yMinInput.setAttribute('aria-label', `${valueAxis} minimum`); yMaxInput.setAttribute('aria-label', `${valueAxis} maximum`);
+    const yMinText = xyChart() ? t('chartdialog.verticalAxisMinimum') : t('chartdialog.valueAxisMinimum');
+    const yMaxText = xyChart() ? t('chartdialog.verticalAxisMaximum') : t('chartdialog.valueAxisMaximum');
+    yMinLabel.textContent = yMinText; yMaxLabel.textContent = yMaxText;
+    yMinInput.setAttribute('aria-label', yMinText); yMaxInput.setAttribute('aria-label', yMaxText);
     binsField.hidden = draft.type !== 'histogram';
     labelsField.hidden = pieLike;
     hGridField.hidden = pieLike || radar;
@@ -106,33 +108,33 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     categoriesRow.hidden = categoriesField.hidden || !!draft.sourceRefs?.length;
   };
 
-  const rangeInput = el('input.input', { type: 'text', value: rangeName(draft.range), 'aria-label': 'Data range', spellcheck: false, autocomplete: 'off', placeholder: 'A1:B10 or a table name' });
+  const rangeInput = el('input.input', { type: 'text', value: rangeName(draft.range), 'aria-label': t('chartdialog.dataRange'), spellcheck: false, autocomplete: 'off', placeholder: t('chartdialog.rangePlaceholder') });
   const sourceText = (source, key) => source[key] || source.literal?.[key]?.map(v => JSON.stringify(v)).join(', ') || '';
   const sourceInputs = (draft.sourceRefs || []).map((source, i) => ({ source,
-    heading: el('span.field-label', {}, source.name || `Series ${i + 1}`),
-    categories: el('input.input', { type: 'text', value: sourceText(source, 'categories'), 'aria-label': `Categories for series ${i + 1}`, spellcheck: false }),
-    values: el('input.input', { type: 'text', value: sourceText(source, 'values'), 'aria-label': `Values for series ${i + 1}`, spellcheck: false }),
-    ...(draft.type === 'bubble' ? { sizes: el('input.input', { type: 'text', value: sourceText(source, 'sizes'), 'aria-label': `Bubble sizes for series ${i + 1}`, spellcheck: false }) } : {}),
+    heading: el('span.field-label', {}, source.name || t('chartdialog.seriesN', { n: i + 1 })),
+    categories: el('input.input', { type: 'text', value: sourceText(source, 'categories'), 'aria-label': t('chartdialog.categoriesFor', { n: i + 1 }), spellcheck: false }),
+    values: el('input.input', { type: 'text', value: sourceText(source, 'values'), 'aria-label': t('chartdialog.valuesFor', { n: i + 1 }), spellcheck: false }),
+    ...(draft.type === 'bubble' ? { sizes: el('input.input', { type: 'text', value: sourceText(source, 'sizes'), 'aria-label': t('chartdialog.sizesFor', { n: i + 1 }), spellcheck: false }) } : {}),
   }));
-  const titleInput = el('input.input', { type: 'text', value: draft.title || '', 'aria-label': 'Title', placeholder: 'Optional', maxlength: 200 });
-  const descriptionInput = el('textarea.input', { value: draft.description || '', 'aria-label': 'Alternative text', rows: 2, maxlength: CHART_DESCRIPTION_MAX_LENGTH, placeholder: 'Describe what the chart communicates' });
-  const seriesSel = el('select.select', { 'aria-label': 'Series in' },
-    el('option', { value: 'auto' }, 'Detect automatically'),
-    el('option', { value: 'cols' }, 'Columns'),
-    el('option', { value: 'rows' }, 'Rows'));
+  const titleInput = el('input.input', { type: 'text', value: draft.title || '', 'aria-label': t('chartdialog.title'), placeholder: t('common.optional'), maxlength: 200 });
+  const descriptionInput = el('textarea.input', { value: draft.description || '', 'aria-label': t('chartdialog.altText'), rows: 2, maxlength: CHART_DESCRIPTION_MAX_LENGTH, placeholder: t('chartdialog.altTextPlaceholder') });
+  const seriesSel = el('select.select', { 'aria-label': t('chartdialog.seriesIn') },
+    el('option', { value: 'auto' }, t('chartdialog.detect')),
+    el('option', { value: 'cols' }, t('chartdialog.columns')),
+    el('option', { value: 'rows' }, t('chartdialog.rows')));
   seriesSel.value = draft.seriesIn;
-  const headersSel = el('select.select', { 'aria-label': 'Headers' },
-    el('option', { value: 'auto' }, 'Detect automatically'),
-    el('option', { value: 'true' }, 'First row is labels'),
-    el('option', { value: 'false' }, 'No labels'));
+  const headersSel = el('select.select', { 'aria-label': t('chartdialog.headers') },
+    el('option', { value: 'auto' }, t('chartdialog.detect')),
+    el('option', { value: 'true' }, t('chartdialog.firstRowLabels')),
+    el('option', { value: 'false' }, t('chartdialog.noLabels')));
   headersSel.value = String(draft.headers);
   // Whether the first column (the first row, with series in rows) labels the categories or plots as a series.
-  const categoriesSel = el('select.select', { 'aria-label': 'Categories' },
-    el('option', { value: 'auto' }, 'Detect automatically'),
-    el('option', { value: 'true' }, 'First column'),
-    el('option', { value: 'false' }, 'None (number the points)'));
+  const categoriesSel = el('select.select', { 'aria-label': t('chartdialog.categories') },
+    el('option', { value: 'auto' }, t('chartdialog.detect')),
+    el('option', { value: 'true' }, t('chartdialog.firstColumn')),
+    el('option', { value: 'false' }, t('chartdialog.noCategories')));
   categoriesSel.value = String(draft.categoryLabels ?? 'auto');
-  const categoriesField = el('label.field', {}, el('span.field-label', {}, 'Categories'), categoriesSel);
+  const categoriesField = el('label.field', {}, el('span.field-label', {}, t('chartdialog.categories')), categoriesSel);
   const categoriesRow = el('div.row.row-2', { hidden: !!draft.sourceRefs?.length }, categoriesField);
   const stackedBox = el('input', { type: 'checkbox', checked: !!draft.stacked });
   const stack100Box = el('input', { type: 'checkbox', checked: !!draft.stack100 });
@@ -140,27 +142,27 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
   // keeps each its own unless these are changed.
   const firstTrend = trendFor(draft, 0) || (draft.trendline ? DEFAULT_TREND : null);
   let trendTouched = false;
-  const trendSel = el('select.select', { 'aria-label': 'Trendline' }, el('option', { value: 'none' }, 'None'),
+  const trendSel = el('select.select', { 'aria-label': t('chartdialog.trendline') }, el('option', { value: 'none' }, t('common.none')),
     ...TREND_TYPES.map(([value, label]) => el('option', { value }, label)));
   trendSel.value = firstTrend?.type || 'none';
-  const orderSel = el('select.select', { 'aria-label': 'Order' }, ...[2, 3, 4, 5, 6].map(n => el('option', { value: String(n) }, String(n))));
+  const orderSel = el('select.select', { 'aria-label': t('chartdialog.order') }, ...[2, 3, 4, 5, 6].map(n => el('option', { value: String(n) }, String(n))));
   orderSel.value = String(firstTrend?.order || 2);
-  const periodInput = el('input.input', { type: 'number', min: 2, max: 255, step: 1, value: firstTrend?.period || 2, 'aria-label': 'Period' });
+  const periodInput = el('input.input', { type: 'number', min: 2, max: 255, step: 1, value: firstTrend?.period || 2, 'aria-label': t('chartdialog.period') });
   const eqBox = el('input', { type: 'checkbox', checked: !!firstTrend?.dispEq });
   const r2Box = el('input', { type: 'checkbox', checked: !!firstTrend?.dispRSqr });
   // The trendline's line: its dash (dashed unless chosen) and its width, in points as Excel gives it (kept in px).
-  const trendDashSel = el('select.select', { 'aria-label': 'Trendline line style' }, el('option', { value: 'auto' }, 'Automatic (dashed)'),
+  const trendDashSel = el('select.select', { 'aria-label': t('chartdialog.trendlineStyle') }, el('option', { value: 'auto' }, t('chartdialog.automaticDashed')),
     ...CHART_DASH_CHOICES.map(([value, label]) => el('option', { value }, label)));
   trendDashSel.value = firstTrend?.dash || 'auto';
-  const trendWidthInput = el('input.input', { type: 'number', min: 0.25, max: 15, step: 0.25, placeholder: 'Auto', 'aria-label': 'Trendline width (pt)',
+  const trendWidthInput = el('input.input', { type: 'number', min: 0.25, max: 15, step: 0.25, placeholder: t('chartdialog.auto'), 'aria-label': t('chartdialog.trendlineWidth'),
     value: firstTrend?.width != null ? Math.round(firstTrend.width * 3 / 4 * 100) / 100 : '' });
   const axis2Box = el('input', { type: 'checkbox', checked: !!draft.secondaryAxis });
-  const axis2Field = el('label.check', {}, axis2Box, el('span', {}, 'Line on its own axis (right)'));
-  const legendSel = el('select.select', { 'aria-label': 'Legend' },
-    el('option', { value: 'bottom' }, 'Legend below'),
-    el('option', { value: 'top' }, 'Legend above'),
-    el('option', { value: 'right' }, 'Legend on the right'),
-    el('option', { value: 'none' }, 'No legend'));
+  const axis2Field = el('label.check', {}, axis2Box, el('span', {}, t('chartdialog.lineOwnAxis')));
+  const legendSel = el('select.select', { 'aria-label': t('chartdialog.legend') },
+    el('option', { value: 'bottom' }, t('chartdialog.legendBelow')),
+    el('option', { value: 'top' }, t('chartdialog.legendAbove')),
+    el('option', { value: 'right' }, t('chartdialog.legendRight')),
+    el('option', { value: 'none' }, t('chartdialog.noLegend')));
   legendSel.value = draft.legend === false ? 'none' : (draft.legendPos || 'bottom');
   const labelsBox = el('input', { type: 'checkbox', checked: !!draft.labels });
   // Gridlines by the way they run: on a bar chart the value gridlines are the vertical ones.
@@ -169,43 +171,43 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
   const vGridBox = el('input', { type: 'checkbox', checked: barChart() ? draft.gridlines !== false : chartXGridlines(draft) });
   const smoothBox = el('input', { type: 'checkbox', checked: !!draft.smooth });
   const hiddenBox = el('input', { type: 'checkbox', checked: !!draft.includeHidden });
-  const hGridField = el('label.check', {}, hGridBox, el('span', {}, 'Horizontal gridlines'));
-  const vGridField = el('label.check', {}, vGridBox, el('span', {}, 'Vertical gridlines'));
-  const smoothField = el('label.check', {}, smoothBox, el('span', {}, 'Smooth lines'));
-  const hiddenField = el('label.check', {}, hiddenBox, el('span', {}, 'Include hidden cells'));
-  const numberInput = (value, label) => el('input.input', { type: 'number', step: 'any', value: value ?? '', 'aria-label': label, placeholder: 'Auto' });
-  const yMinInput = numberInput(draft.yMin, 'Value axis minimum');
-  const yMaxInput = numberInput(draft.yMax, 'Value axis maximum');
-  const yMinLabel = el('span.field-label', {}, 'Value axis minimum'), yMaxLabel = el('span.field-label', {}, 'Value axis maximum');
+  const hGridField = el('label.check', {}, hGridBox, el('span', {}, t('chartdialog.hGridlines')));
+  const vGridField = el('label.check', {}, vGridBox, el('span', {}, t('chartdialog.vGridlines')));
+  const smoothField = el('label.check', {}, smoothBox, el('span', {}, t('chartdialog.smoothLines')));
+  const hiddenField = el('label.check', {}, hiddenBox, el('span', {}, t('chartdialog.includeHidden')));
+  const numberInput = (value, label) => el('input.input', { type: 'number', step: 'any', value: value ?? '', 'aria-label': label, placeholder: t('chartdialog.auto') });
+  const yMinInput = numberInput(draft.yMin, t('chartdialog.valueAxisMinimum'));
+  const yMaxInput = numberInput(draft.yMax, t('chartdialog.valueAxisMaximum'));
+  const yMinLabel = el('span.field-label', {}, t('chartdialog.valueAxisMinimum')), yMaxLabel = el('span.field-label', {}, t('chartdialog.valueAxisMaximum'));
   const boundsRow = el('div.row.row-2', {},
     el('label.field', {}, yMinLabel, yMinInput),
     el('label.field', {}, yMaxLabel, yMaxInput));
   // A scatter or bubble chart measures values along both axes, so each has its own bounds.
   let xBounds = chartXBounds(draft);
-  const xMinInput = numberInput(xBounds.min, 'Horizontal axis minimum');
-  const xMaxInput = numberInput(xBounds.max, 'Horizontal axis maximum');
+  const xMinInput = numberInput(xBounds.min, t('chartdialog.horizontalAxisMinimum'));
+  const xMaxInput = numberInput(xBounds.max, t('chartdialog.horizontalAxisMaximum'));
   const xBoundsRow = el('div.row.row-2', {},
-    el('label.field', {}, el('span.field-label', {}, 'Horizontal axis minimum'), xMinInput),
-    el('label.field', {}, el('span.field-label', {}, 'Horizontal axis maximum'), xMaxInput));
+    el('label.field', {}, el('span.field-label', {}, t('chartdialog.horizontalAxisMinimum')), xMinInput),
+    el('label.field', {}, el('span.field-label', {}, t('chartdialog.horizontalAxisMaximum')), xMaxInput));
   const xyChart = () => draft.type === 'scatter' || draft.type === 'bubble';
-  const binsInput = el('input.input', { type: 'number', min: 2, max: 100, step: 1, value: draft.bins ?? '', 'aria-label': 'Number of bins', placeholder: 'Auto' });
-  const binsField = el('label.field', {}, el('span.field-label', {}, 'Bins'), binsInput);
+  const binsInput = el('input.input', { type: 'number', min: 2, max: 100, step: 1, value: draft.bins ?? '', 'aria-label': t('chartdialog.binCount'), placeholder: t('chartdialog.auto') });
+  const binsField = el('label.field', {}, el('span.field-label', {}, t('chartdialog.bins')), binsInput);
   // Every series' marker size, in points as Format Data Series gives it. It shows the size the series share (blank when
   // they differ or keep the default) and changes them only once it says something else.
-  const markerSizeInput = el('input.input', { type: 'number', min: 2, max: 72, step: 1, 'aria-label': 'Marker size (pt)', placeholder: 'Auto' });
-  const markerSizeField = el('label.field', {}, el('span.field-label', {}, 'Marker size (pt)'), markerSizeInput);
+  const markerSizeInput = el('input.input', { type: 'number', min: 2, max: 72, step: 1, 'aria-label': t('chartdialog.markerSize'), placeholder: t('chartdialog.auto') });
+  const markerSizeField = el('label.field', {}, el('span.field-label', {}, t('chartdialog.markerSize')), markerSizeInput);
   const markerSizeRow = el('div.row.row-2', {}, markerSizeField);
   let markerSizeShown = null, markerSize = null;
   const markerPatch = (target) => (markerSize == null || markerSizeField.hidden ? {}
     : chartSeriesLinePatch(target, readData().series.map((_, i) => i), { markerSize, marker: true }));
   // One color swatch per series (per slice for pies), rebuilt when the series change.
-  const colorsRow = el('div.chart-colors', { role: 'group', 'aria-label': 'Series colors' });
+  const colorsRow = el('div.chart-colors', { role: 'group', 'aria-label': t('chartdialog.seriesColors') });
   let colorsKey = '';
   function syncColors(data) {
     const pieLike = draft.type === 'pie' || draft.type === 'donut';
     const names = pieLike ? data.categories.slice(0, 12)
-      : draft.type === 'waterfall' ? ['Increase', 'Decrease', 'Total']
-        : draft.type === 'histogram' ? ['Count'] : data.series.map((s) => s.name);
+      : draft.type === 'waterfall' ? [t('chartdialog.waterfallIncrease'), t('chartdialog.waterfallDecrease'), t('chartdialog.waterfallTotal')]
+        : draft.type === 'histogram' ? [t('chartdialog.histogramCount')] : data.series.map((s) => s.name);
     // The row is rebuilt only when the series change. A colour being picked keeps its own
     // input, or the browser's colour popup would close after every step of the drag.
     const key = `${pieLike}|${names.join('\u0000')}`;
@@ -222,26 +224,26 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     colorsKey = key;
     colorsRow.replaceChildren(...[...names.map((name, i) => {
       const input = el('input.chart-color-input', {
-        type: 'color', value: draft.colors?.[i] || fallbackFor(i) || seriesColor(draft, i), 'aria-label': `Color of ${name}`, title: `Color of ${name}`,
+        type: 'color', value: draft.colors?.[i] || fallbackFor(i) || seriesColor(draft, i), 'aria-label': t('chartdialog.colorOf', { name }), title: t('chartdialog.colorOf', { name }),
         oninput: () => { const list = (draft.colors || []).slice(); list[i] = input.value; draft.colors = list; refresh(); },
       });
       return el('label.chart-color', {}, input, el('span.chart-color-name', {}, name));
-    }), names.length ? el('button.btn.btn-ghost.btn-sm.chart-colors-reset', { type: 'button', hidden: !(draft.colors || []).some(Boolean), onclick: () => { draft.colors = []; refresh(); } }, 'Reset colors') : null].filter(Boolean));
+    }), names.length ? el('button.btn.btn-ghost.btn-sm.chart-colors-reset', { type: 'button', hidden: !(draft.colors || []).some(Boolean), onclick: () => { draft.colors = []; refresh(); } }, t('chartdialog.resetColors')) : null].filter(Boolean));
     colorsRow.hidden = !names.length;
   }
-  const stackedOnly = el('label.check', {}, stackedBox, el('span', {}, 'Stacked'));
-  const stack100Field = el('label.check', {}, stack100Box, el('span', {}, '100% stacked'));
+  const stackedOnly = el('label.check', {}, stackedBox, el('span', {}, t('chartdialog.stacked')));
+  const stack100Field = el('label.check', {}, stack100Box, el('span', {}, t('chartdialog.stacked100')));
   const stackedField = el('div.check-group', {}, stackedOnly, stack100Field, axis2Field);
   const stackableChecked = () => ['column', 'bar', 'area', 'combo'].includes(draft.type) && stackedBox.checked;
   stackedBox.addEventListener('change', () => syncTypes());
-  const orderField = el('label.field', {}, el('span.field-label', {}, 'Order'), orderSel);
-  const periodField = el('label.field', {}, el('span.field-label', {}, 'Period'), periodInput);
-  const trendLabelFields = el('div.check-group', {}, el('label.check', {}, eqBox, el('span', {}, 'Show equation')), el('label.check', {}, r2Box, el('span', {}, 'Show R² value')));
+  const orderField = el('label.field', {}, el('span.field-label', {}, t('chartdialog.order')), orderSel);
+  const periodField = el('label.field', {}, el('span.field-label', {}, t('chartdialog.period')), periodInput);
+  const trendLabelFields = el('div.check-group', {}, el('label.check', {}, eqBox, el('span', {}, t('chartdialog.showEquation'))), el('label.check', {}, r2Box, el('span', {}, t('chartdialog.showRSquared'))));
   const trendRow = el('div.row.row-2', {},
-    el('label.field', {}, el('span.field-label', {}, 'Trendline'), trendSel),
-    orderField, periodField, el('div.field', {}, el('span.field-label', {}, 'Trendline label'), trendLabelFields),
-    el('label.field', {}, el('span.field-label', {}, 'Trendline line style'), trendDashSel),
-    el('label.field', {}, el('span.field-label', {}, 'Trendline width (pt)'), trendWidthInput));
+    el('label.field', {}, el('span.field-label', {}, t('chartdialog.trendline')), trendSel),
+    orderField, periodField, el('div.field', {}, el('span.field-label', {}, t('chartdialog.trendlineLabel')), trendLabelFields),
+    el('label.field', {}, el('span.field-label', {}, t('chartdialog.trendlineStyle')), trendDashSel),
+    el('label.field', {}, el('span.field-label', {}, t('chartdialog.trendlineWidth')), trendWidthInput));
   // Only what the kind takes shows: a polynomial's order, a moving average's period, the equation and R² of a fit.
   const syncTrend = () => {
     const kind = trendSel.value;
@@ -265,21 +267,23 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
   }
   // Error bars on a scatter or bubble chart, up and down and to each side: every series takes the kind and
   // amount chosen here, as it does the trendline; Format Error Bars sets each series' own.
-  const errorAxes = [['y', 'Vertical'], ['x', 'Horizontal']].map(([axis, word]) => {
+  const errorAxes = ['y', 'x'].map((axis) => {
     const first = (draft.errorBars || []).find(b => b?.[axis])?.[axis] || null;
-    const kind = el('select.select', { 'aria-label': `${word} error bars` }, el('option', { value: 'none' }, 'None'),
+    const kind = el('select.select', { 'aria-label': t('chartdialog.errorBars', { axis }) }, el('option', { value: 'none' }, t('common.none')),
       ...ERROR_BAR_TYPES.map(([value, label]) => el('option', { value }, label)));
     kind.value = first?.type || 'none';
-    const amount = el('input.input', { type: 'number', min: 0, step: 'any', 'aria-label': `${word} error amount`, value: first && first.type !== 'cust' ? first.value : '' });
-    const cells = el('input.input', { type: 'text', 'aria-label': `${word} error cells`, placeholder: '=Sheet1!$D$2:$D$10',
+    const amount = el('input.input', { type: 'number', min: 0, step: 'any', 'aria-label': t('chartdialog.errorAmount', { axis }), value: first && first.type !== 'cust' ? first.value : '' });
+    const cells = el('input.input', { type: 'text', 'aria-label': t('chartdialog.errorCells', { axis }), placeholder: '=Sheet1!$D$2:$D$10',
       value: first?.plus ? `=${first.plus}` : first?.plusValues ? first.plusValues.join(', ') : '' });
     const amountLabel = el('span.field-label', {});
-    const amountField = el('label.field', {}, amountLabel, amount), cellsField = el('label.field', {}, el('span.field-label', {}, `${word} error cells`), cells);
-    const state = { axis, word, kind, amount, cells, touched: false, fields: [el('label.field', {}, el('span.field-label', {}, `${word} error bars`), kind), amountField, cellsField] };
+    const amountField = el('label.field', {}, amountLabel, amount), cellsField = el('label.field', {}, el('span.field-label', {}, t('chartdialog.errorCells', { axis })), cells);
+    const state = { axis, kind, amount, cells, touched: false, fields: [el('label.field', {}, el('span.field-label', {}, t('chartdialog.errorBars', { axis })), kind), amountField, cellsField] };
     state.sync = () => {
       amountField.hidden = !['fixedVal', 'percentage', 'stdDev'].includes(kind.value);
       cellsField.hidden = kind.value !== 'cust';
-      amountLabel.textContent = { fixedVal: `${word} error amount`, percentage: `${word} error percentage (%)`, stdDev: `${word} standard deviations` }[kind.value] || '';
+      amountLabel.textContent = kind.value === 'fixedVal' ? t('chartdialog.errorAmount', { axis })
+        : kind.value === 'percentage' ? t('chartdialog.errorPercentage', { axis })
+          : kind.value === 'stdDev' ? t('chartdialog.errorStdDev', { axis }) : '';
     };
     // A kind picked anew starts at its own amount (5 %, not the 1 a fixed value had).
     kind.addEventListener('change', () => { if (state.lastKind !== kind.value) amount.value = ERROR_BAR_DEFAULT_VALUES[kind.value] ?? ''; state.lastKind = kind.value; });
@@ -302,26 +306,26 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
       let fields = {};
       if (s.kind.value === 'cust') {
         const plus = errorBarAmountInput(wb, sheetId, s.cells.value, 'plus');
-        if (plus.error || !s.cells.value.trim()) return { error: plus.error || `Enter the cells that hold the ${s.word.toLowerCase()} error amounts`, field: s.cells };
+        if (plus.error || !s.cells.value.trim()) return { error: plus.error || t('chartdialog.enterErrorCells', { axis: s.axis }), field: s.cells };
         const minus = errorBarAmountInput(wb, sheetId, s.cells.value, 'minus');
         fields = { ...plus, ...minus };
       } else if (s.kind.value !== 'stdErr') {
         const v = Number(s.amount.value);
-        if (s.amount.value.trim() === '' || !Number.isFinite(v) || v < 0) return { error: `The ${s.word.toLowerCase()} error amount must be a number of 0 or more`, field: s.amount };
+        if (s.amount.value.trim() === '' || !Number.isFinite(v) || v < 0) return { error: t('chartdialog.errorAmountInvalid', { axis: s.axis }), field: s.amount };
         fields = { value: v };
       }
       list.forEach(bars => { bars[s.axis] = normalizeErrorBar({ ...(bars[s.axis] || {}), type: s.kind.value, ...fields }); });
     }
     return { errorBars: normalizeErrorBars(list) || undefined };
   }
-  const labelsField = el('label.check', {}, labelsBox, el('span', {}, 'Show values'));
-  const xTitleInput = el('input.input', { type: 'text', value: draft.xTitle || '', 'aria-label': 'Horizontal axis title', placeholder: 'Optional', maxlength: 80 });
-  const yTitleInput = el('input.input', { type: 'text', value: draft.yTitle || '', 'aria-label': 'Vertical axis title', placeholder: 'Optional', maxlength: 80 });
-  const y2TitleInput = el('input.input', { type: 'text', value: draft.y2Title || '', 'aria-label': 'Secondary axis title', placeholder: 'Optional', maxlength: 80 });
-  const y2TitleField = el('label.field', {}, el('span.field-label', {}, 'Secondary axis title'), y2TitleInput);
+  const labelsField = el('label.check', {}, labelsBox, el('span', {}, t('chartdialog.showValues')));
+  const xTitleInput = el('input.input', { type: 'text', value: draft.xTitle || '', 'aria-label': t('chartdialog.xTitle'), placeholder: t('common.optional'), maxlength: 80 });
+  const yTitleInput = el('input.input', { type: 'text', value: draft.yTitle || '', 'aria-label': t('chartdialog.yTitle'), placeholder: t('common.optional'), maxlength: 80 });
+  const y2TitleInput = el('input.input', { type: 'text', value: draft.y2Title || '', 'aria-label': t('chartdialog.y2Title'), placeholder: t('common.optional'), maxlength: 80 });
+  const y2TitleField = el('label.field', {}, el('span.field-label', {}, t('chartdialog.y2Title')), y2TitleInput);
   const axisRow = el('div.row.row-2', {},
-    el('label.field', {}, el('span.field-label', {}, 'Horizontal axis title'), xTitleInput),
-    el('label.field', {}, el('span.field-label', {}, 'Vertical axis title'), yTitleInput), y2TitleField);
+    el('label.field', {}, el('span.field-label', {}, t('chartdialog.xTitle')), xTitleInput),
+    el('label.field', {}, el('span.field-label', {}, t('chartdialog.yTitle')), yTitleInput), y2TitleField);
 
   // The fields a problem can be laid at; the message names it and the field at fault is marked and focused.
   const checkedFields = [rangeInput, yMinInput, yMaxInput, xMinInput, xMaxInput, binsInput, markerSizeInput, periodInput, trendWidthInput, ...errorAxes.flatMap(s => [s.amount, s.cells]), ...sourceInputs.flatMap(s => [s.categories, s.values, ...(s.sizes ? [s.sizes] : [])])];
@@ -348,19 +352,19 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
             if (value && literal?.length && literal.length <= 5000 && literal.every(v => v === null || Number.isFinite(v) || key === 'categories' && typeof v === 'string')) {
               source.literal[key] = literal; source[key] = ''; continue;
             }
-            return problem('Enter a range such as Data!A1:A20 or comma-separated values', s[key]);
+            return problem(t('chartdialog.errors.sourceRange'), s[key]);
           }
-          if ((r.r1 !== r.r2 && r.c1 !== r.c2) || Math.max(r.r2 - r.r1, r.c2 - r.c1) >= 5000) return problem('Choose one row or column with up to 5,000 cells', s[key]);
+          if ((r.r1 !== r.r2 && r.c1 !== r.c2) || Math.max(r.r2 - r.r1, r.c2 - r.c1) >= 5000) return problem(t('chartdialog.errors.sourceSize'), s[key]);
         }
         next.push(source);
       }
       draft.sourceRefs = next;
     } else {
       const parsed = wb.rangeFromText(sheetId, rangeInput.value.trim());
-      if (parsed && parsed.sheetId !== sheetId) return problem('The chart can only show cells from this sheet', rangeInput);
+      if (parsed && parsed.sheetId !== sheetId) return problem(t('chartdialog.errors.otherSheet'), rangeInput);
       const r = parsed?.range || null;
-      if (!r) return problem('Enter a range like A1:B10, or a table name', rangeInput);
-      if (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200) return problem('That range is too large to chart', rangeInput);
+      if (!r) return problem(t('chartdialog.errors.range'), rangeInput);
+      if (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200) return problem(t('chartdialog.errors.tooLarge'), rangeInput);
       draft.range = r;
     }
     for (const [key, input] of [['title', titleInput], ['xTitle', xTitleInput], ['yTitle', yTitleInput], ['y2Title', y2TitleInput]]) {
@@ -372,8 +376,10 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     draft.seriesIn = seriesSel.value;
     draft.headers = headersSel.value === 'auto' ? 'auto' : headersSel.value === 'true';
     draft.categoryLabels = categoriesSel.value === 'auto' ? 'auto' : categoriesSel.value === 'true';
-    draft.stacked = stackedBox.checked;
-    draft.stack100 = stackedBox.checked && stack100Box.checked;
+    // A type the Stacked boxes are hidden for takes no stack from them: only the one it came with (a stacked line chart).
+    const kept = !!chart && chart.type === draft.type;
+    draft.stacked = stackedOnly.hidden ? kept && !!chart.stacked : stackedBox.checked;
+    draft.stack100 = stackedOnly.hidden ? kept && !!chart.stack100 : stackedBox.checked && stack100Box.checked;
     draft.secondaryAxis = axis2Box.checked;
     y2TitleField.hidden = draft.type !== 'combo' || !draft.secondaryAxis;
     draft.legend = legendSel.value !== 'none';
@@ -386,30 +392,30 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     draft.includeHidden = hiddenBox.checked;
     const yMin = yMinInput.value.trim() === '' ? null : Number(yMinInput.value);
     const yMax = yMaxInput.value.trim() === '' ? null : Number(yMaxInput.value);
-    if (yMin != null && yMax != null && yMin >= yMax) return problem('The axis minimum must be below the maximum', yMinInput, yMaxInput);
+    if (yMin != null && yMax != null && yMin >= yMax) return problem(t('chartdialog.errors.bounds'), yMinInput, yMaxInput);
     draft.yMin = Number.isFinite(yMin) ? yMin : null;
     draft.yMax = Number.isFinite(yMax) ? yMax : null;
     if (xyChart()) {
       const xMin = xMinInput.value.trim() === '' ? null : Number(xMinInput.value);
       const xMax = xMaxInput.value.trim() === '' ? null : Number(xMaxInput.value);
-      if (xMin != null && xMax != null && xMin >= xMax) return problem('The axis minimum must be below the maximum', xMinInput, xMaxInput);
+      if (xMin != null && xMax != null && xMin >= xMax) return problem(t('chartdialog.errors.bounds'), xMinInput, xMaxInput);
       xBounds = { min: Number.isFinite(xMin) ? xMin : null, max: Number.isFinite(xMax) ? xMax : null };
       Object.assign(draft, chartXBoundsPatch(draft, xBounds.min, xBounds.max));
     }
     const bins = binsInput.value.trim() === '' ? null : Number(binsInput.value);
     const binsOk = bins == null || (Number.isInteger(bins) && bins >= 2 && bins <= 100);
     // The field is hidden for every type but histogram, so only a histogram is held up by what it says.
-    if (draft.type === 'histogram' && !binsOk) return problem('Bins must be a whole number from 2 to 100', binsInput);
+    if (draft.type === 'histogram' && !binsOk) return problem(t('chartdialog.errors.bins'), binsInput);
     draft.bins = binsOk ? bins : null;
     const size = markerSizeInput.value.trim();
-    if (!markerSizeField.hidden && size !== '' && !(Number(size) >= 2 && Number(size) <= 72)) return problem('The marker size must be from 2 to 72 pt', markerSizeInput);
+    if (!markerSizeField.hidden && size !== '' && !(Number(size) >= 2 && Number(size) <= 72)) return problem(t('chartdialog.errors.markerSize'), markerSizeInput);
     markerSize = size === '' || size === markerSizeShown ? null : Number(size);
     const period = Number(periodInput.value);
-    if (!trendRow.hidden && trendSel.value === 'movingAvg' && !(Number.isInteger(period) && period >= 2 && period <= 255)) return problem('The period must be a whole number from 2 to 255', periodInput);
+    if (!trendRow.hidden && trendSel.value === 'movingAvg' && !(Number.isInteger(period) && period >= 2 && period <= 255)) return problem(t('chartdialog.errors.period'), periodInput);
     const errorCheck = errorFields(readData().series.length);
     if (errorCheck.error) return problem(errorCheck.error, errorCheck.field);
     const trendWidth = trendWidthInput.value.trim() === '' ? null : Number(trendWidthInput.value);
-    if (!trendRow.hidden && trendSel.value !== 'none' && trendWidth != null && !(trendWidth >= 0.25 && trendWidth <= 15)) return problem('The trendline width must be from 0.25 to 15 pt', trendWidthInput);
+    if (!trendRow.hidden && trendSel.value !== 'none' && trendWidth != null && !(trendWidth >= 0.25 && trendWidth <= 15)) return problem(t('chartdialog.errors.trendWidth'), trendWidthInput);
     return null;
   }
 
@@ -446,10 +452,10 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     }
     if (problem) { preview.replaceChildren(); return; }
     const data = readData();
-    categoriesSel.options[1].textContent = data.orientation === 'rows' ? 'First row' : 'First column';
+    categoriesSel.options[1].textContent = data.orientation === 'rows' ? t('chartdialog.firstRow') : t('chartdialog.firstColumn');
     // Resolve linked names through the same live data as the legend and colors.
     // Updating a heading must not replace the source's name reference or cache.
-    sourceInputs.forEach((s, i) => { s.heading.textContent = data.series[i]?.name || s.source.name || `Series ${i + 1}`; });
+    sourceInputs.forEach((s, i) => { s.heading.textContent = data.series[i]?.name || s.source.name || t('chartdialog.seriesN', { n: i + 1 }); });
     const labelPatch = labelsPatch(data);
     if (markerSizeShown == null) {
       const sizes = data.series.map((_, i) => chartSeriesLine(draft, i)?.markerSize ?? null);
@@ -522,41 +528,41 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
   const content = el('form.chart-form', { onsubmit: submit, novalidate: true },
     el('div.chart-form-grid', {},
       el('div.chart-form-fields', {},
-        el('div.field', {}, el('span.field-label', {}, 'Type'), typeRow),
+        el('div.field', {}, el('span.field-label', {}, t('chartdialog.type')), typeRow),
         sourceInputs.length ? el('div', {}, ...sourceInputs.map(s => el('div.field', {},
           s.heading,
-          el('label.field', {}, el('span.field-label', {}, s.sizes ? 'X values' : 'Categories'), s.categories),
-          el('label.field', {}, el('span.field-label', {}, s.sizes ? 'Y values' : 'Values'), s.values),
-          ...(s.sizes ? [el('label.field', {}, el('span.field-label', {}, 'Bubble sizes'), s.sizes)] : []))), error)
-          : el('label.field', {}, el('span.field-label', {}, 'Data range'), rangeInput, error),
-        el('label.field', {}, el('span.field-label', {}, 'Title'), titleInput),
-        el('label.field', {}, el('span.field-label', {}, 'Alternative text'), descriptionInput),
+          el('label.field', {}, el('span.field-label', {}, s.sizes ? t('chartdialog.xValues') : t('chartdialog.categories')), s.categories),
+          el('label.field', {}, el('span.field-label', {}, s.sizes ? t('chartdialog.yValues') : t('chartdialog.values')), s.values),
+          ...(s.sizes ? [el('label.field', {}, el('span.field-label', {}, t('chartdialog.bubbleSizes')), s.sizes)] : []))), error)
+          : el('label.field', {}, el('span.field-label', {}, t('chartdialog.dataRange')), rangeInput, error),
+        el('label.field', {}, el('span.field-label', {}, t('chartdialog.title')), titleInput),
+        el('label.field', {}, el('span.field-label', {}, t('chartdialog.altText')), descriptionInput),
         el('div.row.row-2', { hidden: !!sourceInputs.length },
-          el('label.field', {}, el('span.field-label', {}, 'Series in'), seriesSel),
-          el('label.field', {}, el('span.field-label', {}, 'Labels'), headersSel)),
+          el('label.field', {}, el('span.field-label', {}, t('chartdialog.seriesIn')), seriesSel),
+          el('label.field', {}, el('span.field-label', {}, t('chartdialog.labels')), headersSel)),
         categoriesRow,
         axisRow,
         xBoundsRow,
         boundsRow,
         binsField,
         el('div.row.row-2', {},
-          el('label.field', {}, el('span.field-label', {}, 'Legend'), legendSel),
-          el('div.field', {}, el('span.field-label', {}, 'Options'), el('div.check-group', {}, labelsField, hGridField, vGridField, smoothField, hiddenField))),
+          el('label.field', {}, el('span.field-label', {}, t('chartdialog.legend')), legendSel),
+          el('div.field', {}, el('span.field-label', {}, t('common.options')), el('div.check-group', {}, labelsField, hGridField, vGridField, smoothField, hiddenField))),
         el('div.row', {}, stackedField),
         trendRow,
         errorRow,
         markerSizeRow,
-        el('div.field', {}, el('span.field-label', {}, 'Colors'), colorsRow)),
-      el('div.chart-form-preview', {}, el('span.field-label', {}, 'Preview'), preview)),
+        el('div.field', {}, el('span.field-label', {}, t('chartdialog.colors')), colorsRow)),
+      el('div.chart-form-preview', {}, el('span.field-label', {}, t('common.preview')), preview)),
     el('div.row.row-end', {},
-      chart && el('button.btn.btn-danger', { type: 'button', onclick: () => { if (!canChange()) return; wb.deleteChart(sheetId, chart.id); modal.close(); ctx.grid.focus(); } }, 'Delete chart'),
+      chart && el('button.btn.btn-danger', { type: 'button', onclick: () => { if (!canChange()) return; wb.deleteChart(sheetId, chart.id); modal.close(); ctx.grid.focus(); } }, t('chartdialog.deleteChart')),
       el('div.grow'),
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, chart ? 'Save' : 'Insert')));
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, chart ? t('common.save') : t('common.insert'))));
   // The roving tabindex is set before the modal picks the first control to focus, so an edited
   // chart's own type takes the focus (and the first arrow moves from it), not the first in the row.
   syncTypes();
-  const modal = openModal({ title: chart ? 'Edit chart' : 'Insert chart', content, wide: true, initialFocus: chart ? null : titleInput, onClose: () => { clearTimeout(redraw); ctx.grid.focus(); } });
+  const modal = openModal({ title: chart ? t('chartdialog.editChart') : t('chartdialog.insertChart'), content, wide: true, initialFocus: chart ? null : titleInput, onClose: () => { clearTimeout(redraw); ctx.grid.focus(); } });
   refresh();
   return modal;
 }

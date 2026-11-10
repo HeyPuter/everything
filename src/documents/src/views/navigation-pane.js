@@ -29,6 +29,14 @@ export function createNavigationPane(api) {
       e.preventDefault(); const next = tabs[(i + step + tabs.length) % tabs.length][0]; select(next); tabButtons.find(b => b.id === `nav-tab-${next}`).focus();
     } }, label));
   const headingList = el('ol.nav-headings', { role: 'tree', 'aria-label': 'Headings' });
+  // The tree is one Tab stop, as a tree is: the heading the keyboard was last on, else the current one, else the first.
+  let treeStop = null;
+  headingList.addEventListener('focusin', e => {
+    const id = e.target.closest?.('.nav-heading')?.dataset.paragraph;
+    if (!id) return;
+    treeStop = id;
+    for (const button of headingList.querySelectorAll('.nav-heading')) button.tabIndex = button.dataset.paragraph === id ? 0 : -1;
+  });
   const headingEmpty = el('p.field-hint', {}, 'Create an interactive outline of your document. It is a great way to keep track of where you are or quickly move your content around. To get started, apply heading styles to the headings in your document.');
   const pageGrid = el('div.nav-pages', { role: 'list', 'aria-label': 'Pages' });
   const resultList = el('ol.nav-results', { 'aria-label': 'Search results' });
@@ -80,7 +88,9 @@ export function createNavigationPane(api) {
     status.textContent = !text ? '' : matches.length ? `${matches.length} result${matches.length === 1 ? '' : 's'}` : 'No matches';
     if (text && tab === 'headings' && matches.length) select('results'); else render();
   }
-  search.addEventListener('input', runSearch);
+  // An input method's partial text (pinyin letters before they become characters) is not searched: what it commits is.
+  search.addEventListener('input', e => { if (!e.isComposing) runSearch(); });
+  search.addEventListener('compositionend', runSearch);
   search.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || isComposing(e) || !matches.length) return;
     e.preventDefault();
@@ -93,6 +103,12 @@ export function createNavigationPane(api) {
 
   /** The heading button for a paragraph, found by its id (no selector to escape, which not every environment offers). */
   const headingButton = id => [...headingList.querySelectorAll('.nav-heading')].find(button => button.dataset.paragraph === id) || null;
+
+  /**
+   * Where a drawn heading is among the current entries. Each refresh brings new entry objects, and the list is
+   * drawn again only when they differ, so a heading's handlers can hold an entry from an earlier refresh.
+   */
+  const indexOf = entry => entries.findIndex(e => e.id === entry.id);
 
   /* ---- Rendering ---- */
   function renderHeadings() {
@@ -120,7 +136,7 @@ export function createNavigationPane(api) {
             else if (e.altKey && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editable() && !entry.inTable) {
               // Move the section past its neighbour, as dragging would.
               e.preventDefault();
-              const at = entries.indexOf(entry), step = e.key === 'ArrowUp' ? -1 : 1;
+              const at = indexOf(entry), step = e.key === 'ArrowUp' ? -1 : 1;
               let target = at + step;
               while (entries[target] && (entries[target].level > entry.level || entries[target].inTable)) target += step;
               if (entries[target]) { actions().move(entry.id, entries[target].id, step < 0 ? 'before' : 'after'); refocus(entry.id); }
@@ -134,18 +150,23 @@ export function createNavigationPane(api) {
       if (focused) headingButton(focused)?.focus();
     }
     const here = entries.filter(entry => entry.start <= position).at(-1)?.id;
-    for (const button of headingList.querySelectorAll('.nav-heading')) {
+    const buttons = [...headingList.querySelectorAll('.nav-heading')];
+    const stop = buttons.find(button => button.dataset.paragraph === treeStop) || buttons.find(button => button.dataset.paragraph === here) || buttons[0];
+    for (const button of buttons) {
       if (here === button.dataset.paragraph) button.setAttribute('aria-current', 'location'); else button.removeAttribute('aria-current');
+      const index = button === stop ? 0 : -1;
+      if (button.tabIndex !== index) button.tabIndex = index;
     }
   }
   /**
    * The tree's keys: Up and Down (Home, End) move between the headings shown; Right expands a collapsed
    * heading or goes to its first subheading, Left collapses an expanded one or goes to its parent.
    */
-  function moveInTree(entry, key) {
+  function moveInTree(drawn, key) {
+    const index = indexOf(drawn), entry = entries[index]; if (!entry) return;
     const shown = [...headingList.querySelectorAll('.nav-heading')], at = shown.findIndex(b => b.dataset.paragraph === entry.id);
     const focus = button => button?.focus();
-    const index = entries.indexOf(entry), parent = entries[index + 1]?.level > entry.level;
+    const parent = entries[index + 1]?.level > entry.level;
     if (key === 'ArrowDown') focus(shown[at + 1]);
     else if (key === 'ArrowUp') focus(shown[at - 1]);
     else if (key === 'Home') focus(shown[0]);
@@ -254,7 +275,10 @@ export function createNavigationPane(api) {
     // and rebuilding hundreds of rows held up every keystroke.
     const shown = matches.slice(0, 500);
     shown.forEach((match, i) => {
-      const start = Math.max(body.lastIndexOf('\n', match.start - 1) + 1, match.start - 40), end = Math.min(...[body.indexOf('\n', match.end), match.end + 60].filter(n => n >= 0));
+      let start = Math.max(body.lastIndexOf('\n', match.start - 1) + 1, match.start - 40), end = Math.min(...[body.indexOf('\n', match.end), match.end + 60].filter(n => n >= 0));
+      // The context takes in a character the cut would halve (an emoji is two code units), rather than half of it.
+      if (/[\udc00-\udfff]/.test(body[start] || '') && /[\ud800-\udbff]/.test(body[start - 1] || '')) start--;
+      if (/[\ud800-\udbff]/.test(body[end - 1] || '') && /[\udc00-\udfff]/.test(body[end] || '')) end++;
       const parts = [(start > 0 && body[start - 1] !== '\n' ? '…' : '') + body.slice(start, match.start), body.slice(match.start, match.end), body.slice(match.end, end)];
       const key = parts.join('\u0000'), row = resultList.children[i];
       if (row?.dataset.key === key) {

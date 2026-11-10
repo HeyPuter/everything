@@ -5,6 +5,7 @@
  * menu items (contextMenuItems) through the editor's command object.
  */
 import { isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
+import { selectionLanguage, languageProperty } from '../engine/font-families.js';
 import { toast } from '../ui/toast.js';
 import { openMenu } from '../ui/menu.js';
 import { revisionView } from '../engine/revisions.js';
@@ -43,8 +44,9 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     const engine = ready(); if (!engine) return;
     engine.finishComposition();
     const format = engine.model.runFormatting || {};
-    openLanguageDialog({ language: format.fontLanguage || pkg()?.reviewSettings?.defaultLanguage || 'en-US', noProof: !!format.noProof, defaultLanguage: pkg()?.reviewSettings?.defaultLanguage,
-      apply: ({ language, noProof }) => { engine.setRunFormat({ fontLanguage: language, noProof }); proofing.recheck?.(); },
+    openLanguageDialog({ language: selectionLanguage(engine.model) || pkg()?.reviewSettings?.defaultLanguage || 'en-US', noProof: !!format.noProof, defaultLanguage: pkg()?.reviewSettings?.defaultLanguage,
+      // Each language is written to the attribute for its kind of text (§17.3.2.20): Japanese to w:eastAsia, Arabic to w:bidi.
+      apply: ({ language, noProof }) => { engine.setRunFormat({ [languageProperty(language)]: language, noProof }); proofing.recheck?.(); },
       setDefault: language => { setSettings({ defaultLanguage: language }); },
       onClose: () => queueMicrotask(() => editor()?.focus()) });
   }
@@ -85,8 +87,11 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
   async function lockTracking() {
     if (restrict.trackingLocked) { await restrict.stopEnforcing({ title: 'Unlock Tracking' }); return; }
     if (restrict.enforced) { error(new Error('Stop the document\'s protection before locking tracking.')); return; }
+    const wasTracking = review.commands.tracking;
     review.commands.toggleTracking(true);
-    await restrict.startEnforcing({ edit: 'trackedChanges', formatting: false, title: 'Lock Tracking', intro: 'Others will not be able to turn off Track Changes, or accept or reject changes. Enter a password to keep them from unlocking it, or leave it empty.' });
+    const locked = await restrict.startEnforcing({ edit: 'trackedChanges', formatting: false, title: 'Lock Tracking', intro: 'Others will not be able to turn off Track Changes, or accept or reject changes. Enter a password to keep them from unlocking it, or leave it empty.' });
+    // Cancelled: Track Changes goes back to how it was, as nothing was locked.
+    if (!locked && !wasTracking) review.commands.toggleTracking(false);
   }
 
   /* ---- Commands ---- */
@@ -108,7 +113,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     toggleHideGrammar() { setSettings({ hideGrammaticalErrors: !pkg()?.reviewSettings?.hideGrammaticalErrors }); editor()?.paint(); editorPane.refresh(); },
     resetIgnoredWords() { proofing.resetIgnored(); toast('Ignored words will be checked again'); editorPane.refresh(); },
     thesaurus: () => { if (editor()) thesaurus.open(); },
-    wordCount: () => { const engine = editor(); if (engine) openWordCount(engine, { onClose: () => queueMicrotask(() => editor()?.focus()) }); },
+    wordCount: () => { const engine = editor(); if (engine) openWordCount(engine, { onClose: () => queueMicrotask(() => editor()?.focus()), onChange }); },
     checkAccessibility: () => accessibility.open(),
     accessibilitySummary: () => accessibility.summary(),
     language: languageDialog,

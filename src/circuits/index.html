@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Circuits</title>
     <meta name="description" content="Schematic capture and PCB layout in your browser. Draw schematics, lay out boards, pour copper, check design rules and export manufacturing files, stored in your own Puter cloud." />
+    <link rel="canonical" href="https://circuits.puter.com/" />
     <meta name="theme-color" content="#f2f2f0" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#2f2f2f" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
@@ -21,7 +22,7 @@
         root.dataset.themeResolved = dark ? 'dark' : 'light';
       })();
     </script>
-    <script src="https://js.puter.com/v2/" defer></script>
+    <script src="https://js.puter.com/v2/" defer onerror="window.__puterFailed = true"></script>
     <script type="module" src="/src/main.js"></script>
   </head>
   <body>

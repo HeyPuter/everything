@@ -1,0 +1,22 @@
+{
+  "applyEdit": "应用编辑",
+  "applyEditTitle": "应用编辑并保留所选内容",
+  "cancelEdit": "取消编辑",
+  "cancelEditTitle": "取消编辑（Esc）",
+  "cellReference": "单元格引用",
+  "collapse": "折叠编辑栏",
+  "expand": "展开编辑栏",
+  "formulaBar": "编辑栏",
+  "formulaOrValue": "公式或值",
+  "goToCell": "定位到单元格或区域",
+  "insertFunction": "插入函数",
+  "linkedPicture": "链接的图片",
+  "manageNamedRanges": "管理命名区域…",
+  "nameDefined": "已定义命名区域 {name}",
+  "namedRanges": "命名区域",
+  "noNamedRanges": "尚无命名区域。在框中键入名称即可为所选内容命名。",
+  "notFound": "找不到 {name}",
+  "pendingEdit": "待处理的编辑",
+  "selectOneRange": "选择一个区域以为其命名",
+  "tables": "表格"
+}

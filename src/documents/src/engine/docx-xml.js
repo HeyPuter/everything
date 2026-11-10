@@ -1,4 +1,4 @@
-import { UnsupportedDocumentError } from './errors.js';
+import { InvalidXmlError, UnsupportedDocumentError } from './errors.js';
 
 // XML whitespace at the edges of w:t is stripped unless that element itself
 // requests preservation. Separate nonconforming-input controls establish that
@@ -27,6 +27,18 @@ export function setContentTypeOverride(types, partName, contentType) {
   override.setAttribute('PartName', partName); override.setAttribute('ContentType', contentType);
   return override;
 }
+/**
+ * Declare a part's content type in the package's [Content_Types].xml (setContentTypeOverride), rewriting the
+ * stream only when it lacks that declaration: one Override for the part name, in any case, with this type.
+ */
+export function declareContentType(parts, partName, contentType) {
+  const types = parseXml(parts['[Content_Types].xml']), key = partName.toLowerCase();
+  const matches = [...types.documentElement.children].filter(n => n.localName === 'Override' && n.getAttribute('PartName')?.toLowerCase() === key);
+  if (matches.length === 1 && matches[0].getAttribute('ContentType') === contentType) return false;
+  setContentTypeOverride(types, partName, contentType);
+  parts['[Content_Types].xml'] = new TextEncoder().encode(new XMLSerializer().serializeToString(types));
+  return true;
+}
 
 // Elements nested deeper than this are not read structurally. Real documents stay far below it
 // (tables nested 60 deep are about 200 levels), but the readers walk the tree recursively, and a
@@ -49,14 +61,16 @@ export function parseXml(bytes, { depthLimit = MAX_XML_DEPTH } = {}) {
   let text;
   if (bytes instanceof Uint8Array) {
     const encoding = bytes[0] === 255 && bytes[1] === 254 ? 'utf-16le' : bytes[0] === 254 && bytes[1] === 255 ? 'utf-16be' : 'utf-8';
-    text = new TextDecoder(encoding, { fatal: true }).decode(bytes);
+    // Package XML is UTF-8 or UTF-16 (ECMA-376 Part 2, §8.1.4); a part in another encoding is not read.
+    try { text = new TextDecoder(encoding, { fatal: true }).decode(bytes); }
+    catch { throw new InvalidXmlError('The DOCX contains XML that is not encoded as UTF-8 or UTF-16.', 'XML not encoded as UTF-8 or UTF-16'); }
   } else text = bytes;
-  if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error('Documents with XML entity declarations are not supported.');
+  if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new InvalidXmlError('Documents with XML entity declarations are not supported.', 'XML entity declarations');
   // The text is decoded now. Browser serializers repeat the declared encoding,
   // and every writer saves UTF-8, so a UTF-16 label would mislabel the output.
   text = text.replace(/^(﻿?<\?xml\s[^?]*?\bencoding\s*=\s*)(["'])[^"']*\2/, '$1"UTF-8"');
   const doc = new DOMParser().parseFromString(text, 'application/xml');
-  if (doc.getElementsByTagName('parsererror').length) throw new Error('The DOCX contains invalid XML.');
+  if (doc.getElementsByTagName('parsererror').length) throw new InvalidXmlError();
   if (xmlDepthExceeds(doc.documentElement, depthLimit)) throw new UnsupportedDocumentError(`content nested more than ${depthLimit} levels deep`);
   return doc;
 }

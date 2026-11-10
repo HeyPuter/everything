@@ -87,12 +87,16 @@ textarea {
 button {
   cursor: pointer;
 }
-button:disabled {
+button:disabled,
+.statusbar .icon-btn[aria-disabled='true'],
+.appbar .icon-btn[aria-disabled='true'] {
   cursor: default;
   opacity: 0.4;
 }
 /* Short document refreshes block input without dimming the whole application. */
-button.busy-enabled:disabled {
+button.busy-enabled:disabled,
+.statusbar .icon-btn.busy-enabled[aria-disabled='true'],
+.appbar .icon-btn.busy-enabled[aria-disabled='true'] {
   opacity: 1;
 }
 button,
@@ -197,14 +201,14 @@ button svg {
    tint would otherwise stay on the button. A press shows it everywhere. */
 @media (hover: hover) {
   .btn:hover:is(:not(:disabled), .busy-enabled),
-  .icon-btn:hover:is(:not(:disabled), .busy-enabled),
+  .icon-btn:hover:is(:not(:disabled, [aria-disabled='true']), .busy-enabled),
   .tool-btn:hover:is(:not(:disabled), .busy-enabled) {
     background: var(--surface-2);
     border-color: var(--strong);
   }
 }
 .btn:active:is(:not(:disabled), .busy-enabled),
-.icon-btn:active:is(:not(:disabled), .busy-enabled),
+.icon-btn:active:is(:not(:disabled, [aria-disabled='true']), .busy-enabled),
 .tool-btn:active:is(:not(:disabled), .busy-enabled) {
   background: var(--surface-2);
   border-color: var(--strong);
@@ -260,6 +264,9 @@ select {
 .input::placeholder {
   color: var(--muted);
 }
+.input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
 textarea {
   resize: vertical;
 }
@@ -296,6 +303,51 @@ textarea {
   color: var(--muted);
   margin-right: 8px;
 }
+/* <puter-user-menu> (puter.js; src/user-menu.js): where the loaded puter.js has it, it holds the
+   Apps launcher and the account, after Settings, and names the account in its own menu. Its
+   parts take the title bar's icon button and primary button looks; its menu and Apps panel
+   take the app's card, in both themes. */
+.user-menu-slot {
+  display: none;
+}
+.header-right:has(puter-user-menu) .account-label {
+  display: none;
+}
+puter-user-menu {
+  flex: none;
+}
+puter-user-menu::part(apps-button) {
+  border-radius: 8px;
+  color: var(--ink);
+}
+puter-user-menu::part(sign-in) {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.editor-topbar puter-user-menu::part(sign-in) {
+  font-size: 12px;
+}
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--surface-2);
+  }
+  puter-user-menu::part(sign-in):hover {
+    filter: brightness(0.94);
+  }
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--surface);
+  border-color: var(--strong);
+  --caret-border: var(--strong);
+  --caret-fill: var(--surface);
+}
 .home {
   min-height: 100dvh;
   display: flex;
@@ -306,6 +358,10 @@ textarea {
   margin: 0 auto;
   padding: 40px 36px 32px;
   flex: 1;
+}
+/* It takes the focus when the library replaces a PDF, as the starting point for Tab. */
+.home-main:focus-visible {
+  outline: none;
 }
 .start-grid {
   display: grid;
@@ -868,7 +924,7 @@ textarea {
   padding: 4px;
   color: var(--muted);
 }
-.zoom-controls .icon-btn:hover:is(:not(:disabled), .busy-enabled) {
+.zoom-controls .icon-btn:hover:is(:not(:disabled, [aria-disabled='true']), .busy-enabled) {
   color: var(--ink);
 }
 .zoom-select {
@@ -1639,6 +1695,11 @@ textarea {
   pointer-events: auto;
   cursor: pointer;
 }
+/* A note that can be dragged, as other comments are; a finger drags it rather than the page. */
+.note-target.is-movable {
+  cursor: move;
+  touch-action: none;
+}
 .note-target.no-appearance {
   display: grid;
   place-items: center;
@@ -1861,6 +1922,11 @@ dialog.leave-save-dialog {
   line-height: 1.6;
   overflow-y: auto;
 }
+/* A list that scrolls takes the focus itself (the keyboard shortcuts); the dialog clips the
+   usual outside ring. */
+.dialog-body:focus-visible {
+  outline-offset: -3px;
+}
 .dialog-body p {
   font-size: 13px;
   /* A long unbroken file name in a confirmation must wrap, not push the dialog wider. */
@@ -1963,13 +2029,19 @@ dialog.leave-save-dialog {
 }
 .choice-with-input {
   display: flex;
+  /* On a small phone a long choice ("New part before pages") leaves its box too narrow to read;
+     the box goes to the next line instead. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
 }
 .choice-with-input .input {
   width: auto;
-  flex: 1;
+  flex: 1 0 7em;
   min-width: 0;
+}
+.choice-with-input .input.count-input {
+  flex: 0 1 7em;
 }
 /* Watermark and page number dialogs */
 .field-grid {
@@ -1979,6 +2051,17 @@ dialog.leave-save-dialog {
 }
 .field-grid .field {
   min-width: 0;
+}
+dialog.header-footer-dialog {
+  width: min(600px, calc(100vw - 32px));
+}
+.field-grid.header-slots {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 520px) {
+  .field-grid.header-slots {
+    grid-template-columns: 1fr;
+  }
 }
 .field .input,
 .field select {
@@ -2131,7 +2214,8 @@ dialog.signature-dialog {
 }
 .signature-thumb {
   display: block;
-  width: 100%;
+  /* Clear of the delete button in the card's top right corner, so it covers no ink. */
+  width: calc(100% - 28px);
   height: 56px;
 }
 .signature-saved-row .icon-btn {
@@ -2287,8 +2371,13 @@ kbd {
     width: 100%;
     justify-content: space-between;
   }
+  /* The search field gives way on the smallest phones, staying within the list's width. */
+  .search-wrap {
+    flex: 0 1 180px;
+    min-width: 0;
+  }
   .search-input {
-    width: 180px;
+    width: 100%;
   }
   .local-note {
     align-items: flex-start;
@@ -2404,6 +2493,10 @@ kbd {
   }
   .search-count {
     font-size: 10px;
+  }
+  /* Until there is a count to show, its room goes to the find box, whose prompt was cut short. */
+  .search-count:empty {
+    display: none;
   }
   .find-bar .icon-btn {
     min-width: 28px;
@@ -2646,6 +2739,11 @@ kbd {
 .form-widget.has-draft {
   outline-color: var(--brand);
 }
+/* The field an error above the page is about. */
+.form-widget:has(.form-control[aria-invalid='true']),
+.form-widget:has(.form-control[aria-invalid='true']):focus-within {
+  outline: 2px solid var(--danger);
+}
 .form-widget .form-control:disabled {
   cursor: default;
 }
@@ -2654,6 +2752,13 @@ kbd {
 }
 .form-widget select.form-control {
   cursor: pointer;
+}
+/* A list box always shows its own rows, so a click lands on the option it shows: the PDF's
+   drawing of the list spaces and scrolls its rows its own way. */
+.form-widget select.form-control[size]:not(:disabled) {
+  opacity: 1;
+  color: var(--field-ink);
+  background: var(--field-background);
 }
 .form-checkbox .form-control,
 .form-radio .form-control {

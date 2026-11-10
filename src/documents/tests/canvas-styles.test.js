@@ -115,7 +115,7 @@ describe('paragraph styles across model, layout and DOCX', () => {
     const pkg = await fixture(), doc = model(pkg), before = doc.snapshot();
     expect(() => doc.editParagraphStyle('CanvasBody', { basedOn: 'CanvasSubheading' })).toThrow(/Cyclic/);
     expect(() => doc.editParagraphStyle('CanvasBody', { run: { fontSize: 1638.5 } })).toThrow(/font size/);
-    doc.styles.definitions.Unsupported = { id: 'Unsupported', name: 'Unsupported', type: 'paragraph', basedOn: 'Normal', properties: { alignment: 'thaiDistribute' }, run: {} };
+    doc.styles.definitions.Unsupported = { id: 'Unsupported', name: 'Unsupported', type: 'paragraph', basedOn: 'Normal', properties: { alignment: 'mediumKashida' }, run: {} };
     expect(doc.paragraphStyles.find(s => s.id === 'Unsupported').error).toMatch(/alignment/);
     expect(() => doc.setParagraphStyle('Unsupported')).toThrow(/alignment/);
     expect(doc.paragraphs).toEqual(before.paragraphs); expect(doc.history).toHaveLength(0);
@@ -174,4 +174,20 @@ describe('paragraph styles across model, layout and DOCX', () => {
     expect(doc.editParagraphStyle('CanvasHeading', { run: {}, paragraph: {} })).toBe(false);
     expect(doc.snapshot()).toEqual(before); expect(doc.history).toHaveLength(0);
   });
+});
+
+it('applying the default paragraph style to a paragraph that already has it changes nothing and adds no undo step', () => {
+  const pkg = createDocx([paragraph('Plain text')]);
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles);
+  const normal = doc.styles.defaultParagraph;
+  expect(normal).toBeTruthy();
+  expect(doc.paragraphs[0].styleId || null).toBe(null);
+  doc.select(2);
+  const before = JSON.stringify(doc.paragraphs);
+  expect(doc.setParagraphStyle(normal)).toBe(false);
+  expect(JSON.stringify(doc.paragraphs)).toBe(before);
+  expect(doc.history).toHaveLength(0);
+  // Another style, then back to the default, are changes.
+  const other = Object.values(doc.styles.definitions).find(s => s.type === 'paragraph' && s.id !== normal);
+  if (other) { expect(doc.setParagraphStyle(other.id)).toBe(true); expect(doc.setParagraphStyle(normal)).toBe(true); }
 });

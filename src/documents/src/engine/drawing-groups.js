@@ -21,6 +21,18 @@ function positions(model) {
   return result;
 }
 const int = value => Math.round(value);
+/**
+ * Run a Group or Ungroup transaction as Word does with Track Changes on: not as a tracked change. Rearranging
+ * drawings into a group (or out of one) is not recorded as deleting the objects and inserting new ones, which
+ * showed them twice in markup. Objects that are themselves a pending insertion or deletion keep that: their change
+ * is still recorded, as deleted and inserted drawings.
+ */
+function untracked(model, images, transaction) {
+  const pending = model.paragraphs.some(p => p.runs.some(run => run.revision && images.includes(run.image)));
+  if (!model.trackChanges || model.trackingInternal || pending) return transaction();
+  model.trackingInternal = true; model.formatTrackingSuppressed = true;
+  try { return transaction(); } finally { model.trackingInternal = false; }
+}
 
 /** Why these drawings cannot be grouped, or null. */
 export function groupUnavailable(images) {
@@ -120,7 +132,7 @@ export async function groupDrawings(editor, images) {
     order: Math.max(...members.map(m => m.image.anchor.order || 0)) });
   const fragment = await readFormattedDrawing(pkg, model, primary.image, drawing, parts);
   fragment.image = { ...fragment.image, id: groupId };
-  return applyDrawingFragments(editor, [fragment], model => {
+  return applyDrawingFragments(editor, [fragment], model => untracked(model, members.map(m => m.image), () => {
     model.checkpoint();
     const now = positions(model);
     const starts = members.map(m => now.get(m.image)).filter(n => n !== undefined);
@@ -131,7 +143,7 @@ export async function groupDrawings(editor, images) {
     model.replace(OBJECT, { checkpoint: false, insertedImage: fragment.image });
     model.select(first, first + 1);
     return true;
-  }, { revision });
+  }), { revision });
 }
 
 /** Read a group transform: off, ext, chOff, chExt (EMU), rotation (degrees), flips. */
@@ -212,7 +224,7 @@ export async function ungroupDrawing(editor, image) {
     fragment.image = { ...fragment.image, id: id++ };
     fragments.push(fragment);
   }
-  const ok = await applyDrawingFragments(editor, fragments, model => {
+  const ok = await applyDrawingFragments(editor, fragments, model => untracked(model, [image], () => {
     model.checkpoint();
     const start = positions(model).get(image);
     if (start === undefined) throw new Error('The group changed before it could be ungrouped.');
@@ -225,6 +237,6 @@ export async function ungroupDrawing(editor, image) {
     }
     model.select(start, start + 1);
     return true;
-  }, { revision });
+  }), { revision });
   return ok ? fragments.map(f => f.image.id) : null;
 }

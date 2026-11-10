@@ -2,11 +2,17 @@
  * The account menu shared by the home screen and the editor: theme,
  * shortcuts, about, and (outside the Puter desktop) sign in or out. Inside a
  * Puter app window the desktop owns the session, so neither is offered there.
+ *
+ * Where puter.js has <puter-user-menu> (user-menu.js), that holds the account
+ * and the Apps launcher, and this menu is the Settings button's beside it,
+ * without the account's rows.
  */
 
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
+import { appsButton, closeAppsPanel } from './apps-panel.js';
+import { userMenu } from './user-menu.js';
 import { openModal, confirmDialog } from './modal.js';
 import { openShortcuts } from './shortcuts.js';
 import { openOptionsDialog } from './options-dialog.js';
@@ -28,42 +34,70 @@ import unicodeLicenseUrl from '../vendor/UNICODE-LICENSE.txt?url&no-inline';
 import xmldomLicenseUrl from '../vendor/XMLDOM-LICENSE.txt?url&no-inline';
 import scowlLicenseUrl from '../vendor/SCOWL-LICENSE.txt?url&no-inline';
 import { version as APP_VERSION } from '../../package.json';
+import { t } from '../i18n/index.js';
 
-/** `onOptions` opens File ▸ Options from the editor, which knows the workbook; elsewhere the options open on their own. */
-export function openAppMenu(anchor, { onOptions = null } = {}) {
+/**
+ * `onOptions` opens File ▸ Options from the editor, which knows the workbook; elsewhere the options open on their own.
+ * `account: false` leaves out who is signed in and Sign in or out, for the Settings button beside <puter-user-menu>.
+ */
+export function openAppMenu(anchor, { onOptions = null, account = true } = {}) {
+  // The Apps panel hangs from the same corner: never both at once.
+  closeAppsPanel();
   const theme = currentTheme();
   // Three radios in a row are a radio group, named, so a screen reader announces one choice of three
   // and not three loose radios; the menu moves between them with Left and Right as well as Up and Down.
   const themeRow = el('div.menu-theme', {},
-    el('div.segmented', { role: 'radiogroup', 'aria-label': 'Appearance' },
-      ...[['system', 'monitor', 'System'], ['light', 'sun', 'Light'], ['dark', 'moon', 'Dark']].map(([mode, ic, label]) =>
+    el('div.segmented', { role: 'radiogroup', 'aria-label': t('appmenu.appearance') },
+      ...[['system', 'monitor', 'appmenu.theme.system', 'appmenu.theme.systemName'], ['light', 'sun', 'appmenu.theme.light', 'appmenu.theme.lightName'], ['dark', 'moon', 'appmenu.theme.dark', 'appmenu.theme.darkName']].map(([mode, ic, label, name]) =>
         el('button', {
-          type: 'button', role: 'radio', 'aria-checked': String(theme === mode), 'aria-label': `${label} theme`,
+          type: 'button', role: 'radio', 'aria-checked': String(theme === mode), 'aria-label': t(name),
           onclick: (e) => {
             session.setTheme(mode);
             for (const b of e.currentTarget.parentElement.children) b.setAttribute('aria-checked', String(b === e.currentTarget));
           },
-        }, el('span', { html: icon(ic, 15, 2) }), label))));
+        }, el('span', { html: icon(ic, 15, 2) }), t(label)))));
 
   // The locale is the muted detail beside the label, in the slot the shortcut hints use, rather
   // than a parenthesis nested in one; the spoken name carries both.
   const localeName = LOCALES.find(([c]) => c === getLocale())?.[1] || getLocale();
   const items = [
-    { header: session.signedOut ? 'Not signed in' : session.username },
+    ...(account ? [{ header: session.signedOut ? t('appmenu.notSignedIn') : session.username }] : []),
     { custom: themeRow },
     { separator: true },
-    { label: 'Regional format…', icon: 'monitor', shortcut: localeName, ariaLabel: `Regional format, ${localeName}`, onSelect: openLocaleDialog },
-    { label: 'Options…', icon: 'options', onSelect: () => (onOptions ? onOptions() : openOptionsDialog({ accountName: () => session.user?.username || '', openLocale: openLocaleDialog })) },
+    { label: t('appmenu.regionalFormatMenu'), icon: 'monitor', shortcut: localeName, ariaLabel: t('appmenu.regionalFormatAria', { locale: localeName }), onSelect: openLocaleDialog },
+    { label: t('appmenu.options'), icon: 'options', onSelect: () => (onOptions ? onOptions() : openOptionsDialog({ accountName: () => session.user?.username || '', openLocale: openLocaleDialog })) },
     // Both open a dialog, which the ellipsis says, as it does on the same two items in the Help menu.
-    { label: 'Keyboard shortcuts…', icon: 'keyboard', onSelect: openShortcuts },
-    { label: 'About…', icon: 'info', onSelect: openAbout },
+    { label: t('appmenu.keyboardShortcuts'), icon: 'keyboard', onSelect: openShortcuts },
+    { label: t('appmenu.about'), icon: 'info', onSelect: openAbout },
   ];
-  if (!P.isApp()) {
+  if (account && !P.isApp()) {
     items.push({ separator: true });
-    if (session.signedOut) items.push({ label: 'Sign in to Puter', icon: 'login', hint: 'Save spreadsheets to your own cloud', onSelect: () => session.signIn() });
-    else items.push({ label: 'Sign out', icon: 'logout', onSelect: confirmSignOut });
+    if (session.signedOut) items.push({ label: t('appmenu.signIn'), icon: 'login', hint: t('appmenu.signInHint'), onSelect: () => session.signIn() });
+    else items.push({ label: t('appmenu.signOut'), icon: 'logout', onSelect: confirmSignOut });
   }
-  openMenu({ anchor, items, align: 'end', label: 'Account', minWidth: 240 });
+  openMenu({ anchor, items, align: 'end', label: account ? t('appmenu.account') : t('appmenu.settings'), minWidth: 240 });
+}
+
+/**
+ * A header's account corner, shared by the home screen and the editor: the Apps button and the account button,
+ * or, where puter.js has it, a Settings button and <puter-user-menu>, which holds both. `label` names the account
+ * button until its face is drawn; `refresh` redraws that face after the session changed.
+ */
+export function accountControls({ onOptions = null, label = '' } = {}) {
+  const sdkMenu = userMenu({ onSignOut: confirmSignOut });
+  if (sdkMenu) {
+    const settings = el('button.icon-btn.settings-btn', {
+      type: 'button', html: icon('settings', 20), title: t('appmenu.settings'), 'aria-label': t('appmenu.settings'), 'aria-haspopup': 'menu',
+      onclick: (e) => openAppMenu(e.currentTarget, { onOptions, account: false }),
+    });
+    return { nodes: [settings, sdkMenu], refresh() {} };
+  }
+  const avatar = el('button.icon-btn.user-btn', {
+    type: 'button', 'aria-label': label, 'aria-haspopup': 'menu',
+    onclick: (e) => openAppMenu(e.currentTarget, { onOptions }),
+  });
+  renderAccountButton(avatar);
+  return { nodes: [appsButton(), avatar], refresh: () => renderAccountButton(avatar) };
 }
 
 const accountButtons = new WeakMap();
@@ -72,8 +106,8 @@ const accountFaceKey = () => `${session.state}:${session.user?.uuid || ''}:${ses
 /** The account button's face: a picture when available, otherwise an initial or plain figure. */
 export function renderAccountButton(button) {
   const signedOut = session.signedOut;
-  button.title = signedOut ? 'Not signed in' : session.username;
-  button.setAttribute('aria-label', signedOut ? 'Account menu. Not signed in' : `Account menu for ${session.username}`);
+  button.title = signedOut ? t('appmenu.notSignedIn') : session.username;
+  button.setAttribute('aria-label', signedOut ? t('appmenu.accountMenuSignedOut') : t('appmenu.accountMenuFor', { name: session.username }));
   const key = accountFaceKey();
   let face = accountButtons.get(button);
   if (face?.key !== key) {
@@ -107,9 +141,9 @@ export function renderAccountButton(button) {
 
 export async function confirmSignOut() {
   const ok = await confirmDialog({
-    title: 'Sign out?',
-    message: 'Your spreadsheets stay in your Puter account. Anything unsaved in an open document is saved first, and the copies this browser kept are removed from this computer.',
-    confirmLabel: 'Sign out', danger: false,
+    title: t('appmenu.signOutConfirm.title'),
+    message: t('appmenu.signOutConfirm.message'),
+    confirmLabel: t('appmenu.signOut'), danger: false,
   });
   if (!ok) return;
   const pending = [];
@@ -118,7 +152,7 @@ export async function confirmSignOut() {
   }));
   const saved = await Promise.all(pending).then((results) => results.every((result) => result !== false), () => false);
   if (!saved) {
-    toast('Changes could not be saved. You are still signed in', { icon: 'alert', duration: 5000 });
+    toast(t('appmenu.signOutNotSaved'), { icon: 'alert', duration: 5000 });
     return;
   }
   // After the save, so a draft written by it goes too, and before the sign-out, while the account's scope
@@ -134,7 +168,7 @@ export async function confirmSignOut() {
 /** Pick how numbers and dates are written and read; a sample line shows the effect. */
 export function openLocaleDialog() {
   const current = getLocale();
-  const select = el('select.select', { 'aria-label': 'Regional format' }, LOCALES.map(([code, label]) => el('option', { value: code, selected: code === current }, `${label} (${code})`)));
+  const select = el('select.select', { 'aria-label': t('appmenu.regionalFormat') }, LOCALES.map(([code, label]) => el('option', { value: code, selected: code === current }, t('appmenu.localeOption', { label, code }))));
   const sample = el('div.numfmt-preview', { 'aria-live': 'polite' });
   const refresh = () => {
     const was = getLocale();
@@ -146,13 +180,13 @@ export function openLocaleDialog() {
   const content = el('form', {
     onsubmit: (e) => { e.preventDefault(); modal.close(); session.setLocale(select.value); },
   },
-    el('label.field', {}, el('span.field-label', {}, 'Numbers and dates as written in'), el('div.select-wrap', {}, select)),
+    el('label.field', {}, el('span.field-label', {}, t('appmenu.locale.writtenIn')), el('div.select-wrap', {}, select)),
     sample,
-    el('p.field-hint', {}, 'Typed values follow this: 1,5 or 1.5, 28/8 or 8/28. Formulas always use a period for decimals and a comma or semicolon between arguments.'),
+    el('p.field-hint', {}, t('appmenu.locale.hint')),
     el('div.row.row-end', { style: { marginTop: '14px' } },
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Apply')));
-  const modal = openModal({ title: 'Regional format', content });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.apply'))));
+  const modal = openModal({ title: t('appmenu.regionalFormat'), content });
   refresh();
   return modal;
 }
@@ -161,9 +195,9 @@ const COMPANY = 'Puter Technologies Inc.';
 
 /** Puter's own pages, for the row of links under the description. */
 const ABOUT_LINKS = [
-  ['Website', 'https://puter.com'],
-  ['Privacy', 'https://puter.com/privacy'],
-  ['Terms', 'https://puter.com/terms'],
+  ['appmenu.links.website', 'https://puter.com'],
+  ['appmenu.links.privacy', 'https://puter.com/privacy'],
+  ['appmenu.links.terms', 'https://puter.com/terms'],
 ];
 
 /**
@@ -171,17 +205,17 @@ const ABOUT_LINKS = [
  * in full beside the app (the vendor copies are emitted as files; the fonts keep theirs in public/fonts).
  */
 const ACKNOWLEDGEMENTS = [
-  { name: 'SheetJS Community Edition', use: 'Reading and writing Excel files', license: 'Apache-2.0', url: sheetjsLicenseUrl },
-  { name: 'xmldom', use: 'XML parsing inside workbook files', license: 'MIT', url: xmldomLicenseUrl },
-  { name: 'Apache POI', use: 'Shape geometry and PivotTable styles', license: 'Apache-2.0', url: poiLicenseUrl },
-  { name: '.NET Runtime', use: 'Calendar calculations', license: 'MIT', url: dotnetLicenseUrl },
-  { name: 'Unicode Character Database', use: 'Case-insensitive text matching', license: 'Unicode-3.0', url: unicodeLicenseUrl },
-  { name: 'noble-hashes', use: 'SHA-256 hashing', license: 'MIT', url: nobleHashesLicenseUrl },
-  { name: 'SCOWL and the Hunspell English dictionaries', use: 'Spelling word lists', license: 'MIT, BSD', url: scowlLicenseUrl },
-  { name: 'Lucide and Feather', use: 'Interface icons', license: 'ISC, MIT', url: lucideLicenseUrl },
-  { name: 'Open Sans', use: 'Bundled font', license: 'Apache-2.0', url: './fonts/opensans/LICENSE.txt' },
-  { name: 'Carlito', use: 'Bundled stand-in for Calibri', license: 'OFL-1.1', url: './fonts/carlito/OFL.txt' },
-  { name: 'Caladea', use: 'Bundled stand-in for Cambria', license: 'Apache-2.0', url: './fonts/caladea/LICENSE.txt' },
+  { name: 'SheetJS Community Edition', use: 'appmenu.credits.use.readExcel', license: 'Apache-2.0', url: sheetjsLicenseUrl },
+  { name: 'xmldom', use: 'appmenu.credits.use.xml', license: 'MIT', url: xmldomLicenseUrl },
+  { name: 'Apache POI', use: 'appmenu.credits.use.poi', license: 'Apache-2.0', url: poiLicenseUrl },
+  { name: '.NET Runtime', use: 'appmenu.credits.use.calendar', license: 'MIT', url: dotnetLicenseUrl },
+  { name: 'Unicode Character Database', use: 'appmenu.credits.use.caseless', license: 'Unicode-3.0', url: unicodeLicenseUrl },
+  { name: 'noble-hashes', use: 'appmenu.credits.use.sha', license: 'MIT', url: nobleHashesLicenseUrl },
+  { name: 'SCOWL and the Hunspell English dictionaries', use: 'appmenu.credits.use.spelling', license: 'MIT, BSD', url: scowlLicenseUrl },
+  { name: 'Lucide and Feather', use: 'appmenu.credits.use.icons', license: 'ISC, MIT', url: lucideLicenseUrl },
+  { name: 'Open Sans', use: 'appmenu.credits.use.font', license: 'Apache-2.0', url: './fonts/opensans/LICENSE.txt' },
+  { name: 'Carlito', use: 'appmenu.credits.use.carlito', license: 'OFL-1.1', url: './fonts/carlito/OFL.txt' },
+  { name: 'Caladea', use: 'appmenu.credits.use.caladea', license: 'Apache-2.0', url: './fonts/caladea/LICENSE.txt' },
 ];
 
 export function openAbout() {
@@ -190,29 +224,29 @@ export function openAbout() {
   // The acknowledgements are folded away: they are there for whoever looks, not in the way of the rest.
   const credits = el('details.about-credits', {},
     el('summary.about-credits-summary', {},
-      el('span', {}, 'Open-source acknowledgements'),
+      el('span', {}, t('appmenu.credits.title')),
       el('span.about-count', {}, String(ACKNOWLEDGEMENTS.length)),
       el('span.about-chevron', { html: icon('chevD', 16, 2), 'aria-hidden': 'true' })),
     el('ul.about-credits-list', {}, ACKNOWLEDGEMENTS.map(({ name, use, license, url }) =>
-      el('li', {}, el('a.about-credit', { href: url, ...external, 'aria-label': `${name}, ${use}. ${license} license, opens in a new tab` },
+      el('li', {}, el('a.about-credit', { href: url, ...external, 'aria-label': t('appmenu.credits.aria', { name, use: t(use), license }) },
         el('span.about-credit-text', {},
           el('span.about-credit-name', {}, name),
-          el('span.about-credit-use', {}, use)),
+          el('span.about-credit-use', {}, t(use))),
         el('span.about-license', {}, license),
         opensNew.cloneNode(true))))));
   openModal({
     // The dialog is named in full for a screen reader; on screen the app's name heads it, under its icon.
-    title: 'About Spreadsheet',
+    title: t('appmenu.aboutTitle'),
     className: 'about',
     content: el('div', {},
       el('div.about-hero', { 'aria-hidden': 'true' },
         el('div.about-icon', { html: icon('brand', 80) }),
-        el('p.about-name', {}, 'Spreadsheet')),
-      el('p.about-meta', {}, `Version ${APP_VERSION}`, el('span.about-dot', { 'aria-hidden': 'true' }, ' · '), `by ${COMPANY}`),
-      el('p.modal-text.about-tagline', {}, 'A fast, private spreadsheet. Your work is saved as standard .xlsx files in your own Puter cloud, ready to open anywhere.'),
+        el('p.about-name', {}, t('common.spreadsheet'))),
+      el('p.about-meta', {}, t('appmenu.version', { version: APP_VERSION }), el('span.about-dot', { 'aria-hidden': 'true' }, ' · '), t('appmenu.byCompany', { company: COMPANY })),
+      el('p.modal-text.about-tagline', {}, t('appmenu.tagline')),
       el('nav.about-links', { 'aria-label': 'Puter' }, ABOUT_LINKS.map(([label, href]) =>
-        el('a.about-link', { href, ...external, 'aria-label': `${label}, opens in a new tab` }, label, opensNew.cloneNode(true)))),
+        el('a.about-link', { href, ...external, 'aria-label': t('appmenu.opensInNewTab', { label: t(label) }) }, t(label), opensNew.cloneNode(true)))),
       credits,
-      el('p.about-legal', {}, `© ${new Date().getFullYear()} ${COMPANY} All rights reserved.`)),
+      el('p.about-legal', {}, t('appmenu.copyright', { year: new Date().getFullYear(), company: COMPANY }))),
   });
 }

@@ -1,0 +1,8 @@
+{
+  "cannotRunHere": "此处无法运行脚本",
+  "failed": "脚本运行失败",
+  "runScript": "运行脚本",
+  "stopped": "脚本已停止。",
+  "timedOut": "脚本运行超过 {seconds} 秒，已被停止。",
+  "unreadable": "无法读取脚本"
+}

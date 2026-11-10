@@ -5,6 +5,7 @@
 
 import { el } from './dom.js';
 import { BORDER_LINE_CHOICES } from '../core/format.js';
+import { t } from '../i18n/index.js';
 
 /** One line style drawn as the stroke it paints, in the current text colour. */
 export function lineSample(style, width = 88) {
@@ -48,7 +49,7 @@ export function presetGlyph(kind, size = 30) {
  * It reads and sets like a select: `.value` is the chosen style, and a `change` event dispatched on it
  * by a script reports `.value` through `onChange` as a click does.
  */
-export function lineStylePicker({ label = 'Line style', value = 'thin', onChange }) {
+export function lineStylePicker({ label = t('borderPicker.lineStyle'), value = 'thin', onChange }) {
   const group = el('div.line-styles', { role: 'radiogroup', 'aria-label': label });
   const rows = Math.ceil(BORDER_LINE_CHOICES.length / 2);
   const buttons = BORDER_LINE_CHOICES.map(([key, name]) => el('button.line-style', {

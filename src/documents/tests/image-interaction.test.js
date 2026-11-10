@@ -2,8 +2,9 @@ import {beforeAll,afterAll,it,expect} from 'vitest';
 import {JSDOM} from 'jsdom';
 import {readFileSync} from 'node:fs';
 import {unzipSync} from 'fflate';
-import {DocxPackage} from '../src/engine/docx.js';
-import {TextDocument} from '../src/engine/model.js';
+import {DocxPackage,createDocx,WRITING_STYLES} from '../src/engine/docx.js';
+import {TextDocument,paragraph} from '../src/engine/model.js';
+import {pictureFragment} from '../src/engine/picture-insert.js';
 import {layoutDocument,imageAtPoint} from '../src/engine/layout.js';
 import {pageGeometry} from '../src/engine/page-settings.js';
 let dom;
@@ -47,6 +48,27 @@ it('moves inline pictures through text without losing assets, cropping or IDs',a
   const moved=images(model).find(x=>x.image.id===id);expect(moved.image.assetId).toBe(asset);
   const reopened=await DocxPackage.open(await save(pkg,model));expect(images(reopened)).toHaveLength(3);
   model.undo();expect(unzipSync(await save(pkg,model))).toEqual(unzipSync(source));
+});
+it('moves an inline picture with Track Changes on into a file that opens again, with distinct drawing IDs',async()=>{
+  // A picture in a document saved and opened again, then dragged to the end of the text with tracking on.
+  const created=createDocx([paragraph()],undefined,undefined,undefined,[],{},WRITING_STYLES),first=new TextDocument(created.paragraphs,created.pageSettings,created.numbering,created.styles,created.tables,created.assets);
+  first.replace('Picture: after');
+  first.select('Picture: '.length);
+  const fragment=await pictureFragment(first,created.parts,{png:readFileSync('icon-128.png'),width:914400,height:914400,id:1,name:'Picture 1'});
+  Object.assign(first.assets,fragment.assets);const {assetId,id:_,...properties}=fragment.image;first.insertImage(assetId,properties);
+  const pkg=await DocxPackage.open(await save(created,first)),model=new TextDocument(pkg.paragraphs,pkg.pageSettings,pkg.numbering,pkg.styles,pkg.tables,pkg.assets);
+  const inline=images(model)[0],id=inline.image.id;model.select(inline.start,inline.start+1);
+  model.trackChanges=true;model.revisionAuthor='Reviewer';
+  model.moveImage(model.text.length);
+  // The picture stays as a deletion where it was and is inserted at the end: two drawings, two IDs.
+  const runs=model.paragraphs.flatMap(p=>p.runs).filter(r=>r.image);
+  expect(runs.map(r=>r.revision?.type)).toEqual(['del','ins']);
+  expect(runs[0].image.id).toBe(id);expect(runs[1].image.id).not.toBe(id);
+  const reopened=await DocxPackage.open(await save(pkg,model));
+  expect(reopened.readOnly).toBeFalsy();expect(images(reopened)).toHaveLength(2);
+  // Moving it again (an arrow-key nudge) removes that insertion and inserts it anew: still distinct IDs.
+  model.moveImage(0);
+  expect(new Set(images(model).map(x=>x.image.id)).size).toBe(images(model).length);
 });
 it('rejects invalid positions and retains authored alignment on unchanged axes',async()=>{
   const {pkg,model}=await setup(),first=images(model)[0];model.select(first.start,first.start+1);

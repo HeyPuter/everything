@@ -232,7 +232,7 @@ export function pointInPolygon(x, y, pts) {
 
 /** Net area of hatch loops: nested loops alternate between fill and hole. */
 export function hatchArea(loops) {
-  const valid = loops.filter((l) => l.length >= 9);
+  const valid = loops.filter((l) => l.length >= 6);
   if (!valid.length) return 0;
   const areas = valid.map((l) => Math.abs(signedAreaPolyline(l, true)));
   const rings = valid.map((l, i) => {

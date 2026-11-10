@@ -1,0 +1,23 @@
+{
+  "allReferences": "All references",
+  "errors.addReference": "Add at least one reference to consolidate",
+  "errors.enterRange": "Enter a range such as Sheet1!A1:C10",
+  "errors.resultInside": "The result would be written at the selected cell, inside {ref}. Select a cell outside the references first",
+  "fn.average": "Average",
+  "fn.count": "Count",
+  "fn.countNums": "Count Numbers",
+  "fn.max": "Max",
+  "fn.min": "Min",
+  "fn.product": "Product",
+  "fn.stdev": "StdDev",
+  "fn.stdevp": "StdDevp",
+  "fn.sum": "Sum",
+  "fn.var": "Var",
+  "fn.varp": "Varp",
+  "function": "Function",
+  "leftColumn": "Left column",
+  "reference": "Reference",
+  "title": "Consolidate",
+  "topRow": "Top row",
+  "useLabelsIn": "Use labels in"
+}

@@ -27,7 +27,8 @@ export function openPreferences({ sections, section = null, onClose }) {
     if (at < 0 || next === null) return;
     e.preventDefault();
     const tab = tabs[(next + tabs.length) % tabs.length];
-    show(tab.id.slice(9)); tab.focus();
+    // Across the top (a phone) the row scrolls sideways: a half-hidden section comes wholly into view.
+    show(tab.id.slice(9)); tab.focus(); tab.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   });
   // A change can affect other controls (the dark page needs the dark appearance): the shown ones read their state again.
   let refreshers = [];

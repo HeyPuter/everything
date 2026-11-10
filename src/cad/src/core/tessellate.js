@@ -8,10 +8,9 @@ import { COLOR_BYBLOCK, COLOR_BYLAYER, LW_BYBLOCK, LW_BYLAYER, LW_DEFAULT, LINEW
 import { PALETTE, hexToRgb } from './colors.js';
 import { tessellate } from './geom/index.js';
 import { layoutText, layoutMText } from './text/layout.js';
-import { buildDimension, buildLeader } from './dims.js';
+import { buildDimension, buildLeader, dimStyleOf } from './dims.js';
 import { loopsToRings, solidPolygons, patternSegments } from './hatch/fill.js';
-import { getPattern } from './hatch/patterns.js';
-import { defaultDimStyle } from './styles.js';
+import { hatchPattern } from './hatch/patterns.js';
 
 const EMPTY = [];
 const MAX_DEPTH = 16;
@@ -233,6 +232,12 @@ function emitInfinite(ent, sink, ctx, style) {
     if (t1 < 0) return;
     t0 = Math.max(0, t0);
   }
+  // Dashes start at the segment start: start on a whole pattern from the
+  // base point so they stay put while the view moves.
+  let period = 0;
+  for (const v of style.basePattern ?? EMPTY) period += Math.abs(v);
+  period *= style.ltscale ?? 1;
+  if (period > 0 && Number.isFinite(t0 / period)) t0 = Math.floor(t0 / period) * period;
   sink.line([ent.x + ent.dx * t0, ent.y + ent.dy * t0, ent.x + ent.dx * t1, ent.y + ent.dy * t1], false, style);
 }
 
@@ -291,7 +296,7 @@ function emitPoint(ent, sink, ctx, style) {
 
 function emitDimension(ent, sink, ctx, style, eff) {
   const d = ctx.drawing;
-  const ds = d.dimStyles.get(ent.style) ?? d.dimStyles.get('Standard') ?? defaultDimStyle();
+  const ds = dimStyleOf(d, ent.style);
   const g = ent.type === 'leader' ? buildLeader(ent, ds, d.header) : buildDimension(ent, ds, d.header);
   if (!g) return;
   const lineStyle = withColor({ ...style, basePattern: EMPTY, pattern: EMPTY }, ds.lineColor, ctx, eff);
@@ -312,22 +317,27 @@ function emitHatch(ent, sink, ctx, style) {
     for (const poly of solidPolygons(rings)) sink.fill(poly, solid);
     return;
   }
-  const pat = getPattern(ent.pattern);
+  const pat = hatchPattern(ent);
   if (!pat) {
     for (const poly of solidPolygons(rings)) sink.fill(poly, solid);
     return;
   }
+  const tint = () => {
+    for (const poly of solidPolygons(rings)) sink.fill(poly, { ...solid, alpha: (solid.alpha ?? 1) * 0.35 });
+  };
   // On screen, a pattern finer than about a pixel reads as a tint: draw it as one.
   if (!ctx.plot) {
     let spacing = Infinity;
     for (const f of pat.families) spacing = Math.min(spacing, Math.abs(f.dy) * (ent.scale || 1));
-    if (spacing < ctx.tol * 6) {
-      for (const poly of solidPolygons(rings)) sink.fill(poly, { ...solid, alpha: (solid.alpha ?? 1) * 0.35 });
-      return;
-    }
+    if (spacing < ctx.tol * 6) return tint();
   }
   const res = patternSegments(rings, pat, ent.scale || 1, ent.angle || 0, { maxSegments: ctx.hatchLimit });
-  if (res.truncated && ctx.warnings) ctx.warnings.add('hatch-dense');
+  // Too many lines to generate: a partial pattern would leave part of the area
+  // (or all of it) empty, so cover the whole area with the tint instead.
+  if (res.truncated) {
+    ctx.warnings?.add('hatch-dense');
+    return tint();
+  }
   const segs = res.segs;
   if (sink.segs) sink.segs(segs, solid);
   else for (let i = 0; i < segs.length; i += 4) sink.line([segs[i], segs[i + 1], segs[i + 2], segs[i + 3]], false, solid);

@@ -1,0 +1,13 @@
+{
+  "errors.cannotForecast": "无法预测这些值：日程表的步长必须固定",
+  "errors.constantStep": "日程表上各点之间的步长必须固定",
+  "errors.endAfterStart": "预测结束必须晚于预测开始",
+  "errors.endPastLast": "预测结束必须比最后一个点至少晚一个步长",
+  "errors.noNewSheet": "工作簿无法再添加新工作表",
+  "errors.selectColumns": "请选择一个日程表列及其旁边的一个值列",
+  "errors.startAfterHistory": "预测必须在至少三个历史点之后开始",
+  "errors.threePoints": "预测的日程表上至少需要三个点",
+  "errors.timelineDates": "日程表中必须是日期或数字",
+  "errors.valuesNumbers": "值中必须包含数字",
+  "undo.create": "创建预测工作表"
+}

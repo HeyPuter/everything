@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Parametric</title>
     <meta name="description" content="Parametric is an open-source 3D CAD app for feature-based part modeling in your browser: constrained sketches, extrudes, revolves, fillets, shells, holes and patterns on a real B-rep kernel, with STEP and STL export." />
+    <link rel="canonical" href="https://parametric.puter.com/" />
     <meta name="theme-color" content="#f7f8fa" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1f2226" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
@@ -35,8 +36,15 @@
         root.dataset.themeResolved = dark ? 'dark' : 'light';
       })();
     </script>
-    <script src="https://js.puter.com/v2/" defer></script>
+    <script src="https://js.puter.com/v2/" defer onerror="window.__puterFailed = true"></script>
     <script type="module" src="/src/main.ts"></script>
+
+    <!-- Privacy-friendly analytics by Plausible -->
+    <script async src="https://plausible.io/js/pa-QfcEKlwntvJJ6OH6sc-As.js"></script>
+    <script>
+      window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+      plausible.init()
+    </script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to the graphics area</a>

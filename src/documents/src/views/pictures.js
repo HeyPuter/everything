@@ -6,7 +6,7 @@
  */
 import '../styles/pictures.css';
 import '../styles/drawing-handles.css';
-import { el, isComposing } from '../ui/dom.js';
+import { el, isComposing, amountInRange } from '../ui/dom.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { openMenu, closeMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
@@ -16,7 +16,7 @@ import { galleryItems } from './insert-gallery.js';
 import { formatDrawing, formatDrawings, drawingKind, drawingParts, currentDrawingXml } from '../engine/drawing-format.js';
 import { describeDrawing, setFill, setOutline, setEffects, set3d, setGeometry, setTransform, setBlipEffects, setCrop, setBodyProperties, setDocProperties, writeFrame, readFrame, themeColors,
   child, childrenOf, A, WP, R } from '../engine/drawing-xml.js';
-import { frameOf, offsetsFor, moveDrawings, alignmentMoves, POSITION_PRESETS, presetPosition } from '../engine/drawing-arrange.js';
+import { frameOf, offsetsFor, moveDrawings, alignmentMoves, arrangeDrawings, POSITION_PRESETS, presetPosition } from '../engine/drawing-arrange.js';
 import { groupDrawings, ungroupDrawing, groupUnavailable } from '../engine/drawing-groups.js';
 import { EMU_PER_PX, isPositionedImage, normalizedRotation, ANGLE_PER_DEGREE } from '../engine/images.js';
 import { SHAPE_PRESETS, LINE_PRESETS } from '../engine/authored-shapes.js';
@@ -188,9 +188,9 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const engine = ready(); if (!engine) return null;
     const source = pictureSource(engine, selected());
     if (!source?.width) return null;
-    const model = engine.model, page = model.sectionPageSettings, context = model.tableContext;
+    const model = engine.model, context = model.tableContext;
     const cell = context && engine.selectionLayout?.cells.find(box => box.id === context.cell.id);
-    const column = cell ? Math.max(IN / 4, (cell.width * 15 - context.cell.margins.left - context.cell.margins.right) * 635) : Math.max(IN, (page.width - page.left - page.right) * 635);
+    const column = cell ? Math.max(IN / 4, (cell.width * 15 - context.cell.margins.left - context.cell.margins.right) * 635) : Math.max(IN, model.sectionColumnWidth * 635);
     const scale = Math.min(1, column / (source.width * EMU_PER_PX));
     return { width: Math.round(source.width * EMU_PER_PX * scale), height: Math.round(source.height * EMU_PER_PX * scale) };
   }
@@ -276,6 +276,12 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       writeFrame(drawing, spec);
     });
   }
+  // An object moves with the text when it is placed from its paragraph or line (wp:positionV
+  // relativeFrom, §20.4.3.5); from the page or a margin it stays where it is, as in the Layout dialog.
+  function movesWithText(image) {
+    const from = image?.anchor && describe(image)?.frame?.vertical?.relativeFrom;
+    return !from || from === 'paragraph' || from === 'line';
+  }
   async function setMoveWithText(move) {
     const image = selected(), engine = ready(); if (!engine || !image?.anchor) return false;
     const f = frameOf(engine, image); if (!f) return false;
@@ -307,6 +313,13 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   function arrange(direction) {
     const engine = ready(), image = selected(); if (!engine || !image) return false;
     engine.finishComposition();
+    // Several selected objects move together, keeping their order among themselves.
+    const images = selection();
+    if (images.length > 1 && ['forward', 'backward', 'front', 'back'].includes(direction)) {
+      if (images.some(other => !isPositionedImage(other))) { fail(new Error('Set the objects\' text wrapping to arrange them in layers.')); return false; }
+      const ok = engine.execute(() => arrangeDrawings(engine.model, images, direction));
+      engine.focus(); refreshPanes(); return ok;
+    }
     if (!isPositionedImage(image)) {
       if (direction === 'inFront' || direction === 'behind') return setWrap(direction === 'behind' ? 'behind' : 'front');
       fail(new Error('Set the object\'s text wrapping to arrange it in layers.')); return false;
@@ -632,13 +645,13 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const chartLike = !!image && !formattable(image), cell = inTableCell(image);
     const option = (label, value, icon) => ({ label, icon, radio: true, checked: mode === value, disabled: !ok || chartLike && !['inline', 'square', 'topAndBottom', 'behind', 'front'].includes(value) || cell && WRAPPING.includes(value) && mode !== value,
       ...(cell && WRAPPING.includes(value) && mode !== value ? { hint: CELL_HINT } : {}), onSelect: () => setWrap(value) });
-    const vertical = image?.anchor && describe(image)?.frame?.vertical?.relativeFrom;
+    const moves = movesWithText(image);
     const canFix = !!image?.anchor && image.anchor.wrap === 'none';
     return [option('In Line with Text', 'inline', 'wrapInline'), option('Square', 'square', 'wrapSquare'), option('Tight', 'tight', 'wrapTight'), option('Through', 'through', 'wrapThrough'),
       option('Top and Bottom', 'topAndBottom', 'wrapTopBottom'), option('Behind Text', 'behind', 'behindText'), option('In Front of Text', 'front', 'inFront'),
       { separator: true },
-      { label: 'Move with Text', radio: true, checked: !!image?.anchor && vertical !== 'page', disabled: !canFix, hint: canFix ? undefined : 'For objects in front of or behind text', onSelect: () => setMoveWithText(true) },
-      { label: 'Fix Position on Page', radio: true, checked: !!image?.anchor && vertical === 'page', disabled: !canFix, onSelect: () => setMoveWithText(false) },
+      { label: 'Move with Text', radio: true, checked: !!image?.anchor && moves, disabled: !canFix, hint: canFix ? undefined : 'For objects in front of or behind text', onSelect: () => setMoveWithText(true) },
+      { label: 'Fix Position on Page', radio: true, checked: !!image?.anchor && !moves, disabled: !canFix, onSelect: () => setMoveWithText(false) },
       { separator: true }, { label: 'More Layout Options…', icon: 'position', disabled: !ok, onSelect: () => openSizePosition('wrapping') }];
   }
   function positionItems() {
@@ -802,7 +815,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const sizeGroup = (id, priority, { crop = false, noun = 'Picture' } = {}) => {
       const spin = (key, label) => {
         const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `${noun} ${label.toLowerCase()} (in)`,
-          onchange: () => { if (!input.checkValidity() || input.value === '') { input.reportValidity(); return; } setSize(key, Number(input.value)); },
+          onchange: () => { if (!amountInRange(input)) { input.reportValidity(); return; } setSize(key, Number(input.value)); },
           onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
         states.push(input);
         sizeInputs.push({ input, key });
@@ -1044,8 +1057,8 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
           ...icons.map(([label, value, icon]) => el('button.swatch.pic-layout-item', { type: 'button', role: 'menuitemradio', tabindex: -1, 'aria-checked': String(mode === value), 'aria-label': label, title: cell && WRAPPING.includes(value) ? `${label} (${CELL_HINT.toLowerCase()})` : label, disabled: !editable() || (!formattable(image) && ['tight', 'through'].includes(value)) || cell && WRAPPING.includes(value) && mode !== value,
             onclick: () => { closeMenu(); setWrap(value); } }, commandIconEl(icon, 20))));
         openMenu({ anchor, label: 'Layout Options', className: 'pic-layout-menu', minWidth: 210, items: [{ header: 'In Line with Text and With Text Wrapping' }, { custom: grid }, { separator: true },
-          { label: 'Move with Text', radio: true, checked: !!image.anchor && describe(image)?.frame?.vertical?.relativeFrom !== 'page', disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(true) },
-          { label: 'Fix Position on Page', radio: true, checked: !!image.anchor && describe(image)?.frame?.vertical?.relativeFrom === 'page', disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(false) },
+          { label: 'Move with Text', radio: true, checked: !!image.anchor && movesWithText(image), disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(true) },
+          { label: 'Fix Position on Page', radio: true, checked: !!image.anchor && !movesWithText(image), disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(false) },
           { separator: true }, { label: 'See more…', onSelect: () => openSizePosition('position') }], onClose: () => editor()?.focus() });
   }
 }

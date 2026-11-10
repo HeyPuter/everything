@@ -1,0 +1,14 @@
+{
+  "assign": "分配对话",
+  "delete": "删除批注",
+  "deleteReply": "删除回复",
+  "deleteThread": "删除对话",
+  "edit": "编辑批注",
+  "move": "移动批注",
+  "new": "新建批注",
+  "paste": "粘贴",
+  "reopen": "重新打开对话",
+  "reply": "回复批注",
+  "resolve": "解决对话",
+  "unassign": "取消分配对话"
+}

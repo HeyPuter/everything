@@ -111,7 +111,11 @@ export function setDocumentDetails(doc, values) {
     updates = {};
   for (const key of EDITABLE) {
     if (values[key] === undefined) continue;
-    const value = String(values[key]).trim();
+    // Text copied from slides or a word processor carries soft line breaks as U+000B (and
+    // page breaks as U+000C), which XML cannot hold: they are the line breaks they stand for.
+    const value = String(values[key])
+      .replace(/[\u000b\u000c]/g, '\n')
+      .trim();
     if (value.length > 1000) throw new Error('Keep each detail under 1,000 characters.');
     if (value === (current[key] ?? '')) continue;
     updates[key] = value;

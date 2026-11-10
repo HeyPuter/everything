@@ -1,4 +1,4 @@
-import { el, isComposing, MOD_KEY, shortcutCode, styleColor } from './dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode, styleColor, amountInRange, keepDocumentFocus } from './dom.js';
 import { iconEl } from './icons.js';
 import { openMenu, closeMenu } from './menu.js';
 import { openShortcuts } from './shortcuts.js';
@@ -409,7 +409,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   when(rotate, () => !!w.pictureSelected?.());
   const pictureSizeInput = (key, label) => {
     const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `Picture ${label.toLowerCase()} (in)`,
-      onchange: () => { if (!input.checkValidity() || input.value === '') { input.reportValidity(); refresh(); return; } w.setPictureSize?.(key, Number(input.value)); },
+      onchange: () => { if (!amountInRange(input)) { input.reportValidity(); refresh(); return; } w.setPictureSize?.(key, Number(input.value)); },
       onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
     states.push({ control: input, enabled: () => !!w.pictureSelected?.(), value: () => w.pictureSize?.(key) });
     return spin(label, key === 'height' ? 'shapeHeight' : 'shapeWidth', input, 'in');
@@ -428,7 +428,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   for (const control of [shapeFill, shapeOutline, shapeWeight]) when(control, () => !!w.shapeSelected?.());
   const shapeSizeInput = (key, label) => {
     const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `Shape ${label.toLowerCase()} (in)`,
-      onchange: () => { if (!input.checkValidity() || input.value === '') { input.reportValidity(); refresh(); return; } w.setShapeSize?.(key, Number(input.value)); },
+      onchange: () => { if (!amountInRange(input)) { input.reportValidity(); refresh(); return; } w.setShapeSize?.(key, Number(input.value)); },
       onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
     states.push({ control: input, enabled: () => !!w.shapeSelected?.() && (key === 'width' || w.shapeSize?.('height') > 0), value: () => w.shapeSize?.(key) });
     return spin(label, key === 'height' ? 'shapeHeight' : 'shapeWidth', input, 'in');
@@ -510,7 +510,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
 
   // Clicking a ribbon button leaves the keyboard in the document: a dialog it
   // opens then hands focus back to the text when it closes. Fields (font name, size) still take focus.
-  ribbon.card.addEventListener('mousedown', e => { if (e.target.closest?.('button') && document.activeElement?.matches?.('.canvas-input')) e.preventDefault(); });
+  keepDocumentFocus(ribbon.card, { buttons: true });
   // A ribbon command that changes the document becomes the one Repeat runs again, and names its undo step.
   ribbon.card.addEventListener('click', e => {
     const button = e.target.closest?.('button');
@@ -542,6 +542,8 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   titleBar = createTitleBar({ w, c, a, local, title, status, account, menus, focusEditor, entries,
     openShortcuts: menuContext.openShortcuts, keymapShortcut: id => w.shortcutFor?.(id) ?? null });
   const header = el('header.canvas-header.ed-header', {}, titleBar.el, ribbon.tablist);
+  // The space between the title bar's controls and beside the tabs is not somewhere to type.
+  keepDocumentFocus(header);
   const toolbar = el('div.ed-ribbon', {}, ribbon.card);
   const navigation = el('div.canvas-navigation', { hidden: true });
 

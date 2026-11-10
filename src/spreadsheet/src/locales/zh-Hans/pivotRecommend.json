@@ -1,0 +1,5 @@
+{
+  "countBy": "{value} 计数（按 {category}）",
+  "sumBy": "{value} 求和（按 {category}）",
+  "sumByTwo": "{value} 求和（按 {rows} 和 {cols}）"
+}

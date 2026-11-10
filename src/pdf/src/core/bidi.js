@@ -7,6 +7,14 @@
 const RIGHT_TO_LEFT =
   /[\p{Script=Hebrew}\p{Script=Arabic}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Samaritan}\p{Script=Mandaic}]/u;
 
+// Characters a right-to-left run shows as their mirror image (Unicode's BidiMirroring pairs
+// most text uses): a PDF draws the glyph that looks right, so a "(" on the page closes a
+// parenthesis in Hebrew or Arabic, and reading order holds ")" there.
+const MIRRORS = new Map();
+const PAIRS = '()<>[]{}«»‹›⁅⁆⁽⁾₍₎≤≥⟨⟩⟦⟧〈〉（）［］｛｝＜＞';
+for (let i = 0; i < PAIRS.length; i += 2)
+  MIRRORS.set(PAIRS[i], PAIRS[i + 1]).set(PAIRS[i + 1], PAIRS[i]);
+
 function type(char) {
   if (/\p{M}/u.test(char)) return 'NSM';
   if (/[0-9\u06f0-\u06f9]/.test(char)) return 'EN';
@@ -32,7 +40,10 @@ export function textDirection(text) {
   return rtl ? (rtl >= ltr ? 'rtl' : 'ltr') : null;
 }
 
-/** The order to read the characters (code points) of one line in, by the algorithm's levels. */
+/**
+ * The order to read the characters (code points) of one line in, by the algorithm's levels,
+ * as [index, odd] pairs: `odd` when the character sits in a right-to-left run (rule L4).
+ */
 function lineOrder(chars, rtl) {
   // Combining marks stay with the letter they follow, as one unit.
   const units = [];
@@ -95,7 +106,7 @@ function lineOrder(chars, rtl) {
       order.splice(i, end - i, ...order.slice(i, end).reverse());
       i = end - 1;
     }
-  return order.flatMap((u) => units[u].indices);
+  return order.flatMap((u) => units[u].indices.map((i) => [i, levels[u] % 2 === 1]));
 }
 
 /**
@@ -110,11 +121,13 @@ export function reorderSegments(segments, direction) {
     let end = start;
     while (end < chars.length && chars[end][0] !== '\n') end++;
     const line = chars.slice(start, end);
-    for (const i of lineOrder(
+    for (const [i, odd] of lineOrder(
       line.map(([char]) => char),
       direction === 'rtl',
-    ))
-      ordered.push(line[i]);
+    )) {
+      const [char, segment] = line[i];
+      ordered.push([(odd && MIRRORS.get(char)) || char, segment]);
+    }
     if (end < chars.length) ordered.push(chars[end]);
     start = end + 1;
   }

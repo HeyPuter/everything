@@ -8,41 +8,61 @@ import { cellKey } from '../core/cell.js';
 import { icon } from './icons.js';
 import { ICON_SETS } from '../core/condformat.js';
 import { QUICK_TOTALS } from '../core/quick-totals.js';
+import { t } from '../i18n/index.js';
 
 const TABS = ['Formatting', 'Charts', 'Totals', 'Tables', 'Sparklines'];
+/** Each tab's name and hint in the interface; TABS keeps the ids. */
+const TAB_LABELS = {
+  Formatting: 'quickAnalysis.tabs.formatting', Charts: 'quickAnalysis.tabs.charts', Totals: 'quickAnalysis.tabs.totals',
+  Tables: 'quickAnalysis.tabs.tables', Sparklines: 'quickAnalysis.tabs.sparklines',
+};
+const TAB_HINTS = {
+  Formatting: 'quickAnalysis.hints.formatting', Charts: 'quickAnalysis.hints.charts', Totals: 'quickAnalysis.hints.totals',
+  Tables: 'quickAnalysis.hints.tables', Sparklines: 'quickAnalysis.hints.sparklines',
+};
+/** A total's tile name by its kind (QUICK_TOTALS' own words are the header written into the sheet). */
+const TOTAL_LABELS = {
+  sum: 'quickAnalysis.totals.sum', average: 'quickAnalysis.totals.average', count: 'quickAnalysis.totals.count',
+  percent: 'quickAnalysis.totals.percent', running: 'quickAnalysis.totals.running',
+};
+/** Where a total goes, as the tile's tooltip and accessible name say it. */
+const TOTAL_PLACES = {
+  rows: { title: 'quickAnalysis.tile.rowsTitle', label: 'quickAnalysis.tile.rowsLabel' },
+  columns: { title: 'quickAnalysis.tile.columnsTitle', label: 'quickAnalysis.tile.columnsLabel' },
+};
 
 function tilesFor(tab) {
   const firstIcons = Object.keys(ICON_SETS)[0];
   switch (tab) {
     case 'Formatting': return [
-      ['Data Bars', 'chartBar', 'quickRule', { kind: 'databar', barColor: '#8fb8ff' }],
-      ['Color Scale', 'palette', 'quickRule', { kind: 'scale', from: '#63be7b', mid: '#ffeb84', to: '#f8696b' }],
-      ['Icon Set', 'sparkle', 'quickRule', { kind: 'icons', set: firstIcons }],
-      ['Greater Than', 'highlighter', 'quickRule', 'gt'],
-      ['Top 10%', 'sortDesc', 'quickRule', 'topPercent'],
-      ['Clear Format', 'eraser', 'clearRules', 'selection'],
+      ['quickAnalysis.tiles.dataBars', 'chartBar', 'quickRule', { kind: 'databar', barColor: '#8fb8ff' }],
+      ['quickAnalysis.tiles.colorScale', 'palette', 'quickRule', { kind: 'scale', from: '#63be7b', mid: '#ffeb84', to: '#f8696b' }],
+      ['quickAnalysis.tiles.iconSet', 'sparkle', 'quickRule', { kind: 'icons', set: firstIcons }],
+      ['quickAnalysis.tiles.greaterThan', 'highlighter', 'quickRule', 'gt'],
+      ['quickAnalysis.tiles.top10', 'sortDesc', 'quickRule', 'topPercent'],
+      ['quickAnalysis.tiles.clearFormat', 'eraser', 'clearRules', 'selection'],
     ];
     case 'Charts': return [
-      ['Clustered Column', 'chartColumn', 'chart', { action: 'insert', subtype: 'columnClustered' }],
-      ['Line', 'chartLine', 'chart', { action: 'insert', subtype: 'line' }],
-      ['Pie', 'chartPie', 'chart', { action: 'insert', subtype: 'pie' }],
-      ['Clustered Bar', 'chartBar', 'chart', { action: 'insert', subtype: 'barClustered' }],
-      ['Scatter', 'chartScatter', 'chart', { action: 'insert', subtype: 'scatter' }],
-      ['More Charts', 'chartCombo', 'chart', { action: 'recommended' }],
+      ['quickAnalysis.tiles.clusteredColumn', 'chartColumn', 'chart', { action: 'insert', subtype: 'columnClustered' }],
+      ['quickAnalysis.tiles.line', 'chartLine', 'chart', { action: 'insert', subtype: 'line' }],
+      ['quickAnalysis.tiles.pie', 'chartPie', 'chart', { action: 'insert', subtype: 'pie' }],
+      ['quickAnalysis.tiles.clusteredBar', 'chartBar', 'chart', { action: 'insert', subtype: 'barClustered' }],
+      ['quickAnalysis.tiles.scatter', 'chartScatter', 'chart', { action: 'insert', subtype: 'scatter' }],
+      ['quickAnalysis.tiles.moreCharts', 'chartCombo', 'chart', { action: 'recommended' }],
     ];
     case 'Totals': return [
-      ...QUICK_TOTALS.map(([kind, label]) => [label, 'totalRow', 'quickTotal', { kind, direction: 'rows' }, 'Totals in the row below']),
-      ...QUICK_TOTALS.map(([kind, label]) => [label, 'totalCol', 'quickTotal', { kind, direction: 'columns' }, 'Totals in the column to the right']),
+      ...QUICK_TOTALS.map(([kind]) => [TOTAL_LABELS[kind], 'totalRow', 'quickTotal', { kind, direction: 'rows' }, TOTAL_PLACES.rows]),
+      ...QUICK_TOTALS.map(([kind]) => [TOTAL_LABELS[kind], 'totalCol', 'quickTotal', { kind, direction: 'columns' }, TOTAL_PLACES.columns]),
     ];
     case 'Tables': return [
-      ['Table', 'table', 'insertTable', null],
-      ['PivotTable', 'pivotRecommend', 'recommendedPivots', null],
-      ['Blank PivotTable', 'pivot', 'pivot', null],
+      ['quickAnalysis.tiles.table', 'table', 'insertTable', null],
+      ['quickAnalysis.tiles.pivotTable', 'pivotRecommend', 'recommendedPivots', null],
+      ['quickAnalysis.tiles.blankPivotTable', 'pivot', 'pivot', null],
     ];
     case 'Sparklines': return [
-      ['Line', 'sparkLine', 'insertSparklines', 'line'],
-      ['Column', 'sparkColumn', 'insertSparklines', 'column'],
-      ['Win/Loss', 'sparkWinLoss', 'insertSparklines', 'stacked'],
+      ['quickAnalysis.tiles.sparkLine', 'sparkLine', 'insertSparklines', 'line'],
+      ['quickAnalysis.tiles.sparkColumn', 'sparkColumn', 'insertSparklines', 'column'],
+      ['quickAnalysis.tiles.winLoss', 'sparkWinLoss', 'insertSparklines', 'stacked'],
     ];
     default: return [];
   }
@@ -51,7 +71,7 @@ function tilesFor(tab) {
 export function createQuickAnalysis(ctx) {
   let tab = 'Formatting';
   let panel = null;
-  const button = el('button.quick-analysis-btn', { type: 'button', hidden: true, html: icon('quickAnalysis', 16), 'aria-label': 'Quick Analysis', title: 'Quick Analysis (Ctrl+Q)', 'aria-haspopup': 'dialog', tabindex: -1,
+  const button = el('button.quick-analysis-btn', { type: 'button', hidden: true, html: icon('quickAnalysis', 16), 'aria-label': t('quickAnalysis.title'), title: t('quickAnalysis.buttonTitle'), 'aria-haspopup': 'dialog', tabindex: -1,
     onclick: () => (panel ? close() : open()) });
 
   /** The block the button belongs to: one range of several cells holding something. */
@@ -115,28 +135,25 @@ export function createQuickAnalysis(ctx) {
   }
 
   function render() {
-    const tabs = el('div.qa-tabs', { role: 'tablist', 'aria-label': 'Quick Analysis' }, ...TABS.map((name) => el('button.qa-tab', {
+    const tabs = el('div.qa-tabs', { role: 'tablist', 'aria-label': t('quickAnalysis.title') }, ...TABS.map((name) => el('button.qa-tab', {
       type: 'button', role: 'tab', 'aria-selected': String(name === tab), onclick: () => { tab = name; render(); panel.querySelector('.qa-tab[aria-selected="true"]')?.focus(); },
-    }, name)));
+    }, t(TAB_LABELS[name]))));
     const tiles = tilesFor(tab);
-    const grid = el('div.qa-tiles', { role: 'group', 'aria-label': tab },
-      ...tiles.map(([label, glyph, cmd, arg, group]) => el('button.qa-tile', { type: 'button', title: group ? `${label} — ${group}` : label,
-        'aria-label': group ? `${label}, ${group.toLowerCase()}` : label, dataset: { direction: arg?.direction || '' },
-        onclick: () => { close(); ctx.run(cmd, arg); } },
-      el('span.qa-tile-icon', { html: icon(glyph, 24) }), el('span.qa-tile-label', {}, label))));
-    const hint = el('p.qa-hint', {}, {
-      Formatting: 'Conditional formatting uses rules to highlight interesting data.',
-      Charts: 'Recommended charts help you visualize data.',
-      Totals: 'Formulas automatically calculate totals for you.',
-      Tables: 'Tables help you sort, filter, and summarize data.',
-      Sparklines: 'Sparklines are mini charts placed in single cells.',
-    }[tab]);
+    const grid = el('div.qa-tiles', { role: 'group', 'aria-label': t(TAB_LABELS[tab]) },
+      ...tiles.map(([labelKey, glyph, cmd, arg, place]) => {
+        const label = t(labelKey);
+        return el('button.qa-tile', { type: 'button', title: place ? t(place.title, { label }) : label,
+          'aria-label': place ? t(place.label, { label }) : label, dataset: { direction: arg?.direction || '' },
+          onclick: () => { close(); ctx.run(cmd, arg); } },
+        el('span.qa-tile-icon', { html: icon(glyph, 24) }), el('span.qa-tile-label', {}, label));
+      }));
+    const hint = el('p.qa-hint', {}, t(TAB_HINTS[tab]));
     panel.replaceChildren(tabs, grid, hint);
   }
 
   function open() {
     if (!target()) return;
-    panel = el('div.quick-analysis', { role: 'dialog', 'aria-label': 'Quick Analysis' });
+    panel = el('div.quick-analysis', { role: 'dialog', 'aria-label': t('quickAnalysis.title') });
     document.body.append(panel);
     render();
     positionPanel();

@@ -364,6 +364,30 @@ it('keeps lists, indents, wider lines, paragraph gaps and graphics boundaries se
   }
 });
 
+it('keeps list items with dashes, dots, letters or bracketed numbers apart', async () => {
+  // Word, Google Docs and others mark items with these as well as with "•", "-" and "1.".
+  for (const [marker, shown] of [
+    ['\\226', '\u2013'],
+    ['\\227', '\u2014'],
+    ['\\267', '\u00b7'],
+    ['b\\)', 'b)'],
+    ['B.', 'B.'],
+    ['\\(2\\)', '(2)'],
+    ['ii.', 'ii.'],
+  ]) {
+    const r = await read(
+      await fixture(
+        `BT /F 18 Tf 22 TL 40 300 Td (This is the first item) Tj T* (${marker} Another list item) Tj ET`,
+      ),
+    );
+    const blocks = groupTextParagraphs(r.groups);
+    expect(
+      blocks.map((block) => block.text),
+      shown,
+    ).toEqual(['This is the first item', `${shown} Another list item`]);
+  }
+});
+
 it('reflows an unchanged paragraph onto one baseline only when explicitly requested', async () => {
   const r = await read(
     await fixture(
@@ -774,4 +798,280 @@ it('shares one fallback font across every line re-encoded in the same edit', asy
   expect(groupTextParagraphs(next.groups)[0].text).toBe(
     'one two three four five six seven eight nine eleven',
   );
+});
+
+// Word exports every text chunk inside its own structure tag and a page-sized clip, and sets
+// default paint state between chunks (issue #167).
+async function wordFixture(source) {
+  const doc = await PDFDocument.create(),
+    p = doc.addPage([400, 400]);
+  const f = await doc.embedFont(StandardFonts.Helvetica);
+  p.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({
+      Font: { F: f.ref },
+      ExtGState: {
+        G0: { Type: 'ExtGState', BM: 'Normal', ca: 1 },
+        G1: { Type: 'ExtGState', BM: 'Normal', CA: 1 },
+        Half: { Type: 'ExtGState', ca: 0.5 },
+      },
+    }),
+  );
+  p.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(source)));
+  return { bytes: await doc.save(), font: f };
+}
+let mcid = 0;
+const wordChunk = (x, y, text, before = '/G0 gs 0 g /G1 gs 0 G') =>
+  `/Span <</MCID ${mcid++}/Lang (en-US)>> BDC q 0.00000912 0 400 400 re W* n BT /F 12 Tf 1 0 0 1 ${x} ${y} Tm ${before}[(${text})] TJ ET Q EMC `;
+
+it('joins Word-exported chunks into lines and edits a highlighted list item as one line', async () => {
+  const { font } = await wordFixture(''),
+    width = (text) => font.widthOfTextAtSize(text, 12);
+  const items = [
+    ['Characterize', ' a parallelogram.'],
+    ['Compare', ' between a parallelogram and a square.'],
+    ['Draw', ' a parallelogram.'],
+  ];
+  let source = '';
+  items.forEach(([word, rest], i) => {
+    const y = 300 - i * 16;
+    source +=
+      wordChunk(60, y, '\\225') +
+      wordChunk(60 + width('•'), y, ' ') +
+      `/P <</MCID ${mcid++}>> BDC 1 1 0 rg 80 ${y - 3} ${width(word)} 14 re f* EMC ` +
+      wordChunk(80, y, word) +
+      wordChunk(80 + width(word), y, rest);
+  });
+  const r = await read((await wordFixture(source)).bytes);
+  const blocks = groupTextParagraphs(r.groups);
+  expect(blocks.map((b) => b.text)).toEqual([
+    '• ',
+    'Characterize a parallelogram.',
+    '• ',
+    'Compare between a parallelogram and a square.',
+    '• ',
+    'Draw a parallelogram.',
+  ]);
+  const line = blocks[3];
+  await replaceTextGroup(r.doc, 0, line, 'Contrast between a parallelogram and a square.');
+  const next = await read(await r.doc.save());
+  expect(groupTextParagraphs(next.groups).map((b) => b.text)).toEqual([
+    '• ',
+    'Characterize a parallelogram.',
+    '• ',
+    'Contrast between a parallelogram and a square.',
+    '• ',
+    'Draw a parallelogram.',
+  ]);
+  const edited = visible(next).find((run) => run.text.startsWith('Contrast'));
+  expect(edited.transform.slice(4)).toEqual([80, 284]);
+  // The rest of the line moved with the edit; no stale copy remains at its old position.
+  expect(visible(next).some((run) => run.text.startsWith(' between'))).toBe(false);
+  for (const run of visible(r).filter((run) => run.transform[5] !== 284))
+    expect(
+      visible(next).find((n) => n.text === run.text && n.transform[5] === run.transform[5]),
+    ).toBeTruthy();
+});
+
+it('still splits Word-style chunks at real clips, artifacts, optional content and paint changes', async () => {
+  const chunk = (x, text, open, close = '') =>
+    `${open} q 0.00000912 0 400 400 re W* n BT /F 12 Tf 1 0 0 1 ${x} 300 Tm 0 g [(${text})] TJ ET Q ${close} `;
+  const { font } = await wordFixture(''),
+    x = 40 + font.widthOfTextAtSize('Hello', 12);
+  const span = '/Span <</MCID 0>> BDC';
+  for (const [label, second] of [
+    ['artifact', chunk(x, ' world', '/Artifact <</MCID 1>> BDC', 'EMC')],
+    ['optional content', chunk(x, ' world', '/OC <</MCID 1>> BDC', 'EMC')],
+    ['named properties', chunk(x, ' world', '/Span /P0 BDC', 'EMC')],
+    ['transparency', chunk(x, ' world', '/Span <</MCID 1>> BDC /Half gs', 'EMC')],
+    [
+      'small clip',
+      `${span} q 0 0 200 400 re W* n BT /F 12 Tf 1 0 0 1 ${x} 300 Tm 0 g ( world) Tj ET Q EMC`,
+    ],
+  ]) {
+    const r = await read((await wordFixture(chunk(40, 'Hello', span, 'EMC') + second)).bytes);
+    expect(
+      r.groups.filter((g) => g.text).map((g) => g.text),
+      label,
+    ).toEqual(['Hello', ' world']);
+  }
+  // A default-valued state after a transparent one changes what is painted.
+  const r = await read(
+    (
+      await wordFixture(
+        `/Half gs ${chunk(40, 'Hello', span, 'EMC')}/G0 gs ${chunk(x, ' world', '/Span <</MCID 1>> BDC', 'EMC')}`,
+      )
+    ).bytes,
+  );
+  expect(r.groups.map((g) => g.text)).toEqual(['Hello', ' world']);
+  const joined = await read(
+    (
+      await wordFixture(
+        chunk(40, 'Hello', span, 'EMC') + chunk(x, ' world', '/Span <</MCID 1>> BDC', 'EMC'),
+      )
+    ).bytes,
+  );
+  expect(joined.groups.map((g) => g.text)).toEqual(['Hello world']);
+});
+
+it('keeps a Word list label apart from its tabbed text and edits operators written without spaces', async () => {
+  const { font } = await wordFixture(''),
+    width = (text) => font.widthOfTextAtSize(text, 12);
+  // Word writes `0.048 Tc[(1.)] TJ`, and a tab as a space followed by a jump to the tab stop.
+  const source =
+    wordChunk(60, 300, '1.', '0 g 0.048 Tc') +
+    wordChunk(60 + width('1.') + 0.1, 300, ' ') +
+    wordChunk(78, 300, 'First item') +
+    wordChunk(78 + width('First item'), 300, ' text');
+  const r = await read((await wordFixture(source)).bytes);
+  expect(r.groups.map((g) => g.text)).toEqual(['1. ', 'First item text']);
+  for (const [index, hex] of [
+    [0, '#ff0000'],
+    [1, '#0000ff'],
+  ]) {
+    const current = await read(await r.doc.save());
+    await replaceTextGroup(r.doc, 0, current.groups[index], current.groups[index].text, { hex });
+  }
+  const next = await read(await r.doc.save());
+  expect(next.groups.map((g) => g.text)).toEqual(['1. ', 'First item text']);
+  expect(next.groups.map((g) => g.fillColor)).toEqual(['#ff0000', '#0000ff']);
+  // The text after the tab keeps its tab stop.
+  expect(next.groups[1].transform[4]).toBeCloseTo(78, 5);
+});
+
+it('keeps text drawn inside a clip apart from text after the clip is restored', async () => {
+  const { font } = await wordFixture(''),
+    x = 40 + font.widthOfTextAtSize('Hello', 12);
+  // A table cell clips "Hello"; " world" follows outside it. One rewrite at "Hello" would draw
+  // " world" inside the cell's clip, where it is cut off.
+  const clipped = (open = '', close = '') =>
+    `${open} q 40 290 30 20 re W n BT /F 12 Tf 1 0 0 1 40 300 Tm 0 g (Hello) Tj ET Q ${close} `;
+  for (const [label, source] of [
+    ['plain', `${clipped()}BT /F 12 Tf 1 0 0 1 ${x} 300 Tm 0 g ( world) Tj ET`],
+    ['Word', clipped('/Span <</MCID 90>> BDC', 'EMC') + wordChunk(x, 300, ' world')],
+  ]) {
+    const r = await read((await wordFixture(source)).bytes);
+    expect(
+      r.groups.map((g) => g.text),
+      label,
+    ).toEqual(['Hello', ' world']);
+  }
+  // Text that stays inside the same clip still forms one line.
+  const inside = await read(
+    (
+      await wordFixture(
+        `q 40 290 300 20 re W n BT /F 12 Tf 1 0 0 1 40 300 Tm 0 g (Hello) Tj ET BT /F 12 Tf 1 0 0 1 ${x} 300 Tm ( world) Tj ET Q`,
+      )
+    ).bytes,
+  );
+  expect(inside.groups.map((g) => g.text)).toEqual(['Hello world']);
+});
+
+it('keeps a Word bullet apart from the paragraph above it', async () => {
+  const { font } = await wordFixture(''),
+    width = (text) => font.widthOfTextAtSize(text, 12);
+  // The bullet is flush with the paragraph; Word writes its tab as a space and a jump, so the
+  // bullet stands alone on its line, separate from the item's text.
+  let source = wordChunk(60, 320, 'Here is the intro paragraph that leads into the list.');
+  for (const [y, text] of [
+    [300, 'Characterize a parallelogram.'],
+    [284, 'Draw a square.'],
+  ])
+    source +=
+      wordChunk(60, y, '\\225') + wordChunk(60 + width('•'), y, ' ') + wordChunk(80, y, text);
+  const r = await read((await wordFixture(source)).bytes);
+  expect(groupTextParagraphs(r.groups).map((b) => b.text)).toEqual([
+    'Here is the intro paragraph that leads into the list.',
+    '• ',
+    'Characterize a parallelogram.',
+    '• ',
+    'Draw a square.',
+  ]);
+});
+
+it('tells a page-sized clip from a small one when the page box lists its corners reversed', async () => {
+  const { font } = await wordFixture(''),
+    x = 40 + font.widthOfTextAtSize('Hello', 12);
+  const doc = await PDFDocument.load(
+    (
+      await wordFixture(
+        '/Span <</MCID 90>> BDC q 40 290 30 20 re W n BT /F 12 Tf 1 0 0 1 40 300 Tm 0 g (Hello) Tj ET Q EMC ' +
+          wordChunk(x, 300, ' world'),
+      )
+    ).bytes,
+  );
+  doc.getPage(0).node.set(PDFName.of('MediaBox'), doc.context.obj([400, 400, 0, 0]));
+  const r = await read(await doc.save());
+  expect(r.groups.map((g) => g.text)).toEqual(['Hello', ' world']);
+  // Word's own page-sized clips still join, whichever way the box is written.
+  const joined = await PDFDocument.load(
+    (await wordFixture(wordChunk(40, 300, 'Hello') + wordChunk(x, 300, ' world'))).bytes,
+  );
+  joined.getPage(0).node.set(PDFName.of('MediaBox'), joined.context.obj([400, 400, 0, 0]));
+  expect((await read(await joined.save())).groups.map((g) => g.text)).toEqual(['Hello world']);
+});
+
+it('ends a paragraph where its last line stops short of a word that would have fit', async () => {
+  // Two paragraphs with no space between them: the first ends well before the column edge,
+  // where the next paragraph's first word would have fit had the break been a soft wrap.
+  const r = await read(
+    await fixture(
+      'BT /F 12 Tf 15 TL 40 330 Td (The first paragraph fills this line with words) Tj T* (and its last line ends here, early.) Tj T* (The next paragraph starts on this line too and) Tj T* (wraps onto a second line below it.) Tj ET',
+    ),
+  );
+  expect(groupTextParagraphs(r.groups).map((b) => b.text)).toEqual([
+    'The first paragraph fills this line with words and its last line ends here, early.',
+    'The next paragraph starts on this line too and wraps onto a second line below it.',
+  ]);
+});
+
+it('keeps the paragraphs of a tagged PDF apart, and the lines of one paragraph together', async () => {
+  const doc = await PDFDocument.load(
+    await fixture(
+      [
+        ['First paragraph has a long line', 0],
+        ['that wraps onto another line.', 1],
+        ['Second paragraph is set below', 2],
+        ['with the very same line spacing.', 3],
+      ]
+        .map(
+          ([text, mcid], i) =>
+            `/P <</MCID ${mcid}>> BDC BT /F 12 Tf 1 0 0 1 40 ${300 - i * 15} Tm (${text}) Tj ET EMC`,
+        )
+        .join(' '),
+    ),
+  );
+  const { context } = doc;
+  const page = doc.getPage(0);
+  const root = context.register(context.obj({ Type: 'StructTreeRoot' }));
+  const first = context.register(context.obj({ Type: 'StructElem', S: 'P', P: root })),
+    second = context.register(context.obj({ Type: 'StructElem', S: 'P', P: root }));
+  // A styled span inside the first paragraph holds its second line.
+  const span = context.register(context.obj({ Type: 'StructElem', S: 'Span', P: first }));
+  context
+    .lookup(root)
+    .set(PDFName.of('ParentTree'), context.obj({ Nums: [0, [first, span, second, second]] }));
+  doc.catalog.set(PDFName.of('StructTreeRoot'), root);
+  page.node.set(PDFName.of('StructParents'), context.obj(0));
+  const r = await read(await doc.save());
+  expect(groupTextParagraphs(r.groups).map((b) => b.text)).toEqual([
+    'First paragraph has a long line that wraps onto another line.',
+    'Second paragraph is set below with the very same line spacing.',
+  ]);
+});
+
+it('keeps a paragraph whole across a line that ends in a hyphenated word', async () => {
+  // Ragged right: the second line ends mid-word because the whole word did not fit, though
+  // the fragment that starts the next line would fit within the widest line.
+  for (const hyphen of ['-', '\\255']) {
+    const r = await read(
+      await fixture(
+        `BT /F 12 Tf 15 TL 40 330 Td (This first line of the paragraph is quite wide indeed) Tj T* (and here is a short exam${hyphen}) Tj T* (ple of the text that follows on.) Tj ET`,
+      ),
+    );
+    expect(
+      groupTextParagraphs(r.groups).map((b) => b.text.slice(0, 20)),
+      hyphen,
+    ).toEqual(['This first line of t']);
+  }
 });

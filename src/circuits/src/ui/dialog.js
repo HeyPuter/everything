@@ -58,7 +58,8 @@ export function openDialog({ title, body, actions = [{ label: 'Close', primary: 
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop && backdrop.dataset.downOutside) close(undefined); delete backdrop.dataset.downOutside; });
   dialog.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(undefined); }
-    else if (e.key === 'Enter' && !e.shiftKey && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT') {
+    // A field that handles Enter itself (prevents the default) keeps it.
+    else if (e.key === 'Enter' && !e.shiftKey && !e.defaultPrevented && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT') {
       const primary = actions.find((a) => a.primary);
       if (primary?.el && !primary.el.disabled) { e.preventDefault(); primary.el.click(); }
     }
@@ -69,6 +70,14 @@ export function openDialog({ title, body, actions = [{ label: 'Close', primary: 
   const api = { el: dialog, body: bodyEl, close, result, actions };
   stack.push(api);
   requestAnimationFrame(() => {
+    // A long body with nothing to focus (a table of shortcuts, say) must
+    // still be scrollable from the keyboard.
+    const focusable = bodyEl.querySelector('button, [href], input, select, textarea, [tabindex]');
+    if (!focusable && bodyEl.scrollHeight > bodyEl.clientHeight) {
+      bodyEl.tabIndex = 0;
+      bodyEl.setAttribute('role', 'region');
+      bodyEl.setAttribute('aria-labelledby', titleId);
+    }
     const target = initialFocus?.() || dialog.querySelector('[autofocus], input, select, textarea') || actions.find((a) => a.primary)?.el || dialog.querySelector('button');
     target?.focus();
     if (target?.select && target.type === 'text') target.select();
@@ -152,14 +161,15 @@ export function buildForm(fields) {
     }
     return out;
   };
-  const validate = () => {
+  // focus: false checks without moving focus, for live previews while typing.
+  const validate = ({ focus = true } = {}) => {
     for (const [, { f, input }] of inputs) {
       input.removeAttribute('aria-invalid');
       const raw = f.type === 'bool' ? input.checked : input.value;
       let v = raw;
       if (f.parse) v = f.parse(raw);
       const bad = (f.parse && (v === null || Number.isNaN(v))) || (f.type === 'number' && (raw === '' || Number.isNaN(Number(raw)) || (f.min != null && Number(raw) < f.min) || (f.max != null && Number(raw) > f.max))) || (f.required && !String(raw).trim());
-      if (bad) { input.setAttribute('aria-invalid', 'true'); input.focus(); return `${f.label}: ${f.error || 'enter a valid value'}`; }
+      if (bad) { input.setAttribute('aria-invalid', 'true'); if (focus) input.focus(); return `${f.label}: ${f.error || 'enter a valid value'}`; }
     }
     return null;
   };

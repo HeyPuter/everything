@@ -247,6 +247,15 @@ function markName() {
     .join('');
 }
 
+/**
+ * The areas and outline colour of each redaction mark on a page: what the viewer draws for a
+ * mark with no appearance of its own (as other tools may write them, with only /Rect,
+ * /QuadPoints, and colours), which PDF.js would otherwise not show at all.
+ */
+export function pageRedactionOutlines(doc, pageIndex) {
+  return pageMarks(doc, pageIndex).map(({ id, rects, outline }) => ({ id, rects, outline }));
+}
+
 /** Every redaction mark in the document, whichever application wrote it. */
 export function listRedactionMarks(doc) {
   const marks = [];
@@ -427,6 +436,18 @@ const rectsOverlap = (a, b, epsilon = 0.01) =>
   Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > epsilon &&
   Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > epsilon;
 
+/** The characters of overlay text that its font, Helvetica, cannot draw (each once). */
+export function overlayTextUnsupported(text) {
+  const embedder = StandardFontEmbedder.for(StandardFonts.Helvetica);
+  return [
+    ...new Set(
+      [...String(text ?? '').replace(/[\r\n\t]+/g, ' ')].filter(
+        (c) => !embedder.encoding.canEncodeUnicodeCodePoint(c.codePointAt(0)),
+      ),
+    ),
+  ];
+}
+
 /** Overlay text drawn into one area, fitted (or at the mark's size), upright on the screen. */
 function overlayOps(text, area, mark, fontName, rotation) {
   const embedder = StandardFontEmbedder.for(StandardFonts.Helvetica);
@@ -570,6 +591,19 @@ function redactionPolicy(doc, areas, { codec } = {}) {
   };
 }
 
+/** Far beyond any page: an area that covers everything a page can draw. */
+const EVERYWHERE = [-1e9, -1e9, 1e9, 1e9];
+/** The union of a page's media and crop boxes. */
+function pageBounds(page) {
+  const xs = [],
+    ys = [];
+  for (const { x, y, width, height } of [page.getMediaBox(), page.getCropBox()]) {
+    xs.push(x, x + width);
+    ys.push(y, y + height);
+  }
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
 const fontRefs = new WeakMap();
 function overlayFont(doc) {
   let ref = fontRefs.get(doc.context);
@@ -614,13 +648,21 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
   const removedAnnotations = new Set(),
     structKeys = new Set();
   let formRemoved = false;
+  // Overlay text the font cannot draw is left out; say so rather than drop it unseen.
+  const overlayGaps = new Set();
   for (const index of [...new Set(indices)].sort((a, b) => a - b)) {
     const marks = pageMarks(doc, index);
     if (!marks.length) continue;
     const page = doc.getPage(index);
     report.pages.push(index);
+    // A mark over the whole page (Redact pages) also takes what the page draws beyond its
+    // boxes: no reader shows that, but the file still holds it for anyone to read out.
+    const box = pageBounds(page);
     const areas = marks.flatMap((mark) =>
-      mark.rects.map((rect) => ({ rect, rgb: mark.fillRgb || [0, 0, 0] })),
+      mark.rects.map((rect) => ({
+        rect: rectInside(box, rect, 0.5) ? EVERYWHERE : rect,
+        rgb: mark.fillRgb || [0, 0, 0],
+      })),
     );
     const rects = areas.map((a) => a.rect);
 
@@ -699,6 +741,7 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
             `q ${mark.fillRgb.map(num).join(' ')} rg ${num(x1)} ${num(y1)} ${num(x2 - x1)} ${num(y2 - y1)} re f Q`,
           );
         if (mark.overlayText) {
+          if (overlayTextUnsupported(mark.overlayText).length) overlayGaps.add(index + 1);
           if (!fontName) {
             let n = 1;
             while (fontDict.has(name(`RedactionFont${n}`))) n++;
@@ -747,6 +790,10 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
     report.warnings.push(
       `${filtered.images.removed} image(s) could not be decoded and were removed entirely.`,
     );
+  if (overlayGaps.size)
+    report.warnings.push(
+      `Overlay text on ${overlayGaps.size === 1 ? 'page' : 'pages'} ${[...overlayGaps].join(', ')} has characters the overlay font cannot show; they were left out.`,
+    );
   return report;
 }
 
@@ -768,15 +815,24 @@ function luhn(digits) {
 const MONTH =
   '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 
+// Hyphens as typed and as word processors set them: non-breaking hyphens keep a number on one
+// line, and en dashes and minus signs stand in for hyphens. Each is "-" in these patterns.
+const DASH = '\\u2010-\\u2015\\u2212-';
+
 /** Patterns for "Find text & redact". Each has a global regex and an optional validator. */
 export const REDACTION_PATTERNS = {
   phone: {
     label: 'Phone numbers',
-    regex: /(?<![\w+])(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)|\d{2,4})(?:[\s.-]?\d{2,4}){1,3}(?![\w])/g,
+    regex: new RegExp(
+      `(?<![\\w+])(?:\\+\\d{1,3}[\\s.${DASH}]?)?(?:\\(\\d{2,4}\\)|\\d{2,4})(?:[\\s.${DASH}]?\\d{2,4}){1,3}(?![\\w])`,
+      'g',
+    ),
     validate: (text) => {
       const digits = text.replace(/\D/g, '');
       // Ten digits for North American numbers; up to fifteen (E.164) with a country code.
-      return digits.length >= 10 && digits.length <= 15 && /[\s.()-]|^\+/.test(text);
+      return (
+        digits.length >= 10 && digits.length <= 15 && new RegExp(`[\\s.()${DASH}]|^\\+`).test(text)
+      );
     },
   },
   email: {
@@ -785,7 +841,7 @@ export const REDACTION_PATTERNS = {
   },
   creditCard: {
     label: 'Credit card numbers',
-    regex: /(?<![\d-])(?:\d[ -]?){12,18}\d(?![\d-])/g,
+    regex: new RegExp(`(?<![\\d${DASH}])(?:\\d[ ${DASH}]?){12,18}\\d(?![\\d${DASH}])`, 'g'),
     validate: (text) => {
       const digits = text.replace(/\D/g, '');
       return digits.length >= 13 && digits.length <= 19 && luhn(digits);
@@ -793,14 +849,17 @@ export const REDACTION_PATTERNS = {
   },
   ssn: {
     label: 'US Social Security numbers',
-    regex: /(?<![\d-])(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}(?![\d-])/g,
+    regex: new RegExp(
+      `(?<![\\d${DASH}])(?!000|666|9\\d\\d)\\d{3}[ ${DASH}](?!00)\\d{2}[ ${DASH}](?!0000)\\d{4}(?![\\d${DASH}])`,
+      'g',
+    ),
   },
   date: {
     label: 'Dates',
     regex: new RegExp(
       [
-        '\\b\\d{4}-\\d{1,2}-\\d{1,2}\\b',
-        '\\b\\d{1,2}[/.-]\\d{1,2}[/.-](?:\\d{4}|\\d{2})\\b',
+        `\\b\\d{4}[${DASH}]\\d{1,2}[${DASH}]\\d{1,2}\\b`,
+        `\\b\\d{1,2}[/.${DASH}]\\d{1,2}[/.${DASH}](?:\\d{4}|\\d{2})\\b`,
         `\\b${MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4}\\b`,
         `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH}\\.?,?\\s+\\d{4}\\b`,
       ].join('|'),
@@ -808,9 +867,9 @@ export const REDACTION_PATTERNS = {
     ),
     validate: (text) => {
       const parts = text.match(/\d+/g)?.map(Number) || [];
-      if (/^\d{4}-/.test(text))
+      if (/^\d{4}\D/.test(text))
         return parts[1] >= 1 && parts[1] <= 12 && parts[2] >= 1 && parts[2] <= 31;
-      if (/^\d{1,2}[/.-]\d/.test(text))
+      if (/^\d{1,2}\D\d/.test(text))
         return (
           parts[0] >= 1 &&
           parts[1] >= 1 &&
@@ -895,64 +954,20 @@ export function findRedactionMatches(items, query, { measure, wholeWord = false 
  * `report.unsearchable` is then set, so the page can be checked by eye.
  * Rects are drawn slightly inside the outer glyphs and their line, so applying them does not
  * reach kerned or tightly leaded neighbours. Returns `[{ text, rects }]`.
+ * Pass the same `cache` (a Map) to several searches of a page to read its glyphs only once.
  */
-export async function findTextRects(doc, pageIndex, query, { wholeWord = false, report } = {}) {
-  const page = doc.getPage(pageIndex);
-  const glyphs = [];
-  await filterContent(doc, {
-    source: pageSource(page),
-    resources: page.node.Resources(),
-    report: contentReport(),
-    policy: {
-      glyph(quad, { code, metrics, box }) {
-        const text = metrics.unicode(code);
-        if (!text && report) report.unsearchable = true;
-        glyphs.push({ quad, text, box });
-        return false;
-      },
-    },
-  });
-  // Lay the glyphs out as text, with a space wherever the pen jumps (words, lines, columns).
-  let text = '',
-    original = '';
-  const owner = [],
-    originalOwner = [];
-  const sameLine = (a, b) => {
-    const [x0, y0] = a.quad[0],
-      [x1, y1] = a.quad[1],
-      [, , , [x3, y3]] = a.quad;
-    const length = Math.hypot(x1 - x0, y1 - y0) || 1,
-      height = Math.hypot(x3 - x0, y3 - y0) || 1;
-    const dx = (x1 - x0) / length,
-      dy = (y1 - y0) / length;
-    const ox = b.quad[0][0] - x1,
-      oy = b.quad[0][1] - y1;
-    const along = ox * dx + oy * dy,
-      across = -ox * dy + oy * dx;
-    return { line: Math.abs(across) < height * 0.5, gap: along > height * 0.2 || along < -height };
-  };
-  const push = (char, index) => {
-    original += char;
-    originalOwner.push(index);
-    if (/\s/.test(char)) {
-      if (text && !text.endsWith(' ')) {
-        text += ' ';
-        owner.push(index);
-      }
-      return;
-    }
-    for (const folded of searchQuery(char)) {
-      text += folded;
-      owner.push(index);
-    }
-  };
-  glyphs.forEach((glyph, i) => {
-    if (i) {
-      const { line, gap } = sameLine(glyphs[i - 1], glyph);
-      if (!line || gap) push(' ', -1);
-    }
-    for (const char of glyph.text) push(char, i);
-  });
+export async function findTextRects(
+  doc,
+  pageIndex,
+  query,
+  { wholeWord = false, report, cache } = {},
+) {
+  let layout = cache?.get(pageIndex);
+  if (!layout) {
+    layout = await pageTextLayout(doc, pageIndex, report);
+    cache?.set(pageIndex, layout);
+  }
+  const { glyphs, text, original, owner, originalOwner } = layout;
   const ranges = [];
   if (typeof query === 'string') {
     const needle = searchQuery(query);
@@ -989,18 +1004,160 @@ export async function findTextRects(doc, pageIndex, query, { wholeWord = false, 
       .replace(/\s+/g, ' ')
       .trim();
     if (typeof query !== 'string' && query.validate && !query.validate(matchedText)) continue;
-    // Runs of glyphs that sit on one line.
-    const runs = [];
-    for (const index of indices) {
-      const run = runs.at(-1);
-      if (run && index === run.at(-1) + 1 && sameLine(glyphs[index - 1], glyphs[index]).line)
-        run.push(index);
-      else runs.push([index]);
-    }
-    const rects = runs.map((run) => runRect(run.map((i) => glyphs[i]))).filter(Boolean);
+    const rects = runRects(glyphs, indices);
     if (rects.length) matches.push({ text: matchedText, rects });
   }
   return matches;
+}
+/** A page's glyphs and the searchable text they make, each character tied to its glyph. */
+async function pageTextLayout(doc, pageIndex, report) {
+  const glyphs = await pageGlyphs(doc, pageIndex, report);
+  // Lay the glyphs out as text, with a space wherever the pen jumps (words, lines, columns).
+  let text = '',
+    original = '';
+  const owner = [],
+    originalOwner = [];
+  const push = (char, index) => {
+    original += char;
+    originalOwner.push(index);
+    if (/\s/.test(char)) {
+      if (text && !text.endsWith(' ')) {
+        text += ' ';
+        owner.push(index);
+      }
+      return;
+    }
+    for (const folded of searchQuery(char)) {
+      text += folded;
+      owner.push(index);
+    }
+  };
+  glyphs.forEach((glyph, i) => {
+    if (i) {
+      const { line, gap } = sameLine(glyphs[i - 1], glyph);
+      if (!line || gap) push(' ', -1);
+    }
+    for (const char of glyph.text) push(char, i);
+  });
+  return { glyphs, text, original, owner, originalOwner };
+}
+/** Every glyph a page draws, in content order, with its quad, box, and text. */
+async function pageGlyphs(doc, pageIndex, report) {
+  const page = doc.getPage(pageIndex);
+  const glyphs = [];
+  await filterContent(doc, {
+    source: pageSource(page),
+    resources: page.node.Resources(),
+    report: contentReport(),
+    policy: {
+      glyph(quad, { code, metrics, box }) {
+        const text = metrics.unicode(code);
+        if (!text && report) report.unsearchable = true;
+        glyphs.push({ quad, text, box });
+        return false;
+      },
+    },
+  });
+  return glyphs;
+}
+/** Whether a glyph follows another on its line, and whether the pen jumps between them. */
+function sameLine(a, b) {
+  const [x0, y0] = a.quad[0],
+    [x1, y1] = a.quad[1],
+    [, , , [x3, y3]] = a.quad;
+  const length = Math.hypot(x1 - x0, y1 - y0) || 1,
+    height = Math.hypot(x3 - x0, y3 - y0) || 1;
+  const dx = (x1 - x0) / length,
+    dy = (y1 - y0) / length;
+  const ox = b.quad[0][0] - x1,
+    oy = b.quad[0][1] - y1;
+  const along = ox * dx + oy * dy,
+    across = -ox * dy + oy * dx;
+  return { line: Math.abs(across) < height * 0.5, gap: along > height * 0.2 || along < -height };
+}
+/**
+ * One rect per run of the chosen glyphs (sorted indices) that sit together on one line. With
+ * `trim`, spaces at either end of a run are left out.
+ */
+function runRects(glyphs, indices, { trim = false } = {}) {
+  const runs = [];
+  for (const index of indices) {
+    const run = runs.at(-1);
+    if (run && index === run.at(-1) + 1 && sameLine(glyphs[index - 1], glyphs[index]).line)
+      run.push(index);
+    else runs.push([index]);
+  }
+  const blank = (i) => /^\s+$/.test(glyphs[i].text || '');
+  return runs
+    .map((run) => {
+      if (!trim) return run;
+      let start = 0,
+        end = run.length;
+      while (start < end && blank(run[start])) start++;
+      while (end > start && blank(run[end - 1])) end--;
+      return run.slice(start, end);
+    })
+    .filter((run) => run.length)
+    .map((run) => runRect(run.map((i) => glyphs[i])))
+    .filter(Boolean);
+}
+/**
+ * Redaction rects for a text selection: `quads` are its QuadPoints-style quads (8 numbers each:
+ * top left, top right, bottom left, bottom right, in PDF user space) as the page's text layer
+ * measures them. That layer's line boxes run past the glyphs, into the lines above and below
+ * when lines are set tightly, and applying them would take the neighbours' letters too. So the
+ * marks are placed on the page's own glyphs, drawn the way Find text and redact draws them: a
+ * glyph is chosen when the middle of its line lies in a quad's height and its box meets the
+ * quad along the line. A quad over no glyph is kept as it is, so nothing selected is left
+ * unmarked.
+ */
+export async function selectionRedactionRects(doc, pageIndex, quads) {
+  const areas = quads.filter((q) => q?.length === 8 && q.every(Number.isFinite));
+  const frames = areas.map((q) => {
+    const [ox, oy] = [q[0], q[1]];
+    const along = [q[2] - ox, q[3] - oy],
+      across = [q[4] - ox, q[5] - oy];
+    const length = Math.hypot(...along),
+      height = Math.hypot(...across);
+    if (!(length > 1e-6 && height > 1e-6)) return null;
+    const u = along.map((c) => c / length),
+      v = across.map((c) => c / height);
+    const project = ([x, y], axis) => (x - ox) * axis[0] + (y - oy) * axis[1];
+    return { u, v, length, height, project };
+  });
+  const bounds = (q) => {
+    const xs = [q[0], q[2], q[4], q[6]],
+      ys = [q[1], q[3], q[5], q[7]];
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  };
+  let glyphs = [];
+  try {
+    glyphs = await pageGlyphs(doc, pageIndex);
+  } catch {
+    // A page whose content cannot be read keeps the selection's own boxes.
+  }
+  const covered = new Set();
+  const chosen = [];
+  glyphs.forEach((glyph, index) => {
+    const middle = boxPoint(glyph, 0.5, 0.5);
+    const hit = frames.findIndex((frame) => {
+      if (!frame) return false;
+      const depth = frame.project(middle, frame.v);
+      if (depth < 0 || depth > frame.height) return false;
+      const reach = glyph.quad.map((point) => frame.project(point, frame.u));
+      return Math.min(Math.max(...reach), frame.length) - Math.max(Math.min(...reach), 0) > 0.01;
+    });
+    if (hit < 0) return;
+    covered.add(hit);
+    chosen.push(index);
+  });
+  // The layer spaces its letters to fill each line, not exactly as the PDF does, so a space
+  // beside the selection can reach into it; it carries nothing to remove.
+  const rects = runRects(glyphs, chosen, { trim: true });
+  areas.forEach((q, i) => {
+    if (!covered.has(i)) rects.push(bounds(q));
+  });
+  return rects;
 }
 /** A point inside a glyph's box, at fractions (u across, v up) of the box. */
 function boxPoint(glyph, u, v) {

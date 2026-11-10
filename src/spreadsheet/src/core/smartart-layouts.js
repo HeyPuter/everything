@@ -12,6 +12,8 @@
  *   paras the text: [{ text, level, bullet, item }] · text: the box the text goes in (the shape's own by default)
  */
 
+import { t } from '../i18n/index.js';
+
 const rad = (d) => (d * Math.PI) / 180;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -550,10 +552,10 @@ function titledMatrix(roots, A) {
 }
 
 function gridMatrix(roots, A) {
-  const cx = A.x + A.w / 2, cy = A.y + A.h / 2, t = Math.min(A.w, A.h) * 0.07, out = [];
-  out.push(shape('leftRightArrow', A.x, cy - t, A.w, t * 2, { role: 'conn', ci: 0, adj: { shaft: 0.45 } }));
-  out.push(shape('upDownArrow', cx - t, A.y, t * 2, A.h, { role: 'conn', ci: 0, adj: { shaft: 0.45 } }));
-  const g = t * 1.4, w = A.w / 2 - g - A.w * 0.04, h = A.h / 2 - g - A.h * 0.04;
+  const cx = A.x + A.w / 2, cy = A.y + A.h / 2, bar = Math.min(A.w, A.h) * 0.07, out = [];
+  out.push(shape('leftRightArrow', A.x, cy - bar, A.w, bar * 2, { role: 'conn', ci: 0, adj: { shaft: 0.45 } }));
+  out.push(shape('upDownArrow', cx - bar, A.y, bar * 2, A.h, { role: 'conn', ci: 0, adj: { shaft: 0.45 } }));
+  const g = bar * 1.4, w = A.w / 2 - g - A.w * 0.04, h = A.h / 2 - g - A.h * 0.04;
   roots.slice(0, 4).forEach((r, i) => {
     const x = i % 2 ? cx + g : cx - g - w, y = i < 2 ? cy - g - h : cy + g;
     out.push(node('roundRect', x, y, w, h, r, i, { adj: { r: 0.1 } }));
@@ -633,103 +635,118 @@ function segmentedPyramid(roots, A) {
 
 /* ---------- The gallery ---------- */
 
+/** The gallery's categories: id, its name, and the heading over its layouts (catalog keys). */
 export const SMARTART_CATEGORIES = [
-  ['list', 'List'], ['process', 'Process'], ['cycle', 'Cycle'], ['hierarchy', 'Hierarchy'],
-  ['relationship', 'Relationship'], ['matrix', 'Matrix'], ['pyramid', 'Pyramid'],
+  ['list', 'smartartLayouts.category.list', 'smartartLayouts.category.listLayouts'],
+  ['process', 'smartartLayouts.category.process', 'smartartLayouts.category.processLayouts'],
+  ['cycle', 'smartartLayouts.category.cycle', 'smartartLayouts.category.cycleLayouts'],
+  ['hierarchy', 'smartartLayouts.category.hierarchy', 'smartartLayouts.category.hierarchyLayouts'],
+  ['relationship', 'smartartLayouts.category.relationship', 'smartartLayouts.category.relationshipLayouts'],
+  ['matrix', 'smartartLayouts.category.matrix', 'smartartLayouts.category.matrixLayouts'],
+  ['pyramid', 'smartartLayouts.category.pyramid', 'smartartLayouts.category.pyramidLayouts'],
 ];
 
 const ideas = ['Idea one', 'Idea two', 'Idea three'];
-const withPoints = (heads, points = 2) => heads.flatMap((t, i) => [{ text: t, level: 0 }, ...Array.from({ length: points }, (_, j) => ({ text: `Point ${i + 1}.${j + 1}`, level: 1 }))]);
+const withPoints = (heads, points = 2) => heads.flatMap((head, i) => [{ text: head, level: 0 }, ...Array.from({ length: points }, (_, j) => ({ text: `Point ${i + 1}.${j + 1}`, level: 1 }))]);
 const flat = (texts) => texts.map((text) => ({ text, level: 0 }));
 const team = () => [{ text: 'Director', level: 0 }, { text: 'Design', level: 1 }, { text: 'Research', level: 2 }, { text: 'Visual', level: 2 },
   { text: 'Engineering', level: 1 }, { text: 'Platform', level: 2 }, { text: 'Apps', level: 2 }, { text: 'Operations', level: 1 }];
 
 /**
  * Every layout: id, name, category, a one-line description (the gallery's), how many top-level items it
- * shows (the rest wait in the text), the outline a new diagram starts with, and its builder.
+ * shows (the rest wait in the text), the outline a new diagram starts with, and its builder. The name and
+ * description are catalog keys (nameKey, descriptionKey); `name` and `description` read them in the
+ * interface language. The sample outline is the new diagram's content, and stays as it is.
  */
 export const SMARTART_LAYOUTS = [
-  { id: 'blockList', name: 'Block List', category: 'list', build: blockList, sample: () => flat(['Planning', 'Budget', 'People', 'Tools', 'Review']),
-    description: 'Equal blocks in rows, for items that need no order. Sub-items list inside their block.' },
-  { id: 'verticalBulletList', name: 'Stacked Headings', category: 'list', build: verticalBulletList, sample: () => withPoints(['Goals', 'Approach']),
-    description: 'Wide headings down the page, each over a panel listing its sub-items.' },
-  { id: 'horizontalBulletList', name: 'Column Headings', category: 'list', build: horizontalBulletList, sample: () => withPoints(ideas),
-    description: 'A heading for each column with its sub-items listed beneath.' },
-  { id: 'stackedList', name: 'Badge Columns', category: 'list', build: stackedList, sample: () => withPoints(['Plan', 'Do', 'Check']),
-    description: 'A round badge crowns each column of sub-items.' },
-  { id: 'linedList', name: 'Ruled List', category: 'list', build: linedList, sample: () => withPoints(['Summary', 'Details']),
-    description: 'Text on ruled lines: each heading on the left, its sub-items to the right.' },
-  { id: 'accentList', name: 'Accent Bar List', category: 'list', build: accentList, sample: () => withPoints(['First topic', 'Second topic', 'Third topic'], 1),
-    description: 'Rows of text, each marked by a coloured bar at its edge.' },
-  { id: 'verticalChevronList', name: 'Chevron Rows', category: 'list', build: verticalChevronList, sample: () => withPoints(['Stage 1', 'Stage 2', 'Stage 3'], 1),
-    description: 'Downward chevrons, one per row, with the sub-items beside them.' },
+  { id: 'blockList', nameKey: 'smartartLayouts.blockList.name', category: 'list', build: blockList, sample: () => flat(['Planning', 'Budget', 'People', 'Tools', 'Review']),
+    descriptionKey: 'smartartLayouts.blockList.description' },
+  { id: 'verticalBulletList', nameKey: 'smartartLayouts.verticalBulletList.name', category: 'list', build: verticalBulletList, sample: () => withPoints(['Goals', 'Approach']),
+    descriptionKey: 'smartartLayouts.verticalBulletList.description' },
+  { id: 'horizontalBulletList', nameKey: 'smartartLayouts.horizontalBulletList.name', category: 'list', build: horizontalBulletList, sample: () => withPoints(ideas),
+    descriptionKey: 'smartartLayouts.horizontalBulletList.description' },
+  { id: 'stackedList', nameKey: 'smartartLayouts.stackedList.name', category: 'list', build: stackedList, sample: () => withPoints(['Plan', 'Do', 'Check']),
+    descriptionKey: 'smartartLayouts.stackedList.description' },
+  { id: 'linedList', nameKey: 'smartartLayouts.linedList.name', category: 'list', build: linedList, sample: () => withPoints(['Summary', 'Details']),
+    descriptionKey: 'smartartLayouts.linedList.description' },
+  { id: 'accentList', nameKey: 'smartartLayouts.accentList.name', category: 'list', build: accentList, sample: () => withPoints(['First topic', 'Second topic', 'Third topic'], 1),
+    descriptionKey: 'smartartLayouts.accentList.description' },
+  { id: 'verticalChevronList', nameKey: 'smartartLayouts.verticalChevronList.name', category: 'list', build: verticalChevronList, sample: () => withPoints(['Stage 1', 'Stage 2', 'Stage 3'], 1),
+    descriptionKey: 'smartartLayouts.verticalChevronList.description' },
 
-  { id: 'basicProcess', name: 'Steps', category: 'process', build: basicProcess, sample: () => flat(['Plan', 'Build', 'Test', 'Launch']),
-    description: 'Boxes joined by arrows, for steps taken in order.' },
-  { id: 'stepUpProcess', name: 'Rising Steps', category: 'process', build: stepUpProcess, sample: () => flat(['Start', 'Grow', 'Scale', 'Lead']),
-    description: 'Columns that climb from left to right, for progress or growth.' },
-  { id: 'chevronProcess', name: 'Chevron Steps', category: 'process', build: chevronProcess, sample: () => withPoints(['Discover', 'Define', 'Deliver'], 1),
-    description: 'Chevrons that point the way, with sub-items listed under each.' },
-  { id: 'verticalProcess', name: 'Downward Steps', category: 'process', build: verticalProcess, sample: () => flat(['Request', 'Review', 'Approve']),
-    description: 'Boxes from top to bottom joined by arrows.' },
-  { id: 'continuousArrow', name: 'Arrow Track', category: 'process', build: continuousArrow, sample: () => flat(['Phase 1', 'Phase 2', 'Phase 3']),
-    description: 'Steps laid along one broad arrow, for continuous progress.' },
-  { id: 'timeline', name: 'Timeline', category: 'process', build: timeline, sample: () => flat(['Q1 Kickoff', 'Q2 Beta', 'Q3 Launch', 'Q4 Review']),
-    description: 'Milestones on a line, their labels above and below in turn.' },
-  { id: 'bendingProcess', name: 'Winding Steps', category: 'process', build: bendingProcess, sample: () => flat(['One', 'Two', 'Three', 'Four', 'Five', 'Six']),
-    description: 'Many steps in rows that wrap, read like lines of text.' },
+  { id: 'basicProcess', nameKey: 'smartartLayouts.basicProcess.name', category: 'process', build: basicProcess, sample: () => flat(['Plan', 'Build', 'Test', 'Launch']),
+    descriptionKey: 'smartartLayouts.basicProcess.description' },
+  { id: 'stepUpProcess', nameKey: 'smartartLayouts.stepUpProcess.name', category: 'process', build: stepUpProcess, sample: () => flat(['Start', 'Grow', 'Scale', 'Lead']),
+    descriptionKey: 'smartartLayouts.stepUpProcess.description' },
+  { id: 'chevronProcess', nameKey: 'smartartLayouts.chevronProcess.name', category: 'process', build: chevronProcess, sample: () => withPoints(['Discover', 'Define', 'Deliver'], 1),
+    descriptionKey: 'smartartLayouts.chevronProcess.description' },
+  { id: 'verticalProcess', nameKey: 'smartartLayouts.verticalProcess.name', category: 'process', build: verticalProcess, sample: () => flat(['Request', 'Review', 'Approve']),
+    descriptionKey: 'smartartLayouts.verticalProcess.description' },
+  { id: 'continuousArrow', nameKey: 'smartartLayouts.continuousArrow.name', category: 'process', build: continuousArrow, sample: () => flat(['Phase 1', 'Phase 2', 'Phase 3']),
+    descriptionKey: 'smartartLayouts.continuousArrow.description' },
+  { id: 'timeline', nameKey: 'smartartLayouts.timeline.name', category: 'process', build: timeline, sample: () => flat(['Q1 Kickoff', 'Q2 Beta', 'Q3 Launch', 'Q4 Review']),
+    descriptionKey: 'smartartLayouts.timeline.description' },
+  { id: 'bendingProcess', nameKey: 'smartartLayouts.bendingProcess.name', category: 'process', build: bendingProcess, sample: () => flat(['One', 'Two', 'Three', 'Four', 'Five', 'Six']),
+    descriptionKey: 'smartartLayouts.bendingProcess.description' },
 
-  { id: 'basicCycle', name: 'Cycle', category: 'cycle', build: basicCycle, sample: () => flat(['Research', 'Design', 'Build', 'Review']),
-    description: 'Circles round a ring with curved arrows: a repeating sequence.' },
-  { id: 'radialCycle', name: 'Hub and Spokes', category: 'cycle', build: radialCycle, sample: () => [{ text: 'Customer', level: 0 }, ...flat(['Sales', 'Support', 'Product', 'Billing']).map((x) => ({ ...x, level: 1 }))],
-    description: 'A central item with related items round it. The first item is the hub; its sub-items are the spokes.' },
-  { id: 'segmentedCycle', name: 'Segmented Circle', category: 'cycle', build: segmentedCycle, sample: () => flat(['Plan', 'Act', 'Measure']),
-    description: 'Wedges of one circle, for the parts of a whole that repeat.' },
-  { id: 'textCycle', name: 'Text Cycle', category: 'cycle', build: textCycle, sample: () => flat(['Listen', 'Learn', 'Improve', 'Share']),
-    description: 'Words round a circle linked by thin arrows, with room for more text.' },
-  { id: 'blockCycle', name: 'Ring Cycle', category: 'cycle', build: blockCycle, sample: () => flat(['Collect', 'Analyse', 'Decide', 'Act']),
-    description: 'Labels sit on a broad ring of arrows that turns continuously.' },
+  { id: 'basicCycle', nameKey: 'smartartLayouts.basicCycle.name', category: 'cycle', build: basicCycle, sample: () => flat(['Research', 'Design', 'Build', 'Review']),
+    descriptionKey: 'smartartLayouts.basicCycle.description' },
+  { id: 'radialCycle', nameKey: 'smartartLayouts.radialCycle.name', category: 'cycle', build: radialCycle, sample: () => [{ text: 'Customer', level: 0 }, ...flat(['Sales', 'Support', 'Product', 'Billing']).map((x) => ({ ...x, level: 1 }))],
+    descriptionKey: 'smartartLayouts.radialCycle.description' },
+  { id: 'segmentedCycle', nameKey: 'smartartLayouts.segmentedCycle.name', category: 'cycle', build: segmentedCycle, sample: () => flat(['Plan', 'Act', 'Measure']),
+    descriptionKey: 'smartartLayouts.segmentedCycle.description' },
+  { id: 'textCycle', nameKey: 'smartartLayouts.textCycle.name', category: 'cycle', build: textCycle, sample: () => flat(['Listen', 'Learn', 'Improve', 'Share']),
+    descriptionKey: 'smartartLayouts.textCycle.description' },
+  { id: 'blockCycle', nameKey: 'smartartLayouts.blockCycle.name', category: 'cycle', build: blockCycle, sample: () => flat(['Collect', 'Analyse', 'Decide', 'Act']),
+    descriptionKey: 'smartartLayouts.blockCycle.description' },
 
-  { id: 'orgChart', name: 'Organization Chart', category: 'hierarchy', build: orgChart, sample: team,
-    description: 'Who reports to whom, from the top down. Sub-items become the boxes below.' },
-  { id: 'horizontalHierarchy', name: 'Sideways Tree', category: 'hierarchy', build: horizontalHierarchy, sample: team,
-    description: 'A tree that branches from left to right, for decisions and breakdowns.' },
-  { id: 'hierarchyList', name: 'Tree List', category: 'hierarchy', build: hierarchyList, sample: () => withPoints(['Team A', 'Team B'], 3),
-    description: 'Headings across the top with their sub-items in indented boxes below.' },
-  { id: 'tableHierarchy', name: 'Stacked Tree', category: 'hierarchy', build: tableHierarchy, sample: team,
-    description: 'Each item spans the items beneath it, like a table of levels.' },
+  { id: 'orgChart', nameKey: 'smartartLayouts.orgChart.name', category: 'hierarchy', build: orgChart, sample: team,
+    descriptionKey: 'smartartLayouts.orgChart.description' },
+  { id: 'horizontalHierarchy', nameKey: 'smartartLayouts.horizontalHierarchy.name', category: 'hierarchy', build: horizontalHierarchy, sample: team,
+    descriptionKey: 'smartartLayouts.horizontalHierarchy.description' },
+  { id: 'hierarchyList', nameKey: 'smartartLayouts.hierarchyList.name', category: 'hierarchy', build: hierarchyList, sample: () => withPoints(['Team A', 'Team B'], 3),
+    descriptionKey: 'smartartLayouts.hierarchyList.description' },
+  { id: 'tableHierarchy', nameKey: 'smartartLayouts.tableHierarchy.name', category: 'hierarchy', build: tableHierarchy, sample: team,
+    descriptionKey: 'smartartLayouts.tableHierarchy.description' },
 
-  { id: 'basicVenn', name: 'Overlapping Circles', category: 'relationship', build: basicVenn, sample: () => flat(['People', 'Process', 'Tools']),
-    description: 'Circles that overlap, for ideas that share ground.' },
-  { id: 'radialVenn', name: 'Centre Overlap', category: 'relationship', build: radialVenn, sample: () => [{ text: 'Core', level: 0 }, ...flat(['Speed', 'Quality', 'Cost']).map((x) => ({ ...x, level: 1 }))],
-    description: 'Circles that overlap a central one. The first item is the centre.' },
-  { id: 'target', name: 'Target', category: 'relationship', build: target, sample: () => flat(['Market', 'Segment', 'Customer']),
-    description: 'Rings that close in on a centre, each labelled to the side.' },
-  { id: 'opposingArrows', name: 'Opposing Arrows', category: 'relationship', build: opposingArrows, maxRoots: 2, sample: () => flat(['Supply', 'Demand']),
-    description: 'Two arrows pointing apart, for opposing forces or choices. Shows two items.' },
-  { id: 'balance', name: 'Balance', category: 'relationship', build: balance, maxRoots: 2, sample: () => [{ text: 'Pros', level: 0 }, { text: 'Faster', level: 1 }, { text: 'Cheaper', level: 1 }, { text: 'Cons', level: 0 }, { text: 'Riskier', level: 1 }],
-    description: 'A beam that tips toward the side with more sub-items. Shows two items.' },
-  { id: 'equation', name: 'Equation', category: 'relationship', build: equation, sample: () => flat(['Idea', 'Effort', 'Result']),
-    description: 'Items that add up to a result: the last item follows the equals sign.' },
+  { id: 'basicVenn', nameKey: 'smartartLayouts.basicVenn.name', category: 'relationship', build: basicVenn, sample: () => flat(['People', 'Process', 'Tools']),
+    descriptionKey: 'smartartLayouts.basicVenn.description' },
+  { id: 'radialVenn', nameKey: 'smartartLayouts.radialVenn.name', category: 'relationship', build: radialVenn, sample: () => [{ text: 'Core', level: 0 }, ...flat(['Speed', 'Quality', 'Cost']).map((x) => ({ ...x, level: 1 }))],
+    descriptionKey: 'smartartLayouts.radialVenn.description' },
+  { id: 'target', nameKey: 'smartartLayouts.target.name', category: 'relationship', build: target, sample: () => flat(['Market', 'Segment', 'Customer']),
+    descriptionKey: 'smartartLayouts.target.description' },
+  { id: 'opposingArrows', nameKey: 'smartartLayouts.opposingArrows.name', category: 'relationship', build: opposingArrows, maxRoots: 2, sample: () => flat(['Supply', 'Demand']),
+    descriptionKey: 'smartartLayouts.opposingArrows.description' },
+  { id: 'balance', nameKey: 'smartartLayouts.balance.name', category: 'relationship', build: balance, maxRoots: 2, sample: () => [{ text: 'Pros', level: 0 }, { text: 'Faster', level: 1 }, { text: 'Cheaper', level: 1 }, { text: 'Cons', level: 0 }, { text: 'Riskier', level: 1 }],
+    descriptionKey: 'smartartLayouts.balance.description' },
+  { id: 'equation', nameKey: 'smartartLayouts.equation.name', category: 'relationship', build: equation, sample: () => flat(['Idea', 'Effort', 'Result']),
+    descriptionKey: 'smartartLayouts.equation.description' },
 
-  { id: 'basicMatrix', name: 'Quadrants', category: 'matrix', build: basicMatrix, maxRoots: 4, sample: () => flat(['Strengths', 'Weaknesses', 'Opportunities', 'Threats']),
-    description: 'Four blocks in a square. Shows four items.' },
-  { id: 'titledMatrix', name: 'Titled Quadrants', category: 'matrix', build: titledMatrix, sample: () => [{ text: 'Priorities', level: 0 }, ...flat(['Urgent', 'Important', 'Later', 'Drop']).map((x) => ({ ...x, level: 1 }))],
-    description: 'Four quadrants round a title. The first item is the title; its sub-items fill the quadrants.' },
-  { id: 'gridMatrix', name: 'Axis Grid', category: 'matrix', build: gridMatrix, maxRoots: 4, sample: () => flat(['High value', 'Quick win', 'Low value', 'Hard work']),
-    description: 'Four boxes placed by two crossing axes. Shows four items.' },
-  { id: 'cycleMatrix', name: 'Quartered Circle', category: 'matrix', build: cycleMatrix, maxRoots: 4, sample: () => withPoints(['North', 'East', 'West', 'South'], 1),
-    description: 'A circle in four parts, with sub-items in the corners. Shows four items.' },
+  { id: 'basicMatrix', nameKey: 'smartartLayouts.basicMatrix.name', category: 'matrix', build: basicMatrix, maxRoots: 4, sample: () => flat(['Strengths', 'Weaknesses', 'Opportunities', 'Threats']),
+    descriptionKey: 'smartartLayouts.basicMatrix.description' },
+  { id: 'titledMatrix', nameKey: 'smartartLayouts.titledMatrix.name', category: 'matrix', build: titledMatrix, sample: () => [{ text: 'Priorities', level: 0 }, ...flat(['Urgent', 'Important', 'Later', 'Drop']).map((x) => ({ ...x, level: 1 }))],
+    descriptionKey: 'smartartLayouts.titledMatrix.description' },
+  { id: 'gridMatrix', nameKey: 'smartartLayouts.gridMatrix.name', category: 'matrix', build: gridMatrix, maxRoots: 4, sample: () => flat(['High value', 'Quick win', 'Low value', 'Hard work']),
+    descriptionKey: 'smartartLayouts.gridMatrix.description' },
+  { id: 'cycleMatrix', nameKey: 'smartartLayouts.cycleMatrix.name', category: 'matrix', build: cycleMatrix, maxRoots: 4, sample: () => withPoints(['North', 'East', 'West', 'South'], 1),
+    descriptionKey: 'smartartLayouts.cycleMatrix.description' },
 
-  { id: 'basicPyramid', name: 'Pyramid', category: 'pyramid', build: basicPyramid, sample: () => flat(['Vision', 'Strategy', 'Tactics', 'Tasks']),
-    description: 'Levels from a narrow top to a broad base.' },
-  { id: 'invertedPyramid', name: 'Funnel Pyramid', category: 'pyramid', build: invertedPyramid, sample: () => flat(['Visitors', 'Leads', 'Customers']),
-    description: 'Levels from a broad top narrowing downward.' },
-  { id: 'pyramidList', name: 'Pyramid Labels', category: 'pyramid', build: pyramidList, sample: () => flat(['Foundation', 'Growth', 'Excellence']),
-    description: 'A pyramid with a labelled box for each level across it.' },
-  { id: 'segmentedPyramid', name: 'Tiled Pyramid', category: 'pyramid', build: segmentedPyramid, sample: () => flat(['A', 'B', 'C', 'D']),
-    description: 'A pyramid of triangle tiles, one for each item.' },
+  { id: 'basicPyramid', nameKey: 'smartartLayouts.basicPyramid.name', category: 'pyramid', build: basicPyramid, sample: () => flat(['Vision', 'Strategy', 'Tactics', 'Tasks']),
+    descriptionKey: 'smartartLayouts.basicPyramid.description' },
+  { id: 'invertedPyramid', nameKey: 'smartartLayouts.invertedPyramid.name', category: 'pyramid', build: invertedPyramid, sample: () => flat(['Visitors', 'Leads', 'Customers']),
+    descriptionKey: 'smartartLayouts.invertedPyramid.description' },
+  { id: 'pyramidList', nameKey: 'smartartLayouts.pyramidList.name', category: 'pyramid', build: pyramidList, sample: () => flat(['Foundation', 'Growth', 'Excellence']),
+    descriptionKey: 'smartartLayouts.pyramidList.description' },
+  { id: 'segmentedPyramid', nameKey: 'smartartLayouts.segmentedPyramid.name', category: 'pyramid', build: segmentedPyramid, sample: () => flat(['A', 'B', 'C', 'D']),
+    descriptionKey: 'smartartLayouts.segmentedPyramid.description' },
 ];
+
+for (const layout of SMARTART_LAYOUTS) {
+  Object.defineProperties(layout, {
+    name: { get() { return t(this.nameKey); }, enumerable: true },
+    description: { get() { return t(this.descriptionKey); }, enumerable: true },
+  });
+}
 
 export const layoutById = (id) => SMARTART_LAYOUTS.find((l) => l.id === id) || null;
 export const DEFAULT_LAYOUT = 'basicProcess';

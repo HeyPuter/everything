@@ -21,6 +21,12 @@ const fits = (transform, clips) =>
     ),
   );
 
+/** The kinds of path the PuterPath hint names; a signature or stamp placed here is marked as one. */
+const PATH_KINDS = { Shape: 'shape', Drawing: 'drawing', Signature: 'signature', Stamp: 'stamp' };
+/** The PuterPath hint that marks a path of the given kind and fill rule. */
+const pathHintTag = (kind, fillRule = 'nonzero') =>
+  `/PuterPath << /V 1 /Kind /${Object.keys(PATH_KINDS).find((key) => PATH_KINDS[key] === kind) || 'Drawing'} /Rule /${fillRule === 'evenodd' ? 'EvenOdd' : 'NonZero'} >> BDC`;
+
 // Only our explicit hint makes an unpainted path an editable object. Ordinary PDF
 // end-path and clipping commands must not become selectable objects.
 function pathHint(args) {
@@ -36,13 +42,13 @@ function pathHint(args) {
     data.V?.type !== 'number' ||
     data.V.value !== 1 ||
     data.Kind?.type !== 'name' ||
-    !['Shape', 'Drawing'].includes(data.Kind.value) ||
+    !Object.hasOwn(PATH_KINDS, data.Kind.value) ||
     data.Rule?.type !== 'name' ||
     !['NonZero', 'EvenOdd'].includes(data.Rule.value)
   )
     return null;
   return {
-    kind: data.Kind.value.toLowerCase(),
+    kind: PATH_KINDS[data.Kind.value],
     fillRule: data.Rule.value === 'EvenOdd' ? 'evenodd' : 'nonzero',
   };
 }
@@ -112,8 +118,9 @@ export function inspectPaths(doc, index) {
         if (commands.length) eligible = false;
         if (op === 'q') stack.push({ ...state });
         else if (op === 'Q') {
-          if (!stack.length) throw new Error('Unbalanced path state');
-          state = stack.pop();
+          // A stray Q in the page's own content restores nothing, as readers treat it.
+          if (stack.length) state = stack.pop();
+          else if (ancestry.length) throw new Error('Unbalanced path state');
         } else if (op === 'cm') state.ctm = matrix(state.ctm, a);
         else if (op === 'w') state.width = a[0];
         else if (op === 'J') state.cap = a[0];
@@ -444,7 +451,7 @@ export function editPath(
   )
     return false;
   if (changedPaint || changedOpacity)
-    source = `/PuterPath << /V 1 /Kind /${entry.kind === 'shape' ? 'Shape' : 'Drawing'} /Rule /${entry.fillRule === 'evenodd' ? 'EvenOdd' : 'NonZero'} >> BDC\n${source}\nEMC`;
+    source = `${pathHintTag(entry.kind, entry.fillRule)}\n${source}\nEMC`;
   const states = get(entry.resources, 'ExtGState') || doc.context.obj({});
   const opacityName = changedOpacity && !remove ? uniqueName(states, 'PathOpacity') : null;
   if (opacityName) commands.push(`${opacityName} gs`);

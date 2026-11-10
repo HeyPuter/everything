@@ -59,6 +59,8 @@ export function applyTheme(theme = getTheme()) {
   const meta = document.querySelectorAll('meta[name="theme-color"]');
   const color = resolvedTheme(theme) === 'dark' ? '#121212' : '#f4f4f5';
   meta.forEach((m) => m.setAttribute('content', color));
+  // puter.js's <puter-user-menu> (see user-menu.js) follows an explicit Light or Dark; System leaves it to the OS.
+  document.querySelectorAll('puter-user-menu').forEach((m) => (theme === 'light' || theme === 'dark' ? m.setAttribute('theme', theme) : m.removeAttribute('theme')));
   listeners.forEach((fn) => fn(resolvedTheme(theme)));
 }
 

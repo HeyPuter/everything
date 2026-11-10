@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Workbook } from '../src/core/workbook.js';
+import { formatValue } from '../src/core/format.js';
 import { DEFAULT_TREND, fitTrend, normalizeTrend, normalizeTrendlines, trendEquationText, trendFor, trendName, trendNumber, trendPoints,
   trendProblem, trendRSquaredText } from '../src/core/trendline.js';
 
@@ -135,6 +136,18 @@ describe('the equation', () => {
     expect(trendEquationText(fitTrend([[1, -1], [2, -2], [3, -3]], DEFAULT_TREND))).toBe('y = -x');
     expect(trendEquationText(fitTrend([[1, 5], [2, 5], [3, 5]], DEFAULT_TREND))).toBe('y = 5');
     expect(trendEquationText(fitTrend([[1, 0], [2, 0]], DEFAULT_TREND))).toBe('y = 0');
+  });
+
+  // A label format with fewer decimals than a coefficient needs left its term out, or its number off: a line of
+  // slope 0.3 under "#,##0" read "y = 2", a flat line, and one of slope 1.3 read "y = x + 2".
+  it('keeps every term under a label format that rounds a coefficient to zero or one', () => {
+    const format = code => v => formatValue(v, { fmt: 'custom', code });
+    expect(trendEquationText(fitTrend([[1, 2.3], [2, 2.6], [3, 2.9]], DEFAULT_TREND), format('#,##0'))).toBe('y = 0x + 2');
+    expect(trendEquationText(fitTrend([[1, 3.3], [2, 4.6], [3, 5.9]], DEFAULT_TREND), format('#,##0'))).toBe('y = 1x + 2');
+    expect(trendEquationText(fitTrend([[1, 3.3], [2, 4.6], [3, 5.9]], DEFAULT_TREND), format('0.0'))).toBe('y = 1.3x + 2.0');
+    // Exact ones and zeros still go as they do in General.
+    expect(trendEquationText(fitTrend([[1, 2], [2, 3], [3, 4]], DEFAULT_TREND), format('#,##0'))).toBe('y = x + 1');
+    expect(trendEquationText(fitTrend([[1, 5], [2, 5], [3, 5]], DEFAULT_TREND), format('0.00'))).toBe('y = 5.00');
   });
 
   it('names a trendline for its kind and series unless it has a name of its own', () => {

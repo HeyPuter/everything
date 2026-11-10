@@ -76,6 +76,63 @@ test('the comments panel covers the page but not the tools, and keeps an open no
   );
 });
 
+test('the tools pane and the side panel take turns instead of covering each other', async ({
+  page,
+}) => {
+  await openPdf(page, await pages(3));
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  const panel = page.getByRole('complementary', { name: 'Pages panel' });
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await expect(pane).toBeVisible();
+  await page.getByRole('tab', { name: 'Pages', exact: true }).click();
+  await expect(panel).toBeVisible();
+  await expect(pane).toBeHidden();
+  // The page thumbnails are under the reader's finger, not under the tools pane.
+  const thumb = await panel.locator('.thumb-paper').first().boundingBox();
+  const hit = await page.evaluate(
+    ([x, y]) => !!document.elementFromPoint(x, y)?.closest('.page-sidebar'),
+    [thumb.x + thumb.width / 2, thumb.y + thumb.height / 2],
+  );
+  expect(hit).toBe(true);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await expect(pane).toBeVisible();
+  await expect(panel).toBeHidden();
+});
+
+test('two fingers zoom the page, not the whole application', async ({ page }) => {
+  await openPdf(page, await pages(3));
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  await expect(zoom).toHaveValue('fit');
+  const sheet = page.locator('.page-slot[data-page="0"]');
+  const before = (await sheet.boundingBox()).width;
+  const view = await page.locator('.workspace').boundingBox();
+  // Between the fingers is blank page, which the browser would otherwise have zoomed.
+  const x = view.x + view.width * 0.6,
+    y = view.y + view.height * 0.5;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.synthesizePinchGesture', {
+    x,
+    y,
+    scaleFactor: 1.5,
+    gestureSourceType: 'touch',
+  });
+  await expect(zoom).not.toHaveValue('fit');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  expect(await page.evaluate(() => window.visualViewport.scale)).toBe(1);
+  const zoomed = (await sheet.boundingBox()).width;
+  expect(zoomed).toBeGreaterThan(before * 1.2);
+  // The tools stay where they were, in reach.
+  await expect(page.getByRole('toolbar', { name: 'PDF tools' })).toBeInViewport();
+  await cdp.send('Input.synthesizePinchGesture', {
+    x,
+    y,
+    scaleFactor: 0.6,
+    gestureSourceType: 'touch',
+  });
+  await expect.poll(async () => (await sheet.boundingBox()).width).toBeLessThan(zoomed * 0.8);
+  expect(await page.evaluate(() => window.visualViewport.scale)).toBe(1);
+});
+
 test('selecting text keeps the page and its controls where they were', async ({ page }) => {
   await openPdf(page, await pages(1));
   const target = page.getByRole('button', { name: 'Edit text: Page 1 words', exact: true });
@@ -200,4 +257,68 @@ test('a stamp placed on a phone is brought into view above the selection dock', 
     expect(box.y).toBeGreaterThanOrEqual(view.y);
     expect(box.y + box.height).toBeLessThanOrEqual(view.y + view.height);
   }
+});
+
+// A finger put down beside an open note let go of it at once, as a click away does: scrolling
+// the page closed the note being typed, and a pinch only closed it, without zooming.
+test('scrolling or pinching keeps an open note, and a tap beside it closes it', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 1200]);
+  addNote(doc, 0, { x: 300, y: 1150, text: 'Keep me' });
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Edit note: Keep me' }).tap();
+  const text = page.getByRole('textbox', { name: 'Note text', exact: true });
+  await expect(text).toBeFocused();
+  await page.keyboard.type(' open');
+  const workspace = page.locator('.workspace');
+  const view = await workspace.boundingBox();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.synthesizeScrollGesture', {
+    x: Math.round(view.x + view.width * 0.4),
+    y: Math.round(view.y + view.height * 0.7),
+    yDistance: -100,
+    gestureSourceType: 'touch',
+  });
+  await expect.poll(() => workspace.evaluate((node) => node.scrollTop)).toBeGreaterThan(40);
+  await expect(text).toHaveValue('Keep me open');
+  await expect(text).toBeFocused();
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  await cdp.send('Input.synthesizePinchGesture', {
+    x: view.x + view.width * 0.4,
+    y: view.y + view.height * 0.5,
+    scaleFactor: 0.7,
+    gestureSourceType: 'touch',
+  });
+  await expect(zoom).not.toHaveValue('fit');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(text).toHaveValue('Keep me open');
+  // A tap on the page beside it closes the note and keeps what was typed.
+  const sheet = await page.locator('.paper').boundingBox();
+  await page.touchscreen.tap(sheet.x + 10, sheet.y + 10);
+  await expect(text).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit note: Keep me open' })).toBeVisible();
+});
+
+test('the find box shows its whole prompt until there is a count beside it', async ({ page }) => {
+  await openPdf(page, await pages(2));
+  await page.keyboard.press('ControlOrMeta+f');
+  const box = page.getByRole('combobox', { name: 'Find in PDF' });
+  await expect(box).toBeFocused();
+  // The empty match count kept 60px beside the box, and "Find text or tools" lost its end.
+  const room = () =>
+    box.evaluate((input) => {
+      const style = getComputedStyle(input);
+      const context = document.createElement('canvas').getContext('2d');
+      context.font = `${style.fontSize} ${style.fontFamily}`;
+      const free =
+        input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      return free - context.measureText(input.placeholder).width;
+    });
+  // Beyond the prompt, a search field keeps the place of its clear button (about 20px).
+  expect(await room()).toBeGreaterThan(30);
+  await box.fill('words');
+  await expect(page.locator('.search-count')).toHaveText('1 of 2');
+  await expect(page.locator('.search-count')).toBeVisible();
 });

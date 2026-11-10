@@ -80,8 +80,8 @@ export function openMailDialog({ mailbox, intake, store, toast = defaultToast })
   }
 
   // connect()/reconnect() MUST be invoked directly from this click handler —
-  // puter.perms.request opens a popup and needs the user gesture right here,
-  // not after an intervening await.
+  // notifications.enable() and puter.perms.request both prompt, and need the
+  // user gesture right here, not after an intervening await.
   function runPrimaryAction(state) {
     if (busy) return;
     busy = true;

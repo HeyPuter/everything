@@ -119,7 +119,8 @@ import { toast as defaultToast } from './toast.js';
 // '29': host cancellations email the host a receipt as well as notifying the guest.
 // '30': forces each user's RSVP worker to redeploy onto the current runtime
 //      (puter.js with email.sendTransactional); /admin/ping reports it as runtime.
-export const RSVP_WORKER_VERSION = '30';
+// '31': a guest's answer notifies the host through puter.notifications.
+export const RSVP_WORKER_VERSION = '32';
 
 const CFG_KEY = 'cal:rsvp:cfg';
 const LINKS_PREFIX = 'cal:rsvp:links:';

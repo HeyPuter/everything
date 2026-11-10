@@ -275,3 +275,145 @@ test('a Word watermark shows as the current watermark, and a new one or Remove W
   expect(strFromU8(parts['word/header1.xml'])).toContain('Acme internal');
   expect(errors).toEqual([]);
 });
+
+test('a page color chosen over a fill effect shows in the Page Color menu, and Undo brings the fill back', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await open(page);
+  const pageColor = () => ribbon(page).getByRole('button', { name: 'Page Color' });
+  const menu = page.getByRole('menu', { name: 'Page Color' });
+  await pageColor().click();
+  await menu.getByRole('menuitem', { name: 'Fill Effects…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fill Effects' });
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  await pageColor().click();
+  await expect(menu.getByRole('menuitem', { name: 'Remove Fill Effect' })).toBeVisible();
+  // A solid color replaces the fill effect (the page shows the color, and the saved file keeps only the color).
+  await menu.getByRole('menuitemradio', { name: 'Light blue' }).click();
+  await pageColor().click();
+  await expect(menu.getByRole('menuitemradio', { name: 'Light blue' })).toHaveAttribute('aria-checked', 'true');
+  await expect(menu.getByRole('menuitem', { name: 'Remove Fill Effect' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await input.press('ControlOrMeta+z');
+  await pageColor().click();
+  await expect(menu.getByRole('menuitem', { name: 'Remove Fill Effect' })).toBeVisible();
+  await expect(menu.getByRole('menuitemradio', { name: 'Light blue' })).toHaveAttribute('aria-checked', 'false');
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
+
+test('Undo history lists design changes, and choosing one undoes back through it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await open(page);
+  const history = page.getByRole('menu', { name: 'Undo history' });
+  const openHistory = () => page.locator('.ed-quick').getByRole('button', { name: 'Undo history' }).click();
+  await ribbon(page).getByRole('button', { name: 'Themes' }).click();
+  await page.getByRole('menu', { name: 'Themes' }).getByRole('menuitemradio', { name: 'Harbor theme' }).click();
+  await expectFont(page, /Montserrat/);
+  // Undo would step back through the theme: the list says so.
+  await openHistory();
+  await expect(history.getByRole('menuitem')).toHaveText(['Undo Theme']);
+  await page.keyboard.press('Escape');
+  await input.press('ControlOrMeta+End');
+  await input.pressSequentially('!');
+  await openHistory();
+  await expect(history.getByRole('menuitem')).toHaveText(['Undo Typing', 'Undo 2 actions (to Theme)']);
+  await history.getByRole('menuitem', { name: 'Undo 2 actions (to Theme)' }).click();
+  await expect(input).toBeFocused();
+  await input.press('ControlOrMeta+Home');
+  await expectFont(page, /^(?!Montserrat)/);
+  // Both steps are gone: nothing is left to undo.
+  await expect(page.locator('.ed-quick').getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  await expect(page.locator('.ed-quick').getByRole('button', { name: 'Undo history' })).toBeDisabled();
+  expect(errors).toEqual([]);
+});
+
+test('OK after Apply in the custom watermark dialog adds no second undo step unless something changed', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await open(page);
+  const history = page.getByRole('menu', { name: 'Undo history' });
+  const steps = async () => {
+    await page.locator('.ed-quick').getByRole('button', { name: 'Undo history' }).click();
+    const items = await history.getByRole('menuitem').allTextContents();
+    await page.keyboard.press('Escape');
+    return items;
+  };
+  const dialog = page.getByRole('dialog', { name: 'Watermark' });
+  const custom = async () => {
+    await ribbon(page).getByRole('button', { name: 'Watermark' }).click();
+    await page.getByRole('menuitem', { name: 'Custom Watermark…' }).click();
+    await expect(dialog).toBeVisible();
+  };
+  await custom();
+  await dialog.getByLabel('Text').fill('FOR REVIEW');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.locator('.ed-quick').getByRole('button', { name: 'Undo history' })).toBeEnabled();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await steps()).toEqual(['Undo Watermark']);
+  // A change made after Apply is still applied by OK, as its own step.
+  await custom();
+  await dialog.getByLabel('Text').fill('FINAL');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await dialog.getByRole('radio', { name: 'Horizontal' }).click();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await steps()).toEqual(['Undo Watermark', 'Undo 2 actions (to Watermark)', 'Undo 3 actions (to Watermark)']);
+  expect(errors).toEqual([]);
+});
+
+test('the keyboard is back in the document after a Design dialog changes it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await open(page);
+  const run = async (button, item, title, submit, change = async () => {}) => {
+    await ribbon(page).getByRole('button', { name: button }).click();
+    await page.getByRole('menuitem', { name: item }).click();
+    const dialog = page.getByRole('dialog', { name: title });
+    await change(dialog);
+    await dialog.getByRole('button', { name: submit }).click();
+    await expect(dialog).toBeHidden();
+    await expect(input).toBeFocused();
+  };
+  await run('Watermark', 'Custom Watermark…', 'Watermark', 'OK');
+  await run('Theme Colors', 'Customize Colors…', 'Customize Colors', 'Save', dialog => dialog.getByLabel('Accent 1').fill('#aa2244'));
+  await run('Theme Fonts', 'Customize Fonts…', 'Customize Fonts', 'Save');
+  await run('Page Color', 'Fill Effects…', 'Fill Effects', 'OK');
+  // Typing goes on where the caret was.
+  await page.keyboard.type('!');
+  await expect(input).toHaveValue(/!/);
+  expect(errors).toEqual([]);
+});
+
+test('contrast themes keep the Design tab’s palettes and chosen items visible', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await open(page);
+  const marked = locator => locator.evaluate(el => getComputedStyle(el).outlineStyle !== 'none' && parseFloat(getComputedStyle(el).outlineWidth) >= 1);
+  await ribbon(page).getByRole('button', { name: 'Themes' }).click();
+  await page.getByRole('menu', { name: 'Themes' }).getByRole('menuitemradio', { name: 'Harbor theme' }).click();
+  await expectFont(page, /Montserrat/);
+  // Theme Colors: each row's strip shows its scheme's colors, and the scheme in use is marked.
+  await ribbon(page).getByRole('button', { name: 'Theme Colors' }).click();
+  const colors = page.getByRole('menu', { name: 'Theme Colors' });
+  const strip = colors.getByRole('menuitemradio', { name: 'Ember' }).locator('.design-color-strip > span').nth(2);
+  expect(await strip.evaluate(el => getComputedStyle(el).forcedColorAdjust)).toBe('none');
+  expect(await marked(colors.locator('[role="menuitemradio"][aria-checked="true"]'))).toBe(true);
+  expect(await marked(colors.locator('[role="menuitemradio"][aria-checked="false"]').first())).toBe(false);
+  await page.keyboard.press('Escape');
+  await ribbon(page).getByRole('button', { name: 'Theme Fonts' }).click();
+  const fonts = page.getByRole('menu', { name: 'Theme Fonts' });
+  expect(await marked(fonts.locator('[role="menuitemradio"][aria-checked="true"]'))).toBe(true);
+  await page.keyboard.press('Escape');
+  // Customize Colors: the sample shows the colors being chosen.
+  await ribbon(page).getByRole('button', { name: 'Theme Colors' }).click();
+  await page.getByRole('menuitem', { name: 'Customize Colors…' }).click();
+  const sample = page.getByRole('dialog', { name: 'Customize Colors' }).locator('.design-color-sample');
+  expect(await sample.evaluate(el => getComputedStyle(el).forcedColorAdjust)).toBe('none');
+  await page.keyboard.press('Escape');
+  // Fill Effects: the chosen shading style is marked.
+  await ribbon(page).getByRole('button', { name: 'Page Color' }).click();
+  await page.getByRole('menuitem', { name: 'Fill Effects…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fill Effects' });
+  expect(await marked(dialog.locator('.design-tile[aria-checked="true"]').first())).toBe(true);
+  expect(await marked(dialog.locator('.design-tile[aria-checked="false"]').first())).toBe(false);
+  await page.keyboard.press('Escape');
+});

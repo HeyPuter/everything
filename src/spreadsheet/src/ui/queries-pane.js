@@ -8,6 +8,7 @@ import { icon } from './icons.js';
 import { openMenu } from './menu.js';
 import { confirmDialog, promptDialog } from './modal.js';
 import { toast } from './toast.js';
+import { t } from '../i18n/index.js';
 import { refreshQuery, deleteQuery, saveQuery, loadedTable, queryNameProblem, uniqueQueryName, sourceSummary, queryById } from '../core/queries.js';
 import { queryIo, openImportData, fitQueryTables } from './get-data.js';
 
@@ -18,21 +19,23 @@ export function createQueriesPane(ctx) {
   const busy = new Set();
   const errors = new Map();
   let lastVersion = -1;
-  const list = el('div.qc-list', { role: 'list', 'aria-label': 'Queries' });
+  const list = el('div.qc-list', { role: 'list', 'aria-label': t('queriesPane.queries') });
+  // Beside the list rather than in it: a list holds list items alone.
+  const empty = el('p.qc-empty', { hidden: true }, t('queriesPane.empty'));
   const count = el('span.qc-count');
-  const close = el('button.icon-btn', { type: 'button', 'aria-label': 'Close Queries & Connections', html: icon('x', 16), onclick: () => api.hide() });
-  const root = el('section.a11y-pane.qc-pane', { role: 'region', 'aria-label': 'Queries & Connections', hidden: true },
-    el('div.a11y-head', {}, el('span.a11y-title', {}, 'Queries & Connections'), close),
-    el('div.qc-tabs', { role: 'tablist' }, el('span.qc-tab', { role: 'tab', 'aria-selected': 'true' }, 'Queries'), count),
-    el('div.a11y-body', {}, list));
+  const close = el('button.icon-btn', { type: 'button', 'aria-label': t('queriesPane.close'), html: icon('x', 16), onclick: () => api.hide() });
+  const root = el('section.a11y-pane.qc-pane', { role: 'region', 'aria-label': t('queriesPane.title'), hidden: true },
+    el('div.a11y-head', {}, el('span.a11y-title', {}, t('queriesPane.title')), close),
+    el('div.qc-tabs', { role: 'tablist' }, el('span.qc-tab', { role: 'tab', 'aria-selected': 'true' }, t('queriesPane.queries')), count),
+    el('div.a11y-body', {}, list, empty));
 
   const status = (q) => {
-    if (busy.has(q.id)) return 'Refreshing…';
-    if (errors.has(q.id)) return `Load error: ${errors.get(q.id)}`;
-    if (q.load?.kind !== 'table') return 'Connection only.';
-    if (!loadedTable(ctx.wb, q)) return 'Not loaded: its table was removed.';
+    if (busy.has(q.id)) return t('queriesPane.refreshing');
+    if (errors.has(q.id)) return t('queriesPane.loadError', { error: errors.get(q.id) });
+    if (q.load?.kind !== 'table') return t('queriesPane.connectionOnly');
+    if (!loadedTable(ctx.wb, q)) return t('queriesPane.tableRemoved');
     const n = q.rowCount ?? 0;
-    return `${n.toLocaleString()} row${n === 1 ? '' : 's'} loaded.${q.errorCount ? ` ${q.errorCount} error${q.errorCount === 1 ? '' : 's'}.` : ''}`;
+    return q.errorCount ? t('queriesPane.loadedWithErrors', { rows: n, errors: q.errorCount }) : t('queriesPane.loaded', { rows: n });
   };
 
   async function refresh(q) {
@@ -47,28 +50,28 @@ export function createQueriesPane(ctx) {
 
   async function remove(q) {
     const hit = loadedTable(ctx.wb, q);
-    const ok = await confirmDialog({ title: 'Delete Query', message: `Are you sure you want to delete "${q.name}"?${hit ? ' Its loaded table stays in the workbook as data.' : ''}`, confirmLabel: 'Delete' });
+    const ok = await confirmDialog({ title: t('queriesPane.deleteTitle'), message: hit ? t('queriesPane.deleteLoaded', { name: q.name }) : t('queriesPane.deleteConfirm', { name: q.name }), confirmLabel: t('common.delete') });
     if (!ok) return;
     deleteQuery(ctx.wb, q.id);
     errors.delete(q.id);
-    toast(`Query ${q.name} deleted`, { icon: 'trash' });
+    toast(t('queriesPane.deleted', { name: q.name }), { icon: 'trash' });
   }
 
   async function rename(q) {
-    const name = await promptDialog({ title: 'Rename', label: 'Name', value: q.name, confirmLabel: 'OK', validate: (v) => queryNameProblem(ctx.wb, v, q.id) });
+    const name = await promptDialog({ title: t('common.rename'), label: t('common.name'), value: q.name, confirmLabel: t('common.ok'), validate: (v) => queryNameProblem(ctx.wb, v, q.id) });
     if (!name || name.trim() === q.name) return;
     saveQuery(ctx.wb, { ...q, name: name.trim() });
   }
 
   const menu = (q, at) => openMenu({ ...at, label: q.name, items: [
-    { label: 'Edit', icon: 'pencil', onSelect: () => ctx.edit(q.id) },
-    { label: 'Delete', icon: 'trash', onSelect: () => remove(q) },
-    { label: 'Rename', onSelect: () => rename(q) },
-    { label: 'Refresh', icon: 'refresh', onSelect: () => refresh(q) },
-    { label: 'Load To…', onSelect: () => openImportData(ctx, { query: q }) },
+    { label: t('common.edit'), icon: 'pencil', onSelect: () => ctx.edit(q.id) },
+    { label: t('common.delete'), icon: 'trash', onSelect: () => remove(q) },
+    { label: t('common.rename'), onSelect: () => rename(q) },
+    { label: t('common.refresh'), icon: 'refresh', onSelect: () => refresh(q) },
+    { label: t('queriesPane.loadTo'), onSelect: () => openImportData(ctx, { query: q }) },
     { separator: true },
-    { label: 'Duplicate', icon: 'duplicate', onSelect: () => saveQuery(ctx.wb, { ...JSON.parse(JSON.stringify(q)), id: newId(), name: uniqueQueryName(ctx.wb, q.name), load: { kind: 'connection' } }) },
-    { label: 'Reference', onSelect: () => saveQuery(ctx.wb, { id: newId(), name: uniqueQueryName(ctx.wb, q.name), source: { kind: 'query', query: q.name }, steps: [], load: { kind: 'connection' } }) },
+    { label: t('queriesPane.duplicate'), icon: 'duplicate', onSelect: () => saveQuery(ctx.wb, { ...JSON.parse(JSON.stringify(q)), id: newId(), name: uniqueQueryName(ctx.wb, q.name), load: { kind: 'connection' } }) },
+    { label: t('queriesPane.reference'), onSelect: () => saveQuery(ctx.wb, { id: newId(), name: uniqueQueryName(ctx.wb, q.name), source: { kind: 'query', query: q.name }, steps: [], load: { kind: 'connection' } }) },
   ] });
 
   function render(force = false) {
@@ -77,22 +80,25 @@ export function createQueriesPane(ctx) {
     lastVersion = ctx.wb.version;
     const queries = ctx.wb.queries || [];
     count.textContent = String(queries.length);
-    if (!queries.length) {
-      list.replaceChildren(el('p.qc-empty', {}, 'This workbook has no queries. Use Data ▸ Get Data to bring data in.'));
-      return;
-    }
+    list.hidden = !queries.length;
+    empty.hidden = !!queries.length;
     list.replaceChildren(...queries.map((q) => {
       const item = el('div.qc-item', { role: 'listitem', title: sourceSummary(q), tabindex: 0,
         ondblclick: () => ctx.edit(q.id),
         oncontextmenu: (e) => { e.preventDefault(); menu(q, { x: e.clientX, y: e.clientY }); },
-        onkeydown: (e) => { if (e.key === 'Enter') ctx.edit(q.id); if (e.key === 'Delete') remove(q); } },
+        onkeydown: (e) => {
+          // The row's own keys; Enter or Delete on one of its buttons is that button's.
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter') ctx.edit(q.id);
+          if (e.key === 'Delete') remove(q);
+        } },
       el('span.qc-icon', { html: icon('table', 18) }),
       el('div.qc-text', {}, el('div.qc-name', {}, q.name), el('div.qc-status', {}, status(q))),
       el('div.qc-actions', {},
-        el('button.icon-btn', { type: 'button', title: 'Refresh', 'aria-label': `Refresh ${q.name}`, html: icon(busy.has(q.id) ? 'spinner' : 'refresh', 14), onclick: () => refresh(q) }),
-        el('button.icon-btn', { type: 'button', title: 'Edit', 'aria-label': `Edit ${q.name}`, html: icon('pencil', 14), onclick: () => ctx.edit(q.id) }),
-        el('button.icon-btn', { type: 'button', title: 'Delete', 'aria-label': `Delete ${q.name}`, html: icon('trash', 14), onclick: () => remove(q) }),
-        el('button.icon-btn', { type: 'button', title: 'More', 'aria-label': `More for ${q.name}`, html: icon('more', 14), onclick: (e) => menu(q, { anchor: e.currentTarget }) })));
+        el('button.icon-btn', { type: 'button', title: t('common.refresh'), 'aria-label': t('queriesPane.refreshNamed', { name: q.name }), html: icon(busy.has(q.id) ? 'spinner' : 'refresh', 14), onclick: () => refresh(q) }),
+        el('button.icon-btn', { type: 'button', title: t('common.edit'), 'aria-label': t('queriesPane.editNamed', { name: q.name }), html: icon('pencil', 14), onclick: () => ctx.edit(q.id) }),
+        el('button.icon-btn', { type: 'button', title: t('common.delete'), 'aria-label': t('queriesPane.deleteNamed', { name: q.name }), html: icon('trash', 14), onclick: () => remove(q) }),
+        el('button.icon-btn', { type: 'button', title: t('queriesPane.more'), 'aria-label': t('queriesPane.moreNamed', { name: q.name }), html: icon('more', 14), onclick: (e) => menu(q, { anchor: e.currentTarget }) })));
       if (errors.has(q.id)) item.classList.add('qc-failed');
       return item;
     }));

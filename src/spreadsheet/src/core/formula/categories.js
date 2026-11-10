@@ -5,6 +5,7 @@
  * into "Additional" so a new function is never left out of the library.
  */
 import { FUNCTION_NAMES } from './functions.js';
+import { t } from '../../i18n/index.js';
 
 const words = text => text.trim().split(/\s+/);
 
@@ -53,6 +54,34 @@ const LISTS = [
 /** The categories shown directly on the ribbon; the rest sit under More Functions. */
 export const PRIMARY_CATEGORIES = ['Financial', 'Logical', 'Text', 'Date & Time', 'Lookup & Reference', 'Math & Trig'];
 export const MORE_CATEGORIES = ['Statistical', 'Engineering', 'Information', 'Cube', 'Compatibility', 'Web', 'Database', 'Additional'];
+
+/** Each category's name on screen, by its id (the English names above, which stay the ids). */
+const LABELS = {
+  Financial: 'formulaCategories.financial',
+  Logical: 'formulaCategories.logical',
+  Text: 'formulaCategories.text',
+  'Date & Time': 'formulaCategories.dateTime',
+  'Lookup & Reference': 'formulaCategories.lookupReference',
+  'Math & Trig': 'formulaCategories.mathTrig',
+  Statistical: 'formulaCategories.statistical',
+  Engineering: 'formulaCategories.engineering',
+  Information: 'formulaCategories.information',
+  Compatibility: 'formulaCategories.compatibility',
+  Web: 'formulaCategories.web',
+  Cube: 'formulaCategories.cube',
+  Database: 'formulaCategories.database',
+  Additional: 'formulaCategories.additional',
+};
+
+/** A category's name in the interface language: categoryLabel('Math & Trig') → "Math & Trig" / "数学和三角函数". */
+export function categoryLabel(id) {
+  return LABELS[id] ? t(LABELS[id]) : id;
+}
+
+/** A category's menu of functions as the ribbon names it for a screen reader: "Math & Trig functions". */
+export function categoryFunctionsLabel(id) {
+  return t('formulaCategories.functionsOf', { category: categoryLabel(id) });
+}
 
 /** Map of category → sorted function names this app implements. */
 export function functionCategories(names = FUNCTION_NAMES) {

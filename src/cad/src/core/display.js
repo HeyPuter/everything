@@ -65,3 +65,92 @@ export function recordedBounds(items) {
   }
   return x0 === Infinity ? null : [x0, y0, x1, y1];
 }
+
+/**
+ * Draw-order bands. Within a band fills are drawn beneath lines, so a hatch
+ * never hides its own boundary. Objects whose order was set with DRAWORDER
+ * carry an `orderGroup`; each run of consecutive objects (in draw order) with
+ * the same orderGroup, or with none, is a band drawn wholly over the earlier
+ * ones. Drawings that never used DRAWORDER are one band.
+ *
+ * Returns { of: Map<id, band> (bands above 0 only), band, key, started },
+ * where band and key describe the last run (see nextBand).
+ */
+export function drawBands(entities) {
+  const of = new Map();
+  let band = 0,
+    key = null,
+    first = true;
+  for (const e of entities) {
+    const k = e.orderGroup ?? null;
+    if (first) first = false;
+    else if (k !== key) band++;
+    key = k;
+    if (band) of.set(e.id, band);
+  }
+  return { of, band, key, started: !first };
+}
+
+/** Band of an object appended after the last run `end` (from drawBands), which it updates. */
+export function nextBand(end, ent) {
+  const k = ent.orderGroup ?? null;
+  if (k !== end.key) {
+    if (end.started) end.band++;
+    end.key = k;
+  }
+  end.started = true;
+  return end.band;
+}
+
+/**
+ * Items recorded per object, reordered as the screen draws them: band by
+ * band, each band's fills beneath its lines.
+ * groups: Array<{ band, items }> in draw order (bands ascending).
+ */
+export function bandOrder(groups) {
+  const out = [];
+  let lines = [];
+  let band = 0;
+  for (const g of groups) {
+    if (g.band !== band) {
+      for (const it of lines) out.push(it);
+      lines = [];
+      band = g.band;
+    }
+    for (const it of g.items) (it.kind === 'fill' ? out : lines).push(it);
+  }
+  for (const it of lines) out.push(it);
+  return out;
+}
+
+/**
+ * Names of the blocks whose content depends on any of `names`: those blocks
+ * and every block that inserts one of them, directly or nested.
+ */
+export function blocksUsing(drawing, names) {
+  const parents = new Map();
+  for (const [bn, b] of drawing.blocks) {
+    for (const e of b.entities) {
+      if (e.type !== 'insert') continue;
+      if (!parents.has(e.name)) parents.set(e.name, []);
+      parents.get(e.name).push(bn);
+    }
+  }
+  const out = new Set(names);
+  const todo = [...out];
+  while (todo.length) {
+    for (const p of parents.get(todo.pop()) ?? []) {
+      if (!out.has(p)) {
+        out.add(p);
+        todo.push(p);
+      }
+    }
+  }
+  return out;
+}
+
+/** True when a model space reference other than those in `skip` uses one of `blocks`. */
+export function blocksReferenced(drawing, blocks, skip) {
+  for (const [id, e] of drawing.entities) if (e.type === 'insert' && blocks.has(e.name) && !skip?.has(id)) return true;
+  return false;
+}

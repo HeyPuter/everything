@@ -1,5 +1,7 @@
-// The Puter SDK, loaded the first time the assistant needs it (the rest of the
-// app works without Puter, offline included, so the page does not load it up front).
+// The Puter SDK. index.html loads it with the page (deferred), so the top bar can show
+// puter.js's account menu (src/ui/usermenu.ts); the rest of the app works without Puter, offline
+// included, so a load that failed is not an error. The assistant loads it again here the first
+// time it needs it, and says so (PUTER_LOADED) for the top bar.
 
 const SDK_URL = 'https://js.puter.com/v2/';
 
@@ -10,6 +12,8 @@ interface PuterSDK {
 }
 
 const sdk = () => (globalThis as unknown as { puter?: PuterSDK }).puter ?? null;
+/** Fired on window when the SDK arrived after the page had started without it. */
+export const PUTER_LOADED = 'puter-loaded';
 let loading: Promise<PuterSDK | null> | null = null;
 
 /** The SDK, loading it once; null when it cannot be reached. */
@@ -22,6 +26,7 @@ export function loadPuter(timeoutMs = 15000): Promise<PuterSDK | null> {
       clearTimeout(timer);
       resolve(sdk());
       if (!sdk()) loading = null;
+      else if (typeof dispatchEvent === 'function') dispatchEvent(new Event(PUTER_LOADED));
     };
     const timer = setTimeout(done, timeoutMs);
     const s = document.createElement('script');

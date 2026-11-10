@@ -50,7 +50,7 @@ const MAX_RECIPIENTS = 10; // per request
 const DAILY_LIMIT = 100; // per user per UTC day
 
 /** Where the app lives when the caller does not say (or says somewhere untrusted). */
-const DEFAULT_APP = 'https://puter.com/app/teamchat';
+const DEFAULT_APP = 'https://teamchat.puter.com';
 
 /* ---- Small utilities ------------------------------------------------------ */
 

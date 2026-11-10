@@ -10,15 +10,17 @@ import { defaultHeader, defaultLayer, COLOR_BYLAYER, LW_BYLAYER, LW_DEFAULT, TWO
 import { rgbToHex } from '../../core/colors.js';
 import { STANDARD_LINETYPES } from '../../core/linetypes.js';
 import { defaultTextStyle, defaultDimStyle } from '../../core/styles.js';
+import { getPattern } from '../../core/hatch/patterns.js';
 import {
   normAngle,
   uniformKnots,
   clampSpline,
-  fitToSpline,
+  rationalToCubic,
   tessellateSpline,
   ellipsePoints,
   conjugateToEllipse,
 } from './geom.js';
+import { splineFromFitPoints } from '../../core/geom/spline.js';
 
 const DEG = Math.PI / 180;
 const ATTACH = ['tl', 'tc', 'tr', 'ml', 'mc', 'mr', 'bl', 'bc', 'br'];
@@ -92,6 +94,9 @@ function decodeInput(input) {
   if (isBinaryDxf(bytes)) {
     throw new Error('Binary DXF files are not supported. Save the drawing as ASCII DXF and try again.');
   }
+  // UTF-16 text (some converters write it with a byte order mark)
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
   const head = new TextDecoder('windows-1252').decode(bytes.subarray(0, Math.min(bytes.length, 65536)));
   const ver = sniffHeader(head, '$ACADVER');
   if (ver && ver.toUpperCase() >= 'AC1021') return new TextDecoder('utf-8').decode(bytes);
@@ -129,9 +134,14 @@ export function decodeUnicode(s) {
   return out;
 }
 
-const PCT = { c: '⌀', C: '⌀', d: '°', D: '°', p: '±', P: '±' };
+/** Letters of the %% codes that text draws (diameter, degree, plus-minus, percent, toggles). */
+const PCT = /[cdpuok%]/i;
 
-/** Plain value of a TEXT string: %% control codes, caret codes, \U+ escapes. */
+/**
+ * Value of a TEXT string with caret codes and \U+ escapes decoded. The %%
+ * control codes the text draws (%%c %%d %%p %%% %%nnn %%u %%o %%k) stay in
+ * the value, as AutoCAD keeps them, so editing shows the codes typed.
+ */
 export function decodeText(s) {
   if (s.indexOf('%%') < 0 && s.indexOf('^') < 0 && s.indexOf('\\') < 0) return s;
   let out = '';
@@ -141,24 +151,16 @@ export function decodeText(s) {
     const c = s[i];
     if (c === '%' && s[i + 1] === '%' && i + 2 < n) {
       const d = s[i + 2];
-      if (PCT[d]) {
-        out += PCT[d];
-        i += 3;
-        continue;
-      }
-      if (d === '%') {
-        out += '%';
-        i += 3;
-        continue;
-      }
-      if (d === 'u' || d === 'U' || d === 'o' || d === 'O' || d === 'k' || d === 'K') {
+      if (PCT.test(d)) {
+        out += s.slice(i, i + 3);
         i += 3;
         continue;
       }
       if (d >= '0' && d <= '9') {
         let j = i + 2;
         while (j < n && j < i + 5 && s[j] >= '0' && s[j] <= '9') j++;
-        out += String.fromCharCode(+s.slice(i + 2, j));
+        // three digits stay (the text decodes them); shorter forms become the character
+        out += j === i + 5 ? s.slice(i, j) : String.fromCharCode(+s.slice(i + 2, j));
         i = j;
         continue;
       }
@@ -191,7 +193,7 @@ function skipTo(s, i, ch) {
 /**
  * Plain text of an MTEXT string: paragraph breaks become '\n', formatting
  * codes (\f \H \C \W \Q \T \A \p ...) and grouping braces are removed,
- * stacked fractions become 'a/b'.
+ * stacked fractions become 'a/b'. %% codes stay.
  */
 export function stripMtext(s) {
   if (s.indexOf('\\') < 0 && s.indexOf('{') < 0 && s.indexOf('}') < 0 && s.indexOf('%%') < 0 && s.indexOf('^') < 0) {
@@ -285,10 +287,8 @@ export function stripMtext(s) {
     } else if (c === '{' || c === '}') {
       i++;
     } else if (c === '%' && s[i + 1] === '%' && i + 2 < n) {
-      const d = s[i + 2];
-      if (PCT[d]) out += PCT[d];
-      else if (d === '%') out += '%';
-      else out += '%%' + d;
+      // %% codes stay, the text decodes them
+      out += s.slice(i, i + 3);
       i += 3;
     } else if (c === '^' && i + 1 < n) {
       const d = s.charCodeAt(i + 1);
@@ -333,7 +333,7 @@ class Tokenizer {
       let i = this.pos;
       let end = e;
       if (end > i && s.charCodeAt(end - 1) === 13) end--;
-      while (i < end && s.charCodeAt(i) === 32) i++;
+      while (i < end && (s.charCodeAt(i) === 32 || s.charCodeAt(i) === 9)) i++;
       while (end > i && (s.charCodeAt(end - 1) === 32 || s.charCodeAt(end - 1) === 9)) end--;
       let neg = false;
       if (i < end && s.charCodeAt(i) === 45) {
@@ -523,6 +523,11 @@ class DxfParser {
     this.dimRefs = [];
     this.mtextByHandle = new Map();
     this.leaderLinks = [];
+    // draw order: handle of the record each model space object came from, and
+    // the SORTENTS table's sort handle per entity handle
+    this.curHandle = '';
+    this.handleOf = new Map();
+    this.sortHandles = new Map();
     this.lastLayerRaw = null;
     this.lastLayer = '0';
     this.headerRaw = {};
@@ -578,6 +583,33 @@ class DxfParser {
     return { drawing: this.drawing, warnings: this.collectWarnings(), stats: this.stats };
   }
 
+  /**
+   * Convert records that did not come from DXF text (DWG import): an iterable
+   * of { type, codes, vals } with the SECTION / ENDSEC structure of a DXF file.
+   */
+  runRecords(records) {
+    const R = this.R;
+    const codes = R.codes;
+    const vals = R.vals;
+    for (const rec of records) {
+      R.type = rec.type;
+      const n = rec.codes.length;
+      let end = -1;
+      for (let i = 0; i < n; i++) {
+        const c = rec.codes[i];
+        if (end < 0 && c >= 1000) end = i;
+        codes[i] = c;
+        vals[i] = rec.vals[i];
+      }
+      R.n = n;
+      R.end = end < 0 ? n : end;
+      this.record(R);
+      if (this.sawEof) break;
+    }
+    this.finish();
+    return { drawing: this.drawing, warnings: this.collectWarnings(), stats: this.stats };
+  }
+
   collectWarnings() {
     return this.warnings.map((w) => {
       const n = this.warnSet.get(w);
@@ -605,6 +637,7 @@ class DxfParser {
       if (this.section === 'ENTITIES') this.entity(R, this.model);
       else if (this.section === 'BLOCKS') this.blockRecord(R);
       else if (this.section === 'TABLES') this.tableRecord(R);
+      else if (this.section === 'OBJECTS' && R.type === 'SORTENTSTABLE') this.sortents(R);
     } catch (err) {
       this.warn(`Could not read ${R.type}: ${err.message}`);
     }
@@ -924,7 +957,8 @@ class DxfParser {
   }
 
   ltName(raw, fallback = 'Continuous') {
-    const name = raw.trim();
+    // Names are stored decoded (ltypeEntry); references may hold \U+ escapes.
+    const name = decodeUnicode(raw.trim());
     const key = name.toLowerCase();
     if (key === 'bylayer') return 'ByLayer';
     if (key === 'byblock') return 'ByBlock';
@@ -942,17 +976,14 @@ class DxfParser {
     return fallback;
   }
 
+  // No name or an unknown one means the file's own STANDARD entry, in whatever case it has.
   styleName(raw) {
-    const key = raw.trim().toLowerCase();
-    if (!key) return 'Standard';
-    const st = this.styleMap.get(key);
+    const st = this.styleMap.get(decodeUnicode(raw.trim()).toLowerCase()) ?? this.styleMap.get('standard');
     return st ? st.name : 'Standard';
   }
 
   dimStyleName(raw) {
-    const key = raw.trim().toLowerCase();
-    if (!key) return 'Standard';
-    const ds = this.dimMap.get(key);
+    const ds = this.dimMap.get(decodeUnicode(raw.trim()).toLowerCase()) ?? this.dimMap.get('standard');
     return ds ? ds.name : 'Standard';
   }
 
@@ -1041,6 +1072,7 @@ class DxfParser {
   }
 
   add(cont, e) {
+    if (cont === this.model && this.curHandle) this.handleOf.set(e, this.curHandle);
     e.id = cont.nextId++;
     cont.list.push(e);
     this.stats.entities++;
@@ -1058,6 +1090,7 @@ class DxfParser {
       if (t === 'SEQEND') return;
     }
     if (t === 'SEQEND' || t === 'VERTEX') return;
+    this.curHandle = cont === this.model ? gStr(R, 5).trim().toUpperCase() : '';
     const ok = this.common(R, cont);
     if (t === 'POLYLINE') {
       this.polylineStart(R, cont, ok);
@@ -1408,6 +1441,7 @@ class DxfParser {
       w: gNum(R, 40),
       pts: [],
       ent: ok ? this.base('polyline') : null,
+      handle: this.curHandle,
     };
     if (ok && flags & (16 | 64)) {
       st.skip = true;
@@ -1454,11 +1488,14 @@ class DxfParser {
       return;
     }
     const is3d = (st.flags & 8) !== 0;
+    const cur = this.curHandle;
+    this.curHandle = st.handle;
     try {
       this.addPolyline(st.cont, st.ent, st.pts, (st.flags & 1) !== 0, st.w, is3d ? null : st.ocs, st.elev);
     } catch (err) {
       this.warn(`Could not read POLYLINE: ${err.message}`);
     }
+    this.curHandle = cur;
   }
 
   spline(R, cont) {
@@ -1515,18 +1552,31 @@ class DxfParser {
     }
     const closed = (flags & 1) !== 0;
     if (degree < 1) degree = 1;
+    // a closed spline's fit points end with the first one again; keep it once
+    const nfit = fit.length;
+    if (closed && nfit >= 6 && fit[0] === fit[nfit - 2] && fit[1] === fit[nfit - 1]) fit.length = nfit - 2;
+    const n = ctrl.length >> 1;
+    let rational = false;
     for (const w of weights) {
       if (Math.abs(w - weights[0]) > 1e-9) {
-        this.warn('Rational spline weights are not supported and were ignored.');
+        rational = weights.length === n && weights.every((v) => v > 0);
+        if (!rational) this.warn('Rational spline weights are not supported and were ignored.');
         break;
       }
     }
-    const n = ctrl.length >> 1;
     let outKnots = null;
     let outCtrl = null;
+    let outFit = fit;
     if (n >= degree + 1) {
       const c = clampSpline(degree, knots, ctrl);
-      if (c) {
+      const r = c && rational ? rationalToCubic(degree, knots, ctrl, weights) : null;
+      if (rational && !r) this.warn('Rational spline weights are not supported and were ignored.');
+      if (r) {
+        degree = 3;
+        outKnots = r.knots;
+        outCtrl = r.ctrl;
+        outFit = [];
+      } else if (c) {
         outKnots = c.knots;
         outCtrl = c.ctrl;
       } else {
@@ -1535,7 +1585,7 @@ class DxfParser {
         outCtrl = ctrl;
       }
     } else if (fit.length >= 4) {
-      const f = fitToSpline(fit, closed, st, et);
+      const f = splineFromFitPoints(fit, closed, st, et);
       degree = f.degree;
       outKnots = f.knots;
       outCtrl = f.ctrl;
@@ -1547,7 +1597,7 @@ class DxfParser {
     e.degree = degree;
     e.ctrl = outCtrl;
     e.knots = outKnots;
-    e.fit = fit;
+    e.fit = outFit;
     e.closed = closed;
     this.add(cont, e);
   }
@@ -1692,6 +1742,9 @@ class DxfParser {
     const vals = R.vals;
     for (let i = 0; i < R.end; i++) {
       const v = vals[i];
+      // R2018+ MTEXT with columns ends with an embedded object (101) that
+      // reuses 10, 11, 40, 41, 46, 71 ... with other meanings.
+      if (codes[i] === 101) break;
       switch (codes[i]) {
         case 5:
           handle = v;
@@ -1935,13 +1988,23 @@ class DxfParser {
     let angle = 0;
     let scale = 1;
     let inPattern = false;
+    let seeds = false;
+    const defs = [];
+    let def = null;
     for (; i < end; i++) {
       const c = codes[i];
-      if (c === 53 || c === 98) inPattern = true;
-      else if (c === 450 && int(vals[i]) !== 0) solid = true;
-      else if (inPattern) continue;
-      else if (c === 52) angle = num(vals[i]) * DEG;
-      else if (c === 41) scale = num(vals[i]) || 1;
+      const v = vals[i];
+      if (c === 98) seeds = true;
+      if (c === 53 && !seeds) {
+        inPattern = true;
+        def = { a: num(v), bx: 0, by: 0, ox: 0, oy: 0, dashes: [] };
+        defs.push(def);
+      } else if (c === 450 && int(v) !== 0) solid = true;
+      else if (def && !seeds && c >= 43 && c <= 46) def[['bx', 'by', 'ox', 'oy'][c - 43]] = num(v);
+      else if (def && !seeds && c === 49) def.dashes.push(num(v));
+      else if (inPattern || seeds) continue;
+      else if (c === 52) angle = num(v) * DEG;
+      else if (c === 41) scale = num(v) || 1;
     }
     if (!loops.length) {
       this.warn('HATCH without usable boundary skipped.');
@@ -1953,7 +2016,14 @@ class DxfParser {
     e.loops = loops;
     e.pattern = solid ? 'SOLID' : name.toUpperCase() || 'SOLID';
     e.scale = scale;
+    // Patterns the app does not know are drawn from the file's own definition.
+    const own = e.pattern !== 'SOLID' && !getPattern(e.pattern);
+    const families = own ? patternFamilies(defs, angle, scale) : null;
+    if (families) e.families = families;
     e.angle = o ? normAngle(ocsAngle(o, angle)) : angle;
+    // A mirrored OCS mirrors the pattern: drawn reflected, then turned by the
+    // angle mapped like a direction, it is the mirror image.
+    if (o?.mirror && e.pattern !== 'SOLID') e.mirror = true;
     this.add(cont, e);
   }
 
@@ -2068,7 +2138,7 @@ class DxfParser {
       const w = weights.length === n ? weights : null;
       pts = tessellateSpline(deg, knots, ctrl, w, Math.min(256, Math.max(16, n * 8)));
     } else if (fit.length >= 4) {
-      const f = fitToSpline(fit);
+      const f = splineFromFitPoints(fit);
       pts = tessellateSpline(3, f.knots, f.ctrl, null, Math.min(256, Math.max(16, fit.length * 4)));
     }
     if (!pts) return;
@@ -2391,12 +2461,73 @@ class DxfParser {
 
     // header references
     const raw = this.headerRaw;
-    h.clayer = raw.clayer && this.layerMap.has(raw.clayer.toLowerCase()) ? this.layerMap.get(raw.clayer.toLowerCase()).name : '0';
+    const clayer = raw.clayer && decodeUnicode(raw.clayer).toLowerCase();
+    h.clayer = clayer && this.layerMap.has(clayer) ? this.layerMap.get(clayer).name : '0';
     h.textStyle = this.styleName(raw.textStyle ?? '');
     h.dimStyle = this.dimStyleName(raw.dimStyle ?? '');
     if (raw.cltype) h.cltype = this.ltName(raw.cltype, 'ByLayer');
     if (h.ccolor < 0 || h.ccolor > 256) h.ccolor = COLOR_BYLAYER;
     h.nextId = this.model.nextId;
+    if (this.sortHandles.size) this.drawOrder(d.entities);
+  }
+
+  /** Entity handle -> sort handle pairs (331, 5) of a SORTENTS table. */
+  sortents(R) {
+    let i = 0;
+    while (i < R.end && !(R.codes[i] === 100 && R.vals[i].trim() === 'AcDbSortentsTable')) i++;
+    let ent = '';
+    for (; i < R.end; i++) {
+      const c = R.codes[i];
+      if (c === 331) ent = R.vals[i].trim().toUpperCase();
+      else if (c === 5 && ent) {
+        this.sortHandles.set(ent, R.vals[i].trim().toUpperCase());
+        ent = '';
+      }
+    }
+  }
+
+  /**
+   * Model space draw order from the SORTENTS table: objects are sorted by
+   * their sort handle (their own handle when the table has none for them).
+   * Objects the table lists form draw-order bands (see drawBands), one per run
+   * that shares a sort handle, so they draw strictly in order like AutoCAD
+   * draws them. Without a table nothing changes.
+   */
+  drawOrder(list) {
+    const key = (h) => {
+      try {
+        return BigInt('0x' + h);
+      } catch {
+        return null;
+      }
+    };
+    const rows = list.map((e, i) => {
+      const own = this.handleOf.get(e);
+      const sort = own ? this.sortHandles.get(own) : undefined;
+      return { e, i, sort, k: (sort && key(sort)) ?? (own && key(own)) ?? null };
+    });
+    // a table for another block (paper space) leaves model space as it is
+    if (!rows.some((r) => r.sort !== undefined)) return;
+    // objects without a usable handle keep their place after the one before them
+    let prev = -1n;
+    for (const r of rows) {
+      if (r.k === null) r.k = prev;
+      else prev = r.k;
+    }
+    rows.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : a.i - b.i));
+    let group = null;
+    let last = null;
+    for (let j = 0; j < rows.length; j++) {
+      const r = rows[j];
+      list[j] = r.e;
+      if (r.sort === undefined) {
+        last = null;
+        continue;
+      }
+      if (r.sort !== last) group = r.e.id;
+      last = r.sort;
+      r.e.orderGroup = group;
+    }
   }
 }
 
@@ -2410,6 +2541,34 @@ function arrowFromName(raw) {
   let k = raw.trim().toLowerCase();
   if (k.startsWith('_')) k = k.slice(1);
   return ARROWS[k] ?? 'closed';
+}
+
+/**
+ * Pattern line definitions of a HATCH (groups 53, 43-46, 49: already rotated by
+ * the hatch angle and scaled) as pattern families at scale 1 and angle 0, the
+ * format of core/hatch/patterns.js.
+ */
+function patternFamilies(defs, angle, scale) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const r = (v) => Math.round(v * 1e9) / 1e9 + 0;
+  const out = [];
+  for (const d of defs) {
+    const a = d.a * DEG;
+    let dx = (d.ox * Math.cos(a) + d.oy * Math.sin(a)) / scale;
+    let dy = (d.oy * Math.cos(a) - d.ox * Math.sin(a)) / scale;
+    if (!(Math.abs(dy) > 1e-9)) continue;
+    let deg = d.a - angle / DEG;
+    const x = (d.bx * c + d.by * s) / scale;
+    const y = (d.by * c - d.bx * s) / scale;
+    if (dy < 0) {
+      dx = -dx;
+      dy = -dy;
+    }
+    deg = r(((deg % 360) + 360) % 360) % 360;
+    out.push({ angle: deg, x: r(x), y: r(y), dx: r(dx), dy: r(dy), dashes: d.dashes.map((v) => r(v / scale)) });
+  }
+  return out.length ? out : null;
 }
 
 /** Hatch circular arc edge appended as a start vertex with a bulge. */
@@ -2502,7 +2661,17 @@ function angularFromLines(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y, qx, qy) {
  * @param {object} [opts] reserved for future options
  * @returns {{ drawing: object, warnings: string[], stats: { entities: number, skipped: Object<string, number> } }}
  */
+/**
+ * Convert a stream of DXF-style records (see DxfParser.runRecords) into the
+ * drawing model. Used by the DWG reader.
+ */
+export function parseRecords(records, opts = {}) {
+  return new DxfParser(opts).runRecords(records);
+}
+
 export function parseDxf(input, opts = {}) {
-  const text = decodeInput(input);
+  let text = decodeInput(input);
+  // classic Mac line endings (CR only)
+  if (text.indexOf('\n') < 0 && text.indexOf('\r') >= 0) text = text.replace(/\r/g, '\n');
   return new DxfParser(opts).run(text);
 }

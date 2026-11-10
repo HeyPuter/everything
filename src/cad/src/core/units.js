@@ -81,8 +81,10 @@ export function formatLinear(value, opts) {
       const feet = Math.floor(n / (12 * den));
       const rem = n - feet * 12 * den;
       const whole = Math.floor(rem / den);
-      const inch = fractionText(whole, rem - whole * den, den);
-      const s = feet ? `${feet}'-${inch}"` : `${inch}"`;
+      const frac = rem - whole * den;
+      const inch = fractionText(whole, frac, den);
+      // After feet a bare fraction keeps its zero inches: 1'-0 1/2", not 1'-1/2".
+      const s = feet ? `${feet}'-${!whole && frac ? '0 ' : ''}${inch}"` : `${inch}"`;
       return neg && n ? '-' + s : s;
     }
     case 'engineering': {
@@ -151,6 +153,16 @@ export function formatAngle(radians, header, opts = {}) {
   }
 }
 
+/**
+ * A direction in [0, full turn) as displayed: one just below 0 reads 0, not
+ * 360. Use formatAngle for measured angles, where a full turn is 360.
+ */
+export function formatDirection(radians, header, opts) {
+  const tau = 2 * Math.PI;
+  const text = formatAngle(((radians % tau) + tau) % tau, header, opts);
+  return text === formatAngle(tau, header, opts) ? formatAngle(0, header, opts) : text;
+}
+
 const NUM_RE = /^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
 const FRAC_RE = /^(\d+)\s*\/\s*(\d+)$/;
 const MIXED_RE = /^(\d+)(?:\s*-\s*|\s+)(\d+)\s*\/\s*(\d+)$/;
@@ -174,12 +186,16 @@ function splitSign(str) {
   return [1, s];
 }
 
-/** Feet and inch marks are accepted when a drawing unit is an inch. */
+/**
+ * Feet and inch marks are accepted when a drawing unit is an inch: in inch
+ * drawings, and whenever lengths are shown in feet and inches (those formats
+ * treat a unit as an inch whatever the insertion units), so that every value
+ * shown can be typed back.
+ */
 function feetInches(header) {
-  const u = header?.units;
-  if (u === 'in') return true;
+  if (header?.units === 'in') return true;
   const f = header?.linearFormat ?? header?.format;
-  return (u == null || u === 'unitless') && (f === 'architectural' || f === 'engineering');
+  return f === 'architectural' || f === 'engineering';
 }
 
 /**

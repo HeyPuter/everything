@@ -5,7 +5,8 @@
  * library and ignores formatting, formulas (their cached values are used),
  * charts and everything else in the package.
  */
-import { unzipSync, strFromU8 } from 'fflate';
+import { strFromU8 } from 'fflate';
+import { unzipBounded } from '../engine/package-part-paths.js';
 
 const MAX_ROWS = 10000, MAX_COLUMNS = 200;
 
@@ -103,8 +104,9 @@ export function serialDate(serial, date1904 = false) {
 /** The sheets of a workbook: [{ name, rows }], each a grid of strings. */
 export function readWorkbook(bytes) {
   let parts;
-  try { parts = unzipSync(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)); }
-  catch { throw new Error('This file is not a readable .xlsx workbook.'); }
+  const TOO_LARGE = 'This workbook expands to more than 100 MB, too large for a recipient list.';
+  try { parts = unzipBounded(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), { maxBytes: 100 * 1024 * 1024, maxItems: 10000, message: TOO_LARGE }); }
+  catch (error) { throw new Error(error.message === TOO_LARGE ? TOO_LARGE : 'This file is not a readable .xlsx workbook.'); }
   const rootRels = parts['_rels/.rels'] ? parse(parts['_rels/.rels']) : null;
   const officeRel = rootRels && [...rootRels.getElementsByTagNameNS(REL_NS, 'Relationship')].find(r => /\/officeDocument$/.test(r.getAttribute('Type')));
   const workbookPath = officeRel ? resolve('', officeRel.getAttribute('Target')) : 'xl/workbook.xml';

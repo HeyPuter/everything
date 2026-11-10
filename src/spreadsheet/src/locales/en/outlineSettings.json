@@ -1,0 +1,12 @@
+{
+  "applyStyles": "Apply Styles",
+  "autoStyles": "Automatic styles",
+  "autoStylesHint": "Set summary rows and columns in bold when the outline is created.",
+  "below": "Summary rows below detail",
+  "belowHint": "Totals come after the rows they add up; off, they head them.",
+  "create": "Create",
+  "direction": "Direction",
+  "right": "Summary columns to right of detail",
+  "rightHint": "Totals come after the columns they add up; off, they lead them.",
+  "title": "Outline Settings"
+}

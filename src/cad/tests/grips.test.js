@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { gripsOf, applyGrip } from '../src/editor/grips.js';
 import { stretchEntity } from '../src/editor/commands/modify.js';
+import { splineFromFitPoints, evalSpline } from '../src/core/geom/index.js';
 
 const P = { layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ltscale: 1 };
 
@@ -12,6 +13,52 @@ describe('grips', () => {
       [5, 0],
       [10, 0],
     ]);
+  });
+
+  it('keeps the knots of a control-point spline when a control point moves', () => {
+    const knots = [0, 0, 0, 0, 0.05, 0.1, 1, 1, 1, 1];
+    const ctrl = [0, 0, 1, 2, 2, 0, 3, 2, 10, 0, 20, 5];
+    const s = { ...P, type: 'spline', degree: 3, ctrl, knots, fit: [], closed: false };
+    const moved = applyGrip(s, 0, 0.01, 0);
+    expect(moved.knots).toEqual(knots);
+    expect(moved.ctrl).toEqual([0.01, ...ctrl.slice(1)]);
+    // Far from the grip (past the span it influences) the curve does not move.
+    for (const u of [0.2, 0.5, 0.9]) {
+      const a = evalSpline(s, u),
+        b = evalSpline(moved, u);
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(1e-12);
+    }
+  });
+
+  it('keeps a fit-point spline when a grip would make all fit points coincide', () => {
+    const fit = [0, 0, 10, 0];
+    const s = { ...P, type: 'spline', ...splineFromFitPoints(fit), fit, closed: false };
+    expect(applyGrip(s, 1, 0, 0)).toBe(s);
+    const moved = applyGrip(s, 1, 10, 5);
+    expect(moved.fit).toEqual([0, 0, 10, 5]);
+    expect(moved.ctrl.slice(-2)).toEqual([10, 5]);
+  });
+
+  it('keeps the end tangents of a fit-point spline when a fit point moves', () => {
+    const fit = [80, 0, 83, 5, 87, 2, 90, 8, 95, 3];
+    const free = { ...P, type: 'spline', ...splineFromFitPoints(fit), fit, closed: false };
+    // built with DXF end tangents (groups 12/13): up at the start, diagonal at the end
+    const tan = { ...free, ...splineFromFitPoints(fit, false, [0, 1], [1, 1]) };
+    // a grip dropped where it was leaves both curves as they were
+    const same = applyGrip(tan, 2, 87, 2);
+    same.ctrl.forEach((v, i) => expect(v).toBeCloseTo(tan.ctrl[i], 9));
+    applyGrip(free, 2, 87, 2).ctrl.forEach((v, i) => expect(v).toBeCloseTo(free.ctrl[i], 9));
+    // moving a fit point keeps the tangent directions; a curve without them stays free
+    const moved = applyGrip(tan, 2, 87, 4);
+    const c = moved.ctrl;
+    expect(c[2]).toBeCloseTo(80, 9);
+    expect(c[3]).toBeGreaterThan(0);
+    const n = c.length;
+    expect(c[n - 2] - c[n - 4]).toBeCloseTo(c[n - 1] - c[n - 3], 9);
+    const ref = splineFromFitPoints(moved.fit);
+    applyGrip(free, 2, 87, 4).ctrl.forEach((v, i) => expect(v).toBeCloseTo(ref.ctrl[i], 9));
+    const st = stretchEntity(tan, (x, y) => x > 86 && x < 88 && y > 1 && y < 3, 0, 2);
+    expect(st.ctrl[2]).toBeCloseTo(80, 9);
   });
 
   it('stretches line ends and moves with the midpoint', () => {
@@ -80,5 +127,32 @@ describe('stretchEntity', () => {
     expect(stretchEntity(c, inside, 1, 1)).toMatchObject({ cx: 9, cy: 1 });
     const c2 = { ...P, type: 'circle', cx: 2, cy: 0, r: 1 };
     expect(stretchEntity(c2, inside, 1, 1)).toBe(c2);
+  });
+});
+
+describe('elliptical arc grips', () => {
+  const arc = { ...P, type: 'ellipse', cx: 0, cy: 0, mx: 10, my: 0, ratio: 0.5, start: 0, end: Math.PI / 2 };
+
+  it('has start and end grips on the arc ends, and a full ellipse has none', () => {
+    const g = gripsOf(arc);
+    expect(g).toHaveLength(7);
+    expect(g[5].x).toBeCloseTo(10);
+    expect(g[5].y).toBeCloseTo(0);
+    expect(g[6].x).toBeCloseTo(0);
+    expect(g[6].y).toBeCloseTo(5);
+    expect(gripsOf({ ...arc, start: 0, end: Math.PI * 2 })).toHaveLength(5);
+  });
+
+  it('moves an end along the ellipse', () => {
+    const e = applyGrip(arc, 6, -10, 0);
+    expect(e.start).toBe(0);
+    expect(e.end).toBeCloseTo(Math.PI);
+    const s = applyGrip(arc, 5, 0, -5);
+    expect(s.start).toBeCloseTo((3 * Math.PI) / 2);
+    expect(s.end).toBe(Math.PI / 2);
+  });
+
+  it('does not close the arc when an end is dropped on the other end', () => {
+    expect(applyGrip(arc, 5, 0, 5)).toBe(arc);
   });
 });

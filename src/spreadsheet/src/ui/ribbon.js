@@ -18,13 +18,27 @@ import { pasteGalleryItems } from './pastespecialdialog.js';
 import { chartInsertGroup, chartDesignGroups, chartFormatGroups } from './chart-ribbon.js';
 import { pictureFormatGroups, activePicture } from './picture-ribbon.js';
 import { activeChart } from './chart-actions.js';
-import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
+import { GROUP_BLOCKED_COMMANDS, groupBlockedHint } from '../core/sheet-group.js';
 import { arrangeGroup } from './arrange-ribbon.js';
 import { activeSmartArt, smartArtDesignGroups, smartArtFormatGroups } from './smartart.js';
 import { ribbonLayoutStore, parseCommandId } from '../lib/customize.js';
-import { tabsIn } from '../core/ribbon-layout.js';
+import { tabsIn, builtinTabLabel, builtinTabSourceLabel } from '../core/ribbon-layout.js';
 import { commandCatalog } from './command-catalog.js';
 import { ribbonButtonMenuItems } from './quick-access.js';
+import { t, tSource } from '../i18n/index.js';
+
+/**
+ * A label in the interface language with its English beside it. A descriptor's `keytip` is the English of its
+ * accessible name: key tips are worked out from it (see keytips.js), so they are the same letters in every
+ * language, as Excel's are. `values` may hold labels of their own, given in English for the English.
+ */
+const phrase = (key, values, sourceValues = values) => ({ text: t(key, values), source: tSource(key, sourceValues) });
+const asPhrase = (label) => (typeof label === 'string' ? phrase(label) : label);
+/** A descriptor's names from catalog keys (or phrases): `label` shown, `ariaLabel` when the name differs, and `keytip`. */
+const naming = (label, aria) => {
+  const l = asPhrase(label), a = aria ? asPhrase(aria) : null;
+  return { label: l.text, ...(a ? { ariaLabel: a.text } : {}), keytip: (a || l).source };
+};
 
 /** The menus' commands, flattened once for each set of menus however many buttons look in them. */
 const leavesOf = new WeakMap();
@@ -33,45 +47,62 @@ const command = (cmd, arg) => menus => {
   if (!items) leavesOf.set(menus, items = menus.flatMap(m => menuLeaves(m.items)));
   return items.find(it => it.cmd === cmd && (arg === undefined || JSON.stringify(it.arg) === JSON.stringify(arg)));
 };
-const submenu = (menu, label) => menus => {
+/**
+ * A submenu of one of the menus, found by a command among its own items (the menus' labels are in the
+ * interface language, so they cannot name it): Insert ▸ Image is the submenu that runs insertImage.
+ */
+const submenu = (menu, cmd) => menus => {
   const find = items => {
     for (const item of items) {
-      if (item.label === label && item.submenu) return item;
+      if (item.submenu && item.submenu.some(child => child?.cmd === cmd)) return item;
       const nested = item.submenu && find(item.submenu);
       if (nested) return nested;
     }
   };
   return find(menus.find(m => m.id === menu)?.items || []);
 };
-const COMMAND_LABELS = { link: 'Insert link', insertChart: 'Insert chart', functionMenu: 'Insert function' };
-const c = (label, glyph, cmd, arg) => ({ label, glyph, ariaLabel: COMMAND_LABELS[cmd], resolve: command(cmd, arg) });
-const m = (label, glyph, menu, name) => ({ label, glyph, resolve: submenu(menu, name) });
-const combined = (label, glyph, ...resolve) => ({ label, glyph, resolve: menus => ({ label, submenu: resolve.map(fn => fn(menus)).filter(Boolean) }) });
-const unsupported = (label, glyph, reason) => ({ label, glyph, unsupported: true, reason });
+/** The commands whose ribbon buttons are named apart from their labels. */
+const COMMAND_LABELS = { link: 'ribbon.insertLinkName', insertChart: 'ribbon.insertChartName', functionMenu: 'ribbon.insertFunctionName' };
+const c = (label, glyph, cmd, arg) => ({ ...naming(label, COMMAND_LABELS[cmd]), glyph, resolve: command(cmd, arg) });
+const m = (label, glyph, menu, inside) => ({ ...naming(label), glyph, resolve: submenu(menu, inside) });
+const combined = (label, glyph, ...resolve) => { const n = naming(label); return { ...n, glyph, resolve: menus => ({ label: n.label, submenu: resolve.map(fn => fn(menus)).filter(Boolean) }) }; };
+const unsupported = (label, glyph, reason) => ({ ...naming(label), glyph, unsupported: true, reason });
 /** A command with an argument chosen here; it is available whenever the menus offer the command itself. */
-const a = (label, glyph, cmd, arg, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra, resolve: menus => {
-  const item = command(cmd)(menus);
-  return item && { ...item, label, arg, checked: undefined, shortcut: extra.shortcut };
-} });
+const a = (label, glyph, cmd, arg, { ariaLabel, ...extra } = {}) => {
+  const n = naming(label, ariaLabel);
+  return { ...n, glyph, ...extra, resolve: menus => {
+    const item = command(cmd)(menus);
+    return item && { ...item, label: n.label, arg, checked: undefined, shortcut: extra.shortcut };
+  } };
+};
 /** A menu built when it opens (and on every refresh) from the workbook and editor state. */
-const dyn = (label, glyph, build, extra = {}) => ({ label, glyph, ...extra, resolve: (menus, ctx) => lazySubmenu({ label }, () => build(menus, ctx)) });
+const dyn = (label, glyph, build, { ariaLabel, ...extra } = {}) => {
+  const n = naming(label, ariaLabel);
+  return { ...n, glyph, ...extra, resolve: (menus, ctx) => lazySubmenu({ label: n.label }, () => build(menus, ctx)) };
+};
 /** A command that is not in the menus: available unless a cell is being edited. */
-const direct = (label, glyph, cmd, arg, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => {
-    const f = ctx?.flags?.() || {};
-    // Grouped sheets: a command for one sheet's objects waits, as the menus' does.
-    const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
-    return { label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? GROUP_BLOCKED_HINT : undefined, checked: extra.isChecked?.(ctx) };
-  } });
+const direct = (label, glyph, cmd, arg, { ariaLabel, ...extra } = {}) => {
+  const n = naming(label, ariaLabel);
+  return { ...n, glyph, ...extra,
+    resolve: (menus, ctx) => {
+      const f = ctx?.flags?.() || {};
+      // Grouped sheets: a command for one sheet's objects waits, as the menus' does.
+      const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
+      return { label: n.label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? groupBlockedHint() : undefined, checked: extra.isChecked?.(ctx) };
+    } };
+};
 const large = descriptor => ({ ...descriptor, large: true });
 /** A threaded-comment command (see ui/comments.js): greyed while a cell is edited, or without the thread `needs` names. */
-const threadCmd = (label, glyph, cmd, { needs = null, toggle = false, ...extra } = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => {
-    const f = ctx?.flags?.() || {};
-    // Grouped sheets: a comment belongs to one sheet's cell, so adding or deleting one waits, as the menus' does.
-    const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
-    return { label, cmd, disabled: !toggle && (!!f.editing || !!f.chartSheet || grouped || (needs ? !f[needs] : false)), hint: grouped ? GROUP_BLOCKED_HINT : undefined, checked: toggle ? !!f.commentsPane : undefined, shortcut: extra.shortcut };
-  } });
+const threadCmd = (label, glyph, cmd, { needs = null, toggle = false, ariaLabel, ...extra } = {}) => {
+  const n = naming(label, ariaLabel);
+  return { ...n, glyph, ...extra,
+    resolve: (menus, ctx) => {
+      const f = ctx?.flags?.() || {};
+      // Grouped sheets: a comment belongs to one sheet's cell, so adding or deleting one waits, as the menus' does.
+      const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
+      return { label: n.label, cmd, disabled: !toggle && (!!f.editing || !!f.chartSheet || grouped || (needs ? !f[needs] : false)), hint: grouped ? groupBlockedHint() : undefined, checked: toggle ? !!f.commentsPane : undefined, shortcut: extra.shortcut };
+    } };
+};
 const NEW_COMMENT_KEY = `${MOD_KEY}+Shift+F2`;
 /** Commands that open a menu of their own, anchored on the button that ran them; those buttons announce the menu. */
 export const MENU_COMMANDS = new Set(['functionMenu', 'cellStylesMenu', 'shapesMenu', 'formatAsTableMenu', 'themesMenu', 'themeColorsMenu', 'themeFontsMenu', 'themeEffectsMenu', 'wordArtMenu']);
@@ -79,184 +110,244 @@ export const MENU_COMMANDS = new Set(['functionMenu', 'cellStylesMenu', 'shapesM
 const split = (descriptor, menu) => ({ ...descriptor, split: menu });
 
 const fnItem = name => ({ label: name, cmd: 'functionArgs', arg: name });
-const fnList = names => [...names.map(fnItem), { separator: true }, { label: 'Insert Function…', icon: 'fx', cmd: 'insertFunctionDialog' }];
-const category = (label, glyph) => dyn(label, glyph, () => fnList(functionCategories().get(label) || []), { ariaLabel: `${label} functions` });
-const moreFunctions = dyn('More Functions', 'moreFunctions', () => MORE_CATEGORIES.map(name => ({ label: name, submenu: functionCategories().get(name).map(fnItem) }))
+const fnList = names => [...names.map(fnItem), { separator: true }, { label: t('ribbon.insertFunctionDialog'), icon: 'fx', cmd: 'insertFunctionDialog' }];
+/** A Function Library category: `id` is the category's own (English) name, which functionCategories keys them by. */
+const category = (id, label, ariaLabel, glyph) => dyn(label, glyph, () => fnList(functionCategories().get(id) || []), { ariaLabel });
+/** The names More Functions shows for the categories it lists, by their ids. */
+const MORE_CATEGORY_LABELS = {
+  Statistical: 'ribbon.category.statistical', Engineering: 'ribbon.category.engineering', Information: 'ribbon.category.information',
+  Cube: 'ribbon.category.cube', Compatibility: 'ribbon.category.compatibility', Web: 'ribbon.category.web', Database: 'ribbon.category.database',
+  Additional: 'ribbon.category.additional',
+};
+const moreFunctions = () => dyn('ribbon.moreFunctions', 'moreFunctions', () => MORE_CATEGORIES.map(name => ({ label: MORE_CATEGORY_LABELS[name] ? t(MORE_CATEGORY_LABELS[name]) : name, submenu: functionCategories().get(name).map(fnItem) }))
   .filter(item => item.submenu.length));
-const recentFunctions = dyn('Recently Used', 'history', () => fnList(recentFunctionNames().filter(n => FUNCTION_NAMES.includes(n))));
+const recentFunctions = () => dyn('ribbon.recentlyUsed', 'history', () => fnList(recentFunctionNames().filter(n => FUNCTION_NAMES.includes(n))));
 const autoSumMenu = () => [
-  { label: 'Sum', icon: 'sigma', cmd: 'autosum' },
-  { label: 'Average', cmd: 'insertFunction', arg: 'AVERAGE' },
-  { label: 'Count Numbers', cmd: 'insertFunction', arg: 'COUNT' },
-  { label: 'Max', cmd: 'insertFunction', arg: 'MAX' },
-  { label: 'Min', cmd: 'insertFunction', arg: 'MIN' },
+  { label: t('ribbon.autoSumMenu.sum'), icon: 'sigma', cmd: 'autosum' },
+  { label: t('ribbon.autoSumMenu.average'), cmd: 'insertFunction', arg: 'AVERAGE' },
+  { label: t('ribbon.autoSumMenu.countNumbers'), cmd: 'insertFunction', arg: 'COUNT' },
+  { label: t('ribbon.autoSumMenu.max'), cmd: 'insertFunction', arg: 'MAX' },
+  { label: t('ribbon.autoSumMenu.min'), cmd: 'insertFunction', arg: 'MIN' },
   { separator: true },
-  { label: 'More Functions…', icon: 'fx', cmd: 'insertFunctionDialog' },
+  { label: t('ribbon.autoSumMenu.moreFunctions'), icon: 'fx', cmd: 'insertFunctionDialog' },
 ];
 /** Names a formula can use here: workbook names and this sheet's own, then tables. */
-const useInFormula = dyn('Use in Formula', 'tag', (menus, ctx) => {
+const useInFormula = () => dyn('ribbon.useInFormula', 'tag', (menus, ctx) => {
   // Mid-entry, the entry's own sheet: another may be showing to pick references on.
   const sheet = ctx.wb.sheet(ctx.grid?.editState?.sheetId ?? ctx.sheetId())?.name;
   const names = (ctx.wb.names || []).filter(n => !n.hidden && (!n.sheet || n.sheet === sheet)).map(n => n.name);
-  const tables = (ctx.wb.sheets || []).flatMap(sh => sh.tables || []).map(t => t.name).filter(Boolean);
+  const tables = (ctx.wb.sheets || []).flatMap(sh => sh.tables || []).map(table => table.name).filter(Boolean);
   const items = [...new Set([...names, ...tables])].slice(0, 200).map(name => ({ label: name, cmd: 'useName', arg: name }));
-  return items.length ? items : [{ label: 'No names defined', disabled: true }];
+  return items.length ? items : [{ label: t('ribbon.noNamesDefined'), disabled: true }];
 });
 /** The settings in force: a sheet without its own page setup shows the one it prints with (see effectivePrintSettings). */
 const effectiveSettings = ctx => effectivePrintSettings(ctx.wb.sheet(ctx.sheetId()));
 const printSettingsOf = effectiveSettings;
 const pageSetupItem = (label, patch, isChecked, extra = {}) => (menus, ctx) => ({ label, cmd: 'pageSetup', arg: patch, radio: true, checked: !!isChecked(effectiveSettings(ctx)), ...extra });
 const MARGIN_PRESETS = [
-  ['Normal', { top: 0.75, bottom: 0.75, left: 0.7, right: 0.7, header: 0.3, footer: 0.3 }, 'Top 0.75″ · Bottom 0.75″ · Left 0.7″ · Right 0.7″'],
-  ['Wide', { top: 1, bottom: 1, left: 1, right: 1, header: 0.5, footer: 0.5 }, 'Top 1″ · Bottom 1″ · Left 1″ · Right 1″'],
-  ['Narrow', { top: 0.75, bottom: 0.75, left: 0.25, right: 0.25, header: 0.3, footer: 0.3 }, 'Top 0.75″ · Bottom 0.75″ · Left 0.25″ · Right 0.25″'],
+  ['ribbon.marginPreset.normal', { top: 0.75, bottom: 0.75, left: 0.7, right: 0.7, header: 0.3, footer: 0.3 }, 'ribbon.marginPreset.normalDetail'],
+  ['ribbon.marginPreset.wide', { top: 1, bottom: 1, left: 1, right: 1, header: 0.5, footer: 0.5 }, 'ribbon.marginPreset.wideDetail'],
+  ['ribbon.marginPreset.narrow', { top: 0.75, bottom: 0.75, left: 0.25, right: 0.25, header: 0.3, footer: 0.3 }, 'ribbon.marginPreset.narrowDetail'],
 ];
-const PAPER_PRESETS = [['Letter', 1, '8.5″ × 11″'], ['Legal', 5, '8.5″ × 14″'], ['Tabloid', 3, '11″ × 17″'], ['A4', 9, '210 × 297 mm'], ['A3', 8, '297 × 420 mm']];
+/** Paper sizes: [catalog key of the name, or the name itself where every language says it so (A4), code, size]. */
+const PAPER_PRESETS = [['ribbon.paper.letter', 1, '8.5″ × 11″'], ['ribbon.paper.legal', 5, '8.5″ × 14″'], ['ribbon.paper.tabloid', 3, '11″ × 17″'], ['A4', 9, '210 × 297 mm'], ['A3', 8, '297 × 420 mm']];
+const paperName = name => (name.startsWith('ribbon.') ? t(name) : name);
 const sameMargins = (p, preset) => !!p.margins && Object.entries(preset).every(([k, v]) => Math.abs((p.margins[k] ?? -1) - v) < 1e-6);
-const pageMenu = (label, glyph, build) => dyn(label, glyph, (menus, ctx) => build(ctx).map(fn => typeof fn === 'function' ? fn(menus, ctx) : fn)
-  .map(item => (ctx.flags?.()?.editing && item.cmd ? { ...item, disabled: true } : item)));
+const pageMenu = (label, glyph, build, extra) => dyn(label, glyph, (menus, ctx) => build(ctx).map(fn => typeof fn === 'function' ? fn(menus, ctx) : fn)
+  .map(item => (ctx.flags?.()?.editing && item.cmd ? { ...item, disabled: true } : item)), extra);
 /** Width or height in pages; 0 is Automatic, and both Automatic is no fitting at all. */
 const fitChoices = (key, label) => pageMenu(label, key === 'fitWidth' ? 'fitWidth' : 'fitHeight', ctx => {
   const p = printSettingsOf(ctx) || {}, other = key === 'fitWidth' ? 'fitHeight' : 'fitWidth';
   const pages = p.fitToPage ? p[key] ?? 1 : 0, otherPages = p.fitToPage ? p[other] ?? 1 : 0;
-  const choice = n => ({ label: n ? `${n} page${n === 1 ? '' : 's'}` : 'Automatic', cmd: 'pageSetup', radio: true, checked: pages === n,
+  const choice = n => ({ label: n ? t('ribbon.fitPages', { n }) : t('common.automatic'), cmd: 'pageSetup', radio: true, checked: pages === n,
     arg: n || otherPages ? { fitToPage: true, [key]: n, [other]: otherPages } : { fitToPage: false } });
   return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(choice);
 });
-const scaleChoices = pageMenu('Scale', 'scaling', ctx => {
+const scaleChoices = () => pageMenu('ribbon.scale', 'scaling', ctx => {
   const p = printSettingsOf(ctx) || {};
   return [400, 200, 150, 125, 100, 90, 85, 75, 50, 25, 10].map(n => ({ label: `${n}%`, cmd: 'pageSetup', arg: { fitToPage: false, scale: n }, radio: true,
     checked: !p.fitToPage && (p.scale ?? 100) === n }));
 });
-const printOption = (label, key, glyph) => ({ label, glyph, ariaLabel: label, resolve: (menus, ctx) => {
-  const on = !!printSettingsOf(ctx)?.[key];
-  return { label, cmd: 'pageSetup', arg: { [key]: !on }, disabled: !!ctx?.flags?.()?.editing, checked: on };
-} });
+const printOption = (label, key, glyph) => {
+  const n = naming(label);
+  return { ...n, glyph, resolve: (menus, ctx) => {
+    const on = !!printSettingsOf(ctx)?.[key];
+    return { label: n.label, cmd: 'pageSetup', arg: { [key]: !on }, disabled: !!ctx?.flags?.()?.editing, checked: on };
+  } };
+};
 const disabledItem = (label, reason) => ({ label, hint: reason, disabled: true });
 /** A View ▸ Sheet View button; `unavailable(flags)` greys it (Keep needs a temporary view, Exit any view). */
-const sheetViewButton = (label, glyph, action, unavailable) => ({ label, glyph, ariaLabel: `${label} sheet view`,
-  resolve: (menus, ctx) => {
-    const f = ctx?.flags?.() || {};
-    return { label, cmd: 'sheetView', arg: action, disabled: !!f.editing || !!f.chartSheet || unavailable(f) };
-  } });
+const sheetViewButton = (label, ariaLabel, glyph, action, unavailable) => {
+  const n = naming(label, ariaLabel);
+  return { ...n, glyph,
+    resolve: (menus, ctx) => {
+      const f = ctx?.flags?.() || {};
+      return { label: n.label, cmd: 'sheetView', arg: action, disabled: !!f.editing || !!f.chartSheet || unavailable(f) };
+    } };
+};
 
 /** Home ▸ Cells ▸ Format: cell size, visibility, sheet organization and protection, then Format Cells. */
-const formatMenu = dyn('Format', 'formatCells', menus => {
+const formatMenu = () => dyn('ribbon.format', 'formatCells', menus => {
   const pick = (label, cmd, arg) => { const item = command(cmd, arg)(menus); return item && { ...item, label }; };
-  const hide = submenu('view', 'Hide and unhide')(menus);
+  const hide = submenu('view', 'hide')(menus);
   return [
-    { header: 'Cell Size' },
-    pick('Row Height…', 'resizeRows'), pick('AutoFit Row Height', 'fitRows'), pick('Column Width…', 'resizeCols'), pick('AutoFit Column Width', 'autofit'),
-    { header: 'Visibility' },
-    hide && { ...hide, label: 'Hide & Unhide' },
-    { header: 'Organize Sheets' },
-    pick('Rename Sheet…', 'renameSheet'), pick('Move or Copy Sheet…', 'moveOrCopySheet'), pick('Tab Color…', 'sheetColor'),
-    { header: 'Protection' },
-    command('protectSheet')(menus), pick('Format Cells…', 'formatCells'),
+    { header: t('ribbon.formatMenu.cellSize') },
+    pick(t('ribbon.formatMenu.rowHeight'), 'resizeRows'), pick(t('ribbon.formatMenu.autoFitRowHeight'), 'fitRows'), pick(t('ribbon.formatMenu.columnWidth'), 'resizeCols'), pick(t('ribbon.formatMenu.autoFitColumnWidth'), 'autofit'),
+    { header: t('ribbon.formatMenu.visibility') },
+    hide && { ...hide, label: t('ribbon.hideUnhide') },
+    { header: t('ribbon.formatMenu.organizeSheets') },
+    pick(t('ribbon.formatMenu.renameSheet'), 'renameSheet'), pick(t('ribbon.formatMenu.moveOrCopySheet'), 'moveOrCopySheet'), pick(t('ribbon.formatMenu.tabColor'), 'sheetColor'),
+    { header: t('ribbon.formatMenu.protection') },
+    command('protectSheet')(menus), pick(t('ribbon.formatMenu.formatCells'), 'formatCells'),
   ].filter(Boolean);
-}, { ariaLabel: 'Format' });
+}, { ariaLabel: 'ribbon.format' });
 /** Home ▸ Cells ▸ Insert and Delete; each entry is the menus' own command, so availability follows them. */
-const cellsMenu = (label, glyph, entries) => dyn(label, glyph, (menus, ctx) => entries.map(([text, cmd, arg, icon]) => {
+const cellsMenu = (label, glyph, entries) => dyn(label, glyph, (menus, ctx) => entries().map(([text, cmd, arg, icon]) => {
   if (!cmd) return { separator: true };
   if (typeof cmd === 'function') return cmd(menus, ctx);
   const item = command(cmd, arg)(menus);
   return item && { ...item, label: text, icon };
 }).filter(Boolean), { ariaLabel: label });
 const dialogItem = (label, cmd) => (menus, ctx) => ({ label, icon: cmd === 'insertDialog' ? 'insertCells' : 'deleteCells', cmd, disabled: !!ctx?.flags?.()?.editing });
-const insertMenu = cellsMenu('Insert', 'insertCells', [
-  ['Insert Cells…', dialogItem('Insert Cells…', 'insertDialog')],
-  ['Insert Copied Cells…', (menus, ctx) => (ctx?.flags?.()?.copiedCells ? { label: 'Insert Copied Cells…', icon: 'paste', cmd: 'insertCopiedCells', disabled: !!ctx.flags().editing } : null)], [],
-  ['Insert Sheet Rows', 'insertRows', 'above', 'insertRows'], ['Insert Sheet Columns', 'insertCols', 'left', 'insertCols'], [],
-  ['Insert Sheet', 'newSheet', undefined, 'insertSheet'],
+const insertMenu = () => cellsMenu('common.insert', 'insertCells', () => [
+  [t('ribbon.cells.insertCells'), dialogItem(t('ribbon.cells.insertCells'), 'insertDialog')],
+  [t('ribbon.cells.insertCopiedCells'), (menus, ctx) => (ctx?.flags?.()?.copiedCells ? { label: t('ribbon.cells.insertCopiedCells'), icon: 'paste', cmd: 'insertCopiedCells', disabled: !!ctx.flags().editing } : null)], [],
+  [t('ribbon.cells.insertSheetRows'), 'insertRows', 'above', 'insertRows'], [t('ribbon.cells.insertSheetColumns'), 'insertCols', 'left', 'insertCols'], [],
+  [t('ribbon.cells.insertSheet'), 'newSheet', undefined, 'insertSheet'],
 ]);
-const deleteMenu = cellsMenu('Delete', 'deleteCells', [
-  ['Delete Cells…', dialogItem('Delete Cells…', 'deleteDialog')], [],
-  ['Delete Sheet Rows', 'deleteRows', undefined, 'deleteRows'], ['Delete Sheet Columns', 'deleteCols', undefined, 'deleteCols'], [],
-  ['Delete Sheet', 'deleteSheet', undefined, 'deleteSheet'],
+const deleteMenu = () => cellsMenu('common.delete', 'deleteCells', () => [
+  [t('ribbon.cells.deleteCells'), dialogItem(t('ribbon.cells.deleteCells'), 'deleteDialog')], [],
+  [t('ribbon.cells.deleteSheetRows'), 'deleteRows', undefined, 'deleteRows'], [t('ribbon.cells.deleteSheetColumns'), 'deleteCols', undefined, 'deleteCols'], [],
+  [t('ribbon.cells.deleteSheet'), 'deleteSheet', undefined, 'deleteSheet'],
 ]);
 /** Home ▸ Editing ▸ Clear; Clear Formats stays live mid-entry, as the Format menu's is. */
-const clearMenu = dyn('Clear', 'eraser', (menus, ctx) => {
+const clearMenu = () => dyn('common.clear', 'eraser', (menus, ctx) => {
   const editing = !!ctx?.flags?.()?.editing;
   const formats = command('clearFormat')(menus);
   return [
-    { label: 'Clear All', icon: 'eraser', cmd: 'clearAll', disabled: editing },
-    formats && { ...formats, label: 'Clear Formats', icon: 'clearFormat' },
-    { label: 'Clear Contents', cmd: 'clear', shortcut: 'Delete', disabled: editing },
-    { label: 'Clear Comments and Notes', icon: 'deleteNote', cmd: 'clearNotes', disabled: editing },
-    { label: 'Clear Hyperlinks', icon: 'unlink', cmd: 'clearLinks', disabled: editing },
+    { label: t('ribbon.clearMenu.clearAll'), icon: 'eraser', cmd: 'clearAll', disabled: editing },
+    formats && { ...formats, label: t('ribbon.clearMenu.clearFormats'), icon: 'clearFormat' },
+    { label: t('ribbon.clearMenu.clearContents'), cmd: 'clear', shortcut: 'Delete', disabled: editing },
+    { label: t('ribbon.clearMenu.clearCommentsAndNotes'), icon: 'deleteNote', cmd: 'clearNotes', disabled: editing },
+    { label: t('ribbon.clearMenu.clearHyperlinks'), icon: 'unlink', cmd: 'clearLinks', disabled: editing },
   ].filter(Boolean);
-}, { ariaLabel: 'Clear' });
+}, { ariaLabel: 'common.clear' });
 /** Home ▸ Editing ▸ Find & Select. */
-const findAndSelect = dyn('Find & Select', 'find', menus => {
+const findAndSelect = () => dyn('ribbon.findAndSelect', 'find', menus => {
   const pick = (label, cmd, arg, extra = {}) => { const item = command(cmd)(menus); return item && { ...item, label, arg, shortcut: extra.shortcut ?? item.shortcut }; };
   const special = kind => command('selectSpecial', kind)(menus);
   return [
-    pick('Find…', 'find', null), pick('Replace…', 'find', 'replace', { shortcut: null }), pick('Go To…', 'goTo', null),
-    { label: 'Go To Special', icon: 'check', submenu: Object.keys(SPECIAL_KINDS).map(special).filter(Boolean) },
+    pick(t('ribbon.findMenu.find'), 'find', null), pick(t('ribbon.findMenu.replace'), 'find', 'replace', { shortcut: null }), pick(t('ribbon.findMenu.goTo'), 'goTo', null),
+    { label: t('ribbon.findMenu.goToSpecial'), icon: 'check', submenu: Object.keys(SPECIAL_KINDS).map(special).filter(Boolean) },
     { separator: true },
-    special('formulas') && { ...special('formulas'), label: 'Formulas' }, special('notes') && { ...special('notes'), label: 'Notes' },
-    special('constants') && { ...special('constants'), label: 'Constants' },
+    special('formulas') && { ...special('formulas'), label: t('ribbon.findMenu.formulas') }, special('notes') && { ...special('notes'), label: t('ribbon.findMenu.notes') },
+    special('constants') && { ...special('constants'), label: t('ribbon.findMenu.constants') },
   ].filter(Boolean);
 });
 
 /** Data ▸ Get Data: the sources by kind, then the Power Query Editor. */
-const getDataMenu = dyn('Get Data', 'database', (menus, ctx) => {
+const getDataMenu = () => dyn('ribbon.getData', 'database', (menus, ctx) => {
   const editing = !!ctx?.flags?.()?.editing;
   const item = (label, cmd, glyph) => ({ label, cmd, icon: glyph, disabled: editing });
   return [
-    { label: 'From File', icon: 'fromFile', submenu: [item('From Workbook', 'getDataWorkbook', 'sheet'), item('From Text/CSV', 'getDataText', 'fromText')] },
-    { label: 'From Other Sources', icon: 'database', submenu: [item('From Table/Range', 'getDataTable', 'fromTable'), item('From Web', 'getDataWeb', 'fromWeb'),
-      { separator: true }, item('Blank Query', 'blankQuery', 'blankQuery')] },
+    { label: t('ribbon.getDataMenu.fromFile'), icon: 'fromFile', submenu: [item(t('ribbon.getDataMenu.fromWorkbook'), 'getDataWorkbook', 'sheet'), item(t('ribbon.fromTextCsv'), 'getDataText', 'fromText')] },
+    { label: t('ribbon.getDataMenu.fromOtherSources'), icon: 'database', submenu: [item(t('ribbon.fromTableRange'), 'getDataTable', 'fromTable'), item(t('ribbon.fromWeb'), 'getDataWeb', 'fromWeb'),
+      { separator: true }, item(t('ribbon.getDataMenu.blankQuery'), 'blankQuery', 'blankQuery')] },
     { separator: true },
-    item('Launch Power Query Editor…', 'powerQueryEditor', 'powerQuery'),
+    item(t('ribbon.getDataMenu.launchPowerQueryEditor'), 'powerQueryEditor', 'powerQuery'),
   ];
-}, { ariaLabel: 'Get Data' });
+}, { ariaLabel: 'ribbon.getData' });
 /** Data ▸ Refresh All's arrow: every query and pivot table, or the one behind the table at the selection, or the pivot table on this sheet. */
 const refreshMenu = (menus, ctx) => {
   const f = ctx?.flags?.() || {};
   return [
-    { label: 'Refresh All', icon: 'refresh', cmd: 'refreshAll', disabled: !!f.editing },
-    { label: 'Refresh', cmd: 'refreshQuery', disabled: !!f.editing || !((f.table && f.hasQueries) || (!f.table && f.pivotRefreshable)) },
+    { label: t('ribbon.refreshAll'), icon: 'refresh', cmd: 'refreshAll', disabled: !!f.editing },
+    { label: t('common.refresh'), cmd: 'refreshQuery', disabled: !!f.editing || !((f.table && f.hasQueries) || (!f.table && f.pivotRefreshable)) },
   ];
 };
 
+/** The built-in tabs' ids, in English in every language (a layout keeps them); see builtinTabLabel for their names. */
 export const RIBBON_TABS = ['Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Automate'];
+
+/**
+ * The names the built-in groups show, by their English names. A group's English name is its id: the ribbon
+ * keeps it as data-group-name, and Options ▸ Customize Ribbon names it by that. A group from elsewhere may give
+ * its name and label itself, as { name, label }.
+ */
+const GROUP_LABELS = {
+  Properties: 'ribbon.group.properties', Tools: 'ribbon.group.tools', 'External Table Data': 'ribbon.group.externalTableData',
+  'Table Style Options': 'ribbon.group.tableStyleOptions', 'Table Styles': 'ribbon.group.tableStyles', Tables: 'ribbon.group.tables',
+  Illustrations: 'ribbon.group.illustrations', Charts: 'ribbon.group.charts', Sparklines: 'ribbon.group.sparklines', Filters: 'ribbon.group.filters',
+  Links: 'ribbon.group.links', Comments: 'ribbon.group.comments', Text: 'ribbon.group.text', Cells: 'ribbon.group.cells', Symbols: 'ribbon.group.symbols',
+  Sheets: 'ribbon.group.sheets', Themes: 'ribbon.group.themes', 'Page Setup': 'ribbon.group.pageSetup', 'Scale to Fit': 'ribbon.group.scaleToFit',
+  'Sheet Options': 'ribbon.group.sheetOptions', Arrange: 'ribbon.group.arrange', 'Function Library': 'ribbon.group.functionLibrary',
+  'Defined Names': 'ribbon.group.definedNames', 'Formula Auditing': 'ribbon.group.formulaAuditing', Calculation: 'ribbon.group.calculation',
+  'Get & Transform Data': 'ribbon.group.getTransformData', 'Queries & Connections': 'ribbon.group.queriesConnections', 'Sort & Filter': 'ribbon.group.sortFilter',
+  'Data Tools': 'ribbon.group.dataTools', Forecast: 'ribbon.group.forecast', Analyze: 'ribbon.group.analyze', Outline: 'ribbon.group.outline',
+  Proofing: 'ribbon.group.proofing', Language: 'ribbon.group.language', Accessibility: 'ribbon.group.accessibility', Notes: 'ribbon.group.notes',
+  Changes: 'ribbon.group.changes', Protection: 'ribbon.group.protection', Collaboration: 'ribbon.group.collaboration', 'Workbook Views': 'ribbon.group.workbookViews',
+  'Sheet View': 'ribbon.group.sheetView', Show: 'ribbon.group.show', Zoom: 'ribbon.group.zoom', Window: 'ribbon.group.window', Assistant: 'ribbon.group.assistant',
+  'Scripting Tools': 'ribbon.group.scriptingTools', Controls: 'ribbon.group.controls', 'Sample Scripts': 'ribbon.group.sampleScripts', Help: 'ribbon.group.help',
+  // Chart Design, Format and Picture Format (chart-ribbon.js, picture-ribbon.js).
+  'Chart Layouts': 'ribbon.group.chartLayouts', 'Chart Styles': 'ribbon.group.chartStyles', Data: 'ribbon.group.data', Type: 'ribbon.group.type',
+  Location: 'ribbon.group.location', 'Current Selection': 'ribbon.group.currentSelection', 'Shape Styles': 'ribbon.group.shapeStyles', Size: 'ribbon.group.size',
+  Adjust: 'ribbon.group.adjust', 'Picture Styles': 'ribbon.group.pictureStyles',
+  // Draw (ink.js) and the SmartArt tabs (smartart.js).
+  'Drawing Tools': 'ribbon.group.drawingTools', Touch: 'ribbon.group.touch', Convert: 'ribbon.group.convert', 'Create Graphic': 'ribbon.group.createGraphic',
+  Layouts: 'ribbon.group.layouts', 'SmartArt Styles': 'ribbon.group.smartArtStyles', Reset: 'ribbon.group.reset', Shapes: 'ribbon.group.shapes',
+};
+/** A group's id (its English name) and the name it shows. */
+export function groupNaming(group) {
+  if (group && typeof group === 'object') return { name: group.name, label: group.label ?? group.name };
+  return { name: group, label: Object.hasOwn(GROUP_LABELS, group) ? t(GROUP_LABELS[group]) : group };
+}
+
+/** The table styles' names on the Table tab, by their keys (TABLE_STYLES). */
+const TABLE_STYLE_LABELS = {
+  blue: 'ribbon.tableStyle.blue', gray: 'ribbon.tableStyle.gray', green: 'ribbon.tableStyle.green', orange: 'ribbon.tableStyle.orange',
+  purple: 'ribbon.tableStyle.purple', red: 'ribbon.tableStyle.red', light: 'ribbon.tableStyle.light', none: 'ribbon.tableStyle.none',
+};
+const tableStyleButton = ([key, label, look]) => {
+  const own = TABLE_STYLE_LABELS[key];
+  const name = own ? t(own) : label;
+  return { ...c(phrase('ribbon.tableStyleNamed', { name }, { name: own ? tSource(own) : label }), 'table', 'tableStyle', key), look, shortLabel: name };
+};
 
 /** References are resolved again on every refresh AND when a menu is opened. */
 const groupsFor = name => ({
   Table: [
-    ['Properties', c('Table Properties', 'formatTable', 'editTable'), c('Resize Table', 'resizeTable', 'tableResize')],
-    ['Tools', c('Summarize with PivotTable', 'pivot', 'tableSource', 'pivot'), c('Remove Duplicates', 'dedupe', 'tableSource', 'dedupe'), c('Convert to Range', 'convertToRange', 'tableConvert'), c('Insert Slicer', 'slicer', 'insertSlicer')],
+    ['Properties', c('ribbon.tableProperties', 'formatTable', 'editTable'), c('ribbon.resizeTable', 'resizeTable', 'tableResize')],
+    ['Tools', c('ribbon.summarizeWithPivotTable', 'pivot', 'tableSource', 'pivot'), c('ribbon.removeDuplicates', 'dedupe', 'tableSource', 'dedupe'), c('ribbon.convertToRange', 'convertToRange', 'tableConvert'), c('ribbon.insertSlicer', 'slicer', 'insertSlicer')],
     // Refresh runs the query that loaded the table again; a table holding its own data has nothing to refresh.
-    ['External Table Data', { label: 'Refresh', glyph: 'refresh', ariaLabel: 'Refresh', resolve: (menus, ctx) => {
+    ['External Table Data', { ...naming('common.refresh'), glyph: 'refresh', resolve: (menus, ctx) => {
       const f = ctx?.flags?.() || {};
       const table = f.table, sheetId = ctx?.sheetId?.();
       const loaded = !!table && !!ctx?.wb && queryForTable(ctx.wb, sheetId, table.id);
-      return { label: 'Refresh', cmd: 'refreshQuery', disabled: !!f.editing || !loaded, hint: loaded ? null : 'Refresh updates a table loaded by a query; this table holds its own data' };
+      return { label: t('common.refresh'), cmd: 'refreshQuery', disabled: !!f.editing || !loaded, hint: loaded ? null : t('ribbon.refreshTableHint') };
     } }],
-    ['Table Style Options', c('Header Row', 'headerRow', 'tableOption', 'headerRow'), c('Total Row', 'subtotal', 'tableTotals'),
-      c('Banded Rows', 'bandedRows', 'tableOption', 'banded'), c('First Column', 'firstColumn', 'tableOption', 'firstColumn'),
-      c('Last Column', 'lastColumn', 'tableOption', 'lastColumn'), c('Banded Columns', 'bandedColumns', 'tableOption', 'bandedColumns'), c('Filter Button', 'filterButton', 'tableOption', 'filterButton')],
-    ['Table Styles', ...TABLE_STYLES.map(([key, label, look]) => ({ ...c(`${label} table style`, 'table', 'tableStyle', key), look }))],
+    ['Table Style Options', c('ribbon.headerRow', 'headerRow', 'tableOption', 'headerRow'), c('ribbon.totalRow', 'subtotal', 'tableTotals'),
+      c('ribbon.bandedRows', 'bandedRows', 'tableOption', 'banded'), c('ribbon.firstColumn', 'firstColumn', 'tableOption', 'firstColumn'),
+      c('ribbon.lastColumn', 'lastColumn', 'tableOption', 'lastColumn'), c('ribbon.bandedColumns', 'bandedColumns', 'tableOption', 'bandedColumns'), c('ribbon.filterButton', 'filterButton', 'tableOption', 'filterButton')],
+    ['Table Styles', ...TABLE_STYLES.map(tableStyleButton)],
   ],
   Insert: [
-    ['Tables', large(c('PivotTable', 'pivot', 'pivot')), large(direct('Recommended PivotTables', 'pivotRecommend', 'recommendedPivots', null)), large(c('Table', 'table', 'insertTable'))],
-    ['Illustrations', large(m('Pictures', 'pictures', 'insert', 'Image')), direct('Shapes', 'shapes', 'shapesMenu', null), direct('Icons', 'icons', 'iconsDialog', null),
-      { label: 'SmartArt', glyph: 'smartArt', ariaLabel: 'Insert SmartArt graphic', resolve: (menus, ctx) => {
+    ['Tables', large(c('ribbon.pivotTable', 'pivot', 'pivot')), large(direct('ribbon.recommendedPivotTables', 'pivotRecommend', 'recommendedPivots', null)), large(c('ribbon.table', 'table', 'insertTable'))],
+    ['Illustrations', large(m('ribbon.pictures', 'pictures', 'insert', 'insertImage')), direct('ribbon.shapes', 'shapes', 'shapesMenu', null), direct('ribbon.icons', 'icons', 'iconsDialog', null),
+      { ...naming('ribbon.smartArt', 'ribbon.insertSmartArtName'), glyph: 'smartArt', resolve: (menus, ctx) => {
         const f = ctx?.flags?.() || {};
-        return { label: 'SmartArt', cmd: 'smartArt', arg: { action: 'insertDialog' }, disabled: !!f.editing || !!f.chartSheet || !!f.grouped };
+        return { label: t('ribbon.smartArt'), cmd: 'smartArt', arg: { action: 'insertDialog' }, disabled: !!f.editing || !!f.chartSheet || !!f.grouped };
       } }],
     chartInsertGroup(),
-    ['Sparklines', a('Line', 'sparkLine', 'insertSparklines', 'line', { ariaLabel: 'Insert line sparklines' }),
-      a('Column', 'sparkColumn', 'insertSparklines', 'column', { ariaLabel: 'Insert column sparklines' }),
-      a('Win/Loss', 'sparkWinLoss', 'insertSparklines', 'stacked', { ariaLabel: 'Insert win/loss sparklines' })],
-    ['Filters', large(c('Slicer', 'slicer', 'insertSlicer')), large(c('Timeline', 'timeline', 'insertTimeline'))],
-    ['Links', large(c('Link', 'link', 'link'))],
-    ['Comments', large(c('Note', 'note', 'note')), large(threadCmd('Comment', 'comment', 'newComment', { shortcut: NEW_COMMENT_KEY }))],
-    ['Text', c('Text Box', 'textBox', 'insertTextBox'), a('Header & Footer', 'headerFooter', 'print', null, { ariaLabel: 'Header & Footer' }), direct('WordArt', 'wordArt', 'wordArtMenu', null)],
-    ['Cells', c('Checkbox', 'checkbox', 'insertCheckbox'), c('Dropdown', 'dropdown', 'insertDropdown'), c('Date Picker', 'calendar', 'datePicker')],
-    ['Symbols', large(split(direct('Equation', 'math', 'insertEquation', null), (menus, ctx) => equationGalleryItems(ctx))), large(direct('Symbol', 'symbol', 'symbolDialog', null))],
-    ['Sheets', c('New Sheet', 'newSheet', 'newSheet')],
+    ['Sparklines', a('ribbon.sparkline.line', 'sparkLine', 'insertSparklines', 'line', { ariaLabel: 'ribbon.sparkline.lineName' }),
+      a('ribbon.sparkline.column', 'sparkColumn', 'insertSparklines', 'column', { ariaLabel: 'ribbon.sparkline.columnName' }),
+      a('ribbon.sparkline.winLoss', 'sparkWinLoss', 'insertSparklines', 'stacked', { ariaLabel: 'ribbon.sparkline.winLossName' })],
+    ['Filters', large(c('ribbon.slicer', 'slicer', 'insertSlicer')), large(c('ribbon.timeline', 'timeline', 'insertTimeline'))],
+    ['Links', large(c('ribbon.link', 'link', 'link'))],
+    ['Comments', large(c('ribbon.note', 'note', 'note')), large(threadCmd('ribbon.comment', 'comment', 'newComment', { shortcut: NEW_COMMENT_KEY }))],
+    ['Text', c('ribbon.textBox', 'textBox', 'insertTextBox'), a('ribbon.headerFooter', 'headerFooter', 'print', null), direct('ribbon.wordArt', 'wordArt', 'wordArtMenu', null)],
+    ['Cells', c('ribbon.checkbox', 'checkbox', 'insertCheckbox'), c('ribbon.dropdown', 'dropdown', 'insertDropdown'), c('ribbon.datePicker', 'calendar', 'datePicker')],
+    ['Symbols', large(split(direct('ribbon.equation', 'math', 'insertEquation', null), (menus, ctx) => equationGalleryItems(ctx))), large(direct('ribbon.symbol', 'symbol', 'symbolDialog', null))],
+    ['Sheets', c('ribbon.newSheet', 'newSheet', 'newSheet')],
   ],
   Draw: drawRibbonGroups(),
   'Chart Design': chartDesignGroups(),
@@ -265,147 +356,152 @@ const groupsFor = name => ({
   'SmartArt Design': smartArtDesignGroups(),
   'SmartArt Format': smartArtFormatGroups(),
   'Page Layout': [
-    ['Themes', large(direct('Themes', 'palette', 'themesMenu', null)), direct('Colors', 'themeColors', 'themeColorsMenu', null, { ariaLabel: 'Theme Colors' }),
-      direct('Fonts', 'themeFonts', 'themeFontsMenu', null, { ariaLabel: 'Theme Fonts' }), direct('Effects', 'themeEffects', 'themeEffectsMenu', null)],
+    ['Themes', large(direct('ribbon.themes', 'palette', 'themesMenu', null)), direct('ribbon.themeColors', 'themeColors', 'themeColorsMenu', null, { ariaLabel: 'ribbon.themeColorsName' }),
+      direct('ribbon.themeFonts', 'themeFonts', 'themeFontsMenu', null, { ariaLabel: 'ribbon.themeFontsName' }), direct('ribbon.themeEffects', 'themeEffects', 'themeEffectsMenu', null)],
     ['Page Setup',
-      large(pageMenu('Margins', 'margins', () => [
-        ...MARGIN_PRESETS.map(([label, preset, detail]) => pageSetupItem(label, { margins: preset }, p => sameMargins(p, preset), { hint: detail })),
-        { separator: true }, { label: 'Custom Margins…', cmd: 'print', icon: 'margins' }])),
-      large(pageMenu('Orientation', 'swap', () => [
-        pageSetupItem('Portrait', { orientation: 'portrait' }, p => (p.orientation || 'portrait') === 'portrait'),
-        pageSetupItem('Landscape', { orientation: 'landscape' }, p => p.orientation === 'landscape')])),
-      large(pageMenu('Size', 'fileText', () => [
-        ...PAPER_PRESETS.map(([label, code, detail]) => pageSetupItem(label, { paperSize: code }, p => (p.paperSize ?? 1) === code, { hint: detail })),
-        { separator: true }, { label: 'More Paper Sizes…', cmd: 'print', icon: 'sliders' }])),
-      large(pageMenu('Print Area', 'printArea', () => [
-        { label: 'Set Print Area', cmd: 'printArea', arg: 'set' },
-        { label: 'Add to Print Area', cmd: 'printArea', arg: 'add' },
-        { label: 'Clear Print Area', cmd: 'printArea', arg: 'clear' }])),
-      large(pageMenu('Breaks', 'breaks', ctx => {
+      large(pageMenu('ribbon.margins', 'margins', () => [
+        ...MARGIN_PRESETS.map(([label, preset, detail]) => pageSetupItem(t(label), { margins: preset }, p => sameMargins(p, preset), { hint: t(detail) })),
+        { separator: true }, { label: t('ribbon.customMargins'), cmd: 'print', icon: 'margins' }])),
+      large(pageMenu('ribbon.orientation', 'swap', () => [
+        pageSetupItem(t('ribbon.portrait'), { orientation: 'portrait' }, p => (p.orientation || 'portrait') === 'portrait'),
+        pageSetupItem(t('ribbon.landscape'), { orientation: 'landscape' }, p => p.orientation === 'landscape')])),
+      large(pageMenu('ribbon.size', 'fileText', () => [
+        ...PAPER_PRESETS.map(([label, code, detail]) => pageSetupItem(paperName(label), { paperSize: code }, p => (p.paperSize ?? 1) === code, { hint: detail })),
+        { separator: true }, { label: t('ribbon.morePaperSizes'), cmd: 'print', icon: 'sliders' }])),
+      large(pageMenu('ribbon.printArea', 'printArea', () => [
+        { label: t('ribbon.setPrintArea'), cmd: 'printArea', arg: 'set' },
+        { label: t('ribbon.addToPrintArea'), cmd: 'printArea', arg: 'add' },
+        { label: t('ribbon.clearPrintArea'), cmd: 'printArea', arg: 'clear' }])),
+      large(pageMenu('ribbon.breaks', 'breaks', ctx => {
         const p = printSettingsOf(ctx) || {};
         const any = !!(p.rowBreaks?.length || p.colBreaks?.length);
         return [
-          { label: 'Insert Page Break', icon: 'breaks', cmd: 'pageBreak', arg: 'insert', hint: 'Above and left of the selected cell' },
-          { label: 'Remove Page Break', cmd: 'pageBreak', arg: 'remove' },
-          { label: 'Reset All Page Breaks', cmd: 'pageBreak', arg: 'reset', disabled: !any },
+          { label: t('ribbon.insertPageBreak'), icon: 'breaks', cmd: 'pageBreak', arg: 'insert', hint: t('ribbon.insertPageBreakHint') },
+          { label: t('ribbon.removePageBreak'), cmd: 'pageBreak', arg: 'remove' },
+          { label: t('ribbon.resetAllPageBreaks'), cmd: 'pageBreak', arg: 'reset', disabled: !any },
           { separator: true },
-          { label: 'Page Break Preview', icon: 'pageBreak', cmd: 'viewMode', arg: 'pageBreak' },
+          { label: t('ribbon.pageBreakPreview'), icon: 'pageBreak', cmd: 'viewMode', arg: 'pageBreak' },
         ];
       })),
-      large(dyn('Background', 'background', (menus, ctx) => {
+      large(dyn('ribbon.background', 'background', (menus, ctx) => {
         const has = !!ctx.wb.sheet(ctx.sheetId())?.background, editing = !!ctx.flags?.()?.editing;
         return [
-          { label: has ? 'Replace Background…' : 'Background Picture…', icon: 'background', cmd: 'sheetBackground', arg: 'pick', disabled: editing },
-          { label: 'Delete Background', icon: 'deleteItem', cmd: 'sheetBackground', arg: 'delete', disabled: editing || !has },
+          { label: has ? t('ribbon.replaceBackground') : t('ribbon.backgroundPicture'), icon: 'background', cmd: 'sheetBackground', arg: 'pick', disabled: editing },
+          { label: t('ribbon.deleteBackground'), icon: 'deleteItem', cmd: 'sheetBackground', arg: 'delete', disabled: editing || !has },
         ];
-      }, { ariaLabel: 'Sheet Background' })),
-      a('Print Titles', 'printTitles', 'print', null, { ariaLabel: 'Print Titles' }), c('Page Setup', 'pageSetup', 'print'), c('Export PDF', 'fileDown', 'exportPdf')],
-    ['Scale to Fit', fitChoices('fitWidth', 'Width'), fitChoices('fitHeight', 'Height'), scaleChoices],
-    ['Sheet Options', c('Gridlines', 'gridlines', 'gridlines'), printOption('Print Gridlines', 'gridlines', 'printGridlines'), c('Headings', 'headings', 'toggleHeaders'), printOption('Print Headings', 'headings', 'printHeadings')],
+      }, { ariaLabel: 'ribbon.backgroundName' })),
+      a('ribbon.printTitles', 'printTitles', 'print', null), c('ribbon.pageSetup', 'pageSetup', 'print'), c('ribbon.exportPdf', 'fileDown', 'exportPdf')],
+    ['Scale to Fit', fitChoices('fitWidth', 'ribbon.fitWidth'), fitChoices('fitHeight', 'ribbon.fitHeight'), scaleChoices()],
+    ['Sheet Options', c('ribbon.gridlines', 'gridlines', 'gridlines'), printOption('ribbon.printGridlines', 'gridlines', 'printGridlines'), c('ribbon.headings', 'headings', 'toggleHeaders'), printOption('ribbon.printHeadings', 'headings', 'printHeadings')],
     arrangeGroup(),
   ],
   Formulas: [
-    ['Function Library', large({ ...c('Insert Function', 'fx', 'functionMenu'), ariaLabel: 'Insert function' }),
-      large(split(c('AutoSum', 'autosum', 'autosum'), () => autoSumMenu())), recentFunctions,
-      category('Financial', 'financial'), category('Logical', 'logical'), category('Text', 'text'),
-      category('Date & Time', 'dateTime'), category('Lookup & Reference', 'lookup'), category('Math & Trig', 'mathTrig'), moreFunctions],
-    ['Defined Names', large(c('Name Manager', 'nameManager', 'names')), c('Define Name', 'defineName', 'defineName'), useInFormula, c('Create from Selection', 'createNames', 'createNames')],
-    ['Formula Auditing', c('Trace Precedents', 'precedents', 'trace', 'precedents'), c('Trace Dependents', 'dependents', 'trace', 'dependents'),
-      c('Remove Arrows', 'clearTrace', 'clearTrace'), c('Show Formulas', 'showFormulas', 'showFormulas'), split(a('Error Checking', 'errorCheck', 'selectSpecial', 'errors', { ariaLabel: 'Error Checking' }), () => [
-        { label: 'Error Checking…', icon: 'errorCheck', cmd: 'selectSpecial', arg: 'errors' },
-        { label: 'Trace Error', icon: 'precedents', cmd: 'trace', arg: 'precedents' },
+    ['Function Library', large(c('ribbon.insertFunction', 'fx', 'functionMenu')),
+      large(split(c('ribbon.autoSum', 'autosum', 'autosum'), () => autoSumMenu())), recentFunctions(),
+      category('Financial', 'ribbon.category.financial', 'ribbon.category.financialName', 'financial'), category('Logical', 'ribbon.category.logical', 'ribbon.category.logicalName', 'logical'),
+      category('Text', 'ribbon.category.text', 'ribbon.category.textName', 'text'), category('Date & Time', 'ribbon.category.dateTime', 'ribbon.category.dateTimeName', 'dateTime'),
+      category('Lookup & Reference', 'ribbon.category.lookupReference', 'ribbon.category.lookupReferenceName', 'lookup'),
+      category('Math & Trig', 'ribbon.category.mathTrig', 'ribbon.category.mathTrigName', 'mathTrig'), moreFunctions()],
+    ['Defined Names', large(c('ribbon.nameManager', 'nameManager', 'names')), c('ribbon.defineName', 'defineName', 'defineName'), useInFormula(), c('ribbon.createFromSelection', 'createNames', 'createNames')],
+    ['Formula Auditing', c('ribbon.tracePrecedents', 'precedents', 'trace', 'precedents'), c('ribbon.traceDependents', 'dependents', 'trace', 'dependents'),
+      c('ribbon.removeArrows', 'clearTrace', 'clearTrace'), c('ribbon.showFormulas', 'showFormulas', 'showFormulas'), split(a('ribbon.errorChecking', 'errorCheck', 'selectSpecial', 'errors'), () => [
+        { label: t('ribbon.errorCheckingDialog'), icon: 'errorCheck', cmd: 'selectSpecial', arg: 'errors' },
+        { label: t('ribbon.traceError'), icon: 'precedents', cmd: 'trace', arg: 'precedents' },
         { separator: true },
-        { label: 'Error Checking Options…', cmd: 'errorCheckingOptions' },
+        { label: t('ribbon.errorCheckingOptions'), cmd: 'errorCheckingOptions' },
       ]),
-      c('Evaluate Formula', 'evaluate', 'evaluateFormula'), direct('Watch Window', 'watch', 'watchWindow', null)],
-    ['Calculation', large(dyn('Calculation Options', 'calculator', (menus, ctx) => {
+      c('ribbon.evaluateFormula', 'evaluate', 'evaluateFormula'), direct('ribbon.watchWindow', 'watch', 'watchWindow', null)],
+    ['Calculation', large(dyn('ribbon.calculationOptions', 'calculator', (menus, ctx) => {
       const mode = ctx.wb.calcMode || 'automatic', editing = !!ctx.flags?.()?.editing;
       return [
-        { label: 'Automatic', cmd: 'calcMode', arg: 'automatic', radio: true, checked: mode === 'automatic', disabled: editing },
-        { label: 'Automatic Except for Data Tables', cmd: 'calcMode', arg: 'autoNoTable', radio: true, checked: mode === 'autoNoTable', disabled: editing, hint: 'What-If data tables keep their results until you calculate (F9)' },
-        { label: 'Manual', cmd: 'calcMode', arg: 'manual', radio: true, checked: mode === 'manual', disabled: editing },
+        { label: t('common.automatic'), cmd: 'calcMode', arg: 'automatic', radio: true, checked: mode === 'automatic', disabled: editing },
+        { label: t('ribbon.automaticExceptTables'), cmd: 'calcMode', arg: 'autoNoTable', radio: true, checked: mode === 'autoNoTable', disabled: editing, hint: t('ribbon.automaticExceptTablesHint') },
+        { label: t('ribbon.manual'), cmd: 'calcMode', arg: 'manual', radio: true, checked: mode === 'manual', disabled: editing },
       ];
-    }, { ariaLabel: 'Calculation Options' })),
-      c('Calculate Now', 'calcNow', 'recalc'), a('Calculate Sheet', 'calcSheet', 'recalc', 'sheet', { ariaLabel: 'Calculate Sheet', shortcut: 'Shift+F9' }), c('Formulas to Values', 'toValues', 'toValues')],
+    }, { ariaLabel: 'ribbon.calculationOptions' })),
+      c('ribbon.calculateNow', 'calcNow', 'recalc'), a('ribbon.calculateSheet', 'calcSheet', 'recalc', 'sheet', { shortcut: 'Shift+F9' }), c('ribbon.formulasToValues', 'toValues', 'toValues')],
   ],
   Data: [
-    ['Get & Transform Data', large(getDataMenu), direct('From Text/CSV', 'fromText', 'getDataText', null), direct('From Web', 'fromWeb', 'getDataWeb', null),
-      direct('From Table/Range', 'fromTable', 'getDataTable', null)],
-    ['Queries & Connections', large(split(direct('Refresh All', 'refresh', 'refreshAll', null), refreshMenu)),
-      direct('Queries & Connections', 'queriesPane', 'queriesPane', null, { isChecked: ctx => !!ctx.flags?.()?.queriesPane }), c('Edit Links', 'editLinks', 'editLinks')],
-    ['Sort & Filter', c('Sort A to Z', 'sortAsc', 'sort', 'asc'), c('Sort Z to A', 'sortDesc', 'sort', 'desc'), large(c('Sort', 'sortCustom', 'sortDialog')), large(c('Filter', 'filter', 'filter')),
-      direct('Clear', 'filterClear', 'clearFilters', null, { ariaLabel: 'Clear filter' }), direct('Reapply', 'filterReapply', 'reapplyFilters', null), direct('Advanced', 'filterAdvanced', 'advancedFilter', null, { ariaLabel: 'Advanced filter' })],
-    ['Data Tools', c('Text to Columns', 'textToColumns', 'splitTextDialog'), direct('Flash Fill', 'flashFill', 'flashFill', null, { shortcut: `${MOD_KEY}+E` }), c('Remove Duplicates', 'dedupe', 'dedupe'),
-      split(c('Data Validation', 'validation', 'validation'), () => [
-        { label: 'Data Validation…', icon: 'validation', cmd: 'validation' },
-        { label: 'Circle Invalid Data', icon: 'validation', cmd: 'circleInvalid' },
-        { label: 'Clear Validation Circles', cmd: 'clearCircles' },
-      ]), direct('Consolidate', 'consolidate', 'consolidate', null), c('Form', 'dataForm', 'dataForm'), m('Data Cleanup', 'clearFormat', 'data', 'Data cleanup')],
-    ['Forecast', large(dyn('What-If Analysis', 'whatIf', menus => [command('goalSeek')(menus) && { ...command('goalSeek')(menus), label: 'Goal Seek…' },
-      command('scenarioManager')(menus) && { ...command('scenarioManager')(menus), label: 'Scenario Manager…' }, command('dataTable')(menus) && { ...command('dataTable')(menus), label: 'Data Table…' }].filter(Boolean))),
-      c('Goal Seek', 'goalSeek', 'goalSeek'), large(direct('Forecast Sheet', 'forecast', 'forecastSheet', null)), c('Column Stats', 'columnStats', 'columnStats')],
-    ['Analyze', large(c('Data Analysis', 'dataAnalysis', 'dataAnalysis')), large(c('Solver', 'solver', 'solver'))],
-    ['Outline', m('Group', 'group', 'view', 'Group'), a('Ungroup Rows', 'ungroup', 'ungroup', 'row', { ariaLabel: 'Ungroup Rows' }), c('Subtotal', 'subtotal', 'subtotal'),
-      direct('Show Detail', 'showDetail', 'showDetail', null), direct('Hide Detail', 'hideDetail', 'hideDetail', null),
-      c('Auto Outline', 'autoOutline', 'autoOutline'), c('Clear Outline', 'clearOutline', 'clearOutline'), c('Outline Settings', 'outlineSettings', 'outlineSettings')],
+    ['Get & Transform Data', large(getDataMenu()), direct('ribbon.fromTextCsv', 'fromText', 'getDataText', null), direct('ribbon.fromWeb', 'fromWeb', 'getDataWeb', null),
+      direct('ribbon.fromTableRange', 'fromTable', 'getDataTable', null)],
+    ['Queries & Connections', large(split(direct('ribbon.refreshAll', 'refresh', 'refreshAll', null), refreshMenu)),
+      direct('ribbon.queriesConnections', 'queriesPane', 'queriesPane', null, { isChecked: ctx => !!ctx.flags?.()?.queriesPane }), c('ribbon.editLinks', 'editLinks', 'editLinks')],
+    ['Sort & Filter', c('ribbon.sortAToZ', 'sortAsc', 'sort', 'asc'), c('ribbon.sortZToA', 'sortDesc', 'sort', 'desc'), large(c('ribbon.sort', 'sortCustom', 'sortDialog')), large(c('ribbon.filter', 'filter', 'filter')),
+      direct('common.clear', 'filterClear', 'clearFilters', null, { ariaLabel: 'ribbon.clearFilterName' }), direct('ribbon.reapply', 'filterReapply', 'reapplyFilters', null), direct('ribbon.advanced', 'filterAdvanced', 'advancedFilter', null, { ariaLabel: 'ribbon.advancedFilterName' })],
+    ['Data Tools', c('ribbon.textToColumns', 'textToColumns', 'splitTextDialog'), direct('ribbon.flashFill', 'flashFill', 'flashFill', null, { shortcut: `${MOD_KEY}+E` }), c('ribbon.removeDuplicates', 'dedupe', 'dedupe'),
+      split(c('ribbon.dataValidation', 'validation', 'validation'), () => [
+        { label: t('ribbon.dataValidationDialog'), icon: 'validation', cmd: 'validation' },
+        { label: t('ribbon.circleInvalidData'), icon: 'validation', cmd: 'circleInvalid' },
+        { label: t('ribbon.clearValidationCircles'), cmd: 'clearCircles' },
+      ]), direct('ribbon.consolidate', 'consolidate', 'consolidate', null), c('ribbon.form', 'dataForm', 'dataForm'), m('ribbon.dataCleanup', 'clearFormat', 'data', 'removeEmptyRows')],
+    ['Forecast', large(dyn('ribbon.whatIfAnalysis', 'whatIf', menus => [command('goalSeek')(menus) && { ...command('goalSeek')(menus), label: t('ribbon.goalSeekDialog') },
+      command('scenarioManager')(menus) && { ...command('scenarioManager')(menus), label: t('ribbon.scenarioManagerDialog') }, command('dataTable')(menus) && { ...command('dataTable')(menus), label: t('ribbon.dataTableDialog') }].filter(Boolean))),
+      c('ribbon.goalSeek', 'goalSeek', 'goalSeek'), large(direct('ribbon.forecastSheet', 'forecast', 'forecastSheet', null)), c('ribbon.columnStats', 'columnStats', 'columnStats')],
+    ['Analyze', large(c('ribbon.dataAnalysis', 'dataAnalysis', 'dataAnalysis')), large(c('ribbon.solver', 'solver', 'solver'))],
+    ['Outline', m('ribbon.groupCommand', 'group', 'view', 'group'), a('ribbon.ungroupRows', 'ungroup', 'ungroup', 'row'), c('ribbon.subtotal', 'subtotal', 'subtotal'),
+      direct('ribbon.showDetail', 'showDetail', 'showDetail', null), direct('ribbon.hideDetail', 'hideDetail', 'hideDetail', null),
+      c('ribbon.autoOutline', 'autoOutline', 'autoOutline'), c('ribbon.clearOutline', 'clearOutline', 'clearOutline'), c('ribbon.outlineSettings', 'outlineSettings', 'outlineSettings')],
   ],
   Review: [
-    ['Proofing', large(c('Spelling', 'spellCheck', 'spelling')), c('Thesaurus', 'thesaurus', 'thesaurus'), c('Spelling as You Type', 'spell', 'toggleSpellcheck'),
-      c('AutoCorrect Options', 'autoCorrect', 'autoCorrectOptions'), a('Workbook Statistics', 'stats', 'docInfo', null, { ariaLabel: 'Workbook Statistics' })],
-    ['Language', large(c('Translate', 'translate', 'translatePane'))],
-    ['Accessibility', large(direct('Check Accessibility', 'accessibility', 'accessibility', null))],
-    ['Comments', large(threadCmd('New Comment', 'comment', 'newComment', { shortcut: NEW_COMMENT_KEY })), threadCmd('Delete', 'deleteComment', 'deleteComment', { ariaLabel: 'Delete Comment', needs: 'hasComments' }),
-      threadCmd('Previous Comment', 'prevComment', 'prevComment', { needs: 'hasComments' }), threadCmd('Next Comment', 'nextComment', 'nextComment', { needs: 'hasComments' }),
-      large(threadCmd('Show Comments', 'showComments', 'toggleComments', { toggle: true }))],
-    ['Notes', large(c('Note', 'note', 'note')), c('Delete Note', 'deleteNote', 'deleteNote'), a('Notes on This Sheet', 'notes', 'selectSpecial', 'notes', { ariaLabel: 'Select notes on this sheet' })],
-    ['Changes', large(direct('Show Changes', 'showChanges', 'showChanges', null, { isChecked: ctx => !!ctx.flags?.()?.changesPane }))],
-    ['Protection', large(c('Protect Sheet', 'protectSheet', 'protectSheet')), direct('Protect Workbook', 'protectBook', 'protectWorkbook', null, { isChecked: ctx => !!ctx.wb.structureProtected }), c('Protected Ranges', 'protectRanges', 'protectRanges')],
-    ['Collaboration', c('Share', 'share', 'share'), c('Send a Copy', 'sendCopy', 'sendCopy'), c('Version History', 'versions', 'versions')],
+    ['Proofing', large(c('ribbon.spelling', 'spellCheck', 'spelling')), c('ribbon.thesaurus', 'thesaurus', 'thesaurus'), c('ribbon.spellingAsYouType', 'spell', 'toggleSpellcheck'),
+      c('ribbon.autoCorrectOptions', 'autoCorrect', 'autoCorrectOptions'), a('ribbon.workbookStatistics', 'stats', 'docInfo', null)],
+    ['Language', large(c('ribbon.translate', 'translate', 'translatePane'))],
+    ['Accessibility', large(direct('ribbon.checkAccessibility', 'accessibility', 'accessibility', null))],
+    ['Comments', large(threadCmd('ribbon.newComment', 'comment', 'newComment', { shortcut: NEW_COMMENT_KEY })), threadCmd('common.delete', 'deleteComment', 'deleteComment', { ariaLabel: 'ribbon.deleteCommentName', needs: 'hasComments' }),
+      threadCmd('ribbon.previousComment', 'prevComment', 'prevComment', { needs: 'hasComments' }), threadCmd('ribbon.nextComment', 'nextComment', 'nextComment', { needs: 'hasComments' }),
+      large(threadCmd('ribbon.showComments', 'showComments', 'toggleComments', { toggle: true }))],
+    ['Notes', large(c('ribbon.note', 'note', 'note')), c('ribbon.deleteNote', 'deleteNote', 'deleteNote'), a('ribbon.notesOnThisSheet', 'notes', 'selectSpecial', 'notes', { ariaLabel: 'ribbon.notesOnThisSheetName' })],
+    ['Changes', large(direct('ribbon.showChanges', 'showChanges', 'showChanges', null, { isChecked: ctx => !!ctx.flags?.()?.changesPane }))],
+    ['Protection', large(c('ribbon.protectSheet', 'protectSheet', 'protectSheet')), direct('ribbon.protectWorkbook', 'protectBook', 'protectWorkbook', null, { isChecked: ctx => !!ctx.wb.structureProtected }), c('ribbon.protectedRanges', 'protectRanges', 'protectRanges')],
+    ['Collaboration', c('ribbon.share', 'share', 'share'), c('ribbon.sendCopy', 'sendCopy', 'sendCopy'), c('ribbon.versionHistory', 'versions', 'versions')],
   ],
   View: [
-    ['Workbook Views', large(direct('Normal', 'normalView', 'viewMode', 'normal', { ariaLabel: 'Normal view', isChecked: ctx => (ctx.viewMode?.() || 'normal') === 'normal' })),
-      large(direct('Page Break Preview', 'pageBreak', 'viewMode', 'pageBreak', { isChecked: ctx => ctx.viewMode?.() === 'pageBreak' })),
-      large(direct('Page Layout', 'pageLayout', 'viewMode', 'pageLayout', { ariaLabel: 'Page Layout view', isChecked: ctx => ctx.viewMode?.() === 'pageLayout' })),
-      large(c('Custom Views', 'customViews', 'customViews'))],
-    ['Sheet View', large(dyn('Sheet View', 'sheetView', (menus, ctx) => {
+    ['Workbook Views', large(direct('ribbon.normalView', 'normalView', 'viewMode', 'normal', { ariaLabel: 'ribbon.normalViewName', isChecked: ctx => (ctx.viewMode?.() || 'normal') === 'normal' })),
+      large(direct('ribbon.pageBreakPreview', 'pageBreak', 'viewMode', 'pageBreak', { isChecked: ctx => ctx.viewMode?.() === 'pageBreak' })),
+      large(direct('ribbon.pageLayoutView', 'pageLayout', 'viewMode', 'pageLayout', { ariaLabel: 'ribbon.pageLayoutViewName', isChecked: ctx => ctx.viewMode?.() === 'pageLayout' })),
+      large(c('ribbon.customViews', 'customViews', 'customViews'))],
+    ['Sheet View', large(dyn('ribbon.sheetView', 'sheetView', (menus, ctx) => {
       const f = ctx.flags?.() || {}, sheet = ctx.wb.sheet(ctx.sheetId()), off = !!f.editing || !!f.chartSheet;
       const views = (sheet?.sheetViews || []).filter((v) => !v.temporary || v.id === f.sheetView?.id);
       return [
-        { label: 'Default', cmd: 'sheetView', arg: { action: 'switch', id: null }, radio: true, checked: !f.sheetView, disabled: off },
+        { label: t('common.default'), cmd: 'sheetView', arg: { action: 'switch', id: null }, radio: true, checked: !f.sheetView, disabled: off },
         ...views.map((v) => ({ label: v.name, cmd: 'sheetView', arg: { action: 'switch', id: v.id }, radio: true, checked: f.sheetView?.id === v.id, disabled: off })),
         { separator: true },
-        { label: 'New', icon: 'sheetView', cmd: 'sheetView', arg: 'new', disabled: off },
-        { label: 'Keep…', cmd: 'sheetView', arg: 'keep', disabled: off || !f.sheetView?.temporary },
-        { label: 'Exit', cmd: 'sheetView', arg: 'exit', disabled: off || !f.sheetView },
-        { label: 'Options…', icon: 'sliders', cmd: 'sheetView', arg: 'options', disabled: off },
+        { label: t('ribbon.sheetViewMenu.new'), icon: 'sheetView', cmd: 'sheetView', arg: 'new', disabled: off },
+        { label: t('ribbon.sheetViewMenu.keep'), cmd: 'sheetView', arg: 'keep', disabled: off || !f.sheetView?.temporary },
+        { label: t('ribbon.sheetViewMenu.exit'), cmd: 'sheetView', arg: 'exit', disabled: off || !f.sheetView },
+        { label: t('ribbon.sheetViewMenu.options'), icon: 'sliders', cmd: 'sheetView', arg: 'options', disabled: off },
       ];
-    }, { ariaLabel: 'Sheet View' })),
-      sheetViewButton('New', 'filePlus', 'new', () => false), sheetViewButton('Keep', 'save', 'keep', f => !f.sheetView || !f.sheetView.temporary),
-      sheetViewButton('Exit', 'exitView', 'exit', f => !f.sheetView), sheetViewButton('Options', 'sliders', 'options', () => false)],
-    ['Show', c('Gridlines', 'gridlines', 'gridlines'), c('Formula Bar', 'fx', 'formulaBar'), c('Headings', 'headings', 'toggleHeaders'), c('Show Zeros', 'number', 'zeros'), c('Show Formulas', 'showFormulas', 'showFormulas'),
-      c('Page Breaks', 'pageBreak', 'showPageBreaks')],
-    ['Zoom', large(c('Zoom', 'zoomIn', 'zoomCustom')), large(c('100%', 'zoom100', 'zoom', 'reset')), large(direct('Zoom to Selection', 'zoomSelection', 'zoomSelection', null))],
-    ['Window', large(m('Freeze Panes', 'freeze', 'view', 'Freeze')), c('Split', 'split', 'split'),
-      m('Hide & Unhide', 'hideEye', 'view', 'Hide and unhide'), c('Focus Mode', 'focus', 'focusMode'), c('Full Screen', 'fullscreen', 'fullscreen')],
-    ['Assistant', c('AI Assistant', 'sparkle', 'aiPanel')],
+    }, { ariaLabel: 'ribbon.sheetView' })),
+      sheetViewButton('ribbon.sheetViewNew', 'ribbon.sheetViewNewName', 'filePlus', 'new', () => false),
+      sheetViewButton('ribbon.sheetViewKeep', 'ribbon.sheetViewKeepName', 'save', 'keep', f => !f.sheetView || !f.sheetView.temporary),
+      sheetViewButton('ribbon.sheetViewExit', 'ribbon.sheetViewExitName', 'exitView', 'exit', f => !f.sheetView),
+      sheetViewButton('common.options', 'ribbon.sheetViewOptionsName', 'sliders', 'options', () => false)],
+    ['Show', c('ribbon.gridlines', 'gridlines', 'gridlines'), c('ribbon.formulaBar', 'fx', 'formulaBar'), c('ribbon.headings', 'headings', 'toggleHeaders'), c('ribbon.showZeros', 'number', 'zeros'), c('ribbon.showFormulas', 'showFormulas', 'showFormulas'),
+      c('ribbon.pageBreaks', 'pageBreak', 'showPageBreaks')],
+    ['Zoom', large(c('ribbon.zoom', 'zoomIn', 'zoomCustom')), large(c({ text: '100%', source: '100%' }, 'zoom100', 'zoom', 'reset')), large(direct('ribbon.zoomToSelection', 'zoomSelection', 'zoomSelection', null))],
+    ['Window', large(m('ribbon.freezePanes', 'freeze', 'view', 'freeze')), c('ribbon.split', 'split', 'split'),
+      m('ribbon.hideUnhide', 'hideEye', 'view', 'hide'), c('ribbon.focusMode', 'focus', 'focusMode'), c('ribbon.fullScreen', 'fullscreen', 'fullscreen')],
+    ['Assistant', c('ribbon.aiAssistant', 'sparkle', 'aiPanel')],
   ],
   // Scripts (ui/automate.js): record, write, browse and run them; the samples run in one click, undone in one.
   Automate: [
-    ['Scripting Tools', large(direct('Record Actions', 'recordActions', 'recordActions', null, { isChecked: ctx => !!ctx.flags?.()?.recording })),
-      large(direct('New Script', 'newScript', 'newScript', null)),
-      large(direct('All Scripts', 'allScripts', 'scriptGallery', null)),
-      large(direct('Code Editor', 'codeEditor', 'scriptsPane', null, { isChecked: ctx => !!ctx.flags?.()?.scriptsPane })),
-      large(dyn('Run Script', 'runScript', (menus, ctx) => ctx.automate?.menuItems?.() || [], { ariaLabel: 'Run a script' }))],
-    ['Controls', large(dyn('Script Button', 'scriptButton', (menus, ctx) => ctx.automate?.buttonItems?.() || [], { ariaLabel: 'Insert a button that runs a script' }))],
-    ['Sample Scripts', ...SAMPLE_BUTTONS.map(([id, label, glyph]) => direct(label, glyph, 'runScript', { sample: id }, { ariaLabel: `Run the ${label} sample script` }))],
-    ['Help', large(direct('Script Reference', 'scriptReference', 'scriptReference', null))],
+    ['Scripting Tools', large(direct('ribbon.recordActions', 'recordActions', 'recordActions', null, { isChecked: ctx => !!ctx.flags?.()?.recording })),
+      large(direct('ribbon.newScript', 'newScript', 'newScript', null)),
+      large(direct('ribbon.allScripts', 'allScripts', 'scriptGallery', null)),
+      large(direct('ribbon.codeEditor', 'codeEditor', 'scriptsPane', null, { isChecked: ctx => !!ctx.flags?.()?.scriptsPane })),
+      large(dyn('ribbon.runScript', 'runScript', (menus, ctx) => ctx.automate?.menuItems?.() || [], { ariaLabel: 'ribbon.runScriptName' }))],
+    ['Controls', large(dyn('ribbon.scriptButton', 'scriptButton', (menus, ctx) => ctx.automate?.buttonItems?.() || [], { ariaLabel: 'ribbon.scriptButtonName' }))],
+    ['Sample Scripts', ...SAMPLE_BUTTONS.map(([id, label, glyph]) => direct(label, glyph, 'runScript', { sample: id },
+      { ariaLabel: phrase('ribbon.runSampleName', { name: t(label) }, { name: tSource(label) }) }))],
+    ['Help', large(direct('ribbon.scriptReference', 'scriptReference', 'scriptReference', null))],
   ],
 }[name] || []);
-/** The sample scripts on the Automate tab, each run by its button. */
+/** The sample scripts on the Automate tab, each run by its button: [sample id, catalog key of its name, glyph]. */
 const SAMPLE_BUTTONS = [
-  ['highlight-duplicates', 'Highlight Duplicates', 'highlightDuplicates'], ['unhide-everything', 'Unhide Everything', 'unhideAll'],
-  ['sum-each-column', 'Sum Each Column', 'sumColumns'], ['table-of-contents', 'Table of Contents', 'tableOfContents'],
-  ['header-row', 'Style Header Row', 'styleHeaderRow'], ['remove-blank-rows', 'Remove Blank Rows', 'removeBlankRows'],
+  ['highlight-duplicates', 'ribbon.sample.highlightDuplicates', 'highlightDuplicates'], ['unhide-everything', 'ribbon.sample.unhideEverything', 'unhideAll'],
+  ['sum-each-column', 'ribbon.sample.sumEachColumn', 'sumColumns'], ['table-of-contents', 'ribbon.sample.tableOfContents', 'tableOfContents'],
+  ['header-row', 'ribbon.sample.styleHeaderRow', 'styleHeaderRow'], ['remove-blank-rows', 'ribbon.sample.removeBlankRows', 'removeBlankRows'],
 ];
 
 /** A large button's name on two lines ("Sort &" over "Filter"), split where the longer line is shortest. */
@@ -421,14 +517,16 @@ function twoLineLabel(span, text) {
 export function createRibbon(ctx) {
   const root = el('div.ribbon.toolbar');
   const id = fieldId('ribbon');
-  const tabs = el('div.ribbon-tabs', { role: 'tablist', 'aria-label': 'Ribbon' });
+  const tabs = el('div.ribbon-tabs', { role: 'tablist', 'aria-label': t('ribbon.ribbon') });
   const names = [...RIBBON_TABS, 'Table', 'Chart Design', 'Format', 'SmartArt Design', 'SmartArt Format', 'Picture Format'];
   const CHART_TABS = ['Chart Design', 'Format'];
   // A selected SmartArt graphic offers its own two tabs; the second is called Format, as a chart's is.
   const SMARTART_TABS = ['SmartArt Design', 'SmartArt Format'];
   // A selected picture offers Picture Format, as a selected chart offers its two tabs.
   const PICTURE_TABS = ['Picture Format'];
-  const tabLabel = name => (name === 'SmartArt Format' ? 'Format' : name);
+  // The name a built-in tab shows, and its English, which its key tip is worked out from.
+  const tabLabel = name => builtinTabLabel(name === 'SmartArt Format' ? 'Format' : name);
+  const tabKeytip = name => builtinTabSourceLabel(name === 'SmartArt Format' ? 'Format' : name);
   const contextualTab = name => name === 'Table' || CHART_TABS.includes(name) || SMARTART_TABS.includes(name) || PICTURE_TABS.includes(name);
   const CONTEXT_TABS = ['Table', ...CHART_TABS, ...SMARTART_TABS, ...PICTURE_TABS];
   let userHidden = new Set(); // tabs the person hid (applyLayout)
@@ -462,7 +560,9 @@ export function createRibbon(ctx) {
   const makeButton = descriptor => {
     if (descriptor.split) {
       const face = makeButton({ ...descriptor, split: null });
-      const arrow = makeButton({ label: `${descriptor.label} options`, glyph: 'chevD', ariaLabel: `${descriptor.label} options`, arrow: true,
+      const arrowLabel = t('ribbon.splitOptions', { label: descriptor.label });
+      const arrow = makeButton({ label: arrowLabel, glyph: 'chevD', ariaLabel: arrowLabel, arrow: true,
+        keytip: tSource('ribbon.splitOptions', { label: descriptor.keytip ?? descriptor.label }),
         resolve: (menus, context) => {
           const face = descriptor.resolve?.(menus, context);
           return lazySubmenu({ label: descriptor.label, disabled: !face || !!face.disabled }, () => descriptor.split(menus, context));
@@ -483,11 +583,13 @@ export function createRibbon(ctx) {
         else if (item.cmd) backToSheet(button, ctx.run(item.cmd, MENU_COMMANDS.has(item.cmd) ? button : item.arg));
       },
     }, descriptor.arrow ? null : el('span.ribbon-button-label', {}, descriptor.label));
+    // Key tips are worked out from the English name (keytips.js); a descriptor without one keeps its name's.
+    if (descriptor.keytip) button.dataset.keytipLabel = descriptor.keytip;
     if (descriptor.large) button.classList.add('ribbon-large');
     if (descriptor.arrow) button.classList.add('ribbon-split-arrow');
     if (descriptor.look) {
       button.classList.add('ribbon-table-style');
-      button.querySelector('.ribbon-button-label').textContent = descriptor.label.replace(' table style', '');
+      button.querySelector('.ribbon-button-label').textContent = descriptor.shortLabel ?? descriptor.label;
       button.querySelector('svg')?.remove();
       button.prepend(el('span.ribbon-table-sample', { 'aria-hidden': 'true', style: { '--table-head': descriptor.look.header, '--table-band': descriptor.look.band } },
         ...Array.from({ length: 12 }, (_, i) => el('span', { dataset: { row: Math.floor(i / 3) } }))));
@@ -496,18 +598,18 @@ export function createRibbon(ctx) {
     return button;
   };
   const extras = {
-    clipboard: [large(split(c('Paste', 'paste', 'paste'), (menus, context) => pasteGalleryItems({ disabled: !!context?.flags?.()?.editing }))),
-      c('Cut', 'cut', 'cut'), c('Copy', 'copy', 'copy')].map(makeButton),
-    styles: [large({ ...direct('Format as Table', 'formatTable', 'formatAsTableMenu', null), ariaLabel: 'Format as Table' })].map(makeButton),
-    cells: [insertMenu, deleteMenu, formatMenu].map(makeButton),
-    editing: [split(c('AutoSum', 'autosum', 'autosum'), () => autoSumMenu()), m('Fill', 'fillDown', 'edit', 'Fill'), clearMenu, large(findAndSelect)].map(makeButton),
+    clipboard: [large(split(c('common.paste', 'paste', 'paste'), (menus, context) => pasteGalleryItems({ disabled: !!context?.flags?.()?.editing }))),
+      c('common.cut', 'cut', 'cut'), c('common.copy', 'copy', 'copy')].map(makeButton),
+    styles: [large(direct('ribbon.formatAsTable', 'formatTable', 'formatAsTableMenu', null))].map(makeButton),
+    cells: [insertMenu(), deleteMenu(), formatMenu()].map(makeButton),
+    editing: [split(c('ribbon.autoSum', 'autosum', 'autosum'), () => autoSumMenu()), m('ribbon.fill', 'fillDown', 'edit', 'fillDown'), clearMenu(), large(findAndSelect())].map(makeButton),
   };
   const toolbar = createToolbar(ctx, { ribbon: true, ribbonExtras: extras });
   toolbar.el.classList.remove('toolbar');
   const tableNameError = el('span.ribbon-table-error', { id: `${id}-table-error`, role: 'alert', hidden: true });
   const tableName = el('input.input.ribbon-table-name.ribbon-control', {
-    type: 'text', 'aria-label': 'Table Name', 'aria-describedby': tableNameError.id,
-    title: 'Rename the table with Enter; Escape cancels', spellcheck: false, autocomplete: 'off', tabindex: -1,
+    type: 'text', 'aria-label': t('ribbon.tableName'), 'aria-describedby': tableNameError.id, dataset: { keytipLabel: tSource('ribbon.tableName') },
+    title: t('ribbon.tableNameTip'), spellcheck: false, autocomplete: 'off', tabindex: -1,
     oninput: () => { tableNameError.hidden = true; tableName.removeAttribute('aria-invalid'); },
     onkeydown: async e => {
       if (isComposing(e)) return;
@@ -534,13 +636,15 @@ export function createRibbon(ctx) {
       }
     },
   });
-  /** A tab and its (empty) panel; `name` is the tab's id, a built-in tab's name or a custom tab's id. */
-  function makeTab(name, text = name) {
+  /** A tab and its (empty) panel; `name` is the tab's id, a built-in tab's English name or a custom tab's id. */
+  function makeTab(name, text = null) {
     const panelId = `${id}-${name.replaceAll(' ', '-').toLowerCase()}`;
     const tab = el('button.ribbon-tab', {
       type: 'button', role: 'tab', id: `${panelId}-tab`, 'aria-controls': panelId,
       'aria-selected': String(name === active), tabindex: name === active ? 0 : -1,
-      ...(name === 'SmartArt Format' ? { 'aria-label': 'SmartArt Format' } : {}),
+      ...(name === 'SmartArt Format' ? { 'aria-label': builtinTabLabel('SmartArt Format') } : {}),
+      // A built-in tab's key tip comes from its English name, the same in every language.
+      ...(text === null ? { dataset: { keytipLabel: tabKeytip(name) } } : {}),
       onclick: e => { if (e.detail <= 1) clickExpanded = collapsed; select(name); },
       ondblclick: () => { if (clickExpanded) clickExpanded = false; else setCollapsed(!collapsed); },
       onkeydown: e => {
@@ -551,13 +655,13 @@ export function createRibbon(ctx) {
         if (next !== null) { e.preventDefault(); select(names[buttons.indexOf(list[next])], { expand: false }); list[next].focus(); }
         else if (e.key === 'ArrowDown') { e.preventDefault(); setCollapsed(false); enabled(panels[names.indexOf(name)])[0]?.focus(); }
       },
-    }, text === name ? tabLabel(name) : text);
+    }, text === null ? tabLabel(name) : text);
     const panel = el('div.ribbon-panel', { id: panelId, role: 'tabpanel', 'aria-labelledby': tab.id, hidden: name !== active });
     return { tab, panel };
   }
   /** A panel's row of groups, moved along by the arrows; Escape goes back up to the tab. */
   function makeTools(name, panel, tab) {
-    const tools = el('div.ribbon-panel-tools', { role: 'toolbar', 'aria-label': `${name} commands` });
+    const tools = el('div.ribbon-panel-tools', { role: 'toolbar', 'aria-label': t('ribbon.tabCommands', { tab: name }) });
     panel.append(tools);
     tools.addEventListener('focusin', e => { if (enabled(panel).includes(e.target)) rove(panel, e.target); });
     tools.addEventListener('keydown', e => {
@@ -573,6 +677,8 @@ export function createRibbon(ctx) {
   for (const name of names) {
     const { tab, panel } = makeTab(name);
     tab.dataset.builtinName = name;
+    // Its own name in the interface language, whatever the person renamed it to (Options and the command catalog show it).
+    tab.dataset.builtinLabel = tabLabel(name);
     if (name === 'Home') {
       panel.append(toolbar.el);
       // Escape from a Home command goes back up to the Home tab, as it does from every other tab's commands.
@@ -581,16 +687,18 @@ export function createRibbon(ctx) {
         e.preventDefault(); tab.focus();
       });
     } else {
-      const tools = makeTools(name, panel, tab);
-      for (const [label, ...descriptors] of groupsFor(name)) {
+      const tools = makeTools(tabLabel(name), panel, tab);
+      for (const [group, ...descriptors] of groupsFor(name)) {
+        // The group is known by its English name (data-group-name, which Customize Ribbon reads) and shows its own.
+        const { name: label, label: shown } = groupNaming(group);
         // A control built in place (a field, a picker) refreshes with the ribbon through its own `refresh`.
         const controls = el('div.ribbon-group-controls', {}, ...descriptors.map(d => (d.element ? (built => { builtControls.push(built); return built; })(d.element(ctx)) : makeButton(d))));
         if (name === 'Table' && label === 'Properties') controls.classList.add('ribbon-table-properties');
-        if (name === 'Table' && label === 'Properties') controls.prepend(el('label.ribbon-table-name-field', {}, el('span', {}, 'Table Name:'), tableName));
+        if (name === 'Table' && label === 'Properties') controls.prepend(el('label.ribbon-table-name-field', {}, el('span', {}, t('ribbon.tableNameLabel')), tableName));
         if (name === 'Table' && label === 'Table Styles') controls.classList.add('ribbon-table-gallery');
         // Each sheet option stands over its print counterpart: Gridlines over Print gridlines, Headings over Print headings.
         if (name === 'Page Layout' && label === 'Sheet Options') controls.classList.add('ribbon-two-rows');
-        tools.append(el('div.ribbon-group', { role: 'group', 'aria-label': label }, controls, el('span.ribbon-group-label', {}, label)));
+        tools.append(el('div.ribbon-group', { role: 'group', 'aria-label': shown, dataset: { groupName: label } }, controls, el('span.ribbon-group-label', {}, shown)));
       }
     }
     if (name === 'Table') { tab.classList.add('ribbon-context-tab'); panel.dataset.tablePanel = ''; }
@@ -611,9 +719,9 @@ export function createRibbon(ctx) {
       updateOverflow();
     },
   });
-  const scrollLeft = scrollButton(-1, 'Scroll ribbon left', 'chevL');
-  const scrollRight = scrollButton(1, 'Scroll ribbon right', 'chevR');
-  const scrollControls = el('div.ribbon-scroll-controls', { role: 'group', 'aria-label': 'Scroll ribbon commands', hidden: true }, scrollLeft, scrollRight);
+  const scrollLeft = scrollButton(-1, t('ribbon.scrollLeft'), 'chevL');
+  const scrollRight = scrollButton(1, t('ribbon.scrollRight'), 'chevR');
+  const scrollControls = el('div.ribbon-scroll-controls', { role: 'group', 'aria-label': t('ribbon.scrollCommands'), hidden: true }, scrollLeft, scrollRight);
   root.append(el('div.ribbon-tab-row', {}, tabs, scrollControls, toggle), content, tableNameError);
   function activeTools() { return panels[names.indexOf(active)]?.querySelector('.ribbon-home, .ribbon-panel-tools'); }
   function updateOverflow() {
@@ -741,15 +849,17 @@ export function createRibbon(ctx) {
     for (const { button, descriptor } of dynamic) {
       const item = descriptor.resolve?.(definitions, ctx);
       if (item?.cmd === 'protectSheet') {
-        // The menus word it in sentence case; the ribbon names commands in title case.
-        const label = item.label.replace(/ sheet$/, ' Sheet');
+        // Protect Sheet, or Unprotect Sheet on a protected sheet, as the menus' item says (in sentence case there).
+        const said = flags.sheet?.protected ? phrase('ribbon.unprotectSheet') : phrase('ribbon.protectSheet');
         const span = button.querySelector('.ribbon-button-label');
-        if (button.classList.contains('ribbon-large')) twoLineLabel(span, label); else span.textContent = label;
-        button.setAttribute('aria-label', label);
+        if (button.classList.contains('ribbon-large')) twoLineLabel(span, said.text); else span.textContent = said.text;
+        button.setAttribute('aria-label', said.text);
+        button.dataset.keytipLabel = said.source;
       }
       button.disabled = descriptor.unsupported || !item || !!item.disabled || (button.closest('[data-table-panel]') && (!!flags.editing || !!flags.sheet?.protected));
-      button.title = descriptor.unsupported ? descriptor.reason || `${descriptor.label}: not supported yet` : !item ? `${descriptor.label}: unavailable in this session`
-        : item.disabled && item.hint ? `${descriptor.label}: ${item.hint}` : `${descriptor.label}${item.shortcut ? ` (${item.shortcut})` : ''}`;
+      const label = descriptor.label;
+      button.title = descriptor.unsupported ? descriptor.reason || t('ribbon.tip.notSupported', { label }) : !item ? t('ribbon.tip.unavailable', { label })
+        : item.disabled && item.hint ? t('ribbon.tip.withHint', { label, hint: item.hint }) : item.shortcut ? t('ribbon.tip.withShortcut', { label, shortcut: item.shortcut }) : label;
       button.setAttribute('aria-keyshortcuts', ariaKeyShortcuts(item?.shortcut) || '');
       if ((item && 'submenu' in item) || MENU_COMMANDS.has(item?.cmd)) button.setAttribute('aria-haspopup', 'menu'); else button.removeAttribute('aria-haspopup');
       if ((item?.checked ?? descriptor.checked) !== undefined) button.setAttribute('aria-pressed', String(!!(item?.checked ?? descriptor.checked))); else button.removeAttribute('aria-pressed');
@@ -765,8 +875,8 @@ export function createRibbon(ctx) {
     toolbar.refresh();
     root.classList.toggle('ribbon-collapsed', collapsed);
     toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.setAttribute('aria-label', collapsed ? 'Expand ribbon' : 'Collapse ribbon');
-    toggle.title = `${collapsed ? 'Expand' : 'Collapse'} ribbon (double-click a tab)`;
+    toggle.setAttribute('aria-label', collapsed ? t('ribbon.expand') : t('ribbon.collapse'));
+    toggle.title = collapsed ? t('ribbon.expandTip') : t('ribbon.collapseTip');
     toggle.innerHTML = icon(collapsed ? 'chevD' : 'chevU', 16);
     for (let i = 0; i < buttons.length; i++) {
       const selected = names[i] === active;
@@ -805,14 +915,14 @@ export function createRibbon(ctx) {
         const item = command(cmd, arg === null ? undefined : arg)(menus);
         if (item && JSON.stringify(item.arg ?? null) === JSON.stringify(arg)) return { ...item, label };
         const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
-        return { label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? GROUP_BLOCKED_HINT : undefined };
+        return { label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? groupBlockedHint() : undefined };
       } };
   };
   function customGroup(g, catalog) {
     const made = g.commands.map(cid => makeButton(customDescriptor(cid, catalog.find(e => e.id === cid))));
     for (const b of made) customButtons.add(b);
     return el('div.ribbon-group.ribbon-custom-group', { role: 'group', 'aria-label': g.name, dataset: { customGroup: g.id } },
-      el('div.ribbon-group-controls', {}, ...(made.length ? made : [el('span.ribbon-group-empty', {}, 'No commands yet')])),
+      el('div.ribbon-group-controls', {}, ...(made.length ? made : [el('span.ribbon-group-empty', {}, t('ribbon.noCommandsYet'))])),
       el('span.ribbon-group-label', {}, g.name));
   }
   function applyLayout(layout = ribbonLayoutStore.get()) {
@@ -832,12 +942,12 @@ export function createRibbon(ctx) {
     const owned = Object.values(layout.groups).some(list => list.some(g => g.commands.length));
     if (owned) refresh();
     const catalog = owned ? commandCatalog(ctx.flags?.() || {}, root) : [];
-    for (const t of layout.tabs) {
-      const { tab, panel } = makeTab(t.id, t.name);
+    for (const own of layout.tabs) {
+      const { tab, panel } = makeTab(own.id, own.name);
       tab.classList.add('ribbon-custom-tab');
-      makeTools(t.name, panel, tab);
-      customTabs.add(t.id);
-      names.push(t.id); buttons.push(tab); panels.push(panel);
+      makeTools(own.name, panel, tab);
+      customTabs.add(own.id);
+      names.push(own.id); buttons.push(tab); panels.push(panel);
       content.append(panel);
       panel.querySelector('.ribbon-panel-tools')?.addEventListener('scroll', updateOverflow, { passive: true });
       observer?.observe(panel);
@@ -850,14 +960,18 @@ export function createRibbon(ctx) {
     }
     // Order, names and visibility of the regular tabs; the contextual tabs keep their place at the end.
     const order = tabsIn(layout, RIBBON_TABS);
-    for (const t of order) {
-      const at = names.indexOf(t.id);
+    for (const shown of order) {
+      const at = names.indexOf(shown.id);
       if (at < 0) continue;
-      if (t.builtin) buttons[at].textContent = t.name;
+      if (shown.builtin) {
+        buttons[at].textContent = shown.name;
+        // A tab the person renamed takes its key tip from the name they gave it, as one of their own does.
+        if (shown.renamed) delete buttons[at].dataset.keytipLabel; else buttons[at].dataset.keytipLabel = tabKeytip(shown.id);
+      }
       tabs.append(buttons[at]);
     }
     for (const name of CONTEXT_TABS) tabs.append(buttons[names.indexOf(name)]);
-    userHidden = new Set(order.filter(t => t.hidden).map(t => t.id));
+    userHidden = new Set(order.filter(shown => shown.hidden).map(shown => shown.id));
     if (!names.includes(active)) active = firstShown();
     if (!names.includes(lastRegular) || userHidden.has(lastRegular)) lastRegular = firstShown();
     fitWidth = -1;
@@ -871,7 +985,7 @@ export function createRibbon(ctx) {
     if (!target || !root.contains(target)) return;
     e.preventDefault();
     const commandOf = target.classList.contains('ribbon-tab') ? null : target._command || null;
-    openMenu({ anchor: target, label: 'Ribbon', minWidth: 250,
+    openMenu({ anchor: target, label: t('ribbon.ribbon'), minWidth: 250,
       items: ribbonButtonMenuItems(ctx, commandOf, { collapsed, toggleCollapsed: () => setCollapsed(!collapsed) }),
       onClose: reason => { if (reason === 'select') ctx.grid?.focus?.(); } });
   });

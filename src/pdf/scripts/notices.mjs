@@ -42,10 +42,10 @@ texts.push(
 );
 texts.push('Noto Sans font\n\n' + readFileSync('public/fonts/OFL.txt', 'utf8'));
 texts.push(
-  'Noto Sans KR font\n\n' +
-    readFileSync('public/fonts/NotoSansKR-SOURCE.txt', 'utf8') +
+  'Noto Sans CJK fonts\n\n' +
+    readFileSync('public/fonts/NotoSansCJK-SOURCE.txt', 'utf8') +
     '\n' +
-    readFileSync('public/fonts/NotoSansKR-OFL.txt', 'utf8'),
+    readFileSync('public/fonts/NotoSansCJK-OFL.txt', 'utf8'),
 );
 texts.push('Great Vibes font\n\n' + readFileSync('public/fonts/GreatVibes-OFL.txt', 'utf8'));
 

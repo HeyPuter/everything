@@ -7,7 +7,7 @@
 // which keeps sub-micron precision anywhere on a two metre board.
 
 import earcut from 'earcut';
-import { layoutText } from './font.js';
+import { layoutText, uprightText } from './font.js';
 import { DEG } from '../core/geom.js';
 
 const S = 1 / 1000;
@@ -146,13 +146,9 @@ export class Batch {
    */
   text(str, x, y, size, color, { rot = 0, align, mirror = false, w = 0, upright = false } = {}) {
     if (!str) return;
-    let r = rot % 360;
-    if (r < 0) r += 360;
+    let r = ((rot % 360) + 360) % 360;
     let al = align;
-    if (upright && r > 90 && r <= 270) {
-      r = (r + 180) % 360;
-      al = flipAlign(align);
-    }
+    if (upright) ({ rot: r, align: al } = uprightText(r, align));
     const lay = layoutText(String(str), size, al);
     const sw = w || size * 0.13;
     const c = Math.cos(r * DEG), s = Math.sin(r * DEG), m = mirror ? -1 : 1;
@@ -167,10 +163,4 @@ export class Batch {
       }
     }
   }
-}
-
-function flipAlign(align = {}) {
-  const h = align.h === 'left' || !align.h ? 'right' : align.h === 'right' ? 'left' : 'center';
-  const v = align.v === 'bottom' || !align.v ? 'top' : align.v === 'top' ? 'bottom' : 'middle';
-  return { h, v };
 }

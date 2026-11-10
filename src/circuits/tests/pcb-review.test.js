@@ -1,0 +1,471 @@
+// Board editor review: interactive routing, editing and the 3D view, driven
+// through a real PcbEditor in jsdom (no WebGL, so the canvas is not drawn).
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { App } from '../src/app/app.js';
+import { setPuterForTests } from '../src/app/puter.js';
+import { closeMenus } from '../src/ui/menu.js';
+import { placedOf } from '../src/render/pcb-scene.js';
+import { Batch } from '../src/render/batch.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createKernel } from '../src/kernel/ops.js';
+import { defaultRules } from '../src/model/schema.js';
+import { mm } from '../src/core/units.js';
+
+async function bootBoard() {
+  document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
+  setPuterForTests(null);
+  delete window.puter;
+  const app = new App(document.getElementById('app'), { puterTimeout: 10 });
+  await app.init();
+  app.settings.set('autoRepour', false);
+  app.settings.set('onlineDrc', false);
+  // jsdom cannot load the kernel; tests that need fills stub these again.
+  app.kernel.pours = async () => new Map();
+  app.kernel.drc = async () => [];
+  await app.openExample();
+  app.openDoc(app.project.boards[0].id);
+  const ed = app.activeEditor;
+  return { app, ed };
+}
+
+function padOf(ed, ref, num) {
+  const comp = [...ed.doc.items()].find((o) => o.t === 'comp' && o.designator === ref);
+  return placedOf(comp, ed.lib, ed.copperCount).pads.find((p) => p.num === num);
+}
+
+const ev = (x, y) => ({ x, y, rawX: x, rawY: y });
+const key = (ed, combo) => ed.tool.key({ key: combo, preventDefault() {} }, combo);
+
+let ctx;
+beforeEach(() => {
+  localStorage.clear();
+});
+afterEach(() => {
+  ctx?.app.kernel.dispose();
+  ctx = null;
+  closeMenus();
+  document.body.innerHTML = '';
+});
+
+describe('interactive routing', () => {
+  it('Backspace over a via returns the trace to the layer it came from', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const p = padOf(ed, 'U1', '1');
+    ed.startTool('route');
+    ed.tool.click(ev(p.x, p.y));
+    ed.tool.click(ev(p.x - 3_000_000, p.y + 2_000_000));
+    expect(ed.tool.trace.layer).toBe('top');
+    key(ed, '*');
+    expect(ed.tool.trace.layer).toBe('bottom');
+    expect([...ed.doc.items()].filter((o) => o.t === 'via')).toHaveLength(1);
+    key(ed, 'Backspace');
+    expect([...ed.doc.items()].filter((o) => o.t === 'via')).toHaveLength(0);
+    expect(ed.tool.trace.layer).toBe('top');
+    expect(ed.activeLayer).toBe('top');
+  });
+});
+
+describe('3D view', () => {
+  it('opens one viewer when 3 is pressed twice while it loads', async () => {
+    ctx = await bootBoard();
+    const { app } = ctx;
+    // jsdom has no WebGL2, so each viewer that gets created reports it once.
+    await Promise.all([app.set3d(true), app.set3d(true)]);
+    const notices = [...document.querySelectorAll('.toast')].filter((t) =>
+      /needs WebGL2/.test(t.textContent),
+    );
+    expect(notices).toHaveLength(1);
+  });
+
+  it('does not open after it was closed while loading', async () => {
+    ctx = await bootBoard();
+    const { app } = ctx;
+    await Promise.all([app.set3d(true), app.set3d(false)]);
+    expect([...document.querySelectorAll('.toast')].some((t) => /WebGL2/.test(t.textContent))).toBe(
+      false,
+    );
+  });
+});
+
+/** A WebGL2 stand-in that accepts every call and records uniforms by name. */
+function fakeGl() {
+  const uniforms = {};
+  const target = {
+    getShaderParameter: () => true,
+    getProgramParameter: () => true,
+    getUniformLocation: (_, name) => name,
+    uniform1f: (n, v) => {
+      uniforms[n] = v;
+    },
+    uniform3fv: (n, v) => {
+      uniforms[n] = [...v];
+    },
+    isContextLost: () => false,
+  };
+  const gl = new Proxy(target, {
+    get: (t, k) =>
+      k in t ? t[k] : typeof k === 'string' && /^[A-Z_0-9]+$/.test(k) ? 1 : () => ({}),
+  });
+  return { gl, uniforms };
+}
+
+describe('3D bottom view', () => {
+  it('shows the underside turned over left to right and lit from below', async () => {
+    const { createViewer3D } = await import('../src/render/viewer3d.js');
+    const { buildBoardScene } = await import('../src/render/mesh3d.js');
+    const { gl, uniforms } = fakeGl();
+    const canvas = document.createElement('canvas');
+    canvas.getContext = () => gl;
+    const v = createViewer3D(canvas);
+    v.setScene(
+      buildBoardScene({ board: { outline: [0, 0, 1e7, 0, 1e7, 1e7, 0, 1e7] }, objects: [] }),
+    );
+    v.setView('bottom');
+    await new Promise((r) => setTimeout(r, 260));
+    v.render();
+    const { yaw, pitch } = v.camera;
+    const rad = (d) => (d * Math.PI) / 180;
+    // Camera right vector: +x on screen must be -x in the world from below.
+    const right = [-Math.sin(rad(yaw)), Math.cos(rad(yaw))];
+    expect(pitch).toBeLessThan(-80);
+    expect(right[0]).toBeLessThan(-0.99);
+    expect(uniforms.uSide).toBe(-1);
+    expect(uniforms.uL0[2]).toBeLessThan(0);
+    v.setView('top');
+    await new Promise((r) => setTimeout(r, 260));
+    v.render();
+    expect(uniforms.uSide).toBe(1);
+    expect(uniforms.uL0[2]).toBeGreaterThan(0);
+    v.dispose();
+  });
+});
+
+describe('routing and undo', () => {
+  it('ends the trace when undo takes back its segments', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const p = padOf(ed, 'U1', '1');
+    ed.startTool('route');
+    ed.tool.click(ev(p.x, p.y));
+    ed.tool.click(ev(p.x - 3_000_000, p.y + 2_000_000));
+    expect([...ed.doc.items()].filter((o) => o.t === 'track').length).toBeGreaterThan(0);
+    app.undo();
+    expect([...ed.doc.items()].filter((o) => o.t === 'track')).toHaveLength(0);
+    expect(ed.tool.trace).toBeNull();
+    // The next click starts a new trace instead of continuing from a removed end.
+    ed.tool.click(ev(p.x, p.y));
+    expect(ed.tool.trace.pts).toEqual([p.x, p.y]);
+  });
+});
+
+describe('pour previews', () => {
+  it('moving a pour previews its outline, not the fill left at the old place', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    ed.pourFills = new Map([[pour.id, [[pour.pts]]]]);
+    const mv = ed.beginMove([pour.id], { x: pour.pts[0], y: pour.pts[1] });
+    mv.update(5_000_000, 0);
+    const b = new Batch();
+    mv.draw(b);
+    expect(b.bufs.tri.count).toBe(0);
+    expect(b.bufs.seg.count).toBeGreaterThan(0);
+    mv.cancel();
+    // The board layer itself still draws the committed fill.
+    ed._dirtyLayers.add('*');
+    ed._rebuildLayers();
+    expect(ed.layerBatches.get(pour.layer).bufs.tri.count).toBeGreaterThan(0);
+  });
+});
+
+describe('layer stack changes', () => {
+  it('leaves an inner layer that undo removed', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    await app.setCopperLayers(4);
+    ed.setActiveLayer('in1');
+    expect(ed.activeLayer).toBe('in1');
+    app.undo();
+    expect(ed.copperCount).toBe(2);
+    expect(ed.activeLayer).toBe('top');
+    ed.startTool('route');
+    expect(ed.tool.hint()).toMatch(/Click a pad/);
+  });
+});
+
+describe('pours and board cutouts', () => {
+  it('keeps the edge clearance around a cutout so DRC finds nothing', async () => {
+    const wasm = fs.readFileSync(path.resolve(import.meta.dirname, '../src/kernel/kernel.wasm'));
+    const kernel = await createKernel(wasm);
+    const sq = (x0, y0, x1, y1) => [x0, y0, x1, y0, x1, y1, x0, y1];
+    const doc = {
+      id: 'b',
+      kind: 'pcb',
+      name: 'Board',
+      board: {
+        outline: sq(0, 0, mm(40), mm(30)),
+        // Drawn cutouts are stored clockwise.
+        cutouts: [[mm(24), mm(9), mm(28), mm(9), mm(28), mm(3), mm(24), mm(3)]],
+        origin: { x: 0, y: 0 },
+        copper: 2,
+        thickness: mm(1.6),
+      },
+      rules: defaultRules(),
+      nets: { GND: {} },
+      objects: [
+        {
+          id: 'p',
+          t: 'pour',
+          layer: 'bottom',
+          net: 'GND',
+          pts: sq(mm(1), mm(1), mm(39), mm(29)),
+          clearance: mm(0.3),
+          removeIslands: false,
+        },
+      ],
+    };
+    const fills = await kernel.pours(doc, {});
+    expect(fills.get('p')?.length).toBeGreaterThan(0);
+    const list = await kernel.drc(doc, {}, { pourFills: fills });
+    expect(list.filter((v) => v.rule === 'edge')).toEqual([]);
+  });
+});
+
+describe('3D view and tools', () => {
+  it('opening the 3D view leaves the 2D drawing tool', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    ed.startTool('cutout');
+    const orig = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function () {
+      return fakeGl().gl;
+    };
+    try {
+      await app.set3d(true);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = orig;
+    }
+    expect(app.view3dOpen).toBe(true);
+    expect(ed.tool).toBe(ed.select);
+    expect(ed.hint.hidden).toBe(true);
+    await app.set3d(false);
+    expect(app.view3dOpen).toBe(false);
+  });
+});
+
+describe('route width', () => {
+  it('a width set with Tab before routing applies to the next trace', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    ed.startTool('route');
+    key(ed, 'Tab');
+    await new Promise((r) => setTimeout(r, 0));
+    const input = document.querySelector('dialog input, .dialog input, [role="dialog"] input');
+    input.value = '0.5';
+    const ok = [...document.querySelectorAll('button')].find((b) => b.textContent === 'OK');
+    ok.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const p = padOf(ed, 'U1', '1');
+    ed.tool.click(ev(p.x, p.y));
+    expect(ed.tool.trace.width).toBe(500_000);
+  });
+});
+
+describe('ratsnest while dragging', () => {
+  it('hides the dragged part nets from the static ratsnest until the move ends', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    ed._rebuildRats();
+    const before = ed.ratsBatch.bufs.seg.count;
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    const nets = new Set(Object.values(u1.padNets).filter(Boolean));
+    const others = ed.analysis().ratsnest.filter((l) => !nets.has(l.net)).length;
+    const mv = ed.beginMove([u1.id], { x: u1.x, y: u1.y });
+    expect(ed.ratsBatch.bufs.seg.count).toBe(others);
+    mv.update(5_000_000, 0);
+    const live = new Batch();
+    mv.draw(live);
+    expect(live.bufs.seg.count).toBeGreaterThan(0);
+    mv.cancel();
+    expect(ed.ratsBatch.bufs.seg.count).toBe(before);
+  });
+});
+
+describe('pour fill races', () => {
+  it('a fill finishing after its pour was deleted does not come back', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    let resolve;
+    app.kernel.pours = () =>
+      new Promise((r) => {
+        resolve = r;
+      });
+    const pending = ed.repour();
+    ed.doc.store.transact('Delete', (s) => s.remove(pour.id));
+    await ed.repour();
+    expect(ed.pourFills.size).toBe(0);
+    resolve(new Map([[pour.id, [[pour.pts]]]]));
+    await pending;
+    expect(ed.pourFills.size).toBe(0);
+  });
+});
+
+describe('stopping the autorouter', () => {
+  it('fills and checks again when the stop also cancelled a pending repour', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    const abort = () => Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+    let failNext = false;
+    let pourCalls = 0;
+    let drcCalls = 0;
+    app.kernel.pours = async () => {
+      pourCalls++;
+      if (failNext) throw abort();
+      return new Map([[pour.id, [[pour.pts]]]]);
+    };
+    app.kernel.drc = async () => {
+      drcCalls++;
+      if (failNext) throw abort();
+      return [];
+    };
+    app.settings.set('autoRepour', true);
+    app.settings.set('onlineDrc', true);
+    await new Promise((r) => setTimeout(r, 2000));
+    ed.pourFills = new Map();
+    pourCalls = drcCalls = 0;
+    failNext = true;
+    const pending = [ed.repour(), ed.runDrc({ online: true })];
+    failNext = false;
+    await Promise.all(pending);
+    expect(ed.pourFills.size).toBe(0);
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(pourCalls).toBe(2);
+    expect(ed.pourFills.get(pour.id)).toBeTruthy();
+    expect(drcCalls).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('keys while the 3D view is open', () => {
+  async function open3d(app) {
+    const orig = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function () {
+      return fakeGl().gl;
+    };
+    try {
+      await app.set3d(true);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = orig;
+    }
+  }
+  // Calls this app's key handler directly: apps from earlier tests still
+  // listen on the document and would take the event first.
+  const press = (app, target, key, opts = {}) => {
+    const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts });
+    Object.defineProperty(e, 'target', { value: target });
+    app.keys.handle(e);
+  };
+
+  it('do not delete, rotate or flip the hidden selection', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    ed.setSelection([u1.id]);
+    await open3d(app);
+    const canvas3d = document.querySelector('.view3d-wrap canvas');
+    for (const key of ['Delete', 'Backspace', ' ', 'l', 'r']) press(app, canvas3d, key);
+    press(app, document.body, 'Delete');
+    press(app, canvas3d, 'x', { ctrlKey: true });
+    press(app, canvas3d, 'd', { ctrlKey: true });
+    expect(ed.doc.store.get(u1.id)).toBe(u1);
+    expect(ed.tool).toBe(ed.select);
+  });
+
+  it('keeps undo and the 2D toggle working', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    ed.setSelection([u1.id]);
+    ed.rotateSelection(90);
+    await open3d(app);
+    const canvas3d = document.querySelector('.view3d-wrap canvas');
+    press(app, canvas3d, 'z', { ctrlKey: true });
+    expect(ed.doc.store.get(u1.id).rot).toBe(u1.rot);
+    press(app, canvas3d, '2');
+    expect(app.view3dOpen).toBe(false);
+    // Back in 2D, editing keys work again.
+    press(app, ed.canvas, 'Delete');
+    expect(ed.doc.store.get(u1.id)).toBeUndefined();
+  });
+});
+
+describe('filled footprint circles', () => {
+  const def = {
+    id: 'dot',
+    name: 'Dot',
+    prefix: 'X',
+    symbol: { pins: [], graphics: [] },
+    footprint: {
+      name: 'dot',
+      pads: [],
+      graphics: [
+        { t: 'circle', cx: 0, cy: 0, r: mm(0.5), w: mm(0.2), fill: true, layer: 'topOverlay' },
+      ],
+    },
+  };
+  const comp = {
+    id: 'c',
+    t: 'comp',
+    comp: 'dot',
+    x: 0,
+    y: 0,
+    rot: 0,
+    side: 'top',
+    designator: '',
+    padNets: {},
+  };
+
+  it('include the outline width on the canvas and in 3D, like the Gerber', async () => {
+    const { emitPcbObject } = await import('../src/render/pcb-scene.js');
+    const { PCB_PALETTES } = await import('../src/render/palette.js');
+    const { buildBoardScene } = await import('../src/render/mesh3d.js');
+    const b = new Batch();
+    const ctx = {
+      lib: { dot: def },
+      count: 2,
+      pal: PCB_PALETTES.dark,
+      colors: null,
+      rules: defaultRules(),
+    };
+    emitPcbObject(comp, (l) => (l === 'topOverlay' ? b : null), ctx);
+    expect(b.bufs.circ.count).toBe(1);
+    expect(b.bufs.circ.f[2]).toBeCloseTo(600, 3); // micrometres: 0.5mm + 0.2mm / 2
+    const scene = buildBoardScene({ board: {}, objects: [comp] }, { dot: def });
+    const silk = scene.meshes.find((m) => m.name === 'silk:top');
+    const xs = silk.positions.filter((_, i) => i % 3 === 0);
+    expect(Math.max(...xs)).toBeCloseTo(0.6, 3);
+  });
+});
+
+describe('net highlight while dragging', () => {
+  it('drops the dragged part pads and its stale ratsnest from the highlight', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    const net = u1.padNets['3']; // OUT: U1 pin 3 to R3
+    ed.highlightNet(net);
+    const hl = ed.hlBatch.bufs;
+    const lines = ed.analysis().ratsnest.filter((l) => l.net === net).length;
+    expect(lines).toBeGreaterThan(0);
+    const before = { seg: hl.seg.count, rect: hl.rect.count };
+    const mv = ed.beginMove([u1.id], { x: u1.x, y: u1.y });
+    expect(hl.seg.count).toBe(before.seg - lines);
+    expect(hl.rect.count).toBe(before.rect - 1);
+    mv.cancel();
+    expect(hl.seg.count).toBe(before.seg);
+    expect(hl.rect.count).toBe(before.rect);
+  });
+});

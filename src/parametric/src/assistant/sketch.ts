@@ -10,10 +10,10 @@ import type { DocStore } from '../model/document';
 import type { DimensionType, Id, RelationType, SkArc, SkConstraint, SkDimension, SkEntity, SkLine, SketchFeature } from '../model/types';
 import { isDimension } from '../model/types';
 import { convertEdges } from '../sketch/convert';
-import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius } from '../sketch/geom';
+import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, circumcenter } from '../sketch/geom';
 import {
   RELATION_LABELS, availableRelations, cleanupConstraints, deleteItems, filletCorner, idFactory, kindOf, makeRelations, measureDimension,
-  mirrorEntities, nextDimName, offsetCurves, usedPoints,
+  mirrorAxisDirection, mirrorEntities, nextDimName, offsetCurves, usedPoints,
 } from '../sketch/ops';
 import { buildProfiles, sketchPoints } from '../sketch/profiles';
 import { type SolveResult, solveSketch } from '../sketch/solver';
@@ -39,9 +39,12 @@ export class SketchEdit {
   readonly notes: string[] = [];
   /** Ids created by this edit, in order. */
   readonly created: Id[] = [];
+  /** Points move_points moved, and where to. */
+  readonly moved: { id: Id; to: Vec2 }[] = [];
   autoRelations = true;
 
   constructor(sketch: SketchFeature, readonly frame: Frame, private units: Units, private store: DocStore) {
+    units.onUnlinked = (what, expr, mm) => this.notes.push(`${what}: "${expr}" was used as its value now, ${units.len(mm, true)}; sketch coordinates and shape sizes do not follow variables. To keep it linked, add a dimension with value "${expr}".`);
     this.sk = structuredClone(sketch);
     this.used = new Set([...this.sk.entities.map((e) => e.id), ...this.sk.constraints.map((c) => c.id), ORIGIN_ID]);
     const raw = idFactory(this.sk);
@@ -317,6 +320,7 @@ export class SketchEdit {
     const type = str(r.type).toLowerCase() as RelationType;
     if (!RELATIONS.includes(type)) throw new ToolError(`relations[${i}].type: one of ${RELATIONS.join(', ')}`);
     const refs = this.refIds(r.refs ?? r.entities, `relations[${i}].refs`);
+    if (!refs.length) throw new ToolError(`relations[${i}].refs: give the entity ids it relates`);
     const ok = availableRelations(this.sk, refs);
     if (!ok.includes(type)) {
       const kinds = refs.map((id) => `${id} (${id === ORIGIN_ID ? 'origin' : kindOf(this.sk, id)})`).join(', ');
@@ -332,7 +336,13 @@ export class SketchEdit {
   }
 
   private dimValue(v: unknown, type: DimensionType, what: string): number | string {
-    return this.units.parseParam(v, type === 'angle' ? 'angle' : 'length', what);
+    const p = this.units.parseParam(v, type === 'angle' ? 'angle' : 'length', what);
+    if (type === 'angle') return p;
+    // A zero size was solved, collapsing the profile, and reported done; a negative one read as conflicting constraints.
+    let mm = NaN;
+    try { mm = this.store.evalParam(p, 'length'); } catch { /* reported by the rebuild */ }
+    if (mm <= 0) throw new ToolError(`${what}: a ${type === 'radius' || type === 'diameter' ? type : 'distance'} must be greater than zero${typeof p === 'string' ? ` (${p} is ${this.units.len(mm, true)})` : ''}. For no distance, use a relation (coincident, horizontal, vertical or collinear).`);
+    return p;
   }
 
   addDimension(d: unknown, i: number) {
@@ -442,6 +452,7 @@ export class SketchEdit {
     const to = this.pt(v.to ?? v.at, `move_points[${i}].to`);
     p.x = to[0];
     p.y = to[1];
+    this.moved.push({ id, to });
   }
 
   setRadius(v: unknown, i: number) {
@@ -464,7 +475,9 @@ export class SketchEdit {
   fillet(v: unknown, i: number) {
     if (!isObj(v)) throw new ToolError(`fillets[${i}]: expected { point, radius }`);
     const r = this.units.size(v.radius, `fillets[${i}].radius`);
-    for (const id of list(v.point ?? v.points).map(str)) {
+    const corners = list(v.point ?? v.points).map(str);
+    if (!corners.length) throw new ToolError(`fillets[${i}].point: give the corner point id`);
+    for (const id of corners) {
       const before = new Set(this.sk.entities.map((e) => e.id));
       const err = filletCorner(this.sk, id, r, this.gen);
       if (err) throw new ToolError(`fillets[${i}] at ${id}: ${err}`);
@@ -486,6 +499,7 @@ export class SketchEdit {
     const ids = this.refIds(v.entities, `mirrors[${i}].entities`);
     const [axis] = this.refIds(v.axis, `mirrors[${i}].axis`);
     if (kindOf(this.sk, axis) !== 'line') throw new ToolError(`mirrors[${i}].axis: must be a line`);
+    if (!mirrorAxisDirection(this.index(), axis)) throw new ToolError(`mirrors[${i}].axis: choose a line with distinct endpoints`);
     const made = mirrorEntities(this.sk, ids, axis, this.gen);
     if (!made.length) throw new ToolError(`mirrors[${i}]: nothing was mirrored`);
     this.created.push(...made);
@@ -509,13 +523,6 @@ function num_(v: unknown, what: string): number {
   const n = typeof v === 'string' && v.trim() ? Number(v) : v;
   if (typeof n !== 'number' || !Number.isFinite(n)) throw new ToolError(`${what}: expected a number`);
   return n;
-}
-
-function circumcenter(a: Vec2, b: Vec2, c: Vec2): Vec2 | null {
-  const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
-  if (Math.abs(d) < 1e-12) return null;
-  const a2 = a[0] ** 2 + a[1] ** 2, b2 = b[0] ** 2 + b[1] ** 2, c2 = c[0] ** 2 + c[1] ** 2;
-  return [(a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d, (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d];
 }
 
 /** Whether m lies on the counter-clockwise arc around c from a to b. */
@@ -549,7 +556,8 @@ export function constraintLine(sk: SketchFeature, c: SkConstraint, u: Units, sto
   if (isDimension(c)) {
     let now = '';
     try { now = c.type === 'angle' ? `${num(measureDimension(sk, c), 3)}°` : u.len(measureDimension(sk, c), true); } catch { now = '?'; }
-    const set = typeof c.value === 'string' ? ` = ${c.value}` : '';
+    // Linked values are stored with their "=": " = " before it read "40 mm = =W*2".
+    const set = typeof c.value === 'string' ? ` (${c.value})` : '';
     return `${c.id} ${c.name} ${c.type} [${c.refs.join(', ')}] ${now}${set}${c.driven ? ' (driven, reference only)' : ''}`;
   }
   void store;

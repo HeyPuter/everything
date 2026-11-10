@@ -1,6 +1,6 @@
 # Social sharing image
 
-The homepage, documentation, and guides use `public/social/cap-table-og-v1.jpg` at the absolute URL `https://cap-table.io/social/cap-table-og-v1.jpg`.
+The homepage, documentation, and guides use `public/social/cap-table-og-v1.jpg` at the absolute URL `https://captable.puter.com/social/cap-table-og-v1.jpg`.
 
 - Export: 1200 × 630 pixels, opaque JPEG, quality 88, approximately 1.91:1.
 - Design: existing teal app branding, large headline from the landing page, generous margins, and an abstract ownership pie chart. The illustration contains no customer data or financial metrics.

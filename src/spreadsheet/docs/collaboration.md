@@ -74,7 +74,7 @@ One tab per shared workbook keeps the outbox; two tabs of the same shared workbo
 | `ss:<room>:member:<user>` | Role (`owner`, `editor`, `viewer`, `removed`), join time, optional expiry |
 | `ss:<room>:invite:<sha256(token)>` | Invitation role, creator, expiry (7 days by default) |
 | `ss:<room>:named:<username>` | Invitation by Puter username |
-| `ss:<room>:claim:<rev>` | Who claimed a log position (atomic `incr`: the first claimant owns it) |
+| `ss:<room>:claim:<rev>` | Who claimed a log position (atomic `incr`: the first claimant owns it), and who sealed it (a large `incr`: the first to seal decides what it holds) |
 | `ss:<room>:log:<rev>` | The record: author, session, time, changes (large ones in a file) |
 | `ss:<room>:cp`, `ss:<room>:cps` | The latest checkpoint and the last 50 (an older one's file is deleted as it leaves the list) |
 | `ss:<room>:presence:<session>` | Peer ticket and where the person is (90 s) |
@@ -87,7 +87,7 @@ The worker enforces roles on every request, independently of the interface:
 
 - Viewers cannot commit or write checkpoints (the browser also takes a viewer's edit back at once and says so).
 - Every change is validated (`validateChange`): known operation types only, cell keys inside the grid, only shared settings, sane ranges, size limits.
-- A commit not on top of the latest record is answered with the records it missed, for the browser to rebase on; positions are claimed atomically, so two worker instances cannot both accept a commit at the same position. A position claimed but never written (a commit that failed half way) is filled with an empty record after 20 seconds; a browser sending meanwhile tries again after pauses that double, rather than at once.
+- A commit not on top of the latest record is answered with the records it missed, for the browser to rebase on; positions are claimed atomically, so two worker instances cannot both accept a commit at the same position. A position claimed but never written (a commit that failed half way) is filled with an empty record after 20 seconds; a browser sending meanwhile tries again after pauses that double, rather than at once. A commit seals its position just before writing the record, and giving a position up seals it too: a commit that took longer than that to get there is refused (and sent again on top of the empty record) rather than written over a record others may have read, and a position its commit sealed is waited on for five minutes before it is given up.
 - Invitations admit only people who are not members; they never raise a role the owner lowered.
 - Only the owner manages access, and only the worker's owner creates rooms on it.
 

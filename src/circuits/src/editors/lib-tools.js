@@ -21,9 +21,11 @@ function crosshair(b, ed, x, y) {
   b.line(x, y - s, x, y + s, 0, c);
 }
 
-const lengthField = (key, label, value, units) => ({
+/** Length input; values below min (positive lengths by default) are refused. */
+const lengthField = (key, label, value, units, min = 1) => ({
   key, label: `${label} (${units})`, type: 'text', value: formatLength(value, units, { suffix: false }),
-  parse: (v) => parseLength(v, units), error: 'enter a length',
+  parse: (v) => { const n = parseLength(v, units); return n !== null && n >= min ? n : null; },
+  error: min > 0 ? 'enter a length greater than zero' : 'enter a length',
 });
 
 /** Places pins; numbers and names count up after each one. */
@@ -123,11 +125,12 @@ export async function padDialog(t, title = 'Pad') {
       lengthField('h', 'Height', t.h ?? t.w, 'mm'),
       { key: 'rot', label: 'Rotation (degrees)', type: 'number', value: t.rot || 0 },
       { key: 'side', label: 'Side', type: 'select', value: t.side, options: [['top', 'Top (surface mount)'], ['thru', 'Through hole'], ['bottom', 'Bottom (surface mount)']] },
-      lengthField('drill', 'Hole', t.drill || 0, 'mm'),
+      lengthField('drill', 'Hole', t.drill || 0, 'mm', 0),
       { key: 'plated', label: 'Plated hole', type: 'bool', value: t.plated !== false },
     ],
   });
   if (!v) return null;
+  v.rot = ((v.rot % 360) + 360) % 360;
   if (v.side !== 'thru') v.drill = 0;
   else if (!(v.drill > 0)) v.drill = Math.round(Math.min(v.w, v.h) * 0.5);
   return v;

@@ -69,3 +69,16 @@ it('leaves text tracked as deleted out of spelling', () => {
   const checked = wordsToCheck(proofingText(text, [{ runs }])).map(w => w.word);
   expect(checked).toEqual(['Teh', 'cat', 'sat']);
 });
+
+// Letters deleted or replaced inside a word with Track Changes on split it in two: "colo[u]r" was checked as "colo"
+// and "r", and "rec[ie]eive" as "rec" and "eive", each flagged although the word as edited is spelled right.
+it('checks a word with tracked deletions inside it as the edit leaves it', () => {
+  const del = { type: 'del', author: 'A' }, ins = { type: 'ins', author: 'A' };
+  const runs = [{ text: 'The colo' }, { text: 'u', revision: del }, { text: 'r will rec' }, { text: 'ie', revision: del }, { text: 'ei', revision: ins }, { text: 've it[ now]' }];
+  const text = runs.map(r => r.text).join('');
+  const words = wordsToCheck(proofingText(text, [{ runs }]));
+  expect(words.map(w => w.word)).toEqual(['The', 'color', 'will', 'receive', 'it', 'now']);
+  // Each word still spans its place in the document, deleted letters included.
+  expect(words.map(w => text.slice(w.start, w.end))).toEqual(['The', 'colour', 'will', 'recieeive', 'it', 'now']);
+  expect(proofingText(text, [{ runs }]).length).toBe(text.length);
+});

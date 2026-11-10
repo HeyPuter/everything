@@ -85,6 +85,12 @@ import {
   cleanName,
 } from "./model.js";
 import * as cloud from "./cloud.js";
+import {
+  appsButton,
+  closeAppsPanel,
+  setAppsPanelAccount,
+} from "./apps-panel.js";
+import { hasUserMenu, syncUserMenuTheme, userMenu } from "./user-menu.js";
 import { createAssistantPanel } from "./assistant-panel.js";
 import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
@@ -480,6 +486,7 @@ function setAppearance(value) {
   appearance = ["light", "dark", "system"].includes(value) ? value : "system";
   document.documentElement.dataset.theme = appearance;
   syncThemeColor();
+  syncUserMenuTheme();
   try {
     localStorage.setItem("presentation:theme", appearance);
   } catch {}
@@ -521,6 +528,7 @@ function appIcon(className = "brand-mark") {
   });
 }
 function accountMenu(e) {
+  closeAppsPanel();
   openMenu({
     anchor: e.currentTarget,
     label: "Account",
@@ -529,15 +537,30 @@ function accountMenu(e) {
     items: accountItems(),
   });
 }
-function accountItems() {
-  return [
-    { header: account ? account.username : "Not signed in" },
+// The Settings button's menu, beside puter.js's <puter-user-menu>: the
+// account menu without the account, which the element holds.
+function settingsMenu(e) {
+  openMenu({
+    anchor: e.currentTarget,
+    label: "Settings",
+    align: "end",
+    minWidth: 230,
+    items: accountItems({ ownAccount: false }),
+  });
+}
+function accountItems({ ownAccount = true } = {}) {
+  const settings = [
     { label: "Appearance", icon: "Monitor", onSelect: appearanceDialog },
     {
       label: "Keyboard shortcuts",
       icon: "Keyboard",
       onSelect: shortcutsDialog,
     },
+  ];
+  if (!ownAccount) return settings;
+  return [
+    { header: account ? account.username : "Not signed in" },
+    ...settings,
     ...(!account
       ? [
           { separator: true },
@@ -559,6 +582,7 @@ function accountItems() {
 // A picture is optional and never holds up signing in or opening a document.
 function setAccount(connected) {
   account = connected;
+  setAppsPanelAccount(account?.uuid || account?.username || "");
   accountPicture = null;
   const request = ++accountPictureRequest;
   if (!account) return;
@@ -597,7 +621,18 @@ function refreshAccountPictureUi() {
     avatar.replaceWith(accountAvatar());
 }
 // The editor's phone layout keeps the account menu inside File options.
+// Where puter.js has <puter-user-menu> (sdkUserMenu, beside this button), that
+// holds the account, and this is the Settings button for the rest of the
+// menu. The editor's full title bar has no room for it: Appearance is in its
+// View menu and Keyboard shortcuts in Help, as in File options on phones.
 function accountButton() {
+  if (hasUserMenu())
+    return view === "editor"
+      ? null
+      : iconButton("Settings", "Settings2", settingsMenu, {
+          class: "btn icon-btn settings-button",
+          ...MENU_BUTTON,
+        });
   const control = button(
     account?.username || "Account",
     null,
@@ -612,6 +647,27 @@ function accountButton() {
   );
   control.prepend(accountAvatar());
   return control;
+}
+// puter.js's <puter-user-menu> for a header, after the library's Settings
+// button; null where the app's own Apps and account buttons stay (see
+// user-menu.js). Its
+// Sign out is the app's, which asks about the open presentation first.
+function sdkUserMenu() {
+  return userMenu({
+    cls: view === "editor" ? "desktop-only" : "",
+    onSignOut: run(logout),
+    onSignIn: () => cloud.user().then(adoptAccount).catch(fail),
+    onSignedOut: accountSignedOut,
+  });
+}
+// The element signed out by itself: the header and the library follow.
+function accountSignedOut() {
+  if (!account || signingOut) return;
+  accountRequest++;
+  loginPromise = null;
+  setAccount(null);
+  if (view === "home") home(false).catch(fail);
+  else refreshAccountUi();
 }
 // Saving is where Puter comes in: a guest's button says so up front, and the
 // click opens the sign-in before the save.
@@ -931,6 +987,7 @@ async function loadLibrary(req = ++homeRequest, requestOwner = owner()) {
 }
 function renderHome() {
   dismissMenuWithin(app);
+  closeAppsPanel();
   canvasObserver?.disconnect();
   app.replaceChildren(
     el(
@@ -944,7 +1001,9 @@ function renderHome() {
           "div",
           { class: "header-right" },
           button("Open from Puter", "FolderOpen", run(openPicker), "secondary"),
+          appsButton(),
           accountButton(),
+          sdkUserMenu(),
         ),
       ),
       homeRail([
@@ -3231,6 +3290,7 @@ function renderReadOnly() {
   assistant?.destroy();
   assistant = null;
   dismissMenuWithin(app);
+  closeAppsPanel();
   view = "viewer";
   const slides = P.getSlides(doc.pres);
   const image = el("img", { class: "slide-image", alt: "" });
@@ -3339,6 +3399,7 @@ function renderEditor() {
   clearTimeout(fileDateTimer);
   view = "editor";
   dismissMenuWithin(app);
+  closeAppsPanel();
   app.replaceChildren(
     el(
       "div",
@@ -3613,7 +3674,10 @@ function editorTopbar() {
           (e) => fileMenu(e.currentTarget),
           { class: "btn icon-btn mobile-only", ...MENU_BUTTON },
         ),
+        // Phones keep the account menu in File options and leave this out too.
+        appsButton("desktop-only"),
         accountButton(),
+        sdkUserMenu(),
       ),
     ),
   );
@@ -15412,6 +15476,7 @@ const BACKGROUND_LABELS = {
 // A show on its way up (its inserted media still loading) counts as open.
 let presentOpening = false;
 async function present(options = {}) {
+  closeAppsPanel();
   // Before anything waits: a window for the audience needs the click.
   options = showFeatures.begin(options);
   await settled();
@@ -16341,7 +16406,7 @@ document.addEventListener("keydown", (e) => {
     e.isComposing ||
     view !== "editor" ||
     document.querySelector("dialog[open]") ||
-    e.target.closest(".menu")
+    e.target.closest(".menu, .apps-panel, puter-user-menu")
   )
     return;
   // Keys pressed in a field, or anywhere in the find bar, edit text rather

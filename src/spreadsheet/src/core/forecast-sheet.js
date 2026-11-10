@@ -8,6 +8,7 @@ import { quoteSheet } from './refs.js';
 import { cachedModel, prepareSeries, forecastAt, confidenceAt, statistic } from './forecast-ets.js';
 import { numFmtToStyle } from './format.js';
 import { maxOf } from './numeric.js';
+import { t } from '../i18n/index.js';
 
 export const AGGREGATIONS = ['Average', 'Count', 'CountA', 'Max', 'Median', 'Min', 'Sum'];
 export const STATISTICS = [['Alpha', 1], ['Beta', 2], ['Gamma', 3], ['MASE', 4], ['SMAPE', 5], ['MAE', 6], ['RMSE', 7]];
@@ -21,7 +22,7 @@ const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 export function readForecastSource(wb, sheetId, range) {
   const { r1, c1, r2, c2 } = range;
   const byRows = c2 - c1 === 0 && r2 - r1 === 1; // two rows: the timeline across the first
-  if (!byRows && c2 - c1 < 1) return { error: 'Select a timeline column and a column of values beside it' };
+  if (!byRows && c2 - c1 < 1) return { error: t('coreForecastSheet.errors.selectColumns') };
   const at = (i, j) => (byRows ? wb.getValue(sheetId, r1 + j, c1 + i) : wb.getValue(sheetId, r1 + i, c1 + j));
   const cellAt = (i, j) => (byRows ? { r: r1 + j, c: c1 + i } : { r: r1 + i, c: c1 + j });
   const length = byRows ? c2 - c1 + 1 : r2 - r1 + 1;
@@ -38,11 +39,11 @@ export function readForecastSource(wb, sheetId, range) {
   for (let i = first; i < length; i++) {
     const x = at(i, tCol), y = at(i, vCol);
     if (x == null || x === '') continue;
-    if (!isNum(x)) return { error: 'The timeline must hold dates or numbers' };
+    if (!isNum(x)) return { error: t('coreForecastSheet.errors.timelineDates') };
     points.push({ x, y: isNum(y) ? y : null, cell: cellAt(i, tCol), valueCell: cellAt(i, vCol) });
   }
-  if (points.length < 3) return { error: 'A forecast needs at least three points on its timeline' };
-  if (!points.some((p) => p.y != null)) return { error: 'The values must hold numbers' };
+  if (points.length < 3) return { error: t('coreForecastSheet.errors.threePoints') };
+  if (!points.some((p) => p.y != null)) return { error: t('coreForecastSheet.errors.valuesNumbers') };
   const text = (v, fallback) => (v == null || v === '' ? fallback : String(v));
   return {
     sheetId, range, points,
@@ -70,7 +71,7 @@ function partsOf(serial) {
 export function timelineStep(points) {
   const xs = [...new Set(points.map((p) => p.x))].sort((a, b) => a - b);
   const series = prepareSeries(points.map((p) => [p.x, p.y]));
-  if (series.error) return { error: 'The timeline needs a constant step between its points' };
+  if (series.error) return { error: t('coreForecastSheet.errors.constantStep') };
   if (series.monthly) {
     const months = series.step;
     const parts = xs.map(partsOf);
@@ -108,15 +109,15 @@ export function forecastRows(source, options) {
   const last = history[history.length - 1].x;
   const start = Math.min(options.start ?? last, last);
   const fitted = history.filter((p) => p.x <= start);
-  if (fitted.length < 3) return { error: 'The forecast must start after at least three points of history' };
-  if (!(options.end > start)) return { error: 'The forecast must end after it starts' };
+  if (fitted.length < 3) return { error: t('coreForecastSheet.errors.startAfterHistory') };
+  if (!(options.end > start)) return { error: t('coreForecastSheet.errors.endAfterStart') };
   const future = [];
   for (let k = 1; k <= 10000; k++) {
     const x = steps.next(last, k);
     if (x > options.end + 1e-9) break;
     future.push(x);
   }
-  if (!future.length && start === last) return { error: 'The forecast end must be at least one step past the last point' };
+  if (!future.length && start === last) return { error: t('coreForecastSheet.errors.endPastLast') };
   return { history, fitted, future, start, steps };
 }
 
@@ -126,7 +127,7 @@ export function forecastPreview(source, options) {
   if (rows.error) return rows;
   const opts = { completion: options.completion ?? 1, aggregation: options.aggregation ?? 1 };
   const model = cachedModel(rows.fitted.map((p) => [p.x, p.y]), opts, options.seasonality ?? 1);
-  if (model.error) return { error: 'These values cannot be forecast: the timeline needs a constant step' };
+  if (model.error) return { error: t('coreForecastSheet.errors.cannotForecast') };
   const level = options.confidence ?? 0.95;
   const points = [];
   for (const p of rows.history) points.push({ x: p.x, value: p.y });
@@ -202,11 +203,11 @@ export function createForecastSheet(wb, source, options) {
     });
   }
   let sheetId = null;
-  wb.transaction('Create forecast worksheet', () => {
+  wb.transaction(t('coreForecastSheet.undo.create'), () => {
     const sheet = wb.addSheet();
     if (!sheet) return;
     sheetId = sheet.id;
-    wb.setCells(sheetId, entries, 'Create forecast worksheet');
+    wb.setCells(sheetId, entries, t('coreForecastSheet.undo.create'));
     wb.addTable?.(sheetId, { r1: 0, c1: 0, r2: lastRow, c2: lastCol }, { style: 'blue' });
     if (options.statistics) wb.addTable?.(sheetId, { r1: 0, c1: statsCol, r2: STATISTICS.length, c2: statsCol + 1 }, { style: 'blue' });
     wb.setColWidth(sheetId, 0, 96);
@@ -224,7 +225,7 @@ export function createForecastSheet(wb, source, options) {
       ...(options.chartType === 'column' ? {} : { colors: ['#4472c4', '#ed7d31', '#a5a5a5', '#a5a5a5'] }),
     });
   });
-  return sheetId ? { sheetId } : { error: 'The workbook would not take a new sheet' };
+  return sheetId ? { sheetId } : { error: t('coreForecastSheet.errors.noNewSheet') };
 }
 
 export { statistic };

@@ -40,5 +40,7 @@ it('says the file was saved, moved or renamed since it was opened, rather than t
   expect(dialog).not.toBeNull();
   expect(dialog.textContent).toContain('"Budget" was saved, moved or renamed since you opened it');
   expect(dialog.textContent).not.toContain('Another copy');
+  // What "Overwrite with mine" writes over is kept as a version first (see Doc#forceSave): the dialog says where.
+  expect(dialog.textContent).toContain('theirs is kept in Version history');
   expect([...dialog.querySelectorAll('button')].map((b) => b.textContent)).toEqual(expect.arrayContaining(['Overwrite with mine', 'Reload theirs']));
 });

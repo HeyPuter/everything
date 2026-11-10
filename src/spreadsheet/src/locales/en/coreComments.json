@@ -1,0 +1,14 @@
+{
+  "assign": "Assign thread",
+  "delete": "Delete comment",
+  "deleteReply": "Delete reply",
+  "deleteThread": "Delete thread",
+  "edit": "Edit comment",
+  "move": "Move comment",
+  "new": "New comment",
+  "paste": "Paste",
+  "reopen": "Reopen thread",
+  "reply": "Reply to comment",
+  "resolve": "Resolve thread",
+  "unassign": "Unassign thread"
+}

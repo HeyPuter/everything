@@ -286,7 +286,7 @@ describe('watermarks', () => {
     await expect(addWatermark(doc, [0], { text: '   ' })).rejects.toThrow(
       'Enter the watermark text',
     );
-    await expect(addWatermark(doc, [0], { text: '漢字' })).rejects.toThrow('does not support');
+    await expect(addWatermark(doc, [0], { text: 'สวัสดี' })).rejects.toThrow('does not support');
     await expect(addWatermark(doc, [0], { text: 'x', size: 'huge' })).rejects.toThrow('size');
     await expect(addWatermark(doc, [0], { text: 'x', layout: 'tiled' })).rejects.toThrow('layout');
     await expect(addWatermark(doc, [0], { text: 'x', opacity: 0 })).rejects.toThrow('opacity');
@@ -338,7 +338,7 @@ describe('headers and footers', () => {
       await addHeaderFooter(doc, [0], { slots: { topRight: 'Printed {date}' }, date });
       // Text of the person's own that the font lacks is still refused.
       await expect(
-        addHeaderFooter(doc, [0], { slots: { topLeft: '日付 {date}' }, date }),
+        addHeaderFooter(doc, [0], { slots: { topLeft: 'วันที่ {date}' }, date }),
       ).rejects.toThrow('does not support');
     } finally {
       locale.mockRestore();
@@ -372,7 +372,7 @@ describe('headers and footers', () => {
     await expect(addHeaderFooter(doc, [0], { slots: { topLeft: 'x' }, size: 40 })).rejects.toThrow(
       'between 6 and 36',
     );
-    await expect(addHeaderFooter(doc, [0], { slots: { topLeft: '漢字' } })).rejects.toThrow(
+    await expect(addHeaderFooter(doc, [0], { slots: { topLeft: 'สวัสดี' } })).rejects.toThrow(
       'does not support',
     );
   });

@@ -47,8 +47,13 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   while (stack.length > level) stack.pop()!.close();
   const el = h('div', { class: 'menu', role: 'menu', 'aria-label': opts.label ?? 'Menu', tabindex: '-1' });
   const buttons: HTMLElement[] = [];
+  // Focus goes back where it came from, so a command run from the menu (and
+  // any dialog it opens) does not leave keyboard focus on the page body.
+  const returnFocus = opts.anchor ?? (level === 0 ? document.activeElement as HTMLElement | null : null);
   const closeThis = () => {
+    const hadFocus = el.contains(document.activeElement);
     el.remove();
+    if (hadFocus && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
     opts.anchor?.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', outside, true);
     opts.onClose?.();
@@ -84,7 +89,11 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
       closeMenus();
       it.run?.();
     });
-    b.addEventListener('pointerenter', () => {
+    b.addEventListener('pointerenter', (e) => {
+      // A tap fires pointerenter before its click: opening the submenu then
+      // would put it under the finger (over its parent on a phone), and the
+      // click would run the submenu's first item. Touch opens on the click.
+      if (e.pointerType === 'touch') return;
       b.focus({ preventScroll: true });
       if (it.submenu) openSub();
       else while (stack.length > level + 1) stack.pop()!.close();
@@ -97,19 +106,21 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   }
   el.addEventListener('keydown', (e) => {
     const i = buttons.indexOf(document.activeElement as HTMLElement);
+    // Disabled items stay visible but keyboard focus skips them everywhere.
+    const enabled = (b: HTMLElement) => b.getAttribute('aria-disabled') !== 'true';
     const move = (d: number) => {
       if (!buttons.length) return;
       let j = i;
       for (let k = 0; k < buttons.length; k++) {
         j = (j + d + buttons.length) % buttons.length;
-        if (buttons[j].getAttribute('aria-disabled') !== 'true') break;
+        if (enabled(buttons[j])) break;
       }
       buttons[j].focus();
     };
     if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-    else if (e.key === 'Home') { e.preventDefault(); buttons[0]?.focus(); }
-    else if (e.key === 'End') { e.preventDefault(); buttons[buttons.length - 1]?.focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); buttons.find(enabled)?.focus(); }
+    else if (e.key === 'End') { e.preventDefault(); buttons.findLast(enabled)?.focus(); }
     else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -129,7 +140,7 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
       const start = i + 1;
       for (let n = 0; n < buttons.length; n++) {
         const b = buttons[(start + n) % buttons.length];
-        if ((b.textContent || '').trim().toLowerCase().startsWith(k)) { b.focus(); break; }
+        if (enabled(b) && (b.textContent || '').trim().toLowerCase().startsWith(k)) { b.focus(); break; }
       }
     }
   });
@@ -138,7 +149,9 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   const r = el.getBoundingClientRect();
   const vw = window.innerWidth, vh = window.innerHeight;
   let left = x, top = y;
-  if (left + r.width > vw - 8) left = Math.max(8, level > 0 ? x - r.width - 200 : vw - r.width - 8);
+  // A submenu that does not fit on the right opens to the left of its parent menu.
+  const parentLeft = level > 0 ? opts.anchor?.closest('.menu')?.getBoundingClientRect().left : undefined;
+  if (left + r.width > vw - 8) left = Math.max(8, parentLeft !== undefined ? parentLeft - r.width + 2 : vw - r.width - 8);
   if (top + r.height > vh - 8) top = Math.max(8, vh - r.height - 8);
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;

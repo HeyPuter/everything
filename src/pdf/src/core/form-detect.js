@@ -25,6 +25,45 @@ const apply = (m, [x, y]) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + 
 
 /* ---------- Text ---------- */
 
+/** Empty boxes as characters, as word processors type check boxes: ☐ □ ▢ ◻ ◽ ❏ ❐ ❑ ❒ ⬜. */
+const BOX_CHARACTERS = '\u2610\u25A1\u25A2\u25FB\u25FD\u274F\u2750\u2751\u2752\u2B1C';
+
+/**
+ * Where each character of a PDF.js text item starts, and where the last one ends, along its
+ * width: in proportion to the standard face of its kind, or evenly for a fixed-width face.
+ * PDF.js gives the width of the whole item only. Characters the standard faces lack are
+ * taken as an em wide when they are box characters or wide (CJK) ones, else as average.
+ */
+function characterOffsets(str, width, family) {
+  const chars = [...str];
+  const face =
+    family === 'monospace'
+      ? null
+      : StandardFontEmbedder.for(
+          family === 'serif' ? StandardFonts.TimesRoman : StandardFonts.Helvetica,
+        );
+  let widths = chars.map((char) => {
+    if (!face) return 1;
+    try {
+      return face.widthOfTextAtSize(char, 1000);
+    } catch {
+      return BOX_CHARACTERS.includes(char) || char.codePointAt(0) >= 0x2e80 ? 1000 : null;
+    }
+  });
+  const known = widths.filter((w) => w !== null);
+  const average = known.length ? known.reduce((sum, w) => sum + w, 0) / known.length : 1;
+  widths = widths.map((w) => w ?? average);
+  const total = widths.reduce((sum, w) => sum + w, 0);
+  if (!(total > 0)) widths = chars.map(() => 1);
+  const offsets = [0];
+  const scale = width / (total > 0 ? total : chars.length);
+  // Offsets are by UTF-16 position, as the item's text is sliced.
+  for (const [i, char] of chars.entries())
+    for (let unit = 0; unit < char.length; unit++)
+      offsets.push(offsets.at(-1) + (unit === char.length - 1 ? widths[i] * scale : 0));
+  return offsets;
+}
+
 /** PDF.js text items (user space of the unrotated page), turned by `turn`, as horizontal runs. */
 function fromTextContent(textContent, turn = identity) {
   const items = [];
@@ -34,7 +73,15 @@ function fromTextContent(textContent, turn = identity) {
     // Rotated and vertical text is not a form label; skip it rather than guess its extent.
     if (Math.abs(b) > 1e-3 * Math.abs(a) || a <= 0 || !Number.isFinite(item.width)) continue;
     const size = Math.hypot(c, d) || item.height || 10;
-    items.push({ str: item.str, x, y, width: item.width, size });
+    const family = textContent.styles?.[item.fontName]?.fontFamily;
+    items.push({
+      str: item.str,
+      x,
+      y,
+      width: item.width,
+      size,
+      offsets: characterOffsets(item.str, item.width, family),
+    });
   }
   return items;
 }
@@ -107,6 +154,8 @@ function extractText(doc, page, turn = identity) {
       const start = matrix(gs.ctm, tm);
       let text = '',
         advance = 0;
+      // Where each character starts, for blanks that share an item with their label.
+      const offsets = [];
       for (const part of parts) {
         if (typeof part === 'number') {
           advance -= (part / 1000) * gs.size * gs.tz;
@@ -117,7 +166,10 @@ function extractText(doc, page, turn = identity) {
           const code = metrics.twoByte
             ? (part.charCodeAt(i) << 8) | part.charCodeAt(i + 1)
             : part.charCodeAt(i);
-          if (!metrics.twoByte) text += String.fromCharCode(code);
+          if (!metrics.twoByte) {
+            text += String.fromCharCode(code);
+            offsets.push(advance);
+          }
           const space = !metrics.twoByte && code === 32 ? gs.tw : 0;
           advance += ((metrics.width(code) / 1000) * gs.size + gs.tc + space) * gs.tz;
         }
@@ -132,6 +184,7 @@ function extractText(doc, page, turn = identity) {
           y,
           width: advance * scaleX,
           size: gs.size * scaleY,
+          offsets: [...offsets, advance].map((offset) => offset * scaleX),
         });
       tm = matrix(tm, [1, 0, 0, 1, advance, 0]);
     };
@@ -188,15 +241,18 @@ function extractText(doc, page, turn = identity) {
 }
 
 /**
- * Split items into underscore blanks (three or more) and label text, then join label pieces
- * that sit on one line close together into runs.
+ * Split items into underscore blanks (three or more), box characters, and label text, then
+ * join label pieces that sit on one line close together into runs.
  */
 function textLayout(items) {
   const blanks = [],
+    glyphs = [],
     pieces = [];
   for (const item of items) {
     const perChar = item.width / Math.max(1, item.str.length);
-    const pattern = /_{3,}/g;
+    // Where character `i` starts: from the item's own advances, or evenly spread.
+    const at = (i) => item.offsets?.[i] ?? i * perChar;
+    const pattern = new RegExp(`_{3,}|[${BOX_CHARACTERS}]`, 'g');
     let last = 0,
       match;
     const piece = (from, to) => {
@@ -204,18 +260,19 @@ function textLayout(items) {
       if (str.trim())
         pieces.push({
           str,
-          x: item.x + from * perChar,
+          x: item.x + at(from),
           y: item.y,
-          width: (to - from) * perChar,
+          width: at(to) - at(from),
           size: item.size,
         });
     };
     while ((match = pattern.exec(item.str))) {
       piece(last, match.index);
-      blanks.push({
-        x: item.x + match.index * perChar,
+      const end = match.index + match[0].length;
+      (match[0][0] === '_' ? blanks : glyphs).push({
+        x: item.x + at(match.index),
         y: item.y,
-        width: match[0].length * perChar,
+        width: at(end) - at(match.index),
         size: item.size,
       });
       last = match.index + match[0].length;
@@ -253,7 +310,7 @@ function textLayout(items) {
     run.top = run.y + 0.8 * run.size;
     run.right = run.x + run.width;
   }
-  return { blanks, runs: runs.filter((r) => r.str) };
+  return { blanks, glyphs, runs: runs.filter((r) => r.str) };
 }
 
 /** A field name from a label: punctuation and dots (name separators) removed. */
@@ -576,7 +633,7 @@ export function detectFormFields(doc, pageIndex, { textContent } = {}) {
   } catch {
     items = [];
   }
-  const { blanks, runs } = textLayout(items);
+  const { blanks, glyphs, runs } = textLayout(items);
   const { boxes, horizontals, verticals } = pageGeometry(doc, pageIndex, turn);
   const candidates = [];
   const add = (type, rect, label, confidence, source, extra = {}) => {
@@ -647,6 +704,34 @@ export function detectFormFields(doc, pageIndex, { textContent } = {}) {
     );
   }
 
+  /** The words a check box stands for: just right of it, or else just left of it. */
+  const boxLabel = (box) => {
+    const mid = box.y + box.height / 2;
+    const right = runs
+      .filter(
+        (run) =>
+          Math.abs(run.y + 0.3 * run.size - mid) < Math.max(box.height, run.size) * 0.7 &&
+          run.x >= box.x + box.width - 1 &&
+          run.x - (box.x + box.width) <= 30,
+      )
+      .sort((a, b) => a.x - b.x)[0];
+    return right ?? leftLabel(box.x, box.y - 2, box.y + box.height + 2, 30);
+  };
+
+  // Box characters: "☐ Yes ☐ No". The square is about three quarters of an em, centered on
+  // its advance and on the middle of the lowercase letters beside it.
+  for (const glyph of glyphs) {
+    const side = Math.min(glyph.width * 0.85, glyph.size * 0.75);
+    const box = {
+      x: glyph.x + (glyph.width - side) / 2,
+      y: glyph.y + 0.3 * glyph.size - side / 2,
+      width: side,
+      height: side,
+    };
+    const label = boxLabel(box);
+    add('checkbox', box, label?.str, label ? 0.85 : 0.6, 'character');
+  }
+
   // Standalone rules: a horizontal line not part of a box or table grid.
   const grid = (h) =>
     verticals.some((v) => v.x >= h.x0 - 2 && v.x <= h.x1 + 2 && v.y0 <= h.y + 2 && v.y1 >= h.y - 2);
@@ -707,17 +792,7 @@ export function detectFormFields(doc, pageIndex, { textContent } = {}) {
     if (square) {
       // Dark filled squares are bullets, not boxes to tick.
       if (contents.length || (box.filled && !box.stroked && box.fill < 0.6)) continue;
-      const mid = box.y + box.height / 2;
-      const right = runs
-        .filter(
-          (run) =>
-            Math.abs(run.y + 0.3 * run.size - mid) < Math.max(box.height, run.size) * 0.7 &&
-            run.x >= box.x + box.width - 1 &&
-            run.x - (box.x + box.width) <= 30,
-        )
-        .sort((a, b) => a.x - b.x)[0];
-      const left = right ? null : leftLabel(box.x, box.y - 2, box.y + box.height + 2, 30);
-      const label = right ?? left;
+      const label = boxLabel(box);
       add('checkbox', box, label?.str, label ? 0.85 : 0.6, box.cell ? 'cell' : 'box');
       continue;
     }

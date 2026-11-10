@@ -85,7 +85,7 @@ function trackedRuns(nodes, depth = 0) {
     if (!isRevision(node)) { result.push(node); continue; }
     const inner = depth < 1 ? trackedRuns(children(node), depth + 1) : children(node);
     if (!inner?.some(n => n.namespaceURI === W && n.localName === 'r') || inner.some(n => n.namespaceURI !== W || !['r', 'proofErr', 'bookmarkStart', 'bookmarkEnd'].includes(n.localName))) return null;
-    result.push(...inner);
+    for (const item of inner) result.push(item);
   }
   return result;
 }

@@ -185,13 +185,31 @@ function piecePts(e) {
  */
 export function joinEntities(ents, tol) {
   if (!(tol > 0)) {
-    let s = 1;
+    // Relative to the size of the selection (not its distance from the
+    // origin), above float noise at its position; matches the JOIN command.
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    const add = (x, y, r = 0) => {
+      x0 = Math.min(x0, x - r);
+      y0 = Math.min(y0, y - r);
+      x1 = Math.max(x1, x + r);
+      y1 = Math.max(y1, y + r);
+    };
     for (const e of ents) {
-      if (e.type === 'line') s = Math.max(s, Math.abs(e.x1), Math.abs(e.y1), Math.abs(e.x2), Math.abs(e.y2));
-      else if (e.type === 'arc') s = Math.max(s, Math.abs(e.cx) + e.r, Math.abs(e.cy) + e.r);
-      else if (e.type === 'polyline') for (const v of e.pts) s = Math.max(s, Math.abs(v));
+      if (e.type === 'line') {
+        add(e.x1, e.y1);
+        add(e.x2, e.y2);
+      } else if (e.type === 'arc') add(e.cx, e.cy, e.r);
+      else if (e.type === 'polyline') {
+        for (let i = 0; i + 1 < e.pts.length; i += 3) add(e.pts[i], e.pts[i + 1]);
+      }
     }
-    tol = 1e-6 * s;
+    const ok = Number.isFinite(x0) && Number.isFinite(x1);
+    const size = ok ? Math.hypot(x1 - x0, y1 - y0) : 1;
+    const far = ok ? Math.max(Math.abs(x0), Math.abs(y0), Math.abs(x1), Math.abs(y1)) : 1;
+    tol = Math.max(1e-6 * Math.max(size, 1e-3), 1e-11 * far, 1e-12);
   }
   const lines = ents.filter((e) => e.type === 'line');
   const arcs = ents.filter((e) => e.type === 'arc');

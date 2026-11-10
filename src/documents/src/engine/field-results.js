@@ -7,6 +7,7 @@
 import { fieldInstructionTokens, pageFieldSegments, writePageFieldResult } from './docx-page-fields.js';
 import { serializeFragment } from './docx-compatibility.js';
 import { formatPageNumber } from './page-numbering.js';
+import { numericFieldFormat, formatNumericField } from './numeric-field-format.js';
 import { newBodyField } from './toc.js';
 import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
 import { sharedRevision } from './revisions.js';
@@ -17,17 +18,43 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const pad = (n, size = 2) => String(n).padStart(size, '0');
 
-/** Format a date with a date-time picture (§17.16.4.1): M MM MMM MMMM d dd ddd dddd yy yyyy h hh H HH m mm s ss AM/PM am/pm, 'literal'. */
-export function formatDatePicture(date, picture) {
+// Month and day names in a language other than English, as the field's text is marked (w:lang): Word writes
+// "2. Oktober 2026" for DATE \@ "d. MMMM yyyy" in German text. A month next to a day number takes the form
+// the language uses in a date (Russian "2 октября"); on its own, the form it uses alone ("октябрь 2026").
+const localNames = new Map();
+function localName(language, date, unit, width, inDate) {
+  const index = unit === 'month' ? date.getMonth() : date.getDay(), key = `${language}|${unit}|${width}|${inDate}|${index}`;
+  if (localNames.has(key)) return localNames.get(key);
+  let name = null;
+  try {
+    const options = unit === 'month' ? { month: width, ...(inDate ? { day: 'numeric' } : {}) } : { weekday: width };
+    // A day of that month, or of that weekday: 14 January 2001 was a Sunday.
+    const sample = new Date(unit === 'month' ? Date.UTC(2001, index, 15) : Date.UTC(2001, 0, 14 + index));
+    name = new Intl.DateTimeFormat(language, { ...options, timeZone: 'UTC' }).formatToParts(sample).find(part => part.type === unit)?.value || null;
+  } catch { name = null; }
+  localNames.set(key, name);
+  return name;
+}
+const english = language => !language || /^en(-|$)/i.test(language);
+
+/**
+ * Format a date with a date-time picture (§17.16.4.1): M MM MMM MMMM d dd ddd dddd yy yyyy h hh H HH m mm s ss AM/PM am/pm,
+ * 'literal'. `language` (a BCP 47 tag, the field's w:lang) names months and days; English when absent.
+ */
+export function formatDatePicture(date, picture, language = null) {
   let out = '', i = 0;
+  const local = !english(language);
+  const withDay = /(^|[^d])d{1,2}(?!d)/i.test(picture.replace(/'[^']*'?/g, ''));
+  const month = n => (local && localName(language, date, 'month', n >= 4 ? 'long' : 'short', withDay)) || (n >= 4 ? MONTHS[date.getMonth()] : MONTHS[date.getMonth()].slice(0, 3));
+  const day = n => (local && localName(language, date, 'weekday', n >= 4 ? 'long' : 'short', false)) || (n >= 4 ? DAYS[date.getDay()] : DAYS[date.getDay()].slice(0, 3));
   const run = ch => { let n = 0; while (picture[i + n] === ch) n++; return n; };
   while (i < picture.length) {
     const ch = picture[i];
     if (ch === "'") { const end = picture.indexOf("'", i + 1); out += end < 0 ? picture.slice(i + 1) : picture.slice(i + 1, end); i = end < 0 ? picture.length : end + 1; continue; }
     if (/^am\/pm/i.test(picture.slice(i, i + 5))) { const pm = date.getHours() >= 12, token = picture.slice(i, i + 5); out += token === token.toLowerCase() ? (pm ? 'pm' : 'am') : (pm ? 'PM' : 'AM'); i += 5; continue; }
     const n = run(ch);
-    if (ch === 'M') out += n >= 4 ? MONTHS[date.getMonth()] : n === 3 ? MONTHS[date.getMonth()].slice(0, 3) : n === 2 ? pad(date.getMonth() + 1) : String(date.getMonth() + 1);
-    else if (ch === 'd' || ch === 'D') out += n >= 4 ? DAYS[date.getDay()] : n === 3 ? DAYS[date.getDay()].slice(0, 3) : n === 2 ? pad(date.getDate()) : String(date.getDate());
+    if (ch === 'M') out += n >= 3 ? month(n) : n === 2 ? pad(date.getMonth() + 1) : String(date.getMonth() + 1);
+    else if (ch === 'd' || ch === 'D') out += n >= 3 ? day(n) : n === 2 ? pad(date.getDate()) : String(date.getDate());
     else if (ch === 'y' || ch === 'Y') out += n >= 3 ? String(date.getFullYear()) : pad(date.getFullYear() % 100);
     else if (ch === 'h') { const h = date.getHours() % 12 || 12; out += n >= 2 ? pad(h) : String(h); }
     else if (ch === 'H') out += n >= 2 ? pad(date.getHours()) : String(date.getHours());
@@ -63,10 +90,12 @@ export function applyGeneralFormat(text, format) {
   if (/^caps$/i.test(f)) return text.replace(/(^|\s)(\p{L})/gu, (_, gap, ch) => gap + ch.toLocaleUpperCase());
   const n = Number(text);
   if (!/^\d+$/.test(text.trim()) || !Number.isSafeInteger(n)) return text;
-  if (f === 'roman') return formatPageNumber(n, 'lowerRoman');
-  if (f === 'ROMAN') return formatPageNumber(n, 'upperRoman');
-  if (f === 'alphabetic') return formatPageNumber(n, 'lowerLetter');
-  if (f === 'ALPHABETIC') return formatPageNumber(n, 'upperLetter');
+  // A number past what a Roman or letter numeral can show stays a number: one field must not stop Update Fields.
+  const numeral = format => { try { return formatPageNumber(n, format); } catch { return text; } };
+  if (f === 'roman') return numeral('lowerRoman');
+  if (f === 'ROMAN') return numeral('upperRoman');
+  if (f === 'alphabetic') return numeral('lowerLetter');
+  if (f === 'ALPHABETIC') return numeral('upperLetter');
   if (/^ordinal$/i.test(f)) return ORDINAL(n);
   if (/^cardtext$/i.test(f)) return cardinalText(n);
   if (/^ordtext$/i.test(f)) { const words = cardinalText(n); return words.replace(/(one|two|three|five|eight|nine|twelve|y|\w+)$/, w => ({ one: 'first', two: 'second', three: 'third', five: 'fifth', eight: 'eighth', nine: 'ninth', twelve: 'twelfth' }[w] || (w.endsWith('y') ? `${w.slice(0, -1)}ieth` : `${w}th`))); }
@@ -135,19 +164,20 @@ export function fieldInstruction({ name, argument = '', picture = '', format = '
 export function evaluateField(instruction, context = {}) {
   let tokens; try { tokens = fieldInstructionTokens(instruction); } catch { return null; }
   const name = tokens[0]?.toUpperCase(), now = context.now || new Date(), properties = context.properties || {};
-  let picture = null, formats = [], argument = null, path = false;
+  let picture = null, formats = [], argument = null, path = false, numberPicture = null;
   for (let i = 1; i < tokens.length; i++) {
     const t = tokens[i];
     if (t === '\\@') picture = tokens[++i] ?? '';
+    else if (t === '\\#') numberPicture = tokens[++i] ?? null;
     else if (t === '\\*') formats.push(tokens[++i] ?? '');
     else if (t === '\\p') path = true;
     else if (!t.startsWith('\\') && argument === null) argument = t;
-    else if (t.startsWith('\\')) { if (['\\#', '\\s', '\\r'].includes(t)) i++; }
+    else if (t.startsWith('\\')) { if (['\\s', '\\r'].includes(t)) i++; }
   }
   const dated = (value, fallback) => {
     const date = value instanceof Date ? value : value ? new Date(value) : null;
     if (!date || Number.isNaN(date.getTime())) return '';
-    return formatDatePicture(date, picture ?? fallback);
+    return formatDatePicture(date, picture ?? fallback, context.language);
   };
   const words = text => countWords(String(text || '').replace(/\ufffc/g, ' '));
   let value;
@@ -156,11 +186,12 @@ export function evaluateField(instruction, context = {}) {
     case 'TIME': value = dated(now, 'h:mm am/pm'); break;
     case 'CREATEDATE': value = dated(properties.created, 'M/d/yyyy h:mm:ss am/pm'); break;
     case 'SAVEDATE': value = dated(properties.modified, 'M/d/yyyy h:mm:ss am/pm'); break;
-    case 'AUTHOR': value = properties.author || ''; break;
-    case 'TITLE': value = properties.title || ''; break;
-    case 'SUBJECT': value = properties.subject || ''; break;
-    case 'KEYWORDS': value = properties.keywords || ''; break;
-    case 'COMMENTS': value = properties.comments || ''; break;
+    // These take a new value as their argument ({ AUTHOR "New Name" }), which is then their result.
+    case 'AUTHOR': value = argument ?? (properties.author || ''); break;
+    case 'TITLE': value = argument ?? (properties.title || ''); break;
+    case 'SUBJECT': value = argument ?? (properties.subject || ''); break;
+    case 'KEYWORDS': value = argument ?? (properties.keywords || ''); break;
+    case 'COMMENTS': value = argument ?? (properties.comments || ''); break;
     case 'LASTSAVEDBY': value = properties.lastModifiedBy || ''; break;
     case 'FILENAME': value = path && context.path ? context.path : context.fileName || ''; break;
     case 'USERNAME': value = context.user?.name || ''; break;
@@ -182,6 +213,10 @@ export function evaluateField(instruction, context = {}) {
     case 'NUMWORDS': if (context.text === undefined) return null; value = String(words(context.text)); break;
     case 'NUMCHARS': if (context.text === undefined) return null; value = String([...String(context.text).replace(/[\s\ufffc]/gu, '')].length); break;
     default: return null;
+  }
+  // A numeric picture (§17.16.4.2) formats the counts: NUMWORDS \# "#,##0" shows 1,234.
+  if (numberPicture !== null && ['NUMPAGES', 'NUMWORDS', 'NUMCHARS'].includes(name)) {
+    try { value = formatNumericField(Number(value), numericFieldFormat(numberPicture)); } catch { /* the plain number */ }
   }
   for (const format of formats) {
     if (/^mergeformat$/i.test(format) || /^charformat$/i.test(format)) continue;
@@ -225,15 +260,36 @@ let contextProvider = null;
 export function setFieldContextProvider(provider) { contextProvider = provider; }
 export const fieldEvaluationContext = () => contextProvider?.() || null;
 
+/** The language of the text at `offset` in paragraph `p` (the run there, else the one before it). */
+export function languageAt(p, offset) {
+  let at = 0, before = null;
+  for (const run of p?.runs || []) {
+    if (run.text && offset < at + run.text.length && offset >= at) return run.fontLanguage || null;
+    if (run.text && at < offset) before = run;
+    at += run.text.length;
+  }
+  return before?.fontLanguage || p?.markFormat?.fontLanguage || null;
+}
+
+const DATED = new Set(['DATE', 'TIME', 'CREATEDATE', 'SAVEDATE']);
+
 /** Fields this evaluator recomputes, with the text they should show now: [{ range, text }]. */
 export function fieldResultPlan(model, context = fieldEvaluationContext()) {
   const changes = [], text = model.text, ranges = bodyFieldRanges(model.paragraphs);
+  let starts;
+  // A date's month and day names are in the language of the field's text.
+  const language = range => {
+    if (!starts) { starts = new Map(); let at = 0; for (const p of model.paragraphs) { starts.set(p.id, [p, at]); at += p.runs.reduce((n, r) => n + r.text.length, 0) + 1; } }
+    const [p, at] = starts.get(range.startParagraph) || [];
+    return p ? languageAt(p, range.start - at) : null;
+  };
+  const parents = new Set(ranges.map(r => r.parentId).filter(Boolean));
   for (const range of ranges) {
-    if (range.parentId || ranges.some(r => r.parentId === range.field.id)) continue;
+    if (range.parentId || parents.has(range.field.id)) continue;
     // A body PAGE field keeps the number it was given: the context's page is the caret's, not the field's.
     if (range.field.locked || ['SEQ', 'REF', 'PAGE'].includes(range.field.type)) continue;
     if (!context && !['DATE', 'TIME'].includes(range.field.type)) continue;
-    const value = evaluateField(range.field.instruction, { ...(context || {}), text });
+    const value = evaluateField(range.field.instruction, { ...(context || {}), text, ...(DATED.has(range.field.type) ? { language: language(range) } : {}) });
     if (value !== null && text.slice(range.start, range.end) !== value) changes.push({ range, text: value });
   }
   return changes;
@@ -255,7 +311,7 @@ export function updateStoryFields(model, context = fieldEvaluationContext()) {
   for (const [pi, p] of model.paragraphs.entries()) for (const [ri, run] of p.runs.entries()) {
     const field = run.field;
     if (!field || field.locked || LIVE_STORY_FIELDS.has(field.type)) continue;
-    const value = evaluateField(field.instruction, { ...(context || {}), text: context?.text ?? '' });
+    const value = evaluateField(field.instruction, { ...(context || {}), text: context?.text ?? '', language: run.fontLanguage || null });
     if (value === null || value === field.cachedText) continue;
     let source;
     try {

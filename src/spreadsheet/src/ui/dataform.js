@@ -10,6 +10,7 @@ import { el, fieldId } from './dom.js';
 import { openModal, confirmDialog } from './modal.js';
 import { toast } from './toast.js';
 import * as S from '../core/selection.js';
+import { t } from '../i18n/index.js';
 import { findList, recordCount, recordRow, readRecord, writeRecord, appendRecord, appendProblem, deleteRecord, findRecord, hasCriteria } from '../core/data-form.js';
 
 const PAGE = 10;
@@ -21,11 +22,11 @@ export function openDataForm(ctx) {
   const active = ctx.active();
   let list = findList(wb, sheetId, active.r, active.c);
   if (!list || !list.fields.length) {
-    toast('Select a cell in a list with a header row to open its form', { icon: 'alert', duration: 3500 });
+    toast(t('dataform.selectList'), { icon: 'alert', duration: 3500 });
     return null;
   }
   if (list.header == null) {
-    toast('The form needs a header row to name its fields', { icon: 'alert', duration: 3500 });
+    toast(t('dataform.needsHeader'), { icon: 'alert', duration: 3500 });
     return null;
   }
 
@@ -43,32 +44,32 @@ export function openDataForm(ctx) {
   const rows = list.fields.map((f, k) => {
     const id = `${idBase}-f${k}`;
     const input = el('input.input.df-input', { type: 'text', id, autocomplete: 'off', spellcheck: false, 'data-col': f.c });
-    const readOnly = el('output.df-readonly', { id: `${id}-v`, 'aria-label': `${f.name} (calculated)` });
-    const label = el('label.df-label', { for: id, title: f.name }, `${f.name}:`);
+    const readOnly = el('output.df-readonly', { id: `${id}-v`, 'aria-label': t('dataform.calculated', { name: f.name }) });
+    const label = el('label.df-label', { for: id, title: f.name }, t('dataform.fieldLabel', { name: f.name }));
     input.addEventListener('input', () => { refreshButtons(); });
     input.addEventListener('keydown', onFieldKey);
     return { field: f, input, readOnly, label, row: el('div.df-row', {}, label, input, readOnly) };
   });
   fieldsBox.append(...rows.map((x) => x.row));
 
-  const slider = el('input.df-slider', { type: 'range', min: 0, max: 0, step: 1, value: 0, 'aria-label': 'Record' });
+  const slider = el('input.df-slider', { type: 'range', min: 0, max: 0, step: 1, value: 0, 'aria-label': t('dataform.record') });
   slider.addEventListener('input', () => go(Number(slider.value)));
 
   const btn = (label, onclick, extra = {}) => el('button.btn.btn-sm', { type: 'button', onclick, ...extra }, label);
-  const newBtn = btn('New', () => startNew());
-  const deleteBtn = btn('Delete', () => removeRecord());
-  const restoreBtn = btn('Restore', () => restore());
-  const prevBtn = btn('Find Prev', () => find(-1));
-  const nextBtn = btn('Find Next', () => find(1));
-  const criteriaBtn = btn('Criteria', () => toggleCriteria());
-  const closeBtn = btn('Close', () => modal.close(), { className: 'btn btn-sm btn-primary' });
+  const newBtn = btn(t('dataform.new'), () => startNew());
+  const deleteBtn = btn(t('dataform.delete'), () => removeRecord());
+  const restoreBtn = btn(t('dataform.restore'), () => restore());
+  const prevBtn = btn(t('dataform.findPrev'), () => find(-1));
+  const nextBtn = btn(t('dataform.findNext'), () => find(1));
+  const criteriaBtn = btn(t('dataform.criteria'), () => toggleCriteria());
+  const closeBtn = btn(t('common.close'), () => modal.close(), { className: 'btn btn-sm btn-primary' });
 
   const content = el('div.df-form', {},
     el('div.df-main', {}, fieldsBox, slider, message),
     el('div.df-side', {}, status, newBtn, deleteBtn, restoreBtn, el('div.df-gap'), prevBtn, nextBtn, criteriaBtn, el('div.df-gap'), closeBtn));
 
-  const sheetName = wb.sheet(sheetId)?.name || 'Sheet';
-  const modal = openModal({ title: `Form: ${sheetName}`, content, onClose: () => finish(), initialFocus: null });
+  const sheetName = wb.sheet(sheetId)?.name || t('dataform.sheet');
+  const modal = openModal({ title: t('dataform.title', { sheet: sheetName }), content, onClose: () => finish(), initialFocus: null });
   let closing = false;
 
   /** The text typed into each editable field, by column. */
@@ -91,7 +92,7 @@ export function openDataForm(ctx) {
       const problem = appendProblem(wb, list);
       if (problem) { say(problem); return false; }
       const grown = appendRecord(wb, list, typed());
-      if (!grown) { say('The new record could not be added here (the sheet or the cells under the list may be protected)'); return false; }
+      if (!grown) { say(t('dataform.addFailed')); return false; }
       list = grown;
       index = recordCount(list) - 1;
       mode = 'record';
@@ -100,7 +101,7 @@ export function openDataForm(ctx) {
     const want = typed();
     const changed = rows.filter((x, k) => !shown[k]?.formula && want[x.field.c] !== shown[k]?.text).length;
     const written = writeRecord(wb, list, index, want);
-    if (changed && !written) { say('The record could not be changed (the sheet or these cells may be protected)'); return false; }
+    if (changed && !written) { say(t('dataform.changeFailed')); return false; }
     return true;
   }
 
@@ -118,15 +119,15 @@ export function openDataForm(ctx) {
       x.readOnly.hidden = !x.input.hidden;
       x.readOnly.textContent = mode === 'record' ? f.display : '';
       x.input.value = mode === 'criteria' ? (criteria[x.field.c] ?? '') : f.text;
-      x.input.setAttribute('aria-label', mode === 'criteria' ? `${x.field.name} criteria` : x.field.name);
+      x.input.setAttribute('aria-label', mode === 'criteria' ? t('dataform.fieldCriteria', { name: x.field.name }) : x.field.name);
     });
-    status.textContent = mode === 'criteria' ? 'Criteria' : mode === 'new' ? 'New Record' : `${index + 1} of ${n}`;
+    status.textContent = mode === 'criteria' ? t('dataform.criteria') : mode === 'new' ? t('dataform.newRecordStatus') : t('dataform.position', { index: index + 1, count: n });
     slider.max = String(n);
     slider.value = String(mode === 'new' ? n : index);
-    slider.setAttribute('aria-valuetext', mode === 'new' ? 'New record' : `Record ${index + 1} of ${n}`);
+    slider.setAttribute('aria-valuetext', mode === 'new' ? t('dataform.newRecord') : t('dataform.recordPosition', { index: index + 1, count: n }));
     slider.disabled = mode === 'criteria';
-    criteriaBtn.textContent = mode === 'criteria' ? 'Form' : 'Criteria';
-    newBtn.textContent = mode === 'criteria' ? 'Clear' : 'New';
+    criteriaBtn.textContent = mode === 'criteria' ? t('dataform.form') : t('dataform.criteria');
+    newBtn.textContent = mode === 'criteria' ? t('common.clear') : t('dataform.new');
     content.classList.toggle('criteria', mode === 'criteria');
     refreshButtons();
     if (focus) (rows.find((x) => !x.input.hidden)?.input || closeBtn).focus({ preventScroll: true });
@@ -163,10 +164,10 @@ export function openDataForm(ctx) {
 
   async function removeRecord() {
     if (mode !== 'record') return;
-    const ok = await confirmDialog({ title: 'Delete record?', message: 'The record shown will be deleted, and the records under it move up. You can undo this.', confirmLabel: 'Delete' });
+    const ok = await confirmDialog({ title: t('dataform.deleteTitle'), message: t('dataform.deleteMessage'), confirmLabel: t('common.delete') });
     if (!ok || closing) return;
     const shorter = deleteRecord(wb, list, index);
-    if (!shorter) { say('The record could not be deleted (the sheet may be protected, or a table or merged cell is in the way)'); return; }
+    if (!shorter) { say(t('dataform.deleteFailed')); return; }
     list = shorter;
     render();
   }
@@ -198,7 +199,7 @@ export function openDataForm(ctx) {
       if (index < 0 || index >= recordCount(list)) index = Math.max(0, Math.min(recordCount(list) - 1, findRecord(wb, list, dir > 0 ? recordCount(list) : -1, -dir, criteria)));
       mode = recordCount(list) ? 'record' : 'new';
       render({ focus: false });
-      say(hasCriteria(criteria) ? 'No more records match the criteria in that direction' : '');
+      say(hasCriteria(criteria) ? t('dataform.noMore') : '');
       return;
     }
     mode = 'record';

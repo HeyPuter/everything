@@ -68,3 +68,45 @@ for (const edge of ['Top', 'Bottom'])
     await page.getByRole('button', { name: 'Redo', exact: true }).click();
     await expect(page.locator('.textLayer')).toContainText('Confidential');
   });
+
+test('a header refused for its size leaves the keyboard where it was in the dialog', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([200, 200]);
+  const opening = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opening
+  ).setFiles({
+    name: 'small.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const bar = page.getByRole('menubar', { name: 'PDF menus' });
+  if (await bar.isVisible())
+    await bar.getByRole('menuitem', { name: 'Insert', exact: true }).click();
+  else {
+    await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Insert', exact: true }).click();
+  }
+  await page
+    .getByRole('menu')
+    .getByRole('menuitem', { name: 'Header and footer…', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Header and footer', exact: true });
+  const field = dialog.getByLabel('Top left', { exact: true });
+  await field.fill('A header far too long to fit across a page this small');
+  await field.press('Enter');
+  await expect(dialog.getByRole('alert')).toContainText('too wide for page 1');
+  // The field was disabled while the header was tried; it has the focus back to be corrected.
+  await expect(field).toBeFocused();
+  const apply = dialog.getByRole('button', { name: 'Add header and footer', exact: true });
+  await apply.focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('alert')).toContainText('too wide for page 1');
+  await expect(apply).toBeFocused();
+});

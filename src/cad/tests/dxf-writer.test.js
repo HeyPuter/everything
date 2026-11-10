@@ -4,6 +4,7 @@ import { parseDxf } from '../src/io/dxf/reader.js';
 import { handleMessage } from '../src/io/dxf/worker.js';
 import { defaultHeader, defaultLayer } from '../src/core/schema.js';
 import { defaultTextStyle, defaultDimStyle } from '../src/core/styles.js';
+import { splineFromFitPoints } from '../src/core/geom/index.js';
 
 const TAU = Math.PI * 2;
 
@@ -332,6 +333,23 @@ describe('writeDxf: options and edge cases', () => {
     expect(+val(h, 46)).toBeCloseTo(Math.cos(a) * 3.175 * 2, 6);
   });
 
+  it('writes mirrored hatches in a mirrored OCS that reads back mirrored', () => {
+    const fam = { angle: 45, x: 0, y: 0.3, dx: 1, dy: 3.175, dashes: [3, -1] };
+    const loop = [1, 1, 0.3, 21, 1, 0, 21, 21, 0, 1, 21, 0];
+    const hatches = [
+      ent('hatch', { loops: [loop], pattern: 'STEEL', scale: 1.5, angle: 0.4, mirror: true }),
+      ent('hatch', { loops: [loop], pattern: 'ANSI31', scale: 2, angle: 0.2, mirror: true, families: [fam] }),
+    ];
+    const text = writeDxf({ entities: hatches, layers: [], blocks: [] }, { hatchPatterns: { ANSI31: [fam] } });
+    expect(records(text).filter((r) => r.type === 'HATCH').map((r) => +val(r, 230))).toEqual([-1, -1]);
+    const back = parseDxf(text).drawing.entities;
+    for (let i = 0; i < 2; i++) {
+      expect(back[i]).toMatchObject({ mirror: true, scale: hatches[i].scale, loops: [loop] });
+      expect(back[i].angle).toBeCloseTo(hatches[i].angle, 9);
+    }
+    expect(back[1].families).toEqual([fam]);
+  });
+
   it('writes an empty drawing that reads back with the standard tables', () => {
     const text = writeDxf({ entities: [], layers: [], blocks: [] });
     const { drawing, warnings } = parseDxf(text);
@@ -339,6 +357,28 @@ describe('writeDxf: options and edge cases', () => {
     expect(drawing.layers.map((l) => l.name)).toEqual(['0']);
     expect(drawing.textStyles.map((s) => s.name)).toEqual(['Standard']);
     expect(drawing.dimStyles.map((s) => s.name)).toEqual(['Standard']);
+  });
+
+  it('writes fit-point splines so that readers rebuild the same curve', () => {
+    // Readers (AutoCAD, the ODA File Converter) recompute fit-point splines from the fit
+    // points and end derivatives; this reader does it the same way, so ignore our control points.
+    const open = [0, 0, 5, 5, 10, 0, 15, 8];
+    const closed = [0, 0, 10, 0, 10, 10, 0, 10, 3, 4];
+    const entities = [
+      ent('spline', { id: 1, ...splineFromFitPoints(open), fit: open, closed: false }),
+      ent('spline', { id: 2, ...splineFromFitPoints(closed, true), fit: closed, closed: true }),
+    ];
+    const text = writeDxf({ layers: [defaultLayer('0')], entities });
+    // the closed spline lists its first fit point again at the end
+    expect(text.split('\r\n').filter((l, i, a) => a[i - 1] === ' 74').slice(-2)).toEqual(['4', '6']);
+    const rebuilt = text.replace(/\r\n 73\r\n\d+/g, '\r\n 73\r\n0').replace(/\r\n 10\r\n[^\r]*\r\n 20\r\n[^\r]*\r\n 30\r\n[^\r]*/g, '');
+    const { drawing } = parseDxf(rebuilt);
+    drawing.entities.forEach((e, i) => {
+      expect(e.closed).toBe(entities[i].closed);
+      expect(e.fit).toEqual(entities[i].fit);
+      expect(e.ctrl.length).toBe(entities[i].ctrl.length);
+      e.ctrl.forEach((v, j) => expect(Math.abs(v - entities[i].ctrl[j])).toBeLessThan(1e-9));
+    });
   });
 
   it('skips invalid entities without corrupting the output', () => {
@@ -432,5 +472,32 @@ describe('round trip', () => {
         expect(Math.abs((b.lx - lx) * uy - (b.ly - ly) * ux)).toBeLessThan(1e-9);
       } else compare(a, b, `entity ${i} ${a.type}`);
     });
+  });
+});
+
+describe('round trip of non-ASCII table names', () => {
+  it('keeps references to styles, linetypes and layers named with \\U+ escapes', () => {
+    const src = sampleDrawing();
+    src.layers.push({ ...defaultLayer('Wände'), linetype: 'Strichlinie_ä' });
+    src.linetypes.push({ name: 'Strichlinie_ä', description: '', pattern: [1, -0.5] });
+    src.textStyles.push({ ...defaultTextStyle('Schrift_ö'), height: 4 });
+    src.dimStyles.push({ ...defaultDimStyle('Maß'), textStyle: 'Schrift_ö' });
+    const n = src.entities.length;
+    src.entities.push(
+      ent('line', { id: n + 1, layer: 'Wände', x1: 0, y1: 0, x2: 1, y2: 0, linetype: 'Strichlinie_ä' }),
+      ent('text', { id: n + 2, x: 0, y: 0, h: 2, rot: 0, value: 'x', style: 'Schrift_ö', halign: 'left', valign: 'baseline', widthFactor: 1, oblique: 0 }),
+      ent('dimension', { ...dimBase, id: n + 3, dimType: 'aligned', x2: 10, lx: 5, ly: 5, style: 'Maß' }),
+    );
+    Object.assign(src.header, { clayer: 'Wände', textStyle: 'Schrift_ö', dimStyle: 'Maß', cltype: 'Strichlinie_ä', nextId: n + 4 });
+    const text = writeDxf(src, { dimensionEntities });
+    expect(text).toContain('Schrift_\\U+00F6');
+    const { drawing: back, warnings } = parseDxf(text);
+    expect(warnings.filter((w) => /Strichlinie/.test(w))).toEqual([]);
+    const [line, txt, dim] = back.entities.slice(-3);
+    expect(line).toMatchObject({ layer: 'Wände', linetype: 'Strichlinie_ä' });
+    expect(txt.style).toBe('Schrift_ö');
+    expect(dim.style).toBe('Maß');
+    expect(back.layers.find((l) => l.name === 'Wände').linetype).toBe('Strichlinie_ä');
+    expect(back.header).toMatchObject({ clayer: 'Wände', textStyle: 'Schrift_ö', dimStyle: 'Maß', cltype: 'Strichlinie_ä' });
   });
 });

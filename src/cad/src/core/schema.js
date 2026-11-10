@@ -15,6 +15,8 @@
  *   lineweight number   LW_BYLAYER (-1) | LW_BYBLOCK (-2) | LW_DEFAULT (-3)
  *                       | hundredths of a millimetre (0, 5, 9, 13, ... 211)
  *   ltscale    number   per-entity linetype scale (default 1)
+ *   orderGroup number   set by DRAWORDER on the objects it moved together; groups
+ *                       are drawn strictly in order (see drawBands in display.js)
  *
  * Type-specific fields:
  *
@@ -65,6 +67,10 @@
  *   hatch     loops: number[][]        each loop is flat [x, y, bulge, ...], implicitly closed
  *             pattern: string          'SOLID' or a pattern name from hatch-patterns.js
  *             scale, angle             pattern scale and rotation
+ *             families?                imported pattern the library lacks: its lines
+ *                                      at scale 1 and angle 0 (format of patterns.js)
+ *             mirror?                  true: the pattern is drawn reflected across its
+ *                                      X axis, then rotated (a mirrored hatch)
  *   insert    name, x, y, sx, sy, rot  block reference
  *
  * Containers:
@@ -166,6 +172,25 @@ export function defaultLayer(name = '0') {
     transparency: 0,
     description: '',
   };
+}
+
+/**
+ * The key of a layer, block or style table entry named `name` in any letter
+ * case, or null. Names ignore case in DWG and DXF, so 'Bolt' and 'BOLT' are
+ * one name there.
+ */
+export function tableKey(map, name) {
+  if (map.has(name)) return name;
+  const k = String(name).toLowerCase();
+  for (const n of map.keys()) if (n.toLowerCase() === k) return n;
+  return null;
+}
+
+/** The first free name base1, base2... in a layer, block or style table, in any letter case. */
+export function freeTableName(map, base) {
+  let i = 1;
+  while (tableKey(map, `${base}${i}`)) i++;
+  return `${base}${i}`;
 }
 
 /** Fields every new entity gets unless the caller sets them. */

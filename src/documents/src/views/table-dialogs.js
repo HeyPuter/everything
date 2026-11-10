@@ -2,7 +2,7 @@
 // Table to Text, Split Cells, Insert/Delete Cells, Sort, Formula and the style
 // editor. Each one collects choices, previews where it helps, and hands them to
 // `apply`; a thrown error stays in the dialog so the choice can be corrected.
-import { el, fieldId } from '../ui/dom.js';
+import { el, fieldId, amountInRange } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 
 const field = (label, control, hint) => {
@@ -65,16 +65,21 @@ export function openInsertTableDialog(apply, { onClose } = {}) {
     sketch.replaceChildren(...Array.from({ length: c * r }, () => el('span')));
   }
   columns.addEventListener('input', preview); rows.addEventListener('input', preview); preview();
-  return formDialog({ title: 'Insert Table', onClose, className: 'table-insert-dialog', body: [
+  // The fields are checked on OK, with the message in words: the width's arrows step by hundredths, but any width
+  // in range is taken, as Word takes 1.125 in.
+  const dialog = formDialog({ title: 'Insert Table', onClose, className: 'table-insert-dialog', body: [
     el('div.table-dialog-grid', {}, field('Columns', columns), field('Rows', rows)),
     autofit, sketch,
     el('label.table-check', {}, remember, 'Remember these settings for new tables'),
   ], submit: () => {
     const choice = { rows: Number(rows.value), columns: Number(columns.value), autofit: autofit.value(), width: autofit.value() === 'fixed' && width.value ? Number(width.value) : null };
     if (!Number.isInteger(choice.rows) || !Number.isInteger(choice.columns) || choice.rows < 1 || choice.columns < 1 || choice.columns > 32 || choice.rows > 500) throw new Error('Choose 1–32 columns and 1–500 rows.');
+    if (choice.width !== null && !amountInRange(width)) throw new Error('Enter a column width from 0.1 to 22 in, or leave it blank for Auto.');
     try { if (remember.checked) localStorage.setItem(REMEMBER_KEY, JSON.stringify({ ...choice, width: choice.width ?? '' })); else localStorage.removeItem(REMEMBER_KEY); } catch { /* storage may be unavailable */ }
     return apply(choice);
   } });
+  dialog.form.noValidate = true;
+  return dialog;
 }
 
 /* ---- Converting ---- */

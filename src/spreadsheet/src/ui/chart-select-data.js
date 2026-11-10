@@ -10,6 +10,7 @@ import { chartData } from '../core/charts.js';
 import { rangeName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
 import { chartSeriesSources, reorderSeriesFormatting, seriesSourcesPatch } from '../core/chart-design.js';
+import { t } from '../i18n/index.js';
 
 const stripEquals = text => String(text || '').trim().replace(/^=/, '').trim();
 const asFormula = ref => (ref ? `=${ref}` : '');
@@ -38,23 +39,23 @@ export function openSelectDataDialog(ctx, chart) {
   const rangeText = () => (state.ownRefs ? '' : `=${quoteSheet(sheet.name)}!${rangeName(state.range).split(':').map(p => p.replace(/^([A-Z]+)(\d+)$/, '$$$1$$$2')).join(':')}`);
 
   const error = el('p.field-error', { role: 'alert', hidden: true });
-  const rangeInput = el('input.input', { type: 'text', 'aria-label': 'Chart data range', spellcheck: false, autocomplete: 'off' });
-  const seriesList = el('div.select-data-list', { role: 'listbox', 'aria-label': 'Legend Entries (Series)' });
-  const categoryList = el('div.select-data-list', { role: 'list', 'aria-label': 'Category Labels' });
+  const rangeInput = el('input.input', { type: 'text', 'aria-label': t('chartSelectData.dataRange'), spellcheck: false, autocomplete: 'off' });
+  const seriesList = el('div.select-data-list', { role: 'listbox', 'aria-label': t('chartSelectData.legendEntries') });
+  const categoryList = el('div.select-data-list', { role: 'list', 'aria-label': t('chartSelectData.categoryLabels') });
   const switchBtn = el('button.btn.btn-sm', { type: 'button', onclick: () => {
     if (state.ownRefs) return;
     const data = chartData(wb, sheetId, draft());
     state.seriesIn = data.orientation === 'rows' ? 'cols' : 'rows';
     state.sources = numbered(chartSeriesSources(wb, sheetId, draft()));
     render();
-  } }, el('span', { html: icon('switchRowCol', 16) }), ' Switch Row/Column');
+  } }, el('span', { html: icon('switchRowCol', 16) }), ' ', t('chartSelectData.switchRowColumn'));
 
   const fail = msg => { error.textContent = msg; error.hidden = !msg; };
   rangeInput.addEventListener('change', () => {
     const parsed = wb.rangeFromText(sheetId, stripEquals(rangeInput.value));
-    if (!parsed || parsed.sheetId !== sheetId) { fail('Enter a range on this sheet, such as =Sheet1!$A$1:$C$5'); return; }
+    if (!parsed || parsed.sheetId !== sheetId) { fail(t('chartSelectData.errors.range')); return; }
     const r = parsed.range;
-    if (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200) { fail('That range is too large to chart'); return; }
+    if (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200) { fail(t('chartSelectData.errors.tooLarge')); return; }
     fail('');
     state.range = r; state.ownRefs = false;
     state.sources = numbered(chartSeriesSources(wb, sheetId, draft()));
@@ -64,27 +65,30 @@ export function openSelectDataDialog(ctx, chart) {
   /** The Edit Series dialog: a name (a cell or text) and the values (and x values, sizes). */
   function editSeries(index = null) {
     const s = index == null ? { name: '', nameRef: '', categories: state.sources[0]?.categories || '', values: '' } : state.sources[index];
-    const nameInput = el('input.input', { type: 'text', 'aria-label': 'Series name', value: s.nameRef ? asFormula(s.nameRef) : s.name || '' });
-    const xInput = el('input.input', { type: 'text', 'aria-label': 'Series X values', value: asFormula(s.categories) });
-    const valuesInput = el('input.input', { type: 'text', 'aria-label': xy ? 'Series Y values' : 'Series values', value: asFormula(s.values) });
-    const sizeInput = el('input.input', { type: 'text', 'aria-label': 'Series bubble size', value: asFormula(s.sizes) });
+    const nameInput = el('input.input', { type: 'text', 'aria-label': t('chartSelectData.seriesName'), value: s.nameRef ? asFormula(s.nameRef) : s.name || '' });
+    const xInput = el('input.input', { type: 'text', 'aria-label': t('chartSelectData.seriesXValues'), value: asFormula(s.categories) });
+    const valuesInput = el('input.input', { type: 'text', 'aria-label': xy ? t('chartSelectData.seriesYValues') : t('chartSelectData.seriesValues'), value: asFormula(s.values) });
+    const sizeInput = el('input.input', { type: 'text', 'aria-label': t('chartSelectData.seriesBubbleSize'), value: asFormula(s.sizes) });
     const problem = el('p.field-error', { role: 'alert', hidden: true });
-    const vector = (text, label, optional = false) => {
+    // `kind` names the field in the message: xValues, yValues, seriesValues or bubbleSizes.
+    const vector = (text, kind, optional = false) => {
       const ref = stripEquals(text);
-      if (!ref) return optional ? '' : { error: `Enter the ${label}` };
+      if (!ref) return optional ? '' : { error: t('chartSelectData.errors.enter', { kind }) };
       const r = wb.rangeFromText(sheetId, ref)?.range;
-      if (!r) return { error: `The ${label} must be a reference, such as =${quoteSheet(sheet.name)}!$B$2:$B$5` };
-      if (r.r1 !== r.r2 && r.c1 !== r.c2) return { error: `The ${label} must be one row or one column` };
+      if (!r) {
+        return { error: t('chartSelectData.errors.reference', { kind, example: `=${quoteSheet(sheet.name)}!$B$2:$B$5` }) };
+      }
+      if (r.r1 !== r.r2 && r.c1 !== r.c2) return { error: t('chartSelectData.errors.oneRowOrColumn', { kind }) };
       return ref;
     };
     const submit = e => {
       e.preventDefault();
       const nameText = nameInput.value.trim();
       const nameRef = nameText.startsWith('=') ? stripEquals(nameText) : '';
-      if (nameRef && !wb.rangeFromText(sheetId, nameRef)) { problem.textContent = 'The series name must be text or a cell reference'; problem.hidden = false; return; }
-      const values = vector(valuesInput.value, xy ? 'Y values' : 'series values');
-      const categories = xy ? vector(xInput.value, 'X values', true) : s.categories;
-      const sizes = chart.type === 'bubble' ? vector(sizeInput.value, 'bubble sizes') : undefined;
+      if (nameRef && !wb.rangeFromText(sheetId, nameRef)) { problem.textContent = t('chartSelectData.errors.name'); problem.hidden = false; return; }
+      const values = vector(valuesInput.value, xy ? 'yValues' : 'seriesValues');
+      const categories = xy ? vector(xInput.value, 'xValues', true) : s.categories;
+      const sizes = chart.type === 'bubble' ? vector(sizeInput.value, 'bubbleSizes') : undefined;
       const bad = [values, categories, sizes].find(v => v && typeof v === 'object');
       if (bad) { problem.textContent = bad.error; problem.hidden = false; return; }
       const next = { name: nameRef ? '' : nameText, nameRef, categories: categories || '', values, ...(sizes ? { sizes } : {}), from: index == null ? null : s.from };
@@ -94,44 +98,44 @@ export function openSelectDataDialog(ctx, chart) {
       render();
     };
     const content = el('form.chart-move-form', { onsubmit: submit },
-      el('label.field', {}, el('span.field-label', {}, 'Series name:'), nameInput),
-      xy ? el('label.field', {}, el('span.field-label', {}, 'Series X values:'), xInput) : null,
-      el('label.field', {}, el('span.field-label', {}, xy ? 'Series Y values:' : 'Series values:'), valuesInput),
-      chart.type === 'bubble' ? el('label.field', {}, el('span.field-label', {}, 'Series bubble size:'), sizeInput) : null,
+      el('label.field', {}, el('span.field-label', {}, t('chartSelectData.seriesNameField')), nameInput),
+      xy ? el('label.field', {}, el('span.field-label', {}, t('chartSelectData.seriesXValuesField')), xInput) : null,
+      el('label.field', {}, el('span.field-label', {}, xy ? t('chartSelectData.seriesYValuesField') : t('chartSelectData.seriesValuesField')), valuesInput),
+      chart.type === 'bubble' ? el('label.field', {}, el('span.field-label', {}, t('chartSelectData.seriesBubbleSizeField')), sizeInput) : null,
       problem,
-      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-    const modal = openModal({ title: 'Edit Series', content, initialFocus: nameInput });
+      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+    const modal = openModal({ title: t('chartSelectData.editSeries'), content, initialFocus: nameInput });
   }
 
   function editCategories() {
-    const input = el('input.input', { type: 'text', 'aria-label': 'Axis label range', value: asFormula(state.sources[0]?.categories) });
+    const input = el('input.input', { type: 'text', 'aria-label': t('chartSelectData.axisLabelRange'), value: asFormula(state.sources[0]?.categories) });
     const problem = el('p.field-error', { role: 'alert', hidden: true });
     const submit = e => {
       e.preventDefault();
       const ref = stripEquals(input.value);
       const r = ref ? wb.rangeFromText(sheetId, ref)?.range : null;
-      if (ref && (!r || (r.r1 !== r.r2 && r.c1 !== r.c2))) { problem.textContent = 'Choose one row or column of labels'; problem.hidden = false; return; }
+      if (ref && (!r || (r.r1 !== r.r2 && r.c1 !== r.c2))) { problem.textContent = t('chartSelectData.errors.labels'); problem.hidden = false; return; }
       state.sources = state.sources.map(s => ({ ...s, categories: ref }));
       state.ownRefs = true;
       modal.close();
       render();
     };
-    const content = el('form.chart-move-form', { onsubmit: submit }, el('label.field', {}, el('span.field-label', {}, 'Axis label range:'), input), problem,
-      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-    const modal = openModal({ title: 'Axis Labels', content, initialFocus: input });
+    const content = el('form.chart-move-form', { onsubmit: submit }, el('label.field', {}, el('span.field-label', {}, t('chartSelectData.axisLabelRangeField')), input), problem,
+      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+    const modal = openModal({ title: t('chartSelectData.axisLabels'), content, initialFocus: input });
   }
 
   function hiddenAndEmpty() {
-    const radios = [['gap', 'Gaps'], ['zero', 'Zero'], ['span', 'Connect data points with line']].map(([value, label]) => {
+    const radios = [['gap', t('chartSelectData.gaps')], ['zero', t('chartSelectData.zero')], ['span', t('chartSelectData.connect')]].map(([value, label]) => {
       const input = el('input', { type: 'radio', name: 'select-data-blanks', value, checked: state.blanks === value });
       return { input, row: el('label.check', {}, input, el('span', {}, label)) };
     });
     const hidden = el('input', { type: 'checkbox', checked: state.includeHidden });
     const submit = e => { e.preventDefault(); state.blanks = radios.find(r => r.input.checked)?.input.value || 'gap'; state.includeHidden = hidden.checked; modal.close(); };
-    const content = el('form.chart-move-form', { onsubmit: submit }, el('p.field-label', {}, 'Show empty cells as:'), ...radios.map(r => r.row),
-      el('label.check', {}, hidden, el('span', {}, 'Show data in hidden rows and columns')),
-      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-    const modal = openModal({ title: 'Hidden and Empty Cell Settings', content, initialFocus: radios[0].input });
+    const content = el('form.chart-move-form', { onsubmit: submit }, el('p.field-label', {}, t('chartSelectData.emptyCells')), ...radios.map(r => r.row),
+      el('label.check', {}, hidden, el('span', {}, t('chartSelectData.includeHidden'))),
+      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+    const modal = openModal({ title: t('chartSelectData.hiddenEmptyTitle'), content, initialFocus: radios[0].input });
   }
 
   const move = step => {
@@ -142,15 +146,15 @@ export function openSelectDataDialog(ctx, chart) {
   };
   const tool = (label, iconName, onclick, aria = label) => el('button.btn.btn-sm', { type: 'button', 'aria-label': aria, title: aria, onclick }, iconName ? el('span', { html: icon(iconName, 14) }) : null, label);
   const seriesTools = el('div.select-data-tools', {},
-    tool('Add', 'plus', () => editSeries(null)),
-    tool('Edit', null, () => { if (state.sources[selected]) editSeries(selected); }),
-    tool('Remove', 'x', () => { if (state.sources.length > 1) { state.sources.splice(selected, 1); selected = Math.max(0, selected - 1); state.ownRefs = true; render(); } }),
-    tool('', 'chevU', () => move(-1), 'Move Up'), tool('', 'chevD', () => move(1), 'Move Down'));
-  const categoryTools = el('div.select-data-tools', {}, tool('Edit', null, () => editCategories(), 'Edit axis labels'));
+    tool(t('common.add'), 'plus', () => editSeries(null)),
+    tool(t('common.edit'), null, () => { if (state.sources[selected]) editSeries(selected); }),
+    tool(t('common.remove'), 'x', () => { if (state.sources.length > 1) { state.sources.splice(selected, 1); selected = Math.max(0, selected - 1); state.ownRefs = true; render(); } }),
+    tool('', 'chevU', () => move(-1), t('chartSelectData.moveUp')), tool('', 'chevD', () => move(1), t('chartSelectData.moveDown')));
+  const categoryTools = el('div.select-data-tools', {}, tool(t('common.edit'), null, () => editCategories(), t('chartSelectData.editAxisLabels')));
 
   function render() {
     rangeInput.value = rangeText();
-    rangeInput.placeholder = state.ownRefs ? 'The data range is too complex to be displayed' : '';
+    rangeInput.placeholder = state.ownRefs ? t('chartSelectData.tooComplex') : '';
     switchBtn.disabled = state.ownRefs;
     seriesList.replaceChildren(...state.sources.map((s, i) => el('button.select-data-row', { type: 'button', role: 'option', 'aria-selected': String(i === selected),
       onclick: () => { selected = i; render(); }, ondblclick: () => editSeries(i) }, resolveName(s) || `Series${i + 1}`)));
@@ -161,24 +165,24 @@ export function openSelectDataDialog(ctx, chart) {
 
   const submit = e => {
     e.preventDefault();
-    if (!state.sources.length) { fail('A chart needs at least one series'); return; }
+    if (!state.sources.length) { fail(t('chartSelectData.errors.noSeries')); return; }
     const patch = state.ownRefs ? { ...seriesSourcesPatch(chart, state.sources), ...reorderSeriesFormatting(chart, state.sources.map(s => s.from ?? null)) }
       : { range: state.range, seriesIn: state.seriesIn, sourceRefs: undefined };
     patch.includeHidden = state.includeHidden;
     if (chart.appearance) patch.appearance = { ...(patch.appearance || chart.appearance), blanks: state.blanks, ...(chart.appearance.radar ? { radar: { ...chart.appearance.radar, blanks: state.blanks } } : {}) };
-    wb.updateChart(sheetId, chart.id, patch, 'Select data');
+    wb.updateChart(sheetId, chart.id, patch, t('chartSelectData.undo'));
     modal.close();
   };
   const content = el('form.select-data-form', { onsubmit: submit },
-    el('label.field', {}, el('span.field-label', {}, 'Chart data range:'), rangeInput), error,
+    el('label.field', {}, el('span.field-label', {}, t('chartSelectData.dataRangeField')), rangeInput), error,
     el('div.row', { style: { justifyContent: 'center' } }, switchBtn),
     el('div.select-data-columns', {},
-      el('div.select-data-box', {}, el('span.field-label', {}, 'Legend Entries (Series)'), seriesTools, seriesList),
-      el('div.select-data-box', {}, el('span.field-label', {}, 'Category Labels'), categoryTools, categoryList)),
-    el('div.row.row-end.select-data-foot', {}, el('button.btn.btn-ghost', { type: 'button', onclick: hiddenAndEmpty }, 'Hidden and Empty Cells'),
+      el('div.select-data-box', {}, el('span.field-label', {}, t('chartSelectData.legendEntries')), seriesTools, seriesList),
+      el('div.select-data-box', {}, el('span.field-label', {}, t('chartSelectData.categoryLabels')), categoryTools, categoryList)),
+    el('div.row.row-end.select-data-foot', {}, el('button.btn.btn-ghost', { type: 'button', onclick: hiddenAndEmpty }, t('chartSelectData.hiddenEmpty')),
       el('div.row.select-data-actions', {},
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK'))));
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, t('common.ok')))));
   render();
-  const modal = openModal({ title: 'Select Data Source', content, wide: true, initialFocus: rangeInput, onClose: () => ctx.grid.focus() });
+  const modal = openModal({ title: t('chartSelectData.title'), content, wide: true, initialFocus: rangeInput, onClose: () => ctx.grid.focus() });
   return modal;
 }

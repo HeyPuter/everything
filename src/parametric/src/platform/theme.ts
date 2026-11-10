@@ -19,10 +19,17 @@ export function resolvedTheme(choice = getThemeChoice()): 'light' | 'dark' {
   return choice === 'dark' || (choice === 'system' && !!media?.matches) ? 'dark' : 'light';
 }
 
+/** Browser toolbar colours (index.html), which otherwise follow the system theme, not the choice. */
+const TOOLBAR = { light: '#f7f8fa', dark: '#1f2226' };
+
 export function applyTheme(choice: ThemeChoice = getThemeChoice()) {
   const root = document.documentElement;
+  const resolved = resolvedTheme(choice);
   root.dataset.theme = choice;
-  root.dataset.themeResolved = resolvedTheme(choice);
+  root.dataset.themeResolved = resolved;
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+    meta.content = choice === 'system' ? TOOLBAR[meta.media.includes('dark') ? 'dark' : 'light'] : TOOLBAR[resolved];
+  }
   window.dispatchEvent(new CustomEvent('themechange'));
 }
 
@@ -39,6 +46,13 @@ export function setThemeChoice(choice: ThemeChoice) {
 media?.addEventListener('change', () => {
   if (getThemeChoice() === 'system') applyTheme('system');
 });
+
+// The choice made in another tab applies to this one too.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY || e.key === null) applyTheme();
+  });
+}
 
 /** Reads a CSS colour token as linear 0..1 RGB for the renderer. */
 export function cssColor(name: string, el: Element = document.documentElement): [number, number, number] {

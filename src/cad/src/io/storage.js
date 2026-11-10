@@ -23,7 +23,7 @@ export async function cloudList(cursor = null, limit = 100) {
     const page = await puter.fs.readdir({ path: CLOUD_DIR, sortBy: 'modified', sortOrder: 'desc', cursor, limit });
     const list = Array.isArray(page) ? page : page.items || [];
     return {
-      items: list.filter((f) => !f.is_dir && !f.isDir && /\.(cad|dxf)$/i.test(f.name)),
+      items: list.filter((f) => !f.is_dir && !f.isDir && /\.(cad|dxf|dwg)$/i.test(f.name)),
       cursor: Array.isArray(page) ? null : page.cursor || null,
     };
   } catch (err) {
@@ -59,6 +59,19 @@ export function isNotFoundError(err) {
   return /not[_ ]?found|does_not_exist|no such/i.test(s);
 }
 
+/** True when a request failed because the Puter session is missing or has expired. */
+export function isAuthError(err) {
+  const code = `${err?.code ?? ''} ${err?.error?.code ?? ''}`;
+  if (/token_auth_failed|unauthorized|auth_required|token_invalid/i.test(code)) return true;
+  if (err?.status === 401 || err?.error?.status === 401) return true;
+  return /authentication failed|not signed in/i.test(errorText(err));
+}
+
+/** Readable message of an error; Puter rejects with { error: { message } } or { code, message } objects. */
+export function errorText(err) {
+  return err?.message || err?.error?.message || (typeof err === 'string' ? err : '');
+}
+
 export async function cloudDelete(path) {
   await puter.fs.delete(path);
 }
@@ -69,7 +82,7 @@ export function usePuterPickers() {
 }
 
 export async function puterOpenPicker() {
-  const item = await puter.ui.showOpenFilePicker({ accept: ['.cad', '.dxf'] });
+  const item = await puter.ui.showOpenFilePicker({ accept: ['.cad', '.dwg', '.dxf'] });
   const f = Array.isArray(item) ? item[0] : item;
   if (!f) return null;
   const blob = await f.read();
@@ -89,7 +102,7 @@ export async function deviceOpen() {
   if (FS_ACCESS) {
     try {
       const [handle] = await window.showOpenFilePicker({
-        types: [{ description: 'Drawings', accept: { 'application/octet-stream': ['.cad', '.dxf'] } }],
+        types: [{ description: 'Drawings', accept: { 'application/octet-stream': ['.cad', '.dwg', '.dxf'] } }],
         excludeAcceptAllOption: false,
       });
       const file = await handle.getFile();
@@ -102,7 +115,7 @@ export async function deviceOpen() {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.cad,.dxf';
+    input.accept = '.cad,.dwg,.dxf';
     input.addEventListener('change', () => {
       const file = input.files?.[0];
       if (!file) return resolve(null);
@@ -139,7 +152,7 @@ export async function deviceSave(blob, name, handle) {
       const ext = name.slice(name.lastIndexOf('.'));
       const h = await window.showSaveFilePicker({
         suggestedName: name,
-        types: [{ description: ext === '.dxf' ? 'DXF drawing' : 'Drawing', accept: { 'application/octet-stream': [ext] } }],
+        types: [{ description: ext === '.dxf' ? 'DXF drawing' : ext === '.dwg' ? 'DWG drawing' : 'Drawing', accept: { 'application/octet-stream': [ext] } }],
       });
       const w = await h.createWritable();
       await w.write(blob);
@@ -170,9 +183,13 @@ const DB_NAME = 'cad';
 const DB_VERSION = 1;
 let dbPromise = null;
 
+/**
+ * The open database. A failed open, or a connection the browser closes
+ * (Safari can drop it), is forgotten so that the next call opens it again.
+ */
 function db() {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
+  const p = new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('No IndexedDB'));
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
@@ -180,24 +197,46 @@ function db() {
       if (!d.objectStoreNames.contains('docs')) d.createObjectStore('docs', { keyPath: 'id' });
       if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const d = req.result;
+      d.onclose = () => forgetDb(p);
+      d.onversionchange = () => {
+        d.close();
+        forgetDb(p);
+      };
+      resolve(d);
+    };
     req.onerror = () => reject(req.error);
   });
-  return dbPromise;
+  dbPromise = p;
+  p.catch(() => forgetDb(p));
+  return p;
 }
 
-function tx(store, mode, fn) {
-  return db().then(
-    (d) =>
-      new Promise((resolve, reject) => {
-        const t = d.transaction(store, mode);
-        const s = t.objectStore(store);
-        const r = fn(s);
-        t.oncomplete = () => resolve(r?.result);
-        t.onerror = () => reject(t.error);
-        t.onabort = () => reject(t.error);
-      }),
-  );
+function forgetDb(p) {
+  if (dbPromise === p) dbPromise = null;
+}
+
+function tx(store, mode, fn, retry = true) {
+  const p = db();
+  return p.then((d) => {
+    let t;
+    try {
+      t = d.transaction(store, mode);
+    } catch (err) {
+      // The connection was closed under us: open it again, once.
+      if (!retry || err?.name !== 'InvalidStateError') throw err;
+      forgetDb(p);
+      return tx(store, mode, fn, false);
+    }
+    return new Promise((resolve, reject) => {
+      const s = t.objectStore(store);
+      const r = fn(s);
+      t.oncomplete = () => resolve(r?.result);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error);
+    });
+  });
 }
 
 export const recovery = {

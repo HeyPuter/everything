@@ -67,3 +67,23 @@ test('the pronoun i becomes a capital once its word ends, and Undo takes that ba
   await input(page).press('ControlOrMeta+z');
   await expect(input(page)).toHaveValue('Yes I think I’m right, and so do I. It is (i) fine, i.e. good and i ');
 });
+
+test('Enter ends the word before it as a space does: the pronoun i and a fraction are corrected there too', async ({ page }) => {
+  await blank(page);
+  await page.keyboard.type('so do i');
+  await page.keyboard.press('Enter');
+  await expect(input(page)).toHaveValue('So do I\n');
+  // Undo takes back the correction alone, leaving the new paragraph.
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('So do i\n');
+  await page.keyboard.type('half 1/2');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('next');
+  await expect(input(page)).toHaveValue('So do i\nHalf ½\nNext');
+  // The caret went on in the new paragraph, though the fraction is shorter than what was typed.
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.range)).toEqual([19, 19]);
+  // A typed list marker alone is not made a list by Enter.
+  await page.keyboard.press('Enter'); await page.keyboard.type('*'); await page.keyboard.press('Enter');
+  await expect(input(page)).toHaveValue('So do i\nHalf ½\nNext\n*\n');
+  expect(await page.getByRole('button', { name: 'Bulleted list', exact: true }).getAttribute('aria-pressed')).toBe('false');
+});

@@ -1,0 +1,16 @@
+{
+  "current": "{name} (current)",
+  "detail": "Filters set in a view stay in it; the default view others see is left as it is.",
+  "duplicate": "This sheet already has a view with that name.",
+  "duplicateView": "Duplicate",
+  "empty": "This sheet has no saved views. Choose New in View ▸ Sheet View to start one.",
+  "rename": "Rename…",
+  "renameTitle": "Rename View",
+  "sheetViews": "Sheet views",
+  "switchTo": "Switch To",
+  "title": "Sheet View Options",
+  "tooLong": "A view name can be at most {max} characters.",
+  "typeName": "Type a name for the view.",
+  "viewsOf": "Views of {name}",
+  "viewsOfThisSheet": "Views of this sheet"
+}

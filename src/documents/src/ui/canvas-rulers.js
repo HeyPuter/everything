@@ -1,5 +1,10 @@
 import { el } from './dom.js';
 import { recallUnit, rememberUnit, onUnitChange } from '../lib/units.js';
+import { localStore } from '../lib/storage.js';
+
+// View > Ruler is the window's setting, kept on this device as the status bar's is: hidden stays hidden after a reload.
+const RULER_STORE = 'documents:ruler';
+const storedRuler = () => { try { const value = localStore()?.getItem(RULER_STORE); return value === 'shown' ? true : value === 'hidden' ? false : null; } catch { return null; } };
 
 const SYMBOLS = { left: '└', center: '┴', right: '┘', decimal: '⊥', bar: '│' };
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -16,7 +21,8 @@ export function rulerSnap(value, unit, precise = false) {
 export function createCanvasRulers({ host, surface, editor, openParagraph, openPage }) {
   // Phones show no rulers until View > Ruler asks for them.
   const phone = globalThis.matchMedia?.('(max-width: 700px)');
-  let unit = recallUnit(), visible = !phone?.matches, chosen = false, drag = null, frame = 0, signature = '', tabType = 'left';
+  // A phone starts without rulers whatever a wider window chose.
+  let unit = recallUnit(), visible = phone?.matches ? false : storedRuler() ?? true, chosen = false, drag = null, frame = 0, signature = '', tabType = 'left';
   const abort = new AbortController();
   const listen = (node, event, fn) => node.addEventListener(event, fn, { signal: abort.signal });
   const horizontal = el('div.canvas-ruler.canvas-ruler-horizontal', { role: 'group', 'aria-label': 'Horizontal ruler' });
@@ -39,7 +45,9 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
   function context() {
     const e = editor(); if (!e?.layout || !e.canvases.length) return null;
     const bounds = host.getBoundingClientRect();
-    let index = e.canvases.findIndex(c => c.getBoundingClientRect().bottom > bounds.top + 1);
+    // The first page in view. Side to Side and Multiple Pages put pages beside one another: one
+    // scrolled off to the left is not in view, though its bottom is below the window's top.
+    let index = e.canvases.findIndex(c => { const r = c.getBoundingClientRect(); return r.bottom > bounds.top + 1 && r.right > bounds.left + 1; });
     if (index < 0) index = e.canvases.length - 1;
     return { e, bounds, rect: e.canvases[index].getBoundingClientRect(), page: e.layout.pages[index] || e.layout.page,
       settings: e.model.pageSettings, format: e.model.paragraphFormatting };
@@ -50,12 +58,18 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
     band.style[axis === 'x' ? 'left' : 'top'] = `${origin * scale}px`;
     band.style[axis === 'x' ? 'width' : 'height'] = `${(end - origin) * scale}px`; node.append(band);
     const step = unit === 'cm' ? 96 / 2.54 / 10 : 12, major = unit === 'cm' ? 10 : 8;
+    // At small zooms a unit is a few pixels long: keep the ticks apart and number every second,
+    // fifth or tenth unit, so the marks stay distinct and the numbers do not run into each other.
+    const every = [...(unit === 'cm' ? [1, 2, 5] : [1, 2, 4]), major].find(n => n * step * scale >= 3.5) ?? major;
+    const widest = String(Math.ceil(Math.max(origin, length - origin) / step / major)).length;
+    const labelEvery = [1, 2, 5, 10, 20].find(n => n * major * step * scale >= (axis === 'x' ? widest * 6 + 6 : 14)) ?? 20;
     for (let i = Math.ceil(-origin / step); (origin + i * step) <= length; i++) {
+      if (i % every) continue;
       const tick = el('span.canvas-ruler-tick');
       tick.style[axis === 'x' ? 'left' : 'top'] = `${(origin + i * step) * scale}px`;
-      const full = i % major === 0;
-      tick.classList.toggle('major', full); tick.classList.toggle('half', !full && i % (major / 2) === 0);
-      if (full && i !== 0) tick.append(el('span', {}, String(Math.abs(i / major))));
+      const full = i % major === 0, numbered = full && (i / major) % labelEvery === 0;
+      tick.classList.toggle('major', numbered); tick.classList.toggle('half', !numbered && (full || i % (major / 2) === 0));
+      if (numbered && i !== 0) tick.append(el('span', {}, String(Math.abs(i / major))));
       node.append(tick);
     }
   }
@@ -151,8 +165,23 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
     const origin = d.axis === 'x' && !['left', 'right'].includes(d.kind) ? Math.round(d.c.page.left * 15) : 0;
     return rulerSnap(raw - origin, unit, event.altKey) + origin;
   }
+  // A fingertip covers the small markers (a first-line indent is a 12 by 8 pixel triangle) and lands a little off
+  // them: a touch takes the nearest marker within reach on its ruler, rather than setting a tab stop beside it.
+  const TOUCH_REACH = 16;
+  function touchedHandle(event) {
+    if (event.pointerType !== 'touch') return null;
+    const ruler = event.target.closest?.('.canvas-ruler'); if (!ruler) return null;
+    let best = null, distance = TOUCH_REACH;
+    for (const node of ruler.querySelectorAll('.canvas-ruler-handle')) {
+      if (node.disabled || node.hidden) continue;
+      const r = node.getBoundingClientRect(); if (!r.width && !r.height) continue;
+      const d = Math.hypot(Math.max(r.left - event.clientX, 0, event.clientX - r.right), Math.max(r.top - event.clientY, 0, event.clientY - r.bottom));
+      if (d <= distance) { best = node; distance = d; }
+    }
+    return best;
+  }
   listen(surface, 'pointerdown', event => {
-    let h = event.target.closest('.canvas-ruler-handle');
+    let h = event.target.closest('.canvas-ruler-handle') || touchedHandle(event);
     if (!h || h.disabled || event.button !== 0) return;
     event.preventDefault(); const c = context();
     const kind = h.dataset.kind, tabPosition = h.dataset.position;
@@ -220,7 +249,7 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
     commit(h.dataset.kind, Math.round(position + delta * (event.altKey ? 1 : rulerStep(unit))), c, Number(h.dataset.position), remove);
   });
   listen(horizontal, 'pointerdown', event => {
-    if (event.target.closest('button') || event.button !== 0 || selector.disabled) return;
+    if (event.target.closest('button') || event.button !== 0 || selector.disabled || touchedHandle(event)) return;
     event.preventDefault(); const c = context(); c.e.finishComposition();
     const position = rulerSnap((event.clientX - horizontal.getBoundingClientRect().left) / c.e.zoom * 15 - c.page.left * 15, unit, event.altKey);
     if (position >= 0 && position < (c.page.width - c.page.left - c.page.right) * 15) commit('tab', position + Math.round(c.page.left * 15), context(), NaN);
@@ -234,8 +263,11 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
   const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; update(); }); };
   listen(host, 'scroll', () => { if (drag) cancel(); schedule(); });
   const observer = new ResizeObserver(schedule); observer.observe(host);
-  phone?.addEventListener?.('change', () => { if (!chosen) { visible = !phone.matches; cancel(); update(); } }, { signal: abort.signal });
-  return { update, get visible() { return visible; }, toggle() { visible = !visible; chosen = true; cancel(); update(); },
+  phone?.addEventListener?.('change', () => { if (!chosen) { visible = phone.matches ? false : storedRuler() ?? true; cancel(); update(); } }, { signal: abort.signal });
+  return { update, get visible() { return visible; }, toggle() {
+    visible = !visible; chosen = true; cancel(); update();
+    if (!phone?.matches) try { localStore()?.setItem(RULER_STORE, visible ? 'shown' : 'hidden'); } catch { /* storage unavailable: the choice lasts for this visit */ }
+  },
     setUnit(next) { rememberUnit(next); }, get unit() { return unit; },
     destroy() { abort.abort(); unsubscribe(); observer.disconnect(); cancelAnimationFrame(frame); top.remove(); side.remove(); selector.remove(); guide.remove(); value.remove(); } };
 }

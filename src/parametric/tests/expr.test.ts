@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluate, evaluateVariables, ExprError, referencedNames } from '../src/model/expr';
+import { convertExpressionUnits, evaluate, evaluateVariables, ExprError, referencedNames, renameReferences, reservedName } from '../src/model/expr';
 
 describe('expression evaluator', () => {
   it('handles precedence, unary minus and powers', () => {
@@ -25,6 +25,13 @@ describe('expression evaluator', () => {
     expect(evaluate('1rad', { kind: 'angle' })).toBeCloseTo(57.29578, 4);
   });
 
+  it('accepts the degree sign and rejects stray characters with a readable error', () => {
+    expect(evaluate('45°', { kind: 'angle' })).toBe(45);
+    expect(evaluate('30° + 15', { kind: 'angle' })).toBe(45);
+    expect(evaluate('90 ° / 2', { kind: 'angle' })).toBe(45);
+    expect(() => evaluate('45Â°', { kind: 'angle' })).toThrow(ExprError);
+  });
+
   it('looks up variables and rejects unknown names', () => {
     expect(evaluate('W/2 + 1', { lookup: (n) => (n === 'W' ? 10 : undefined) })).toBe(6);
     expect(() => evaluate('Q + 1')).toThrow(ExprError);
@@ -47,5 +54,77 @@ describe('expression evaluator', () => {
 
   it('lists referenced names', () => {
     expect(referencedNames('Width * 2 + sin(Angle) + 3mm')).toEqual(['Width', 'Angle']);
+  });
+
+  it('renames variable references and nothing else', () => {
+    const m = new Map([['W', 'Width'], ['in', 'Inside'], ['sin', 'Sine']]);
+    expect(renameReferences('W/2 + 3in + "W" - Wx + sin(30) + in', m)).toBe('Width/2 + 3in + "Width" - Wx + sin(30) + Inside');
+    expect(renameReferences('2.5e3 * W', m)).toBe('2.5e3 * Width');
+  });
+
+  it('inlines numeric references while preserving renamed quotes and unit marks', () => {
+    const replacements = new Map<string, string | number>([['W', -5], ['Tiny', 1e-8], ['Depth', 'Height']]);
+    expect(renameReferences(`"W"^2 + 'W' + W + "Tiny" + "Depth" + 1" + 2'`, replacements))
+      .toBe(`(-5)^2 + (-5) + (-5) + 1e-8 + "Height" + 1" + 2'`);
+  });
+
+  it('takes names like toString or constructor as variables, not as built-ins', () => {
+    const lookup = (n: string) => ({ toString: 4, constructor: 5 } as Record<string, number>)[n];
+    expect(evaluate('toString * 2', { lookup })).toBe(8);
+    expect(evaluate('constructor + 1', { lookup })).toBe(6);
+    expect(() => evaluate('valueOf(1)')).toThrow('Unknown function "valueOf"');
+    expect(() => evaluate('1 constructor', { kind: 'length', lookup })).toThrow(ExprError);
+    expect(referencedNames('toString + 1')).toEqual(['toString']);
+  });
+
+  it('checks how many values a function takes', () => {
+    expect(() => evaluate('round(2.567, 2)')).toThrow('round() takes one value');
+    expect(() => evaluate('sin()')).toThrow('sin() takes one value');
+    expect(() => evaluate('max()')).toThrow('max() takes one or more values');
+    expect(evaluate('max(1, 5, 3) + min(2)')).toBe(7);
+  });
+
+  it('reports a division by zero, even inside a larger expression', () => {
+    expect(() => evaluate('W / (N - 1)', { lookup: (n) => (n === 'W' ? 10 : 1) })).toThrow('Division by zero');
+    expect(() => evaluate('1 / (1 / 0)')).toThrow('Division by zero');
+    expect(evaluate('0 / 5')).toBe(0);
+  });
+
+  it('says a unit cannot be used where a plain number goes', () => {
+    expect(() => evaluate('50mm')).toThrow('A unit ("mm") cannot be used here; give a plain number');
+    expect(evaluateVariables([{ name: 'W', expr: '2 in' }]).errors.get('W')).toMatch(/unit \("in"\)/);
+    expect(evaluate('50mm', { kind: 'length' })).toBe(50);
+  });
+
+  it('takes an angle with its unit inside a length, in the part units', () => {
+    expect(evaluate('10*sin(30°)', { kind: 'length' })).toBeCloseTo(5, 12);
+    expect(evaluate('2*cos(60 deg) + 1in', { kind: 'length', bareScale: 25.4 })).toBeCloseTo(2 * 25.4, 9);
+    expect(evaluate('sin(1.5707963267948966 rad)', { kind: 'length', bareScale: 10 })).toBeCloseTo(10, 12);
+  });
+
+  it('reads feet and inches written together', () => {
+    const ips = { kind: 'length' as const, bareScale: 25.4 };
+    expect(evaluate(`5' 6"`, ips)).toBeCloseTo(66 * 25.4, 9);
+    expect(evaluate('5ft 6in', ips)).toBeCloseTo(66 * 25.4, 9);
+    expect(evaluate(`2*5' 6" - 1"`, ips)).toBeCloseTo(131 * 25.4, 9);
+    expect(evaluate(`-5'6"`, { kind: 'length' })).toBeCloseTo(-66 * 25.4, 9);
+    expect(() => evaluate(`5" 6'`, ips)).toThrow('Unexpected text');
+    expect(() => evaluate(`5' 6"`)).toThrow(/unit/);
+    expect(convertExpressionUnits([{ src: `=5' 6" + 2`, dim: 1 }], 25.4)).toEqual([`=5' 6" + 50.8`]);
+  });
+
+  it('converts a plain length times a trigonometric function or pi to new units', () => {
+    const k = 1 / 25.4;
+    expect(convertExpressionUnits([{ src: '=10*sin(30°)', dim: 1 }, { src: '=10*pi', dim: 1 }, { src: '=sin(30)*10', dim: 1 }, { src: '=20/cos(60)', dim: 1 }], k))
+      .toEqual(['=0.393700787402*sin(30°)', '=0.393700787402*pi', '=sin(30)*0.393700787402', '=0.787401574803/cos(60)']);
+    // A variable that is only such a product takes the dimension of its use.
+    expect(convertExpressionUnits([{ src: '=R', dim: 1 }, { src: '10*pi', dim: 'variable', name: 'R' }], k)).toEqual(['=R', '0.393700787402*pi']);
+  });
+
+  it('reserves the names a variable would be shadowed by or confused with', () => {
+    // A variable "pi" evaluated to its own value but =pi*2 used the constant.
+    expect(evaluateVariables([{ name: 'pi', expr: '3' }, { name: 'b', expr: 'pi*2' }]).values.get('b')).toBeCloseTo(2 * Math.PI);
+    for (const n of ['pi', 'PI', 'm', 'mm', 'in', 'deg', 'rad', 'sqrt', 'min']) expect(reservedName(n), n).toBe(true);
+    for (const n of ['Width', 'Pi', 'M', 'Min', 'constructor', 'toString', 'x']) expect(reservedName(n), n).toBe(false);
   });
 });

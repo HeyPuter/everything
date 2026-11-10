@@ -5,10 +5,10 @@ import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { defaultChartData, chartDataFromXml } from '../src/engine/chart-builder.js';
 
-let dom, chartFragment, chartXml;
+let dom, chartFragment, chartXml, removeChartRow;
 beforeAll(async () => {
   dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; globalThis.document = dom.window.document;
-  ({ chartFragment, chartXml } = await import('../src/views/insert-chart.js'));
+  ({ chartFragment, chartXml, removeChartRow } = await import('../src/views/insert-chart.js'));
 });
 afterAll(() => { delete globalThis.document; dom.window.close(); });
 const images = p => p.paragraphs.flatMap(q => q.runs.filter(r => r.image).map(r => r.image));
@@ -48,4 +48,10 @@ it('explains a chart title the chart reader cannot keep', async () => {
   const pkg = createDocx([paragraph()], undefined, undefined, undefined, [], {}, WRITING_STYLES);
   const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
   await expect(chartFragment(doc, pkg.parts, { ...defaultChartData('line-markers'), title: 'Sales 📈' }, { id: 1 })).rejects.toThrow(/Chart titles must use Latin script/);
+});
+
+it('removes a category\'s slice color with its row, so the other slices keep theirs', () => {
+  const data = { categories: ['North', 'South', 'East'], series: [{ name: 'Sales', values: [1, 2, 3], colors: ['2F6DB5', 'E8833A', '3FA66B'] }, { name: 'Plain', values: [4, 5, 6] }] };
+  removeChartRow(data, 1);
+  expect(data).toEqual({ categories: ['North', 'East'], series: [{ name: 'Sales', values: [1, 3], colors: ['2F6DB5', '3FA66B'] }, { name: 'Plain', values: [4, 6] }] });
 });

@@ -291,7 +291,8 @@ export class Editor {
     if (e.defaultPrevented) return;
     const t = e.target;
     if (document.querySelector('dialog[open]')) return;
-    if (t.closest?.('.menu')) return;
+    // puter.js's user menu takes its own keys (they arrive from the element).
+    if (t.closest?.('.menu, puter-user-menu')) return;
     const typing = t.matches?.('input:not([type=range]):not([type=checkbox]):not([type=color]), textarea, select, [contenteditable="true"]');
     if (typing) {
       // Undo inside text fields belongs to the field, but Escape leaves it.

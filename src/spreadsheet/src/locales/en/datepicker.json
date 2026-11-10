@@ -1,0 +1,18 @@
+{
+  "calendar": "Calendar",
+  "dayLabel": "{day} {month} {year}",
+  "invalid": "This date does not meet the cell’s validation rule.",
+  "nextMonth": "Next month",
+  "pickADate": "Pick a date",
+  "previousMonth": "Previous month",
+  "protected": "{cell} is protected. Unprotect it to pick a date",
+  "today": "Today",
+  "undoPick": "Pick date",
+  "weekdayFri": "Fr",
+  "weekdayMon": "Mo",
+  "weekdaySat": "Sa",
+  "weekdaySun": "Su",
+  "weekdayThu": "Th",
+  "weekdayTue": "Tu",
+  "weekdayWed": "We"
+}

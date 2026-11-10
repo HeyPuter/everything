@@ -69,6 +69,21 @@ describe('tracked changes', () => {
     expect(xml).toMatch(/<w:b\/>/);
   });
 
+  it('accepts or rejects a paragraph formatting change from a selection inside the paragraph', async () => {
+    for (const accept of [true, false]) {
+      const { pkg, model } = await open(formattedDocx());
+      // Part of "Centered now": Accept and Reject did nothing, though they added an undo step.
+      expect(model.resolveRevisions(accept, 2, 5)).toBe(true);
+      expect(summary(model)).toEqual([['format', 'Grace', 'bolded']]);
+      expect(model.paragraphs[0].format.alignment).toBe(accept ? 'center' : 'left');
+      const xml = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+      expect(xml).not.toMatch(/pPrChange/);
+      expect(xml).toMatch(/rPrChange/);
+      model.undo();
+      expect(summary(model)).toEqual([['format', 'Ada', 'Centered now\n', '¶'], ['format', 'Grace', 'bolded']]);
+    }
+  });
+
   it('opens tracked insertions, deletions and paragraph marks for editing', async () => {
     const { pkg, model } = await open(trackedDocx());
     expect(pkg.readOnly).toBeFalsy();
@@ -248,6 +263,53 @@ describe('tracked change edge cases', () => {
     undone.model.resolveRevisions(false); undone.model.undo();
     expect(summary(undone.model)).toEqual([['del', 'Me', 'theirs B\nNe', '¶']]);
   });
+  it('resolves another reviewer\'s deletion inside an insertion with the insertion', async () => {
+    // Ada inserted "one two three"; Grace then deleted "two " of it (w:del inside w:ins).
+    const files = unzipSync(trackedDocx({ track: false }));
+    files['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t xml:space="preserve">A </w:t></w:r><w:ins w:id="1" w:author="Ada" w:date="2026-01-01T00:00:00Z"><w:r><w:t xml:space="preserve">one </w:t></w:r><w:del w:id="2" w:author="Grace" w:date="2026-01-02T00:00:00Z"><w:r><w:delText xml:space="preserve">two </w:delText></w:r></w:del><w:r><w:t>three</w:t></w:r></w:ins><w:r><w:t xml:space="preserve"> B</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    const source = zipSync(files), ada = { only: change => change.author === 'Ada' };
+    // Accepting Ada's insertion keeps all of its text: rejecting Grace's deletion afterwards removed "two ".
+    let { pkg, model } = await open(source);
+    model.resolveRevisions(true, undefined, undefined, ada);
+    expect(summary(model)).toEqual([['del', 'Grace', 'two ']]);
+    const accepted = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+    expect(accepted).not.toMatch(/<w:ins /);
+    model.resolveRevisions(false);
+    expect(model.text).toBe('A one two three B');
+    // Rejecting Ada's insertion removes "two " too: it stayed as Grace's deletion of a rejected insertion, which
+    // rejecting the deletion brought back.
+    ({ pkg, model } = await open(source));
+    model.resolveRevisions(false, undefined, undefined, ada);
+    expect(model.text).toBe('A  B');
+    expect(model.revisions).toEqual([]);
+    expect(strFromU8(unzipSync(await save(pkg, model))['word/document.xml'])).not.toMatch(/<w:(ins|del) /);
+    // From the balloon of the insertion's first piece: that piece and the deleted text after it go.
+    ({ model } = await open(source));
+    const first = model.revisions[0];
+    model.resolveRevisions(false, first.start, first.end, { only: change => change.type === 'ins' && change.author === 'Ada' });
+    expect(model.text).toBe('A three B');
+    expect(summary(model)).toEqual([['ins', 'Ada', 'three']]);
+    model.undo();
+    expect(summary(model)).toEqual([['ins', 'Ada', 'one '], ['del', 'Grace', 'two '], ['ins', 'Ada', 'three']]);
+  });
+
+  it('accepts a deleted paragraph mark that cannot join the table after it', async () => {
+    const cell = t => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:rPr><w:del w:id="5" w:author="Ada" w:date="2026-01-01T00:00:00Z"/></w:rPr></w:pPr><w:r><w:t>${t}</w:t></w:r></w:p></w:tc>`;
+    const files = unzipSync(trackedDocx({ track: false }));
+    // "Before" and its mark are deleted, just ahead of a table; so is the mark ending a cell (as other producers write).
+    files['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t>Intro</w:t></w:r></w:p><w:p><w:pPr><w:rPr><w:del w:id="1" w:author="Ada" w:date="2026-01-01T00:00:00Z"/></w:rPr></w:pPr><w:del w:id="2" w:author="Ada" w:date="2026-01-01T00:00:00Z"><w:r><w:delText>Before</w:delText></w:r></w:del></w:p><w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid><w:tr>${cell('A1')}${cell('B1')}</w:tr></w:tbl><w:p><w:r><w:t>After</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    const { pkg, model } = await open(zipSync(files));
+    expect(model.revisions.length).toBeGreaterThan(0);
+    // The marks could not be removed, so Accept All left them as changes, again and again.
+    expect(model.resolveRevisions(true)).toBe(true);
+    expect(model.revisions).toEqual([]);
+    expect(model.text).toBe('Intro\n\nA1\nB1\nAfter');
+    expect(strFromU8(unzipSync(await save(pkg, model))['word/document.xml'])).not.toMatch(/<w:del /);
+    model.undo();
+    expect(model.text).toBe('Intro\nBefore\nA1\nB1\nAfter');
+    expect(model.revisions.length).toBeGreaterThan(0);
+  });
+
   it('never marks a table cell\'s final paragraph mark as deleted', async () => {
     const files = unzipSync(trackedDocx());
     const cell = t => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>${t}</w:t></w:r></w:p></w:tc>`;
@@ -546,3 +608,26 @@ describe('revision UTC times', () => {
     expect(utcTimes(await save(pkg, model))).toEqual([]);
   });
 });
+
+it('accepts and rejects thousands of paragraph-mark changes in linear time', () => {
+  // A reviewer joined and split paragraphs throughout a long document: every other paragraph mark is
+  // deleted by Ada, the rest inserted by Grace, each its own change.
+  const reviewed = () => {
+    const pkg = createDocx(Array.from({ length: 8000 }, (_, i) => paragraph(`Paragraph ${i} text.`, i === 7999 ? {} : { markRevision: i % 2 ? { type: 'ins', author: 'Grace', date: '2026-01-02T00:00:00Z' } : { type: 'del', author: 'Ada', date: '2026-01-01T00:00:00Z' } })));
+    return new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets, { trackChanges: true });
+  };
+  for (const accept of [true, false]) {
+    const doc = reviewed();
+    expect(doc.revisions).toHaveLength(7999);
+    const started = performance.now();
+    expect(doc.resolveRevisions(accept)).toBe(true);
+    // Each removed mark was joined within the whole document: this took about a minute.
+    expect(performance.now() - started).toBeLessThan(20000);
+    expect(doc.revisions).toEqual([]);
+    // Accepting removes Ada's deleted marks, rejecting Grace's inserted ones; the paragraphs on either side join.
+    const removed = i => accept ? i % 2 === 0 : i % 2 === 1;
+    expect(doc.text).toBe(Array.from({ length: 8000 }, (_, i) => `Paragraph ${i} text.${i === 7999 ? '' : removed(i) ? '' : '\n'}`).join(''));
+    doc.undo();
+    expect(doc.revisions).toHaveLength(7999);
+  }
+}, 300000);

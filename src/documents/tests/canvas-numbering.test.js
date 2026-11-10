@@ -91,6 +91,32 @@ describe('original numbering projection and editing', () => {
     expect(doc.paragraphs).toHaveLength(2); expect(labels(doc)).toEqual(['1.', '2.']);
     doc.undo(); expect(labels(doc)).toEqual(['1.', '2.', '3.']);
   });
+  it('removes the number with Backspace at an item start but keeps its text at the item indent, as Word does', async () => {
+    const doc = new TextDocument([paragraph('Intro'), paragraph('First'), paragraph('Inner'), paragraph('Last')]);
+    doc.select(6, doc.text.length); doc.toggleList('number');
+    doc.select(indexed(doc, 2)); doc.changeListLevel(1);
+    expect(labels(doc)).toEqual([null, '1.', '1.1.', '2.']);
+    const before = doc.snapshot();
+    // A nested item keeps its text at its own level's text position (1440), with no hanging indent.
+    doc.select(indexed(doc, 2)); expect(doc.delete(-1)).toBe(true);
+    expect(labels(doc)).toEqual([null, '1.', null, '2.']); expect(doc.text).toBe("Intro\nFirst\nInner\nLast");
+    expect(paragraphFormat(doc.paragraphs[2], doc.numbering)).toMatchObject({ indentLeft: 1440, firstLine: 0 });
+    // An empty item keeps the indent too.
+    doc.select(doc.text.length); doc.insertParagraph(); expect(labels(doc)).toEqual([null, '1.', null, '2.', '3.']);
+    doc.delete(-1); expect(labels(doc)).toEqual([null, '1.', null, '2.', null]);
+    expect(paragraphFormat(doc.paragraphs[4], doc.numbering)).toMatchObject({ indentLeft: 720, firstLine: 0 });
+    doc.undo(); doc.undo(); doc.undo(); expect(doc.paragraphs).toEqual(before.paragraphs);
+    doc.redo(); expect(paragraphFormat(doc.paragraphs[2], doc.numbering).indentLeft).toBe(1440);
+    // The indent is saved with the paragraph and survives reopening.
+    const pkg = createDocx(before.paragraphs, undefined, before.numbering);
+    const opened = await DocxPackage.open(await bytes(pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering)));
+    expect(opened.paragraphs[2].list).toBeNull();
+    expect(paragraphFormat(opened.paragraphs[2], opened.numbering)).toMatchObject({ indentLeft: 1440, firstLine: 0 });
+    // A second Backspace merges into the item before, as at any paragraph start.
+    doc.select(indexed(doc, 2)); doc.delete(-1);
+    expect(doc.paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual(['Intro', 'FirstInner', 'Last']);
+    expect(labels(doc)).toEqual([null, '1.', '2.']);
+  });
   it('steps an empty nested item out one level with Enter, and ends the list only at the top level', () => {
     const doc = new TextDocument([paragraph('First')]); doc.toggleList('number');
     doc.select(doc.text.length); doc.insertParagraph(); doc.changeListLevel(1); doc.replace('Inner');

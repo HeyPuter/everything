@@ -58,3 +58,25 @@ test('hidden text is passed over while it is not shown', async ({ page }) => {
   await input(page).press('ArrowRight'); await input(page).press('ArrowRight');
   expect(await caret(page)).toEqual([at + 21, at + 21]);
 });
+
+test('with deletions hidden, a word deletion beside one deletes the word a reader sees', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('one two three four');
+  await input(page).press('ControlOrMeta+Shift+e');
+  await input(page).evaluate(el => { el.setSelectionRange(8, 14); el.dispatchEvent(new Event('select')); });
+  await input(page).press('Backspace');
+  await markup(page, 'Simple Markup');
+  // The word chords of the platform the browser runs on: Option on a Mac, Control elsewhere.
+  const word = process.platform === 'darwin' ? 'Alt' : 'Control';
+  // Before the hidden "three ", the word after it goes, rather than the hidden words again, which did nothing.
+  await input(page).evaluate(el => { el.setSelectionRange(8, 8); el.dispatchEvent(new Event('select')); });
+  await input(page).press(`${word}+Delete`);
+  expect(await runs(page)).toEqual([['one two ', ''], ['three ', 'del'], ['four', 'del']]);
+  // Backward from past them, the word before them goes.
+  await input(page).press(`${word}+Backspace`);
+  expect(await runs(page)).toEqual([['one ', ''], ['two ', 'del'], ['three ', 'del'], ['four', 'del']]);
+  expect(await caret(page)).toEqual([4, 4]);
+  await input(page).press('ControlOrMeta+z');
+  expect(await runs(page)).toEqual([['one two ', ''], ['three ', 'del'], ['four', 'del']]);
+});

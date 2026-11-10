@@ -41,6 +41,9 @@ test('a measurement on a page with large units is labeled like any other', async
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   const saved = await PDFDocument.load(await readFile(await (await pending).path()));
+  // The label is a member of the line's group; listed on its own here to read its size.
+  for (const ref of saved.getPage(0).node.Annots().asArray())
+    saved.context.lookup(ref).delete(PDFName.of('IRT'));
   const [line, label] = listAnnotations(saved, 0);
   // Drawn at the sizes of any other page: a 1 point line and a 9 point label.
   expect(line.width * 10).toBeCloseTo(1);

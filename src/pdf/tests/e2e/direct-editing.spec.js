@@ -219,6 +219,30 @@ test('a selected text box supports keyboard editing, deletion, and undo', async 
   await expect(target).toBeVisible();
 });
 
+test('Escape hands the keyboard back to the text it leaves, as pictures and shapes do', async ({
+  page,
+}) => {
+  await openDocument(page);
+  const target = page.getByRole('button', { name: 'Edit text: Original text', exact: true });
+  const frame = page.getByRole('button', { name: 'Move text', exact: true });
+  const input = page.getByRole('textbox', { name: 'Edit text', exact: true });
+  await target.press('Enter');
+  await expect(frame).toBeFocused();
+  await frame.press('Escape');
+  await expect(frame).toHaveCount(0);
+  await expect(target).toBeFocused();
+  // Leaving a draft with typing in it ends in the same place, ready for Tab or Enter.
+  await target.press('Enter');
+  await frame.press('Enter');
+  await expect(input).toBeEditable();
+  await page.keyboard.insertText('Unfinished ');
+  await input.press('Escape');
+  await expect(input).toHaveCount(0);
+  await expect(target).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(frame).toBeFocused();
+});
+
 test('touch can drag unselected text without starting page scrolling', async ({
   page,
   browserName,

@@ -2,12 +2,17 @@
 // parameters (expressions and global variables) into plain numbers for the
 // geometry worker.
 
-import { evaluate, evaluateVariables } from './expr';
-import { PARAM_FIELDS, getPath, setPath } from './features';
-import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem } from './types';
+import { convertExpressionUnits, evaluate, evaluateVariables, renameReferences, variableReferenceChanges } from './expr';
+import { FEATURE_LABELS, PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
+import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem, Variable } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
+import { uniqueId } from './ids';
+import { validFeature } from './validate-feature';
+import { validSketch } from './validate-sketch';
+import { validDrawing } from './validate-drawing';
 import { solveSketch } from '../sketch/solver';
+import { hasExternal } from '../sketch/external';
 
 export const FORMAT = 'parametric-part';
 
@@ -41,14 +46,194 @@ export function parseDocument(text: string): PartDocument {
   }
   const d = raw as Partial<PartDocument>;
   if (!d || d.format !== FORMAT) throw new Error('This file is not a part created with Parametric.');
-  if (d.version !== 1) throw new Error('This part was created with a newer version of Parametric.');
+  if (typeof d.version === 'number' && d.version > 1) throw new Error('This part was created with a newer version of Parametric.');
+  if (d.version !== 1) throw new Error('The part file is damaged (unknown version).');
   if (!Array.isArray(d.features)) throw new Error('The part file is damaged (no feature list).');
-  const base = newDocument(d.name, d.units && d.units in UNIT_SYSTEMS ? d.units : 'MMGS');
-  return { ...base, ...d, blobs: d.blobs ?? {}, variables: d.variables ?? [] } as PartDocument;
+  // Only known types: an unknown one (or "constructor", which looks up a prototype
+  // member in every per-type table) has no geometry and broke evaluation.
+  if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string' && Object.hasOwn(FEATURE_LABELS, f.type))) {
+    throw new Error('The part file is damaged (invalid feature).');
+  }
+  const featureIds = new Set<string>();
+  for (const f of d.features) {
+    if (!f.id || featureIds.has(f.id)) throw new Error('The part file is damaged (invalid feature identifiers).');
+    featureIds.add(f.id);
+  }
+  const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  // Check nested geometry before loading can replace the current document.
+  if (!d.features.every((f) => f.type !== 'sketch' || validSketch(f))) {
+    throw new Error('The part file is damaged (invalid sketch).');
+  }
+  if (!d.features.every(validFeature)) throw new Error('The part file is damaged (invalid feature references).');
+  const units = typeof d.units === 'string' && Object.hasOwn(UNIT_SYSTEMS, d.units) ? d.units : 'MMGS';
+  const base = newDocument(typeof d.name === 'string' ? d.name : undefined, units);
+  // Global variables that are not variables are dropped rather than breaking every rebuild.
+  const variables = (Array.isArray(d.variables) ? d.variables : [])
+    .filter((v) => isObj(v) && typeof v.name === 'string')
+    .map((v) => ({ ...v, id: typeof v.id === 'string' ? v.id : '', expr: typeof v.expr === 'string' ? v.expr : String(v.expr ?? '') }));
+  const blobs = isObj(d.blobs) ? d.blobs : {};
+  const doc = { ...base, ...d, units, blobs, variables } as PartDocument;
+  if (typeof doc.name !== 'string') doc.name = base.name;
+  if (!Number.isInteger(doc.decimals) || doc.decimals < 0 || doc.decimals > 8) doc.decimals = base.decimals;
+  if (doc.rollback != null && !Number.isInteger(doc.rollback)) doc.rollback = null;
+  if (typeof doc.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(doc.color)) doc.color = base.color;
+  // Times a Date can hold (the drawing's title block shows the modified day).
+  for (const k of ['created', 'modified'] as const) if (!Number.isFinite(doc[k]) || Math.abs(doc[k]) > 8.64e15) doc[k] = base[k];
+  if (doc.material != null && !(isObj(doc.material) && typeof doc.material.name === 'string' && Number.isFinite(doc.material.density) && doc.material.density > 0)) doc.material = null;
+  if (doc.drawing != null && !validDrawing(doc.drawing)) throw new Error('The part file is damaged (invalid drawing).');
+  for (const f of doc.features) if (typeof f.name !== 'string' || !f.name) f.name = f.id;
+  // New feature ids must not collide with existing ones, even when the file's
+  // counter is missing or stale.
+  let maxId = 0;
+  for (const f of [...doc.features, ...doc.variables]) {
+    const m = /^[a-z]+(\d+)$/i.exec(String(f?.id ?? ''));
+    const suffix = m ? Number(m[1]) : NaN;
+    // Unsafe suffixes cannot be emitted by the numeric allocator.
+    if (Number.isSafeInteger(suffix) && suffix < Number.MAX_SAFE_INTEGER) maxId = Math.max(maxId, suffix);
+  }
+  doc.nextId = Math.max(Number.isSafeInteger(doc.nextId) && doc.nextId > 0 ? doc.nextId : 1, maxId + 1);
+  const variableIds = new Set<string>();
+  let occupiedIds: Set<Id> | undefined;
+  for (const v of doc.variables) {
+    // Variable references use names, so repairing an ID preserves equations.
+    if (!v.id || variableIds.has(v.id)) {
+      // At the counter limit, reserve IDs once for the whole repair pass.
+      if (doc.nextId === Number.MAX_SAFE_INTEGER) occupiedIds ??= new Set([...featureIds, ...doc.variables.map((item) => item.id)]);
+      v.id = allocateId(doc, 'v', occupiedIds);
+    }
+    variableIds.add(v.id);
+  }
+  return doc;
 }
 
+/** Ordinary documents keep compact IDs; exhausted counters use independent IDs. */
+export function allocateId(doc: PartDocument, prefix = 'f', occupiedIds?: Set<Id>): Id {
+  if (Number.isSafeInteger(doc.nextId) && doc.nextId > 0 && doc.nextId < Number.MAX_SAFE_INTEGER) {
+    const id = `${prefix}${doc.nextId++}`;
+    occupiedIds?.add(id);
+    return id;
+  }
+  // Never increment past the last exactly representable integer.
+  doc.nextId = Number.MAX_SAFE_INTEGER;
+  return uniqueId(prefix, occupiedIds ?? new Set([...doc.features, ...doc.variables].map((item) => item.id)));
+}
+
+/**
+ * Calls fn with every expression in the document (global variables, feature
+ * values and sketch dimensions) and stores what it returns in its place.
+ */
+export function mapExpressions(doc: PartDocument, fn: (src: string, kind: ParamKind | 'variable') => string) {
+  for (const v of doc.variables) v.expr = fn(v.expr, 'variable');
+  for (const f of doc.features) {
+    for (const fd of PARAM_FIELDS[f.type] ?? []) {
+      const v = getPath(f, fd.path);
+      if (typeof v === 'string') setPath(f, fd.path, fn(v, fd.kind));
+    }
+    if (f.type === 'sketch') for (const c of f.constraints) if (isDimension(c) && typeof c.value === 'string') c.value = fn(c.value, c.type === 'angle' ? 'angle' : 'length');
+  }
+}
+
+/**
+ * Switches the document's units. Numbers are stored in millimetres and keep
+ * their size; expressions are written in display units, so the plain numbers
+ * in them that stand for lengths are converted too. A value whose expression
+ * cannot be converted keeps its size as a plain number. Returns the names of
+ * the values that were unlinked that way.
+ */
+export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
+  return convertUnits(doc, units);
+}
+
+/** Reconciles an uncommitted feature's units and references with the current part. */
+export function changeFeatureUnits(feature: Feature, from: UnitSystem, to: UnitSystem, before: Variable[], after: Variable[], references = variableReferenceChanges(before, after)): string[] {
+  const doc = newDocument('', from);
+  doc.features = [feature];
+  doc.variables = structuredClone(before);
+  // Deleted values still use the old display units; insert them before scaling.
+  const removed = new Map([...references].filter(([, value]) => typeof value === 'number'));
+  const renamed = new Map([...references].filter(([, value]) => typeof value === 'string'));
+  mapFeatureReferences(doc, removed);
+  return convertUnits(doc, to, after, renamed);
+}
+
+function mapFeatureReferences(doc: PartDocument, references?: Map<string, string | number>) {
+  if (references?.size) mapExpressions({ ...doc, variables: [] }, (src) => renameReferences(src, references));
+}
+
+function convertUnits(doc: PartDocument, units: UnitSystem, variablesAfter?: Variable[], renamed?: Map<string, string | number>): string[] {
+  if (!Object.hasOwn(UNIT_SYSTEMS, units)) return [];
+  if (doc.units === units) { mapFeatureReferences(doc, renamed); return []; }
+  const k = UNIT_SYSTEMS[doc.units].scale / UNIT_SYSTEMS[units].scale;
+  const values = (d: PartDocument) => {
+    const st = new DocStore(d);
+    const vars = evaluateVariables(d.variables).values;
+    const out = new Map<string, number>();
+    for (const f of d.features) {
+      for (const fd of PARAM_FIELDS[f.type] ?? []) {
+        const v = getPath(f, fd.path);
+        if (typeof v === 'string') try { out.set(`${f.id}|${fd.path}`, st.evalParam(v, fd.kind, vars)); } catch { /* already an error */ }
+      }
+      if (f.type === 'sketch') for (const c of f.constraints) if (isDimension(c) && typeof c.value === 'string') try { out.set(`${f.id}|${c.id}`, st.dimensionValue(c, vars)); } catch { /* already an error */ }
+    }
+    return out;
+  };
+  const before = values(doc);
+  const items: { src: string; dim: number | 'variable'; name?: string }[] = [];
+  let vi = 0;
+  mapExpressions(doc, (src, kind) => {
+    items.push({ src, dim: kind === 'variable' ? 'variable' : kind === 'length' ? 1 : 0, name: kind === 'variable' ? doc.variables[vi++].name : undefined });
+    return src;
+  });
+  const converted = convertExpressionUnits(items, k);
+  let i = 0;
+  mapExpressions(doc, (src) => converted[i++] ?? src);
+  mapFeatureReferences(doc, renamed);
+  doc.units = units;
+  if (variablesAfter) doc.variables = variablesAfter;
+  // Whatever did not keep its value becomes the plain number it was.
+  const after = values(doc);
+  const unlinked: string[] = [];
+  const same = (a: number, b: number | undefined) => b !== undefined && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
+  for (const f of doc.features) {
+    for (const fd of PARAM_FIELDS[f.type] ?? []) {
+      const was = before.get(`${f.id}|${fd.path}`);
+      if (was !== undefined && !same(was, after.get(`${f.id}|${fd.path}`))) { setPath(f, fd.path, was); unlinked.push(`${f.name} ${fd.label}`); }
+    }
+    if (f.type !== 'sketch') continue;
+    let sketchUnlinked = false;
+    for (const c of f.constraints) {
+      const was = before.get(`${f.id}|${c.id}`);
+      if (isDimension(c) && was !== undefined && !same(was, after.get(`${f.id}|${c.id}`))) { c.value = was; unlinked.push(`${c.name}@${f.name}`); sketchUnlinked = true; }
+    }
+    // Stored geometry is only solved for the values its expressions had when it
+    // was last edited; a sketch whose dimensions are all numbers again is not
+    // re-solved when the part rebuilds, so give it the shape those values make.
+    if (sketchUnlinked) {
+      const st = new DocStore(doc);
+      const vars = evaluateVariables(doc.variables).values;
+      try {
+        solveSketch(f.entities, f.constraints, { value: (d) => st.dimensionValue(d, vars), analyze: false });
+      } catch {
+        /* the rebuild reports the sketch's error */
+      }
+    }
+  }
+  return unlinked;
+}
+
+/**
+ * The document as file text. Imported file data no feature uses any more (the
+ * import was deleted) stays in memory for undo but is left out of the file.
+ */
 export function serializeDocument(doc: PartDocument): string {
-  return JSON.stringify(doc);
+  return JSON.stringify(withUsedBlobs(doc));
+}
+
+export function withUsedBlobs(doc: PartDocument): PartDocument {
+  const used = new Set(doc.features.map((f) => (f.type === 'import' ? f.blob : null)));
+  const keys = Object.keys(doc.blobs ?? {});
+  if (keys.every((k) => used.has(k))) return doc;
+  return { ...doc, blobs: Object.fromEntries(keys.filter((k) => used.has(k)).map((k) => [k, doc.blobs[k]])) };
 }
 
 export interface ResolveResult {
@@ -68,9 +253,12 @@ export class DocStore {
   private undoStack: { snap: string; label: string }[] = [];
   private redoStack: { snap: string; label: string }[] = [];
   private listeners = new Set<Listener>();
+  private historyFilters = new Set<(doc: Omit<PartDocument, 'blobs'>) => void>();
   private batchDepth = 0;
   private batchSnap: string | null = null;
   private batchLabel = '';
+  private batchChanged = false;
+  private batchEnds: (() => void)[] = [];
   /** Old steps dropped from the bottom of the undo stack. */
   private dropped = 0;
 
@@ -90,17 +278,33 @@ export class DocStore {
   /** Replaces the whole document (open/new); clears history. */
   load(doc: PartDocument) {
     this.doc = doc;
+    this.historyFilters.clear();
     this.undoStack = [];
     this.redoStack = [];
     this.dropped = 0;
+    // A delayed pointer-up/cancel from the old document must not restore its
+    // batch or turn subsequent changes in the new document into that batch.
+    this.releaseBatch();
+    this.batchLabel = '';
     this.dirty = false;
     this.emit('load');
+  }
+
+  /** Excludes a transient preview from history without changing the visible document.
+   * The filter receives an isolated copy without import blobs; unsubscribe before applying the preview.
+   */
+  filterHistory(fn: (doc: Omit<PartDocument, 'blobs'>) => void): () => void {
+    this.historyFilters.add(fn);
+    return () => { this.historyFilters.delete(fn); };
   }
 
   private snapshot(): string {
     const { blobs: _blobs, ...rest } = this.doc;
     void _blobs;
-    return JSON.stringify(rest);
+    if (!this.historyFilters.size) return JSON.stringify(rest);
+    const snapshot = structuredClone(rest);
+    for (const filter of this.historyFilters) filter(snapshot);
+    return JSON.stringify(snapshot);
   }
 
   private restore(snap: string) {
@@ -108,10 +312,33 @@ export class DocStore {
     this.doc = { ...(JSON.parse(snap) as PartDocument), blobs };
   }
 
+  /**
+   * Captures an editing session's starting state independently of the bounded
+   * undo history. Calling the result restores that state and its history;
+   * the discarded session can be redone as one step. Snapshot strings are
+   * shared with history and large import blobs are never copied.
+   */
+  restorePoint(label: string): () => void {
+    const snap = this.snapshot();
+    const undo = [...this.undoStack], redo = [...this.redoStack];
+    const dropped = this.dropped;
+    return () => {
+      const current = this.snapshot();
+      this.releaseBatch();
+      this.restore(snap);
+      this.undoStack = [...undo];
+      this.redoStack = current === snap ? [...redo] : [{ snap: current, label }];
+      this.dropped = dropped;
+      if (current !== snap) this.dirty = true;
+      this.emit('undo');
+    };
+  }
+
   /** Applies a change as one undoable step. */
   change(label: string, fn: (doc: PartDocument) => void, reason = 'change') {
     if (this.batchDepth > 0) {
       fn(this.doc);
+      this.batchChanged = true;
       this.doc.modified = Date.now();
       this.dirty = true;
       this.emit(reason);
@@ -129,42 +356,51 @@ export class DocStore {
     this.emit(reason);
   }
 
-  /** Groups several changes (e.g. a drag) into one undo step. */
-  beginBatch(label: string) {
+  /** Groups changes into one undo step; onEnd retires the gesture even if history ends it early. */
+  beginBatch(label: string, onEnd?: () => void) {
     if (this.batchDepth++ === 0) {
       this.batchSnap = this.snapshot();
       this.batchLabel = label;
+      this.batchChanged = false;
     }
+    if (onEnd) this.batchEnds.push(onEnd);
+  }
+
+  private releaseBatch() {
+    this.batchDepth = 0;
+    this.batchSnap = null;
+    this.batchChanged = false;
+    const ends = this.batchEnds;
+    this.batchEnds = [];
+    for (const end of ends) end();
   }
 
   endBatch() {
-    if (this.batchDepth === 0) return;
-    if (--this.batchDepth === 0 && this.batchSnap) {
-      if (this.snapshot() !== this.batchSnap) {
-        this.undoStack.push({ snap: this.batchSnap, label: this.batchLabel });
-        if (this.undoStack.length > MAX_UNDO) { this.undoStack.shift(); this.dropped++; }
-        this.redoStack = [];
-      }
-      this.batchSnap = null;
+    if (this.batchDepth === 0 || --this.batchDepth > 0) return;
+    if (this.batchSnap && this.snapshot() !== this.batchSnap) {
+      this.undoStack.push({ snap: this.batchSnap, label: this.batchLabel });
+      if (this.undoStack.length > MAX_UNDO) { this.undoStack.shift(); this.dropped++; }
+      this.redoStack = [];
     }
+    this.releaseBatch();
   }
 
   /** Drops a batch, restoring the state from before it started. */
   cancelBatch() {
     if (this.batchDepth === 0) return;
-    this.batchDepth = 0;
     if (this.batchSnap) this.restore(this.batchSnap);
-    this.batchSnap = null;
+    this.releaseBatch();
     this.emit('change');
   }
 
-  get canUndo() { return this.undoStack.length > 0; }
+  get canUndo() { return this.batchChanged || this.undoStack.length > 0; }
   get undoDepth() { return this.undoStack.length; }
-  get canRedo() { return this.redoStack.length > 0; }
-  get undoLabel() { return this.undoStack[this.undoStack.length - 1]?.label ?? ''; }
+  get canRedo() { return !this.batchChanged && this.redoStack.length > 0; }
+  get undoLabel() { return this.batchChanged ? this.batchLabel : this.undoStack[this.undoStack.length - 1]?.label ?? ''; }
   get redoLabel() { return this.redoStack[this.redoStack.length - 1]?.label ?? ''; }
 
   undo() {
+    while (this.batchDepth > 0) this.endBatch();
     const s = this.undoStack.pop();
     if (!s) return;
     this.redoStack.push({ snap: this.snapshot(), label: s.label });
@@ -174,6 +410,7 @@ export class DocStore {
   }
 
   redo() {
+    while (this.batchDepth > 0) this.endBatch();
     const s = this.redoStack.pop();
     if (!s) return;
     this.undoStack.push({ snap: this.snapshot(), label: s.label });
@@ -214,7 +451,7 @@ export class DocStore {
   }
 
   nextId(prefix = 'f'): Id {
-    return `${prefix}${this.doc.nextId++}`;
+    return allocateId(this.doc, prefix);
   }
 
   feature<T extends Feature = Feature>(id: Id): T | undefined {
@@ -276,6 +513,9 @@ export class DocStore {
         const sk = structuredClone(f) as SketchFeature;
         try {
           solveSketch(sk.entities, sk.constraints, { value: (d) => this.dimensionValue(d, values), analyze: false });
+          // The geometry worker solves again sketches whose projected model
+          // geometry moved; it has no variables, so it gets the values.
+          if (hasExternal(sk)) for (const c of sk.constraints) if (isDimension(c) && typeof c.value === 'string') c.value = this.dimensionValue(c, values);
         } catch (e) {
           errors.set(f.id, (e as Error).message);
         }

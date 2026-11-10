@@ -20,6 +20,8 @@ import {
 } from './lib/ui.js';
 import * as P from './lib/puter.js';
 import { waitFor } from './lib/abort.js';
+import { appsButton, closeAppsPanel, refreshAppsButtons, setAppsAccount } from './apps-panel.js';
+import { configureUserMenu, hasUserMenu, refreshUserMenus, userMenuSlot } from './user-menu.js';
 import {
   PdfSession,
   safeName,
@@ -81,6 +83,10 @@ function cancelledSignIn() {
   return error;
 }
 const sessionChanged = () => accountToken !== undefined && accountToken !== P.sessionToken();
+configureUserMenu({
+  signOut: () => run(signOut)(),
+  sessionChanged: () => run(refreshSDKAccount)(),
+});
 /** The account changed (a sign-in, or the SDK's first answer): the open view follows. */
 function setAccount(account, { profileOnly = false } = {}) {
   accountGeneration++;
@@ -100,6 +106,7 @@ function setAccount(account, { profileOnly = false } = {}) {
     accountRefreshRequest = null;
   }
   user = account;
+  setAppsAccount(account);
   accountToken = P.sessionToken();
   sessionState = account ? 'in' : 'out';
   for (const refresh of settingsAccountViews) refresh();
@@ -206,7 +213,34 @@ async function ensureSignedIn({ signal = accountController.signal } = {}) {
   }
   return signInRequest;
 }
+/**
+ * Signs out, one request at a time, once the open PDF may be left. From Settings (`dialog`) the
+ * library follows only while that dialog is still up; from puter.js's user menu it always does.
+ */
+async function signOut(dialog = null) {
+  // Settings can be reopened while the SDK is pending. Claim this operation
+  // before its first await so repeated presses cannot start another sign-out.
+  if (signOutPending) return;
+  signOutPending = true;
+  try {
+    if (!(await canLeave())) return;
+    // Nothing can be edited behind Settings. The user menu has no dialog to hold the PDF still
+    // while the SDK signs out, so the library comes first there.
+    if (!dialog && editor) showHome();
+    await P.signOut();
+    const leaving = !!dialog?.open;
+    if (leaving) dialog.close();
+    // Closing Settings returns to work. Complete the account change without
+    // discarding later edits, replacing a newer PDF, or aborting its file read.
+    setAccount(null);
+    if (leaving && editor) showHome();
+  } finally {
+    signOutPending = false;
+  }
+}
 function settings() {
+  // Settings holds the account, as the account menu does elsewhere: the Apps panel gives way.
+  closeAppsPanel();
   const accountSummary = el('p', { class: 'muted' });
   const accountActions = el('div', { class: 'stack' });
   const select = el(
@@ -239,6 +273,14 @@ function settings() {
   let accountAction;
   const refreshAccount = () => {
     if (!dialog.open) return;
+    // puter.js's user menu, beside Settings in the title bar, holds the account where it renders.
+    accountSummary.hidden = hasUserMenu();
+    if (hasUserMenu()) {
+      accountAction = null;
+      accountActions.replaceChildren();
+      accountActions.hidden = true;
+      return;
+    }
     const focused = accountActions.contains(document.activeElement);
     accountSummary.textContent = user
       ? `Signed in as ${user.username}`
@@ -254,24 +296,9 @@ function settings() {
           'Sign out',
           'LogOut',
           run(async (event) => {
-            // Settings can be reopened while the SDK is pending. Claim this operation
-            // before its first await so repeated presses cannot start another sign-out.
-            if (signOutPending) return;
-            signOutPending = true;
-            try {
-              // Safari does not focus clicked buttons; the confirmation needs a return target.
-              event.currentTarget.focus({ preventScroll: true });
-              if (!(await canLeave())) return;
-              await P.signOut();
-              const leaving = dialog.open;
-              if (leaving) dialog.close();
-              // Closing Settings returns to work. Complete the account change without
-              // discarding later edits, replacing a newer PDF, or aborting its file read.
-              setAccount(null);
-              if (leaving && editor) showHome();
-            } finally {
-              signOutPending = false;
-            }
+            // Safari does not focus clicked buttons; the confirmation needs a return target.
+            if (!signOutPending) event.currentTarget.focus({ preventScroll: true });
+            await signOut(dialog);
           }),
         ),
       );
@@ -298,15 +325,18 @@ function settings() {
   });
 }
 function shortcuts() {
-  modal(
+  const dialog = modal(
     'Keyboard shortcuts',
     el(
       'div',
       { class: 'shortcut-list' },
       ...[
-        [P.isApp() ? 'Open from Puter' : 'Open a PDF', 'Ctrl / ⌘ O'],
+        [P.launchedByPuter() ? 'Open from Puter' : 'Open a PDF', 'Ctrl / ⌘ O'],
         ['Save to Puter', 'Ctrl / ⌘ S'],
-        [P.isApp() ? 'Save to another Puter folder' : 'Download', 'Ctrl / ⌘ Shift S'],
+        [
+          P.launchedByPuter() ? 'Save to another Puter folder' : 'Download',
+          'Ctrl / ⌘ Shift S',
+        ],
         ['Undo', 'Ctrl / ⌘ Z'],
         ['Redo', 'Ctrl / ⌘ Shift Z or Ctrl Y'],
         ['Find in PDF', 'Ctrl / ⌘ F'],
@@ -318,7 +348,7 @@ function shortcuts() {
         ['Fit width', 'Ctrl / ⌘ 2'],
         ['Previous / next page', 'Alt ← / →'],
         ['First / last page', 'Home / End'],
-        ['Go to page', 'Ctrl / ⌘ Shift N'],
+        ['Go to page', 'Ctrl / ⌘ Alt G'],
         ['Rotate the page clockwise', 'Ctrl / ⌘ Shift R'],
         ['Delete the page', 'Ctrl / ⌘ Shift D'],
         ['Document properties', 'Ctrl / ⌘ D'],
@@ -329,7 +359,16 @@ function shortcuts() {
         ['Move the pages while held', 'Space'],
       ].map(([label, key]) => el('div', {}, el('span', {}, label), el('kbd', {}, key))),
     ),
-  ).classList.add('app-dialog');
+  );
+  dialog.classList.add('app-dialog');
+  // The list is taller than most windows and holds nothing to focus, which left the keyboard
+  // on the Close button with no way to scroll it. The list itself takes the focus instead, so
+  // the arrow keys, Page Down, and End move through it.
+  const body = dialog.querySelector('.dialog-body');
+  body.tabIndex = 0;
+  body.setAttribute('role', 'region');
+  body.setAttribute('aria-labelledby', dialog.getAttribute('aria-labelledby'));
+  body.focus();
 }
 function about() {
   modal(
@@ -493,17 +532,23 @@ async function openFiles(files) {
   const pictures = files.filter(isPictureFile);
   if (!pictures.length) throw new Error('Choose a PDF, or PNG and JPEG pictures.');
   const name = pictures[0].name.replace(/\.[^.]+$/, '') || 'Pictures';
-  await openDocument(async (signal) => {
-    const [{ imagesToPdf, defaultPaper }, { normalizeImageFiles }] = await Promise.all([
-      import('./core/image-pages.js'),
-      import('./image-codec.js'),
-    ]);
-    signal.throwIfAborted();
-    const images = await normalizeImageFiles(pictures, { lazy: true, signal });
-    // An obsolete batch must not decode and embed pictures after its file reads finish.
-    signal.throwIfAborted();
-    return imagesToPdf(images, { paper: defaultPaper(), signal });
-  }, `${name}.pdf`);
+  // The new PDF exists nowhere else yet, as a combined one does, so it starts out unsaved.
+  await openDocument(
+    async (signal) => {
+      const [{ imagesToPdf, defaultPaper }, { normalizeImageFiles }] = await Promise.all([
+        import('./core/image-pages.js'),
+        import('./image-codec.js'),
+      ]);
+      signal.throwIfAborted();
+      const images = await normalizeImageFiles(pictures, { lazy: true, signal });
+      // An obsolete batch must not decode and embed pictures after its file reads finish.
+      signal.throwIfAborted();
+      return imagesToPdf(images, { paper: defaultPaper(), signal });
+    },
+    `${name}.pdf`,
+    null,
+    { unsaved: true },
+  );
 }
 /** A new PDF is a sheet of the paper the region prints on, as pictures turned into pages are. */
 async function newBlankPdf() {
@@ -589,7 +634,7 @@ async function openDocument(
   readBytes,
   name,
   path = null,
-  { signal: sourceSignal, source = null } = {},
+  { signal: sourceSignal, source = null, unsaved = false } = {},
 ) {
   if (sourceSignal?.aborted) return;
   cloudOpenGeneration++;
@@ -648,15 +693,20 @@ async function openDocument(
     if (token !== openGeneration || !(await canLeave(controller.signal))) return;
     const { createEditor } = await import('./editor.js');
     if (token !== openGeneration) return;
+    const hadFocus = viewHasFocus();
     editor?.destroy();
     homeGeneration++;
     const session = new PdfSession(bytes);
+    // A PDF made here (combined files or pictures) exists nowhere else until it is saved or
+    // downloaded.
+    if (unsaved) session.markSaved(-1);
     nextEditor = createEditor({
       root,
       session,
       name: safeName(name),
       path,
       remote: (path && source?.remote) || null,
+      blank: readBytes === newBlankPdf,
       protection,
       encryptedOriginal,
       settings,
@@ -670,9 +720,12 @@ async function openDocument(
       onOpen: pickDevice,
       onOpenCloud: pickCloud,
       onNew: run(() => openDocument(newBlankPdf, 'Untitled.pdf')),
-      onOpenBytes: run((bytes, name) => openDocument(async () => bytes, name)),
+      onOpenBytes: run((bytes, name) =>
+        openDocument(async () => bytes, name, null, { unsaved: true }),
+      ),
     });
     editor = nextEditor;
+    if (hadFocus) refocusView('.workspace');
     if (location.hash === LIBRARY_HASH)
       history.replaceState(null, '', location.pathname + location.search);
     await nextEditor.ready;
@@ -689,6 +742,18 @@ async function openDocument(
     controller.abort();
   }
 }
+/** Whether the focus is on a control in the current view, which replacing the view removes. */
+const viewHasFocus = () =>
+  document.activeElement !== document.body && root.contains(document.activeElement);
+/**
+ * A view that replaced the one holding the focus takes it, so the keyboard carries on in the
+ * new view instead of starting again from the top of the document. A focus that has already
+ * moved elsewhere is left alone, and so is a view that opens with the app.
+ */
+function refocusView(selector) {
+  if (document.activeElement === document.body || !document.activeElement?.isConnected)
+    root.querySelector(selector)?.focus({ preventScroll: true });
+}
 /** The app's name, and the library view's own heading. */
 function brand() {
   return el('h1', { class: 'brand' }, appIcon(), el('span', {}, 'PDF Editor'));
@@ -701,6 +766,7 @@ function showHome({ accountRefresh = false } = {}) {
   openController?.abort();
   openController = null;
   loading = false;
+  const hadFocus = viewHasFocus();
   editor?.destroy();
   editor = null;
   document.title = 'PDF Editor';
@@ -719,7 +785,8 @@ function showHome({ accountRefresh = false } = {}) {
     placeholder: 'Search PDFs',
     'aria-label': 'Search PDFs',
     oninput: (e) => {
-      filter = e.target.value.toLowerCase();
+      // Spaces around the words (a pasted name, a stray space) do not hide every file.
+      filter = e.target.value.trim().toLowerCase();
       renderFiles();
     },
   });
@@ -738,6 +805,12 @@ function showHome({ accountRefresh = false } = {}) {
     el('option', { value: 'size' }, 'Size'),
   );
   const renderFiles = () => {
+    // Replacing the rows drops a focused one; the search field then takes the focus.
+    const hadFocus = list.contains(document.activeElement);
+    drawFiles();
+    if (hadFocus && document.activeElement === document.body) search.focus({ preventScroll: true });
+  };
+  const drawFiles = () => {
     list.replaceChildren();
     if (libraryState === 'loading') {
       list.append(el('div', { class: 'empty-library' }, 'Loading your PDFs…'));
@@ -894,7 +967,8 @@ function showHome({ accountRefresh = false } = {}) {
               { signal },
             );
             await settleAccount(signal);
-            if (name && !signal.aborted) {
+            // An unchanged name is no rename: Puter would refuse it as a name already taken.
+            if (name && safeName(name) !== file.name && !signal.aborted) {
               await P.renameFile(file.path, name);
               if (!signal.aborted) refreshAfterAction();
             }
@@ -949,8 +1023,12 @@ function showHome({ accountRefresh = false } = {}) {
   async function load() {
     const token = ++loadGeneration;
     const signal = accountController.signal;
-    libraryState = user ? 'loading' : 'ready';
-    renderFiles();
+    // A refresh after renaming, duplicating, or deleting keeps the rows on screen until the new
+    // listing arrives, so a long library is not cut to one line and the reader keeps their place.
+    if (!user || libraryState !== 'ready' || !files.length) {
+      libraryState = user ? 'loading' : 'ready';
+      renderFiles();
+    }
     if (!user) return;
     try {
       await settleAccount(signal);
@@ -988,7 +1066,9 @@ function showHome({ accountRefresh = false } = {}) {
             { class: 'account-label', title: user?.username || 'Local workspace' },
             user?.username || 'Local workspace',
           ),
+          appsButton(),
           iconButton('Settings', 'Settings2', settings),
+          userMenuSlot(),
         ),
       ),
       el(
@@ -1059,6 +1139,7 @@ function showHome({ accountRefresh = false } = {}) {
       ),
     ),
   );
+  if (hadFocus) refocusView('#main');
   load();
 }
 window.addEventListener('beforeunload', (e) => {
@@ -1069,11 +1150,15 @@ window.addEventListener('beforeunload', (e) => {
 });
 window.addEventListener('keydown', (e) => {
   if (document.querySelector('dialog[open]')) return;
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+  // Also by the key's place, for layouts whose letters are not Latin (Ctrl+O arrives as "щ").
+  const o =
+    e.key.toLowerCase() === 'o' || (e.code === 'KeyO' && !e.altKey && !/[\x00-\x7f]/.test(e.key));
+  if ((e.ctrlKey || e.metaKey) && o) {
     e.preventDefault();
-    // On the Puter desktop the files are in the cloud, so Open browses it, as other desktop
-    // apps do; the device picker stays in the File menu.
-    if (P.isApp()) pickCloud();
+    // When Puter opened the app (a desktop window, or a tab from the dashboard) the files are
+    // in the cloud, so Open browses it, as other desktop apps do; the device picker stays in
+    // the File menu.
+    if (P.launchedByPuter()) pickCloud();
     else pickDevice();
   }
 });
@@ -1124,6 +1209,14 @@ window.addEventListener('hashchange', () => {
       history.replaceState(null, '', location.pathname + location.search);
   })();
 });
+// The skip link moves the focus, not the address: following #main left the library's own
+// #library behind, so reloading opened a blank PDF instead, and Back first returned to #main.
+document.querySelector('.skip-link')?.addEventListener('click', (e) => {
+  const target = document.getElementById('main');
+  if (!target) return;
+  e.preventDefault();
+  target.focus();
+});
 syncThemeColor();
 window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', syncThemeColor);
 // Nobody has to sign in to work: the app opens straight into a blank PDF (or the library at
@@ -1146,16 +1239,25 @@ start();
 const initPuter = async () => {
   // The SDK signs the user in on its own before some cloud calls; the views follow.
   P.onAuth(run(refreshSDKAccount));
-  if (P.isApp()) {
-    // The desktop already has a session. File and close events must not wait for its profile.
-    setAccount({ username: 'Puter user' });
+  // The desktop has its own app launcher; puter.js's user menu, where the SDK has it, holds
+  // the launcher and the account.
+  refreshAppsButtons();
+  refreshUserMenus();
+  for (const refresh of settingsAccountViews) refresh();
+  // A tab Puter opened (a file opened from the dashboard, say) gets its file the same way as a
+  // desktop window, once the dashboard tab hands it over with the token.
+  if (P.launchedByPuter()) {
     const onItems = (items) => {
       items = Array.isArray(items) ? items : [items];
       if (items.length) run(() => openDesktopItems(items))();
     };
     // onItemsOpened also replays the launch file. Subscribing to both reads it twice.
-    if (globalThis.puter.ui.onItemsOpened) globalThis.puter.ui.onItemsOpened(onItems);
-    else globalThis.puter.ui.onLaunchedWithItems?.(onItems);
+    if (globalThis.puter.ui?.onItemsOpened) globalThis.puter.ui.onItemsOpened(onItems);
+    else globalThis.puter.ui?.onLaunchedWithItems?.(onItems);
+  }
+  if (P.isApp()) {
+    // The desktop already has a session. File and close events must not wait for its profile.
+    setAccount({ username: 'Puter user' });
     // A second press of the close button while its question is open must not stack another
     // on top; the first answer decides. Only the question counts: a save it started that
     // never settles must not leave the button dead.
@@ -1167,6 +1269,9 @@ const initPuter = async () => {
     );
     if (!editor) P.setWindowTitle('PDF Editor');
   }
+  // A tab Puter opened gets its token from the dashboard tab moments after loading; read the
+  // account once it is in rather than reporting the person signed out first.
+  await P.puterLaunchSettled();
   // A sign-in or sign-out can finish while the SDK's initial session/profile read is
   // pending. Its older answer must not change the newer account or reset library work.
   const version = accountGeneration;

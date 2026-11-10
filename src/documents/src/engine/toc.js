@@ -10,6 +10,7 @@ import { bookmarkEntries, newBookmarkMarkers } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { newBodyField, fieldSpan, fieldsOfType, fieldsWithin, writeBlockField, paragraphLength as length, paragraphOffset, paragraphStyleNamed } from './generated-fields.js';
 import { sequenceInstruction } from './field-update.js';
+import { listMarkers } from './numbering.js';
 
 export { newBodyField };
 export const TOC_INSTRUCTION = ' TOC \\o "1-3" \\h \\z \\u ';
@@ -107,6 +108,22 @@ export function tocHeadings(paragraphs, levels = 3, exclude = null) {
 
 const clean = text => text.replace(/[\t\v\f\u000e￼]+/g, ' ').replace(/\s+/g, ' ').trim();
 
+/**
+ * The list number each paragraph shows, with what follows it (a tab, a space or nothing, §17.9.28),
+ * as a table entry repeats it: "2.1" and a tab before "Methods". Bullets and unnumbered paragraphs
+ * have none; a numbering definition that cannot be counted leaves every entry without one.
+ */
+function entryNumbers(doc) {
+  let markers;
+  try { markers = listMarkers(doc.paragraphs, doc.numbering); } catch { return () => null; }
+  return index => {
+    const marker = markers[index];
+    if (!marker?.text || marker.level.format === 'bullet') return null;
+    const suffix = marker.level.suffix === 'space' ? ' ' : marker.level.suffix === 'nothing' ? '' : '\t';
+    return { text: marker.text, suffix };
+  };
+}
+
 /** The entries `options` collect from `doc`: [{ level, text, start, end, paragraphId, offset, endOffset, point }]. */
 export function tocEntries(doc, options) {
   const paragraphs = doc.paragraphs, ranges = bodyFieldRanges(paragraphs);
@@ -118,8 +135,9 @@ export function tocEntries(doc, options) {
   const entries = [];
   let at = 0;
   const captionLabel = options.caption || options.captionNoLabel;
+  let numbers;
   const sequences = captionLabel ? new Map(ranges.filter(r => r.field.type === 'SEQ' && sequenceInstruction(r.field.instruction)?.id.toLowerCase() === sequenceIdentifier(captionLabel).toLowerCase()).map(r => [r.startParagraph, r])) : null;
-  for (const p of paragraphs) {
+  for (const [index, p] of paragraphs.entries()) {
     const size = length(p), text = clean(p.runs.map(r => r.image ? '' : r.text).join(''));
     if (text && !inside(at) && inScope(at)) {
       let level = null;
@@ -143,7 +161,8 @@ export function tocEntries(doc, options) {
           const [low, high] = options.headingRange || [1, 9];
           if (outline + 1 >= low && outline + 1 <= high) level = outline + 1;
         }
-        if (level) entries.push({ level, text, start: at, end: at + size, paragraphId: p.id });
+        // A numbered heading's entry starts with its number, as Word's tables show it.
+        if (level) entries.push({ level, text, start: at, end: at + size, paragraphId: p.id, number: p.list ? (numbers ??= entryNumbers(doc))(index) : null });
       }
     }
     at += size + 1;
@@ -214,9 +233,12 @@ export function insertTableOfContents(doc, { title = TOC_TITLES.contents, levels
   const rows = entries.map(entry => {
     const page = showPage(entry.level) && !entry.noPage;
     const tabs = page && separator === '\t' && rightAlign ? [{ position: Math.round(width), alignment: 'right', leader: leader === 'none' ? 'none' : leader }] : [];
+    // The tab after a number reaches a stop 440 twips a level along (0.31", 0.61", 0.92"), as Word sets them.
+    const number = entry.number ? [{ text: entry.number.text + entry.number.suffix, ...(boldTop && entry.level === 1 ? { bold: true } : {}) }] : [];
+    if (entry.number?.suffix === '\t' && !figures) tabs.unshift({ position: entry.level * 440, alignment: 'left' });
     return {
       style: figures ? 'Table of Figures' : `TOC ${entry.level}`,
-      runs: [{ text: entry.text, ...(boldTop && entry.level === 1 ? { bold: true } : {}) }, ...(page ? [{ text: separator }, { text: '1', pageRef: entry.name }] : [])],
+      runs: [...number, { text: entry.text, ...(boldTop && entry.level === 1 ? { bold: true } : {}) }, ...(page ? [{ text: separator }, { text: '1', pageRef: entry.name }] : [])],
       link: options.hyperlinks ? entry.name : null,
       format: { indentLeft: figures ? 0 : (entry.level - 1) * 220, firstLine: 0, spaceBefore: boldTop && entry.level === 1 ? 6 : 0, spaceAfter: 5 },
       always: { tabs },
@@ -232,8 +254,12 @@ export function insertTableOfContents(doc, { title = TOC_TITLES.contents, levels
   return { entries: entries.length, range: result };
 }
 
-/** Remove a table of contents (the first one by default) and the title paragraph this editor puts above it. */
-export function removeTableOfContents(doc, target = tableOfContents(doc.paragraphs)) {
+/**
+ * Remove a table of contents (the first one by default) and the title paragraph this editor puts above it. With
+ * `tracked` (Track Changes on), its paragraphs are marked deleted, as selecting them and pressing Delete marks them,
+ * so a reviewer can reject the removal.
+ */
+export function removeTableOfContents(doc, target = tableOfContents(doc.paragraphs), { tracked = false } = {}) {
   const toc = target;
   if (!toc?.whole) return false;
   let start = toc.paragraphStart, first = toc.first;
@@ -242,6 +268,14 @@ export function removeTableOfContents(doc, target = tableOfContents(doc.paragrap
   const heading = paragraphStyleNamed(doc, 'TOC Heading');
   if (before && (titles.includes(before.runs.map(r => r.text).join('')) || heading && before.styleId === heading)) { start -= length(before) + 1; first--; }
   const end = toc.paragraphEnd, removedBodyFields = fieldsWithin(doc, toc.start, toc.end);
+  if (tracked) {
+    // The table's last paragraph mark goes with it, unless it is the document's last.
+    doc.select(start, Math.min(end + 1, doc.text.length));
+    doc.trackedReplace('', { checkpoint: false });
+    doc.select(start);
+    doc.didChange();
+    return first >= 0;
+  }
   // Remove whole paragraphs without merging a neighbour into the table's formatting:
   // take the separator before the table, or, at the start, give the next paragraph back its own.
   if (start > 0) { doc.select(start - 1, end); doc.replaceUntracked('', { checkpoint: false, removedBodyFields }); }

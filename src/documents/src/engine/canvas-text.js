@@ -115,6 +115,10 @@ function canvasTextState(context, style) {
     // fontKerning below retains the independent run kerning threshold.
     textRendering: style.ligatures === 'none' ? 'optimizeSpeed' : 'auto',
     direction: style.bidiDirection || 'ltr',
+    // The East Asian language of the text (w:lang/@w:eastAsia) chooses the font that shows ideographs a run's own
+    // fonts do not have: a Japanese document's kanji take their Japanese forms, not the Chinese ones the
+    // interface's language would pick (直, 骨 and 角 differ).
+    lang: style.fontEastAsiaLanguage || 'inherit',
     fontKerning: kerningEnabled(style) ? 'normal' : 'none',
     letterSpacing: `${canvasLetterSpacing(style)}px`,
     wordSpacing: `${canvasWordSpacing(style)}px`,
@@ -127,6 +131,7 @@ function applyCanvasTextState(context, state) {
   context.font=separatorFamily?state.nativeFont.replace(state.primary,()=>`${state.primary}, ${cssFontString(separatorFamily)}`):state.nativeFont;
   if ('textRendering' in context) context.textRendering = state.textRendering;
   context.direction = state.direction;
+  if ('lang' in context) context.lang = state.lang;
   context.fontKerning = state.fontKerning;
   if ('letterSpacing' in context) context.letterSpacing = state.letterSpacing;
   if ('wordSpacing' in context) context.wordSpacing = state.wordSpacing;
@@ -137,11 +142,11 @@ export function validateCanvasTextSupport(pkg) {
   setCanvasTextStyle(context, {});
   const spaced = pkg.paragraphs.some(p => p.markFormat?.characterSpacing || p.runs.some(r => r.characterSpacing)) || listMarkers(pkg.paragraphs, pkg.numbering).some(m => m?.level.markerStyle.characterSpacing);
   if (spaced) setCanvasTextStyle(context, { characterSpacing: 1 });
-  const justified = pkg.paragraphs.filter(p => p.format?.alignment === 'both');
+  const justified = pkg.paragraphs.filter(p => p.format?.alignment === 'both' || p.format?.alignment === 'thaiDistribute');
   if (justified.length) setCanvasTextStyle(context, { justificationSpacing: 1 });
   // Justified Chinese and Japanese, and distributed paragraphs, widen the gaps between characters with
   // letter spacing (justification.js).
-  if (justified.some(p => p.runs.some(r => IDEOGRAPHIC.test(r.text))) || pkg.paragraphs.some(p => p.format?.alignment === 'distribute')) setCanvasTextStyle(context, { characterSpacing: 1 });
+  if (justified.some(p => p.runs.some(r => IDEOGRAPHIC.test(r.text))) || pkg.paragraphs.some(p => p.format?.alignment === 'distribute' || p.format?.alignment === 'thaiDistribute')) setCanvasTextStyle(context, { characterSpacing: 1 });
 }
 
 function canvasFontRequirements(pkg) {

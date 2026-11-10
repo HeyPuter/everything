@@ -110,6 +110,28 @@ test('the Headings tree moves, expands and collapses with the arrow keys', async
   expect(errors).toEqual([]);
 });
 
+test('the Headings tree keys keep working after the document refreshes the pane', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await headingsDocument(page);
+  await (await onTab(page, 'view')).locator('.ribbon-card').getByRole('button', { name: 'Navigation Pane' }).click();
+  const tree = page.getByRole('complementary', { name: 'Navigation' }).getByRole('tree', { name: 'Headings' });
+  const item = name => tree.getByRole('treeitem', { name: new RegExp(name) });
+  // Moving the caret refreshes the pane with the same headings, so the list is not drawn again.
+  await input.focus();
+  await input.press('ControlOrMeta+End');
+  await input.press('ControlOrMeta+Home');
+  await item('Introduction').focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(item('Introduction')).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('ArrowRight');
+  await expect(item('Introduction')).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('ArrowRight');
+  await expect(item('Background')).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(item('Introduction')).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test('Shift+Enter in a new search goes to the last result, Enter to the first', async ({ page }) => {
   const input = await headingsDocument(page);
   await input.press('ControlOrMeta+f');

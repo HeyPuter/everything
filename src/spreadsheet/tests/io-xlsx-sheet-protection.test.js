@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { Workbook } from '../src/core/workbook.js';
 import { workbookFromFile, workbookToXlsx } from '../src/core/io.js';
 import { otherProgramsXlsx } from './helpers/xlsx-fixture.js';
+import { editedXlsx } from './helpers/xlsx-excel-edit.js';
 
 // Sheet protection travels in this app's sidecar; another program's <sheetProtection sheet="1">
 // was ignored, so a protected Excel sheet opened editable and was saved back unprotected.
@@ -29,17 +30,29 @@ it('reads sheet protection another program wrote, and keeps it through a save', 
   expect(back.sheets.map((s) => s.protected)).toEqual([true, true, false, false]);
 });
 
-it('lets the sidecar\'s own record win over protection written into the same file', async () => {
+// The app's own settings sheet, which Excel keeps when it saves, used to win over the worksheet XML for good: a
+// sheet unprotected in Excel came back protected here (and one protected there came back open). It now notes
+// what each save wrote, and a part that says otherwise was changed in Excel, whose word then wins.
+async function savedProtected(on) {
   const wb = new Workbook({ sheets: [{ name: 'Data' }] });
   wb.setInput(wb.activeSheetId, 0, 0, '1');
-  wb.setFrozen(wb.activeSheetId, 1, 0); // anything of the app's own, so the file carries a sidecar entry for the sheet
-  const saved = new Uint8Array(await (await workbookToXlsx(wb)).arrayBuffer());
-  const X = await import('../src/vendor/xlsx.mjs');
-  const zip = X.CFB.read(saved, { type: 'array' });
-  const sheet = X.CFB.find(zip, '/xl/worksheets/sheet1.xml');
-  const xml = new TextDecoder().decode(sheet.content).replace('</sheetData>', '</sheetData><sheetProtection sheet="1"/>');
-  sheet.content = new TextEncoder().encode(xml);
-  sheet.size = sheet.content.length;
-  const back = await workbookFromFile(X.CFB.write(zip, { type: 'array', fileType: 'zip' }), 'mine.xlsx');
+  wb.setFrozen(wb.activeSheetId, 1, 0); // anything of the app's own, so the settings say more than the XML
+  if (on) wb.setSheetProtected(wb.activeSheetId, true);
+  return workbookToXlsx(wb);
+}
+const unprotect = { '/xl/worksheets/sheet1.xml': (xml) => xml.replace(/<sheetProtection\b[^>]*\/>/, '') };
+const protect = { '/xl/worksheets/sheet1.xml': (xml) => xml.replace('</sheetData>', '</sheetData><sheetProtection sheet="1"/>') };
+
+it('keeps a sheet unprotected in Excel unprotected, and one protected there protected', async () => {
+  const opened = await workbookFromFile(await editedXlsx(await savedProtected(true), unprotect), 'mine.xlsx');
+  expect(opened.sheets[0].protected).toBe(false);
+  const locked = await workbookFromFile(await editedXlsx(await savedProtected(false), protect), 'mine.xlsx');
+  expect(locked.sheets[0].protected).toBe(true);
+  // Untouched, the app's own record still decides.
+  expect((await workbookFromFile(await savedProtected(true), 'mine.xlsx')).sheets[0].protected).toBe(true);
+});
+
+it('lets the settings of a file saved before they noted the XML win over protection written into it', async () => {
+  const back = await workbookFromFile(await editedXlsx(await savedProtected(false), protect, { older: true }), 'mine.xlsx');
   expect(back.sheets[0].protected).toBe(false);
 });

@@ -1,4 +1,4 @@
-import { el, icon, iconButton, button } from './lib/ui.js';
+import { el, icon, iconButton, button, formatShortcut, ariaShortcut } from './lib/ui.js';
 import { openMenu } from './lib/menu.js';
 
 /**
@@ -8,7 +8,8 @@ import { openMenu } from './lib/menu.js';
  *
  * actions: { rotate(indices, delta), remove(indices), extract(indices), duplicate(indices),
  *            insertBlank(after), insertFile(after), insertPictures(after), move(indices, to),
- *            open(index), close() } — each may return a promise; the view redraws on refresh().
+ *            reorder(order, moved), open(index), close() } — each may return a promise; the view
+ *            redraws on refresh().
  * onSelectionChange(indices) hears of each change to the chosen pages.
  */
 const SIZES = [110, 150, 200, 260];
@@ -26,6 +27,9 @@ export function createOrganizeView({
   let selected = new Set();
   let anchor = null; // the tile a Shift range starts from
   let size = 1;
+  // Until a size is picked with the slider, a phone shows the smallest tiles: two columns of
+  // pages rather than one.
+  let sizePicked = false;
   let visible = false;
   let tiles = [];
   let observer = null;
@@ -39,6 +43,7 @@ export function createOrganizeView({
     value: size,
     'aria-label': 'Page tile size',
     oninput: () => {
+      sizePicked = true;
       size = Number(sizeInput.value);
       grid.style.setProperty('--tile', `${SIZES[size]}px`);
       rebuild();
@@ -55,10 +60,23 @@ export function createOrganizeView({
   const indices = () => [...selected].sort((a, b) => a - b);
   const count = () => getPdf()?.numPages || 0;
   const target = () => (selected.size ? indices() : [currentIndex()]);
-  const after = () => (selected.size ? indices().at(-1) : count() - 1);
+  // New pages go after the last chosen page, or after the current page when none is chosen,
+  // as the tools pane's Insert commands put them.
+  const after = () => target().at(-1);
   const run = (fn) => async () => {
     if (isBusy()) return;
+    const pressed = root.contains(document.activeElement) ? document.activeElement : null;
     await fn();
+    // The buttons are disabled while the PDF is redrawn, which drops the focus of the one
+    // pressed from the keyboard; it takes the focus back for the next press, unless the focus
+    // has moved on meanwhile.
+    if (
+      visible &&
+      pressed?.isConnected &&
+      !pressed.disabled &&
+      (!document.activeElement || document.activeElement === document.body)
+    )
+      pressed.focus({ preventScroll: true });
   };
   async function duplicateChosen() {
     const list = target();
@@ -73,11 +91,69 @@ export function createOrganizeView({
     updateState();
   }
   async function removeChosen() {
-    if ((await actions.remove(target())) === false) return;
-    // The deleted pages' places now hold other pages, which were not chosen.
-    selected.clear();
+    await removePages(target());
+  }
+  /**
+   * Delete pages. The deleted pages' places now hold other pages, which were not chosen; but
+   * when the keyboard is in the grid, the tile it lands on is chosen, as arrow keys choose the
+   * tile they reach. With nothing chosen, Delete would act on the current page behind the
+   * grid instead of the page with the focus.
+   */
+  async function removePages(list) {
+    const revision = getRevision();
+    if ((await actions.remove(list)) === false || getRevision() === revision) return;
+    const focused = visible
+      ? Number(document.activeElement?.closest?.('.organize-tile')?.dataset.index)
+      : NaN;
+    if (Number.isInteger(focused) && grid.contains(document.activeElement)) {
+      selected = new Set([focused]);
+      anchor = focused;
+    } else selected.clear();
     updateState();
   }
+  /**
+   * The page order with each chosen page one place earlier (-1) or later (1), past the next
+   * page that was not chosen; chosen pages already at that end stay. Dragging is not the only
+   * way to reorder: the keyboard and a tap on a button move pages too.
+   */
+  function nudged(list, delta) {
+    const chosen = new Set(list);
+    const order = [...Array(count()).keys()];
+    for (let n = 0; n < order.length - 1; n++) {
+      const k = delta < 0 ? n + 1 : order.length - 2 - n;
+      if (chosen.has(order[k]) && !chosen.has(order[k + delta]))
+        [order[k], order[k + delta]] = [order[k + delta], order[k]];
+    }
+    return order;
+  }
+  const canMove = (delta) => nudged(target(), delta).some((page, k) => page !== k);
+  async function moveChosen(delta) {
+    const list = target();
+    const order = nudged(list, delta);
+    if (order.every((page, k) => page === k)) return;
+    const focused = root.contains(document.activeElement)
+      ? Number(document.activeElement.closest?.('.organize-tile')?.dataset.index)
+      : NaN;
+    const revision = getRevision();
+    await actions.reorder(order, list.length);
+    if (getRevision() === revision) return;
+    // The choice, and the keyboard focus, go with the pages that moved.
+    if (selected.size) selected = new Set(list.map((page) => order.indexOf(page)));
+    if (anchor != null) anchor = order.indexOf(anchor);
+    updateState();
+    if (Number.isInteger(focused) && visible) focusTile(order.indexOf(focused));
+  }
+  const moveButton = (label, glyph, delta, shortcut) =>
+    iconButton(
+      label,
+      glyph,
+      run(() => moveChosen(delta)),
+      {
+        'data-permission': 'assemble',
+        title: `${label} (${formatShortcut(shortcut)})`,
+        'aria-keyshortcuts': ariaShortcut(shortcut),
+      },
+    );
   const commands = {
     insert: button('Insert', 'FilePlus2', (e) => insertMenu(e.currentTarget), 'btn organize-btn', {
       'aria-haspopup': 'menu',
@@ -99,6 +175,8 @@ export function createOrganizeView({
         'data-permission': 'assemble',
       },
     ),
+    earlier: moveButton('Move pages earlier', 'ArrowLeft', -1, 'Alt+←'),
+    later: moveButton('Move pages later', 'ArrowRight', 1, 'Alt+→'),
     duplicate: iconButton('Duplicate pages', 'Copy', run(duplicateChosen), {
       'data-permission': 'assemble',
     }),
@@ -127,18 +205,34 @@ export function createOrganizeView({
       ],
     });
   }
+  // One row of their own on a phone, scrolling sideways when it runs short, with a fade on each
+  // side that has more of them.
+  const commandRow = el(
+    'div',
+    { class: 'organize-commands' },
+    commands.insert,
+    commands.left,
+    commands.right,
+    commands.earlier,
+    commands.later,
+    commands.duplicate,
+    commands.extract,
+    commands.remove,
+  );
+  const markOverflow = () => {
+    const { scrollLeft, scrollWidth, clientWidth } = commandRow;
+    commandRow.classList.toggle('more-start', scrollLeft > 1);
+    commandRow.classList.toggle('more-end', scrollLeft + clientWidth < scrollWidth - 1);
+  };
+  commandRow.addEventListener('scroll', markOverflow, { passive: true });
+  new ResizeObserver(markOverflow).observe(commandRow);
   const toolbar = el(
     'div',
     { class: 'organize-toolbar', role: 'toolbar', 'aria-label': 'Organize pages' },
     el('h2', { class: 'organize-title' }, 'Organize pages'),
     status,
     el('span', { class: 'organize-sep', 'aria-hidden': 'true' }),
-    commands.insert,
-    commands.left,
-    commands.right,
-    commands.duplicate,
-    commands.extract,
-    commands.remove,
+    commandRow,
     el('span', { class: 'organize-sep', 'aria-hidden': 'true' }),
     el(
       'label',
@@ -151,7 +245,22 @@ export function createOrganizeView({
   );
   const root = el(
     'section',
-    { class: 'organize-view', 'aria-label': 'Organize pages', hidden: true },
+    {
+      class: 'organize-view',
+      'aria-label': 'Organize pages',
+      hidden: true,
+      // The editor's shortcuts to rotate or delete a page act on the current page, which the
+      // grid hides; here they act on the chosen pages, as the toolbar's buttons do.
+      onkeydown: (e) => {
+        const key = e.key.toLowerCase();
+        if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || !['r', 'd'].includes(key))
+          return;
+        if (/input|textarea|select/i.test(e.target.tagName)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        (key === 'r' ? commands.right : commands.remove).click();
+      },
+    },
     toolbar,
     grid,
   );
@@ -171,13 +280,18 @@ export function createOrganizeView({
       ? `${n} of ${count()} ${count() === 1 ? 'page' : 'pages'} selected`
       : `${count()} ${count() === 1 ? 'page' : 'pages'}`;
     const busy = isBusy();
-    toolbar.querySelectorAll('button[data-permission]').forEach((b) => {
+    // The buttons on each tile follow the same rules as the toolbar's, so a page that cannot
+    // be turned or deleted does not offer to be.
+    root.querySelectorAll('button[data-permission]').forEach((b) => {
       b.disabled = busy || !can(b.dataset.permission);
     });
     commands.remove.disabled ||= n >= count() || count() < 2;
+    commands.earlier.disabled ||= !canMove(-1);
+    commands.later.disabled ||= !canMove(1);
     tiles.forEach((tile, i) => {
       tile.setAttribute('aria-selected', String(selected.has(i)));
       tile.classList.toggle('is-current', i === currentIndex());
+      tile.querySelector('.organize-tile-delete').disabled ||= count() < 2;
     });
   }
 
@@ -212,6 +326,18 @@ export function createOrganizeView({
   }
 
   function onKey(e, i) {
+    // The keys the grid answers are its own: the editor's shortcuts for the same keys (Home
+    // and End go to the first and last page) would change the page behind the grid.
+    if (handleKey(e, i)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+  function handleKey(e, i) {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      if (!isBusy() && can('assemble')) moveChosen(e.key === 'ArrowLeft' ? -1 : 1);
+      return true;
+    }
     const step = {
       ArrowLeft: -1,
       ArrowRight: 1,
@@ -221,7 +347,6 @@ export function createOrganizeView({
       End: Infinity,
     }[e.key];
     if (step != null) {
-      e.preventDefault();
       const next = Math.max(
         0,
         Math.min(
@@ -232,22 +357,16 @@ export function createOrganizeView({
       const reached = focusTile(next);
       if (e.shiftKey) select(reached, { shiftKey: true });
       else if (!(e.ctrlKey || e.metaKey)) select(reached);
-      return;
+      return true;
     }
-    if (e.key === ' ') {
-      e.preventDefault();
-      select(i, { ctrlKey: true });
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      actions.open(i);
-    } else if ((e.key === 'Delete' || e.key === 'Backspace') && !isBusy()) {
-      e.preventDefault();
-      commands.remove.click();
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-      e.preventDefault();
+    if (e.key === ' ') select(i, { ctrlKey: true });
+    else if (e.key === 'Enter') actions.open(i);
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && !isBusy()) commands.remove.click();
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
       selected = new Set(tiles.map((_, k) => k));
       updateState();
-    }
+    } else return false;
+    return true;
   }
 
   function dropIndex(e) {
@@ -341,10 +460,8 @@ export function createOrganizeView({
           iconButton(
             `Delete page ${i + 1}`,
             'Trash2',
-            run(async () => {
-              if ((await actions.remove([i])) !== false) selected.clear();
-            }),
-            { 'data-permission': 'assemble', tabindex: -1 },
+            run(() => removePages([i])),
+            { 'data-permission': 'assemble', tabindex: -1, class: 'icon-btn organize-tile-delete' },
           ),
         ),
       ),
@@ -353,6 +470,12 @@ export function createOrganizeView({
     return node;
   }
 
+  // The grid is one tab stop, on the tile last focused however it got there (a click too), so
+  // Tab leaves the grid and Shift+Tab comes back to the same tile.
+  grid.addEventListener('focusin', (e) => {
+    const tile = e.target.closest?.('.organize-tile');
+    if (tile && tile.tabIndex !== 0) tiles.forEach((t) => (t.tabIndex = t === tile ? 0 : -1));
+  });
   grid.addEventListener('dragover', (e) => {
     if (!dragging) return;
     e.preventDefault();
@@ -372,7 +495,10 @@ export function createOrganizeView({
     const destination = to - before;
     if (moving.every((k, n) => k === destination + n)) return;
     run(async () => {
+      const revision = getRevision();
       await actions.move(moving, destination);
+      // A move that did not happen (declined, or failed) leaves the choice where it was.
+      if (getRevision() === revision) return;
       selected = new Set(moving.map((_, n) => destination + n));
       anchor = destination;
       updateState();
@@ -476,6 +602,11 @@ export function createOrganizeView({
     show() {
       visible = true;
       root.hidden = false;
+      if (!sizePicked) {
+        size = window.matchMedia?.('(max-width: 480px)').matches ? 0 : 1;
+        sizeInput.value = size;
+        grid.style.setProperty('--tile', `${SIZES[size]}px`);
+      }
       if (!selected.size) {
         selected = new Set([currentIndex()]);
         anchor = currentIndex();
@@ -498,9 +629,12 @@ export function createOrganizeView({
     updateState() {
       if (visible) updateState();
     },
-    /** Duplicate or delete the chosen pages, as the grid's own buttons do. */
+    /** Duplicate, delete, or move the chosen pages, as the grid's own buttons do. */
     duplicate: run(duplicateChosen),
     remove: run(removeChosen),
+    move: (delta) => run(() => moveChosen(delta))(),
+    /** Whether the chosen pages can move a place earlier (-1) or later (1). */
+    canMove: (delta) => visible && canMove(delta),
     select(list) {
       selected = new Set(list);
       anchor = list[0] ?? null;

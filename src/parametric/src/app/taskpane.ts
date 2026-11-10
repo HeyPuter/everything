@@ -1,11 +1,12 @@
 // Task pane (right side): the assistant, parts browser, appearance and
 // getting-started help.
 
-import { listParts, locationLabel, recentParts } from '../platform/files';
+import { listParts, locationLabel, onPartsChanged, recentParts } from '../platform/files';
 import { cloudAvailable, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { attachTooltip } from '../ui/overlay';
+import { selectTabs, tabKeys } from '../ui/tabs';
 import type { App } from './app';
 import type { FileOps } from './fileops';
 import type { AssistantPanel } from '../assistant/panel';
@@ -26,9 +27,29 @@ export class TaskPane {
       b.addEventListener('click', () => this.toggle(id));
       s.tpStrip.append(b);
     }
+    // Opening a pane can move focus into it, so the arrow keys only move focus.
+    tabKeys(s.tpStrip, { vertical: true, activate: false });
     app.openTaskPane = (id) => this.open(id as PaneId);
     app.toggleTaskPane = (id) => this.toggle(id as PaneId);
     app.taskPaneOpen = () => this.current;
+    onPartsChanged(() => this.refreshFiles());
+  }
+
+  /** Lists the parts again after a save, rename or delete while Parts is open. */
+  private refreshFiles() {
+    if (this.current !== 'files') return;
+    const old = this.app.shell.tpPanel.querySelector<HTMLElement>('.tp-body');
+    if (!old) return;
+    // Keyboard focus in the list stays on the same row (or the pane's first control).
+    const buttons = () => [...this.app.shell.tpPanel.querySelectorAll<HTMLElement>('.tp-body button')];
+    const focused = buttons().indexOf(document.activeElement as HTMLElement);
+    const body = h('div', { class: 'tp-body' });
+    old.replaceWith(body);
+    void this.renderFiles(body).then(() => {
+      if (focused < 0 || !body.isConnected) return;
+      const now = buttons();
+      now[Math.min(focused, now.length - 1)]?.focus({ preventScroll: true });
+    });
   }
 
   toggle(id: PaneId) {
@@ -37,11 +58,14 @@ export class TaskPane {
   }
 
   close() {
+    // Focus inside the pane would be lost with it: it goes to the pane's tab.
+    const tab = this.app.shell.tpPanel.contains(document.activeElement) ? this.app.shell.tpStrip.querySelector<HTMLElement>(`[data-pane="${this.current}"]`) : null;
     this.current = null;
     this.app.shell.tpPanel.hidden = true;
     this.app.shell.tpPanel.classList.remove('wide');
     this.sync();
     this.app.viewport.resize();
+    tab?.focus();
   }
 
   open(id: PaneId, focus = true) {
@@ -51,7 +75,7 @@ export class TaskPane {
     const title = id === 'assistant' ? 'Assistant' : id === 'files' ? 'Parts' : id === 'appearance' ? 'Appearance' : 'Getting Started';
     const close = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close task pane' }, icon('close', 16));
     close.addEventListener('click', () => this.close());
-    const head = h('div', { class: 'tp-head' }, h('span', { class: 'grow', role: 'heading', 'aria-level': '2' }, title), close);
+    const head = h('div', { class: 'tp-head' }, h('span', { class: 'grow', role: 'heading', 'aria-level': '2' }, title), ...(id === 'assistant' ? this.assistant.headActions : []), close);
     p.classList.toggle('wide', id === 'assistant');
     if (id === 'assistant') {
       p.replaceChildren(head, this.assistant.el);
@@ -70,7 +94,7 @@ export class TaskPane {
   }
 
   private sync() {
-    for (const b of this.app.shell.tpStrip.querySelectorAll<HTMLElement>('[role="tab"]')) b.setAttribute('aria-selected', String(b.dataset.pane === this.current));
+    selectTabs(this.app.shell.tpStrip, (b) => b.dataset.pane === this.current);
     this.app.shell.root.classList.toggle('assistant-open', this.current === 'assistant');
     this.app.commands.changed();
   }
@@ -84,17 +108,26 @@ export class TaskPane {
     const list = h('div', { class: 'file-list', role: 'list', 'aria-busy': 'true' }, h('div', { class: 'field-label' }, 'Loading...'));
     body.append(h('div', { class: 'field-label' }, cloudAvailable() ? 'Your parts' : 'Parts in this browser'), list);
     try {
-      const parts = await listParts();
+      let cloudError = '';
+      const parts = await listParts((e) => { cloudError = storageError(e); });
       list.textContent = '';
       list.removeAttribute('aria-busy');
-      if (!parts.length) list.append(h('div', { class: 'field-label' }, 'No saved parts yet.'));
+      if (cloudError) list.before(h('div', { class: 'field-label', role: 'alert' }, `Your cloud parts could not be listed: ${cloudError}`));
+      // A list role needs list items: the empty message is shown without it.
+      if (!parts.length) {
+        list.removeAttribute('role');
+        list.append(h('div', { class: 'field-label' }, cloudError ? 'No parts saved in this browser.' : 'No saved parts yet.'));
+      }
       for (const p of parts.slice(0, 50)) {
-        const b = h('button', { class: 'file-item', type: 'button', role: 'listitem' }, icon(p.location.type === 'cloud' ? 'cloud' : 'device', 16),
+        // Buttons keep their role; list items wrap them (as in the Open dialog).
+        const b = h('button', { class: 'file-item', type: 'button' }, icon(p.location.type === 'cloud' ? 'cloud' : 'device', 16),
           h('span', { class: 'txt' }, h('span', { class: 'n' }, p.name), h('span', { class: 'meta' }, p.modified ? new Date(p.modified).toLocaleDateString() : locationLabel(p.location))));
         b.addEventListener('click', () => void this.files.openLocation(p.location, p.name));
-        list.append(b);
+        list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
       }
     } catch (e) {
+      list.removeAttribute('aria-busy');
+      list.removeAttribute('role');
       list.textContent = storageError(e);
     }
   }
@@ -108,7 +141,9 @@ export class TaskPane {
       b.addEventListener('click', () => {
         app.store.change('Appearance', (doc) => { doc.color = c; });
         app.applyModelColor();
-        this.open('appearance');
+        // Updated in place, so keyboard focus stays on the swatch.
+        for (const x of grid.children) x.setAttribute('aria-pressed', String(x === b));
+        custom.value = c;
       });
       grid.append(b);
     }
@@ -124,8 +159,8 @@ export class TaskPane {
 export function renderHelp(body: HTMLElement) {
   const steps: [string, string][] = [
     ['1. Sketch', 'Select a plane (Front, Top or Right) or a flat face and click Sketch. The view turns to face the plane.'],
-    ['2. Draw', 'Use Line (L), Rectangle (R), Circle (C) and the other tools. Geometry snaps to points, midpoints and horizontal or vertical directions and adds matching relations.'],
-    ['3. Constrain', 'Use Smart Dimension (D) to set sizes, and add relations from the PropertyManager. Blue geometry can still move; black is fully defined; red conflicts.'],
+    ['2. Draw', 'Use Line (L), Rectangle (R), Circle (C) and the other tools. Geometry snaps to points, midpoints and horizontal or vertical directions and adds matching constraints.'],
+    ['3. Constrain', 'Use Smart Dimension (D) to set sizes, and the Constrain group of the Sketch tab (Coincident, Parallel, Tangent...) to fix how geometry relates. Convert Entities projects model edges into the sketch, linked to the model. Blue geometry can still move; black is fully defined; red conflicts.'],
     ['4. Build', 'Exit the sketch and use Extruded Boss, Revolved Boss or a Cut. Then add fillets, chamfers, holes, shells and patterns.'],
     ['5. Change', 'Double-click a feature in the design tree or a face in the model to edit it. Everything after it rebuilds.'],
     ['6. Save and share', 'Save to your Puter cloud (or this browser), or export STEP and STL files.'],

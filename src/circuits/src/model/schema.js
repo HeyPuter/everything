@@ -148,8 +148,9 @@ export const PIN_TYPE_LABELS = {
 
 /**
  * Field placement relative to the part origin, in sheet orientation (it does
- * not rotate with the part, so labels stay readable).
- * @typedef {{dx:number, dy:number, hidden?:boolean}} Field
+ * not rotate with the part, so labels stay readable). align is the text
+ * alignment, default left/bottom.
+ * @typedef {{dx:number, dy:number, hidden?:boolean, align?:{h?:'left'|'center'|'right', v?:'bottom'|'middle'|'top'}}} Field
  */
 
 /** @typedef {'gnd'|'signalgnd'|'earth'|'bar'|'arrow'|'circle'|'wave'} PowerStyle */

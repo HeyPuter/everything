@@ -144,6 +144,18 @@ function parseDraft(raw) {
   } catch { return null; }
 }
 
+// A draft's text names its revision just after its name and version (see saveDraft).
+const REVISION = /^\{"savedAt":\d+,"name":"(?:[^"\\]|\\.)*"(?:,"version":(?:-?\d+(?:\.\d+)?|null))?,"revision":("(?:[^"\\]|\\.)*")/;
+/** The revision of the draft under a key (see draftRevision), read off the head of its text without parsing the book; null when there is none. */
+export function draftRevisionAt(key) {
+  let raw;
+  try { raw = store()?.getItem(key); } catch { return null; }
+  if (raw == null) return null;
+  const m = REVISION.exec(raw);
+  if (m) { try { return JSON.parse(m[1]); } catch { /* an odd escape: read the whole draft */ } }
+  return draftRevision(parseDraft(raw));
+}
+
 /** The draft under a key: { savedAt, name, version, workbook } or null. */
 export function loadDraft(key) {
   const s = store();

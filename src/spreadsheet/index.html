@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
   <title>Spreadsheet</title>
   <meta name="description" content="A fast, private AI spreadsheet. Formulas, formatting, and real .xlsx files saved to your own Puter cloud." />
+  <link rel="canonical" href="https://spreadsheet.puter.com/" />
   <!-- Link previews. Crawlers need an absolute image URL. Alternate designs live beside it in public/og/
        (sources in dev/og/). -->
   <meta property="og:type" content="website" />
@@ -38,6 +39,16 @@
   <link rel="icon" href="./favicon-48x48.png" type="image/png" sizes="48x48" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180" />
   <script>
+    // The interface language, as far as it is known before the app loads (src/i18n), so the page is
+    // read and its fonts chosen as that language from the first paint; the app sets it for certain.
+    (() => {
+      try {
+        const asked = new URLSearchParams(location.search).get('lang') || localStorage.getItem('spreadsheet:language');
+        const best = (navigator.languages || [navigator.language]).find((l) => /^(en\b|zh(-(hans|cn|sg|my)\b|$))/i.test(l || ''));
+        const lang = asked || (/^zh/i.test(best || '') ? 'zh-Hans' : 'en');
+        if (/^(en|zh-Hans|en-XA)$/.test(lang)) document.documentElement.lang = lang;
+      } catch {}
+    })();
     // Apply the saved theme before first paint to avoid a flash. The browser chrome follows the
     // saved theme too, not the OS scheme the metas are keyed by, until theme.js takes over.
     (() => {

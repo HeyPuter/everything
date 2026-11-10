@@ -12,7 +12,8 @@ const drawnSize = (doc, widget) => {
 
 it('keeps an automatic font size automatic for every widget and later value', async () => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(
-    async (url) => new Response(await readFile(`public/fonts/${String(url).split('/').pop()}`)),
+    async (url) =>
+      new Response(await readFile(`public/fonts/${String(url).split('/fonts/').pop()}`)),
   );
   try {
     const source = await PDFDocument.create();

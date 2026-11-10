@@ -6,6 +6,8 @@
  */
 
 /** The most values one axis keeps, so a range like 1-100000 cannot bury the chart in labels. */
+import { t } from '../i18n/index.js';
+
 export const AXIS_TICK_VALUES_MAX = 200;
 
 const NUMBER = String.raw`[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?%?`;
@@ -35,15 +37,15 @@ export function parseAxisTickValues(text) {
   for (const part of parts) {
     if (SINGLE.test(part)) { values.push(numberOf(part)); continue; }
     const range = RANGE.exec(part);
-    if (!range) return { error: `"${part}" isn't a number or a range like 1-5.` };
+    if (!range) return { error: t('axisTickValues.notNumber', { part }) };
     const from = numberOf(range[1]), to = numberOf(range[2]);
-    if (!(Number.isFinite(from) && Number.isFinite(to))) return { error: `"${part}" isn't a number or a range like 1-5.` };
-    if (from > to) return { error: `A range goes from low to high, like 1-5, not ${part}.` };
-    if (to - from >= AXIS_TICK_VALUES_MAX) return { error: `An axis takes up to ${AXIS_TICK_VALUES_MAX} values.` };
+    if (!(Number.isFinite(from) && Number.isFinite(to))) return { error: t('axisTickValues.notNumber', { part }) };
+    if (from > to) return { error: t('axisTickValues.lowToHigh', { part }) };
+    if (to - from >= AXIS_TICK_VALUES_MAX) return { error: t('axisTickValues.tooMany', { max: AXIS_TICK_VALUES_MAX }) };
     for (let i = 0; from + i <= to + 1e-9; i++) values.push(tidy(from + i));
   }
-  if (values.some(v => !Number.isFinite(v) || Math.abs(v) > 1e100)) return { error: 'One of the values is too large.' };
-  if (new Set(values.map(tidy)).size > AXIS_TICK_VALUES_MAX) return { error: `An axis takes up to ${AXIS_TICK_VALUES_MAX} values.` };
+  if (values.some(v => !Number.isFinite(v) || Math.abs(v) > 1e100)) return { error: t('axisTickValues.tooLarge') };
+  if (new Set(values.map(tidy)).size > AXIS_TICK_VALUES_MAX) return { error: t('axisTickValues.tooMany', { max: AXIS_TICK_VALUES_MAX }) };
   return { values: normalizeAxisTickValues(values) };
 }
 

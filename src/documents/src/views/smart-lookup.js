@@ -4,6 +4,7 @@
  * text and the sentence around it are sent. The command is hidden when AI is unavailable.
  */
 import { el, isComposing } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { iconEl } from '../ui/icons.js';
 import { canUseAi, aiChat } from '../lib/puter.js';
 import { responseText, textFence } from '../lib/ai.js';
@@ -19,14 +20,18 @@ export function lookupTarget(text, start, end) {
     while (from > 0 && word.test(text[from - 1])) from--;
     while (to < text.length && word.test(text[to])) to++;
   }
-  const phrase = text.slice(from, to).replace(/[\s￼]+/g, ' ').trim().slice(0, 120);
+  const phrase = clipText(text.slice(from, to).replace(/[\s￼]+/g, ' ').trim(), 120);
   // The sentence ends at any script's sentence punctuation (。 ！ ？ ؟ । as well as . ! ?) or a break, and keeps
   // to the 200 characters on either side of the term, so it always holds the term it explains.
   let first = from, stop = to;
   while (first > 0 && from - first < SENTENCE_REACH && !SENTENCE_END.test(text[first - 1])) first--;
   while (stop < text.length && stop - to < SENTENCE_REACH && !SENTENCE_END.test(text[stop])) stop++;
   if (stop < text.length && stop - to < SENTENCE_REACH && SENTENCE_END.test(text[stop]) && text[stop] !== '\n') stop++;
-  const sentence = text.slice(first, Math.min(stop, to + SENTENCE_REACH)).replace(/[\s￼]+/g, ' ').trim().slice(0, 120 + 2 * SENTENCE_REACH);
+  // A reach that ends inside an emoji (two code units) takes it in whole.
+  let last = Math.min(stop, to + SENTENCE_REACH);
+  if (/[\udc00-\udfff]/.test(text[first] || '') && /[\ud800-\udbff]/.test(text[first - 1] || '')) first--;
+  if (/[\udc00-\udfff]/.test(text[last] || '') && /[\ud800-\udbff]/.test(text[last - 1] || '')) last++;
+  const sentence = clipText(text.slice(first, last).replace(/[\s￼]+/g, ' ').trim(), 120 + 2 * SENTENCE_REACH);
   return { phrase, sentence };
 }
 
@@ -69,12 +74,13 @@ export function createSmartLookup({ editor }) {
       const answer = parseLookup(responseText(await aiChat(lookupPrompt(target))));
       if (id !== request) return;
       status.textContent = '';
-      result.replaceChildren(
+      // replaceChildren would write a missing part out as the word "null": only the parts there are go in.
+      result.replaceChildren(...[
         el('h3.ref-lookup-term', {}, target.phrase),
         el('p.ref-lookup-definition', {}, answer.definition || 'No definition came back.'),
         answer.related.length ? el('h3', {}, 'Related topics') : null,
         answer.related.length ? el('ul.ref-lookup-related', {}, ...answer.related.map(topic => el('li', {}, el('button.ref-lookup-topic', { type: 'button', onclick: () => run({ phrase: topic, sentence: `${topic} (related to ${target.phrase})` }) }, topic)))) : null,
-        el('a.ref-lookup-web', { href: `https://duckduckgo.com/?q=${encodeURIComponent(target.phrase)}`, target: '_blank', rel: 'noopener noreferrer' }, 'Search the web'));
+        el('a.ref-lookup-web', { href: `https://duckduckgo.com/?q=${encodeURIComponent(target.phrase)}`, target: '_blank', rel: 'noopener noreferrer' }, 'Search the web')].filter(Boolean));
     } catch (e) {
       if (id !== request) return;
       // The pane says what went wrong; the SDK's error (often an object, not an Error) is for the console.

@@ -23,7 +23,8 @@ function writeList(key, list) { try { localStore()?.setItem(key, JSON.stringify(
 /**
  * The title bar: AutoSave, the quick access toolbar (customizable), the classic menu bar, the document's
  * name with its details, and on the right the command search box, the Editing / Reviewing / Viewing
- * switch, Comments, Share and the account button.
+ * switch, Comments, Share, the Apps button and the account button (`account`: both, or Settings and
+ * puter.js's <puter-user-menu>, see accountControls).
  */
 export function createTitleBar({ w, c, a, local, title, status, account, menus, focusEditor, entries, openShortcuts, keymapShortcut = () => null }) {
   /* ---- Quick access ---- */
@@ -108,13 +109,15 @@ export function createTitleBar({ w, c, a, local, title, status, account, menus, 
   const autosave = !local && w.setAutosave ? el('label.ed-autosave', { title: 'Save every change automatically' }, el('span.ed-autosave-label', {}, 'AutoSave'), autosaveInput, el('span.ed-switch', { 'aria-hidden': 'true' })) : null;
 
   /* ---- Menu bar ---- */
-  const menubar = createMenubar(menus.map(menu => ({ label: menu.label, open: (anchor, { pointer } = {}) => openMenu({ anchor, label: menu.label, minWidth: 240, items: menu.items(), pointer, onClose: pointer ? focusEditor : null, align: 'start' }) })), { label: 'Menu bar' });
+  // A menu's items with the shortcuts the keymap runs now (Customize Keyboard can move a chord to another command).
+  const shownItems = menu => (w.menuShortcuts ? w.menuShortcuts(menu.items(), `menu:${menu.id}`) : menu.items());
+  const menubar = createMenubar(menus.map(menu => ({ label: menu.label, open: (anchor, { pointer } = {}) => openMenu({ anchor, label: menu.label, minWidth: 240, items: shownItems(menu), pointer, onClose: pointer ? focusEditor : null, align: 'start' }) })), { label: 'Menu bar' });
   menubar.el.classList.add('ed-menubar');
   menubar.buttons.forEach((button, i) => { button.dataset.menu = menus[i].id; button.addEventListener('mousedown', e => { if (document.activeElement?.matches?.('.canvas-input')) e.preventDefault(); }); });
   // Narrow windows fold the menus into one button.
   const allMenus = el('button.ed-menus-button', { type: 'button', 'aria-label': 'Menus', title: 'Menus', 'aria-haspopup': 'menu',
     onclick: e => openMenu({ anchor: allMenus, label: 'Menus', minWidth: 200, pointer: !!e.detail, onClose: e.detail ? focusEditor : null,
-      items: menus.map(menu => ({ label: menu.label, items: menu.items() })) }) }, commandIconEl('menus', 16));
+      items: menus.map(menu => ({ label: menu.label, items: shownItems(menu) })) }) }, commandIconEl('menus', 16));
 
   /* ---- Document name: rename in place, details in a popover ---- */
   const details = el('button.ed-title-details', { type: 'button', 'aria-label': 'Document details', title: 'Location and details', 'aria-haspopup': 'dialog',

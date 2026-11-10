@@ -202,3 +202,21 @@ test('Undo puts the caret back at the end of a wrapped line, not at the start of
   await input(page).press('ControlOrMeta+Shift+z');
   expect(await input(page).inputValue()).toContain('X');
 });
+
+test('text inserted with line breaks goes in at once, as one undo step', async ({ page }) => {
+  await blank(page);
+  await page.keyboard.type('Start ');
+  // Dictation, a text replacement or an input method's commit inserts its text with line breaks as one insertText. Chrome
+  // put it into the field a line at a time, and the document took each partial field: 2 layouts a line, seconds for 300 lines.
+  const lines = Array.from({ length: 150 }, (_, i) => `Line ${i} of the inserted text`);
+  await input(page).evaluate(el => { window.fieldInputs = 0; el.addEventListener('input', () => window.fieldInputs++); });
+  await page.keyboard.insertText(lines.join('\n'));
+  await expect(input(page)).toHaveValue(`Start ${lines.join('\n')}`);
+  expect(await page.evaluate(() => window.fieldInputs)).toBeLessThanOrEqual(1);
+  expect(await input(page).evaluate(el => el.selectionStart)).toBe(`Start ${lines.join('\n')}`.length);
+  await page.keyboard.type(' more');
+  await expect(input(page)).toHaveValue(`Start ${lines.join('\n')} more`);
+  await input(page).press('ControlOrMeta+z'); await expect(input(page)).toHaveValue(`Start ${lines.join('\n')} `);
+  await input(page).press('ControlOrMeta+z'); await expect(input(page)).toHaveValue('Start ');
+  await page.keyboard.press('ControlOrMeta+Shift+z'); await expect(input(page)).toHaveValue(`Start ${lines.join('\n')} `);
+});

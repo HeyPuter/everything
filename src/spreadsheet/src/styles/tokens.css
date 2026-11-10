@@ -182,3 +182,11 @@
     --series-7: #4a3aa7;
   }
 }
+
+/* Simplified Chinese interface: the platforms' own Simplified Chinese UI fonts, named ahead of the
+   system font so an English system does not draw Chinese text with a Japanese or Traditional face
+   (the same code points take different glyphs per language). Workbook cells keep their own fonts. */
+:root:lang(zh-Hans),
+:root:lang(zh-Hans) :is(.grid-viewport, .frz-layer, .grid > .grid-editor, .sheet-paper) {
+  --font: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "Segoe UI", Roboto, sans-serif;
+}

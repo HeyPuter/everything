@@ -2,6 +2,8 @@
 
 # Spreadsheet
 
+**Live app:** [spreadsheet.puter.com](https://spreadsheet.puter.com/)
+
 An open-source alternative to Microsoft Excel: a fast, private spreadsheet app
 built with vanilla JavaScript (no frameworks),
 Vite, and [Puter.js](https://developer.puter.com) as the only backend. Files
@@ -839,7 +841,9 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   workbook's people). Anyone mentioned who cannot open the workbook is offered
   a share first (Can view or Can edit), then each is emailed the comment, its
   cell and a link that opens the workbook at that cell (a Puter user known by
-  username at their Puter mailbox). Whoever has the workbook open sees a
+  username at their Puter mailbox), once a save has put the comment in the
+  file (with AutoSave off, when you save, even should the tab be closed first
+  and its edits saved from the draft later). Whoever has the workbook open sees a
   mention of them as it arrives, and on opening it the mentions they have not
   seen yet, with a button that goes to the comment. A comment that mentions
   someone can also assign its thread to them: the card says who it is
@@ -880,12 +884,13 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   when a later open finds both — under the file's own name, or under one a
   rename elsewhere gave it — the later edits are offered and the earlier
   draft moves to the home screen's **Unsaved spreadsheets** list, so neither is
-  lost. The status pill says when a book is too large for the
+  lost. Two tabs of one file each keep their own edits the same way. The status pill says when a book is too large for the
   browser to keep a copy of. A file renamed elsewhere while it is open is
   followed to its new name, and one deleted elsewhere asks whether to save
   it as a new file, put it back, or keep editing. A file changed elsewhere
-  asks whose version wins, a save made in the very second this tab last saw
-  the file included: modification times are whole seconds, so the file itself
+  asks whose version wins (overwriting keeps theirs as a version first, and
+  asks again should that fail), a
+  save made in the very second this tab last saw the file included: modification times are whole seconds, so the file itself
   is read back before such a save is overwritten. Leaving the editor with
   that undecided is not
   refused: the leave dialog offers to go, with the edits kept on this

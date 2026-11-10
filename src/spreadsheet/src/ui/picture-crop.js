@@ -8,8 +8,10 @@ import { el, isComposing } from './dom.js';
 import { openModal } from './modal.js';
 import { pictureNode } from './picture.js';
 import { CROP_ASPECTS, aspectCrop, clampCrop, cropOf, dragCrop, uncroppedSize } from '../core/picture-format.js';
+import { t } from '../i18n/index.js';
 
-const HANDLES = [['nw', 'top left'], ['n', 'top'], ['ne', 'top right'], ['e', 'right'], ['se', 'bottom right'], ['s', 'bottom'], ['sw', 'bottom left'], ['w', 'left']];
+/** Each handle, and its accessible name (a catalog key). */
+const HANDLES = [['nw', 'pictureCrop.handle.topLeft'], ['n', 'pictureCrop.handle.top'], ['ne', 'pictureCrop.handle.topRight'], ['e', 'pictureCrop.handle.right'], ['se', 'pictureCrop.handle.bottomRight'], ['s', 'pictureCrop.handle.bottom'], ['sw', 'pictureCrop.handle.bottomLeft'], ['w', 'pictureCrop.handle.left']];
 const KEY_STEPS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 export function openCropDialog({ picture, onApply, onClose }) {
@@ -23,11 +25,11 @@ export function openCropDialog({ picture, onApply, onClose }) {
 
   const image = pictureNode({ ...picture, srcRect: null, fillRect: null, rotation: 0, flipH: false, flipV: false, decorative: true });
   const shade = el('div.crop-shade', { 'aria-hidden': 'true' });
-  const frame = el('div.crop-frame', { role: 'group', 'aria-label': 'Part of the picture kept' });
-  const move = el('button.crop-move', { type: 'button', 'aria-label': 'Move the crop (arrow keys)', title: 'Drag to move the crop' });
+  const frame = el('div.crop-frame', { role: 'group', 'aria-label': t('pictureCrop.frame') });
+  const move = el('button.crop-move', { type: 'button', 'aria-label': t('pictureCrop.move'), title: t('pictureCrop.moveTip') });
   frame.append(move);
   const handles = HANDLES.map(([id, name]) => {
-    const handle = el(`button.crop-handle.crop-${id}`, { type: 'button', 'aria-label': `Crop ${name} edge (arrow keys)`, dataset: { handle: id } });
+    const handle = el(`button.crop-handle.crop-${id}`, { type: 'button', 'aria-label': t(name), dataset: { handle: id } });
     frame.append(handle);
     return handle;
   });
@@ -40,7 +42,7 @@ export function openCropDialog({ picture, onApply, onClose }) {
     // The part cut away stays visible, dimmed, around the frame.
     shade.style.clipPath = `polygon(evenodd, 0 0, ${W}px 0, ${W}px ${H}px, 0 ${H}px, 0 0, ${x}px ${y}px, ${x}px ${y + h}px, ${x + w}px ${y + h}px, ${x + w}px ${y}px, ${x}px ${y}px)`;
     const kept = { w: Math.round(full.w * crop.w), h: Math.round(full.h * crop.h) };
-    readout.textContent = `Kept: ${kept.w} × ${kept.h} pixels on the sheet (${Math.round(crop.w * crop.h * 100)}% of the picture)`;
+    readout.textContent = t('pictureCrop.readout', { w: kept.w, h: kept.h, percent: Math.round(crop.w * crop.h * 100) });
   }
 
   const drag = (handle, e) => {
@@ -70,10 +72,10 @@ export function openCropDialog({ picture, onApply, onClose }) {
     handle.addEventListener('keydown', (e) => nudge(handle.dataset.handle, e));
   }
 
-  const aspect = el('select.select.crop-aspect', { 'aria-label': 'Aspect ratio' },
-    el('option', { value: '' }, 'Free'),
-    el('option', { value: String(full.w / full.h) }, 'Original'),
-    ...CROP_ASPECTS.map(([kind, label, value]) => el('option', { value: String(value) }, `${label} ${kind === 'Square' ? '' : kind.toLowerCase()}`.trim())));
+  const aspect = el('select.select.crop-aspect', { 'aria-label': t('pictureCrop.aspectRatio') },
+    el('option', { value: '' }, t('pictureCrop.free')),
+    el('option', { value: String(full.w / full.h) }, t('pictureCrop.original')),
+    ...CROP_ASPECTS.map(([kind, label, value]) => el('option', { value: String(value) }, t('pictureCrop.aspect', { kind: kind.toLowerCase(), ratio: label }))));
   aspect.addEventListener('change', () => {
     ratio = Number(aspect.value) || null;
     if (ratio) {
@@ -83,15 +85,15 @@ export function openCropDialog({ picture, onApply, onClose }) {
       render();
     }
   });
-  const reset = el('button.btn.btn-ghost', { type: 'button', onclick: () => { crop = { x: 0, y: 0, w: 1, h: 1 }; aspect.value = ''; ratio = null; render(); } }, 'Show All');
+  const reset = el('button.btn.btn-ghost', { type: 'button', onclick: () => { crop = { x: 0, y: 0, w: 1, h: 1 }; aspect.value = ''; ratio = null; render(); } }, t('pictureCrop.showAll'));
 
   const content = el('form.crop-dialog', { onsubmit: (e) => { e.preventDefault(); onApply?.(crop); modal.close(); } },
-    el('div.row.crop-toolbar', {}, el('label.crop-aspect-field', {}, el('span', {}, 'Aspect ratio'), aspect), reset),
+    el('div.row.crop-toolbar', {}, el('label.crop-aspect-field', {}, el('span', {}, t('pictureCrop.aspectRatio')), aspect), reset),
     stage, readout,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Crop')));
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('pictureCrop.crop'))));
   render();
-  const modal = openModal({ title: 'Crop Picture', content, initialFocus: move, onClose, wide: true });
+  const modal = openModal({ title: t('pictureCrop.title'), content, initialFocus: move, onClose, wide: true });
   return modal;
 }

@@ -62,6 +62,11 @@ export abstract class PropertyPanel {
 
   cancel(): void {}
 
+  /** True when the panel holds changes that OK would apply. */
+  get edited(): boolean {
+    return false;
+  }
+
   /** Viewport pick filter while this panel is open. */
   filter(): PickFilter {
     return this.activeBox?.filter ?? {};
@@ -77,6 +82,9 @@ export abstract class PropertyPanel {
 
   /** Called when the panel is removed. */
   dispose(): void {}
+
+  /** Refreshes pending expressions after document changes; null means controls need no refresh. */
+  syncExpressions(): string[] | null { return null; }
 
   mount(): HTMLElement {
     this.boxes = [];
@@ -96,6 +104,19 @@ export abstract class PropertyPanel {
     this.msgEl.textContent = text;
   }
 
+  /**
+   * False (with the reason shown and the field focused) while a visible field
+   * holds text that could not be read, so OK does not silently apply the
+   * field's last valid value instead.
+   */
+  checkFields(): boolean {
+    const bad = [...this.el.querySelectorAll<HTMLInputElement>('.input[aria-invalid="true"]')].find((x) => x.getClientRects().length > 0);
+    if (!bad) return true;
+    this.setMessage('error', `${bad.getAttribute('aria-label') ?? 'Value'}: ${bad.title || 'not a valid value'}`);
+    bad.focus();
+    return false;
+  }
+
   activate(box: SelectionBox) {
     this.activeBox = box;
     this.boxes.forEach((b) => b.setActive(b === box));
@@ -109,16 +130,6 @@ export function section(title: string, children: (HTMLElement | null)[], opts: {
   const body = h('div', { class: 'sec-body', id: bodyId }, ...children);
   const sec = h('section', { class: 'pm-section', 'data-collapsed': String(!!opts.collapsed) });
   const head = h('button', { class: 'sec-head', 'aria-expanded': String(!opts.collapsed), 'aria-controls': bodyId, type: 'button' });
-  if (opts.checkbox) {
-    const cb = h('input', { type: 'checkbox', 'aria-label': `Enable ${title}` }) as HTMLInputElement;
-    cb.checked = opts.checkbox.checked;
-    cb.addEventListener('click', (e) => e.stopPropagation());
-    cb.addEventListener('change', () => {
-      opts.checkbox!.onChange(cb.checked);
-      setCollapsed(!cb.checked);
-    });
-    head.append(cb);
-  }
   if (opts.icon) head.append(icon(opts.icon, 16));
   head.append(h('span', {}, title), h('span', { class: 'chev' }, icon('chevronDown', 14)));
   const setCollapsed = (c: boolean) => {
@@ -126,7 +137,17 @@ export function section(title: string, children: (HTMLElement | null)[], opts: {
     head.setAttribute('aria-expanded', String(!c));
   };
   head.addEventListener('click', () => setCollapsed(sec.dataset.collapsed !== 'true'));
-  sec.append(head, body);
+  if (opts.checkbox) {
+    // The checkbox sits beside the expand button, not inside it: a button
+    // cannot contain another control.
+    const cb = h('input', { type: 'checkbox', 'aria-label': `Enable ${title}` }) as HTMLInputElement;
+    cb.checked = opts.checkbox.checked;
+    cb.addEventListener('change', () => {
+      opts.checkbox!.onChange(cb.checked);
+      setCollapsed(!cb.checked);
+    });
+    sec.append(h('div', { class: 'sec-head-check' }, cb, head), body);
+  } else sec.append(head, body);
   return sec;
 }
 
@@ -137,6 +158,7 @@ export interface NumberFieldOptions {
   kind: ParamKind;
   ctx: UnitContext;
   min?: number;
+  max?: number;
   /** Allow expressions starting with "=" to be stored as linked values. */
   allowExpr?: boolean;
   onChange: (v: Param) => void;
@@ -172,12 +194,31 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
   }
 }
 
+type PendingValueMap = (value: Param, num: number) => Param;
+const numberFieldSettlers = new WeakMap<HTMLInputElement, (ctx?: UnitContext, map?: PendingValueMap) => void>();
+
+/** Settles delayed edits in their original context and retires controls being replaced. */
+export function settleNumberFields(root: HTMLElement, ctx: UnitContext, map?: PendingValueMap) {
+  for (const input of root.querySelectorAll('input')) numberFieldSettlers.get(input)?.(ctx, map);
+}
+
+/** Discards pending input when history has replaced the state being edited. */
+export function retireNumberFields(root: HTMLElement) {
+  for (const input of root.querySelectorAll('input')) numberFieldSettlers.get(input)?.();
+}
+
 export function numberField(o: NumberFieldOptions): HTMLElement {
   const id = nextDomId('num');
+  // Phone keypads: the decimal pad (iOS) has no minus, equals or letters, so it
+  // is only for a value that is a plain positive number; the others take
+  // negatives, units and expressions such as =Width/2 on the full keyboard.
+  const plainNumber = o.allowExpr === false && o.min !== undefined && o.min >= 0;
   const input = h('input', {
     class: 'input',
     id,
-    inputmode: 'decimal',
+    inputmode: plainNumber ? 'decimal' : 'text',
+    autocapitalize: 'off',
+    autocorrect: 'off',
     autocomplete: 'off',
     spellcheck: 'false',
     'aria-label': o.label,
@@ -186,8 +227,13 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   let current: Param = o.value;
   const mark = () => input.classList.toggle('expr', typeof current === 'string');
   mark();
-  const commit = (live = false) => {
-    const r = parseParam(input.value, o.kind, o.ctx, o.allowExpr !== false);
+  let composing = false;
+  let retired = false;
+  const commit = (live = false, ctx = o.ctx, map?: PendingValueMap) => {
+    // Removed controls may still have a debounce or native change queued.
+    // They no longer own the model state (e.g. after Undo rebuilt the panel).
+    if (composing || retired || !input.isConnected) return;
+    const r = parseParam(input.value, o.kind, ctx, o.allowExpr !== false);
     if (!r.ok) {
       input.classList.add('invalid');
       input.setAttribute('aria-invalid', 'true');
@@ -196,24 +242,44 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     }
     if (o.min !== undefined && r.num < o.min) {
       input.classList.add('invalid');
-      input.title = `Must be at least ${o.min}`;
+      input.setAttribute('aria-invalid', 'true');
+      input.title = `Must be at least ${paramText(o.min, o.kind, o.ctx)}`;
+      return;
+    }
+    if (o.max !== undefined && r.num > o.max) {
+      input.classList.add('invalid');
+      input.setAttribute('aria-invalid', 'true');
+      input.title = `Must be at most ${paramText(o.max, o.kind, o.ctx)}`;
       return;
     }
     input.classList.remove('invalid');
     input.removeAttribute('aria-invalid');
     input.title = '';
     if (live) { o.onLive?.(r.num); return; }
-    current = r.value;
+    current = map ? map(r.value, r.num) : r.value;
     mark();
-    o.onChange(r.value);
+    o.onChange(current);
   };
   let timer = 0;
-  input.addEventListener('input', () => {
-    clearTimeout(timer);
-    timer = window.setTimeout(() => commit(), 350);
+  const cancelPending = () => { clearTimeout(timer); timer = 0; };
+  numberFieldSettlers.set(input, (ctx, map) => {
+    const pending = !!timer;
+    cancelPending();
+    if (pending && ctx) commit(false, ctx, map);
+    retired = true;
   });
-  input.addEventListener('change', () => { clearTimeout(timer); commit(); });
-  input.addEventListener('focus', () => input.select());
+  const scheduleCommit = () => {
+    cancelPending();
+    if (!composing && !retired) timer = window.setTimeout(() => { timer = 0; commit(); }, 350);
+  };
+  input.addEventListener('compositionstart', () => { composing = true; cancelPending(); });
+  input.addEventListener('compositionend', () => { composing = false; scheduleCommit(); });
+  input.addEventListener('input', scheduleCommit);
+  input.addEventListener('change', () => { cancelPending(); commit(); });
+  // Esc takes back what was typed since the field got focus; with nothing to
+  // take back it goes on to the panel or tool (which it cancels).
+  let atFocus: Param = current;
+  input.addEventListener('focus', () => { atFocus = current; input.select(); });
   const step = (dir: number) => {
     const r = parseParam(input.value, o.kind, o.ctx, false);
     const base = r.ok ? r.num : 0;
@@ -221,13 +287,27 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     const inc = o.kind === 'count' ? 1 : o.kind === 'angle' ? 1 : o.ctx.units === 'IPS' ? 0.1 * scale : o.ctx.units === 'MKS' ? 0.01 * scale : 1 * scale;
     let next = base + dir * inc;
     if (o.min !== undefined) next = Math.max(o.min, next);
+    if (o.max !== undefined) next = Math.min(o.max, next);
     input.value = paramText(next, o.kind, o.ctx);
     commit();
   };
   input.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'ArrowUp') { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); step(-1); }
-    else if (e.key === 'Enter') { clearTimeout(timer); commit(); }
+    else if (e.key === 'Enter') { cancelPending(); commit(); }
+    else if (e.key === 'Escape') {
+      const text = paramText(atFocus, o.kind, o.ctx);
+      if (input.value === text && current === atFocus) return;
+      e.preventDefault();
+      cancelPending();
+      input.value = text;
+      input.classList.remove('invalid');
+      input.removeAttribute('aria-invalid');
+      input.title = '';
+      input.select();
+      if (current !== atFocus) { current = atFocus; mark(); o.onChange(atFocus); }
+    }
   });
   const spin = h('div', { class: 'spin' }, input, h('div', { class: 'spin-btns' },
     h('button', { type: 'button', tabindex: '-1', 'aria-label': `Increase ${o.label}`, onclick: () => step(1) }, icon('chevronUp', 12)),
@@ -313,7 +393,9 @@ export class SelectionBox {
     private onChange: (items: SelBoxItem[]) => void,
     readonly opts: { single?: boolean; placeholder?: string; icon?: string } = {},
   ) {
-    this.list = h('div', { class: 'selbox', role: 'listbox', tabindex: '0', 'aria-label': label });
+    // A focusable group (it becomes the pick target on focus) of plain rows:
+    // each row holds a Remove button, which an option of a listbox may not.
+    this.list = h('div', { class: 'selbox', role: 'group', tabindex: '0', 'aria-label': label });
     this.list.addEventListener('click', () => panel.activate(this));
     this.list.addEventListener('focus', () => panel.activate(this));
     const head = h('div', { class: 'row' }, opts.icon ? h('span', { class: 'row-icon', 'aria-hidden': 'true' }, icon(opts.icon, 18)) : null, h('span', { class: 'field-label' }, label));
@@ -335,7 +417,11 @@ export class SelectionBox {
   toggle(it: SelItem, additive: boolean): boolean {
     const conv = this.convert(it);
     if (!conv) return false;
-    const idx = this.items.findIndex((x) => x.label === conv.label);
+    // A face or edge is the same pick under any label: one listed when the
+    // panel opened reads "Edge (line)", picking it again gives "Edge <7> (line)".
+    const named = (x: SelBoxItem) => (x.item?.kind === 'face' || x.item?.kind === 'edge' ? `${x.item.kind}:${x.item.name}` : null);
+    const key = named(conv);
+    const idx = this.items.findIndex((x) => (key ? named(x) === key : x.label === conv.label));
     if (idx >= 0) this.items.splice(idx, 1);
     else if (this.opts.single) this.items = [conv];
     else this.items.push(conv);
@@ -355,17 +441,22 @@ export class SelectionBox {
       const rm = h('button', { class: 'icon-btn rm', type: 'button', 'aria-label': `Remove ${it.label}` }, icon('close', 14));
       rm.addEventListener('click', (e) => {
         e.stopPropagation();
+        const hadFocus = document.activeElement === rm;
         this.items.splice(i, 1);
         this.draw();
         this.onChange(this.items);
+        // Keyboard focus moves to the next item's Remove button (or the box)
+        // instead of falling to the page with the removed button.
+        const rms = this.list.querySelectorAll<HTMLElement>('.rm');
+        if (hadFocus) (rms[Math.min(i, rms.length - 1)] ?? this.list).focus({ preventScroll: true });
       });
-      this.list.append(h('div', { class: 'item', role: 'option' }, h('span', {}, it.label), rm));
+      this.list.append(h('div', { class: 'item' }, h('span', {}, it.label), rm));
     });
   }
 }
 
 export function fmt(v: number, kind: ParamKind, ctx: UnitContext): string {
   if (kind === 'length') return `${formatNumber(v / UNIT_SYSTEMS[ctx.units].scale, ctx.decimals)} ${UNIT_SYSTEMS[ctx.units].length}`;
-  if (kind === 'angle') return `${formatNumber(v, 2)}Â°`;
+  if (kind === 'angle') return `${formatNumber(v, 2)}°`;
   return String(v);
 }

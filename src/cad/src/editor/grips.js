@@ -2,7 +2,13 @@
  * Grips: editable handles on selected objects. gripsOf() lists them and
  * applyGrip() returns the entity after dragging grip `i` to (x, y).
  */
-import { splineFromFitPoints, splineFromControlPoints } from '../core/geom/index.js';
+import {
+  refitSpline,
+  splineFromControlPoints,
+  isFullEllipse,
+  ellipsePoint,
+  ellipseParamOf,
+} from '../core/geom/index.js';
 
 const TAU = Math.PI * 2;
 const norm = (a) => ((a % TAU) + TAU) % TAU;
@@ -42,13 +48,16 @@ export function gripsOf(ent) {
     case 'ellipse': {
       const nx = -ent.my * ent.ratio,
         ny = ent.mx * ent.ratio;
-      return [
+      const g = [
         { x: ent.cx, y: ent.cy, kind: 'mid' },
         { x: ent.cx + ent.mx, y: ent.cy + ent.my, kind: 'axis' },
         { x: ent.cx - ent.mx, y: ent.cy - ent.my, kind: 'axis' },
         { x: ent.cx + nx, y: ent.cy + ny, kind: 'minor' },
         { x: ent.cx - nx, y: ent.cy - ny, kind: 'minor' },
       ];
+      // An elliptical arc's ends (grips 5 and 6).
+      if (!isFullEllipse(ent)) g.push(ellipsePoint(ent, ent.start), ellipsePoint(ent, ent.end));
+      return g;
     }
     case 'polyline': {
       const p = ent.pts;
@@ -143,6 +152,13 @@ export function applyGrip(ent, i, x, y) {
     }
     case 'ellipse': {
       if (i === 0) return { ...ent, cx: x, cy: y };
+      if (i >= 5) {
+        // Move an end along the ellipse; it may not land on the other end (that reads as closed).
+        const t = ellipseParamOf(ent, x, y);
+        const gap = norm(t - (i === 5 ? ent.end : ent.start));
+        if (gap < 1e-6 || gap > TAU - 1e-6) return ent;
+        return i === 5 ? { ...ent, start: t } : { ...ent, end: t };
+      }
       const vx = x - ent.cx,
         vy = y - ent.cy;
       const major = Math.hypot(ent.mx, ent.my);
@@ -191,11 +207,16 @@ export function applyGrip(ent, i, x, y) {
         const fit = ent.fit.slice();
         fit[g.v * 2] = x;
         fit[g.v * 2 + 1] = y;
-        return { ...ent, ...splineFromFitPoints(fit, ent.closed), fit };
+        // No curve when every fit point would coincide: leave it as it was.
+        const s = refitSpline(ent, fit);
+        return s ? { ...ent, ...s, fit } : ent;
       }
       const ctrl = ent.ctrl.slice();
       ctrl[g.v * 2] = x;
       ctrl[g.v * 2 + 1] = y;
+      // Keep the knots (as imported splines have): moving one control point
+      // then changes the curve only near it.
+      if (ent.knots?.length === (ctrl.length >> 1) + ent.degree + 1) return { ...ent, ctrl, fit: [] };
       return { ...ent, ...splineFromControlPoints(ctrl, ent.degree), fit: [] };
     }
     case 'point':

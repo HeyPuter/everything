@@ -6,6 +6,7 @@
  * A group is the objects that share a `group` id; they stay next to each other in the list, so the group
  * moves through the stacking order as one, and a click on any of them selects them all.
  */
+import { t } from '../i18n/index.js';
 
 /** The objects' ids widened to whole groups: picking one member of a group picks the group. */
 export function withGroups(list, ids) {
@@ -158,12 +159,13 @@ export function snapRect(rect, xs, ys, within) {
  */
 export function objectNames(list) {
   const counts = new Map(), names = new Map();
-  const next = (kind) => { const n = (counts.get(kind) || 0) + 1; counts.set(kind, n); return `${kind} ${n}`; };
+  // Each kind counts on its own; `kind` is the catalog key of its name, "Chart {n}".
+  const next = (kind) => { const n = (counts.get(kind) || 0) + 1; counts.set(kind, n); return t(kind, { n }); };
   for (const o of list) {
-    if (o.group && !names.has(o.group)) names.set(o.group, next('Group'));
-    const kind = o.type === 'image' ? (o.drawingShape || o.nativeDrawing ? 'Shape' : 'Picture')
-      : o.type === 'text' ? (o.equation ? 'Equation' : o.style?.effects ? 'WordArt' : 'Text Box')
-        : o.type === 'slicer' ? 'Slicer' : o.type === 'timeline' ? 'Timeline' : o.type === 'scroll' ? 'Scroll Bar' : o.type === 'smartart' ? 'SmartArt' : 'Chart';
+    if (o.group && !names.has(o.group)) names.set(o.group, next('arrange.name.group'));
+    const kind = o.type === 'image' ? (o.drawingShape || o.nativeDrawing ? 'arrange.name.shape' : 'arrange.name.picture')
+      : o.type === 'text' ? (o.equation ? 'arrange.name.equation' : o.style?.effects ? 'arrange.name.wordArt' : 'arrange.name.textBox')
+        : o.type === 'slicer' ? 'arrange.name.slicer' : o.type === 'timeline' ? 'arrange.name.timeline' : o.type === 'scroll' ? 'arrange.name.scrollBar' : o.type === 'smartart' ? 'arrange.name.smartArt' : 'arrange.name.chart';
     const fallback = next(kind);
     names.set(o.id, o.name || ((o.type === 'slicer' || o.type === 'timeline') && o.title ? o.title : fallback));
   }

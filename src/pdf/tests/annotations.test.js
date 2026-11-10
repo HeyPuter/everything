@@ -13,6 +13,7 @@ import {
   editAnnotation,
   exportCommentSummary,
   exportXfdf,
+  groupAnnotation,
   importXfdf,
   listAnnotations,
   listReplies,
@@ -27,7 +28,7 @@ import { collectComments } from '../src/core/comments.js';
 const fonts = new Map();
 beforeEach(() => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-    const file = String(url).split('/').pop();
+    const file = String(url).split('/fonts/').pop();
     if (!fonts.has(file))
       fonts.set(file, await readFile(new URL(`../public/fonts/${file}`, import.meta.url)));
     return new Response(fonts.get(file));
@@ -166,6 +167,112 @@ const subtypesOf = (doc, index = 0) =>
 const near = (a, b, tolerance = 0.01) => a.every((value, i) => Math.abs(value - b[i]) <= tolerance);
 
 describe('text boxes', () => {
+  // A text box placed with a click is 50 points tall, whatever was typed into it: the lines
+  // that did not fit were cut off at its bottom edge, out of sight.
+  it('grows a fitted text box down the page, as it reads, to show all of its words', async () => {
+    const words = 'One\nTwo\nThree\nFour\nFive\nSix and a much longer line that wraps in the box';
+    for (const rotation of [0, 90, 180, 270]) {
+      const doc = await blank(1, [400, 400]);
+      doc.getPage(0).setRotation(degrees(rotation));
+      const turned = rotation % 180 !== 0;
+      // 180 wide and 50 tall as the page is read.
+      const rect = turned
+        ? { x: 100, y: 100, width: 50, height: 180 }
+        : { x: 100, y: 250, width: 180, height: 50 };
+      const id = await addTextBox(doc, 0, { rect, text: words, fit: true });
+      const { box } = listAnnotations(doc, 0).find((entry) => entry.id === id);
+      const [readerWidth, readerHeight] = turned
+        ? [box.height, box.width]
+        : [box.width, box.height];
+      expect(readerWidth, `${rotation}`).toBeCloseTo(180, 6);
+      // Seven lines of 12 point text, with room around them.
+      expect(readerHeight, `${rotation}`).toBeGreaterThan(7 * 12 * 1.2);
+      // The top edge, as the page is read, stays where it was put.
+      const top = {
+        0: [box.y + box.height, 300],
+        90: [box.x, 100],
+        180: [box.y, 250],
+        270: [box.x + box.width, 150],
+      }[rotation];
+      expect(top[0], `${rotation}`).toBeCloseTo(top[1], 6);
+      // Every line is drawn inside the box.
+      const view = await render(await doc.save());
+      const ink = view.inkBox();
+      expect(ink.y1 - ink.y0).toBeGreaterThan(7 * 12 * 1.2);
+    }
+    // Words that fit leave the box as it was.
+    const doc = await blank(1, [400, 400]);
+    const id = await addTextBox(doc, 0, {
+      rect: { x: 100, y: 250, width: 180, height: 50 },
+      text: 'Short',
+      fit: true,
+    });
+    expect(listAnnotations(doc, 0).find((entry) => entry.id === id).box).toEqual({
+      x: 100,
+      y: 250,
+      width: 180,
+      height: 50,
+    });
+  });
+
+  it('moves a fitted box up from the bottom of the page and keeps a callout off its point', async () => {
+    const words = 'One\nTwo\nThree\nFour\nFive\nSix';
+    const doc = await blank(1, [400, 400]);
+    const low = await addTextBox(doc, 0, {
+      rect: { x: 100, y: 0, width: 180, height: 50 },
+      text: words,
+      fit: true,
+    });
+    const { box } = listAnnotations(doc, 0).find((entry) => entry.id === low);
+    expect(box.y).toBeCloseTo(0, 6);
+    expect(box.height).toBeGreaterThan(6 * 12 * 1.2);
+    // A box above its point grows up the page instead of over the point. A callout clicked by
+    // the foot of the page is placed so, and its last lines were left hidden.
+    const above = await addCallout(doc, 0, {
+      rect: { x: 100, y: 250, width: 180, height: 50 },
+      anchor: { x: 150, y: 220 },
+      text: words,
+      fit: true,
+    });
+    const raised = listAnnotations(doc, 0).find((entry) => entry.id === above).box;
+    expect(raised.y).toBeCloseTo(250, 6);
+    expect(raised.height).toBeGreaterThan(6 * 12 * 1.2);
+    // On a page turned a quarter, up the page as it is read is towards smaller x.
+    const turned = await blank(1, [400, 400]);
+    turned.getPage(0).setRotation(degrees(90));
+    const side = await addCallout(turned, 0, {
+      rect: { x: 250, y: 100, width: 50, height: 180 },
+      anchor: { x: 320, y: 150 },
+      text: words,
+      fit: true,
+    });
+    const sideBox = listAnnotations(turned, 0).find((entry) => entry.id === side).box;
+    expect(sideBox.x + sideBox.width).toBeCloseTo(300, 6);
+    expect(sideBox.width).toBeGreaterThan(6 * 12 * 1.2);
+    // With no room either way, a box that would grow over its point keeps its size; the
+    // callout is still made.
+    const callout = await addCallout(doc, 0, {
+      rect: { x: 100, y: 330, width: 180, height: 50 },
+      anchor: { x: 150, y: 320 },
+      text: words,
+      fit: true,
+    });
+    expect(listAnnotations(doc, 0).find((entry) => entry.id === callout).box.height).toBeCloseTo(
+      50,
+      6,
+    );
+    // One with room grows.
+    const roomy = await addCallout(doc, 0, {
+      rect: { x: 100, y: 250, width: 180, height: 50 },
+      anchor: { x: 50, y: 380 },
+      text: words,
+      fit: true,
+    });
+    const grown = listAnnotations(doc, 0).find((entry) => entry.id === roomy);
+    expect(grown.box.height).toBeGreaterThan(6 * 12 * 1.2);
+    expect(grown.points[0]).toEqual({ x: 50, y: 380 });
+  });
+
   it('reads the same on a page whose units are larger than points', async () => {
     // Letter paper in units of ten points, as large drawings are made, beside plain Letter.
     const views = [];
@@ -509,6 +616,40 @@ describe('shapes and pencil', () => {
 });
 
 describe('editing', () => {
+  // Words added to a text box, or made larger, ran past its bottom edge and out of sight.
+  it('grows a text box or callout whose new words no longer fit', async () => {
+    const doc = await blank(1, [400, 400]);
+    const box = await addTextBox(doc, 0, {
+      rect: { x: 40, y: 250, width: 180, height: 50 },
+      text: 'Short',
+    });
+    const callout = await addCallout(doc, 0, {
+      rect: { x: 40, y: 100, width: 180, height: 50 },
+      anchor: { x: 300, y: 125 },
+      text: 'Short',
+    });
+    const read = (id) => listAnnotations(doc, 0).find((entry) => entry.id === id);
+    await editAnnotation(doc, 0, box, { text: 'One\nTwo\nThree\nFour\nFive' });
+    expect(read(box).box.height).toBeGreaterThan(5 * 12 * 1.2);
+    expect(read(box).box.y + read(box).box.height).toBeCloseTo(300, 6);
+    await editAnnotation(doc, 0, callout, { fontSize: 60 });
+    const grown = read(callout);
+    // A line of 60 point text, with room around it.
+    expect(grown.box.height).toBeGreaterThan(55);
+    // Its leader line still runs from its point to the middle of the box's near side.
+    expect(grown.points[0]).toEqual({ x: 300, y: 125 });
+    expect(grown.points.at(-1).x).toBeCloseTo(220, 6);
+    expect(grown.points.at(-1).y).toBeCloseTo(grown.box.y + grown.box.height / 2, 6);
+    // A box given a size keeps it, and words that fit leave it as it is.
+    await editAnnotation(doc, 0, box, {
+      text: 'One\nTwo\nThree\nFour\nFive\nSix',
+      box: { x: 40, y: 250, width: 180, height: 50 },
+    });
+    expect(read(box).box.height).toBeCloseTo(50, 6);
+    await editAnnotation(doc, 0, box, { text: 'Short again' });
+    expect(read(box).box.height).toBeCloseTo(50, 6);
+  });
+
   it('moves and resizes a line, a drawing and a polygon, carrying their geometry', async () => {
     const doc = await blank();
     const line = addShapeAnnotation(doc, 0, {
@@ -1062,7 +1203,14 @@ describe('comment exchange', () => {
 
     const target = await blank(2);
     const result = await importXfdf(target, xfdf);
-    expect(result).toEqual({ imported: 16, skipped: 0, duplicates: 0 });
+    expect(result).toEqual({
+      imported: 16,
+      comments: 13,
+      replies: 2,
+      statuses: 1,
+      skipped: 0,
+      duplicates: 0,
+    });
     for (const index of [0, 1])
       expect(listAnnotations(target, index).map(essence)).toEqual(
         listAnnotations(source, index).map(essence),
@@ -1070,6 +1218,9 @@ describe('comment exchange', () => {
     // Importing the same comments again adds nothing.
     expect(await importXfdf(target, xfdf)).toEqual({
       imported: 0,
+      comments: 0,
+      replies: 0,
+      statuses: 0,
       skipped: 0,
       duplicates: 16,
     });
@@ -1112,8 +1263,12 @@ describe('comment exchange', () => {
 <text page="0" rect="1,1,2,2" inreplyto="missing" name="orphan"><contents>?</contents></text>
 </annots>
 </xfdf>`;
+    // Seven comments are added, but a reader sees five: a reply and a status are in a thread.
     expect(await importXfdf(doc, xfdf)).toEqual({
       imported: 7,
+      comments: 5,
+      replies: 1,
+      statuses: 1,
       skipped: 3,
       duplicates: 0,
     });
@@ -1203,7 +1358,14 @@ describe('comment exchange', () => {
 
     // Back into the same PDF: nothing is added twice, and the reply joins its comment.
     const same = await PDFDocument.load(bytes);
-    expect(await importXfdf(same, reviewed)).toEqual({ imported: 1, skipped: 0, duplicates: 2 });
+    expect(await importXfdf(same, reviewed)).toEqual({
+      imported: 1,
+      comments: 0,
+      replies: 1,
+      statuses: 0,
+      skipped: 0,
+      duplicates: 2,
+    });
     const [kept, note] = listAnnotations(same, 0);
     expect([kept.contents, note.contents]).toEqual(['Unnamed', 'Unnamed note']);
     expect(kept.replies.map((r) => r.contents)).toEqual(['Looks right']);
@@ -1214,13 +1376,82 @@ describe('comment exchange', () => {
     const [moved] = listAnnotations(other, 0);
     await editAnnotation(other, 0, moved.id, { rect: { ...moved.rect, x: moved.rect.x + 50 } });
     expect(listAnnotations(other, 0)[0].id).toBe(moved.id);
-    expect(await importXfdf(other, reviewed)).toEqual({ imported: 2, skipped: 0, duplicates: 1 });
+    expect(await importXfdf(other, reviewed)).toEqual({
+      imported: 2,
+      comments: 1,
+      replies: 1,
+      statuses: 0,
+      skipped: 0,
+      duplicates: 1,
+    });
     expect(listAnnotations(other, 0).map((a) => a.contents)).toEqual([
       'Unnamed',
       'Unnamed note',
       'Unnamed',
     ]);
     expect(listAnnotations(other, 0)[2].replies.map((r) => r.contents)).toEqual(['Looks right']);
+  });
+
+  it('writes XML that parsers accept when comments hold control characters', async () => {
+    const source = await blank();
+    // A NUL that ends a string, Word's vertical tab for a line break, another control.
+    addShapeAnnotation(source, 0, {
+      kind: 'square',
+      rect: { x: 100, y: 100, width: 100, height: 80 },
+      text: 'First line\u000bsecond line\u0000',
+      author: 'Ada\u0001 Lovelace',
+    });
+    const xfdf = exportXfdf(source);
+    expect(xfdf).not.toMatch(
+      /[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/,
+    );
+    const target = await blank();
+    expect(await importXfdf(target, xfdf)).toMatchObject({ imported: 1 });
+    const [square] = listAnnotations(target, 0);
+    expect([square.contents, square.author]).toEqual(['First line\nsecond line', 'Ada Lovelace']);
+  });
+
+  it('carries a comment that two pages share as a comment on each page', async () => {
+    const source = await blank(2);
+    const shared = addShapeAnnotation(source, 0, {
+      kind: 'square',
+      rect: { x: 100, y: 100, width: 100, height: 80 },
+      text: 'On both pages',
+    });
+    const ref = source.getPage(0).node.Annots().get(0);
+    source.getPage(1).node.set(PDFName.of('Annots'), source.context.obj([ref]));
+    // A reviewer's reply on the second page answers the comment there.
+    addReply(source, 1, shared, { text: 'Seen on page 2', author: 'Grace' });
+    const xfdf = exportXfdf(source);
+    const names = [...xfdf.matchAll(/<square [^>]*name="([^"]+)"/g)].map((m) => m[1]);
+    expect(names).toHaveLength(2);
+    expect(new Set(names).size).toBe(2);
+    expect(xfdf).toContain(`inreplyto="${names[1]}"`);
+
+    const target = await blank(2);
+    expect(await importXfdf(target, xfdf)).toEqual({
+      imported: 3,
+      comments: 2,
+      replies: 1,
+      statuses: 0,
+      skipped: 0,
+      duplicates: 0,
+    });
+    expect(listAnnotations(target, 0).map((a) => [a.contents, a.replies.length])).toEqual([
+      ['On both pages', 0],
+    ]);
+    expect(
+      listAnnotations(target, 1).map((a) => [a.contents, a.replies.map((r) => r.contents)]),
+    ).toEqual([['On both pages', ['Seen on page 2']]]);
+    // Back into the PDF it came from, it adds nothing.
+    expect(await importXfdf(source, xfdf)).toEqual({
+      imported: 0,
+      comments: 0,
+      replies: 0,
+      statuses: 0,
+      skipped: 0,
+      duplicates: 3,
+    });
   });
 
   it('takes the text of comments that carry only rich text', async () => {
@@ -1250,12 +1481,36 @@ describe('comment exchange', () => {
       /^Comment summary: 13 comments\n\nPage 1\n1\. Note \| Ada \| \d{4}-\d\d-\d\d \d\d:\d\d UTC\n {3}A note\n/,
     );
     expect(summary).toContain('Text box | Ada |');
+    // Named for what was drawn: a callout, an arrow and a cloud, not a text box, line, polygon.
+    expect(summary).toMatch(/\n5\. Callout \| [^\n]+\n {3}Callout\n/);
+    expect(summary).toMatch(/\n8\. Arrow \|/);
     expect(summary).toContain('   Text box\n   second line');
     expect(summary).toContain('\n\nPage 2\n');
     expect(summary).toMatch(
-      /Polygon \| Unknown author \| [^\n]+ \| Status: Accepted\n {3}Cloud\n {3}Reply \| Grace \| [^\n]+\n {5}Agreed\n {5}Reply \| Ada \| [^\n]+\n {7}Good/,
+      /Cloud \| Unknown author \| [^\n]+ \| Status: Accepted\n {3}Cloud\n {3}Reply \| Grace \| [^\n]+\n {5}Agreed\n {5}Reply \| Ada \| [^\n]+\n {7}Good/,
     );
     expect(exportCommentSummary(await blank())).toBe('Comment summary: no comments\n');
+  });
+
+  // A review state or text style with a backslash or an unpaired parenthesis was written into
+  // the PDF as it was, running the string on into the rest of the file: the saved PDF could
+  // no longer be opened.
+  it('imports states and styles with backslashes and parentheses into a readable PDF', async () => {
+    const doc = await blank();
+    const xfdf = `<?xml version="1.0"?><xfdf xmlns="http://ns.adobe.com/xfdf/"><annots>
+<square page="0" rect="100,100,200,150" name="box" color="#FF0000"><contents>Box</contents></square>
+<text page="0" rect="100,130,120,150" name="state" title="Ada" inreplyto="box" state="Done (final)\\" statemodel="Review"/>
+<text page="0" rect="100,130,120,150" name="mark" title="Grace" inreplyto="box" state="Erledigt ✓" statemodel="Review"/>
+<freetext page="0" rect="300,300,400,340" name="words"><contents>Words</contents><defaultstyle>font: Helvetica 12pt; color:#000000; (x:\\</defaultstyle></freetext>
+</annots></xfdf>`;
+    expect((await importXfdf(doc, xfdf)).imported).toBe(4);
+    const bytes = await doc.save();
+    const saved = await PDFDocument.load(bytes);
+    const [box, words] = listAnnotations(saved, 0);
+    expect(box.states.map(({ state }) => state)).toEqual(['Done (final)\\', 'Erledigt ✓']);
+    expect(words.contents).toBe('Words');
+    const subtypes = (await annotationsIn(bytes)).map((a) => a.subtype);
+    expect(subtypes).toEqual(['Square', 'Text', 'Text', 'FreeText']);
   });
 });
 
@@ -1291,4 +1546,109 @@ describe('flattening', () => {
       expect(differing).toBeLessThan(inked / 50);
     }
   });
+});
+
+// A measurement is a line (or path, or area) and a text box with its label, grouped.
+describe('grouped comments', () => {
+  async function measured() {
+    const doc = await blank();
+    const line = addShapeAnnotation(doc, 0, {
+      kind: 'line',
+      points: [
+        { x: 100, y: 400 },
+        { x: 300, y: 400 },
+      ],
+      text: '2.78 in',
+    });
+    const label = await addTextBox(doc, 0, {
+      rect: { x: 180, y: 404, width: 40, height: 14 },
+      text: '2.78 in',
+      fontSize: 9,
+      borderWidth: 0,
+    });
+    groupAnnotation(doc, 0, label, line);
+    return { doc, line, label };
+  }
+  const rectOf = (doc, id) =>
+    doc.context
+      .lookup(
+        doc
+          .getPage(0)
+          .node.Annots()
+          .asArray()
+          .find((ref) => ref.toString() === id),
+      )
+      .lookup(PDFName.of('Rect'))
+      .asArray()
+      .map((n) => Math.round(n.asNumber() * 100) / 100);
+
+  it('lists a measurement once, with where its label is', async () => {
+    const { doc } = await measured();
+    const listed = listAnnotations(doc, 0);
+    expect(listed.map((a) => a.subtype)).toEqual(['Line']);
+    expect(listed[0].replies).toEqual([]);
+    expect(listed[0].group).toHaveLength(1);
+    expect(listed[0].group[0].width).toBeGreaterThan(0);
+  });
+
+  it('moves the label with its line, and leaves it when the line is resized', async () => {
+    const { doc, line, label } = await measured();
+    const before = rectOf(doc, label);
+    const [entry] = listAnnotations(doc, 0);
+    await editAnnotation(doc, 0, line, {
+      rect: { ...entry.rect, x: entry.rect.x + 50, y: entry.rect.y - 20 },
+    });
+    expect(rectOf(doc, label)).toEqual([
+      before[0] + 50,
+      before[1] - 20,
+      before[2] + 50,
+      before[3] - 20,
+    ]);
+    // A change of color redraws the line (the other way a move is made) and moves nothing.
+    await editAnnotation(doc, 0, line, { color: '#0000ff' });
+    const [redrawn] = listAnnotations(doc, 0);
+    await editAnnotation(doc, 0, line, {
+      color: '#ff0000',
+      rect: { ...redrawn.rect, x: redrawn.rect.x - 50 },
+    });
+    expect(rectOf(doc, label)).toEqual([before[0], before[1] - 20, before[2], before[3] - 20]);
+    const [moved] = listAnnotations(doc, 0);
+    await editAnnotation(doc, 0, line, { rect: { ...moved.rect, width: moved.rect.width * 2 } });
+    expect(rectOf(doc, label)).toEqual([before[0], before[1] - 20, before[2], before[3] - 20]);
+  });
+
+  it('deletes the label with its line, and flattens both', async () => {
+    const { doc, line } = await measured();
+    deleteAnnotation(doc, 0, line);
+    expect(doc.getPage(0).node.Annots().size()).toBe(0);
+    const other = (await measured()).doc;
+    expect(flattenDocument(other)).toMatchObject({ annotations: 1 });
+  });
+});
+
+// Another editor deleted a note and left its reply: the page and the Comments panel offer the
+// reply as a note of its own, and so does everything that lists the comments.
+it('lists a reply whose note is gone as a comment of its own', async () => {
+  const doc = await blank();
+  const page = doc.getPage(0);
+  const gone = addNote(doc, 0, { x: 100, y: 700, text: 'Deleted' });
+  const reply = addReply(doc, 0, gone, { text: 'Left behind', author: 'Grace' });
+  addReply(doc, 0, reply, { text: 'Answer to it', author: 'Ada' });
+  // Acrobat leaves its replies visible (print, no zoom, no rotate).
+  doc.context
+    .lookup(
+      page.node
+        .Annots()
+        .asArray()
+        .find((ref) => ref.toString() === reply),
+    )
+    .set(PDFName.of('F'), PDFNumber.of(28));
+  const annots = page.node.Annots();
+  for (let i = annots.size() - 1; i >= 0; i--)
+    if ([gone].includes(annots.get(i).toString()) || i === 1) annots.remove(i);
+  const listed = listAnnotations(doc, 0);
+  expect(listed.map((a) => [a.contents, a.replies.map((r) => r.contents)])).toEqual([
+    ['Left behind', ['Answer to it']],
+  ]);
+  expect(exportCommentSummary(doc)).toContain('Left behind');
 });

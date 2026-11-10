@@ -184,3 +184,56 @@ test('contrast themes keep the ruler\'s marks, indent markers and text area visi
   for (const part of ['tick', 'firstLine', 'hanging']) expect(fills[part], part).not.toBe(fills.ground);
   expect(fills.writingEdge).not.toBe('none');
 });
+
+// At small zooms an inch is a few pixels wide: every eighth-inch tick and every number was still
+// drawn, so the numbers ran into one another and the ticks merged into a solid bar.
+test('ruler numbers and ticks thin out at small zooms instead of overlapping', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await open(page);
+  const labels = axis => page.locator(`.canvas-ruler-${axis} .canvas-ruler-tick span`).evaluateAll(spans => spans.map(s => s.getBoundingClientRect()).map(r => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom })));
+  const ticks = axis => page.locator(`.canvas-ruler-${axis} .canvas-ruler-tick`).evaluateAll((ticks, axis) => ticks.map(t => t.getBoundingClientRect()[axis === 'horizontal' ? 'left' : 'top']), axis);
+  for (const unit of ['Inches', 'Centimeters']) {
+    if (unit === 'Centimeters') {
+      await menuBarMenu(page, 'View');
+      await page.getByRole('menu', { name: 'View', exact: true }).getByRole('menuitem', { name: 'Units', exact: true }).hover();
+      await page.getByRole('menuitemradio', { name: 'Centimeters' }).click();
+    }
+    for (const percent of [100, 50, 25, 10]) {
+      await page.getByRole('slider', { name: 'Zoom slider' }).fill(String(percent));
+      await expect.poll(() => page.locator('.canvas-page').first().evaluate(c => c.getBoundingClientRect().width)).toBeLessThan(816 * percent / 100 + 1);
+      for (const axis of ['horizontal', 'vertical']) {
+        const boxes = await labels(axis);
+        expect(boxes.length, `${unit} ${percent}% ${axis}`).toBeGreaterThan(0);
+        // Neighbouring numbers keep a gap between them.
+        const along = axis === 'horizontal' ? ['left', 'right'] : ['top', 'bottom'];
+        boxes.sort((a, b) => a[along[0]] - b[along[0]]);
+        for (let i = 1; i < boxes.length; i++) expect(boxes[i][along[0]] - boxes[i - 1][along[1]], `${unit} ${percent}% ${axis} label ${i}`).toBeGreaterThanOrEqual(2);
+        // Ticks stay distinguishable: at least 3 px apart.
+        const positions = (await ticks(axis)).sort((a, b) => a - b);
+        for (let i = 1; i < positions.length; i++) expect(positions[i] - positions[i - 1], `${unit} ${percent}% ${axis} tick ${i}`).toBeGreaterThanOrEqual(3);
+      }
+    }
+  }
+});
+
+test('a ruler hidden from the View tab stays hidden after a reload, and shown again stays shown', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const ruler = page.getByRole('group', { name: 'Horizontal ruler' });
+  await expect(ruler).toBeVisible();
+  await (await onTab(page, 'view')).getByRole('checkbox', { name: 'Ruler', exact: true }).uncheck();
+  await expect(ruler).toBeHidden();
+  await page.reload();
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await expect(ruler).toBeHidden();
+  await expect((await onTab(page, 'view')).getByRole('checkbox', { name: 'Ruler', exact: true })).not.toBeChecked();
+  // A phone still starts without one, and a window that grows back keeps the choice.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(ruler).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(ruler).toBeHidden();
+  await (await onTab(page, 'view')).getByRole('checkbox', { name: 'Ruler', exact: true }).check();
+  await page.reload();
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await expect(ruler).toBeVisible();
+});

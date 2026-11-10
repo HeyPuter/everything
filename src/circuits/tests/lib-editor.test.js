@@ -239,7 +239,14 @@ describe('editor', () => {
     expect(doc.dirty).toBe(true);
     await ed.save();
     expect(project.library['res-0603'].value).toBe('1k');
-    expect(app.userLibrary.put).toHaveBeenCalled();
+    // The project's copy of a built-in must not replace the built-in elsewhere.
+    expect(app.userLibrary.put).not.toHaveBeenCalled();
     expect(doc.dirty).toBe(false);
+
+    const own = copyDef(findComponent('res-0603'), 'user-res', 'My resistor');
+    const ownDoc = new LibDoc({ def: own, isNew: true });
+    await new LibEditor(app, project, ownDoc).save();
+    expect(project.library['user-res'].name).toBe('My resistor');
+    expect(app.userLibrary.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'user-res' }));
   });
 });

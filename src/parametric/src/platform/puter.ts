@@ -16,6 +16,8 @@ export interface PuterFSItem {
 export interface PuterSDK {
   env?: string;
   appID?: string;
+  /** Closes the app's window (inside the Puter desktop). */
+  exit?(): void;
   auth: {
     isSignedIn(): boolean;
     signIn(opts?: Record<string, unknown>): Promise<unknown>;
@@ -54,12 +56,20 @@ declare global {
 }
 
 let sdk: PuterSDK | null = null;
+let accountGeneration = 0;
+const kvWrites = new Map<string, Promise<boolean>>();
+
+function invalidateQueuedKVWrites() {
+  accountGeneration++;
+}
 
 /** Waits briefly for the SDK script (loaded with defer) and returns it or null. */
 export async function loadPuter(timeoutMs = 5000): Promise<PuterSDK | null> {
   if (sdk) return sdk;
   const start = Date.now();
-  while (typeof window !== 'undefined' && !window.puter && Date.now() - start < timeoutMs) {
+  // index.html marks a script that could not be loaded (offline, blocked): nothing will arrive.
+  const failed = () => !!(window as { __puterFailed?: boolean }).__puterFailed;
+  while (typeof window !== 'undefined' && !window.puter && !failed() && Date.now() - start < timeoutMs) {
     await new Promise((r) => setTimeout(r, 40));
   }
   sdk = typeof window !== 'undefined' && window.puter ? window.puter : null;
@@ -68,6 +78,8 @@ export async function loadPuter(timeoutMs = 5000): Promise<PuterSDK | null> {
 
 export const puter = () => sdk;
 export function setPuterForTests(p: PuterSDK | null) {
+  invalidateQueuedKVWrites();
+  kvWrites.clear();
   sdk = p;
 }
 
@@ -118,6 +130,7 @@ export async function getProfilePicture(): Promise<string | null> {
 
 export async function signIn(): Promise<boolean> {
   if (!sdk) throw new Error('Puter is not available right now. Check your connection and try again.');
+  invalidateQueuedKVWrites();
   pictureCache = null;
   try {
     await sdk.auth.signIn();
@@ -130,24 +143,35 @@ export async function signIn(): Promise<boolean> {
   return isSignedIn();
 }
 
+/** The account changed without signIn or signOut (puter.js's <puter-user-menu>): drops what belonged to the previous one. */
+export function accountChanged() {
+  invalidateQueuedKVWrites();
+  pictureCache = null;
+}
+
 export async function signOut(): Promise<void> {
   if (!sdk) return;
+  invalidateQueuedKVWrites();
   pictureCache = null;
   await sdk.auth.signOut();
 }
 
 /** True when an error from puter.fs means the path does not exist. */
 export function isMissing(err: unknown): boolean {
-  const e = err as { code?: string; error?: { code?: string }; message?: string; status?: number };
+  const e = err as { code?: string; error?: { code?: string }; message?: string; status?: number; name?: string };
   const code = e?.code || e?.error?.code || e?.message || '';
-  return /subject_does_not_exist|not_found|does not exist|404/i.test(String(code)) || e?.status === 404;
+  // NotFoundError: a file missing from browser storage (OPFS).
+  return /subject_does_not_exist|not_found|does not exist|404/i.test(String(code)) || e?.status === 404 || e?.name === 'NotFoundError';
 }
 
 /** Human readable error text for storage failures. */
 export function storageError(err: unknown): string {
-  const e = err as { code?: string; message?: string; status?: number };
+  const e = err as { code?: string; message?: string; status?: number; name?: string };
   if (e?.code === 'storage_limit_reached' || e?.status === 413) return 'Your Puter storage is full. Free up space or upgrade your plan, then save again.';
   if (e?.status === 429 || e?.code === 'too_many_requests') return 'Too many requests right now. Wait a moment and try again.';
+  // fetch() failures: Chrome, Firefox and Safari wording.
+  if (err instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(e.message ?? '')) return 'Puter could not be reached. Check your connection and try again.';
+  if (e?.name === 'QuotaExceededError') return 'This browser has run out of storage space for parts. Delete parts you no longer need, download this one, or sign in to save it to your Puter cloud.';
   return e?.message || 'Something went wrong while talking to Puter.';
 }
 
@@ -170,10 +194,28 @@ export async function kvGet<T>(key: string): Promise<T | undefined> {
 
 export async function kvSet(key: string, value: unknown): Promise<boolean> {
   if (!sdk?.kv || !cloudAvailable()) return false;
+  const target = sdk, generation = accountGeneration;
+  let snapshot: unknown;
   try {
-    await sdk.kv.set(key, value);
-    return true;
+    snapshot = structuredClone(value);
   } catch {
     return false;
   }
+  const write = async () => {
+    // A queued preference belongs to the session that requested it.
+    if (target !== sdk || generation !== accountGeneration || !cloudAvailable()) return false;
+    try {
+      await target.kv.set(key, snapshot);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  // Different keys are independent; writes to one key must reach storage in
+  // request order, even when an earlier call is slow or fails.
+  const previous = kvWrites.get(key);
+  const result = previous ? previous.then(write) : write();
+  kvWrites.set(key, result);
+  void result.then(() => { if (kvWrites.get(key) === result) kvWrites.delete(key); });
+  return result;
 }

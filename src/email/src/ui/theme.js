@@ -1,5 +1,7 @@
 /** Light / dark / system theme. System is the default: no attribute, no key. */
 
+import { syncUserMenuTheme } from './usermenu.js';
+
 const LS_KEY = 'puter-mail:theme';
 
 export const THEMES = [
@@ -20,6 +22,7 @@ export function applyTheme(mode) {
     else localStorage.removeItem(LS_KEY);
   } catch {}
   updateThemeColorMeta();
+  syncUserMenuTheme();
 }
 
 export function currentTheme() {

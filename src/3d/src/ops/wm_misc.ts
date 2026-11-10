@@ -71,8 +71,9 @@ function openUrlPreset(type: string): boolean {
 
 /** Leave the app: Puter closes its window; a browser tab can only be closed when the script opened it. */
 function quitNow() {
-  const p = (globalThis as unknown as { puter?: { exit?: () => void } }).puter;
-  if (typeof p?.exit === 'function') {
+  // the SDK is on plain web pages too, where its exit() has no window to close
+  const p = (globalThis as unknown as { puter?: { env?: string; exit?: () => void } }).puter;
+  if (p?.env === 'app' && typeof p.exit === 'function') {
     p.exit();
     return;
   }

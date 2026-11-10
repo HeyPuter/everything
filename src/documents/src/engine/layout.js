@@ -17,7 +17,7 @@ import { pageGeometry, readingPageGeometry } from './page-settings.js';
 import { layoutParagraphBorders } from './paragraph-border-layout.js';
 import { layoutTableBorders, tableRowBorderWidths, tableBorderWidth, cellBorderLayoutWidth, tableHorizontalInsets } from './table-border-layout.js';
 import { cellWritingTopBorder, rowTableBorder } from './cell-borders.js';
-import { justificationRange, justifiedStyle } from './justification.js';
+import { justificationRange, justifiedStyle, justifiedLineEnd } from './justification.js';
 import { contractionMetrics, fitContractedWord } from './justification-contraction.js';
 import { borderOutset, visibleParagraphBorders } from './paragraph-borders.js';
 import { documentBlocks, fixedColumnWidths, roundColumnWidths, autoColumnWidths, rowGrid, spanWidth, headerRowCount, minimumSpanWidth } from './tables.js';
@@ -228,6 +228,8 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   // What pagination reads of each block, in order (paragraph-measure-cache.js flowName). Only footnote
   // settling reads it (layoutWithFootnotes); naming a table serializes all of its measured rows.
   let flowNames = paragraphCache && storyOptions.noteReserve !== undefined ? [] : null;
+  // Where each page's footnote area ends: the bottom of its text area before notes (layoutWithFootnotes).
+  const noteBottoms = [];
   const pageKey = geometry => { let key = pageKeys.get(geometry); if (key === undefined) pageKeys.set(geometry, key = paragraphCache.intern(JSON.stringify(geometry))); return key; };
   // A screen view (web, draft, read) lays every section out on its own display geometry.
   const viewPage = storyOptions.viewGeometry || (geometry => geometry);
@@ -264,10 +266,12 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
         const dynamic = { ...page, boundsBase: { top: page.top, bottom: page.bottom, height: page.height }, boundsOrigin: 0 };
         const stories = sectionStoryBounds(page, pageStories, sections.length, currentSection, measureBase, numbering, storyOptions);
         const reserve = storyOptions.noteReserve, section = currentSection;
-        // Footnote areas shorten the text area of the pages that reference them.
-        dynamic.pageBounds = reserve && Object.keys(reserve).length ? local => {
-          const bounds = stories(local), note = reserve[(section.pageOffset ?? 0) + local] || 0;
-          return note ? { top: bounds.top, bottom: Math.max(bounds.top + 1, Math.min(bounds.bottom, page.height - page.bottom - note)) } : bounds;
+        // Footnote areas shorten the text area of the pages that reference them. They sit above the
+        // footer, which a footer taller than the bottom margin raises with the text area's bottom.
+        dynamic.pageBounds = reserve ? local => {
+          const bounds = stories(local), index = (section.pageOffset ?? 0) + local, note = reserve[index] || 0;
+          noteBottoms[index] = bounds.bottom;
+          return note ? { top: bounds.top, bottom: Math.max(bounds.top + 1, bounds.bottom - note) } : bounds;
         } : stories;
         currentSection.page = dynamic;
       }
@@ -464,7 +468,9 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
           box.margins = margins;
           box.pageBottomInset = padding[rowIndex + cell.rowSpan - 1].bottom / 15 + pageBottomWidths[rowIndex + cell.rowSpan - 1];
           const clipOverflow = flexibleCounts[rowIndex] === flexibleCounts[rowIndex + cell.rowSpan];
-          const cellPage = { ...page, tableDepth: box.depth, allowOverflowIndents: true, clipOverflow, left: box.x + margins.left / 15, right: page.width - x + margins.right / 15, top: page.top + margins.top / 15, bottom: page.bottom + margins.bottom / 15 };
+          const cellGeometry = { tableDepth: box.depth, allowOverflowIndents: true, clipOverflow, left: box.x + margins.left / 15, right: page.width - x + margins.right / 15, top: page.top + margins.top / 15, bottom: page.bottom + margins.bottom / 15 };
+          const cellPage = { ...page, ...cellGeometry };
+          if (flowNames) paragraphCache.cellPage(cellPage, pageKey(page), cellGeometry);
           if (cellPage.left >= page.width - cellPage.right) throw new Error('Cell margins leave no writing space.');
           const nestedFloats = [];
           const previousCell = row.cells[index - 1];
@@ -488,8 +494,10 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
               if (result.lines.some(l => ['page', 'column'].includes(l.hardBreak))) throw new Error('Page breaks inside table cells are not supported yet.');
               // Only the measured preview changes; retain the authored
               // property and rich paragraph in the model and original file.
-              return { ...result, ...(result.format.pageBreakBefore ? { format: { ...result.format, pageBreakBefore: false } } : {}),
-                lines: result.lines.map(line => ({ ...line, cellId: cell.id, columnLeft: cellPage.left })) };
+              const extra = { cellId: cell.id, columnLeft: cellPage.left };
+              const copy = { ...result, ...(result.format.pageBreakBefore ? { format: { ...result.format, pageBreakBefore: false } } : {}),
+                lines: result.lines.map(line => ({ ...line, ...extra })) };
+              return flowNames ? paragraphCache.cellCopy(copy, result, extra) : copy;
             });
             if (child.table?.floating) {
               if (!anchor) throw new Error('Floating tables require a following anchor paragraph.');
@@ -635,7 +643,9 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
     const continuous = Boolean(continues(previous, section));
     if (continuous && start !== undefined) {
       const reason = 'Page-number restarts in continuous sections are not supported yet.';
-      if (!storyOptions.bestEffort) throw new Error(reason);
+      // A screen view lays every section out on one screen geometry, so a section that starts new
+      // paper when printed continues here; it shows no page numbers, so the restart is only ignored.
+      if (!storyOptions.bestEffort && !storyOptions.viewGeometry) throw new Error(reason);
       (placed.numberingApproximations ||= []).push({ section: sectionIndex, reason,
         message: `Section ${sectionIndex + 1}: page-number restart at ${start} in a continuous section is ignored in this read-only preview; numbering continues from the previous section.` });
       // Ignore the restart before odd/even handling, so it cannot insert a
@@ -791,7 +801,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const paragraphBorders = layoutParagraphBorders(placed);
   let offset = 0;
   const pageOffsets = placed.pages.map(p => { const start = offset; offset += p.height; return start; });
-  return { ...placed, page, pageOffsets, tableWidths, paragraphBorders, tableBorders: layoutTableBorders(placed.cells), ...(hasRotatedCells ? { hasRotatedCells: true } : {}), ...(flowNames ? { flowSignature: flowNames.join(' ') } : {}) };
+  return { ...placed, page, pageOffsets, tableWidths, paragraphBorders, tableBorders: layoutTableBorders(placed.cells), ...(hasRotatedCells ? { hasRotatedCells: true } : {}), ...(flowNames ? { flowSignature: flowNames.join(' ') } : {}), ...(storyOptions.noteReserve ? { noteBottoms } : {}) };
 }
 
 // Give pagination all rows connected by vertical spans, without keeping them on a page.
@@ -1032,15 +1042,19 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     const lastLine = end === chars.length || hardBreak === 'page' && end === chars.length - 1 && !page.splitPgBreakAndParaMark;
     // Distributed alignment (§17.18.44 distribute) spreads every line, the last one included.
     const distribute = format.alignment === 'distribute';
-    if (distribute || format.alignment === 'both' && !contraction && !lastLine && !(hardBreak === 'line' && page.doNotExpandShiftReturn)) {
-      const range = justificationRange(span, measured, right, builder.field.tab, distribute);
+    // Thai justification (§17.18.44 thaiDistribute) widens the gaps between characters as well as between words,
+    // as distributed alignment does, but leaves the last line as justified text does: this editor's approximation of
+    // its "slight" inter-character optimization.
+    const thai = format.alignment === 'thaiDistribute';
+    if (distribute || (format.alignment === 'both' || thai) && !contraction && !lastLine && !(hardBreak === 'line' && page.doNotExpandShiftReturn)) {
+      const range = justificationRange(span, measured, right, builder.field.tab, distribute || thai);
       if (range) {
         let spacing = range.spacing;
         for (let attempt = 0; attempt < 4; attempt++) {
           const expanded = new LineBuilder(left, right, format, page, measure, offset);
           span.forEach((c, index) => expanded.add(index >= range.first && index < range.last && !c.image && (!/^\p{White_Space}+$/u.test(c.text) || c.text === ' ' || c.text === '\u00a0') ? { ...c, style: justifiedStyle(c.style, range, index, spacing) } : c));
           measured = { ...expanded.finish(markStyle, ignoreMark, !!marker), justificationSpacing: spacing };
-          const overflow = measured.stops.at(-1).x - measured.ignoredTrailingWidth - right;
+          const overflow = justifiedLineEnd(measured) - right;
           if (overflow <= 1e-6) break;
           // Native text advances use finite precision. Re-measure slightly
           // smaller gaps rather than weakening the cell's overflow check.
@@ -1386,10 +1400,13 @@ export function nearestStop(line, x, y) {
   }
   return line.stops.reduce((best, s) => Math.abs(s.x - x) < Math.abs(best.x - x) || s.hanging && s.x === best.x ? s : best, line.stops[0]);
 }
-export function imageAtPoint(layout, page, x, y, { includeBehindText = false } = {}) {
+// `rotationOf(image)`: a drawing's own rotation that its image does not carry (drawingOwnRotation), so a
+// turned shape is found where it shows.
+export function imageAtPoint(layout, page, x, y, { includeBehindText = false, rotationOf = null } = {}) {
   let behind = null;
+  const turned = f => { const rotation = rotationOf?.(f.image); return rotation ? { ...f, image: { ...f.image, rotation } } : f; };
   for (const f of [...(layout.floatingObjects || [])].reverse()) {
-    if (f.page !== page || f.image?.hidden || !cellClipContains(f.cellClip, x, y) || !((f.image.flatLine || f.image.flatGroup) ? flatLineContains(f.image,f.x,f.y,f.width,f.height,x,y) : positionedImageContains(f, x, y))) continue;
+    if (f.page !== page || f.image?.hidden || !cellClipContains(f.cellClip, x, y) || !((f.image.flatLine || f.image.flatGroup) ? flatLineContains(f.image,f.x,f.y,f.width,f.height,x,y) : positionedImageContains(turned(f), x, y))) continue;
     if (!f.image.anchor?.behind) return f;
     behind ||= f;
   }

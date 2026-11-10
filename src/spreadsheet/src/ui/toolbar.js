@@ -18,7 +18,8 @@ import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, 
 import { openCustomFormatDialog } from './numfmtdialog.js';
 import { customColorRows, colorLabel } from './colorpicker.js';
 import { themeColorBlock } from './themes.js';
-import { GROUP_BLOCKED_REASON } from '../core/sheet-group.js';
+import { groupBlockedReason } from '../core/sheet-group.js';
+import { t, tSource } from '../i18n/index.js';
 
 /* Presets built on the custom-format engine; matched by their code. */
 /**
@@ -48,25 +49,26 @@ export const DURATION_CODE = ELAPSED_TIME_CODE;
 const coded = (code) => ({ patch: { fmt: 'custom', code, dec: null }, match: (s) => s.fmt === 'custom' && s.code === code });
 
 // Each entry's sample is a value, shown the way the entry would show it when the menu opens (formatSample).
+// An entry's label is read in the interface language when it is shown; `labelKey` names it, for its English.
 const SAMPLE_DAY = 46261; // 2026-08-27
 const SAMPLE_TIME = 0.5729166666666666; // 13:45
 export const FORMATS = [
   // The common formats in order. General clears the details of the format it removes too, so a leftover code, seconds or grouping cannot shape the next entry.
-  { value: 'general', label: 'General', icon: 'text', sample: 1234.5, patch: { ...AUTOMATIC_FORMAT } },
-  { value: 'number', label: 'Number', icon: 'number', sample: 1234.5, patch: { fmt: 'number' } },
-  { value: 'currency', label: 'Currency', icon: 'currency', sample: 1234.5, patch: { fmt: 'currency' } },
+  { value: 'general', labelKey: 'toolbar.format.general', get label() { return t(this.labelKey); }, icon: 'text', sample: 1234.5, patch: { ...AUTOMATIC_FORMAT } },
+  { value: 'number', labelKey: 'toolbar.format.number', get label() { return t(this.labelKey); }, icon: 'number', sample: 1234.5, patch: { fmt: 'number' } },
+  { value: 'currency', labelKey: 'toolbar.format.currency', get label() { return t(this.labelKey); }, icon: 'currency', sample: 1234.5, patch: { fmt: 'currency' } },
   // The editor's fmt command puts the cell's currency, or the regional format's, into the code it applies (accountingCode).
-  { value: 'accounting', label: 'Accounting', icon: 'accounting', sample: 1234.5, patch: { fmt: 'custom', code: ACCOUNTING_CODE, dec: null }, match: (s) => s.fmt === 'custom' && isAccountingCode(s.code) },
-  { value: 'date', label: 'Short Date', icon: 'calendar', sample: SAMPLE_DAY, patch: { fmt: 'date', dateStyle: null }, match: (s) => s.fmt === 'date' && s.dateStyle !== 'medium' },
-  { value: 'date-medium', label: 'Long Date', icon: 'calendar', sample: SAMPLE_DAY, patch: { fmt: 'date', dateStyle: 'medium' }, match: (s) => s.fmt === 'date' && s.dateStyle === 'medium' },
-  { value: 'time', label: 'Time', icon: 'clock', sample: SAMPLE_TIME, patch: { fmt: 'time' } },
-  { value: 'percent', label: 'Percentage', icon: 'percent', sample: 0.1235, patch: { fmt: 'percent' } },
-  { value: 'fraction', label: 'Fraction', icon: 'number', sample: 1234.5, ...coded(FRACTION_CODE) },
-  { value: 'scientific', label: 'Scientific', icon: 'number', sample: 1234.5, patch: { fmt: 'scientific' } },
-  { value: 'text', label: 'Text', icon: 'text', sample: 'as typed', patch: { fmt: 'text', dec: null } },
-  { value: 'duration', label: 'Duration', icon: 'clock', sample: 1.0625, ...coded(DURATION_CODE) },
-  { value: 'datetime', label: 'Date and time', icon: 'clock', sample: SAMPLE_DAY + SAMPLE_TIME, patch: { fmt: 'datetime' } },
-  { value: 'custom', label: 'Custom', icon: 'number', sample: '', patch: null, match: (s) => s.fmt === 'custom' },
+  { value: 'accounting', labelKey: 'toolbar.format.accounting', get label() { return t(this.labelKey); }, icon: 'accounting', sample: 1234.5, patch: { fmt: 'custom', code: ACCOUNTING_CODE, dec: null }, match: (s) => s.fmt === 'custom' && isAccountingCode(s.code) },
+  { value: 'date', labelKey: 'toolbar.format.shortDate', get label() { return t(this.labelKey); }, icon: 'calendar', sample: SAMPLE_DAY, patch: { fmt: 'date', dateStyle: null }, match: (s) => s.fmt === 'date' && s.dateStyle !== 'medium' },
+  { value: 'date-medium', labelKey: 'toolbar.format.longDate', get label() { return t(this.labelKey); }, icon: 'calendar', sample: SAMPLE_DAY, patch: { fmt: 'date', dateStyle: 'medium' }, match: (s) => s.fmt === 'date' && s.dateStyle === 'medium' },
+  { value: 'time', labelKey: 'toolbar.format.time', get label() { return t(this.labelKey); }, icon: 'clock', sample: SAMPLE_TIME, patch: { fmt: 'time' } },
+  { value: 'percent', labelKey: 'toolbar.format.percentage', get label() { return t(this.labelKey); }, icon: 'percent', sample: 0.1235, patch: { fmt: 'percent' } },
+  { value: 'fraction', labelKey: 'toolbar.format.fraction', get label() { return t(this.labelKey); }, icon: 'number', sample: 1234.5, ...coded(FRACTION_CODE) },
+  { value: 'scientific', labelKey: 'toolbar.format.scientific', get label() { return t(this.labelKey); }, icon: 'number', sample: 1234.5, patch: { fmt: 'scientific' } },
+  { value: 'text', labelKey: 'toolbar.format.text', get label() { return t(this.labelKey); }, icon: 'text', get sample() { return t('toolbar.format.asTyped'); }, patch: { fmt: 'text', dec: null } },
+  { value: 'duration', labelKey: 'toolbar.format.duration', get label() { return t(this.labelKey); }, icon: 'clock', sample: 1.0625, ...coded(DURATION_CODE) },
+  { value: 'datetime', labelKey: 'toolbar.format.dateTime', get label() { return t(this.labelKey); }, icon: 'clock', sample: SAMPLE_DAY + SAMPLE_TIME, patch: { fmt: 'datetime' } },
+  { value: 'custom', labelKey: 'toolbar.format.custom', get label() { return t(this.labelKey); }, icon: 'number', sample: '', patch: null, match: (s) => s.fmt === 'custom' },
 ];
 
 
@@ -115,16 +117,28 @@ export const FILL_COLORS = [
 ];
 
 export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
-  const root = el('div.toolbar', { role: 'toolbar', 'aria-label': 'Formatting', 'aria-orientation': 'horizontal' });
+  const root = el('div.toolbar', { role: 'toolbar', 'aria-label': t('toolbar.formatting'), 'aria-orientation': 'horizontal' });
+  /**
+   * Name a control from the catalog: its accessible name in the interface language, and the English its ribbon key
+   * tip is worked out from (keytips.js), so the key tips are the same letters in every language.
+   */
+  const nameAs = (b, key, values, sourceValues = values) => {
+    b.setAttribute('aria-label', t(key, values));
+    b.dataset.keytipLabel = tSource(key, sourceValues);
+    return b;
+  };
+  const withShortcut = (label, shortcut) => (shortcut ? t('toolbar.withShortcut', { label, shortcut }) : label);
 
   // A button with a shortcut names it in its tooltip and, in the spelling aria-keyshortcuts takes, in that attribute, so it can be heard as well as read.
-  const btn = (name, label, cmd, arg, extra = {}) => {
+  // `key` names its label in the catalog.
+  const btn = (name, key, cmd, arg, extra = {}) => {
+    const label = t(key);
     const b = el('button.tb-btn', {
-      type: 'button', html: icon(name, 18), 'aria-label': label, title: extra.title || (extra.shortcut ? `${label} (${extra.shortcut})` : label),
+      type: 'button', html: icon(name, 18), 'aria-label': label, title: extra.title || withShortcut(label, extra.shortcut),
       'aria-keyshortcuts': ariaKeyShortcuts(extra.shortcut),
       'aria-pressed': extra.toggle ? 'false' : null, 'aria-haspopup': extra.menu ? 'menu' : null, tabindex: -1,
       // An object argument (the Percent and Currency buttons' { fmt, toggle }) is named by its text values, so data-arg reads "percent", not "[object Object]".
-      dataset: { cmd, arg: arg != null && typeof arg === 'object' ? Object.values(arg).filter((v) => typeof v === 'string').join(' ') : arg ?? '' },
+      dataset: { cmd, arg: arg != null && typeof arg === 'object' ? Object.values(arg).filter((v) => typeof v === 'string').join(' ') : arg ?? '', keytipLabel: tSource(key) },
       // Done, the keyboard goes back to the sheet, unless the command put it somewhere itself (see the ribbon's backToSheet).
       onclick: () => Promise.resolve(ctx.run(cmd, arg)).finally(() => { if (document.activeElement === b && b.isConnected) ctx.grid?.focus?.(); }),
     });
@@ -133,15 +147,15 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     // A shortcut of the person's own (Options ▸ Keyboard Shortcuts) is the one the tooltip names.
     if (!extra.title) b.addEventListener('pointerenter', () => {
       const keys = effectiveShortcut({ cmd, arg, shortcut: extra.shortcut });
-      b.title = keys ? `${label} (${keys})` : label;
+      b.title = withShortcut(label, keys);
     });
     return b;
   };
   const sep = () => el('div.tb-sep', { role: 'separator', 'aria-orientation': 'vertical' });
   const group = (...kids) => el('div.tb-group', {}, ...kids);
 
-  const undoBtn = btn('undo', 'Undo', 'undo', null, { shortcut: `${MOD_KEY}+Z`, title: `Undo (${MOD_KEY}+Z). Right-click for the history` });
-  const redoBtn = btn('redo', 'Redo', 'redo', null, { shortcut: `${MOD_KEY}+Shift+Z`, title: `Redo (${MOD_KEY}+Shift+Z). Right-click for the history` });
+  const undoBtn = btn('undo', 'common.undo', 'undo', null, { shortcut: `${MOD_KEY}+Z`, title: t('toolbar.undoTip', { shortcut: `${MOD_KEY}+Z` }) });
+  const redoBtn = btn('redo', 'common.redo', 'redo', null, { shortcut: `${MOD_KEY}+Shift+Z`, title: t('toolbar.redoTip', { shortcut: `${MOD_KEY}+Shift+Z` }) });
   // Right-click (or long-press) lists the last steps; picking one undoes (or redoes) everything down to it.
   const historyMenu = (anchor, kind) => {
     // Undo and redo wait while a cell is being edited (the buttons are greyed for it); the history list, an
@@ -150,10 +164,10 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     const labels = kind === 'undo' ? ctx.wb.undoLabels(12) : ctx.wb.redoLabels(12);
     if (!labels.length) return;
     openMenu({
-      anchor, label: kind === 'undo' ? 'Undo history' : 'Redo history', minWidth: 220,
+      anchor, label: kind === 'undo' ? t('toolbar.undoHistory') : t('toolbar.redoHistory'), minWidth: 220,
       items: [
-        { header: kind === 'undo' ? 'Undo up to' : 'Redo up to' },
-        ...labels.map((label, i) => ({ label: i ? `${label} (${i + 1} steps)` : label, onSelect: () => ctx.run(kind === 'undo' ? 'undoSteps' : 'redoSteps', i + 1) })),
+        { header: kind === 'undo' ? t('toolbar.undoUpTo') : t('toolbar.redoUpTo') },
+        ...labels.map((label, i) => ({ label: i ? t('toolbar.historySteps', { label, steps: i + 1 }) : label, onSelect: () => ctx.run(kind === 'undo' ? 'undoSteps' : 'redoSteps', i + 1) })),
       ],
       // After a choice the sheet takes focus back; after Escape or Tab the menu has put it on the button, and it stays there.
       onClose: (reason) => { if (reason === 'select') ctx.grid.focus(); },
@@ -161,7 +175,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
   };
   // In the quick access row, Undo carries an arrow beside it, opening the same history.
   const undoArrow = el('button.icon-btn.qat-btn.qat-arrow', {
-    type: 'button', html: icon('chevD', 12, 2), 'aria-label': 'Undo history', title: 'Undo history', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', html: icon('chevD', 12, 2), 'aria-label': t('toolbar.undoHistory'), title: t('toolbar.undoHistory'), 'aria-haspopup': 'menu', tabindex: -1,
     onclick: () => historyMenu(undoArrow, 'undo'),
   });
   // The history list is an extra on a right-click or long press; pressing the button itself undoes, so it announces no popup.
@@ -188,17 +202,17 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     b.addEventListener('touchend', (e) => { if (held) { held = false; e.preventDefault(); } }, { passive: false });
   }
 
-  const boldBtn = btn('bold', 'Bold', 'bold', null, { toggle: true, shortcut: `${MOD_KEY}+B` });
-  const italicBtn = btn('italic', 'Italic', 'italic', null, { toggle: true, shortcut: `${MOD_KEY}+I` });
-  const underlineBtn = btn('underline', 'Underline', 'underline', null, { toggle: true, shortcut: `${MOD_KEY}+U` });
-  const strikeBtn = btn('strike', 'Strikethrough', 'strike', null, { toggle: true, shortcut: `${MOD_KEY}+5` });
+  const boldBtn = btn('bold', 'toolbar.bold', 'bold', null, { toggle: true, shortcut: `${MOD_KEY}+B` });
+  const italicBtn = btn('italic', 'toolbar.italic', 'italic', null, { toggle: true, shortcut: `${MOD_KEY}+I` });
+  const underlineBtn = btn('underline', 'toolbar.underline', 'underline', null, { toggle: true, shortcut: `${MOD_KEY}+U` });
+  const strikeBtn = btn('strike', 'toolbar.strikethrough', 'strike', null, { toggle: true, shortcut: `${MOD_KEY}+5` });
 
   const colorBtn = el('button.tb-btn.tb-color', {
-    type: 'button', 'aria-label': 'Text color', title: 'Text color', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', 'aria-label': t('toolbar.textColor'), title: t('toolbar.textColor'), 'aria-haspopup': 'menu', tabindex: -1, dataset: { keytipLabel: tSource('toolbar.textColor') },
     onclick: (e) => colorMenu(e.currentTarget, 'color', TEXT_COLORS),
   }, el('span', { html: icon('textColor', 18) }), el('span.color-bar'));
   const fillBtn = el('button.tb-btn.tb-color', {
-    type: 'button', 'aria-label': 'Fill color', title: 'Fill color', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', 'aria-label': t('toolbar.fillColor'), title: t('toolbar.fillColor'), 'aria-haspopup': 'menu', tabindex: -1, dataset: { keytipLabel: tSource('toolbar.fillColor') },
     onclick: (e) => colorMenu(e.currentTarget, 'bg', FILL_COLORS),
   }, el('span', { html: icon('fill', 18) }), el('span.color-bar'));
 
@@ -213,8 +227,10 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     }, el('span', { html: icon(kind === 'bg' ? 'fill' : 'textColor', 18) }), el('span.tb-pen-bar'));
     b.sync = () => {
       const c = lastColor[kind], css = typeof c === 'object' ? c.rgb : c;
-      const name = `${kind === 'bg' ? 'Fill color' : 'Font color'} ${typeof c === 'object' ? lastName[kind] || css : colorLabel(c)}`;
-      b.setAttribute('aria-label', `Apply ${name.toLowerCase()}`); b.title = name;
+      const color = typeof c === 'object' ? lastName[kind] || css : colorLabel(c);
+      // The button is named in lower case after the verb ("Apply fill color yellow"); the tooltip names the colour as given.
+      b.title = kind === 'bg' ? t('toolbar.fillColorNamed', { color }) : t('toolbar.fontColorNamed', { color });
+      nameAs(b, kind === 'bg' ? 'toolbar.applyFillColor' : 'toolbar.applyFontColor', { color: color.toLowerCase() });
       b.querySelector('.tb-pen-bar').style.backgroundColor = css;
     };
     b.sync();
@@ -228,21 +244,21 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
   const pen = { color: null, style: 'thin' };
   const borderArg = (kind) => ({ kind, color: pen.color, style: pen.style });
   function borderColorMenu(anchor) {
-    const swatches = el('div.swatches', { role: 'group', 'aria-label': 'Border colors', 'data-cols': 6 },
+    const swatches = el('div.swatches', { role: 'group', 'aria-label': t('toolbar.borderColors'), 'data-cols': 6 },
       el('button.swatch.none', {
-        type: 'button', role: 'menuitemradio', 'aria-checked': String(!pen.color), 'aria-label': 'Default color', title: 'Default',
+        type: 'button', role: 'menuitemradio', 'aria-checked': String(!pen.color), 'aria-label': t('toolbar.defaultColor'), title: t('common.default'),
         onclick: () => { menu.close(); pen.color = null; ctx.run('borders', { kind: 'restyle', color: null }); },
       }),
       ...TEXT_COLORS.map((hex) => el('button.swatch', {
         type: 'button', role: 'menuitemradio', 'aria-checked': String(pen.color === hex), 'aria-label': colorLabel(hex), title: colorLabel(hex),
         style: { background: hex }, onclick: () => { menu.close(); pen.color = hex; ctx.run('borders', { kind: 'restyle', color: hex }); },
       })));
-    const extra = customColorRows({ current: pen.color, label: 'border color', onPick: (hex) => { menu.close(); pen.color = hex; ctx.run('borders', { kind: 'restyle', color: hex }); } });
-    const menu = openMenu({ anchor, label: 'Border color', items: [{ custom: swatches }, ...extra.map((custom) => ({ custom }))] });
+    const extra = customColorRows({ current: pen.color, label: t('toolbar.borderColorNoun'), onPick: (hex) => { menu.close(); pen.color = hex; ctx.run('borders', { kind: 'restyle', color: hex }); } });
+    const menu = openMenu({ anchor, label: t('toolbar.borderColor'), items: [{ custom: swatches }, ...extra.map((custom) => ({ custom }))] });
     (swatches.querySelector('[aria-checked="true"]') || swatches.querySelector('button'))?.focus();
   }
   const bordersBtn = el('button.tb-btn', {
-    type: 'button', html: icon('borders', 18), 'aria-label': 'Borders', title: 'Borders', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', html: icon('borders', 18), 'aria-label': t('toolbar.borders'), title: t('toolbar.borders'), 'aria-haspopup': 'menu', tabindex: -1, dataset: { keytipLabel: tSource('toolbar.borders') },
     onclick: (e) => {
       const anchor = e.currentTarget;
       const st = ctx.style();
@@ -252,27 +268,27 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       const side = ['bt', 'bb', 'bl', 'br'].find((key) => st[key]);
       if (side) { const edge = st[`${side}Border`] || st; pen.color = edge.bc ? String(edge.bc).toLowerCase() : null; pen.style = edge.bs || 'thin'; }
       openMenu({
-        anchor, label: 'Borders', minWidth: 220,
+        anchor, label: t('toolbar.borders'), minWidth: 220,
         items: [
-          { label: 'All borders', icon: 'borders', onSelect: () => ctx.run('borders', borderArg('all')) },
-          { label: 'Outer borders', icon: 'borderOuter', onSelect: () => ctx.run('borders', borderArg('outer')) },
-          { label: 'Inner borders', icon: 'borders', onSelect: () => ctx.run('borders', borderArg('inner')) },
-          { label: 'Horizontal borders', icon: 'rows', onSelect: () => ctx.run('borders', borderArg('horizontal')) },
-          { label: 'Vertical borders', icon: 'cols', onSelect: () => ctx.run('borders', borderArg('vertical')) },
+          { label: t('toolbar.border.all'), icon: 'borders', onSelect: () => ctx.run('borders', borderArg('all')) },
+          { label: t('toolbar.border.outer'), icon: 'borderOuter', onSelect: () => ctx.run('borders', borderArg('outer')) },
+          { label: t('toolbar.border.inner'), icon: 'borders', onSelect: () => ctx.run('borders', borderArg('inner')) },
+          { label: t('toolbar.border.horizontal'), icon: 'rows', onSelect: () => ctx.run('borders', borderArg('horizontal')) },
+          { label: t('toolbar.border.vertical'), icon: 'cols', onSelect: () => ctx.run('borders', borderArg('vertical')) },
           { separator: true },
-          { label: 'Top border', icon: 'borderTop', onSelect: () => ctx.run('borders', borderArg('top')) },
-          { label: 'Bottom border', icon: 'borderBottom', onSelect: () => ctx.run('borders', borderArg('bottom')) },
-          { label: 'Left border', icon: 'borderLeft', onSelect: () => ctx.run('borders', borderArg('left')) },
-          { label: 'Right border', icon: 'borderRight', onSelect: () => ctx.run('borders', borderArg('right')) },
+          { label: t('toolbar.border.top'), icon: 'borderTop', onSelect: () => ctx.run('borders', borderArg('top')) },
+          { label: t('toolbar.border.bottom'), icon: 'borderBottom', onSelect: () => ctx.run('borders', borderArg('bottom')) },
+          { label: t('toolbar.border.left'), icon: 'borderLeft', onSelect: () => ctx.run('borders', borderArg('left')) },
+          { label: t('toolbar.border.right'), icon: 'borderRight', onSelect: () => ctx.run('borders', borderArg('right')) },
           { separator: true },
           // Fixed-pen choices: a heavy or double line whatever the pen holds, in the pen's color.
-          { label: 'Thick outside borders', icon: 'borderOuter', onSelect: () => ctx.run('borders', { kind: 'outer', style: 'thick', color: pen.color }) },
-          { label: 'Bottom double border', icon: 'borderBottom', onSelect: () => ctx.run('borders', { kind: 'bottom', style: 'double', color: pen.color }) },
-          { label: 'Thick bottom border', icon: 'borderBottom', onSelect: () => ctx.run('borders', { kind: 'bottom', style: 'thick', color: pen.color }) },
+          { label: t('toolbar.border.thickOutside'), icon: 'borderOuter', onSelect: () => ctx.run('borders', { kind: 'outer', style: 'thick', color: pen.color }) },
+          { label: t('toolbar.border.bottomDouble'), icon: 'borderBottom', onSelect: () => ctx.run('borders', { kind: 'bottom', style: 'double', color: pen.color }) },
+          { label: t('toolbar.border.thickBottom'), icon: 'borderBottom', onSelect: () => ctx.run('borders', { kind: 'bottom', style: 'thick', color: pen.color }) },
           { separator: true },
-          { label: 'Border color…', icon: 'textColor', shortcut: pen.color || 'Default', onSelect: () => borderColorMenu(anchor) },
-          { label: 'Border style…', icon: 'borderBottom', shortcut: BORDER_LINE_CHOICES.find(([k]) => k === pen.style)?.[1] || 'Thin', onSelect: () => openMenu({
-            anchor, label: 'Border style', minWidth: 180, focusChecked: true,
+          { label: t('toolbar.border.colorMenu'), icon: 'textColor', shortcut: pen.color || t('common.default'), onSelect: () => borderColorMenu(anchor) },
+          { label: t('toolbar.border.styleMenu'), icon: 'borderBottom', shortcut: BORDER_LINE_CHOICES.find(([k]) => k === pen.style)?.[1] || t('toolbar.border.thin'), onSelect: () => openMenu({
+            anchor, label: t('toolbar.border.style'), minWidth: 180, focusChecked: true,
             // Excel's thirteen lines, as Format Cells lists them: the pen may have taken up a hairline from a file.
             items: BORDER_LINE_CHOICES.map(([key, label]) => ({
               label, checked: pen.style === key, radio: true, style: { borderBottom: `${borderCss({ bs: key }).width} ${borderCss({ bs: key }).style} currentColor`, paddingBottom: '2px' },
@@ -280,20 +296,20 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
             })),
           }) },
           { separator: true },
-          { label: 'No borders', icon: 'borderNone', onSelect: () => ctx.run('borders', 'none') },
-          { label: 'More borders…', icon: 'sliders', onSelect: () => ctx.run('formatCells', 'border') },
+          { label: t('toolbar.border.none'), icon: 'borderNone', onSelect: () => ctx.run('borders', 'none') },
+          { label: t('toolbar.border.more'), icon: 'sliders', onSelect: () => ctx.run('formatCells', 'border') },
         ],
       });
     },
   });
   const fontBtn = el('button.tb-btn.tb-font', {
-    type: 'button', 'aria-label': 'Font', title: 'Font', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', 'aria-label': t('toolbar.font'), title: t('toolbar.font'), 'aria-haspopup': 'menu', tabindex: -1,
     onclick: (e) => {
       const current = ctx.style().font || 'default';
       const fonts = FONTS.some(([key]) => key === current) || !fontName(current) ? FONTS
         : [...FONTS, [current, fontName(current), fontStack(current)]];
       openMenu({
-        anchor: e.currentTarget, label: 'Font', minWidth: 200, focusChecked: true,
+        anchor: e.currentTarget, label: t('toolbar.font'), minWidth: 200, focusChecked: true,
         // One choice of several is a radio item, so a screen reader does not call a font a checkbox.
         items: fonts.map(([key, label, stack]) => ({
           label, checked: key === current, radio: true, style: stack ? { fontFamily: stack } : null,
@@ -301,16 +317,16 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
         })),
       });
     },
-  }, el('span.tb-font-label', {}, 'Default'), el('span', { html: icon('chevD', 14, 2) }));
+  }, el('span.tb-font-label', {}, t('common.default')), el('span', { html: icon('chevD', 14, 2) }));
   const sizeBtn = el('button.tb-btn.tb-size', {
-    type: 'button', 'aria-label': 'Font size', title: 'Font size', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', 'aria-label': t('toolbar.fontSize'), title: t('toolbar.fontSize'), 'aria-haspopup': 'menu', tabindex: -1,
     onclick: (e) => {
       const current = pxToPt(ctx.style().size || 13);
       const sizes = POINT_SIZES.includes(current) ? POINT_SIZES : [...POINT_SIZES, current].sort((a, b) => a - b);
       openMenu({
-        anchor: e.currentTarget, label: 'Font size', minWidth: 140, focusChecked: true,
+        anchor: e.currentTarget, label: t('toolbar.fontSize'), minWidth: 140, focusChecked: true,
         items: [
-          { label: 'Custom size…', icon: 'fontSize', onSelect: () => ctx.run('fontSize') },
+          { label: t('toolbar.customSize'), icon: 'fontSize', onSelect: () => ctx.run('fontSize') },
           { separator: true },
           ...sizes.map((pt) => ({ label: String(pt), checked: pt === current, radio: true, onSelect: () => ctx.run('fontSize', ptToPx(pt)) })),
         ],
@@ -318,43 +334,43 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     },
   }, el('span.tb-size-label', {}, '9.75'), el('span', { html: icon('chevD', 14, 2) }));
   const valignBtn = el('button.tb-btn', {
-    type: 'button', html: icon('borderTop', 18), 'aria-label': 'Vertical align', title: 'Vertical align', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', html: icon('borderTop', 18), 'aria-label': t('toolbar.verticalAlign'), title: t('toolbar.verticalAlign'), 'aria-haspopup': 'menu', tabindex: -1, dataset: { keytipLabel: tSource('toolbar.verticalAlign') },
     onclick: (e) => {
       const current = ctx.style().valign || 'middle';
       const rot = ctx.style().rot || 0;
       openMenu({
-        anchor: e.currentTarget, label: 'Vertical align', minWidth: 160, focusChecked: true,
+        anchor: e.currentTarget, label: t('toolbar.verticalAlign'), minWidth: 160, focusChecked: true,
         items: [
-          { label: 'Top', icon: 'arrowUp', checked: current === 'top', radio: true, onSelect: () => ctx.run('valign', 'top') },
-          { label: 'Middle', icon: 'borderTop', checked: current === 'middle', radio: true, onSelect: () => ctx.run('valign', 'middle') },
-          { label: 'Bottom', icon: 'arrowDown', checked: current === 'bottom', radio: true, onSelect: () => ctx.run('valign', 'bottom') },
+          { label: t('toolbar.valign.top'), icon: 'arrowUp', checked: current === 'top', radio: true, onSelect: () => ctx.run('valign', 'top') },
+          { label: t('toolbar.valign.middle'), icon: 'borderTop', checked: current === 'middle', radio: true, onSelect: () => ctx.run('valign', 'middle') },
+          { label: t('toolbar.valign.bottom'), icon: 'arrowDown', checked: current === 'bottom', radio: true, onSelect: () => ctx.run('valign', 'bottom') },
           { separator: true },
-          { header: 'Text wrapping' },
-          { label: 'Overflow', icon: 'chevR', checked: !ctx.style().wrap && !ctx.style().clip, radio: true, onSelect: () => ctx.run('wrapMode', 'overflow') },
-          { label: 'Wrap', icon: 'wrap', checked: !!ctx.style().wrap, radio: true, onSelect: () => ctx.run('wrapMode', 'wrap') },
-          { label: 'Clip', icon: 'x', checked: !ctx.style().wrap && !!ctx.style().clip, radio: true, onSelect: () => ctx.run('wrapMode', 'clip') },
+          { header: t('toolbar.textWrapping') },
+          { label: t('toolbar.wrap.overflow'), icon: 'chevR', checked: !ctx.style().wrap && !ctx.style().clip, radio: true, onSelect: () => ctx.run('wrapMode', 'overflow') },
+          { label: t('toolbar.wrap.wrap'), icon: 'wrap', checked: !!ctx.style().wrap, radio: true, onSelect: () => ctx.run('wrapMode', 'wrap') },
+          { label: t('toolbar.wrap.clip'), icon: 'x', checked: !ctx.style().wrap && !!ctx.style().clip, radio: true, onSelect: () => ctx.run('wrapMode', 'clip') },
           { separator: true },
-          { header: 'Text rotation' },
-          { label: 'None', checked: !rot, radio: true, onSelect: () => ctx.run('rotate', 0) },
-          { label: 'Tilt up (45°)', checked: rot === 45, radio: true, onSelect: () => ctx.run('rotate', 45) },
-          { label: 'Tilt down (−45°)', checked: rot === -45, radio: true, onSelect: () => ctx.run('rotate', -45) },
-          { label: 'Rotate up (90°)', checked: rot === 90, radio: true, onSelect: () => ctx.run('rotate', 90) },
-          { label: 'Rotate down (−90°)', checked: rot === -90, radio: true, onSelect: () => ctx.run('rotate', -90) },
-          { label: `Custom angle…${rot && ![45, -45, 90, -90].includes(rot) ? ` (${rot}°)` : ''}`, onSelect: () => ctx.run('rotate', 'custom') },
+          { header: t('toolbar.textRotation') },
+          { label: t('common.none'), checked: !rot, radio: true, onSelect: () => ctx.run('rotate', 0) },
+          { label: t('toolbar.rotate.tiltUp'), checked: rot === 45, radio: true, onSelect: () => ctx.run('rotate', 45) },
+          { label: t('toolbar.rotate.tiltDown'), checked: rot === -45, radio: true, onSelect: () => ctx.run('rotate', -45) },
+          { label: t('toolbar.rotate.up'), checked: rot === 90, radio: true, onSelect: () => ctx.run('rotate', 90) },
+          { label: t('toolbar.rotate.down'), checked: rot === -90, radio: true, onSelect: () => ctx.run('rotate', -90) },
+          { label: rot && ![45, -45, 90, -90].includes(rot) ? t('toolbar.rotate.customAngleOf', { angle: rot }) : t('toolbar.rotate.customAngle'), onSelect: () => ctx.run('rotate', 'custom') },
         ],
       });
     },
   });
-  const mergeBtn = btn('merge', 'Merge cells', 'merge', null, { toggle: true });
-  const alignL = btn('alignLeft', 'Align left', 'align', 'left', { toggle: true });
-  const alignC = btn('alignCenter', 'Align center', 'align', 'center', { toggle: true });
-  const alignR = btn('alignRight', 'Align right', 'align', 'right', { toggle: true });
-  const wrapBtn = btn('wrap', 'Wrap text', 'wrap', null, { toggle: true });
-  const indentLess = btn('indentLess', 'Decrease indent', 'indent', -1);
-  const indentMore = btn('indentMore', 'Increase indent', 'indent', 1);
+  const mergeBtn = btn('merge', 'toolbar.mergeCells', 'merge', null, { toggle: true });
+  const alignL = btn('alignLeft', 'toolbar.alignLeft', 'align', 'left', { toggle: true });
+  const alignC = btn('alignCenter', 'toolbar.alignCenter', 'align', 'center', { toggle: true });
+  const alignR = btn('alignRight', 'toolbar.alignRight', 'align', 'right', { toggle: true });
+  const wrapBtn = btn('wrap', 'toolbar.wrapText', 'wrap', null, { toggle: true });
+  const indentLess = btn('indentLess', 'toolbar.decreaseIndent', 'indent', -1);
+  const indentMore = btn('indentMore', 'toolbar.increaseIndent', 'indent', 1);
 
   const fmtBtn = el('button.tb-btn.tb-fmt', {
-    type: 'button', 'aria-label': 'Number format', title: 'Number format', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', 'aria-label': t('toolbar.numberFormat'), title: t('toolbar.numberFormat'), 'aria-haspopup': 'menu', tabindex: -1,
     onclick: (e) => {
       const anchor = e.currentTarget;
       const st = ctx.style();
@@ -363,28 +379,28 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       // (a preset included) says so itself. For the rest the toggle is greyed rather than turned into a Number format.
       const grouped = ['number', 'currency', 'percent'].includes(st.fmt);
       openMenu({
-        anchor, label: 'Number format', minWidth: 250, focusChecked: true,
+        anchor, label: t('toolbar.numberFormat'), minWidth: 250, focusChecked: true,
         items: [
           ...FORMATS.filter((f) => f.patch).map((f) => ({
             label: f.label, icon: f.icon, checked: current === f, radio: true,
             shortcut: formatSample(f, st), onSelect: () => ctx.run('fmt', f.patch),
           })),
           // A preset built on a custom code (Accounting, Fraction, Duration) is its own entry above; only a code of the user's own is "Custom".
-          { label: `Custom format…${current.value === 'custom' && st.code ? ` (${st.code})` : ''}`, icon: 'number', checked: current.value === 'custom', radio: true, onSelect: () => openCustomFormatDialog(ctx) },
+          { label: current.value === 'custom' && st.code ? t('toolbar.customFormatOf', { code: st.code }) : t('toolbar.customFormat'), icon: 'number', checked: current.value === 'custom', radio: true, onSelect: () => openCustomFormatDialog(ctx) },
           { separator: true },
           // The currency named is the one Currency or Accounting would apply: the cell's own, or the regional format's on a cell in none.
-          { label: `Currency symbol (${cellCurrency(st)})…`, icon: 'currency', onSelect: () => currencyMenu(anchor) },
+          { label: t('toolbar.currencySymbol', { currency: cellCurrency(st) }), icon: 'currency', onSelect: () => currencyMenu(anchor) },
           // The patch names grouping alone, so the format, its decimals and its currency stay as they are.
-          { label: 'Thousands separator', icon: 'number', checked: grouped && st.group !== false, disabled: !grouped, onSelect: () => ctx.run('fmt', { group: st.group === false ? null : false }) },
+          { label: t('toolbar.thousandsSeparator'), icon: 'number', checked: grouped && st.group !== false, disabled: !grouped, onSelect: () => ctx.run('fmt', { group: st.group === false ? null : false }) },
         ],
       });
     },
-  }, el('span.tb-fmt-label', {}, 'General'), el('span', { html: icon('chevD', 14, 2) }));
+  }, el('span.tb-fmt-label', {}, t('toolbar.format.general')), el('span', { html: icon('chevD', 14, 2) }));
 
   function currencyMenu(anchor) {
     const cur = cellCurrency(ctx.style());
     openMenu({
-      anchor, label: 'Currency', minWidth: 240, focusChecked: true,
+      anchor, label: t('toolbar.format.currency'), minWidth: 240, focusChecked: true,
       items: CURRENCIES.map(([code, name, symbol]) => ({
         label: `${name}`, shortcut: `${symbol} ${code}`, checked: code === cur, radio: true,
         onSelect: () => {
@@ -397,150 +413,154 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       })),
     });
   }
-  const pctBtn = btn('percent', 'Format as percent', 'fmt', { fmt: 'percent', toggle: true }, { toggle: true });
-  const curBtn = btn('currency', 'Format as currency', 'fmt', { fmt: 'currency', toggle: true }, { toggle: true });
-  const decLess = btn('decimalLess', 'Fewer decimal places', 'dec', -1);
-  const decMore = btn('decimalMore', 'More decimal places', 'dec', 1);
+  const pctBtn = btn('percent', 'toolbar.formatAsPercent', 'fmt', { fmt: 'percent', toggle: true }, { toggle: true });
+  const curBtn = btn('currency', 'toolbar.formatAsCurrency', 'fmt', { fmt: 'currency', toggle: true }, { toggle: true });
+  const decLess = btn('decimalLess', 'toolbar.fewerDecimals', 'dec', -1);
+  const decMore = btn('decimalMore', 'toolbar.moreDecimals', 'dec', 1);
 
-  const fnBtn = btn('sigma', 'Insert function', 'functionMenu', null, { menu: true });
-  const linkBtn = btn('link', 'Insert link', 'link', null, { shortcut: `${MOD_KEY}+K` });
-  const chartBtn = btn('chartColumn', 'Insert chart', 'insertChart', null);
+  const fnBtn = btn('sigma', 'toolbar.insertFunction', 'functionMenu', null, { menu: true });
+  const linkBtn = btn('link', 'toolbar.insertLink', 'link', null, { shortcut: `${MOD_KEY}+K` });
+  const chartBtn = btn('chartColumn', 'toolbar.insertChart', 'insertChart', null);
   const imageBtn = el('button.tb-btn', {
-    type: 'button', html: icon('image', 18), 'aria-label': 'Insert image', title: 'Insert image', 'aria-haspopup': 'menu', tabindex: -1,
-    dataset: { cmd: 'insertImage' },
+    type: 'button', html: icon('image', 18), 'aria-label': t('toolbar.insertImage'), title: t('toolbar.insertImage'), 'aria-haspopup': 'menu', tabindex: -1,
+    dataset: { cmd: 'insertImage', keytipLabel: tSource('toolbar.insertImage') },
     onclick: (e) => openMenu({
-      anchor: e.currentTarget, label: 'Insert image',
+      anchor: e.currentTarget, label: t('toolbar.insertImage'),
       items: [
-        { label: 'From this device…', icon: 'image', onSelect: () => ctx.run('insertImage') },
-        ctx.flags?.()?.pick && { label: 'From Puter…', icon: 'folderOpen', onSelect: () => ctx.run('insertImagePuter') },
-        { label: 'From a URL…', icon: 'external', onSelect: () => ctx.run('insertImageUrl') },
+        { label: t('toolbar.image.fromDevice'), icon: 'image', onSelect: () => ctx.run('insertImage') },
+        ctx.flags?.()?.pick && { label: t('toolbar.image.fromPuter'), icon: 'folderOpen', onSelect: () => ctx.run('insertImagePuter') },
+        { label: t('toolbar.image.fromUrl'), icon: 'external', onSelect: () => ctx.run('insertImageUrl') },
         { separator: true },
-        { label: 'Place in Cell', icon: 'placeInCell', submenu: [
-          { label: 'From this device…', icon: 'image', onSelect: () => ctx.run('insertImage', 'cell') },
-          ctx.flags?.()?.pick && { label: 'From Puter…', icon: 'folderOpen', onSelect: () => ctx.run('insertImagePuter', 'cell') },
-          { label: 'From a URL…', icon: 'external', onSelect: () => ctx.run('insertImageUrl', 'cell') },
+        { label: t('toolbar.image.placeInCell'), icon: 'placeInCell', submenu: [
+          { label: t('toolbar.image.fromDevice'), icon: 'image', onSelect: () => ctx.run('insertImage', 'cell') },
+          ctx.flags?.()?.pick && { label: t('toolbar.image.fromPuter'), icon: 'folderOpen', onSelect: () => ctx.run('insertImagePuter', 'cell') },
+          { label: t('toolbar.image.fromUrl'), icon: 'external', onSelect: () => ctx.run('insertImageUrl', 'cell') },
         ].filter(Boolean) },
       ],
     }),
   });
   const sortBtn = el('button.tb-btn', {
-    type: 'button', html: icon(ribbon ? 'sortFilter' : 'sortAsc', 18), 'aria-label': 'Sort and summarize', title: 'Sort and summarize', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', html: icon(ribbon ? 'sortFilter' : 'sortAsc', 18), 'aria-label': t('toolbar.sortAndSummarize'), title: t('toolbar.sortAndSummarize'), 'aria-haspopup': 'menu', tabindex: -1,
     onclick: (e) => openMenu({
-      anchor: e.currentTarget, label: 'Sort',
+      anchor: e.currentTarget, label: t('toolbar.sort.menu'),
       items: [
-        { label: 'Sort A to Z', icon: 'sortAsc', onSelect: () => ctx.run('sort', 'asc') },
-        { label: 'Sort Z to A', icon: 'sortDesc', onSelect: () => ctx.run('sort', 'desc') },
+        { label: t('toolbar.sort.aToZ'), icon: 'sortAsc', onSelect: () => ctx.run('sort', 'asc') },
+        { label: t('toolbar.sort.zToA'), icon: 'sortDesc', onSelect: () => ctx.run('sort', 'desc') },
         { separator: true },
-        { label: ribbon ? 'Custom Sort…' : 'Sort range…', icon: 'sliders', onSelect: () => ctx.run('sortDialog') },
+        { label: ribbon ? t('toolbar.sort.customSort') : t('toolbar.sort.sortRange'), icon: 'sliders', onSelect: () => ctx.run('sortDialog') },
         // On the ribbon, Filter lives in Sort & Filter as well as on the Data tab.
         ribbon && { separator: true },
-        ribbon && { label: 'Filter', icon: 'filter', checked: !!ctx.flags?.()?.filter, shortcut: `${MOD_KEY}+Shift+L`, onSelect: () => ctx.run('filter') },
+        ribbon && { label: t('toolbar.filter'), icon: 'filter', checked: !!ctx.flags?.()?.filter, shortcut: `${MOD_KEY}+Shift+L`, onSelect: () => ctx.run('filter') },
         ribbon && { separator: true },
-        { label: 'Subtotals…', icon: 'sigma', onSelect: () => ctx.run('subtotal') },
-        { label: 'Create table…', icon: 'table', onSelect: () => ctx.run('insertTable') },
-        { label: 'Remove duplicate rows…', icon: 'dedupe', onSelect: () => ctx.run('dedupe') },
-        { label: 'Randomize range', icon: 'sortAsc', onSelect: () => ctx.run('shuffle') },
-        { label: 'Remove empty rows', icon: 'rows', onSelect: () => ctx.run('removeEmptyRows') },
+        { label: t('toolbar.sort.subtotals'), icon: 'sigma', onSelect: () => ctx.run('subtotal') },
+        { label: t('toolbar.sort.createTable'), icon: 'table', onSelect: () => ctx.run('insertTable') },
+        { label: t('toolbar.sort.removeDuplicateRows'), icon: 'dedupe', onSelect: () => ctx.run('dedupe') },
+        { label: t('toolbar.sort.randomizeRange'), icon: 'sortAsc', onSelect: () => ctx.run('shuffle') },
+        { label: t('toolbar.sort.removeEmptyRows'), icon: 'rows', onSelect: () => ctx.run('removeEmptyRows') },
         { separator: true },
-        { label: 'Pivot table…', icon: 'pivot', onSelect: () => ctx.run('pivot') },
-        { label: 'Goal seek…', icon: 'sliders', onSelect: () => ctx.run('goalSeek') },
-        { label: 'Solver…', icon: 'solver', onSelect: () => ctx.run('solver') },
-        { label: 'Data analysis…', icon: 'dataAnalysis', onSelect: () => ctx.run('dataAnalysis') },
-        { label: 'Column stats…', icon: 'chartColumn', onSelect: () => ctx.run('columnStats') },
+        { label: t('toolbar.sort.pivotTable'), icon: 'pivot', onSelect: () => ctx.run('pivot') },
+        { label: t('toolbar.sort.goalSeek'), icon: 'sliders', onSelect: () => ctx.run('goalSeek') },
+        { label: t('toolbar.sort.solver'), icon: 'solver', onSelect: () => ctx.run('solver') },
+        { label: t('toolbar.sort.dataAnalysis'), icon: 'dataAnalysis', onSelect: () => ctx.run('dataAnalysis') },
+        { label: t('toolbar.sort.columnStats'), icon: 'chartColumn', onSelect: () => ctx.run('columnStats') },
       ],
     }),
   });
   const rowsBtn = el('button.tb-btn', {
-    type: 'button', html: icon('rows', 18), 'aria-label': 'Rows', title: 'Insert or delete rows', 'aria-haspopup': 'menu', tabindex: -1,
-    onclick: (e) => openMenu({ anchor: e.currentTarget, label: 'Rows', items: rowItems(ctx) }),
+    type: 'button', html: icon('rows', 18), 'aria-label': t('toolbar.rows'), title: t('toolbar.rowsTip'), 'aria-haspopup': 'menu', tabindex: -1,
+    onclick: (e) => openMenu({ anchor: e.currentTarget, label: t('toolbar.rows'), items: rowItems(ctx) }),
   });
   const colsBtn = el('button.tb-btn', {
-    type: 'button', html: icon('cols', 18), 'aria-label': 'Columns', title: 'Insert or delete columns', 'aria-haspopup': 'menu', tabindex: -1,
-    onclick: (e) => openMenu({ anchor: e.currentTarget, label: 'Columns', items: colItems(ctx) }),
+    type: 'button', html: icon('cols', 18), 'aria-label': t('toolbar.columns'), title: t('toolbar.columnsTip'), 'aria-haspopup': 'menu', tabindex: -1,
+    onclick: (e) => openMenu({ anchor: e.currentTarget, label: t('toolbar.columns'), items: colItems(ctx) }),
   });
   const freezeBtn = el('button.tb-btn', {
-    type: 'button', html: icon('pin', 18), 'aria-label': 'Freeze panes', title: 'Freeze rows and columns', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', html: icon('pin', 18), 'aria-label': t('toolbar.freezePanes'), title: t('toolbar.freezeTip'), 'aria-haspopup': 'menu', tabindex: -1,
     onclick: (e) => {
       const sheet = ctx.wb.sheet(ctx.sheetId());
       const a = ctx.active();
       openMenu({
-        anchor: e.currentTarget, label: 'Freeze panes', minWidth: 240,
+        anchor: e.currentTarget, label: t('toolbar.freezePanes'), minWidth: 240,
         items: [
-          { label: 'Freeze first row', icon: 'pin', checked: sheet.frozenRows === 1 && !sheet.frozenCols, onSelect: () => ctx.run('freeze', { rows: 1 }) },
-          { label: 'Freeze first column', icon: 'pin', checked: sheet.frozenCols === 1 && !sheet.frozenRows, onSelect: () => ctx.run('freeze', { cols: 1 }) },
-          { label: a.r || a.c ? `Freeze above and left of ${cellName(a.r, a.c)}` : 'Freeze at the active cell', icon: 'pin', disabled: !a.r && !a.c, onSelect: () => ctx.run('freeze', 'here') },
+          { label: t('toolbar.freeze.firstRow'), icon: 'pin', checked: sheet.frozenRows === 1 && !sheet.frozenCols, onSelect: () => ctx.run('freeze', { rows: 1 }) },
+          { label: t('toolbar.freeze.firstColumn'), icon: 'pin', checked: sheet.frozenCols === 1 && !sheet.frozenRows, onSelect: () => ctx.run('freeze', { cols: 1 }) },
+          { label: a.r || a.c ? t('toolbar.freeze.aboveAndLeftOf', { cell: cellName(a.r, a.c) }) : t('toolbar.freeze.atActiveCell'), icon: 'pin', disabled: !a.r && !a.c, onSelect: () => ctx.run('freeze', 'here') },
           { separator: true },
-          { label: 'Unfreeze', icon: 'reset', disabled: !sheet.frozenRows && !sheet.frozenCols, onSelect: () => ctx.run('freeze', 'none') },
+          { label: t('toolbar.freeze.unfreeze'), icon: 'reset', disabled: !sheet.frozenRows && !sheet.frozenCols, onSelect: () => ctx.run('freeze', 'none') },
         ],
       });
     },
   });
-  const filterBtn = btn('filter', 'Filter', 'filter', null, { toggle: true, title: 'Create or remove a filter' });
+  const filterBtn = btn('filter', 'toolbar.filter', 'filter', null, { toggle: true, title: t('toolbar.filterTip') });
   // On the ribbon Conditional formatting opens a drop-down of quick rules; the bare toolbar opens the rules manager.
   const cfBtn = ribbon ? el('button.tb-btn', {
-    type: 'button', html: icon('condFormat', 18), 'aria-label': 'Conditional formatting', title: 'Conditional formatting', 'aria-haspopup': 'menu', tabindex: -1,
-    dataset: { cmd: 'condFormat', arg: '' }, onclick: (e) => ctx.run('condFormatMenu', e.currentTarget),
-  }) : btn('highlighter', 'Conditional formatting', 'condFormat', null);
-  const dvBtn = btn('validation', 'Data validation', 'validation', null);
-  const clearBtn = btn('eraser', 'Clear formatting', 'clearFormat', null);
-  const paintBtn = btn('paint', 'Paint format', 'paintFormat', null, { toggle: true, title: 'Paint format: copy this formatting, then select the cells to paint' });
+    type: 'button', html: icon('condFormat', 18), 'aria-label': t('toolbar.conditionalFormatting'), title: t('toolbar.conditionalFormatting'), 'aria-haspopup': 'menu', tabindex: -1,
+    dataset: { cmd: 'condFormat', arg: '', keytipLabel: tSource('toolbar.conditionalFormatting') }, onclick: (e) => ctx.run('condFormatMenu', e.currentTarget),
+  }) : btn('highlighter', 'toolbar.conditionalFormatting', 'condFormat', null);
+  const dvBtn = btn('validation', 'toolbar.dataValidation', 'validation', null);
+  const clearBtn = btn('eraser', 'toolbar.clearFormatting', 'clearFormat', null);
+  const paintBtn = btn('paint', 'toolbar.paintFormat', 'paintFormat', null, { toggle: true, title: t('toolbar.paintFormatTip') });
   // A double-click keeps the painter on for several targets, until Escape.
   paintBtn.addEventListener('dblclick', () => ctx.run('paintFormat', 'sticky'));
-  paintBtn.title = 'Paint format: copy this formatting, then select the cells to paint (double-click to paint several)';
-  const stylesBtn = el('button.tb-btn', { type: 'button', html: icon(ribbon ? 'cellStyles' : 'sparkle', 18), 'aria-label': 'Cell styles', title: 'Cell styles: title, heading, total, input, good, bad, note…', 'aria-haspopup': 'menu', tabindex: -1, onclick: (e) => ctx.run('cellStylesMenu', e.currentTarget) });
+  paintBtn.title = t('toolbar.paintFormatStickyTip');
+  const stylesBtn = el('button.tb-btn', { type: 'button', html: icon(ribbon ? 'cellStyles' : 'sparkle', 18), 'aria-label': t('toolbar.cellStyles'), title: t('toolbar.cellStylesTip'), 'aria-haspopup': 'menu', tabindex: -1, dataset: { keytipLabel: tSource('toolbar.cellStyles') }, onclick: (e) => ctx.run('cellStylesMenu', e.currentTarget) });
 
-  const verticalButtons = ribbon ? ['top', 'middle', 'bottom'].map((value, i) => btn(['valignTop', 'valignMiddle', 'valignBottom'][i], `${value[0].toUpperCase()}${value.slice(1)} align`, 'valign', value, { toggle: true })) : [];
-  const fontSteps = ribbon ? [btn('fontGrow', 'Increase font size', 'fontStep', 1), btn('fontShrink', 'Decrease font size', 'fontStep', -1)] : [];
-  const accountingBtn = ribbon ? btn('accounting', 'Accounting Number Format', 'fmt', FORMATS.find(f => f.value === 'accounting').patch) : null;
-  const commaBtn = ribbon ? btn('comma', 'Comma Style', 'fmt', { fmt: 'number', group: true, dec: 2 }) : null;
+  const verticalButtons = ribbon ? ['top', 'middle', 'bottom'].map((value, i) => btn(['valignTop', 'valignMiddle', 'valignBottom'][i], ['toolbar.topAlign', 'toolbar.middleAlign', 'toolbar.bottomAlign'][i], 'valign', value, { toggle: true })) : [];
+  const fontSteps = ribbon ? [btn('fontGrow', 'toolbar.increaseFontSize', 'fontStep', 1), btn('fontShrink', 'toolbar.decreaseFontSize', 'fontStep', -1)] : [];
+  const accountingBtn = ribbon ? btn('accounting', 'toolbar.accountingFormat', 'fmt', FORMATS.find(f => f.value === 'accounting').patch) : null;
+  const commaBtn = ribbon ? btn('comma', 'toolbar.commaStyle', 'fmt', { fmt: 'number', group: true, dec: 2 }) : null;
   // The arrow beside the Accounting button: the same format in another currency, or the Number tab for the rest.
-  const ACCOUNTING_CHOICES = [['USD', '$ English (United States)'], ['GBP', '£ English (United Kingdom)'], ['EUR', '€ Euro (€ 123)'], ['CNY', '¥ Chinese (PRC)'], ['CHF', 'CHF French (Switzerland)']];
+  const ACCOUNTING_CHOICES = [['USD', 'toolbar.accounting.usd'], ['GBP', 'toolbar.accounting.gbp'], ['EUR', 'toolbar.accounting.eur'], ['CNY', 'toolbar.accounting.cny'], ['CHF', 'toolbar.accounting.chf']];
   const accountingArrow = ribbon ? el('button.tb-btn.ribbon-split-arrow', {
-    type: 'button', html: icon('chevD', 10, 2), 'aria-label': 'Accounting Number Format options', title: 'Accounting Number Format', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', html: icon('chevD', 10, 2), 'aria-label': t('toolbar.accountingFormatOptions'), title: t('toolbar.accountingFormat'), 'aria-haspopup': 'menu', tabindex: -1,
+    dataset: { keytipLabel: tSource('toolbar.accountingFormatOptions') },
     onclick: (e) => openMenu({
-      anchor: e.currentTarget, label: 'Accounting Number Format', minWidth: 230,
+      anchor: e.currentTarget, label: t('toolbar.accountingFormat'), minWidth: 230,
       items: [
-        ...ACCOUNTING_CHOICES.map(([cur, label]) => ({ label, checked: ctx.style().code === accountingCode(cur), radio: true, onSelect: () => ctx.run('fmt', { fmt: 'custom', code: accountingCode(cur), dec: null }) })),
+        ...ACCOUNTING_CHOICES.map(([cur, label]) => ({ label: t(label), checked: ctx.style().code === accountingCode(cur), radio: true, onSelect: () => ctx.run('fmt', { fmt: 'custom', code: accountingCode(cur), dec: null }) })),
         { separator: true },
-        { label: 'More Accounting Formats…', icon: 'formatCells', onSelect: () => ctx.run('formatCells', 'number') },
+        { label: t('toolbar.moreAccountingFormats'), icon: 'formatCells', onSelect: () => ctx.run('formatCells', 'number') },
       ],
     }),
   }) : null;
   // The arrow beside Merge & Center: Merge Across (each row on its own), Merge Cells (without centring), Unmerge Cells.
   const mergeArrow = ribbon ? el('button.tb-btn.ribbon-split-arrow', {
-    type: 'button', html: icon('chevD', 10, 2), 'aria-label': 'Merge options', title: 'Merge options', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', html: icon('chevD', 10, 2), 'aria-label': t('toolbar.mergeOptions'), title: t('toolbar.mergeOptions'), 'aria-haspopup': 'menu', tabindex: -1,
+    dataset: { keytipLabel: tSource('toolbar.mergeOptions') },
     onclick: (e) => openMenu({
-      anchor: e.currentTarget, label: 'Merge', minWidth: 200,
+      anchor: e.currentTarget, label: t('toolbar.merge.menu'), minWidth: 200,
       items: [
-        { label: 'Merge & Center', icon: 'merge', onSelect: () => ctx.run('merge') },
-        { label: 'Merge Across', icon: 'rows', onSelect: () => ctx.run('mergeAcross') },
-        { label: 'Merge Cells', icon: 'merge', onSelect: () => ctx.run('merge', 'plain') },
-        { label: 'Unmerge Cells', icon: 'unmerge', onSelect: () => ctx.run('merge', 'unmerge') },
+        { label: t('toolbar.mergeAndCenter'), icon: 'merge', onSelect: () => ctx.run('merge') },
+        { label: t('toolbar.merge.across'), icon: 'rows', onSelect: () => ctx.run('mergeAcross') },
+        { label: t('toolbar.merge.cells'), icon: 'merge', onSelect: () => ctx.run('merge', 'plain') },
+        { label: t('toolbar.merge.unmergeCells'), icon: 'unmerge', onSelect: () => ctx.run('merge', 'unmerge') },
       ],
     }),
   }) : null;
   // The Orientation menu: the common angles, then the Alignment tab for any other.
   const orientationBtn = ribbon ? el('button.tb-btn', {
-    type: 'button', html: icon('orientation', 18), 'aria-label': 'Orientation', title: 'Orientation', 'aria-haspopup': 'menu', tabindex: -1,
+    type: 'button', html: icon('orientation', 18), 'aria-label': t('toolbar.orientation'), title: t('toolbar.orientation'), 'aria-haspopup': 'menu', tabindex: -1,
+    dataset: { keytipLabel: tSource('toolbar.orientation') },
     onclick: (e) => {
       const rot = ctx.style().rot || 0;
       openMenu({
-        anchor: e.currentTarget, label: 'Orientation', minWidth: 220, focusChecked: true,
+        anchor: e.currentTarget, label: t('toolbar.orientation'), minWidth: 220, focusChecked: true,
         items: [
-          { label: 'Angle Counterclockwise', checked: rot === 45, radio: true, onSelect: () => ctx.run('rotate', rot === 45 ? 0 : 45) },
-          { label: 'Angle Clockwise', checked: rot === -45, radio: true, onSelect: () => ctx.run('rotate', rot === -45 ? 0 : -45) },
-          { label: 'Rotate Text Up', checked: rot === 90, radio: true, onSelect: () => ctx.run('rotate', rot === 90 ? 0 : 90) },
-          { label: 'Rotate Text Down', checked: rot === -90, radio: true, onSelect: () => ctx.run('rotate', rot === -90 ? 0 : -90) },
+          { label: t('toolbar.orient.counterclockwise'), checked: rot === 45, radio: true, onSelect: () => ctx.run('rotate', rot === 45 ? 0 : 45) },
+          { label: t('toolbar.orient.clockwise'), checked: rot === -45, radio: true, onSelect: () => ctx.run('rotate', rot === -45 ? 0 : -45) },
+          { label: t('toolbar.orient.up'), checked: rot === 90, radio: true, onSelect: () => ctx.run('rotate', rot === 90 ? 0 : 90) },
+          { label: t('toolbar.orient.down'), checked: rot === -90, radio: true, onSelect: () => ctx.run('rotate', rot === -90 ? 0 : -90) },
           { separator: true },
-          { label: 'Format Cell Alignment…', icon: 'formatCells', onSelect: () => ctx.run('formatCells', 'alignment') },
+          { label: t('toolbar.orient.formatAlignment'), icon: 'formatCells', onSelect: () => ctx.run('formatCells', 'alignment') },
         ],
       });
     },
   }) : null;
   const row = (...kids) => el('div.ribbon-row', {}, ...kids);
   const stack = (...kids) => el('div.ribbon-stack', {}, ...kids);
-  const namedGroup = (label, ...kids) => el('div.tb-group.ribbon-group', { role: 'group', 'aria-label': label },
-    el('div.ribbon-group-controls', {}, ...kids), el('span.ribbon-group-label', {}, label));
+  // A Home group: `name` is its id, its English name, which Customize Ribbon knows it by (as ribbon.js's groups); `key` its label.
+  const namedGroup = (name, key, ...kids) => el('div.tb-group.ribbon-group', { role: 'group', 'aria-label': t(key), dataset: { groupName: name } },
+    el('div.ribbon-group-controls', {}, ...kids), el('span.ribbon-group-label', {}, t(key)));
   if (ribbon) {
     root.classList.add('ribbon-home');
     const editing = ribbonExtras.editing || [];
@@ -555,28 +575,28 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       ctx.quickAccess.append(undoBtn, undoArrow, redoBtn);
     }
     root.append(
-      ...(ctx.quickAccess ? [] : [namedGroup('Undo', stack(undoBtn, redoBtn)), sep()]),
-      namedGroup('Clipboard', ...(ribbonExtras.clipboard || []).slice(0, 1), stack(...(ribbonExtras.clipboard || []).slice(1), paintBtn)),
-      namedGroup('Font', stack(row(fontBtn, sizeBtn, ...fontSteps), row(boldBtn, italicBtn, underlineBtn, el('span.ribbon-divider'), bordersBtn, el('span.ribbon-divider'),
+      ...(ctx.quickAccess ? [] : [namedGroup('Undo', 'toolbar.group.undo', stack(undoBtn, redoBtn)), sep()]),
+      namedGroup('Clipboard', 'toolbar.group.clipboard', ...(ribbonExtras.clipboard || []).slice(0, 1), stack(...(ribbonExtras.clipboard || []).slice(1), paintBtn)),
+      namedGroup('Font', 'toolbar.group.font', stack(row(fontBtn, sizeBtn, ...fontSteps), row(boldBtn, italicBtn, underlineBtn, el('span.ribbon-divider'), bordersBtn, el('span.ribbon-divider'),
         el('span.tb-color-split', {}, fillApply, fillBtn), el('span.tb-color-split', {}, colorApply, colorBtn)))),
-      namedGroup('Alignment',
+      namedGroup('Alignment', 'toolbar.group.alignment',
         stack(row(...verticalButtons, el('span.ribbon-divider'), orientationBtn), row(alignL, alignC, alignR, el('span.ribbon-divider'), indentLess, indentMore)),
-        el('span.ribbon-divider.tall'), stack(wrapBtn, el('span.ribbon-split.ribbon-merge-split', { role: 'group', 'aria-label': 'Merge & Center' }, mergeBtn, mergeArrow))),
-      namedGroup('Number', stack(row(fmtBtn), row(el('span.ribbon-split', { role: 'group', 'aria-label': 'Accounting Number Format' }, accountingBtn, accountingArrow), pctBtn, commaBtn, el('span.ribbon-divider'), decMore, decLess))),
-      namedGroup('Styles', cfBtn, ...(ribbonExtras.styles || []), stylesBtn),
-      namedGroup('Cells', stack(...(ribbonExtras.cells || []))),
-      namedGroup('Editing', stack(...editing.slice(0, 3)), sortBtn, ...editing.slice(3)),
+        el('span.ribbon-divider.tall'), stack(wrapBtn, el('span.ribbon-split.ribbon-merge-split', { role: 'group', 'aria-label': t('toolbar.mergeAndCenter') }, mergeBtn, mergeArrow))),
+      namedGroup('Number', 'toolbar.group.number', stack(row(fmtBtn), row(el('span.ribbon-split', { role: 'group', 'aria-label': t('toolbar.accountingFormat') }, accountingBtn, accountingArrow), pctBtn, commaBtn, el('span.ribbon-divider'), decMore, decLess))),
+      namedGroup('Styles', 'toolbar.group.styles', cfBtn, ...(ribbonExtras.styles || []), stylesBtn),
+      namedGroup('Cells', 'toolbar.group.cells', stack(...(ribbonExtras.cells || []))),
+      namedGroup('Editing', 'toolbar.group.editing', stack(...editing.slice(0, 3)), sortBtn, ...editing.slice(3)),
     );
     // The existing formatting pickers keep their handlers, state and edit-target semantics.
     // Commands elsewhere on the ribbon are also available in the original menus.
-    for (const [button, label] of [[paintBtn, 'Format Painter'], [wrapBtn, 'Wrap Text'], [mergeBtn, 'Merge & Center'],
-      [cfBtn, 'Conditional Formatting'], [stylesBtn, 'Cell Styles'], [sortBtn, 'Sort & Filter'], [filterBtn, 'Filter']]) {
+    for (const [button, label] of [[paintBtn, 'toolbar.formatPainter'], [wrapBtn, 'toolbar.wrapTextLabel'], [mergeBtn, 'toolbar.mergeAndCenter'],
+      [cfBtn, 'toolbar.conditionalFormattingLabel'], [stylesBtn, 'toolbar.cellStylesLabel'], [sortBtn, 'toolbar.sortAndFilter'], [filterBtn, 'toolbar.filter']]) {
       button.classList.add('ribbon-labeled');
-      button.append(el('span.ribbon-button-label', {}, label));
+      button.append(el('span.ribbon-button-label', {}, t(label)));
     }
-    paintBtn.setAttribute('aria-label', 'Format Painter');
+    nameAs(paintBtn, 'toolbar.formatPainter');
     // A button's name holds the words it shows, so speech input can say what is on screen (WCAG 2.5.3).
-    sortBtn.setAttribute('aria-label', 'Sort & Filter'); sortBtn.title = 'Sort & Filter';
+    nameAs(sortBtn, 'toolbar.sortAndFilter'); sortBtn.title = t('toolbar.sortAndFilter');
     // The palette buttons become the arrows of the split colour buttons.
     for (const button of [fillBtn, colorBtn]) { button.classList.add('tb-color-arrow'); button.append(el('span.tb-color-caret', { html: icon('chevD', 10) })); }
     // Borders and Orientation only open menus: they carry the same drop-down mark as the colour arrows beside them.
@@ -622,7 +642,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       if (visible) ctx.grid.scrollToActive?.();
     },
   });
-  const chartTools = group(btn('chartColumn', 'Edit chart', 'editChart'), btn('copy', 'Copy chart as picture', 'copy'), btn('zoomIn', 'Fit chart to window', 'zoomFit'));
+  const chartTools = group(btn('chartColumn', 'toolbar.editChart', 'editChart'), btn('copy', 'toolbar.copyChartAsPicture', 'copy'), btn('zoomIn', 'toolbar.fitChartToWindow', 'zoomFit'));
   chartTools.hidden = true;
 
   // Roving tabindex: one tab stop for the whole toolbar, arrows move inside.
@@ -661,18 +681,18 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       ctx.run(kind, hex);
     };
     // The palettes open on the theme's colours and their tints; the app's own colours follow as the standard row.
-    const themeBlock = themeColorBlock(ctx.wb, { current: value, label: kind === 'bg' ? 'Theme fill colors' : 'Theme text colors', onPick: pick });
-    const swatches = el('div.swatches', { role: 'group', 'aria-label': kind === 'bg' ? 'Fill colors' : 'Text colors', 'data-cols': 6 },
+    const themeBlock = themeColorBlock(ctx.wb, { current: value, label: kind === 'bg' ? t('toolbar.themeFillColors') : t('toolbar.themeTextColors'), onPick: pick });
+    const swatches = el('div.swatches', { role: 'group', 'aria-label': kind === 'bg' ? t('toolbar.fillColors') : t('toolbar.textColors'), 'data-cols': 6 },
       el('button.swatch.none', {
-        type: 'button', role: 'menuitemradio', 'aria-checked': String(!current), 'aria-label': kind === 'bg' ? 'No fill' : 'Default color',
-        title: kind === 'bg' ? 'No fill' : 'Default', onclick: () => { menu.close(); ctx.run(kind, null); },
+        type: 'button', role: 'menuitemradio', 'aria-checked': String(!current), 'aria-label': kind === 'bg' ? t('toolbar.noFill') : t('toolbar.defaultColor'),
+        title: kind === 'bg' ? t('toolbar.noFill') : t('common.default'), onclick: () => { menu.close(); ctx.run(kind, null); },
       }),
       ...palette.map((hex) => el('button.swatch', {
         type: 'button', role: 'menuitemradio', 'aria-checked': String(current === hex), 'aria-label': colorLabel(hex), title: colorLabel(hex),
         style: { background: hex }, onclick: () => pick(hex),
       })));
-    const extra = customColorRows({ current, label: kind === 'bg' ? 'fill color' : 'text color', onPick: pick });
-    const menu = openMenu({ anchor, label: kind === 'bg' ? 'Fill color' : 'Text color', items: [...themeBlock.map((custom) => ({ custom })), { header: 'Standard Colors' }, { custom: swatches }, ...extra.map((custom) => ({ custom }))] });
+    const extra = customColorRows({ current, label: kind === 'bg' ? t('toolbar.fillColorNoun') : t('toolbar.textColorNoun'), onPick: pick });
+    const menu = openMenu({ anchor, label: kind === 'bg' ? t('toolbar.fillColor') : t('toolbar.textColor'), items: [...themeBlock.map((custom) => ({ custom })), { header: t('toolbar.standardColors') }, { custom: swatches }, ...extra.map((custom) => ({ custom }))] });
     // Swatches are the only items, so hand them keyboard focus; the menu walks the grid by its data-cols.
     const first = swatches.querySelector('[aria-checked="true"]') || swatches.querySelector('button');
     first?.focus();
@@ -696,20 +716,23 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     const fmt = s.fmt || 'general';
     set(pctBtn, fmt === 'percent'); set(curBtn, fmt === 'currency');
     const entry = formatEntry(s);
-    const formatLabel = entry.value === 'custom' ? (s.code || 'Custom') : entry.label;
+    // The custom code itself, or the entry's name (in English too, for the key tip).
+    const formatLabel = entry.value === 'custom' ? (s.code || t('common.custom')) : entry.label;
+    const formatSource = entry.value === 'custom' ? (s.code || tSource('common.custom')) : tSource(entry.labelKey);
     fmtBtn.querySelector('.tb-fmt-label').textContent = formatLabel;
-    fmtBtn.title = `Number format: ${formatLabel}`;
-    fmtBtn.setAttribute('aria-label', fmtBtn.title);
+    fmtBtn.title = t('toolbar.numberFormatOf', { format: formatLabel });
+    nameAs(fmtBtn, 'toolbar.numberFormatOf', { format: formatLabel }, { format: formatSource });
     const sizeLabel = String(pxToPt(s.size || 13));
     sizeBtn.querySelector('.tb-size-label').textContent = sizeLabel;
     // The name of a value-bearing button includes its visible value, so it can be spoken and heard.
-    sizeBtn.setAttribute('aria-label', `Font size: ${sizeLabel}`);
+    nameAs(sizeBtn, 'toolbar.fontSizeOf', { size: sizeLabel });
     const fontLabel = fontBtn.querySelector('.tb-font-label');
     // A cell in the theme's body or heading font says so ("Calibri (Body)").
-    const themeRole = fontName(s.font) && { minor: ' (Body)', major: ' (Headings)' }[s.scheme];
-    fontLabel.textContent = (fontName(s.font) || 'Default') + (themeRole || '');
+    const font = fontName(s.font), themeRole = font && { minor: 'body', major: 'headings' }[s.scheme];
+    const fontText = (say) => (!font ? say('common.default') : themeRole === 'body' ? say('toolbar.fontBody', { font }) : themeRole === 'headings' ? say('toolbar.fontHeadings', { font }) : font);
+    fontLabel.textContent = fontText(t);
     fontLabel.style.fontFamily = fontStack(s.font) || '';
-    fontBtn.setAttribute('aria-label', `Font: ${fontLabel.textContent}`);
+    nameAs(fontBtn, 'toolbar.fontOf', { font: fontLabel.textContent }, { font: fontText(tSource) });
     // Only as a colour, and only a hex one: `background` takes a url(), and a string smuggled into
     // a pasted cell style must not fetch anything when the cell is selected.
     colorBtn.querySelector('.color-bar').style.backgroundColor = swatchColor(fontColorCss(s.color)) || 'var(--ink)';
@@ -722,8 +745,8 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     undoArrow.disabled = undoBtn.disabled;
     redoBtn.disabled = midEdit || !ctx.wb.canRedo();
     // The right-click hint travels with the step named, since this tooltip replaces the one the button was built with.
-    undoBtn.title = ctx.wb.canUndo() ? `Undo ${ctx.wb.undoLabel().toLowerCase()} (${MOD_KEY}+Z). Right-click for the history` : 'Nothing to undo';
-    redoBtn.title = ctx.wb.canRedo() ? `Redo ${ctx.wb.redoLabel().toLowerCase()} (${MOD_KEY}+Shift+Z). Right-click for the history` : 'Nothing to redo';
+    undoBtn.title = ctx.wb.canUndo() ? t('toolbar.undoStepTip', { step: ctx.wb.undoLabel().toLowerCase(), shortcut: `${MOD_KEY}+Z` }) : t('toolbar.nothingToUndo');
+    redoBtn.title = ctx.wb.canRedo() ? t('toolbar.redoStepTip', { step: ctx.wb.redoLabel().toLowerCase(), shortcut: `${MOD_KEY}+Shift+Z` }) : t('toolbar.nothingToRedo');
     // The merge command unmerges when any selected range (Ctrl/Cmd+click adds them) holds a merge, and
     // merges every range that spans cells: the button says which, as the menus do, and waits when neither.
     const sheetId = ctx.sheetId();
@@ -734,10 +757,10 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     set(filterBtn, !!ctx.wb.filterAt(sheetId, ctx.active().r, ctx.active().c));
     mergeBtn.disabled = midEdit || (!merged && !multi); // merging waits for the edit too
     if (mergeArrow) mergeArrow.disabled = midEdit;
-    mergeBtn.title = merged ? 'Unmerge cells' : 'Merge cells';
+    mergeBtn.title = merged ? t('toolbar.unmergeCells') : t('toolbar.mergeCells');
     // On the ribbon the button is named by its label, Merge & Center, and says it is on by aria-pressed; the tooltip tells what a click does.
-    mergeBtn.setAttribute('aria-label', ribbon ? 'Merge & Center' : merged ? 'Unmerge cells' : 'Merge cells');
-    if (ribbon) mergeBtn.querySelector('.ribbon-button-label').textContent = 'Merge & Center';
+    nameAs(mergeBtn, ribbon ? 'toolbar.mergeAndCenter' : merged ? 'toolbar.unmergeCells' : 'toolbar.mergeCells');
+    if (ribbon) mergeBtn.querySelector('.ribbon-button-label').textContent = t('toolbar.mergeAndCenter');
     const editing = ctx.grid.editing;
     set(paintBtn, !!ctx.painting?.());
     for (const b of [sortBtn, rowsBtn, colsBtn, paintBtn]) b.disabled = editing;
@@ -746,7 +769,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     for (const b of [sortBtn, filterBtn, freezeBtn, cfBtn, dvBtn]) {
       if (b.dataset.title == null) b.dataset.title = b.title;
       if (grouped) b.disabled = true; else if (b !== sortBtn) b.disabled = false;
-      b.title = grouped ? `${b.dataset.title}: ${GROUP_BLOCKED_REASON}` : b.dataset.title;
+      b.title = grouped ? t('toolbar.blockedTip', { title: b.dataset.title, reason: groupBlockedReason() }) : b.dataset.title;
     }
     // Dates, times, text and custom codes without a number have no decimal places to step, so the buttons are greyed as the menus grey them.
     decLess.disabled = decMore.disabled = editing || !hasDecimalPlaces(s);
@@ -775,7 +798,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     if (narrow && !chartSheet) {
       if (expandBtn.parentNode !== tools) tools.append(expandBtn);
       expandBtn.setAttribute('aria-expanded', String(expanded));
-      const label = expanded ? 'Show fewer formatting tools' : 'Show all formatting tools';
+      const label = expanded ? t('toolbar.showFewerTools') : t('toolbar.showAllTools');
       expandBtn.setAttribute('aria-label', label);
       expandBtn.title = label;
       expandBtn.innerHTML = icon(expanded ? 'chevU' : 'more', 18);
@@ -804,27 +827,25 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
 export function rowItems(ctx) {
   const range = ctx.range();
   const n = range.r2 - range.r1 + 1;
-  const s = n === 1 ? '' : 's';
   return [
-    { label: `Insert ${n} row${s} above`, icon: 'arrowUp', onSelect: () => ctx.run('insertRows', 'above') },
-    { label: `Insert ${n} row${s} below`, icon: 'arrowDown', onSelect: () => ctx.run('insertRows', 'below') },
+    { label: t('toolbar.rowItems.insertAbove', { n }), icon: 'arrowUp', onSelect: () => ctx.run('insertRows', 'above') },
+    { label: t('toolbar.rowItems.insertBelow', { n }), icon: 'arrowDown', onSelect: () => ctx.run('insertRows', 'below') },
     { separator: true },
-    { label: n === 1 ? `Delete row ${range.r1 + 1}` : `Delete rows ${range.r1 + 1} to ${range.r2 + 1}`, icon: 'trash', danger: true, onSelect: () => ctx.run('deleteRows') },
+    { label: n === 1 ? t('toolbar.rowItems.deleteRow', { row: range.r1 + 1 }) : t('toolbar.rowItems.deleteRows', { first: range.r1 + 1, last: range.r2 + 1 }), icon: 'trash', danger: true, onSelect: () => ctx.run('deleteRows') },
     { separator: true },
-    { label: n === 1 ? 'Resize row…' : `Resize ${n} rows…`, icon: 'rows', onSelect: () => ctx.run('resizeRows') },
+    { label: n === 1 ? t('toolbar.rowItems.resizeRow') : t('toolbar.rowItems.resizeRows', { n }), icon: 'rows', onSelect: () => ctx.run('resizeRows') },
   ];
 }
 
 export function colItems(ctx) {
   const range = ctx.range();
   const n = range.c2 - range.c1 + 1;
-  const s = n === 1 ? '' : 's';
   return [
-    { label: `Insert ${n} column${s} left`, icon: 'chevL', onSelect: () => ctx.run('insertCols', 'left') },
-    { label: `Insert ${n} column${s} right`, icon: 'chevR', onSelect: () => ctx.run('insertCols', 'right') },
+    { label: t('toolbar.colItems.insertLeft', { n }), icon: 'chevL', onSelect: () => ctx.run('insertCols', 'left') },
+    { label: t('toolbar.colItems.insertRight', { n }), icon: 'chevR', onSelect: () => ctx.run('insertCols', 'right') },
     { separator: true },
-    { label: n === 1 ? 'Delete column' : `Delete ${n} columns`, icon: 'trash', danger: true, onSelect: () => ctx.run('deleteCols') },
-    { label: 'Fit to content', icon: 'cols', onSelect: () => ctx.run('autofit') },
-    { label: n === 1 ? 'Resize column…' : `Resize ${n} columns…`, icon: 'cols', onSelect: () => ctx.run('resizeCols') },
+    { label: n === 1 ? t('toolbar.colItems.deleteColumn') : t('toolbar.colItems.deleteColumns', { n }), icon: 'trash', danger: true, onSelect: () => ctx.run('deleteCols') },
+    { label: t('toolbar.colItems.fitToContent'), icon: 'cols', onSelect: () => ctx.run('autofit') },
+    { label: n === 1 ? t('toolbar.colItems.resizeColumn') : t('toolbar.colItems.resizeColumns', { n }), icon: 'cols', onSelect: () => ctx.run('resizeCols') },
   ];
 }

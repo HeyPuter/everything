@@ -17,6 +17,8 @@ import {
   evalSpline,
   splineFromFitPoints,
 } from '../src/core/geom/index.js';
+import { patternSegments } from '../src/core/hatch/fill.js';
+import { hatchPattern } from '../src/core/hatch/patterns.js';
 
 const close = (a, b, eps = 1e-9) => expect(Math.abs(a - b)).toBeLessThanOrEqual(eps);
 const closePt = (p, q, eps = 1e-9) => {
@@ -172,5 +174,31 @@ describe('transformEntity', () => {
     close(x.dy, 1);
     const p = transformEntity({ type: 'point', x: 1, y: 0 }, m);
     closePt(p, { x: 0, y: 1 });
+  });
+  it('mirrors hatch patterns into the mirror image of their lines', () => {
+    const sq = [[-10, -10, 0, 10, -10, 0, 10, 10, 0, -10, 10, 0]];
+    const segs = (e) => {
+      const ring = e.loops[0].filter((_, i) => i % 3 !== 2);
+      return patternSegments([ring], hatchPattern(e), e.scale, e.angle).segs;
+    };
+    const key = (x1, y1, x2, y2) => [[x1, y1], [x2, y2]].map((p) => p.map((v) => v.toFixed(3)).join()).sort().join('|');
+    for (const pattern of ['LINES', 'STEEL', 'HERRINGBONE', 'PEBBLES']) {
+      const h = { type: 'hatch', loops: sq, pattern, scale: 1.3, angle: 0.3 };
+      const m = mirror(0, 0, 1, 1);
+      const t = transformEntity(h, m);
+      expect(t.mirror).toBe(true);
+      expect(transformEntity(t, m).mirror).toBeUndefined();
+      const a = segs(h);
+      const want = new Set();
+      for (let i = 0; i < a.length; i += 4) {
+        const p = apply(m, a[i], a[i + 1]);
+        const q = apply(m, a[i + 2], a[i + 3]);
+        want.add(key(p.x, p.y, q.x, q.y));
+      }
+      const b = segs(t);
+      const got = new Set();
+      for (let i = 0; i < b.length; i += 4) got.add(key(b[i], b[i + 1], b[i + 2], b[i + 3]));
+      expect(got).toEqual(want);
+    }
   });
 });

@@ -156,70 +156,41 @@ export function tessellateSpline(p, U, P, W, segs) {
 }
 
 /**
- * Build a clamped cubic B-spline that passes through the fit points (flat
- * [x, y, ...]), as a chain of cubic Bezier pieces with chord-length tangents.
- * `startTan` / `endTan` are optional [dx, dy] directions.
- * Returns { degree: 3, ctrl, knots } or null for fewer than two points.
+ * Non-rational cubic equivalent of a rational B-spline (the drawing model has
+ * no weights): a chain of cubic Hermite pieces, `per` per knot span, through
+ * points of the curve with its tangents there, so corners at repeated knots
+ * stay sharp. Returns { degree: 3, ctrl, knots } with knots in [0, 1].
  */
-export function fitToSpline(fit, closed = false, startTan = null, endTan = null) {
-  const pts = fit.slice();
-  let n = pts.length >> 1;
-  if (n < 2) return null;
-  if (closed && (pts[0] !== pts[n * 2 - 2] || pts[1] !== pts[n * 2 - 1])) {
-    pts.push(pts[0], pts[1]);
-    n++;
-  }
-  const t = [0];
-  for (let i = 1; i < n; i++) {
-    const d = Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]);
-    t.push(t[i - 1] + Math.max(d, 1e-12));
-  }
-  const tx = new Array(n).fill(0);
-  const ty = new Array(n).fill(0);
-  for (let i = 1; i < n - 1; i++) {
-    const dt = t[i + 1] - t[i - 1];
-    tx[i] = (pts[i * 2 + 2] - pts[i * 2 - 2]) / dt;
-    ty[i] = (pts[i * 2 + 3] - pts[i * 2 - 1]) / dt;
-  }
-  const h0 = t[1] - t[0];
-  const hn = t[n - 1] - t[n - 2];
-  if (closed && n > 2) {
-    const dt = h0 + hn;
-    tx[0] = tx[n - 1] = (pts[2] - pts[n * 2 - 4]) / dt;
-    ty[0] = ty[n - 1] = (pts[3] - pts[n * 2 - 3]) / dt;
-  } else {
-    const setEnd = (i, j, h, tan, sign) => {
-      if (tan && (tan[0] || tan[1])) {
-        const l = Math.hypot(tan[0], tan[1]);
-        tx[i] = tan[0] / l;
-        ty[i] = tan[1] / l;
-        return;
-      }
-      const cx = (sign * (pts[j * 2] - pts[i * 2])) / h;
-      const cy = (sign * (pts[j * 2 + 1] - pts[i * 2 + 1])) / h;
-      if (n > 2) {
-        tx[i] = 2 * cx - tx[j];
-        ty[i] = 2 * cy - ty[j];
-      } else {
-        tx[i] = cx;
-        ty[i] = cy;
-      }
-    };
-    setEnd(0, 1, h0, startTan, 1);
-    setEnd(n - 1, n - 2, hn, endTan, -1);
-  }
-  const ctrl = [pts[0], pts[1]];
-  const total = t[n - 1];
+export function rationalToCubic(p, U, P, W, per = 8) {
+  const n = P.length >> 1;
+  const u0 = U[p];
+  const u1 = U[n];
+  if (!(u1 > u0)) return null;
+  const at = (u) => evalSpline(p, U, P, W, u, [0, 0]);
+  const ctrl = [];
   const knots = [0, 0, 0, 0];
-  for (let i = 0; i < n - 1; i++) {
-    const h = (t[i + 1] - t[i]) / 3;
-    ctrl.push(pts[i * 2] + tx[i] * h, pts[i * 2 + 1] + ty[i] * h);
-    ctrl.push(pts[i * 2 + 2] - tx[i + 1] * h, pts[i * 2 + 3] - ty[i + 1] * h);
-    ctrl.push(pts[i * 2 + 2], pts[i * 2 + 3]);
-    const k = i === n - 2 ? 1 : t[i + 1] / total;
-    if (i === n - 2) knots.push(1, 1, 1, 1);
-    else knots.push(k, k, k);
+  for (let i = p; i < n; i++) {
+    const a = U[i];
+    const b = U[i + 1];
+    if (!(b > a)) continue;
+    const h = (b - a) * 1e-7;
+    const step = (b - a) / per;
+    for (let k = 0; k < per; k++) {
+      const s = a + step * k;
+      const t = k === per - 1 ? b : s + step;
+      const A = at(s);
+      const B = at(t);
+      const A1 = at(s + h);
+      const B0 = at(t - h);
+      const f = step / 3 / h;
+      if (!ctrl.length) ctrl.push(A[0], A[1]);
+      ctrl.push(A[0] + (A1[0] - A[0]) * f, A[1] + (A1[1] - A[1]) * f);
+      ctrl.push(B[0] - (B[0] - B0[0]) * f, B[1] - (B[1] - B0[1]) * f, B[0], B[1]);
+      const kn = (t - u0) / (u1 - u0);
+      if (t < u1) knots.push(kn, kn, kn);
+    }
   }
+  knots.push(1, 1, 1, 1);
   return { degree: 3, ctrl, knots };
 }
 

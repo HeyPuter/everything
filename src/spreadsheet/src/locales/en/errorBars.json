@@ -1,0 +1,9 @@
+{
+  "enterRange": "Enter a range of cells, such as =Sheet1!$D$2:$D$10, or a number",
+  "oneRowOrColumn": "The error amounts must be one row or one column",
+  "typeCustom": "Custom (from cells)",
+  "typeFixed": "Fixed value",
+  "typePercentage": "Percentage",
+  "typeStdDev": "Standard deviation",
+  "typeStdErr": "Standard error"
+}

@@ -1,6 +1,7 @@
 import {
   PDFArray,
   PDFContext,
+  PDFDict,
   PDFName,
   PDFNumber,
   PDFRawStream,
@@ -9,7 +10,7 @@ import {
   StandardFonts,
   decodePDFRawStream,
 } from 'pdf-lib';
-import { assertSupportedText, embedFont, textVariant } from './document.js';
+import { assertSupportedText, embedFont, textVariant, visibleBox } from './document.js';
 import { readParagraphData } from './paragraph-data.js';
 import { retainCryptFilter, withoutCryptFilter } from './stream-filters.js';
 
@@ -28,6 +29,18 @@ const translation = (x, y) => [1, 0, 0, 1, x, y];
 const whitespace = (c) => /[\x00\t\n\f\r ]/.test(c);
 const delimiter = (c) => !c || whitespace(c) || '()<>[]{}/%'.includes(c);
 const unsupported = () => new Error('This text uses a PDF structure that cannot yet be edited.');
+/**
+ * Replace `source[start, end)` with `text`, separating it from its neighbors where they would
+ * otherwise read as one token: Word writes `0 Tc[(Hi)] TJ`, so text replacing the TJ must not
+ * begin `q` right after `Tc`.
+ */
+export function spliceContent(source, start, end, text) {
+  const before = start > 0 && !delimiter(source[start - 1]) && text && !delimiter(text[0]),
+    after = end < source.length && !delimiter(source[end]) && text && !delimiter(text.at(-1));
+  return (
+    source.slice(0, start) + (before ? ' ' : '') + text + (after ? ' ' : '') + source.slice(end)
+  );
+}
 
 // Every content stream operator, for checking that what follows a guessed inline image end reads
 // as content; EI and ID are left out, as they only belong inside an inline image.
@@ -366,7 +379,147 @@ const freshState = () => ({
   actualText: false,
   fillCommand: '0 g',
   paintTag: 0,
+  clipTag: 0,
 });
+
+// Word wraps each text chunk in its own structure tag and a page-sized clip, and resets paint
+// state to its defaults, none of which changes what is drawn. Text may be grouped across these,
+// or a Word line would split into one edit block per chunk.
+const PATH_OPS = new Set(['m', 'l', 'c', 'v', 'y', 'h', 're']);
+const DEFAULT_PAINT = {
+  Type: () => true,
+  BM: (t) => t.toString() === '/Normal' || t.toString() === '/Compatible',
+  CA: (t) => t.asNumber?.() === 1,
+  ca: (t) => t.asNumber?.() === 1,
+  AIS: (t) => t.toString() === 'false',
+  SMask: (t) => t.toString() === '/None',
+};
+/** An ExtGState that only sets what a fresh page already has. */
+function defaultPaint(gs) {
+  return (
+    Boolean(gs?.entries) &&
+    gs.entries().every(([key, value]) => DEFAULT_PAINT[key.decodeText()]?.(value))
+  );
+}
+/** A `x y w h re W n` clip whose rectangle contains the whole visible page. */
+function pageClip(commands, at, ctm, box) {
+  const [path, clip, end] = commands.slice(at, at + 3);
+  const values = path.args.map((t) => t.value);
+  if (
+    path.op !== 're' ||
+    !['W', 'W*'].includes(clip?.op) ||
+    end?.op !== 'n' ||
+    PATH_OPS.has(commands[at - 1]?.op) ||
+    values.length !== 4 ||
+    !values.every(Number.isFinite) ||
+    // Only an axis-aligned rectangle has corners that bound it exactly.
+    !(Math.abs(ctm[1]) + Math.abs(ctm[2]) < 1e-9 || Math.abs(ctm[0]) + Math.abs(ctm[3]) < 1e-9)
+  )
+    return false;
+  const [x, y, w, h] = values;
+  const xs = [],
+    ys = [];
+  for (const [px, py] of [
+    [x, y],
+    [x + w, y + h],
+  ]) {
+    xs.push(ctm[0] * px + ctm[2] * py + ctm[4]);
+    ys.push(ctm[1] * px + ctm[3] * py + ctm[5]);
+  }
+  const tolerance = 0.01;
+  return (
+    Math.min(...xs) <= box.x + tolerance &&
+    Math.max(...xs) >= box.x + box.width - tolerance &&
+    Math.min(...ys) <= box.y + tolerance &&
+    Math.max(...ys) >= box.y + box.height - tolerance
+  );
+}
+/** Marked content that only ties text to the structure tree: `/Span <</MCID 3 /Lang (en)>>`. */
+function structureOnly(args) {
+  const [tag, properties] = args;
+  if (
+    tag?.type !== 'name' ||
+    ['OC', 'Artifact', 'PuterParagraph', 'PuterTextDecoration'].includes(tag.value) ||
+    properties?.type !== 'dict' ||
+    properties.value.length % 2
+  )
+    return false;
+  const entries = properties.value;
+  for (let i = 0; i < entries.length; i += 2) {
+    const [key, value] = [entries[i], entries[i + 1]];
+    if (key.type !== 'name') return false;
+    if (key.value === 'MCID' ? value.type !== 'number' : key.value !== 'Lang') return false;
+  }
+  return true;
+}
+
+// Structure elements that sit inside a paragraph rather than being one: a link or a styled span
+// belongs to the paragraph around it.
+const INLINE_STRUCTURE = new Set(
+  'Span Link Quote Note Reference BibEntry Code Annot Ruby RB RT RP Warichu WT WP Em Strong Sub'.split(
+    ' ',
+  ),
+);
+/**
+ * For a tagged page, the block structure element (paragraph, heading, table cell, ...) that each
+ * marked-content id on it belongs to, or null when the page has no usable structure. Tagged
+ * Word, LibreOffice and Google Docs exports mark every paragraph this way.
+ */
+function structureBlocks(doc, page) {
+  const root = doc.catalog.lookup(PDFName.of('StructTreeRoot'));
+  const key = page.node.lookup(PDFName.of('StructParents'))?.asNumber?.();
+  if (!(root instanceof PDFDict) || !Number.isInteger(key)) return null;
+  // The page's entry in the parent tree: an array of elements indexed by marked-content id.
+  let parents = null;
+  const pending = [root.lookup(PDFName.of('ParentTree'))],
+    seen = new Set();
+  while (pending.length && !parents && seen.size < 10000) {
+    const node = pending.pop();
+    if (!(node instanceof PDFDict) || seen.has(node)) continue;
+    seen.add(node);
+    const limits = node.lookup(PDFName.of('Limits'));
+    if (limits instanceof PDFArray && limits.size() === 2) {
+      const [low, high] = [0, 1].map((i) => limits.lookup(i)?.asNumber?.());
+      if (key < low || key > high) continue;
+    }
+    const nums = node.lookup(PDFName.of('Nums'));
+    if (nums instanceof PDFArray)
+      for (let i = 0; i + 1 < nums.size(); i += 2)
+        if (nums.lookup(i)?.asNumber?.() === key) parents = nums.lookup(i + 1);
+    const kids = node.lookup(PDFName.of('Kids'));
+    if (kids instanceof PDFArray)
+      for (const kid of kids.asArray()) pending.push(doc.context.lookup(kid));
+  }
+  if (!(parents instanceof PDFArray)) return null;
+  const roles = root.lookup(PDFName.of('RoleMap'));
+  const role = (element) => {
+    let type = element.lookup(PDFName.of('S'));
+    for (let i = 0; i < 10 && type instanceof PDFName; i++) {
+      const mapped = roles instanceof PDFDict ? roles.lookup(type) : null;
+      if (!(mapped instanceof PDFName) || mapped === type) break;
+      type = mapped;
+    }
+    return type instanceof PDFName ? type.decodeText() : '';
+  };
+  const blocks = new Map();
+  return (mcid) => {
+    if (!Number.isInteger(mcid) || mcid < 0 || mcid >= parents.size()) return null;
+    if (blocks.has(mcid)) return blocks.get(mcid);
+    let element = parents.lookup(mcid);
+    for (
+      let i = 0;
+      i < 32 && element instanceof PDFDict && INLINE_STRUCTURE.has(role(element));
+      i++
+    ) {
+      const parent = element.lookup(PDFName.of('P'));
+      if (!(parent instanceof PDFDict) || !parent.has(PDFName.of('S'))) break;
+      element = parent;
+    }
+    const block = element instanceof PDFDict ? element : null;
+    blocks.set(mcid, block);
+    return block;
+  };
+}
 
 /** The color a text color control edits; stroke-only text does not paint its fill. */
 export function textColor(run) {
@@ -443,21 +596,35 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
     return key;
   };
   let cursor = 0,
-    barrier = 0;
+    barrier = 0,
+    box;
   const walk = (source, resources, initial, path = [], ancestors = new Set()) => {
     if (path.length > 20) throw unsupported();
     let s = { ...initial },
       paragraphData = null,
       // The q … BDC … EMC Q block (plus the position-restoring trailer) that an earlier
       // paragraph edit wrote around the runs, so the next edit can replace it whole.
-      wrapper = null;
+      wrapper = null,
+      // The last command of a page-sized clip, which clips nothing.
+      clipEnd = -1,
+      // The marked-content id the content is tagged with, on the page itself.
+      mcid = null;
     const stack = [],
       marked = [];
     const commands = parseContent(source, { inlineImages: true });
     for (const [at, command] of commands.entries()) {
       const { op, args } = command;
       const a = args.map((t) => t.value);
+      const gs = op === 'gs' ? get(get(resources, 'ExtGState'), a[0]) : null;
+      let neutral = at <= clipEnd;
+      if (!neutral && op === 're' && pageClip(commands, at, s.ctm, box)) {
+        clipEnd = at + 2;
+        neutral = true;
+      } else if (op === 'BDC') neutral = structureOnly(args);
+      else if (op === 'EMC') neutral = Boolean(marked.at(-1)?.neutral);
+      else if (op === 'gs') neutral = s.paintTag === 0 && defaultPaint(gs);
       if (
+        !neutral &&
         ![
           'q',
           'Q',
@@ -493,8 +660,14 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
           stack.push({ ...s });
           break;
         case 'Q':
-          if (!stack.length) throw unsupported();
-          if (s.paintTag !== stack.at(-1).paintTag) barrier++;
+          // A stray Q in the page's own content restores nothing, as readers treat it. In a
+          // form, readers would undo the form's own state with it, so that stays unsupported.
+          if (!stack.length) {
+            if (path.length) throw unsupported();
+            break;
+          }
+          // Restoring a clip or paint state changes how the text that follows is drawn.
+          if (s.paintTag !== stack.at(-1).paintTag || s.clipTag !== stack.at(-1).clipTag) barrier++;
           s = stack.pop();
           break;
         case 'g':
@@ -502,6 +675,10 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
         case 'k':
           s.fillCommand = source.slice(command.start, command.end);
           s.customColor = false;
+          break;
+        case 'W':
+        case 'W*':
+          if (!neutral) s.clipTag = barrier;
           break;
         case 'cs':
         case 'sc':
@@ -550,7 +727,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
           break;
         case 'BMC':
         case 'BDC': {
-          marked.push({ actualText: s.actualText, paragraphData, wrapper });
+          marked.push({ actualText: s.actualText, paragraphData, wrapper, neutral, mcid });
           if (args[0]?.value === 'PuterParagraph') {
             paragraphData = readParagraphData(args);
             const opened = commands[at - 1];
@@ -570,6 +747,12 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
           const property = args[1];
           const dict =
             property?.type === 'name' ? get(get(resources, 'Properties'), property.value) : null;
+          if (!path.length) {
+            const entries = property?.type === 'dict' ? property.value : [];
+            const key = entries.findIndex((t, i) => i % 2 === 0 && t.value === 'MCID');
+            const id = key >= 0 ? entries[key + 1]?.value : get(dict, 'MCID')?.asNumber?.();
+            if (Number.isInteger(id)) mcid = id;
+          }
           s.actualText ||= Boolean(
             dict?.has(PDFName.of('ActualText')) ||
             (property?.type === 'dict' &&
@@ -579,6 +762,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
         }
         case 'EMC': {
           const previous = marked.pop();
+          if (previous) mcid = previous.mcid;
           s.actualText = previous?.actualText ?? false;
           paragraphData = previous?.paragraphData ?? null;
           if (wrapper && wrapper !== previous?.wrapper) {
@@ -597,8 +781,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
           break;
         }
         case 'gs': {
-          s.paintTag = barrier;
-          const gs = get(get(resources, 'ExtGState'), a[0]);
+          if (!neutral) s.paintTag = barrier;
           // A font set through ExtGState has no local Tf name to restore reliably.
           if (get(gs, 'Font')) throw unsupported();
           break;
@@ -697,6 +880,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
             ...command,
             source: source.slice(command.start, command.end),
             barrier,
+            mcid,
             paragraphData,
             underline: paragraphData?.underline || false,
             strikethrough: paragraphData?.strikethrough || false,
@@ -739,8 +923,18 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
   };
   try {
     const page = doc.getPage(index);
+    // The visible box, in order: a box may name its corners in any order (pdf-lib's own
+    // getCropBox would then give a negative size, and every clip would look page-sized).
+    box = visibleBox(page);
     walk(pageSource(page), page.node.Resources(), freshState());
     if (cursor !== decoded.length) throw unsupported();
+    let blocks = null;
+    try {
+      blocks = structureBlocks(doc, page);
+    } catch {
+      // Damaged structure only means paragraphs are found from the layout alone.
+    }
+    for (const run of runs) run.block = (run.mcid != null && blocks?.(run.mcid)) || null;
     return runs;
   } catch {
     // A mismatch means source-to-glyph identity is unproven; never edit a different text run.
@@ -1035,8 +1229,7 @@ async function editRuns(doc, index, edits) {
       .sort((a, b) => b.run.start - a.run.start)
       .map((edit) => editAt(edit, source, commands, copy));
     let out = source;
-    for (const change of changes)
-      out = out.slice(0, change.from) + change.text + out.slice(change.end);
+    for (const change of changes) out = spliceContent(out, change.from, change.end, change.text);
     return { source: out, resources: copy };
   };
   const rebuild = (source, resources, depth) => {

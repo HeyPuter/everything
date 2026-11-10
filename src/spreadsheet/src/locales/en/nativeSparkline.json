@@ -1,0 +1,5 @@
+{
+  "label": "{kind, select, winLoss {Win/loss sparkline, {count} values, minimum {min}, maximum {max}} column {Column sparkline, {count} values, minimum {min}, maximum {max}} other {Line sparkline, {count} values, minimum {min}, maximum {max}}}",
+  "labelEmpty": "{kind, select, winLoss {Win/loss sparkline, no numeric values} column {Column sparkline, no numeric values} other {Line sparkline, no numeric values}}",
+  "labelUnavailable": "{kind, select, winLoss {Win/loss sparkline, source unavailable} column {Column sparkline, source unavailable} other {Line sparkline, source unavailable}}"
+}

@@ -7,7 +7,7 @@ import { authView } from './views/auth.js';
 import { store } from './lib/store.js';
 import { parseHash } from './lib/router.js';
 import { loadEmoji } from './lib/emoji.js';
-import { registerServiceWorker, captureInstallPrompt } from './lib/pwa.js';
+import { registerServiceWorker, captureInstallPrompt, listenForPushes } from './lib/pwa.js';
 import { toast } from './ui/toast.js';
 import { mountOfflineBanner } from './ui/offline.js';
 import { navigate } from './lib/router.js';
@@ -103,6 +103,23 @@ async function start() {
   await enter();
 }
 
+/**
+ * A tap on one of Teamchat's Puter notifications opens the message it is
+ * about. Added as soon as the SDK is there, so the tap that launched the app
+ * reaches it too (Puter hands that one to the first handler only).
+ */
+let clicksHeard = false;
+function listenForNotificationClicks() {
+  if (clicksHeard || typeof puter.notifications?.on !== 'function') return;
+  clicksHeard = true;
+  puter.notifications.on('click', ({ uid, target, data } = {}) => {
+    const route = typeof data?.r === 'string' ? data.r : String(target || '').replace(/^\//, '');
+    if (route.startsWith('#/')) navigate(route);
+    // Closes the same notification on the user's other devices.
+    if (uid) puter.notifications.dismiss(uid).catch(() => {});
+  });
+}
+
 // Whether "Could not reach Puter" is the page showing, for the retry the
 // network's return brings (see start); and whether an entry is in flight, so
 // that retry cannot run two at once.
@@ -140,6 +157,8 @@ async function enter() {
       showError('Could not reach Puter', 'The Puter script (js.puter.com) did not load. Check your connection or a content blocker, then try again.', () => location.reload());
       return;
     }
+    listenForNotificationClicks();
+    listenForPushes();
     let signedIn = false;
     try {
       signedIn = await Promise.resolve(puter.auth.isSignedIn());

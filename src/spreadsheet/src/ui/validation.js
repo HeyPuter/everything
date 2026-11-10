@@ -11,6 +11,8 @@ import { VALIDATION_TYPES, VALIDATION_OPERATORS, describeValidation, CHIP_PALETT
 import { cellName, rangeName } from '../core/cell.js';
 import { formatDate, formatTime, parseTime, ymdToSerial, ERROR_HELP } from '../core/format.js';
 import { parseFormula } from '../core/formula/parser.js';
+import { syntaxErrorText } from '../core/formula/tokenizer.js';
+import { t } from '../i18n/index.js';
 
 /**
  * Why `text`, a custom formula written for the top-left cell of `range`, cannot
@@ -21,16 +23,16 @@ import { parseFormula } from '../core/formula/parser.js';
  * the formula can serve. Shared with the conditional formatting dialog.
  */
 export function customFormulaProblem(wb, sheetId, range, text) {
-  try { parseFormula(ruleFormulaBody(text)); } catch (e) { return `The formula cannot be read: ${e.message}`; }
+  try { parseFormula(ruleFormulaBody(text)); } catch (e) { return t('validation.formulaUnreadable', { detail: syntaxErrorText(e) }); }
   const result = wb.evalRuleFormula(sheetId, text, range, range.r1, range.c1);
   const code = result && typeof result === 'object' ? result.error : null;
-  if (code === '#NAME?' || code === '#REF!') return `For ${cellName(range.r1, range.c1)} the formula gives ${code}: ${ERROR_HELP[code]}`;
+  if (code === '#NAME?' || code === '#REF!') return t('validation.formulaGives', { cell: cellName(range.r1, range.c1), code, help: ERROR_HELP[code] });
   return null;
 }
 
 export function openValidationManager(ctx, { type = null } = {}) {
   const sheetId = ctx.sheetId();
-  const list = el('div.cf-list', { role: 'list', 'aria-label': 'Validation rules' });
+  const list = el('div.cf-list', { role: 'list', 'aria-label': t('validation.rules') });
   let editingId = null;
   // Keys the rule being edited leaves out, each with the value the form shows in its place. A rule
   // written elsewhere (a template's, an imported file's) carries fewer keys than this form writes, so
@@ -42,32 +44,32 @@ export function openValidationManager(ctx, { type = null } = {}) {
   let dateBounds = null; // the loaded rule's date serials, with the text the date fields were given for them
   let timeBounds = null;
 
-  const rangeInput = el('input.input', { type: 'text', 'aria-label': 'Apply to range', value: rangeName(ctx.range()), spellcheck: false, autocomplete: 'off' });
-  const typeSelect = el('select.select', { 'aria-label': 'Type' }, VALIDATION_TYPES.map((t) => el('option', { value: t.value }, t.label)));
-  const sourceInput = el('textarea.input', { rows: 2, 'aria-label': 'List options', placeholder: 'Yes, No, Maybe  or  Lists!A1:A9  or  =Options', autocomplete: 'off', spellcheck: false });
-  const minInput = el('input.input', { type: 'number', 'aria-label': 'Minimum', placeholder: 'Minimum (optional)', step: 'any' });
-  const maxInput = el('input.input', { type: 'number', 'aria-label': 'Maximum', placeholder: 'Maximum (optional)', step: 'any' });
-  const minDate = el('input.input', { type: 'date', 'aria-label': 'Earliest date' });
-  const maxDate = el('input.input', { type: 'date', 'aria-label': 'Latest date' });
-  const minTime = el('input.input', { type: 'text', 'aria-label': 'Earliest time', placeholder: '09:00', autocomplete: 'off' });
-  const maxTime = el('input.input', { type: 'text', 'aria-label': 'Latest time', placeholder: '17:00', autocomplete: 'off' });
-  const comparison = el('select.select', { 'aria-label': 'Comparison' }, VALIDATION_OPERATORS.map(([value, label]) => el('option', { value }, label)));
-  const formulaInput = el('input.input', { type: 'text', 'aria-label': 'Formula', placeholder: '=COUNTIF($A$1:$A$100,A1)=1', autocomplete: 'off', spellcheck: false });
-  const messageInput = el('textarea.input', { rows: 3, 'aria-label': 'Help message', placeholder: 'Shown when the value is not allowed (optional)', autocomplete: 'off' });
-  const promptInput = el('textarea.input', { rows: 3, 'aria-label': 'Input message', placeholder: 'Shown beside the cell while it is selected (optional)', autocomplete: 'off', maxlength: 300 });
-  const promptTitle = el('input.input', { type: 'text', 'aria-label': 'Input message title', maxlength: 32, autocomplete: 'off' });
-  const errorTitle = el('input.input', { type: 'text', 'aria-label': 'Error alert title', maxlength: 32, autocomplete: 'off' });
+  const rangeInput = el('input.input', { type: 'text', 'aria-label': t('validation.applyToRange'), value: rangeName(ctx.range()), spellcheck: false, autocomplete: 'off' });
+  const typeSelect = el('select.select', { 'aria-label': t('validation.type') }, VALIDATION_TYPES.map((type) => el('option', { value: type.value }, t(type.label))));
+  const sourceInput = el('textarea.input', { rows: 2, 'aria-label': t('validation.listOptions'), placeholder: t('validation.listPlaceholder'), autocomplete: 'off', spellcheck: false });
+  const minInput = el('input.input', { type: 'number', 'aria-label': t('validation.minimum'), placeholder: t('validation.minimumOptional'), step: 'any' });
+  const maxInput = el('input.input', { type: 'number', 'aria-label': t('validation.maximum'), placeholder: t('validation.maximumOptional'), step: 'any' });
+  const minDate = el('input.input', { type: 'date', 'aria-label': t('validation.earliestDate') });
+  const maxDate = el('input.input', { type: 'date', 'aria-label': t('validation.latestDate') });
+  const minTime = el('input.input', { type: 'text', 'aria-label': t('validation.earliestTime'), placeholder: '09:00', autocomplete: 'off' });
+  const maxTime = el('input.input', { type: 'text', 'aria-label': t('validation.latestTime'), placeholder: '17:00', autocomplete: 'off' });
+  const comparison = el('select.select', { 'aria-label': t('validation.comparison') }, VALIDATION_OPERATORS.map(([value, label]) => el('option', { value }, t(label))));
+  const formulaInput = el('input.input', { type: 'text', 'aria-label': t('validation.formula'), placeholder: '=COUNTIF($A$1:$A$100,A1)=1', autocomplete: 'off', spellcheck: false });
+  const messageInput = el('textarea.input', { rows: 3, 'aria-label': t('validation.helpMessage'), placeholder: t('validation.helpPlaceholder'), autocomplete: 'off' });
+  const promptInput = el('textarea.input', { rows: 3, 'aria-label': t('validation.inputMessage'), placeholder: t('validation.inputPlaceholder'), autocomplete: 'off', maxlength: 300 });
+  const promptTitle = el('input.input', { type: 'text', 'aria-label': t('validation.inputTitle'), maxlength: 32, autocomplete: 'off' });
+  const errorTitle = el('input.input', { type: 'text', 'aria-label': t('validation.errorTitle'), maxlength: 32, autocomplete: 'off' });
   const showPromptId = fieldId('dv');
   const showPrompt = el('input', { type: 'checkbox', id: showPromptId, checked: true });
   const syncPrompt = () => { promptTitle.disabled = promptInput.disabled = !showPrompt.checked; };
   showPrompt.addEventListener('change', syncPrompt);
   const strictId = fieldId('dv');
   const strictInput = el('input', { type: 'checkbox', id: strictId, checked: true });
-  const alertSelect = el('select.select', { 'aria-label': 'Invalid entry alert', disabled: true },
-    el('option', { value: 'stop', disabled: true }, 'Stop: correct or cancel'),
-    el('option', { value: 'none' }, 'Mark invalid cells only'),
-    el('option', { value: 'warning' }, 'Warning: accept, edit, or cancel'),
-    el('option', { value: 'information' }, 'Information: accept or cancel'));
+  const alertSelect = el('select.select', { 'aria-label': t('validation.alertStyle'), disabled: true },
+    el('option', { value: 'stop', disabled: true }, t('validation.alert.stop')),
+    el('option', { value: 'none' }, t('validation.alert.none')),
+    el('option', { value: 'warning' }, t('validation.alert.warning')),
+    el('option', { value: 'information' }, t('validation.alert.information')));
   let nonStrictAlert = 'none';
   strictInput.addEventListener('change', () => {
     if (strictInput.checked) nonStrictAlert = alertSelect.value;
@@ -85,14 +87,14 @@ export function openValidationManager(ctx, { type = null } = {}) {
   };
 
   const listHint = el('span.field-hint');
-  const listField = el('label.field', {}, el('span.field-label', {}, 'Options'), sourceInput, listHint);
+  const listField = el('label.field', {}, el('span.field-label', {}, t('common.options')), sourceInput, listHint);
   // Colored chips: draw each value as a pill, with a fill per option.
   const chipsId = fieldId('dv');
   const chipsInput = el('input', { type: 'checkbox', id: chipsId });
   const colorRows = el('div.chip-colors');
   let colors = Object.create(null);
   const chipsField = el('div.field.chips-field', {},
-    el('label.find-option', { for: chipsId }, chipsInput, el('span', {}, 'Show values as colored chips')),
+    el('label.find-option', { for: chipsId }, chipsInput, el('span', {}, t('validation.chips'))),
     colorRows);
   function sourceForForm() {
     const source = sourceInput.value;
@@ -129,12 +131,12 @@ export function openValidationManager(ctx, { type = null } = {}) {
     clear(colorRows);
     if (!chipsInput.checked) return;
     const options = optionsForForm();
-    if (!options.length) { colorRows.append(el('span.small.muted', {}, 'Type the options above to color them.')); return; }
+    if (!options.length) { colorRows.append(el('span.small.muted', {}, t('validation.chipsEmpty'))); return; }
     const preview = { type: 'list', chips: true, colors };
     for (const option of options) {
-      const sel = el('select.select.select-sm', { 'aria-label': `Color for ${option}` },
-        el('option', { value: '' }, 'Automatic'),
-        ...CHIP_PALETTE.map(([hex, name]) => el('option', { value: hex, selected: typeof colors[option] === 'string' && colors[option].toLowerCase() === hex }, name)));
+      const sel = el('select.select.select-sm', { 'aria-label': t('validation.colorFor', { option }) },
+        el('option', { value: '' }, t('common.automatic')),
+        ...CHIP_PALETTE.map(([hex, name]) => el('option', { value: hex, selected: typeof colors[option] === 'string' && colors[option].toLowerCase() === hex }, t(name))));
       const chipEl = el('span.chip', { style: { backgroundColor: chipFor(preview, option, options).bg, color: '#1a1a1a' } }, option);
       sel.addEventListener('change', () => {
         if (sel.value) colors[option] = sel.value; else delete colors[option];
@@ -145,45 +147,46 @@ export function openValidationManager(ctx, { type = null } = {}) {
   }
   chipsInput.addEventListener('change', renderColors);
   sourceInput.addEventListener('input', () => { if (chipsInput.checked) renderColors(); });
-  const numberLabel = el('span.field-label', {}, 'Allowed range');
+  const numberLabel = el('span.field-label', {}, t('validation.allowedRange'));
   const numberField = el('div.field', { hidden: true }, numberLabel, el('div.cf-values', {}, minInput, maxInput));
   const dateLabel = el('span.field-label');
   const dateField = el('div.field', { hidden: true }, dateLabel, el('div.cf-values', {}, minDate, maxDate));
   const timeLabel = el('span.field-label');
-  const timeField = el('div.field', { hidden: true }, timeLabel, el('div.cf-values', {}, minTime, maxTime), el('span.field-hint', {}, 'Enter a clock time such as 09:00, or a numeric day fraction.'));
-  const comparisonField = el('label.field', { hidden: true }, el('span.field-label', {}, 'Comparison'), el('div.select-wrap', {}, comparison));
-  const formulaField = el('label.field', { hidden: true }, el('span.field-label', {}, 'Formula'), formulaInput, el('span.field-hint', {}, 'Written for the top-left cell of the range and must come out TRUE; relative references move with each cell.'));
+  const timeField = el('div.field', { hidden: true }, timeLabel, el('div.cf-values', {}, minTime, maxTime), el('span.field-hint', {}, t('validation.timeHint')));
+  const comparisonField = el('label.field', { hidden: true }, el('span.field-label', {}, t('validation.comparison')), el('div.select-wrap', {}, comparison));
+  const formulaField = el('label.field', { hidden: true }, el('span.field-label', {}, t('validation.formula')), formulaInput, el('span.field-hint', {}, t('validation.formulaHint')));
   const optionsBlock = el('div.field', {},
-    el('label.find-option', { for: strictId }, strictInput, el('span', {}, 'Reject values that are not allowed')),
-    el('label.field', {}, el('span.field-label', {}, 'Invalid entry alert'), el('div.select-wrap', {}, alertSelect)));
+    el('label.find-option', { for: strictId }, strictInput, el('span', {}, t('validation.strict'))),
+    el('label.field', {}, el('span.field-label', {}, t('validation.alertStyle')), el('div.select-wrap', {}, alertSelect)));
 
   function syncType() {
-    const t = typeSelect.value;
+    const kind = typeSelect.value;
     const dual = ['between', 'notBetween'].includes(comparison.value);
-    comparisonField.hidden = !['number', 'whole', 'text', 'date', 'time'].includes(t);
+    comparisonField.hidden = !['number', 'whole', 'text', 'date', 'time'].includes(kind);
     for (const input of [maxInput, maxDate, maxTime]) input.hidden = !dual;
-    minInput.setAttribute('aria-label', dual ? 'Minimum' : 'Comparison value');
-    minDate.setAttribute('aria-label', dual ? 'Earliest date' : 'Comparison date');
-    minTime.setAttribute('aria-label', dual ? 'Earliest time' : 'Comparison time');
-    blankInput.disabled = t === 'any';
-    if (t === 'any') blankInput.checked = true;
-    listHint.textContent = 'Comma-separated values, a range like Lists!A1:A9 or Sales[Item], or a named range like =Options. Put double quotes around a value holding a comma or spaces at its ends, doubling any quote inside it.';
-    listField.hidden = t !== 'list';
-    chipsField.hidden = t !== 'list';
-    numberField.hidden = !['number', 'whole', 'text'].includes(t);
-    numberLabel.textContent = !dual ? 'Value' : t === 'text' ? 'Length' : 'Allowed range';
-    const optional = comparison.value === 'between' && t !== 'whole';
-    minInput.placeholder = !dual ? 'Comparison value' : `${t === 'text' ? 'Shortest' : 'Minimum'}${optional ? ' (optional)' : ''}`;
-    maxInput.placeholder = `${t === 'text' ? 'Longest' : 'Maximum'}${optional ? ' (optional)' : ''}`;
-    dateLabel.textContent = !dual ? 'Comparison date' : `Allowed dates${optional ? ' (optional)' : ''}`;
-    timeLabel.textContent = dual ? 'Allowed times' : 'Comparison time';
-    dateField.hidden = t !== 'date';
-    timeField.hidden = t !== 'time';
-    formulaField.hidden = t !== 'formula';
-    optionsBlock.hidden = t === 'checkbox';
-    tabs.querySelector('[data-key="prompt"]').disabled = t === 'checkbox';
-    tabs.querySelector('[data-key="error"]').disabled = t === 'checkbox';
-    if (t === 'checkbox' && activeTab !== 'settings') activeTab = 'settings';
+    minInput.setAttribute('aria-label', dual ? t('validation.minimum') : t('validation.comparisonValue'));
+    minDate.setAttribute('aria-label', dual ? t('validation.earliestDate') : t('validation.comparisonDate'));
+    minTime.setAttribute('aria-label', dual ? t('validation.earliestTime') : t('validation.comparisonTime'));
+    blankInput.disabled = kind === 'any';
+    if (kind === 'any') blankInput.checked = true;
+    listHint.textContent = t('validation.listHint');
+    listField.hidden = kind !== 'list';
+    chipsField.hidden = kind !== 'list';
+    numberField.hidden = !['number', 'whole', 'text'].includes(kind);
+    numberLabel.textContent = !dual ? t('common.value') : kind === 'text' ? t('validation.length') : t('validation.allowedRange');
+    const optional = comparison.value === 'between' && kind !== 'whole';
+    minInput.placeholder = !dual ? t('validation.comparisonValue') : kind === 'text' ? (optional ? t('validation.shortestOptional') : t('validation.shortest'))
+      : optional ? t('validation.minimumOptional') : t('validation.minimum');
+    maxInput.placeholder = kind === 'text' ? (optional ? t('validation.longestOptional') : t('validation.longest')) : optional ? t('validation.maximumOptional') : t('validation.maximum');
+    dateLabel.textContent = !dual ? t('validation.comparisonDate') : optional ? t('validation.allowedDatesOptional') : t('validation.allowedDates');
+    timeLabel.textContent = dual ? t('validation.allowedTimes') : t('validation.comparisonTime');
+    dateField.hidden = kind !== 'date';
+    timeField.hidden = kind !== 'time';
+    formulaField.hidden = kind !== 'formula';
+    optionsBlock.hidden = kind === 'checkbox';
+    tabs.querySelector('[data-key="prompt"]').disabled = kind === 'checkbox';
+    tabs.querySelector('[data-key="error"]').disabled = kind === 'checkbox';
+    if (kind === 'checkbox' && activeTab !== 'settings') activeTab = 'settings';
     syncTabs();
   }
   // A different type asks for different fields: a refusal about one the form no longer shows
@@ -224,7 +227,7 @@ export function openValidationManager(ctx, { type = null } = {}) {
     nonStrictAlert = 'none';
     alertSelect.value = 'stop'; alertSelect.disabled = true;
     blankInput.checked = true;
-    saveBtn.textContent = 'Add rule';
+    saveBtn.textContent = t('validation.addRule');
     cancelEdit.hidden = true;
     activeTab = 'settings';
     syncType();
@@ -266,7 +269,7 @@ export function openValidationManager(ctx, { type = null } = {}) {
     alertSelect.value = strictInput.checked ? 'stop' : nonStrictAlert;
     alertSelect.disabled = strictInput.checked;
     blankInput.checked = rule.allowBlank !== false;
-    saveBtn.textContent = 'Save rule';
+    saveBtn.textContent = t('validation.saveRule');
     cancelEdit.hidden = false;
     implied = {};
     // An absent bound leaves its field empty, which the form reads back as null.
@@ -281,8 +284,8 @@ export function openValidationManager(ctx, { type = null } = {}) {
   function changed(result) {
     if (result) { clearError(); return true; }
     refuse(null, ctx.wb.isProtected(sheetId)
-      ? 'This sheet is protected. Unprotect it before changing data validation.'
-      : 'The rule could not be changed. Its sheet or rule may no longer exist.');
+      ? t('validation.protected')
+      : t('validation.changeFailed'));
     return false;
   }
 
@@ -290,16 +293,16 @@ export function openValidationManager(ctx, { type = null } = {}) {
     e.preventDefault();
     const parsed = ctx.wb.rangeFromText(sheetId, rangeInput.value.trim());
     const range = parsed && parsed.sheetId === sheetId ? parsed.range : null;
-    if (!range) return refuse(rangeInput, parsed ? 'Enter a range on this sheet' : 'Enter a range like B2:B20, or a table column like Sales[Item]');
+    if (!range) return refuse(rangeInput, parsed ? t('validation.rangeOtherSheet') : t('validation.rangeInvalid'));
     const type = typeSelect.value;
-    if (type === 'list' && !sourceInput.value.trim()) return refuse(sourceInput, 'Enter the list options');
-    if (type === 'formula' && !formulaInput.value.trim().startsWith('=')) return refuse(formulaInput, 'A custom formula starts with =');
+    if (type === 'list' && !sourceInput.value.trim()) return refuse(sourceInput, t('validation.noOptions'));
+    if (type === 'formula' && !formulaInput.value.trim().startsWith('=')) return refuse(formulaInput, t('validation.formulaNoEquals'));
     const formulaProblem = type === 'formula' ? customFormulaProblem(ctx.wb, sheetId, range, formulaInput.value.trim()) : null;
     if (formulaProblem) return refuse(formulaInput, formulaProblem);
     // A number or date field holding what it cannot read (a lone minus, half a date) has no value to go by.
     const bounds = type === 'date' ? [minDate, maxDate] : type === 'time' ? [minTime, maxTime] : ['number', 'whole', 'text'].includes(type) ? [minInput, maxInput] : [];
     const unreadable = bounds.find((input) => !input.hidden && input.validity?.badInput);
-    if (unreadable) return refuse(unreadable, unreadable.type === 'date' ? 'Enter a whole date, or leave it blank' : 'Enter a number, or leave it blank');
+    if (unreadable) return refuse(unreadable, unreadable.type === 'date' ? t('validation.badDate') : t('validation.badNumber'));
     const toSerial = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso); return m ? ymdToSerial(Number(m[1]), Number(m[2]), Number(m[3])) : null; };
     let min = minInput.value.trim() === '' ? null : Number(minInput.value);
     let max = maxInput.value.trim() === '' ? null : Number(maxInput.value);
@@ -312,18 +315,18 @@ export function openValidationManager(ctx, { type = null } = {}) {
       min = timeBounds && minTime.value === timeBounds.minText ? timeBounds.min : readTime(minTime);
       max = timeBounds && maxTime.value === timeBounds.maxText ? timeBounds.max : readTime(maxTime);
       const invalid = !Number.isFinite(min) && min != null ? minTime : !maxTime.hidden && !Number.isFinite(max) && max != null ? maxTime : null;
-      if (invalid) return refuse(invalid, 'Enter a clock time or a finite day fraction');
+      if (invalid) return refuse(invalid, t('validation.badTime'));
     }
     const ranged = ['number', 'whole', 'text', 'date', 'time'].includes(type);
     const dual = ['between', 'notBetween'].includes(comparison.value);
     if (ranged && (!dual || comparison.value === 'notBetween' || ['whole', 'time'].includes(type))) {
-      if (min == null) return refuse(bounds[0], 'Enter the comparison value');
-      if (dual && max == null) return refuse(bounds[1], 'Enter the second comparison value');
+      if (min == null) return refuse(bounds[0], t('validation.noComparison'));
+      if (dual && max == null) return refuse(bounds[1], t('validation.noSecondComparison'));
     }
     if (ranged && !dual) max = undefined;
     const badLength = (n) => n != null && (n < 0 || !Number.isInteger(n));
-    if (type === 'text' && (badLength(min) || badLength(max))) return refuse(badLength(min) ? minInput : maxInput, 'Lengths are whole numbers');
-    if (ranged && dual && min != null && max != null && min > max) return refuse(bounds[0], 'Minimum must not exceed maximum');
+    if (type === 'text' && (badLength(min) || badLength(max))) return refuse(badLength(min) ? minInput : maxInput, t('validation.lengthNotWhole'));
+    if (ranged && dual && min != null && max != null && min > max) return refuse(bounds[0], t('validation.minAboveMax'));
     clearError();
     const rule = {
       range, type,
@@ -355,7 +358,7 @@ export function openValidationManager(ctx, { type = null } = {}) {
     for (const [key, shown] of Object.entries(implied)) if (key in rule && rule[key] === shown) rule[key] = undefined;
     const result = editingId ? ctx.wb.updateValidation(sheetId, editingId, rule) : ctx.wb.addValidation(sheetId, rule);
     if (!changed(result)) return;
-    toast(editingId ? 'Rule updated' : 'Rule added');
+    toast(editingId ? t('validation.updated') : t('validation.added'));
     resetForm();
     render();
   }
@@ -363,9 +366,9 @@ export function openValidationManager(ctx, { type = null } = {}) {
   function render() {
     clear(list);
     const rules = ctx.wb.sheet(sheetId)?.validations || [];
-    ruleSummary.textContent = `Rules on this sheet (${rules.length})`;
+    ruleSummary.textContent = t('validation.rulesOnSheet', { count: rules.length });
     if (!rules.length) {
-      list.append(el('p.small.muted', { style: { padding: '6px 2px' } }, 'No validation rules on this sheet yet.'));
+      list.append(el('p.small.muted', { style: { padding: '6px 2px' } }, t('validation.noRules')));
       return;
     }
     // Deleting rebuilds the rows; the focus goes to the row that took the deleted one's place, or to the range field.
@@ -374,22 +377,22 @@ export function openValidationManager(ctx, { type = null } = {}) {
         el('button.names-main', { type: 'button', onclick: () => loadRule(rule) },
           el('span.menu-icon', { html: icon(rule.type === 'checkbox' ? 'check' : rule.type === 'list' ? 'chevUD' : rule.type === 'date' ? 'calendar' : rule.type === 'text' ? 'text' : rule.type === 'formula' ? 'fx' : 'number', 16) }),
           el('span.names-name', {}, rangeName(rule.range)),
-          el('span.names-ref', {}, describeValidation(rule))),
-        el('button.icon-btn', { type: 'button', html: icon('trash', 16), 'aria-label': `Delete rule for ${rangeName(rule.range)}`, dataset: { action: 'delete' }, onclick: () => { if (!changed(ctx.wb.deleteValidation(sheetId, rule.id))) return; if (editingId === rule.id) resetForm(); render(); focusListRow(list, idx, 'delete', rangeInput); } })));
+          el('span.names-ref', {}, describeValidation(rule, { display: true }))),
+        el('button.icon-btn', { type: 'button', html: icon('trash', 16), 'aria-label': t('validation.deleteRule', { range: rangeName(rule.range) }), dataset: { action: 'delete' }, onclick: () => { if (!changed(ctx.wb.deleteValidation(sheetId, rule.id))) return; if (editingId === rule.id) resetForm(); render(); focusListRow(list, idx, 'delete', rangeInput); } })));
     });
   }
 
-  const messageField = el('label.field', {}, el('span.field-label', {}, 'Error message'), messageInput);
-  const promptField = el('label.field', {}, el('span.field-label', {}, 'Input message'), promptInput);
-  const saveBtn = el('button.btn.btn-primary', { type: 'submit' }, 'Add rule');
+  const messageField = el('label.field', {}, el('span.field-label', {}, t('validation.errorMessage')), messageInput);
+  const promptField = el('label.field', {}, el('span.field-label', {}, t('validation.inputMessage')), promptInput);
+  const saveBtn = el('button.btn.btn-primary', { type: 'submit' }, t('validation.addRule'));
   // Hiding the button it was pressed on would drop the focus to the page: it goes to the form's first field, as in Named ranges.
-  const cancelEdit = el('button.btn.btn-ghost', { type: 'button', hidden: true, onclick: () => { resetForm(); rangeInput.focus(); } }, 'Cancel edit');
+  const cancelEdit = el('button.btn.btn-ghost', { type: 'button', hidden: true, onclick: () => { resetForm(); rangeInput.focus(); } }, t('validation.cancelEdit'));
   // The number and date fields are hidden for most types; an unreadable value left in one would fail the
   // browser's own check silently, with nowhere to show its bubble. submit() checks the shown ones itself.
   const settingsPanel = el('div.dv-panel', { dataset: { key: 'settings' } },
     el('div.names-fields', {},
-      el('label.field', {}, el('span.field-label', {}, 'Apply to'), rangeInput),
-      el('label.field', {}, el('span.field-label', {}, 'Type'), el('div.select-wrap', {}, typeSelect))),
+      el('label.field', {}, el('span.field-label', {}, t('validation.applyTo')), rangeInput),
+      el('label.field', {}, el('span.field-label', {}, t('validation.type')), el('div.select-wrap', {}, typeSelect))),
     listField,
     chipsField,
     comparisonField,
@@ -397,12 +400,12 @@ export function openValidationManager(ctx, { type = null } = {}) {
     dateField,
     timeField,
     formulaField,
-    el('label.find-option', { for: blankId }, blankInput, el('span', {}, 'Allow empty cells')));
+    el('label.find-option', { for: blankId }, blankInput, el('span', {}, t('validation.allowBlank'))));
   const promptPanel = el('div.dv-panel', { dataset: { key: 'prompt' } },
-    el('label.find-option', { for: showPromptId }, showPrompt, el('span', {}, 'Show a message when the cell is selected')),
-    el('label.field', {}, el('span.field-label', {}, 'Title'), promptTitle), promptField);
+    el('label.find-option', { for: showPromptId }, showPrompt, el('span', {}, t('validation.showPrompt'))),
+    el('label.field', {}, el('span.field-label', {}, t('validation.title')), promptTitle), promptField);
   const errorPanel = el('div.dv-panel', { dataset: { key: 'error' } }, optionsBlock,
-    el('label.field', {}, el('span.field-label', {}, 'Title'), errorTitle), messageField);
+    el('label.field', {}, el('span.field-label', {}, t('validation.title')), errorTitle), messageField);
   const panels = { settings: settingsPanel, prompt: promptPanel, error: errorPanel };
   let activeTab = 'settings';
   const tabId = fieldId('dv-tabs');
@@ -411,8 +414,8 @@ export function openValidationManager(ctx, { type = null } = {}) {
     panel.setAttribute('role', 'tabpanel');
     panel.setAttribute('aria-labelledby', `${tabId}-${key}`);
   }
-  const tabs = el('div.seg.dv-tabs', { role: 'tablist', 'aria-label': 'Validation settings' },
-    [['settings', 'Settings'], ['prompt', 'Input Message'], ['error', 'Error Alert']].map(([key, label]) => el('button.seg-btn', {
+  const tabs = el('div.seg.dv-tabs', { role: 'tablist', 'aria-label': t('validation.tabsLabel') },
+    [['settings', t('validation.tab.settings')], ['prompt', t('validation.tab.prompt')], ['error', t('validation.tab.error')]].map(([key, label]) => el('button.seg-btn', {
       type: 'button', role: 'tab', id: `${tabId}-${key}`, dataset: { key }, 'aria-controls': panels[key].id,
       onclick: () => { activeTab = key; syncTabs(); },
     }, label)));
@@ -445,14 +448,14 @@ export function openValidationManager(ctx, { type = null } = {}) {
     el('div.dv-panels', {}, settingsPanel, promptPanel, errorPanel),
     error,
     el('div.row.row-end.dv-actions', {}, cancelEdit,
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Done'), saveBtn));
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.done')), saveBtn));
   const ruleSummary = el('summary');
   const rulesDetails = el('details.dv-rules', {}, ruleSummary, list);
   typeSelect.value = type || 'list';
   syncType();
 
   // Opened for one kind of rule (Insert dropdown): start ready to type its options.
-  const modal = openModal({ title: 'Data validation', content: el('div.dv-body', {}, rulesDetails, form), wide: true, className: 'dv-dialog', initialFocus: type ? (type === 'list' ? sourceInput : rangeInput) : null, onClose: () => ctx.grid?.focus?.() });
+  const modal = openModal({ title: t('validation.dialogTitle'), content: el('div.dv-body', {}, rulesDetails, form), wide: true, className: 'dv-dialog', initialFocus: type ? (type === 'list' ? sourceInput : rangeInput) : null, onClose: () => ctx.grid?.focus?.() });
   resetForm();
   render();
   // Opened on cells that already have a rule, the dialog shows that rule to change, as Excel's does, rather than

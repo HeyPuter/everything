@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { unzipSync } from 'fflate';
+import { downloadDocx } from './helpers/editor-tools.js';
 
 const engine = 'window.__docs.current.view.engine';
 const review = page => page.locator('#ribbon-panel-review');
@@ -42,5 +45,30 @@ test('while tracking is locked, formatting changes are tracked even where the do
   await expect(formatting).toBeChecked();
   await expect(formatting).toBeDisabled();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(errors).toEqual([]);
+});
+
+// Headers, footers and notes cannot hold tracked changes here, so while tracking is locked they cannot be edited.
+// A new header or footnote was still created: an empty header part, or a note with only its number that nothing
+// could then be typed into, went into the file. They are refused at once, with the reason.
+test('while tracking is locked, a new header or footnote is refused instead of left empty', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Tracked body text.');
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await lockTracking(page);
+  const save = async name => { const path = info.outputPath(name), download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path); return Object.keys(unzipSync(readFileSync(path))).sort(); };
+  const before = await save('before.docx');
+  await input.evaluate(el => { el.focus(); el.setSelectionRange(7, 7); el.dispatchEvent(new Event('select')); });
+  await page.getByRole('tab', { name: 'References' }).click();
+  await page.locator('#ribbon-panel-references').getByRole('button', { name: 'Insert Footnote', exact: true }).click();
+  await expect(page.getByText('Changes to this document are tracked, and headers, footers and notes cannot be changed with tracking here.').first()).toBeVisible();
+  await page.evaluate(() => window.__docs.current.view.commands.editHeader('header'));
+  expect(await page.evaluate(() => window.__docs.current.view.engine.session.path)).toBe(null);
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.text)).toBe('Tracked body text.');
+  expect(await save('after.docx')).toEqual(before);
   expect(errors).toEqual([]);
 });

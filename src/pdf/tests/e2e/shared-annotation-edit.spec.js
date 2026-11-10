@@ -121,6 +121,9 @@ for (const target of ['unrelated highlight', 'reply highlight', 'reply note'])
     const annots = doc.getPage(0).node.Annots();
     if (target.startsWith('reply'))
       doc.context.lookup(annots.get(2)).set(PDFName.of('IRT'), annots.get(0));
+    // A plain reply note lives in its note's thread; one grouped with it stays on the page.
+    if (target === 'reply note')
+      doc.context.lookup(annots.get(2)).set(PDFName.of('RT'), PDFName.of('Group'));
     doc.getPage(1).node.set(PDFName.of('Annots'), annots.clone());
     await page.goto('/#library');
     const chooser = page.waitForEvent('filechooser');

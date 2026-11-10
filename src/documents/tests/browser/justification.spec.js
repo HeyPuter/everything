@@ -85,7 +85,7 @@ test('uses native shaping for expanded spaces, matches paint widths and keeps zo
 
 test('previews unsupported justification as read-only with the original available', async ({ page }) => {
   const input = await fixture(page), text = await input.inputValue();
-  for (const [from, to, error] of [['<w:jc w:val="both"/>', '<w:jc w:val="thaiDistribute"/>', /thaiDistribute paragraph alignment/]]) {
+  for (const [from, to, error] of [['<w:jc w:val="both"/>', '<w:jc w:val="mediumKashida"/>', /mediumKashida paragraph alignment/]]) {
     const parts = unzipSync(readFileSync('public/fixtures/justification.docx')), xml = strFromU8(parts['word/document.xml']); expect(xml).toContain(from); parts['word/document.xml'] = strToU8(xml.replace(from, to));
     await openReadOnlyPreview(page, { name: 'unsupported-justification.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from(zipSync(parts)) });   await expect(page.getByRole('button', { name: 'Download .docx', exact: true })).toBeEnabled();
   }

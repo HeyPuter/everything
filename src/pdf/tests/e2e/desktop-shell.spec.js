@@ -71,9 +71,115 @@ test('the tool sets open their tools in the tools pane and the list finds every 
 test('the find box also offers matching tools', async ({ page }) => {
   await openPdf(page, await numberedPdf(1));
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  await page.getByRole('searchbox', { name: 'Find in PDF' }).fill('compress');
-  await page.getByRole('button', { name: 'Open tool: Compress a PDF' }).click();
+  await page.getByRole('combobox', { name: 'Find in PDF' }).fill('compress');
+  await page.getByRole('option', { name: 'Open tool: Compress a PDF' }).click();
   await expect(page.getByRole('dialog', { name: 'Reduce file size' })).toBeVisible();
+});
+
+test('the find box offers tools whose words start with what was typed', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
+  await find.fill('rot');
+  // Organize pages rotates them; Protect a PDF only contains the letters.
+  await expect(page.getByRole('option', { name: 'Open tool: Organize pages' })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'Open tool: Protect a PDF' })).toHaveCount(0);
+  await find.fill('prot');
+  await expect(page.getByRole('option', { name: 'Open tool: Protect a PDF' })).toBeVisible();
+  await find.fill('pdf/a');
+  await expect(page.getByRole('option', { name: /Open tool: .*standards/i })).toBeVisible();
+});
+
+test('shortcuts work on a keyboard layout without Latin letters', async ({ page }) => {
+  await openPdf(page, await numberedPdf(2));
+  const cdp = await page.context().newCDPSession(page);
+  // What a Russian layout sends for Ctrl and the keys marked F and Z: its own letters.
+  const press = async (key, code, keyCode, modifiers = 2) => {
+    for (const type of ['rawKeyDown', 'keyUp'])
+      await cdp.send('Input.dispatchKeyEvent', {
+        type,
+        key,
+        code,
+        modifiers,
+        windowsVirtualKeyCode: keyCode,
+      });
+  };
+  await page.locator('.workspace').focus();
+  await press('а', 'KeyF', 70);
+  await expect(page.getByRole('combobox', { name: 'Find in PDF' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await page.locator('.menubar').getByRole('menuitem', { name: 'Page', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rotate clockwise', exact: true }).click();
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeEnabled();
+  await page.locator('.workspace').focus();
+  await press('я', 'KeyZ', 90);
+  await expect(undo).toBeDisabled();
+  // Ctrl+Shift+Z redoes.
+  await press('Я', 'KeyZ', 90, 2 | 8);
+  await expect(undo).toBeEnabled();
+  const chooser = page.waitForEvent('filechooser');
+  await press('щ', 'KeyO', 79);
+  await chooser;
+});
+
+test('the arrow keys reach the tools the find box offers, as in a combobox', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
+  await expect(find).toHaveAttribute('aria-expanded', 'false');
+  await find.fill('pdf');
+  await expect(find).toHaveAttribute('aria-expanded', 'true');
+  const list = page.getByRole('listbox', { name: 'Matching tools' });
+  await expect(find).toHaveAttribute('aria-controls', await list.getAttribute('id'));
+  const options = list.getByRole('option');
+  const count = await options.count();
+  expect(count).toBeGreaterThan(1);
+  // Arrow Down marks the first tool, and the next; the focus stays in the field.
+  await page.keyboard.press('ArrowDown');
+  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(find).toHaveAttribute(
+    'aria-activedescendant',
+    await options.nth(0).getAttribute('id'),
+  );
+  await page.keyboard.press('ArrowDown');
+  await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'false');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  // From the first it wraps to the last.
+  await expect(options.nth(count - 1)).toHaveAttribute('aria-selected', 'true');
+  await expect(find).toBeFocused();
+  // Escape leaves the list first, then closes the find bar as before.
+  await page.keyboard.press('Escape');
+  await expect(find).not.toHaveAttribute('aria-activedescendant', /./);
+  await expect(find).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(find).toBeHidden();
+  // Enter on a marked tool opens it.
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  await find.fill('compress');
+  await page.keyboard.press('ArrowDown');
+  await expect(
+    list.getByRole('option', { name: 'Open tool: Compress a PDF', selected: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Reduce file size' })).toBeVisible();
+});
+
+test('Enter in the find box still finds words when no tool is marked', async ({ page }) => {
+  await openPdf(page, await numberedPdf(3));
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
+  await find.fill('page');
+  await expect(page.locator('.search-count')).toHaveText(/of 3/);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.search-count')).toHaveText(/^2 of 3/);
+  await page.keyboard.press('Shift+Enter');
+  await expect(page.locator('.search-count')).toHaveText(/^1 of 3/);
+  // A tool the field also matches does not stand in the way of finding the words.
+  await expect(find).toHaveAttribute('aria-expanded', 'true');
+  await expect(find).toBeFocused();
 });
 
 test('Home and End move along the menu bar without turning the page', async ({ page }) => {
@@ -144,6 +250,32 @@ test('in a short window the quick tools scroll within the page area', async ({ p
   expect(button.y + button.height).toBeLessThanOrEqual(area.y + area.height);
   expect(await page.locator('.editor').evaluate((node) => node.scrollTop)).toBe(0);
   await expect(page.getByRole('menubar', { name: 'PDF menus' })).toBeInViewport();
+});
+
+test('a phone turned sideways keeps the tools and page controls on one row', async ({ page }) => {
+  await page.setViewportSize({ width: 750, height: 342 });
+  await openPdf(page, await numberedPdf(2));
+  const [tools, controls, view] = await Promise.all([
+    page.getByRole('toolbar', { name: 'PDF tools' }).boundingBox(),
+    page.locator('.page-controls').boundingBox(),
+    page.locator('.workspace').boundingBox(),
+  ]);
+  // Side by side above the page, rather than a row each.
+  expect(Math.abs(controls.y - tools.y)).toBeLessThanOrEqual(1);
+  expect(controls.x).toBeGreaterThanOrEqual(tools.x + tools.width - 1);
+  expect(view.y).toBeGreaterThanOrEqual(tools.y + tools.height - 1);
+  expect(view.y).toBeLessThanOrEqual(
+    Math.max(tools.y + tools.height, controls.y + controls.height) + 1,
+  );
+  // Every tool and control is on screen and usable.
+  await expect(page.getByRole('button', { name: 'Fill forms', exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
 });
 
 test('pages scroll continuously and the page in view becomes the current page', async ({
@@ -502,6 +634,61 @@ test('Read out loud joins a word hyphenated at the end of a line', async ({ page
   await expect
     .poll(() => page.evaluate(() => window.spoken.join(' ')))
     .toBe('Here is an example of a well- Known word.');
+});
+
+test('Read out loud speaks again after being paused and stopped', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([600, 800]).drawText('A page to read.', { x: 40, y: 700, size: 14, font });
+  await openPdf(page, doc);
+  // Chrome's speech keeps its paused state through cancel(), and speaks nothing new until it
+  // is resumed with something queued. Utterances here last until they are cancelled.
+  await page.evaluate(() => {
+    window.spoken = [];
+    window.SpeechSynthesisUtterance = class {
+      constructor(text) {
+        this.text = text;
+      }
+    };
+    const queue = [];
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: {
+        paused: false,
+        speak(utterance) {
+          queue.push(utterance);
+          if (!this.paused) window.spoken.push(utterance.text);
+        },
+        pause() {
+          this.paused = true;
+        },
+        resume() {
+          if (queue.length) this.paused = false;
+        },
+        cancel() {
+          for (const utterance of queue.splice(0))
+            setTimeout(() => utterance.onerror?.({ error: 'interrupted' }), 0);
+        },
+      },
+    });
+  });
+  const choose = async (name) => {
+    await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Read out loud' }).click();
+    await page.getByRole('menuitem', { name, exact: true }).click();
+  };
+  await choose('Read this page');
+  await expect.poll(() => page.evaluate(() => window.spoken)).toEqual(['A page to read.']);
+  await choose('Pause');
+  await choose('Stop');
+  await choose('Read this page');
+  await expect
+    .poll(() => page.evaluate(() => window.spoken))
+    .toEqual(['A page to read.', 'A page to read.']);
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Read out loud' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Pause', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
 });
 
 test('Organize pages selects, turns, moves, and deletes several pages', async ({ page }) => {
@@ -892,7 +1079,7 @@ test('Bates numbering asks for a start number instead of starting at zero', asyn
   await pane.getByRole('button', { name: 'Bates numbering', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Bates numbering' });
   await dialog.getByLabel('Start number').fill('');
-  await dialog.getByRole('button', { name: 'Add header and footer' }).click();
+  await dialog.getByRole('button', { name: 'Add Bates numbers', exact: true }).click();
   await expect(dialog.locator('.dialog-error')).toHaveText(
     'Start Bates numbers between 0 and 999,999,999.',
   );
@@ -909,7 +1096,10 @@ test('Bates numbering stamps padded numbers across the chosen pages', async ({ p
   await dialog.getByLabel('Prefix').fill('CASE-');
   await dialog.getByLabel('Start number').fill('7');
   await dialog.getByLabel('Number of digits').fill('4');
-  await dialog.getByRole('button', { name: 'Add header and footer' }).click();
+  // The button names what it adds, as the other page-mark dialogs do.
+  await expect(dialog.getByRole('button', { name: 'Add header and footer' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Add Bates numbers', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText('Bates numbers added to 3 pages.');
   await settled(page);
   const bytes = await downloaded(page);
   const text = new TextDecoder('latin1').decode(bytes);
@@ -1070,6 +1260,35 @@ test('declining to edit a signed PDF does not report that its page is not croppe
   await settled(page);
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
   await expect(page.locator('#toast')).not.toContainText('not cropped');
+});
+
+test('a page move declined in Organize pages keeps the pages chosen as they were', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(4));
+  const pane = await signWithNewId(page);
+  await pane.getByRole('button', { name: 'Back to all tools' }).click();
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 1', exact: true }).click();
+  await grid
+    .getByRole('option', { name: 'Page 1', exact: true })
+    .dragTo(grid.getByRole('option', { name: 'Page 4', exact: true }), {
+      targetPosition: { x: 150, y: 60 },
+    });
+  const warning = page.getByRole('dialog', { name: 'Edit a signed PDF?' });
+  await warning.getByRole('button', { name: 'Cancel' }).click();
+  await settled(page);
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  // Nothing moved, so the first page is still the one chosen, not the page now in last place.
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(grid.getByRole('option', { name: 'Page 4', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'false',
+  );
 });
 
 test('Find text and redact removes the matched words from the saved file', async ({ page }) => {
@@ -1270,7 +1489,7 @@ test('Scan & OCR makes a scanned page searchable', async ({ page }) => {
   await expect(progress).toBeHidden({ timeout: 120000 });
   await settled(page);
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  await page.getByRole('searchbox', { name: 'Find in PDF' }).fill('thirty');
+  await page.getByRole('combobox', { name: 'Find in PDF' }).fill('thirty');
   await expect(page.locator('.search-count')).toHaveText(/1/);
   const bytes = await downloaded(page);
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -1280,6 +1499,65 @@ test('Scan & OCR makes a scanned page searchable', async ({ page }) => {
     .join(' ');
   expect(text).toContain('Invoice');
   expect(text).toContain('4217');
+});
+
+test('Scan & OCR reads the scan, not the comments on it', async ({ page }) => {
+  test.setTimeout(180000);
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const canvas = createCanvas(1700, 2200);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, 1700, 2200);
+  ctx.fillStyle = '#000';
+  ctx.font = '64px sans-serif';
+  ctx.fillText('Invoice number 4217', 200, 400);
+  const doc = await PDFDocument.create();
+  const scan = await doc.embedPng(canvas.toBuffer('image/png'));
+  const sheet = doc.addPage([612, 792]);
+  sheet.drawImage(scan, { x: 0, y: 0, width: 612, height: 792 });
+  // A text box comment over the scan: its words are the comment's, not the page's.
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const appearance = doc.context.register(
+    doc.context.stream('BT /Helv 28 Tf 10 20 Td (REVIEWED BY LEGAL) Tj ET', {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: [0, 0, 360, 60],
+      Resources: { Font: { Helv: font.ref } },
+    }),
+  );
+  const comment = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'FreeText',
+      Rect: [100, 300, 460, 360],
+      Contents: PDFString.of('REVIEWED BY LEGAL'),
+      DA: PDFString.of('/Helv 28 Tf 0 g'),
+      AP: { N: appearance },
+      F: 4,
+    }),
+  );
+  sheet.node.set(PDFName.of('Annots'), doc.context.obj([comment]));
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Scan & OCR', exact: true }).click();
+  await pane.getByRole('button', { name: 'In this file…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Recognize text' })
+    .getByRole('button', { name: 'Recognize text' })
+    .click();
+  const progress = page.getByRole('dialog', { name: 'Recognizing text' });
+  await expect(progress).toBeVisible();
+  await expect(progress).toBeHidden({ timeout: 120000 });
+  await settled(page);
+  const bytes = await downloaded(page);
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const pdf = await pdfjs.getDocument({ data: bytes.slice() }).promise;
+  const text = (await (await pdf.getPage(1)).getTextContent()).items
+    .map((item) => item.str)
+    .join(' ');
+  expect(text).toContain('4217');
+  expect(text).not.toMatch(/REVIEWED|LEGAL/);
 });
 
 test('Scan & OCR skips a page with text whatever its unit size', async ({ page }) => {
@@ -1383,6 +1661,58 @@ test('Batch process stays open, with its files, until it has files and steps', a
   await expect(dialog.getByLabel('Rotate all pages')).toBeChecked();
 });
 
+test('Batch process shows what Remove hidden information could not examine', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Batch process', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Batch process' });
+  // A page whose content no reader can decode keeps whatever it hides.
+  const odd = await PDFDocument.create();
+  odd
+    .addPage([400, 400])
+    .node.set(
+      PDFName.of('Contents'),
+      odd.context.register(odd.context.stream('unreadable', { Filter: 'UnknownDecode' })),
+    );
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Add PDFs…' }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'odd.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await odd.save()),
+  });
+  await dialog.getByLabel('Remove hidden information').check();
+  const pending = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+  expect((await pending).suggestedFilename()).toBe('Processed PDFs.zip');
+  const notice = page.getByRole('dialog', { name: 'Check the processed PDFs' });
+  await expect(notice).toContainText('2 files processed.');
+  await expect(notice.getByRole('listitem')).toHaveText([
+    'odd.pdf: Page 1 could not be read, so its hidden content was left.',
+  ]);
+  await notice.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(notice).toHaveCount(0);
+});
+
+test('Batch process asks for the watermark text before it starts', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Batch process', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Batch process' });
+  await dialog.getByLabel('Add a watermark').check();
+  await dialog.getByLabel('Watermark text').fill('  ');
+  await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(dialog.locator('.dialog-error')).toHaveText('Enter the watermark text.');
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Processing files' })).toHaveCount(0);
+});
+
 test('removing a file from Batch process keeps the keyboard focus in the dialog', async ({
   page,
 }) => {
@@ -1446,7 +1776,7 @@ test('Prepare a form adds fields, edits their properties, and detects blanks', a
   await dialog.getByLabel('Name', { exact: true }).fill('Full name');
   await dialog.getByLabel('Tooltip (read to screen reader users)').fill('Your full name');
   await dialog.getByLabel('Required').check();
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
   await settled(page);
   await expect(page.getByRole('button', { name: 'Text field Full name' })).toBeVisible();
   await pane.getByRole('button', { name: 'Detect form fields…' }).click();
@@ -1670,11 +2000,32 @@ test('the Measure tool labels distances and areas at the chosen scale', async ({
   await settled(page);
   const { listAnnotations } = await import('../../src/core/annotations.js');
   const saved = await PDFDocument.load(await downloaded(page));
+  // Each label is part of its measurement's group, so the comments list the shapes once.
   expect(
     listAnnotations(saved, 0)
       .map((a) => a.subtype)
       .sort(),
-  ).toEqual(['FreeText', 'FreeText', 'Line', 'Polygon']);
+  ).toEqual(['Line', 'Polygon']);
+  const annots = saved
+    .getPage(0)
+    .node.Annots()
+    .asArray()
+    .map((ref) => [ref, saved.context.lookup(ref)]);
+  const shapes = new Map(annots.map(([ref, dict]) => [ref, dict.get(PDFName.of('Subtype'))]));
+  const labels = annots
+    .filter(([, dict]) => dict.get(PDFName.of('Subtype')) === PDFName.of('FreeText'))
+    .map(([, dict]) => [
+      shapes.get(dict.get(PDFName.of('IRT'))),
+      dict.get(PDFName.of('RT')),
+      dict.lookup(PDFName.of('Contents'))?.decodeText(),
+    ]);
+  expect(labels).toEqual(
+    expect.arrayContaining([
+      [PDFName.of('Line'), PDFName.of('Group'), expect.stringMatching(/^2\.0\d in$/)],
+      [PDFName.of('Polygon'), PDFName.of('Group'), expect.stringMatching(/4\.0\d sq in/)],
+    ]),
+  );
+  expect(labels).toHaveLength(2);
 });
 
 test('PDF standards checks PDF/A and converts to it', async ({ page }) => {
@@ -1690,6 +2041,10 @@ test('PDF standards checks PDF/A and converts to it', async ({ page }) => {
     .click();
   const report = page.getByRole('dialog', { name: 'PDF/A-2b check' });
   await expect(report).toContainText(/problems? remains?/);
+  // Problems on the only page name page 1, not page 2.
+  await expect(report.getByRole('listitem').filter({ hasText: 'Helvetica' })).toContainText(
+    /— page 1$/,
+  );
   await report.getByRole('button', { name: 'Close', exact: true }).click();
   await pane.getByRole('button', { name: 'Save as PDF/A…' }).click();
   await page
@@ -1794,4 +2149,70 @@ test('removing an attachment hands the focus to the file that takes its place', 
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
   await settled(page);
   await expect(panel.getByRole('button', { name: 'Save second.txt' })).toBeFocused();
+});
+
+test('every command in a tool set lines its label up with the others', async ({ page }) => {
+  await openPdf(page, await numberedPdf(2));
+  for (const name of ['Edit', 'Comment', 'Export', 'Fill & Sign']) {
+    await page.getByRole('button', { name, exact: true }).first().click();
+    const pane = page.getByRole('complementary', { name: 'Tools' });
+    await expect(pane.locator('.tool-command').first()).toBeVisible();
+    // A tool's colored icon is 20px wide and a line icon 18px; the labels after them started
+    // 2px apart, which showed as a ragged column in Add comments.
+    const starts = await pane
+      .locator('.tool-command:visible .tool-command-text')
+      .evaluateAll((labels) => labels.map((label) => label.getBoundingClientRect().left));
+    expect(starts.length).toBeGreaterThan(2);
+    expect(new Set(starts.map((x) => Math.round(x))).size, name).toBe(1);
+  }
+});
+
+test("the file name's keyboard focus ring shows in its tab", async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  const name = page.getByRole('button', { name: 'Rename test.pdf', exact: true });
+  await page.getByRole('button', { name: 'Back to your PDFs', exact: true }).focus();
+  for (let i = 0; i < 20 && !(await name.evaluate((b) => b === document.activeElement)); i++)
+    await page.keyboard.press('Tab');
+  await expect(name).toBeFocused();
+  // The tab clips a long name, and that clipping hid the whole ring around the name.
+  const cut = await name.evaluate((button) => {
+    const style = getComputedStyle(button);
+    if (!button.matches(':focus-visible') || style.outlineStyle === 'none') return 'no ring';
+    const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+    const own = button.getBoundingClientRect();
+    for (let node = button.parentElement; node !== document.body; node = node.parentElement) {
+      if (getComputedStyle(node).overflow === 'visible') continue;
+      const box = node.getBoundingClientRect();
+      if (
+        own.left - reach < box.left - 0.5 ||
+        own.top - reach < box.top - 0.5 ||
+        own.right + reach > box.right + 0.5 ||
+        own.bottom + reach > box.bottom + 0.5
+      )
+        return `clipped by ${node.className}`;
+    }
+    return null;
+  });
+  expect(cut).toBeNull();
+});
+
+test("the first tool's keyboard focus ring shows whole in the tools pane", async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).first().click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Close tools panel', exact: true }).focus();
+  const first = pane.getByRole('button', { name: 'Export a PDF', exact: true });
+  for (let i = 0; i < 5 && !(await first.evaluate((b) => b === document.activeElement)); i++)
+    await page.keyboard.press('Tab');
+  await expect(first).toBeFocused();
+  // The list scrolls, so it clipped the top of the ring drawn outside its first row.
+  const cut = await first.evaluate((button) => {
+    const style = getComputedStyle(button);
+    if (!button.matches(':focus-visible') || style.outlineStyle === 'none') return 'no ring';
+    const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+    const own = button.getBoundingClientRect();
+    const list = button.closest('.tools-panel-body').getBoundingClientRect();
+    return own.top - reach < list.top - 0.5 || own.left - reach < list.left - 0.5;
+  });
+  expect(cut).toBe(false);
 });

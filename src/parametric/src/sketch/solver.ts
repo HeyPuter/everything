@@ -13,7 +13,7 @@
 import type { Id, SkConstraint, SkDimension, SkEntity, SkRelation } from '../model/types';
 import { isDimension } from '../model/types';
 import { type Vec2, wrapAngle } from '../math/vec';
-import { ORIGIN_ID } from './geom';
+import { ORIGIN_ID, bezierPoint, splineBeziers } from './geom';
 
 export type SketchStatus = 'under' | 'full' | 'over';
 
@@ -85,6 +85,8 @@ export class SketchSystem {
       } else if (e.t === 'circle') this.x[this.radiusVar.get(e.id)!] = e.r;
     }
     for (const e of entities) this.entityVars.set(e.id, this.varsOfEntity(e));
+    // Geometry projected from the model is where the model puts it.
+    for (const e of entities) if (e.ext) for (const v of this.entityVars.get(e.id)!) this.fixed[v] = 1;
     this.buildEquations();
   }
 
@@ -148,8 +150,9 @@ export class SketchSystem {
 
   private buildEquations() {
     // Internal: arc end points stay on the arc's circle.
+    const mirrored = this.mirroredArcs();
     for (const e of this.entities) {
-      if (e.t !== 'arc') continue;
+      if (e.t !== 'arc' || mirrored.has(e.id)) continue;
       const c = this.P(e.c), a = this.P(e.a), b = this.P(e.b);
       if (!c || !a || !b) continue;
       this.add([...c.v, ...a.v, ...b.v], (x) => {
@@ -164,6 +167,57 @@ export class SketchSystem {
     }
   }
 
+  /**
+   * Arcs whose centre and end points are mirror images (symmetric relations
+   * about one line, as Mirror Entities makes them) of an earlier arc's. Their
+   * end points stay on their circle because the source arc's do, so that
+   * equation would only make every mirrored arc redundant (over defined).
+   */
+  private mirroredArcs(): Set<Id> {
+    const out = new Set<Id>();
+    const partners = new Map<string, Set<Id>>();
+    const key = (axis: Id, p: Id) => `${axis}\n${p}`;
+    const pair = (axis: Id, p: Id, q: Id) => {
+      const k = key(axis, p);
+      const set = partners.get(k);
+      if (set) set.add(q); else partners.set(k, new Set([q]));
+    };
+    const axes = new Set<Id>();
+    const onAxis = new Set<string>();
+    for (const c of this.constraints) {
+      if (isDimension(c) || c.refs.length < 2) continue;
+      if (c.type === 'symmetric' && c.refs.length === 3) {
+        const [p, q, axis] = c.refs;
+        if (!this.isPointLike(p) || !this.isPointLike(q) || !this.line(axis)) continue;
+        pair(axis, p, q);
+        pair(axis, q, p);
+        axes.add(axis);
+      } else if (c.type === 'coincident' && c.refs.length === 2) {
+        onAxis.add(key(c.refs[1], c.refs[0]));
+        onAxis.add(key(c.refs[0], c.refs[1]));
+      }
+    }
+    if (!axes.size) return out;
+    // A point held on the axis is its own mirror image.
+    const mirrors = (axis: Id, p: Id, q: Id) => {
+      if (partners.get(key(axis, p))?.has(q)) return true;
+      if (p !== q) return false;
+      const l = this.entity.get(axis) as Extract<SkEntity, { t: 'line' }>;
+      return p === l.a || p === l.b || onAxis.has(key(axis, p));
+    };
+    const arcs = this.entities.filter((e): e is Extract<SkEntity, { t: 'arc' }> => e.t === 'arc');
+    for (let j = 1; j < arcs.length; j++) {
+      const f = arcs[j];
+      search: for (const axis of axes) {
+        for (let i = 0; i < j; i++) {
+          const e = arcs[i];
+          if (mirrors(axis, e.c, f.c) && mirrors(axis, e.a, f.b) && mirrors(axis, e.b, f.a)) { out.add(f.id); break search; }
+        }
+      }
+    }
+    return out;
+  }
+
   private pointOnCurve(pid: Id, cid: Id, owner: Id) {
     const p = this.P(pid);
     if (!p) return;
@@ -174,6 +228,12 @@ export class SketchSystem {
     } else if (k === 'circle' || k === 'arc') {
       const c = this.circ(cid)!;
       this.add([...p.v, ...c.v], (x) => { const pp = p.get(x), cc = c.c(x); return Math.hypot(pp[0] - cc[0], pp[1] - cc[1]) - c.r(x); }, owner);
+    } else if (k === 'spline') {
+      const e = this.entity.get(cid) as Extract<SkEntity, { t: 'spline' }>;
+      const ps = e.pts.map((id) => this.P(id));
+      if (ps.length < 2 || ps.some((q) => !q)) return;
+      const pa = ps as { v: number[]; get: PtAcc }[];
+      this.add([...p.v, ...pa.flatMap((q) => q.v)], (x) => splineSignedDist(p.get(x), pa.map((q) => q.get(x))), owner);
     }
   }
 
@@ -315,7 +375,21 @@ export class SketchSystem {
         const pairs: [Id, Id][] = [];
         const ea = this.entity.get(r0), eb = this.entity.get(r1);
         if (this.isPointLike(r0) && this.isPointLike(r1)) pairs.push([r0, r1]);
-        else if (ea?.t === 'line' && eb?.t === 'line') pairs.push([ea.a, eb.a], [ea.b, eb.b]);
+        else if (ea?.t === 'line' && eb?.t === 'line') {
+          // Each end pairs with the end nearer its mirror image: two lines
+          // drawn in the same direction pair crosswise, and pairing them
+          // start-to-start would fold both lines onto the axis.
+          const at = (id: Id) => this.P(id)?.get(this.x) ?? [NaN, NaN] as Vec2;
+          const la = l.a(this.x), lb = l.b(this.x);
+          // The two residuals of a symmetric point pair, as below.
+          const miss = (p: Id, q: Id) => {
+            const a = at(p), b = at(q), d = dir(la, lb);
+            return Math.abs(signedDist([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], la, lb))
+              + Math.abs((b[0] - a[0]) * d[0] + (b[1] - a[1]) * d[1]) / (len(la, lb) || 1e-12);
+          };
+          if (miss(ea.a, eb.b) + miss(ea.b, eb.a) < miss(ea.a, eb.a) + miss(ea.b, eb.b)) pairs.push([ea.a, eb.b], [ea.b, eb.a]);
+          else pairs.push([ea.a, eb.a], [ea.b, eb.b]);
+        }
         else if ((ea?.t === 'circle' || ea?.t === 'arc') && (eb?.t === 'circle' || eb?.t === 'arc')) {
           pairs.push([ea.c, eb.c]);
           const ca = this.circ(r0)!, cb = this.circ(r1)!;
@@ -596,7 +670,9 @@ export class SketchSystem {
   run(): SolveResult {
     const maxIter = this.opts.maxIterations ?? 60;
     const drag = this.opts.drag;
+    const initial = this.x.slice();
     let converged: boolean;
+    let folded: Id[] = [];
     if (drag) {
       const backup = this.x.slice();
       const fixedBackup = this.fixed.slice();
@@ -628,12 +704,42 @@ export class SketchSystem {
           if (!converged) { this.x.set(backup); converged = this.solveAll(maxIter); }
         }
       }
-    } else converged = this.solveAll(maxIter);
+    } else {
+      converged = this.solveAll(maxIter);
+      // A big change (a dimension well below its old value) can jump to a
+      // solution where a fillet or tangent arc folds back over its line. Walk
+      // there in small steps from the old shape instead; if the shape still
+      // folds, the values cannot be met without inverting it: keep the old
+      // shape and report the conflict rather than inverted geometry.
+      if (this.newCusps(initial).length) {
+        // An arc whose radius nothing sets shrinks through zero and flips:
+        // first try keeping such radii (they are free, so any value solves).
+        let cusps: Id[] = [];
+        for (const attempt of [() => this.solveKeepingRadii(maxIter), () => this.solveByContinuation(maxIter)]) {
+          this.x.set(initial);
+          converged = attempt();
+          cusps = this.newCusps(initial);
+          if (converged && !cusps.length) break;
+        }
+        if (cusps.length) {
+          this.x.set(initial);
+          converged = false;
+          folded = cusps;
+        }
+      }
+    }
+    // Overflow (e.g. from an absurd dimension value) must never reach the
+    // document as NaN coordinates: keep the geometry as it was instead.
+    if (!this.x.every(Number.isFinite)) {
+      this.x.set(initial);
+      converged = false;
+    }
 
     const r = new Float64Array(this.eqs.length);
     const residual = this.residuals(this.eqs, r);
     const conflicting = new Set<Id>();
     for (let i = 0; i < this.eqs.length; i++) if (Math.abs(r[i]) > 1e-6 && this.eqs[i].cid) conflicting.add(this.eqs[i].cid!);
+    for (const id of folded) conflicting.add(id);
 
     const res: SolveResult = {
       converged,
@@ -647,6 +753,88 @@ export class SketchSystem {
     if (this.opts.analyze !== false) this.analyze(res);
     if (conflicting.size) res.status = 'over';
     return res;
+  }
+
+  /**
+   * Solves from the current values towards the real system through blended
+   * systems f(x) - (1 - t) f(x0) for t from 0 to 1 (each solved from the last),
+   * which follows the solution branch of the starting shape.
+   */
+  private solveByContinuation(maxIter: number): boolean {
+    const eqs = this.eqs;
+    const r0 = new Float64Array(eqs.length);
+    this.residuals(eqs, r0);
+    const steps = 16;
+    try {
+      for (let k = 1; k < steps; k++) {
+        const w = 1 - k / steps;
+        this.eqs = eqs.map((e, i) => (r0[i] ? { ...e, f: (x: Float64Array) => e.f(x) - w * r0[i] } : e));
+        this.solveAll(maxIter);
+      }
+    } finally {
+      this.eqs = eqs;
+    }
+    return this.solveAll(maxIter);
+  }
+
+  /** Solves with the radius of every arc in an end-point tangency held. */
+  private solveKeepingRadii(maxIter: number): boolean {
+    const eqs = this.eqs;
+    const held = new Set<Id>();
+    for (const c of this.constraints) {
+      if (c.type !== 'tangent' || !this.sharedEndPoint(c.refs)) continue;
+      for (const r of c.refs) if (this.kind(r) === 'arc') held.add(r);
+    }
+    this.eqs = [...eqs];
+    try {
+      for (const id of held) {
+        const cc = this.circ(id);
+        if (!cc) continue;
+        const r0 = cc.r(this.x);
+        this.add(cc.v, (x) => cc.r(x) - r0, null);
+      }
+      if (!this.solveAll(maxIter)) return false;
+    } finally {
+      this.eqs = eqs;
+    }
+    return this.solveAll(maxIter);
+  }
+
+  /**
+   * Tangent relations between curves sharing an end point (a fillet, a
+   * tangent arc) that leave the point smoothly in the shape \`before\` but
+   * double back on each other (a cusp) in the current one.
+   */
+  private newCusps(before: Float64Array): Id[] {
+    const out: Id[] = [];
+    const leaving = (x: Float64Array, id: Id, p: Id): Vec2 | null => {
+      const e = this.entity.get(id);
+      const at = this.P(p)!.get(x);
+      if (e?.t === 'line') {
+        const q = this.P(e.a === p ? e.b : e.a)?.get(x);
+        return q ? [q[0] - at[0], q[1] - at[1]] : null;
+      }
+      if (e?.t !== 'arc') return null;
+      const c = this.P(e.c)?.get(x);
+      if (!c) return null;
+      // Arcs run counter-clockwise from a to b.
+      const s = e.a === p ? 1 : -1;
+      return [-(at[1] - c[1]) * s, (at[0] - c[0]) * s];
+    };
+    const cosAt = (x: Float64Array, refs: Id[], p: Id): number | null => {
+      const u = leaving(x, refs[0], p), w = leaving(x, refs[1], p);
+      if (!u || !w) return null;
+      const l = Math.hypot(u[0], u[1]) * Math.hypot(w[0], w[1]);
+      return l > 1e-18 ? (u[0] * w[0] + u[1] * w[1]) / l : null;
+    };
+    for (const c of this.constraints) {
+      if (c.type !== 'tangent' || c.refs.length !== 2) continue;
+      const p = this.sharedEndPoint(c.refs);
+      if (!p || !this.P(p)) continue;
+      const was = cosAt(before, c.refs, p), now = cosAt(this.x, c.refs, p);
+      if (was !== null && now !== null && was < 0 && now > 0.5) out.push(c.id);
+    }
+    return out;
   }
 
   /** Rank analysis: redundant constraints, free variables and entity status. */
@@ -734,28 +922,98 @@ function signedDist(p: Vec2, a: Vec2, b: Vec2): number {
   return (dx * (p[1] - a[1]) - dy * (p[0] - a[0])) / l;
 }
 
-/** In-place Cholesky solve of a symmetric positive definite system. */
+/**
+ * Signed distance from p to a spline through pts: the distance along the
+ * normal at the closest point. Past an open end it is the distance to the end
+ * tangent, so the residual stays smooth there (like a line's infinite
+ * extension).
+ */
+export function splineSignedDist(p: Vec2, pts: Vec2[]): number {
+  const bz = splineBeziers(pts);
+  if (!bz.length) return 0;
+  // Coarse search for the closest segment and parameter.
+  let bi = 0, bt = 0, bd = Infinity;
+  const N = 16;
+  for (let i = 0; i < bz.length; i++) {
+    for (let j = 0; j <= N; j++) {
+      const q = bezierPoint(bz[i], j / N);
+      const d = (q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2;
+      if (d < bd) { bd = d; bi = i; bt = j / N; }
+    }
+  }
+  // Newton refinement of (B(t) - p) . B'(t) = 0 within that segment.
+  const b = bz[bi];
+  let t = bt;
+  for (let it = 0; it < 30; it++) {
+    const q = bezierPoint(b, t), d1 = bezD1(b, t), d2 = bezD2(b, t);
+    const ex = q[0] - p[0], ey = q[1] - p[1];
+    const g = ex * d1[0] + ey * d1[1];
+    const h = d1[0] * d1[0] + d1[1] * d1[1] + ex * d2[0] + ey * d2[1];
+    if (!(h > 0)) break;
+    const nt = Math.min(1, Math.max(0, t - g / h));
+    const done = Math.abs(nt - t) < 1e-15;
+    t = nt;
+    if (done) break;
+  }
+  const q = bezierPoint(b, t), d1 = bezD1(b, t);
+  const l = Math.hypot(d1[0], d1[1]);
+  if (l < 1e-12) return Math.hypot(p[0] - q[0], p[1] - q[1]);
+  return (d1[0] * (p[1] - q[1]) - d1[1] * (p[0] - q[0])) / l;
+}
+
+function bezD1(b: Vec2[], t: number): Vec2 {
+  const u = 1 - t;
+  const a = 3 * u * u, c = 6 * u * t, d = 3 * t * t;
+  return [
+    a * (b[1][0] - b[0][0]) + c * (b[2][0] - b[1][0]) + d * (b[3][0] - b[2][0]),
+    a * (b[1][1] - b[0][1]) + c * (b[2][1] - b[1][1]) + d * (b[3][1] - b[2][1]),
+  ];
+}
+
+function bezD2(b: Vec2[], t: number): Vec2 {
+  const u = 1 - t;
+  return [
+    6 * u * (b[2][0] - 2 * b[1][0] + b[0][0]) + 6 * t * (b[3][0] - 2 * b[2][0] + b[1][0]),
+    6 * u * (b[2][1] - 2 * b[1][1] + b[0][1]) + 6 * t * (b[3][1] - 2 * b[2][1] + b[1][1]),
+  ];
+}
+
+/**
+ * In-place Cholesky solve of a symmetric positive definite system.
+ *
+ * Entries of a row left of its first non-zero stay zero in the factor (no
+ * fill-in outside the envelope), so skipping them gives exactly the dense
+ * result while costing far less for the near-banded systems of chained
+ * sketch geometry.
+ */
 function cholSolve(A: Float64Array, b: Float64Array, n: number): boolean {
+  const first = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    let k = 0;
+    while (k < i && A[i * n + k] === 0) k++;
+    first[i] = k;
+  }
   for (let j = 0; j < n; j++) {
     let s = A[j * n + j];
-    for (let k = 0; k < j; k++) s -= A[j * n + k] * A[j * n + k];
+    for (let k = first[j]; k < j; k++) s -= A[j * n + k] * A[j * n + k];
     if (s <= 1e-300) return false;
     const d = Math.sqrt(s);
     A[j * n + j] = d;
     for (let i = j + 1; i < n; i++) {
+      if (first[i] > j) continue;
       let t = A[i * n + j];
-      for (let k = 0; k < j; k++) t -= A[i * n + k] * A[j * n + k];
+      for (let k = Math.max(first[i], first[j]); k < j; k++) t -= A[i * n + k] * A[j * n + k];
       A[i * n + j] = t / d;
     }
   }
   for (let i = 0; i < n; i++) {
     let t = b[i];
-    for (let k = 0; k < i; k++) t -= A[i * n + k] * b[k];
+    for (let k = first[i]; k < i; k++) t -= A[i * n + k] * b[k];
     b[i] = t / A[i * n + i];
   }
   for (let i = n - 1; i >= 0; i--) {
     let t = b[i];
-    for (let k = i + 1; k < n; k++) t -= A[k * n + i] * b[k];
+    for (let k = i + 1; k < n; k++) if (first[k] <= i) t -= A[k * n + i] * b[k];
     b[i] = t / A[i * n + i];
   }
   return true;

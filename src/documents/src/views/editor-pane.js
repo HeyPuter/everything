@@ -9,13 +9,18 @@ import { engineApi } from '../lib/engine-api.js';
 import { textStatistics, easeLabel } from '../lib/readability.js';
 import { checkGrammar, SUGGESTION_KINDS } from '../lib/proofing-ai.js';
 import { sidePane, section, button, hint, preference, reveal } from './review-ui.js';
+import { shownText } from './word-count.js';
 
 const AI_ON = preference('documents:editor-ai', false);
 const AI_KINDS = preference('documents:editor-ai-kinds', ['grammar', 'punctuation', 'clarity', 'conciseness']);
 
 export function createEditorPane({ editor, pkg, proofing, error, onState = () => {} }) {
   let spellingIssues = [], current = null, aiSuggestions = [], aiBusy = null, ignoredSuggestions = new Set();
-  const pane = sidePane({ title: 'Editor', label: 'Editor pane', className: 'rv-editor-pane', onOpen: () => { refreshAll(); }, onClose: () => { aiBusy?.abort(); onState(); editor()?.focus(); } });
+  const pane = sidePane({ title: 'Editor', label: 'Editor pane', className: 'rv-editor-pane', onOpen: () => { refreshAll(); }, onClose: () => {
+    // A check whose answer never comes (a stalled connection) is let go here: waiting for it would leave Check with AI disabled for good.
+    if (aiBusy) { aiBusy.abort(); aiBusy = null; aiStatus.textContent = ''; }
+    onState(); editor()?.focus();
+  } });
 
   /* ---- Overview ---- */
   const score = el('div.rv-score', { role: 'status' });
@@ -107,21 +112,38 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
     aiBusy?.abort(); aiBusy = new AbortController();
     const signal = aiBusy.signal, revision = engine.session.body.revision;
     const [a, b] = engine.session.path === null ? engine.model.range : [0, 0];
-    const paragraphs = [];
-    let at = 0;
+    // Text tracked as deleted is not sent: it is not part of the document as edited, and accepting a suggestion
+    // in it brought the deleted words back. Each paragraph is sent as it reads without it, at a place of its own
+    // (`start`, past the previous one), and `places` maps a place back to the document.
+    const paragraphs = [], places = [];
+    let at = 0, sent = 0;
     for (const p of engine.session.body.paragraphs) {
-      const text = p.runs.map(r => r.text).join('');
-      if (a === b || at + text.length >= a && at <= b) paragraphs.push({ text: text.replace(/￼/g, ' '), start: at });
-      at += text.length + 1;
+      const length = p.runs.reduce((n, r) => n + r.text.length, 0);
+      if (a === b || at + length >= a && at <= b) {
+        let text = '', offset = at;
+        const map = [];
+        for (const run of p.runs) {
+          if (run.revision?.type !== 'del') for (let i = 0; i < run.text.length; i++) { map.push(offset + i); text += run.text[i]; }
+          offset += run.text.length;
+        }
+        map.push(offset);
+        paragraphs.push({ text: text.replace(/￼/g, ' '), start: sent });
+        places.push({ start: sent, map });
+        sent += text.length + 1;
+      }
+      at += length + 1;
     }
+    const placed = position => { const place = places.findLast(item => item.start <= position); return place.map[Math.min(position - place.start, place.map.length - 1)]; };
     aiStatus.textContent = 'Checking…'; aiRun.disabled = true; aiList.replaceChildren();
     try {
       const kinds = kindBoxes.filter(k => k.input.checked).map(k => k.kind);
-      const found = await checkGrammar(paragraphs, { chat: prompt => P.aiChat(prompt), kinds: kinds.length ? kinds : ['grammar'], signal });
+      const found = (await checkGrammar(paragraphs, { chat: prompt => P.aiChat(prompt), kinds: kinds.length ? kinds : ['grammar'], signal }))
+        .map(s => ({ ...s, start: placed(s.start), end: s.end > s.start ? placed(s.end - 1) + 1 : placed(s.start) }));
       if (signal.aborted) return;
       if (editor()?.session.body.revision !== revision) { aiStatus.textContent = 'The document changed during the check. Check again.'; return; }
       // An object (a note reference, field or picture) was sent as a space. A suggestion that takes it in ("claim ."
-      // → "claim.") could not be accepted, and would delete the object if it were: it is not offered.
+      // → "claim.") could not be accepted, and would delete the object if it were: it is not offered. Nor is one
+      // around deleted text, which it would delete for good.
       const body = editor()?.session.body.text || '';
       aiSuggestions = found.filter(s => body.slice(s.start, s.end) === s.original); ignoredSuggestions = new Set();
       aiStatus.textContent = aiSuggestions.length ? `${aiSuggestions.length} ${aiSuggestions.length === 1 ? 'suggestion' : 'suggestions'}` : 'No grammar or style suggestions.';
@@ -135,7 +157,10 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
   function renderStats() {
     const engine = editor(); if (!engine) return;
     const [a, b] = engine.model.range, selected = engine.session.path === null && a !== b;
-    const text = selected ? engine.model.text.slice(a, b) : engine.session.body.text;
+    // The text as the view shows it, as the status bar and Word Count count it: a deletion hidden by Simple or No
+    // Markup is not counted or judged (nor an insertion in Original).
+    const body = engine.session.body, tracked = body.revisions.length > 0;
+    const text = tracked ? shownText(body.paragraphs, ...(selected ? [a, b] : [])) : selected ? body.text.slice(a, b) : body.text;
     const s = textStatistics(text);
     scope.textContent = selected ? 'Showing results for the selection.' : 'Showing results for the whole document.';
     const row = (label, value) => [el('dt', {}, label), el('dd', {}, value)];

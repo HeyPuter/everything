@@ -1,5 +1,7 @@
 # Hiring · Applicant Tracking
 
+**Live app:** [hiring.puter.com](https://hiring.puter.com/)
+
 Job pages, candidate pipeline, interview scheduling, scorecards, offers, and onboarding: a complete, calm hiring workflow in one app. Built with vanilla JavaScript and [Puter.js](https://docs.puter.com); no frameworks.
 
 ## Features

@@ -10,6 +10,7 @@ import {
   uniqueName,
   pruneEditedFonts,
   pruneEditedForms,
+  spliceContent,
 } from './text-edit.js';
 import { MAX_IMAGE_SIZE, embedOrientedImage } from './document.js';
 import { imageOrientationMatrix, IMAGE_ORIENTATION_KEY } from './image-orientation.js';
@@ -88,7 +89,11 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
             stack.push({ ...s });
             break;
           case 'Q':
-            if (!stack.length) throw error();
+            // A stray Q in the page's own content restores nothing, as readers treat it.
+            if (!stack.length) {
+              if (path.length) throw error();
+              break;
+            }
             s = stack.pop();
             break;
           case 'cm':
@@ -411,7 +416,7 @@ export function rewriteOccurrence(doc, index, entry, replacement, updateResource
     if (source.slice(entry.start, entry.end) !== entry.source) throw error();
     updateResources?.(copy);
     return {
-      source: source.slice(0, entry.start) + replacement + source.slice(entry.end),
+      source: spliceContent(source, entry.start, entry.end, replacement),
       resources: copy,
     };
   }

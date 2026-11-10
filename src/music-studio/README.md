@@ -1,5 +1,7 @@
 # Music Studio
 
+**Live app:** [ms.puter.com](https://ms.puter.com/)
+
 A pattern-based music production workstation for the browser, built on [Puter](https://puter.com). Program beats in the channel rack, write melodies and chords in the piano roll, arrange patterns, audio and automation in the playlist, and mix with studio effects. An open-source alternative to FL Studio.
 
 No framework: vanilla JavaScript modules built with Vite. The audio engine is written in Rust and compiled to WebAssembly. Puter.js is the only backend.

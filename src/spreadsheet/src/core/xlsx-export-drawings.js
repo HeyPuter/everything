@@ -3,7 +3,7 @@ import { slicerFrameXml, nativePivotSlicerParts } from './xlsx-export-slicers.js
 /** DrawingML charts and pictures for readers which do not know the app's sidecar. */
 import { authoredBarGapWidth, chartPointStyle, chartData, chartXBounds, textBoxText } from './charts.js';
 import { INTERCEPT_TYPES, trendFor } from './trendline.js';
-import { errorBarsFor } from './error-bars.js';
+import { errorBarsSaved } from './error-bars.js';
 import { fontName, styleToNumFmt, formatValue, numFmtToStyle } from './format.js';
 import { xmlTag as tag, xmlText } from './xlsx-export-styles.js';
 import { renderChartSvg, standaloneSvg, seriesColor } from '../ui/chartsvg.js';
@@ -48,6 +48,17 @@ const gridlines = (visible, style) => {
   const line = fill || style?.width != null ? tag('a:ln', style?.width == null ? {} : { w: emu(style.width) }, fill) : '';
   return tag('c:majorGridlines', {}, line ? tag('c:spPr', {}, line) : '');
 };
+/**
+ * The plot area's border: its own, or else, where both axes are boxed (Format Axis' "Box around plot area"), the
+ * box they draw, which Excel shows as a plot-area border. A box on one axis only has no Excel form.
+ */
+const plotBorder = ap => {
+  const own = { color: ap.plotStroke, width: ap.plotStrokeWidth, dash: ap.plotStrokeDash };
+  const shown = s => s?.box && s.color && s.color !== 'none';
+  const { x, y } = ap.axisStyles || {};
+  if ((ap.plotStroke && ap.plotStroke !== 'none') || !shown(x) || !shown(y)) return own;
+  return { color: y.color, width: y.width, dash: y.dash };
+};
 const lineShape = (style, background = '') => {
   if (!style || (style.color == null && style.width == null && style.dash == null)) return background ? tag('c:spPr', {}, background) : '';
   const color = style.color;
@@ -64,7 +75,7 @@ const layout = (box, plotArea = false) => tag('c:layout', {}, box ? tag('c:manua
   + val('wMode', 'factor') + val('hMode', 'factor') + ['x', 'y', 'w', 'h'].filter(k => Number.isFinite(box[k])).map(k => val(k, box[k])).join('')) : '');
 
 /**
- * A scatter or bubble series' error bars on one axis (CT_ErrBars, its children in schema order). Custom
+ * A series' error bars on one axis (CT_ErrBars, its children in schema order). Custom
  * amounts keep their reference, with the values read now as its cache, or else the chart's own numbers.
  * The cap width has no place in the file: Excel draws its own.
  */
@@ -76,15 +87,17 @@ function errorBarsXml(bar, axis, custom) {
     + lineShape({ color: bar.color, width: bar.width, dash: bar.dash }));
 }
 
-/** A series' trendline (CT_Trendline, its children in schema order); its equation label in General unless it has a format. */
+/** A series' trendline (CT_Trendline, its children in schema order); its equation label in General unless it has a format, at its own text size if it has one. */
 const trendlineXml = t => tag('c:trendline', {}, (t.name ? tag('c:name', {}, xmlText(t.name)) : '')
   + lineShape({ color: t.color, width: t.width, dash: t.dash })
   + val('trendlineType', t.type) + (t.type === 'poly' ? val('order', t.order) : '') + (t.type === 'movingAvg' ? val('period', t.period) : '')
   + (t.type !== 'movingAvg' && t.forward ? val('forward', t.forward) : '') + (t.type !== 'movingAvg' && t.backward ? val('backward', t.backward) : '')
   + (INTERCEPT_TYPES.has(t.type) && t.intercept != null ? val('intercept', t.intercept) : '')
   + (t.dispEq || t.dispRSqr ? val('dispRSqr', Number(t.dispRSqr)) + val('dispEq', Number(t.dispEq))
-    + tag('c:trendlineLbl', {}, (t.labelPos ? tag('c:layout', {}, tag('c:manualLayout', {}, val('xMode', 'edge') + val('yMode', 'edge') + val('x', t.labelPos.x) + val('y', t.labelPos.y))) : '')
-      + tag('c:numFmt', { formatCode: t.labelFormat || 'General', sourceLinked: 0 })) : ''));
+    + tag('c:trendlineLbl', {}, (t.labelPos ? tag('c:layout', {}, tag('c:manualLayout', {}, val('xMode', 'edge') + val('yMode', 'edge') + val('x', t.labelPos.x) + val('y', t.labelPos.y)))
+      // An offset from Excel's own place for the label goes back as Excel wrote it, in factor mode (the default).
+      : t.labelOffset ? tag('c:layout', {}, tag('c:manualLayout', {}, val('x', t.labelOffset.x) + val('y', t.labelOffset.y))) : '')
+      + tag('c:numFmt', { formatCode: t.labelFormat || 'General', sourceLinked: 0 }) + (t.labelSize ? labelTextProps({ size: t.labelSize }) : '')) : ''));
 
 /** Format ▸ Shape Effects: a:effectLst for an element's outer shadow or glow. */
 const effectList = e => e?.shadow || e?.glow ? tag('a:effectLst', {}, (e.glow ? tag('a:glow', { rad: 63500 }, tag('a:srgbClr', { val: e.glow.slice(1).toUpperCase() }, tag('a:alpha', { val: 60000 }))) : '')
@@ -314,7 +327,7 @@ function chartXml(X, wb, sheet, ch) {
     }
     const trend = !circular && ['column', 'bar', 'line', 'area', 'scatter', 'bubble'].includes(type) ? trendFor(ch, i) : null;
     if (trend) body += trendlineXml(trend);
-    const bars = ['scatter', 'bubble'].includes(type) ? errorBarsFor(ch, i) : null;
+    const bars = errorBarsSaved(ch, i, type);
     if (bars) for (const axis of ['x', 'y']) if (bars[axis]) body += errorBarsXml(bars[axis], axis, data.errorValues?.[i]?.[axis]);
     const xy = type === 'scatter' || type === 'bubble';
     const cats = xy ? series.x || data.x || data.categories.map((_, j) => j + 1) : ap.dateAxis ? series.x || data.x || [] : series.categories || data.categories;
@@ -443,7 +456,7 @@ function chartXml(X, wb, sheet, ch) {
     + val('showOutline', Number(table.outline)) + val('showKeys', Number(table.keys))
     + tag('c:spPr', {}, paint(table.fill) + tag('a:ln', { w: emu(table.width) }, paint(table.stroke))) + textProps(table.style)) : '';
   const plot = tag('c:plotArea', {}, layout(ap.plot, true) + plots + axes + tableXml
-    + withEffects(lineShape({ color: ap.plotStroke, width: ap.plotStrokeWidth, dash: ap.plotStrokeDash }, paint(ap.plotFill)), ap.effects?.plotArea));
+    + withEffects(lineShape(plotBorder(ap), paint(ap.plotFill)), ap.effects?.plotArea));
   const legend = ch.legend ? tag('c:legend', {}, val('legendPos', { top: 't', bottom: 'b', left: 'l', right: 'r' }[ch.legendPos] || 'b')
     + (ap.legendHidden || []).map(i => tag('c:legendEntry', {}, val('idx', i) + val('delete', 1))).join('') + layout(ap.legend) + val('overlay', 0)
     + boxShape(ap.legendBox, ap.effects?.legend) + textProps(ap.legendStyle)) : '';

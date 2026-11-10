@@ -36,6 +36,18 @@ describe('decodeSpecial', () => {
     expect(decodeSpecial('a\\u+2300b')).toBe('a\u2300b');
   });
 
+  it('draws %%u, %%o and %%k as lines instead of showing the codes', () => {
+    expect(decodeSpecial('%%uAB%%u %%oC %%kD 50%%%u')).toBe('AB C D 50%u');
+    const plain = layoutText({ type: 'text', x: 0, y: 0, h: 2, value: 'AB x CD' });
+    const t = layoutText({ type: 'text', x: 0, y: 0, h: 2, value: '%%uAB%%u x %%oCD' });
+    expect(t.strokes.length).toBe(plain.strokes.length + 2);
+    const [under, over] = t.strokes.slice(-2);
+    const ab = measureText('AB', 2);
+    expect([...under]).toEqual([0, expect.closeTo(-0.3), expect.closeTo(ab), expect.closeTo(-0.3)]);
+    expect(over[1]).toBeGreaterThan(2);
+    expect(over[2]).toBeCloseTo(measureText('AB x CD', 2));
+  });
+
   it('leaves plain text alone', () => {
     expect(decodeSpecial('50% off')).toBe('50% off');
     expect(decodeSpecial('')).toBe('');
@@ -126,6 +138,17 @@ describe('layoutText', () => {
     // The stem goes from baseline to cap height; its top moves right by h * tan(15 deg).
     const topX = s[1] > s[3] ? s[0] : s[2];
     expect(topX - straight[0]).toBeCloseTo(2 * Math.tan(Math.PI / 12), 5);
+  });
+
+  it('limits the slant to 85 degrees', () => {
+    for (const oblique of [Math.PI / 2, -Math.PI / 2, (89.9 * Math.PI) / 180]) {
+      const b = textBounds(text({ value: 'I', oblique }));
+      expect(b.every(Number.isFinite)).toBe(true);
+      expect(Math.max(Math.abs(b[0]), Math.abs(b[2]))).toBeLessThan(2 * Math.tan((85.1 * Math.PI) / 180) + 2);
+    }
+    // Angles inside the limit are unchanged.
+    const ok = layoutText(text({ value: 'I', oblique: (80 * Math.PI) / 180 })).strokes[0];
+    expect(Math.abs(ok[0] - ok[2])).toBeCloseTo(2 * Math.tan((80 * Math.PI) / 180), 5);
   });
 
   it('applies the width factor', () => {

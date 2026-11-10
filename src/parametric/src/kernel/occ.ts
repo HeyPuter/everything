@@ -144,10 +144,13 @@ export function describeFace(w: Sh): SurfDesc {
     if (t === ga.GeomAbs_Plane) {
       const pl = ad.Plane();
       const ax = pl.Axis();
+      const pos = pl.Position();
       const d0 = ax.Direction();
       let d: Vec3 = xyz(d0);
-      if (reversed) d = scale(d, -1);
-      d0.delete(); ax.delete(); pl.delete();
+      // The surface normal is X × Y, which is opposite to the axis for a
+      // left-handed plane (revolved and mirrored faces have those).
+      if (reversed !== !pos.Direct()) d = scale(d, -1);
+      d0.delete(); ax.delete(); pos.delete(); pl.delete();
       return { type: 'plane', p: center, d, r: 0, center, area };
     }
     if (t === ga.GeomAbs_Cylinder) {
@@ -168,6 +171,23 @@ export function describeFace(w: Sh): SurfDesc {
     const type: SurfType =
       t === ga.GeomAbs_Cone ? 'cone' : t === ga.GeomAbs_Torus ? 'torus' : t === ga.GeomAbs_BSplineSurface || t === ga.GeomAbs_BezierSurface ? 'bspline' : t === ga.GeomAbs_SurfaceOfRevolution ? 'revolution' : t === ga.GeomAbs_SurfaceOfExtrusion ? 'extrusion' : 'other';
     return { type, p: center, d: faceNormalAtCenter(face, ad), r: 0, center, area };
+  } finally {
+    ad.delete();
+  }
+}
+
+/**
+ * The point at the middle of a face's parameter range. On a face swept from
+ * a curve it lies on the face, over the middle of the curve (the centroid of
+ * a curved face can lie nearer another curve of the profile).
+ */
+export function faceMidPoint(w: Sh): Vec3 {
+  const ad = new oc.BRepAdaptor_Surface(w.wrapped, true);
+  try {
+    const p = ad.Value((ad.FirstUParameter() + ad.LastUParameter()) / 2, (ad.FirstVParameter() + ad.LastVParameter()) / 2);
+    const out = xyz(p);
+    p.delete();
+    return out;
   } finally {
     ad.delete();
   }
@@ -217,6 +237,36 @@ export function sameSurface(a: SurfDesc, b: SurfDesc, tol: number): boolean {
       // No exact descriptor: same surface type, close centre and normal.
       return len(sub(a.center, b.center)) < tol * 10 && dot(a.d, b.d) > 0.999;
   }
+}
+
+const surfaces = new WeakMap<Sh, any>();
+
+/** The face's own surface (null when the face is moved by a location). */
+function surfaceHandle(face: Sh): any {
+  let s = surfaces.get(face);
+  if (s === undefined) {
+    const loc = new oc.TopLoc_Location();
+    try {
+      s = oc.BRep_Tool.Surface(face.wrapped, loc);
+      if (!loc.IsIdentity()) { s.delete(); s = null; }
+    } catch {
+      s = null;
+    } finally {
+      loc.delete();
+    }
+    surfaces.set(face, s);
+  }
+  return s;
+}
+
+/**
+ * True when two faces lie on one surface object: a face trimmed by a boolean
+ * keeps its surface. Spline, torus and cone faces have no exact descriptor,
+ * so this is how a trimmed one is told apart from a new face.
+ */
+export function sharesSurface(a: Sh, b: Sh): boolean {
+  const sa = surfaceHandle(a), sb = surfaceHandle(b);
+  return !!sa && !!sb && sa.isAliasOf(sb);
 }
 
 /** Sketch frame for a planar face: origin is the projected world origin. */
@@ -299,18 +349,29 @@ export function translated(shape: Sh, v: Vec3): Sh {
   try { return transformShape(shape, tr); } finally { gv.delete(); tr.delete(); }
 }
 
+// Value types (gp_Pnt, gp_Dir...) are not freed by the bindings: every
+// temporary passed to a constructor is deleted explicitly.
+
 export function rotated(shape: Sh, p: Vec3, d: Vec3, angleRad: number): Sh {
   const tr = new oc.gp_Trsf();
-  const ax = new oc.gp_Ax1(pnt(p), gdir(d));
+  const gp = pnt(p), gd = gdir(d);
+  const ax = new oc.gp_Ax1(gp, gd);
   tr.SetRotation(ax, angleRad);
-  try { return transformShape(shape, tr); } finally { ax.delete(); tr.delete(); }
+  try { return transformShape(shape, tr); } finally { ax.delete(); gp.delete(); gd.delete(); tr.delete(); }
 }
 
 export function mirrored(shape: Sh, p: Vec3, n: Vec3): Sh {
   const tr = new oc.gp_Trsf();
-  const ax = new oc.gp_Ax2(pnt(p), gdir(n));
+  const gp = pnt(p), gd = gdir(n);
+  const ax = new oc.gp_Ax2(gp, gd);
   tr.SetMirror(ax);
-  try { return transformShape(shape, tr); } finally { ax.delete(); tr.delete(); }
+  try { return transformShape(shape, tr); } finally { ax.delete(); gp.delete(); gd.delete(); tr.delete(); }
+}
+
+/** A plane through p with normal n (delete it after use). */
+export function plane(p: Vec3, n: Vec3): any {
+  const gp = pnt(p), gd = gdir(n);
+  try { return new oc.gp_Pln(gp, gd); } finally { gp.delete(); gd.delete(); }
 }
 
 // ---- Booleans ----
@@ -337,8 +398,17 @@ export function common(a: Sh, b: Sh): Sh {
   return runBoolean(new oc.BRepAlgoAPI_Common(a.wrapped, b.wrapped));
 }
 
+/** A compound of the shapes (which stay usable: replicad's makeCompound deletes them). */
 export function compound(shapes: Sh[]): Sh {
-  return R.makeCompound(shapes as any) as unknown as Sh;
+  const builder = new oc.TopoDS_Builder();
+  const c = new oc.TopoDS_Compound();
+  try {
+    builder.MakeCompound(c);
+    for (const s of shapes) builder.Add(c, s.wrapped);
+    return wrap(c);
+  } finally {
+    builder.delete();
+  }
 }
 
 export function isValid(shape: Sh): boolean {
@@ -349,6 +419,17 @@ export function isValid(shape: Sh): boolean {
 export function isEmpty(shape: Sh | null): boolean {
   if (!shape || shape.wrapped.IsNull()) return true;
   return subShapes(shape, 'face').length === 0;
+}
+
+/** Signed volume of a shape (0 for shapes without solids, negative when inside out). */
+export function volumeOf(shape: Sh): number {
+  const props = new oc.GProp_GProps();
+  try {
+    oc.BRepGProp.VolumeProperties(shape.wrapped, props, true, false, false);
+    return props.Mass();
+  } finally {
+    props.delete();
+  }
 }
 
 export function bbox(shape: Sh): { min: Vec3; max: Vec3 } | null {

@@ -236,3 +236,35 @@ it('keeps released media that another part still uses however that part is writt
   expect(new TextDecoder().decode(parts['word/_rels/footer1.xml.rels'])).toMatch(/rF/);
   expect(new TextDecoder().decode(parts['[Content_Types].xml'])).toMatch(/a\.png/);
 });
+
+describe('rewriting a floating frame', () => {
+  const WPNS = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
+  const frame = wrap => new DOMParser().parseFromString(`<w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="${WPNS}" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" relativeHeight="3" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="page"><wp14:pctPosHOffset>50000</wp14:pctPosHOffset></wp:positionH><wp:positionV relativeFrom="page"><wp14:pctPosVOffset>40000</wp14:pctPosVOffset></wp:positionV><wp:extent cx="914400" cy="914400"/><wp:effectExtent l="0" t="0" r="0" b="0"/>${wrap}<wp:docPr id="1" name="Picture 1"/><wp:cNvGraphicFramePr/><a:graphic><a:graphicData uri="x"/></a:graphic></wp:anchor></w:drawing>`, 'application/xml').documentElement;
+  const text = node => new XMLSerializer().serializeToString(node);
+  it('keeps a percentage position on an axis the change leaves alone', () => {
+    // Wrap Text → Behind Text changes neither axis.
+    const drawing = frame('<wp:wrapNone/>');
+    // The Layout dialog reads no offset for it (it shows the laid-out place instead of 0).
+    expect(readFrame(drawing).horizontal).toEqual({ relativeFrom: 'page', percent: 50 });
+    writeFrame(drawing, { wrap: { type: 'none', side: 'bothSides' }, behind: true });
+    expect(text(drawing)).toContain('<wp14:pctPosHOffset>50000</wp14:pctPosHOffset></wp:positionH>');
+    expect(text(drawing)).toContain('<wp14:pctPosVOffset>40000</wp14:pctPosVOffset></wp:positionV>');
+    expect(text(drawing)).not.toContain('posOffset>0<');
+    expect(readFrame(drawing).behind).toBe(true);
+    // Moving it sideways (cropping from the left) sets only the horizontal offset.
+    writeFrame(drawing, { horizontal: { relativeFrom: 'page', offset: 91440 } });
+    expect(text(drawing)).toContain('<wp:positionH relativeFrom="page"><wp:posOffset>91440</wp:posOffset></wp:positionH>');
+    expect(text(drawing)).toContain('<wp14:pctPosVOffset>40000</wp14:pctPosVOffset>');
+  });
+  it('keeps the edited contour of tight or through wrapping unless a new one is given', () => {
+    const contour = '<wp:wrapPolygon edited="1"><wp:start x="10800" y="0"/><wp:lineTo x="0" y="21600"/><wp:lineTo x="21600" y="21600"/><wp:lineTo x="10800" y="0"/></wp:wrapPolygon>';
+    const drawing = frame(`<wp:wrapTight wrapText="bothSides">${contour}</wp:wrapTight>`);
+    writeFrame(drawing, { horizontal: { relativeFrom: 'page', offset: 91440 } });
+    expect(text(drawing)).toContain(contour);
+    writeFrame(drawing, { wrap: { type: 'through', side: 'left' } });
+    expect(text(drawing)).toContain(`<wp:wrapThrough wrapText="left">${contour}</wp:wrapThrough>`);
+    // Square wrapping has no contour; going back to tight starts from the frame's rectangle.
+    writeFrame(drawing, { wrap: { type: 'square' } }); writeFrame(drawing, { wrap: { type: 'tight' } });
+    expect(text(drawing)).toContain('<wp:wrapPolygon edited="0">');
+  });
+});

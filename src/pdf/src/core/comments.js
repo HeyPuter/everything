@@ -24,6 +24,23 @@ export const COMMENT_KINDS = {
   Caret: { label: 'Insertion mark', icon: 'Type', reveal: null },
   FileAttachment: { label: 'Attachment', icon: 'Files', reveal: null },
 };
+/**
+ * Comments named after what was drawn, by their intent (IT): an arrow is a line that ends in
+ * an arrowhead, a cloud a polygon with a cloudy border, a callout a text box with a pointer.
+ */
+const INTENT_LABELS = {
+  LineArrow: 'Arrow',
+  LineDimension: 'Distance',
+  PolyLineDimension: 'Perimeter',
+  PolygonCloud: 'Cloud',
+  PolygonDimension: 'Area',
+  FreeTextCallout: 'Callout',
+  FreeTextTypeWriter: 'Typewriter text',
+};
+/** What a comment of `subtype` with the intent `intent` is called. */
+export const commentLabel = (subtype, intent) =>
+  (String(intent ?? '').startsWith(subtype) && INTENT_LABELS[intent]) ||
+  (COMMENT_KINDS[subtype]?.label ?? subtype);
 export const MAX_COMMENTS = 2000;
 
 const toHex = (color) =>
@@ -50,17 +67,20 @@ export async function collectComments(pdf, { isCurrent = () => true } = {}) {
       annotations = [];
     }
     if (!isCurrent()) return null;
+    const ids = new Set(annotations.map((a) => a.id));
     for (const a of annotations) {
       const kind = COMMENT_KINDS[a.subtype];
+      // A reply is listed in its comment's thread; one to a note no longer on the page (another
+      // editor deleted it) is offered on the page as a note of its own, and listed as one.
+      const reply = a.inReplyTo && (a.subtype !== 'Text' || ids.has(a.inReplyTo));
       // A hidden annotation is not on the page, so it cannot be opened from the list either
       // (the page's note and markup lists leave it out too). PDF.js drops NoView ones itself.
-      if (!kind || a.inReplyTo || a.annotationFlags & 2 || !annotationLayerVisible(a, layers))
-        continue;
+      if (!kind || reply || a.annotationFlags & 2 || !annotationLayerVisible(a, layers)) continue;
       comments.push({
         page: index,
         id: a.id,
         subtype: a.subtype,
-        kind: kind.label,
+        kind: commentLabel(a.subtype, a.it),
         icon: kind.icon,
         reveal: kind.reveal,
         text: String(a.contentsObj?.str ?? a.contents ?? '').trim(),

@@ -8,22 +8,23 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { objectNames } from '../core/arrange.js';
+import { t } from '../i18n/index.js';
 
 export function createSelectionPane(ctx) {
   const { wb } = ctx;
   let lastKey = null, renaming = null, dragId = null;
   // The row the arrow keys move from: the one last picked, from the keyboard or with a click.
   let cursor = null;
-  const list = el('div.selpane-list', { role: 'listbox', 'aria-label': 'Objects on this sheet', 'aria-multiselectable': 'true', tabindex: 0 });
-  const empty = el('p.selpane-empty', {}, 'There are no charts, pictures, shapes or text boxes on this sheet.');
-  const close = el('button.icon-btn', { type: 'button', 'aria-label': 'Close Selection Pane', html: icon('x', 16), onclick: () => api.hide() });
+  const list = el('div.selpane-list', { role: 'listbox', 'aria-label': t('selectionPane.objects'), 'aria-multiselectable': 'true', tabindex: 0 });
+  const empty = el('p.selpane-empty', {}, t('selectionPane.empty'));
+  const close = el('button.icon-btn', { type: 'button', 'aria-label': t('selectionPane.close'), html: icon('x', 16), onclick: () => api.hide() });
   const tool = (label, glyph, onclick, title = label) => el('button.btn.btn-ghost.selpane-tool', { type: 'button', title, 'aria-label': title, onclick }, glyph ? el('span', { html: icon(glyph, 16) }) : null, glyph ? null : label);
-  const showAll = tool('Show All', null, () => ctx.run('objectsVisible', { ids: sheetObjects().map((o) => o.id), hidden: false }));
-  const hideAll = tool('Hide All', null, () => ctx.run('objectsVisible', { ids: sheetObjects().map((o) => o.id), hidden: true }));
-  const forward = tool('', 'chevU', () => ctx.run('orderObject', { where: 'forward' }), 'Bring Forward');
-  const backward = tool('', 'chevD', () => ctx.run('orderObject', { where: 'backward' }), 'Send Backward');
-  const root = el('section.selpane', { role: 'region', 'aria-label': 'Selection', hidden: true },
-    el('div.selpane-head', {}, el('span.selpane-title', {}, 'Selection'), close),
+  const showAll = tool(t('selectionPane.showAll'), null, () => ctx.run('objectsVisible', { ids: sheetObjects().map((o) => o.id), hidden: false }));
+  const hideAll = tool(t('selectionPane.hideAll'), null, () => ctx.run('objectsVisible', { ids: sheetObjects().map((o) => o.id), hidden: true }));
+  const forward = tool('', 'chevU', () => ctx.run('orderObject', { where: 'forward' }), t('selectionPane.bringForward'));
+  const backward = tool('', 'chevD', () => ctx.run('orderObject', { where: 'backward' }), t('selectionPane.sendBackward'));
+  const root = el('section.selpane', { role: 'region', 'aria-label': t('selectionPane.title'), hidden: true },
+    el('div.selpane-head', {}, el('span.selpane-title', {}, t('selectionPane.title')), close),
     el('div.selpane-tools', {}, showAll, hideAll, el('span.selpane-gap'), forward, backward),
     el('div.selpane-body', {}, list, empty));
 
@@ -35,10 +36,10 @@ export function createSelectionPane(ctx) {
     const id = groupId || obj.id, hidden = ids.every((x) => wb.chartById(ctx.sheetId(), x)?.hidden);
     const picked = ids.every((x) => selected().has(x));
     const eye = el('button.selpane-eye', { type: 'button', tabindex: -1, 'aria-pressed': String(!hidden),
-      'aria-label': `${hidden ? 'Show' : 'Hide'} ${name}`, title: hidden ? 'Show' : 'Hide', html: icon(hidden ? 'eyeOff' : 'eye', 15),
+      'aria-label': hidden ? t('selectionPane.showObject', { name }) : t('selectionPane.hideObject', { name }), title: hidden ? t('common.show') : t('common.hide'), html: icon(hidden ? 'eyeOff' : 'eye', 15),
       onclick: (e) => { e.stopPropagation(); ctx.run('objectsVisible', { ids, hidden: !hidden }); } });
     const label = renaming === id
-      ? el('input.input.selpane-rename', { type: 'text', value: name, 'aria-label': 'Object name', maxLength: 255,
+      ? el('input.input.selpane-rename', { type: 'text', value: name, 'aria-label': t('selectionPane.objectName'), maxLength: 255,
         onkeydown: (e) => {
           if (e.key === 'Enter') { e.preventDefault(); finishRename(e.target.value); }
           else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finishRename(null); }
@@ -57,9 +58,14 @@ export function createSelectionPane(ctx) {
   function render(force = false) {
     if (root.hidden) return;
     const objects = sheetObjects();
-    const key = `${ctx.sheetId()}|${wb.version}|${[...selected()].join(',')}|${renaming}`;
+    const rowsKey = `${ctx.sheetId()}|${wb.version}|${renaming}`;
+    const key = `${rowsKey}|${[...selected()].join(',')}`;
     if (!force && key === lastKey) return;
+    // Only the selection changed (an arrow key, a click): the rows stay and are marked again. Drawn afresh, a
+    // sheet of a thousand objects took a tenth of a second for each press of an arrow.
+    const rowsSame = lastKey?.startsWith(`${rowsKey}|`) && list.childElementCount;
     lastKey = key;
+    if (rowsSame) { mark(); return; }
     const names = objectNames(objects);
     const rows = [];
     // Front first: the list runs back to front, so it is read from its end.
@@ -76,13 +82,20 @@ export function createSelectionPane(ctx) {
     list.replaceChildren(...rows);
     list.hidden = !objects.length;
     empty.hidden = !!objects.length;
-    const sel = ctx.grid.selectedCharts || [];
     showAll.disabled = hideAll.disabled = !objects.length;
+    mark();
+    if (renaming) { const input = list.querySelector('.selpane-rename'); input?.focus(); input?.select(); }
+  }
+
+  /** The rows of the objects selected marked so, and the tools and the list's active row following the selection. */
+  function mark() {
+    const now = selected();
+    for (const node of list.children) node.setAttribute('aria-selected', String(node.dataset.ids.split(' ').every((x) => now.has(x))));
+    const sel = ctx.grid.selectedCharts || [];
     forward.disabled = backward.disabled = !sel.length;
     const at = (key) => list.querySelector(`[data-id="${CSS.escape(key || '')}"][aria-selected="true"]`);
     const active = at(cursor) || at(sel[0]);
     if (active) list.setAttribute('aria-activedescendant', active.id); else list.removeAttribute('aria-activedescendant');
-    if (renaming) { const input = list.querySelector('.selpane-rename'); input?.focus(); input?.select(); }
   }
 
   /** Select the row's objects on the sheet, or with `add` add them to the selection (or take them out). The pane keeps the keyboard. */

@@ -5,21 +5,56 @@ const sdk = () => {
     throw new Error('Puter is unavailable. You can still open and download PDFs on this device.');
   return globalThis.puter;
 };
+/** In a Puter desktop window, which always has a session and owns the window chrome. */
 export const isApp = () => globalThis.puter?.env === 'app';
+/**
+ * Started by Puter: in a desktop window, or in a browser tab Puter opened (a file opened from
+ * the dashboard's Files tab, say). The SDK calls a top-level tab 'web', like any website; its
+ * address keeps `puter.app_instance_id`, which a plain visit does not have.
+ */
+export function launchedByPuter() {
+  if (isApp()) return true;
+  if (globalThis.puter?.env !== 'web') return false;
+  try {
+    return new URLSearchParams(globalThis.location?.search || '').has('puter.app_instance_id');
+  } catch {
+    return false;
+  }
+}
+/**
+ * Settles once a tab Puter opened has its token from the dashboard tab that opened it, at
+ * once when nothing is on its way. The SDK has no public promise for this: `openerLaunch_`
+ * is what its own sign-in and getUser wait on, and it is cleared once the handoff settles.
+ */
+export function puterLaunchSettled() {
+  const pending = globalThis.puter?.openerLaunch_;
+  if (typeof pending?.then !== 'function') return Promise.resolve();
+  return Promise.resolve(pending).then(
+    () => {},
+    () => {},
+  );
+}
 /** Compare the SDK's session in memory; never persist or expose its token. */
 export const sessionToken = () => globalThis.puter?.authToken;
 export async function currentUser() {
   try {
     const p = sdk();
+    await puterLaunchSettled();
     return isApp() || (await p.auth.isSignedIn()) ? await p.auth.getUser() : null;
   } catch {
     return null;
   }
 }
-/** Whether a Puter session exists. The desktop always has one; a missing SDK never does. */
+/**
+ * Whether a Puter session exists. The desktop always has one; a missing SDK never does; a tab
+ * Puter opened has one once its token arrives, moments after loading.
+ */
 export async function isSignedIn() {
   try {
-    return isApp() || !!(await sdk().auth.isSignedIn());
+    if (isApp()) return true;
+    const p = sdk();
+    await puterLaunchSettled();
+    return !!(await p.auth.isSignedIn());
   } catch {
     return false;
   }

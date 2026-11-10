@@ -204,19 +204,50 @@ export function pageLinks(paragraphs, layout) {
 
 const jpegOf = canvas => new Promise((resolve, reject) => canvas.toBlob(blob => blob ? blob.arrayBuffer().then(b => resolve(new Uint8Array(b)), reject) : reject(new Error('The page could not be encoded.')), 'image/jpeg', 0.92));
 
+/**
+ * Pages painted at a time. Each is a print-resolution canvas (about 14 MB for a Letter page): painting a
+ * 200-page document at once held 2.7 GB of canvases while they were encoded, which a browser can refuse.
+ */
+export const PDF_BATCH_PAGES = 8;
+
 /** Export the editor's document as a PDF Blob. */
-export async function exportPdf(engine, { title } = {}) {
+export async function exportPdf(engine, { title, batch = PDF_BATCH_PAGES } = {}) {
   await engine.fontRefresh;
-  const sheets = engine.printSheets();
-  // The authored pages printed, even when a screen view (web, draft, read) is showing.
-  const { layout, storyLayout } = engine.printedLayout || engine;
-  const lines = [...layout.lines, ...(layout.repeatedLines || []), ...(storyLayout?.lines || [])];
-  const pages = [];
-  let links = [];
-  try { links = pageLinks(engine.model.paragraphs, layout); } catch (e) { console.warn('[documents] the PDF\'s links could not be placed', e); }
-  for (const [index, canvas] of sheets.entries()) {
-    const geometry = layout.pages[index] || layout.page;
-    pages.push({ widthPx: geometry.width, heightPx: geometry.height, jpeg: await jpegOf(canvas), imageWidth: canvas.width, imageHeight: canvas.height, fragments: pageFragments(lines, index), links: links.filter(link => link.page === index) });
+  const state = () => [engine.model, engine.model?.revision, engine.session?.revision];
+  // The authored pages printed, even when a screen view (web, draft, read) is showing, as the last painting laid them out.
+  const printed = () => {
+    const { layout, storyLayout } = engine.printedLayout || engine;
+    let links = [];
+    try { links = pageLinks(engine.model.paragraphs, layout); } catch (e) { console.warn('[documents] the PDF\'s links could not be placed', e); }
+    return { layout, lines: [...layout.lines, ...(layout.repeatedLines || []), ...(storyLayout?.lines || [])], links };
+  };
+  const release = sheets => { for (const canvas of sheets) if (canvas) canvas.width = canvas.height = 0; };
+  const encode = async (sheets, { layout, lines, links }, pages) => {
+    try {
+      for (const [index, canvas] of sheets.entries()) {
+        if (!canvas) continue;
+        const geometry = layout.pages[index] || layout.page;
+        pages.push({ widthPx: geometry.width, heightPx: geometry.height, jpeg: await jpegOf(canvas), imageWidth: canvas.width, imageHeight: canvas.height, fragments: pageFragments(lines, index), links: links.filter(link => link.page === index) });
+        canvas.width = canvas.height = 0;
+      }
+    } finally { release(sheets); }
+  };
+  const count = (engine.printLayout?.() || engine).layout.pages.length;
+  let pages = [], first = null, painted = null, whole = !count;
+  for (let start = 0; start < count && !whole; start += batch) {
+    // Encoding a page lets the user type. Pages painted before an edit must not be mixed with pages painted after it.
+    if (painted && state().some((value, i) => value !== painted[i])) { whole = true; break; }
+    const sheets = engine.printSheets(Array.from({ length: Math.min(batch, count - start) }, (_, i) => start + i));
+    if (!first) { first = printed(); painted = state(); }
+    else if ((engine.printedLayout || engine).layout !== first.layout) { release(sheets); whole = true; break; }
+    await encode(sheets, first, pages);
+  }
+  // The document changed between batches: its pages are painted all at once, as they were before batches,
+  // so the PDF is the document as it is now. Memory is then what it always was; only this rare case pays it.
+  if (whole) {
+    pages = [];
+    const sheets = engine.printSheets();
+    await encode(sheets, printed(), pages);
   }
   return new Blob([buildPdf(pages, { title })], { type: 'application/pdf' });
 }

@@ -1,0 +1,12 @@
+{
+  "clearUndo": "清除筛选",
+  "copyToColumns": "“复制到”区域必须是列表中的列，或者是单个单元格",
+  "copyToSmall": "“复制到”区域太小，放不下匹配的记录",
+  "criteriaTooShort": "条件区域需要一个标题行和至少一行条件",
+  "listTooShort": "列表区域需要一个标题行和至少一条记录",
+  "overlapsCriteria": "“复制到”区域与条件区域重叠。请选择条件区域以外的位置",
+  "overlapsList": "“复制到”区域与列表区域重叠。请选择列表以外的位置",
+  "protected": "“复制到”区域受保护。请选择其他位置，或先撤消保护",
+  "undo": "高级筛选",
+  "unknownHeader": "条件标题“{header}”不是列表中的列"
+}

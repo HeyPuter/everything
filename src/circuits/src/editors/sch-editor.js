@@ -4,7 +4,7 @@
 
 import { CanvasView } from './view.js';
 import { SelectTool } from './select-tool.js';
-import { PlacePartTool, WireTool, LabelTool, PowerTool, PortTool, MarkerTool, TextTool, ShapeTool, crosshair } from './sch-tools.js';
+import { PlacePartTool, WireTool, LabelTool, PowerTool, PortTool, MarkerTool, TextTool, ShapeTool } from './sch-tools.js';
 import { Batch } from '../render/batch.js';
 import { pack, toVec4 } from '../render/color.js';
 import { SCH_PALETTES } from '../render/palette.js';
@@ -135,7 +135,7 @@ export class SchEditor extends CanvasView {
   }
 
   drawCursor(b) {
-    if (this.tool === this.select && this.cursor.inside && this.app.settings.get('schCrosshair')) crosshair(b, this, this.cursor.x, this.cursor.y);
+    if (this.app.settings.get('schCrosshair')) this.drawFullCrosshair(b, pack(this.palette.crosshair, 0.55));
   }
 
   // ---- Selection ----
@@ -229,17 +229,17 @@ export class SchEditor extends CanvasView {
     return best;
   }
 
-  isConnectionPoint(x, y) {
+  /** True where a wire (or bus, by kind) being drawn would connect to something. */
+  isConnectionPoint(x, y, kind = 'wire') {
     const r = 1;
     const box = { minX: x - r, minY: y - r, maxX: x + r, maxY: y + r };
     for (const p of this._connectionPoints(box)) if (p.x === x && p.y === y && p.o.t !== 'wire') return true;
     // A point on an existing wire (end or middle) is also a connection.
-    let wires = 0;
     for (const o of this.doc.store.query(box)) {
-      if (o.t !== 'wire') continue;
-      for (let i = 2; i < o.pts.length; i += 2) if (distPointSeg(x, y, o.pts[i - 2], o.pts[i - 1], o.pts[i], o.pts[i + 1]) < 1) { wires++; break; }
+      if (o.t !== kind) continue;
+      for (let i = 2; i < o.pts.length; i += 2) if (distPointSeg(x, y, o.pts[i - 2], o.pts[i - 1], o.pts[i], o.pts[i + 1]) < 1) return true;
     }
-    return wires > 1;
+    return false;
   }
 
   // ---- Moving ----
@@ -319,15 +319,15 @@ export class SchEditor extends CanvasView {
         for (const o of transformed()) drawSchObject(b, o, ed.lib, ed.palette, col);
         for (const w of draggedWires()) b.polyline(w.pts, WIRE_W, pack(ed.palette.wire));
       },
-      commit() {
+      commit({ label = ids.length === 1 ? 'Move' : `Move ${ids.length} objects`, mergeKey } = {}) {
         ed._endMove();
         if (!dx && !dy && !ops.length) return;
         const objs = transformed();
         const wires = draggedWires();
-        store.transact(ids.length === 1 ? 'Move' : `Move ${ids.length} objects`, (s) => {
+        store.transact(label, (s) => {
           for (const o of objs) s.update(o.id, o);
           for (const w of wires) s.update(w.id, w);
-        });
+        }, { mergeKey });
       },
       cancel() { ops = []; dx = dy = 0; ed._endMove(); },
     };
@@ -341,8 +341,13 @@ export class SchEditor extends CanvasView {
   }
 
   nudge(dx, dy) {
-    const ids = [...this.selection];
-    this.doc.store.transact('Nudge', (s) => { for (const id of ids) { const o = s.get(id); if (o && !o.locked) s.update(id, translateSch(o, dx, dy)); } }, { mergeKey: `nudge:${ids.join(',')}` });
+    const ids = [...this.selection].filter((id) => { const o = this.doc.store.get(id); return o && !o.locked; });
+    if (!ids.length) return;
+    // Like a drag, so wires attached to the moved pins follow instead of
+    // being left disconnected.
+    const move = this.beginMove(ids, { x: 0, y: 0 });
+    move.update(dx, dy);
+    move.commit({ label: 'Nudge', mergeKey: `nudge:${ids.join(',')}` });
   }
 
   _selectionCenter() {
@@ -580,7 +585,8 @@ class PasteTool {
         const n = { ...o, id: uid() };
         if (n.t === 'part') {
           n.uid = uid('u');
-          const prefix = (o.designator || '').replace(/\d+$/, '').replace(/\?$/, '') || ed.lib[o.comp]?.prefix || 'U';
+          // The leading letters: R12 -> R, R? -> R, and U1A (unit A) -> U, not U1A.
+          const prefix = /^[A-Za-z_]+/.exec(o.designator || '')?.[0] || ed.lib[o.comp]?.prefix || 'U';
           n.designator = nextDesignator(sheets, prefix);
           sheets.push({ id: 'pending', objects: [n] });
         }

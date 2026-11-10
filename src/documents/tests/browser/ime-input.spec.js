@@ -41,10 +41,12 @@ test('a toolbar command during IME composition commits it and applies instead of
   await expect(input(page)).toHaveValue('Hello world你x');
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.map(r => [r.text, !!r.bold])))
     .toEqual([['Hello world你', false], ['x', true]]);
-  // Undo from the toolbar during a composition commits it too, then takes back the last step.
+  // Undo from the toolbar during a composition commits it too, then takes back the last step (the composed
+  // word: after a space it does not go on in the typing before it).
+  await page.keyboard.type(' ');
   await cdp.send('Input.imeSetComposition', { text: 'か', selectionStart: 1, selectionEnd: 1 });
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(input(page)).toHaveValue('Hello world你x');
+  await expect(input(page)).toHaveValue('Hello world你x ');
   expect(await state(page)).toMatchObject({ composing: false, focused: true });
 });
 
@@ -116,4 +118,54 @@ test('a letter or quote composed with a dead key is corrected as a typed one is'
   for (const text of ['n', 'ni', 'ni"']) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
   await cdp.send('Input.insertText', { text: 'ni"' });
   await expect(input(page)).toHaveValue('Él dijo. Árbol ‘hola\' ni"');
+});
+
+test('a Korean word, committed a syllable at a time, undoes in one step as a typed word does', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  const cdp = await page.context().newCDPSession(page);
+  const syllable = async (...steps) => {
+    for (const text of steps) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+    await cdp.send('Input.insertText', { text: steps.at(-1) });
+  };
+  await syllable('ㅇ', '아', '안'); await syllable('ㄴ', '녀', '녕'); await syllable('ㅎ', '하');
+  await page.keyboard.type(' ');
+  await syllable('ㅅ', '세'); await syllable('ㅇ', '요');
+  await expect(input(page)).toHaveValue('안녕하 세요');
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('안녕하 ');
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('');
+  await input(page).press('ControlOrMeta+Shift+z');
+  await expect(input(page)).toHaveValue('안녕하 ');
+});
+
+test('text composed where the document is protected goes nowhere, and the keys after it still move the caret', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Locked text. Open text.');
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(13, 23); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Restrict Editing' }).filter({ visible: true }).first().click();
+  const pane = page.getByRole('complementary', { name: 'Restrict Editing pane' });
+  await pane.getByRole('checkbox', { name: 'Allow only this type of editing in the document:' }).check();
+  await pane.getByRole('checkbox', { name: 'Everyone' }).check();
+  await pane.getByRole('button', { name: 'Yes, Start Enforcing Protection' }).click();
+  await page.getByRole('dialog', { name: 'Start Enforcing Protection' }).getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(pane).toContainText('protected from unintentional editing');
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(3, 3); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  const cdp = await page.context().newCDPSession(page);
+  for (const text of ['に', 'にほ', '日本']) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  await cdp.send('Input.insertText', { text: '日本' });
+  // Refused, as a typed letter is: not put at the end of the field, inside the editable region there.
+  expect(await state(page)).toEqual({ text: 'Locked text. Open text.', range: [3, 3], composing: false, focused: true });
+  await input(page).press('ArrowRight');
+  expect(await state(page)).toMatchObject({ range: [4, 4] });
+  // In the editable region an input method composes as usual.
+  await input(page).evaluate(el => { el.setSelectionRange(18, 18); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  for (const text of ['か', 'かん']) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  await cdp.send('Input.insertText', { text: 'かん' });
+  expect(await state(page)).toEqual({ text: 'Locked text. Open かんtext.', range: [20, 20], composing: false, focused: true });
 });

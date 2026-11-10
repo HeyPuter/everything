@@ -47,3 +47,26 @@ it('opens and keeps distributed paragraphs editable, and sets distributed alignm
   expect(fresh.paragraphs[0].format.alignment).toBe('distribute');
   expect(paragraphText(fresh.paragraphs[0])).toBe('One two');
 });
+
+it('justifies Thai distributed paragraphs between characters, leaves the last line, and keeps thaiDistribute on save (§17.18.44)', async () => {
+  // Thai, written without spaces, has no gaps for justified text to widen: Thai justification widens the gaps
+  // between characters too.
+  // Words of consonants alone (คน, นก, รถ, …), one character each to this measure.
+  const thai = 'คนนกรถมดถนนสวนผมตลก'.repeat(3), result = layout(thai, { alignment: 'thaiDistribute' });
+  expect(result.lines.length).toBeGreaterThan(1);
+  for (const line of result.lines.slice(0, -1)) expect(edge(line)).toBeCloseTo(210, 5);
+  expect(edge(result.lines.at(-1))).toBeLessThan(205);
+  const source = readFileSync('public/fixtures/justification.docx'), parts = unzipSync(source);
+  parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace('<w:jc w:val="both"/>', '<w:jc w:val="thaiDistribute"/>'));
+  const pkg = await DocxPackage.open(zipSync(parts));
+  expect(pkg.readOnly).toBeFalsy();
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables);
+  const index = doc.paragraphs.findIndex(p => p.format.alignment === 'thaiDistribute');
+  expect(index).toBeGreaterThanOrEqual(0);
+  // Edited text and a copied paragraph format (Format Painter) keep it.
+  doc.select(doc.paragraphOffset(index)); doc.replace('ไทย ');
+  doc.select(doc.paragraphOffset(0)); doc.setParagraphFormat({ alignment: 'thaiDistribute' });
+  const saved = unzipSync(new Uint8Array(await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables).arrayBuffer()));
+  expect(strFromU8(saved['word/document.xml']).match(/<w:jc w:val="thaiDistribute"\/>/g).length).toBeGreaterThanOrEqual(2);
+  expect((await DocxPackage.open(zipSync(saved))).paragraphs.filter(p => p.format.alignment === 'thaiDistribute').length).toBeGreaterThanOrEqual(2);
+});

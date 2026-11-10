@@ -5,7 +5,7 @@
 import { h, clear } from './dom.js';
 import { icon } from './icons.js';
 import { colorLabel, colorCss } from '../core/colors.js';
-import { defaultLayer, LINEWEIGHTS, LW_DEFAULT } from '../core/schema.js';
+import { defaultLayer, freeTableName, LINEWEIGHTS, LW_DEFAULT } from '../core/schema.js';
 import { lwLabel } from './combos.js';
 import { confirmDialog } from './dialog.js';
 import { preserveFocus } from './focus.js';
@@ -63,10 +63,16 @@ export class LayerManager {
       this.live,
     );
     this.el.addEventListener('keydown', (e) => {
-      if (e.altKey && e.key.toLowerCase() === 'n') {
+      if (!e.altKey) return;
+      // On macOS, Option changes the key (Option+N is a dead key, Option+C
+      // types ç), so use the physical key, except in text fields where those
+      // characters are being typed.
+      const typing = e.target instanceof HTMLElement && e.target.matches('input, textarea');
+      const k = /^[a-z]$/i.test(e.key) || typing ? e.key.toLowerCase() : e.code.replace(/^Key/, '').toLowerCase();
+      if (k === 'n') {
         e.preventDefault();
         this.newLayer();
-      } else if (e.altKey && e.key.toLowerCase() === 'c') {
+      } else if (k === 'c') {
         e.preventDefault();
         this.makeCurrent();
       }
@@ -151,7 +157,12 @@ export class LayerManager {
       const lw = h('select.input.sm', { 'aria-label': `Lineweight for layer ${name}` }, [LW_DEFAULT, ...LINEWEIGHTS].map((w) => h('option', { value: w, selected: w === l.lineweight }, lwLabel(w))));
       lw.addEventListener('change', () => this.app.setLayerProp(name, { lineweight: Number(lw.value) }));
       const tr = h('input.input.sm', { type: 'number', min: 0, max: 90, step: 5, value: l.transparency || 0, 'aria-label': `Transparency for layer ${name}` });
-      tr.addEventListener('change', () => this.app.setLayerProp(name, { transparency: Math.max(0, Math.min(90, Number(tr.value) || 0)) }));
+      tr.addEventListener('change', () => {
+        const v = Math.max(0, Math.min(90, Number(tr.value) || 0));
+        // Show the value actually stored (the field keeps focus, so no re-render updates it).
+        tr.value = v;
+        this.app.setLayerProp(name, { transparency: v });
+      });
       const desc = h('input.input.sm', { type: 'text', value: l.description || '', 'aria-label': `Description for layer ${name}` });
       desc.addEventListener('change', () => this.app.setLayerProp(name, { description: desc.value }));
       for (const el of [tr, desc]) el.addEventListener('keydown', (e) => e.stopPropagation());
@@ -215,10 +226,7 @@ export class LayerManager {
   }
 
   uniqueName(base = 'Layer') {
-    const d = this.drawing;
-    let i = 1;
-    while (d.layers.has(`${base}${i}`)) i++;
-    return `${base}${i}`;
+    return freeTableName(this.drawing.layers, base);
   }
 
   newLayer() {

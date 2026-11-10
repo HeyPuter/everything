@@ -14,6 +14,9 @@ const OLE2_MAGIC = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 const CHUNK_MARKER = [0x14, 0x00, 0x06, 0x00, 0x08, 0x00];
 const SECTION_GUID = [0x23, 0x1d, 0xd5, 0x71, 0xda, 0x81, 0x48, 0xa2, 0xa8, 0x58, 0x98, 0xb2, 0x1b, 0x89, 0xef, 0x99];
 const MAX_STREAM = 256 * 1024 * 1024;
+/** Decompressed bytes allowed for all streams of one file together. */
+const MAX_TOTAL = 1024 * 1024 * 1024;
+const TOO_LARGE = 'This SolidWorks file is too large to open.';
 
 export class SolidWorksError extends Error {}
 
@@ -57,6 +60,7 @@ async function readModern(b: Uint8Array): Promise<Map<string, Uint8Array>> {
   const rot = b[7] & 7;
   const streams = new Map<string, Uint8Array>();
   let pos = 0;
+  let total = 0;
   for (;;) {
     const m = indexOf(b, CHUNK_MARKER, pos);
     if (m < 0) break;
@@ -77,8 +81,14 @@ async function readModern(b: Uint8Array): Promise<Map<string, Uint8Array>> {
       name += String.fromCharCode(c);
     }
     if (!printable || crc < 65536) continue;
-    const data = await inflate(b.subarray(dataAt, end), 'deflate-raw', MAX_STREAM);
+    // A small file can hold many highly compressed streams: bound the total.
+    const limit = Math.min(MAX_STREAM, MAX_TOTAL - total);
+    const data = await inflate(b.subarray(dataAt, end), 'deflate-raw', limit).catch(() => {
+      if (limit < MAX_STREAM) throw new SolidWorksError(TOO_LARGE);
+      return null;
+    });
     if (!data) continue;
+    total += data.length;
     if (!streams.has(name)) streams.set(name, data);
     pos = end;
   }
@@ -127,7 +137,9 @@ function readOle2(b: Uint8Array): Map<string, Uint8Array> {
       total += unit;
       if (size !== undefined && total >= size) break;
     }
-    const out = new Uint8Array(size ?? total);
+    // The declared size can exceed the chain in a damaged file: never
+    // allocate more than was read.
+    const out = new Uint8Array(Math.min(size ?? total, total));
     let at = 0;
     for (const p of parts) { const n = Math.min(p.length, out.length - at); out.set(p.subarray(0, n), at); at += n; }
     return out;
@@ -148,8 +160,11 @@ function readOle2(b: Uint8Array): Map<string, Uint8Array> {
   const cutoff = u32(56);
   let mini: Uint8Array | null = null, miniFat: number[] | null = null;
   const streams = new Map<string, Uint8Array>();
+  let total = 0;
   for (const e of entries) {
     if (e.type !== 2 || e.size > MAX_STREAM) continue;
+    // Entries can share sectors, so their sum is not bounded by the file size.
+    if (total > MAX_TOTAL) throw new SolidWorksError(TOO_LARGE);
     try {
       let data: Uint8Array;
       if (e.size >= cutoff) data = chain(e.start, fat, sector, ss, e.size);
@@ -160,7 +175,7 @@ function readOle2(b: Uint8Array): Map<string, Uint8Array> {
         const m = mini;
         data = chain(e.start, miniFat, (i) => m.subarray(i * 64, (i + 1) * 64), 64, e.size);
       }
-      if (!streams.has(e.name)) streams.set(e.name, data);
+      if (!streams.has(e.name)) { streams.set(e.name, data); total += data.length; }
     } catch { /* skip a damaged stream; the solid may live elsewhere */ }
   }
   return streams;
@@ -182,6 +197,7 @@ export interface Transmit {
 
 export async function findTransmits(streams: Map<string, Uint8Array>): Promise<Transmit[]> {
   const out: Transmit[] = [];
+  let total = 0;
   for (const [name, s] of streams) {
     for (let g = indexOf(s, SECTION_GUID); g >= 0; g = indexOf(s, SECTION_GUID, g + 16)) {
       const at = g + 24;
@@ -189,7 +205,12 @@ export async function findTransmits(streams: Map<string, Uint8Array>): Promise<T
       const dv = new DataView(s.buffer, s.byteOffset, s.byteLength);
       const csz = g + 24 <= s.length ? dv.getUint32(g + 20, true) : 0;
       const end = csz > 0 && at + csz <= s.length ? at + csz : s.length;
-      const data = await inflate(s.subarray(at, end), 'deflate');
+      const limit = MAX_TOTAL - total;
+      const data = await inflate(s.subarray(at, end), 'deflate', Math.min(2 * MAX_STREAM, limit)).catch(() => {
+        if (limit < 2 * MAX_STREAM) throw new SolidWorksError(TOO_LARGE);
+        return null;
+      });
+      total += data?.length ?? 0;
       if (!data || data[0] !== 0x50 || data[1] !== 0x53) continue; // 'PS'
       const head = new TextDecoder('latin1').decode(data.subarray(0, 120));
       const m = /TRANSMIT FILE (?:\((\w+)\) )?created/.exec(head);

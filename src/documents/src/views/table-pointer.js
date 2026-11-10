@@ -12,6 +12,8 @@ import { caretRect, imageAtPoint } from '../engine/layout.js';
 import { rowGrid, verticalMerges, cellContext } from '../engine/tables.js';
 
 const NEAR = 4, HANDLE = 11, GUTTER = 20;
+// A fingertip lands less precisely than a mouse: a border is within reach of a touch this many screen pixels away.
+const TOUCH_NEAR = 8;
 const inches = twips => `${(twips / 1440).toFixed(2)} in`;
 
 export function attachTablePointer(engine, { readOnly, widths, heights, error = () => {}, onChange = () => {}, onModeEnd = () => {}, deleteCellsDialog = () => {} }) {
@@ -74,7 +76,7 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   const cellAt = (f, x, y) => f.cells.filter(c => x >= c.x && x <= c.x + c.width && y >= c.y && y <= c.y + c.height).sort((a, b) => (b.depth || 1) - (a.depth || 1))[0] || null;
 
   /** What the pointer is over: a border, a handle, an insertion mark, or a cell edge for the drawing tools. */
-  function hitTest(at) {
+  function hitTest(at, near = NEAR) {
     if (!at) return null;
     for (const f of frames(at.page)) {
       const inside = at.x >= f.left - GUTTER - 4 && at.x <= f.right + HANDLE + 4 && at.y >= f.top - GUTTER - 4 && at.y <= f.bottom + HANDLE + 4;
@@ -101,8 +103,8 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
       }
       // A picture under the pointer takes the press, so one that reaches a cell edge can still be selected there.
       const border = () => !imageAtPoint(engine.selectionLayout, at.page, at.x, at.y);
-      if (withinY) for (const [index, x] of f.columns) if (index > 0 && Math.abs(at.x - x) <= NEAR && border()) return { kind: 'column', frame: f, index, x };
-      if (withinX) for (const row of f.rows.values()) if (Math.abs(at.y - row.bottom) <= NEAR && border()) return { kind: 'row', frame: f, row: row.index, y: row.bottom };
+      if (withinY) for (const [index, x] of f.columns) if (index > 0 && Math.abs(at.x - x) <= near && border()) return { kind: 'column', frame: f, index, x };
+      if (withinX) for (const row of f.rows.values()) if (Math.abs(at.y - row.bottom) <= near && border()) return { kind: 'row', frame: f, row: row.index, y: row.bottom };
       if (withinX && withinY) return { kind: 'inside', frame: f };
     }
     return null;
@@ -176,6 +178,9 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   const CURSORS = { column: 'col-resize', row: 'row-resize', move: 'move', resize: 'nwse-resize', insertRow: 'pointer', insertColumn: 'pointer' };
   function setCursor(value) {
     if (value) engine.pages.dataset.tableCursor = value; else delete engine.pages.dataset.tableCursor;
+    // Draw Table, the eraser and the border painter draw in any direction: a finger on the pages draws rather than
+    // scrolling them while one is on (tables.css).
+    engine.pages.classList.toggle('uses-table-tool', !!mode);
   }
   const modeCursor = () => mode === 'draw' ? 'crosshair' : mode === 'erase' ? 'cell' : mode === 'paint' ? 'copy' : null;
 
@@ -190,6 +195,7 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   function finish(e) {
     const d = drag; drag = null;
     if (!d) return;
+    if (d.tap && !d.moved && (d.kind === 'column' || d.kind === 'row')) { repaint(); engine.pointerDown(d.tap, true); engine.release(e); return; }
     const at = point(e) || d.last;
     const table = d.frame?.table;
     if (d.kind === 'column' && d.moved) { commit(m => T.setColumnWidths(m, table, d.widths, { layout: 'fixed' })); refreshRuler(); }
@@ -277,7 +283,8 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   /* ---- Pointer events ---- */
   listen(engine.pages, 'pointerdown', e => {
     if (e.button !== 0 || engine.composition || readOnly()) return;
-    const at = point(e), hit = hitTest(at);
+    const touch = e.pointerType === 'touch';
+    const at = point(e), hit = hitTest(at, touch ? Math.max(NEAR, TOUCH_NEAR / engine.zoom) : NEAR);
     if (mode === 'draw' && (!hit || hit.kind === 'edge' || hit.kind === 'inside')) {
       e.preventDefault(); e.stopPropagation();
       drag = { kind: 'draw', start: at, last: at, page: at?.page, frame: hit?.frame || null, startEvent: { clientX: e.clientX, clientY: e.clientY, target: e.target, altKey: false } };
@@ -303,7 +310,11 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
       drag = { kind: 'resize', frame: hit.frame, page: at.page, start: at, base: widths(table), baseHeights: heights(table), last: at };
       drag.widths = [...drag.base]; drag.heights = [...drag.baseHeights];
     } else drag = { kind: hit.kind, hit, frame: hit.frame, page: at.page, start: at, last: at };
+    // A finger that only taps beside a border places the caret there, as any tap on the text does (see finish).
+    if (touch) drag.tap = e;
   }, { capture: true });
+  // The pages scroll up and down under a finger; while it drags a border or handle, they hold still.
+  listen(engine.pages, 'touchmove', e => { if (drag?.tap && e.cancelable) e.preventDefault(); }, { passive: false });
 
   listen(engine.pages, 'pointermove', e => {
     const at = point(e);
@@ -435,8 +446,7 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     if (model.cellBlock) return;
     const { anchor, focus } = model.selection;
     if (anchor === focus) return;
-    const at = offset => model.paragraphs[locateParagraph(model.paragraphs, offset).index]?.cellId || null;
-    const a = at(anchor), b = at(focus > anchor && locateParagraph(model.paragraphs, focus).offset === 0 ? focus - 1 : focus);
+    const [a, b] = T.selectionEndCells(model);
     if (!a || !b || a === b) return;
     let block;
     try { block = T.selectionBlock(model); } catch { return; }

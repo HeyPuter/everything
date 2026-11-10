@@ -162,9 +162,11 @@ export function openBulletsAndNumbering({ current = {}, apply, none, define, set
 /** Paste Special: choose how the clipboard content is pasted. choices: [{ id, label, hint }]. */
 export function openPasteSpecial({ source = '', choices, apply, onClose }) {
   const name = fieldId('fmt-paste');
+  // The start of the clipboard's text, cut after 80 code units, or 81 to keep an emoji (two of them) whole.
+  const shown = source.replace(/\s+/g, ' '), cut = /[\ud800-\udbff]/.test(shown[79] || '') ? 81 : 80;
   const radios = choices.map((choice, i) => el('label.fmt-paste-choice', {}, el('input', { type: 'radio', name, value: choice.id, checked: !i }), el('span', {}, el('strong', {}, choice.label), el('span.field-hint', {}, choice.hint))));
   const modal = openFormatDialog({ title: 'Paste Special', wide: false, onClose, className: 'fmt-paste-dialog',
-    body: [el('p.field-hint', {}, source ? `Source: ${source.replace(/\s+/g, ' ').slice(0, 80)}${source.length > 80 ? '…' : ''}` : 'The clipboard has no text.'),
+    body: [el('p.field-hint', {}, source ? `Source: ${shown.slice(0, cut)}${shown.length > cut ? '…' : ''}` : 'The clipboard has no text.'),
       el('div.fmt-radios', { role: 'radiogroup', 'aria-label': 'Paste as' }, ...radios)],
     submit: () => apply(radios.map(r => r.firstChild).find(r => r.checked)?.value) });
   radios[0]?.firstChild.focus();

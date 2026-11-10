@@ -1,0 +1,7 @@
+{
+  "blank": "Blank PivotTable",
+  "data": "Data: {range}",
+  "none": "No recommendations for this data. Use Blank PivotTable to build one",
+  "selectList": "Select a list with a header row",
+  "title": "Recommended PivotTables"
+}

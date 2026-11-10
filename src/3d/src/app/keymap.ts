@@ -171,7 +171,8 @@ function matches(k: KeyItem, name: string, e: KeyboardEvent) {
 
 function isTyping(e: KeyboardEvent) {
   const t = e.target as HTMLElement;
-  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || !!t.closest?.('.cm-editor, .text-editor-input'));
+  // puter.js's user menu takes its own keys too (they arrive from the element, not from its buttons)
+  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || !!t.closest?.('.cm-editor, .text-editor-input, puter-user-menu'));
 }
 
 type EditorKeys = { keymaps?: string[]; onKey?(e: KeyboardEvent): boolean };
@@ -231,7 +232,7 @@ export function isWheelNotch(e: WheelEvent) {
 function onWheel(e: WheelEvent) {
   if (app.modal || pieOpen() || !e.deltaY || !isWheelNotch(e)) return;
   const t = e.target as HTMLElement | null;
-  if (t?.closest?.('input, textarea, select, .num-field, .popup-layer, .menu')) return;
+  if (t?.closest?.('input, textarea, select, .num-field, .popup-layer, .menu, puter-user-menu')) return;
   const area = app.hoverArea ?? app.activeArea;
   const editor = area?.editor as EditorKeys | undefined;
   const name = e.deltaY < 0 ? 'WHEELUPMOUSE' : 'WHEELDOWNMOUSE';

@@ -32,7 +32,7 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
   const list = el('div.vh-list', { role: 'list', 'aria-label': 'Saved versions' });
   const saveNow = el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => saveVersion() }, 'Save a Version Now');
   const status = el('p.vh-status', { role: 'status', 'aria-live': 'polite' });
-  pane.body.append(el('div.vh-actions', {}, saveNow), status, list, hint('Versions are kept as you work: one every ten minutes of editing, and whenever you save one. The newest 30 are kept.'));
+  pane.body.append(el('div.vh-actions', {}, saveNow), status, list, hint('Versions are kept as you work: one every ten minutes of editing, and whenever you save one. The newest 30 are kept, and every version with a name.'));
 
   /* ---- The read-only preview beside the document ---- */
   const previewHost = el('div.vh-preview-host', { 'aria-label': 'Version pages' });
@@ -124,7 +124,6 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
       previewHost.replaceChildren();
       token.engine = new api.CanvasEditor(previewHost, { paragraphs: p.paragraphs, pageSettings: p.pageSettings, numbering: p.numbering, styles: p.styles, tables: p.tables, pageStories: p.pageStories, comments: p.comments, assets: p.assets, drawingLayouts: p.drawingLayouts, images: opened.images, readOnly: true, inputLabel: `Version ${versionName(v)}` });
       fit(token.engine);
-      token.pkg = p;
     } catch (e) {
       if (preview === token) previewHost.replaceChildren(el('p.rv-status', {}, `This version could not be opened: ${e.message}`));
     }
@@ -159,22 +158,32 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
     try {
       if (!shared) { closePreview(); pane.close({ quiet: true }); await restoreFile(v); return; }
       const api = engineApi();
-      const opened = preview?.version.path === v.path && preview.pkg ? { pkg: preview.pkg, images: null } : await api.openCanvasDocument(await readBytes(v));
+      // Opened afresh even when it is the version shown: the preview's pictures close with it, and the restored
+      // document needs its own decoded ones (a picture or drawing only the version has would otherwise not draw).
+      const opened = await api.openCanvasDocument(await readBytes(v));
       const p = opened.pkg;
       if (p.readOnly) throw new Error('This version uses features that can only be displayed, so it cannot be restored while others edit with you.');
+      // Its pictures, charts and notes are those of its own file: ones the document no longer has, or has changed,
+      // would come back broken or as the document's current ones.
+      if (api.unportableContent?.(p, pkg())) throw new Error('This version has pictures, charts or notes the current document no longer has as they were, so it cannot be restored while others edit with you. Compare it with the document instead, and copy what you need.');
       engine.finishComposition();
       if (engine.session.path !== null) engine.editStory(null);
+      let renames = new Map();
       // One undoable change: the version's body, tables, styles, lists, page setup and comments.
       engine.execute(() => {
         const model = engine.model;
-        Object.assign(model.assets, p.assets);
+        renames = api.adoptVersionAssets ? api.adoptVersionAssets(p, model.assets) : (Object.assign(model.assets, p.assets), new Map());
         const state = new (model.constructor)(p.paragraphs, p.pageSettings, p.numbering, p.styles, p.tables, model.assets, { comments: p.comments ?? model.comments, trackChanges: model.trackChanges });
         model.checkpoint?.();
         model.restore({ ...state.snapshot(), selection: { anchor: 0, focus: 0 } });
       });
-      for (const [id, image] of opened.images || []) { if (!engine.images.has(id)) engine.images.set(id, image); else image.close?.(); }
+      for (const [source, image] of opened.images || []) { const id = renames.get(source) || source; if (!engine.images.has(id)) engine.images.set(id, image); else image.close?.(); }
       engine.relayout(); engine.paint();
-      toast(`Restored “${versionName(v)}”`, { action: { label: 'Undo', onClick: () => engine.undo() } });
+      // The toast's Undo takes back the restore only while it is this person's latest change: after another edit it
+      // would undo that edit and keep the version. (A shared document's own steps are counted, not others'.)
+      const history = engine.session.history, steps = history.length, step = history.at(-1);
+      const latest = () => editor() === engine && engine.session.history.length === steps && engine.session.history.at(-1) === step;
+      toast(`Restored “${versionName(v)}”`, { action: { label: 'Undo', onClick: () => { if (latest()) engine.undo(); else toast('Other changes were made since. Use Undo to step back through them first.', { icon: 'info' }); } } });
       closePreview();
       return true;
     } catch (e) { error(e); }

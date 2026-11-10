@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, it, expect, describe } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync, strFromU8, zipSync, strToU8 } from 'fflate';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { bodyFieldRanges } from '../src/engine/body-fields.js';
@@ -155,4 +155,23 @@ describe('captions and cross-references', () => {
     expect(text.indexOf('Table 1: Results')).toBeGreaterThan(-1);
     expect(d.paragraphs.find(p => p.runs.map(r => r.text).join('') === 'Table 1: Results').cellId).toBeFalsy();
   });
+});
+
+// Insert > Caption numbers the new caption and renumbers later ones of its label. It is not Update Fields:
+// unrelated fields keep their results, as in Word. It updated them all, so a cross-reference to a removed
+// bookmark became "Error! Reference source not found." and a formula's edited result was replaced.
+it('inserting a caption leaves unrelated fields alone', async () => {
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const field = (instruction, result) => `<w:p><w:fldSimple w:instr="${instruction}"><w:r><w:t xml:space="preserve">${result}</w:t></w:r></w:fldSimple></w:p>`;
+  const parts = {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/document.xml': `<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t>Chart</w:t></w:r></w:p>${field('SEQ Figure \\* ARABIC', '7')}${field('REF OldSection \\h', 'Section 3')}${field('= 2 + 2', '4 (approved)')}${field('DATE \\@ &quot;yyyy&quot;', '1999')}<w:sectPr/></w:body></w:document>`,
+  };
+  const pkg = await DocxPackage.open(zipSync(Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, strToU8(v)]))));
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  doc.select(1);
+  insertCaption(doc, { label: 'Figure', text: 'Sales' });
+  // The later Figure sequence is renumbered; the cross-reference, formula and date keep their results.
+  expect(doc.text).toBe('Chart\nFigure 1: Sales\n2\nSection 3\n4 (approved)\n1999');
 });

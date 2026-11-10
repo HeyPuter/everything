@@ -29,6 +29,7 @@ export const FOLDER_KEYS = {
   sent: 't',
   drafts: 'd',
   archive: 'a',
+  snoozed: 'z',
   // The key that deletes a message everywhere else in the app, so "go to
   // where the deleted ones are" is the same key asked a different way.
   trash: '#',
@@ -61,6 +62,7 @@ const GROUPS = (folders) => [
       { keys: ['s'], label: 'Star' },
       { keys: ['u'], label: 'Mark read or unread' },
       { keys: ['e'], label: 'Archive' },
+      { keys: ['b'], label: 'Snooze or change wake time' },
       { keys: ['#', 'Delete'], label: 'Delete' },
     ],
   },
@@ -82,6 +84,7 @@ const GROUPS = (folders) => [
       { keys: ['s'], label: 'Star' },
       { keys: ['u'], label: 'Mark as unread' },
       { keys: ['e'], label: 'Archive' },
+      { keys: ['b'], label: 'Snooze or change wake time' },
       { keys: ['#', 'Delete'], label: 'Delete' },
       { keys: ['Escape'], label: 'Back to the list' },
     ],

@@ -19,7 +19,7 @@ import {
   Landmark, Split, CalendarClock, TextSearch, Pi, History, Shapes, Calculator, MessageSquarePlus, MessageSquare, Omega, SearchCheck, ScanSearch,
   Group, Ungroup, RefreshCw, FunnelX, WandSparkles, SpellCheck, Palette, Ruler, Columns2, LayoutTemplate, FileStack, BringToFront,
   SendToBack, RotateCw, Scaling, StretchHorizontal, StretchVertical, BookA, Languages, Accessibility, MessagesSquare, FileLock,
-  ArrowLeftRight, Maximize, Grid3x3, RectangleHorizontal, Images, PanelsTopLeft, Combine,
+  ArrowLeftRight, Maximize, Grid3x3, RectangleHorizontal, Images, PanelsTopLeft, Combine, Settings,
 } from 'lucide';
 
 const ICONS = {
@@ -123,6 +123,7 @@ const ICONS = {
   highlighter: Highlighter,
   validation: ListChecks,
   sliders: SlidersHorizontal,
+  settings: Settings,
   dedupe: CopyMinus,
   chevUD: ChevronsUpDown,
   link: Link,

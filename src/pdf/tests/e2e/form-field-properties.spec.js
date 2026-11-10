@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, PDFName, PDFString, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
@@ -310,4 +310,481 @@ test('a field renamed from the keyboard keeps the focus', async ({ page }) => {
   await settled(page);
   await expect(designer(page, 'Remark#0')).toBeFocused();
   await expect(designer(page, 'Remark#0')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a field dragged or nudged past the edge stops at the edge of the page', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([600, 400]), { x: 100, y: 300, width: 120, height: 24 });
+  const start = note.acroField.getWidgets()[0].getRectangle();
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const paper = await page.locator('.form-designer').boundingBox();
+  const box = await designer(page, 'Note#0').boundingBox();
+  await page.mouse.move(box.x + 20, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 400, box.y - 400, { steps: 5 });
+  await page.mouse.up();
+  await settled(page);
+  const dropped = await designer(page, 'Note#0').boundingBox();
+  expect(dropped.x).toBeCloseTo(paper.x, 0);
+  expect(dropped.y).toBeCloseTo(paper.y, 0);
+  let saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  let rect = saved.acroField.getWidgets()[0].getRectangle();
+  expect(rect.x).toBeCloseTo(0, 1);
+  expect(rect.y + rect.height).toBeCloseTo(400, 1);
+  expect(rect.width).toBeCloseTo(start.width, 1);
+  // At the edge, the arrow keys do not push it any further.
+  await designer(page, 'Note#0').focus();
+  await page.keyboard.press('Shift+ArrowUp');
+  await page.keyboard.press('Shift+ArrowLeft');
+  await settled(page);
+  saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  const nudged = saved.acroField.getWidgets()[0].getRectangle();
+  expect(nudged.x).toBeCloseTo(rect.x, 1);
+  expect(nudged.y).toBeCloseTo(rect.y, 1);
+});
+
+test('asking to detect fields again while they are found opens one list', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 300; i++) {
+    const sheet = doc.addPage([600, 800]);
+    for (let row = 0; row < 10; row++)
+      sheet.drawText(`Item ${row}: ____________`, { x: 40, y: 700 - row * 40, size: 12, font });
+  }
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await settled(page);
+  // The second request comes while the pages of the first are still being read.
+  await page.evaluate(async () => {
+    const detect = document.querySelector('[aria-label="Detect form fields…"]');
+    detect.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    detect.click();
+  });
+  await expect(page.getByRole('dialog', { name: 'Fields found' })).toBeVisible();
+  await page.waitForTimeout(2000);
+  await expect(page.locator('dialog[open]')).toHaveCount(1);
+});
+
+test('saving a field’s properties unchanged records no edit', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc
+    .getForm()
+    .createTextField('Note')
+    .addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').dblclick();
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+});
+
+test('Done on a new field keeps what was set for it', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 400]);
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await page.getByRole('button', { name: 'Place at page center' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Full name');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(designer(page, 'Full name#0')).toBeVisible();
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm();
+  expect(saved.getFields().map((field) => field.getName())).toEqual(['Full name']);
+});
+
+test('deleting a field from its properties keeps the focus on the fields', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 400]);
+  for (const [name, y] of [
+    ['Note', 100],
+    ['Other', 200],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x: 100, y, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByRole('button', { name: 'Delete field' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(designer(page, 'Note#0')).toHaveCount(0);
+  await expect(designer(page, 'Other#0')).toBeFocused();
+});
+
+test('deleting a radio button hands the focus to the next button of its group', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  const size = doc.getForm().createRadioGroup('Size');
+  size.addOptionToPage('Small', sheet, { x: 40, y: 340, width: 16, height: 16 });
+  size.addOptionToPage('Large', sheet, { x: 80, y: 340, width: 16, height: 16 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Size#0').focus();
+  await page.keyboard.press('Delete');
+  await settled(page);
+  await expect(page.locator('.designer-field')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Radio button Size: Large' })).toBeFocused();
+});
+
+test('the fields listed in the tools pane tell the buttons of a radio group apart', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  const size = doc.getForm().createRadioGroup('Size');
+  size.addOptionToPage('Small', sheet, { x: 40, y: 340, width: 16, height: 16 });
+  size.addOptionToPage('Large', sheet, { x: 80, y: 340, width: 16, height: 16 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await expect(pane.getByRole('button', { name: /^Size: Small/ })).toBeVisible();
+  await pane.getByRole('button', { name: /^Size: Large/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Radio button properties' });
+  await expect(dialog.getByLabel('Export value')).toHaveValue('Large');
+});
+
+test('choosing a fill or border color for a field without one applies it', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([600, 400]), {
+    x: 100,
+    y: 100,
+    width: 120,
+    height: 24,
+    borderColor: undefined,
+    backgroundColor: undefined,
+  });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').dblclick();
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await expect(dialog.getByLabel('No fill')).toBeChecked();
+  await expect(dialog.getByLabel('No border')).toBeChecked();
+  await dialog.getByLabel('Fill color').fill('#ffff00');
+  await dialog.getByLabel('Border color').fill('#0000ff');
+  await expect(dialog.getByLabel('No fill')).not.toBeChecked();
+  await expect(dialog.getByLabel('No border')).not.toBeChecked();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  const look = saved.acroField.getWidgets()[0].getAppearanceCharacteristics();
+  expect(look.getBackgroundColor()).toEqual([1, 1, 0]);
+  expect(look.getBorderColor()).toEqual([0, 0, 1]);
+});
+
+test('what was typed into a field stays when Prepare a form moves a field', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 400]);
+  for (const [name, y] of [
+    ['Note', 100],
+    ['Other', 200],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x: 100, y, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await page.getByRole('textbox', { name: 'Note (on page)' }).fill('typed words');
+  await prepareForm(page);
+  await designer(page, 'Other#0').focus();
+  await page.keyboard.press('ArrowRight');
+  await settled(page);
+  await expect(designer(page, 'Other#0')).toBeVisible();
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm();
+  expect(saved.getTextField('Note').getText()).toBe('typed words');
+  expect(saved.getTextField('Other').acroField.getWidgets()[0].getRectangle().x).toBeCloseTo(
+    100.5,
+    1,
+  );
+});
+
+for (const rotation of [0, 90])
+  test(`a field can be resized from its properties on a page turned ${rotation} degrees`, async ({
+    page,
+  }) => {
+    const doc = await PDFDocument.create();
+    const sheet = doc.addPage([600, 400]);
+    sheet.setRotation(degrees(rotation));
+    const note = doc.getForm().createTextField('Note');
+    note.addToPage(sheet, { x: 100, y: 100, width: 120, height: 24 });
+    const start = note.acroField.getWidgets()[0].getRectangle();
+    await openPdf(page, doc);
+    await prepareForm(page);
+    await designer(page, 'Note#0').focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+    // As the page shows it: turned a quarter, the field stands upright.
+    const [width, height] = rotation ? [start.height, start.width] : [start.width, start.height];
+    await expect(dialog.getByLabel('Width (pt)')).toHaveValue(String(width));
+    await expect(dialog.getByLabel('Height (pt)')).toHaveValue(String(height));
+    await dialog.getByLabel('Width (pt)').fill(String(width + 40));
+    await dialog.getByLabel('Height (pt)').fill(String(height + 10));
+    await page.keyboard.press('Enter');
+    await expect(dialog).toBeHidden();
+    await settled(page);
+    await expect(designer(page, 'Note#0')).toBeFocused();
+    const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+    const rect = saved.acroField.getWidgets()[0].getRectangle();
+    // The top left corner on screen stays where it was.
+    const expected = rotation
+      ? { x: start.x, y: start.y, width: start.width + 10, height: start.height + 40 }
+      : { x: start.x, y: start.y - 10, width: start.width + 40, height: start.height + 10 };
+    for (const key of ['x', 'y', 'width', 'height'])
+      expect(rect[key]).toBeCloseTo(expected[key], 2);
+  });
+
+// A zoom in the middle of dragging a field redrew the fields but left the drag going: letting go
+// over another field then dropped the dragged one there, at a place worked out for the old zoom.
+test('a zoom ends a field drag, leaving the field where it was', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 500]);
+  const form = doc.getForm();
+  form.createTextField('Top').addToPage(sheet, { x: 60, y: 400, width: 120, height: 24 });
+  form.createTextField('Bottom').addToPage(sheet, { x: 60, y: 200, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const start = await designer(page, 'Top#0').boundingBox();
+  await page.mouse.move(start.x + 10, start.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 60, start.y + 30, { steps: 4 });
+  await page.keyboard.press('ControlOrMeta+=');
+  await expect(page.getByLabel('Zoom', { exact: true })).not.toHaveValue('fit');
+  await settled(page);
+  const bottom = await designer(page, 'Bottom#0').boundingBox();
+  await page.mouse.move(bottom.x + 20, bottom.y + 10, { steps: 4 });
+  await page.mouse.up();
+  await settled(page);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm();
+  const rect = saved.getTextField('Top').acroField.getWidgets()[0].getRectangle();
+  expect(rect.y).toBeCloseTo(399.5, 1);
+  expect(rect.width).toBeCloseTo(121, 1);
+});
+
+test('Escape while dragging a field puts it back without an edit', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const before = await designer(page, 'Note#0').boundingBox();
+  await page.mouse.move(before.x + 20, before.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(before.x + 120, before.y + 60, { steps: 5 });
+  await page.keyboard.press('Escape');
+  expect(await designer(page, 'Note#0').boundingBox()).toEqual(before);
+  await page.mouse.move(before.x + 140, before.y + 80, { steps: 2 });
+  await page.mouse.up();
+  await settled(page);
+  expect(await designer(page, 'Note#0').boundingBox()).toEqual(before);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  // Prepare a form stays open: Escape went to the drag.
+  await expect(page.getByRole('complementary', { name: 'Tools' })).toContainText('Prepare a form');
+  // A drag the system cancels is not applied either.
+  await page.mouse.move(before.x + 20, before.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(before.x + 120, before.y + 60, { steps: 5 });
+  await designer(page, 'Note#0').evaluate((node) =>
+    node.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, bubbles: true })),
+  );
+  await page.mouse.up();
+  await settled(page);
+  expect(await designer(page, 'Note#0').boundingBox()).toEqual(before);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+});
+
+test('the hint above the page explains Prepare a form while it is open', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 400]);
+  await openPdf(page, doc);
+  const hint = page.locator('.tool-hint');
+  await expect(hint).toHaveText(/double-click text to edit/);
+  await prepareForm(page);
+  await expect(hint).toHaveText(/Drag fields to move them/);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await expect(hint).toHaveText(/Drag a box where the field goes/);
+  await page.getByRole('button', { name: 'Place at page center' }).click();
+  await page.getByRole('dialog', { name: 'Text field properties' }).press('Escape');
+  await settled(page);
+  await pane.getByRole('button', { name: 'Back to all tools' }).click();
+  await expect(hint).toHaveText(/double-click text to edit/);
+});
+
+test('a field resized as small as it goes at a high zoom stays the smallest size', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([300, 200]), { x: 20, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await page.getByLabel('Zoom', { exact: true }).selectOption('4');
+  await settled(page);
+  await prepareForm(page);
+  const field = designer(page, 'Note#0');
+  await field.scrollIntoViewIfNeeded();
+  await field.click({ position: { x: 5, y: 5 } });
+  const handle = field.locator('.designer-resize');
+  const box = await handle.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 2000, box.y - 2000, { steps: 5 });
+  await page.mouse.up();
+  await settled(page);
+  await expect(page.locator('#toast')).not.toContainText('4 points');
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  const rect = saved.acroField.getWidgets()[0].getRectangle();
+  expect(rect.width).toBeCloseTo(4, 1);
+  expect(rect.height).toBeCloseTo(4, 1);
+});
+
+test('the fields found by Detect form fields sit beside their check boxes', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([600, 800]);
+  sheet.drawText('Name: ____________________', { x: 40, y: 700, size: 12, font });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await page.getByRole('button', { name: 'Detect form fields…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fields found' });
+  const box = await dialog.getByRole('checkbox').first().boundingBox();
+  const text = await dialog.locator('.result-row span').first().boundingBox();
+  // The name starts after the box, with room between them, and they share a middle line.
+  expect(text.x).toBeGreaterThanOrEqual(box.x + box.width + 6);
+  expect(Math.abs(text.y + text.height / 2 - (box.y + box.height / 2))).toBeLessThan(2);
+  await expect(dialog.locator('.result-row span').first()).toHaveCSS('font-weight', '500');
+});
+
+test('a click with a field tool places a field there, kept on the page', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 400]);
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  const paper = await page.locator('.drawing-overlay').boundingBox();
+  const unit = paper.width / 600;
+  // A text field starts where the page was clicked.
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await page.mouse.click(paper.x + 100 * unit, paper.y + 50 * unit);
+  let dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Name');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  // A check box is centered on the click; one clicked at the page's corner stays on it.
+  await pane.getByRole('button', { name: 'Check box', exact: true }).click();
+  await page.mouse.click(paper.x + 300 * unit, paper.y + 200 * unit);
+  dialog = page.getByRole('dialog', { name: 'Check box properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Middle');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  await page.mouse.click(paper.x + paper.width - 2, paper.y + paper.height - 2);
+  dialog = page.getByRole('dialog', { name: 'Check box properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Corner');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  const form = (await PDFDocument.load(await downloaded(page))).getForm();
+  const rect = (fieldName) => form.getField(fieldName).acroField.getWidgets()[0].getRectangle();
+  const near = (actual, expected) =>
+    Object.entries(expected).forEach(([key, value]) => expect(actual[key]).toBeCloseTo(value, 0));
+  near(rect('Name'), { x: 100, y: 400 - 50 - 22, width: 160, height: 22 });
+  near(rect('Middle'), { x: 300 - 7, y: 200 - 7, width: 14, height: 14 });
+  near(rect('Corner'), { x: 600 - 14, y: 0, width: 14, height: 14 });
+});
+
+// A page in units of four points, as large drawings set a UserUnit: a field placed with a click
+// has its usual size in points, not four times that, and starts where the page was clicked.
+test('a click with a field tool places a field of the usual size on a page with large units', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([150, 200]).node.set(PDFName.of('UserUnit'), PDFNumber.of(4));
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  const paper = await page.locator('.drawing-overlay').boundingBox();
+  const unit = paper.width / 150;
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await page.mouse.click(paper.x + 20 * unit, paper.y + 30 * unit);
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Name');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  const form = (await PDFDocument.load(await downloaded(page))).getForm();
+  const rect = form.getField('Name').acroField.getWidgets()[0].getRectangle();
+  // 160 by 22 points is 40 by 5.5 units of four points.
+  for (const [key, value] of Object.entries({ x: 20, y: 200 - 30 - 5.5, width: 40, height: 5.5 }))
+    expect(rect[key]).toBeCloseTo(value, 0);
+});
+
+test('a tab order already in place records no edit and says so', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  for (const [name, y] of [
+    ['A', 400],
+    ['B', 300],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x: 40, y, width: 150, height: 24 });
+  sheet.node.set(PDFName.of('Tabs'), PDFName.of('R'));
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Tab order: by rows' }).click();
+  await settled(page);
+  await expect(page.locator('#toast')).toHaveText('Fields are already visited row by row.');
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+  // A new order is an edit, once.
+  await pane.getByRole('button', { name: 'Tab order: by columns' }).click();
+  await settled(page);
+  await expect(page.locator('#toast')).toHaveText('Fields are visited column by column.');
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeEnabled();
+  await pane.getByRole('button', { name: 'Tab order: by columns' }).click();
+  await settled(page);
+  await expect(page.locator('#toast')).toHaveText('Fields are already visited column by column.');
+});
+
+test('Save and Enter take and refuse the same field settings', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc
+    .getForm()
+    .createTextField('Note')
+    .addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  const size = dialog.getByLabel('Font size (0 fits the box)');
+  // Refused by Save as by Enter, before anything is changed.
+  await designer(page, 'Note#0').dblclick();
+  await size.fill('-3');
+  await dialog.getByLabel('Character limit').fill('0');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  expect(await size.evaluate((node) => node.validity.valid)).toBe(false);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  await size.fill('2');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  expect(await dialog.getByLabel('Character limit').evaluate((n) => n.validity.valid)).toBe(false);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // A large size taken by Save is taken by Enter too.
+  await designer(page, 'Note#0').dblclick();
+  await size.fill('100');
+  await size.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  const field = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  expect(field.acroField.getDefaultAppearance()).toMatch(/ 100 Tf/);
 });

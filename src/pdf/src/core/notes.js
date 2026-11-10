@@ -221,11 +221,29 @@ export function addNote(doc, index, { x, y, text, hex = '#f2c438', author = '' }
 
 /** Every sticky note on the page that a person may edit. */
 export function listNotes(doc, index) {
-  return (annotationsOf(doc.getPage(index))?.asArray() || []).flatMap((ref) => {
+  const refs = annotationsOf(doc.getPage(index))?.asArray() || [];
+  // The comments a reply can belong to: on the page, and not NoView (which readers drop).
+  const onPage = new Set(
+    refs
+      .filter((ref) => !((doc.context.lookup(ref)?.lookup?.(name('F'))?.asNumber?.() || 0) & 32))
+      .map(String),
+  );
+  return refs.flatMap((ref) => {
     const dict = doc.context.lookup(ref);
     if (!(dict instanceof PDFDict) || dict.lookup(name('Subtype')) !== name('Text')) return [];
     const flags = dict.lookup(name('F'))?.asNumber?.() || 0;
     if (flags & (2 | 32)) return []; // hidden or NoView
+    // Replies and review states belong to their comment's thread. Acrobat writes them as
+    // visible notes at their parent's spot, where they would cover the parent's icon. One
+    // whose comment is no longer on the page (another editor deleted it) is a note of its own:
+    // there is no thread left to open it from.
+    const parent = dict.get(name('IRT'));
+    if (
+      parent &&
+      onPage.has(String(parent)) &&
+      (dict.lookup(name('RT')) !== name('Group') || dict.has(name('State')))
+    )
+      return [];
     const propertiesLocked = !!(flags & 128),
       contentsLocked = !!(flags & 512);
     const rect = numbers(dict.lookup(name('Rect')));
@@ -312,13 +330,22 @@ export function editNote(doc, index, id, { text, hex, x, y, remove = false } = {
     if (!entry.propertiesLocked) ensureNoteAppearance(doc, page, dict);
     return;
   }
-  appearance(
-    doc,
-    dict,
-    [nextX, nextY - entry.height, nextX + entry.width, nextY],
-    nextHex,
-    pageRotation(page),
-  );
+  // A move alone keeps the note's own icon (another editor's, perhaps), drawn at its new Rect;
+  // a standard note without one gains this editor's, as when its words are edited.
+  if (nextHex.toLowerCase() === entry.hex) {
+    dict.set(
+      name('Rect'),
+      doc.context.obj([nextX, nextY - entry.height, nextX + entry.width, nextY]),
+    );
+    ensureNoteAppearance(doc, page, dict);
+  } else
+    appearance(
+      doc,
+      dict,
+      [nextX, nextY - entry.height, nextX + entry.width, nextY],
+      nextHex,
+      pageRotation(page),
+    );
   const popupDict = dict.lookup(name('Popup'));
   if (moved && popupDict instanceof PDFDict) {
     const rect = numbers(popupDict.lookup(name('Rect')));

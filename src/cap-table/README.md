@@ -1,6 +1,6 @@
 # CapTable
 
-Production URL: [cap-table.io](https://cap-table.io/). The canonical URL, social metadata, structured data, and sitemap use this HTTPS origin. The production build copies `robots.txt` from `public/` and generates `sitemap.xml` from the public page registry.
+Production URL: [captable.puter.com](https://captable.puter.com/). The canonical URL, social metadata, structured data, and sitemap use this HTTPS origin. The production build copies `robots.txt` from `public/` and generates `sitemap.xml` from the public page registry.
 
 Manage your company's ownership, equity, cap table, options, and fundraising in one place. A web app built on [Puter](https://puter.com): your data lives in your own Puter cloud, not on anyone's server.
 
@@ -58,7 +58,7 @@ The real app entry (`index.html`) loads the Puter SDK and requires signing in. F
 - `site/analytics.html` holds the Plausible snippet shared by the homepage and generated content pages.
 - `site/styles.css` and `site/client.js` provide the reading layout, library search, and accessible navigation. Articles and links remain available without JavaScript.
 
-Deploy the whole `dist/` directory, including its nested `index.html` files. Serve directory URLs with their index documents, and use `404.html` as a custom error document with HTTP status 404 if the host supports it. Do not rewrite missing documentation URLs to the app homepage. Every public page uses a self-referencing canonical on `https://cap-table.io/`.
+Deploy the whole `dist/` directory, including its nested `index.html` files. Serve directory URLs with their index documents, and use `404.html` as a custom error document with HTTP status 404 if the host supports it. Do not rewrite missing documentation URLs to the app homepage. Every public page uses a self-referencing canonical on `https://captable.puter.com/`.
 
 Documentation launch links currently return to `/`. The homepage keeps its existing Puter sign-in behavior; launches have not been redirected to the Puter app URL.
 

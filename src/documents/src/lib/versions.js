@@ -6,13 +6,14 @@
  * snapshots at `Documents/.versions-by-id/<tag>/`, named after the file's id
  * on the drive, which stays the same through a rename or a move. A snapshot is written after a save when the
  * last one is older than VERSION_INTERVAL_MS (or there is none), and whenever
- * the user asks for one; the oldest go once there are more than MAX_VERSIONS.
+ * the user asks for one; the oldest go once there are more than MAX_VERSIONS, except those given a name.
  * The folder follows the document through renames and goes with it when the
  * document is deleted. Everything here is best effort: a failed snapshot
  * never fails the save.
  */
 
 import * as P from './puter.js';
+import { clipText } from '../core/text.js';
 import { documentRoot } from './document-paths.js';
 
 export const VERSION_INTERVAL_MS = 10 * 60 * 1000;
@@ -105,11 +106,11 @@ export async function readVersionMeta(version) {
   try {
     const blob = await P.readFile(metaPath(version.path));
     const meta = JSON.parse(await blob.text());
-    return meta && typeof meta === 'object' ? { author: typeof meta.author === 'string' ? meta.author.slice(0, 120) : '', label: typeof meta.label === 'string' ? meta.label.slice(0, 120) : '' } : {};
+    return meta && typeof meta === 'object' ? { author: typeof meta.author === 'string' ? clipText(meta.author, 120) : '', label: typeof meta.label === 'string' ? clipText(meta.label, 120) : '' } : {};
   } catch { return {}; }
 }
 export async function writeVersionMeta(version, meta) {
-  const clean = { author: String(meta.author || '').slice(0, 120), label: String(meta.label || '').slice(0, 120) };
+  const clean = { author: clipText(String(meta.author || ''), 120), label: clipText(String(meta.label || ''), 120) };
   await P.writeFile(metaPath(version.path), new Blob([JSON.stringify(clean)], { type: 'application/json' }));
   return clean;
 }
@@ -138,6 +139,8 @@ async function writeSnapshot(folder, blob, now, keep, meta = null) {
   }
   const versions = await listSnapshots(folder);
   for (const v of versions.slice(keep)) {
+    // A version someone named is one they meant to keep: only the unnamed ones make way.
+    if ((await readVersionMeta(v)).label) continue;
     try { await P.deleteFile(v.path); } catch (e) { console.warn('[documents] could not trim a version', e); }
     try { await P.deleteFile(metaPath(v.path)); } catch { /* no details were kept */ }
   }

@@ -1,0 +1,9 @@
+{
+  "exampleFormats": "格式示例",
+  "examples": "示例",
+  "formatCode": "格式代码",
+  "hint": "各节依次为正数、负数、零和文本，以分号分隔；数字占位符为 0、#、?，千位用逗号，另有 %、E+00；日期如 d mmm yyyy，时间如 h:mm AM/PM；文本加引号。",
+  "preview": "{value} → {text}",
+  "title": "自定义数字格式",
+  "typeToPreview": "输入代码即可预览"
+}

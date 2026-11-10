@@ -10,6 +10,8 @@ export interface DialogOptions {
   body: HTMLElement | (HTMLElement | string)[];
   buttons?: { label: string; primary?: boolean; danger?: boolean; value?: string; left?: boolean; disabled?: boolean }[];
   wide?: boolean;
+  /** Closes a dialog whose underlying task or document is no longer current. */
+  signal?: AbortSignal;
   /** Return false to keep the dialog open (e.g. validation failed). */
   onAction?: (value: string) => boolean | void | Promise<boolean | void>;
   initialFocus?: string;
@@ -21,12 +23,15 @@ const openDialogs: HTMLElement[] = [];
 export const dialogOpen = () => openDialogs.length > 0;
 
 export function showDialog(o: DialogOptions): Promise<string | null> {
+  if (o.signal?.aborted) return Promise.resolve(null);
   return new Promise((resolve) => {
     const prevFocus = document.activeElement as HTMLElement | null;
+    const prevParents: HTMLElement[] = [];
+    for (let p = prevFocus?.parentElement; p && p !== document.body; p = p.parentElement) prevParents.push(p);
     const titleId = nextDomId('dlg');
     const body = h('div', { class: 'dialog-body' }, ...(Array.isArray(o.body) ? o.body : [o.body]));
     const foot = h('div', { class: 'dialog-foot' });
-    const dialog = h('div', { class: `dialog${o.wide ? ' wide' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
+    const dialog = h('div', { class: `dialog${o.wide ? ' wide' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId, tabindex: '-1' },
       h('div', { class: 'dialog-head' }, h('h2', { id: titleId }, o.title),
         h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => finish(null) }, icon('close', 18))),
       body, foot);
@@ -35,11 +40,14 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     const finish = (v: string | null) => {
       if (done) return;
       done = true;
+      o.signal?.removeEventListener('abort', cancel);
       backdrop.remove();
       openDialogs.splice(openDialogs.indexOf(backdrop), 1);
-      prevFocus?.focus?.();
+      restoreFocus(prevFocus, prevParents);
       resolve(v);
     };
+    const cancel = () => finish(null);
+    o.signal?.addEventListener('abort', cancel, { once: true });
     for (const b of o.buttons ?? [{ label: 'Close', primary: true, value: 'ok' }]) {
       const btn = h('button', { class: `btn${b.primary ? ' primary' : ''}${b.danger ? ' danger' : ''}${b.left ? ' left' : ''}`, 'data-value': b.value ?? b.label, disabled: b.disabled }, b.label);
       btn.addEventListener('click', async () => {
@@ -54,15 +62,18 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     }
     backdrop.addEventListener('pointerdown', (e) => { if (e.target === backdrop) finish(null); });
     dialog.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
       if (e.key === 'Tab') {
         const f = [...dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((x) => !x.hasAttribute('disabled') && x.offsetParent !== null);
         if (!f.length) return;
-        const first = f[0], last = f[f.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        // Focus may be on the dialog itself (after a click on its text): Tab
+        // and Shift+Tab then wrap inside it instead of reaching the page behind.
+        const i = f.indexOf(document.activeElement as HTMLElement);
+        if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && (i < 0 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
       }
-      if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
+      if (e.key === 'Enter' && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
         const primary = foot.querySelector<HTMLButtonElement>('.btn.primary');
         if (primary && !primary.disabled) { e.preventDefault(); primary.click(); }
       }
@@ -70,26 +81,54 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     document.body.append(backdrop);
     openDialogs.push(backdrop);
     o.onReady?.(finish);
-    const focusEl = (o.initialFocus && dialog.querySelector<HTMLElement>(o.initialFocus)) || dialog.querySelector<HTMLElement>('input, select, textarea') || foot.querySelector<HTMLElement>('.btn.primary') || dialog;
-    requestAnimationFrame(() => focusEl.focus());
+    if (done) return;
+    // Destructive confirmations have no primary button: focus starts on the
+    // first (safe) button, so Escape and Tab work inside the dialog.
+    const focusEl = (o.initialFocus && dialog.querySelector<HTMLElement>(o.initialFocus)) || dialog.querySelector<HTMLElement>('input, select, textarea') || foot.querySelector<HTMLElement>('.btn.primary') || foot.querySelector<HTMLElement>('.btn:not([disabled])') || dialog;
+    // Focus moves at once, so keys pressed right after the dialog opens (Esc
+    // straight after Delete) reach it rather than the page behind it.
+    focusEl.focus();
+    requestAnimationFrame(() => {
+      // A long body that scrolls must be reachable from the keyboard to scroll it.
+      if (body.scrollHeight > body.clientHeight + 1) body.tabIndex = 0;
+      if (!done && !dialog.contains(document.activeElement)) focusEl.focus();
+    });
   });
 }
 
-export async function confirmDialog(title: string, message: string, ok = 'OK', danger = false): Promise<boolean> {
+/**
+ * Focus goes back to the dialog's opener. When the opener was re-rendered
+ * meanwhile (a design tree row after a rebuild), its replacement (same
+ * data-key) or else the current tab stop of its nearest remaining container
+ * gets focus, instead of the page body.
+ */
+function restoreFocus(prev: HTMLElement | null, parents: HTMLElement[]) {
+  if (!prev?.focus) return;
+  if (prev.isConnected) { prev.focus(); return; }
+  const box = parents.find((p) => p.isConnected);
+  if (!box) return;
+  const key = prev.dataset.key;
+  const target = (key ? box.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`) : null)
+    ?? box.querySelector<HTMLElement>('[tabindex="0"]')
+    ?? box.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select, textarea');
+  target?.focus();
+}
+
+export async function confirmDialog(title: string, message: string, ok = 'OK', danger = false, signal?: AbortSignal): Promise<boolean> {
   const v = await showDialog({
-    title,
+    title, signal,
     body: h('p', {}, message),
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: ok, value: 'ok', primary: !danger, danger }],
   });
-  return v === 'ok';
+  return v === 'ok' && !signal?.aborted;
 }
 
-export async function promptDialog(title: string, label: string, value: string, validate?: (v: string) => string | null): Promise<string | null> {
+export async function promptDialog(title: string, label: string, value: string, validate?: (v: string) => string | null, signal?: AbortSignal): Promise<string | null> {
   const id = nextDomId('prompt');
   const input = h('input', { class: 'input', id, value, autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const err = h('div', { class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
   const pending = showDialog({
-    title,
+    title, signal,
     body: [h('label', { class: 'field-label', for: id }, label), input, err],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
     onAction: (a) => {
@@ -100,7 +139,7 @@ export async function promptDialog(title: string, label: string, value: string, 
   });
   requestAnimationFrame(() => requestAnimationFrame(() => input.select()));
   const v = await pending;
-  return v === 'ok' ? input.value : null;
+  return v === 'ok' && !signal?.aborted ? input.value : null;
 }
 
 // ---------- Toasts ----------
@@ -136,9 +175,17 @@ export function toast(o: ToastOptions): () => void {
   region().append(el);
   const t = o.timeout ?? (kind === 'error' ? 9000 : o.actions?.length ? 0 : 4500);
   if (t > 0) {
+    // The toast stays while the pointer is over it or keyboard focus is in it
+    // (a timed-out toast would take its action, and the focus, with it).
     let timer = setTimeout(close, t);
-    el.addEventListener('pointerenter', () => clearTimeout(timer));
-    el.addEventListener('pointerleave', () => { timer = setTimeout(close, 2500); });
+    let hovered = false;
+    let focused = false;
+    const pause = () => clearTimeout(timer);
+    const resume = () => { if (!hovered && !focused) { clearTimeout(timer); timer = setTimeout(close, 2500); } };
+    el.addEventListener('pointerenter', () => { hovered = true; pause(); });
+    el.addEventListener('pointerleave', () => { hovered = false; resume(); });
+    el.addEventListener('focusin', () => { focused = true; pause(); });
+    el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget as Node | null)) { focused = false; resume(); } });
   }
   if (kind !== 'error') announce(`${o.title ? o.title + '. ' : ''}${o.message}`);
   return close;
@@ -147,7 +194,9 @@ export function toast(o: ToastOptions): () => void {
 // ---------- Tooltips ----------
 
 let tip: HTMLElement | null = null;
+let tipOwner: HTMLElement | null = null;
 let tipTimer = 0;
+let tipWatch = false;
 
 export function attachTooltip(el: HTMLElement, title: string, shortcut?: string, desc?: string) {
   if (matchMedia?.('(pointer: coarse)').matches) return;
@@ -155,6 +204,17 @@ export function attachTooltip(el: HTMLElement, title: string, shortcut?: string,
     clearTimeout(tipTimer);
     tipTimer = window.setTimeout(() => {
       hideTooltip();
+      // The control may have been re-rendered away meanwhile (toolbars are
+      // rebuilt when the CommandManager tab changes).
+      if (!el.isConnected) return;
+      tipOwner = el;
+      if (!tipWatch) {
+        tipWatch = true;
+        // A removed control never gets pointerleave: hide on the next move elsewhere.
+        document.addEventListener('pointerover', (e) => {
+          if (tip && (!tipOwner?.isConnected || !tipOwner.contains(e.target as Node))) hideTooltip();
+        }, true);
+      }
       tip = h('div', { class: 'tooltip', role: 'tooltip' }, h('div', { class: 'tt-title' }, h('span', {}, title), shortcut ? h('span', { class: 'kbd' }, formatShortcut(shortcut)) : null), desc ? h('div', { class: 'tt-desc' }, desc) : null);
       document.body.append(tip);
       const r = el.getBoundingClientRect();
@@ -178,4 +238,5 @@ export function hideTooltip() {
   clearTimeout(tipTimer);
   tip?.remove();
   tip = null;
+  tipOwner = null;
 }

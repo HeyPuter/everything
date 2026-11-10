@@ -19,10 +19,19 @@ export async function decodeDrawing(buffer) {
   let bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
     if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot read compressed drawings.');
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-    bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    try {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+      bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    } catch {
+      throw new Error('The file is damaged or incomplete.');
+    }
   }
-  const data = JSON.parse(new TextDecoder().decode(bytes));
+  let data;
+  try {
+    data = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    data = null;
+  }
   if (!data || (data.format && data.format !== FORMAT) || !Array.isArray(data.entities)) throw new Error('This is not a drawing file.');
   return validate(data);
 }
@@ -30,20 +39,40 @@ export async function decodeDrawing(buffer) {
 /** Drop malformed records so a damaged file still opens. */
 function validate(data) {
   const finite = (v) => typeof v === 'number' && Number.isFinite(v);
-  data.entities = data.entities.filter((e) => e && typeof e.type === 'string' && finite(e.id));
-  data.layers = (data.layers || []).filter((l) => l && typeof l.name === 'string');
-  data.blocks = (data.blocks || []).filter((b) => b && typeof b.name === 'string' && Array.isArray(b.entities));
+  const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const shape = (e) => isObject(e) && typeof e.type === 'string';
+  const entity = (e) => shape(e) && finite(e.id);
+  const named = (list) =>
+    (Array.isArray(list) ? list : []).filter((r) => isObject(r) && typeof r.name === 'string');
+  data.header = isObject(data.header) ? data.header : {};
+  if (!Number.isSafeInteger(data.header.nextId)) delete data.header.nextId;
+  data.entities = data.entities.filter(entity);
+  data.layers = named(data.layers);
+  data.linetypes = named(data.linetypes);
+  data.textStyles = named(data.textStyles);
+  data.dimStyles = named(data.dimStyles);
+  data.blocks = named(data.blocks)
+    .filter((b) => Array.isArray(b.entities))
+    .map((b) => ({ ...b, entities: b.entities.filter(shape) }));
   return data;
 }
 
-/** File kind from a name: 'native' | 'dxf' | null. */
+/** File kind from a name: 'native' | 'dxf' | 'dwg' | null. */
 export function fileKind(name) {
   const n = String(name).toLowerCase();
   if (n.endsWith(NATIVE_EXT)) return 'native';
   if (n.endsWith('.dxf')) return 'dxf';
+  if (n.endsWith('.dwg')) return 'dwg';
   return null;
 }
 
+/** File name extension for a file kind. */
+export function kindExt(kind) {
+  if (kind === 'dxf') return '.dxf';
+  if (kind === 'dwg') return '.dwg';
+  return NATIVE_EXT;
+}
+
 export function baseName(name) {
-  return String(name).replace(/^.*[\\/]/, '').replace(/\.(cad|dxf)$/i, '');
+  return String(name).replace(/^.*[\\/]/, '').replace(/\.(cad|dxf|dwg)$/i, '');
 }

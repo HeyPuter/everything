@@ -1,58 +1,47 @@
-// Start screen, account menu and the one-time alpha notice.
+// Start screen and account menu (or puter.js's <puter-user-menu>, see user-menu.ts).
 
 import { UNIT_SYSTEMS } from '../model/units';
 import type { UnitSystem } from '../model/types';
-import { locationLabel, recentParts } from '../platform/files';
-import { canSignOut, cloudAvailable, env, getProfilePicture, getUser, isSignedIn, puter, signIn, signOut } from '../platform/puter';
+import { locationLabel, recentParts, sameLocation } from '../platform/files';
+import { accountChanged, canSignOut, cloudAvailable, env, getProfilePicture, getUser, isSignedIn, puter, signIn, signOut } from '../platform/puter';
 import { getThemeChoice, setThemeChoice } from '../platform/theme';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { dropdown, type MenuItem } from '../ui/menu';
 import { toast } from '../ui/overlay';
 import type { App } from './app';
+import { closeAppsPanel, syncAppsLauncher } from './apps-panel';
+import { syncUserMenu, syncUserMenuTheme } from './user-menu';
 import { EXAMPLES } from './examples';
 import type { FileOps } from './fileops';
 import { REPO_URL } from './shell';
 
-const ALPHA_KEY = 'parametric:alpha-notice-seen';
-
-export function showAlphaNotice() {
-  let seen = false;
-  try { seen = localStorage.getItem(ALPHA_KEY) === '1'; } catch { /* storage unavailable */ }
-  if (seen) return;
-  toast({
-    kind: 'info',
-    title: 'Early alpha',
-    message: 'Parametric is in early development. Features may change and work could be lost, so please do not use it for production designs yet, and keep a downloaded copy of anything important.',
-    timeout: 0,
-    actions: [{ label: 'I understand', primary: true, run: () => {} }],
-    onClose: () => { try { localStorage.setItem(ALPHA_KEY, '1'); } catch { /* ignore */ } },
-  });
-}
-
 export class StartScreen {
   el: HTMLElement | null = null;
+  private unsubscribe: (() => void) | null = null;
 
   constructor(private app: App, private files: FileOps) {}
 
   show() {
     this.hide();
     const app = this.app;
-    let units: UnitSystem = app.settings.defaultUnits;
+    const units = app.settings.defaultUnits;
     const unitSel = h('select', { class: 'input', 'aria-label': 'Units for the new part', style: { width: 'auto' } }) as HTMLSelectElement;
     for (const u of Object.values(UNIT_SYSTEMS)) {
       const o = h('option', { value: u.id }, u.label) as HTMLOptionElement;
       if (u.id === units) o.selected = true;
       unitSel.append(o);
     }
-    unitSel.addEventListener('change', () => { units = unitSel.value as UnitSystem; app.settings.defaultUnits = units; app.saveSettings(); });
+    unitSel.addEventListener('change', () => { app.changeSettings({ defaultUnits: unitSel.value as UnitSystem }); app.saveSettings(); });
     const action = (ic: string, t: string, d: string, run: () => void) => {
       const b = h('button', { class: 'start-action', type: 'button' }, h('span', { style: { color: 'var(--accent)' } }, icon(ic, 24)), h('span', { class: 't' }, t), h('span', { class: 'd' }, d));
       b.addEventListener('click', run);
       return b;
     };
     const recents = recentParts().slice(0, 6);
-    const examples = h('div', { class: 'start-actions' }, EXAMPLES.map((ex) => action('part', ex.name, ex.description, () => {
+    // The part can have changed behind the start screen (assistant, ribbon): ask before replacing it.
+    const examples = h('div', { class: 'start-actions' }, EXAMPLES.map((ex) => action('part', ex.name, ex.description, async () => {
+      if (!(await this.files.confirmDiscard('open an example'))) return;
       this.hide();
       app.loadDocument(ex.make(), null);
     })));
@@ -60,7 +49,11 @@ export class StartScreen {
       h('h1', { id: 'start-title' }, h('img', { src: './icon-128.png', alt: '' }), 'Parametric'),
       h('div', { class: 'sub' }, 'Feature-based 3D part modeling in your browser.'),
       h('div', { class: 'start-actions' },
-        action('new', 'New part', 'Start from a blank part', () => { this.hide(); app.settings.defaultUnits = units; app.newDocument('Part1'); }),
+        action('new', 'New part', 'Start from a blank part', async () => {
+          if (!(await this.files.confirmDiscard('start a new part'))) return;
+          this.hide();
+          app.newDocument('Part1');
+        }),
         action('open', 'Open', cloudAvailable() ? 'Open a part from your Puter cloud or this browser' : 'Open a part saved in this browser', () => { this.hide(); void this.files.open(); }),
         action('upload', 'Open from device', 'Open a part file, or a STEP or SolidWorks file', () => { this.hide(); void this.files.openFromDevice(); }),
       ),
@@ -68,7 +61,16 @@ export class StartScreen {
       recents.length ? h('div', { class: 'start-section' }, h('h2', {}, 'Recent'), h('div', { class: 'file-list' }, recents.map((r) => {
         const b = h('button', { class: 'file-item', type: 'button' }, icon(r.location.type === 'cloud' ? 'cloud' : 'device', 16),
           h('span', { class: 'txt' }, h('span', { class: 'n' }, r.name), h('span', { class: 'meta' }, locationLabel(r.location))));
-        b.addEventListener('click', () => { this.hide(); void this.files.openLocation(r.location, r.name); });
+        // The start screen goes once the part opens; one that cannot be opened leaves it here.
+        b.addEventListener('click', async () => {
+          await this.files.openLocation(r.location, r.name);
+          if (!b.isConnected || recentParts().some((x) => sameLocation(x.location, r.location))) return;
+          // Gone: it has left the recent parts.
+          const section = b.closest('.start-section');
+          b.remove();
+          if (section && !section.querySelector('.file-item')) section.remove();
+          card.querySelector<HTMLElement>('.start-action')?.focus();
+        });
         return b;
       }))) : null,
       h('div', { class: 'start-section' }, h('h2', {}, 'Examples'), examples),
@@ -78,14 +80,23 @@ export class StartScreen {
         h('a', { href: REPO_URL, target: '_blank', rel: 'noopener noreferrer' }, 'Open source on GitHub')),
     );
     this.el = h('div', { class: 'start' }, card);
+    // Work started elsewhere (the assistant, the ribbon) needs the graphics area.
+    const offStore = app.store.on((reason) => { if (reason !== 'load') this.hide(); });
+    const offSettings = app.commands.onChange(() => { unitSel.value = app.settings.defaultUnits; });
+    this.unsubscribe = () => { offStore(); offSettings(); };
     app.shell.viewport.append(this.el);
     requestAnimationFrame(() => card.querySelector<HTMLElement>('.start-action')?.focus());
     this.el.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this.hide(); } });
   }
 
   hide() {
+    // Chosen with the keyboard: focus goes to the graphics area, not back to the page start.
+    const hadFocus = !!this.el?.contains(document.activeElement);
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     this.el?.remove();
     this.el = null;
+    if (hadFocus) this.app.viewport.canvas.focus({ preventScroll: true });
   }
 
   get visible() {
@@ -93,22 +104,33 @@ export class StartScreen {
   }
 }
 
-export async function doSignIn(app: App) {
+/** Signs in with Puter and updates the account button; resolves to whether it worked. */
+export async function doSignIn(app: App): Promise<boolean> {
   try {
     const ok = await signIn();
-    if (ok) {
-      toast({ kind: 'success', message: 'Signed in. Your parts will now be saved to your Puter cloud.' });
-      await refreshAccount(app);
-      app.loadRemoteSettings();
-    }
+    if (ok) await signedIn(app);
+    return ok;
   } catch (e) {
     toast({ kind: 'error', title: 'Sign-in failed', message: (e as Error).message });
+    return false;
   }
+}
+
+async function signedIn(app: App) {
+  toast({ kind: 'success', message: 'Signed in. Your parts will now be saved to your Puter cloud.' });
+  await refreshAccount(app);
+  app.loadRemoteSettings();
 }
 
 /** Updates the account button (profile picture or initial). */
 export async function refreshAccount(app: App) {
   const btn = app.shell.account;
+  // The SDK has loaded, or the account changed. Where puter.js's user menu
+  // renders, it has the Apps button and the account, and keeps them current.
+  const sdkMenu = syncUserMenu(app.shell.userMenu);
+  syncAppsLauncher(app.shell.apps, sdkMenu);
+  btn.hidden = sdkMenu;
+  if (sdkMenu) return;
   btn.textContent = '';
   if (!isSignedIn() && env() !== 'app') {
     btn.append(icon('signIn', 16));
@@ -125,6 +147,8 @@ export async function refreshAccount(app: App) {
 export function bindAccountMenu(app: App) {
   const btn = app.shell.account;
   btn.addEventListener('click', async () => {
+    // The Apps panel hangs from the same corner: never both at once.
+    closeAppsPanel();
     const signedIn = isSignedIn() || env() === 'app';
     const user = signedIn ? await getUser() : null;
     const theme = getThemeChoice();
@@ -153,5 +177,24 @@ export function bindAccountMenu(app: App) {
       });
     }
     dropdown(btn, items, { label: 'Account' });
+  });
+}
+
+/**
+ * puter.js's <puter-user-menu> signs in and out by itself, then says so: the
+ * app follows as it does for its own Sign in and Sign out.
+ */
+export function bindUserMenu(app: App) {
+  const el = app.shell.userMenu;
+  if (!el) return;
+  window.addEventListener('themechange', () => syncUserMenuTheme(el));
+  el.addEventListener('signin', () => {
+    accountChanged();
+    if (isSignedIn()) void signedIn(app);
+  });
+  el.addEventListener('signout', () => {
+    accountChanged();
+    void refreshAccount(app);
+    toast({ message: 'Signed out. New parts will be saved in this browser.' });
   });
 }

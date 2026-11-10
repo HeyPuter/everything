@@ -10,6 +10,7 @@
 import { colName, normalizeRange } from './cell.js';
 import { chartData, defaultChart } from './charts.js';
 import { quoteSheet } from './refs.js';
+import { t } from '../i18n/index.js';
 
 // Default chart text: Text 1 at 65% (#595959); its lines: Text 1 at 15% (#D9D9D9).
 export const CHART_TEXT_GREY = '#595959';
@@ -22,94 +23,94 @@ const pt = n => Math.round(n * 4 / 3 * 100) / 100;
  * flags that make the variant (stacking, markers, the lines of a scatter chart).
  */
 export const CHART_GALLERIES = Object.freeze([
-  { id: 'column', label: 'Column', icon: 'chartColumn', more: 'More column chart types…', groups: [
-    { header: 'Column', items: [
-      { id: 'columnClustered', label: 'Clustered Column', type: 'column', icon: 'chartColumnClustered' },
-      { id: 'columnStacked', label: 'Stacked Column', type: 'column', stacked: true, icon: 'chartColumnStacked' },
-      { id: 'columnStacked100', label: '100% Stacked Column', type: 'column', stacked: true, stack100: true, icon: 'chartColumnStacked100' }] }] },
-  { id: 'line', label: 'Line', icon: 'chartLine', more: 'More line chart types…', groups: [
-    { header: 'Line', items: [
-      { id: 'line', label: 'Line', type: 'line', markers: false, icon: 'chartLinePlain' },
-      { id: 'lineStacked', label: 'Stacked Line', type: 'line', stacked: true, markers: false, icon: 'chartLineStacked' },
-      { id: 'lineStacked100', label: '100% Stacked Line', type: 'line', stacked: true, stack100: true, markers: false, icon: 'chartLineStacked100' },
-      { id: 'lineMarkers', label: 'Line with Markers', type: 'line', markers: true, icon: 'chartLineMarkers' },
-      { id: 'lineStackedMarkers', label: 'Stacked Line with Markers', type: 'line', stacked: true, markers: true, icon: 'chartLineStackedMarkers' },
-      { id: 'lineStacked100Markers', label: '100% Stacked Line with Markers', type: 'line', stacked: true, stack100: true, markers: true, icon: 'chartLineStacked100Markers' }] }] },
-  { id: 'pie', label: 'Pie', icon: 'chartPie', more: 'More pie chart types…', groups: [
-    { header: 'Pie', items: [
-      { id: 'pie', label: 'Pie', type: 'pie', icon: 'chartPie' },
-      { id: 'pieExploded', label: 'Exploded Pie', type: 'pie', explosion: 15, icon: 'chartPieExploded' },
-      { id: 'pieOfPie', label: 'Pie of Pie', type: 'pie', ofPie: 'pie', icon: 'chartPieOfPie' },
-      { id: 'barOfPie', label: 'Bar of Pie', type: 'pie', ofPie: 'bar', icon: 'chartBarOfPie' }] },
-    { header: 'Doughnut', items: [
-      { id: 'doughnut', label: 'Doughnut', type: 'donut', icon: 'chartDoughnut' },
-      { id: 'doughnutExploded', label: 'Exploded Doughnut', type: 'donut', explosion: 15, icon: 'chartDoughnutExploded' }] }] },
-  { id: 'bar', label: 'Bar', icon: 'chartBar', more: 'More bar chart types…', groups: [
-    { header: 'Bar', items: [
-      { id: 'barClustered', label: 'Clustered Bar', type: 'bar', icon: 'chartBarClustered' },
-      { id: 'barStacked', label: 'Stacked Bar', type: 'bar', stacked: true, icon: 'chartBarStacked' },
-      { id: 'barStacked100', label: '100% Stacked Bar', type: 'bar', stacked: true, stack100: true, icon: 'chartBarStacked100' }] }] },
-  { id: 'area', label: 'Area', icon: 'chartArea', more: 'More area chart types…', groups: [
-    { header: 'Area', items: [
-      { id: 'area', label: 'Area', type: 'area', icon: 'chartArea' },
-      { id: 'areaStacked', label: 'Stacked Area', type: 'area', stacked: true, icon: 'chartAreaStacked' },
-      { id: 'areaStacked100', label: '100% Stacked Area', type: 'area', stacked: true, stack100: true, icon: 'chartAreaStacked100' }] }] },
-  { id: 'scatter', label: 'Scatter', icon: 'chartScatter', more: 'More scatter chart types…', groups: [
-    { header: 'Scatter', items: [
-      { id: 'scatter', label: 'Scatter', type: 'scatter', markers: true, lines: 'none', icon: 'chartScatter' },
-      { id: 'scatterSmoothMarkers', label: 'Scatter, smooth lines and markers', type: 'scatter', markers: true, lines: 'smooth', icon: 'chartScatterSmoothMarkers' },
-      { id: 'scatterSmooth', label: 'Scatter, smooth lines', type: 'scatter', markers: false, lines: 'smooth', icon: 'chartScatterSmooth' },
-      { id: 'scatterLinesMarkers', label: 'Scatter, straight lines and markers', type: 'scatter', markers: true, lines: 'straight', icon: 'chartScatterLinesMarkers' },
-      { id: 'scatterLines', label: 'Scatter, straight lines', type: 'scatter', markers: false, lines: 'straight', icon: 'chartScatterLines' }] },
-    { header: 'Bubble', items: [{ id: 'bubble', label: 'Bubble', type: 'bubble', icon: 'chartBubble' }] }] },
-  { id: 'hierarchy', label: 'Hierarchy', icon: 'chartTreemap', more: 'More hierarchy charts…', groups: [
-    { header: 'Treemap', items: [{ id: 'treemap', label: 'Treemap', type: 'treemap', icon: 'chartTreemap' }] },
-    { header: 'Sunburst', items: [{ id: 'sunburst', label: 'Sunburst', type: 'sunburst', icon: 'chartSunburst' }] }] },
-  { id: 'statistic', label: 'Statistic', icon: 'chartBoxWhisker', more: 'More statistical charts…', groups: [
-    { header: 'Histogram', items: [{ id: 'histogram', label: 'Histogram', type: 'histogram', icon: 'chartHistogram' }] },
-    { header: 'Box and Whisker', items: [{ id: 'boxWhisker', label: 'Box and Whisker', type: 'boxWhisker', icon: 'chartBoxWhisker' }] }] },
-  { id: 'other', label: 'Other Charts', icon: 'chartStockOhlc', more: 'More chart types…', groups: [
-    { header: 'Waterfall and Funnel', items: [
-      { id: 'waterfall', label: 'Waterfall', type: 'waterfall', icon: 'chartWaterfall' },
-      { id: 'funnel', label: 'Funnel', type: 'funnel', icon: 'chartFunnel' }] },
-    { header: 'Stock', items: [
-      { id: 'stockHlc', label: 'High-Low-Close', type: 'stock', stock: 'hlc', icon: 'chartStockHlc' },
-      { id: 'stockOhlc', label: 'Open-High-Low-Close', type: 'stock', stock: 'ohlc', icon: 'chartStockOhlc' },
-      { id: 'stockVhlc', label: 'Volume-High-Low-Close', type: 'stock', stock: 'vhlc', icon: 'chartStockVhlc' },
-      { id: 'stockVohlc', label: 'Volume-Open-High-Low-Close', type: 'stock', stock: 'vohlc', icon: 'chartStockVohlc' }] },
-    { header: 'Surface', items: [
-      { id: 'surface3d', label: '3-D Surface', type: 'surface', surfaceView: 'surface3d', icon: 'chartSurface' },
-      { id: 'surfaceWireframe3d', label: 'Wireframe 3-D Surface', type: 'surface', surfaceView: 'wireframe3d', icon: 'chartSurfaceWireframe' },
-      { id: 'contour', label: 'Contour', type: 'surface', surfaceView: 'contour', icon: 'chartContour' },
-      { id: 'contourWireframe', label: 'Wireframe Contour', type: 'surface', surfaceView: 'wireframeContour', icon: 'chartContourWireframe' }] },
-    { header: 'Radar', items: [
-      { id: 'radar', label: 'Radar', type: 'radar', markers: false, icon: 'chartRadar' },
-      { id: 'radarMarkers', label: 'Radar with Markers', type: 'radar', markers: true, icon: 'chartRadarMarkers' },
-      { id: 'radarFilled', label: 'Filled Radar', type: 'radar', filled: true, icon: 'chartRadarFilled' }] }] },
-  { id: 'combo', label: 'Combo', icon: 'chartCombo', more: 'More combo charts…', groups: [
-    { header: 'Combo', items: [
-      { id: 'comboColumnLine', label: 'Column and line', type: 'combo', icon: 'chartCombo' },
-      { id: 'comboColumnLineSecondary', label: 'Column and line, line on a second axis', type: 'combo', secondaryAxis: true, icon: 'chartComboSecondary' }] }] },
+  { id: 'column', get label() { return t('chartSubtypes.column'); }, icon: 'chartColumn', get more() { return t('chartSubtypes.moreColumn'); }, groups: [
+    { get header() { return t('chartSubtypes.column'); }, items: [
+      { id: 'columnClustered', get label() { return t('chartSubtypes.clusteredColumn'); }, type: 'column', icon: 'chartColumnClustered' },
+      { id: 'columnStacked', get label() { return t('chartSubtypes.stackedColumn'); }, type: 'column', stacked: true, icon: 'chartColumnStacked' },
+      { id: 'columnStacked100', get label() { return t('chartSubtypes.stacked100Column'); }, type: 'column', stacked: true, stack100: true, icon: 'chartColumnStacked100' }] }] },
+  { id: 'line', get label() { return t('chartSubtypes.line'); }, icon: 'chartLine', get more() { return t('chartSubtypes.moreLine'); }, groups: [
+    { get header() { return t('chartSubtypes.line'); }, items: [
+      { id: 'line', get label() { return t('chartSubtypes.line'); }, type: 'line', markers: false, icon: 'chartLinePlain' },
+      { id: 'lineStacked', get label() { return t('chartSubtypes.stackedLine'); }, type: 'line', stacked: true, markers: false, icon: 'chartLineStacked' },
+      { id: 'lineStacked100', get label() { return t('chartSubtypes.stacked100Line'); }, type: 'line', stacked: true, stack100: true, markers: false, icon: 'chartLineStacked100' },
+      { id: 'lineMarkers', get label() { return t('chartSubtypes.lineMarkers'); }, type: 'line', markers: true, icon: 'chartLineMarkers' },
+      { id: 'lineStackedMarkers', get label() { return t('chartSubtypes.stackedLineMarkers'); }, type: 'line', stacked: true, markers: true, icon: 'chartLineStackedMarkers' },
+      { id: 'lineStacked100Markers', get label() { return t('chartSubtypes.stacked100LineMarkers'); }, type: 'line', stacked: true, stack100: true, markers: true, icon: 'chartLineStacked100Markers' }] }] },
+  { id: 'pie', get label() { return t('chartSubtypes.pie'); }, icon: 'chartPie', get more() { return t('chartSubtypes.morePie'); }, groups: [
+    { get header() { return t('chartSubtypes.pie'); }, items: [
+      { id: 'pie', get label() { return t('chartSubtypes.pie'); }, type: 'pie', icon: 'chartPie' },
+      { id: 'pieExploded', get label() { return t('chartSubtypes.explodedPie'); }, type: 'pie', explosion: 15, icon: 'chartPieExploded' },
+      { id: 'pieOfPie', get label() { return t('chartSubtypes.pieOfPie'); }, type: 'pie', ofPie: 'pie', icon: 'chartPieOfPie' },
+      { id: 'barOfPie', get label() { return t('chartSubtypes.barOfPie'); }, type: 'pie', ofPie: 'bar', icon: 'chartBarOfPie' }] },
+    { get header() { return t('chartSubtypes.doughnut'); }, items: [
+      { id: 'doughnut', get label() { return t('chartSubtypes.doughnut'); }, type: 'donut', icon: 'chartDoughnut' },
+      { id: 'doughnutExploded', get label() { return t('chartSubtypes.explodedDoughnut'); }, type: 'donut', explosion: 15, icon: 'chartDoughnutExploded' }] }] },
+  { id: 'bar', get label() { return t('chartSubtypes.bar'); }, icon: 'chartBar', get more() { return t('chartSubtypes.moreBar'); }, groups: [
+    { get header() { return t('chartSubtypes.bar'); }, items: [
+      { id: 'barClustered', get label() { return t('chartSubtypes.clusteredBar'); }, type: 'bar', icon: 'chartBarClustered' },
+      { id: 'barStacked', get label() { return t('chartSubtypes.stackedBar'); }, type: 'bar', stacked: true, icon: 'chartBarStacked' },
+      { id: 'barStacked100', get label() { return t('chartSubtypes.stacked100Bar'); }, type: 'bar', stacked: true, stack100: true, icon: 'chartBarStacked100' }] }] },
+  { id: 'area', get label() { return t('chartSubtypes.area'); }, icon: 'chartArea', get more() { return t('chartSubtypes.moreArea'); }, groups: [
+    { get header() { return t('chartSubtypes.area'); }, items: [
+      { id: 'area', get label() { return t('chartSubtypes.area'); }, type: 'area', icon: 'chartArea' },
+      { id: 'areaStacked', get label() { return t('chartSubtypes.stackedArea'); }, type: 'area', stacked: true, icon: 'chartAreaStacked' },
+      { id: 'areaStacked100', get label() { return t('chartSubtypes.stacked100Area'); }, type: 'area', stacked: true, stack100: true, icon: 'chartAreaStacked100' }] }] },
+  { id: 'scatter', get label() { return t('chartSubtypes.scatter'); }, icon: 'chartScatter', get more() { return t('chartSubtypes.moreScatter'); }, groups: [
+    { get header() { return t('chartSubtypes.scatter'); }, items: [
+      { id: 'scatter', get label() { return t('chartSubtypes.scatter'); }, type: 'scatter', markers: true, lines: 'none', icon: 'chartScatter' },
+      { id: 'scatterSmoothMarkers', get label() { return t('chartSubtypes.scatterSmoothMarkers'); }, type: 'scatter', markers: true, lines: 'smooth', icon: 'chartScatterSmoothMarkers' },
+      { id: 'scatterSmooth', get label() { return t('chartSubtypes.scatterSmooth'); }, type: 'scatter', markers: false, lines: 'smooth', icon: 'chartScatterSmooth' },
+      { id: 'scatterLinesMarkers', get label() { return t('chartSubtypes.scatterLinesMarkers'); }, type: 'scatter', markers: true, lines: 'straight', icon: 'chartScatterLinesMarkers' },
+      { id: 'scatterLines', get label() { return t('chartSubtypes.scatterLines'); }, type: 'scatter', markers: false, lines: 'straight', icon: 'chartScatterLines' }] },
+    { get header() { return t('chartSubtypes.bubble'); }, items: [{ id: 'bubble', get label() { return t('chartSubtypes.bubble'); }, type: 'bubble', icon: 'chartBubble' }] }] },
+  { id: 'hierarchy', get label() { return t('chartSubtypes.hierarchy'); }, icon: 'chartTreemap', get more() { return t('chartSubtypes.moreHierarchy'); }, groups: [
+    { get header() { return t('chartSubtypes.treemap'); }, items: [{ id: 'treemap', get label() { return t('chartSubtypes.treemap'); }, type: 'treemap', icon: 'chartTreemap' }] },
+    { get header() { return t('chartSubtypes.sunburst'); }, items: [{ id: 'sunburst', get label() { return t('chartSubtypes.sunburst'); }, type: 'sunburst', icon: 'chartSunburst' }] }] },
+  { id: 'statistic', get label() { return t('chartSubtypes.statistic'); }, icon: 'chartBoxWhisker', get more() { return t('chartSubtypes.moreStatistic'); }, groups: [
+    { get header() { return t('chartSubtypes.histogram'); }, items: [{ id: 'histogram', get label() { return t('chartSubtypes.histogram'); }, type: 'histogram', icon: 'chartHistogram' }] },
+    { get header() { return t('chartSubtypes.boxAndWhisker'); }, items: [{ id: 'boxWhisker', get label() { return t('chartSubtypes.boxAndWhisker'); }, type: 'boxWhisker', icon: 'chartBoxWhisker' }] }] },
+  { id: 'other', get label() { return t('chartSubtypes.otherCharts'); }, icon: 'chartStockOhlc', get more() { return t('chartSubtypes.moreOther'); }, groups: [
+    { get header() { return t('chartSubtypes.waterfallAndFunnel'); }, items: [
+      { id: 'waterfall', get label() { return t('chartSubtypes.waterfall'); }, type: 'waterfall', icon: 'chartWaterfall' },
+      { id: 'funnel', get label() { return t('chartSubtypes.funnel'); }, type: 'funnel', icon: 'chartFunnel' }] },
+    { get header() { return t('chartSubtypes.stock'); }, items: [
+      { id: 'stockHlc', get label() { return t('chartSubtypes.highLowClose'); }, type: 'stock', stock: 'hlc', icon: 'chartStockHlc' },
+      { id: 'stockOhlc', get label() { return t('chartSubtypes.openHighLowClose'); }, type: 'stock', stock: 'ohlc', icon: 'chartStockOhlc' },
+      { id: 'stockVhlc', get label() { return t('chartSubtypes.volumeHighLowClose'); }, type: 'stock', stock: 'vhlc', icon: 'chartStockVhlc' },
+      { id: 'stockVohlc', get label() { return t('chartSubtypes.volumeOpenHighLowClose'); }, type: 'stock', stock: 'vohlc', icon: 'chartStockVohlc' }] },
+    { get header() { return t('chartSubtypes.surface'); }, items: [
+      { id: 'surface3d', get label() { return t('chartSubtypes.surface3d'); }, type: 'surface', surfaceView: 'surface3d', icon: 'chartSurface' },
+      { id: 'surfaceWireframe3d', get label() { return t('chartSubtypes.wireframeSurface3d'); }, type: 'surface', surfaceView: 'wireframe3d', icon: 'chartSurfaceWireframe' },
+      { id: 'contour', get label() { return t('chartSubtypes.contour'); }, type: 'surface', surfaceView: 'contour', icon: 'chartContour' },
+      { id: 'contourWireframe', get label() { return t('chartSubtypes.wireframeContour'); }, type: 'surface', surfaceView: 'wireframeContour', icon: 'chartContourWireframe' }] },
+    { get header() { return t('chartSubtypes.radar'); }, items: [
+      { id: 'radar', get label() { return t('chartSubtypes.radar'); }, type: 'radar', markers: false, icon: 'chartRadar' },
+      { id: 'radarMarkers', get label() { return t('chartSubtypes.radarMarkers'); }, type: 'radar', markers: true, icon: 'chartRadarMarkers' },
+      { id: 'radarFilled', get label() { return t('chartSubtypes.filledRadar'); }, type: 'radar', filled: true, icon: 'chartRadarFilled' }] }] },
+  { id: 'combo', get label() { return t('chartSubtypes.combo'); }, icon: 'chartCombo', get more() { return t('chartSubtypes.moreCombo'); }, groups: [
+    { get header() { return t('chartSubtypes.combo'); }, items: [
+      { id: 'comboColumnLine', get label() { return t('chartSubtypes.columnLine'); }, type: 'combo', icon: 'chartCombo' },
+      { id: 'comboColumnLineSecondary', get label() { return t('chartSubtypes.columnLineSecondary'); }, type: 'combo', secondaryAxis: true, icon: 'chartComboSecondary' }] }] },
 ]);
 
 /** The All Charts list of Insert Chart and Change Chart Type: the chart families. */
 export const CHART_FAMILIES = Object.freeze([
-  { id: 'column', label: 'Column', icon: 'chartColumn', subtypes: ['columnClustered', 'columnStacked', 'columnStacked100'] },
-  { id: 'line', label: 'Line', icon: 'chartLine', subtypes: ['line', 'lineStacked', 'lineStacked100', 'lineMarkers', 'lineStackedMarkers', 'lineStacked100Markers'] },
-  { id: 'pie', label: 'Pie', icon: 'chartPie', subtypes: ['pie', 'pieExploded', 'pieOfPie', 'barOfPie', 'doughnut', 'doughnutExploded'] },
-  { id: 'bar', label: 'Bar', icon: 'chartBar', subtypes: ['barClustered', 'barStacked', 'barStacked100'] },
-  { id: 'area', label: 'Area', icon: 'chartArea', subtypes: ['area', 'areaStacked', 'areaStacked100'] },
-  { id: 'scatter', label: 'Scatter', icon: 'chartScatter', subtypes: ['scatter', 'scatterSmoothMarkers', 'scatterSmooth', 'scatterLinesMarkers', 'scatterLines', 'bubble'] },
-  { id: 'stock', label: 'Stock', icon: 'chartStockOhlc', subtypes: ['stockHlc', 'stockOhlc', 'stockVhlc', 'stockVohlc'] },
-  { id: 'surface', label: 'Surface', icon: 'chartSurface', subtypes: ['surface3d', 'surfaceWireframe3d', 'contour', 'contourWireframe'] },
-  { id: 'radar', label: 'Radar', icon: 'chartRadar', subtypes: ['radar', 'radarMarkers', 'radarFilled'] },
-  { id: 'treemap', label: 'Treemap', icon: 'chartTreemap', subtypes: ['treemap'] },
-  { id: 'sunburst', label: 'Sunburst', icon: 'chartSunburst', subtypes: ['sunburst'] },
-  { id: 'histogram', label: 'Histogram', icon: 'chartHistogram', subtypes: ['histogram'] },
-  { id: 'boxWhisker', label: 'Box & Whisker', icon: 'chartBoxWhisker', subtypes: ['boxWhisker'] },
-  { id: 'waterfall', label: 'Waterfall', icon: 'chartWaterfall', subtypes: ['waterfall'] },
-  { id: 'funnel', label: 'Funnel', icon: 'chartFunnel', subtypes: ['funnel'] },
-  { id: 'combo', label: 'Combo', icon: 'chartCombo', subtypes: ['comboColumnLine', 'comboColumnLineSecondary'] },
+  { id: 'column', get label() { return t('chartSubtypes.column'); }, icon: 'chartColumn', subtypes: ['columnClustered', 'columnStacked', 'columnStacked100'] },
+  { id: 'line', get label() { return t('chartSubtypes.line'); }, icon: 'chartLine', subtypes: ['line', 'lineStacked', 'lineStacked100', 'lineMarkers', 'lineStackedMarkers', 'lineStacked100Markers'] },
+  { id: 'pie', get label() { return t('chartSubtypes.pie'); }, icon: 'chartPie', subtypes: ['pie', 'pieExploded', 'pieOfPie', 'barOfPie', 'doughnut', 'doughnutExploded'] },
+  { id: 'bar', get label() { return t('chartSubtypes.bar'); }, icon: 'chartBar', subtypes: ['barClustered', 'barStacked', 'barStacked100'] },
+  { id: 'area', get label() { return t('chartSubtypes.area'); }, icon: 'chartArea', subtypes: ['area', 'areaStacked', 'areaStacked100'] },
+  { id: 'scatter', get label() { return t('chartSubtypes.scatter'); }, icon: 'chartScatter', subtypes: ['scatter', 'scatterSmoothMarkers', 'scatterSmooth', 'scatterLinesMarkers', 'scatterLines', 'bubble'] },
+  { id: 'stock', get label() { return t('chartSubtypes.stock'); }, icon: 'chartStockOhlc', subtypes: ['stockHlc', 'stockOhlc', 'stockVhlc', 'stockVohlc'] },
+  { id: 'surface', get label() { return t('chartSubtypes.surface'); }, icon: 'chartSurface', subtypes: ['surface3d', 'surfaceWireframe3d', 'contour', 'contourWireframe'] },
+  { id: 'radar', get label() { return t('chartSubtypes.radar'); }, icon: 'chartRadar', subtypes: ['radar', 'radarMarkers', 'radarFilled'] },
+  { id: 'treemap', get label() { return t('chartSubtypes.treemap'); }, icon: 'chartTreemap', subtypes: ['treemap'] },
+  { id: 'sunburst', get label() { return t('chartSubtypes.sunburst'); }, icon: 'chartSunburst', subtypes: ['sunburst'] },
+  { id: 'histogram', get label() { return t('chartSubtypes.histogram'); }, icon: 'chartHistogram', subtypes: ['histogram'] },
+  { id: 'boxWhisker', get label() { return t('chartSubtypes.boxAndWhiskerFamily'); }, icon: 'chartBoxWhisker', subtypes: ['boxWhisker'] },
+  { id: 'waterfall', get label() { return t('chartSubtypes.waterfall'); }, icon: 'chartWaterfall', subtypes: ['waterfall'] },
+  { id: 'funnel', get label() { return t('chartSubtypes.funnel'); }, icon: 'chartFunnel', subtypes: ['funnel'] },
+  { id: 'combo', get label() { return t('chartSubtypes.combo'); }, icon: 'chartCombo', subtypes: ['comboColumnLine', 'comboColumnLineSecondary'] },
 ]);
 
 export const CHART_SUBTYPES = Object.freeze(CHART_GALLERIES.flatMap(g => g.groups.flatMap(group => group.items))
@@ -313,11 +314,17 @@ export function changeSubtypePatch(chart, subtypeId, { font = 'calibri' } = {}) 
   const fresh = excelChartAppearance(subtype, { font: chart.appearance.titleStyle?.font || font });
   const old = chart.appearance;
   const keep = ['background', 'border', 'borderColor', 'borderWidth', 'roundedCorners', 'textStyle', 'titleStyle', 'legendStyle', 'xStyle', 'yStyle', 'y2Style',
-    'plotFill', 'plotStroke', 'titleBox', 'legendBox', 'shadow', 'dataTable', 'blanks', 'xGridlines', 'hideXAxis', 'hideYAxis', 'yFormat', 'yStep', 'yUnits', 'yLogBase',
+    'plotFill', 'plotStroke', 'titleBox', 'legendBox', 'shadow', 'dataTable', 'blanks', 'xGridlines', 'hideXAxis', 'hideYAxis', 'yFormat', 'yStep', 'yUnits', 'yLogBase', 'yTickValues',
     'reverseValues', 'valueLabels', 'gridlineStyles'];
   const appearance = { ...fresh, ...Object.fromEntries(keep.filter(k => old[k] !== undefined).map(k => [k, old[k]])) };
   // The axis lines are the new type's own: a bar chart's categories run down the left, a scatter's values along the bottom.
-  if (!['pie', 'donut'].includes(subtype.type) && old.axisStyles) appearance.axisStyles = { ...fresh.axisStyles };
+  if (!['pie', 'donut'].includes(subtype.type) && old.axisStyles) {
+    appearance.axisStyles = { ...fresh.axisStyles };
+    // An axis boxing the plot (Format Axis' Box around plot area) keeps its box, in the line it draws it in.
+    for (const [k, st] of Object.entries(old.axisStyles)) if (st?.box && fresh.axisStyles?.[k]) {
+      appearance.axisStyles[k] = { ...fresh.axisStyles[k], box: true, color: st.color, width: st.width, dash: st.dash };
+    }
+  }
   // Bars switching between clustered and stacked take that grouping's spacing; between types they keep theirs.
   if (['column', 'bar', 'combo'].includes(subtype.type) && ['column', 'bar', 'combo'].includes(chart.type) && !!chart.stacked === !!subtype.stacked) {
     for (const k of ['gapWidth', 'overlap']) if (old[k] != null) appearance[k] = old[k];

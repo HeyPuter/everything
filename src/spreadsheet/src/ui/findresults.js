@@ -1,5 +1,6 @@
 import { el, isComposing } from './dom.js';
 import { cellName } from '../core/cell.js';
+import { t } from '../i18n/index.js';
 
 // Bound the rendered list independently of how many matches the search engine found.
 const PAGE_SIZE = 100;
@@ -11,13 +12,13 @@ const excerpt = text => {
 export function createFindResults({ wb, onSelect, focusQuery }) {
   let matches = [], current = -1, start = 0, rendered = null;
   const summary = el('span.find-results-summary', { role: 'status' });
-  const previous = el('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Previous results page', onclick: () => { if (start > 0) activate(start - PAGE_SIZE); } }, 'Previous');
-  const next = el('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Next results page', onclick: () => { if (start + PAGE_SIZE < matches.length) activate(start + PAGE_SIZE); } }, 'Next');
+  const previous = el('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': t('findresults.previousPage'), onclick: () => { if (start > 0) activate(start - PAGE_SIZE); } }, t('findresults.previous'));
+  const next = el('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': t('findresults.nextPage'), onclick: () => { if (start + PAGE_SIZE < matches.length) activate(start + PAGE_SIZE); } }, t('findresults.next'));
   const body = el('tbody');
-  const table = el('table.find-results-table', { 'aria-label': 'Matching cells' },
-    el('thead', {}, el('tr', {}, ...['Sheet', 'Cell', 'Value', 'Formula'].map(label => el('th', { scope: 'col' }, label)))), body);
+  const table = el('table.find-results-table', { 'aria-label': t('findresults.matchingCells') },
+    el('thead', {}, el('tr', {}, ...[t('findresults.sheet'), t('findresults.cell'), t('common.value'), t('findresults.formula')].map(label => el('th', { scope: 'col' }, label)))), body);
   const scroll = el('div.find-results-scroll', {}, table);
-  const root = el('div.find-results', { role: 'region', 'aria-label': 'Find results', hidden: true },
+  const root = el('div.find-results', { role: 'region', 'aria-label': t('findresults.findResults'), hidden: true },
     el('div.find-results-header', {}, summary, previous, next), scroll);
 
   function activate(index, focus = false) {
@@ -39,7 +40,7 @@ export function createFindResults({ wb, onSelect, focusQuery }) {
     const rebuild = rendered !== matches || offset !== start;
     start = offset;
     const end = Math.min(start + PAGE_SIZE, matches.length);
-    summary.textContent = message || (matches.length ? `${start + 1}–${end} of ${matches.length} results` : 'No matches');
+    summary.textContent = message || (matches.length ? t('findresults.summary', { first: start + 1, last: end, total: matches.length }) : t('findresults.noMatches'));
     previous.setAttribute('aria-disabled', String(!matches.length || start === 0));
     next.setAttribute('aria-disabled', String(end >= matches.length));
     previous.hidden = next.hidden = matches.length <= PAGE_SIZE;
@@ -53,7 +54,7 @@ export function createFindResults({ wb, onSelect, focusQuery }) {
         const value = excerpt(wb.getDisplay(match.sheetId, match.r, match.c));
         const formula = cell?.f == null || wb.formulaHiddenAt(match.sheetId, match.r, match.c) ? '' : `=${excerpt(cell.f)}`;
         const button = el('button.find-result-cell', { type: 'button', 'data-find-index': index,
-          'aria-label': `${sheet?.name || 'Sheet'} ${address}`, onclick: () => activate(index) }, address);
+          'aria-label': t('findresults.cellLabel', { sheet: sheet?.name || t('findresults.sheet'), address }), onclick: () => activate(index) }, address);
         const row = el('tr', { onclick: e => { if (!e.target.closest('button')) activate(index); } },
           el('td', {}, el('span', { dir: 'auto' }, sheet?.name || '')),
           el('td', {}, button), el('td', { title: value }, value), el('td', { title: formula }, formula));
@@ -81,5 +82,5 @@ export function createFindResults({ wb, onSelect, focusQuery }) {
     }
   }
 
-  return { el: root, render, clear: () => render([], -1, 'Enter a search term') };
+  return { el: root, render, clear: () => render([], -1, t('findresults.enterTerm')) };
 }

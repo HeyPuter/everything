@@ -3,7 +3,7 @@
 // this editor generates from it. The part is found through the main document's
 // customXml relationships; a new one gets its item properties part (§22.5.2.1).
 import { strToU8, strFromU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { parseXml, declareContentType } from './docx-xml.js';
 import { relationshipEntries } from './docx-relationships.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { BIB_NS, newGuid, parseSources, serializeSources, parseCitation, citationInstruction, bibliographyInstruction } from './bibliography.js';
@@ -40,17 +40,14 @@ export function readBibliographyPart(parts) {
 }
 
 function addOverride(parts, partName, type) {
+  declareContentType(parts, partName, type);
   const types = parseXml(parts['[Content_Types].xml']), root = types.documentElement;
-  if ([...root.children].some(n => n.localName === 'Override' && n.getAttribute('PartName') === partName)) return;
-  const override = types.createElementNS(root.namespaceURI, 'Override');
-  override.setAttribute('PartName', partName); override.setAttribute('ContentType', type);
-  root.append(override);
   if (![...root.children].some(n => n.localName === 'Default' && n.getAttribute('Extension')?.toLowerCase() === 'xml')) {
     const xmlDefault = types.createElementNS(root.namespaceURI, 'Default');
     xmlDefault.setAttribute('Extension', 'xml'); xmlDefault.setAttribute('ContentType', 'application/xml');
     root.prepend(xmlDefault);
+    parts['[Content_Types].xml'] = strToU8(serialize(types));
   }
-  parts['[Content_Types].xml'] = strToU8(serialize(types));
 }
 
 /** Write `data` ({ style, styleName, sources }) to the bibliography part, creating it when needed; returns its path. */
@@ -106,7 +103,7 @@ export const citedTags = paragraphs => [...new Set(citationFields(paragraphs).fl
 const byTag = (sources, tag) => sources.find(s => s.tag.toLowerCase() === String(tag).toLowerCase()) || null;
 /** The runs a citation shows in `style`. */
 export function citationRuns(citation, sources, style, context) {
-  const entries = citation.tags.map((tag, i) => ({ tag, source: byTag(sources, tag), ...(i === 0 ? citation : {}), tags: undefined }));
+  const entries = citation.tags.map((tag, i) => ({ tag, source: byTag(sources, tag), ...(i === 0 ? citation : citation.sourceOptions?.[i - 1]), tags: undefined, sourceOptions: undefined }));
   return formatCitation(style, entries, context);
 }
 

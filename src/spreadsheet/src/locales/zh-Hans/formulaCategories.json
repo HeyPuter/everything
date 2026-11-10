@@ -1,0 +1,17 @@
+{
+  "additional": "其他",
+  "compatibility": "兼容性",
+  "cube": "多维数据集",
+  "database": "数据库",
+  "dateTime": "日期和时间",
+  "engineering": "工程",
+  "financial": "财务",
+  "functionsOf": "“{category}”类别中的函数",
+  "information": "信息",
+  "logical": "逻辑",
+  "lookupReference": "查找与引用",
+  "mathTrig": "数学和三角函数",
+  "statistical": "统计",
+  "text": "文本",
+  "web": "Web"
+}

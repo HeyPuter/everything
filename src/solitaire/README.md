@@ -1,5 +1,7 @@
 # Solitaire
 
+**Live app:** [solitaire.puter.com](https://solitaire.puter.com/)
+
 Klondike solitaire, built with Vite and plain JavaScript (ES modules, no
 framework). The game menu in the header picks draw-one or draw-three
 Klondike, either with Vegas scoring (a $52 ante, $5 per card played home,
@@ -11,7 +13,9 @@ drag, and the save/stats plumbing call it instead of a specific game's
 rules. Klondike's rules are in `src/game/state.js` and `rules.js`, Spider's
 in `src/game/spider.js`. Desktop windows get realistic card art via a vendored SVG deck;
 small screens fall back to plain top-left rank-and-suit cards. Games and
-stats can optionally sync to Puter cloud storage.
+stats sync to Puter cloud storage for a signed-in player; the header ends
+with puter.js's account menu (`<puter-user-menu>`: sign in and out, and the
+Apps launcher on puter.com) wherever the loaded SDK provides it.
 
 ## Build and serve
 

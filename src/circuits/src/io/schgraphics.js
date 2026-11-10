@@ -12,7 +12,7 @@ import { mil, mm } from '../core/units.js';
 import { rotate, norm360 } from '../core/geom.js';
 import { placeSymbol, fieldPosition } from '../model/place.js';
 import { GROUND_STYLES } from '../model/schema.js';
-import { textWidth } from '../render/font.js';
+import { textWidth, uprightText } from '../render/font.js';
 import { defOf } from './common.js';
 
 export const SCH_LINE = mil(10);
@@ -85,29 +85,34 @@ function titleBlock(sheet, info, w) {
   out.push({ t: 'rect', x1, y1, x2, y2, w: mm(0.3), role: 'frame' });
   for (let i = 1; i < 4; i++) out.push({ t: 'line', x1, y1: y1 + i * rowH, x2, y2: y1 + i * rowH, w: lw, role: 'frame' });
   const label = (x, y, text) => out.push({ t: 'text', x: x + mm(1.2), y: y - mm(1.2), text, size: mm(1.4), align: { h: 'left', v: 'top' }, role: 'frameLabel' });
-  const value = (x, y, text, size = mm(2.2)) => text && out.push({ t: 'text', x: x + mm(1.2), y: y + mm(1.4), text: String(text), size, align: { h: 'left', v: 'bottom' }, role: 'frameText' });
+  // Long values shrink to stay inside their cell (and on the paper).
+  const value = (x, y, cellW, text, size = mm(2.2)) => {
+    if (!text) return;
+    const room = cellW - mm(2.4), tw = textWidth(String(text), size);
+    out.push({ t: 'text', x: x + mm(1.2), y: y + mm(1.4), text: String(text), size: tw > room ? (size * room) / tw : size, align: { h: 'left', v: 'bottom' }, role: 'frameText' });
+  };
   const split = (row, xs) => {
     for (const x of xs) out.push({ t: 'line', x1: x, y1: y1 + row * rowH, x2: x, y2: y1 + (row + 1) * rowH, w: lw, role: 'frame' });
   };
   // Row 3 (top): title
   label(x1, y2, 'Title');
-  value(x1, y1 + 3 * rowH, sheet.title || info.title || '', mm(3));
+  value(x1, y1 + 3 * rowH, bw, sheet.title || info.title || '', mm(3));
   // Row 2: company and author
   const mid = x1 + bw * 0.55;
   split(2, [mid]);
-  label(x1, y1 + 3 * rowH, 'Company'); value(x1, y1 + 2 * rowH, sheet.company);
-  label(mid, y1 + 3 * rowH, 'Drawn by'); value(mid, y1 + 2 * rowH, sheet.author);
+  label(x1, y1 + 3 * rowH, 'Company'); value(x1, y1 + 2 * rowH, mid - x1, sheet.company);
+  label(mid, y1 + 3 * rowH, 'Drawn by'); value(mid, y1 + 2 * rowH, x2 - mid, sheet.author);
   // Row 1: size, revision, sheet number
   const c1 = x1 + bw * 0.25, c2 = x1 + bw * 0.55;
   split(1, [c1, c2]);
-  label(x1, y1 + 2 * rowH, 'Size'); value(x1, y1 + rowH, sheet.size || 'A4');
-  label(c1, y1 + 2 * rowH, 'Revision'); value(c1, y1 + rowH, sheet.revision);
+  label(x1, y1 + 2 * rowH, 'Size'); value(x1, y1 + rowH, c1 - x1, sheet.size || 'A4');
+  label(c1, y1 + 2 * rowH, 'Revision'); value(c1, y1 + rowH, c2 - c1, sheet.revision);
   const sheetNo = info.sheetNumber ? `${info.sheetNumber} of ${info.sheetCount || info.sheetNumber}` : '';
-  label(c2, y1 + 2 * rowH, 'Sheet'); value(c2, y1 + rowH, sheetNo);
+  label(c2, y1 + 2 * rowH, 'Sheet'); value(c2, y1 + rowH, x2 - c2, sheetNo);
   // Row 0: date and file
   split(0, [c1]);
-  label(x1, y1 + rowH, 'Date'); value(x1, y1, info.date || '');
-  label(c1, y1 + rowH, 'File'); value(c1, y1, info.fileName || '');
+  label(x1, y1 + rowH, 'Date'); value(x1, y1, c1 - x1, info.date || '');
+  label(c1, y1 + rowH, 'File'); value(c1, y1, x2 - c1, info.fileName || '');
   return out;
 }
 
@@ -138,8 +143,8 @@ export function partPrims(part, def) {
   const placed = placeSymbol(def, part);
   for (const g of placed.graphics) {
     if (g.t === 'text') {
-      const rot = norm360(g.rot || 0) % 180;
-      out.push({ t: 'text', x: g.x, y: g.y, text: g.text, size: g.size, rot, align: g.align, role: 'bodyText' });
+      const { rot, align } = uprightText(g.rot || 0, g.align);
+      out.push({ t: 'text', x: g.x, y: g.y, text: g.text, size: g.size, rot, align, role: 'bodyText' });
     } else {
       if (g.fill && g.t !== 'line' && g.t !== 'polyline' && g.t !== 'arc') out.push({ ...g, w: 0, role: 'fill', fill: true });
       out.push({ ...g, w: g.w || SCH_LINE, fill: false, role: 'body' });
@@ -171,10 +176,10 @@ export function partPrims(part, def) {
     }
   }
   const des = fieldPosition(part, 'designator', def);
-  if (!des.hidden && part.designator) out.push({ t: 'text', x: des.x, y: des.y, text: part.designator, size: FIELD_SIZE, rot: 0, align: { h: 'left', v: 'bottom' }, role: 'designator' });
+  if (!des.hidden && part.designator) out.push({ t: 'text', x: des.x, y: des.y, text: part.designator, size: FIELD_SIZE, rot: 0, align: des.align || { h: 'left', v: 'bottom' }, role: 'designator' });
   const value = part.value ?? def.value;
   const val = fieldPosition(part, 'value', def);
-  if (!val.hidden && value) out.push({ t: 'text', x: val.x, y: val.y, text: value, size: FIELD_SIZE, rot: 0, align: { h: 'left', v: 'bottom' }, role: 'value' });
+  if (!val.hidden && value) out.push({ t: 'text', x: val.x, y: val.y, text: value, size: FIELD_SIZE, rot: 0, align: val.align || { h: 'left', v: 'bottom' }, role: 'value' });
   return out;
 }
 
@@ -300,7 +305,10 @@ export function schObjectPrims(o, library) {
         { t: 'line', x1: o.x - a, y1: o.y + a, x2: o.x + a, y2: o.y - a, w: SCH_LINE, role: 'noerc' },
       ];
     }
-    case 'text': return [{ t: 'text', x: o.x, y: o.y, text: o.text || '', size: o.size || LABEL_SIZE, rot: o.rot || 0, align: { h: 'left', v: 'bottom' }, role: 'text' }];
+    case 'text': {
+      const { rot, align } = uprightText(o.rot || 0, { h: 'left', v: 'bottom' });
+      return [{ t: 'text', x: o.x, y: o.y, text: o.text || '', size: o.size || LABEL_SIZE, rot, align, role: 'text' }];
+    }
     case 'gline': return [{ t: 'polyline', pts: o.pts, w: o.w || SCH_LINE, role: 'graphic' }];
     case 'grect': {
       const out = [];

@@ -104,6 +104,71 @@
     box-shadow: 0 0 0 3px var(--ring);
   }
 }
+/* <puter-user-menu> (puter.js; src/js/user-menu.js): where the loaded puter.js
+   has it, it ends the header with the Apps launcher and the account, after
+   the Settings button the avatar becomes. Its parts take the header's icon
+   button, avatar and primary button looks; its menu and Apps panel take the
+   app's popover, in both themes. */
+puter-user-menu {
+  flex: none;
+}
+puter-user-menu::part(apps-button) {
+  border-radius: var(--r-md);
+  color: var(--text-2);
+}
+puter-user-menu::part(avatar) {
+  width: 34px;
+  height: 34px;
+  line-height: 34px;
+}
+puter-user-menu::part(sign-in) {
+  height: 36px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: 550;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--surface-3);
+    color: var(--text);
+  }
+  puter-user-menu::part(sign-in):hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--surface);
+  border-color: var(--border);
+  --caret-border: var(--border);
+  --caret-fill: var(--surface);
+}
+/* Under ~1024px the header is already giving the title up to fit (see the
+   Responsive rules in views.css): the Apps launcher goes first, and on a phone
+   the bar closes up to make most of the room the Settings button takes. */
+@media (max-width: 1023px) {
+  puter-user-menu::part(apps-button) {
+    display: none;
+  }
+}
+@media (max-width: 520px) {
+  .header:has(puter-user-menu) {
+    gap: var(--sp-2);
+  }
+  .header__tools:has(puter-user-menu) {
+    gap: 2px;
+  }
+  puter-user-menu::part(sign-in) {
+    padding: 0 var(--sp-3);
+  }
+}
 /* Profile picture (replaces the letter when the account has one). */
 .avatar__img {
   display: block;
@@ -1238,6 +1303,20 @@
   .modal__foot .btn {
     min-height: 44px;
   }
+  /* The account menu's rows and switches. */
+  .popover .menu-item {
+    min-height: 44px;
+  }
+  /* Header arrows, search and menu stay 36px wide; reach 44px tall without
+     moving anything (sideways would overlap the neighbouring arrow). */
+  .header .icon-btn {
+    position: relative;
+  }
+  .header .icon-btn::before {
+    content: '';
+    position: absolute;
+    inset: -4px 0;
+  }
   .swatch {
     width: 34px;
     height: 34px;
@@ -1577,6 +1656,19 @@
   :root:not([data-theme='light']) .toast__action {
     color: #0043ec;
   }
+}
+.toast__close {
+  display: flex;
+  flex: none;
+  padding: var(--sp-1);
+  margin-right: calc(var(--sp-2) * -1);
+  color: inherit;
+  opacity: 0.7;
+  border-radius: var(--r-sm);
+}
+.toast__close:hover,
+.toast__close:focus-visible {
+  opacity: 1;
 }
 .toast--danger .icon {
   color: var(--danger);

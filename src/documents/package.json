@@ -23,6 +23,7 @@
   "dependencies": {
     "@zip.js/zip.js": "2.14.1",
     "bidi-js": "1.0.3",
+    "character-entities": "2.0.2",
     "fflate": "0.8.3",
     "hast-util-to-html": "9.0.5",
     "lucide": "^1.34.0",

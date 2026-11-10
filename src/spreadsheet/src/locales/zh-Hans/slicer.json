@@ -1,0 +1,13 @@
+{
+  "blank": "（空白）",
+  "cacheUnavailable": "链接的数据透视表缓存不可用。",
+  "clearFilter": "清除筛选",
+  "columnUnavailable": "链接的表格列不可用。",
+  "couldNotUpdate": "无法更新切片器。",
+  "filterValues": "筛选值",
+  "itemOf": "第 {n} 项，共 {total} 项",
+  "itemOfNoData": "第 {n} 项，共 {total} 项。在其他筛选条件下没有匹配的数据",
+  "multiSelect": "多选",
+  "noItems": "没有项目",
+  "slicer": "切片器"
+}

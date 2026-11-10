@@ -202,7 +202,7 @@ export function setFormattingMarks(editor, visible) {
   // Hidden text (w:vanish) is laid out while the marks are shown, as desktop word processors display it.
   const hiddenChanged = revisionView.showHidden !== visible;
   revisionView.showHidden = visible;
-  if (hiddenChanged && hasHiddenText(editor)) editor.relayout(); else editor.paint();
+  if (hiddenChanged && hasHiddenText(editor)) { editor.relayout(); if (!visible) editor.leaveHiddenText?.(); } else editor.paint();
   return visible;
 }
 const hasHiddenText = editor => [editor.session?.body, ...Object.values(editor.pageStories?.stories || {})].some(story => story?.paragraphs?.some(p => p.runs.some(r => r.vanish)));

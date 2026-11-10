@@ -101,7 +101,7 @@ test('dragging a crop area crops the page, Remove crop restores it, and Escape l
   await expect(page.locator('.tool-hint')).toContainText('Drag over the part of the page');
   // Escape in the find bar only closes the find bar; the crop mode stays.
   await page.keyboard.press('ControlOrMeta+f');
-  const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
   await find.fill('page');
   await find.press('Escape');
   await expect(page.locator('.find-bar')).toBeHidden();
@@ -216,4 +216,27 @@ test('an empty crop margin stays editable without modifying the PDF', async ({ p
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   const exported = await PDFDocument.load(await readFile(await (await pending).path()));
   expect(exported.getPage(0).getCropBox()).toEqual({ x: 36, y: 0, width: 364, height: 381.5 });
+});
+
+test('typed margins can crop all pages without typing their range', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await squarePages();
+  doc.addPage([400, 400]);
+  await openPdf(page, doc);
+  await menu(page, 'Crop pages…');
+  await page.getByRole('button', { name: 'Margins…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Crop pages' });
+  // The current page is still the first choice.
+  await expect(dialog.getByRole('radio', { name: 'Current page (1)' })).toBeChecked();
+  await dialog.getByLabel('Top (pt)').fill('100');
+  await dialog.getByRole('radio', { name: 'All pages (3)' }).check();
+  await dialog.getByRole('button', { name: 'Crop', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#toast')).toHaveText('All 3 pages cropped.');
+  await settled(page);
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const exported = await PDFDocument.load(await readFile(await (await pending).path()));
+  expect(exported.getPages().map((p) => p.getCropBox().height)).toEqual([300, 300, 300]);
 });

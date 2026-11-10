@@ -1,0 +1,13 @@
+{
+  "name.chart": "图表 {n}",
+  "name.equation": "公式 {n}",
+  "name.group": "组合 {n}",
+  "name.picture": "图片 {n}",
+  "name.scrollBar": "滚动条 {n}",
+  "name.shape": "形状 {n}",
+  "name.slicer": "切片器 {n}",
+  "name.smartArt": "SmartArt {n}",
+  "name.textBox": "文本框 {n}",
+  "name.timeline": "日程表 {n}",
+  "name.wordArt": "艺术字 {n}"
+}

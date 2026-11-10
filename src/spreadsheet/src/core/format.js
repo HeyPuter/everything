@@ -15,20 +15,26 @@ export const MAX_DECIMAL_PLACES = 20;
 import { formatWithCode, codeDateKind, codeScalesPercent, codeLocale, localeTag, MAX_FORMAT_CODE_LENGTH, stepCodeDecimals } from './numfmt.js';
 import { normalizeNumberDigits } from './number-shape.js';
 import { parseDecimalText } from './formula/number-text.js';
+import { t, tSource } from '../i18n/index.js';
+
+/**
+ * Rows of a table whose label (the element at `at`) is in the interface language, read each time it is read:
+ * other modules destructure these rows ([code, name] = row) where they draw them, after the language is loaded.
+ * `keys` are the labels' message keys, row by row.
+ */
+function labelled(rows, at, keys) {
+  rows.forEach((row, i) => Object.defineProperty(row, at, { get: () => t(keys[i]), enumerable: true, configurable: true }));
+  return rows;
+}
 
 /** Font families a cell can ask for: [key, label, CSS stack]. The default is the app font. */
 /**
  * Border styles. A cell's borders share one color (`bc`, a hex) and one
  * style (`bs`); the sides themselves are the bt/bb/bl/br flags.
  */
-export const BORDER_STYLES = [
-  ['thin', 'Thin'],
-  ['medium', 'Medium'],
-  ['thick', 'Thick'],
-  ['dashed', 'Dashed'],
-  ['dotted', 'Dotted'],
-  ['double', 'Double'],
-];
+export const BORDER_STYLES = labelled([['thin'], ['medium'], ['thick'], ['dashed'], ['dotted'], ['double']], 1, [
+  'format.line.thin', 'format.line.medium', 'format.line.thick', 'format.line.dashed', 'format.line.dotted', 'format.line.double',
+]);
 
 /**
  * Excel's other border lines, which a file brings and the app keeps, each with the line it is drawn as: a hairline
@@ -38,10 +44,13 @@ const BORDER_LINES = { hair: ['1px', 'dotted'], dashDot: ['1px', 'dashed'], dash
   mediumDashDot: ['2px', 'dashed'], mediumDashDotDot: ['2px', 'dashed'], slantDashDot: ['2px', 'dashed'] };
 export const XLSX_BORDER_STYLES = [...BORDER_STYLES.map(([value]) => value), ...Object.keys(BORDER_LINES)];
 /** Every line a border can be drawn with, as Format Cells lists them: the light lines, then the medium and heavy ones. */
-export const BORDER_LINE_CHOICES = [
-  ['thin', 'Thin'], ['hair', 'Hair'], ['dotted', 'Dotted'], ['dashed', 'Dashed'], ['dashDot', 'Dash-dot'], ['dashDotDot', 'Dash-dot-dot'], ['double', 'Double'],
-  ['medium', 'Medium'], ['mediumDashed', 'Medium dashed'], ['mediumDashDot', 'Medium dash-dot'], ['mediumDashDotDot', 'Medium dash-dot-dot'], ['slantDashDot', 'Slanted dash-dot'], ['thick', 'Thick'],
-];
+export const BORDER_LINE_CHOICES = labelled([
+  ['thin'], ['hair'], ['dotted'], ['dashed'], ['dashDot'], ['dashDotDot'], ['double'],
+  ['medium'], ['mediumDashed'], ['mediumDashDot'], ['mediumDashDotDot'], ['slantDashDot'], ['thick'],
+], 1, [
+  'format.line.thin', 'format.line.hair', 'format.line.dotted', 'format.line.dashed', 'format.line.dashDot', 'format.line.dashDotDot', 'format.line.double',
+  'format.line.medium', 'format.line.mediumDashed', 'format.line.mediumDashDot', 'format.line.mediumDashDotDot', 'format.line.slantDashDot', 'format.line.thick',
+]);
 
 /** CSS pieces for a cell's border style: { width, style, color }; color is null for the default ink. */
 export function borderCss(st) {
@@ -52,26 +61,20 @@ export function borderCss(st) {
   return { width, style, color: st?.bc || null };
 }
 
-/** Plain-language help for each error value, shown when hovering an error cell. */
-export const ERROR_HELP = {
-  '#DIV/0!': 'Division by zero: a divisor is zero or an empty cell.',
-  '#VALUE!': 'Wrong kind of value: text where a number was expected, or an array where one value was.',
-  '#REF!': 'A reference points at cells or a sheet that no longer exist.',
-  '#NAME?': 'Unknown function or name. Check the spelling, or quote text.',
-  '#N/A': 'No match was found (lookup functions), or a value is not available.',
-  '#NUM!': 'A number is out of range or a calculation did not converge.',
-  '#NULL!': 'Two ranges do not intersect.',
-  '#CYCLE!': 'Circular reference: this formula depends on its own result.',
-  '#SPILL!': 'The array result cannot fit here. Clear blocking cells, move the formula away from the sheet edge, or reduce the result size.',
-  '#CALC!': 'The calculation produced something a cell cannot show, such as an uncalled LAMBDA or an empty array.',
-  '#ERROR!': 'The formula could not be parsed. Check parentheses, commas, and quotes.',
-  '#BUSY!': 'Waiting for an answer (AI or another slow source); the cell fills in when it arrives.',
-  '#BLOCKED!': 'Content from other files or the web is not loaded in this spreadsheet until you allow it in the notice above the sheet.',
+const ERROR_HELP_KEYS = {
+  '#DIV/0!': 'format.errorHelp.div0', '#VALUE!': 'format.errorHelp.value', '#REF!': 'format.errorHelp.ref', '#NAME?': 'format.errorHelp.name',
+  '#N/A': 'format.errorHelp.na', '#NUM!': 'format.errorHelp.num', '#NULL!': 'format.errorHelp.null', '#CYCLE!': 'format.errorHelp.cycle',
+  '#SPILL!': 'format.errorHelp.spill', '#CALC!': 'format.errorHelp.calc', '#ERROR!': 'format.errorHelp.error', '#BUSY!': 'format.errorHelp.busy',
+  '#BLOCKED!': 'format.errorHelp.blocked',
 };
+/** Plain-language help for each error value, shown when hovering an error cell, in the interface language. */
+export const ERROR_HELP = Object.defineProperties({}, Object.fromEntries(Object.entries(ERROR_HELP_KEYS)
+  .map(([code, key]) => [code, { get: () => t(key), enumerable: true }])));
 
-export function errorHelp(code) {
-  const help = ERROR_HELP[code];
-  return help ? `${code}: ${help}` : code;
+/** "#N/A: No match was found…". `source` gives it in English, for text not meant for the person (the AI model's). */
+export function errorHelp(code, { source = false } = {}) {
+  const key = ERROR_HELP_KEYS[code];
+  return key ? (source ? tSource('format.errorHelp.withCode', { code, help: tSource(key) }) : t('format.errorHelp.withCode', { code, help: t(key) })) : code;
 }
 
 export const FONTS = [
@@ -169,32 +172,45 @@ export function fontKeyFor(family, { literal = false } = {}) {
   }
   name = name.replace(/\s+\((?:headings|body)\)$/i, '');
   if (!validFontName(name)) return null;
-  const t = name.toLowerCase();
-  if (!t) return null;
-  const named = FONTS.find((f) => f[1].toLowerCase() === t);
+  const str = name.toLowerCase();
+  if (!str) return null;
+  const named = FONTS.find((f) => f[1].toLowerCase() === str);
   // Named CSS families, like native families, are not preset keys or aliases:
   // Geneva and Verdana remain distinct even though one can fall back to the
   // other. Only unquoted CSS generic families select a substitute preset.
   const generic = !literal && !quoted && /^(?:serif|sans-serif|monospace|ui-monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-rounded)$/i.test(name);
-  const hit = named || (generic && FONTS.find(f => f[2]?.split(',').some(alias => alias.trim().toLowerCase() === t)));
+  const hit = named || (generic && FONTS.find(f => f[2]?.split(',').some(alias => alias.trim().toLowerCase() === str)));
   return hit ? (hit[0] !== 'default' ? hit[0] : null) : `font:${name}`;
 }
 
-export const CURRENCIES = [
-  ['USD', 'US dollar', '$'], ['EUR', 'Euro', '€'], ['GBP', 'British pound', '£'], ['JPY', 'Japanese yen', '¥'],
-  ['INR', 'Indian rupee', '₹'], ['CNY', 'Chinese yuan', '¥'], ['CAD', 'Canadian dollar', '$'], ['AUD', 'Australian dollar', '$'],
-  ['CHF', 'Swiss franc', 'CHF'], ['BRL', 'Brazilian real', 'R$'], ['MXN', 'Mexican peso', '$'], ['KRW', 'South Korean won', '₩'],
-  ['SEK', 'Swedish krona', 'kr'], ['NOK', 'Norwegian krone', 'kr'], ['PLN', 'Polish zloty', 'zł'], ['TRY', 'Turkish lira', '₺'],
-  ['DKK', 'Danish krone', 'kr'], ['CZK', 'Czech koruna', 'Kč'], ['RUB', 'Russian ruble', '₽'],
-];
+/** The currencies on offer: [code, name in the interface language, symbol]. */
+export const CURRENCIES = labelled([
+  ['USD', '', '$'], ['EUR', '', '€'], ['GBP', '', '£'], ['JPY', '', '¥'],
+  ['INR', '', '₹'], ['CNY', '', '¥'], ['CAD', '', '$'], ['AUD', '', '$'],
+  ['CHF', '', 'CHF'], ['BRL', '', 'R$'], ['MXN', '', '$'], ['KRW', '', '₩'],
+  ['SEK', '', 'kr'], ['NOK', '', 'kr'], ['PLN', '', 'zł'], ['TRY', '', '₺'],
+  ['DKK', '', 'kr'], ['CZK', '', 'Kč'], ['RUB', '', '₽'],
+], 1, [
+  'format.currency.usd', 'format.currency.eur', 'format.currency.gbp', 'format.currency.jpy',
+  'format.currency.inr', 'format.currency.cny', 'format.currency.cad', 'format.currency.aud',
+  'format.currency.chf', 'format.currency.brl', 'format.currency.mxn', 'format.currency.krw',
+  'format.currency.sek', 'format.currency.nok', 'format.currency.pln', 'format.currency.try',
+  'format.currency.dkk', 'format.currency.czk', 'format.currency.rub',
+]);
 
-/** Regional formats on offer: how numbers and dates are written and read. */
-export const LOCALES = [
-  ['en-US', 'English (United States)'], ['en-GB', 'English (United Kingdom)'], ['en-IN', 'English (India)'], ['en-AU', 'English (Australia)'],
-  ['de-DE', 'Deutsch'], ['fr-FR', 'Français'], ['es-ES', 'Español'], ['it-IT', 'Italiano'], ['nl-NL', 'Nederlands'], ['pt-BR', 'Português (Brasil)'],
-  ['pt-PT', 'Português (Portugal)'], ['sv-SE', 'Svenska'], ['da-DK', 'Dansk'], ['nb-NO', 'Norsk'], ['fi-FI', 'Suomi'], ['pl-PL', 'Polski'], ['cs-CZ', 'Čeština'],
-  ['tr-TR', 'Türkçe'], ['ru-RU', 'Русский'], ['ja-JP', '日本語'], ['zh-CN', '中文'], ['ko-KR', '한국어'],
-];
+/**
+ * Regional formats on offer: how numbers and dates are written and read. [code, name]: the name is the
+ * interface's (in English, each regional format's own name for itself). The workbook's regional format is the
+ * code alone, whatever language the interface is in.
+ */
+const LOCALE_CODES = ['en-US', 'en-GB', 'en-IN', 'en-AU', 'de-DE', 'fr-FR', 'es-ES', 'it-IT', 'nl-NL', 'pt-BR',
+  'pt-PT', 'sv-SE', 'da-DK', 'nb-NO', 'fi-FI', 'pl-PL', 'cs-CZ', 'tr-TR', 'ru-RU', 'ja-JP', 'zh-CN', 'ko-KR'];
+export const LOCALES = labelled(LOCALE_CODES.map((code) => [code]), 1, [
+  'format.locale.enUS', 'format.locale.enGB', 'format.locale.enIN', 'format.locale.enAU', 'format.locale.deDE', 'format.locale.frFR',
+  'format.locale.esES', 'format.locale.itIT', 'format.locale.nlNL', 'format.locale.ptBR', 'format.locale.ptPT', 'format.locale.svSE',
+  'format.locale.daDK', 'format.locale.nbNO', 'format.locale.fiFI', 'format.locale.plPL', 'format.locale.csCZ', 'format.locale.trTR',
+  'format.locale.ruRU', 'format.locale.jaJP', 'format.locale.zhCN', 'format.locale.koKR',
+]);
 
 let locale = 'en-US';
 export function setLocale(l) { locale = LOCALES.some(([code]) => code === l) ? l : 'en-US'; }
@@ -359,8 +375,8 @@ const HOUR_MERIDIEM_RE = /^(\d{1,2})(?:\s*([AaPp][Mm])|\s+([AaPp]))$/;
 export const ELAPSED_TIME_CODE = '[h]:mm:ss';
 
 /** "3 pm" as TIME_RE would match "3:00 pm": the hour, no minutes or seconds, and its half of the day; null for anything else. */
-function hourMeridiem(t) {
-  const m = HOUR_MERIDIEM_RE.exec(t);
+function hourMeridiem(str) {
+  const m = HOUR_MERIDIEM_RE.exec(str);
   return m ? [m[0], m[1], '0', undefined, m[2] || m[3]] : null;
 }
 
@@ -373,8 +389,8 @@ function hourMeridiem(t) {
  * time of day leaves it off.
  */
 export function parseTime(text, { elapsed = false } = {}) {
-  const t = normalizeNumberDigits(String(text).trim());
-  const m = TIME_RE.exec(t) || hourMeridiem(t);
+  const str = normalizeNumberDigits(String(text).trim());
+  const m = TIME_RE.exec(str) || hourMeridiem(str);
   if (!m) return null;
   let h = Number(m[1]);
   const mi = Number(m[2]);
@@ -396,8 +412,10 @@ const SLASH_DATE_RE = /^(\d{1,4})[\/-](\d{1,2})(?:[\/-](\d{1,4}))?$/;
 const DOTTED_DATE_RE = /^(\d{1,4})[\/.-] ?(\d{1,2})(?:[\/.-] ?(\d{1,4}))?$/; // 28.08.2026 (and Czech's 28. 8. 2026), where the decimal mark is a comma
 // A trailing decimal mark ("5.") is a number; a lone mark is not.
 const NUMERIC_RE = /^[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)?(?:\.\d*)?(?:[eE][-+]?\d+)?$/;
-// Comma-decimal locales: groups by period, space, or apostrophe; the decimal mark is a comma.
-const COMMA_NUMERIC_RE = /^[-+]?(?:\d{1,3}(?:[.\s\u00a0\u202f']\d{3})+|\d+)?(?:,\d*)?(?:[eE][-+]?\d+)?$/;
+// Comma-decimal locales: groups by period or apostrophe; the decimal mark is a comma. A space groups digits only
+// where the locale writes one there (French, Swedish, Polish): in German "+1 555 123" is a phone number, not 1555123.
+const COMMA_NUMERIC_RE = /^[-+]?(?:\d{1,3}(?:[.']\d{3})+|\d+)?(?:,\d*)?(?:[eE][-+]?\d+)?$/;
+const SPACED_COMMA_NUMERIC_RE = /^[-+]?(?:\d{1,3}(?:[.\s\u00a0\u202f']\d{3})+|\d+)?(?:,\d*)?(?:[eE][-+]?\d+)?$/;
 // Indian grouping, where the locale writes it (en-IN shows 12,34,567 and must read it back).
 const LAKH_NUMERIC_RE = /^[-+]?\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d*)?(?:[eE][-+]?\d+)?$/;
 
@@ -405,7 +423,7 @@ const LAKH_NUMERIC_RE = /^[-+]?\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d*)?(?:[eE][-+]?\d+
 function localeNumber(body, info, numericParser = parseFloat) {
   if (!/\d/.test(body)) return null;
   if (info.decimal === ',') {
-    if (!COMMA_NUMERIC_RE.test(body)) return null;
+    if (!(/^[\s\u00a0\u202f]$/.test(info.group) ? SPACED_COMMA_NUMERIC_RE : COMMA_NUMERIC_RE).test(body)) return null;
     const n = numericParser(body.replace(/[.\s\u00a0\u202f']/g, '').replace(',', '.'));
     return Number.isFinite(n) ? n : null;
   }
@@ -546,8 +564,8 @@ export function parseFormulaNumber(text, loc = locale, numericParser = (s, shift
 const MIXED_FRACTION_RE = /^([-+]?)(\d+)\s+(\d+)\/(\d+)$/;
 
 /** "1 1/2" → { v: 1.5, code: '# ?/?' }, the fraction format as wide as the denominator typed, or null. */
-function parseFraction(t) {
-  const m = MIXED_FRACTION_RE.exec(t);
+function parseFraction(str) {
+  const m = MIXED_FRACTION_RE.exec(str);
   if (!m || Number(m[4]) === 0) return null;
   const v = Number(m[2]) + Number(m[3]) / Number(m[4]);
   const places = '?'.repeat(Math.min(3, m[4].length));
@@ -639,16 +657,16 @@ export function parseDate(text, now = new Date(), loc = locale) {
   // The presets write a no-break space before a month or a year in some languages; typed text has a plain one.
   // Repeated ordinary spaces separate date components too (including text
   // assembled from a month format that already ends with a space).
-  const t = normalizeNumberDigits(String(text).trim()).replace(/[  ]/g, ' ').replace(/ +/g, ' ');
+  const str = normalizeNumberDigits(String(text).trim()).replace(/[  ]/g, ' ').replace(/ +/g, ' ');
   const info = localeInfo(loc);
-  let m = ISO_DATE_RE.exec(t) || CJK_DATE_RE.exec(t) || YEAR_DOTTED_RE.exec(t);
+  let m = ISO_DATE_RE.exec(str) || CJK_DATE_RE.exec(str) || YEAR_DOTTED_RE.exec(str);
   if (m) {
     const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-    return typedDate(y, mo, d, CJK_DATE_RE.test(t) ? 'long' : null);
+    return typedDate(y, mo, d, CJK_DATE_RE.test(str) ? 'long' : null);
   }
   // A day and month written with the full stop that ends each ("15.3.", Czech "15. 3."), the quick way to
   // type a date of this year where dates are dotted, is the same as 15.3.
-  const dotted = info.decimal === ',' && /^\d{1,2}\. ?\d{1,2}\.$/.test(t) ? t.slice(0, -1) : t;
+  const dotted = info.decimal === ',' && /^\d{1,2}\. ?\d{1,2}\.$/.test(str) ? str.slice(0, -1) : str;
   m = (info.decimal === ',' ? DOTTED_DATE_RE : SLASH_DATE_RE).exec(dotted);
   if (m) {
     let y, mo, d;
@@ -664,12 +682,12 @@ export function parseDate(text, now = new Date(), loc = locale) {
       [mo, d] = info.dayFirst ? [b, a] : [a, b];
       if (mo > 12 && d <= 12) [mo, d] = [d, mo];
       y = fullYear(m[3], now);
-      if (m[3] == null && t.includes('-')) return null; // "1-2" stays text
+      if (m[3] == null && str.includes('-')) return null; // "1-2" stays text
     } else return null;
     return typedDate(y, mo, d);
   }
-  const monthFirst = MONTH_FIRST_RE.exec(t);
-  m = monthFirst || DAY_FIRST_RE.exec(t);
+  const monthFirst = MONTH_FIRST_RE.exec(str);
+  m = monthFirst || DAY_FIRST_RE.exec(str);
   if (m) {
     const dayFirst = !monthFirst;
     const mo = monthNumber(dayFirst ? m[2] : m[1], loc);
@@ -690,10 +708,10 @@ const NUMERIC_MONTH_YEAR_RE = /^(\d{1,2})[\/-](\d{4})$/;
 const DOTTED_MONTH_YEAR_RE = /^(\d{1,2})[\/.-](\d{4})$/;
 
 /** "Feb 2024" or "2/2024" → the serial of 2024-02-01, or null. */
-function parseMonthYear(t, loc = locale) {
-  const numeric = (localeInfo(loc).decimal === ',' ? DOTTED_MONTH_YEAR_RE : NUMERIC_MONTH_YEAR_RE).exec(t);
+function parseMonthYear(str, loc = locale) {
+  const numeric = (localeInfo(loc).decimal === ',' ? DOTTED_MONTH_YEAR_RE : NUMERIC_MONTH_YEAR_RE).exec(str);
   if (numeric) return typedDate(Number(numeric[2]), Number(numeric[1]), 1)?.serial ?? null;
-  const m = MONTH_YEAR_RE.exec(t);
+  const m = MONTH_YEAR_RE.exec(str);
   if (!m) return null;
   // A two-digit number after a month name is the day wherever it could be one, so Feb 24 is the
   // twenty-fourth; only one no day could be is the year, so Feb 99 is February 1999.
@@ -730,8 +748,8 @@ export function parseInput(text, loc = locale) {
   if (raw.startsWith('=') && raw.length > 1) return { v: null, f: raw.slice(1), fmt: null };
 
   const info = localeInfo(loc);
-  const t = normalizeNumberDigits(raw.trim()).replace(/−/g, '-');
-  const upper = t.toUpperCase();
+  const str = normalizeNumberDigits(raw.trim()).replace(/−/g, '-');
+  const upper = str.toUpperCase();
   if (upper === 'TRUE') return { v: true, f: null, fmt: null };
   if (upper === 'FALSE') return { v: false, f: null, fmt: null };
   // A typed #N/A is the error value, so ISNA sees it and SUM stops at it; an apostrophe keeps the text.
@@ -739,8 +757,8 @@ export function parseInput(text, loc = locale) {
 
   // The sign may lead, as Turkish writes %12,5 (and -%12,5), and a typed %50 reads in any regional format.
   // In parentheses it is negative, as an amount is: (5%) is -5%.
-  const bracketed = /^\(.*\)$/.test(t) ? t.slice(1, -1).trim() : null;
-  const pct = bracketed ?? t;
+  const bracketed = /^\(.*\)$/.test(str) ? str.slice(1, -1).trim() : null;
+  const pct = bracketed ?? str;
   if (pct.endsWith('%') || /^[-+]?%/.test(pct)) {
     const body = (pct.endsWith('%') ? pct.slice(0, -1) : pct.replace('%', '')).trim();
     // The percent moves the decimal point of the digits as typed, as VALUE reads it, so 12.3% is
@@ -750,8 +768,8 @@ export function parseInput(text, loc = locale) {
     if (n != null) return { v: bracketed != null && n !== 0 ? -n : n, f: null, fmt: 'percent' };
   }
 
-  if (/\d/.test(t)) {
-    let body = t;
+  if (/\d/.test(str)) {
+    let body = str;
     let currency = null;
     let negative = false;
     // Accounting style: a number in parentheses is negative.
@@ -774,18 +792,18 @@ export function parseInput(text, loc = locale) {
     };
   }
 
-  const fraction = parseFraction(t);
+  const fraction = parseFraction(str);
   if (fraction) return { v: fraction.v, f: null, fmt: 'custom', code: fraction.code };
 
-  const time = parseTime(t, { elapsed: true });
+  const time = parseTime(str, { elapsed: true });
   // A day or more (24:00, 25:30) is an elapsed time, shown with its hours counting on rather than as a time of day.
   if (time != null && time >= 1) return { v: time, f: null, fmt: 'custom', code: ELAPSED_TIME_CODE };
-  if (time != null) return { v: time, f: null, fmt: 'time', ...(typedSeconds(t) ? { sec: true } : {}) };
-  const date = parseDate(t, new Date(), loc);
+  if (time != null) return { v: time, f: null, fmt: 'time', ...(typedSeconds(str) ? { sec: true } : {}) };
+  const date = parseDate(str, new Date(), loc);
   if (date) return { v: date.serial, f: null, fmt: 'date', ...(date.style ? { dateStyle: date.style } : {}) };
-  const monthYear = parseMonthYear(t, loc);
+  const monthYear = parseMonthYear(str, loc);
   if (monthYear != null) return { v: monthYear, f: null, fmt: 'custom', code: MONTH_YEAR_CODE };
-  const m = DATETIME_SPLIT_RE.exec(t);
+  const m = DATETIME_SPLIT_RE.exec(str);
   if (m) {
     const day = parseDate(m[1], new Date(), loc);
     const tod = parseTime(m[2]);
@@ -813,9 +831,9 @@ export function typedDateKind(parsed) {
  * decimal mark, so "5,5%" in German keeps its half.
  */
 export function typedDecimals(text, loc = locale) {
-  const t = normalizeNumberDigits(String(text ?? ''));
-  const i = t.indexOf(localeInfo(loc).decimal);
-  return i >= 0 && /\d/.test(t[i + 1] ?? '') ? 2 : 0;
+  const str = normalizeNumberDigits(String(text ?? ''));
+  const i = str.indexOf(localeInfo(loc).decimal);
+  return i >= 0 && /\d/.test(str[i + 1] ?? '') ? 2 : 0;
 }
 
 /** The style keys that detail a number format (decimals, currency, date style, seconds, grouping, code) and mean nothing without one. */
@@ -903,6 +921,9 @@ export function formatGeneral(n) {
  * boundaries. Cell display and editing have their own formatting policies.
  */
 export function formatNumberText(n) {
+  // A whole number of up to fifteen digits is its own digits, with no decimal separator to localize: the common
+  // case, written without the work below (a column of TEXTJOIN over a column of counts converts millions).
+  if (Number.isInteger(n) && n < 1e15 && n > -1e15) return String(n);
   if (!Number.isFinite(n)) return '#NUM!';
   const abs = Math.abs(n);
   // Text conversion flushes subnormal magnitudes but retains their

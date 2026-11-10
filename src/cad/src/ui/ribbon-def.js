@@ -167,7 +167,7 @@ export const RIBBON = [
       {
         title: 'Import',
         items: [
-          { cmd: 'IMPORT', size: 'lg', label: 'Import DXF' },
+          { cmd: 'IMPORT', size: 'lg', label: 'Import' },
           { cmd: 'PASTECLIP', size: 'lg', label: 'Paste' },
         ],
       },
@@ -295,6 +295,7 @@ export const RIBBON = [
         title: 'Export',
         items: [
           { cmd: 'EXPORT', size: 'lg', label: 'Export' },
+          { cmd: 'DWGOUT', size: 'lg', label: 'DWG' },
           { cmd: 'DXFOUT', size: 'lg', label: 'DXF' },
         ],
       },

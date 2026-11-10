@@ -6,18 +6,26 @@ import { attachMenu } from './menu.js';
 import { confirmDialog, openModal } from './modal.js';
 import { toast } from './toast.js';
 import { applyTheme, currentTheme, THEMES } from './theme.js';
+import { userMenu } from './usermenu.js';
 import { openShortcuts, FOLDER_KEYS } from './shortcuts.js';
+import { openSnooze } from './snooze.js';
+import { createSnooze, snoozeTime } from '../lib/snooze.js';
 import { openSignatureDialog } from './signature.js';
 import { discardComposer } from './compose.js';
 import {
-  createMailbox, enrichMessage, moveMessage, boxPath, BOX_DIRS,
+  turnOnPush, turnOffPush, ensureSubscription, listenForPushes, stopListening,
+  pushNeedsHomeScreen, openHomeScreenHint, pushErrorCode, notificationStatus, dismissNewMail,
+  pushHealth, subscriptionIssue, healthText, healthAction, openUnblockHint,
+} from './push.js';
+import {
+  createMailbox, enrichMessage, moveMessage, boxPath, BOX_DIRS, dayFolder, messageOrder,
 } from '../lib/mailbox.js';
 import { createMessageReads } from '../lib/messagereads.js';
 import { checkAbort, yieldTask } from '../lib/work.js';
 import { mailSubject, locate, planChanges } from '../lib/watch.js';
 import {
   createReadState, createStarState, createOriginState, createImageState,
-  memoryStorage,
+  memoryStorage, flagId,
 } from '../lib/readstate.js';
 import { draftToMessage } from '../lib/drafts.js';
 import { mergeContacts } from '../lib/contacts.js';
@@ -66,7 +74,15 @@ const FOLDER_WINDOW_SIZE = 300;
 const THREAD_PAGE_SIZE = 60;
 const NAV_LS_KEY = 'puter-mail:nav';
 const THREAD_LS_KEY = 'puter-mail:conversations';
-const NOTIFY_LS_KEY = 'puter-mail:notify';
+// New-mail notifications are on unless turned off here; this marks the off.
+const NOTIFY_OFF_LS_KEY = 'puter-mail:notify-off';
+// Set once this device has been asked; after that only the menu asks.
+const NOTIFY_ASKED_LS_KEY = 'puter-mail:notify-asked';
+// When the "notifications are off" notice was put away, and for what.
+const PUSH_NOTICE_LS_KEY = 'puter-mail:push-notice';
+const PUSH_NOTICE_SNOOZE_MS = 7 * 24 * 3600_000;
+// A tab coming back checks pushes again, at most this often.
+const PUSH_CHECK_MS = 60_000;
 // Seconds a send can be taken back for, and the one it is until changed.
 const UNDO_SEND_CHOICES = [0, 5, 10, 20, 30];
 const UNDO_SEND_DEFAULT = 5;
@@ -99,7 +115,7 @@ const WATCH_SETTLE_MS = 500;
 const mobile = () => matchMedia('(max-width: 800px)').matches;
 
 /**
- * The Gmail-style inbox shell: top bar with search, folder sidebar, and a
+ * The inbox shell: top bar with search, folder sidebar, and a
  * content card that swaps between the message list and an open message.
  * `ctx` carries the fs to read from (puter.fs in the app, the in-memory
  * sample mailbox in the tests) plus account/session callbacks. `ctx.events`
@@ -172,6 +188,15 @@ export function renderApp(root, ctx) {
     };
   })();
 
+  const scope = ctx.sample ? 'sample' : ctx.account.username;
+  const storage = ctx.sample ? memoryStorage() : window.localStorage;
+  const snooze = createSnooze({
+    fs: ctx.fs, mailPath: ctx.mailPath, scope, storage,
+    kv: ctx.sample ? null : ctx.kv ?? null,
+    events: ctx.sample ? null : ctx.events ?? null,
+    perms: ctx.sample ? null : ctx.perms ?? null,
+  });
+
   const boxes = {
     ...Object.fromEntries(Object.keys(BOX_DIRS)
       .filter((box) => box !== 'sent' || canSend)
@@ -179,6 +204,7 @@ export function renderApp(root, ctx) {
         fs: ctx.fs,
         objectsPath: box === 'inbox' ? ctx.objectsPath : boxPath(ctx.mailPath, box),
         box,
+        promotions: snooze.promotions,
         // Only the tests set this: a small page is how "more than one page"
         // is reached over a sample mailbox of thirteen messages.
         ...(ctx.pageSize ? { pageSize: ctx.pageSize } : {}),
@@ -191,6 +217,7 @@ export function renderApp(root, ctx) {
     { id: 'starred', label: 'Starred', icon: 'star', box: 'inbox' },
     ...(canSend ? [{ id: 'sent', label: 'Sent', icon: 'send', box: 'sent' }] : []),
     ...(draftsBox ? [{ id: 'drafts', label: 'Drafts', icon: 'pencil', box: 'drafts' }] : []),
+    { id: 'snoozed', label: 'Snoozed', icon: 'clock', box: 'snoozed' },
     { id: 'archive', label: 'Archive', icon: 'archive', box: 'archive' },
     { id: 'trash', label: 'Trash', icon: 'trash', box: 'trash' },
   ];
@@ -202,17 +229,21 @@ export function renderApp(root, ctx) {
    */
   const ACTIONS = {
     archive: { label: 'Archive', icon: 'archive', to: 'archive', done: 'Archived', busy: 'Archiving' },
+    snooze: { label: 'Snooze', icon: 'clock', to: 'snoozed', done: 'Snoozed', busy: 'Snoozing' },
+    resnooze: { label: 'Change snooze time', icon: 'clock' },
+    unsnooze: { label: 'Unsnooze', icon: 'restore', to: 'inbox', done: 'Unsnoozed', busy: 'Unsnoozing' },
     trash: { label: 'Delete', icon: 'trash', to: 'trash', done: 'Moved', busy: 'Moving' },
     restore: { label: 'Restore', icon: 'restore', to: null, done: 'Restored', busy: 'Restoring' },
     purge: { label: 'Delete forever', icon: 'trash', danger: true, busy: 'Deleting' },
     discard: { label: 'Discard draft', icon: 'trash', danger: true },
   };
   const ACTIONS_BY_VIEW = {
-    inbox: ['archive', 'trash'],
-    starred: ['archive', 'trash'],
+    inbox: ['archive', 'snooze', 'trash'],
+    starred: ['archive', 'snooze', 'trash'],
     sent: ['trash'],
     drafts: ['discard'],
     archive: ['restore', 'trash'],
+    snoozed: ['unsnooze', 'resnooze', 'archive', 'trash'],
     trash: ['restore', 'purge'],
   };
   // Which listings have been read at least once, so a folder is listed when
@@ -232,8 +263,6 @@ export function renderApp(root, ctx) {
   // Only the tests set `ctx.sample`: it mounts the shell over the in-memory
   // sample mailbox, which is static and belongs to no account, so its flags
   // stay in memory and nothing is watched or polled for it.
-  const scope = ctx.sample ? 'sample' : ctx.account.username;
-  const storage = ctx.sample ? memoryStorage() : window.localStorage;
   // Flags render from the local cache immediately and reconcile with the
   // account store in the background.
   const flagOptions = {
@@ -264,7 +293,7 @@ export function renderApp(root, ctx) {
   const applyDensity = () => frame.classList.toggle('density-compact', density() === 'compact');
 
   // Whether archiving or deleting from the reader opens the next conversation
-  // rather than going back to the list. Off by default, as it is in Gmail:
+  // rather than going back to the list. Off by default:
   // going back is the safer answer for anyone who has not asked otherwise.
   const autoAdvance = () => settings.get('autoAdvance', false) === true;
 
@@ -296,9 +325,8 @@ export function renderApp(root, ctx) {
   const searchIndex = createSearchIndex(scope, storage);
 
   /**
-   * The conversation view, on by default because that is what a Gmail-shaped
-   * client is: a row is a conversation, and the reader stacks the messages in
-   * it. Turning it off makes every conversation one message long, which is
+   * A row is a conversation, and the reader stacks its messages. Turning it
+   * off makes every conversation one message long, which is
    * the same list this app had before threading -- so there is one code path
    * rather than two.
    */
@@ -486,7 +514,7 @@ export function renderApp(root, ctx) {
   /**
    * Who a conversation names. One message names its sender, exactly as it
    * always did. More than one names everyone who wrote, in the order they
-   * first did -- which is the column Gmail puts the message count next to.
+   * first did, beside the message count.
    */
   const personLabel = (unit) => {
     if (unit.count === 1) return personLabelFor(unit.latest);
@@ -605,17 +633,25 @@ export function renderApp(root, ctx) {
         },
       }),
     },
-    // Notification.requestPermission() has to be user initiated, so this
-    // menu item is the only place it can be asked for.
+    // A browser asks for notification permission only from a click, so this
+    // menu item and the welcome dialog are where it can be asked for.
     !ctx.sample && { separator: true },
     !ctx.sample && { header: 'New mail' },
     !ctx.sample && {
       label: 'Notify me on this device',
       icon: 'bell',
       checked: notifyWanted(),
+      sub: ctx.canPush ? healthText(currentHealth()) : null,
       // On or off, not one of a set: the three themes above are the set.
       toggle: true,
       onSelect: () => setNotify(!notifyWanted()),
+    },
+    pushOn() && {
+      label: 'Show sender and subject',
+      icon: 'eye',
+      checked: previewsOn(),
+      toggle: true,
+      onSelect: () => setPreviews(!previewsOn()),
     },
     { separator: true },
     // `?` opens the same sheet, and is on it. This is how anyone who has never
@@ -625,31 +661,40 @@ export function renderApp(root, ctx) {
       icon: 'keyboard',
       onSelect: () => openShortcuts({ folders: VIEWS, canCompose: Boolean(ctx.onCompose) }),
     },
-  ]);
+  ], { beforeOpen: ctx.canPush ? () => refreshPushStatus() : null });
 
-  const accountAvatar = el('span.avatar.avatar-sm', {
-    'aria-hidden': 'true', style: { '--hue': hueFor(scope) },
-  }, initialFor(ctx.account.username));
-  const accountBtn = el('button.icon-btn.avatar-btn', {
-    type: 'button', 'aria-label': 'Account', title: 'Account',
-  }, accountAvatar);
-  // Loading the picture must not delay the mailbox. Keep the initial until
-  // the image decodes successfully, including when the SDK returns no picture.
-  if (ctx.getProfilePicture) {
-    Promise.resolve().then(() => ctx.getProfilePicture()).then((picture) => {
-      if (!picture) return;
-      const image = el('img.account-picture', {
-        alt: '',
-        onload: () => accountAvatar.replaceChildren(image),
-      });
-      image.src = picture;
-    }).catch(() => {});
-  }
-  attachMenu(accountBtn, () => [
-    { header: ctx.account.username },
-    ctx.onSignOut && { separator: true },
-    ctx.onSignOut && { label: 'Sign out', icon: 'logout', danger: true, onSelect: ctx.onSignOut },
-  ]);
+  // The account, at the end of the bar: puter.js's <puter-user-menu> where the
+  // SDK has it (usermenu.js), with the Apps launcher beside the picture, and
+  // otherwise the app's own button. The element's Sign out is the app's.
+  const accountMenu = userMenu({
+    onSignOut: ctx.onSignOut, onSessionChanged: ctx.onSessionChanged,
+  });
+  const accountButton = () => {
+    const accountAvatar = el('span.avatar.avatar-sm', {
+      'aria-hidden': 'true', style: { '--hue': hueFor(scope) },
+    }, initialFor(ctx.account.username));
+    const accountBtn = el('button.icon-btn.avatar-btn', {
+      type: 'button', 'aria-label': 'Account', title: 'Account',
+    }, accountAvatar);
+    // Loading the picture must not delay the mailbox. Keep the initial until
+    // the image decodes successfully, including when the SDK returns no picture.
+    if (ctx.getProfilePicture) {
+      Promise.resolve().then(() => ctx.getProfilePicture()).then((picture) => {
+        if (!picture) return;
+        const image = el('img.account-picture', {
+          alt: '',
+          onload: () => accountAvatar.replaceChildren(image),
+        });
+        image.src = picture;
+      }).catch(() => {});
+    }
+    attachMenu(accountBtn, () => [
+      { header: ctx.account.username },
+      ctx.onSignOut && { separator: true },
+      ctx.onSignOut && { label: 'Sign out', icon: 'logout', danger: true, onSelect: ctx.onSignOut },
+    ]);
+    return el('div.menu-anchor', {}, accountBtn);
+  };
 
   const topbar = el('header.topbar', {},
     menuBtn,
@@ -663,13 +708,13 @@ export function renderApp(root, ctx) {
     ),
     el('div.topbar-actions', {},
       el('div.menu-anchor', {}, themeBtn),
-      el('div.menu-anchor', {}, accountBtn),
+      accountMenu ?? accountButton(),
     ),
   );
 
   // -- sidebar ----------------------------------------------------------------
 
-  // With sending available the tonal pill is Compose, like Gmail's, and
+  // With sending available the tonal pill is Compose, and
   // refreshing lives in the list toolbar; without it the pill stays a refresh
   // button.
   // A listing that another part of the app has just changed is reloaded if it
@@ -739,6 +784,7 @@ export function renderApp(root, ctx) {
     sent: ['trash'],
     archive: ['inbox', 'trash'],
     trash: ['inbox', 'archive'],
+    snoozed: ['inbox', 'archive', 'trash'],
   };
   const canDropOn = (id) => Boolean(dragging) && (DROP_TARGETS[folder] ?? []).includes(id);
 
@@ -760,7 +806,7 @@ export function renderApp(root, ctx) {
     // recording Trash as where a message came from would send the next
     // Restore straight back into it.
     const { moved, failed } = await move(list, to, {
-      restoring: from === 'archive' || from === 'trash',
+      restoring: from === 'archive' || from === 'trash', unsnoozing: from === 'snoozed' && to === 'inbox',
       onProgress: progressLine('Moving', countOf(list)),
     });
     renderAfterChange();
@@ -895,6 +941,7 @@ export function renderApp(root, ctx) {
     // search over it is started.
     resultOffset = 0;
     clearNewMail();
+    if (id === 'inbox' && !ctx.sample && !document.hidden) dismissNewMail().catch(() => {});
     clearSelection();
     renderActionBar();
     for (const n of navs) n.item.setAttribute('aria-current', String(n.id === id));
@@ -902,8 +949,7 @@ export function renderApp(root, ctx) {
     if (mobile()) setNavOpen(false);
     if (!listed.has(view().box)) {
       showListLoading();
-      loadFolder();
-      return;
+      return loadFolder();
     }
     // A query belongs to the folder it was typed in: switching folder
     // searches the new one rather than showing the old folder's results.
@@ -977,6 +1023,9 @@ export function renderApp(root, ctx) {
   // Mail that arrived while the user was reading something, or was scrolled
   // down the list, is announced here rather than by moving what they are
   // looking at.
+  // Says when new mail cannot reach this device, and the one way to fix it.
+  const pushNotice = el('div.push-notice', { role: 'status', hidden: true });
+
   const newMailPill = el('button.new-mail', {
     type: 'button', hidden: true,
     onclick: () => {
@@ -1002,6 +1051,7 @@ export function renderApp(root, ctx) {
       newMailPill,
       meta,
     ),
+    pushNotice,
     listEl,
   );
 
@@ -1109,7 +1159,7 @@ export function renderApp(root, ctx) {
    * The conversation before and after the open one, in the order the list
    * shows them, so a folder can be read through without going back to the
    * list between messages. Newer is to the left and older to the right, as
-   * the list runs top to bottom -- and as Gmail's arrows do. `j` and `k` are
+   * the list runs top to bottom. `j` and `k` are
    * the same two moves from the keyboard.
    */
   const newerBtn = el('button.icon-btn', {
@@ -1387,6 +1437,9 @@ export function renderApp(root, ctx) {
     if (unit.count > 1) bits.push(`${unit.count} messages`);
     bits.push(unitSubject(unit) || 'no subject');
     if (!rowPending(unit)) bits.push(formatWhen(unit.latest));
+    if (unit.latest.box === 'snoozed' && snooze.get(unit.latest.name)) {
+      bits.push(`Snoozed until ${snoozeTime(snooze.get(unit.latest.name).until)}`);
+    }
     return bits.join(', ');
   };
 
@@ -1414,7 +1467,7 @@ export function renderApp(root, ctx) {
       if (message.from === undefined) hydrate(message);
     }
     // The row is about the conversation, and what it shows of it is the
-    // newest message: that is the preview line and the date Gmail shows too.
+    // newest message, including its preview and date.
     const message = unit.latest;
     const pending = rowPending(unit);
     row.classList.toggle('row-pending', pending);
@@ -1427,7 +1480,9 @@ export function renderApp(root, ctx) {
     count.hidden = unit.count < 2;
     row.querySelector('.row-when').textContent = pending ? '' : formatWhen(message);
     row.querySelector('.row-subject').textContent = subject || '(no subject)';
-    row.querySelector('.row-snippet').textContent = message.snippet ?? '';
+    const wake = message.box === 'snoozed' && snooze.get(message.name);
+    row.querySelector('.row-snippet').textContent = wake
+      ? `Until ${snoozeTime(wake.until)} · ${message.snippet ?? ''}` : message.snippet ?? '';
     row.querySelector('.row-clip').hidden = !unitClipped(unit);
     // Until the header read lands there is no sender to draw an avatar from,
     // and falling through to initialFor('')/hueFor('') painted a red "?" disc
@@ -1513,9 +1568,7 @@ export function renderApp(root, ctx) {
         syncSelection();
       },
     });
-    // Row actions take the place of the timestamp on hover and on focus, the
-    // way they do in Gmail: the date is not what you want when your pointer
-    // is on the row.
+    // Row actions replace the timestamp on hover and focus.
     const readBtn = !OUTGOING.has(box) && el('button.row-action.read-toggle', {
       type: 'button', tabindex: -1,
       onclick: (e) => {
@@ -1683,6 +1736,9 @@ export function renderApp(root, ctx) {
         // The same key both ways, like the row's own toggle.
         e.preventDefault();
         setRead(targets(unit), unitUnread(unit));
+      } else if (e.key === 'b' && (ACTIONS_BY_VIEW[folder]?.includes('snooze') || folder === 'snoozed')) {
+        e.preventDefault();
+        runAction(folder === 'snoozed' ? 'resnooze' : 'snooze', targets(unit));
       } else if (e.key === 'e' && ACTIONS_BY_VIEW[folder]?.includes('archive')) {
         e.preventDefault();
         moveFocus(rows, current);
@@ -1743,8 +1799,8 @@ export function renderApp(root, ctx) {
   /**
    * Whether the selection is the whole folder rather than the rows on screen.
    * The rows are one page of it, and "select all" over a page of sixty is
-   * not the same thing as the three hundred behind it -- Gmail says so in a
-   * strip above the rows, and offers the rest. Taking any row out of the
+   * not the same thing as the three hundred behind it. The strip above
+   * the rows offers the rest. Taking any row out of the
    * selection makes it a selection of rows again.
    */
   let wholeFolder = false;
@@ -2010,7 +2066,7 @@ export function renderApp(root, ctx) {
       return;
     }
     if (view().box !== unit.latest.box) return;
-    const key = (other) => `${other.latest.day}/${other.latest.name}`;
+    const key = (other) => other.messages.map(messageOrder).sort().at(-1);
     const found = units.findIndex((other) => key(other) < key(unit));
     const at = found === -1 ? units.length : found;
     units.splice(at, 0, unit);
@@ -2028,7 +2084,7 @@ export function renderApp(root, ctx) {
    * message restored *into* Archive, so the next Restore filed it straight
    * back into Trash -- and said "Restored to Trash" while doing it.
    */
-  const move = async (list, to, { restoring = false, onProgress } = {}) => {
+  const move = async (list, to, { restoring = false, onProgress, until, background = false, unsnoozing = false } = {}) => {
     list = idle(list);
     const moved = [];
     let failed = 0;
@@ -2046,19 +2102,42 @@ export function renderApp(root, ctx) {
       try {
         // Marked before the request goes out, so the event it causes cannot
         // reach a shell that has not yet heard of the write.
-        own(was, `${boxPath(ctx.mailPath, to)}/${message.day}/${message.name}`);
-        const path = await mailWrite(() =>
-          moveMessage({ fs: ctx.fs, mailPath: ctx.mailPath, message, to, dirs: madeDirs }));
+        const oldDay = message.day;
+        const targetDay = unsnoozing ? dayFolder(new Date()) : oldDay;
+        own(was, `${boxPath(ctx.mailPath, to)}/${targetDay}/${message.name}`);
+        let previousSnooze = null;
+        let fallback = null;
+        const path = await mailWrite(async () => {
+          if (until) {
+            const result = await snooze.snooze(message, until, { background, previews: previewsOn() });
+            fallback = result.background ? null : result.reason;
+            return result.path;
+          }
+          const operation = () => moveMessage({ fs: ctx.fs, mailPath: ctx.mailPath,
+            message: { ...message, day: targetDay }, to, dirs: madeDirs });
+          if (from === 'snoozed') {
+            const result = await snooze.leave(message, operation);
+            previousSnooze = result.previous;
+            if (unsnoozing) await snooze.markReturned(message.name, result.result).catch(() => {});
+            return result.result;
+          }
+          const path = await operation();
+          if (from === 'inbox') await snooze.forgetPromotion(message.name).catch(() => {});
+          return path;
+        });
         boxes[from].remove(message);
-        moved.push({ unit, message, from, was, restoring });
+        moved.push({ unit, message, from, was, restoring, oldDay, previousSnooze, fallback });
         gone.get(unit).push(message);
         message.path = path;
         message.box = to;
+        message.day = targetDay;
+        if (unsnoozing) message.wakeAt = Date.now();
+        else delete message.wakeAt;
         // Restoring should put a message back where it came from, not
         // wherever the default is; Sent mail deleted by mistake is the case
         // that makes the difference.
         if (!restoring && (to === 'trash' || to === 'archive')) {
-          originState.set(message.name, from);
+          originState.set(message.name, from === 'snoozed' ? 'inbox' : from);
         } else {
           originState.clear(message.name);
         }
@@ -2078,17 +2157,28 @@ export function renderApp(root, ctx) {
 
   const undo = async (moved) => {
     let failed = 0;
+    const restoredSnoozes = [];
     const onProgress = progressLine('Restoring', moved.length);
     // Which messages went back into which conversation, so one is put back
     // once rather than once per message in it.
     const back = new Map();
-    await eachInFlight([...moved].reverse(), async ({ unit, message, from, was, restoring }) => {
+    await eachInFlight([...moved].reverse(), async ({ unit, message, from, was, restoring, oldDay, previousSnooze }) => {
       // Where the move had put it, which for a restore is where it came from.
       const landed = message.box;
       try {
         own(message.path, was);
-        await mailWrite(() =>
-          moveMessage({ fs: ctx.fs, mailPath: ctx.mailPath, message, to: from, dirs: madeDirs }));
+        await mailWrite(async () => {
+          const operation = () => moveMessage({ fs: ctx.fs, mailPath: ctx.mailPath,
+            message: { ...message, day: oldDay ?? message.day }, to: from, dirs: madeDirs });
+          if (landed === 'snoozed') await snooze.leave(message, operation);
+          else await operation();
+          if (previousSnooze) {
+            const result = await snooze.restore(message, {
+              ...previousSnooze, token: crypto.randomUUID(), scheduleId: undefined,
+            }, Boolean(previousSnooze.scheduleId));
+            restoredSnoozes.push({ fallback: result.background ? null : result.reason });
+          }
+        });
         // The folder the move had filed it in may have been opened since, and
         // listed the file under an entry of its own. The file has left it, so
         // the entry and its row go too: they stayed, over a file that was no
@@ -2104,6 +2194,8 @@ export function renderApp(root, ctx) {
         }
         message.path = was;
         message.box = from;
+        message.day = oldDay ?? message.day;
+        delete message.wakeAt;
         boxes[from].insert(message);
         // Undoing a filing forgets the origin the filing recorded. Undoing a
         // restore puts the message back in the folder it was filed in, and
@@ -2127,7 +2219,8 @@ export function renderApp(root, ctx) {
     for (const [unit, messages] of back) grow(unit, messages, owners);
     renderAfterChange();
     toast(
-      failed ? `Could not restore ${describe(failed)}.` : `Restored ${describe(moved.length - failed)}.`,
+      (failed ? `Could not restore ${describe(failed)}.` : `Restored ${describe(moved.length - failed)}.`)
+        + snoozeFallback(restoredSnoozes),
       { iconName: failed ? 'alert' : 'undo' },
     );
   };
@@ -2273,7 +2366,7 @@ export function renderApp(root, ctx) {
     onclick: emptyTrash,
   }, el('span.btn-icon', { html: icon('trash', 15) }), 'Empty Trash now');
 
-  // Sits above the rows in Trash, the way Gmail's does: the one folder with
+  // Sits above the rows in Trash: the one folder with
   // an action that applies to all of it and cannot be undone.
   const trashNote = el('div.folder-note', {},
     el('span.folder-note-text', {}, 'Messages in Trash stay here until you delete them for good.'),
@@ -2316,6 +2409,65 @@ export function renderApp(root, ctx) {
     });
   };
 
+  const performSnooze = async (list, until) => {
+    list = idle(list);
+    if (!list.length) return;
+    const background = await snooze.consent();
+    list = idle(list);
+    if (!list.length) return;
+    const changing = list.every((unit) => unit.latest.box === 'snoozed');
+    if (changing) {
+      const changed = [];
+      let failed = 0;
+      await eachInFlight(messagesOf(list), async (message) => {
+        const previous = snooze.get(message.name);
+        writing.add(message);
+        try {
+          const result = await snooze.snooze(message, until, { background, previews: previewsOn() });
+          changed.push({ message, previous, fallback: result.background ? null : result.reason });
+        } catch { failed++; }
+        finally { writing.delete(message); }
+      });
+      for (const unit of list) updateRow(unit);
+      if (!changed.length) {
+        toast('Could not change snooze time.', { iconName: 'alert' });
+        return;
+      }
+      toast(`Snoozed until ${snoozeTime(until)}.${failed ? ` ${failed} could not be changed.` : ''}`
+        + snoozeFallback(changed), {
+        iconName: 'clock', action: { label: 'Undo', onSelect: async () => {
+          for (const { message, previous } of changed) {
+            if (!previous) continue;
+            await snooze.snooze(message, previous.until, {
+              background: Boolean(previous.scheduleId), previews: previous.previews,
+            }).catch(() => toast('Could not restore snooze time.', { iconName: 'alert' }));
+          }
+          for (const unit of list) updateRow(unit);
+        } },
+      });
+      return;
+    }
+    const at = Math.max(0, visibleRows().indexOf(list[0].row));
+    const { moved, failed } = await move(list, 'snoozed', { until, background,
+      onProgress: progressLine('Snoozing', countOf(list)) });
+    renderAfterChange();
+    restoreFocus(at);
+    if (!moved.length) {
+      toast('Could not snooze messages.', { iconName: 'alert' });
+      return;
+    }
+    toast(`Snoozed until ${snoozeTime(until)}.${failed ? ` ${failed} could not be snoozed.` : ''}`
+      + snoozeFallback(moved), {
+      iconName: 'clock', action: { label: 'Undo', onSelect: () => undo(moved) },
+    });
+  };
+
+  const snoozeFallback = (results) => {
+    if (!results.some((result) => result.fallback)) return '';
+    return (results.some((result) => result.fallback === 'events_schedule_limit')
+      ? ' Background schedule limit reached.' : '') + ' It will come back when Mail is open.';
+  };
+
   const runAction = async (id, list) => {
     // What is already on its way somewhere is not sent again.
     if (id !== 'discard') list = idle(list);
@@ -2324,6 +2476,11 @@ export function renderApp(root, ctx) {
     // that has it off the page.
     const at = Math.max(0, visibleRows().indexOf(list[0].row));
     const count = countOf(list);
+    if (id === 'snooze' || id === 'resnooze') {
+      openSnooze((until) => performSnooze(list, until),
+        id === 'resnooze' ? snooze.get(list[0].latest.name)?.until : null);
+      return;
+    }
     if (id === 'discard') {
       discardDrafts(list);
       restoreFocus(at);
@@ -2359,7 +2516,7 @@ export function renderApp(root, ctx) {
     let failed = 0;
     const onProgress = progressLine(ACTIONS[id].busy, count);
     for (const [to, group] of groups) {
-      const result = await move(group, to, { restoring: id === 'restore', onProgress });
+      const result = await move(group, to, { restoring: id === 'restore', unsnoozing: id === 'unsnooze', onProgress });
       moved.push(...result.moved);
       failed += result.failed;
     }
@@ -2552,7 +2709,7 @@ export function renderApp(root, ctx) {
         : `${shown} starred message${shown === 1 ? '' : 's'}`;
     } else if (folder === 'drafts') {
       meta.textContent = `${total} draft${total === 1 ? '' : 's'}`;
-    } else if (folder === 'sent' || folder === 'archive' || folder === 'trash') {
+    } else if (folder === 'sent' || folder === 'archive' || folder === 'trash' || folder === 'snoozed') {
       meta.textContent = describeFolder(total);
     } else {
       const unread = readState.unreadCount(mailbox().messages.map((m) => m.name));
@@ -2568,7 +2725,7 @@ export function renderApp(root, ctx) {
 
   /**
    * Starred filters conversations -- one starred message makes the whole
-   * conversation starred, the way it does in Gmail. Search does not: it
+   * conversation starred. Search does not: it
    * answers about messages, and a result stands for the one message it found.
    */
   const matchesMessage = (message) => {
@@ -3072,6 +3229,7 @@ export function renderApp(root, ctx) {
       const EMPTY = {
         sent: ['send', 'Nothing sent yet.',
           'A copy of every message you send is filed here, in your own account.'],
+        snoozed: ['clock', 'Nothing snoozed.', 'Snoozed messages return to the inbox at the time you choose.'],
         archive: ['archive', 'Nothing archived.',
           'Archived messages are kept out of the inbox but never deleted. They stay in your account.'],
         trash: ['trash', 'Trash is empty.',
@@ -3783,7 +3941,7 @@ export function renderApp(root, ctx) {
       /**
        * The copy of the message above that a reply carries at the end of
        * itself. In a conversation it is on screen twice, so it is folded away
-       * behind a control the way Gmail folds it -- and only in a conversation,
+       * behind a control, and only in a conversation,
        * because a message on its own has nothing above it to repeat.
        */
       const folded = splitQuotedTail(text);
@@ -4086,8 +4244,7 @@ export function renderApp(root, ctx) {
       onToggle();
     };
 
-    // The whole line opens and closes the message under the pointer, the way
-    // it does in Gmail. The head carries controls of its own -- the name,
+    // The whole line opens and closes the message. Its controls -- the name,
     // which is the toggle the keyboard and a screen reader use, the
     // Unsubscribe link, the menu beside the date and whatever that menu opens
     // -- and a press on one of those is not a press on the line: the menu
@@ -4203,7 +4360,7 @@ export function renderApp(root, ctx) {
 
   /**
    * Reply, Reply all and Forward, on the conversation's newest message --
-   * which is the one an answer belongs under, and the one Gmail answers too.
+   * which is the one an answer belongs under.
    * The keyboard's `r`, `a` and `f` press the same three.
    */
   const buildReplies = (node, card) => {
@@ -4586,6 +4743,10 @@ export function renderApp(root, ctx) {
     // going to Trash.
     if (e.key === 'Shift' || e.key === 'CapsLock' || e.key === 'AltGraph') return;
     if (typingIn(e.target) || overlayOpen()) return;
+    // A key pressed inside puter.js's account menu (usermenu.js) is that
+    // menu's: it arrives here from the element itself, and Escape closing
+    // its menu would have closed the open message as well.
+    if (e.target instanceof Element && e.target.closest('puter-user-menu')) return;
 
     // Mid-chord, the key means a folder and nothing else -- including when it
     // names no folder, which ends the chord rather than falling through to
@@ -4645,7 +4806,7 @@ export function renderApp(root, ctx) {
       case 'j':
       case 'k': {
         // With a message open, the same keys read on to the next or the
-        // previous conversation -- what they do in Gmail's reader, and what
+        // previous conversation, which
         // lets a folder be read through without going back to the list.
         // Moving the keyboard through rows covered by the reader, which is
         // the whole screen on a phone, would put focus where nobody can see.
@@ -4699,6 +4860,11 @@ export function renderApp(root, ctx) {
         e.preventDefault();
         setRead(here, unitUnread(unit));
         return;
+      case 'b':
+        if (!ACTIONS_BY_VIEW[folder]?.includes('snooze') && folder !== 'snoozed') return;
+        e.preventDefault();
+        runAction(folder === 'snoozed' ? 'resnooze' : 'snooze', here);
+        return;
       case 'e':
         if (!ACTIONS_BY_VIEW[folder]?.includes('archive')) return;
         e.preventDefault();
@@ -4725,6 +4891,11 @@ export function renderApp(root, ctx) {
     const box = mailbox();
     const revision = ++folderLoadRevision;
     const active = () => box === mailbox() && revision === folderLoadRevision && frame.isConnected;
+    if (ctx.kv) {
+      await initialSnoozes;
+      await snooze.pull().catch(() => {});
+    }
+    if (!active()) return false;
     try {
       await box.open();
     } catch (e) {
@@ -4759,46 +4930,272 @@ export function renderApp(root, ctx) {
 
   // -- new mail ---------------------------------------------------------------
 
-  const notifyWanted = () => {
+  /**
+   * Two ways to hear about new mail. Pushes, where this Puter has them: the
+   * published handler notifies, and the notification reaches this browser
+   * whether or not the app is open. They are on per account and per browser,
+   * since enable() registers the browser it runs in. Failing that, the tab
+   * shows a Notification itself while it is open but not looked at.
+   */
+  let browserPushStatus = 'off';
+  let subscriptionReady = false;
+  // Why the account's new-mail subscription will not run (see subscriptionIssue).
+  let subscriptionProblem = null;
+  const pushOn = () => Boolean(ctx.canPush) && browserPushStatus === 'on';
+  const refreshPushStatus = async () => {
+    if (ctx.canPush) browserPushStatus = await notificationStatus();
+    return pushOn();
+  };
+
+  const previewsOn = () => settings.get('notifyPreviews', true);
+  const notifyOff = () => {
     try {
-      return storage.getItem(NOTIFY_LS_KEY) === '1'
-        && window.Notification?.permission === 'granted';
+      return storage.getItem(NOTIFY_OFF_LS_KEY) === '1';
     } catch {
       return false;
     }
   };
+  const rememberNotifyOff = (off) => {
+    try {
+      if (off) storage.setItem(NOTIFY_OFF_LS_KEY, '1');
+      else storage.removeItem(NOTIFY_OFF_LS_KEY);
+    } catch {}
+  };
+  const tabNotifyOn = () => !notifyOff() && window.Notification?.permission === 'granted';
+  // With pushes the switch is this browser's push status; the tab's own
+  // banner stays the fallback while one is open.
+  const notifyWanted = () => (ctx.canPush ? pushOn() : tabNotifyOn());
+  const currentHealth = () => pushHealth({
+    canPush: Boolean(ctx.canPush),
+    off: notifyOff(),
+    homeScreen: pushNeedsHomeScreen(),
+    env: globalThis.puter?.env === 'app' ? 'app' : 'web',
+    status: browserPushStatus,
+    permission: window.Notification?.permission,
+    subscription: subscriptionProblem,
+  });
 
-  const setNotify = async (on) => {
-    const remember = (value) => {
-      try {
-        storage.setItem(NOTIFY_LS_KEY, value);
-      } catch {}
-    };
-    if (!on) {
-      remember('0');
-      toast('New mail notifications are off.', { iconName: 'bell' });
+  const noticeSnoozed = (health) => {
+    try {
+      const put = JSON.parse(storage.getItem(PUSH_NOTICE_LS_KEY) ?? 'null');
+      return put?.health === health && put.until > Date.now();
+    } catch {
+      return false;
+    }
+  };
+  const asked = () => {
+    try {
+      return Boolean(storage.getItem(NOTIFY_ASKED_LS_KEY));
+    } catch {
+      return true;
+    }
+  };
+
+  const updatePushNotice = () => {
+    if (!frame.isConnected) return;
+    const health = currentHealth();
+    const text = ctx.sample ? null : healthText(health);
+    // Not yet asked here: the first click asks, which says it better.
+    const waiting = health === 'not-set-up' && window.Notification?.permission === 'default' && !asked();
+    if (!text || waiting || noticeSnoozed(health)) {
+      pushNotice.hidden = true;
+      clear(pushNotice);
       return;
     }
+    const action = healthAction(health);
+    clear(pushNotice);
+    append(pushNotice, [
+      el('span.btn-icon', { html: icon('bell', 15), 'aria-hidden': 'true' }),
+      el('span.push-notice-text', {}, text),
+      action && el('button.btn.btn-small', {
+        type: 'button',
+        // From the click: turnOnPush() reaches enable() before any await.
+        onclick: action === 'turn-on' ? () => setNotify(true)
+          : action === 'unblock' ? () => openUnblockHint()
+            : () => openHomeScreenHint(),
+      }, action === 'turn-on' ? 'Turn on' : action === 'unblock' ? 'How to allow' : 'How to set up'),
+      el('button.icon-btn', {
+        type: 'button', html: icon('x', 16), 'aria-label': 'Dismiss', title: 'Dismiss',
+        onclick: () => {
+          try {
+            storage.setItem(PUSH_NOTICE_LS_KEY, JSON.stringify({ health, until: Date.now() + PUSH_NOTICE_SNOOZE_MS }));
+          } catch {}
+          pushNotice.hidden = true;
+        },
+      }),
+    ]);
+    pushNotice.hidden = false;
+  };
+
+  // What the handler runs with: whether to name sender and subject, and the
+  // user's own addresses, whose mail to themselves is not announced.
+  const pushContext = () => ({ previews: previewsOn(), self: [...ownAddresses] });
+
+  const pushProblem = (error) => {
+    const code = pushErrorCode(error);
+    if (code.startsWith('push_')) return 'This browser could not be set up for notifications.';
+    switch (code) {
+      case 'events_handler_not_found':
+      case 'events_handler_hash_mismatch':
+        return 'New mail notifications are not set up for this app yet.';
+      case 'events_handler_suspended':
+        return 'The notification handler needs to be published again.';
+      case 'insufficient_funds':
+        return 'Background notifications are paused until your Puter account has credit.';
+      case 'events_background_consent_required':
+        return 'Notifications need permission to run while Puter Mail is closed.';
+      case 'events_durable_requires_account':
+        return 'Notifications need a full Puter account.';
+      case 'events_disabled':
+        return 'This Puter server cannot run tasks in the background.';
+      case 'events_subscription_limit':
+      case 'too_many_requests':
+        return 'Too many requests. Try again in a moment.';
+      default:
+        return error?.message || 'Something went wrong.';
+    }
+  };
+
+  // Pushes could not be had, but the tab can still say so while it is open.
+  // Returns whether it will.
+  const fallBackToTab = (why) => {
+    if (window.Notification?.permission !== 'granted') {
+      toast(why, { iconName: 'alert' });
+      return false;
+    }
+    toast(`${why} You will be notified while Puter Mail is open.`, { iconName: 'bell' });
+    return true;
+  };
+
+  // One run at a time: the first-gesture ask and the welcome dialog's button
+  // can start together. turnOnPush() reaches enable() synchronously.
+  let pushing = null;
+  const startPush = () => (pushing ??= turnOnPush(pushContext()).finally(() => {
+    pushing = null;
+  }));
+
+  // From a click: nothing may be awaited before turnOnPush() reaches the
+  // browser's prompt.
+  const enablePush = async () => {
+    if (pushNeedsHomeScreen()) {
+      openHomeScreenHint();
+      return false;
+    }
+    const working = toast('Turning on notifications…', { iconName: 'bell', duration: 60_000 });
+    let result;
+    try {
+      result = await startPush();
+    } catch (error) {
+      working();
+      subscriptionProblem = subscriptionIssue(error) ?? subscriptionProblem;
+      await refreshPushStatus();
+      return fallBackToTab(pushProblem(error));
+    }
+    working();
+    if (result === 'declined') subscriptionProblem = 'permission_revoked';
+    if (result === 'on') {
+      subscriptionProblem = null;
+      await refreshPushStatus();
+      subscriptionReady = true;
+      toast(pushOn() ? 'You will be notified when mail arrives.' : 'Notification setup saved. This browser is being confirmed.',
+        { iconName: 'bell' });
+      return pushOn();
+    }
+    if (result === 'unavailable') return fallBackToTab('This Puter server does not send push notifications.');
+    await refreshPushStatus();
+    let why = 'This browser did not turn on notifications.';
+    if (result === 'declined') why = 'Notifications need permission to run while Puter Mail is closed.';
+    else if (browserPushStatus === 'blocked') why = 'Notifications are blocked for this site.';
+    toast(why, { iconName: 'alert' });
+    return false;
+  };
+
+  // Where this Puter has no pushes at all.
+  const enableTabNotify = async () => {
     if (!window.Notification) {
       toast('This browser cannot show notifications.', { iconName: 'alert' });
-      return;
+      return false;
     }
     let permission = Notification.permission;
     // Only a user gesture may ask, which is why this lives in a menu.
     if (permission === 'default') permission = await Notification.requestPermission();
     if (permission !== 'granted') {
-      remember('0');
       toast('Notifications are blocked for this site.', { iconName: 'alert' });
+      return false;
+    }
+    toast('You will be notified when mail arrives.', { iconName: 'bell' });
+    return true;
+  };
+
+  /** Resolves whether notifications ended up on. */
+  const setNotify = async (on) => {
+    rememberNotifyOff(!on);
+    if (on) {
+      const turning = ctx.canPush ? enablePush() : enableTabNotify();
+      turning.finally(updatePushNotice).catch(() => {});
+      return turning;
+    }
+    if (ctx.canPush) {
+      subscriptionReady = false;
+      await turnOffPush();
+      await refreshPushStatus();
+    }
+    updatePushNotice();
+    toast('New mail notifications are off.', { iconName: 'bell' });
+    return false;
+  };
+
+  // The handler's `context` is fixed when its subscription is made, so this
+  // makes a new one.
+  const setPreviews = async (on) => {
+    settings.set('notifyPreviews', on);
+    try {
+      await ensureSubscription(pushContext(), { replace: true });
+    } catch (error) {
+      settings.set('notifyPreviews', !on);
+      toast(`Could not change notifications: ${pushProblem(error)}`, { iconName: 'alert' });
       return;
     }
-    remember('1');
-    toast('You will be notified when mail arrives.', { iconName: 'bell' });
+    toast(on ? 'Notifications show the sender and subject.' : 'Notifications only say that mail arrived.',
+      { iconName: 'bell' });
+  };
+
+  /**
+   * What a click on a new-mail notification asks to see: the message, where
+   * `wanted` finds it in the inbox, else the top of the inbox. A search on
+   * screen is cleared first, since what arrived is in the folder and not
+   * necessarily in the results. A tap can open the app before the inbox is
+   * listed, or before the message it is about has been, so `wait` lists both.
+   */
+  const showArrived = async (wanted, { wait = false } = {}) => {
+    if (!frame.isConnected) return;
+    if (searching()) {
+      searchInput.value = '';
+      clearTimeout(searchTimer);
+      runSearch('');
+    }
+    if (folder !== 'inbox') setFolder('inbox');
+    clearNewMail();
+    if (wait && wanted) {
+      if (!listed.has('inbox')) await loadFolder();
+      if (!units.some(wanted)) await syncInbox();
+      if (!frame.isConnected || folder !== 'inbox') return;
+    }
+    const one = wanted ? units.find(wanted) : null;
+    if (one) {
+      openConversation(one);
+      return;
+    }
+    if (frame.classList.contains('reading')) closeReader({ focusRow: false });
+    listEl.scrollTop = 0;
+    visibleRows()[0]?.focus();
   };
 
   const notifyNewMail = async (added) => {
     // A notification while the user is looking at the app would tell them
-    // something they can already see.
-    if (!notifyWanted() || document.hasFocus()) return;
+    // something they can already see. With pushes on, Puter's notification
+    // is the one: a page in the background shows it itself.
+    if ((pushOn() && subscriptionReady) || !tabNotifyOn() || document.hasFocus()) return;
     let body = `${added.length} new messages`;
     if (added.length === 1) {
       const [message] = added;
@@ -4817,29 +5214,11 @@ export function renderApp(root, ctx) {
       });
       // The click is the reader asking to see it. One message opens; a
       // handful of them goes to the top of the inbox, which is where they
-      // are. Either way a search that was on screen is cleared first, since
-      // what arrived is in the folder and not necessarily in the results.
+      // are.
       note.onclick = () => {
         window.focus();
         note.close();
-        if (!frame.isConnected) return;
-        if (searching()) {
-          searchInput.value = '';
-          clearTimeout(searchTimer);
-          runSearch('');
-        }
-        if (folder !== 'inbox') setFolder('inbox');
-        clearNewMail();
-        const one = added.length === 1
-          ? units.find((unit) => unit.messages.includes(added[0]))
-          : null;
-        if (one) {
-          openConversation(one);
-          return;
-        }
-        if (frame.classList.contains('reading')) closeReader({ focusRow: false });
-        listEl.scrollTop = 0;
-        visibleRows()[0]?.focus();
+        showArrived(added.length === 1 ? (unit) => unit.messages.includes(added[0]) : null);
       };
     } catch {
       // Some browsers only allow notifications from a service worker.
@@ -4885,7 +5264,7 @@ export function renderApp(root, ctx) {
         updateRow(found);
         optionsEl.prepend(found.row ?? buildRow(found));
         // The conversation it answers is open: the reply goes under what is
-        // being read, opened, the way one landing does in Gmail. The row
+        // being read, opened. The row
         // said four messages and the reader three until it was closed and
         // opened again, with a pill announcing mail that was already there.
         if (opened === found) {
@@ -5233,6 +5612,7 @@ export function renderApp(root, ctx) {
     if (frame.isConnected) return;
     observer.disconnect();
     originState.flush();
+    clearInterval(snoozeTimer);
     shellListeners.abort();
     searchController?.abort();
     historyController?.abort();
@@ -5253,6 +5633,8 @@ export function renderApp(root, ctx) {
       observer.disconnect();
       stopWatching();
       stopPolling();
+      // The next shell may be another account's.
+      stopListening();
     }).observe(root, { childList: true });
 
     // A tab coming back is when the answer matters most -- and the moment a
@@ -5273,11 +5655,15 @@ export function renderApp(root, ctx) {
       startWatching();
       syncInbox();
       pullFlags();
+      checkSnoozes();
+      if (ctx.canPush && !ctx.sample) checkPush();
+      if (folder === 'inbox' && !ctx.sample) dismissNewMail().catch(() => {});
     }, listening);
     window.addEventListener('online', () => {
       if (!frame.isConnected) return;
       startWatching();
       syncInbox();
+      checkSnoozes();
     }, listening);
     // Offline, every check is a failure waiting to happen.
     window.addEventListener('offline', stopPolling, listening);
@@ -5326,9 +5712,118 @@ export function renderApp(root, ctx) {
   });
   listRefreshBtn.addEventListener('click', refresh);
 
-  setFolder('inbox');
-  startWatching();
+  const checkSnoozes = async () => {
+    const returned = await snooze.wakeDue().catch(() => []);
+    if (!frame.isConnected || !returned.length) return;
+    invalidate('snoozed');
+    invalidate('inbox');
+    for (const { id, name, record } of returned) {
+      const subject = subjectFromFilename(name) || '(no subject)';
+      await ctx.notifications?.notify({
+        title: 'Snoozed message', text: subject.slice(0, 240),
+        target: `/?message=${id}`, data: { id }, channel: 'mail', group: `snooze-${id}`,
+        ...(record.previews === false ? { sensitive: true } : {}),
+      }).catch(() => {});
+    }
+    toast(`${describe(returned.length)} returned to the inbox.`, { iconName: 'clock' });
+  };
+  const snoozeTimer = ctx.sample ? null : setInterval(checkSnoozes, 30_000);
+  const initialSnoozes = checkSnoozes();
+  Promise.resolve(setFolder('inbox')).then(() => { if (frame.isConnected) startWatching(); });
   pullFlags(true);
+  // Notifications are on unless turned off. Where this browser already allows
+  // them, pushes are turned on without asking; where it hasn't decided, it is
+  // asked once, from the first click or key press.
+  const browserAllows = async () => (globalThis.puter?.env !== 'app'
+    ? window.Notification?.permission === 'granted'
+    : Boolean(await Promise.resolve(globalThis.puter?.notifications?.hasPermission?.()).catch(() => false)));
+  const autoNotify = async () => {
+    if (ctx.sample || notifyOff() || !frame.isConnected) return;
+    const web = globalThis.puter?.env !== 'app';
+    if (web && !window.Notification) return;
+    if (ctx.canPush) {
+      if (pushNeedsHomeScreen()) return;
+      if (await browserAllows()) {
+        await quietPush();
+        return;
+      }
+    } else if (Notification.permission === 'granted') return;
+    if (web && Notification.permission === 'denied') return;
+    try {
+      if (storage.getItem(NOTIFY_ASKED_LS_KEY)) return;
+    } catch {
+      return;
+    }
+    const ask = () => {
+      document.removeEventListener('pointerdown', ask, true);
+      document.removeEventListener('keydown', ask, true);
+      try {
+        storage.setItem(NOTIFY_ASKED_LS_KEY, '1');
+      } catch {}
+      // Synchronously from the gesture, so the browser shows its prompt.
+      if (ctx.canPush) quietPush();
+      else Notification.requestPermission().catch(() => {});
+    };
+    document.addEventListener('pointerdown', ask, true);
+    document.addEventListener('keydown', ask, true);
+  };
+  // Not from a control of its own: Puter's "Notifications are on" push is the
+  // confirmation, and failures are only logged.
+  const quietPush = () => startPush().then(async (result) => {
+    if (result === 'declined') subscriptionProblem = 'permission_revoked';
+    if (result !== 'on') return;
+    subscriptionProblem = null;
+    await refreshPushStatus();
+    subscriptionReady = true;
+  }).catch((error) => {
+    subscriptionProblem = subscriptionIssue(error) ?? subscriptionProblem;
+    console.warn('[puter-mail] notifications not turned on', error);
+  }).finally(async () => {
+    await refreshPushStatus().catch(() => {});
+    updatePushNotice();
+  });
+
+  /**
+   * Repair what can be repaired without asking, and say what cannot: on
+   * load, and when the tab comes back. Pushes meant to be on where the
+   * browser allows them are turned on again; with them on, the account's
+   * subscription is made again if it lapsed, or its suspension is named.
+   */
+  let pushCheckedAt = 0;
+  let pushChecking = null;
+  const checkPush = ({ load = false } = {}) => {
+    if (!load && Date.now() - pushCheckedAt < PUSH_CHECK_MS) return pushChecking;
+    pushCheckedAt = Date.now();
+    pushChecking = (async () => {
+      const on = await refreshPushStatus().catch(() => false);
+      if (!frame.isConnected) return;
+      if (!on) {
+        if (load) await autoNotify();
+        else if (!notifyOff() && !pushNeedsHomeScreen() && await browserAllows()) await quietPush();
+        updatePushNotice();
+        return;
+      }
+      listenForPushes();
+      try {
+        await ensureSubscription(pushContext());
+        subscriptionReady = true;
+        subscriptionProblem = null;
+      } catch (error) {
+        subscriptionReady = false;
+        subscriptionProblem = subscriptionIssue(error);
+        console.warn('[puter-mail] new-mail subscription', pushErrorCode(error) || error);
+        // A problem the notice names is said there; anything else, once.
+        if (load && !subscriptionProblem) fallBackToTab(pushProblem(error));
+      }
+      updatePushNotice();
+    })().finally(() => {
+      pushChecking = null;
+    });
+    return pushChecking;
+  };
+
+  if (!ctx.canPush && !ctx.sample) autoNotify();
+  if (ctx.canPush && !ctx.sample) checkPush({ load: true });
   return {
     mailWrite,
     async refreshInbox() {
@@ -5338,5 +5833,13 @@ export function renderApp(root, ctx) {
       setFolder('inbox');
       await refresh();
     },
+    /** Turn notifications on, from a click. Resolves whether they are on. */
+    enableNotifications: () => setNotify(true),
+    notificationsOn: () => refreshPushStatus(),
+    /** Open the message a notification was about, by its id. */
+    openMessage: (id) => showArrived(
+      id ? (unit) => unit.messages.some((message) => flagId(message.name) === id) : null,
+      { wait: true },
+    ),
   };
 }

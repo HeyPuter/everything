@@ -12,12 +12,13 @@ import { defineBullet, defineNumberFormat, adjustListIndents, defineMultilevelLi
 import { styleUsage, styleRanges, deleteStyle, styleDeletionBlocker, createStyleFromSelection } from '../engine/style-management.js';
 import { similarFormatCondition, similarFormattingRanges } from '../engine/format-inspection.js';
 import { advancedFind as findAdvanced } from '../engine/advanced-search.js';
+import { hiddenRun } from '../engine/hidden-text.js';
 import { directParagraph, directRun } from '../engine/home-editing.js';
 import { PASTE_MODES, pastePayload, availablePasteModes } from '../engine/paste-modes.js';
 import { fragmentHtml } from '../engine/clipboard-fragment.js';
 import { levelFor } from '../engine/numbering.js';
 import { styleDisplayName } from '../lib/style-names.js';
-import { openFontDialog } from './font-dialog.js';
+import { openFontDialog, selectsEastAsianText } from './font-dialog.js';
 import { openParagraphDialog } from './paragraph-dialog.js';
 import { openTabsDialog } from './tabs-dialog.js';
 import { openBordersAndShading } from './borders-shading.js';
@@ -68,7 +69,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     engine.finishComposition();
     const [start, end] = engine.model.range;
     const format = seed ? { ...NULL_RUN, ...seed } : engine.model.runCommandFormatting;
-    return track(openFontDialog({ title, format, sample: engine.model.text.slice(start, end), onClose: capture ? null : later,
+    return track(openFontDialog({ title, format, sample: engine.model.text.slice(start, end), onClose: capture ? null : later, eastAsian: selectsEastAsianText(engine.model.text, [start, end]),
       ligatures: !capture && !!engine.model.styles?.openTypeFeatures,
       textEffects: capture || readOnly() ? null : () => textEffectsDialog(),
       setDefault: capture || readOnly() ? null : async (patch, fail) => {
@@ -82,9 +83,9 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       },
       apply: async (patch, fail) => {
         if (capture) { capture(patch); return true; }
-        if (patch.fontAscii) {
-          await prepareCanvasFont(patch.fontAscii);
-          if (documentFontAvailable(patch.fontAscii, engine.model.styles.fontAlternatives) !== true) { fail(new Error(`${patch.fontAscii} could not be loaded on this device. Choose another font.`)); return false; }
+        for (const name of new Set([patch.fontAscii, patch.fontEastAsia].filter(Boolean))) {
+          await prepareCanvasFont(name);
+          if (documentFontAvailable(name, engine.model.styles.fontAlternatives) !== true) { fail(new Error(`${name} could not be loaded on this device. Choose another font.`)); return false; }
         }
         if (editor() !== engine) return false;
         return engine.execute(() => engine.model.setRunFormat(patch), fail, undefined, true);
@@ -342,6 +343,24 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     return stories;
   };
   const storyParagraphs = (engine, path) => engine.session.models?.get(path)?.paragraphs || engine.pageStories.stories[path].paragraphs;
+  function replaceIn(engine, query, text, options, all) {
+    if (options.scope !== 'headers') {
+      if (options.scope !== 'selection' && engine.session.path !== null) engine.editStory(null);
+      return engine.replaceMatches(query, text, options, all);
+    }
+    if (!all) return engine.session.path === null ? 0 : engine.replaceMatches(query, text, options, false);
+    let total = 0;
+    // Every header and footer changed is one undo step, Replace All.
+    engine.transact(() => {
+      for (const story of searchStories(engine)) {
+        const found = findAdvanced(storyParagraphs(engine, story.path), query, { ...options, ...(options.visibleOnly ? { hidden: hiddenRun } : {}) }, { styles: engine.model.styles, numbering: engine.model.numbering });
+        if (!found.length) continue;
+        if (engine.session.path !== story.path) engine.editStory(story.path, story.page);
+        total += engine.replaceMatches(query, text, options, true);
+      }
+    });
+    return total;
+  }
   const findApi = {
     scopes: () => [['headers', 'Headers and footers']],
     // A match without a story is in the body.
@@ -357,7 +376,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       }
       if (options.scope !== 'headers') return engine.session.body.findMatches(query, options);
       const body = engine.session.body || engine.model;
-      return searchStories(engine).flatMap(story => findAdvanced(storyParagraphs(engine, story.path), query, { ...options, within: undefined }, { styles: body.styles, numbering: body.numbering }).map(m => ({ ...m, story })));
+      return searchStories(engine).flatMap(story => findAdvanced(storyParagraphs(engine, story.path), query, { ...options, within: undefined, ...(options.visibleOnly ? { hidden: hiddenRun } : {}) }, { styles: body.styles, numbering: body.numbering }).map(m => ({ ...m, story })));
     },
     select(match) {
       const engine = editor(); if (!engine) return;
@@ -368,19 +387,10 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     highlight(matches) { const engine = editor(); engine?.setFindHighlights(matches.filter(m => (m.story?.path ?? null) === engine.session.path)); },
     replace(query, text, options, all) {
       const engine = editor(); if (!engine) return 0;
-      if (options.scope !== 'headers') {
-        if (options.scope !== 'selection' && engine.session.path !== null) engine.editStory(null);
-        return engine.replaceMatches(query, text, options, all);
-      }
-      if (!all) return engine.session.path === null ? 0 : engine.replaceMatches(query, text, options, false);
-      let total = 0;
-      for (const story of searchStories(engine)) {
-        const found = findAdvanced(storyParagraphs(engine, story.path), query, options, { styles: engine.model.styles, numbering: engine.model.numbering });
-        if (!found.length) continue;
-        if (engine.session.path !== story.path) engine.editStory(story.path, story.page);
-        total += engine.replaceMatches(query, text, options, true);
-      }
-      return total;
+      // Named in Undo (Edit › Undo Replace All), as a command chosen from a menu is; a refused one leaves no name.
+      commandsRef().noteCommand?.(all ? 'Replace All' : 'Replace');
+      const revision = engine.session.revision;
+      try { return replaceIn(engine, query, text, options, all); } finally { if (engine.session.revision === revision) commandsRef().noteCommand?.(null); }
     },
     chooseFont: (seed, done) => fontDialog({ title: 'Find Font', seed: Object.fromEntries(Object.entries(seed || {}).filter(([k]) => k in NULL_RUN)), capture: patch => done(fontCondition(patch)) }),
     chooseParagraph: (seed, done) => {
@@ -452,6 +462,8 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     const current = lastPaste, engine = ready();
     if (!current || !engine || current.engine !== engine || current.revision !== engine.session.revision || current.mode === mode) return;
     engine.undo();
+    // The paste made again is named Paste in Undo, as the first was.
+    commandsRef().noteCommand?.('Paste');
     pasteWith(engine, mode, current.data);
     lastPaste = { ...current, mode, revision: engine.session.revision };
     showChip(engine);
@@ -493,7 +505,10 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     original = engine.pasteData.bind(engine);
     engine.pasteData = (text, html = '') => {
       const before = engine.session.revision;
-      original(text, html);
+      // The paste is named in Undo (Edit › Undo Paste), as a command chosen from a menu is; one that changed nothing
+      // leaves no name for the next edit.
+      commandsRef().noteCommand?.('Paste');
+      try { original(text, html); } finally { if (engine.session.revision === before) commandsRef().noteCommand?.(null); }
       if (engine.session.revision !== before && (text || html)) remember(engine, { text, html }, html ? 'keep' : 'text');
     };
     engine.input.addEventListener('keydown', e => { if (chip && !['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) hideChip(); });

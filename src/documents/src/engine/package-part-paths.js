@@ -1,4 +1,4 @@
-import { deflateSync, zipSync } from 'fflate';
+import { deflateSync, unzipSync, zipSync } from 'fflate';
 
 // OPC relationship targets are relative to the owning part, not the package's
 // main document. Keep names encoded as stored in the ZIP; do not URL-decode them.
@@ -27,11 +27,67 @@ export function relativePartTarget(sourcePart, targetPart) {
  */
 export function partPathForUrl(parts, url) {
   const encoded = url.pathname.slice(1), decoded = decodeURIComponent(encoded);
-  return Object.hasOwn(parts, decoded) || !Object.hasOwn(parts, encoded) ? decoded : encoded;
+  if (Object.hasOwn(parts, decoded)) return decoded;
+  if (Object.hasOwn(parts, encoded)) return encoded;
+  return packagePartName(parts, decoded) ?? packagePartName(parts, encoded) ?? decoded;
 }
 
-/** The largest DOCX file the editor opens. */
-export const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
+/** The Override element of a parsed [Content_Types].xml root declaring part `path`, compared without regard to case. */
+export function contentTypeOverride(typesRoot, path) {
+  const key = `/${path}`.replace(/[A-Z]+/g, c => c.toLowerCase());
+  return [...typesRoot.children].find(n => n.localName === 'Override' && n.getAttribute('PartName')?.replace(/[A-Z]+/g, c => c.toLowerCase()) === key);
+}
+
+/**
+ * The content type of part `path` in a parsed [Content_Types].xml root, lowercased, or ''. An Override
+ * names the part; otherwise the Default for its extension applies (ECMA-376 Part 2, §10.1.2.4). Part
+ * names and extensions compare without regard to ASCII case, and so do media types (RFC 6838 §4.2).
+ */
+export function partContentType(typesRoot, path) {
+  const override = contentTypeOverride(typesRoot, path);
+  if (override) return (override.getAttribute('ContentType') || '').toLowerCase();
+  const file = path.slice(path.lastIndexOf('/') + 1), dot = file.lastIndexOf('.');
+  if (dot < 0) return '';
+  const extension = file.slice(dot + 1).toLowerCase();
+  const entry = [...typesRoot.children].find(n => n.localName === 'Default' && n.getAttribute('Extension')?.toLowerCase() === extension);
+  return (entry?.getAttribute('ContentType') || '').toLowerCase();
+}
+
+/**
+ * The ZIP item holding part `name`, or null. Part names compare without regard to ASCII case (ECMA-376
+ * Part 2, §9.1.1.1), so a relationship targeting styles.xml names the item word/Styles.xml. The exact
+ * name is preferred; a name that two items match in case-insensitive comparison names neither.
+ */
+export function packagePartName(parts, name) {
+  if (Object.hasOwn(parts, name)) return name;
+  const lower = text => text.replace(/[A-Z]+/g, c => c.toLowerCase()), key = lower(name);
+  const matches = Object.keys(parts).filter(item => lower(item) === key);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/**
+ * The largest DOCX file the editor opens, and the most its parts may expand to. A session holds up to 50 MB
+ * of pictures (validateImageAssets), which are stored as they are; at 20 MB, a document saved with them could
+ * not be opened again. These admit that, with the document's own XML, and still refuse archive bombs.
+ */
+export const MAX_PACKAGE_BYTES = 64 * 1024 * 1024;
+export const MAX_EXPANDED_PACKAGE_BYTES = 128 * 1024 * 1024;
+
+/**
+ * The items of a ZIP archive the user chose, refusing (with `message`) one that expands past `maxBytes` or
+ * holds more than `maxItems` items. fflate allocates each item at the size the archive declares before
+ * inflating it, so a small file declaring gigabytes (a "zip bomb") made the tab allocate and decode them.
+ * `onItem(entry)` sees each item first, as unzipSync's filter does.
+ */
+export function unzipBounded(bytes, { maxBytes = 50 * 1024 * 1024, maxItems = 2000, message = 'The archive expands past the editor limit.', onItem } = {}) {
+  let total = 0, count = 0;
+  return unzipSync(bytes, { filter: entry => {
+    total += entry.originalSize;
+    if (++count > maxItems || total > maxBytes) throw new Error(message);
+    onItem?.(entry);
+    return true;
+  } });
+}
 
 // Pictures in these formats are usually compressed already. Deflating them
 // again on every save costs seconds of main-thread time in picture-heavy

@@ -56,6 +56,30 @@ const arrow = () => {
   return svg;
 };
 
+/**
+ * A fingerprint of how a page looks, from a small drawing of it, for compareDocuments'
+ * renderPage: pages that differ in their pictures or colors, as two scans do, have no words
+ * to tell them apart.
+ */
+export async function pageFingerprint(page) {
+  const natural = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: 96 / Math.max(natural.width, natural.height, 1) });
+  const canvas = el('canvas', {
+    width: Math.max(1, Math.round(viewport.width)),
+    height: Math.max(1, Math.round(viewport.height)),
+  });
+  try {
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    await page.render({ canvasContext: context, viewport }).promise;
+    const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data[i], 0x01000193);
+    return hash >>> 0;
+  } finally {
+    canvas.width = canvas.height = 0;
+  }
+}
+
 export function createCompareView({ oldPdf, newPdf, oldName, newName, result, onClose }) {
   const docs = { old: oldPdf, new: newPdf };
   const geometry = {
@@ -187,7 +211,7 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
           'aria-label': itemLabel(item),
           onclick: () => {
             select(item.index);
-            reveal(item);
+            choose(item);
           },
         },
         el(
@@ -338,6 +362,9 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
   const marksOf = new Map(); // item index -> mark elements
   for (const item of items) {
     const marks = [];
+    // One label for all of a change's marks: an inserted page has a mark per line, and the
+    // label reads through the whole inserted text each time it is made.
+    let title = null;
     const place = (sideName, rects) => {
       const index = sideName === 'old' ? item.entry.oldIndex : item.entry.newIndex;
       const paper = rows[item.row].cells[sideName === 'old' ? 0 : 1].paper;
@@ -348,7 +375,7 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
         const pad = 1;
         const mark = el('div', {
           class: `compare-mark is-${item.type}`,
-          title: itemLabel(item),
+          title: (title ??= itemLabel(item)),
           'data-item': item.index,
         });
         Object.assign(mark.style, {
@@ -460,6 +487,18 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
     const at = visible.findIndex((i) => i.index === item.index);
     live.textContent = `${at + 1} of ${visible.length}: ${itemLabel(item)}`;
   }
+  /**
+   * Show a change chosen in the list. On a narrow screen the list lies over the documents, so
+   * it steps aside, as the page panel does once a page is chosen, and the keyboard goes to
+   * the documents it uncovers.
+   */
+  function choose(item) {
+    if (!side.hidden && window.matchMedia?.('(max-width: 760px)').matches) {
+      showList(false);
+      scroller.focus({ preventScroll: true });
+    }
+    reveal(item);
+  }
   function onListKey(e) {
     const visible = visibleItems();
     if (!visible.length) return;
@@ -480,7 +519,7 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
       options[target.index].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      if (items[selected]) reveal(items[selected]);
+      if (items[selected]) choose(items[selected]);
     }
   }
   function setFilter(key) {
@@ -555,8 +594,9 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
   }
   async function draw(paper) {
     const target = scale;
+    let page = null;
     try {
-      const page = await docs[paper.side].getPage(paper.index + 1);
+      page = await docs[paper.side].getPage(paper.index + 1);
       if (destroyed || !paper.visible || target !== scale) return;
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
       let viewport = page.getViewport({ scale: target * ratio });
@@ -583,6 +623,10 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
     } catch {
       /* A cancelled or failed drawing leaves the page blank; it is retried when shown again. */
       paper.task = null;
+    } finally {
+      // PDF.js keeps a drawn page's decoded pictures until told otherwise; two scans compared
+      // page by page would hold every picture of both by the end.
+      page?.cleanup();
     }
   }
   function release(paper) {

@@ -6,6 +6,7 @@
  * on demand, like the rest of the editor's engine.
  */
 import { openMenu } from '../ui/menu.js';
+import { clipText } from '../core/text.js';
 import { el, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { createTocCommands } from './references-toc.js';
 import { createNoteCommands } from './references-notes.js';
@@ -32,6 +33,15 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
    * under Restrict Editing they are refused, as typing is.
    */
   const unprotected = what => { if (base.protectedDocument?.()) throw new Error(`This document is protected against editing, so ${what} cannot be changed. Stop protection under Review > Restrict Editing first.`); };
+  // Headers, footers and notes hold no tracked changes here, so with tracking locked they cannot be edited (the guard
+  // refuses it): a new one would stay as it was made, an empty header or a note with only its number.
+  const trackableStories = () => { if (base.trackingLocked?.()) throw new Error('Changes to this document are tracked, and headers, footers and notes cannot be changed with tracking here.'); };
+  /**
+   * A new header, footer or note is a new part of this tab's package. The room shares the text of the stories
+   * everyone's package has, not new parts: the others would never see it, and a note's reference would reach
+   * them (and the file the owner's tab saves) without the note. Existing ones stay editable together.
+   */
+  const unshared = (what, change = 'added') => { if (base.shared?.()) throw new Error(`${what} cannot be ${change} while the document is shared: the others would not receive them. Stop sharing first.`); };
 
   /**
    * Which header/footer variant a page shows: first, even or default (§17.10.5). Even and odd go by the
@@ -59,7 +69,8 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       if (!engine.pageStories.stories[existing]?.editable) throw new Error(`This document's ${kind} cannot be edited yet.`);
       engine.editStory(existing, page); return existing;
     }
-    unprotected(`its ${kind}s`);
+    unprotected(`its ${kind}s`); trackableStories();
+    unshared(`New ${kind}s`);
     const { TextDocument, paragraph } = await import('../engine/model.js');
     const body = engine.session.body;
     const styleId = Object.values(body.styles.definitions || {}).find(s => s.type === 'paragraph' && s.name?.toLowerCase() === kind)?.id;
@@ -73,11 +84,14 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
   async function setStoryOption(option, on) {
     try {
       const engine = ready(); if (!engine) return;
-      unprotected('its headers and footers');
+      unprotected('its headers and footers'); trackableStories();
+      // Each needs headers of its own, new parts the others would not receive (unshared).
+      unshared(option === 'first' ? 'Different first page headers' : 'Different odd and even page headers', 'turned on or off');
       const kind = activeStoryKind(), page = currentPage(engine), section = engine.sectionOfPage(page);
-      if (option === 'first') { pkg().setTitlePage(section, on); engine.setStoryOptions({ section, firstPageDifferent: on }); }
-      else { pkg().setEvenAndOdd(on); engine.setStoryOptions({ evenAndOdd: on }); }
-      engine.onChange();
+      engine.changeSettings(() => {
+        if (option === 'first') { pkg().setTitlePage(section, on); engine.setStoryOptions({ section, firstPageDifferent: on }); }
+        else { pkg().setEvenAndOdd(on); engine.setStoryOptions({ evenAndOdd: on }); }
+      }, option === 'first' ? 'Different First Page' : 'Different Odd & Even Pages');
       if (kind === 'header' || kind === 'footer') await story(kind, page);
       onChange();
     } catch (e) { fail(e); }
@@ -140,7 +154,12 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
    * then refresh page references (all, or `result.only`). Returns the action's result. With `track`, text the
    * action inserts (a caption, a cross-reference) is then a tracked insertion when Track Changes is on.
    */
-  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false, track = false, stay = null } = {}) {
+  /**
+   * `after(body, ...modules)` runs in the same undo step once the action is recorded as inserted (Track Changes),
+   * untracked (a citation's bibliography refresh). `settings`: the action also writes settings the step takes back
+   * (the citation sources and style).
+   */
+  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false, track = false, stay = null, after = null, settings = false } = {}) {
     const engine = ready(); if (!engine) return false;
     engine.finishComposition();
     const [refreshModule, ...loaded] = await Promise.all([import('../engine/page-reference-refresh.js'), ...modules.map(name => ENGINE[name]())]);
@@ -155,31 +174,35 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     const body = engine.session.body, tracking = body.trackChanges;
     body.trackChanges = false;
     let result;
-    try {
-      engine.execute(() => {
-        const before = track && tracking ? body.text : null;
-        // Fields there were before, so the ones the action adds are recorded as inserted with their text.
-        const fields = before !== null ? new Set(body.paragraphs.flatMap(p => (p.fieldMarkers || []).map(m => m.field.id))) : null;
-        result = action(body, ...loaded);
-        if (result === false) return false;
-        // Untracked, a caption or cross-reference inserted with Track Changes on stayed after Reject All, and with
-        // tracking locked it could not be inserted at all.
-        if (before !== null) body.trackInsertion(before, fields);
-        if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
-        return result;
-      });
-    } finally {
-      body.trackChanges = tracking;
-      if (story && engine.session.path === null && engine.editStory(story.path, story.page) && engine.session.path === story.path) {
-        engine.model.select(story.anchor, story.focus);
-        stay(engine);
+    // The body's change and the one `stay` makes in the header or footer (F9's own fields there) are one undo step.
+    engine.transact(() => {
+      try {
+        engine.execute(() => {
+          const before = track && tracking ? body.text : null;
+          // Fields there were before, so the ones the action adds are recorded as inserted with their text.
+          const fields = before !== null ? new Set(body.paragraphs.flatMap(p => (p.fieldMarkers || []).map(m => m.field.id))) : null;
+          result = action(body, ...loaded);
+          if (result === false) return false;
+          // Untracked, a caption or cross-reference inserted with Track Changes on stayed after Reject All, and with
+          // tracking locked it could not be inserted at all.
+          if (before !== null) body.trackInsertion(before, fields);
+          after?.(body, ...loaded);
+          if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
+          return result;
+        }, undefined, settings ? { settings: true } : undefined);
+      } finally {
+        body.trackChanges = tracking;
+        if (story && engine.session.path === null && engine.editStory(story.path, story.page) && engine.session.path === story.path) {
+          engine.model.select(story.anchor, story.focus);
+          stay(engine);
+        }
       }
-    }
+    });
     if (!keepFocus) engine.focus();
     onChange();
     return result;
   }
-  const ctx = { editor, pkg, error, ready, fail, runBody, pageOf, unprotected, onChange: () => onChange(), showFieldCodes: () => base.showFieldCodes?.() };
+  const ctx = { editor, pkg, error, ready, fail, runBody, pageOf, unprotected, trackableStories, unshared, onChange: () => onChange(), showFieldCodes: () => base.showFieldCodes?.() };
   const toc = createTocCommands(ctx);
   const notes = createNoteCommands(ctx);
   const citations = createCitationCommands(ctx);
@@ -281,7 +304,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       const part = definition?.[`${kind}s`]?.part;
       for (const [id, display] of maps[kind]) {
         const story = part && definition.stories[notesModule.footnoteStoryPath(part, id)];
-        const textOf = story ? story.paragraphs.map(p => p.runs.filter(r => !r.noteMark).map(r => r.text).join('')).join(' ').trim().slice(0, 60) : '';
+        const textOf = story ? clipText(story.paragraphs.map(p => p.runs.filter(r => !r.noteMark).map(r => r.text).join('')).join(' ').trim(), 60) : '';
         result.push({ kind, id, display, text: textOf });
       }
     }
@@ -460,14 +483,21 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     // section had them before, so in a document of several sections the change landed on another section).
     const sectionSettings = engine => { const body = engine?.session.body; return body?.sectionSettings?.[engine.sectionOfPage(currentPage(engine))] || body?.pageSettings; };
     const shown = key => String(Math.round((sectionSettings(editor())?.[key] ?? 720) / IN * 100) / 100);
+    // Leaving the header for the body takes the keyboard from the field, whose own change event then fired a second
+    // time, from the body: that one made the change, and its undo step did not return to the header.
+    let settingDistance = false;
     function setDistance(key, value) {
-      const engine = ready(); if (!engine) return;
+      const engine = ready(); if (!engine || settingDistance) return;
+      settingDistance = true;
+      try { applyDistance(engine, key, value); } finally { settingDistance = false; }
+    }
+    function applyDistance(engine, key, value) {
       engine.finishComposition();
       const story = engine.session.path, page = currentPage(engine), section = engine.sectionOfPage(page), { anchor, focus } = engine.model.selection;
       // Sections are the body's: apply there, then return to the header or footer with the caret where it was.
       if (story !== null) engine.editStory(null);
       let failure = null;
-      engine.execute(() => engine.model.setPageSettings({ [key]: value }, { scope: 'section', section }), e => { failure = e; }, undefined, true);
+      engine.execute(() => engine.model.setPageSettings({ [key]: value }, { scope: 'section', section }), e => { failure = e; }, story !== null ? { resume: { path: story, page } } : undefined, true);
       if (story !== null && engine.editStory(story, page) && engine.session.path === story) engine.model.select(anchor, focus);
       if (failure) fail(failure);
       onChange();

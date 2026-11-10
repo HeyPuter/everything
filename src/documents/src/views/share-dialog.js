@@ -7,7 +7,7 @@
  * Sharing starts with the first invitation or link: until then nothing leaves
  * this device. `api` is the editor's collaboration controller (collab.js).
  */
-import { el } from '../ui/dom.js';
+import { el, isComposing } from '../ui/dom.js';
 import { openModal, confirmDialog } from '../ui/modal.js';
 import { EMAIL } from '../lib/mail-send.js';
 import { roleLabel, INVITE_ROLES, initials } from '../collab/protocol.js';
@@ -37,7 +37,8 @@ export function openShareDialog(api) {
 
   /* ---- Invite ---- */
   const people = el('input.input', { type: 'text', placeholder: api.local ? 'Not available for local sharing' : 'Puter usernames or email addresses', 'aria-label': 'People to invite', autocomplete: 'off', disabled: api.local,
-    onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); invite.click(); } } });
+    // Enter that confirms an input method's conversion belongs to it, not to Invite.
+    onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); invite.click(); } } });
   let inviteRole = 'editor';
   const inviteRoleSelect = roleSelect(inviteRole, 'Role for the people you invite', v => { inviteRole = v; });
   const note = el('textarea.input.sh-note', { rows: 1, placeholder: 'Add a message (optional)', 'aria-label': 'Message for the people you invite', disabled: api.local });
@@ -66,8 +67,11 @@ export function openShareDialog(api) {
     if (invited.length) await copyInviteLink(inviteRole, { quiet: true });
     renderAccess();
   }) }, 'Invite');
+  // Only the owner invites people and makes links (the room refuses anyone else): someone invited is told so up front.
+  const ownerOnly = el('p.sh-muted', { hidden: true });
   const inviteSection = el('section.sh-section', {},
     el('h3.sh-heading', {}, 'Invite people'),
+    ownerOnly,
     el('div.sh-row', {}, people, inviteRoleSelect),
     note,
     el('div.sh-row.sh-row-end', {}, el('span.field-hint', {}, api.local ? 'This document is on this device: share it with other tabs of this browser using the link below.' : 'People sign in to Puter to open it. Invitations expire after seven days.'), invite));
@@ -102,8 +106,13 @@ export function openShareDialog(api) {
   async function renderAccess() {
     const request = ++accessRequest;
     const session = live();
-    revoke.hidden = !session || session.local;
+    const guest = !!session && !session.local && !session.canManage;
+    revoke.hidden = !session || session.local || guest;
     stop.hidden = !session || !session.canManage;
+    ownerOnly.hidden = !guest;
+    ownerOnly.textContent = guest ? `Only ${session.ownerName ? `${session.ownerName}, who owns this document,` : 'the owner of this document'} can invite people or share links to it.` : '';
+    for (const control of [people, inviteRoleSelect, note, invite]) control.disabled = !!api.local || guest;
+    for (const control of [linkRoleSelect, copy]) control.disabled = guest;
     if (!session) { access.replaceChildren(el('p.sh-muted', {}, 'Only you. Invite people or copy a link to start editing together.')); return; }
     access.replaceChildren(el('p.sh-muted', {}, 'Loading…'));
     let data;

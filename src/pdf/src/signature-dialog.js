@@ -285,6 +285,12 @@ export function signatureDialog({ signal } = {}) {
       maxlength: MAX_SIGNATURE_TEXT,
       autocomplete: 'name',
       oninput: () => repaint(),
+      // Enter places the typed signature, as Enter confirms a name typed in other dialogs.
+      onkeydown: (e) => {
+        if (e.key !== 'Enter' || e.isComposing || e.repeat) return;
+        e.preventDefault();
+        place();
+      },
     });
     const typePreview = el('canvas', {
       class: 'signature-preview',
@@ -386,10 +392,16 @@ export function signatureDialog({ signal } = {}) {
       });
       requestAnimationFrame(paintSaved);
     }
+    const remembered = remembersSignatures();
     const remember = el('input', {
       type: 'checkbox',
       id: 'remember-signature',
-      checked: remembersSignatures(),
+      checked: remembered,
+      // Unticked, the device forgets its signatures at once, also when the dialog is then
+      // cancelled; ticked again, it keeps what it had. New ones are kept when one is placed.
+      onchange: () => {
+        if (!remember.checked || remembered) persist(remember.checked && items.length > 0);
+      },
     });
     const tabs = [
       ['draw', 'Draw'],

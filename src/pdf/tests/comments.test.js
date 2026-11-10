@@ -101,6 +101,33 @@ describe('collecting comments', () => {
     const comments = await withPdf(await doc.save(), (pdf) => collectComments(pdf));
     expect(comments.map((c) => c.text)).toEqual(['Note 0', 'Note 3']);
   });
+  it('lists a reply to a note that is gone, as the page offers it as a note', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([300, 300]);
+    addNote(doc, 0, { x: 40, y: 280, text: 'Kept' });
+    addNote(doc, 0, { x: 140, y: 280, text: 'Deleted' });
+    const [kept, , gone] = page.node.Annots().asArray();
+    const reply = (parent, text) =>
+      page.node.Annots().push(
+        doc.context.register(
+          doc.context.obj({
+            Type: 'Annot',
+            Subtype: 'Text',
+            Rect: [40, 260, 60, 280],
+            F: 28,
+            IRT: parent,
+            Contents: PDFString.of(text),
+          }),
+        ),
+      );
+    reply(kept, 'Answered');
+    reply(gone, 'Left behind');
+    // Another editor deleted the second note (and its popup) but not its reply.
+    page.node.Annots().remove(3);
+    page.node.Annots().remove(2);
+    const comments = await withPdf(await doc.save(), (pdf) => collectComments(pdf));
+    expect(comments.map((c) => c.text)).toEqual(['Kept', 'Left behind']);
+  });
   it('returns an empty list for a plain PDF and null when superseded', async () => {
     const doc = await PDFDocument.create();
     doc
@@ -138,4 +165,36 @@ describe('collecting comments', () => {
     expect((await build(MAX_COMMENTS)).length).toBe(MAX_COMMENTS);
     expect((await build(MAX_COMMENTS + 5)).length).toBe(MAX_COMMENTS + 1);
   }, 60000);
+
+  // Arrows, clouds and callouts were listed as the kind of annotation they are written as:
+  // a line, a polygon, a text box, not as what was drawn.
+  it('names arrows, clouds, callouts and measurements for what they are', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([300, 300]);
+    for (const [Subtype, IT, Rect] of [
+      ['Line', 'LineArrow', [10, 10, 60, 60]],
+      ['Line', null, [10, 70, 60, 120]],
+      ['Polygon', 'PolygonCloud', [70, 10, 120, 60]],
+      ['FreeText', 'FreeTextCallout', [70, 70, 120, 120]],
+      ['FreeText', 'FreeText', [130, 10, 180, 60]],
+      ['PolyLine', 'PolyLineDimension', [130, 70, 180, 120]],
+      // An intent of another kind of annotation says nothing about this one.
+      ['Square', 'LineArrow', [190, 10, 240, 60]],
+    ])
+      page.node.addAnnot(
+        doc.context.register(
+          doc.context.obj({ Type: 'Annot', Subtype, Rect, ...(IT && { IT }), DA: '/Helv 9 Tf' }),
+        ),
+      );
+    const comments = await withPdf(await doc.save(), (pdf) => collectComments(pdf));
+    expect(comments.map((c) => c.kind)).toEqual([
+      'Arrow',
+      'Line',
+      'Cloud',
+      'Callout',
+      'Text box',
+      'Perimeter',
+      'Rectangle',
+    ]);
+  });
 });

@@ -7,6 +7,7 @@ import { bodyFieldRanges, ENTRY_FIELDS, newFieldEndOrder } from './body-fields.j
 import { bodyFieldInstruction } from './docx-body-fields.js';
 import { pageFieldSegments } from './docx-page-fields.js';
 import { hyperlinkId } from './hyperlinks.js';
+import { sharedRevision, sameRevision } from './revisions.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const attr = value => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -80,10 +81,15 @@ function selectParagraph(doc, index) {
  */
 export function writeBlockField(doc, { field, existing = null, rows, before = [] }) {
   if (!rows.length) throw new Error('A generated field needs at least one result paragraph.');
-  let insertAt;
+  let insertAt, inserted = null, lastMark;
   doc.typingFormat = {}; doc.typingStyle = null; doc.typingDirectCleared = true;
   if (existing) {
     if (!existing.whole) throw new Error('This field shares its paragraphs with other text, so it cannot be rebuilt. Its page numbers can still be updated.');
+    // A result that is still one tracked insertion (a table inserted with Track Changes on) is rebuilt as that
+    // insertion: rebuilt untracked, rejecting the insertion afterwards left the new entries behind, run into the
+    // paragraph after them.
+    inserted = trackedInsertion(doc, existing);
+    lastMark = doc.paragraphs[existing.last]?.markRevision;
     field ||= existing.field;
     // Empty the old result but keep one of its paragraphs, so neither neighbour
     // takes on the result's paragraph formatting. Nested fields go with it.
@@ -134,12 +140,23 @@ export function writeBlockField(doc, { field, existing = null, rows, before = []
     if (link && length) doc.changeHyperlink(start, start + length, link);
     for (const ref of pageRefs) {
       const pageref = newBodyField(ref.instruction || ` PAGEREF ${ref.name} \\h `);
+      if (inserted) pageref.revision = { ...inserted };
       (doc.paragraphs[index].fieldMarkers ||= []).push({ type: 'start', field: pageref, offset: ref.offset, order: nextMarkerOrder(), ...(link ? { link } : {}) },
         { type: 'end', field: pageref, offset: ref.end, order: nextMarkerOrder(), ...(link ? { link } : {}) });
     }
     if (i >= before.length) rowIndexes.push(index);
   });
   const first = doc.paragraphs[rowIndexes[0]], last = doc.paragraphs[rowIndexes.at(-1)];
+  if (inserted) {
+    for (const index of rowIndexes) {
+      const p = doc.paragraphs[index];
+      p.runs = p.runs.map(run => run.text ? { ...run, revision: { ...inserted } } : run);
+      if (p !== last) p.markRevision = { ...inserted };
+      else if (lastMark) p.markRevision = { ...lastMark };
+      else delete p.markRevision;
+    }
+    field.revision = { ...inserted };
+  }
   first.fieldMarkers = [{ type: 'start', field, offset: 0, order: outerStart }, ...(first.fieldMarkers || [])];
   (last.fieldMarkers ||= []).push({ type: 'end', field, offset: paragraphLength(last), order: nextMarkerOrder() });
   doc.hasBodyFields = true;
@@ -148,6 +165,16 @@ export function writeBlockField(doc, { field, existing = null, rows, before = []
   doc.select(paragraphOffset(doc, rowIndexes[0]));
   doc.didChange();
   return fieldSpan(doc.paragraphs, range);
+}
+
+/** The tracked insertion a whole block field's result is (its text and the paragraph marks inside it), or null. */
+function trackedInsertion(doc, existing) {
+  const revision = sharedRevision(doc.paragraphs, existing.paragraphStart, existing.paragraphEnd);
+  if (revision?.type !== 'ins' || revision.move) return null;
+  for (let i = existing.first; i < existing.last; i++) if (!sameRevision(doc.paragraphs[i].markRevision, revision)) return null;
+  if (existing.field.revision && !sameRevision(existing.field.revision, revision)) return null;
+  const { inserted, ...own } = revision;
+  return own;
 }
 
 /**

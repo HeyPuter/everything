@@ -1,0 +1,11 @@
+{
+  "decorativeHelp": "Decorative objects add visual interest but aren't informative (for example, stylistic borders). People using screen readers will hear that these are decorative.",
+  "descriptionLabel": "Alt text description",
+  "markDecorative": "Mark as decorative",
+  "placeholder": "Describe this for someone who can't see it",
+  "prompt": "How would you describe this object and its context to someone who is blind or has low vision?",
+  "readFromText": "Left empty, the graphic is read out from its text.",
+  "title": "Alt Text",
+  "undoEdit": "Edit alt text",
+  "useDiagramText": "Use the diagram’s text"
+}

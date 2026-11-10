@@ -1,9 +1,12 @@
 /** Native sparklines are worksheet decorations, not formula result values. */
+import { t } from '../i18n/index.js';
 const number = value => Number(value.toFixed(4));
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
 export function nativeSparklineLabel(data) {
-  const kind = data.group.type === 'stacked' ? 'Win/loss' : data.group.type === 'column' ? 'Column' : 'Line';
-  return `${kind} sparkline, ${data.unavailable ? 'source unavailable' : data.count ? `${data.count} values, minimum ${data.min}, maximum ${data.max}` : 'no numeric values'}`;
+  const kind = data.group.type === 'stacked' ? 'winLoss' : data.group.type === 'column' ? 'column' : 'line';
+  if (data.unavailable) return t('nativeSparkline.labelUnavailable', { kind });
+  if (!data.count) return t('nativeSparkline.labelEmpty', { kind });
+  return t('nativeSparkline.label', { kind, count: data.count, min: data.min, max: data.max });
 }
 export function renderNativeSparklineSvg(data, width, height) {
   const W = Math.max(0, width), H = Math.max(0, height), { group, colors } = data;

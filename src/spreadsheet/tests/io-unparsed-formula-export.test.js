@@ -13,7 +13,7 @@ function typed() {
   wb.setInput(id, 0, 1, '=1+1');
   wb.setInput(id, 1, 1, '=A1 B1'); // Excel's intersection operator: not read here, read there
   wb.setInput(id, 2, 1, '=@A1'); // parses, and this app answers #ERROR! for it
-  wb.setInput(id, 3, 1, '=IF(');
+  wb.setInput(id, 3, 1, '=IF(1>2,1');
   wb.applyStyle(id, { r1: 0, c1: 0, r2: 0, c2: 0 }, { fmt: 'currency', dec: 2, cur: 'USD' });
   return wb;
 }
@@ -38,7 +38,7 @@ it('writes a formula no program can read as its text, and Excel-readable ones as
   expect(sheet.B1).toMatchObject({ t: 'n', v: 2, f: '1+1' });
   expect(sheet.B2).toMatchObject({ t: 'e', f: 'A1 B1' });
   expect(sheet.B3).toMatchObject({ t: 'e', f: 'SINGLE(A1)' });
-  expect(sheet.B4).toMatchObject({ t: 'b', v: false, f: 'IF()' });
+  expect(sheet.B4).toMatchObject({ t: 'b', v: false, f: 'IF(1>2,1)' });
   const xml = await partsOf(blob, '/xl/worksheets/sheet1.xml');
   expect(xml).not.toMatch(/<f>1\+<\/f>|<f>1 2<\/f>|<f>"abc<\/f>|<f>\)<\/f>/);
   expect(xml).toContain('<f>1+1</f>');

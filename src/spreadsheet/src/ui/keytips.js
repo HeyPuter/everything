@@ -5,6 +5,11 @@
  * and anything else (a click, another chord, focus leaving) dismisses them.
  * Every tip is worked out from the labels on screen by one rule (see
  * assignTips), so there is no table of keys to keep up.
+ *
+ * The labels are read in English whatever the interface language, so the
+ * tips are the same letters in every language (Alt, H for Home), as Excel's
+ * Chinese edition keeps the English ones: a tab or command gives its English
+ * name as data-keytip-label, and one without it is read as it is shown.
  */
 import { el, isComposing } from './dom.js';
 
@@ -94,7 +99,7 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
     // A tab may carry a fixed tip of its own (data-keytip): it stands apart from the rule, so a contextual tab
     // that comes and goes never takes a letter, or a second key, from the tabs always there.
     const all = [...(file ? [{ target: file, kind: 'file', name: 'File' }] : []),
-      ...[...ribbon.querySelectorAll('.ribbon-tab')].map(tab => ({ target: tab, kind: 'tab', name: tab.textContent, fixed: tab.dataset.keytip || null }))];
+      ...[...ribbon.querySelectorAll('.ribbon-tab')].map(tab => ({ target: tab, kind: 'tab', name: tab.dataset.keytipLabel || tab.textContent, fixed: tab.dataset.keytip || null }))];
     const entries = all.filter(t => !t.fixed);
     const assigned = assignTips(entries.map(t => t.name));
     const tips = [...entries.map((t, i) => ({ ...t, tip: assigned[i] })), ...all.filter(t => t.fixed).map(t => ({ ...t, tip: t.fixed }))]
@@ -106,7 +111,7 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
 
   function showCommands(tabName) {
     const list = commands();
-    const names = list.map(b => b.getAttribute('aria-label') || b.textContent.trim());
+    const names = list.map(b => b.dataset.keytipLabel || b.getAttribute('aria-label') || b.textContent.trim());
     const tips = assignTips(names);
     state = { level: 'commands', tab: tabName, typed: '', tips: list.map((target, i) => ({ tip: tips[i], target, kind: 'command', name: names[i] })).filter(t => t.tip) };
     render();

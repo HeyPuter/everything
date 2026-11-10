@@ -1,0 +1,13 @@
+{
+  "cant": "Can't remove duplicates from {range}",
+  "column": "Column {column}",
+  "columnHead": "{column} · {head}",
+  "columns": "Columns to compare",
+  "intro": "Rows in {range} that repeat an earlier row are removed; the first of each stays.",
+  "noColumns": "Choose at least one column to compare",
+  "none": "No duplicate rows found",
+  "protected": "This sheet is protected. Unprotect it to remove duplicates",
+  "removed": "{count, plural, one {Removed {count} duplicate row} other {Removed {count} duplicate rows}}",
+  "selectAll": "Select all",
+  "title": "Remove duplicates"
+}

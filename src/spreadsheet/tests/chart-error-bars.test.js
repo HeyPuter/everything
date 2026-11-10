@@ -167,6 +167,35 @@ describe('Excel files', () => {
     expect(chartData(back, back.activeSheet.id, chart).errorValues[0].y.plus).toEqual([1, 2, 3, 4]);
   });
 
+  // Error bars on a column, bar, line or area chart Excel made were dropped on opening (only scatter and bubble charts
+  // read theirs), so saving the file again here lost them. They are kept and saved as the file had them.
+  it.each([['columnClustered', 'c:cat'], ['barClustered', 'c:cat'], ['lineMarkers', 'c:cat'], ['area', 'c:cat']])('keeps the error bars of a %s chart from Excel through a save', async (subtype, before) => {
+    const { wb, id } = sheet();
+    wb.addChart(id, newExcelChart(wb, id, { r1: 0, c1: 1, r2: 4, c2: 1 }, subtype));
+    const zip = await saved(wb), file = zip.FileIndex[zip.FullPaths.findIndex(p => /\/charts\/chart[^/]*\.xml$/.test(p))];
+    const bars = '<c:errBars><c:errDir val="y"/><c:errBarType val="plus"/><c:errValType val="cust"/><c:noEndCap val="0"/>'
+      + '<c:plus><c:numRef><c:f>Data!$C$2:$C$5</c:f></c:numRef></c:plus><c:spPr><a:ln w="19050"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:ln></c:spPr></c:errBars>';
+    file.content = new TextEncoder().encode(new TextDecoder().decode(file.content).replace(`<${before}>`, `${bars}<${before}>`));
+    file.size = file.content.length;
+    const back = await workbookFromFile(asExcelFile(zip), 'excel.xlsx'), chart = back.activeSheet.charts[0];
+    expect(chart.errorBars).toEqual([{ y: { type: 'cust', value: 1, plus: 'Data!$C$2:$C$5', direction: 'plus', caps: true, color: '#ff0000', width: 2 } }]);
+    // Not drawn here, where only scatter and bubble charts draw them, but saved again in the series' own place.
+    const xml = chartXml(await saved(back));
+    expect(xml).toContain('<c:errBars><c:errDir val="y"/><c:errBarType val="plus"/><c:errValType val="cust"/><c:noEndCap val="0"/>'
+      + '<c:plus><c:numRef><c:f>Data!$C$2:$C$5</c:f><c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="4"/><c:pt idx="0"><c:v>1</c:v>');
+    expect(xml.indexOf('<c:errBars>')).toBeLessThan(xml.indexOf(`<${before}>`));
+    expect(xml.match(/<c:errBars>/g)).toHaveLength(1);
+  });
+
+  it('saves one set of error bars on a column or line series, which the file allows only one of', async () => {
+    const { wb, id } = sheet();
+    wb.addChart(id, { ...newExcelChart(wb, id, { r1: 0, c1: 1, r2: 4, c2: 1 }, 'columnClustered'),
+      errorBars: [{ x: { type: 'fixedVal', value: 2 }, y: { type: 'percentage', value: 10 } }] });
+    const xml = chartXml(await saved(wb));
+    expect(xml.match(/<c:errBars>/g)).toHaveLength(1);
+    expect(xml).toContain('<c:errDir val="y"/><c:errBarType val="both"/><c:errValType val="percentage"/>');
+  });
+
   it('opens custom amounts a file keeps as numbers', async () => {
     const { wb, id } = sheet();
     scatter(wb, id, { errorBars: [{ y: { type: 'cust', plusValues: [1, 2], minusValues: [0.5] } }] });

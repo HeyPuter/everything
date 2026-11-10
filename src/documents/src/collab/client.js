@@ -14,9 +14,10 @@
  */
 import * as Y from 'yjs';
 import { REMOTE } from './binding.js';
-import { colorFor, randomId, PRESENCE_TTL } from './protocol.js';
+import { colorFor, randomId, PERSON_COLORS, PRESENCE_TTL } from './protocol.js';
 
 const OUTBOX_DB = 'documents-collab';
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /**
  * Queued updates per room and account, in IndexedDB with a memory fallback (private windows, tests). `account`: who
@@ -112,7 +113,7 @@ export class CollabClient extends EventTarget {
       presence: roster => this.setRoster(roster),
       role: role => { this.role = role; this.dispatchEvent(new CustomEvent('role', { detail: { role } })); },
       closed: reason => this.close(reason),
-      online: online => { this.setStatus(online ? 'online' : 'offline'); if (online) this.scheduleSend(0); },
+      online: online => { this.setStatus(online ? 'online' : 'offline'); if (online) { this.endBackoff(); this.scheduleSend(0); } },
     });
     this.role = joined.role;
     this.info = joined;
@@ -142,9 +143,11 @@ export class CollabClient extends EventTarget {
   }
 
   scheduleSend(delay) {
-    if (this.sendTimer || this.closed) return;
+    // After a failed send the room is asked again when the pause ends (send), not after each change typed meanwhile.
+    if (this.sendTimer || this.closed || this.backoff) return;
     this.sendTimer = setTimeout(() => { this.sendTimer = null; this.send(); }, delay);
   }
+  endBackoff() { clearTimeout(this.backoff); this.backoff = null; }
 
   async send() {
     if (this.sending || this.closed || !this.outbox.size) return;
@@ -162,6 +165,7 @@ export class CollabClient extends EventTarget {
       await this.transport.send(items.length === 1 ? items[0].update : Y.mergeUpdates(items.map(i => i.update)));
       await this.outbox.remove(items);
       this.retry = 0;
+      this.endBackoff();
       this.setStatus('online');
     } catch (error) {
       if (refusedForGood(error)) {
@@ -174,7 +178,8 @@ export class CollabClient extends EventTarget {
       } else {
         this.setStatus('offline');
         this.retry = Math.min(6, (this.retry || 0) + 1);
-        setTimeout(() => this.scheduleSend(0), 500 * 2 ** this.retry);
+        this.endBackoff();
+        this.backoff = setTimeout(() => { this.backoff = null; this.scheduleSend(0); }, 500 * 2 ** this.retry);
       }
     } finally {
       this.sending = null;
@@ -204,7 +209,21 @@ export class CollabClient extends EventTarget {
 
   setRoster(roster) {
     const now = Date.now();
-    this.roster = roster.filter(p => p.session !== this.session && (!p.at || now - p.at < PRESENCE_TTL * 2));
+    // Everything in an entry is its sender's to write; a color goes into an avatar's style and the canvas, so only a
+    // plain hex color is used as given (others get the one their name gives them).
+    const present = roster.filter(p => p && p.session !== this.session && (!p.at || now - p.at < PRESENCE_TTL * 2))
+      .map(p => (typeof p.color === 'string' && HEX_COLOR.test(p.color) ? p : { ...p, color: colorFor(p.user || p.name || p.session) }));
+    // Each person here gets a color nobody else here has (ten colors go round quickly), kept while they stay: their
+    // own when it is free, else the first free one.
+    const assigned = this.colors ||= new Map();
+    for (const session of [...assigned.keys()]) if (!present.some(p => p.session === session)) assigned.delete(session);
+    const taken = new Set([this.color, ...assigned.values()]);
+    for (const p of present) {
+      if (assigned.has(p.session)) continue;
+      const color = !taken.has(p.color) ? p.color : PERSON_COLORS.find(c => !taken.has(c)) ?? p.color;
+      assigned.set(p.session, color); taken.add(color);
+    }
+    this.roster = present.map(p => (assigned.get(p.session) === p.color ? p : { ...p, color: assigned.get(p.session) }));
     this.dispatchEvent(new CustomEvent('presence', { detail: { roster: this.roster } }));
   }
 
@@ -226,6 +245,7 @@ export class CollabClient extends EventTarget {
     }
     this.closed = true;
     clearTimeout(this.sendTimer);
+    this.endBackoff();
     try { await this.transport.leave?.(); } catch { /* best effort */ }
     if (reason) this.dispatchEvent(new CustomEvent('closed', { detail: { reason } }));
   }

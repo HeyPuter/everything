@@ -1,0 +1,21 @@
+{
+  "aspect": "{kind, select, square {{ratio}} landscape {{ratio} landscape} other {{ratio} portrait}}",
+  "aspectRatio": "Aspect ratio",
+  "crop": "Crop",
+  "frame": "Part of the picture kept",
+  "free": "Free",
+  "handle.bottom": "Crop bottom edge (arrow keys)",
+  "handle.bottomLeft": "Crop bottom left edge (arrow keys)",
+  "handle.bottomRight": "Crop bottom right edge (arrow keys)",
+  "handle.left": "Crop left edge (arrow keys)",
+  "handle.right": "Crop right edge (arrow keys)",
+  "handle.top": "Crop top edge (arrow keys)",
+  "handle.topLeft": "Crop top left edge (arrow keys)",
+  "handle.topRight": "Crop top right edge (arrow keys)",
+  "move": "Move the crop (arrow keys)",
+  "moveTip": "Drag to move the crop",
+  "original": "Original",
+  "readout": "Kept: {w} × {h} pixels on the sheet ({percent}% of the picture)",
+  "showAll": "Show All",
+  "title": "Crop Picture"
+}

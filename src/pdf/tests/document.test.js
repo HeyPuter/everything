@@ -417,7 +417,7 @@ describe('page operations persist correctly', () => {
   it('embeds the bold, italic, and bold italic faces for styled text', async () => {
     const files = new Map();
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-      const file = String(url).split('/').pop();
+      const file = String(url).split('/fonts/').pop();
       if (!files.has(file))
         files.set(file, await readFile(new URL(`../public/fonts/${file}`, import.meta.url)));
       return new Response(files.get(file));

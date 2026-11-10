@@ -125,6 +125,25 @@ export async function readDrawingFragment(drawingXml, { parts = [], sourceParts 
   return { image: validateImage({ ...image, assetId: primary }), assets, readers };
 }
 
+/**
+ * Register a fragment's assets and decoded bitmaps with the editor; returns what takes them back if the
+ * transaction does not apply. A reformatted picture's asset can be the media the unchanged picture
+ * already uses (the same key): taking it back restores that asset and bitmap instead of deleting them.
+ */
+export function registerDrawingAssets(editor, model, assets, bitmaps) {
+  const previous = new Map(Object.keys(assets).filter(id => Object.hasOwn(model.assets, id)).map(id => [id, { asset: model.assets[id], bitmap: editor.images.get(id) }]));
+  for (const [id, asset] of Object.entries(assets)) { model.assets[id] = asset; editor.images.set(id, bitmaps.get(id)); }
+  return () => {
+    for (const id of Object.keys(assets)) {
+      const bitmap = editor.images.get(id), was = previous.get(id);
+      if (bitmap !== was?.bitmap) bitmap?.close?.();
+      if (!was) { delete model.assets[id]; editor.images.delete(id); continue; }
+      model.assets[id] = was.asset;
+      if (was.bitmap) editor.images.set(id, was.bitmap); else editor.images.delete(id);
+    }
+  };
+}
+
 let scenes = 0;
 /** A drawing asset id that no drawing in this session uses. */
 export function freshDrawingAssetId(model) { let id; do id = `drawing:inserted-${++scenes}`; while (model.assets[id]); return id; }
@@ -143,7 +162,7 @@ export async function placeDrawing(editor, fragment, { replace = null, revision 
   if (editor.destroyed || model !== editor.model || revision !== editor.session.revision || replace && !images(model).includes(replace)) {
     release(); throw new Error('The document changed while the drawing was prepared. Try again.');
   }
-  for (const [id, asset] of Object.entries(assets)) { model.assets[id] = asset; editor.images.set(id, bitmaps.get(id)); }
+  const unregister = registerDrawingAssets(editor, model, assets, bitmaps);
   const { assetId, id: _id, ...properties } = image;
   const ok = editor.execute(() => {
     if (!replace) return editor.model.insertImage(assetId, properties);
@@ -154,7 +173,7 @@ export async function placeDrawing(editor, fragment, { replace = null, revision 
     editor.model.didChange();
     return true;
   });
-  if (!ok) for (const id of Object.keys(assets)) { delete model.assets[id]; editor.images.get(id)?.close?.(); editor.images.delete(id); }
+  if (!ok) unregister();
   // A change made from a pane that keeps the keyboard (Format Picture) leaves focus there; otherwise the document has it.
   if (!globalThis.document?.activeElement?.closest?.('[data-keeps-focus]')) editor.focus();
   editor.onSelection?.();

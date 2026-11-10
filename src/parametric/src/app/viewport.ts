@@ -7,6 +7,7 @@ import { add, cross, dot, normalize, rayPlaneT, scale, sub, toWorld, qAxisAngle 
 import type { BasePlane, Id, SketchFeature } from '../model/types';
 import { BASE_FRAMES } from '../model/planes';
 import { consumedSketches } from '../model/features';
+import { cssColor } from '../platform/theme';
 import { Camera, VIEWS, VIEW_LABELS, type ViewName } from '../render/camera';
 import { STATE_HOVER, STATE_SELECTED, type PickHit } from '../render/renderer';
 import { SketchIndex, tessellate } from '../sketch/geom';
@@ -34,6 +35,11 @@ export interface ViewportTool {
   pointerUp?(e: VPEvent): void;
   click?(e: VPEvent): boolean;
   dblClick?(e: VPEvent): boolean;
+  /**
+   * A touch press the tool claimed was held still: return true to give it up
+   * (the tool drops the press) so the press opens the context menu instead.
+   */
+  longPress?(e: VPEvent): boolean;
   hover?(e: VPEvent): void;
   leave?(): void;
 }
@@ -72,6 +78,7 @@ export class Viewport {
   private viewLabel: HTMLElement;
   private history: ReturnType<Camera['state']>[] = [];
   private longPress = 0;
+  private lastPointerType = '';
   mouse: { x: number; y: number } | null = null;
   /** World point of the last model pick (for placing things on faces). */
   lastPoint: Vec3 | null = null;
@@ -120,6 +127,11 @@ export class Viewport {
     c.addEventListener('pointermove', (e) => this.onMove(e));
     c.addEventListener('pointerup', (e) => this.onUp(e));
     c.addEventListener('pointercancel', (e) => this.onUp(e, true));
+    // Capture lost without a pointerup (window switch, OS gesture): end the
+    // gesture so a drag or orbit does not stay stuck to the pointer.
+    c.addEventListener('lostpointercapture', (e) => {
+      if (e.pointerType === 'touch' ? this.touches.has(e.pointerId) : this.gesture.kind !== 'none') this.onUp(e, true);
+    });
     c.addEventListener('pointerleave', () => {
       this.mouse = null;
       if (this.gesture.kind === 'none') {
@@ -129,13 +141,27 @@ export class Viewport {
     });
     c.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     c.addEventListener('dblclick', (e) => {
+      // Touch double taps are recognised in onUp; browsers that also
+      // synthesise a dblclick for them must not run the action twice.
+      if (this.lastPointerType === 'touch') return;
       const ev = this.ev(e);
       if (this.tool?.dblClick?.(ev)) return;
       this.app.onViewportDoubleClick(ev);
     });
     c.addEventListener('keydown', (e) => this.onKey(e));
     new ResizeObserver(() => this.resize()).observe(this.root);
+    this.watchPixelRatio();
     this.resize();
+  }
+
+  /**
+   * Moving the window to a display with another pixel density changes
+   * devicePixelRatio without resizing anything, so the ResizeObserver stays
+   * silent and the canvas would keep the old backing-store resolution.
+   */
+  private watchPixelRatio() {
+    const mq = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    mq?.addEventListener('change', () => { this.resize(); this.watchPixelRatio(); }, { once: true });
   }
 
   resize() {
@@ -145,13 +171,27 @@ export class Viewport {
   }
 
   private onDown(e: PointerEvent) {
+    this.lastPointerType = e.pointerType;
     this.canvas.focus({ preventScroll: true });
     if (e.pointerType === 'touch') {
       this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.canvas.setPointerCapture(e.pointerId);
       if (this.touches.size === 2) {
         // Second finger: switch to pan/zoom, cancel any one-finger action.
-        if (this.gesture.kind === 'tool') this.tool?.pointerUp?.({ ...this.ev(e) });
+        // The tool's press ends where the first finger is: at the second
+        // finger it read as a drag to there (a line or rectangle drawn
+        // between the fingers of a pinch).
+        const g = this.gesture;
+        if (g.kind === 'tool') {
+          const ev = this.ev(e);
+          const first = this.touches.get(g.id);
+          if (first) {
+            const r = this.canvas.getBoundingClientRect();
+            ev.x = first.x - r.left; ev.y = first.y - r.top;
+            ev.ray = this.camera.ray(ev.x, ev.y);
+          }
+          this.tool?.pointerUp?.(ev);
+        }
         clearTimeout(this.longPress);
         this.gesture = { kind: 'touch' };
         this.touchState = this.touchMetrics();
@@ -171,7 +211,16 @@ export class Viewport {
     }
     if (e.button !== 0) return;
     if (this.tool?.pointerDown?.(ev)) {
-      this.gesture = { kind: 'tool', id: e.pointerId, x: ev.x, y: ev.y, moved: false };
+      const g = this.gesture = { kind: 'tool', id: e.pointerId, x: ev.x, y: ev.y, moved: false };
+      if (e.pointerType === 'touch' && this.tool.longPress) {
+        clearTimeout(this.longPress);
+        this.longPress = window.setTimeout(() => {
+          if (this.gesture === g && !g.moved && this.tool?.longPress?.(ev)) {
+            this.gesture = { kind: 'none' };
+            this.app.onViewportContextMenu(ev, e.clientX, e.clientY);
+          }
+        }, 550);
+      }
       return;
     }
     this.gesture = { kind: 'pending', x: ev.x, y: ev.y, button: 0, id: e.pointerId, e: ev };
@@ -203,6 +252,8 @@ export class Viewport {
         return;
       }
     }
+    // A mouse moving with no button down missed its release: end the gesture.
+    if (e.pointerType === 'mouse' && e.buttons === 0 && this.gesture.kind !== 'none' && this.gesture.kind !== 'touch') this.onUp(e, true);
     const ev = this.ev(e);
     this.mouse = { x: ev.x, y: ev.y };
     const g = this.gesture;
@@ -250,6 +301,9 @@ export class Viewport {
       clearTimeout(this.longPress);
       if (this.gesture.kind === 'touch') {
         if (this.touches.size < 2) this.gesture = { kind: 'none' };
+        // Back to two fingers after a third lifted: measure the new pair
+        // from here, or the next move jumps by the difference between pairs.
+        else if (this.touches.size === 2) this.touchState = this.touchMetrics();
         return;
       }
     }
@@ -257,7 +311,13 @@ export class Viewport {
     const g = this.gesture;
     this.gesture = { kind: 'none' };
     try { this.canvas.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
-    if (cancelled) return;
+    if (g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') this.rehoverSoon();
+    if (cancelled) {
+      // Let the tool finish its drag (as when a second finger lands), or a
+      // sketch drag stays open and swallows every later undo step.
+      if (g.kind === 'tool') this.tool?.pointerUp?.(ev);
+      return;
+    }
     if (g.kind === 'tool') {
       // A press without movement is a click for the tool.
       if (g.moved) this.tool?.pointerUp?.(ev);
@@ -320,11 +380,11 @@ export class Viewport {
       else if (e.key === 'ArrowUp') cam.pan(0, d);
       else cam.pan(0, -d);
     } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-      this.rotateView(cam.back, e.key === 'ArrowLeft' ? step : -step);
-    } else if (e.key === 'ArrowLeft') this.rotateView(cam.up, -step);
-    else if (e.key === 'ArrowRight') this.rotateView(cam.up, step);
-    else if (e.key === 'ArrowUp') this.rotateView(cam.right, -step);
-    else if (e.key === 'ArrowDown') this.rotateView(cam.right, step);
+      this.rotateView('back', e.key === 'ArrowLeft' ? step : -step);
+    } else if (e.key === 'ArrowLeft') this.rotateView('up', -step);
+    else if (e.key === 'ArrowRight') this.rotateView('up', step);
+    else if (e.key === 'ArrowUp') this.rotateView('right', -step);
+    else if (e.key === 'ArrowDown') this.rotateView('right', step);
     else if (e.key === '+' || e.key === '=') cam.zoomAt(0.8, cam.width / 2, cam.height / 2);
     else if (e.key === '-' || e.key === '_') cam.zoomAt(1.25, cam.width / 2, cam.height / 2);
     else handled = false;
@@ -332,16 +392,13 @@ export class Viewport {
   }
 
   /** Animated rotation about a view axis through the target. */
-  rotateView(axis: Vec3, angle: number) {
-    const q = qAxisAngle(axis, angle);
-    const st = this.camera.state();
-    const pivot = this.modelCenter();
-    const rel = sub(st.target, pivot);
-    const qr = [q[0], q[1], q[2], q[3]] as [number, number, number, number];
+  rotateView(axis: 'right' | 'up' | 'back', angle: number) {
+    // Key repeat arrives mid-animation: continue from where the running
+    // rotation ends, not from the intermediate orientation.
+    const st = this.camera.goal();
     const tmp = new Camera();
     tmp.setState(st);
-    tmp.rotateAbout(qr, pivot);
-    void rel;
+    tmp.rotateAbout(qAxisAngle(tmp[axis], angle), this.modelCenter());
     this.camera.animateTo({ ...tmp.state(), ortho: st.ortho }, 180);
   }
 
@@ -352,7 +409,8 @@ export class Viewport {
 
   modelCenter(): Vec3 {
     const b = this.app.bbox;
-    if (!b) return this.camera.target;
+    // No solid yet: what is drawn (sketches, a feature preview), else where the view looks.
+    if (!b) return this.camera.sceneBounds?.center ?? this.camera.target;
     return scale(add(b.min, b.max), 0.5);
   }
 
@@ -365,7 +423,8 @@ export class Viewport {
       this.hoverRaf = 0;
       const q = this.hoverQueued;
       this.hoverQueued = null;
-      if (!q || this.gesture.kind !== 'none') return;
+      // The pointer may have left the view since (a fast move off the canvas).
+      if (!q || this.gesture.kind !== 'none' || !this.mouse) return;
       const ev = { x: q.x, y: q.y, ray: this.camera.ray(q.x, q.y) } as VPEvent;
       if (this.tool?.hover) { this.tool.hover(ev); return; }
       const f = this.app.pickFilter();
@@ -376,13 +435,27 @@ export class Viewport {
       this.hoverBusy = true;
       void this.renderer.pickAsync(q.x, q.y, want).then((hit) => {
         this.hoverBusy = false;
-        if (hit !== undefined && this.gesture.kind === 'none' && !this.hoverQueued) this.app.selection.setHover(this.itemFromHit(q.x, q.y, f, hit));
+        if (hit !== undefined && this.gesture.kind === 'none' && !this.hoverQueued && this.mouse) this.app.selection.setHover(this.itemFromHit(q.x, q.y, f, hit));
         if (this.hoverQueued) { const n = this.hoverQueued; this.hoverQueued = null; this.queueHover(n.x, n.y); }
       });
     });
   }
 
   private hoverBusy = false;
+  private rehoverTimer = 0;
+
+  /**
+   * The view or model changed under a still cursor (wheel zoom, keyboard, animation, rebuild):
+   * re-pick the hover there once the view settles, not on every frame.
+   */
+  rehoverSoon() {
+    if (!this.mouse || this.lastPointerType === 'touch') return;
+    clearTimeout(this.rehoverTimer);
+    this.rehoverTimer = window.setTimeout(() => {
+      const m = this.mouse;
+      if (m && this.gesture.kind === 'none' && !this.camera.animating) this.queueHover(m.x, m.y);
+    }, 100);
+  }
 
   /** Picks model geometry and visible reference geometry under the cursor. */
   pickItem(x: number, y: number, f: PickFilter): SelItem | null {
@@ -395,9 +468,10 @@ export class Viewport {
 
   /** Combines a GPU pick with CPU tests for planes and the origin. */
   itemFromHit(x: number, y: number, f: PickFilter, hit: PickHit | null): SelItem | null {
-    if (hit && hit.kind === 'face' && f.planarOnly && this.app.faces[hit.index]?.type !== 'plane') hit = null;
     const ray = this.camera.ray(x, y);
+    // A face that may not be picked still hides the planes behind it.
     const hitDist = hit?.point ? dot(sub(hit.point, ray.o), ray.d) : Infinity;
+    if (hit && hit.kind === 'face' && f.planarOnly && this.app.faces[hit.index]?.type !== 'plane') hit = null;
     // Origin and axes first: tiny targets.
     if (f.plane && (this.showOrigin || this.app.inSketch)) {
       const o = this.camera.project([0, 0, 0]);
@@ -428,8 +502,12 @@ export class Viewport {
 
   // ---------- overlays ----------
 
-  /** Re-uploads selection/hover states and reference overlays. */
-  refreshStates() {
+  /**
+   * Re-uploads selection/hover states and reference overlays. `hoverOnly`:
+   * only the hovered item changed, so visible sketches are re-tessellated
+   * only when the hover moved onto or off a sketch.
+   */
+  refreshStates(hoverOnly = false) {
     const app = this.app;
     const faces = new Uint8Array(app.faces.length);
     const edges = new Uint8Array(app.edges.length);
@@ -445,7 +523,28 @@ export class Viewport {
     mark(app.selection.hover, STATE_HOVER);
     for (const it of app.extraHighlights()) mark(it, STATE_SELECTED);
     this.renderer.setStates(faces, edges);
-    this.drawReferenceGeometry();
+    this.drawVertices();
+    this.drawReferenceGeometry(hoverOnly);
+  }
+
+  /** Hovered and selected vertices as dots: they have no faces or edges to light up. */
+  private drawVertices() {
+    const app = this.app;
+    const t = this.renderer.theme;
+    const pos: number[] = [], col: number[] = [];
+    const add = (it: SelItem | null, c: [number, number, number]) => {
+      if (it?.kind !== 'vertex') return;
+      pos.push(...it.p);
+      col.push(c[0] * 255, c[1] * 255, c[2] * 255, 255);
+    };
+    // Selected after hovered, so a selected vertex keeps the selection colour on top.
+    add(app.selection.hover, t.hover);
+    for (const it of [...app.selection.items, ...app.extraHighlights()]) add(it, t.selection);
+    const n = pos.length / 3;
+    this.renderer.setPoints('vertices', n ? {
+      positions: new Float32Array(pos), colors: new Uint8Array(col),
+      sizeStyle: new Float32Array(n * 2).map((_, i) => (i % 2 ? 1 : 9)), depth: 'always', order: 6,
+    } : null);
   }
 
   private planeColor(item: SelItem): [number, number, number, number] {
@@ -457,7 +556,7 @@ export class Viewport {
   }
 
   /** Planes, origin and visible (non-active) sketches. */
-  drawReferenceGeometry() {
+  drawReferenceGeometry(hoverOnly = false) {
     const app = this.app;
     const r = this.renderer;
     const b = app.bbox;
@@ -474,8 +573,10 @@ export class Viewport {
       const wanted = this.showPlanes || isShown(item) || app.basePlaneVisible(k);
       if (wanted && (!app.inSketch || this.showPlanes || sel.has(item))) visible.push({ key: k, item, frame: onPlane(BASE_FRAMES[k]), half: radius });
     }
-    for (const f of app.store.doc.features.slice(0, app.store.builtCount)) {
-      if (f.type !== 'plane') continue;
+    // Like the model, rolled back to the sketch or feature being edited (a plane being edited shows its result).
+    const limit = app.buildLimit();
+    for (const [i, f] of app.store.doc.features.slice(0, app.store.builtCount).entries()) {
+      if (f.type !== 'plane' || (i >= limit && f.id !== app.panel?.editingId)) continue;
       const fr = app.frames[f.id];
       const item: SelItem = { kind: 'plane', ref: { kind: 'feature', id: f.id } };
       if (!fr || f.suppressed) continue;
@@ -494,21 +595,52 @@ export class Viewport {
       for (let i = 0; i < 4; i++) { linePos.push(...c[i], ...c[(i + 1) % 4]); lineCol.push(col[0] * 255, col[1] * 255, col[2] * 255, 255); }
     }
     r.setTris('planes', triPos.length ? { positions: new Float32Array(triPos), colors: new Uint8Array(triCol), depth: 'test', order: 0 } : null);
-    r.setLines('planes', linePos.length ? { positions: new Float32Array(linePos), colors: new Uint8Array(lineCol), width: 1.2, depth: 'test', order: 0 } : null);
+    r.setLines('planes', linePos.length ? { positions: new Float32Array(linePos), colors: new Uint8Array(lineCol), width: 1.2, depth: 'test', order: 0, clip: false } : null);
 
-    // Origin triad.
+    this.drawOrigin();
+    if (!hoverOnly || this.sketchHoverKey() !== this.drawnSketchHover) this.drawSketches();
+  }
+
+  /** The hovered feature, the only hover that changes how sketches are drawn. */
+  private sketchHoverKey(): Id | null {
+    const h = this.app.selection.hover;
+    return h?.kind === 'feature' ? h.id : null;
+  }
+
+  private drawnSketchHover: Id | null = null;
+
+  /**
+   * Keeps pixel-sized reference geometry in step with the view: the origin
+   * triad on every zoom, sketch tessellation when the zoom changed enough to
+   * make the old polylines visibly coarse. Orbiting changes neither.
+   */
+  onCamera() {
+    this.rehoverSoon();
+    const px = this.camera.pixelSize;
+    if (px === this.originPx) return;
+    this.drawOrigin();
+    if (Math.abs(Math.log(px / this.sketchPx)) > Math.log(1.5)) this.drawSketches();
+  }
+
+  private originPx = 0;
+  private sketchPx = 0;
+
+  private drawOrigin() {
+    const app = this.app;
+    const r = this.renderer;
+    this.originPx = this.camera.pixelSize;
     if (this.showOrigin || app.inSketch) {
       const L = this.camera.pixelSize * 34;
       const pos = new Float32Array([0, 0, 0, L, 0, 0, 0, 0, 0, 0, L, 0, 0, 0, 0, 0, 0, L]);
       const cols = new Uint8Array([211, 58, 44, 255, 44, 155, 69, 255, 47, 99, 214, 255]);
       r.setLines('origin', { positions: pos, colors: cols, width: 1.6, depth: 'always', order: 5 });
       const sel = app.selection.has({ kind: 'origin' }) || app.selection.hover?.kind === 'origin';
-      r.setPoints('origin', { positions: new Float32Array([0, 0, 0]), colors: new Uint8Array(sel ? [47, 124, 246, 255] : [200, 50, 40, 255]), sizeStyle: new Float32Array([8, 2]), depth: 'always', order: 5 });
+      const s = r.theme.selection.map((v) => Math.round(v * 255));
+      r.setPoints('origin', { positions: new Float32Array([0, 0, 0]), colors: new Uint8Array(sel ? [...s, 255] : [200, 50, 40, 255]), sizeStyle: new Float32Array([8, 2]), depth: 'always', order: 5 });
     } else {
       r.setLines('origin', null);
       r.setPoints('origin', null);
     }
-    this.drawSketches();
   }
 
   /** Visible sketches other than the one being edited. */
@@ -519,18 +651,25 @@ export class Viewport {
     const ptPos: number[] = [];
     const consumed = new Set<Id>();
     for (const f of app.store.doc.features) consumedSketches(f).forEach((s) => consumed.add(s));
-    const built = app.store.doc.features.slice(0, app.store.builtCount);
+    // Sketches after the one being edited are rolled back with the model.
+    const built = app.store.doc.features.slice(0, app.buildLimit());
     const sel = app.selection;
+    this.sketchPx = this.camera.pixelSize;
+    this.drawnSketchHover = this.sketchHoverKey();
+    // Theme colours: the light theme's grey is barely visible on the dark viewport.
+    const rgba = (c: number[]) => [...c.map((v) => Math.round(v * 255)), 255];
+    const inactive = rgba(cssColor('--sketch-inactive'));
+    const highlight = rgba(this.renderer.theme.selection);
     if (this.showSketches) {
       for (const f of built) {
-        if (f.type !== 'sketch' || f.suppressed) continue;
+        if (f.type !== 'sketch' || f.suppressed || app.featureStatus(f.id)?.suppressed) continue;
         if (app.sketchEditor?.sketchId === f.id) continue;
         const shown = f.hidden === false || (f.hidden === undefined && !consumed.has(f.id));
         const highlighted = sel.has({ kind: 'feature', id: f.id }) || (sel.hover?.kind === 'feature' && sel.hover.id === f.id) || app.extraHighlights().some((x) => x.kind === 'feature' && x.id === f.id);
         if (!shown && !highlighted) continue;
         const fr = app.frameOfSketch(f);
         if (!fr) continue;
-        const c = highlighted ? [47, 124, 246, 255] : [92, 107, 128, 255];
+        const c = highlighted ? highlight : inactive;
         this.sketchPolylines(f, fr, (a, b, construction) => {
           pos.push(...a, ...b);
           col.push(c[0], c[1], c[2], construction ? 120 : 255);
@@ -539,28 +678,30 @@ export class Viewport {
     }
     this.renderer.setLines('sketches', pos.length ? { positions: new Float32Array(pos), colors: new Uint8Array(col), width: 1.4, depth: 'test', bias: 3e-4, order: 1 } : null);
     this.renderer.setPoints('sketchPts', ptPos.length ? {
-      positions: new Float32Array(ptPos), colors: new Uint8Array((ptPos.length / 3) * 4).map((_, i) => [92, 107, 128, 255][i % 4]),
+      positions: new Float32Array(ptPos), colors: new Uint8Array((ptPos.length / 3) * 4).map((_, i) => inactive[i % 4]),
       sizeStyle: new Float32Array((ptPos.length / 3) * 2).map((_, i) => (i % 2 ? 1 : 5)), depth: 'test', order: 1,
     } : null);
   }
 
   sketchPolylines(f: SketchFeature, fr: Frame, seg: (a: Vec3, b: Vec3, construction: boolean) => void, point?: (p: Vec3) => void) {
-    const ix = new SketchIndex(f.entities);
+    const entities = this.app.builtEntities(f);
+    const ix = new SketchIndex(entities);
     const tol = this.camera.pixelSize * 0.5;
     const used = new Set<string>();
-    for (const e of f.entities) {
+    for (const e of entities) {
       if (e.t === 'point') continue;
       for (const id of e.t === 'spline' ? e.pts : e.t === 'circle' ? [e.c] : e.t === 'arc' ? [e.a, e.b, e.c] : [e.a, e.b]) used.add(id);
       const poly = tessellate(ix, e, Math.max(tol, 1e-4));
       for (let i = 0; i + 1 < poly.length; i++) seg(toWorld(fr, poly[i]), toWorld(fr, poly[i + 1]), !!e.construction);
     }
-    if (point) for (const e of f.entities) if (e.t === 'point' && !used.has(e.id)) point(toWorld(fr, [e.x, e.y]));
+    if (point) for (const e of entities) if (e.t === 'point' && !used.has(e.id)) point(toWorld(fr, [e.x, e.y]));
   }
 
   // ---------- view helpers ----------
 
   pushHistory() {
-    this.history.push(this.camera.state());
+    // Mid-animation, the view being left is the one the camera was heading to.
+    this.history.push(this.camera.goal());
     if (this.history.length > 30) this.history.shift();
   }
 
@@ -578,10 +719,12 @@ export class Viewport {
 
   modelRadius(): number {
     const b = this.app.bbox;
-    let r = b ? Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 : 0;
+    const drawn = b ? null : this.camera.sceneBounds;
+    let r = b ? Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 : drawn?.radius ?? 0;
     const sk = this.app.sketchEditor?.bounds();
-    if (sk) r = Math.max(r, sk.radius + (b ? 0 : 0));
-    return Math.max(r, b ? 1 : 50);
+    if (sk) r = Math.max(r, sk.radius);
+    // Only guard against a degenerate box: small parts must still fill the view.
+    return Math.max(r, b || drawn ? 1e-3 : 50);
   }
 
   zoomToFit(animate = true) {
@@ -589,7 +732,7 @@ export class Viewport {
     let center = this.modelCenter();
     let radius = this.modelRadius();
     const sk = this.app.sketchEditor?.bounds();
-    if (sk && !this.app.bbox) { center = sk.center; radius = Math.max(sk.radius, 5); }
+    if (sk && !this.app.bbox) { center = sk.center; radius = sk.radius; }
     const st = this.camera.fitState(center, radius);
     if (animate) this.camera.animateTo(st);
     else this.camera.setState(st);
@@ -612,6 +755,8 @@ export class Viewport {
 
   // ---------- triad and label ----------
 
+  private triadKey = '';
+
   private buildTriad(): SVGSVGElement {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
@@ -633,6 +778,10 @@ export class Viewport {
   updateTriad() {
     const ns = 'http://www.w3.org/2000/svg';
     const cam = this.camera;
+    // Called every frame (hover pre-selection redraws too); rebuild only on rotation.
+    const key = cam.rot.join();
+    if (key === this.triadKey) return;
+    this.triadKey = key;
     const right = cam.right, up = cam.up, back = cam.back;
     const axes: { a: string; v: Vec3; color: string }[] = [
       { a: 'x', v: [1, 0, 0], color: 'var(--axis-x)' },

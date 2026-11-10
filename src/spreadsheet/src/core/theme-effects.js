@@ -8,6 +8,7 @@
  * degrees, black at alpha), { glow: { rad, alpha } } (in the effect's colour), { bevel: { w, h } }.
  */
 import { effectiveColorPalette } from './font-color.js';
+import { t } from '../i18n/index.js';
 
 export const DEFAULT_EFFECTS_NAME = 'Office';
 
@@ -24,7 +25,17 @@ export const EFFECT_SCHEMES = Object.freeze([
   { name: 'Halo', styles: [[glow(3, 0.4)], [glow(5, 0.4)], [glow(8, 0.5)]] },
   { name: 'Chiselled', styles: [[bevel(2, 1)], [bevel(3, 2), shadow(2, 1, 90, 0.25)], [bevel(5, 2), shadow(4, 2, 90, 0.35)]] },
 ]);
-export const EFFECT_LEVELS = Object.freeze(['Subtle Effect', 'Moderate Effect', 'Intense Effect']);
+const EFFECT_LEVEL_KEYS = ['coreThemeEffects.level.subtle', 'coreThemeEffects.level.moderate', 'coreThemeEffects.level.intense'];
+/** The three effect styles' names ("Subtle Effect"…), in the interface language each time one is read. */
+export const EFFECT_LEVELS = Object.freeze(EFFECT_LEVEL_KEYS.reduce((list, key, i) => Object.defineProperty(list, i, { get: () => t(key), enumerable: true }), []));
+
+// The schemes' names on screen; files keep the names above.
+const EFFECT_NAME_KEYS = {
+  Office: 'coreThemeEffects.scheme.office', Flat: 'coreThemeEffects.scheme.flat', 'Soft Shadow': 'coreThemeEffects.scheme.softShadow',
+  Lifted: 'coreThemeEffects.scheme.lifted', Halo: 'coreThemeEffects.scheme.halo', Chiselled: 'coreThemeEffects.scheme.chiselled',
+};
+/** An effect scheme's name in the interface language, or the name itself when the app does not know it. */
+export const effectSchemeName = name => (Object.hasOwn(EFFECT_NAME_KEYS, name) ? t(EFFECT_NAME_KEYS[name]) : name);
 
 export const effectScheme = name => EFFECT_SCHEMES.find(s => s.name === name) || null;
 /** The workbook's effect scheme (Office when it names none). */

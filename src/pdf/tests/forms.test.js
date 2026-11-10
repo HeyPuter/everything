@@ -98,7 +98,8 @@ it('rejects unsupported new form text instead of exporting missing glyphs', asyn
   const doc = await formPdf();
   const bytes = await doc.save();
   const session = new PdfSession(bytes);
-  await expect(session.change((d) => fillFields(d, { Edited: '你好' }))).rejects.toThrow(
+  // Thai is in neither the Noto Sans nor the CJK faces.
+  await expect(session.change((d) => fillFields(d, { Edited: 'สวัสดี' }))).rejects.toThrow(
     'does not support',
   );
   expect(session.bytes).toEqual(bytes);
@@ -451,11 +452,13 @@ it('keeps naming the field’s own font after filling, for viewers that redraw i
   expect(saved.getTextField('Code').getText()).toBe('ABC-123');
 });
 
-it('fills a field with Korean text in the Korean face, and others in their own', async () => {
+it('fills fields with Korean and Chinese text in their faces, and others in their own', async () => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(
     async (url) =>
       new Response(
-        await readFile(new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url)),
+        await readFile(
+          new URL(`../public/fonts/${String(url).split('/fonts/').pop()}`, import.meta.url),
+        ),
       ),
   );
   const source = await PDFDocument.create();
@@ -463,12 +466,14 @@ it('fills a field with Korean text in the Korean face, and others in their own',
   const form = source.getForm();
   form.createTextField('Name').addToPage(page, { x: 50, y: 600, width: 200, height: 24 });
   form.createTextField('City').addToPage(page, { x: 50, y: 500, width: 200, height: 24 });
+  form.createTextField('Note').addToPage(page, { x: 50, y: 400, width: 200, height: 24 });
   const doc = await PDFDocument.load(await source.save());
   // Ł is beyond the Korean face, so one face for both fields could draw neither.
-  await fillFields(doc, { Name: '김민준', City: 'Łódź' });
+  await fillFields(doc, { Name: '김민준', City: 'Łódź', Note: '这是中文' });
   const saved = (await PDFDocument.load(await doc.save())).getForm();
   expect(saved.getTextField('Name').getText()).toBe('김민준');
   expect(saved.getTextField('City').getText()).toBe('Łódź');
+  expect(saved.getTextField('Note').getText()).toBe('这是中文');
   const faces = (name) => {
     const widget = saved.getTextField(name).acroField.getWidgets()[0];
     const stream = saved.doc.context.lookup(widget.getNormalAppearance());
@@ -479,6 +484,7 @@ it('fills a field with Korean text in the Korean face, and others in their own',
   };
   expect(faces('Name')).toEqual([expect.stringMatching(/NotoSansKR/)]);
   expect(faces('City')).toEqual([expect.not.stringMatching(/NotoSansKR/)]);
+  expect(faces('Note')).toEqual([expect.stringMatching(/NotoSansSC/)]);
 });
 
 it('tells apart radio buttons that share an export value, unless they are in unison', async () => {
@@ -642,4 +648,32 @@ it('works out the form’s own sums and other simple calculations after filling'
   } finally {
     await task.destroy();
   }
+});
+
+it('a number field does not take its thousands separator for a decimal mark', async () => {
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  const formatted = (fieldName, y, script) => {
+    const created = form.createTextField(fieldName);
+    created.addToPage(page, { x: 50, y, width: 150, height: 20 });
+    created.acroField.dict.set(
+      PDFName.of('AA'),
+      source.context.obj({ F: { S: 'JavaScript', JS: PDFHexString.fromText(script) } }),
+    );
+  };
+  formatted('Dollars', 700, 'AFNumber_Format(2, 0, 0, 0, "$", true);');
+  formatted('Euros', 650, 'AFNumber_Format(2, 2, 0, 0, " €", false);');
+  // Thousands without a separator: either mark is a decimal mark.
+  formatted('Rate', 600, 'AFPercent_Format(1, 1);');
+  const doc = await PDFDocument.load(await source.save());
+  // A dollar amount written with a thousands comma would show as $1.23.
+  await expect(fillFields(doc, { Dollars: '1,234' })).rejects.toThrow(
+    'Enter a number in Dollars, such as 1234.5.',
+  );
+  await expect(fillFields(doc, { Euros: '1.234' })).rejects.toThrow(
+    'Enter a number in Euros, such as 1234,5.',
+  );
+  await fillFields(doc, { Dollars: '1234.5', Euros: '1234,5', Rate: '0,5' });
+  expect(listFields(doc).map(({ value }) => value)).toEqual(['1234.5', '1234,5', '0,5']);
 });

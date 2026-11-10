@@ -14,6 +14,7 @@ import { effectiveFontTheme } from '../core/font-theme.js';
 import { fontKeyFor } from '../core/format.js';
 import { openChartTypeDialog } from './chart-type-dialog.js';
 import { openSelectDataDialog } from './chart-select-data.js';
+import { t } from '../i18n/index.js';
 
 const DRAWN = new Set(['image', 'text', 'slicer', 'timeline', 'scroll', 'smartart']);
 /** Is this object a chart (not a picture, text box, slicer, timeline or form control)? */
@@ -56,9 +57,9 @@ export function chartSource(ctx, range = null, { sized = true } = {}) {
     c2: r.c2 >= MAX_COL ? Math.max(r.c1, Math.min(r.c2, used?.c2 ?? r.c1)) : r.c2 });
   const ranges = range ? (Array.isArray(range) ? range : [range]) : ctx.ranges?.()?.length > 1 ? ctx.ranges().map(toUsed) : [ctx.dataRange?.(ctx.range()) || ctx.range()];
   const areas = chartAreas(ranges);
-  if (!areas) { toast('Select ranges over the same rows (or the same columns) to chart them together', { icon: 'info', duration: 3500 }); return null; }
+  if (!areas) { toast(t('chartActions.selectSameRows'), { icon: 'info', duration: 3500 }); return null; }
   const r = areas.box;
-  if (sized && (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200)) { toast('That range is too large to chart', { icon: 'info' }); return null; }
+  if (sized && (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200)) { toast(t('chartActions.tooLarge'), { icon: 'info' }); return null; }
   return areas.lines ? ranges.map(normalizeRange) : r;
 }
 
@@ -105,9 +106,9 @@ export function insertChartSheet(ctx, subtype = DEFAULT_SUBTYPE) {
   const source = chartSource(ctx, null, { sized: false });
   if (!source) return null;
   const chart = detachedChart(wb, sheetId, newExcelChart(wb, sheetId, source, subtype, { font: themeChartFont(wb) }));
-  if (!chart.sourceRefs?.length) { toast('Select the data to chart first', { icon: 'info' }); return null; }
+  if (!chart.sourceRefs?.length) { toast(t('chartActions.selectDataFirst'), { icon: 'info' }); return null; }
   let sheet = null;
-  wb.transaction('Insert chart sheet', () => { sheet = newChartSheet(wb, chart); });
+  wb.transaction(t('chartActions.undo.insertChartSheet'), () => { sheet = newChartSheet(wb, chart); });
   return sheet;
 }
 
@@ -123,7 +124,9 @@ export function moveChart(ctx, chart, { newSheet = null, toSheetId = null }) {
   const source = wb.sheet(fromId);
   const emptiesSheet = source?.kind === 'chart' && source.charts.filter(isChartObject).length === 1;
   if (newSheet == null && emptiesSheet && wb.structureProtected) { wb._structureLocked(); return false; }
-  wb.transaction('Move chart', () => {
+  // A protected sheet keeps its chart: refused up front, or the copy would land elsewhere and the chart stay as well.
+  if (wb._locked(source)) return false;
+  wb.transaction(t('chartActions.undo.moveChart'), () => {
     if (newSheet != null) {
       const name = String(newSheet).trim() || chartSheetName(wb);
       const problem = wb.validateSheetName(name);
@@ -155,9 +158,9 @@ export function openMoveChartDialog(ctx, chart) {
   const { wb } = ctx;
   const newRadio = el('input', { type: 'radio', name: 'move-chart', value: 'sheet' });
   const objRadio = el('input', { type: 'radio', name: 'move-chart', value: 'object', checked: true });
-  const nameInput = el('input.input', { type: 'text', value: chartSheetName(wb), 'aria-label': 'New sheet name', maxlength: 31 });
+  const nameInput = el('input.input', { type: 'text', value: chartSheetName(wb), 'aria-label': t('chartActions.newSheetName'), maxlength: 31 });
   const sheets = wb.sheets.filter(s => !s.hidden && !s.veryHidden);
-  const select = el('select.select', { 'aria-label': 'Object in' }, ...sheets.map(s => el('option', { value: s.id, selected: s.id === ctx.sheetId() }, s.name)));
+  const select = el('select.select', { 'aria-label': t('chartActions.objectIn') }, ...sheets.map(s => el('option', { value: s.id, selected: s.id === ctx.sheetId() }, s.name)));
   const error = el('p.field-error', { role: 'alert', hidden: true });
   const sync = () => { nameInput.disabled = !newRadio.checked; select.disabled = newRadio.checked; };
   newRadio.addEventListener('change', sync); objRadio.addEventListener('change', sync);
@@ -175,12 +178,12 @@ export function openMoveChartDialog(ctx, chart) {
   };
   sync();
   const content = el('form.chart-move-form', { onsubmit: submit },
-    el('p.field-label', {}, 'Choose where you want the chart to be placed:'),
-    el('div.chart-move-row', {}, el('label.check', {}, newRadio, el('span', {}, 'New sheet:')), nameInput),
-    el('div.chart-move-row', {}, el('label.check', {}, objRadio, el('span', {}, 'Object in:')), select),
+    el('p.field-label', {}, t('chartActions.choosePlace')),
+    el('div.chart-move-row', {}, el('label.check', {}, newRadio, el('span', {}, t('chartActions.newSheet'))), nameInput),
+    el('div.chart-move-row', {}, el('label.check', {}, objRadio, el('span', {}, t('chartActions.objectInField'))), select),
     error,
-    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Move Chart', content, initialFocus: objRadio, onClose: () => ctx.grid.focus() });
+    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('chartActions.moveChartTitle'), content, initialFocus: objRadio, onClose: () => ctx.grid.focus() });
   return modal;
 }
 
@@ -194,6 +197,8 @@ export function runChartAction(ctx, arg = {}) {
   if (action === 'insert') return insertChart(ctx, arg.subtype, arg.range);
   if (action === 'insertSheet') return insertChartSheet(ctx, arg.subtype);
   if (action === 'insertDialog' || action === 'recommended') {
+    // A protected sheet takes no new chart: said before one is picked, not when OK finds the sheet refusing it.
+    if (ctx.refused?.('insert a chart')) return null;
     return openChartTypeDialog(ctx, { mode: action === 'recommended' ? 'recommended' : 'insert', family: arg.family || null });
   }
   const chart = arg.id ? wb.chartById(sheetId, arg.id) : activeChart(ctx);
@@ -205,18 +210,18 @@ export function runChartAction(ctx, arg = {}) {
   };
   const count = () => seriesCountOf(wb, sheetId, chart);
   switch (action) {
-    case 'element': return update(chartElementPatch(chart, arg.element, arg.value, { seriesCount: count() }), 'Add chart element');
-    case 'quickLayout': return update(quickLayoutPatch(chart, arg.layout, { seriesCount: count() }), 'Quick layout');
-    case 'colors': return update(colorsPatch(chart, arg.colors, count()), 'Change colors');
-    case 'style': return update(chartStylePatch(chart, arg.style, { seriesCount: count() }), 'Chart style');
-    case 'resetStyle': return update(chartStylePatch(chart, 1, { seriesCount: count() }), 'Reset to match style');
+    case 'element': return update(chartElementPatch(chart, arg.element, arg.value, { seriesCount: count() }), t('chartActions.undo.addElement'));
+    case 'quickLayout': return update(quickLayoutPatch(chart, arg.layout, { seriesCount: count() }), t('chartActions.undo.quickLayout'));
+    case 'colors': return update(colorsPatch(chart, arg.colors, count()), t('chartActions.undo.changeColors'));
+    case 'style': return update(chartStylePatch(chart, arg.style, { seriesCount: count() }), t('chartActions.undo.chartStyle'));
+    case 'resetStyle': return update(chartStylePatch(chart, 1, { seriesCount: count() }), t('chartActions.undo.resetStyle'));
     case 'switchRowCol': {
       const patch = switchRowColumnPatch(wb, sheetId, chart);
-      if (!patch) { toast('This chart’s series have their own references. Use Select Data to change them', { icon: 'info', duration: 3000 }); return null; }
-      return update(patch, 'Switch row/column');
+      if (!patch) { toast(t('chartActions.ownReferences'), { icon: 'info', duration: 3000 }); return null; }
+      return update(patch, t('chartActions.undo.switchRowColumn'));
     }
     case 'changeType': {
-      if (arg.subtype) return update(changeSubtypePatch(chart, arg.subtype, { font: themeChartFont(wb) }), 'Change chart type');
+      if (arg.subtype) return update(changeSubtypePatch(chart, arg.subtype, { font: themeChartFont(wb) }), t('chartActions.undo.changeType'));
       return openChartTypeDialog(ctx, { mode: 'change', chart });
     }
     case 'selectData': {
@@ -225,15 +230,15 @@ export function runChartAction(ctx, arg = {}) {
     case 'move': return openMoveChartDialog(ctx, chart);
     case 'format': {
       const key = arg.element || ctx.chartUi?.element() || 'chartArea';
-      return update(elementFormatPatch(chart, key, { ...arg, rings: ringCountOf(wb, sheetId, chart) }), 'Format chart');
+      return update(elementFormatPatch(chart, key, { ...arg, rings: ringCountOf(wb, sheetId, chart) }), t('chartActions.undo.format'));
     }
     case 'size': {
       const patch = {};
       if (Number.isFinite(arg.w)) patch.w = Math.max(40, Math.min(4000, arg.w));
       if (Number.isFinite(arg.h)) patch.h = Math.max(30, Math.min(4000, arg.h));
-      return update(patch, 'Size chart');
+      return update(patch, t('chartActions.undo.size'));
     }
-    case 'patch': return update(arg.patch, arg.label || 'Format chart');
+    case 'patch': return update(arg.patch, arg.label || t('chartActions.undo.format'));
     case 'selectElement': ctx.chartUi?.setElement(arg.element); return null;
     case 'formatPane': ctx.chartUi?.openPane(arg.element || ctx.chartUi?.element() || 'chartArea'); return null;
     default: return null;

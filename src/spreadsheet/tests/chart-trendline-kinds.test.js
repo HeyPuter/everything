@@ -105,6 +105,22 @@ describe('drawing', () => {
     expect(pts[0][1]).toBeGreaterThan(pts.at(-1)[1]);
     expect(pts.at(-1)[0]).toBeGreaterThan(pts[0][0]);
   });
+
+  // A label's width was guessed at over half an em a character, some 40% wider than its text draws: put at the chart's
+  // left edge, its text began 48px in from it, and the box a drag or a resize works from was that much too wide.
+  it('measures a trendline label in its own font, as axis labels are measured', () => {
+    const fonts = [];
+    const context = { font: '', measureText(text) { fonts.push(this.font); return { width: [...String(text)].length * parseFloat(/(\d+(\.\d+)?)px/.exec(this.font)[1]) * .4 }; } };
+    vi.stubGlobal('OffscreenCanvas', class { getContext() { return context; } });
+    const { draw } = sheet('lineMarkers', { trendline: true, trendlines: [{ type: 'poly', order: 2, dispEq: true, labelPos: { x: 0, y: .1 }, labelSize: 20 }, false] });
+    const label = draw().querySelector('[data-el="trendlineLabel"]'), text = label.querySelector('text');
+    // The equation at 20px and its exponent at 14px, each run measured at its own size.
+    const runs = [...text.querySelectorAll('tspan')].map(t => [...t.textContent].length * (t.getAttribute('font-size') ? 14 : 20) * .4);
+    expect(Number(label.getAttribute('data-width'))).toBeCloseTo(runs.reduce((a, b) => a + b, 0), 1);
+    expect(Number(label.getAttribute('data-left'))).toBe(0);
+    expect(Number(text.getAttribute('x'))).toBeCloseTo(Number(label.getAttribute('data-width')), 1);
+    expect(fonts.some(f => /^20px /.test(f)) && fonts.some(f => /^14px /.test(f))).toBe(true);
+  });
 });
 
 describe('Add Chart Element and the Format pane', () => {

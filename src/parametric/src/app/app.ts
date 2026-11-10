@@ -2,65 +2,51 @@
 // selection, PropertyManager panels, sketch mode and the rebuild loop.
 
 import type { BuildResult, EdgeInfo, FaceInfo, FeatureStatus } from '../kernel/protocol';
-import { KernelClient } from '../kernel/client';
+import { KernelClient, KernelRestartError } from '../kernel/client';
 import type { Frame, Vec3 } from '../math/vec';
 import { DocStore, newDocument } from '../model/document';
 import { evaluateVariables } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
 import { BASE_FRAMES, BASE_PLANE_NAMES } from '../model/planes';
-import type { BasePlane, Feature, Id, PlaneRef, SketchFeature } from '../model/types';
+import type { BasePlane, Feature, Id, PlaneRef, SkEntity, SketchFeature } from '../model/types';
 import { UNIT_SYSTEMS, formatLength } from '../model/units';
 import { Renderer, type Theme } from '../render/renderer';
 import { VIEWS } from '../render/camera';
 import { cssColor, parseColor } from '../platform/theme';
 import { closeMenus, openMenu, type MenuItem } from '../ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
-import { announce, h, isTextInput } from '../ui/dom';
+import { announce, formatShortcut, h, isTextInput } from '../ui/dom';
 import { icon } from '../ui/icons';
+import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
+import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
-import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
-import { Selection, faceRef, type SelItem } from './selection';
+import { type PickFilter, PropertyPanel, retireNumberFields, type UnitContext } from './pm';
+import { Selection, faceRef, remapItem, type SelItem } from './selection';
 import { type Shell, buildShell, renderRibbon, syncCommandButtons, type RibbonTab } from './shell';
 import { SketchEditor } from './sketch/editor';
+import { sketchDefinitionStatus } from './sketch/panel';
 import { FeatureTree } from './tree';
 import { DrawingPanel, DrawingWorkspace } from './drawing';
 import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
+import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
+export { DEFAULT_SETTINGS, type Settings } from './settings';
 
 export interface Colors {
   sketchUnder: number[];
   sketchFull: number[];
   sketchOver: number[];
   sketchConstruction: number[];
+  sketchExternal: number[];
   sketchSelected: number[];
   hover: number[];
   dimension: number[];
   dimensionDriven: number[];
 }
 
-export interface Settings {
-  showPlanes: boolean;
-  showOrigin: boolean;
-  showSketches: boolean;
-  showRelations: boolean;
-  showDimensions: boolean;
-  invertZoom: boolean;
-  quality: number;
-  autoNormalTo: boolean;
-  defaultUnits: 'MMGS' | 'CGS' | 'MKS' | 'IPS';
-}
-
-export const DEFAULT_SETTINGS: Settings = {
-  showPlanes: false,
-  showOrigin: false,
-  showSketches: true,
-  showRelations: true,
-  showDimensions: true,
-  invertZoom: false,
-  quality: 1,
-  autoNormalTo: true,
-  defaultUnits: 'MMGS',
-};
+/** Controls whose own keyboard activation must win over global shortcuts. */
+const ACTIVATES_ON_ENTER = 'button, a[href], summary, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"]';
+const ACTIVATES_ON_SPACE = 'input[type="checkbox"], input[type="radio"], select, [role="checkbox"], [role="switch"], [role="radio"]';
 
 /** Hooks implemented by the feature/command modules (set up in main). */
 export interface AppHooks {
@@ -90,10 +76,17 @@ export class App {
   panel: PropertyPanel | null = null;
   sketchEditor: SketchEditor | null = null;
   location: Location | null = null;
+  private documentLifetime = new AbortController();
+  /** Invalidated on document replacement, but preserved through edits and Undo. */
+  get documentSignal(): AbortSignal { return this.documentLifetime.signal; }
   settings: Settings = { ...DEFAULT_SETTINGS };
+  private settingChanges = new Map<keyof Settings, number>();
+  private settingsLoad = 0;
   faces: FaceInfo[] = [];
   edges: EdgeInfo[] = [];
   frames: Record<Id, Frame> = {};
+  /** Sketches with projected model geometry, as the last rebuild placed it. */
+  linkedSketches: NonNullable<BuildResult['sketches']> = {};
   bbox: { min: Vec3; max: Vec3 } | null = null;
   colors!: Colors;
   kernelReady = false;
@@ -128,6 +121,7 @@ export class App {
       throw e;
     }
     this.renderer.onFrame = () => this.onFrame();
+    this.renderer.onCamera = () => this.onCameraChange();
     this.colors = this.readColors();
     this.viewport.init();
     this.drawing = new DrawingWorkspace(this);
@@ -141,12 +135,27 @@ export class App {
     this.buildTaskPane();
     this.bindShell();
     this.store.on((reason) => this.onStoreChange(reason));
-    this.selection.on(() => this.onSelectionChange());
+    this.selection.on((hoverOnly) => this.onSelectionChange(hoverOnly));
     this.commands.onChange(() => this.syncChrome());
     window.addEventListener('themechange', () => this.applyTheme());
     window.addEventListener('keydown', (e) => this.onKey(e));
+    trackRegionFocus(() => this.focusRegions());
+    // Whether focus last arrived from a click/tap (toolbar buttons keep focus
+    // after a click) or from the keyboard.
+    window.addEventListener('pointerdown', () => { this.pointerInput = true; }, true);
+    window.addEventListener('keydown', () => { this.pointerInput = false; }, true);
+    window.addEventListener('focusin', () => { this.focusByPointer = this.pointerInput; }, true);
+    // A double click on OK closes the panel with its first click; the second
+    // lands on what was under the panel (the part's name opens Part
+    // Properties, a face edits its feature) and must not double-click that.
+    // Tree rows are redrawn on click, so they are compared by their key.
+    const clickTarget = (t: EventTarget | null) => (t instanceof Element ? t.closest('[data-key]')?.getAttribute('data-key') ?? t : null);
+    let firstClick: unknown = null;
+    window.addEventListener('mousedown', (e) => { if (e.detail <= 1) firstClick = clickTarget(e.target); }, true);
+    window.addEventListener('dblclick', (e) => { if (clickTarget(e.target) !== firstClick) e.stopPropagation(); }, true);
     this.renderer.camera.setState(this.renderer.camera.fitState([0, 0, 0], 60));
     this.showLoading(true);
+    this.bindKernelRecovery();
     this.kernel.ready.then(() => {
       this.kernelReady = true;
       this.showLoading(false);
@@ -158,12 +167,36 @@ export class App {
     this.refreshAll();
   }
 
+  private crashedBuildKey: string | null = null;
+  private closeStallToast: (() => void) | null = null;
+
+  /** Offers a restart when the geometry worker stops answering, and rebuilds on a restarted one. */
+  private bindKernelRecovery() {
+    this.kernel.onStall = (stalled) => {
+      const close = this.closeStallToast;
+      this.closeStallToast = null;
+      close?.();
+      if (!stalled) return;
+      this.closeStallToast = toast({
+        kind: 'warning', title: 'The geometry engine is taking a long time',
+        message: 'Large imports can take a few minutes. If it has stopped responding, restart it; your part is kept.',
+        actions: [{ label: 'Restart engine', primary: true, run: () => this.kernel.restart() }, { label: 'Keep waiting', run: () => {} }],
+      });
+    };
+    this.kernel.onRestart = (reason, building) => {
+      toast({ kind: 'warning', title: 'Geometry engine restarted', message: `It was restarted because ${reason}. Rebuilding the part.` });
+      // A rebuild cut short is retried by rebuild(); after anything else
+      // (measure, export...) the new worker still needs the model.
+      if (!building) this.requestRebuild(true);
+    };
+  }
+
   // ---------- theme ----------
 
   readTheme(): Theme {
     const c = (n: string) => cssColor(n);
     return {
-      background: c('--viewport'), model: c('--model'), edge: c('--edge'), hiddenEdge: c('--hidden-edge'), selection: c('--selection'),
+      background: c('--viewport'), model: c('--model'), edge: c('--edge'), wire: c('--wire'), hiddenEdge: c('--hidden-edge'), selection: c('--selection'),
       hover: c('--hover-3d'), preview: c('--preview'), previewCut: c('--preview-cut'), cap: c('--cap'),
     };
   }
@@ -171,7 +204,7 @@ export class App {
   readColors(): Colors {
     const c = (n: string) => cssColor(n);
     return {
-      sketchUnder: c('--sketch-under'), sketchFull: c('--sketch-full'), sketchOver: c('--sketch-over'), sketchConstruction: c('--sketch-construction'),
+      sketchUnder: c('--sketch-under'), sketchFull: c('--sketch-full'), sketchOver: c('--sketch-over'), sketchConstruction: c('--sketch-construction'), sketchExternal: c('--sketch-external'),
       sketchSelected: c('--sketch-selected'), hover: c('--hover-3d'), dimension: c('--dimension'), dimensionDriven: c('--dimension-driven'),
     };
   }
@@ -195,20 +228,35 @@ export class App {
 
   private buildLeftTabs() {
     const tabs: [string, string, string][] = [['tree', 'tree', 'Design tree'], ['pm', 'settings', 'PropertyManager']];
+    // The tablist holds only the tabs; the phone sheet's close button sits beside it.
+    const list = h('div', { class: 'lp-tablist', role: 'tablist', 'aria-label': 'Panels' });
     for (const [id, ic, label] of tabs) {
       const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(id === this.leftTab), 'aria-controls': 'left-panel', 'aria-label': label, title: label, 'data-tab': id }, icon(ic, 16));
       b.addEventListener('click', () => this.showLeft(id as 'tree' | 'pm'));
-      this.shell.lpTabs.append(b);
+      list.append(b);
     }
-    this.shell.lpTabs.append(h('span', { class: 'grow' }));
+    tabKeys(list);
+    this.shell.lpTabs.append(list, h('span', { class: 'grow' }));
+    // Phones: the sheet can shrink to its tabs, title and OK/Cancel so the
+    // preview of a feature being edited is visible above it.
+    const peek = h('button', { class: 'icon-btn mobile-only lp-peek', type: 'button', 'aria-label': 'Expand panel', 'aria-expanded': 'true', 'aria-controls': 'left-panel' }, icon('chevronDown', 16));
+    peek.addEventListener('click', () => this.setLeftPanePeek(!this.shell.leftpane.classList.contains('peek')));
     const close = h('button', { class: 'icon-btn mobile-only', type: 'button', 'aria-label': 'Close panel' }, icon('close', 16));
     close.addEventListener('click', () => this.toggleLeftPane(false));
-    this.shell.lpTabs.append(close);
+    this.shell.lpTabs.append(peek, close);
+  }
+
+  private setLeftPanePeek(peek: boolean) {
+    this.shell.leftpane.classList.toggle('peek', peek);
+    const b = this.shell.lpTabs.querySelector<HTMLElement>('.lp-peek');
+    if (!b) return;
+    b.setAttribute('aria-expanded', String(!peek));
+    b.replaceChildren(icon(peek ? 'chevronUp' : 'chevronDown', 16));
   }
 
   showLeft(tab: 'tree' | 'pm') {
     this.leftTab = tab;
-    for (const b of this.shell.lpTabs.querySelectorAll<HTMLElement>('[role="tab"]')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === tab);
     const body = this.shell.lpBody;
     if (tab === 'tree') {
       body.replaceChildren(this.tree.el);
@@ -224,11 +272,12 @@ export class App {
     const lp = this.shell.leftpane;
     const v = open ?? !lp.classList.contains('open');
     lp.classList.toggle('open', v);
+    if (!v) this.setLeftPanePeek(false);
     this.shell.treeToggle.setAttribute('aria-expanded', String(v));
   }
 
   private panelElement(p: PropertyPanel): HTMLElement {
-    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), h('div', { class: 'title', role: 'heading', 'aria-level': '2' }, p.title));
+    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), h('div', { class: 'title', role: 'heading', 'aria-level': '2', tabindex: '-1' }, p.title));
     const actions = h('div', { class: 'pm-actions' });
     if (p.confirm) {
       actions.append(
@@ -247,18 +296,10 @@ export class App {
     for (const t of this.hooks.ribbonTabs) {
       const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(t.id === this.ribbonTab), 'data-tab': t.id }, t.label);
       b.addEventListener('click', () => this.setRibbonTab(t.id));
-      b.addEventListener('keydown', (e) => {
-        const tabs = [...this.shell.cmTabs.querySelectorAll<HTMLElement>('[role="tab"]')];
-        const i = tabs.indexOf(b);
-        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-          e.preventDefault();
-          const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
-          n.focus();
-          n.click();
-        }
-      });
       this.shell.cmTabs.append(b);
     }
+    // The arrow keys skip the hidden tabs (the Drawing tab in the model, and the reverse).
+    tabKeys(this.shell.cmTabs);
     this.setRibbonTab(this.ribbonTab);
   }
 
@@ -266,10 +307,10 @@ export class App {
     this.ribbonTab = id;
     for (const b of this.shell.cmTabs.querySelectorAll<HTMLElement>('[role="tab"]')) {
       b.setAttribute('aria-selected', String(b.dataset.tab === id));
-      b.setAttribute('tabindex', b.dataset.tab === id ? '0' : '-1');
       // The drawing has its own tab; model tabs are hidden while it is open.
       b.hidden = (b.dataset.tab === 'drawing') !== (id === 'drawing');
     }
+    syncTabStops(this.shell.cmTabs);
     const tab = this.hooks.ribbonTabs.find((t) => t.id === id)!;
     renderRibbon(this.shell.cmTools, tab, this.commands);
   }
@@ -310,9 +351,12 @@ export class App {
   }
 
   viewMenuItems(): MenuItem[] {
+    // The standard view the model is seen from is checked, as the display style is.
+    const current = this.renderer.camera.viewName();
     const v = (cmd: string): MenuItem => {
       const c = this.commands.get(cmd)!;
-      return { label: c.label, icon: c.icon, shortcut: c.shortcut, run: () => this.commands.run(cmd) };
+      const name = cmd === 'normalTo' ? null : cmd.slice(4).toLowerCase();
+      return { label: c.label, icon: c.icon, shortcut: c.shortcut, ...(name ? { checked: name === current, radio: true } : {}), run: () => this.commands.run(cmd) };
     };
     return [v('viewFront'), v('viewBack'), v('viewLeft'), v('viewRight'), v('viewTop'), v('viewBottom'), { separator: true }, v('viewIsometric'), v('viewTrimetric'), v('viewDimetric'), { separator: true }, v('normalTo')];
   }
@@ -349,6 +393,19 @@ export class App {
     });
     this.flyoutEl = h('div', { class: 'flyout-tree', hidden: true }, toggle, body);
     this.shell.viewport.append(this.flyoutEl);
+    // In a narrow graphics area the centred view toolbar would cover it.
+    const ro = new ResizeObserver(() => this.placeFlyout());
+    ro.observe(this.shell.viewport);
+    ro.observe(this.shell.hud);
+  }
+
+  private placeFlyout() {
+    const el = this.flyoutEl;
+    if (el.hidden) return;
+    el.classList.remove('below-hud');
+    const a = el.firstElementChild!.getBoundingClientRect();
+    const b = this.shell.hud.getBoundingClientRect();
+    if (a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom) el.classList.add('below-hud');
   }
 
   private updateFlyout() {
@@ -356,6 +413,7 @@ export class App {
     this.flyoutEl.hidden = !show;
     const label = this.flyoutEl.querySelector('button > span');
     if (label) label.textContent = this.store.doc.name;
+    this.placeFlyout();
     if (show && this.flyoutOpen) this.flyout.render();
   }
 
@@ -415,8 +473,30 @@ export class App {
   /** Loads settings saved in the user's Puter account (set by main). */
   loadRemoteSettings: () => Promise<void> | void = () => {};
 
-  applySettings(s: Settings) {
-    this.settings = { ...DEFAULT_SETTINGS, ...s };
+  /** Local choices take precedence over account reads already in flight. */
+  changeSettings(patch: Partial<Settings>) {
+    for (const key of Object.keys(patch) as (keyof Settings)[]) {
+      this.settingChanges.set(key, (this.settingChanges.get(key) ?? 0) + 1);
+    }
+    this.applySettings(patch);
+  }
+
+  async loadSettings(read: () => Promise<unknown>) {
+    const load = ++this.settingsLoad;
+    const changes = new Map(this.settingChanges);
+    const remote = await read();
+    if (load !== this.settingsLoad || !remote || typeof remote !== 'object' || Array.isArray(remote)) return;
+    const patch: Partial<Settings> = normalizeSettings(remote, this.settings);
+    for (const key of Object.keys(patch) as (keyof Settings)[]) {
+      if (changes.get(key) !== this.settingChanges.get(key)) delete patch[key];
+    }
+    this.applySettings(patch);
+  }
+
+  applySettings(s: unknown) {
+    const quality = this.settings.quality;
+    this.settings = normalizeSettings(s, this.settings);
+    if (quality !== this.settings.quality) this.requestRebuild();
     const v = this.viewport;
     v.showPlanes = this.settings.showPlanes;
     v.showOrigin = this.settings.showOrigin;
@@ -431,9 +511,20 @@ export class App {
     this.commands.changed();
   }
 
+  /**
+   * Phones: the assistant covers the workspace, so a ribbon command, the design
+   * tree or the Model/Drawing tabs, which show something there, uncover it.
+   * Only taps do: what the assistant itself opens leaves it open.
+   */
+  private uncoverWorkspace = (e: Event) => {
+    if ((e.target as Element).closest('button') && this.taskPaneOpen() === 'assistant' && window.matchMedia('(max-width: 760px)').matches) this.toggleTaskPane('assistant');
+  };
+
   private bindShell() {
     const s = this.shell;
     s.treeToggle.addEventListener('click', () => this.toggleLeftPane());
+    s.treeToggle.addEventListener('click', this.uncoverWorkspace);
+    s.cmTools.addEventListener('click', this.uncoverWorkspace);
     // Splitter resize.
     s.splitter.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -467,26 +558,37 @@ export class App {
       active = 0;
       list.forEach((c, i) => {
         const opt = h('div', { role: 'option', id: `cmdopt-${i}`, 'aria-selected': String(i === 0), 'aria-disabled': this.commands.isEnabled(c.id) ? null : 'true' },
-          icon(c.icon ?? 'settings', 16), h('span', {}, c.label), c.shortcut ? h('span', { class: 'kbd' }, c.shortcut) : null);
+          icon(c.icon ?? 'settings', 16), h('span', {}, c.label), c.shortcut ? h('span', { class: 'kbd' }, formatShortcut(c.shortcut)) : null);
         opt.addEventListener('pointerdown', (e) => { e.preventDefault(); run(c.id); });
         results.append(opt);
       });
       results.hidden = !list.length;
       s.search.setAttribute('aria-expanded', String(!!list.length));
-      s.search.setAttribute('aria-activedescendant', list.length ? 'cmdopt-0' : '');
+      if (list.length) s.search.setAttribute('aria-activedescendant', 'cmdopt-0');
+      else s.search.removeAttribute('aria-activedescendant');
+    };
+    const hide = () => {
+      results.hidden = true;
+      s.search.setAttribute('aria-expanded', 'false');
+      s.search.removeAttribute('aria-activedescendant');
     };
     const run = (id: string) => {
+      // A disabled result keeps the list open and the status bar says why nothing ran.
+      if (!this.commands.isEnabled(id)) { this.setStatus(`${this.commands.get(id)?.label} is not available right now.`, true); return; }
       s.search.value = '';
-      results.hidden = true;
+      hide();
       s.search.blur();
       this.commands.run(id);
     };
     s.search.addEventListener('input', show);
-    s.search.addEventListener('blur', () => setTimeout(() => { results.hidden = true; }, 120));
+    s.search.addEventListener('blur', () => setTimeout(hide, 120));
     s.search.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       const opts = [...results.querySelectorAll<HTMLElement>('[role="option"]')];
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
+        if (!opts.length) return;
+        if (results.hidden) { show(); return; }
         active = (active + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % Math.max(1, opts.length);
         opts.forEach((o, i) => o.setAttribute('aria-selected', String(i === active)));
         s.search.setAttribute('aria-activedescendant', `cmdopt-${active}`);
@@ -495,7 +597,7 @@ export class App {
         if (list[active]) run(list[active].id);
       } else if (e.key === 'Escape') {
         s.search.value = '';
-        results.hidden = true;
+        hide();
         s.search.blur();
       }
     });
@@ -583,11 +685,26 @@ export class App {
   private fitOnNextBuild = false;
 
   private onStoreChange(reason: string) {
+    const unlinked = this.panel?.syncExpressions();
+    if (unlinked != null) {
+      this.showLeft('pm');
+      if (unlinked.length) toast({ kind: 'warning', title: 'Some pending equations were replaced by their values', message: unlinked.join(', '), timeout: 9000 });
+    }
     if (reason === 'load') {
+      const previous = this.documentLifetime;
+      this.documentLifetime = new AbortController();
+      previous.abort();
+      // A section belongs to the replaced part, not to the next document's geometry.
+      this.renderer.section = null;
       this.applyModelColor();
       this.refreshAll();
     }
     if (reason === 'undo' || reason === 'redo') {
+      // Rebuilding a focused field can emit change before it is detached.
+      // Its pending value belongs to the state that history just replaced.
+      for (const field of this.shell.lpBody.querySelectorAll<HTMLElement>('.sketch-dimension-field, .sketch-tool-options')) {
+        retireNumberFields(field);
+      }
       // Sketch edits undo inside the sketch; anything else leaves the editor in sync.
       if (this.sketchEditor && !this.store.feature(this.sketchEditor.sketchId)) this.exitModes();
       this.sketchEditor?.resolve();
@@ -646,7 +763,7 @@ export class App {
   }
 
   /** Number of features the model shows (rollback, sketch or edit position). */
-  private buildLimit(): number {
+  buildLimit(): number {
     let n = this.store.builtCount;
     if (this.sketchEditor) n = Math.min(n, this.store.indexOf(this.sketchEditor.sketchId));
     if (this.panel?.editingId) n = Math.min(n, this.store.indexOf(this.panel.editingId));
@@ -674,15 +791,35 @@ export class App {
     if (key === this.lastBuildKey) return;
     this.lastBuildKey = key;
     const t0 = performance.now();
+    const documentSignal = this.documentSignal;
     let res: BuildResult;
     try {
       res = await this.kernel.build({ features: resolved.features, upTo, blobs: this.store.doc.blobs, quality: this.settings.quality, preview });
+      // A build of the part that was open before New or Open finishes first:
+      // its body, errors and framing must not be shown for the new part.
+      if (documentSignal.aborted) return;
     } catch (e) {
+      if (documentSignal.aborted) return;
+      if (e instanceof KernelRestartError) {
+        // Retry once on the restarted worker; the same model stopping it
+        // again is reported instead of restarting in a loop.
+        if (this.crashedBuildKey !== key) {
+          this.crashedBuildKey = key;
+          this.requestRebuild(true);
+        } else toast({ kind: 'error', title: 'Rebuild failed', message: 'The geometry engine stopped again while rebuilding this part. Undo the last change or edit the part to try again.', timeout: 0 });
+        return;
+      }
       toast({ kind: 'error', title: 'Rebuild failed', message: (e as Error).message });
       return;
     }
+    this.crashedBuildKey = null;
+    // Coalesced requests all resolve with the same newest result: show it once.
+    if (res === this.lastBuildResult) return;
+    this.lastBuildResult = res;
     this.applyBuild(res, performance.now() - t0);
   }
+
+  private lastBuildResult: BuildResult | null = null;
 
   /** Incremented after every rebuild (drawings re-project when it changes). */
   buildVersion = 0;
@@ -716,7 +853,7 @@ export class App {
 
   private showDrawingPanel() {
     this.leftTab = 'pm';
-    for (const b of this.shell.lpTabs.querySelectorAll<HTMLElement>('[role="tab"]')) b.setAttribute('aria-selected', String(b.dataset.tab === 'pm'));
+    selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === 'pm');
     this.shell.lpBody.replaceChildren(this.panelElement(new DrawingPanel(this, this.drawing)));
   }
 
@@ -729,25 +866,33 @@ export class App {
       return b;
     };
     this.sheetTabs = h('div', { class: 'sheet-tabs', role: 'tablist', 'aria-label': 'Model or drawing' }, mk('Model', false), mk('Drawing', true));
+    this.sheetTabs.addEventListener('click', this.uncoverWorkspace);
+    // Opening the drawing projects the views, so the arrow keys only move focus.
+    tabKeys(this.sheetTabs, { activate: false });
     this.shell.statusMsg.before(this.sheetTabs);
   }
 
   private syncSheetTabs() {
-    const tabs = this.sheetTabs.querySelectorAll('[role="tab"]');
-    tabs[0].setAttribute('aria-selected', String(!this.inDrawing));
-    tabs[1].setAttribute('aria-selected', String(this.inDrawing));
+    const drawing = this.sheetTabs.querySelectorAll('[role="tab"]')[1];
+    selectTabs(this.sheetTabs, (b) => (b === drawing) === this.inDrawing);
   }
 
   private applyBuild(res: BuildResult, ms: number) {
     this.buildVersion++;
     this.statuses = new Map(res.status.map((s) => [s.id, s]));
-    for (const [id, err] of this.resolveErrors) this.statuses.set(id, { id, ok: false, error: err });
+    for (const [id, err] of this.resolveErrors) {
+      // A suppressed feature is not built, so its values are not used either.
+      if (!this.store.feature(id)?.suppressed && !this.statuses.get(id)?.suppressed) this.statuses.set(id, { id, ok: false, error: err });
+    }
     this.faces = res.faces;
     this.edges = res.edges;
     this.frames = res.frames;
+    this.linkedSketches = res.sketches ?? {};
     this.bbox = res.bbox;
-    this.vertices = res.mesh?.vertices ?? new Float32Array(0);
-    this.renderer.setModel(res.mesh, res.faces.length, res.edges.length);
+    if (!res.meshUnchanged) {
+      this.vertices = res.mesh?.vertices ?? new Float32Array(0);
+      this.renderer.setModel(res.mesh, res.faces.length, res.edges.length);
+    }
     if (this.fitOnNextBuild) {
       this.fitOnNextBuild = false;
       if (res.bbox) this.viewport.zoomToFit(false);
@@ -759,17 +904,22 @@ export class App {
     if (this.sketchEditor) {
       const fr = res.frames[this.sketchEditor.sketchId];
       if (fr) this.sketchEditor.frame = fr;
+      // Projected geometry follows the model: put it where this build found its edges.
+      this.sketchEditor.syncExternal(res.sketches?.[this.sketchEditor.sketchId] ?? null);
       this.sketchEditor.render();
     }
     this.selection.revalidate(res.faces, res.edges);
     this.panel?.onBuild(res);
     if (this.panel && res.previewError) this.panel.setMessage('error', res.previewError);
+    else if (this.panel && res.previewWarning) this.panel.setMessage('warn', res.previewWarning);
     else if (this.panel && !res.previewError) this.panel.setMessage(null);
     this.shell.statusRebuild.textContent = `${Math.round(res.ms)} ms`;
     this.shell.statusRebuild.title = `Rebuild took ${Math.round(res.ms)} ms (${Math.round(ms)} ms including transfer)`;
     this.viewport.refreshStates();
+    this.viewport.rehoverSoon();
     this.renderTrees();
-    const errors = res.status.filter((s) => !s.ok);
+    // Expression errors replace the kernel's view of the same feature.
+    const errors = res.status.map((s) => this.statuses.get(s.id) ?? s).filter((s) => !s.ok);
     if (errors.length && !this.panel) {
       const f = this.store.feature(errors[0].id);
       this.setStatus(`Rebuild error in ${f?.name ?? 'a feature'}: ${errors[0].error}`, true);
@@ -809,6 +959,17 @@ export class App {
     return f?.frame ?? null;
   }
 
+  /**
+   * A sketch's geometry as built: projected entities on their model edges as
+   * the last rebuild found them. The stored geometry until a rebuild has seen
+   * the sketch as it is now.
+   */
+  builtEntities(f: SketchFeature): SkEntity[] {
+    const linked = this.linkedSketches[f.id]?.entities;
+    if (!linked || linked.length !== f.entities.length || linked.some((e, i) => e.id !== f.entities[i].id || e.t !== f.entities[i].t)) return f.entities;
+    return linked;
+  }
+
   frameOfSketch(f: SketchFeature): Frame | null {
     return this.frames[f.id] ?? (f.plane.kind === 'base' ? BASE_FRAMES[f.plane.plane] : f.frame ?? null);
   }
@@ -837,12 +998,21 @@ export class App {
   /** Items highlighted because a panel references them. */
   extraHighlights(): SelItem[] {
     const out: SelItem[] = [];
-    if (this.panel) for (const b of this.panel.boxes) for (const it of b.items) if (it.item) out.push(it.item);
+    // Faces and edges are found again by name: the panel listed them before
+    // the rebuild it previews (e.g. an edited feature's references) arrived.
+    if (this.panel) for (const b of this.panel.boxes) for (const it of b.items) {
+      const r = it.item?.kind === 'face' || it.item?.kind === 'edge' ? remapItem(it.item, this.faces, this.edges) : it.item;
+      if (r) out.push(r);
+    }
     return out;
   }
 
-  private onSelectionChange() {
-    this.viewport.refreshStates();
+  private onSelectionChange(hoverOnly = false) {
+    this.viewport.refreshStates(hoverOnly);
+    // Pre-highlighting only changes the graphics: rebuilding the tree and the
+    // PropertyManager on every hover would also throw away a rename or a
+    // field being typed in.
+    if (hoverOnly) { this.sketchEditor?.queueRender(); return; }
     this.renderTrees();
     this.sketchEditor?.queueRender();
     if (this.sketchEditor) this.refreshSketchPanel();
@@ -862,7 +1032,7 @@ export class App {
         const f = this.faces[it.index];
         if (!f) return 'Face';
         const owner = this.store.feature(f.feature);
-        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatLength(Math.sqrt(f.area), units, dec)}Â² equivalent`;
+        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatLength(Math.sqrt(f.area), units, dec)}² equivalent`;
       }
       case 'edge': {
         const e = this.edges[it.index];
@@ -886,8 +1056,11 @@ export class App {
     }
     if (this.sketchEditor) {
       // Model edges/vertices can be selected (e.g. for Convert Entities).
-      if (item) { if (e.shift || e.ctrl) this.selection.toggle(item); else this.selection.set([item]); }
-      else if (!e.shift && !e.ctrl) this.selection.clear();
+      if (item) {
+        if (e.shift || e.ctrl) this.selection.toggle(item); else this.selection.set([item]);
+        // With sketch geometry, a model edge or vertex can take constraints (it is projected first).
+        this.sketchEditor.showQuickRelations(e);
+      } else if (!e.shift && !e.ctrl) this.selection.clear();
       return;
     }
     if (!item) { if (!e.shift && !e.ctrl) this.selection.clear(); return; }
@@ -926,7 +1099,7 @@ export class App {
   }
 
   openRelationMenu(id: Id, x: number, y: number) {
-    openMenu(this.hooks.contextItems('viewport', id), x, y, { label: 'Relation menu' });
+    openMenu(this.hooks.contextItems('viewport', id), x, y, { label: 'Constraint menu' });
   }
 
   private ctxToolbar: HTMLElement | null = null;
@@ -1003,7 +1176,7 @@ export class App {
 
   onCameraChange() {
     this.sketchEditor?.onCamera();
-    this.viewport.drawReferenceGeometry();
+    this.viewport.onCamera();
   }
 
   // ---------- panels ----------
@@ -1012,7 +1185,11 @@ export class App {
     if (this.panel) await this.closePanel(false);
     this.hideContextToolbar();
     this.panel = p;
+    // Opened from the design tree with the keyboard: the panel replaces the
+    // tree, so keyboard focus moves to the panel instead of being lost.
+    const fromPane = this.shell.leftpane.contains(document.activeElement);
     this.showLeft('pm');
+    if (fromPane || document.activeElement === document.body) this.shell.lpBody.querySelector<HTMLElement>('.pm-head .title')?.focus();
     this.shell.confirm.hidden = !p.confirm;
     this.renderConfirmCorner();
     this.setStatus(p.title);
@@ -1026,7 +1203,9 @@ export class App {
   async closePanel(ok: boolean) {
     const p = this.panel;
     if (!p) return;
+    const fromPane = this.shell.leftpane.contains(document.activeElement);
     if (ok) {
+      if (!p.checkFields()) return;
       let done = false;
       try {
         done = await p.ok();
@@ -1044,12 +1223,20 @@ export class App {
     this.shell.confirm.hidden = !this.sketchEditor;
     this.renderConfirmCorner();
     if (this.sketchEditor) this.refreshSketchPanel();
-    else this.showLeft('tree');
+    else {
+      this.showLeft('tree');
+      // Keyboard focus returns to the feature in the tree rather than being lost with the panel.
+      const id = (p as { f?: Feature }).f?.id ?? p.editingId;
+      if (fromPane || document.activeElement === document.body) {
+        const item = (id && this.tree.el.querySelector<HTMLElement>(`[data-key="${CSS.escape(id)}"]`)) || this.tree.el.querySelector<HTMLElement>('.ti[tabindex="0"]');
+        item?.focus();
+      }
+    }
     this.setStatus(this.defaultStatus());
     this.requestRebuild(true);
     this.viewport.refreshStates();
     this.commands.changed();
-    if (window.matchMedia('(max-width: 760px)').matches && !this.sketchEditor) this.toggleLeftPane(false);
+    if (window.matchMedia('(max-width: 760px)').matches) this.toggleLeftPane(false);
   }
 
   get inSketch(): boolean {
@@ -1070,11 +1257,13 @@ export class App {
 
   // ---------- sketch mode ----------
 
-  private sketchUndoMark = 0;
+  private restoreSketch: (() => void) | null = null;
+  private sketchLifetime: AbortController | null = null;
 
   /** Starts a new sketch on a plane or planar face. */
   startSketchOn(ref: PlaneRef) {
-    const mark = this.store.undoDepth;
+    const restore = this.store.restorePoint('Sketch changes');
+    const undoFloor = this.store.undoMark;
     const id = this.store.nextId('s');
     const at = this.store.builtCount;
     const frame = this.frameOfPlane(ref);
@@ -1085,18 +1274,28 @@ export class App {
       doc.features.splice(at, 0, sk);
       if (doc.rollback != null) doc.rollback = at + 1;
     });
-    this.editSketch(id, mark);
+    this.editSketch(id, restore, undoFloor);
+  }
+
+  /** Where undo stops while a sketch is edited: the steps from before it are out of sight. */
+  private sketchUndoFloor = 0;
+
+  /** Undo takes back only the open sketch's own changes (and its creation), not the features after it. */
+  get canUndo(): boolean {
+    return this.store.canUndo && !(this.sketchEditor && this.store.undoMark <= this.sketchUndoFloor);
   }
 
   /** Opens sketch editing (rolls the model back to just before the sketch). */
-  editSketch(id: Id, undoMark?: number) {
+  editSketch(id: Id, restore?: () => void, undoFloor = this.store.undoMark) {
     const sk = this.store.feature<SketchFeature>(id);
     if (!sk) return;
     if (this.panel) void this.closePanel(false);
     if (this.sketchEditor) this.exitSketch(true);
     const frame = this.frameOfSketch(sk) ?? BASE_FRAMES.front;
     this.sketchEditor = new SketchEditor(this, id, frame);
-    this.sketchUndoMark = undoMark ?? this.store.undoDepth;
+    this.sketchLifetime = new AbortController();
+    this.restoreSketch = restore ?? this.store.restorePoint('Sketch changes');
+    this.sketchUndoFloor = undoFloor;
     this.viewport.tool = this.sketchEditor;
     this.selection.clear();
     this.selection.setHover(null);
@@ -1106,6 +1305,10 @@ export class App {
     this.renderConfirmCorner();
     this.setRibbonTab('sketch');
     this.refreshSketchPanel();
+    // On phones the sheet would cover the lower half of the sketch (and the
+    // OK corner); it slides away, as when a feature panel closes. The Tree
+    // button brings the sketch PropertyManager back.
+    if (window.matchMedia('(max-width: 760px)').matches) this.toggleLeftPane(false);
     if (this.settings.autoNormalTo) this.viewport.normalTo(frame);
     this.requestRebuild(true);
     this.renderTrees();
@@ -1114,9 +1317,17 @@ export class App {
     announce(`Editing ${sk.name}`);
   }
 
-  refreshSketchPanel() {
+  refreshSketchPanel(keepNumberField = false) {
     if (!this.sketchEditor || this.panel) return;
     if (this.leftTab !== 'pm' || !this.shell.lpBody.querySelector('.pm')) this.showLeft('pm');
+    // A dimension value edit changes geometry and definition status, while
+    // its controls stay the same. Keep them mounted through input/change so
+    // typing, Tab navigation and clicks on neighboring controls can finish.
+    const status = this.shell.lpBody.querySelector('.sketch-definition');
+    if (keepNumberField && status && this.sketchEditor.solve) {
+      status.replaceWith(sketchDefinitionStatus(this.sketchEditor.solve));
+      return;
+    }
     const p = this.hooks.sketchPanel();
     this.shell.lpBody.replaceChildren(this.panelElement(p));
   }
@@ -1125,9 +1336,15 @@ export class App {
   exitSketch(keep: boolean) {
     const ed = this.sketchEditor;
     if (!ed) return;
-    ed.setTool(null);
+    // History may already have removed the sketch. Do not finish a pending
+    // tool or rebuild its controls against geometry that no longer exists.
+    if (this.store.feature(ed.sketchId)) ed.setTool(null);
+    else ed.tool = null;
     ed.dispose();
     this.sketchEditor = null;
+    this.sketchLifetime?.abort();
+    this.sketchLifetime = null;
+    this.restoreSketch = null;
     this.viewport.tool = null;
     this.shell.confirm.hidden = true;
     this.renderConfirmCorner();
@@ -1151,12 +1368,13 @@ export class App {
   /** Exit sketch discarding changes made since entering it. */
   async discardSketch() {
     const ed = this.sketchEditor;
-    if (!ed) return;
-    const ok = await confirmDialog('Discard changes?', 'Leave the sketch and undo the changes made since you started editing it?', 'Discard changes', true);
-    if (!ok) return;
+    const signal = this.sketchLifetime?.signal;
+    if (!ed || !signal) return;
+    const ok = await confirmDialog('Discard changes?', 'Leave the sketch and undo the changes made since you started editing it?', 'Discard changes', true, signal);
+    if (!ok || signal.aborted || this.sketchEditor !== ed) return;
+    const restore = this.restoreSketch;
     this.exitSketch(false);
-    // Undo back to the state recorded when editing started.
-    while (this.store.canUndo && this.store.undoDepth > this.sketchUndoMark) this.store.undo();
+    restore?.();
   }
 
   exitModes() {
@@ -1199,6 +1417,7 @@ export class App {
   }
 
   async deleteFeatures(ids: Id[]) {
+    const signal = this.documentSignal;
     const doc = this.store.doc;
     const del = new Set(ids);
     // Absorbed sketches go with their feature; dependents are listed.
@@ -1215,7 +1434,7 @@ export class App {
     const msg = dependents.length
       ? `Delete ${names.join(', ')}? These features depend on it and will fail to rebuild: ${dependents.map((f) => f.name).join(', ')}.`
       : `Delete ${names.join(', ')}?`;
-    if (!(await confirmDialog('Delete', msg, 'Delete', true))) return;
+    if (!(await confirmDialog('Delete', msg, 'Delete', true, signal)) || signal.aborted) return;
     if (this.sketchEditor && del.has(this.sketchEditor.sketchId)) this.exitSketch(false);
     this.store.change('Delete', (d) => {
       const before = d.features.length;
@@ -1254,12 +1473,44 @@ export class App {
 
   // ---------- keyboard ----------
 
+  private pointerInput = false;
+  private focusByPointer = false;
+
+  /** The window's regions, in F6 order. */
+  private focusRegions(): FocusRegion[] {
+    const s = this.shell;
+    const part = (sel: string) => s.root.querySelector<HTMLElement>(sel)!;
+    // The phone sheet slides away rather than hiding.
+    const sheetClosed = window.matchMedia('(max-width: 760px)').matches && !s.leftpane.classList.contains('open');
+    return [
+      { el: part('.titlebar') },
+      { el: part('.cm') },
+      ...(sheetClosed ? [] : [{ el: s.leftpane, target: () => s.lpBody.querySelector<HTMLElement>('.ti[tabindex="0"]') ?? firstTabStop(s.lpBody) }]),
+      { el: s.viewport, target: () => (this.inDrawing ? this.drawing.el : this.viewport.canvas) },
+      { el: s.taskpane },
+      { el: part('.statusbar') },
+      // Notifications with buttons (Download a copy, Restart engine) are reachable too.
+      ...[...document.querySelectorAll<HTMLElement>('body > .toasts')].map((el) => ({ el })),
+    ];
+  }
+
   private onKey(e: KeyboardEvent) {
-    if (dialogOpen()) return;
+    if (e.isComposing || e.keyCode === 229 || dialogOpen()) return;
     const target = e.target as HTMLElement;
+    // The Apps panel and puter.js's user menu (keys from its shadow root come
+    // from the element) take their own keys: no shortcuts while focus is in them.
+    if (target instanceof Element && target.closest('.apps-panel, puter-user-menu')) return;
     const inText = isTextInput(target);
+    // F6 / Shift+F6 move between the window's regions, from text fields too.
+    if (e.key === 'F6' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      closeMenus();
+      cycleRegion(this.focusRegions(), document.activeElement, e.shiftKey ? -1 : 1);
+      return;
+    }
     if (e.key === 'Escape') {
-      if (inText) return;
+      // A number field passes on an Esc it had nothing to take back for (pm.ts).
+      if (inText && (e.defaultPrevented || !target.closest('.spin'))) return;
       closeMenus();
       this.hideContextToolbar();
       if (this.sketchEditor?.modifyOpen) { this.sketchEditor.closeModify(); return; }
@@ -1278,6 +1529,14 @@ export class App {
     }
     if (target.closest('.tree') && ['Delete', 'Backspace', 'Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F2', 'Home', 'End'].includes(e.key)) return;
     if (target.closest('.menu')) return;
+    // Enter and Space activate a control the keyboard moved to (and any in the
+    // task pane); after a click they stay shortcuts (Repeat Last Command,
+    // View Orientation), as they are everywhere else.
+    if ((e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey && target !== this.viewport.canvas
+      && (!this.focusByPointer || target.closest('.taskpane'))
+      && target.closest(e.key === ' ' ? `${ACTIVATES_ON_ENTER}, ${ACTIVATES_ON_SPACE}` : ACTIVATES_ON_ENTER)) return;
+    // Enter finishes what a sketch tool is drawing (a spline, a line chain).
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && this.sketchEditor?.tool?.enter?.()) { e.preventDefault(); return; }
     if (e.key === 'Enter' && this.panel && !(target instanceof HTMLButtonElement)) {
       e.preventDefault();
       void this.closePanel(true);

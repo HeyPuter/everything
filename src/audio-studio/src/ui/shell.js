@@ -144,6 +144,8 @@ export function createShell(app, root) {
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.isComposing) return;
     const t = e.target;
+    // puter.js's user menu takes its own keys (they arrive from the element).
+    if (t instanceof Element && t.closest('puter-user-menu')) return;
     const typing = t instanceof HTMLElement && (t.isContentEditable || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button'].includes(t.type)) || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT');
     if (typing && !(e.metaKey || e.ctrlKey)) return;
     if (document.querySelector('.dialog-backdrop')) return;

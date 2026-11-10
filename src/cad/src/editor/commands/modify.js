@@ -20,10 +20,13 @@ import {
   toPrims,
   closestPoint,
   lengthOf,
-  splineFromFitPoints,
+  refitSpline,
 } from '../../core/geom/index.js';
 import { insertMatrix, mulMatrix } from '../../core/tessellate.js';
-import { buildDimension, buildLeader } from '../../core/dims.js';
+import { buildDimension, buildLeader, dimStyleOf } from '../../core/dims.js';
+import { mtextLines } from '../../core/text/layout.js';
+import { hatchPattern } from '../../core/hatch/patterns.js';
+import { loopsToRings, patternSegments } from '../../core/hatch/fill.js';
 import { COLOR_BYBLOCK, LW_BYBLOCK } from '../../core/schema.js';
 import { M, TAU, dist, angleOf, norm, fresh } from './util.js';
 
@@ -41,6 +44,19 @@ const transformAll = (ed, ids, m, copy, label) =>
 
 function showSelection(ed, ids) {
   ed.renderer.setSelection(new Set(ids));
+}
+
+/** Select ids while fn runs (to highlight a pick) and deselect them however it ends. */
+async function whileSelected(ed, ids, fn) {
+  const doc = ed.doc;
+  ed.setSelection(ids);
+  try {
+    return await fn();
+  } finally {
+    // Not if the user switched drawings meanwhile: that one's selection is its own.
+    if (ed.doc === doc) ed.clearSelection();
+    else doc.selection = new Set();
+  }
 }
 
 export const ERASE = {
@@ -187,6 +203,7 @@ export const SCALE = {
       const k = await ed.getDistance('Scale factor', {
         base,
         default: ed.lastScale ?? 1,
+        factor: true,
         options: opts('Copy', 'Reference'),
         onMove: (p) => ed.renderer.setDragMatrix(M.scale(Math.max(1e-9, dist(base, p)), base.x, base.y)),
       });
@@ -265,21 +282,21 @@ export const OFFSET = {
     for (;;) {
       const pick = await ed.getEntity('Select object to offset (Enter to finish)', { filter });
       if (!pick || pick.option) return;
-      ed.setSelection([pick.id]);
       const ent = pick.ent;
-      const side = await ed.getPoint(through ? 'Through point' : 'Point on side to offset', {
-        preview: (p) => {
-          const dd = through ? distanceTo(ent, p) : d;
-          if (!(dd > 0)) return [];
-          try {
-            const r = offsetEntity(ent, dd, p.x, p.y);
-            return r ? (Array.isArray(r) ? r : [r]) : [];
-          } catch {
-            return [];
-          }
-        },
-      });
-      ed.clearSelection();
+      const side = await whileSelected(ed, [pick.id], () =>
+        ed.getPoint(through ? 'Through point' : 'Point on side to offset', {
+          preview: (p) => {
+            const dd = through ? distanceTo(ent, p) : d;
+            if (!(dd > 0)) return [];
+            try {
+              const r = offsetEntity(ent, dd, p.x, p.y);
+              return r ? (Array.isArray(r) ? r : [r]) : [];
+            } catch {
+              return [];
+            }
+          },
+        }),
+      );
       if (!side || side.option) return;
       const dd = through ? distanceTo(ent, side) : d;
       let r = null;
@@ -361,13 +378,18 @@ async function trimOrExtend(ed, extendFirst) {
     const ent = pick.ent;
     const doExtend = extendFirst !== !!ed.shiftDown;
     if (doExtend) {
-      const v = ed.camera.bounds();
-      const prims = cuttingPrims(ed, v, new Set([pick.id]), edges);
-      let r = null;
-      try {
-        r = extendEntity(ent, prims, pick.x, pick.y);
-      } catch {
-        r = null;
+      const extendTo = (rect) => {
+        try {
+          return extendEntity(ent, cuttingPrims(ed, rect, new Set([pick.id]), edges), pick.x, pick.y);
+        } catch {
+          return null;
+        }
+      };
+      let r = extendTo(ed.camera.bounds());
+      // Nothing in view: the boundary may lie off-screen, so try every object.
+      if (!r && !edges) {
+        const all = ed.doc.index.extents();
+        if (all) r = extendTo(all);
       }
       if (!r) ed.ui.log('No boundary in that direction.', 'error');
       else {
@@ -420,13 +442,22 @@ async function filletOrChamfer(ed, isChamfer) {
     if (first.option === 'radius') {
       const v = await ed.getDistance('Fillet radius', { default: r });
       if (typeof v === 'number' && v >= 0) ed.filletR = v;
+      else if (typeof v === 'number') ed.ui.log('The radius cannot be negative.', 'error');
       continue;
     }
     if (first.option === 'distance') {
       const d1 = await ed.getDistance('First chamfer distance', { default: r[0] });
       if (typeof d1 !== 'number') continue;
+      if (d1 < 0) {
+        ed.ui.log('Chamfer distances cannot be negative.', 'error');
+        continue;
+      }
       const d2 = await ed.getDistance('Second chamfer distance', { default: d1 });
       if (typeof d2 !== 'number') continue;
+      if (d2 < 0) {
+        ed.ui.log('Chamfer distances cannot be negative.', 'error');
+        continue;
+      }
       ed.chamferD = [d1, d2];
       continue;
     }
@@ -447,9 +478,9 @@ async function filletOrChamfer(ed, isChamfer) {
       if (!multiple) return;
       continue;
     }
-    ed.setSelection([first.id]);
-    const second = await ed.getEntity('Select second object (Shift for a sharp corner)', { filter: (e) => filter(e) });
-    ed.clearSelection();
+    const second = await whileSelected(ed, [first.id], () =>
+      ed.getEntity('Select second object (Shift for a sharp corner)', { filter: (e) => filter(e) }),
+    );
     if (!second || second.option) return;
     const sharp = !!ed.shiftDown;
     let res = null;
@@ -538,8 +569,14 @@ export const ARRAYPOLAR = {
     const n0 = await ed.getNumber('Number of items', { default: ed.polarItems ?? 6, min: 2, max: 10000 });
     if (!Number.isFinite(n0)) return;
     const n = Math.max(2, Math.round(n0));
-    const fill = await ed.getAngle('Angle to fill (+ counter-clockwise, - clockwise)', { default: TAU });
-    if (typeof fill !== 'number') return;
+    let fill;
+    for (;;) {
+      fill = await ed.getAngle('Angle to fill (+ counter-clockwise, - clockwise)', { default: TAU });
+      if (typeof fill !== 'number') return;
+      // A zero angle would stack every copy on the original.
+      if (Math.abs(fill) > 1e-9) break;
+      ed.ui.log('The angle to fill cannot be zero.', 'error');
+    }
     const rot = await ed.getKeyword('Rotate items as copied?', opts('Yes', 'No'), 'yes');
     if (rot === null) return;
     ed.polarItems = n;
@@ -590,21 +627,30 @@ export const STRETCH = {
     const rect = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
     const ids = ed.windowSelect(rect[0], rect[1], rect[2], rect[3], true);
     if (!ids.length) return;
-    ed.setSelection(ids);
-    const base = await ed.getPoint('Base point');
-    if (!base || base.option) return;
     const inside = (x, y) => x >= rect[0] && x <= rect[2] && y >= rect[1] && y <= rect[3];
     const stretchAll = (dx, dy) => ids.map((id) => [id, stretchEntity(ed.drawing.get(id), inside, dx, dy)]);
-    ed.renderer.setHidden(new Set(ids));
-    const to = await ed.getPoint('Second point', { base, preview: (p) => stretchAll(p.x - base.x, p.y - base.y).map((x) => x[1]) });
-    ed.renderer.setHidden(new Set());
-    if (!to || to.option) return;
-    ed.commit('Stretch', () => {
-      for (const [id, e] of stretchAll(to.x - base.x, to.y - base.y)) ed.drawing.replace(id, e);
+    await whileSelected(ed, ids, async () => {
+      const base = await ed.getPoint('Base point');
+      if (!base || base.option) return;
+      ed.renderer.setHidden(new Set(ids));
+      const to = await ed.getPoint('Second point', {
+        base,
+        preview: (p) => stretchAll(p.x - base.x, p.y - base.y).map((x) => x[1]),
+      });
+      ed.renderer.setHidden(new Set());
+      if (!to || to.option) return;
+      ed.commit('Stretch', () => {
+        for (const [id, e] of stretchAll(to.x - base.x, to.y - base.y)) ed.drawing.replace(id, e);
+      });
     });
-    ed.clearSelection();
   },
 };
+
+const DIM_POINTS = [
+  ['x1', 'y1'],
+  ['x2', 'y2'],
+  ['x3', 'y3'],
+];
 
 /** Move the parts of an entity whose defining points lie inside the window. */
 export function stretchEntity(e, inside, dx, dy) {
@@ -627,10 +673,23 @@ export function stretchEntity(e, inside, dx, dy) {
       return e;
     }
     case 'dimension': {
-      const [x1, y1] = mv(e.x1, e.y1),
-        [x2, y2] = mv(e.x2, e.y2);
-      const moved = inside(e.x1, e.y1) && inside(e.x2, e.y2);
-      return { ...e, x1, y1, x2, y2, ...(moved ? { lx: e.lx + dx, ly: e.ly + dy } : {}) };
+      // Definition points (the angular vertex too) move one by one; with all
+      // of them inside, the whole dimension moves with its line.
+      // (x3, y3) is only a point of angular dimensions (the others hold 0, 0).
+      const keys = DIM_POINTS.filter(([kx]) => e[kx] !== undefined && (kx !== 'x3' || e.dimType === 'angular'));
+      if (keys.every(([kx, ky]) => inside(e[kx], e[ky]))) return transformEntity(e, M.translate(dx, dy));
+      const out = { ...e };
+      for (const [kx, ky] of keys) [out[kx], out[ky]] = mv(e[kx], e[ky]);
+      return out;
+    }
+    case 'hatch': {
+      // Boundary vertices stretch like a polyline's.
+      const loops = (e.loops || []).map((l) => {
+        const p = l.slice();
+        for (let i = 0; i < p.length; i += 3) [p[i], p[i + 1]] = mv(p[i], p[i + 1]);
+        return p;
+      });
+      return { ...e, loops };
     }
     case 'leader': {
       const p = e.pts.slice();
@@ -644,7 +703,7 @@ export function stretchEntity(e, inside, dx, dy) {
       for (let i = 0; i < fit.length; i += 2) [fit[i], fit[i + 1]] = mv(fit[i], fit[i + 1]);
       // A spline defined by fit points is rebuilt through them so curve and data agree.
       if (fit.length >= 4) {
-        const s = splineFromFitPoints(fit, e.closed);
+        const s = refitSpline(e, fit);
         if (s) return { ...e, ...s, fit };
       }
       return { ...e, ctrl, fit };
@@ -661,7 +720,6 @@ export function stretchEntity(e, inside, dx, dy) {
 function refPoint(e) {
   if (e.cx !== undefined) return { x: e.cx, y: e.cy };
   if (e.x !== undefined) return { x: e.x, y: e.y };
-  if (e.type === 'hatch' && e.loops?.[0]) return { x: e.loops[0][0], y: e.loops[0][1] };
   return null;
 }
 
@@ -675,17 +733,17 @@ export const BREAK = {
     const filter = (e) => ['line', 'xline', 'ray', 'circle', 'arc', 'ellipse', 'polyline'].includes(e.type);
     const pick = await ed.getEntity('Select object (the pick point is the first break point)', { filter });
     if (!pick || pick.option) return;
-    ed.setSelection([pick.id]);
-    let p1 = { x: pick.x, y: pick.y };
-    let p2 = await ed.getPoint('Second break point', { options: opts('First point') });
-    if (!p2) return;
-    if (p2.option) {
-      p1 = await ed.getPoint('First break point');
-      if (!p1 || p1.option) return;
-      p2 = await ed.getPoint('Second break point', { base: p1 });
-      if (!p2 || p2.option) return;
-    }
-    ed.clearSelection();
+    const pts = await whileSelected(ed, [pick.id], async () => {
+      const p2 = await ed.getPoint('Second break point', { options: opts('First point') });
+      if (!p2) return null;
+      if (!p2.option) return [{ x: pick.x, y: pick.y }, p2];
+      const a = await ed.getPoint('First break point');
+      if (!a || a.option) return null;
+      const b = await ed.getPoint('Second break point', { base: a });
+      return b && !b.option ? [a, b] : null;
+    });
+    if (!pts) return;
+    const [p1, p2] = pts;
     let out = null;
     try {
       const c1 = closestPoint(pick.ent, p1.x, p1.y),
@@ -712,9 +770,7 @@ export const BREAKATPOINT = {
     const filter = (e) => ['line', 'arc', 'ellipse', 'polyline', 'spline'].includes(e.type);
     const pick = await ed.getEntity('Select object to break', { filter });
     if (!pick || pick.option) return;
-    ed.setSelection([pick.id]);
-    const p = await ed.getPoint('Break point');
-    ed.clearSelection();
+    const p = await whileSelected(ed, [pick.id], () => ed.getPoint('Break point'));
     if (!p || p.option) return;
     let out = null;
     try {
@@ -743,9 +799,26 @@ export const JOIN = {
       return;
     }
     const ents = ids.map((id) => ed.drawing.get(id));
+    // Endpoints must meet within a tolerance relative to the size of the
+    // selection (not its distance from the origin, which made gaps of
+    // whole units join at survey coordinates), above float noise.
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    for (const id of ids) {
+      const b = ed.doc.index.bounds(id);
+      if (!b) continue;
+      x0 = Math.min(x0, b[0]);
+      y0 = Math.min(y0, b[1]);
+      x1 = Math.max(x1, b[2]);
+      y1 = Math.max(y1, b[3]);
+    }
+    const size = Number.isFinite(x0) ? Math.hypot(x1 - x0, y1 - y0) : 1;
+    const far = Number.isFinite(x0) ? Math.max(Math.abs(x0), Math.abs(y0), Math.abs(x1), Math.abs(y1)) : 1;
     let res;
     try {
-      res = joinEntities(ents, 1e-6 * Math.max(1, ...ents.map((e) => Math.abs(e.x1 ?? e.cx ?? 1))));
+      res = joinEntities(ents, Math.max(1e-6 * Math.max(size, 1e-3), 1e-11 * far, 1e-12));
     } catch (err) {
       console.warn(err);
       res = null;
@@ -786,7 +859,7 @@ export function explodeOne(ed, e) {
     }
     case 'dimension':
     case 'leader': {
-      const ds = d.dimStyles.get(e.style) ?? d.dimStyles.get('Standard');
+      const ds = dimStyleOf(d, e.style);
       const g = e.type === 'leader' ? buildLeader(e, ds, d.header) : buildDimension(e, ds, d.header);
       if (!g) return null;
       const out = [];
@@ -802,21 +875,49 @@ export function explodeOne(ed, e) {
       return out;
     }
     case 'mtext': {
-      const lines = String(e.value).split('\n');
-      const pitch = e.h * 1.6667 * (e.lineSpacing || 1);
-      return lines.map((v, i) => ({
-        ...e,
+      // One text per laid-out line (paragraphs and word wrap), aligned like
+      // the attachment so every line stays where it was drawn.
+      const st = d.textStyles.get(e.style);
+      const rest = { ...e };
+      for (const k of ['width', 'attach', 'lineSpacing']) delete rest[k];
+      const lines = mtextLines(e, st).filter((l) => l.value.trim());
+      if (!lines.length) return null;
+      return lines.map((l) => ({
+        ...rest,
         type: 'text',
-        value: v,
-        x: e.x + Math.sin(e.rot || 0) * (pitch * i + e.h),
-        y: e.y - Math.cos(e.rot || 0) * (pitch * i + e.h),
-        halign: 'left',
+        value: l.value,
+        x: l.x,
+        y: l.y,
+        halign: l.halign,
         valign: 'baseline',
-        widthFactor: 1,
-        oblique: 0,
+        widthFactor: e.widthFactor > 0 ? e.widthFactor : st?.widthFactor > 0 ? st.widthFactor : 1,
+        oblique: e.oblique ?? st?.oblique ?? 0,
       }));
     }
-    case 'hatch':
+    case 'hatch': {
+      const pat = hatchPattern(e);
+      if (pat) {
+        // A pattern hatch breaks into its pattern lines, drawn as before (unbroken).
+        const rings = loopsToRings(e.loops || []);
+        const res = patternSegments(rings, pat, e.scale || 1, e.angle || 0);
+        if (res.truncated) return null;
+        const props = {
+          layer: e.layer,
+          color: e.color,
+          linetype: 'Continuous',
+          lineweight: e.lineweight,
+          ltscale: 1,
+        };
+        const out = [];
+        const s = res.segs;
+        for (let i = 0; i < s.length; i += 4) {
+          out.push({ ...props, type: 'line', x1: s[i], y1: s[i + 1], x2: s[i + 2], y2: s[i + 3] });
+        }
+        const d = res.dots;
+        for (let i = 0; i < d.length; i += 2) out.push({ ...props, type: 'point', x: d[i], y: d[i + 1] });
+        return out.length ? out : null;
+      }
+      // A solid fill breaks into its boundary.
       return (e.loops || []).map((l) => ({
         type: 'polyline',
         layer: e.layer,
@@ -828,6 +929,7 @@ export function explodeOne(ed, e) {
         closed: true,
         width: 0,
       }));
+    }
   }
   return null;
 }
@@ -874,7 +976,12 @@ export const LENGTHEN = {
     if (!mode) return;
     ed.lenMode = mode;
     const label = { delta: 'Length to add (negative to shorten)', total: 'Total length', percent: 'Percent of current length' }[mode];
-    const v = await ed.getDistance(label, { default: ed.lenValue?.[mode] ?? (mode === 'percent' ? 100 : 1) });
+    const def = ed.lenValue?.[mode] ?? (mode === 'percent' ? 100 : 1);
+    // A percentage is a plain number, not a length in drawing units.
+    const v =
+      mode === 'percent'
+        ? await ed.getNumber(label, { default: def, min: 0 })
+        : await ed.getDistance(label, { default: def });
     if (typeof v !== 'number') return;
     ed.lenValue = { ...(ed.lenValue || {}), [mode]: v };
     for (;;) {
@@ -882,6 +989,11 @@ export const LENGTHEN = {
       if (!pick || pick.option) return;
       const e = pick.ent;
       const len = lengthOf(e);
+      if (!(len > 1e-12)) {
+        // A zero-length line has no direction to grow along.
+        ed.ui.log('That object has no length to change.', 'error');
+        continue;
+      }
       const target = mode === 'delta' ? len + v : mode === 'total' ? v : (len * v) / 100;
       if (!(target > 1e-12)) {
         ed.ui.log('The new length must be greater than zero.', 'error');
@@ -919,18 +1031,29 @@ export const MATCHPROP = {
     const src = await ed.getEntity('Select source object');
     if (!src || src.option) return;
     const s = src.ent;
-    ed.setSelection([src.id]);
-    for (;;) {
-      const dst = await ed.getEntity('Select destination object (Enter to finish)');
-      if (!dst || dst.option) break;
-      const patch = { layer: s.layer, color: s.color, linetype: s.linetype, lineweight: s.lineweight, ltscale: s.ltscale ?? 1 };
-      const d = dst.ent;
-      if ((d.type === 'text' || d.type === 'mtext') && (s.type === 'text' || s.type === 'mtext')) Object.assign(patch, { h: s.h, style: s.style });
-      if (d.type === 'dimension' && s.type === 'dimension') patch.style = s.style;
-      if (d.type === 'hatch' && s.type === 'hatch') Object.assign(patch, { pattern: s.pattern, scale: s.scale, angle: s.angle });
-      ed.commit('Match properties', () => ed.drawing.update(dst.id, patch));
-    }
-    ed.clearSelection();
+    await whileSelected(ed, [src.id], async () => {
+      for (;;) {
+        const dst = await ed.getEntity('Select destination object (Enter to finish)');
+        if (!dst || dst.option) break;
+        const patch = {
+          layer: s.layer,
+          color: s.color,
+          linetype: s.linetype,
+          lineweight: s.lineweight,
+          ltscale: s.ltscale ?? 1,
+        };
+        const d = dst.ent;
+        const isText = (e) => e.type === 'text' || e.type === 'mtext';
+        if (isText(d) && isText(s)) Object.assign(patch, { h: s.h, style: s.style });
+        if (d.type === 'dimension' && s.type === 'dimension') patch.style = s.style;
+        if (d.type === 'hatch' && s.type === 'hatch') {
+          // the imported definition and mirroring are part of the pattern's look
+          const { pattern, scale, angle, families, mirror } = s;
+          Object.assign(patch, { pattern, scale, angle, families, mirror });
+        }
+        ed.commit('Match properties', () => ed.drawing.update(dst.id, patch));
+      }
+    });
   },
 };
 
@@ -944,7 +1067,12 @@ export const DRAWORDER = {
     if (!ids.length) return;
     const where = args?.where ?? (await ed.getKeyword('Draw order', [{ key: 'F', label: 'Front', value: 'front' }, { key: 'B', label: 'Back', value: 'back' }], 'front'));
     if (!where) return;
-    ed.commit('Draw order', () => ed.drawing.reorder(ids, where === 'front'));
+    ed.commit('Draw order', () => {
+      // Objects ordered together form one draw-order band (see drawBands).
+      const group = ed.drawing.newId();
+      for (const id of ids) ed.drawing.update(id, { orderGroup: group });
+      ed.drawing.reorder(ids, where === 'front');
+    });
     ed.clearSelection();
   },
 };

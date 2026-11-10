@@ -1,0 +1,8 @@
+{
+  "choosePivot": "选择数据透视表 {name} 中要用切片器筛选的字段。",
+  "chooseTable": "选择表格 {name} 中要用切片器筛选的字段。",
+  "couldNotInsert": "无法插入切片器。",
+  "fields": "字段",
+  "inserted": "{count, plural, other {已插入 {count} 个切片器。单击项目即可筛选；按住 {key} 单击可选择多项}}",
+  "title": "插入切片器"
+}

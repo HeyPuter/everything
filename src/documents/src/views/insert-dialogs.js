@@ -4,6 +4,7 @@
  * inserts and hands the result to the caller, which makes the change in one editor transaction.
  */
 import { el, isComposing, fieldId, listboxKeys } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { openModal } from '../ui/modal.js';
 import { segmented } from '../ui/segmented.js';
 import { symbolName } from '../ui/symbols.js';
@@ -325,7 +326,7 @@ export function diagramSketch(layoutId, items, colors = 'blue', width = 320, hei
     else if (s.preset === 'chevron' || s.preset === 'homePlate') { const d = Math.min(w, h) / 2; add('polygon', { points: `${x},${y} ${x + w - d},${y} ${x + w},${y + h / 2} ${x + w - d},${y + h} ${x},${y + h}${s.preset === 'chevron' ? ` ${x + d},${y + h / 2}` : ''}`, ...attrs }); }
     else add('rect', { x, y, width: w, height: h, rx: s.preset === 'roundRect' ? Math.min(w, h) / 6 : 0, ...attrs });
     const label = String(s.text || '').split('\n')[0];
-    if (label && w > 30) add('text', { x: x + w / 2, y: y + h / 2 + (s.preset === 'triangle' ? h / 4 : 0), 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': Math.max(10, Math.min(22, w / Math.max(4, label.length) * 1.6, h * 0.4)), 'font-family': 'system-ui, sans-serif', fill: s.role === 'detail' ? `#${palette.lightText}` : '#fff' }, label.slice(0, 24));
+    if (label && w > 30) add('text', { x: x + w / 2, y: y + h / 2 + (s.preset === 'triangle' ? h / 4 : 0), 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': Math.max(10, Math.min(22, w / Math.max(4, label.length) * 1.6, h * 0.4)), 'font-family': 'system-ui, sans-serif', fill: s.role === 'detail' ? `#${palette.lightText}` : '#fff' }, clipText(label, 24));
   }
   return svg;
 }
@@ -402,9 +403,14 @@ export function openDropCapDialog({ state, fonts = [], onApply, onClose }) {
   const position = segmented([['none', 'None'], ['drop', 'Dropped'], ['margin', 'In margin']], mode, value => { mode = value; sync(); }, 'Position');
   const dialog = formDialog({ title: 'Drop Cap', submit: 'OK', onClose, content: [el('div', {}, el('span.field-label', {}, 'Position'), position), options],
     onSubmit: () => {
-      if (mode !== 'none' && (!lines.checkValidity() || !distance.checkValidity())) throw new Error('Lines to drop must be 1 to 10, and the distance 0 to 72 pt.');
+      // The distance's arrows step by half points, but any distance in range is taken: Word steps by tenths of an
+      // inch (0.1 in is 7.2 pt), and a document's own distance is kept in twentieths of a point.
+      const distanceInRange = distance.value !== '' && !distance.validity.badInput && !distance.validity.rangeUnderflow && !distance.validity.rangeOverflow;
+      if (mode !== 'none' && (!lines.checkValidity() || !distanceInRange)) throw new Error('Lines to drop must be 1 to 10, and the distance 0 to 72 pt.');
       return onApply({ mode, lines: Number(lines.value), distance: Number(distance.value), fontFamily: font.value || null });
     } });
+  // The fields are checked on OK, above, with the message in words.
+  dialog.form.noValidate = true;
   sync();
   return dialog.modal;
 }

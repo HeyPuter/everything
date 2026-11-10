@@ -537,3 +537,99 @@ it.each([false, true])(
     ).toEqual(move ? [200, 70, 370, 250] : [180, 100, 350, 280]);
   },
 );
+
+it('lists a note once, not its replies and review states that Acrobat leaves visible', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const id = addNote(doc, 0, { x: 100, y: 300, text: 'Check the totals' });
+  const parent = page.node.Annots().get(0);
+  // Acrobat's replies and states: Text annotations at the parent's spot, flagged to print.
+  const thread = (fields) =>
+    page.node.Annots().push(
+      doc.context.register(
+        doc.context.obj({
+          Type: 'Annot',
+          Subtype: 'Text',
+          Rect: [100, 280, 120, 300],
+          F: 28,
+          Name: 'Comment',
+          IRT: parent,
+          ...fields,
+        }),
+      ),
+    );
+  thread({ Contents: PDFHexString.fromText('Done') });
+  thread({
+    Contents: PDFHexString.fromText('Accepted set by Grace'),
+    State: PDFString.of('Accepted'),
+    StateModel: PDFString.of('Review'),
+  });
+  // A note grouped with another comment is drawn as part of it, so it stays listed.
+  thread({ Contents: PDFHexString.fromText('Grouped'), RT: 'Group' });
+  expect(listNotes(doc, 0).map((note) => [note.id === id, note.text])).toEqual([
+    [true, 'Check the totals'],
+    [false, 'Grouped'],
+  ]);
+});
+
+it('lists a reply whose note is gone as a note, so it can still be opened or deleted', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  addNote(doc, 0, { x: 100, y: 300, text: 'Check the totals' });
+  const parent = page.node.Annots().get(0);
+  const reply = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Text',
+      Rect: [100, 280, 120, 300],
+      F: 28,
+      Name: 'Comment',
+      IRT: parent,
+      Contents: PDFHexString.fromText('Done'),
+    }),
+  );
+  page.node.Annots().push(reply);
+  // Another editor deleted the note and left its reply behind.
+  page.node.Annots().remove(1);
+  page.node.Annots().remove(0);
+  expect(listNotes(doc, 0).map((note) => note.text)).toEqual(['Done']);
+  editNote(doc, 0, reply.toString(), { remove: true });
+  expect(page.node.Annots().size()).toBe(0);
+  // Nor is a note that readers do not show (NoView): the Comments panel lists its reply too.
+  addNote(doc, 0, { x: 100, y: 300, text: 'Unseen' });
+  const unseen = page.node.Annots().get(0);
+  doc.context.lookup(unseen).set(PDFName.of('F'), PDFNumber.of(32));
+  doc.context.lookup(reply).set(PDFName.of('IRT'), unseen);
+  page.node.Annots().push(reply);
+  expect(listNotes(doc, 0).map((note) => note.text)).toEqual(['Done']);
+});
+
+it('moving a note keeps its own icon and carries its popup along', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const id = addNote(doc, 0, { x: 100, y: 300, text: 'Moved' });
+  const dict = doc.context.lookup(page.node.Annots().get(0));
+  // Another editor's icon, which this one cannot draw again.
+  const icon = doc.context.register(
+    doc.context.stream('0 0 1 rg 0 0 24 24 re f', {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: [0, 0, 24, 24],
+    }),
+  );
+  dict.set(PDFName.of('AP'), doc.context.obj({ N: icon }));
+  dict.set(PDFName.of('Rect'), doc.context.obj([100, 276, 124, 300]));
+  const popup = dict.lookup(PDFName.of('Popup'));
+  popup.set(PDFName.of('Rect'), doc.context.obj([130, 180, 310, 300]));
+  editNote(doc, 0, id, { x: 150, y: 250 });
+  const moved = doc.context.lookup(page.node.Annots().get(0));
+  const numbersOf = (d) =>
+    d
+      .lookup(PDFName.of('Rect'))
+      .asArray()
+      .map((n) => n.asNumber());
+  expect(moved.lookup(PDFName.of('AP')).get(PDFName.of('N'))).toBe(icon);
+  expect(numbersOf(moved)).toEqual([150, 226, 174, 250]);
+  expect(numbersOf(moved.lookup(PDFName.of('Popup')))).toEqual([180, 130, 360, 250]);
+  expect(listNotes(doc, 0)[0]).toMatchObject({ x: 150, y: 250, text: 'Moved' });
+});

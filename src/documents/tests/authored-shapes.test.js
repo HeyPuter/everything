@@ -93,3 +93,17 @@ it('opens the independent preset geometry control for editing and keeps it byte-
   const { unzipSync } = await import('fflate');
   expect(unzipSync(new Uint8Array(await blob.arrayBuffer()))).toEqual(unzipSync(bytes));
 });
+
+it('keeps an outline\'s compound lines, cap and unset width when a shape is rewritten (resized)', () => {
+  const base = { id: 3, name: 'Rectangle 3', preset: 'rect', width: 1371600, height: 914400, fill: 'FF0000', line: '000000', lineWidth: 38100, assetId: 'drawing:a' };
+  const { image } = buildShape(base);
+  const styled = { ...image, shell: image.shell.replace('<a:ln w="38100">', '<a:ln w="38100" cmpd="dbl" cap="rnd">') };
+  const params = shapeParams(styled);
+  expect(params.lineStyle).toEqual({ cmpd: 'dbl', cap: 'rnd' });
+  // A resize rebuilds the shape from its parameters at the new size.
+  const resized = buildShape({ ...base, ...params, width: base.width * 2, assetId: 'drawing:b' });
+  expect(resized.image.shell).toMatch(/<a:ln w="38100" cmpd="dbl" cap="rnd">/);
+  expect(resized.asset.scene.outline).toMatchObject({ compound: 'dbl', cap: 'rnd' });
+  // A line without a width is drawn 0.75 pt wide, and stays so.
+  expect(shapeParams({ ...image, shell: image.shell.replace('<a:ln w="38100">', '<a:ln>') }).lineWidth).toBe(9525);
+});

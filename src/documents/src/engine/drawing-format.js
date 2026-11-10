@@ -2,7 +2,7 @@ import { imageWriter, WP, A, PIC, R } from './docx-images.js';
 import { parseXml } from './docx-xml.js';
 import { readAnchor } from './docx-anchors.js';
 import { relationshipPartPath } from './package-part-paths.js';
-import { readDrawingFragment, placeDrawing, freshPart, freshDrawingAssetId, NS, REL_TYPES } from './inserted-drawings.js';
+import { readDrawingFragment, placeDrawing, registerDrawingAssets, freshPart, freshDrawingAssetId, NS, REL_TYPES } from './inserted-drawings.js';
 import { validateImage, rotationOutsets, imageExtents, normalizedRotation, CROP_SIDES } from './images.js';
 
 /**
@@ -287,10 +287,10 @@ export async function applyDrawingFragments(editor, fragments, transaction, { re
   const bitmaps = await decodeImages(assets, model.styles.fontAlternatives, () => {});
   const release = () => { for (const bitmap of bitmaps.values()) bitmap.close?.(); };
   if (editor.destroyed || model !== editor.model || revision !== editor.session.revision) { release(); throw new Error('The document changed while the drawings were prepared. Try again.'); }
-  for (const [id, asset] of Object.entries(assets)) { model.assets[id] = asset; editor.images.set(id, bitmaps.get(id)); }
+  const unregister = registerDrawingAssets(editor, model, assets, bitmaps);
   let failure = null;
   const ok = editor.execute(() => transaction(model), e => { failure = e; }, undefined, true);
-  if (!ok) { for (const id of Object.keys(assets)) { delete model.assets[id]; editor.images.get(id)?.close?.(); editor.images.delete(id); } if (failure) throw failure; }
+  if (!ok) { unregister(); if (failure) throw failure; }
   editor.focus(); editor.onSelection?.();
   return ok;
 }

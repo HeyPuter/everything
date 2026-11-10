@@ -1,7 +1,7 @@
 // Feature factories, display names and parameter metadata.
 
 import type {
-  ChamferFeature, CircularPatternFeature, DraftFeature, ExtrudeFeature, Feature, FeatureType, FilletFeature, HoleFeature,
+  AxisRef, ChamferFeature, CircularPatternFeature, DraftFeature, ExtrudeFeature, Feature, FeatureType, FilletFeature, HoleFeature,
   Id, LinearPatternFeature, LoftFeature, MirrorFeature, PartDocument, PlaneFeature, PlaneRef, RevolveFeature, ShellFeature,
   SketchFeature, SweepFeature,
 } from './types';
@@ -163,18 +163,51 @@ export function consumedSketches(f: Feature): Id[] {
   }
 }
 
+/**
+ * Ids of the features that created a named face or edge. Face names start
+ * with the creating feature ("f3:cap1"), patterned and mirrored copies add
+ * "@<pattern>.<n>", and edge names join the names of their faces with "|".
+ */
+export function refFeatureIds(name: string): Id[] {
+  const out: Id[] = [];
+  for (const part of name.split('|')) {
+    const [base, ...copies] = part.replace(/#\d+$/, '').split('@');
+    const i = base.indexOf(':');
+    if (i > 0) out.push(base.slice(0, i));
+    for (const c of copies) { const id = c.split('.')[0]; if (id) out.push(id); }
+  }
+  return out;
+}
+
 /** Ids of features a feature depends on (for delete warnings and ordering). */
 export function dependencies(f: Feature): Id[] {
   const out = new Set<Id>(consumedSketches(f));
-  const visitPlane = (p: PlaneRef | null | undefined) => { if (p?.kind === 'feature') out.add(p.id); };
-  if (f.type === 'sketch') visitPlane(f.plane);
+  const visitName = (name: string) => { for (const id of refFeatureIds(name)) if (id !== f.id) out.add(id); };
+  const visitPlane = (p: PlaneRef | null | undefined) => {
+    if (p?.kind === 'feature') out.add(p.id);
+    else if (p?.kind === 'face') visitName(p.face.name);
+  };
+  const visitAxis = (a: AxisRef | null | undefined) => {
+    if (a?.kind === 'sketchLine') out.add(a.sketch);
+    else if (a?.kind === 'edge') visitName(a.edge.name);
+    else if (a?.kind === 'face') visitName(a.face.name);
+  };
+  if (f.type === 'sketch') {
+    visitPlane(f.plane);
+    // Geometry projected from the model depends on the features that made its edges.
+    for (const e of f.entities) {
+      if (e.ext?.kind === 'edge') visitName(e.ext.edge.name);
+      else if (e.ext?.kind === 'vertex') e.ext.edges.forEach((r) => visitName(r.name));
+    }
+  }
   if (f.type === 'plane') visitPlane(f.ref);
   if (f.type === 'mirror') { visitPlane(f.plane); f.seeds.forEach((s) => out.add(s)); }
-  if (f.type === 'draft') visitPlane(f.neutral);
+  if (f.type === 'draft') { visitPlane(f.neutral); f.faces.forEach((r) => visitName(r.name)); }
   if (f.type === 'linearPattern' || f.type === 'circularPattern') f.seeds.forEach((s) => out.add(s));
-  const axis = f.type === 'revolve' ? f.axis : f.type === 'circularPattern' ? f.axis : null;
-  if (axis?.kind === 'sketchLine') out.add(axis.sketch);
-  if (f.type === 'linearPattern') for (const d of [f.dir1, f.dir2]) if (d?.ref?.kind === 'sketchLine') out.add(d.ref.sketch);
+  if (f.type === 'revolve' || f.type === 'circularPattern') visitAxis(f.axis);
+  if (f.type === 'linearPattern') for (const d of [f.dir1, f.dir2]) visitAxis(d?.ref);
+  if (f.type === 'fillet' || f.type === 'chamfer') { f.edges.forEach((r) => visitName(r.name)); f.faces.forEach((r) => visitName(r.name)); }
+  if (f.type === 'shell') f.faces.forEach((r) => visitName(r.name));
   return [...out];
 }
 

@@ -24,6 +24,9 @@ import { grantedScope, readLaunchContext } from './js/api/protocol.js';
 import { createMethods } from './js/api/methods.js';
 import { startApiServer } from './js/api/server.js';
 import { createSampleDataPopulator } from './js/demo.js';
+import { startPush, routeNotificationClicks, autoEnablePush, SERVICE_WORKER } from './js/push.js';
+import { watchPushHealth } from './js/push-notice.js';
+import { createStoredReminders } from './js/stored-reminders.js';
 
 let demoSession = null;
 window.calendar = { populateSampleData: createSampleDataPopulator(() => isSignedIn() ? demoSession : null) };
@@ -135,7 +138,7 @@ function registerServiceWorker() {
     // network on every update check — the kill-switch: a fixed/neutered sw.js
     // always reaches clients on their next load.
     const register = () =>
-      navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register(SERVICE_WORKER, { updateViaCache: 'none' }).catch(() => {});
     if (document.readyState === 'complete') register();
     else window.addEventListener('load', register, { once: true });
   } else if (import.meta.env.DEV) {
@@ -186,6 +189,8 @@ async function bootInner() {
 
   // Safe to register now: the SDK is loaded so `puter.env` is defined.
   registerServiceWorker();
+  // Before sign-in, so the click that opened the calendar isn't missed.
+  startPush();
 
   if (!isSignedIn()) {
     // Signing in needs the network; show the offline screen rather than a dead
@@ -283,9 +288,22 @@ async function bootInner() {
       console.error(err);
       mail = null;
     }
-    const app = createApp(root, { store, user, rsvp, contacts, invites, booking, meetings, mail });
+    const storedReminders = createStoredReminders({
+      store, kv: puter.kv,
+      refresh: async () => {
+        const before = kv.fallbackCount();
+        await store.load();
+        if (kv.fallbackCount() !== before) throw new Error('Reminders need a current cloud calendar');
+      },
+    });
+    const app = createApp(root, { store, user, rsvp, contacts, invites, booking, meetings, mail, storedReminders });
+    storedReminders.start();
+    autoEnablePush(puter, store)
+      .catch((err) => console.warn('[calendar] push not turned on', err))
+      .finally(() => watchPushHealth(puter, store));
     demoSession = { store, app };
     onMailDetected = (n) => app.notifyMailDetected(n);
+    routeNotificationClicks((click) => app.openNotification(click));
     offline.bindRender(app.render);
     offline.start({ online: !effectivelyOffline });
     // Fire-and-forget: RSVP/booking syncing are background concerns and must

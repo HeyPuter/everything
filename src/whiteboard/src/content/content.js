@@ -958,7 +958,7 @@ export function createContentTools(api) {
       !api.board() ||
       document.querySelector("dialog[open]") ||
       event.target.closest?.(
-        "input,textarea,select,[contenteditable],button,a,iframe",
+        "input,textarea,select,[contenteditable],button,a,iframe,puter-user-menu",
       )
     )
       return;

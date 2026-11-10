@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
+import { docxWithParagraphs } from '../helpers/docx.js';
 import { onTab, downloadDocx } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 
@@ -395,6 +396,33 @@ test('Text from File puts a web page in a table cell as its paragraphs, without 
   expect(await input.inputValue()).not.toMatch(/color: red|secret/);
   // The caret was in the table's first cell, where formatting does not carry: the text went in there.
   await expect(ribbon.page().getByRole('tab', { name: 'Table Design' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+// In a table cell a Word file goes in as its text. The notice that its pictures, tables and fields were inserted
+// as text showed for every file, one of plain paragraphs too; it now names what the file had.
+test('Text from File says what a Word file lost as text only when it had any', async ({ page }) => {
+  const { input, errors, ribbon } = await start(page, { text: 'Start' });
+  await ribbon.getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('button', { name: 'Insert', exact: true }).click();
+  const insert = async (name, buffer) => {
+    await ribbon.getByRole('button', { name: 'Object', exact: true }).click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: 'Text from File…' }).click();
+    await (await chooser).setFiles({ name, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from(buffer) });
+  };
+  const notice = page.locator('.toast', { hasText: 'in that file' });
+  // Every notice shown, however briefly.
+  await page.evaluate(() => { window.notices = []; new MutationObserver(records => { for (const r of records) for (const n of r.addedNodes) if (n.classList?.contains('toast')) window.notices.push(n.textContent); }).observe(document.body, { childList: true, subtree: true }); });
+  await insert('plain.docx', docxWithParagraphs([{ text: 'Plain words' }]));
+  await expect.poll(() => input.inputValue()).toContain('Plain words');
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.notices.filter(text => text.includes('in that file')))).toEqual([]);
+  const parts = unzipSync(docxWithParagraphs([{ text: 'Before' }]));
+  parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace('<w:sectPr/>', '<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>Cell words</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p/><w:sectPr/>'));
+  await insert('table.docx', zipSync(parts));
+  await expect.poll(() => input.inputValue()).toContain('Cell words');
+  await expect(notice).toHaveText('Tables in that file were inserted as text.');
   expect(errors).toEqual([]);
 });
 

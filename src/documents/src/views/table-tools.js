@@ -3,7 +3,8 @@
 // context menu. Commands run the engine's table operations (table-editing.js,
 // table-styles.js, table-formula.js) as one undoable transaction each.
 import '../styles/tables.css';
-import { el, MOD_KEY, isComposing } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
+import { el, MOD_KEY, isComposing, amountInRange } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { openColorPalette } from '../ui/color-palette.js';
 import { TEXT_COLORS } from './text-color.js';
@@ -67,7 +68,8 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     const perPage = new Map();
     const owners = verticalMerges(table);
     for (const cell of engine.selectionLayout?.cells || []) {
-      if (cell.tableId !== table.id || (owners.get(cell.id)?.cells.length ?? 2) !== 1) continue;
+      // A heading row repeated at the top of later pages is one row: only its own place counts.
+      if (cell.tableId !== table.id || cell.repeatedHeader || (owners.get(cell.id)?.cells.length ?? 2) !== 1) continue;
       const key = `${cell.rowId}:${cell.page}`;
       perPage.set(key, Math.max(perPage.get(key) || 0, cell.height));
     }
@@ -164,7 +166,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     const names = new Set(Object.values(styles.definitions).filter(s => s.type === 'table').map(s => s.name.toLowerCase()));
     let name = current || imported ? `${base.name} Copy` : 'Table Style 1';
     for (let n = 2; names.has(name.toLowerCase()); n++) name = current || imported ? `${base.name} Copy ${n}` : `Table Style ${n}`;
-    const spec = mode === 'new' ? { ...structuredClone(base), id: '', name: name.slice(0, 100), family: 'custom' } : structuredClone(current);
+    const spec = mode === 'new' ? { ...structuredClone(base), id: '', name: clipText(name, 100), family: 'custom' } : structuredClone(current);
     if (mode === 'modify' && !current) { error(new Error('This table’s style came with the document. Use New Table Style to make an editable copy of it.')); return; }
     openTableStyleDialog({ title: mode === 'new' ? 'New Table Style' : 'Modify Table Style', spec, look: tableLook(b.table),
       nameTaken: name => Object.values(model().styles.definitions).some(s => s.type === 'table' && s.name.toLowerCase() === name.toLowerCase() && s.id !== (mode === 'modify' ? spec.id : null)) },
@@ -221,7 +223,8 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
       let failure;
       const ok = engine.execute(() => {
         const model = engine.model;
-        if (changes.table && Object.keys(changes.table).length) model.setTableProperties(changes.table);
+        // The dialog shows the selection's table, which can be an outer table of the caret's.
+        if (changes.table && Object.keys(changes.table).length) model.setTableProperties(changes.table, T.selectionBlock(model)?.table);
         if (changes.wrap) T.setTableWrapping(model, changes.wrap);
         if (changes.positioning) T.setTablePositioning(model, changes.positioning);
         if (changes.margins) T.setTableCellMargins(model, changes.margins);
@@ -297,7 +300,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     distributeColumns: () => withTable((m, b, engine) => T.distributeColumns(m, { widths: widthsOf(engine, b.table) })),
     align: (vertical, horizontal) => withTable(m => T.setCellAlignment(m, { vertical, horizontal })),
     textDirection: () => withTable(m => T.setTextDirection(m, T.nextTextDirection(m))),
-    repeatHeader: () => withTable(m => { const b = T.selectionBlock(m); const on = headerRowCount(b.table) > b.bottom && b.table.rows[0].header; return m.setTableHeaderRows(on ? 0 : b.bottom + 1); }),
+    repeatHeader: () => withTable(m => { const b = T.selectionBlock(m); const on = headerRowCount(b.table) > b.bottom && b.table.rows[0].header; return m.setTableHeaderRows(on ? 0 : b.bottom + 1, b.table); }),
     sort: sortDialog, formula: formulaDialog, convertToText, convertTextToTable, insertTableDialog,
     select: selectKind, properties: openProperties,
   };
@@ -369,7 +372,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     const sizeInput = (key, label) => {
       const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.1, max: 22, 'aria-label': `${label} (in)`, placeholder: '',
         onchange: () => {
-          if (!input.checkValidity() || input.value === '') { input.reportValidity(); return; }
+          if (!amountInRange(input)) { input.reportValidity(); return; }
           const twips = Math.round(Number(input.value) * 1440);
           withTable((m, b, engine) => key === 'height' ? T.setSelectedRowHeight(m, twips, null) : T.setSelectedColumnWidth(m, twips, { widths: widthsOf(engine, b.table) }));
         },

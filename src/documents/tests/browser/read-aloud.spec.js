@@ -89,3 +89,22 @@ test('Read Aloud starts at the caret, and its player moves between paragraphs, a
   await expect(player).toBeHidden();
   expect(errors).toEqual([]);
 });
+
+test('Read Aloud reads a Chinese paragraph in Chinese and shows each word it says', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await open(page, 'Hello there.\n我们今天去北京看长城。');
+  await select(input, 0);
+  await readAloud(page);
+  await expect.poll(() => spoken(page)).toEqual(['Hello there.']);
+  // The reader's own language for their own text; Chinese for the Chinese paragraph, which an English voice cannot say.
+  expect(await page.evaluate(() => window.__spoken.at(-1).lang)).toBe('en');
+  await page.evaluate(() => window.__say(null));
+  await expect.poll(async () => (await spoken(page)).at(-1)).toBe('我们今天去北京看长城。');
+  expect(await page.evaluate(() => window.__spoken.at(-1).lang)).toBe('zh');
+  // A word, not the whole sentence up to the next space.
+  await page.evaluate(() => window.__say('今天'));
+  expect(await selected(page)).toBe('今天');
+  await page.evaluate(() => { const u = window.__spoken.at(-1); u.onboundary({ name: 'word', charIndex: u.text.indexOf('北京'), charLength: 3 }); });
+  expect(await selected(page)).toBe('北京看');
+  expect(errors).toEqual([]);
+});

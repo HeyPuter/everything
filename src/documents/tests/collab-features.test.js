@@ -79,6 +79,8 @@ describe('version details', () => {
     expect((await readVersionMeta(v)).label).toBe('Final');
     // Details never count as versions.
     expect((await listVersions('Documents/Plan.docx')).length).toBe(1);
+    // A version without a name goes with the oldest, its details with it (named ones are kept: versions-named-kept).
+    await writeVersionMeta(v, { author: 'ada', label: '' });
     for (let i = 1; i <= MAX_VERSIONS; i++) await saveVersion('Documents/Plan.docx', new Blob(['x']), { now: Date.UTC(2026, 0, 1) + i * 1000, meta: { author: 'bob' } });
     expect(files.has(v.path)).toBe(false);
     expect(files.has(metaPath(v.path))).toBe(false);

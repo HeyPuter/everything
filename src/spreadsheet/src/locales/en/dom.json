@@ -1,0 +1,6 @@
+{
+  "daysAgo": "{count, plural, one {# day ago} other {# days ago}}",
+  "hoursAgo": "{count, plural, one {# hour ago} other {# hours ago}}",
+  "justNow": "Just now",
+  "minutesAgo": "{count} min ago"
+}

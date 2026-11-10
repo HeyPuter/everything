@@ -3,71 +3,122 @@
 // sketch Offset / Mirror / Convert Entities tools.
 
 import type { Vec3 } from '../math/vec';
+import type { MassProperties } from '../kernel/protocol';
 import { dist, dot, normalize, sub } from '../math/vec';
-import { evaluateVariables, referencedNames } from '../model/expr';
+import { evaluateVariables, referencedNames, renameReferences, reservedName, variableReferenceChanges } from '../model/expr';
+import { changeUnits, mapExpressions } from '../model/document';
 import type { MaterialRef, SkDimension, UnitSystem, Variable } from '../model/types';
-import { isDimension } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import { BASE_FRAMES } from '../model/planes';
 import { MATERIALS } from '../model/materials';
-import { mirrorEntities, offsetCurves } from '../sketch/ops';
-import { convertEdges } from '../sketch/convert';
+import { uniqueId } from '../model/ids';
+import { mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
+import { SketchIndex } from '../sketch/geom';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
-import { h, formatShortcut, isMac } from '../ui/dom';
+import { h, formatShortcut, isMac, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { showDialog, toast } from '../ui/overlay';
 import type { App } from './app';
-import { PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, section, selectField, segmented } from './pm';
-import type { SelItem } from './selection';
+import { PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, section, selectField, segmented, settleNumberFields, retireNumberFields } from './pm';
+import { type SelItem, remapItem } from './selection';
 import type { MeasureTarget } from '../kernel/protocol';
 import { REPO_URL } from './shell';
+import { convertTool, projectModelItems } from './sketch/constrain';
 
 // ---------- equations ----------
 
 export async function equationsDialog(app: App) {
+  const signal = app.documentSignal;
   const doc = app.store.doc;
   const rows: Variable[] = structuredClone(doc.variables);
   const tbody = h('tbody');
   const err = h('div', { class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
+  // Dimensions and feature values that refer to each variable.
   const dimUses = new Map<string, number>();
-  for (const f of doc.features) {
-    if (f.type !== 'sketch') continue;
-    for (const c of f.constraints) if (isDimension(c) && typeof c.value === 'string') for (const n of referencedNames(c.value.replace(/^=/, ''))) dimUses.set(n, (dimUses.get(n) ?? 0) + 1);
-  }
-  const draw = () => {
-    tbody.textContent = '';
+  mapExpressions({ ...doc, variables: [] }, (src) => {
+    for (const n of new Set(referencedNames(src.replace(/^=/, '')))) dimUses.set(n, (dimUses.get(n) ?? 0) + 1);
+    return src;
+  });
+  const originalNames = new Map(doc.variables.map((v) => [v.id, v.name]));
+  // Retain deleted IDs too: a new row must never look like a renamed old row.
+  const variableIds = new Set(originalNames.keys());
+  // The rows are built once (and again when one is added or deleted); an edit
+  // only updates the cells it affects, so the field being left keeps its place
+  // in the tab order (rebuilding them sent keyboard focus out of the dialog).
+  const cells = new Map<Variable, { expr: HTMLInputElement; result: HTMLElement; del: HTMLElement }>();
+  // The name the other equations use for each row, while its typed name is not usable yet.
+  const linked = new Map<Variable, string>();
+  const refresh = () => {
     const { values, errors } = evaluateVariables(rows);
-    rows.forEach((v, i) => {
-      const name = h('input', { class: 'input', value: v.name, 'aria-label': `Name of variable ${i + 1}`, spellcheck: 'false' }) as HTMLInputElement;
-      const expr = h('input', { class: 'input', value: v.expr, 'aria-label': `Value or expression of ${v.name || 'variable'}`, spellcheck: 'false' }) as HTMLInputElement;
-      name.addEventListener('change', () => { v.name = name.value.trim(); draw(); });
-      expr.addEventListener('change', () => { v.expr = expr.value.trim(); draw(); });
+    for (const v of rows) {
+      const c = cells.get(v)!;
+      if (c.expr.value !== v.expr) c.expr.value = v.expr;
+      c.expr.setAttribute('aria-label', `Value or expression of ${v.name || 'variable'}`);
+      c.del.setAttribute('aria-label', `Delete ${v.name}`);
       const val = values.get(v.name);
       const e = errors.get(v.name);
-      const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${v.name}` }, icon('trash', 16));
-      del.addEventListener('click', () => { rows.splice(i, 1); draw(); });
+      c.result.textContent = e ? e : val !== undefined ? formatNumber(val, 4) : '';
+      c.result.style.color = e ? 'var(--danger)' : '';
+      // The error is told to assistive tech on the field, not by colour alone.
+      if (e) c.expr.setAttribute('aria-invalid', 'true');
+      else c.expr.removeAttribute('aria-invalid');
+    }
+  };
+  const draw = () => {
+    tbody.textContent = '';
+    cells.clear();
+    rows.forEach((v, i) => {
+      if (!linked.has(v)) linked.set(v, v.name);
+      const name = h('input', { class: 'input', value: v.name, 'aria-label': `Name of variable ${i + 1}`, spellcheck: 'false' }) as HTMLInputElement;
+      const expr = h('input', { class: 'input', value: v.expr, spellcheck: 'false' }) as HTMLInputElement;
+      name.addEventListener('change', () => {
+        // Other equations follow a renamed variable (dimensions and features do on OK).
+        // Not from or onto a name another variable has too: its equations would be merged into this one's for good.
+        // They follow from the name they still use, so a slip (an invalid or taken name) fixed later keeps them.
+        const was = linked.get(v)!;
+        v.name = name.value.trim();
+        const renamed = new Map([[was, v.name]]);
+        const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name || linked.get(r) === v.name));
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name) && !shared) {
+          for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
+          linked.set(v, v.name);
+        }
+        refresh();
+      });
+      expr.addEventListener('change', () => { v.expr = expr.value.trim(); refresh(); });
+      const result = h('td', { class: 'num', id: nextDomId('eq-result') });
+      expr.setAttribute('aria-describedby', result.id);
+      const del = h('button', { class: 'icon-btn', type: 'button' }, icon('trash', 16));
+      del.addEventListener('click', () => {
+        rows.splice(i, 1);
+        draw();
+        // Focus stays in the table: on the row that moved up, else the one above, else Add variable.
+        const next = tbody.querySelectorAll<HTMLButtonElement>('button')[Math.min(i, rows.length - 1)];
+        (next ?? add).focus();
+      });
+      cells.set(v, { expr, result, del });
       tbody.append(h('tr', {},
-        h('td', {}, name), h('td', {}, expr),
-        h('td', { class: 'num', style: { color: e ? 'var(--danger)' : '' } }, e ? e : val !== undefined ? formatNumber(val, 4) : ''),
-        h('td', { class: 'num' }, String(dimUses.get(v.name) ?? 0)),
+        h('td', {}, name), h('td', {}, expr), result,
+        h('td', { class: 'num' }, String(dimUses.get(originalNames.get(v.id) ?? v.name) ?? 0)),
         h('td', {}, del)));
     });
+    refresh();
   };
-  draw();
   const add = h('button', { class: 'btn small', type: 'button' }, icon('plus', 14), 'Add variable');
   add.addEventListener('click', () => {
     let n = rows.length + 1;
     while (rows.some((r) => r.name === `Var${n}`)) n++;
-    rows.push({ id: `v${Date.now().toString(36)}${n}`, name: `Var${n}`, expr: '10' });
+    rows.push({ id: uniqueId('v', variableIds), name: `Var${n}`, expr: '10' });
     draw();
     (tbody.querySelector('tr:last-child input') as HTMLInputElement | null)?.focus();
   });
+  draw();
   const v = await showDialog({
-    title: 'Equations and Global Variables',
+    title: 'Equations and Global Variables', signal,
     wide: true,
     body: [
       h('p', {}, `Define named values, then type "=" and a name (for example =Width/2) in any dimension or feature value to link it. Values use the part's units (${UNIT_SYSTEMS[doc.units].length}, degrees).`),
-      h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Value / Equation'), h('th', {}, 'Evaluates to'), h('th', {}, 'Used by'), h('th', {}, ''))), tbody),
+      h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Value / Equation'), h('th', {}, 'Evaluates to'), h('th', {}, 'Used by'), h('th', {}, h('span', { class: 'sr-only' }, 'Delete')))), tbody),
       add, err,
     ],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
@@ -76,13 +127,33 @@ export async function equationsDialog(app: App) {
       const names = rows.map((r) => r.name);
       const bad = names.find((n) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(n));
       if (bad !== undefined) { err.textContent = `"${bad}" is not a valid name. Use letters, digits and underscores, starting with a letter.`; return false; }
+      // Checked for new and renamed variables only, so a part saved with such a name still opens here.
+      const taken = rows.find((r) => originalNames.get(r.id) !== r.name && reservedName(r.name));
+      if (taken) { err.textContent = `"${taken.name}" is a constant, unit or function name. Choose another name.`; return false; }
       if (new Set(names).size !== names.length) { err.textContent = 'Variable names must be unique.'; return false; }
       const { errors } = evaluateVariables(rows);
       if (errors.size) { err.textContent = `Fix the errors first: ${[...errors].map(([k, m]) => `${k}: ${m}`).join('; ')}`; return false; }
     },
   });
-  if (v === 'ok') {
-    app.store.change('Edit equations', (d) => { d.variables = rows; });
+  if (v === 'ok' && !signal.aborted) {
+    const renamed = new Map<string, string | number>();
+    for (const r of rows) {
+      const was = originalNames.get(r.id);
+      if (was !== undefined && was !== r.name) renamed.set(was, r.name);
+    }
+    // A deleted variable's dimensions and feature values keep its value instead
+    // of failing on an unknown name (unless a variable of that name remains).
+    const before = evaluateVariables(doc.variables).values;
+    for (const [id, was] of originalNames) {
+      const value = before.get(was);
+      if (rows.some((r) => r.id === id || r.name === was) || value === undefined) continue;
+      renamed.set(was, value);
+    }
+    app.store.change('Edit equations', (d) => {
+      d.variables = [];
+      if (renamed.size) mapExpressions(d, (src) => renameReferences(src, renamed));
+      d.variables = rows;
+    });
     app.sketchEditor?.resolve();
   }
 }
@@ -91,32 +162,50 @@ export async function equationsDialog(app: App) {
 
 
 export async function materialDialog(app: App) {
+  const signal = app.documentSignal;
   const cur = app.store.doc.material;
+  const preset = cur && MATERIALS.find((m) => m.name === cur.name && m.density === cur.density);
   const select = h('select', { class: 'input', 'aria-label': 'Material' }) as HTMLSelectElement;
   select.append(h('option', { value: '' }, 'Not specified'));
   for (const m of MATERIALS) {
     const o = h('option', { value: m.name }, `${m.name}  (${m.density} kg/m³)`) as HTMLOptionElement;
-    if (cur?.name === m.name) o.selected = true;
+    if (preset === m) o.selected = true;
     select.append(o);
   }
   select.append(h('option', { value: '__custom' }, 'Custom...'));
-  const customName = h('input', { class: 'input', value: cur && !MATERIALS.some((m) => m.name === cur.name) ? cur.name : 'Custom material', 'aria-label': 'Custom material name' }) as HTMLInputElement;
-  const customDensity = h('input', { class: 'input', type: 'number', min: '1', step: 'any', value: String(cur?.density ?? 1000), 'aria-label': 'Density in kg per cubic metre' }) as HTMLInputElement;
+  const customName = h('input', { class: 'input', value: cur && !preset ? cur.name : 'Custom material', 'aria-label': 'Custom material name' }) as HTMLInputElement;
+  const customDensity = h('input', { class: 'input', type: 'number', min: '0', step: 'any', value: String(cur?.density ?? 1000), 'aria-label': 'Density in kg per cubic metre' }) as HTMLInputElement;
   const custom = h('div', { class: 'grid-form' }, h('label', {}, 'Name'), customName, h('label', {}, 'Density (kg/m³)'), customDensity);
-  if (cur && !MATERIALS.some((m) => m.name === cur.name)) select.value = '__custom';
-  const sync = () => { custom.hidden = select.value !== '__custom'; };
+  if (cur && !preset) select.value = '__custom';
+  const error = h('div', { id: nextDomId('density-error'), class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
+  customDensity.setAttribute('aria-describedby', error.id);
+  const validate = () => {
+    const density = Number(customDensity.value);
+    const valid = select.value !== '__custom' || (Number.isFinite(density) && density > 0);
+    error.textContent = valid ? '' : 'Enter a finite, positive density.';
+    if (valid) customDensity.removeAttribute('aria-invalid');
+    else customDensity.setAttribute('aria-invalid', 'true');
+    return valid;
+  };
+  customDensity.addEventListener('input', () => { if (error.textContent) validate(); });
+  const sync = () => {
+    custom.hidden = select.value !== '__custom';
+    if (custom.hidden) validate();
+  };
   select.addEventListener('change', sync);
   sync();
   const v = await showDialog({
-    title: 'Material',
-    body: [h('p', {}, 'The material sets the density used for mass properties.'), select, custom],
+    title: 'Material', signal,
+    body: [h('p', {}, 'The material sets the density used for mass properties.'), select, custom, error],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Apply', value: 'ok', primary: true }],
+    onAction: (action) => {
+      if (action === 'ok' && !validate()) { customDensity.focus(); return false; }
+    },
   });
-  if (v !== 'ok') return;
+  if (v !== 'ok' || signal.aborted) return;
   let m: MaterialRef | null = null;
   if (select.value === '__custom') {
     const d = Number(customDensity.value);
-    if (!(d > 0)) { toast({ kind: 'warning', message: 'Enter a positive density.' }); return; }
     m = { name: customName.value.trim() || 'Custom material', density: d };
   } else if (select.value) m = MATERIALS.find((x) => x.name === select.value) ?? null;
   app.store.change('Edit material', (doc) => { doc.material = m; });
@@ -125,6 +214,7 @@ export async function materialDialog(app: App) {
 // ---------- part properties ----------
 
 export async function propertiesDialog(app: App) {
+  const signal = app.documentSignal;
   const doc = app.store.doc;
   const name = h('input', { class: 'input', value: doc.name, 'aria-label': 'Part name' }) as HTMLInputElement;
   const units = h('select', { class: 'input', 'aria-label': 'Unit system' }) as HTMLSelectElement;
@@ -135,17 +225,20 @@ export async function propertiesDialog(app: App) {
   }
   const decimals = h('input', { class: 'input', type: 'number', min: '0', max: '6', value: String(doc.decimals), 'aria-label': 'Decimal places' }) as HTMLInputElement;
   const v = await showDialog({
-    title: 'Part Properties',
+    title: 'Part Properties', signal,
     body: [h('div', { class: 'grid-form' }, h('label', {}, 'Name'), name, h('label', {}, 'Units'), units, h('label', {}, 'Decimal places'), decimals),
       h('p', { class: 'field-label' }, 'Changing units only changes how values are shown. The geometry keeps its size.')],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
   });
-  if (v !== 'ok') return;
+  if (v !== 'ok' || signal.aborted) return;
+  let unlinked: string[] = [];
   app.store.change('Part properties', (d) => {
     d.name = name.value.trim() || d.name;
-    d.units = units.value as UnitSystem;
+    // Expressions are written in the part's units: they are converted so the geometry keeps its size.
+    unlinked = changeUnits(d, units.value as UnitSystem);
     d.decimals = Math.max(0, Math.min(6, Math.round(Number(decimals.value) || 0)));
   });
+  if (unlinked.length) toast({ kind: 'warning', title: 'Some equations were replaced by their values', message: `These could not be converted to the new units and keep their size as plain numbers: ${unlinked.join(', ')}.`, timeout: 9000 });
   app.sketchEditor?.render();
 }
 
@@ -156,27 +249,54 @@ export async function optionsDialog(app: App) {
   const theme = segmented<ThemeChoice>('Theme', getThemeChoice(), [
     { value: 'system', label: 'System', icon: 'system' }, { value: 'light', label: 'Light', icon: 'light' }, { value: 'dark', label: 'Dark', icon: 'dark' },
   ], (v) => setThemeChoice(v));
-  const units = selectField('Default units for new parts', s.defaultUnits, Object.values(UNIT_SYSTEMS).map((u) => ({ value: u.id, label: u.label })), (v) => { s.defaultUnits = v; });
-  const quality = selectField('Image quality', String(s.quality) as '0' | '1' | '2', [{ value: '0', label: 'Fast (coarse tessellation)' }, { value: '1', label: 'Normal' }, { value: '2', label: 'Fine (smooth curves)' }], (v) => { s.quality = Number(v); app.requestRebuild(true); });
+  const units = selectField('Default units for new parts', s.defaultUnits, Object.values(UNIT_SYSTEMS).map((u) => ({ value: u.id, label: u.label })), (v) => app.changeSettings({ defaultUnits: v }));
+  const quality = selectField('Image quality', String(s.quality) as '0' | '1' | '2', [{ value: '0', label: 'Fast (coarse tessellation)' }, { value: '1', label: 'Normal' }, { value: '2', label: 'Fine (smooth curves)' }], (v) => app.changeSettings({ quality: Number(v) }));
+  const normal = checkbox('Rotate view normal to the sketch plane when editing a sketch', s.autoNormalTo, (v) => app.changeSettings({ autoNormalTo: v }));
+  const zoom = checkbox('Reverse mouse wheel zoom direction', s.invertZoom, (v) => app.changeSettings({ invertZoom: v }));
+  const off = app.commands.onChange(() => {
+    units.querySelector('select')!.value = app.settings.defaultUnits;
+    quality.querySelector('select')!.value = String(app.settings.quality);
+    normal.querySelector('input')!.checked = app.settings.autoNormalTo;
+    zoom.querySelector('input')!.checked = app.settings.invertZoom;
+  });
   await showDialog({
     title: 'Options',
     body: [
       h('div', {}, h('div', { class: 'field-label' }, 'Theme'), theme),
       units, quality,
-      checkbox('Rotate view normal to the sketch plane when editing a sketch', s.autoNormalTo, (v) => { s.autoNormalTo = v; }),
-      checkbox('Reverse mouse wheel zoom direction', s.invertZoom, (v) => { s.invertZoom = v; app.viewport.invertZoom = v; }),
+      normal, zoom,
     ],
     buttons: [{ label: 'Done', value: 'ok', primary: true }],
-  });
+  }).finally(off);
   app.saveSettings();
 }
 
 // ---------- mass properties ----------
 
 export async function massPropertiesDialog(app: App) {
-  if (!app.bbox) { toast({ kind: 'warning', message: 'There is no solid body yet.' }); return; }
-  const mp = await app.kernel.massProperties().catch((e) => { toast({ kind: 'error', message: (e as Error).message }); return null; });
-  if (!mp) return;
+  let replaced = false;
+  const off = app.store.on((reason) => { if (reason === 'load') replaced = true; });
+  let mp: MassProperties | null = null;
+  try {
+    for (;;) {
+      await app.whenBuilt();
+      if (replaced) return;
+      if (!app.bbox) { toast({ kind: 'warning', message: 'There is no solid body yet.' }); return; }
+      const version = app.buildVersion;
+      mp = await app.kernel.massProperties().catch((e) => {
+        if (!replaced) toast({ kind: 'error', message: (e as Error).message });
+        return null;
+      });
+      if (!mp) return;
+      // An edit can arrive while the kernel is calculating. Recalculate for
+      // its rebuilt body; never report the old body against a new document.
+      await app.whenBuilt();
+      if (replaced) return;
+      if (version === app.buildVersion) break;
+    }
+  } finally {
+    off();
+  }
   const doc = app.store.doc;
   const u = UNIT_SYSTEMS[doc.units];
   const density = doc.material?.density ?? 1000;
@@ -208,9 +328,25 @@ export async function massPropertiesDialog(app: App) {
     `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`,
   ].join('\n');
   const copy = h('button', { class: 'btn small', type: 'button' }, icon('copy', 14), 'Copy');
-  copy.addEventListener('click', () => navigator.clipboard?.writeText(text).then(() => toast({ message: 'Copied to the clipboard', timeout: 1800 })));
+  const copyError = h('div', { class: 'field-label', role: 'alert', hidden: true, style: { color: 'var(--danger)' } },
+    'Could not copy to the clipboard. Try again, or select and copy the report text manually.');
+  copy.addEventListener('click', async () => {
+    copy.disabled = true;
+    copyError.hidden = true;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(text);
+      toast({ message: 'Copied to the clipboard', timeout: 1800 });
+    } catch {
+      copyError.hidden = false;
+    } finally {
+      copy.disabled = false;
+    }
+  });
+  let stopWatching = () => {};
   await showDialog({
     title: 'Mass Properties',
+    onReady: (close) => { stopWatching = app.store.on((reason) => { if (reason !== 'saved') close(null); }); },
     wide: true,
     body: [
       h('table', { class: 'table' }, h('tbody', {}, rows.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', { class: 'num' }, v))))),
@@ -218,10 +354,10 @@ export async function massPropertiesDialog(app: App) {
       h('table', { class: 'table' }, h('tbody', {},
         [0, 1, 2].map((r) => h('tr', {}, [0, 1, 2].map((c) => h('td', { class: 'num' }, `I${'xyz'[r]}${'xyz'[c]} = ${t(r * 3 + c)}`)))))),
       h('div', { class: 'field-label' }, `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`),
-      copy,
+      copy, copyError,
     ],
     buttons: [{ label: 'Close', value: 'ok', primary: true }],
-  });
+  }).finally(() => stopWatching());
 }
 
 // ---------- shortcuts ----------
@@ -236,13 +372,20 @@ export async function shortcutsDialog(app: App) {
   add('Pan and zoom on touch', 'Two fingers');
   add('Context menu', 'Right click or long press');
   grid.append(h('h3', {}, 'Commands'));
-  for (const c of app.commands.all().filter((x) => x.shortcut).sort((a, b) => a.label.localeCompare(b.label))) add(c.label, formatShortcut(c.shortcut));
+  // Commands with a second shortcut (Redo, Keyboard Shortcuts) are one row.
+  const keys = new Map<string, string[]>();
+  for (const c of app.commands.all().filter((x) => x.shortcut)) keys.set(c.label, [...(keys.get(c.label) ?? []), formatShortcut(c.shortcut)]);
+  for (const [label, k] of [...keys].sort((a, b) => a[0].localeCompare(b[0]))) add(label, k.join(', '));
   grid.append(h('h3', {}, 'View'));
   add('Rotate 15 degrees', 'Arrow keys');
   add('Rotate 90 degrees', 'Shift + Arrow keys');
   add('Roll', 'Alt + Left/Right');
   add('Pan', `${isMac ? '⌘' : 'Ctrl'} + Arrow keys`);
   add('Cancel or clear selection', 'Esc');
+  grid.append(h('h3', {}, 'Keyboard navigation'));
+  add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar, notifications)', 'F6, Shift + F6');
+  add('Rename the feature in the design tree', 'F2');
+  add('Context menu of the feature in the design tree', 'Shift + F10');
   await showDialog({ title: 'Keyboard Shortcuts', wide: true, body: grid, buttons: [{ label: 'Close', value: 'ok', primary: true }] });
 }
 
@@ -288,14 +431,32 @@ export class MeasurePanel extends PropertyPanel {
     switch (it.kind) {
       case 'face': return { item: it, data: it, label: `Face <${it.index + 1}> (${app.faces[it.index]?.type})` };
       case 'edge': return { item: it, data: it, label: `Edge <${it.index + 1}> (${app.edges[it.index]?.type})` };
-      case 'vertex': return { item: it, data: it, label: 'Vertex' };
+      case 'vertex': {
+        // Picking toggles by label: each vertex needs its own, or a second vertex would remove the first.
+        const u = UNIT_SYSTEMS[app.store.doc.units];
+        return { item: it, data: it, label: `Vertex (${it.p.map((c) => formatNumber(c / u.scale, app.store.doc.decimals)).join(', ')})` };
+      }
       case 'plane': return { item: it, data: it, label: it.ref.kind === 'base' ? `${it.ref.plane[0].toUpperCase()}${it.ref.plane.slice(1)} Plane` : app.store.feature(it.ref.id)?.name ?? 'Plane' };
       default: return null;
     }
   }
 
+  /** The part changed under the panel (e.g. Redo): keep what still exists and measure it again. */
+  onBuild() {
+    if (!this.box) return;
+    const items = this.box.items
+      .map((b) => remapItem(b.data as SelItem, this.app.faces, this.app.edges))
+      .map((it) => (it ? this.convert(it) : null))
+      .filter((x): x is SelBoxItem => !!x);
+    this.box.setItems(items);
+    void this.measure();
+  }
+
+  private seq = 0;
+
   private async measure() {
     const app = this.app;
+    const seq = ++this.seq;
     const u = UNIT_SYSTEMS[app.store.doc.units];
     const dec = Math.max(2, app.store.doc.decimals);
     const L = (v: number) => `${formatNumber(v / u.scale, dec)} ${u.length}`;
@@ -331,25 +492,43 @@ export class MeasurePanel extends PropertyPanel {
       const va = na ?? da, vb = nb ?? db;
       if (va && vb) {
         const c = Math.min(1, Math.abs(dot(normalize(va), normalize(vb))));
-        const ang = (Math.acos(c) * 180) / Math.PI;
+        // Between an edge and a face or plane, the angle is to the surface, not to its normal.
+        const mixed = !na !== !nb;
+        const ang = ((mixed ? Math.asin(c) : Math.acos(c)) * 180) / Math.PI;
         lines.push(['Angle', `${formatNumber(ang, 2)}°`]);
       }
       const target = (it: SelItem): MeasureTarget | null => (it.kind === 'face' ? { kind: 'face', index: it.index } : it.kind === 'edge' ? { kind: 'edge', index: it.index } : it.kind === 'vertex' ? { kind: 'vertex', p: it.p } : null);
       const ta = target(a), tb = target(b);
       if (a.kind === 'plane' || b.kind === 'plane') {
+        // No leader: the previous pair's would otherwise stay drawn.
+        this.showLeader(null, null);
         const pl = a.kind === 'plane' ? a : b;
         const other = a.kind === 'plane' ? b : a;
         const fr = pl.kind === 'plane' ? app.frameOfPlane(pl.ref) : null;
-        const p = other.kind === 'vertex' ? other.p : other.kind === 'face' ? app.faces[other.index]?.center : other.kind === 'edge' ? app.edges[other.index]?.mid : other.kind === 'plane' ? app.frameOfPlane(other.ref)?.o : null;
+        // One point stands for the whole entity only when it is parallel to the
+        // plane; a tilted face, plane or edge is at no single distance from it.
+        const cos = (v: Vec3 | null | undefined) => (fr && v ? Math.abs(dot(normalize(v), fr.n)) : NaN);
+        const alongNormal = (v: Vec3 | null | undefined) => cos(v) > 1 - 1e-6;
+        const e = other.kind === 'edge' ? app.edges[other.index] : null;
+        const f = other.kind === 'face' ? app.faces[other.index] : null;
+        const op = other.kind === 'plane' ? app.frameOfPlane(other.ref) : null;
+        const p = other.kind === 'vertex' ? other.p
+          : f ? (alongNormal(f.normal) ? f.center : null)
+          : e ? (cos(e.dir) < 1e-6 || alongNormal(e.axis) ? e.mid : null)
+          : op && alongNormal(op.n) ? op.o : null;
         if (fr && p) lines.push(['Normal distance', L(Math.abs(dot(sub(p, fr.o), fr.n)))]);
       } else if (ta && tb) {
         try {
           const r = await app.kernel.measure(ta, tb);
+          // The selection changed while the kernel measured: a newer result is shown.
+          if (seq !== this.seq) return;
           lines.push(['Distance', L(r.distance)]);
           const d = sub(r.p2, r.p1);
           lines.push(['dX, dY, dZ', d.map((x) => formatNumber(Math.abs(x) / u.scale, dec)).join(', ')]);
           this.showLeader(r.p1, r.p2);
         } catch (e) {
+          if (seq !== this.seq) return;
+          this.showLeader(null, null);
           lines.push(['Distance', (e as Error).message]);
         }
       }
@@ -369,32 +548,67 @@ export class MeasurePanel extends PropertyPanel {
   ok() { return true; }
 
   dispose() {
+    // A measurement still running must not draw its leader after the panel closed.
+    this.seq++;
     this.showLeader(null, null);
+  }
+}
+
+/** Tools store physical numeric lengths, so context changes only replace their fields. */
+abstract class NumericToolPanel extends PropertyPanel {
+  private units: UnitSystem;
+  private variables: Variable[];
+
+  constructor(protected app: App) {
+    super();
+    this.units = app.store.doc.units;
+    this.variables = structuredClone(app.store.doc.variables);
+  }
+
+  syncExpressions(): string[] | null {
+    const units = this.app.store.doc.units, variables = this.variables;
+    this.variables = structuredClone(this.app.store.doc.variables);
+    if (units === this.units && !variableReferenceChanges(variables, this.variables).size) return null;
+    const previous = this.units;
+    this.units = units;
+    // Settle pending input with its old units and names before the app remounts the panel.
+    // Pass the evaluated number so callbacks cannot reinterpret an expression in the new units.
+    const values = evaluateVariables(variables).values;
+    settleNumberFields(this.el, { units: previous, decimals: this.app.store.doc.decimals, variables: () => values }, (_value, num) => num);
+    return [];
   }
 }
 
 // ---------- section view ----------
 
-export class SectionPanel extends PropertyPanel {
+export class SectionPanel extends NumericToolPanel {
   title = 'Section View';
   icon = 'sectionView';
   private normal: Vec3 = [0, 0, 1];
   private offset = 0;
   private flip = false;
   private base: 'front' | 'top' | 'right' | 'custom' = 'front';
+  /** The plane the panel started from (the active section or a selected plane or face). */
+  private custom: { normal: Vec3; offset: number; label: string } | null = null;
   private originalSection: App['renderer']['section'];
 
-  constructor(private app: App) {
-    super();
+  constructor(app: App) {
+    super(app);
     this.originalSection = app.renderer.section;
-    if (app.renderer.section) { this.normal = app.renderer.section.normal; this.offset = app.renderer.section.offset; this.base = 'custom'; }
+    if (app.renderer.section) this.custom = { ...app.renderer.section, label: 'Current' };
     else {
       const ref = app.selectedPlaneRef();
       const fr = ref ? app.frameOfPlane(ref) : null;
-      if (fr) { this.normal = fr.n; this.offset = dot(fr.o, fr.n); this.base = 'custom'; }
+      if (fr) this.custom = { normal: fr.n, offset: dot(fr.o, fr.n), label: 'Selected' };
       else if (app.bbox) this.offset = (app.bbox.min[2] + app.bbox.max[2]) / 2;
     }
-    this.apply();
+    if (this.custom) {
+      this.normal = this.custom.normal;
+      this.offset = this.custom.offset;
+      // A plane parallel to a base plane is that base plane at an offset.
+      const k = (['front', 'top', 'right'] as const).find((b) => BASE_FRAMES[b].n.every((v, i) => Math.abs(v - this.custom!.normal[i]) < 1e-9));
+      if (k) { this.base = k; this.custom = null; } else this.base = 'custom';
+    }
   }
 
   private apply() {
@@ -404,12 +618,22 @@ export class SectionPanel extends PropertyPanel {
   }
 
   render(): HTMLElement[] {
+    // Mount after the previous panel cancels, so its cleanup cannot clear this plane.
+    this.apply();
     const app = this.app;
-    const offset = numberField({ label: 'Offset', icon: 'ruler', value: this.offset, kind: 'length', ctx: app.unitContext(), onChange: (v) => { this.offset = Number(v); this.apply(); }, onLive: (v) => { this.offset = v; this.apply(); } });
-    const plane = segmented('Section plane', this.base === 'custom' ? 'front' : this.base, [
+    const offset = numberField({ label: 'Offset', icon: 'ruler', value: this.offset, kind: 'length', ctx: app.unitContext(), onChange: (v) => { this.offset = app.store.evalParam(v, 'length'); this.apply(); }, onLive: (v) => { this.offset = v; this.apply(); } });
+    const custom = this.custom;
+    const plane = segmented('Section plane', this.base, [
       { value: 'front' as const, label: 'Front' }, { value: 'top' as const, label: 'Top' }, { value: 'right' as const, label: 'Right' },
+      ...(custom ? [{ value: 'custom' as const, label: custom.label }] : []),
     ], (v) => {
       this.base = v;
+      if (v === 'custom') {
+        if (custom) { this.normal = custom.normal; this.offset = custom.offset; }
+        this.apply();
+        app.refreshPanel();
+        return;
+      }
       this.normal = BASE_FRAMES[v].n;
       const b = app.bbox;
       const axis = v === 'front' ? 2 : v === 'top' ? 1 : 0;
@@ -428,6 +652,8 @@ export class SectionPanel extends PropertyPanel {
   ok() { return true; }
 
   cancel() {
+    // Detaching a focused field can fire change before it leaves the document.
+    retireNumberFields(this.el);
     this.app.renderer.section = this.originalSection;
     this.app.renderer.requestRender();
   }
@@ -435,14 +661,14 @@ export class SectionPanel extends PropertyPanel {
 
 // ---------- sketch tools with panels ----------
 
-export class OffsetPanel extends PropertyPanel {
+export class OffsetPanel extends NumericToolPanel {
   title = 'Offset Entities';
   icon = 'offset';
   private distance: number;
   private reverse = false;
 
-  constructor(private app: App) {
-    super();
+  constructor(app: App) {
+    super(app);
     this.distance = app.typicalSize() / 5;
     this.helpText = 'Select a chain of sketch curves before starting, then set the distance.';
   }
@@ -450,7 +676,7 @@ export class OffsetPanel extends PropertyPanel {
   render(): HTMLElement[] {
     const ids = this.app.sketchEditor?.selectedIds() ?? [];
     return [section('Parameters', [
-      numberField({ label: 'Offset distance', icon: 'ruler', value: this.distance, kind: 'length', ctx: this.app.unitContext(), min: 1e-6, onChange: (v) => { this.distance = Number(v); } }),
+      numberField({ label: 'Offset distance', icon: 'ruler', value: this.distance, kind: 'length', ctx: this.app.unitContext(), min: 1e-6, onChange: (v) => { this.distance = this.app.store.evalParam(v, 'length'); } }),
       checkbox('Reverse (inward)', this.reverse, (v) => { this.reverse = v; }),
       h('div', { class: 'field-label' }, `${ids.length} entities selected`),
     ])];
@@ -473,29 +699,27 @@ export function mirrorSketchEntities(app: App) {
   if (!ed) return;
   const ids = ed.selectedIds();
   const sk = ed.sketch;
-  const lines = ids.filter((id) => sk.entities.find((e) => e.id === id)?.t === 'line');
   // The mirror line is the selected centerline, or the last selected line.
-  const axis = lines.find((id) => sk.entities.find((e) => e.id === id)?.construction) ?? lines[lines.length - 1];
+  const pick = pickMirrorAxis(sk, ids);
+  if (pick && 'error' in pick) { toast({ kind: 'warning', message: pick.error }); return; }
+  const axis = pick?.axis;
   if (!axis || ids.length < 2) { toast({ kind: 'warning', message: 'Select the entities to mirror and a line (ideally a centerline) to mirror about.' }); return; }
+  if (!mirrorAxisDirection(new SketchIndex(sk.entities), axis)) { toast({ kind: 'warning', message: 'Choose a mirror axis with distinct endpoints.' }); return; }
   ed.edit('Mirror entities', (s2, newId) => { mirrorEntities(s2, ids.filter((x) => x !== axis), axis, newId); });
 }
 
-/** Projects selected model edges onto the sketch plane as fixed geometry. */
+/**
+ * Convert Entities: projects the selected model edges, faces and vertices into
+ * the sketch, linked to the model. With nothing selected, pick them one by one.
+ */
 export function convertEntities(app: App) {
   const ed = app.sketchEditor;
   if (!ed) return;
-  const edges = app.selection.ofKind('edge').map((s) => app.edges[s.index]).filter(Boolean);
-  const faces = app.selection.ofKind('face').map((s) => app.faces[s.index]).filter(Boolean);
-  // A selected face converts all of its edges.
-  for (const f of faces) {
-    const fi = app.faces.indexOf(f);
-    for (const e of app.edges) if (e.faces.includes(fi) && !edges.includes(e)) edges.push(e);
-  }
-  if (!edges.length) { toast({ kind: 'warning', message: 'Select model edges or faces to convert into the sketch.' }); return; }
-  let skipped = 0;
-  ed.edit('Convert entities', (sk, newId) => { skipped = convertEdges(sk, ed.frame, edges, newId).skipped; });
+  if (ed.tool?.id === 'convertEntities') { ed.setTool(null); return; }
+  const items = app.selection.items.filter((it) => it.kind === 'edge' || it.kind === 'face' || it.kind === 'vertex');
+  if (!items.length) { ed.setTool(convertTool(ed)); return; }
+  projectModelItems(ed, items);
   app.selection.clear();
-  if (skipped) toast({ kind: 'warning', message: `${skipped} edge(s) could not be converted (only lines, and circles parallel to the sketch plane are supported).` });
 }
 
 export function dimensionValueText(app: App, d: SkDimension): string {

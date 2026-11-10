@@ -204,7 +204,10 @@ export function trimEntity(ent, cutters, px, py, opts) {
     }
     if (below === -Infinity) below = all[all.length - 1] - per;
     if (above === Infinity) above = all[0] + per;
-    const piece = model.piece(above, below + per);
+    // A pick past the last cut keeps [first cut, last cut]: shift it back a
+    // period so models that only wrap once (splines) see it in their domain.
+    const shift = above >= hi ? per : 0;
+    const piece = model.piece(above - shift, below + per - shift);
     return { remove: true, add: piece ? [piece] : [] };
   }
   const cuts = all.filter((c) => c > lo + eps && c < hi - eps);

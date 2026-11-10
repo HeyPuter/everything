@@ -1,5 +1,5 @@
 import { EMU_PER_PX, isPositionedImage, validateImage } from './images.js';
-import { positionedImageFrame, positionedImageBounds } from './positioned-images.js';
+import { positionedImageFrame, positionedImageBounds, drawingOwnRotation } from './positioned-images.js';
 
 /**
  * Arrange: where floating drawings sit on their pages and how they stack. Positions are kept in each
@@ -62,12 +62,18 @@ export function moveDrawings(model, moves) {
   return true;
 }
 
+/** A drawing's bounds as it shows on the page: turned by its picture rotation or, for a shape or group, its own. */
+function visibleBounds(editor, f) {
+  const rotation = drawingOwnRotation(f.image, editor.model?.assets);
+  return positionedImageBounds(rotation ? { ...f, image: { ...f.image, rotation } } : f);
+}
+
 /** The page rectangles drawings align to: the page, its margins, or the selected objects' bounds. */
 export function referenceBox(editor, frames, relativeTo) {
   const page = editor.layout.pages[frames[0].page] || editor.layout.page;
   if (relativeTo === 'page') return { x: 0, y: 0, width: page.width, height: page.height };
   if (relativeTo === 'margin') return { x: page.left, y: page.top, width: page.width - page.left - page.right, height: page.height - page.top - page.bottom };
-  const boxes = frames.map(positionedImageBounds);
+  const boxes = frames.map(f => visibleBounds(editor, f));
   const left = Math.min(...boxes.map(b => b.x)), top = Math.min(...boxes.map(b => b.y));
   return { x: left, y: top, width: Math.max(...boxes.map(b => b.x + b.width)) - left, height: Math.max(...boxes.map(b => b.y + b.height)) - top };
 }
@@ -82,7 +88,7 @@ export function alignmentMoves(editor, images, mode, relativeTo = images.length 
   if (frames.some(f => f.page !== frames[0].page)) throw new Error('The objects are on different pages.');
   const box = referenceBox(editor, frames, relativeTo);
   const moves = [];
-  const bounds = f => positionedImageBounds(f);
+  const bounds = f => visibleBounds(editor, f);
   // Rotated drawings align by their visible bounds; the frame moves by the same amount.
   const to = (f, x, y) => { const b = bounds(f); const at = offsetsFor(editor, f, f.x + (x ?? b.x) - b.x, f.y + (y ?? b.y) - b.y); moves.push({ image: f.image, x: x === undefined ? undefined : at.x, y: y === undefined ? undefined : at.y }); };
   if (mode === 'distributeHorizontal' || mode === 'distributeVertical') {
@@ -140,6 +146,35 @@ export function reorderDrawings(model, frontToBack) {
   const next = new Map();
   let order = 1;
   for (const layer of layers) for (const run of layer) { if (run.image.anchor.order !== order) next.set(run, { ...run.image, anchor: { ...run.image.anchor, order }, anchorChanged: true }); order++; }
+  if (!next.size) return false;
+  model.checkpoint();
+  for (const [run, image] of next) run.image = image;
+  model.didChange();
+  return true;
+}
+
+/**
+ * Bring Forward, Send Backward, Bring to Front and Send to Back for several selected floating drawings, as Word
+ * restacks a multiple selection: each moves within its layer (behind or in front of the text), and the selected
+ * drawings keep their order among themselves. Forward and Backward step the selection past the next drawing that
+ * is not selected. Returns whether the order changed.
+ */
+export function arrangeDrawings(model, images, direction) {
+  if (!['forward', 'backward', 'front', 'back'].includes(direction)) throw new Error('Unknown image arrangement.');
+  const chosen = new Set(images.filter(isPositionedImage));
+  const runs = model.paragraphs.flatMap(p => p.runs).filter(r => isPositionedImage(r.image));
+  const next = new Map();
+  let order = 1;
+  for (const behind of [true, false]) {
+    const layer = runs.filter(r => !!r.image.anchor.behind === behind).sort((a, b) => a.image.anchor.order - b.image.anchor.order);
+    const picked = run => chosen.has(run.image);
+    let list = layer;
+    if (direction === 'front') list = [...layer.filter(r => !picked(r)), ...layer.filter(picked)];
+    else if (direction === 'back') list = [...layer.filter(picked), ...layer.filter(r => !picked(r))];
+    else if (direction === 'forward') { list = [...layer]; for (let i = list.length - 2; i >= 0; i--) if (picked(list[i]) && !picked(list[i + 1])) [list[i], list[i + 1]] = [list[i + 1], list[i]]; }
+    else { list = [...layer]; for (let i = 1; i < list.length; i++) if (picked(list[i]) && !picked(list[i - 1])) [list[i], list[i - 1]] = [list[i - 1], list[i]]; }
+    for (const run of list) { if (run.image.anchor.order !== order) next.set(run, { ...run.image, anchor: { ...run.image.anchor, order }, anchorChanged: true }); order++; }
+  }
   if (!next.size) return false;
   model.checkpoint();
   for (const [run, image] of next) run.image = image;

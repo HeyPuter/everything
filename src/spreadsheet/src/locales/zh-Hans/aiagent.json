@@ -1,0 +1,16 @@
+{
+  "approval.always": "每次更改前询问",
+  "approval.destructive": "替换或删除数据前询问",
+  "approval.never": "直接更改，不询问",
+  "nothingToAdd": "我没有要补充的内容。",
+  "stepCut": "回复在写入此步骤时达到长度上限，因此未执行此步骤。",
+  "stoppedAfter": "我在执行 {count} 步后停了下来。如需继续，请说“继续”。",
+  "suggest.budget": "创建一个包含收入、支出和合计的月度预算",
+  "suggest.chart": "为这些数据推荐一个图表",
+  "suggest.explainFormulas": "解释此工作表中的公式如何运作",
+  "suggest.loan": "创建一个带还款计划的贷款计算器",
+  "suggest.summarize": "汇总这些数据",
+  "suggest.totalsRow": "用公式添加汇总行",
+  "suggest.tracker": "创建一个包含负责人、截止日期和状态的项目跟踪表",
+  "suggest.trends": "有哪些突出的趋势或异常值？"
+}

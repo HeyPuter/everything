@@ -44,6 +44,30 @@ describe('MERGEFIELD', () => {
     expect(evaluateField(' MERGEFIELD Nickname ', ctx(0, { onIssue: i => issues.push(i) }))).toBe('«Nickname»');
     expect(issues).toEqual([{ type: 'missingField', field: 'Nickname', record: 1 }]);
   });
+  it('reads decimal commas in merged numbers from the value pattern, keeping point-decimal data as it was', () => {
+    // A recipient list carries no locale; when both marks appear the last is the decimal mark.
+    expect(formatNumberPicture('1.234,56', '#,##0.00')).toBe('1,234.56');
+    expect(formatNumberPicture('€ 1.234.567,8', '#,##0.00')).toBe('1,234,567.80');
+    expect(formatNumberPicture('-1.234,5', '#,##0.00;(#,##0.00)')).toBe('(1,234.50)');
+    // Spaces and apostrophes group thousands (fr-FR, de-CH).
+    expect(formatNumberPicture('1 234,56', '0.00')).toBe('1234.56');
+    expect(formatNumberPicture("1'234.56", '0.00')).toBe('1234.56');
+    // A single comma that is not a thousands group is a decimal comma.
+    expect(formatNumberPicture('12,5', '0.00')).toBe('12.50');
+    expect(formatNumberPicture('0,75', '0.00')).toBe('0.75');
+    // Repeated dots in thousands groups are grouping.
+    expect(formatNumberPicture('1.234.567', '#,##0')).toBe('1,234,567');
+    // Point-decimal data and well-formed comma grouping read as before; "1,234" and "1.234" stay English.
+    expect(formatNumberPicture('1,234.56', '#,##0.00')).toBe('1,234.56');
+    expect(formatNumberPicture('1,234', '0')).toBe('1234');
+    expect(formatNumberPicture('12,345,678', '0')).toBe('12345678');
+    expect(formatNumberPicture('1.234', '0.000')).toBe('1.234');
+    expect(formatNumberPicture('$1234.5', '0.00')).toBe('1234.50');
+    // Text that only looks partly numeric is left alone.
+    expect(formatNumberPicture('1,2,3,4', '0')).toBe('1234');
+    expect(formatNumberPicture('1.2.3', '0')).toBe('1.2.3');
+    expect(formatNumberPicture('1.234,5,6', '0')).toBe('1.234,5,6');
+  });
   it('formats numbers, dates and capitalization', () => {
     expect(formatNumberPicture('-20', '#,##0.00;(#,##0.00)')).toBe('(20.00)');
     expect(formatNumberPicture('7', '000')).toBe('007');
@@ -152,5 +176,31 @@ describe('recipient lists', () => {
     const us = { ...list(), columns: ['Name', 'City', 'ZIP Code', 'Email', 'Country'] };
     us.rows = us.rows.map(r => ({ ...r, values: [...r.values, 'USA'] }));
     expect(validateAddresses(us, { first: 'Name', city: 'City', postal: 'ZIP Code', email: 'Email', country: 'Country' }).map(r => r.number)).toEqual([1, 2]);
+  });
+});
+
+// Every nested field of an IF ran, whichever branch it chose: { IF … "{ SET pronoun "he" }" "{ SET pronoun "she" }" }
+// always set "she", a NEXT in the branch not taken skipped a record, and an ASK there was asked. Word evaluates the
+// condition's fields, then only the chosen branch's.
+describe('IF runs only the branch it chooses', () => {
+  const people = [{ number: 1, values: { Name: 'Ana', Gender: 'F', Plus: 'yes' } }, { number: 2, values: { Name: 'Ben', Gender: 'M', Plus: 'no' } }, { number: 3, values: { Name: 'Cy', Gender: 'M', Plus: 'no' } }];
+  it('sets a bookmark only from the chosen branch', () => {
+    const codes = ['IF "{ MERGEFIELD Gender }" = "M" "{ SET pronoun "he" }" "{ SET pronoun "she" }"', 'REF pronoun'];
+    expect(planMerge(codes, { data: people }).map(c => c.results[1])).toEqual(['she', 'he', 'he']);
+  });
+  it('moves to the next record only when the branch holding NEXT is chosen', () => {
+    const codes = [' MERGEFIELD Name ', 'IF "{ MERGEFIELD Plus }" = "yes" "{ NEXT }" ""', ' MERGEFIELD Name '];
+    expect(mergeCopy(codes, { data: people }).results).toEqual(['Ana', '', 'Ben']);
+    expect(mergeCopy(codes, { data: people, start: 1 }).results).toEqual(['Ben', '', 'Ben']);
+  });
+  it('asks only from the chosen branch, and still shows nested results in the branch it takes', () => {
+    const answers = { 'ASK:extra': 'Ask answered' };
+    const c = mergeContext({ data: people, cursor: 1, answers });
+    expect(evaluateField('IF "{ MERGEFIELD Gender }" = "F" "{ ASK extra "Extra?" }" "Dear { MERGEFIELD Name }"', c)).toBe('Dear Ben');
+    expect(c.variables.has('extra')).toBe(false);
+    const d = mergeContext({ data: people, cursor: 0, answers });
+    expect(evaluateField('IF "{ MERGEFIELD Gender }" = "F" "{ ASK extra "Extra?" }{ REF extra }" "no"', d)).toBe('Ask answered');
+    // A condition made of a nested field alone, and formatting switches after the branches.
+    expect(evaluateField('IF { MERGEFIELD Plus } "{ MERGEFIELD Name }" "x" \\* Upper', mergeContext({ data: people }))).toBe('ANA');
   });
 });

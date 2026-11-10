@@ -1,0 +1,17 @@
+{
+  "andMore": "…以及其他 {count} 项",
+  "bubbleTip": "{point}，大小 {size}",
+  "bubbleTipBlank": "{point}，大小为空",
+  "chartLabel": "{type, select, column {柱形图} bar {条形图} line {折线图} area {面积图} pie {饼图} donut {圆环图} scatter {散点图} combo {组合图} histogram {直方图} waterfall {瀑布图} radar {雷达图} bubble {气泡图} treemap {树状图} sunburst {旭日图} boxWhisker {箱形图} funnel {漏斗图} stock {股价图} surface {曲面图} other {图表}}",
+  "dataTable": "图表数据",
+  "histogramCount": "计数",
+  "noNonzero": "没有可绘制成图表的非零数字",
+  "noNumbers": "没有可绘制成图表的数字",
+  "other": "其他",
+  "otherSlices": "其他（{count} 个扇区）",
+  "otherSlicesValue": "其他（{count} 个扇区）：{value}",
+  "radarChart": "雷达图",
+  "waterfallDecrease": "减少",
+  "waterfallIncrease": "增加",
+  "waterfallTotal": "汇总"
+}

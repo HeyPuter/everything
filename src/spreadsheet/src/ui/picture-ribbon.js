@@ -11,6 +11,7 @@ import { closeMenu, lazySubmenu } from './menu.js';
 import { arrangeGroup } from './arrange-ribbon.js';
 import { pictureNode } from './picture.js';
 import { CORRECTION_STEPS, TRANSPARENCY_STEPS, PICTURE_STYLES, CROP_ASPECTS, percent, pictureStyleOf, pictureFrameCss } from '../core/picture-format.js';
+import { t, tSource } from '../i18n/index.js';
 
 const flags = (ctx) => ctx?.flags?.() || {};
 /** The picture the tab acts on: the selected one (the first selected, among several). */
@@ -25,10 +26,10 @@ const run = (ctx, arg) => ctx.run('pictureFormat', arg);
 /** A grid of preview tiles in a menu: each a small copy of the picture with a change shown on it. */
 function previewGrid(label, tiles, columns) {
   const grid = el('div.chart-gallery-grid.picture-gallery', { role: 'group', 'aria-label': label, style: { gridTemplateColumns: `repeat(${columns}, auto)` } },
-    ...tiles.map((t) => el('button.chart-gallery-tile.picture-tile', {
-      type: 'button', role: 'menuitemradio', 'aria-checked': String(!!t.checked), tabindex: -1, title: t.label, 'aria-label': t.label,
-      onclick: () => { closeMenu(); t.onPick(); },
-    }, el('span.picture-tile-preview', { 'aria-hidden': 'true' }, t.node))));
+    ...tiles.map((tile) => el('button.chart-gallery-tile.picture-tile', {
+      type: 'button', role: 'menuitemradio', 'aria-checked': String(!!tile.checked), tabindex: -1, title: tile.label, 'aria-label': tile.label,
+      onclick: () => { closeMenu(); tile.onPick(); },
+    }, el('span.picture-tile-preview', { 'aria-hidden': 'true' }, tile.node))));
   grid.addEventListener('keydown', (e) => {
     const list = [...grid.querySelectorAll('button')], at = list.indexOf(document.activeElement);
     const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: columns, ArrowUp: -columns }[e.key];
@@ -55,30 +56,31 @@ function correctionsMenu(ctx) {
   const now = obj.adjust || { brightness: 0, contrast: 0 };
   const tiles = [];
   for (const contrast of [...CORRECTION_STEPS].reverse()) for (const brightness of CORRECTION_STEPS) {
-    tiles.push({ label: `Brightness ${percent(brightness)}, contrast ${percent(contrast)}${!brightness && !contrast ? ' (Normal)' : ''}`,
+    const values = { brightness: percent(brightness), contrast: percent(contrast) };
+    tiles.push({ label: !brightness && !contrast ? t('pictureRibbon.correctionNormal', values) : t('pictureRibbon.correction', values),
       checked: Math.abs((now.brightness || 0) - brightness) < 1e-6 && Math.abs((now.contrast || 0) - contrast) < 1e-6,
       node: thumb(obj, { adjust: brightness || contrast ? { brightness, contrast } : null }),
       onPick: () => run(ctx, { action: 'adjust', adjust: { brightness, contrast } }) });
   }
-  return [{ header: 'Brightness and Contrast' }, { custom: previewGrid('Brightness and Contrast', tiles, 5) },
-    { separator: true }, { label: 'Picture Corrections Options…', icon: 'sliders', cmd: 'pictureFormat', arg: { action: 'correctionsDialog' } }];
+  return [{ header: t('pictureRibbon.brightnessContrast') }, { custom: previewGrid(t('pictureRibbon.brightnessContrast'), tiles, 5) },
+    { separator: true }, { label: t('pictureRibbon.correctionsOptions'), icon: 'sliders', cmd: 'pictureFormat', arg: { action: 'correctionsDialog' } }];
 }
 
 function colorMenu(ctx) {
   const obj = activePicture(ctx);
   if (!obj) return [];
-  return [{ header: 'Recolor' }, { custom: previewGrid('Recolor', [
-    { label: 'Original Color', checked: !obj.recolor, node: thumb(obj, { recolor: null }), onPick: () => run(ctx, { action: 'recolor', recolor: null }) },
-    { label: 'Grayscale', checked: obj.recolor === 'grayscale', node: thumb(obj, { recolor: 'grayscale' }), onPick: () => run(ctx, { action: 'recolor', recolor: 'grayscale' }) },
+  return [{ header: t('pictureRibbon.recolor') }, { custom: previewGrid(t('pictureRibbon.recolor'), [
+    { label: t('pictureRibbon.originalColor'), checked: !obj.recolor, node: thumb(obj, { recolor: null }), onPick: () => run(ctx, { action: 'recolor', recolor: null }) },
+    { label: t('pictureRibbon.grayscale'), checked: obj.recolor === 'grayscale', node: thumb(obj, { recolor: 'grayscale' }), onPick: () => run(ctx, { action: 'recolor', recolor: 'grayscale' }) },
   ], 2) }];
 }
 
 function transparencyMenu(ctx) {
   const obj = activePicture(ctx);
   if (!obj) return [];
-  return [{ custom: previewGrid('Transparency', TRANSPARENCY_STEPS.map((t) => ({
-    label: `Transparency ${Math.round(t * 100)}%`, checked: Math.abs((obj.transparency || 0) - t) < 0.005,
-    node: el('span.picture-checker', {}, thumb(obj, { transparency: t || null })), onPick: () => run(ctx, { action: 'transparency', transparency: t }),
+  return [{ custom: previewGrid(t('pictureRibbon.transparency'), TRANSPARENCY_STEPS.map((step) => ({
+    label: t('pictureRibbon.transparencyOf', { percent: Math.round(step * 100) }), checked: Math.abs((obj.transparency || 0) - step) < 0.005,
+    node: el('span.picture-checker', {}, thumb(obj, { transparency: step || null })), onPick: () => run(ctx, { action: 'transparency', transparency: step }),
   })), 4) }];
 }
 
@@ -86,7 +88,7 @@ function stylesMenu(ctx) {
   const obj = activePicture(ctx);
   if (!obj) return [];
   const current = pictureStyleOf(obj);
-  return [{ custom: previewGrid('Picture Styles', PICTURE_STYLES.map((s) => ({
+  return [{ custom: previewGrid(t('pictureRibbon.pictureStyles'), PICTURE_STYLES.map((s) => ({
     label: s.label, checked: current === s.id, node: thumb(obj, s.patch), onPick: () => run(ctx, { action: 'style', style: s.id }),
   })), 4) }];
 }
@@ -95,29 +97,37 @@ function cropMenu(ctx) {
   const obj = activePicture(ctx);
   if (!obj) return [];
   return [
-    { label: 'Crop…', icon: 'crop', cmd: 'pictureFormat', arg: { action: 'crop' } },
-    { label: 'Crop to Aspect Ratio', icon: 'crop', submenu: CROP_ASPECTS.map(([kind, label, ratio]) => ({ label: `${label} ${kind === 'Square' ? '(square)' : `(${kind.toLowerCase()})`}`, cmd: 'pictureFormat', arg: { action: 'cropAspect', ratio } })) },
+    { label: t('pictureRibbon.cropDialog'), icon: 'crop', cmd: 'pictureFormat', arg: { action: 'crop' } },
+    { label: t('pictureRibbon.cropToAspectRatio'), icon: 'crop', submenu: CROP_ASPECTS.map(([kind, label, ratio]) => ({ label: t('pictureRibbon.aspect', { ratio: label, shape: kind.toLowerCase() }), cmd: 'pictureFormat', arg: { action: 'cropAspect', ratio } })) },
     { separator: true },
-    { label: 'Remove Crop', cmd: 'pictureFormat', arg: { action: 'uncrop' }, disabled: !obj.srcRect && !obj.fillRect },
+    { label: t('pictureRibbon.removeCrop'), cmd: 'pictureFormat', arg: { action: 'uncrop' }, disabled: !obj.srcRect && !obj.fillRect },
   ];
 }
 
-const menu = (label, glyph, build, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => { const disabled = cannotEdit(ctx); return lazySubmenu({ label, disabled }, () => (disabled ? [] : build(ctx))); } });
-const action = (label, glyph, arg, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => ({ label, cmd: extra.cmd || 'pictureFormat', arg, disabled: cannotEdit(ctx) || !!extra.unavailable?.(ctx), hint: extra.hint }) });
+/** A descriptor's names from the catalog: its label, and `keytip`, the English its key tip is worked out from (see keytips.js). */
+const naming = (key) => ({ label: t(key), ariaLabel: t(key), keytip: tSource(key) });
+const menu = (key, glyph, build, extra = {}) => {
+  const n = naming(key);
+  return { ...n, glyph, ...extra,
+    resolve: (menus, ctx) => { const disabled = cannotEdit(ctx); return lazySubmenu({ label: n.label, disabled }, () => (disabled ? [] : build(ctx))); } };
+};
+const action = (key, glyph, arg, extra = {}) => {
+  const n = naming(key);
+  return { ...n, glyph, ...extra,
+    resolve: (menus, ctx) => ({ label: n.label, cmd: extra.cmd || 'pictureFormat', arg, disabled: cannotEdit(ctx) || !!extra.unavailable?.(ctx), hint: extra.hint }) };
+};
 
 /** Size: the picture's height and width in inches (96 pixels each), and whether they keep its proportions. */
 function sizeFields(ctx) {
-  const field = (label, key) => {
-    const input = el('input.input.ribbon-control.chart-size-input', { type: 'number', min: 0.1, max: 60, step: 0.01, 'aria-label': `Picture ${label}`, tabindex: -1,
+  const field = (label, name, key) => {
+    const input = el('input.input.ribbon-control.chart-size-input', { type: 'number', min: 0.1, max: 60, step: 0.01, 'aria-label': t(name), tabindex: -1, dataset: { keytipLabel: tSource(name) },
       onchange: () => { const inches = Number(input.value); if (Number.isFinite(inches) && inches > 0) run(ctx, { action: 'size', [key]: Math.round(inches * 96) }); },
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); input.dispatchEvent(new Event('change')); ctx.grid.focus(); } } });
     return { input, row: el('label.chart-size-field', {}, el('span', { html: icon(key === 'h' ? 'rowHeight' : 'colWidth', 16), 'aria-hidden': 'true' }), el('span.chart-size-label', {}, label), input, el('span', {}, '"')) };
   };
-  const h = field('Height', 'h'), w = field('Width', 'w');
-  const lock = el('input', { type: 'checkbox', tabindex: -1, 'aria-label': 'Lock aspect ratio', onchange: () => run(ctx, { action: 'lockAspect', on: lock.checked }) });
-  const lockRow = el('label.chart-size-field.picture-lock', { title: 'Height and width change together' }, lock, el('span.chart-size-label', {}, 'Lock aspect ratio'));
+  const h = field(t('pictureRibbon.height'), 'pictureRibbon.pictureHeight', 'h'), w = field(t('pictureRibbon.width'), 'pictureRibbon.pictureWidth', 'w');
+  const lock = el('input', { type: 'checkbox', tabindex: -1, 'aria-label': t('pictureRibbon.lockAspectRatio'), onchange: () => run(ctx, { action: 'lockAspect', on: lock.checked }) });
+  const lockRow = el('label.chart-size-field.picture-lock', { title: t('pictureRibbon.lockAspectRatioTip') }, lock, el('span.chart-size-label', {}, t('pictureRibbon.lockAspectRatio')));
   const sync = () => {
     const obj = activePicture(ctx), off = !obj || cannotEdit(ctx);
     for (const [f, key] of [[h, 'h'], [w, 'w']]) {
@@ -134,18 +144,18 @@ function sizeFields(ctx) {
 export function pictureFormatGroups() {
   return [
     ['Adjust',
-      { ...menu('Corrections', 'corrections', correctionsMenu), large: true },
-      menu('Color', 'pictureColor', colorMenu),
-      menu('Transparency', 'transparency', transparencyMenu),
-      { label: 'Reset Picture', glyph: 'resetPicture', ariaLabel: 'Reset Picture',
-        resolve: (menus, ctx) => ({ label: 'Reset Picture', cmd: 'pictureFormat', arg: { action: 'reset' }, disabled: cannotEdit(ctx) }),
+      { ...menu('pictureRibbon.corrections', 'corrections', correctionsMenu), large: true },
+      menu('pictureRibbon.color', 'pictureColor', colorMenu),
+      menu('pictureRibbon.transparency', 'transparency', transparencyMenu),
+      { ...naming('pictureRibbon.resetPicture'), glyph: 'resetPicture',
+        resolve: (menus, ctx) => ({ label: t('pictureRibbon.resetPicture'), cmd: 'pictureFormat', arg: { action: 'reset' }, disabled: cannotEdit(ctx) }),
         split: (menus, ctx) => [
-          { label: 'Reset Picture', icon: 'resetPicture', cmd: 'pictureFormat', arg: { action: 'reset' }, disabled: cannotEdit(ctx) },
-          { label: 'Reset Picture & Size', cmd: 'pictureFormat', arg: { action: 'resetSize' }, disabled: cannotEdit(ctx) },
+          { label: t('pictureRibbon.resetPicture'), icon: 'resetPicture', cmd: 'pictureFormat', arg: { action: 'reset' }, disabled: cannotEdit(ctx) },
+          { label: t('pictureRibbon.resetPictureAndSize'), cmd: 'pictureFormat', arg: { action: 'resetSize' }, disabled: cannotEdit(ctx) },
         ] }],
-    ['Picture Styles', { ...menu('Picture Styles', 'pictureStyles', stylesMenu, { ariaLabel: 'Picture Styles' }), large: true }],
-    ['Accessibility', { ...action('Alt Text', 'altText', null, { cmd: 'altText' }), large: true }],
-    [...arrangeGroup({ large: false }), action('Place in Cell', 'placeInCell', null, { cmd: 'placeObjectInCell', hint: 'Put the picture in the cell under its top-left corner' })],
-    ['Size', { ...menu('Crop', 'crop', cropMenu), large: true }, { label: 'Size', element: sizeFields }],
+    ['Picture Styles', { ...menu('pictureRibbon.pictureStyles', 'pictureStyles', stylesMenu), large: true }],
+    ['Accessibility', { ...action('pictureRibbon.altText', 'altText', null, { cmd: 'altText' }), large: true }],
+    [...arrangeGroup({ large: false }), action('pictureRibbon.placeInCell', 'placeInCell', null, { cmd: 'placeObjectInCell', hint: t('pictureRibbon.placeInCellHint') })],
+    ['Size', { ...menu('pictureRibbon.crop', 'crop', cropMenu), large: true }, { label: t('pictureRibbon.size'), element: sizeFields }],
   ];
 }

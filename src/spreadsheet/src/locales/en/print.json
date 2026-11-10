@@ -1,0 +1,19 @@
+{
+  "checked": "Checked",
+  "defaultFooter": "Page &[Page] of &[Pages]",
+  "margins.narrow": "Narrow",
+  "margins.normal": "Normal",
+  "margins.wide": "Wide",
+  "paper.a3": "A3",
+  "paper.a4": "A4",
+  "paper.a5": "A5",
+  "paper.b4": "B4",
+  "paper.b5": "B5",
+  "paper.executive": "Executive",
+  "paper.folio": "Folio",
+  "paper.legal": "Legal",
+  "paper.letter": "Letter",
+  "paper.statement": "Statement",
+  "paper.tabloid": "Tabloid",
+  "unchecked": "Unchecked"
+}

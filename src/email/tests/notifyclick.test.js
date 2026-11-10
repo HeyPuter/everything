@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderApp } from '../src/ui/app.js';
 import { createSampleMailbox } from '../src/lib/sample.js';
 import { createDraftStore } from '../src/lib/drafts.js';
 import { memoryStorage } from '../src/lib/readstate.js';
+import { createSettings } from '../src/lib/settings.js';
+import { stopListening } from '../src/ui/push.js';
 
 /**
  * A desktop notification for new mail, and what its click opens. The
@@ -38,16 +40,18 @@ class FakeNotification {
   close() { this.closed = true; }
 }
 
-const mount = async () => {
+const mount = async (extra = {}) => {
   mailbox = createSampleMailbox();
-  renderApp(root, {
+  const app = renderApp(root, {
     ...mailbox,
     sample: false,
     account: { username: 'tester' },
     drafts: createDraftStore('tester', memoryStorage()),
     onCompose: () => {},
+    ...extra,
   });
   await settle();
+  return app;
 };
 
 const deliver = async (subject = 'Late arrival', raw = LATE, suffix = 'f') => {
@@ -67,7 +71,6 @@ const reading = () => root.querySelector('.app-frame').classList.contains('readi
 
 beforeEach(() => {
   window.localStorage.clear();
-  window.localStorage.setItem('puter-mail:notify', '1');
   shown = [];
   window.Notification = FakeNotification;
   hadFocus = document.hasFocus;
@@ -77,7 +80,9 @@ beforeEach(() => {
   document.body.append(root);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await stopListening();
+  vi.unstubAllGlobals();
   root.remove();
   delete window.Notification;
   document.hasFocus = hadFocus;
@@ -134,6 +139,71 @@ describe('a new-mail notification', () => {
 
     expect(shown[0].options.body).toBe('2 new messages');
     shown[0].onclick();
+    await settle();
+    expect(reading()).toBe(false);
+    expect(document.activeElement.classList.contains('row')).toBe(true);
+  });
+});
+
+describe('with pushes on', () => {
+  const ID = 'ffffffff-ffff-7fff-8fff-ffffffffffff';
+  let sdk;
+
+  const mountWithPush = () => {
+    sdk = {
+      env: 'web',
+      notifications: { status: vi.fn(async () => 'on'), onPush: vi.fn(async () => ({ off: async () => {} })) },
+      events: {
+        list: vi.fn(async () => []),
+        onPersistent: vi.fn(async (options) => ({ subId: 'sub-1', ...options })),
+        unsubscribe: vi.fn(async () => {}),
+      },
+    };
+    vi.stubGlobal('puter', sdk);
+    const settings = createSettings('tester', memoryStorage());
+    settings.set('push', true);
+    return mount({ canPush: true, settings });
+  };
+
+  it('handles pushes and keeps the subscription, without asking for anything', async () => {
+    await mountWithPush();
+    expect(sdk.notifications.onPush).toHaveBeenCalledWith('mail', expect.any(Function));
+    expect(sdk.events.onPersistent).toHaveBeenCalledWith(expect.objectContaining({
+      queue: true, context: { previews: true, self: ['tester@puter.email'] },
+    }));
+  });
+
+  it('uses SDK status for the switch even when the saved preference disagrees', async () => {
+    await mountWithPush();
+    sdk.notifications.status.mockResolvedValue('off');
+    root.querySelector('[aria-label="Settings"]').click();
+    await settle();
+    const toggle = [...root.querySelectorAll('[role="menuitemcheckbox"]')]
+      .find((node) => node.textContent.includes('Notify me on this device'));
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(sdk.notifications.status).toHaveBeenCalled();
+  });
+
+  it('leaves the banner to Puter rather than showing a second one', async () => {
+    await mountWithPush();
+    await deliver();
+    expect(shown).toHaveLength(0);
+  });
+
+  it('opens the message a push was about, delivered after the inbox was listed', async () => {
+    const app = await mountWithPush();
+    const { fs, objectsPath } = mailbox;
+    const days = (await fs.readdir(objectsPath)).filter((i) => i.is_dir).map((i) => i.name).sort();
+    await fs.write(`${objectsPath}/${days[days.length - 1]}/${ID}--${btoa('Late arrival')}`, new Blob([LATE]));
+    await app.openMessage(ID);
+    await settle();
+    expect(reading()).toBe(true);
+    expect(openSubject()).toBe('Late arrival');
+  });
+
+  it('goes to the top of the inbox for a push that names no message', async () => {
+    const app = await mountWithPush();
+    await app.openMessage(null);
     await settle();
     expect(reading()).toBe(false);
     expect(document.activeElement.classList.contains('row')).toBe(true);

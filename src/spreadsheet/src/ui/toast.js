@@ -1,6 +1,7 @@
 import { el, isComposing } from './dom.js';
 import { icon } from './icons.js';
 import { isMenuOpen } from './menu.js';
+import { t } from '../i18n/index.js';
 
 let root = null;
 
@@ -61,12 +62,12 @@ export function toast(message, { icon: name = 'check', duration, action = null }
     action && el('button.toast-action', { type: 'button', onclick: () => { dismiss(); action.onClick(); } }, action.label),
     // A toast with an action stays six seconds or more; a close button lets it go sooner. A plain notice is
     // brief and Escape takes it away.
-    action && el('button.toast-close', { type: 'button', 'aria-label': 'Dismiss', title: 'Dismiss', html: icon('x', 14, 2.4), onclick: dismiss }));
+    action && el('button.toast-close', { type: 'button', 'aria-label': t('toast.dismiss'), title: t('toast.dismiss'), html: icon('x', 14, 2.4), onclick: dismiss }));
   node._dismiss = dismiss;
 
   // Hovering pauses the countdown; leaving resumes what was left of it (at least a moment to read).
   let due = 0;
-  const arm = (t) => { clearTimeout(timer); due = Date.now() + t; timer = setTimeout(dismiss, t); };
+  const arm = (ms) => { clearTimeout(timer); due = Date.now() + ms; timer = setTimeout(dismiss, ms); };
   const hold = () => clearTimeout(timer);
   const release = () => { if (!gone) arm(Math.max(1500, due - Date.now())); };
   node.addEventListener('pointerenter', hold);

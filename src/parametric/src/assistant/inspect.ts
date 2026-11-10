@@ -40,11 +40,22 @@ export class Inspector {
     return out;
   }
 
+  /** Warnings of built features (id → message). */
+  warnings(): Map<Id, string> {
+    const out = new Map<Id, string>();
+    for (const f of this.doc.features.slice(0, this.host.store.builtCount)) {
+      const w = f.suppressed ? null : this.host.featureStatus(f.id)?.warning;
+      if (w) out.set(f.id, w);
+    }
+    return out;
+  }
+
   status(f: Feature, index: number): string {
     if (f.suppressed) return 'suppressed';
     if (index >= this.host.store.builtCount) return 'rolled back (not built)';
     const s = this.host.featureStatus(f.id);
     if (!s) return 'not built yet';
+    if (s.suppressed) return 'suppressed (it depends on a suppressed feature)';
     if (!s.ok) return `ERROR: ${s.error}`;
     return s.warning ? `ok, warning: ${s.warning}` : 'ok';
   }
@@ -97,7 +108,7 @@ export class Inspector {
     const lines = fs.map((f, i) => this.featureLine(f, i));
     const r = this.doc.rollback;
     if (r != null && r < fs.length) lines.splice(r, 0, '--- rollback bar: features below are not built ---');
-    const shown = lines.length > max ? [...lines.slice(0, 10), `… ${lines.length - max} more (use get_model with feature ids) …`, ...lines.slice(lines.length - (max - 10))] : lines;
+    const shown = lines.length > max ? [...lines.slice(0, 10), `… ${lines.length - max} more (get_model without feature ids lists them all) …`, ...lines.slice(lines.length - (max - 10))] : lines;
     return `Features in build order:\n${shown.map((l) => `- ${l}`).join('\n')}`;
   }
 
@@ -176,6 +187,7 @@ export class Inspector {
       if (o.nameContains) list = list.filter(({ f }) => f.name.includes(o.nameContains!));
       if (o.near) { const p = o.near; list.sort((a, b) => dist(a.f.center, p) - dist(b.f.center, p)); }
       const shown = list.slice(0, o.limit);
+      if (!list.length && o.type) return `0 of ${faces.length} faces match. Face types in the body: ${[...new Set(faces.map((f) => f.type))].join(', ')}.`;
       return `${list.length} of ${faces.length} faces match${list.length > shown.length ? ` (showing ${shown.length})` : ''}:\n${shown.map(({ f }) => `- ${this.faceLine(f)}`).join('\n')}`;
     }
     let list = edges.map((e, i) => ({ e, i }));
@@ -190,6 +202,7 @@ export class Inspector {
     if (o.near) { const p = o.near; list.sort((a, b) => dist(a.e.mid, p) - dist(b.e.mid, p)); }
     const shown = list.slice(0, o.limit);
     const head = o.ofFace && fi < 0 ? `No face named ${o.ofFace}. ` : '';
+    if (!list.length && o.type) return `${head}0 of ${edges.length} edges match. Edge types in the body: ${[...new Set(edges.map((e) => e.type))].join(', ')}.`;
     return `${head}${list.length} of ${edges.length} edges match${list.length > shown.length ? ` (showing ${shown.length})` : ''}:\n${shown.map(({ e }) => `- ${this.edgeLine(e)}`).join('\n')}`;
   }
 }

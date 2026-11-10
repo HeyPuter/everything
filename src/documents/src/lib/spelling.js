@@ -19,9 +19,12 @@ export function proofingText(text, paragraphs) {
     for (const run of paragraph.runs) {
       const end = offset + run.text.length;
       // No-proofing text, text marked in another language (§17.3.2.20) and text already tracked as deleted are
-      // not checked: correcting a deleted word would bring it back.
+      // not checked: correcting a deleted word would bring it back. Deleted text is not there in the edited
+      // document, so the letters around it join (word joiners, which words keep and checking leaves out): with
+      // spaces, "colo[u]r" was checked as "colo" and "r".
       if ((run.noProof || foreignLanguage(run.fontLanguage) || run.revision?.type === 'del') && end > offset) {
-        pieces.push(text.slice(start, offset), ' '.repeat(end - offset));
+        const joined = run.revision?.type === 'del' && !run.noProof && !foreignLanguage(run.fontLanguage);
+        pieces.push(text.slice(start, offset), (joined ? '\u2060' : ' ').repeat(end - offset));
         start = end;
       }
       offset = end;
@@ -39,17 +42,22 @@ const INVISIBLE = /[\u00ad\u200b-\u200d\u2060\ufeff]/;
 export function wordsToCheck(text) {
   const words = [];
   const segmenter = new Intl.Segmenter('en', { granularity: 'word' });
+  // The stretch without white space the last word was in: where it ends, and whether it is an address.
+  let token = null;
   for (const segment of segmenter.segment(text)) {
     if (!segment.isWordLike) continue;
     const start = segment.index, end = start + segment.segment.length;
     // An address or path runs across several segments: skip each piece that sits inside one.
     // Any whitespace bounds the token, not only a space: paragraphs are joined by line breaks, and an
-    // address ending one paragraph must not exempt the first word of the next.
-    let before = start;
-    while (before > 0 && !/\s/.test(text[before - 1])) before--;
-    const after = text.slice(end).search(/[\s]/);
-    const token = text.slice(before, after < 0 ? text.length : end + after).replace(/[\s\u000b\f\n]+/g, '');
-    if (ADDRESS.test(token.replace(/[.,;:!?)"'’”]+$/, ''))) continue;
+    // address ending one paragraph must not exempt the first word of the next. The words of one token
+    // share it: read for each, a paragraph without spaces (Chinese, Thai) took time in its length squared.
+    if (!token || start >= token.end) {
+      let before = start;
+      while (before > 0 && !/\s/.test(text[before - 1])) before--;
+      const after = text.slice(end).search(/\s/), to = after < 0 ? text.length : end + after;
+      token = { end: to, address: ADDRESS.test(text.slice(before, to).replace(/[.,;:!?)"'’”]+$/, '')) };
+    }
+    if (token.address) continue;
     // Optional hyphens (manual hyphenation) and zero-width joiners and spaces are not letters: the word is checked
     // without them. `source[i]` is where the checked word's character i is in the segment.
     const source = [];

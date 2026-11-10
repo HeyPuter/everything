@@ -2,7 +2,7 @@
 // rotation about a pivot and animated transitions between orientations.
 
 import {
-  type Mat4, type Quat, type Vec3, add, cross, dot, fromRotationTranslation, invert4, mul4, normalize, ortho,
+  type Mat4, type Quat, type Vec3, add, cross, dist, dot, fromRotationTranslation, invert4, mul4, normalize, ortho,
   perspective, qAxisAngle, qFromBasis, qMul, qNormalize, qRotate, qSlerp, scale, sub, transformPoint,
 } from '../math/vec';
 
@@ -44,18 +44,36 @@ export interface CameraState {
   ortho: boolean;
 }
 
+/**
+ * Wheel zoom limits. A view framed beyond them (zoom to fit on a part of
+ * several km) is not snapped back: it can still zoom in, just not further out.
+ */
+function clampDistance(d: number, from: number): number {
+  return Math.min(Math.max(1e7, from), Math.max(Math.min(1e-3, from), d));
+}
+
 export class Camera {
   target: Vec3 = [0, 0, 0];
   distance = 200;
   rot: Quat = VIEWS.trimetric;
-  ortho = true;
+  private isOrtho = true;
   fov = (30 * Math.PI) / 180;
   width = 1;
   height = 1;
   /** Scene radius used for clip planes. */
   sceneRadius = 100;
+  /** Bounding sphere of everything drawn (model and overlays such as sketches), kept up to date by the renderer. */
+  sceneBounds: { center: Vec3; radius: number } | null = null;
   private anim: { from: CameraState; to: CameraState; t0: number; dur: number } | null = null;
   onChange: () => void = () => {};
+
+  get ortho(): boolean { return this.isOrtho; }
+
+  /** Switching the projection during a view animation also changes where it lands. */
+  set ortho(v: boolean) {
+    this.isOrtho = v;
+    if (this.anim) { this.anim.from = { ...this.anim.from, ortho: v }; this.anim.to = { ...this.anim.to, ortho: v }; }
+  }
 
   get right(): Vec3 { return qRotate(this.rot, [1, 0, 0]); }
   get up(): Vec3 { return qRotate(this.rot, [0, 1, 0]); }
@@ -69,6 +87,12 @@ export class Camera {
 
   state(): CameraState {
     return { target: [...this.target] as Vec3, distance: this.distance, rot: [...this.rot] as Quat, ortho: this.ortho };
+  }
+
+  /** Where the camera is heading: the end of a running animation, else now. */
+  goal(): CameraState {
+    const to = this.anim?.to;
+    return to ? { target: [...to.target] as Vec3, distance: to.distance, rot: [...to.rot] as Quat, ortho: to.ortho } : this.state();
   }
 
   setState(s: CameraState) {
@@ -86,7 +110,10 @@ export class Camera {
 
   proj(): Mat4 {
     const aspect = this.width / Math.max(1, this.height);
-    const r = Math.max(this.sceneRadius, 1);
+    // The clip range reaches 2r either side of the target; it must also take in
+    // what is drawn away from the model, e.g. a large sketch with no body yet.
+    const b = this.sceneBounds;
+    const r = Math.max(this.sceneRadius, 1, b ? (dist(this.target, b.center) + b.radius) / 2 : 0);
     const far = this.distance + r * 4 + 10;
     if (this.ortho) {
       const h = this.distance * Math.tan(this.fov / 2);
@@ -128,6 +155,8 @@ export class Camera {
 
   /** Rolls around the view direction. */
   roll(angle: number) {
+    // Like orbiting, the user takes over the orientation from an animation.
+    this.stopAnimation();
     this.rotateAbout(qAxisAngle(this.back, angle), this.target);
   }
 
@@ -139,17 +168,16 @@ export class Camera {
   }
 
   pan(dxPx: number, dyPx: number) {
-    this.stopAnimation();
     const s = this.pixelSize;
-    this.target = add(this.target, add(scale(this.right, -dxPx * s), scale(this.up, dyPx * s)));
+    const shift = add(scale(this.right, -dxPx * s), scale(this.up, dyPx * s));
+    this.target = add(this.target, shift);
+    this.shiftAnimation(shift, 1);
     this.onChange();
   }
 
   /** factor < 1 zooms in. Keeps the world point under (x, y) fixed. */
   zoomAt(factor: number, x: number, y: number) {
-    this.stopAnimation();
-    const minD = 1e-3, maxD = 1e7;
-    const nd = Math.min(maxD, Math.max(minD, this.distance * factor));
+    const nd = clampDistance(this.distance * factor, this.distance);
     const f = nd / this.distance;
     // Offset of the cursor from the view centre, in world units on the target plane.
     const s = this.pixelSize;
@@ -158,7 +186,21 @@ export class Camera {
     const shift = add(scale(this.right, ox * (1 - f)), scale(this.up, oy * (1 - f)));
     this.target = add(this.target, shift);
     this.distance = nd;
+    this.shiftAnimation(shift, f);
     this.onChange();
+  }
+
+  /**
+   * Applies a pan or zoom made during a view animation to both of its ends,
+   * so the animation keeps turning and still lands on its orientation (with
+   * the pan or zoom applied) instead of freezing part-way.
+   */
+  private shiftAnimation(shift: Vec3, factor: number) {
+    const a = this.anim;
+    if (!a) return;
+    const move = (s: CameraState): CameraState => ({ ...s, target: add(s.target, shift), distance: clampDistance(s.distance * factor, s.distance) });
+    a.from = move(a.from);
+    a.to = move(a.to);
   }
 
   /** Target state that frames a bounding sphere. */
@@ -197,7 +239,7 @@ export class Camera {
     this.rot = qSlerp(a.from.rot, a.to.rot, t);
     this.target = [0, 1, 2].map((i) => a.from.target[i] + (a.to.target[i] - a.from.target[i]) * t) as Vec3;
     this.distance = a.from.distance * Math.pow(a.to.distance / a.from.distance, t);
-    this.ortho = a.to.ortho;
+    this.isOrtho = a.to.ortho;
     if (t >= 1) this.anim = null;
     return !!this.anim;
   }

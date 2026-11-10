@@ -61,4 +61,20 @@ describe('SolidWorks parts', () => {
     // A part whose streams were cut short has no readable solid.
     await expect(solidWorksToStep(part.slice(0, 4000), 'a.sldprt')).rejects.toBeInstanceOf(SolidWorksError);
   });
+
+  it('does not allocate what a damaged file only claims', async () => {
+    // Every stream of an OLE2 part claims to be 256 MB long; the chains are short.
+    const d = fixture('cube-shell-sw2011.sldprt');
+    const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
+    const ss = 1 << dv.getUint16(30, true);
+    const fat = (dv.getUint32(76, true) + 1) * ss;
+    let patched = 0;
+    for (let sec = dv.getUint32(48, true), guard = 0; sec < 0xfffffff0 && guard < 100; sec = dv.getUint32(fat + sec * 4, true), guard++) {
+      for (let o = (sec + 1) * ss; o < (sec + 2) * ss; o += 128) if (d[o + 66] === 2) { dv.setUint32(o + 120, 0x0fffffff, true); patched++; }
+    }
+    expect(patched).toBeGreaterThan(10);
+    const { streams } = await readStreams(d);
+    const total = [...streams.values()].reduce((a, s) => a + s.length, 0);
+    expect(total).toBeLessThan(4 * d.length);
+  });
 });

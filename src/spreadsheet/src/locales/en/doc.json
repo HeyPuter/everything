@@ -1,0 +1,19 @@
+{
+  "copyFailed": "Could not save a copy",
+  "draftGone": "That unsaved spreadsheet is no longer available",
+  "draftUnreadable": "Could not read the unsaved spreadsheet",
+  "enterName": "Enter a name",
+  "nameTaken": "A file with that name already exists",
+  "ownerRenames": "This shared workbook is its owner’s file: only its owner can rename it",
+  "renameFailed": "Could not rename the file",
+  "restoreChanged": "The spreadsheet changed while preparing to restore. Your edits are intact; try restoring again.",
+  "saveFailed": "Could not save",
+  "sharedFile": "This spreadsheet is shared for editing together, and the shared workbook could not be reached: it writes this file, and would write over changes saved here. Open the spreadsheet again once connected, or use File > Save a copy to keep your changes",
+  "signInToSave": "Sign in to Puter to save this spreadsheet",
+  "status.changedElsewhere": "This file changed elsewhere",
+  "status.movedOrDeleted": "This file was moved or deleted",
+  "status.notChecked": "This file could not be checked for changes made elsewhere",
+  "untitled": "Untitled spreadsheet",
+  "viewOnly": "You can view this spreadsheet, but not change it. Use File > Save a copy to keep your changes",
+  "waitingToSend": "Your changes are waiting to be sent. They are kept on this device until the connection returns."
+}

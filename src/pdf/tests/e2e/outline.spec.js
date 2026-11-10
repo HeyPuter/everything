@@ -16,7 +16,7 @@ async function openPdf(page, doc, name = 'test.pdf') {
   ).setFiles({ name, mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
   await expect(page.locator('.page-caption')).toHaveText(`Page 1 of ${doc.getPageCount()}`);
 }
-/** Give a document an outline: [{ title, page, top?, bold?, children: [...] }]. */
+/** Give a document an outline: [{ title, page, top?, bold?, open?, children: [...] }]. */
 function addOutline(doc, tree) {
   const context = doc.context;
   const root = context.nextRef();
@@ -37,7 +37,7 @@ function addOutline(doc, tree) {
         const [first, last, count] = build(item.children, refs[i]);
         dict.set(PDFName.of('First'), first);
         dict.set(PDFName.of('Last'), last);
-        dict.set(PDFName.of('Count'), context.obj(-count));
+        dict.set(PDFName.of('Count'), context.obj(item.open ? count : -count));
       }
       context.assign(refs[i], dict);
     });
@@ -129,6 +129,45 @@ test('an outlined PDF gets an Outline tab whose items jump to their pages', asyn
   await expect(tree.getByRole('treeitem', { name: 'Sampling' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.locator('.page-caption')).toHaveText('Page 3 of 4');
+});
+
+test('bookmarks the PDF marks as open start unfolded, and the rest folded', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 4; i++) doc.addPage([400, 400]);
+  addOutline(doc, [
+    {
+      title: 'Methods',
+      page: 0,
+      open: true,
+      children: [{ title: 'Sampling', page: 1 }],
+    },
+    { title: 'Results', page: 2, children: [{ title: 'Tables', page: 3 }] },
+  ]);
+  await openPdf(page, doc);
+  await showPanel(page);
+  await page
+    .getByRole('tablist', { name: 'Side panel' })
+    .getByRole('tab', { name: 'Outline' })
+    .click();
+  const tree = page.getByRole('tree', { name: 'Document outline' });
+  await expect(tree.getByRole('treeitem', { name: 'Sampling' })).toBeVisible();
+  await expect(tree.getByRole('treeitem', { name: 'Methods' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  await expect(tree.getByRole('treeitem', { name: 'Tables' })).toBeHidden();
+  // Once the reader folds it, an edit that reloads the outline leaves it folded.
+  await tree.getByRole('button', { name: 'Collapse Methods' }).click();
+  await expect(tree.getByRole('treeitem', { name: 'Sampling' })).toBeHidden();
+  await menu(page, 'Add bookmark for this page…');
+  const prompt = page.getByRole('dialog', { name: 'Add bookmark' });
+  await prompt.getByLabel('Bookmark name').fill('Extra');
+  await prompt.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(tree.getByRole('treeitem', { name: 'Extra' })).toBeVisible();
+  await expect(tree.getByRole('treeitem', { name: 'Sampling' })).toBeHidden();
 });
 
 test('bookmarks and links bring the place they point to to the top of the view', async ({
@@ -609,10 +648,24 @@ for (const fallback of [false, true])
       'Only the first 2,000 of 12,000 bookmarks are listed.',
     );
     const first = page.getByRole('treeitem', { name: 'Level 1', exact: true });
+    const second = page.getByRole('treeitem', { name: 'Level 2', exact: true });
+    // Every level is marked open in the file; the first few start unfolded, and no more.
+    await expect(first).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('treeitem', { name: 'Level 8', exact: true })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    await expect(page.getByRole('treeitem', { name: 'Level 9', exact: true })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
     await first.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(second).toBeHidden();
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('ArrowDown');
-    await expect(page.getByRole('treeitem', { name: 'Level 2', exact: true })).toBeFocused();
+    await expect(second).toBeFocused();
+    await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('ArrowLeft');
     await expect(first).toBeFocused();
     expect(errors).toEqual([]);
@@ -730,3 +783,69 @@ for (const nested of [false, true]) {
     await check(true);
   });
 }
+
+test('a bookmark menu opens from the keyboard with Shift+F10', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 2; i++) doc.addPage([400, 400]);
+  addOutline(doc, [
+    { title: 'Intro', page: 0 },
+    { title: 'End', page: 1 },
+  ]);
+  await openPdf(page, doc);
+  await showPanel(page);
+  await page
+    .getByRole('tablist', { name: 'Side panel' })
+    .getByRole('tab', { name: 'Outline' })
+    .click();
+  const tree = page.getByRole('tree', { name: 'Document outline' });
+  const end = tree.getByRole('treeitem', { name: 'End' });
+  await end.focus();
+  // Mac keyboards have no menu key, and macOS browsers turn Shift+F10 into no menu event.
+  await page.keyboard.press('Shift+F10');
+  const menu = page.getByRole('menu', { name: 'Bookmark' });
+  await expect(menu.getByRole('menuitem', { name: 'Rename bookmark…', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(end).toBeFocused();
+  await page.keyboard.press('Shift+F10');
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('menuitem', { name: 'Remove bookmark', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#toast')).toHaveText('Bookmark removed.');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(tree.getByRole('treeitem')).toHaveCount(1);
+});
+
+test("a bookmark added from a thumbnail's menu leaves the focus on the Outline tab", async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) doc.addPage([300, 300]);
+  await openPdf(page, doc);
+  await showPanel(page);
+  await page.getByRole('button', { name: 'Page 2 actions', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await page
+    .getByRole('menu')
+    .getByRole('menuitem', { name: 'Add bookmark for this page…' })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Add bookmark' })
+    .getByLabel('Bookmark name')
+    .press('Enter');
+  await expect(page.locator('#toast')).toHaveText('Bookmark added. Find it in the Outline tab.');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // The thumbnail went with the Pages panel; the focus did not fall to the page body.
+  const tab = page
+    .getByRole('tablist', { name: 'Side panel' })
+    .getByRole('tab', { name: 'Outline' });
+  await expect(tab).toBeFocused();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    page.getByRole('tree', { name: 'Document outline' }).getByRole('treeitem', { name: 'Page 2' }),
+  ).toBeVisible();
+});

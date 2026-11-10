@@ -1,0 +1,9 @@
+{
+  "all": "所有图表",
+  "changeTitle": "更改图表类型",
+  "chartTypes": "图表类型",
+  "families": "图表类别",
+  "insertTitle": "插入图表",
+  "recommended": "推荐的图表",
+  "subtypesOf": "{family}子类型"
+}

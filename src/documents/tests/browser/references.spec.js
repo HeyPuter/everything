@@ -406,6 +406,18 @@ test('Smart Lookup says plainly why it has no answer, once', async ({ page }) =>
   await expect(page.locator('.toast')).toHaveCount(0);
 });
 
+test('Smart Lookup with no related topics shows the definition alone, with no stray text', async ({ page }) => {
+  await openEditor(page);
+  await page.keyboard.type('The aphelion of an orbit is far.');
+  await expect.poll(() => engineText(page)).toBe('The aphelion of an orbit is far.');
+  await page.evaluate(() => { puter.ai.chat = async () => ({ message: { content: 'Definition: The point of an orbit farthest from the Sun.' } }); const m = window.__docs.current.view.engine.model, at = m.text.indexOf('aphelion'); m.select(at + 2); });
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Smart Lookup', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Smart Lookup' });
+  await expect(pane.locator('.ref-lookup-definition')).toHaveText('The point of an orbit farthest from the Sun.');
+  await expect(pane.locator('.ref-lookup-result')).toHaveText('aphelionThe point of an orbit farthest from the Sun.Search the web');
+});
+
 test('Smart Lookup explains the selection, and the menus offer References commands', async ({ page }) => {
   await openEditor(page);
   await page.keyboard.type('The aphelion of an orbit is far.');
@@ -568,4 +580,37 @@ test('on a phone the Mark Index Entry panel sits evenly across the window', asyn
   const box = await mark.boundingBox();
   const width = await page.evaluate(() => document.documentElement.clientWidth);
   expect(Math.round(box.x)).toBe(Math.round(width - box.x - box.width));
+});
+
+// Remove Table of Contents edits untracked like the other References commands, so with Track Changes on the
+// table disappeared with no change to reject. It is now a tracked deletion, as selecting it and pressing Delete is.
+test('Remove Table of Contents with Track Changes on is a tracked deletion', async ({ page }) => {
+  await openEditor(page);
+  await typeDocument(page);
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Table of Contents', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Classic/ }).click();
+  await expect.poll(() => engineText(page)).toMatch(/^Contents\nIntroduction\t1\n/);
+  const withTable = await engineText(page);
+  await page.keyboard.press('ControlOrMeta+Shift+e');
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.session.body.trackChanges)).toBe(true);
+  await ribbon(page).getByRole('button', { name: 'Table of Contents', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Remove Table of Contents' }).click();
+  const changes = () => page.evaluate(() => { const body = window.__docs.current.view.engine.session.body; return body.revisions.map(r => [r.type, body.text.slice(r.start, r.end)]); });
+  await expect.poll(changes).toEqual([['del', withTable.slice(0, withTable.indexOf('Introduction\nEngines'))]]);
+  expect(await engineText(page)).toBe(withTable);
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine; engine.execute(() => engine.session.body.resolveRevisions(true)); });
+  await expect.poll(() => engineText(page)).toBe(withTable.slice(withTable.indexOf('Introduction\nEngines')));
+});
+
+test('Mark Index Entry takes a long selection up to a whole character, not half an emoji', async ({ page }) => {
+  await openEditor(page);
+  const text = `${'a'.repeat(199)}😀 more`;
+  await input(page).fill(text);
+  await page.evaluate(() => { const m = window.__docs.current.view.engine.model; m.select(0, m.text.length); });
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Mark Entry', exact: true }).click();
+  const mark = page.getByRole('dialog', { name: 'Mark Index Entry' });
+  // The entry is cut to 200 code units: the emoji across the cut is left out, not halved into a lone surrogate.
+  await expect(mark.getByLabel('Main entry')).toHaveValue('a'.repeat(199));
 });

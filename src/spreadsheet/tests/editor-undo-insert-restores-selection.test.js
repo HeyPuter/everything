@@ -111,3 +111,26 @@ it('does the same for Insert columns, and shows the cell when a cell edit is und
   expect(wb.getValue(id, 4, 3)).toBeNull();
   expect(selected()).toBe('D5');
 });
+
+// The steps were counted by the history's notices: an entry given up with Escape takes back the formatting
+// applied while it was typed with notices of its own, which put the count out, and the Undo of an Insert
+// rows made before it then left the selection on the cell of that entry.
+it('still puts the selection back after an entry made bold and given up with Escape', async () => {
+  const { wb, id, menu, goTo, selected } = await mount();
+  await goTo('B3:B4');
+  const before = selected();
+  await menu('insert', 'Rows and columns', 'Row above');
+  await goTo('D9');
+  const viewport = view.el.querySelector('.grid-viewport');
+  viewport.focus();
+  viewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true, cancelable: true }));
+  view.run('bold');
+  await vi.advanceTimersByTimeAsync(1);
+  const editor = view.el.querySelector('.grid-editor');
+  editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  await vi.advanceTimersByTimeAsync(1);
+  expect(wb.styleAt(id, 8, 3)?.bold).toBeFalsy();
+  await menu('edit', 'Undo');
+  expect(wb.getValue(id, 2, 1)).toBe(3);
+  expect(selected()).toBe(before);
+});

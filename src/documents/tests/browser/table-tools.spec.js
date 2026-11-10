@@ -254,3 +254,112 @@ test('the menu bar Table menu runs the table commands', async ({ page }) => {
   await page.getByRole('menuitem', { name: 'Rows Below', exact: true }).click();
   expect((await model(page)).tables[0].rows).toHaveLength(3);
 });
+
+// A heading row repeated at the top of each page is one row. Distribute Rows measured each repeated copy
+// as more height of that row, so a long table grew taller with every page it spans.
+test('Distribute Rows keeps a long table’s height when its heading row repeats on each page', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  const measured = () => page.evaluate(() => {
+    const e = window.__docs.current.view.engine, table = e.model.tables[0], tallest = new Map();
+    for (const c of e.layout.cells) if (c.tableId === table.id && !c.repeatedHeader) tallest.set(c.rowId, Math.max(tallest.get(c.rowId) || 0, c.height));
+    return { pages: e.layout.pages.length, repeated: e.layout.cells.some(c => c.tableId === table.id && c.repeatedHeader), heights: table.rows.map(r => Math.round(tallest.get(r.id) * 15)), set: table.rows.map(r => r.minHeight) };
+  });
+  await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, m = e.model;
+    e.insertTable(60, 2);
+    m.selectCell(m.tables[0].rows[0].cells[0].id);
+    e.execute(() => m.replace('Heading\nwith\nfour lines'));
+    e.execute(() => m.setTableHeaderRows(1, m.tables[0]));
+    m.selectCell(m.tables[0].rows[5].cells[0].id); e.syncInput(); e.paint(); e.onSelection(); e.focus();
+  });
+  const before = await measured();
+  expect(before.pages).toBeGreaterThan(2);
+  expect(before.repeated).toBe(true);
+  const even = Math.round(before.heights.reduce((a, b) => a + b, 0) / before.heights.length);
+  await onTab(page, 'tableLayout');
+  await ribbon(page).getByRole('button', { name: 'Distribute Rows', exact: true }).click();
+  await expect.poll(async () => (await measured()).set[1]).toBe(even);
+  expect(new Set((await measured()).set)).toEqual(new Set([even]));
+});
+
+test('Shift+Down and Shift+Up from the start of a cell select that cell and the one below or above it', async ({ page }) => {
+  await newTable(page, 3, 3, []);
+  // Empty cells: the caret is always at the start of the cell's text.
+  await goToCell(page, 1, 1);
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 1, bottom: 2, left: 1, right: 2 });
+  // Home forgets the column the earlier Up and Down keys kept.
+  await goToCell(page, 2, 1); await input(page).press('Home');
+  await input(page).press('Shift+ArrowUp');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 1, bottom: 2, left: 1, right: 2 });
+  await goToCell(page, 0, 0); await input(page).press('Home');
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 1 });
+  // The block's command reaches only its cells.
+  await onTab(page, 'tableDesign');
+  await ribbon(page).getByRole('button', { name: 'Shading colors', exact: true }).click();
+  await page.locator('.menu-custom-grid .swatch').first().click();
+  expect((await model(page)).tables[0].rows.map(r => r.cells.map(c => c.shading || null))).toEqual([['000000', null, null], ['000000', null, null], [null, null, null]]);
+});
+
+test('a new table\'s row that reaches the bottom of a page breaks across it instead of leaving the page empty below the text', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  const pages = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, m = e.model;
+    e.execute(() => m.replace(Array.from({ length: 40 }, (_, i) => `Line ${i}`).join('\n') + '\n'));
+    e.insertTable(1, 1);
+    m.selectCell(m.tables[0].rows[0].cells[0].id);
+    e.execute(() => m.replace(Array.from({ length: 12 }, (_, i) => `Cell line ${i}`).join('\n')));
+    const page = text => e.layout.lines.find(l => l.start === m.text.indexOf(text)).page;
+    return { body: page('Line 39'), first: page('Cell line 0'), last: page('Cell line 11') };
+  });
+  // The row starts on the page the text before it ends on, and its last lines continue on the next.
+  expect(pages.first).toBe(pages.body);
+  expect(pages.last).toBe(pages.body + 1);
+});
+
+test('with cells selected, Shift+Right and Shift+Left grow and shrink the block a cell at a time', async ({ page }) => {
+  await newTable(page, 3, 3, ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota']);
+  await goToCell(page, 0, 0); await input(page).press('Home');
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 1 });
+  await input(page).press('Shift+ArrowRight');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowRight');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 3 });
+  // At the table's edge the block stays.
+  await input(page).press('Shift+ArrowRight');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 3 });
+  await input(page).press('Shift+ArrowLeft');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 2, left: 0, right: 2 });
+  // The block's cells are the ones a command reaches.
+  await onTab(page, 'tableDesign');
+  await ribbon(page).getByRole('button', { name: 'Shading colors', exact: true }).click();
+  await page.locator('.menu-custom-grid .swatch').first().click();
+  expect((await model(page)).tables[0].rows.map(r => r.cells.map(c => c.shading || null))).toEqual([['000000', '000000', null], ['000000', '000000', null], ['000000', '000000', null]]);
+});
+
+test('with cells selected, Shift+Down and Shift+Up go a row at a time past cells of several lines', async ({ page }) => {
+  await newTable(page, 2, 4, ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']);
+  // Three lines in the first column's second cell.
+  await goToCell(page, 1, 0);
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.execute(() => e.model.replace('C\nmore\nlines')); });
+  await goToCell(page, 0, 1); await input(page).press('End');
+  await input(page).press('Shift+ArrowLeft'); await input(page).press('Shift+ArrowLeft');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 0, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 2, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowUp');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 2 });
+  // Down from the last row leaves the table, as before.
+  await input(page).press('Shift+ArrowDown'); await input(page).press('Shift+ArrowDown'); await input(page).press('Shift+ArrowDown');
+  await expect.poll(() => page.evaluate(() => { const m = window.__docs.current.view.engine.model; return m.selection.focus === m.text.length && !m.paragraphs.at(-1).cellId; })).toBe(true);
+});

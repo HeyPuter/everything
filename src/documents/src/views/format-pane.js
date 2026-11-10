@@ -44,8 +44,11 @@ export function createPane(context) {
     const id = target.id || `pic-field-${++ids}`; target.id = id;
     return el('div.pic-field', {}, el('label', { htmlFor: id }, label), control, hint ? el('span.pic-hint', {}, hint) : null);
   };
+  // The arrows step by `step`, but any amount in range is taken, as Word takes it (a 0.6 pt line between the quarter
+  // points); a document's own amounts need not fall on the step either.
+  const inRange = input => input.value !== '' && !input.validity.badInput && !input.validity.rangeUnderflow && !input.validity.rangeOverflow;
   const number = (value, { min, max, step = 1, unit = '', onCommit }) => {
-    const input = el('input.input.pic-number', { type: 'number', min, max, step, value: value ?? '', onchange: () => { if (input.value === '' || !input.checkValidity()) { input.reportValidity(); return; } onCommit(Number(input.value)); } });
+    const input = el('input.input.pic-number', { type: 'number', min, max, step, value: value ?? '', onchange: () => { if (!inRange(input)) { input.reportValidity(); return; } onCommit(Number(input.value)); } });
     return unit ? el('span.pic-number-wrap', {}, input, el('span.pic-unit', {}, unit)) : input;
   };
   const slider = (label, value, { min, max, step = 1, unit = '%', onCommit }) => {
@@ -54,7 +57,7 @@ export function createPane(context) {
     const box = el('input.input.pic-number', { type: 'number', min, max, step, value, 'aria-label': `${label} value` });
     range.addEventListener('input', () => { box.value = range.value; });
     range.addEventListener('change', () => onCommit(Number(range.value)));
-    box.addEventListener('change', () => { if (!box.checkValidity() || box.value === '') { box.reportValidity(); return; } range.value = box.value; onCommit(Number(box.value)); });
+    box.addEventListener('change', () => { if (!inRange(box)) { box.reportValidity(); return; } range.value = box.value; onCommit(Number(box.value)); });
     return el('div.pic-field.pic-slider', {}, el('label', { htmlFor: id }, label), el('div.pic-slider-row', {}, range, box, el('span.pic-unit', {}, unit)));
   };
   const select = (options, value, onChange) => el('select.input.pic-select', { onchange: e => onChange(e.target.value) }, ...options.map(([label, v]) => el('option', { value: v, selected: String(v) === String(value) }, label)));
@@ -220,7 +223,7 @@ export function createPane(context) {
   }
   function show(id) { if (id) section = id === 'line' ? 'fill' : id; drawn = null; refresh(); }
   function refresh() {
-    const image = selected(), key = `${section}:${image?.assetId}:${image?.shell?.length}:${image?.id}:${image?.width}x${image?.height}:${image?.rotation}:${image?.opacity}`;
+    const image = selected(), key = `${section}:${image?.assetId}:${image?.shell}:${image?.id}:${image?.width}x${image?.height}:${image?.rotation}:${image?.opacity}`;
     if (key === drawn) return;
     drawn = key; render();
   }

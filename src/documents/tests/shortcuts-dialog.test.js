@@ -9,7 +9,7 @@ afterEach(() => { vi.unstubAllGlobals(); document.body.replaceChildren(); docume
 it('lists only chords the canvas editor handles, with alternatives joined by "or"', () => {
   openShortcuts();
   const text = document.querySelector('.modal-panel').textContent;
-  for (const promised of ['Small caps', 'Increase font size', 'Column break', 'Update page references', 'Heading 1 to 6', 'Previous or next paragraph', 'Show keyboard shortcuts', 'Paste without formatting', 'Move paragraphs up or down', 'Check spelling', 'Font dialog']) expect(text).toContain(promised);
+  for (const promised of ['Small caps', 'Increase font size', 'Column break', 'Update page references', 'Heading 1 to 6', 'Previous or next paragraph', 'Show keyboard shortcuts', 'Paste without formatting', 'Move paragraphs up or down', 'Check spelling', 'Font dialog', 'Nonbreaking space', 'Nonbreaking hyphen']) expect(text).toContain(promised);
   for (const gone of ['Focus mode', 'Go to page', 'Insert footnote', 'Comment on the selection', 'Word count', 'Zoom in']) expect(text).not.toContain(gone);
   const redo = [...document.querySelectorAll('.modal-panel dd')].find(dd => dd.textContent === 'Redo').previousElementSibling;
   expect(redo.textContent).toBe(`${MOD_KEY} + Shift + Z or ${MOD_KEY} + Y`);
@@ -43,4 +43,13 @@ it('on a Mac lists Go To under Cmd+Option+G, since Cmd+G finds the next match, a
   expect(chordsFor('Heading 1 to 6')).toEqual(['Cmd + Option + 1 … 6']);
   expect(chordsFor('Move paragraphs up or down')).toEqual(['Ctrl + Shift + Up / Down']);
   expect(document.querySelector('.modal-panel').textContent).not.toMatch(/\bAlt\b/);
+});
+
+it('no longer promises a built-in chord that a shortcut of your own now runs', () => {
+  openShortcuts({ custom: [[`${MOD_KEY} + B`, 'Italic'], [`${MOD_KEY} + Shift + Z`, 'Word Count']] });
+  // Bold had only this chord; Redo keeps its other one.
+  expect(chordsFor('Bold')).toEqual([]);
+  expect(chordsFor('Redo')).toEqual([`${MOD_KEY} + Y`]);
+  expect(chordsFor('Italic')).toEqual([`${MOD_KEY} + I`, `${MOD_KEY} + B`]);
+  expect(chordsFor('Word Count')).toEqual([`${MOD_KEY} + Shift + Z`]);
 });

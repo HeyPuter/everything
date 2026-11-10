@@ -1,0 +1,19 @@
+{
+  "copyFailed": "无法保存副本",
+  "draftGone": "该未保存的电子表格已不再可用",
+  "draftUnreadable": "无法读取该未保存的电子表格",
+  "enterName": "输入名称",
+  "nameTaken": "已存在同名文件",
+  "ownerRenames": "此共享工作簿是其所有者的文件：只有所有者可以重命名它",
+  "renameFailed": "无法重命名文件",
+  "restoreChanged": "准备还原时电子表格发生了更改。你的编辑内容完好无损，请再次尝试还原。",
+  "saveFailed": "无法保存",
+  "sharedFile": "此电子表格已共享以供共同编辑，但无法连接到共享工作簿：共享工作簿会写入此文件，并会覆盖在此处保存的更改。连接后重新打开此电子表格，或使用“文件 > 保存副本”保留你的更改",
+  "signInToSave": "登录 Puter 以保存此电子表格",
+  "status.changedElsewhere": "此文件已在别处被更改",
+  "status.movedOrDeleted": "此文件已被移动或删除",
+  "status.notChecked": "无法检查此文件是否已在别处被更改",
+  "untitled": "未命名电子表格",
+  "viewOnly": "你可以查看此电子表格，但不能更改它。使用“文件 > 保存副本”保留你的更改",
+  "waitingToSend": "你的更改正在等待发送。在连接恢复之前，它们会保留在此设备上。"
+}

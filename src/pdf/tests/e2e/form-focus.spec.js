@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 
 for (const fails of [false, true])
@@ -78,3 +78,61 @@ for (const fails of [false, true])
       await page.getByRole('button', { name: 'Redo', exact: true }).click();
       await expect(input).toHaveValue('Reviewed response');
     });
+
+test('a number refused on the page points at its own field, not another one filled', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 500]);
+  const form = doc.getForm();
+  form.createTextField('Name').addToPage(sheet, { x: 40, y: 400, width: 200, height: 24 });
+  const amount = form.createTextField('Amount');
+  amount.addToPage(sheet, { x: 40, y: 340, width: 200, height: 24 });
+  amount.acroField.dict.set(
+    PDFName.of('AA'),
+    doc.context.obj({
+      F: { S: 'JavaScript', JS: PDFString.of('AFNumber_Format(2, 0, 0, 0, "$", true);') },
+    }),
+  );
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'amount.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  const name = page.getByLabel('Name (on page)', { exact: true });
+  const value = page.getByLabel('Amount (on page)', { exact: true });
+  await name.fill('Ada');
+  await value.fill('twelve');
+  await value.press('Enter');
+  await expect(page.getByRole('alert')).toHaveText('Enter a number in Amount, such as 1234.5.');
+  await expect(value).toBeFocused();
+  await expect(value).toHaveAttribute('aria-invalid', 'true');
+  await expect(value).toHaveAttribute('aria-errormessage', 'form-edit-error');
+  await expect(name).toHaveAttribute('aria-invalid', 'false');
+  await expect(name).not.toHaveAttribute('aria-errormessage');
+  // The field is outlined in the error color, also while it has the focus.
+  const outline = (control) =>
+    control.evaluate((node) => getComputedStyle(node.parentElement).outlineColor);
+  const danger = await page.evaluate(() => {
+    const probe = document.createElement('i');
+    probe.style.color = 'var(--danger)';
+    document.querySelector('.editor').append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  expect(await outline(value)).toBe(danger);
+  expect(await outline(name)).not.toBe(danger);
+  // Corrected, both fields are saved.
+  await value.fill('12');
+  await value.press('Enter');
+  await expect(page.getByRole('alert')).toBeHidden();
+  await expect(value).toHaveAttribute('aria-invalid', 'false');
+  expect(await outline(value)).not.toBe(danger);
+});

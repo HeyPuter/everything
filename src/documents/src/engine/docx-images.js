@@ -23,7 +23,7 @@ import { readDrawingEffects } from './docx-drawing-effects.js';
 import { pictureResolution } from './picture-resolution.js';
 import { readPictureTile } from './picture-tiles.js';
 import { DGM, readDiagramDrawing } from './docx-diagram-drawing.js';
-import { partPathForUrl, relationshipPartPath, relativePartTarget } from './package-part-paths.js';
+import { contentTypeOverride, partPathForUrl, relationshipPartPath, relativePartTarget } from './package-part-paths.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 export const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
@@ -446,7 +446,7 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
       if (url.origin !== 'https://docx.invalid' || url.search || url.hash || !parts[path]) fail('missing or external image parts');
       const bytes = parts[path],wmfViewport={width:width/9525,height:height/9525}; let info;
       try { info = vector ? svgInfo(bytes) : isEmf(bytes) ? emfInfo(bytes,{inspectText:opacity!==1}) : isWmf(bytes) ? wmfInfo(bytes,wmfViewport) : imageInfo(bytes); } catch (e) { fail(e.message); }
-      const override = [...types.getElementsByTagNameNS('*', 'Override')].find(n => n.getAttribute('PartName') === `/${path}`);
+      const override = contentTypeOverride(types.documentElement, path);
       const fallback = [...types.getElementsByTagNameNS('*', 'Default')].find(n => n.getAttribute('Extension')?.toLowerCase() === path.split('.').at(-1).toLowerCase());
       const declared = (override || fallback)?.getAttribute('ContentType');
       const extensionMime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' }[path.split('.').at(-1).toLowerCase()];

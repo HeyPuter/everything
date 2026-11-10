@@ -3,6 +3,11 @@ import { paragraphVector } from './paragraph-data.js';
 import { hasRightToLeft } from './bidi.js';
 
 const parts = (line) => line.parts || [line];
+// A line that starts a list item: a bullet symbol (Word's symbol-font bullets included), a dash
+// or star, or a number, letter, or roman numeral with "." or ")", or in brackets. A bullet may
+// stand alone, its item text kept apart beyond a tab.
+const LIST_ITEM =
+  /^\s*(?:[•·◦▪▫■□●○‣⁃∙➢➤►▶✓✔❖♦◆◇\uf0a7\uf0b7\uf0d8\uf0fc](?:\s*\S|\s*$)|[-–—*]\s|\(?(?:\d+|[a-zA-Z]|[ivxlcIVXLC]{1,6})[.)]\s)/u;
 const pathKey = (run) => run.path.map((call) => call.start).join(':');
 const height = (line) => Math.hypot(line.transform[2], line.transform[3]);
 const width = (line) => (line.advance / line.state.size) * height(line);
@@ -128,7 +133,13 @@ export function groupTextParagraphs(lines) {
       parts(line).every((r) => r.groupable) &&
       parts(previous).at(-1).barrier === parts(line)[0].barrier &&
       pathKey(parts(previous)[0]) === pathKey(parts(line)[0]) &&
-      !/^\s*(?:[•*\-]|\d+[.)])\s/.test(line.text) &&
+      !LIST_ITEM.test(line.text) &&
+      // A tagged PDF says which paragraph each line is in: lines of two paragraphs stay apart.
+      !(
+        parts(previous).at(-1).block &&
+        parts(line)[0].block &&
+        parts(previous).at(-1).block !== parts(line)[0].block
+      ) &&
       // Each line of right-to-left text is drawn in its own visual order, so the lines are
       // reordered for editing one by one and stay separate.
       !hasRightToLeft(previous.text) &&
@@ -152,7 +163,14 @@ export function groupTextParagraphs(lines) {
         -y <= 1.8 &&
         (!block.paragraph || Math.abs(-y - block.paragraph.leading) < 0.15) &&
         width(line) <= width(previous) * 1.4 + h * 2 &&
-        previous.text.trim().split(/\s+/).length >= 3
+        previous.text.trim().split(/\s+/).length >= 3 &&
+        // A line wraps early only when the next word would not fit after it. Where that word
+        // would have fit within the widest line, the break is a hard one: a paragraph ends.
+        // A line ending mid-word in a hyphen wrapped because the whole word did not fit, so
+        // the fragment after it says nothing about the break.
+        (/\p{L}[-\u00ad\u2010]\s*$/u.test(previous.text) ||
+          width(previous) + h * 0.28 + wordWidth(line) >=
+            Math.max(width(line), ...(block.paragraph?.lines ?? [block]).map(width)) - h * 0.1)
       )
         leading = -y;
     }

@@ -1,6 +1,6 @@
 /**
  * The installable app: service worker registration with an update prompt,
- * push subscription per workspace, the install prompt, and the iOS hint.
+ * Puter pushes, the install prompt, and the iOS hint.
  * All of it is optional: nothing here runs in the dev harness, and every
  * capability is probed before use.
  */
@@ -99,15 +99,151 @@ export async function promptInstall() {
 
 /* ---- push --------------------------------------------------------------- */
 
-function toKey(b64) {
-  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
-  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
-  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+/** Workspace workers notify members through their KV shares; Puter delivers the pushes. */
+
+/** The worker Puter's push script runs in: this app's own. */
+const swPath = () => new URL('./sw.js', document.baseURI).pathname;
+
+/** Set once Puter's push holds this origin's subscription, so an older one is told apart from it. */
+const PUTER_PUSH_KEY = 'tc:puter-push';
+
+/**
+ * What a push shows: the notification as sent, under the tag the page's own
+ * banner for the same news wears, so one replaces the other. Re-created in
+ * the worker from its source, so it uses nothing from around it.
+ */
+const showPush = async (n) => {
+  const d = n.data || {};
+  // In the service worker with no window open, nothing else marks the icon:
+  // a dot says there is news, and the first page to open sets the number.
+  if (typeof window === 'undefined' && !(await self.clients.matchAll({ type: 'window' })).length) {
+    await self.navigator.setAppBadge?.().catch(() => {});
+  }
+  // A call stays up until it's answered or dismissed.
+  return { ...(d.g ? { tag: d.g } : {}), ...(d.c ? { requireInteraction: true } : {}), url: n.target || '/' };
+};
+
+/**
+ * Dismiss the Puter notifications this browser shows under any of `tags`,
+ * which closes them on the user's other devices too.
+ */
+export async function dismissShown(tags) {
+  if (!swSupported() || typeof puter === 'undefined') return;
+  const reg = registration || (await navigator.serviceWorker.getRegistration(swPath()).catch(() => null));
+  for (const shown of (await reg?.getNotifications().catch(() => null)) || []) {
+    const uid = shown.data?.puter?.uid;
+    if (uid && tags.has(shown.tag)) puter.notifications.dismiss(uid).catch(() => {});
+  }
+}
+
+let pushListener = null;
+
+/**
+ * Take this app's notifications in the page and keep this browser's push
+ * registration current, once pushes were enabled here. On every load.
+ */
+export function listenForPushes() {
+  if (pushListener || typeof puter === 'undefined' || typeof puter.notifications?.onPush !== 'function') return pushListener;
+  pushListener = puter.notifications.onPush('chat', showPush, {
+    serviceWorker: swPath(),
+    onError: (err) => console.warn('Teamchat push', err),
+  }).catch(() => {
+    pushListener = null;
+    return null;
+  });
+  return pushListener;
+}
+
+/** Stop taking pushes in this page; Puter drops the saved handler once no tab uses it. */
+export async function stopListeningForPushes() {
+  const listener = await pushListener;
+  pushListener = null;
+  await listener?.off?.();
+}
+
+/**
+ * Turn Puter pushes on in this browser; resolves whether it now receives
+ * them. On a website this puts up the browser's own prompt, which needs the
+ * click, so a caller makes it the first thing the click does, with no await
+ * before it. Inside the Puter desktop Puter turns them on itself, for an app
+ * asking with its own permission dialog. `retire` lets go of a subscription
+ * made the old way, which holds the origin's one push subscription.
+ */
+export async function enablePuterPush(retire) {
+  const n = puter.notifications;
+  if (puter.env !== 'web') {
+    await retire?.();
+    return n.enable();
+  }
+  const opts = { serviceWorker: swPath() };
+  let on;
+  try {
+    on = await n.enable(opts);
+  } catch (err) {
+    if (err?.code === 'push_subscription_conflict' && retire) {
+      await retire();
+      on = await n.enable(opts);
+    } else if (err?.code === 'push_revoked') {
+      // The app was turned off in Puter's settings; its own prompt undoes that.
+      on = (await n.requestPermission()) && (await n.enable(opts));
+    } else {
+      throw err;
+    }
+  }
+  if (on) {
+    try {
+      localStorage.setItem(PUTER_PUSH_KEY, '1');
+    } catch { /* told apart by a conflict instead */ }
+  }
+  return !!on;
+}
+
+/** Read the same browser registration that enable() uses. */
+export async function puterPushStatus() {
+  if (typeof puter === 'undefined' || typeof puter.notifications?.status !== 'function') return 'unavailable';
+  return puter.notifications.status({ serviceWorker: swPath() });
+}
+
+/** Turn pushes off in this browser, or revoke the app's push grant on the desktop. */
+export async function disablePuterPush() {
+  if (typeof puter === 'undefined') return;
+  await puter.notifications.disable({ serviceWorker: swPath() }).catch(() => {});
+}
+
+/**
+ * A subscription this device made before pushes went through Puter, when it
+ * holds one. Inside the desktop any subscription of this app's worker is one
+ * (Puter's live with Puter); on a website, one made before Puter's took over.
+ */
+async function legacySubscription() {
+  if (!pushSupported()) return null;
+  if (typeof puter !== 'undefined' && puter.env === 'web') {
+    try {
+      if (localStorage.getItem(PUTER_PUSH_KEY)) return null;
+    } catch { /* unreadable: looked at below */ }
+  }
+  const reg = registration || (await navigator.serviceWorker.getRegistration().catch(() => null));
+  return (await reg?.pushManager?.getSubscription().catch(() => null)) || null;
+}
+
+/**
+ * Let go of a subscription made the old way: each workspace's worker is told
+ * to forget it (briefly; one not told drops it at its next push, which the
+ * push service refuses), then the browser.
+ */
+export async function retireLegacyPush(refs, waitMs = 4000) {
+  const sub = await legacySubscription();
+  if (!sub) return;
+  await Promise.race([
+    Promise.allSettled(refs.map((ref) => api.pushUnsubscribe(ref, sub.endpoint))),
+    new Promise((r) => setTimeout(r, waitMs)),
+  ]);
+  await sub.unsubscribe().catch(() => {});
 }
 
 /** The device's offset from UTC in minutes, as the workers are told it (see pushPrefs). */
 export const localTzOffset = () => -new Date().getTimezoneOffset();
-/** The offset the workers were last told (see subscribePush); null until one was. */
+/** The offset the workers were last told (see notePushOffset); null until one was. */
 let sentTzOffset = null;
 
 /** What the worker needs to respect quiet hours and pauses while the app is closed. */
@@ -128,72 +264,16 @@ export function pushPrefs(prefs = {}) {
  * Has the device's clock moved to another offset from UTC since the workers
  * were last told it (the clocks changed for daylight saving, the device
  * travelled)? The workers keep quiet hours by the offset they were told,
- * since they cannot know the zone, and were told it only as a workspace
- * opened or a setting changed: after the spring or autumn change, pushes
- * kept the old hour's quiet hours (rang in the last hour of the window, or
- * fell silent an hour past it) until the app was next opened. The store
- * asks this on every poll and tells them again (see syncPushPrefs). Nothing
- * has moved while nothing was told.
+ * since they cannot know the zone, so after the clocks change pushes kept
+ * the old hour's quiet hours until the app was next opened. The store asks
+ * this on every poll and tells them again (see syncPushPrefs). Nothing has
+ * moved while nothing was told.
  */
 export function pushOffsetMoved() {
   return sentTzOffset !== null && sentTzOffset !== localTzOffset();
 }
 
-/** Tests: the offset the workers were last told. */
+/** The offset just sent to the workers (null: none is kept up any more). */
 export function _notePushOffset(tz) {
   sentTzOffset = tz;
-}
-
-/**
- * Subscribe this device to pushes from one workspace's worker (idempotent).
- * Only the user's own toggle may put the permission prompt up (interactive);
- * the background callers — the account preference found on at bootstrap, a
- * quiet-hours change fanning out — must not interrupt a page the user did
- * not ask anything of, so without permission already granted they give up.
- */
-export async function subscribePush(wsId, prefs, { interactive = false } = {}) {
-  if (!pushSupported() || !registration) throw new Error('Push is not available here');
-  if (Notification.permission === 'denied') throw new Error('Notifications are blocked in your browser settings');
-  if (Notification.permission !== 'granted' && (!interactive || (await Notification.requestPermission()) !== 'granted')) throw new Error('Notification permission was not granted');
-  const { key } = await api.pushKey(wsId);
-  let sub = await registration.pushManager.getSubscription();
-  if (sub) {
-    const cur = sub.options?.applicationServerKey ? new Uint8Array(sub.options.applicationServerKey) : null;
-    const want = toKey(key);
-    // Another workspace's worker signs with a different key; browsers allow one
-    // key per origin, so the subscription is re-made for this worker's key.
-    if (cur && (cur.length !== want.length || cur.some((b, i) => b !== want[i]))) {
-      await sub.unsubscribe().catch(() => {});
-      sub = null;
-    }
-  }
-  if (!sub) sub = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toKey(key) });
-  const sent = pushPrefs(prefs);
-  await api.pushSubscribe(wsId, { subscription: sub.toJSON(), prefs: sent, preview: prefs?.notifyPreview !== false });
-  sentTzOffset = sent.tzOffset;
-  return sub;
-}
-
-export async function unsubscribePush(wsId) {
-  if (!registration) return;
-  const sub = await registration.pushManager.getSubscription();
-  if (!sub) return;
-  await api.pushUnsubscribe(wsId, sub.endpoint).catch(() => {});
-}
-
-/**
- * Let go of this device's browser-side subscription (after the workers were
- * told). Workers not told keep a dead endpoint; their next push answers
- * 404/410 and they drop it themselves (see sendPush 'gone').
- */
-export async function dropPushSubscription() {
-  sentTzOffset = null; // nothing is pushed here any more, so no offset needs keeping up
-  if (!registration) return;
-  const sub = await registration.pushManager.getSubscription();
-  if (sub) await sub.unsubscribe().catch(() => {});
-}
-
-export async function currentPushEndpoint() {
-  const sub = await registration?.pushManager.getSubscription();
-  return sub?.endpoint || null;
 }

@@ -32,6 +32,10 @@
 const CACHE = 'cal-shell-v2';
 const SDK_ORIGIN = 'https://js.puter.com';
 
+// Puter push notifications (see src/js/push.js). It only adds push, message
+// and notificationclick listeners, and ignores pushes that aren't Puter's.
+importScripts(`${SDK_ORIGIN}/push-sw.js`);
+
 // Minimal, always-present shell. Hashed JS/CSS are cached lazily on first fetch
 // (their names change every build, so they can't be listed here). Precaching
 // index.html + icons + manifest is enough to boot and satisfy installability.

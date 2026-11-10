@@ -69,10 +69,6 @@ uniform vec3 uCapColor;
 out vec4 outColor;
 void main() {
   if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
-  if (uFlat == 1) { outColor = vec4(uFlatColor, 1.0); return; }
-  vec3 n = normalize(vN);
-  if (!gl_FrontFacing) n = -n;
-  vec3 v = uOrtho == 1 ? vec3(0.0, 0.0, 1.0) : normalize(-vPosV);
   vec3 base = uColor;
   int st = 0;
   if (uUseState == 1) {
@@ -82,6 +78,19 @@ void main() {
     st = int(texelFetch(uState, tc, 0).r * 255.0 + 0.5);
     if ((st & 4) != 0) discard;
   }
+  if (uFlat != 0) {
+    // Line styles: faces hide what is behind them in the background colour
+    // (1) or are not drawn at all (2, wireframe); a selected or hovered face
+    // still gets a light tint of the shaded style's colour.
+    if (uFlat == 2 && (st & 3) == 0) discard;
+    vec3 tint = (st & 2) != 0 ? uSelColor : uHoverColor;
+    float k = (st & 2) != 0 ? 0.3 : (st & 1) != 0 ? 0.18 : 0.0;
+    outColor = uFlat == 2 ? vec4(tint, k) : vec4(mix(uFlatColor, tint, k), 1.0);
+    return;
+  }
+  vec3 n = normalize(vN);
+  if (!gl_FrontFacing) n = -n;
+  vec3 v = uOrtho == 1 ? vec3(0.0, 0.0, 1.0) : normalize(-vPosV);
   vec3 l1 = normalize(vec3(0.35, 0.55, 1.0));
   vec3 l2 = normalize(vec3(-0.6, -0.25, 0.55));
   float d1 = max(dot(n, l1), 0.0);
@@ -274,14 +283,33 @@ precision highp int;
 flat in int vId;
 in vec3 vWorld;
 uniform mat4 uView;
+uniform vec4 uClip;
+uniform int uClipOn;
 layout(location=0) out uint outId;
 layout(location=1) out float outDepth;
 void main() {
+  if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
   outId = (3u << 28) | uint(vId);
   outDepth = -(uView * vec4(vWorld, 1.0)).z;
 }`;
 
 type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> };
+
+type Box = [number, number, number, number, number, number];
+
+/** Axis-aligned box of xyz triples, or null when there are none. */
+function boxOf(positions: Float32Array): Box | null {
+  if (positions.length < 3) return null;
+  const b: Box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (let i = 0; i + 2 < positions.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      const v = positions[i + k];
+      if (v < b[k]) b[k] = v;
+      if (v > b[k + 3]) b[k + 3] = v;
+    }
+  }
+  return b.every(Number.isFinite) ? b : null;
+}
 
 export interface LineBatch {
   /** Pairs of points (6 floats per segment). */
@@ -295,6 +323,8 @@ export interface LineBatch {
   /** Overlay ids per segment for picking (optional). */
   ids?: Float32Array;
   order?: number;
+  /** False: not cut by the section view (reference geometry, like plane fills). */
+  clip?: boolean;
 }
 
 export interface PointBatch {
@@ -333,6 +363,8 @@ export interface Theme {
   background: [number, number, number];
   model: [number, number, number];
   edge: [number, number, number];
+  /** Visible edges where faces are not shaded (line styles). */
+  wire: [number, number, number];
   hiddenEdge: [number, number, number];
   selection: [number, number, number];
   hover: [number, number, number];
@@ -352,12 +384,18 @@ export class Renderer {
   private progs: Record<string, Prog> = {};
   private model: GpuMesh | null = null;
   private preview: GpuMesh | null = null;
+  /** CPU copies of the meshes, re-uploaded when a lost context is restored. */
+  private modelMesh: MeshData | null = null;
+  private previewMesh: MeshData | null = null;
   private previewKind: 'tool' | 'body' = 'tool';
   previewCut = false;
-  private quad: WebGLBuffer;
-  private faceState: WebGLTexture;
-  private faceColor: WebGLTexture;
-  private edgeState: WebGLTexture;
+  /** Segment corners: x along the segment (0 start, 1 end), y across it. */
+  private quad!: WebGLBuffer;
+  /** Point sprite corners, centred on the point. */
+  private ptQuad!: WebGLBuffer;
+  private faceState!: WebGLTexture;
+  private faceColor!: WebGLTexture;
+  private edgeState!: WebGLTexture;
   private faceStateData: Uint8Array = new Uint8Array(0);
   private edgeStateData: Uint8Array = new Uint8Array(0);
   private faceColorData: Uint8Array = new Uint8Array(0);
@@ -369,11 +407,20 @@ export class Renderer {
   private pickDepthTex: WebGLTexture | null = null;
   private pickRb: WebGLRenderbuffer | null = null;
   private pickSize = [0, 0];
-  private canFloat: boolean;
+  private canFloat = false;
   private raf = 0;
   private dirty = true;
   dpr = 1;
   onFrame: () => void = () => {};
+  /**
+   * Called before drawing a frame in which the camera moved, zoomed or the
+   * viewport was resized, so pixel-sized overlays and screen-positioned DOM
+   * labels can follow the view in the same frame.
+   */
+  onCamera: () => void = () => {};
+  private camSig = new Float64Array(12);
+  /** Bounding boxes of what is drawn, by source, for the camera's clip range. */
+  private boxes = new Map<string, Box | null>();
   lost = false;
 
   constructor(readonly canvas: HTMLCanvasElement, theme: Theme) {
@@ -381,6 +428,17 @@ export class Renderer {
     if (!gl) throw new Error('WebGL 2 is not available in this browser');
     this.gl = gl;
     this.theme = theme;
+    this.initGl();
+    this.camera.onChange = () => this.requestRender();
+    // The browser may drop the context (GPU reset, driver update, too many
+    // contexts). Everything is re-created from the CPU copies on restore.
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
+    canvas.addEventListener('webglcontextrestored', () => this.restore());
+  }
+
+  /** Creates programs and the shared buffers and textures. */
+  private initGl() {
+    const gl = this.gl;
     this.canFloat = !!gl.getExtension('EXT_color_buffer_float');
     this.progs.mesh = this.program(MESH_VS, MESH_FS);
     this.progs.seg = this.program(SEG_VS, SEG_FS);
@@ -392,11 +450,31 @@ export class Renderer {
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 1, -1, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    this.ptQuad = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.ptQuad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     this.faceState = this.dataTexture();
     this.faceColor = this.dataTexture();
     this.edgeState = this.dataTexture();
-    this.camera.onChange = () => this.requestRender();
-    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
+  }
+
+  private restore() {
+    this.initGl();
+    this.pickFbo = this.pickTex = this.pickDepthTex = this.pickRb = null;
+    this.pickSize = [0, 0];
+    this.pbo = null;
+    this.cut = null;
+    this.lost = false;
+    this.model = this.modelMesh ? this.meshToGpu(this.modelMesh) : null;
+    this.preview = this.previewMesh ? this.meshToGpu(this.previewMesh) : null;
+    this.uploadData(this.faceState, this.faceStateData, this.faceStateData.length, 1);
+    this.uploadData(this.edgeState, this.edgeStateData, this.edgeStateData.length, 1);
+    this.uploadData(this.faceColor, this.faceColorData, this.faceColorData.length / 4, 4);
+    // Old GPU handles belong to the lost context; drop them before re-uploading.
+    for (const [k, b] of [...this.lines]) { b.gpu = undefined; this.setLines(k, b); }
+    for (const [k, b] of [...this.points]) { b.gpu = undefined; this.setPoints(k, b); }
+    for (const [k, b] of [...this.tris]) { b.gpu = undefined; this.setTris(k, b); }
+    this.requestRender();
   }
 
   private program(vs: string, fs: string): Prog {
@@ -510,7 +588,7 @@ export class Renderer {
     if (m.vertices.length) {
       const vvao = gl.createVertexArray()!;
       gl.bindVertexArray(vvao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.ptQuad);
       gl.enableVertexAttribArray(0);
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       const vb = gl.createBuffer()!;
@@ -538,9 +616,23 @@ export class Renderer {
     if (g.verts) { gl.deleteVertexArray(g.verts.vao); gl.deleteBuffer(g.verts.buf); }
   }
 
+  /** Records the box of one source of geometry and updates the camera's scene bounds. */
+  private setBox(key: string, positions: Float32Array | null) {
+    // The origin marker is pixel-sized: far from the model it would only cost depth precision.
+    if (key.endsWith(':origin')) return;
+    this.boxes.set(key, positions ? boxOf(positions) : null);
+    const u: Box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (const b of this.boxes.values()) if (b) for (let k = 0; k < 3; k++) { u[k] = Math.min(u[k], b[k]); u[k + 3] = Math.max(u[k + 3], b[k + 3]); }
+    this.camera.sceneBounds = u[0] <= u[3]
+      ? { center: [(u[0] + u[3]) / 2, (u[1] + u[4]) / 2, (u[2] + u[5]) / 2], radius: Math.hypot(u[3] - u[0], u[4] - u[1], u[5] - u[2]) / 2 }
+      : null;
+  }
+
   setModel(m: MeshData | null, faceCount: number, edgeCount: number) {
     this.freeMesh(this.model);
-    this.model = m && m.indices.length ? this.meshToGpu(m) : null;
+    this.modelMesh = m && m.indices.length ? m : null;
+    this.setBox('model', this.modelMesh?.positions ?? null);
+    this.model = this.modelMesh ? this.meshToGpu(this.modelMesh) : null;
     this.faceStateData = new Uint8Array(faceCount);
     this.edgeStateData = new Uint8Array(edgeCount);
     this.faceColorData = new Uint8Array(faceCount * 4);
@@ -552,7 +644,9 @@ export class Renderer {
 
   setPreview(m: MeshData | null, kind: 'tool' | 'body' = 'tool', isCut = false) {
     this.freeMesh(this.preview);
-    this.preview = m && m.indices.length ? this.meshToGpu(m) : null;
+    this.previewMesh = m && m.indices.length ? m : null;
+    this.setBox('preview', this.previewMesh?.positions ?? null);
+    this.preview = this.previewMesh ? this.meshToGpu(this.previewMesh) : null;
     this.previewKind = kind;
     this.previewCut = isCut;
     this.requestRender();
@@ -579,6 +673,7 @@ export class Renderer {
   setLines(key: string, batch: LineBatch | null) {
     const old = this.lines.get(key);
     if (old?.gpu) { this.gl.deleteVertexArray(old.gpu.vao); old.gpu.bufs.forEach((b) => this.gl.deleteBuffer(b)); }
+    this.setBox(`lines:${key}`, batch?.positions ?? null);
     if (!batch || !batch.positions.length) this.lines.delete(key);
     else this.lines.set(key, { ...batch, gpu: this.segVao(batch.positions, batch.ids, batch.colors) });
     this.requestRender();
@@ -588,10 +683,11 @@ export class Renderer {
     const gl = this.gl;
     const old = this.points.get(key);
     if (old?.gpu) { gl.deleteVertexArray(old.gpu.vao); old.gpu.bufs.forEach((b) => gl.deleteBuffer(b)); }
+    this.setBox(`points:${key}`, batch?.positions ?? null);
     if (!batch || !batch.positions.length) { this.points.delete(key); this.requestRender(); return; }
     const vao = gl.createVertexArray()!;
     gl.bindVertexArray(vao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.ptQuad);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     const bufs: WebGLBuffer[] = [];
@@ -616,6 +712,7 @@ export class Renderer {
     const gl = this.gl;
     const old = this.tris.get(key);
     if (old?.gpu) { gl.deleteVertexArray(old.gpu.vao); old.gpu.bufs.forEach((b) => gl.deleteBuffer(b)); }
+    this.setBox(`tris:${key}`, batch?.positions ?? null);
     if (!batch || !batch.positions.length) { this.tris.delete(key); this.requestRender(); return; }
     const vao = gl.createVertexArray()!;
     gl.bindVertexArray(vao);
@@ -640,13 +737,20 @@ export class Renderer {
     this.dpr = Math.min(dpr, 2);
     const w = Math.max(1, Math.round(cssW * this.dpr));
     const h = Math.max(1, Math.round(cssH * this.dpr));
-    if (this.canvas.width !== w || this.canvas.height !== h) {
+    const changed = this.canvas.width !== w || this.canvas.height !== h;
+    if (changed) {
       this.canvas.width = w;
       this.canvas.height = h;
     }
     this.camera.width = cssW;
     this.camera.height = cssH;
-    this.requestRender();
+    if (!changed) { this.requestRender(); return; }
+    // Resizing clears the canvas, and the page shows it cleared (black) until
+    // the next draw: draw now, before this frame is painted, or the view
+    // flashes black on every frame of a splitter drag or window resize.
+    if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+    this.dirty = true;
+    this.frame(performance.now());
   }
 
   requestRender() {
@@ -676,12 +780,27 @@ export class Renderer {
   private frame(now: number) {
     this.raf = 0;
     const animating = this.camera.tick(now);
+    if (this.cameraMoved()) {
+      this.onCamera();
+      // Overlays updated by the hook are drawn in this frame, not the next.
+      if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+      this.dirty = true;
+    }
     if (this.dirty || animating) {
       this.dirty = false;
       this.draw();
       this.onFrame();
     }
     if (animating) this.requestRender();
+  }
+
+  /** True when the view changed since the last check. */
+  private cameraMoved(): boolean {
+    const c = this.camera, s = this.camSig;
+    const v = [c.target[0], c.target[1], c.target[2], c.distance, c.rot[0], c.rot[1], c.rot[2], c.rot[3], c.ortho ? 1 : 0, c.width, c.height, c.fov];
+    let changed = false;
+    for (let i = 0; i < v.length; i++) if (s[i] !== v[i]) { s[i] = v[i]; changed = true; }
+    return changed;
   }
 
   private clipVec(): [number, number, number, number] | null {
@@ -718,8 +837,16 @@ export class Renderer {
       if (style !== 'wireframe') {
         gl.enable(gl.POLYGON_OFFSET_FILL);
         gl.polygonOffset(1, 1);
-        this.drawMesh(body, vp, view, clip, { flat, alpha: 1, useState: showBody, color: this.modelColor ?? this.theme.model });
+        this.drawMesh(body, vp, view, clip, { flat: flat ? 1 : 0, alpha: 1, useState: showBody, color: this.modelColor ?? this.theme.model });
         gl.disable(gl.POLYGON_OFFSET_FILL);
+      } else if (showBody && this.faceStateData.some((s) => s & 3)) {
+        // Wireframe draws no faces: tint just the selected and hovered ones.
+        gl.disable(gl.DEPTH_TEST);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        this.drawMesh(body, vp, view, clip, { flat: 2, alpha: 1, useState: true, color: this.theme.model });
+        gl.disable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
       }
       if (style !== 'shaded' || !showBody) {
         if (style === 'hiddenVisible' && body.edges) {
@@ -729,19 +856,22 @@ export class Renderer {
           gl.depthMask(true);
           gl.depthFunc(gl.LEQUAL);
         }
-        if (body.edges) {
-          const wire = style === 'wireframe';
-          if (wire) gl.disable(gl.DEPTH_TEST);
-          this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [...this.theme.edge, 1], useState: showBody, bias: 2e-5 });
-          if (wire) gl.enable(gl.DEPTH_TEST);
-        }
+        const wire = style === 'wireframe';
+        const ec = flat || wire ? this.theme.wire : this.theme.edge;
+        if (wire) gl.disable(gl.DEPTH_TEST);
+        if (body.edges) this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [...ec, 1], useState: showBody, bias: 2e-5 });
+        // Where the section plane cuts the body, like an edge (line styles show no cap colour).
+        const cut = this.sectionOutline(showBody ? this.modelMesh : this.previewMesh);
+        if (cut) this.drawSegs(cut, vp, viewport, null, { width: 1.25, color: [...ec, 1], useState: false, bias: 2e-5 });
+        if (wire) gl.enable(gl.DEPTH_TEST);
       } else if (body.edges && this.edgeStateData.some((s) => s & 3)) {
         // Shaded mode still shows hovered/selected edges.
         this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [0, 0, 0, 0], useState: true, bias: 2e-5, onlyStates: true });
       }
+      if (!showBody && this.model) this.drawModelStates(this.model, vp, view, viewport, clip, style === 'wireframe');
     }
 
-    for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, clip);
+    for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, b.clip === false ? null : clip);
     for (const b of ordered(this.points, 'test')) this.drawPointBatch(b, vp, viewport);
 
     // Translucent geometry: tool preview and plane fills, without depth writes.
@@ -750,7 +880,7 @@ export class Renderer {
     gl.depthMask(false);
     if (this.preview && this.previewKind === 'tool') {
       const c = this.previewCut ? this.theme.previewCut : this.theme.preview;
-      this.drawMesh(this.preview, vp, view, null, { flat: false, alpha: 0.5, useState: false, color: c });
+      this.drawMesh(this.preview, vp, view, null, { flat: 0, alpha: 0.5, useState: false, color: c });
       if (this.preview.edges) this.drawSegs(this.preview.edges, vp, viewport, null, { width: 1, color: [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6, 0.9], useState: false, bias: 2e-5 });
     }
     for (const b of ordered(this.tris, 'test')) this.drawTriBatch(b, vp);
@@ -763,7 +893,62 @@ export class Renderer {
     gl.enable(gl.DEPTH_TEST);
   }
 
-  private drawMesh(m: GpuMesh, vp: Float32Array, view: Float32Array, clip: number[] | null, o: { flat: boolean; alpha: number; useState: boolean; color: number[] }) {
+  /**
+   * A feature's result previewed in place of the model (fillet, shell...) has
+   * other faces and edges than the model, which is what the selection and
+   * hover refer to and what is picked: draw the model's selected and hovered
+   * faces and edges over the preview, or picks there show nothing.
+   */
+  private drawModelStates(m: GpuMesh, vp: Float32Array, view: Float32Array, viewport: number[], clip: number[] | null, wire: boolean) {
+    const gl = this.gl;
+    const faces = this.faceStateData.some((s) => s & 3);
+    const edges = !!m.edges && this.edgeStateData.some((s) => s & 3);
+    if (!faces && !edges) return;
+    if (wire) gl.disable(gl.DEPTH_TEST);
+    if (faces) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      this.drawMesh(m, vp, view, clip, { flat: 2, alpha: 1, useState: true, color: this.theme.model });
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+    }
+    if (edges) this.drawSegs(m.edges!, vp, viewport, clip, { width: 1.25, color: [0, 0, 0, 0], useState: true, bias: 2e-5, onlyStates: true });
+    if (wire) gl.enable(gl.DEPTH_TEST);
+  }
+
+  private cut: { mesh: MeshData; key: string; gpu: GpuSegs | null } | null = null;
+
+  /** Segments where the section plane cuts a mesh, cached until the plane or mesh changes. */
+  private sectionOutline(m: MeshData | null): GpuSegs | null {
+    const sec = this.section;
+    const key = sec ? `${sec.normal.join()},${sec.offset}` : '';
+    if (this.cut && this.cut.mesh === m && this.cut.key === key) return this.cut.gpu;
+    if (this.cut?.gpu) { this.gl.deleteVertexArray(this.cut.gpu.vao); this.cut.gpu.bufs.forEach((b) => this.gl.deleteBuffer(b)); }
+    this.cut = null;
+    if (!m || !sec) return null;
+    const P = m.positions, I = m.indices, [nx, ny, nz] = sec.normal;
+    const d = new Float32Array(P.length / 3);
+    for (let i = 0; i < d.length; i++) d[i] = P[i * 3] * nx + P[i * 3 + 1] * ny + P[i * 3 + 2] * nz - sec.offset;
+    const out: number[] = [];
+    for (let t = 0; t + 2 < I.length; t += 3) {
+      let found = 0;
+      for (let e = 0; e < 3; e++) {
+        const u = I[t + e], v = I[t + ((e + 1) % 3)];
+        if (d[u] > 0 === d[v] > 0) continue;
+        const k = d[u] / (d[u] - d[v]);
+        for (let j = 0; j < 3; j++) out.push(P[u * 3 + j] + k * (P[v * 3 + j] - P[u * 3 + j]));
+        found++;
+      }
+      if (found === 1) out.length -= 3;
+    }
+    const gpu = out.length ? this.segVao(new Float32Array(out)) : null;
+    this.cut = { mesh: m, key, gpu };
+    return gpu;
+  }
+
+  /** `flat`: 0 shaded, 1 background fill (line styles), 2 only selected/hovered faces, translucent (wireframe). */
+  private drawMesh(m: GpuMesh, vp: Float32Array, view: Float32Array, clip: number[] | null, o: { flat: 0 | 1 | 2; alpha: number; useState: boolean; color: number[] }) {
     const gl = this.gl;
     const { p, u } = this.progs.mesh;
     gl.useProgram(p);
@@ -773,7 +958,7 @@ export class Renderer {
     gl.uniform1f(u.uAlpha, o.alpha);
     gl.uniform1i(u.uUseState, o.useState ? 1 : 0);
     gl.uniform1i(u.uOrtho, this.camera.ortho ? 1 : 0);
-    gl.uniform1i(u.uFlat, o.flat ? 1 : 0);
+    gl.uniform1i(u.uFlat, o.flat);
     gl.uniform3fv(u.uFlatColor, this.theme.background);
     gl.uniform3fv(u.uSelColor, this.theme.selection);
     gl.uniform3fv(u.uHoverColor, this.theme.hover);
@@ -882,6 +1067,11 @@ export class Renderer {
     this.pickSize = [w, h];
   }
 
+  /**
+   * Draws ids into the offscreen pick target. It never touches the canvas's
+   * drawing buffer, and WebGL only presents (or clears) that buffer after
+   * draws to it, so a pick needs no redraw of the visible frame.
+   */
   private renderPick(x: number, y: number, want: PickWant, radius: number): PickRegion | null {
     const m = this.model;
     if (!m || this.lost) return null;
@@ -890,7 +1080,9 @@ export class Renderer {
     const dpr = this.dpr;
     const R = Math.ceil(radius * dpr);
     const size = R * 2 + 1;
-    const px = Math.round(x * dpr), py = Math.round(this.canvas.height - y * dpr);
+    // The device pixel whose area contains the CSS point (GL rows count up).
+    const px = Math.floor(x * dpr), py = Math.floor(this.canvas.height - y * dpr);
+    if (px < 0 || py < 0 || px >= this.canvas.width || py >= this.canvas.height) return null;
     const x0 = Math.max(0, px - R), y0 = Math.max(0, py - R);
     const w = Math.min(size, this.canvas.width - x0), h = Math.min(size, this.canvas.height - y0);
     if (w <= 0 || h <= 0) return null;
@@ -954,6 +1146,8 @@ export class Renderer {
       gl.uniformMatrix4fv(u.uView, false, view);
       gl.uniform2fv(u.uViewport, viewport);
       gl.uniform1f(u.uSize, 11);
+      gl.uniform1i(u.uClipOn, clip ? 1 : 0);
+      if (clip) gl.uniform4fv(u.uClip, clip);
       gl.bindVertexArray(m.verts.vao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, m.verts.count);
     }
@@ -980,7 +1174,6 @@ export class Renderer {
     }
     gl.disable(gl.SCISSOR_TEST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    this.requestRender();
     return this.decodePick(ids, depths, r, x, y);
   }
 
@@ -1017,7 +1210,6 @@ export class Renderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
     gl.flush();
-    this.requestRender();
     return new Promise((resolve) => {
       const poll = () => {
         if (seq !== this.asyncSeq || this.lost) { gl.deleteSync(sync); resolve(undefined); return; }
@@ -1062,7 +1254,9 @@ export class Renderer {
     const cam = this.camera;
     const kind: PickKind = best.kind === 1 ? 'face' : best.kind === 2 ? 'edge' : 'vertex';
     let point: Vec3 | null = null;
-    if (best.depth > 0) {
+    // Any depth is valid with a depth target: an orthographic view zoomed in
+    // past a face draws it behind the eye, at a negative eye distance.
+    if (depths && Number.isFinite(best.depth)) {
       const ray = cam.ray(x, y);
       if (cam.ortho) {
         // Move the ray origin onto the eye plane; depth is measured from it.

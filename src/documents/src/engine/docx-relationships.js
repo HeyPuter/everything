@@ -1,5 +1,6 @@
 import { parseXml } from './docx-xml.js';
 import { UnsupportedDocumentError } from './errors.js';
+import { packagePartName } from './package-part-paths.js';
 
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const OFFICE_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
@@ -35,7 +36,7 @@ export function relatedPartPath(parts, kind, relationshipType = OFFICE_REL + kin
     if (segment === '..') path.pop();
     else if (segment !== '.') { if (!segment) throw new UnsupportedDocumentError(`an invalid ${kind} target`); path.push(segment); }
   }
-  const name = path.join('/');
-  if (!Object.hasOwn(parts, name)) throw new UnsupportedDocumentError(`a missing ${kind} part`);
+  const name = packagePartName(parts, path.join('/'));
+  if (!name) throw new UnsupportedDocumentError(`a missing ${kind} part`);
   return name;
 }

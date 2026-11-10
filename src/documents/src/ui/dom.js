@@ -61,6 +61,12 @@ export function clear(node) {
 /** Clamp a number. */
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
+/**
+ * Whether a number field holds an amount within its min and max. Its step is where the arrows go, not a constraint:
+ * Word takes any amount in range (1.125 in between hundredths), and a document's own need not fall on the step.
+ */
+export const amountInRange = input => input.value !== '' && !input.validity.badInput && !input.validity.rangeUnderflow && !input.validity.rangeOverflow;
+
 /** Debounce with a trailing call; `.flush()` runs a pending call now. */
 export function debounce(fn, ms) {
   let timer = null;
@@ -119,6 +125,21 @@ export function typesCharacter(e, mac = IS_MAC) {
   const key = String(e?.key || '');
   if (!e?.altKey || [...key].length !== 1 || !/\S/u.test(key) || /^[a-z0-9]$/i.test(key)) return false;
   return mac ? !e.metaKey && !e.ctrlKey : !!e.ctrlKey && !e.metaKey;
+}
+
+/**
+ * A press on the window's chrome that is not on a field leaves the keyboard in the document, as a desktop word
+ * processor's ribbon and status bar do: a click between controls, or (with `buttons`) on a button, and the text
+ * goes on taking what is typed rather than the page's body; so does a right-click on anything else. Fields (the font size, the title, a slider) still
+ * take the focus they are clicked for.
+ */
+export function keepDocumentFocus(container, { buttons = false } = {}) {
+  container.addEventListener('mousedown', e => {
+    if (!document.activeElement?.matches?.('.canvas-input')) return;
+    const control = e.target.closest?.('button, input, select, textarea, label, a[href], [contenteditable]:not([contenteditable="false"]), [tabindex], [role="button"], [role="option"], [role="tab"]');
+    // A right-click opens a menu, not the control: only a field keeps its own (native) one.
+    if (!control || buttons && control.matches('button') || e.button === 2 && !control.matches('input, select, textarea, [contenteditable]')) e.preventDefault();
+  });
 }
 
 /** IME confirmation/cancellation belongs to text composition, not shortcuts. */

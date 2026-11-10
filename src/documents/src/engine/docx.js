@@ -2,7 +2,7 @@ import { readVmlWatermark, watermarkImagePart } from './vml-watermarks.js';
 import { writeTableStyleDefinition } from './docx-table-styles.js';
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE } from './text-limits.js';
 import { rejectFormatChange } from './revisions.js';
-import { pruneReleasedMedia } from './docx-media-release.js';
+import { pruneReleasedMedia, pruneDroppedParts } from './docx-media-release.js';
 import { invalidateProofingState } from './docx-proofing-state.js';
 import { completedSpelling, bodySpellingCache, proofingFingerprint } from './docx-proofing-cache.js';
 import { retainSectionStoryReferences } from './section-story-edit.js';
@@ -84,7 +84,7 @@ import { documentBlocks } from './tables.js';
 import { emptyStyles, resolveStyledParagraph, resolveCharacterRun, styleProperties, paragraphRunStyle, styleRun, characterUnit } from './styles.js';
 import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS, characterIndent } from './formatting.js';
 import { levelParagraphPatch } from './numbering-paragraph.js';
-import { UnsupportedDocumentError } from './errors.js';
+import { InvalidXmlError, UnsupportedDocumentError } from './errors.js';
 export { UnsupportedDocumentError } from './errors.js';
 import { parseXml as xml, runText, setContentTypeOverride, xmlDepthExceeds } from './docx-xml.js';
 import { emptyNumbering, levelFor, listMarkers } from './numbering.js';
@@ -92,25 +92,44 @@ import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
-import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl } from './package-part-paths.js';
+import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded, MAX_EXPANDED_PACKAGE_BYTES } from './package-part-paths.js';
 import { zipPackageAsync } from './package-zip.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
-import { unzipSync, strToU8 } from 'fflate';
+import { strToU8 } from 'fflate';
 import { paragraph, paragraphFormat, runFormat, documentText, paragraphText, PAGINATION_DEFAULTS } from './model.js';
 
 export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 // A template (.dotx) or macro-enabled file (.docm, .dotm) differs from a document only in its main
 // part's content type, and in the macros (refused for editing below). Saving writes a .docx.
-const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroEnabled.main+xml', 'application/vnd.ms-word.template.macroEnabledTemplate.main+xml']);
+const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroenabled.main+xml', 'application/vnd.ms-word.template.macroenabledtemplate.main+xml']);
+// Macros and signatures are found by what their parts are, not what they are called: part names are the
+// producer's choice (ECMA-376 Part 2, §9.1.1), and a VBA project stored as word/code.bin was kept and saved
+// into a .docx, which Word refuses. Macro parts are the VBA project and its data ([MS-OFFMACRO2]);
+// signatures are Part 2's digital signature origin and XML signature parts.
+const MACRO_OR_SIGNATURE_TYPES = /^application\/vnd\.ms-office\.vbaproject$|^application\/vnd\.ms-word\.vbadata\+xml$|^application\/vnd\.openxmlformats-package\.digital-signature-/;
+// A package may not hold two parts whose names are equal ignoring ASCII case (equivalent part names,
+// ECMA-376 Part 2, §9.1.1), and Word refuses such a file. A repeated ZIP item replaced the earlier one on
+// reading (fflate keeps the last), so a save dropped it. Which part is meant is unknown: the document
+// opens read-only, and its download keeps the file as it was.
+const duplicatePartNames = new WeakMap();
+function hasMacrosOrSignatures(parts) {
+  let types;
+  try { types = xml(parts['[Content_Types].xml']).documentElement; } catch { return false; }
+  return Object.keys(parts).some(name => MACRO_OR_SIGNATURE_TYPES.test(partContentType(types, name)));
+}
+// The main part's type can come from an Override or, as for any part, from the Default for its extension
+// (ECMA-376 Part 2, §10.1.2.4); media types compare without regard to case. A package typing it only through
+// <Default Extension="xml"> was refused as "not a standard .docx".
+const mainPartType = types => partContentType(types.documentElement, 'word/document.xml');
 function writeDocumentType(parts) {
   const types = xml(parts['[Content_Types].xml']);
-  const main = [...types.getElementsByTagNameNS('*', 'Override')].find(n => n.getAttribute('PartName') === '/word/document.xml');
-  if (!main || main.getAttribute('ContentType') === `${DOCX_TYPE}.main+xml`) return;
-  main.setAttribute('ContentType', `${DOCX_TYPE}.main+xml`);
+  if (mainPartType(types) === `${DOCX_TYPE}.main+xml`) return;
+  setContentTypeOverride(types, '/word/document.xml', `${DOCX_TYPE}.main+xml`);
   parts['[Content_Types].xml'] = strToU8(serialize(types));
 }
 export const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const STRICT_W = 'http://purl.oclc.org/ooxml/wordprocessingml/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const XML = 'http://www.w3.org/XML/1998/namespace';
 const serialize = node => new XMLSerializer().serializeToString(node);
@@ -704,12 +723,16 @@ function writeStyles(parts, styles) {
   const order = ['name', 'aliases', 'basedOn', 'next', 'link', 'autoRedefine', 'hidden', 'uiPriority', 'semiHidden', 'unhideWhenUsed', 'qFormat', 'locked', 'personal', 'personalCompose', 'personalReply', 'rsid', 'pPr', 'rPr', 'tblPr', 'trPr', 'tcPr', 'tblStylePr'];
   for (const style of changed) {
     let node = children(root).find(n => n.namespaceURI === W && n.localName === 'style' && n.getAttributeNS(W, 'styleId') === style.id);
-    if (!node) { node = make('style'); node.setAttributeNS(W, 'w:type', style.type); node.setAttributeNS(W, 'w:styleId', style.id); node.setAttributeNS(W, 'w:customStyle', '1'); root.append(node); }
+    const created = !node;
+    if (!node) { node = make('style'); node.setAttributeNS(W, 'w:type', style.type); node.setAttributeNS(W, 'w:styleId', style.id); if (!style.builtIn) node.setAttributeNS(W, 'w:customStyle', '1'); root.append(node); }
     const ensure = name => {
       let n = child(node, name);
       if (!n) { n = make(name); node.insertBefore(n, children(node).find(c => order.indexOf(c.localName) > order.indexOf(name)) || null); }
       return n;
     };
+    // A built-in style the editor added (the note styles) is written as Word declares it: hidden
+    // from the style lists until used (§17.7.4.19 semiHidden, §17.7.4.20 unhideWhenUsed).
+    if (created && style.builtIn) { ensure('uiPriority').setAttributeNS(W, 'w:val', '99'); ensure('semiHidden'); ensure('unhideWhenUsed'); }
     const patch = style.changes || {};
     for (const key of ['name', 'basedOn', 'next']) if (key in patch || style.generated) {
       if (style[key]) ensure(key).setAttributeNS(W, 'w:val', style[key]); else child(node, key)?.remove();
@@ -843,7 +866,7 @@ function writeRunChange(properties, revision, make, previousProperties) {
   return properties;
 }
 /** Insert move range markers around each run of moveFrom/moveTo wrappers (§17.13.5.22–.27). */
-function writeMoveRanges(node, names, counters, make) {
+function writeMoveRanges(node, names, counters, make, created = []) {
   const containers = [node, ...[...node.getElementsByTagNameNS(W, 'hyperlink')]];
   for (const container of containers) {
     let group = [];
@@ -856,6 +879,7 @@ function writeMoveRanges(node, names, counters, make) {
       start.setAttributeNS(W, 'w:author', first.getAttributeNS(W, 'author') || ''); if (first.getAttributeNS(W, 'date')) start.setAttributeNS(W, 'w:date', first.getAttributeNS(W, 'date'));
       const end = make(`${kind}RangeEnd`); end.setAttributeNS(W, 'w:id', id);
       first.before(start); group.at(-1).after(end); group = [];
+      created.push({ key, base, start, end });
     };
     for (const n of children(container)) {
       const move = n.namespaceURI === W && ['moveFrom', 'moveTo'].includes(n.localName);
@@ -863,6 +887,28 @@ function writeMoveRanges(node, names, counters, make) {
       else { flush(); if (move) group.push(n); }
     }
     flush();
+  }
+}
+/**
+ * A move the source recorded as one range spanning paragraphs (Word's move of whole paragraphs, its range ending
+ * in or after the last of them) is one range again, from its first moved content to its last: written a paragraph
+ * at a time, it became a move per paragraph (move1, move1_2…) on each side. Only named moves join; a move
+ * name is unique to its range on each side (§17.13.5.24).
+ */
+function joinMoveRanges(created) {
+  const byName = new Map();
+  for (const range of created) if (range.base !== 'move' && range.start.isConnected) {
+    if (!byName.has(range.key)) byName.set(range.key, []);
+    byName.get(range.key).push(range);
+  }
+  for (const ranges of byName.values()) {
+    if (ranges.length < 2) continue;
+    ranges.sort((a, b) => a.start.compareDocumentPosition(b.start) & 4 ? -1 : 1);
+    const [first] = ranges, last = ranges.at(-1);
+    first.start.setAttributeNS(W, 'w:name', first.base);
+    for (const range of ranges.slice(1)) range.start.remove();
+    for (const range of ranges.slice(0, -1)) range.end.remove();
+    last.end.setAttributeNS(W, 'w:id', first.start.getAttributeNS(W, 'id'));
   }
 }
 // Each unchanged paragraph's source XML, parsed once: every save imports it again (importNode copies it). Saving a
@@ -888,7 +934,8 @@ function rememberDocumentSkeleton(bytes, doc) {
   const content = [...body.childNodes];
   for (const node of content) if (node !== section) node.remove();
   try { documentSkeletons.set(bytes, serialize(doc)); }
-  finally { body.replaceChildren(...content); }
+  // Appended one by one: spreading a long body into one call runs out of stack at about 120,000 nodes.
+  finally { body.replaceChildren(); for (const node of content) body.append(node); }
 }
 function documentSkeleton(bytes) {
   const keyed = !!bytes && typeof bytes === 'object';
@@ -902,10 +949,19 @@ function documentSkeleton(bytes) {
   }
   return xml(text);
 }
+// Cached page-break hints (§17.3.3.13 lastRenderedPageBreak) leave a part its edits rewrite. A run that held
+// nothing but a hint goes with it, rather than staying behind as an empty run in an untouched paragraph.
+function removeRenderedPageBreaks(doc) {
+  for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) {
+    const run = hint.parentNode;
+    hint.remove();
+    if (run?.namespaceURI === W && run.localName === 'r' && ![...run.children].some(n => !(n.namespaceURI === W && n.localName === 'rPr')) && !run.textContent.trim()) run.remove();
+  }
+}
 function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLink, sectionSource = p => ({ xml: p.sectionProperties, settings: p.sectionEnd })) {
   const make = name => doc.createElementNS(W, `w:${name}`);
-  const moveNames = new WeakMap(), moveCounters = new Map();
-  return p => {
+  const moveNames = new WeakMap(), moveCounters = new Map(), moveRanges = [];
+  const write = p => {
     const inheritedCaps = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').capitalization;
     const inheritedStrike = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').strikethrough;
     const original = originals.get(p.id);
@@ -1107,7 +1163,8 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         if (properties) r.append(properties);
         if (run.math) {
           if (run.text !== OBJECT) throw new Error('An equation must occupy one document position.');
-          parent.append(doc.importNode(xml(run.math.xml).documentElement, true)); continue;
+          // A tracked equation stays inside its w:ins or w:del (EG_RunLevelElements allows m:oMath there), as it was read.
+          place(doc.importNode(xml(run.math.xml).documentElement, true), run); continue;
         }
         if (run.vml) {
           if (run.text !== OBJECT) throw new Error('A retained VML object must occupy one document position.');
@@ -1157,10 +1214,13 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         }
         place(r, run);
       }
-      writeMoveRanges(node, moveNames, moveCounters, make);
+      writeMoveRanges(node, moveNames, moveCounters, make, moveRanges);
     }
     return node;
   };
+  // Once every paragraph is in the part: a move written a paragraph at a time is one range again (joinMoveRanges).
+  write.finish = () => joinMoveRanges(moveRanges);
+  return write;
 }
 
 // Controls in a retained drawing belong to its separately validated text story.
@@ -1174,14 +1234,10 @@ function hasPageStoryControls(root) {
   });
 }
 
+const EXPANDED_LIMIT = 'DOCX expanded size exceeds the editor limit.';
 // The text of a WordprocessingML package imported into another (an altChunk), for a read-only preview.
 function previewEmbeddedPackage(bytes) {
-  let total = 0, count = 0;
-  const parts = canonicalMainPart(unzipSync(bytes, { filter: entry => {
-    total += entry.originalSize;
-    if (++count > 2000 || total > 50 * 1024 * 1024) throw new Error('DOCX expanded size exceeds the editor limit.');
-    return true;
-  } }));
+  const parts = canonicalMainPart(unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT }));
   return DocxPackage.preview(parts).paragraphs;
 }
 
@@ -1222,40 +1278,63 @@ export class DocxPackage {
   }
   static async open(input, { bestEffort = false } = {}) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(await input.arrayBuffer());
-    if (bytes.length > MAX_PACKAGE_BYTES) throw new Error('This editor currently opens DOCX files up to 20 MB.');
+    if (bytes.length > MAX_PACKAGE_BYTES) throw new Error(`This editor currently opens DOCX files up to ${MAX_PACKAGE_BYTES / 1024 / 1024} MB.`);
     const compound = compoundFileProblem(bytes);
     if (compound) throw new Error(compound);
-    let total = 0, count = 0, parts;
+    let parts;
+    const names = new Set(), duplicates = new Set();
     try {
-      parts = unzipSync(bytes, { filter: entry => {
-        total += entry.originalSize;
-        if (++count > 2000 || total > 50 * 1024 * 1024) throw new Error('DOCX expanded size exceeds the editor limit.');
-        return true;
+      parts = unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT, onItem: entry => {
+        const key = entry.name.replace(/[A-Z]+/g, c => c.toLowerCase());
+        if (!key.endsWith('/') && names.has(key)) duplicates.add(entry.name); else names.add(key);
       } });
     } catch (e) { throw new Error(`Could not read this DOCX archive: ${e.message}`); }
     parts = canonicalMainPart(parts);
+    if (duplicates.size) duplicatePartNames.set(parts, [...duplicates]);
     if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error('This file is not a supported DOCX document.');
     const types = xml(parts['[Content_Types].xml']);
-    if (![...types.getElementsByTagNameNS('*', 'Override')].some(n => n.getAttribute('PartName') === '/word/document.xml' && MAIN_TYPES.has(n.getAttribute('ContentType')))) {
+    if (!MAIN_TYPES.has(mainPartType(types))) {
       throw new Error('Only standard .docx files are supported in this version.');
     }
     const relations = xml(parts['_rels/.rels']);
     if (![...relations.getElementsByTagNameNS(REL, 'Relationship')].some(n => /\/officeDocument$/.test(n.getAttribute('Type')) && /^\/?word\/document.xml$/.test(n.getAttribute('Target')) && n.getAttribute('TargetMode') !== 'External')) throw new Error('Unsupported DOCX document location.');
     try { return this.#read(parts); }
     catch (e) {
-      if (!bestEffort || !(e instanceof UnsupportedDocumentError)) throw e;
-      const issues = new Set(); recordPreviewIssue(issues, e);
+      if (!bestEffort || !(e instanceof UnsupportedDocumentError || e instanceof InvalidXmlError)) throw e;
+      const issues = new Set();
       let pkg;
-      try { pkg = this.#read(parts, true, issues); }
-      catch (fallbackError) {
-        if (!(fallbackError instanceof UnsupportedDocumentError)) throw fallbackError;
-        recordPreviewIssue(issues, fallbackError);
-        pkg = this.preview(parts);
+      if (e instanceof InvalidXmlError) pkg = this.#unreadablePartsPreview(parts, issues, e);
+      else {
+        recordPreviewIssue(issues, e);
+        try { pkg = this.#read(parts, true, issues); }
+        catch (fallbackError) {
+          if (fallbackError instanceof InvalidXmlError) pkg = this.#unreadablePartsPreview(parts, issues, fallbackError);
+          else {
+            if (!(fallbackError instanceof UnsupportedDocumentError)) throw fallbackError;
+            recordPreviewIssue(issues, fallbackError);
+            pkg = this.preview(parts);
+          }
+        }
       }
       pkg.readOnly = true;
       pkg.previewIssues = [...issues];
       return pkg;
     }
+  }
+  // A styles, settings, fonts, comments or other part that is not well-formed XML (or not UTF-8 or UTF-16)
+  // failed the whole open with "invalid XML". Word offers to recover such a file; here the main document's
+  // text opens as the read-only preview, which names the unreadable parts. A main document that cannot be
+  // read either still fails with the original error.
+  static #unreadablePartsPreview(parts, issues, error) {
+    let pkg;
+    try { pkg = this.preview(parts); } catch { throw error; }
+    for (const [name, bytes] of Object.entries(parts)) {
+      if (!/\.(xml|rels)$/i.test(name)) continue;
+      try { xml(bytes, { depthLimit: Infinity }); }
+      catch (failure) { if (failure instanceof InvalidXmlError) issues.add(`${name}: ${failure.reason}; the read-only preview shows the document's text without this part`); }
+    }
+    if (!issues.size) recordPreviewIssue(issues, error);
+    return pkg;
   }
   static preview(parts) {
     const doc = xml(parts['word/document.xml'], { depthLimit: Infinity });
@@ -1285,10 +1364,14 @@ export class DocxPackage {
         return typeof fallback === 'function' ? fallback() : fallback;
       }
     };
-    if (Object.keys(parts).some(name => /vbaProject|^_xmlsignatures\//i.test(name))) unsupported('macros or digital signatures');
+    if (duplicatePartNames.has(parts)) unsupported(`parts that share a name (${duplicatePartNames.get(parts).join(', ')})`);
+    if (Object.keys(parts).some(name => /vbaProject|^_xmlsignatures\//i.test(name)) || hasMacrosOrSignatures(parts)) unsupported('macros or digital signatures');
     const settings = attempt(() => readSettings(parts), null);
     const savedSpellingComplete = completedSpelling(settings?.documentElement), spellingAnchors = new Map();
     const doc = xml(parts['word/document.xml']);
+    // Word's "Strict Open XML Document" (ISO/IEC 29500 Strict conformance, whose namespaces are under
+    // http://purl.oclc.org/ooxml/) shows as text. "A different OOXML namespace" told the user nothing to do.
+    if (doc.documentElement.namespaceURI === STRICT_W) throw new UnsupportedDocumentError('Strict Open XML markup, shown as text only; in Word, save it as a Word Document (.docx) to edit it here');
     if (doc.documentElement.namespaceURI !== W) throw new UnsupportedDocumentError('a different OOXML namespace');
     const activeNodes = attempt(() => activeDescendants(doc.documentElement), () => [...doc.getElementsByTagNameNS(W, '*')]);
     const sectionSourceIndices = new Map(activeNodes.filter(n => n.namespaceURI === W && n.localName === 'sectPr').map((node, index) => [node, index]));
@@ -1511,7 +1594,7 @@ export class DocxPackage {
         }
         if (isPermissionElement(r) && !context.drawingText && !context.pageStory) {
           if (bodyFields.inCode) throw new UnsupportedDocumentError('permission ranges inside a body field instruction');
-          bookmarks.push(readPermissionMarker(r, textPosition, bodyInlineOrder++)); return;
+          bookmarks.push(readPermissionMarker(r, textPosition, bodyInlineOrder++, context)); return;
         }
         if (r.namespaceURI === W && ['commentRangeStart', 'commentRangeEnd'].includes(r.localName)) {
           if (context.drawingText || context.pageStory) throw new UnsupportedDocumentError('comments outside the main body');
@@ -1526,7 +1609,7 @@ export class DocxPackage {
           recordPreviewIssue(issues, new UnsupportedDocumentError(r.localName));
           proofingSafe = false;
           const recovered = previewParagraphs(r).flatMap(p => p.runs);
-          runs.push(...recovered);
+          for (const run of recovered) runs.push(run);
           textPosition += recovered.reduce((length, run) => length + run.text.length, 0);
           return;
         }
@@ -1777,7 +1860,7 @@ export class DocxPackage {
           runs.length = before.runs; bookmarks.length = before.bookmarks; controls.length = before.controls;
           proofingSafe = false;
           const fallbackRuns = previewParagraphs(r).flatMap(p => p.runs);
-          runs.push(...fallbackRuns);
+          for (const run of fallbackRuns) runs.push(run);
           textPosition = before.textPosition + fallbackRuns.reduce((length, run) => length + run.text.length, 0);
         }
       }
@@ -1828,12 +1911,12 @@ export class DocxPackage {
           if (node.localName === 'sectPr' && !depth && !context.cellId) continue;
           if (isPermissionElement(node) && node.localName === 'permStart' && !context.drawingText && !context.pageStory) {
             // A range opening between blocks starts with the next paragraph.
-            leading.push(readPermissionMarker(node, 0, bodyInlineOrder++));
+            leading.push(readPermissionMarker(node, 0, bodyInlineOrder++, context));
             continue;
           }
           if ((['commentRangeStart', 'commentRangeEnd'].includes(node.localName) || isPermissionElement(node)) && !context.drawingText && !context.pageStory) {
             const previous = result.at(-1);
-            const marker = (isPermissionElement(node) ? readPermissionMarker : readCommentMarker)(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++);
+            const marker = (isPermissionElement(node) ? readPermissionMarker : readCommentMarker)(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++, context);
             if (previous) { (previous.bookmarks ||= []).push(marker); adopted(previous); } else pending.push(marker);
             continue;
           }
@@ -1866,7 +1949,7 @@ export class DocxPackage {
             const parsed = readTable(node, readParagraph, stylesRoot, readColor, (contents, cellContext) => readBlocks(contents, { ...context, ...cellContext, ...((context.blockControls || cellContext.blockControls) ? { blockControls: [...(context.blockControls || []), ...(cellContext.blockControls || [])] } : {}) }, depth + 1, blockTables).map(p => ({ source: p.storySource || originals.get(p.id).xml, paragraph: p })), readBookmark, blockTables, p => resolveStyledParagraph(p, styles, numbering, { displayOnly: preview }), readControl, pageSettings.compatibilityMode, preview, readEffectsStyles, error => recordPreviewIssue(issues, error));
             if (context.cellId) parsed.table.parentCellId = context.cellId;
             if (context.blockControls) parsed.table.blockControls = context.blockControls;
-            blockTables.push(parsed.table); takeLeading(parsed.paragraphs); result.push(...parsed.paragraphs);
+            blockTables.push(parsed.table); takeLeading(parsed.paragraphs); for (const p of parsed.paragraphs) result.push(p);
           } else throw new UnsupportedDocumentError(node.localName);
         } catch (e) {
           if (!preview || context.drawingText || !(e instanceof UnsupportedDocumentError)) throw e;
@@ -1885,7 +1968,7 @@ export class DocxPackage {
           const sourced = context.cellId || context.pageStory || context.drawingText;
           const storySource = sourced && recovered.length ? serializeFragment(node) : undefined;
           for (const p of recovered) Object.assign(p, context, sourced ? { storySource } : {});
-          result.push(...recovered);
+          for (const p of recovered) result.push(p);
         }
       }
       if (leading.length) {
@@ -2011,7 +2094,15 @@ export class DocxPackage {
     pkg.initialNotes = {};
     for (const kind of ['footnote', 'endnote']) {
       const names = NOTE_KINDS[kind], referencedNotes = noteReferences(paragraphs, kind);
-      if (!referencedNotes.length) continue;
+      if (!referencedNotes.length) {
+        // A notes part no note uses yet is where Insert Footnote adds its notes. One that is not well-formed XML is an
+        // unreadable part like the others (the open is read-only, naming it), not a failure at the first inserted note.
+        // Only well-formedness is checked: what Insert Footnote refuses in a readable part, it says itself.
+        let notesPath = null;
+        try { notesPath = relatedPartPath(parts, names.part); } catch { /* an unusable relationship is not an unreadable part */ }
+        if (notesPath) xml(parts[notesPath], { depthLimit: Infinity });
+        continue;
+      }
       attempt(() => {
         const notesPath = relatedPartPath(parts, names.part);
         if (!notesPath) throw new UnsupportedDocumentError(`a missing ${names.part} part`);
@@ -2221,6 +2312,8 @@ export class DocxPackage {
     this.pruneFootnotes(parts, paragraphs);
     // Media that Compress Pictures replaced, once nothing in the package uses it (docx-media-release.js).
     pruneReleasedMedia(parts, this.releasedMedia);
+    // Charts and pictures the user deleted or replaced, with the parts only they used (docx-media-release.js).
+    pruneDroppedParts(parts, this.parts);
     this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
     this.writeCoreProperties(parts);
@@ -2263,8 +2356,11 @@ export class DocxPackage {
     if (this.readOnly) throw new Error('This document is open read-only.');
     const names = NOTE_KINDS[kind], key = `${kind}s`;
     this.notesParts ||= {};
-    let part = this.pageStories?.[key]?.part || this.notesParts[kind] || relatedPartPath(this.parts, names.part);
-    if (!part) part = kind === 'footnote' ? createFootnotesPart(this.parts) : createNotesPart(this.parts, kind);
+    let part = this.pageStories?.[key]?.part || this.notesParts[kind] || relatedPartPath(this.parts, names.part), created = null;
+    if (!part) {
+      created = { types: this.parts['[Content_Types].xml'], rels: this.parts['word/_rels/document.xml.rels'], notesPart: this.notesParts[kind], footnotesPart: this.footnotesPart };
+      part = kind === 'footnote' ? createFootnotesPart(this.parts) : createNotesPart(this.parts, kind);
+    }
     const used = new Set([...xml(this.parts[part]).getElementsByTagNameNS(W, names.element)].map(n => Number(n.getAttributeNS(W, 'id'))));
     for (const path of this.storyOriginals.keys()) { const id = footnoteStoryId(path); if (id !== null && path.startsWith(`${part}#`)) used.add(Number(id)); }
     let id = 1; while (used.has(id)) id++;
@@ -2273,7 +2369,31 @@ export class DocxPackage {
     this.notesParts[kind] = part;
     if (kind === 'footnote') { this.footnotesPart = part; (this.createdFootnotes ||= new Set()).add(String(id)); }
     ((this.createdNotes ||= {})[kind] ||= new Set()).add(String(id));
-    return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.noteSettings?.[kind], ...this.pageStories?.[key], part } };
+    (this.reservedNotes ||= new Map()).set(path, { kind, id: String(id), part, created });
+    // Settings changed in this session (setNoteSettings) override the file's: the note is shown as it is saved.
+    return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.pageStories?.[key], ...this.noteSettings?.[kind], part } };
+  }
+  /**
+   * Give back a note addNote reserved whose reference never reached the document (the edit was refused, under
+   * Restrict Editing say): the notes part it created, with its relationship and content type, goes again, so the
+   * refused command leaves the package as it was.
+   */
+  releaseNote(note) {
+    const reserved = this.reservedNotes?.get(note?.path);
+    if (!reserved) return false;
+    this.reservedNotes.delete(note.path);
+    this.storyOriginals.delete(note.path);
+    this.createdNotes?.[reserved.kind]?.delete(reserved.id);
+    if (reserved.kind === 'footnote') this.createdFootnotes?.delete(reserved.id);
+    const { created } = reserved;
+    if (created && ![...this.reservedNotes.values()].some(other => other.part === reserved.part)) {
+      delete this.parts[reserved.part];
+      this.parts['[Content_Types].xml'] = created.types;
+      if (created.rels) this.parts['word/_rels/document.xml.rels'] = created.rels; else delete this.parts['word/_rels/document.xml.rels'];
+      if (created.notesPart) this.notesParts[reserved.kind] = created.notesPart; else delete this.notesParts[reserved.kind];
+      if (reserved.kind === 'footnote') { if (created.footnotesPart) this.footnotesPart = created.footnotesPart; else delete this.footnotesPart; }
+    }
+    return true;
   }
   /** Note numbering and placement for the whole document (settings footnotePr/endnotePr); written on the next export. */
   setNoteSettings(kind, values) {
@@ -2317,7 +2437,8 @@ export class DocxPackage {
       const writeParagraph = paragraphWriter(doc, styles, numbering, original.paragraphs, writeImage, writeLink);
       root.replaceChildren();
       appendControlledBlocks(root, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc);
-      for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) hint.remove();
+      writeParagraph.finish();
+      removeRenderedPageBreaks(doc);
       bindImageNamespaces(doc); bindHyperlinkNamespaces(doc);
       if (noteId === null) parts[path] = strToU8(serialize(doc).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
     }
@@ -2329,6 +2450,19 @@ export class DocxPackage {
   setPageNumbering(section, value) { if (this.readOnly) throw new Error('This document is open read-only.'); this.pageNumberings.set(section, value ? { format: value.format || 'decimal', ...(Number.isInteger(value.start) ? { start: value.start } : {}) } : null); }
   /** Different odd and even page headers (settings evenAndOddHeaders); written on the next export. */
   setEvenAndOdd(on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.evenAndOdd = !!on; }
+  /** The header, footer and note settings this session set (above and setNoteSettings), for Undo to put back. */
+  settingsState() {
+    return { titlePages: [...this.titlePages], pageNumberings: [...this.pageNumberings], evenAndOdd: this.evenAndOdd, noteSettings: this.noteSettings ? JSON.parse(JSON.stringify(this.noteSettings)) : null,
+      // The custom XML items as they are (the citation sources and style): each write replaces an item's bytes.
+      customXml: Object.entries(this.parts).filter(([path]) => /^customXml\/item\d+\.xml$/.test(path)) };
+  }
+  restoreSettings(state) {
+    if (!state) return;
+    this.titlePages = new Map(state.titlePages); this.pageNumberings = new Map(state.pageNumberings); this.evenAndOdd = state.evenAndOdd;
+    if (state.noteSettings) this.noteSettings = JSON.parse(JSON.stringify(state.noteSettings)); else delete this.noteSettings;
+    // An item made since stays (with its relationship and content type), as it was made.
+    for (const [path, bytes] of state.customXml || []) if (Object.hasOwn(this.parts, path)) this.parts[path] = bytes;
+  }
   /** Remove footnotes and endnotes whose body reference was deleted. */
   pruneFootnotes(parts, paragraphs) {
     for (const kind of ['footnote', 'endnote']) {
@@ -2442,6 +2576,7 @@ export class DocxPackage {
     // The final paragraph the reader added to a body without one stays out of the file while it is untouched.
     blocks = blocks.filter(block => { const original = block.type === 'paragraph' && this.originals.get(block.paragraph.id); return !(original?.added && original.signature === signature(block.paragraph)); });
     appendControlledBlocks(body, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc, null, section || null);
+    writeParagraph.finish();
     const sectionParagraphs = paragraphs.filter(p => p.sectionEnd);
     const sourceSectionCount = this.paragraphs.filter(p => p.sectionEnd).length + 1;
     const sectionIndices = [...sectionParagraphs.map((p, i) => p.sectionSourceIndex ?? i), sourceSectionCount - 1];
@@ -2460,7 +2595,7 @@ export class DocxPackage {
     if (this.titlePages.size) writeTitlePages(outputSections, this.titlePages, sectionOrder);
     if (this.pageNumberings.size) writePageNumbering(outputSections, this.pageNumberings, sectionOrder);
     // These are cached renderer hints, not author-inserted breaks; edits invalidate them.
-    for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) hint.remove();
+    removeRenderedPageBreaks(doc);
     // A comment's reference can sit in an unchanged paragraph away from its range, whose source XML is reused:
     // drop references to comments deleted since opening (and the run that only carried one).
     if (comments) {

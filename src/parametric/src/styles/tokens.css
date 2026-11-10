@@ -29,6 +29,8 @@
   --accent-hover: #1a56bb;
   --accent-text: #ffffff;
   --accent-weak: #e3ecfb;
+  /* Accent-coloured text on --accent-weak (4.5:1 in both themes). */
+  --accent-on-weak: #1f63d6;
   --accent-border: #9dbcf0;
   --focus: #1f63d6;
   --danger: #c4312b;
@@ -42,6 +44,8 @@
   --viewport: #e7eaee;
   --model: #b9c3cf;
   --edge: #1b1f24;
+  /* Visible edges in the line styles (hidden lines removed/visible, wireframe). */
+  --wire: #1b1f24;
   --hidden-edge: #8b939d;
   --selection: #2f7cf6;
   --hover-3d: #f29d38;
@@ -54,13 +58,15 @@
   --sketch-full: #14181d;
   --sketch-over: #d22d2d;
   --sketch-construction: #6f8db8;
+  --sketch-external: #a23bb0;
   --sketch-selected: #f0821e;
   --sketch-inactive: #5c6b80;
   --dimension: #1b1f24;
   --dimension-driven: #7d8794;
-  --axis-x: #d33a2c;
-  --axis-y: #2c9b45;
-  --axis-z: #2f63d6;
+  /* Triad axis colours: 4.5:1 on --viewport in both themes. */
+  --axis-x: #c0301f;
+  --axis-y: #1b7433;
+  --axis-z: #2a5bd0;
 
   /* Icons */
   --icon-accent: #9ec0f4;
@@ -102,6 +108,7 @@
   --accent-hover: #6aa0ff;
   --accent-text: #0b1220;
   --accent-weak: #1f3354;
+  --accent-on-weak: #7fb0ff;
   --accent-border: #3c62a3;
   --focus: #6aa0ff;
   --danger: #ff6b62;
@@ -114,6 +121,7 @@
   --viewport: #2b2f35;
   --model: #9aa6b4;
   --edge: #0e1013;
+  --wire: #d3d9e1;
   --hidden-edge: #6e7783;
   --selection: #4f95ff;
   --hover-3d: #ffaa4d;
@@ -126,10 +134,14 @@
   --sketch-full: #f1f3f6;
   --sketch-over: #ff6b62;
   --sketch-construction: #8ea6c8;
+  --sketch-external: #d98ce6;
   --sketch-selected: #ffa04a;
   --sketch-inactive: #9aa8bb;
   --dimension: #e9ecf0;
   --dimension-driven: #98a2ae;
+  --axis-x: #ff6b5e;
+  --axis-y: #4cc76a;
+  --axis-z: #6f9bff;
 
   --icon-accent: #3f6fb8;
   --icon-accent-2: #2c4c7d;

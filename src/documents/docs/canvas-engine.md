@@ -675,7 +675,7 @@ This is a functional prototype, not feature-complete relative to the previous ed
 - A page canvas never exceeds 4096 × 4096 device pixels (the canvas limit of Safari on iOS and iPadOS, which otherwise paints a blank page). A page zoomed in on a high-density display beyond that (a Letter page at 200% on a 3x phone) is painted with fewer device pixels per CSS pixel, the same on both axes; pointer, caret and selection geometry are unaffected (`src/engine/canvas-backing.js`).
 - Canvas measurement delegates shaping to the browser. Ligature caret precision, bidirectional layout, broad script coverage and exact native pagination are unfinished.
 - Each input event is an undo transaction; consecutive ordinary typing is not yet grouped into words.
-- The entire document is laid out and repainted after each edit. There is a 200-page preview limit, a 100,000-character limit, a 20MB compressed input limit, and a 50MB expanded ZIP limit. These bounds are not a performance guarantee for large documents.
+- The entire document is laid out and repainted after each edit. There is a 200-page preview limit, a 100,000-character limit, a 64 MB compressed input limit, and a 128 MB expanded ZIP limit (room for the 50 MB of pictures a session holds). These bounds are not a performance guarantee for large documents.
 - Text imports, templates, links, review features and the old engine-specific toolbar actions are not connected to this engine. App-authored helpers remain in the repository for future porting. Inline PNG/JPEG pictures use the original engine's separate image path.
 - No browser-PDF export, collaborative editing, or complete mobile/assistive-technology support is claimed.
 

@@ -27,6 +27,10 @@ export const ANNOTATION_KINDS = new Set([
 const movable = (entry) =>
   !entry.locked && !entry.readOnly && annotationAccepts(entry.subtype, 'rect');
 
+const SVG = 'http://www.w3.org/2000/svg';
+/** Where a box of `size` may start within low..high, or at least no further out than `origin`. */
+const span = (start, size, origin, low, high) =>
+  Math.min(Math.max(start, Math.min(low, origin)), Math.max(high - size, origin));
 /** How long arrow keys rest before their nudges are saved as one move, in milliseconds. */
 const NUDGE_REST = 180;
 
@@ -64,6 +68,18 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
     const [ax, ay] = viewport.convertToViewportPoint(0, 0);
     const [bx, by] = viewport.convertToViewportPoint(ox, oy);
     return [bx - ax, by - ay];
+  }
+  /**
+   * A screen offset for moving `entry`, cut short where it would take the comment off the
+   * page: one dropped there could not be seen or reached again. One already partly off the
+   * page may stay where it was.
+   */
+  function keepOnPage(entry, dx, dy) {
+    const box = screenBox(entry.rect);
+    return [
+      span(box.left + dx, box.width, box.left, 0, viewport.width) - box.left,
+      span(box.top + dy, box.height, box.top, 0, viewport.height) - box.top,
+    ];
   }
   const nodeOf = (id) => [...root.children].find((node) => node.dataset.id === id);
   function showNudge(extra = [0, 0]) {
@@ -105,6 +121,89 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
   }
   window.addEventListener('keyup', endNudgeKey, true);
   window.addEventListener('blur', endNudgeKey);
+  /**
+   * The lines a comment draws when its box is mostly empty page: a line or arrow, a polyline,
+   * a pencil drawing, a callout's leader line (with its text box). Only these take the
+   * pointer, so what lies beside them in the box (text, links, fields, other comments) can
+   * still be clicked. Returns an SVG to put in the target, or null for the whole box.
+   */
+  function outline(entry, box) {
+    const callout = entry.subtype === 'FreeText' && entry.points?.length >= 2 && entry.box;
+    const strokes =
+      entry.subtype === 'Ink'
+        ? entry.points
+        : ['Line', 'PolyLine'].includes(entry.subtype) || callout
+          ? [entry.points]
+          : null;
+    if (!strokes?.length || !strokes.every((stroke) => stroke?.length)) return null;
+    const [ox, oy] = screenOffset(1, 0);
+    const scale = Math.hypot(ox, oy);
+    // As wide as the line and its arrowheads, and never too thin to hit, by touch especially.
+    const least = window.matchMedia?.('(pointer: coarse)').matches ? 28 : 14;
+    const reach = Math.max(least, ((entry.width || 1) * 3 + 8) * scale);
+    const pad = reach / 2;
+    // What its group draws with it (a measurement's label) takes the pointer too.
+    const members = (entry.group || []).map(screenBox);
+    const area = members.reduce(
+      (all, b) => {
+        const left = Math.min(all.left, b.left),
+          top = Math.min(all.top, b.top);
+        return {
+          left,
+          top,
+          width: Math.max(all.left + all.width, b.left + b.width) - left,
+          height: Math.max(all.top + all.height, b.top + b.height) - top,
+        };
+      },
+      { left: box.left, top: box.top, width: box.width, height: box.height },
+    );
+    // Local to the drawing, which starts inside the target's 1px border, shifted by the padding.
+    const local = ({ x, y }) => {
+      const [sx, sy] = viewport.convertToViewportPoint(x, y);
+      return [sx - area.left - 1 + pad, sy - area.top - 1 + pad];
+    };
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('class', 'annotation-hit');
+    svg.setAttribute('aria-hidden', 'true');
+    Object.assign(svg.style, {
+      left: `${area.left - box.left - pad}px`,
+      top: `${area.top - box.top - pad}px`,
+      width: `${area.width + 2 * pad}px`,
+      height: `${area.height + 2 * pad}px`,
+    });
+    const path = document.createElementNS(SVG, 'path');
+    path.setAttribute(
+      'd',
+      strokes
+        .map((stroke) =>
+          stroke
+            .map((point, i) => `${i ? 'L' : 'M'}${local(point).map((v) => v.toFixed(2))}`)
+            .join(''),
+        )
+        .join(''),
+    );
+    path.setAttribute('stroke-width', reach.toFixed(2));
+    svg.append(path);
+    if (callout) {
+      const [x1, y1] = local(entry.box),
+        [x2, y2] = local({ x: entry.box.x + entry.box.width, y: entry.box.y + entry.box.height });
+      const rect = document.createElementNS(SVG, 'rect');
+      rect.setAttribute('x', Math.min(x1, x2));
+      rect.setAttribute('y', Math.min(y1, y2));
+      rect.setAttribute('width', Math.abs(x2 - x1));
+      rect.setAttribute('height', Math.abs(y2 - y1));
+      svg.append(rect);
+    }
+    for (const member of members) {
+      const rect = document.createElementNS(SVG, 'rect');
+      rect.setAttribute('x', member.left - area.left - 1 + pad);
+      rect.setAttribute('y', member.top - area.top - 1 + pad);
+      rect.setAttribute('width', member.width);
+      rect.setAttribute('height', member.height);
+      svg.append(rect);
+    }
+    return svg;
+  }
   const place = (node, box) =>
     Object.assign(node.style, {
       left: `${box.left}px`,
@@ -125,6 +224,9 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
   }
 
   function render(next, nextViewport) {
+    // A drag cannot go on across a redraw (a zoom, say): its target is replaced, and with it
+    // the pointer capture. Left behind, it would move whichever comment the pointer passed.
+    drag = null;
     entries = next;
     viewport = nextViewport;
     const kept = selected && entries.find((entry) => entry.id === selected);
@@ -157,17 +259,16 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             node.setPointerCapture(e.pointerId);
           },
           onpointermove: (e) => {
-            if (!drag || drag.id !== e.pointerId) return;
-            const dx = e.clientX - drag.x,
-              dy = e.clientY - drag.y;
-            if (!drag.moved && Math.hypot(dx, dy) < 3) return;
+            if (!drag || drag.id !== e.pointerId || drag.node !== node) return;
+            const [dx, dy] = keepOnPage(drag.entry, e.clientX - drag.x, e.clientY - drag.y);
+            if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 3) return;
             drag.moved = true;
             drag.dx = dx;
             drag.dy = dy;
             node.style.transform = `translate(${dx}px, ${dy}px)`;
           },
           onpointerup: (e) => {
-            if (!drag || drag.id !== e.pointerId) return;
+            if (!drag || drag.id !== e.pointerId || drag.node !== node) return;
             const done = drag;
             drag = null;
             if (!done.moved) return;
@@ -191,6 +292,13 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
               if (!entry.locked && !entry.readOnly) onDelete(entry);
             } else if (e.key === 'Escape') {
               e.preventDefault();
+              // Escape during a drag puts the comment back where it was and keeps it selected.
+              if (drag) {
+                drag.node.style.transform = '';
+                if (drag.node.hasPointerCapture(drag.id)) drag.node.releasePointerCapture(drag.id);
+                drag = null;
+                return;
+              }
               saveNudge();
               select(null);
             } else if (
@@ -205,11 +313,16 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
               const step = e.shiftKey ? 10 : 1;
               const dx = { ArrowLeft: -step, ArrowRight: step }[e.key] || 0,
                 dy = { ArrowUp: -step, ArrowDown: step }[e.key] || 0;
-              const [ox, oy] = pdfOffset(dx, dy);
               if (nudge && nudge.id !== entry.id) saveNudge();
               nudge ??= { id: entry.id, entry, ox: 0, oy: 0 };
-              nudge.ox += ox;
-              nudge.oy += oy;
+              // Offsets from where the comment is drawn: a saved move still being applied
+              // has not reached it yet.
+              const [mx, my] = moving?.id === entry.id ? [moving.ox, moving.oy] : [0, 0];
+              const [sx, sy] = screenOffset(nudge.ox + mx, nudge.oy + my);
+              const [cx, cy] = keepOnPage(entry, sx + dx, sy + dy);
+              const [ox, oy] = pdfOffset(cx, cy);
+              nudge.ox = ox - mx;
+              nudge.oy = oy - my;
               showNudge(moving?.id === entry.id ? [moving.ox, moving.oy] : [0, 0]);
               heldArrows.add(e.key);
               clearTimeout(nudgeTimer);
@@ -219,7 +332,13 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             if (selected !== entry.id) select(entry);
           },
         });
-        place(node, screenBox(entry.rect));
+        const box = screenBox(entry.rect);
+        place(node, box);
+        const hit = outline(entry, box);
+        if (hit) {
+          node.classList.add('is-outline');
+          node.append(hit);
+        }
         // Only a comment that can move offers the move pointer.
         if (!movable(entry)) node.style.cursor = 'pointer';
         if (entry.id === selected) node.classList.add('is-selected');

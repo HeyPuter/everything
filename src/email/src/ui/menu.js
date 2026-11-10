@@ -4,7 +4,7 @@ import { icon } from './icons.js';
 /**
  * Dropdown menu attached to a trigger button. `buildItems` runs on every
  * open so labels and checkmarks reflect current state. Items:
- *   { label, icon?, checked?, toggle?, danger?, onSelect }
+ *   { label, icon?, checked?, toggle?, danger?, sub?, onSelect }
  *   { header: 'text' } for a non-interactive caption
  *   { separator: true }
  *
@@ -70,7 +70,7 @@ const fit = (popup) => {
   popup.style.maxHeight = `${Math.max(MIN_HEIGHT, Math.floor(below))}px`;
 };
 
-export function attachMenu(button, buildItems, { align = 'end' } = {}) {
+export function attachMenu(button, buildItems, { align = 'end', beforeOpen = null } = {}) {
   button.setAttribute('aria-haspopup', 'menu');
   button.setAttribute('aria-expanded', 'false');
 
@@ -133,15 +133,18 @@ export function attachMenu(button, buildItems, { align = 'end' } = {}) {
       'aria-label': button.getAttribute('aria-label') || button.textContent.trim() || null,
     });
     const itemNode = (item) => {
+      // `sub` is a second line under the label: why a setting is as it is.
+      const subId = item.sub ? `menu-sub-${++headerIds}` : null;
       const node = el('button.menu-item', {
         type: 'button',
         role: item.checked === undefined ? 'menuitem'
           : item.toggle ? 'menuitemcheckbox' : 'menuitemradio',
         'aria-checked': item.checked === undefined ? null : String(item.checked),
+        'aria-describedby': subId,
         onclick: () => { close(); button.focus(); item.onSelect?.(); },
       },
         item.icon && el('span.menu-item-icon', { html: icon(item.icon, 16) }),
-        el('span.menu-item-label', {}, item.label),
+        el('span.menu-item-label', {}, item.label, item.sub && el('span.menu-item-sub', { id: subId }, item.sub)),
         item.checked && el('span.menu-item-check', { html: icon('check', 15) }),
       );
       if (item.danger) node.classList.add('danger');
@@ -184,6 +187,15 @@ export function attachMenu(button, buildItems, { align = 'end' } = {}) {
     items()[0]?.focus();
   };
 
-  button.addEventListener('click', () => (popup ? close() : open()));
+  let opening = false;
+  button.addEventListener('click', async () => {
+    if (popup) { close(); return; }
+    if (opening) return;
+    if (beforeOpen) {
+      opening = true;
+      try { await beforeOpen(); } finally { opening = false; }
+    }
+    if (button.isConnected) open();
+  });
   return { close };
 }

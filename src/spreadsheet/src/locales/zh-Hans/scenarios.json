@@ -1,0 +1,16 @@
+{
+  "enterCells": "请输入可变单元格，例如 B1:B3",
+  "enterName": "请输入方案名称",
+  "nameTaken": "已存在同名方案",
+  "nameTooLong": "方案名称最多可包含 255 个字符",
+  "noNewSheet": "工作簿无法添加新工作表",
+  "none": "此工作表上没有方案",
+  "protected": "此方案受保护：请撤消工作表保护后再更改",
+  "tooManyCells": "一个方案最多可更改 {max} 个单元格",
+  "undo.add": "添加方案",
+  "undo.delete": "删除方案",
+  "undo.edit": "编辑方案",
+  "undo.merge": "合并方案",
+  "undo.show": "显示方案 {name}",
+  "undo.summary": "方案摘要"
+}

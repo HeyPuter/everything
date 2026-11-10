@@ -87,7 +87,7 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     const p = protection();
     draft = { formatting: !!p?.formatting, editing: !!p && p.edit !== 'none', edit: p && p.edit !== 'none' ? p.edit : draft.edit || 'readOnly' };
   }
-  const regions = () => { const engine = editor(); return engine && api() ? api().permissionRanges(engine.session.body.paragraphs) : []; };
+  const regions = () => { const engine = editor(); return engine && api() ? api().permissionRanges(engine.session.body.paragraphs, engine.session.body.tables) : []; };
   const myRegions = () => regions().filter(r => api().permissionApplies(r, user()));
   const editorsList = () => [...new Set([...EXTRA_EDITORS.get(), ...regions().map(r => r.ed).filter(Boolean)])];
 
@@ -147,7 +147,8 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     const engine = editor();
     return el('div.rv-list.rv-regions', { role: 'list', 'aria-label': 'Editable regions' }, ...list.map(r => el('div.rv-item', { role: 'listitem' },
       el('button.rv-issue-target', { type: 'button', onclick: () => reveal(engine, r.start, r.end) }, `${r.edGrp === 'everyone' ? 'Everyone' : r.ed || r.edGrp}: “${engine.session.body.text.slice(r.start, Math.min(r.end, r.start + 40)).replace(/\n/g, ' ')}${r.end - r.start > 40 ? '…' : ''}”`),
-      button('Remove', () => { engine.execute(() => api().removePermissionRanges(engine.model, [r.id])); render(); }))));
+      // Regions are the body's: leave a header, footer or note being edited, so the body loses the region (one undo step).
+      button('Remove', () => { engine.finishComposition(); if (engine.session.path !== null) engine.editStory(null); engine.execute(() => api().removePermissionRanges(engine.session.body, [r.id])); render(); }))));
   }
   function saveDraft() {
     // Unenforced choices are kept in the file (enforcement off), as word processors do.
@@ -243,7 +244,13 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     },
     /** File > Always Open Read-Only. */
     get alwaysReadOnly() { return !!settings().writeProtection?.recommended; },
-    toggleAlwaysReadOnly() { if (pkg()?.readOnly) return; setSettings({ writeProtection: settings().writeProtection?.recommended ? null : { recommended: true } }); toast(settings().writeProtection ? 'This document will suggest opening read-only' : 'The read-only suggestion is off'); },
+    toggleAlwaysReadOnly() {
+      if (pkg()?.readOnly) return;
+      // The setting also holds the password to modify the document (§17.15.1.93), which stays.
+      const current = settings().writeProtection, recommended = !current?.recommended;
+      setSettings({ writeProtection: recommended || current?.hashValue || current?.hash ? { ...current, recommended } : null });
+      toast(recommended ? 'This document will suggest opening read-only' : 'The read-only suggestion is off');
+    },
     /** On opening a document whose author recommends read-only, ask how to open it. */
     async offerReadOnly() {
       if (!settings().writeProtection?.recommended || pkg()?.readOnly) return;

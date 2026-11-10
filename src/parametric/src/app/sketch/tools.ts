@@ -3,8 +3,9 @@
 
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
-import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint } from '../../sketch/geom';
-import { extendAt, filletCorner, smartDimension, trimAt } from '../../sketch/ops';
+import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
+import { PROJECTED_LOCKED, extendAt, filletCorner, smartDimension, trimAt, zeroDimensionReason } from '../../sketch/ops';
+import { isExternal } from '../../sketch/external';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
 import { numberField } from '../pm';
@@ -28,6 +29,9 @@ const arcPts = (c: Vec2, r: number, a0: number, sweep: number, n = 48): Vec2[] =
   return out;
 };
 
+/** The existing point (end point, centre or the origin) a snap landed on. */
+const snappedPoint = (s: Snap): Id | null => ((s.kind === 'point' || s.kind === 'center' || s.kind === 'origin') && s.pointId) || null;
+
 /** Adds horizontal/vertical relations implied by a direction snap. */
 function directionRelation(sk: SketchFeature, lineId: Id, s: Snap, newId: (p: string) => Id) {
   if (s.kind === 'h') sk.constraints.push({ id: newId('r'), type: 'horizontal', refs: [lineId] });
@@ -39,6 +43,8 @@ function directionRelation(sk: SketchFeature, lineId: Id, s: Snap, newId: (p: st
 export function lineTool(ed: SketchEditor, construction = false): SkTool {
   let start: { s: Snap; id: Id | null; p: Vec2 } | null = null;
   let downAt: { x: number; y: number } | null = null;
+  /** The current press started the line (rather than continuing a chain). */
+  let pressStarted = false;
   let chain = 0;
   const commitSegment = (end: Snap) => {
     if (!start || dist2(start.p, end.p) < ed.px * 2) return;
@@ -63,8 +69,14 @@ export function lineTool(ed: SketchEditor, construction = false): SkTool {
     exclude: () => new Set<Id>(),
     down(s, e) {
       downAt = { x: e.x, y: e.y };
+      pressStarted = !start;
       if (!start) { start = { s, id: null, p: s.p }; chain = 0; }
       return true;
+    },
+    cancelPress() {
+      if (pressStarted) { start = null; ed.setPreview([]); }
+      downAt = null;
+      pressStarted = false;
     },
     move(s, _e, dragging) {
       void dragging;
@@ -89,6 +101,12 @@ export function lineTool(ed: SketchEditor, construction = false): SkTool {
       return true;
     },
     dbl() {
+      start = null;
+      ed.setPreview([]);
+      return true;
+    },
+    enter() {
+      if (!start) return false;
       start = null;
       ed.setPreview([]);
       return true;
@@ -137,17 +155,20 @@ export function rectangleTool(ed: SketchEditor, centered = false): SkTool {
         { id: newId('r'), type: 'vertical', refs: [lines[3]] },
       );
       if (centered) {
-        // Construction diagonals meeting at the centre point.
+        // Construction diagonals meeting at the centre point. The diagonals
+        // of a horizontal/vertical rectangle bisect each other, so a midpoint
+        // relation on the second one would be redundant (over-defined).
         const c = ed.commitPoint(sk, first!, newId);
         const d1 = newId('l'), d2 = newId('l');
         sk.entities.push({ id: d1, t: 'line', a: ids[0], b: ids[2], construction: true }, { id: d2, t: 'line', a: ids[1], b: ids[3], construction: true });
-        sk.constraints.push({ id: newId('r'), type: 'midpoint', refs: [c, d1] }, { id: newId('r'), type: 'midpoint', refs: [c, d2] });
+        sk.constraints.push({ id: newId('r'), type: 'midpoint', refs: [c, d1] });
       }
     });
     first = null;
     ed.setPreview([]);
   };
   let downAt: { x: number; y: number } | null = null;
+  let pressStarted = false;
   return {
     id: centered ? 'centerRectangle' : 'rectangle',
     label: centered ? 'Center Rectangle' : 'Corner Rectangle',
@@ -155,8 +176,14 @@ export function rectangleTool(ed: SketchEditor, centered = false): SkTool {
     from: () => null,
     down(s, e) {
       downAt = { x: e.x, y: e.y };
+      pressStarted = !first;
       if (!first) first = s;
       return true;
+    },
+    cancelPress() {
+      if (pressStarted) { first = null; ed.setPreview([]); }
+      downAt = null;
+      pressStarted = false;
     },
     move(s) {
       if (!first) return;
@@ -186,6 +213,7 @@ export function rectangleTool(ed: SketchEditor, centered = false): SkTool {
 export function circleTool(ed: SketchEditor): SkTool {
   let center: Snap | null = null;
   let downAt: { x: number; y: number } | null = null;
+  let pressStarted = false;
   const commit = (s: Snap) => {
     const r = dist2(center!.p, s.p);
     if (r < ed.px * 2) return;
@@ -193,7 +221,8 @@ export function circleTool(ed: SketchEditor): SkTool {
       const c = ed.commitPoint(sk, center!, newId);
       const id = newId('c');
       sk.entities.push({ id, t: 'circle', c, r });
-      if (s.kind === 'point' && s.pointId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [s.pointId, id] });
+      const on = snappedPoint(s);
+      if (on) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [on, id] });
     });
     center = null;
     ed.setPreview([]);
@@ -202,7 +231,12 @@ export function circleTool(ed: SketchEditor): SkTool {
     id: 'circle',
     label: 'Circle',
     hint: 'Click the centre, then a point on the circle.',
-    down(s, e) { downAt = { x: e.x, y: e.y }; if (!center) center = s; return true; },
+    down(s, e) { downAt = { x: e.x, y: e.y }; pressStarted = !center; if (!center) center = s; return true; },
+    cancelPress() {
+      if (pressStarted) { center = null; ed.setPreview([]); }
+      downAt = null;
+      pressStarted = false;
+    },
     move(s) { if (center) ed.setPreview([circlePts(center.p, dist2(center.p, s.p)), [center.p, s.p]], [center.p]); },
     up(s, e) { if (downAt && center && Math.hypot(e.x - downAt.x, e.y - downAt.y) > 6) commit(s); downAt = null; },
     click(s) { if (!center) { center = s; return true; } commit(s); return true; },
@@ -214,12 +248,8 @@ export function circleTool(ed: SketchEditor): SkTool {
 export function perimeterCircleTool(ed: SketchEditor): SkTool {
   const pts: Snap[] = [];
   const circ = (a: Vec2, b: Vec2, c: Vec2): { c: Vec2; r: number } | null => {
-    const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
-    if (Math.abs(d) < 1e-12) return null;
-    const a2 = a[0] ** 2 + a[1] ** 2, b2 = b[0] ** 2 + b[1] ** 2, c2 = c[0] ** 2 + c[1] ** 2;
-    const ux = (a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d;
-    const uy = (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d;
-    return { c: [ux, uy], r: dist2([ux, uy], a) };
+    const center = circumcenter(a, b, c);
+    return center ? { c: center, r: dist2(center, a) } : null;
   };
   return {
     id: 'perimeterCircle',
@@ -233,6 +263,8 @@ export function perimeterCircleTool(ed: SketchEditor): SkTool {
       }
     },
     click(s) {
+      // A repeated click (e.g. a double-click) does not count as another point.
+      if (pts.some((q) => dist2(q.p, s.p) < ed.px * 2)) return true;
       pts.push(s);
       if (pts.length < 3) return true;
       const c = circ(pts[0].p, pts[1].p, pts[2].p);
@@ -245,7 +277,7 @@ export function perimeterCircleTool(ed: SketchEditor): SkTool {
         sk.entities.push({ id: cid, t: 'point', x: c.c[0], y: c.c[1] });
         const id = newId('c');
         sk.entities.push({ id, t: 'circle', c: cid, r: c.r });
-        for (const p of sel) if ((p.kind === 'point' || p.kind === 'origin') && p.pointId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [p.pointId, id] });
+        for (const p of sel) { const on = snappedPoint(p); if (on) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [on, id] }); }
       });
       return true;
     },
@@ -285,10 +317,16 @@ export function centerArcTool(ed: SketchEditor): SkTool {
     },
     click(s) {
       if (!c) { c = s; return true; }
-      if (!a) { a = s; lastAngle = angle2(sub2(s.p, c.p)); acc = 0; return true; }
+      // Clicks on the centre or back on the start point (e.g. double-clicks)
+      // would make a zero-radius arc or one closed on itself.
+      if (!a) {
+        if (dist2(c.p, s.p) < ed.px * 2) return true;
+        a = s; lastAngle = angle2(sub2(s.p, c.p)); acc = 0; return true;
+      }
       const r = dist2(c.p, a.p);
       const ang = angle2(sub2(s.p, c.p));
       const end: Vec2 = [c.p[0] + r * Math.cos(ang), c.p[1] + r * Math.sin(ang)];
+      if (dist2(end, a.p) < ed.px * 2 || (s.kind === 'point' && s.pointId && s.pointId === a.pointId)) return true;
       const cc = c, aa = a;
       ed.edit('Add arc', (sk, newId) => {
         const cid = ed.commitPoint(sk, cc, newId);
@@ -309,10 +347,8 @@ export function centerArcTool(ed: SketchEditor): SkTool {
 export function threePointArcTool(ed: SketchEditor): SkTool {
   let p1: Snap | null = null, p2: Snap | null = null;
   const solve = (a: Vec2, b: Vec2, m: Vec2) => {
-    const d = 2 * (a[0] * (b[1] - m[1]) + b[0] * (m[1] - a[1]) + m[0] * (a[1] - b[1]));
-    if (Math.abs(d) < 1e-12) return null;
-    const a2 = a[0] ** 2 + a[1] ** 2, b2 = b[0] ** 2 + b[1] ** 2, m2 = m[0] ** 2 + m[1] ** 2;
-    const c: Vec2 = [(a2 * (b[1] - m[1]) + b2 * (m[1] - a[1]) + m2 * (a[1] - b[1])) / d, (a2 * (m[0] - b[0]) + b2 * (a[0] - m[0]) + m2 * (b[0] - a[0])) / d];
+    const c = circumcenter(a, b, m);
+    if (!c) return null;
     const ccw = cross2(sub2(m, a), sub2(b, m)) > 0;
     return { c, r: dist2(c, a), ccw };
   };
@@ -334,12 +370,14 @@ export function threePointArcTool(ed: SketchEditor): SkTool {
     },
     click(s) {
       if (!p1) { p1 = s; return true; }
-      if (!p2) { p2 = s; return true; }
+      // A repeated click (e.g. a double-click) or a point in line with the
+      // ends makes no arc: keep waiting for a usable point.
+      if (!p2) { if (dist2(p1.p, s.p) >= ed.px * 2) p2 = s; return true; }
       const g = solve(p1.p, p2.p, s.p);
+      if (!g || dist2(p1.p, s.p) < ed.px * 2 || dist2(p2.p, s.p) < ed.px * 2) return true;
       const a = p1, b = p2;
       p1 = p2 = null;
       ed.setPreview([]);
-      if (!g) return true;
       ed.edit('Add arc', (sk, newId) => {
         const ia = ed.commitPoint(sk, a, newId);
         const ib = ed.commitPoint(sk, b, newId);
@@ -403,10 +441,12 @@ export function tangentArcTool(ed: SketchEditor): SkTool {
         return true;
       }
       const g = geometry(start.p, start.t, s.p);
+      // Back on the start point (a double-click) or straight along the
+      // tangent: no arc yet, keep waiting for the end point.
+      if (!g || dist2(start.p, s.p) < ed.px * 2) return true;
       const st = start;
       start = null;
       ed.setPreview([]);
-      if (!g) return true;
       ed.edit('Add tangent arc', (sk2, newId) => {
         const end = ed.commitPoint(sk2, s, newId);
         const ic = newId('p');
@@ -441,11 +481,12 @@ export function polygonTool(ed: SketchEditor): SkTool {
     },
     click(s) {
       if (!center) { center = s; return true; }
+      // A repeated click on the centre (a double-click) keeps waiting for the vertex.
+      if (dist2(center.p, s.p) < ed.px * 2) return true;
       const c = center;
       const v = verts(c.p, s.p);
       center = null;
       ed.setPreview([]);
-      if (dist2(c.p, s.p) < ed.px * 2) return true;
       ed.edit('Add polygon', (sk, newId) => {
         const cid = ed.commitPoint(sk, c, newId);
         const ids = v.map((p) => { const id = newId('p'); sk.entities.push({ id, t: 'point', x: p[0], y: p[1] }); return id; });
@@ -460,7 +501,7 @@ export function polygonTool(ed: SketchEditor): SkTool {
     cancel() { const was = !!center; center = null; ed.setPreview([]); return was; },
     options() {
       return [numberField({
-        label: 'Number of sides', value: sides, kind: 'count', ctx: ed.app.unitContext(), min: 3, allowExpr: false,
+        label: 'Number of sides', value: sides, kind: 'count', ctx: ed.app.unitContext(), min: 3, max: 64, allowExpr: false,
         onChange: (v) => { sides = Math.max(3, Math.min(64, Number(v))); },
       })];
     },
@@ -498,10 +539,11 @@ export function slotTool(ed: SketchEditor): SkTool {
       if (!b) { if (dist2(a.p, s.p) > ed.px * 3) b = s; return true; }
       const u = norm2(sub2(b.p, a.p));
       const w = 2 * Math.abs(cross2(u, sub2(s.p, a.p)));
+      // Too narrow (e.g. a double-click on the second centre): keep waiting for the width.
+      if (w < ed.px * 2) return true;
       const A = a, B = b;
       a = b = null;
       ed.setPreview([]);
-      if (w < ed.px * 2) return true;
       const g = shape(A.p, B.p, w);
       ed.edit('Add slot', (sk, newId) => {
         const ca = ed.commitPoint(sk, A, newId), cb = ed.commitPoint(sk, B, newId);
@@ -562,12 +604,21 @@ export function splineTool(ed: SketchEditor): SkTool {
       return true;
     },
     dbl() { finish(); return true; },
+    enter() {
+      if (!pts.length) return false;
+      finish();
+      return true;
+    },
     cancel() {
       const was = pts.length > 0;
       if (pts.length >= 2) finish();
       pts.length = 0;
       ed.setPreview([]);
       return was;
+    },
+    abort() {
+      pts.length = 0;
+      ed.setPreview([]);
     },
   };
 }
@@ -632,7 +683,10 @@ export function trimTool(ed: SketchEditor): SkTool {
     click(s) {
       const hit = ed.pickAt(s.p, 8);
       if (!hit || hit.kind !== 'curve') return true;
-      ed.edit('Trim', (sk, newId) => { trimAt(sk, hit.id, s.p, newId); });
+      if (isExternal(ed.sketch, hit.id)) { toast({ kind: 'warning', message: PROJECTED_LOCKED }); return true; }
+      let changed = false;
+      ed.edit('Trim', (sk, newId) => { changed = trimAt(sk, hit.id, s.p, newId); });
+      ed.app.setStatus(changed ? this.hint : 'Nothing trimmed. Click between intersections on a line, arc, or circle.');
       return true;
     },
     cancel: () => false,
@@ -653,8 +707,9 @@ export function extendTool(ed: SketchEditor): SkTool {
     click(s) {
       const hit = ed.pickAt(s.p, 8);
       if (!hit || hit.kind !== 'curve') return true;
+      if (isExternal(ed.sketch, hit.id)) { toast({ kind: 'warning', message: PROJECTED_LOCKED }); return true; }
       let ok = false;
-      ed.edit('Extend', (sk) => { ok = extendAt(sk, hit.id, s.p); });
+      ed.edit('Extend', (sk, newId) => { ok = extendAt(sk, hit.id, s.p, newId); });
       if (!ok) ed.app.setStatus('Nothing to extend to in that direction.');
       return true;
     },
@@ -712,6 +767,8 @@ export function dimensionTool(ed: SketchEditor): SkTool {
       picked = [];
       ed.setPreview([]);
       ed.app.selection.clear();
+      const zero = zeroDimensionReason(ed.sketch, spec);
+      if (zero) { toast({ kind: 'warning', title: 'Nothing to dimension', message: zero }); return true; }
       ed.addDimension(spec, s.p);
       void ids;
       return true;

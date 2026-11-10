@@ -1,0 +1,12 @@
+{
+  "applyStyles": "应用样式",
+  "autoStyles": "自动设置样式",
+  "autoStylesHint": "创建分级显示时将汇总行和汇总列设为加粗。",
+  "below": "明细数据的下方",
+  "belowHint": "汇总行位于其汇总的行之后；关闭时位于其前面。",
+  "create": "创建",
+  "direction": "方向",
+  "right": "明细数据的右侧",
+  "rightHint": "汇总列位于其汇总的列之后；关闭时位于其前面。",
+  "title": "设置"
+}

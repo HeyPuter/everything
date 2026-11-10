@@ -22,10 +22,13 @@ export function createPageStack({
 }) {
   let slots = [];
   let sizes = []; // natural page sizes at scale 1, rotation applied
+  let sizesGeometry = null; // the document geometry those sizes were read for
   let fallback = { width: 612, height: 792 };
   let continuous = true,
     twoUp = false;
   let paper = null;
+  // The revision the interactive page was last drawn at.
+  let paperRevision = null;
   let destroyed = false;
   let sizeRequest = 0;
   const rendering = new Map(); // slot index -> render task
@@ -69,24 +72,34 @@ export function createPageStack({
     }
   }
 
-  /** Read every page's size once per document, a few at a time, keeping the view in place. */
-  async function loadSizes(pdf) {
+  /**
+   * Read every page's size once per document, a few at a time, keeping the view in place.
+   * Pages of the same `geometry` as the ones read before (an edit that resized no page) keep
+   * their sizes meanwhile, so the page is fitted to the widest page from the start, and the
+   * pages are laid out again only where a size changed.
+   */
+  async function loadSizes(pdf, geometry = null) {
     const request = ++sizeRequest;
     const count = pdf.numPages;
-    sizes = new Array(count);
+    if (geometry === null || geometry !== sizesGeometry || sizes.length !== count)
+      sizes = new Array(count);
+    sizesGeometry = geometry;
     for (let i = 0; i < count; i += 16) {
       const batch = [];
+      let changed = false;
       for (let k = i; k < Math.min(count, i + 16); k++)
         batch.push(
           pdf.getPage(k + 1).then((page) => {
             const view = page.getViewport({ scale: 1 });
+            const known = sizes[k];
+            if (known?.width !== view.width || known?.height !== view.height) changed = true;
             sizes[k] = { width: view.width, height: view.height };
           }),
         );
       await Promise.all(batch).catch(() => {});
       if (destroyed || request !== sizeRequest || getPdf() !== pdf) return;
       if (i === 0 && sizes[0]) fallback = sizes[currentIndex()] || sizes[0];
-      keepInPlace(() => layout());
+      if (changed) keepInPlace(() => layout());
     }
   }
 
@@ -141,11 +154,14 @@ export function createPageStack({
       if (node.parentNode !== container) container.prepend(node);
       return;
     }
+    const drawn = paperRevision;
+    paperRevision = getRevision();
     if (node.parentNode === slot) return layout();
     const previous = node.parentNode?.classList?.contains('page-slot') ? node.parentNode : null;
     // A page left by a jump is already out of the keep margin, whose observer passed it over
-    // while it held the interactive page, so its picture would never be released.
-    if (previous && !nearView(previous)) release(previous);
+    // while it held the interactive page, so its picture would never be released. A page
+    // left by moving it (or deleting one before it) shows a page that is no longer there.
+    if (previous && (!nearView(previous) || drawn !== paperRevision)) release(previous);
     else if (previous) {
       const source = node.querySelector(':scope > canvas');
       const target = previous.querySelector('.page-image');

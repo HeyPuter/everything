@@ -23,10 +23,13 @@
 import { colName } from './cell.js';
 import { quoteSheet } from './refs.js';
 import { isError } from './formula/functions.js';
+import { t } from '../i18n/index.js';
 
-export const ERROR_BAR_TYPES = Object.freeze([['fixedVal', 'Fixed value'], ['percentage', 'Percentage'], ['stdDev', 'Standard deviation'],
-  ['stdErr', 'Standard error'], ['cust', 'Custom (from cells)']]);
-const TYPES = new Set(ERROR_BAR_TYPES.map(([t]) => t));
+// [value, label], the label read in the interface language when it is shown.
+const choice = (value, key) => Object.freeze(Object.defineProperty([value], 1, { enumerable: true, get: () => t(key) }));
+export const ERROR_BAR_TYPES = Object.freeze([choice('fixedVal', 'errorBars.typeFixed'), choice('percentage', 'errorBars.typePercentage'),
+  choice('stdDev', 'errorBars.typeStdDev'), choice('stdErr', 'errorBars.typeStdErr'), choice('cust', 'errorBars.typeCustom')]);
+const TYPES = new Set(ERROR_BAR_TYPES.map(([id]) => id));
 // The amount each kind starts at, as Excel offers it.
 export const ERROR_BAR_DEFAULT_VALUES = Object.freeze({ fixedVal: 1, percentage: 5, stdDev: 1 });
 export const ERROR_BAR_CAP_WIDTH = 6;
@@ -37,6 +40,22 @@ const MAX_POINTS = 5000;
 
 /** Only charts that plot values on both axes take error bars here. */
 export const errorBarsAllowed = chart => chart?.type === 'scatter' || chart?.type === 'bubble';
+
+// The kinds of series a file can give error bars (CT_BarSer, CT_LineSer, CT_AreaSer, CT_ScatterSer, CT_BubbleSer). Those
+// on columns, bars, lines and areas are not drawn or edited here, but are kept and saved again as the file had them.
+const KEPT = new Set(['column', 'bar', 'line', 'area', 'scatter', 'bubble']);
+
+/**
+ * The error bars series `j`, plotted as `type` (a combo chart's series have kinds of their own), writes to a file: what
+ * it has where the kind takes them, or null. A bar or line series takes one set (CT_BarSer and CT_LineSer allow one
+ * c:errBars), its vertical bars before any other.
+ */
+export function errorBarsSaved(chart, j, type = chart?.type) {
+  const bars = KEPT.has(type) ? chart?.errorBars?.[j] : null;
+  if (!bars) return null;
+  if (!['column', 'bar', 'line'].includes(type)) return bars;
+  return bars.y ? { y: bars.y } : bars.x ? { x: bars.x } : null;
+}
 
 const between = (v, min, max) => Number.isFinite(v) && v >= min && v <= max;
 const amounts = list => (Array.isArray(list) ? list.slice(0, MAX_POINTS).map(v => (Number.isFinite(v) ? v : null)) : null);
@@ -155,9 +174,9 @@ export function errorBarAmountInput(wb, sheetId, text, side) {
   const numbers = raw.split(/[,;]/).map(s => s.trim());
   if (numbers.every(s => s !== '' && Number.isFinite(Number(s)))) return { [key]: undefined, [`${key}Values`]: numbers.slice(0, MAX_POINTS).map(Number) };
   const resolved = wb.rangeFromText(sheetId, raw);
-  if (!resolved) return { error: 'Enter a range of cells, such as =Sheet1!$D$2:$D$10, or a number' };
+  if (!resolved) return { error: t('errorBars.enterRange') };
   const { range, sheetId: id } = resolved;
-  if (range.r1 !== range.r2 && range.c1 !== range.c2) return { error: 'The error amounts must be one row or one column' };
+  if (range.r1 !== range.r2 && range.c1 !== range.c2) return { error: t('errorBars.oneRowOrColumn') };
   const cell = (r, c) => `$${colName(c)}$${r + 1}`;
   const ref = `${quoteSheet(wb.sheet(id).name)}!${cell(range.r1, range.c1)}${range.r1 === range.r2 && range.c1 === range.c2 ? '' : `:${cell(range.r2, range.c2)}`}`;
   return { [key]: ref, [`${key}Values`]: undefined };
@@ -169,7 +188,7 @@ export function errorBarAmountInput(wb, sheetId, text, side) {
  * it out (as a series read from the chart's range does), so the amounts line up with the points.
  */
 export function errorBarValues(wb, sheetId, chart, { keepHidden = false, includeHidden = false } = {}) {
-  if (!errorBarsAllowed(chart) || !chart.errorBars?.length) return null;
+  if (!chart?.errorBars?.length) return null;
   const read = ref => {
     const resolved = ref && wb.rangeFromText(sheetId, ref);
     if (!resolved) return [];

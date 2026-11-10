@@ -6,17 +6,20 @@
  */
 import { normalizeRange } from './cell.js';
 import { dateTimeKind, serialToYMD, ymdToSerial } from './format.js';
+import { t } from '../i18n/index.js';
 
+/** [kind, label]: the label is read in the interface language each time it is read. */
+const choice = (kind, key) => Object.defineProperty([kind, key], 1, { get: () => t(key), enumerable: true });
 export const AUTOFILL_CHOICES = [
-  ['copy', 'Copy Cells'], ['series', 'Fill Series'], ['formats', 'Fill Formatting Only'], ['values', 'Fill Without Formatting'],
-  ['days', 'Fill Days'], ['weekdays', 'Fill Weekdays'], ['months', 'Fill Months'], ['years', 'Fill Years'], ['flash', 'Flash Fill'],
+  choice('copy', 'autofillOptions.copy'), choice('series', 'autofillOptions.series'), choice('formats', 'autofillOptions.formats'), choice('values', 'autofillOptions.values'),
+  choice('days', 'autofillOptions.days'), choice('weekdays', 'autofillOptions.weekdays'), choice('months', 'autofillOptions.months'), choice('years', 'autofillOptions.years'), choice('flash', 'autofillOptions.flash'),
 ];
 const DATE_KINDS = new Set(['days', 'weekdays', 'months', 'years']);
 
 /** Is the fill from `source` to `target` down/up (true) or across (false)? */
 export const fillsVertically = (source, target) => {
-  const s = normalizeRange(source), t = normalizeRange(target);
-  return t.r1 !== s.r1 || t.r2 !== s.r2;
+  const s = normalizeRange(source), tg = normalizeRange(target);
+  return tg.r1 !== s.r1 || tg.r2 !== s.r2;
 };
 
 /** The source's cells, one list per line in the fill's direction: columns when filling down, rows when across. */
@@ -88,8 +91,8 @@ function unitStep(values, unit) {
 
 /** The target's cells outside the source, each with its offset from the source's near edge (negative before it). */
 function filledPositions(source, target, vertical) {
-  const s = normalizeRange(source), t = normalizeRange(target);
-  const [lo, hi] = vertical ? [t.r1, t.r2] : [t.c1, t.c2];
+  const s = normalizeRange(source), tg = normalizeRange(target);
+  const [lo, hi] = vertical ? [tg.r1, tg.r2] : [tg.c1, tg.c2];
   const [s1, s2] = vertical ? [s.r1, s.r2] : [s.c1, s.c2];
   const out = [];
   for (let p = lo; p <= hi; p++) if (p < s1 || p > s2) out.push({ p, offset: p < s1 ? p - s1 : p - s2 });
@@ -101,18 +104,18 @@ function filledPositions(source, target, vertical) {
  * target (undone the default fill) first, so formatting-only and without-formatting read what was there.
  */
 export function refill(wb, sheetId, source, target, kind) {
-  const s = normalizeRange(source), t = normalizeRange(target);
-  const vertical = fillsVertically(s, t);
+  const s = normalizeRange(source), tg = normalizeRange(target);
+  const vertical = fillsVertically(s, tg);
   const lines = sourceLines(wb, sheetId, s, vertical);
-  const positions = filledPositions(s, t, vertical);
+  const positions = filledPositions(s, tg, vertical);
   const at = (k, p) => (vertical ? { r: p, c: s.c1 + k } : { r: s.r1 + k, c: p });
-  const label = 'Fill';
-  if (kind === 'copy') { wb.fill(sheetId, s, t, { series: false }); return true; }
+  const label = t('autofillOptions.undo.fill');
+  if (kind === 'copy') { wb.fill(sheetId, s, tg, { series: false }); return true; }
   if (kind === 'series') {
     // Each line on its own terms: a lone number counts up, which a default drag would have copied.
     wb.transaction(label, () => lines.forEach((line, k) => {
       const lineSource = vertical ? { r1: s.r1, c1: s.c1 + k, r2: s.r2, c2: s.c1 + k } : { r1: s.r1 + k, c1: s.c1, r2: s.r1 + k, c2: s.c2 };
-      const lineTarget = vertical ? { ...lineSource, r1: t.r1, r2: t.r2 } : { ...lineSource, c1: t.c1, c2: t.c2 };
+      const lineTarget = vertical ? { ...lineSource, r1: tg.r1, r2: tg.r2 } : { ...lineSource, c1: tg.c1, c2: tg.c2 };
       wb.fill(sheetId, lineSource, lineTarget, { invert: line.length === 1 && isPlainNumber(wb, sheetId, line[0]) });
     }));
     return true;
@@ -131,7 +134,7 @@ export function refill(wb, sheetId, source, target, kind) {
     // The conditional formatting goes with the rest of the formatting.
     return wb.transaction(label, () => {
       const written = wb.setCellsWithTableHeaders(sheetId, entries, label) > 0, rules = wb.sheet(sheetId)?.rules;
-      wb.fillConditionalFormats?.(sheetId, s, t, entries);
+      wb.fillConditionalFormats?.(sheetId, s, tg, entries);
       return written || wb.sheet(sheetId)?.rules !== rules;
     });
   }
@@ -140,7 +143,7 @@ export function refill(wb, sheetId, source, target, kind) {
     const before = new Map();
     lines.forEach((_, k) => positions.forEach(({ p }) => { const { r, c } = at(k, p); before.set(`${r},${c}`, wb.getCell(sheetId, r, c)?.s); }));
     wb.transaction(label, () => {
-      wb.fill(sheetId, s, t, { formats: false });
+      wb.fill(sheetId, s, tg, { formats: false });
       const entries = [];
       for (const [key, style] of before) {
         const [r, c] = key.split(',').map(Number);
@@ -188,8 +191,8 @@ export function refill(wb, sheetId, source, target, kind) {
 export function justifyLines(texts, width, measure) {
   const paragraphs = [];
   let words = null;
-  for (const t of texts) {
-    const text = t == null ? '' : String(t).trim();
+  for (const tg of texts) {
+    const text = tg == null ? '' : String(tg).trim();
     if (!text) { if (words) { paragraphs.push(words); words = null; } continue; }
     (words ??= []).push(...text.split(/\s+/));
   }
@@ -244,7 +247,7 @@ export function fillSeriesLines(wb, sheetId, range, { type = 'linear', step = 1,
     if (locked) { wb._locked(locked); return 0; }
     let count = 0;
     const options = { type, step, stop, unit, direction, trend };
-    wb.transaction(type === 'autofill' ? 'Fill (grouped sheets)' : 'Fill series (grouped sheets)', () => wb._withoutGroup(() => {
+    wb.transaction(type === 'autofill' ? t('autofillOptions.undo.fillGrouped') : t('autofillOptions.undo.seriesGrouped'), () => wb._withoutGroup(() => {
       count = fillSeriesLines(wb, sheetId, range, options);
       for (const id of others) fillSeriesLines(wb, id, range, options);
     }));
@@ -253,7 +256,7 @@ export function fillSeriesLines(wb, sheetId, range, { type = 'linear', step = 1,
   const n = normalizeRange(range);
   const single = n.r1 === n.r2 && n.c1 === n.c2;
   let count = 0;
-  wb.transaction(type === 'autofill' ? 'Fill' : 'Fill series', () => {
+  wb.transaction(type === 'autofill' ? t('autofillOptions.undo.fill') : t('autofillOptions.undo.series'), () => {
     for (const line of seriesLines(n, direction)) {
       const cells = [];
       const down = direction === 'down';
@@ -278,7 +281,7 @@ export function fillSeriesLines(wb, sheetId, range, { type = 'linear', step = 1,
           const prev = wb.getCell(sheetId, e.r, e.c);
           return { r: e.r, c: e.c, cell: { v: Number.isInteger(value) ? value : Number(value.toPrecision(15)), f: null, s: prev?.s ?? wb.getCell(sheetId, cells[0].r, cells[0].c)?.s } };
         }).filter((e) => Number.isFinite(e.cell.v) && !wb._coveredByMerge?.(sheetId, e.r, e.c));
-        count += wb.setCellsWithTableHeaders(sheetId, entries, 'Fill series') ? entries.length : 0;
+        count += wb.setCellsWithTableHeaders(sheetId, entries, t('autofillOptions.undo.series')) ? entries.length : 0;
         continue;
       }
       count += wb.fillSeries(sheetId, single ? n : line, { type, step, stop, unit, direction }) || 0;

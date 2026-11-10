@@ -1,0 +1,18 @@
+{
+  "calendar": "日历",
+  "dayLabel": "{year}年{month}{day}日",
+  "invalid": "此日期不符合该单元格的数据验证规则。",
+  "nextMonth": "下个月",
+  "pickADate": "选择日期",
+  "previousMonth": "上个月",
+  "protected": "{cell} 受保护。请撤消保护后再选择日期",
+  "today": "今天",
+  "undoPick": "选择日期",
+  "weekdayFri": "五",
+  "weekdayMon": "一",
+  "weekdaySat": "六",
+  "weekdaySun": "日",
+  "weekdayThu": "四",
+  "weekdayTue": "二",
+  "weekdayWed": "三"
+}

@@ -8,6 +8,7 @@
 import { el } from './dom.js';
 import { authorInitials } from '../core/comments.js';
 import { isEmail, isUsername } from '../core/mentions.js';
+import { t, compareText } from '../i18n/index.js';
 
 const MAX_SHOWN = 8;
 const open = new Map(); // close() -> the box it belongs to
@@ -35,12 +36,12 @@ export function matchPeople(people, query) {
     return 0;
   };
   const list = people.map((p) => ({ p, s: score(p) })).filter((x) => x.s > 0)
-    .sort((a, b) => b.s - a.s || a.p.name.localeCompare(b.p.name)).map((x) => x.p).slice(0, MAX_SHOWN);
+    .sort((a, b) => b.s - a.s || compareText(a.p.name, b.p.name)).map((x) => x.p).slice(0, MAX_SHOWN);
   const known = (pred) => people.some(pred);
-  if (isEmail(query) && !known((p) => p.email === q)) list.push({ name: q, email: q, typed: true, hint: 'Email address' });
+  if (isEmail(query) && !known((p) => p.email === q)) list.push({ name: q, email: q, typed: true, hint: t('mentionPicker.emailAddress') });
   // A username is offered once nobody listed matches: until then they are the likelier pick.
   else if (query.length >= 2 && isUsername(query) && !list.length) {
-    list.push({ name: query, user: query, typed: true, hint: 'Puter username' });
+    list.push({ name: query, user: query, typed: true, hint: t('mentionPicker.puterUsername') });
   }
   return list;
 }
@@ -55,7 +56,7 @@ let idSeq = 0;
 export function attachMentionPicker(area, { people }) {
   const picked = [];
   const listId = `mention-list-${++idSeq}`;
-  const list = el('ul.mention-list', { id: listId, role: 'listbox', 'aria-label': 'People to mention' });
+  const list = el('ul.mention-list', { id: listId, role: 'listbox', 'aria-label': t('mentionPicker.people') });
   let items = [];
   let active = 0;
   let query = null;
@@ -97,9 +98,9 @@ export function attachMentionPicker(area, { people }) {
       onpointermove: () => { if (active !== i) { active = i; render(); } },
     },
     el('span.mention-avatar', { 'aria-hidden': 'true' }, p.typed ? '@' : authorInitials(p.name)),
-    el('span.mention-who', {}, el('span.mention-name', {}, p.typed ? `Mention ${p.name}` : p.name),
+    el('span.mention-who', {}, el('span.mention-name', {}, p.typed ? t('mentionPicker.mention', { name: p.name }) : p.name),
       el('span.mention-hint', {}, p.hint || (p.email && p.email !== p.name ? p.email : p.user && p.user !== p.name ? `@${p.user}` : ''))))));
-    if (!items.length) list.append(el('li.mention-empty', { role: 'presentation' }, 'Type a Puter username or an email address'));
+    if (!items.length) list.append(el('li.mention-empty', { role: 'presentation' }, t('mentionPicker.empty')));
     area.setAttribute('aria-activedescendant', items.length ? `${listId}-${active}` : '');
   }
 
@@ -127,7 +128,9 @@ export function attachMentionPicker(area, { people }) {
     if (!person || !query) return;
     const name = person.name;
     const caret = area.selectionStart ?? area.value.length;
-    const before = area.value.slice(0, query.start), after = area.value.slice(caret);
+    // The person takes the whole @word's place: with the caret moved back inside it, the letters after the caret were
+    // left behind the name ("@an|to" became "@anton to"). What follows the word (a comma, a space) stays.
+    const before = area.value.slice(0, query.start), after = area.value.slice(caret).replace(/^[\p{L}\p{N}_]+/u, '');
     const insert = `@${name}${/^\s/.test(after) ? '' : ' '}`;
     area.value = before + insert + after;
     const at = before.length + insert.length;
@@ -151,8 +154,13 @@ export function attachMentionPicker(area, { people }) {
     e.stopImmediatePropagation();
   };
   const onInput = () => { active = 0; update(); };
+  // The caret moved without typing (the arrows across, Home, End): the list follows it as it follows typing, closing
+  // once the caret leaves the @word. It kept the word it was opened for, and Enter then wrote the person over the
+  // text from the @ to wherever the caret had gone.
+  const onCaretKey = (e) => { if (list.isConnected && /^(ArrowLeft|ArrowRight|Home|End|PageUp|PageDown)$/.test(e.key)) onInput(); };
   const onBlur = () => setTimeout(() => { if (document.activeElement !== area) close(); }, 0);
   area.addEventListener('keydown', onKey);
+  area.addEventListener('keyup', onCaretKey);
   area.addEventListener('input', onInput);
   area.addEventListener('click', onInput);
   area.addEventListener('blur', onBlur);
@@ -164,6 +172,7 @@ export function attachMentionPicker(area, { people }) {
     destroy() {
       close();
       area.removeEventListener('keydown', onKey);
+      area.removeEventListener('keyup', onCaretKey);
       area.removeEventListener('input', onInput);
       area.removeEventListener('click', onInput);
       area.removeEventListener('blur', onBlur);

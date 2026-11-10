@@ -11,6 +11,8 @@ import {
   PDFDropdown,
   PDFOptionList,
   PDFRadioGroup,
+  PDFButton,
+  PDFSignature,
   AcroTextFlags,
   PDFName,
   PDFOperator,
@@ -43,13 +45,14 @@ import {
 } from 'pdf-lib';
 import { textStyleBits } from './paragraph-data.js';
 import { textDecorationQuads } from './text-decoration.js';
-import { inheritPdfVersion, savePdf } from './version.js';
+import { inheritPdfVersion, loadPdfDocument, savePdf } from './version.js';
 import { sweepUnreferenced } from './compress.js';
 import { removePageStructure } from './struct-tree.js';
 import { shiftPageLabels } from './page-labels.js';
 import { retargetDeletedPages, stabilizeLocalDestinations } from './destinations.js';
 import { addHighlight, rectQuad } from './highlight.js';
 import { checkedFontData } from './font-data.js';
+import { CjkFace, cjkRegions, cjkScriptName, hasCjkText, hasKoreanText } from './cjk-fonts.js';
 import { normalizeJpegPadding } from './jpeg.js';
 import {
   prepareImageOrientation,
@@ -58,7 +61,7 @@ import {
 } from './image-orientation.js';
 import { reorientNotes } from './notes.js';
 import { flattenFields, redrawnFieldTexts, requireFlattenedPages } from './flatten.js';
-import { numberFormat, simpleCalculation, typedNumber } from './form-format.js';
+import { decimalMark, numberFormat, simpleCalculation, typedNumber } from './form-format.js';
 import {
   choiceAppearanceProvider,
   prepareFieldAppearance,
@@ -145,7 +148,7 @@ export async function validatePdf(bytes) {
   let doc, pages;
   try {
     // Validation must not change the metadata used to interpret or copy this source.
-    doc = await PDFDocument.load(bytes, { updateMetadata: false });
+    doc = await loadPdfDocument(bytes, { updateMetadata: false });
     // A file can parse yet lack a usable page tree; reading it must fail the same friendly way.
     pages = boundedPageCount(doc, MAX_PAGES);
     if (pages > 0 && pages <= MAX_PAGES) {
@@ -201,6 +204,45 @@ export async function preparePdfForEditing(bytes) {
   return savePdf(doc, { updateFieldAppearances: false });
 }
 
+const GEOMETRY_KEYS = ['MediaBox', 'CropBox', 'Rotate'].map((key) => PDFName.of(key));
+const USER_UNIT = PDFName.of('UserUnit');
+/**
+ * What sizes the pages are: each page's boxes, turn and unit, inherited ones included, as read
+ * down the page tree. Null when the tree cannot be read that way.
+ */
+function pageGeometry(doc) {
+  const { context } = doc;
+  const text = (value) => {
+    const object = context.lookup(value);
+    return object instanceof PDFArray
+      ? `[${object
+          .asArray()
+          .map((item) => String(context.lookup(item)))
+          .join(' ')}]`
+      : String(object);
+  };
+  const root = doc.catalog.lookup(PDFName.of('Pages'));
+  if (!(root instanceof PDFDict)) return null;
+  const parts = [];
+  const seen = new Set();
+  const pending = [[root, GEOMETRY_KEYS.map(() => undefined)]];
+  while (pending.length) {
+    const [node, inherited] = pending.pop();
+    if (seen.has(node) || seen.size > MAX_PAGES * 4) return null;
+    seen.add(node);
+    const values = GEOMETRY_KEYS.map((key, i) => node.get(key) ?? inherited[i]);
+    const kids = node.lookup(PDFName.of('Kids'));
+    if (kids instanceof PDFArray) {
+      // Last first, so the pages come off the list in their order.
+      for (let i = kids.size() - 1; i >= 0; i--) {
+        const kid = kids.lookup(i);
+        if (kid instanceof PDFDict) pending.push([kid, values]);
+      }
+    } else parts.push([...values, node.get(USER_UNIT)].map(text).join(' '));
+  }
+  return parts.join('\n');
+}
+
 /** Transactions retain original bytes, commit only on success, and bound undo memory. */
 export class PdfSession {
   constructor(bytes) {
@@ -210,6 +252,10 @@ export class PdfSession {
     this.revision = 0;
     this.savedRevision = 0;
     this.nextRevision = 1;
+    // Revisions that share a geometry number have pages of the same sizes, so a view can keep
+    // laying them out as it did instead of waiting to read every page's size again.
+    this.geometry = 0;
+    this.nextGeometry = 1;
   }
   get dirty() {
     return this.revision !== this.savedRevision;
@@ -219,11 +265,10 @@ export class PdfSession {
   }
   async change(operation, { signal, canCommit, streamProtection, saveOptions } = {}) {
     // Reconciliation must see the original Info timestamps, not pdf-lib's load time.
-    const doc = await waitFor(
-      () => PDFDocument.load(this.bytes, { updateMetadata: false }),
-      signal,
-    );
+    const doc = await waitFor(() => loadPdfDocument(this.bytes, { updateMetadata: false }), signal);
     signal?.throwIfAborted();
+    // Read before the repairs, which can move or resize pages as much as the operation can.
+    const geometry = pageGeometry(doc);
     repairDocument(doc);
     rememberStreamProtection(doc.context, streamProtection);
     // Operations can explicitly report that no document content changed.
@@ -258,13 +303,13 @@ export class PdfSession {
     const bytes = await waitFor(() => savePdf(doc, saveOptions), signal);
     signal?.throwIfAborted();
     if (canCommit && !canCommit()) return false;
-    this.adopt(bytes);
+    this.adopt(bytes, { sameGeometry: geometry !== null && geometry === pageGeometry(doc) });
   }
   /** Make `next` the current bytes and keep the previous ones in history. */
-  adopt(next) {
+  adopt(next, { sameGeometry = false } = {}) {
     if (next.length > MAX_FILE_SIZE)
       throw new Error('This edit would exceed the 100 MB PDF limit.');
-    this.past.push({ bytes: this.bytes, revision: this.revision });
+    this.past.push({ bytes: this.bytes, revision: this.revision, geometry: this.geometry });
     while (
       this.past.length > 25 ||
       (this.past.length > 1 &&
@@ -273,19 +318,20 @@ export class PdfSession {
       this.past.shift();
     this.bytes = next;
     this.revision = this.nextRevision++;
+    if (!sameGeometry) this.geometry = this.nextGeometry++;
     this.future = [];
   }
   undo() {
     const prev = this.past.pop();
     if (!prev) return false;
-    this.future.push({ bytes: this.bytes, revision: this.revision });
+    this.future.push({ bytes: this.bytes, revision: this.revision, geometry: this.geometry });
     Object.assign(this, prev);
     return true;
   }
   redo() {
     const next = this.future.pop();
     if (!next) return false;
-    this.past.push({ bytes: this.bytes, revision: this.revision });
+    this.past.push({ bytes: this.bytes, revision: this.revision, geometry: this.geometry });
     Object.assign(this, next);
     return true;
   }
@@ -719,14 +765,20 @@ export const TEXT_FONTS = {
   italic: 'NotoSans-Italic.ttf',
   boldItalic: 'NotoSans-BoldItalic.ttf',
 };
-export const hasKoreanText = (text) => /\p{Script=Hangul}/u.test(text);
-/** Pick a bundled face before loading it; no external font service is needed. */
-export function textFontFile(variant = 'regular', text = '') {
+export { hasCjkText, hasKoreanText };
+/** The bundled Noto Sans file for a style; CJK text instead takes a sliced face (cjk-fonts.js). */
+export function textFontFile(variant = 'regular') {
   if (!TEXT_FONTS[variant]) throw new Error('Choose a supported text style.');
-  if (!hasKoreanText(text)) return TEXT_FONTS[variant];
+  return TEXT_FONTS[variant];
+}
+/** The CJK face weight for a style. CJK faces have no italic, so say so rather than guess. */
+export function cjkWeight(variant = 'regular', text = '') {
+  if (!TEXT_FONTS[variant]) throw new Error('Choose a supported text style.');
   if (variant.toLowerCase().includes('italic'))
-    throw new Error('Korean text supports regular and bold styles. Turn off italic to apply.');
-  return variant === 'bold' ? 'NotoSansKR-Bold.ttf' : 'NotoSansKR-Regular.ttf';
+    throw new Error(
+      `${cjkScriptName(text)} text supports regular and bold styles. Turn off italic to apply.`,
+    );
+  return variant === 'bold' ? 'bold' : 'regular';
 }
 export const textVariant = (bold, italic) =>
   bold ? (italic ? 'boldItalic' : 'bold') : italic ? 'italic' : 'regular';
@@ -734,10 +786,46 @@ const fontBytes = new Map();
 // One subset per face per document: every edit in the same transaction shares it instead of
 // embedding a fresh copy of the font program per changed line or field.
 const embeddedFonts = new WeakMap();
-export function embedFont(doc, variant = 'regular', text = '') {
-  const file = textFontFile(variant, text);
+const documentFonts = (doc) => {
   let fonts = embeddedFonts.get(doc);
   if (!fonts) embeddedFonts.set(doc, (fonts = new Map()));
+  return fonts;
+};
+/**
+ * Embed the face for text in a style. Latin, Greek, Cyrillic, and the like take bundled Noto
+ * Sans; Chinese, Japanese, and Korean take a face built from only the glyphs they need. Text
+ * Noto Sans cannot write otherwise, such as circled numbers, falls back to the CJK face when
+ * that covers it.
+ */
+export async function embedFont(doc, variant = 'regular', text = '') {
+  if (hasCjkText(text)) return embedCjkFont(doc, cjkWeight(variant, text), text);
+  const font = await embedTextFont(doc, textFontFile(variant));
+  // Emoji are in neither face; do not download CJK glyphs only to report them.
+  if (
+    !text ||
+    /italic/i.test(variant) ||
+    writes(font, text) ||
+    /\p{Extended_Pictographic}/u.test(text)
+  )
+    return font;
+  try {
+    const fallback = await embedCjkFont(doc, cjkWeight(variant, text), text);
+    if (writes(fallback, text)) return fallback;
+  } catch {
+    // The person's text is reported as unsupported by the Noto Sans face below.
+  }
+  return font;
+}
+function writes(font, text) {
+  try {
+    assertSupportedText(font, text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function embedTextFont(doc, file) {
+  const fonts = documentFonts(doc);
   let font = fonts.get(file);
   if (!font) {
     font = (async () => {
@@ -762,23 +850,15 @@ export function embedFont(doc, variant = 'regular', text = '') {
         request,
         import('@pdf-lib/fontkit'),
       ]);
-      doc.registerFontkit(fontkit);
       let embedded;
       try {
-        embedded = await doc.embedFont(bytes, { subset: true });
+        embedded = await embedChecked(doc, fontkit, bytes);
       } catch (error) {
         // A complete download can still contain an invalid font table. Do not evict
         // a newer request if another document has already started its own retry.
         if (fontBytes.get(file) === request) fontBytes.delete(file);
-        throw new Error('Could not load the text font. Please retry.', { cause: error });
+        throw error;
       }
-      // pdf-lib uses these public methods for page text and form appearances alike.
-      // Normalize both so measuring and encoding cannot choose different glyphs.
-      const encode = embedded.encodeText.bind(embedded);
-      const measure = embedded.widthOfTextAtSize.bind(embedded);
-      embedded.encodeText = (text) => encode(assertSupportedText(embedded, text));
-      embedded.widthOfTextAtSize = (text, size) =>
-        measure(assertSupportedText(embedded, text), size);
       return embedded;
     })().catch((error) => {
       fonts.delete(file);
@@ -787,6 +867,64 @@ export function embedFont(doc, variant = 'regular', text = '') {
     fonts.set(file, font);
   }
   return font;
+}
+async function embedChecked(doc, fontkit, bytes) {
+  doc.registerFontkit(fontkit);
+  let embedded;
+  try {
+    embedded = await doc.embedFont(bytes, { subset: true });
+  } catch (error) {
+    throw new Error('Could not load the text font. Please retry.', { cause: error });
+  }
+  // pdf-lib uses these public methods for page text and form appearances alike.
+  // Normalize both so measuring and encoding cannot choose different glyphs.
+  const encode = embedded.encodeText.bind(embedded);
+  const measure = embedded.widthOfTextAtSize.bind(embedded);
+  embedded.encodeText = (text) => encode(assertSupportedText(embedded, text));
+  embedded.widthOfTextAtSize = (text, size) => measure(assertSupportedText(embedded, text), size);
+  return embedded;
+}
+/**
+ * The document's CJK face for the text's regions and weight, grown to cover the text. The
+ * same PDF font is returned each time: when the text needs new glyphs, the face is rebuilt
+ * with every earlier glyph at its old number and swapped in beneath pdf-lib's subset, which
+ * reads glyph outlines only when the document is saved.
+ */
+function embedCjkFont(doc, weight, text) {
+  const fonts = documentFonts(doc);
+  const key = `cjk:${cjkRegions(text).join(',')}:${weight}`;
+  let entry = fonts.get(key);
+  if (!entry) fonts.set(key, (entry = { face: new CjkFace(cjkRegions(text), weight) }));
+  // One growth at a time, so two edits never rebuild the face from the same old glyphs.
+  const grow = async () => {
+    await entry.face.include(text);
+    // Compare with what was last built, not whether this call grew the face: a build that
+    // failed after an earlier call added glyphs must still be retried.
+    const size = entry.face.characters.size;
+    if (entry.font && entry.built === size) return entry.font;
+    const { default: fontkit } = await import('@pdf-lib/fontkit');
+    const bytes = entry.face.bytes();
+    if (!entry.font) {
+      entry.font = await embedChecked(doc, fontkit, bytes);
+      entry.built = size;
+      return entry.font;
+    }
+    let face;
+    try {
+      face = fontkit.create(bytes);
+    } catch (error) {
+      throw new Error('Could not load the text font. Please retry.', { cause: error });
+    }
+    const { embedder } = entry.font;
+    embedder.font = face;
+    embedder.fontData = bytes;
+    embedder.subset.font = face;
+    characterSets.delete(entry.font);
+    entry.built = size;
+    return entry.font;
+  };
+  entry.pending = (entry.pending || Promise.resolve()).catch(() => {}).then(grow);
+  return entry.pending;
 }
 export async function addText(
   doc,
@@ -871,7 +1009,7 @@ export async function addText(
 }
 /**
  * The bundled faces flattening needs for fields it draws anew whose text the standard font
- * cannot write, such as Polish, Cyrillic, or Korean values in a form that leaves its drawing to
+ * cannot write, such as Polish, Cyrillic, Chinese, or Korean values in a form that leaves its drawing to
  * the viewer. Pass them to flattenDocument.
  */
 export function flattenFonts(doc) {
@@ -1514,7 +1652,13 @@ export function listFields(doc) {
         spellcheck: field instanceof PDFDropdown && field.isSpellChecked(),
       };
     }
-    return { ...base, type: 'unsupported' };
+    // Push buttons hold no value; signature fields are signed with a certificate.
+    return {
+      ...base,
+      type: 'unsupported',
+      ...(field instanceof PDFSignature && { signature: true }),
+      ...(field instanceof PDFButton && { button: true }),
+    };
   });
 }
 /** A field's value as a calculation reads it: its text, choice, or export value. */
@@ -1593,8 +1737,15 @@ export async function fillFields(doc, values) {
     if (field instanceof PDFTextField) {
       if (fieldValue(field) === value) continue;
       // A number or percent field takes a number, as its keystroke check in Acrobat allows.
-      if (String(value).trim() && numberFormat(field) && typedNumber(value) === null)
-        throw new Error(`Enter a number in ${fieldTooltip(field) || name}, such as 1234.5.`);
+      const format = numberFormat(field);
+      if (String(value).trim() && format && typedNumber(value, format) === null)
+        throw Object.assign(
+          new Error(
+            `Enter a number in ${fieldTooltip(field) || name}, such as 1234${decimalMark(format)}5.`,
+          ),
+          // The field it is about, for the page to point at it.
+          { field: name },
+        );
       prepareFieldAppearance(field, form);
       field.setText(value);
       // An explicit empty value overrides inherited/default values; deleting /V does not.
@@ -1710,7 +1861,7 @@ export async function fillFields(doc, values) {
     changedFields.push(field);
     changedText.set(field, textValue(field));
   }
-  // Each field is drawn with the bundled face its own text needs, such as the Korean one.
+  // Each field is drawn with the bundled face its own text needs, such as a CJK one.
   const fonts = new Map();
   for (const field of changedFields) {
     const text = changedText.get(field) ?? '';

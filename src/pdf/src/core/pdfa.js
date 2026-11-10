@@ -1818,7 +1818,7 @@ export async function convertToPdfA(doc, options = {}) {
         return false;
       }
     });
-    // Text the standard font cannot write (Polish, Cyrillic, Korean) is drawn with a bundled
+    // Text the standard font cannot write (Polish, Cyrillic, Chinese, Korean) is drawn with a bundled
     // face, which is embedded like any other.
     const texts = needed.flatMap((field) => {
       try {

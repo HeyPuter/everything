@@ -1,17 +1,19 @@
 import './styles/app.css';
-import { App, DEFAULT_SETTINGS, type Settings } from './app/app';
+import { App } from './app/app';
 import { makeHooks, registerCommands } from './app/actions';
 import { FileOps } from './app/fileops';
-import { StartScreen, bindAccountMenu, refreshAccount, showAlphaNotice } from './app/start';
+import { StartScreen, bindAccountMenu, bindUserMenu, refreshAccount } from './app/start';
 import { TaskPane, recentItems } from './app/taskpane';
 import { AssistantPanel } from './assistant/panel';
+import { normalizeSettings } from './app/settings';
 import { KV_SETTINGS_KEY, kvGet, kvSet, loadPuter, puter } from './platform/puter';
 import { applyTheme } from './platform/theme';
+import { installLongPressContextMenu } from './ui/longpress';
 import { toast } from './ui/overlay';
 
 const SETTINGS_KEY = 'parametric:settings';
 
-function localSettings(): Partial<Settings> {
+function localSettings(): unknown {
   try {
     return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
   } catch {
@@ -42,11 +44,17 @@ async function boot() {
     root.removeAttribute('aria-busy');
     return;
   }
-  app.applySettings({ ...DEFAULT_SETTINGS, ...localSettings() });
-  app.loadRemoteSettings = async () => {
-    const remote = await kvGet<Partial<Settings>>(KV_SETTINGS_KEY);
-    if (remote && typeof remote === 'object') app.applySettings({ ...app.settings, ...remote });
-  };
+  installLongPressContextMenu();
+  app.applySettings(localSettings());
+  // Preferences changed in another tab: apply them, so a change made here
+  // does not write this tab's older copy over them.
+  window.addEventListener('storage', (e) => {
+    if (e.key !== SETTINGS_KEY) return;
+    const next = normalizeSettings(localSettings(), app.settings);
+    const patch = Object.fromEntries(Object.entries(next).filter(([k, v]) => app.settings[k as keyof typeof next] !== v));
+    if (Object.keys(patch).length) app.changeSettings(patch);
+  });
+  app.loadRemoteSettings = () => app.loadSettings(() => kvGet<unknown>(KV_SETTINGS_KEY));
   // Development builds expose the app for debugging and browser tests.
   if (import.meta.env.DEV) (window as unknown as { __parametric: App }).__parametric = app;
   const taskPane = new TaskPane(app, files, new AssistantPanel(app));
@@ -56,17 +64,19 @@ async function boot() {
   if (matchMedia('(min-width: 981px)').matches) taskPane.open('assistant', false);
   start = new StartScreen(app, files);
   bindAccountMenu(app);
+  bindUserMenu(app);
   root.removeAttribute('aria-busy');
   app.newDocument('Part1');
+  const startupDocument = app.documentSignal;
 
   await loadPuter();
   void refreshAccount(app);
   void app.loadRemoteSettings();
   files.handleLaunchItems();
+  files.handleWindowClose();
   const launched = !!puter()?.ui?.wasLaunchedWithItems?.();
-  const restored = launched ? false : await files.checkRecovery();
-  if (!restored && !launched) start.show();
-  showAlphaNotice();
+  const restored = launched || startupDocument.aborted ? false : await files.checkRecovery();
+  if (!restored && !launched && !startupDocument.aborted && !app.store.dirty && !app.panel?.edited) start.show();
 }
 
 window.addEventListener('unhandledrejection', (e) => {

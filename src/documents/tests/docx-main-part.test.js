@@ -66,3 +66,34 @@ it('still refuses a main part outside the word folder or one that competes with 
   parts['word/document.xml'] = parts['word/document2.xml'];
   await expect(DocxPackage.open(zipSync(parts))).rejects.toThrow();
 });
+
+// The main part's content type may come from the Default for its extension instead of an Override
+// (Part 2 §10.1.2.4), and media types compare without regard to case. Both were refused as "Only
+// standard .docx files are supported in this version."
+const TEMPLATE_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml';
+function typedBy(types) {
+  const parts = unzipSync(packageWith());
+  parts['[Content_Types].xml'] = strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>${types}<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`);
+  return zipSync(parts);
+}
+const mainType = parts => {
+  const types = new DOMParser().parseFromString(strFromU8(parts['[Content_Types].xml']), 'application/xml').documentElement;
+  const override = [...types.children].filter(n => n.localName === 'Override' && n.getAttribute('PartName') === '/word/document.xml');
+  return override.length ? override.map(n => n.getAttribute('ContentType')) : [...types.children].find(n => n.localName === 'Default' && n.getAttribute('Extension') === 'xml').getAttribute('ContentType');
+};
+for (const [name, types, saved] of [
+  ['the Default for .xml', `<Default Extension="xml" ContentType="${MAIN_TYPE}"/>`, MAIN_TYPE],
+  ['an Override in other capitals', `<Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${MAIN_TYPE.replace('document.main', 'Document.Main')}"/>`, [MAIN_TYPE.replace('document.main', 'Document.Main')]],
+  ['the Default for .xml, as a template', `<Default Extension="XML" ContentType="${TEMPLATE_TYPE}"/>`, [MAIN_TYPE]],
+]) it(`opens a main part typed by ${name} for editing and saves it as a document`, async () => {
+  const pkg = await DocxPackage.open(typedBy(types));
+  expect(pkg.readOnly).toBeFalsy();
+  expect(text(pkg)).toEqual(['Report', 'Body text']);
+  const parts = await editAndSave(pkg);
+  expect(mainType(parts)).toEqual(saved);
+  expect(text(await DocxPackage.open(zipSync(parts)))).toEqual(['Report', 'Body text added']);
+});
+
+it('still refuses a main part typed as something else', async () => {
+  await expect(DocxPackage.open(typedBy('<Default Extension="xml" ContentType="application/xml"/>'))).rejects.toThrow('Only standard .docx files');
+});

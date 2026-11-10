@@ -1,0 +1,14 @@
+{
+  "add": "添加…",
+  "addTitle": "添加视图",
+  "detail": "{keeps, select, both {包括打印设置以及隐藏的行、列和筛选。} print {包括打印设置。} hidden {包括隐藏的行、列和筛选。} other {仅包括各工作表的视图。}}",
+  "detailOnSheet": "打开时显示 {sheet}。{keeps, select, both {包括打印设置以及隐藏的行、列和筛选。} print {包括打印设置。} hidden {包括隐藏的行、列和筛选。} other {仅包括各工作表的视图。}}",
+  "empty": "还没有视图。选择“添加”可将工作簿的当前视图以一个名称保存。",
+  "include": "视图中包括",
+  "includeHidden": "隐藏的行和列以及筛选",
+  "includePrint": "页面设置和打印设置",
+  "keeps": "每个视图都会保留各工作表的缩放、所选内容、滚动位置、冻结窗格和视图。",
+  "replaceExisting": "“{name}”已存在。再次选择“确定”可将其替换为工作簿的当前状态。",
+  "title": "视图管理器",
+  "views": "视图"
+}

@@ -39,7 +39,7 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
       counts.set(section, (counts.get(section) || 0) + 1);
     }
   });
-  const numbers = pageNumberSequence(body.pageSections, definition, body.numberingApproximations);
+  const numbers = pageNumberSequence(body.pageSections, definition, body.numberingApproximations), pageNumbers = numbers;
   for (let page = 0; page < body.pageCount; page++) {
     const section = body.pageSections[page], settings = sectionSettings[section], geometry = referencePageGeometry(body.pages[page]);
     if (section === null) continue;
@@ -95,13 +95,16 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
   for (const { area, kind } of areas) {
     const geometry = referencePageGeometry(body.pages[area.page]), shown = new Map(area.notes.map(note => [note.id, note.display])), shownKey = JSON.stringify([kind, ...shown]);
     const numbers = kind === 'footnote' ? shown : { footnote: new Map(), endnote: shown };
+    // A PAGE or NUMPAGES field in a note shows the page the note is on (§17.16.5.43), as in a header.
+    const section = body.pageSections[area.page];
+    const pageContext = { pageNumber: pageNumbers[area.page], pageCount: body.pageCount, sectionPageCount: counts.get(section), pageNumbering: definition.sections[section]?.pageNumbering };
     let y = area.top + (area.separator === false ? 0 : FOOTNOTE_SEPARATOR);
     for (const note of area.notes) {
       const story = definition.stories[note.path];
       if (!story) continue;
       if (note.y !== undefined) y = note.y;
       try {
-        const { placed, storyGeometry, positions: storyPositions } = measureNote({ ...story, paragraphs: storyParagraphs(note.path, story) }, note.display, numbers, geometry, measure, numbering, { drawingLayouts, bestEffort, storyKeys, ...styleOptions, storyStylesKey: styleOptions.stylesKey, storyNumberingKey: numberingKey, contentKey: storyContentKey(definition, note.path, note.display, shownKey) });
+        const { placed, storyGeometry, positions: storyPositions } = measureNote({ ...story, paragraphs: storyParagraphs(note.path, story) }, note.display, numbers, geometry, measure, numbering, { drawingLayouts, bestEffort, storyKeys, ...styleOptions, storyStylesKey: styleOptions.stylesKey, storyNumberingKey: numberingKey, pageContext, contentKey: storyContentKey(definition, note.path, note.display, shownKey) });
         positions.push({ path: note.path, page: area.page, positions: storyPositions });
         const top = y, shifted = item => ({ ...item, page: area.page, pageStory: note.path, y: item.y + top, ...(item.cellClip ? { cellClip: shiftCellClip(item.cellClip, top) } : {}) });
         lines.push(...placed.lines.map(line => ({ ...shifted(line), storyGeometry, baseline: line.baseline + top })));

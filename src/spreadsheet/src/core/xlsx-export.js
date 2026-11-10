@@ -19,7 +19,8 @@ import { tableStyleParts, parseTableSpec } from './tables.js';
 import { writeThemeInfo } from './workbook-theme.js';
 import { parseFormula } from './formula/parser.js';
 import { writeXlsxPrint } from './xlsx-export-print.js';
-import { writeXlsxOutlineSettings } from './xlsx-outline.js';
+import { writeXlsxOutlineSettings, outlineLineLevels, outlineCollapsedLines } from './xlsx-outline.js';
+import { outlineSettingsOf } from './workbook.js';
 import { writeXlsxBackground } from './xlsx-background.js';
 import { writeXlsxSheetCustomViews, writeXlsxWorkbookCustomViews } from './xlsx-custom-views.js';
 import { richValueWriter } from './xlsx-rich-values.js';
@@ -30,6 +31,7 @@ import { toFileFormula } from './xlfn.js';
 import { writeXlsxConditionalFormats } from './xlsx-export-condformat.js';
 import { readXlsxConditionalFormats } from './xlsx-condformat.js';
 import { writeExportMetadata } from './xlsx-export-meta.js';
+import { NATIVE_STATE_VERSIONS, nativeSheetState, nativeValidationsSignature } from './xlsx-native-state.js';
 import { normalizeSplit, splitPaneXml, paneName } from './split-panes.js';
 import { conditionalFormatSignature } from './xlsx-condformat-reconcile.js';
 import { createPersonList, writeXlsxThreadedComments, writeXlsxPersons } from './xlsx-threaded-comments.js';
@@ -201,6 +203,16 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
   // A colour filter kept from a file names its colour as a format of this file's own (see writeXlsxFilter).
   const filterColorFormats = (xml) => xml.replace(/\bdxfId="puter-(fill|ink)-([\da-f]{6})"/g,
     (m, kind, hex) => `dxfId="${styles.differential(kind === 'fill' ? { bg: `#${hex}` } : { color: `#${hex}` })}"`);
+  // What each sheet's part says of the settings the private record also holds, so that an edit made to them in another
+  // program is told from this save's own projection when the file is opened again (xlsx-native-state.js).
+  const noteNativeState = (sheet, xml) => {
+    const record = book.PuterExportMeta?.data.sheets[sheet.name];
+    if (!record) return;
+    const validations = nativeValidationsSignature(xml);
+    record.nativeState = { ...nativeSheetState(xml), validations, versions: NATIVE_STATE_VERSIONS };
+    // Only a sheet with validations has a hash to wait for.
+    if (typeof validations !== 'string') return validations.then((hash) => { record.nativeState.validations = hash; });
+  };
   for (const [i, sheet] of wb.sheets.entries()) {
     if (i && pause) await pause();
     const ws = book.Sheets[sheet.name], path = `/xl/worksheets/sheet${i + 1}.xml`;
@@ -213,8 +225,10 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
       }));
       const properties = sheet.color ? xmlTag('sheetPr', {}, xmlTag('tabColor', { rgb: `FF${sheet.color.slice(1).toUpperCase()}` })) : '';
       const protection = sheet.protected ? xmlTag('sheetProtection', { content: 1, objects: 1 }) : '';
-      set(chartPath, writeXlsxPrint(HEADER + xmlTag('chartsheet', { xmlns: MAIN, 'xmlns:r': REL.slice(0, -1) },
-        properties + views + protection + xmlTag('drawing', { 'r:id': 'puterDrawing' })), sheet.printSettings));
+      const chartXml = writeXlsxPrint(HEADER + xmlTag('chartsheet', { xmlns: MAIN, 'xmlns:r': REL.slice(0, -1) },
+        properties + views + protection + xmlTag('drawing', { 'r:id': 'puterDrawing' })), sheet.printSettings);
+      set(chartPath, chartXml);
+      noteNativeState(sheet, chartXml);
       set(`/xl/chartsheets/_rels/sheet${i + 1}.xml.rels`, HEADER + xmlTag('Relationships', { xmlns: 'http://schemas.openxmlformats.org/package/2006/relationships' },
         xmlTag('Relationship', { Id: 'puterDrawing', Type: `${REL}drawing`, Target: drawing })));
       // SheetJS supplies the workbook's sheet IDs and order. Change only this
@@ -260,9 +274,12 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     // An absent format element has different Excel initialization semantics.
     // Retain it while both defaults still match; explicit line edits live in
     // cols/row records and do not require changing the worksheet defaults.
-    const implicitFormat = heightMode === 'implicit' && def?.pixels === sheet.defaultColWidth && def.base === 10 && def.width == null;
+    // The deepest outline levels, which Excel sizes the outline's margin by.
+    const deepest = (levels) => { let n = 0; for (const level of levels.values()) if (level > n) n = level; return n; };
+    const outlineLevelRow = deepest(outlineLineLevels(sheet.groups?.rows, sheet.rows - 1)), outlineLevelCol = deepest(outlineLineLevels(sheet.groups?.cols, sheet.cols - 1));
+    const implicitFormat = heightMode === 'implicit' && def?.pixels === sheet.defaultColWidth && def.base === 10 && def.width == null && !outlineLevelRow && !outlineLevelCol;
     const format = implicitFormat ? '' : xmlTag('sheetFormatPr', { defaultRowHeight: sheet.defaultRowHeight * 3 / 4, ...widthAttrs,
-      customHeight: heightMode === 'auto' ? null : 1 });
+      customHeight: heightMode === 'auto' ? null : 1, outlineLevelRow: outlineLevelRow || null, outlineLevelCol: outlineLevelCol || null });
     xml = /<sheetFormatPr\b/.test(xml) ? xml.replace(/<sheetFormatPr\b[^>]*\/>/, format) : xml.replace('</sheetViews>', `</sheetViews>${format}`);
     const columnRuns = [];
     const sheetVAlign = sheet.defaultVAlign || 'middle';
@@ -271,6 +288,9 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     // sheet's default width when a style-only span supplies its alignment.
     const defaultColumnAttrs = { width: widthAttrs.defaultColWidth ?? xlsxWidthFromPixels(sheet.defaultColWidth, normalFont), customWidth: 1, style: defaultColumnStyle };
     let nextDefaultColumn = 0;
+    const outline = outlineSettingsOf(sheet);
+    const collapsedCols = outlineCollapsedLines(sheet.groups?.cols, outline.summaryRight, MAX_COL);
+    const collapsedRows = outlineCollapsedLines(sheet.groups?.rows, outline.summaryBelow, Infinity);
     const columnKeys = [...new Set([...Object.keys(ws['!cols'] || {}), ...Object.keys(native?.cols || {})])].map(Number).sort((a, b) => a - b);
     for (const c of columnKeys) {
       if (defaultColumnStyle != null && c > nextDefaultColumn) columnRuns.push({ min: nextDefaultColumn + 1, max: c, attrs: defaultColumnAttrs });
@@ -278,7 +298,8 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
       const col = ws['!cols']?.[c] || {}, pixels = col.wpx ?? sheet.defaultColWidth;
       const saved = native?.cols[c];
       const attrs = { width: saved?.pixels === pixels ? saved.width : xlsxWidthFromPixels(pixels, normalFont), customWidth: 1,
-        hidden: col.hidden ? 1 : null, style: sheet.colStyles.has(c) ? styles.cell({ valign: sheetVAlign, ...sheet.colStyles.get(c) }) : defaultColumnStyle };
+        hidden: col.hidden ? 1 : null, style: sheet.colStyles.has(c) ? styles.cell({ valign: sheetVAlign, ...sheet.colStyles.get(c) }) : defaultColumnStyle,
+        outlineLevel: col.level || null, collapsed: collapsedCols.has(c) ? 1 : null };
       const previous = columnRuns.at(-1), signature = JSON.stringify(attrs);
       if (previous?.max === c && previous.signature === signature) previous.max = c + 1;
       else columnRuns.push({ min: c + 1, max: c + 1, attrs, signature });
@@ -295,6 +316,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
       // as well; do not materialize the otherwise empty million-row sheet.
       if (xlsxAttr(head, 'ht') == null) head = head.replace(/(\/?>)$/, ` ht="${sheet.defaultRowHeight * 3 / 4}" customHeight="1"$1`);
       if (sheet.rowHeightModes.get(r) === 'auto') head = head.replace(/\scustomHeight="[^"]*"/g, '');
+      if (collapsedRows.has(r)) head = head.replace(/(\/?>)$/, ' collapsed="1"$1');
       return style ? head.replace(/\ss="[^"]*"|\scustomFormat="[^"]*"/g, '').replace(/(\/?>)$/, ` s="${styles.cell({ valign: sheetVAlign, ...ws['!nativeRowStyleBase'], ...style })}" customFormat="1"$1`) : head;
     });
     if (sheet.color) {
@@ -374,7 +396,10 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     xml = writeXlsxIgnoredErrors(xml, sheet.ignoredErrors);
     xml = writeXlsxRichText(xml, ws, wb.colorPalette, normalFont, wb.fontTheme);
     writeXlsxThreadedComments(sheet, i + 1, persons, { get, set, contentType });
-    set(path, filterColorFormats(richValues.sheet(writeXlsxSheetCustomViews(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), wb.customViews || [], sheet), imageValues)));
+    xml = filterColorFormats(richValues.sheet(writeXlsxSheetCustomViews(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), wb.customViews || [], sheet), imageValues));
+    set(path, xml);
+    const noted = noteNativeState(sheet, xml);
+    if (noted) await noted;
   }
   writeXlsxPersons(persons, { get, set, contentType });
   let workbook = get('/xl/workbook.xml');
@@ -383,10 +408,12 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     : workbook.replace(/<(?:calcPr|oleSize|customWorkbookViews|pivotCaches|smartTagPr|smartTagTypes|webPublishing|fileRecoveryPr|webPublishObjects|extLst)\b|<\/workbook>/, match => xmlTag('definedNames', {}, helpers.join('')) + match);
   const { firstSheetId, ...windowView } = wb.workbookView || {};
   const firstSheet = firstSheetId == null ? null : wb.sheets.findIndex(s => s.id === firstSheetId);
+  const activeTab = Math.max(0, wb.sheets.findIndex(s => s.id === activeSheetId));
   const views = xmlTag('bookViews', {}, xmlTag('workbookView', {
-    ...windowView, firstSheet: firstSheet >= 0 ? firstSheet : null,
-    activeTab: Math.max(0, wb.sheets.findIndex(s => s.id === activeSheetId)),
+    ...windowView, firstSheet: firstSheet >= 0 ? firstSheet : null, activeTab,
   }));
+  // The sheet the file opens on, as written, so that another sheet opened in Excel since is told from it on reopening.
+  if (book.PuterExportMeta) book.PuterExportMeta.data.nativeActiveTab = activeTab;
   workbook = /<bookViews\b/.test(workbook) ? workbook.replace(/<bookViews\b[^>]*>[\s\S]*?<\/bookViews>/, views) : workbook.replace('<sheets>', `${views}<sheets>`);
   // Protect Workbook: the structure lock sits just before the views, where the schema has it; no password is set.
   workbook = workbook.replace(/<workbookProtection\b[^>]*\/>/g, '');

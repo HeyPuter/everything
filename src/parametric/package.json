@@ -4,7 +4,7 @@
   "description": "Parametric: feature-based 3D part modeling in the browser. Sketch with constraints, extrude, revolve, fillet, shell and pattern on a real B-rep kernel, then export STEP and STL, stored in your own Puter cloud.",
   "type": "module",
   "private": true,
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=22.12"
   },

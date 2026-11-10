@@ -85,4 +85,18 @@ describe('degenerate inputs never throw', () => {
     const inner = G.offsetEntity(rect, 1, o + 5, o + 3);
     expect(Math.abs(G.areaOf(inner) - 32)).toBeLessThan(1e-6);
   });
+  it('keeps distinct hits on small curves far from the origin', () => {
+    const o = 5e6;
+    const circle = { type: 'circle', cx: o, cy: o, r: 0.4 };
+    const line = { type: 'line', x1: o - 2, y1: o, x2: o + 2, y2: o };
+    expect(G.intersectEntities(circle, line)).toHaveLength(2);
+    expect(G.intersectPrims(G.toPrims(circle)[0], G.toPrims(line)[0])).toHaveLength(2);
+    const ell = { type: 'ellipse', cx: o, cy: o, mx: 0.5, my: 0, ratio: 0.5, start: 0, end: TWO_PI };
+    expect(G.intersectEntities(ell, line)).toHaveLength(2);
+    // Trimming between the two hits keeps both outer pieces.
+    const r = G.trimEntity(line, G.toPrims(circle), o, o);
+    expect(r.add).toHaveLength(2);
+    expect(r.add[0].x2).toBeCloseTo(o - 0.4, 6);
+    expect(r.add[1].x1).toBeCloseTo(o + 0.4, 6);
+  });
 });

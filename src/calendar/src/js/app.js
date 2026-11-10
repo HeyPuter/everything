@@ -8,6 +8,7 @@ import { icon } from './icons.js';
 import { toast } from './toast.js';
 import { signOut, userInitial } from './auth.js';
 import { showProfilePicture, clearCachedPicture } from './profile.js';
+import { userMenu, syncUserMenuTheme } from './user-menu.js';
 import { clearSnapshot } from './offline-store.js';
 import { isBlocked, isOfflineError } from './offline.js';
 import { createEventModal } from './modal.js';
@@ -22,6 +23,8 @@ import { openBookingEditor } from './booking-dialog.js';
 import { openCategoryRename } from './category-dialog.js';
 import { openMailDialog } from './mail-dialog.js';
 import { renderSidebar } from './sidebar.js';
+import { occurrenceNear } from './recurrence.js';
+import { notificationTarget, pushAvailable, needsHomeScreen, pushStatus, pushHealth, pushReason, turnPushOn, turnPushOff, releasePush } from './push.js';
 import { openContextMenu, closeContextMenu, isContextMenuOpen, onContextMenuClose } from './context-menu.js';
 import { onDragEnd } from './drag.js';
 import { HOLIDAY_COUNTRIES, detectCountry, countryName } from './holidays.js';
@@ -56,7 +59,7 @@ const VIEWS = [
   { key: 'agenda', label: 'List' },
 ];
 
-export function createApp(root, { store, user, rsvp = null, contacts = null, invites = null, booking = null, meetings = null, mail = null }) {
+export function createApp(root, { store, user, rsvp = null, contacts = null, invites = null, booking = null, meetings = null, mail = null, storedReminders = null }) {
   const settings = store.getSettings();
 
   const state = {
@@ -97,16 +100,20 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
 
   // Jump to an event or task from search: move the calendar to its day, then
   // open it. A task has a single `due` instant where an event has `start`.
-  const search = createSearch({
-    store,
-    onPick: (item) => {
-      const when = item.isTask ? item.due : item.start;
-      state.cursor = startOfDay(new Date(when));
-      state.miniCursor = startOfMonth(new Date(when));
-      render();
-      modal.openView(item);
-    },
-  });
+  const search = createSearch({ store, onPick: (item) => openAtItem(item) });
+
+  function openAtItem(item, opts) {
+    const when = item.isTask ? item.due : item.start;
+    state.cursor = startOfDay(new Date(when));
+    state.miniCursor = startOfMonth(new Date(when));
+    render();
+    modal.openView(item, opts);
+  }
+
+  /** A series opens on its current or next occurrence, as search does. */
+  function openEventRecord(ev, opts) {
+    openAtItem(ev.recurrence ? occurrenceNear(ev, Date.now()) || ev : ev, opts);
+  }
 
   /**
    * Rejection handler for a store write nothing awaits — a drag, a resize, a
@@ -324,8 +331,10 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
           reportWriteFailure('Could not open the invitations list.'),
         );
       }
-      state.sidebarOpen = true;
       render();
+      // Through openSidebar, so the drawer gets its class and scrim; setting
+      // the flag alone left it shut and made the menu button need two taps.
+      if (window.matchMedia('(max-width: 720px)').matches) openSidebar();
     },
   };
 
@@ -573,18 +582,33 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
     on: { click: () => search.open() },
   });
 
-  const avatarBtn = el('button', {
-    class: 'avatar',
-    type: 'button',
-    'aria-label': 'Account and settings',
-    'aria-haspopup': 'dialog',
-    text: userInitial(user),
-    on: { click: (e) => toggleUserMenu(e) },
-  });
+  // puter.js's <puter-user-menu> where the SDK has it (user-menu.js): it ends
+  // the header with the account and the Apps launcher, and the avatar before
+  // it is a Settings button for the rest of what its menu holds. Made once,
+  // with the header: the element loads the account each time it joins the page.
+  const accountMenu = userMenu({ onSignOut: handleSignOut, onSessionChanged: handleSessionChanged });
+  const avatarBtn = accountMenu
+    ? el('button', {
+        class: 'icon-btn',
+        type: 'button',
+        'aria-label': 'Settings',
+        title: 'Settings',
+        'aria-haspopup': 'dialog',
+        html: icon('settings'),
+        on: { click: (e) => toggleUserMenu(e) },
+      })
+    : el('button', {
+        class: 'avatar',
+        type: 'button',
+        'aria-label': 'Account and settings',
+        'aria-haspopup': 'dialog',
+        text: userInitial(user),
+        on: { click: (e) => toggleUserMenu(e) },
+      });
   // Upgrade the letter to the account's public profile picture when it has one
   // (cached copy first, then a fresh read). Strictly fire-and-forget: every
   // failure path inside keeps the letter, and nothing here can reject.
-  showProfilePicture(avatarBtn, user);
+  if (!accountMenu) showProfilePicture(avatarBtn, user);
 
   const menuBtn = el('button', {
     class: 'icon-btn menu-toggle',
@@ -624,7 +648,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       headerTitleEl,
     ]),
     el('div', { class: 'header__spacer' }),
-    el('div', { class: 'header__tools' }, [searchBtn, segmented, avatarBtn]),
+    el('div', { class: 'header__tools' }, [searchBtn, segmented, avatarBtn, accountMenu]),
   ]);
 
   const shell = el('div', { class: 'app' }, [header, sidebarSlot, mainEl, tabbar]);
@@ -796,16 +820,20 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       // Not a menu: it holds a segmented control, toggles and a button. Expose
       // it as a labelled dialog and make it programmatically focusable.
       role: 'dialog',
-      'aria-label': 'Account and settings',
+      'aria-label': accountMenu ? 'Settings' : 'Account and settings',
       tabindex: '-1',
       style: { minWidth: '284px' },
     }, [
-      el('div', { class: 'popover__header' }, [
-        el('span', { class: 'popover__name', text: (user && user.username) || 'Signed in' }),
-        user && user.email
-          ? el('span', { class: 'popover__meta', text: user.email })
-          : null,
-      ]),
+      // Beside <puter-user-menu> this is the Settings menu: the element names
+      // the account and signs out.
+      accountMenu
+        ? null
+        : el('div', { class: 'popover__header' }, [
+            el('span', { class: 'popover__name', text: (user && user.username) || 'Signed in' }),
+            user && user.email
+              ? el('span', { class: 'popover__meta', text: user.email })
+              : null,
+          ]),
       el('div', { style: { padding: '4px 8px 8px' } }, [
         el('span', { class: 'field__label', style: { display: 'block', marginBottom: '6px' }, text: 'Appearance' }),
         themeSeg,
@@ -835,6 +863,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       settingToggle('Clock changes (daylight saving)', s.clockChanges !== false, (on) => {
         store.saveSettings({ clockChanges: on });
       }, { name: 'clockChanges' }),
+      buildPushSetting(),
       el('div', { class: 'ctx-menu__sep' }),
       mail && mail.mailbox.available()
         ? el('button', {
@@ -862,13 +891,15 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
           },
         },
       }),
-      el('div', { class: 'ctx-menu__sep' }),
-      el('button', {
-        class: 'menu-item',
-        type: 'button',
-        html: icon('logout', { size: 'sm' }) + '<span>Sign out</span>',
-        on: { click: handleSignOut },
-      }),
+      accountMenu ? null : el('div', { class: 'ctx-menu__sep' }),
+      accountMenu
+        ? null
+        : el('button', {
+            class: 'menu-item',
+            type: 'button',
+            html: icon('logout', { size: 'sm' }) + '<span>Sign out</span>',
+            on: { click: handleSignOut },
+          }),
     ]);
 
     document.body.append(box);
@@ -961,6 +992,58 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
     return select;
   }
 
+  /**
+   * Push notifications for reminders, invitations and RSVP answers. On an
+   * iPhone or iPad outside a Home Screen app there is nothing to switch on, so
+   * say how to get there instead.
+   */
+  function buildPushSetting() {
+    const p = typeof puter !== 'undefined' ? puter : null;
+    if (!pushAvailable(p)) {
+      if (!p || p.env !== 'web' || !needsHomeScreen()) return null;
+      return el('p', {
+        class: 'popover__meta',
+        style: { padding: '4px 12px 8px', margin: '0' },
+        text: 'For notifications on iPhone or iPad, tap Share, then Add to Home Screen, and open Calendar from there.',
+      });
+    }
+    const row = settingToggle('Push notifications', false, (on) => {
+      // Synchronously, so enable() still has this click for the browser's prompt.
+      const change = on ? turnPushOn(p, store) : turnPushOff(p, store);
+      input.disabled = true;
+      Promise.resolve(change)
+        .then(async (done) => {
+          if (done) return;
+          if (await pushStatus(p) === 'blocked') {
+            toast('Notifications are blocked for this site. Allow them in your browser’s site settings.');
+          } else toast('Notifications were not turned on.');
+        })
+        .catch(async () => {
+          if (await pushStatus(p) === 'blocked') toast('Notifications are blocked for this site. Allow them in your browser’s site settings.');
+          else toast('Could not change notifications. Please try again.', { variant: 'danger' });
+        })
+        .finally(refresh);
+    }, { name: 'push' });
+    const input = row.querySelector('input');
+    // Why pushes don't reach this device, when they should.
+    const reason = el('p', { class: 'popover__meta', style: { padding: '0 12px 8px', margin: '0' }, hidden: true });
+    function refresh() {
+      input.disabled = true;
+      Promise.resolve(pushHealth(p))
+        .then((health) => {
+          input.checked = health === 'on';
+          reason.textContent = pushReason(health);
+          reason.hidden = !reason.textContent;
+        })
+        .catch(() => {})
+        .finally(() => {
+          input.disabled = false;
+        });
+    }
+    refresh();
+    return el('div', {}, [row, reason]);
+  }
+
   function settingToggle(label, checked, onToggle, { name = '' } = {}) {
     const input = el('input', {
       type: 'checkbox',
@@ -982,6 +1065,27 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
 
   async function handleSignOut() {
     closeUserMenu();
+    dropAccountData();
+    try {
+      await releasePush().catch(() => {});
+      await signOut();
+    } finally {
+      window.location.reload();
+    }
+  }
+
+  // A sign-in or sign-out <puter-user-menu> did by itself (user-menu.js): the
+  // session is already another one, so what this account left on the device
+  // goes the same way and the page starts over.
+  function handleSessionChanged() {
+    closeUserMenu();
+    dropAccountData();
+    window.location.reload();
+  }
+
+  function dropAccountData() {
+    reminders.stop();
+    if (storedReminders) storedReminders.stop();
     // Drop this account's cached calendar so it can't be read offline on a
     // shared machine after sign-out — and its cached address book and profile
     // picture with it.
@@ -995,11 +1099,6 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       // own idle timeout. Disposing second so invalidate() can still tell this
       // window's subscribers that the suggestions they were showing are gone.
       contacts.dispose();
-    }
-    try {
-      await signOut();
-    } finally {
-      window.location.reload();
     }
   }
 
@@ -1030,6 +1129,10 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       return;
     }
     if (search.isOpen() || otherOverlayOpen()) return;
+    // A key pressed inside puter.js's account menu (user-menu.js) is that
+    // menu's: it arrives here from the element itself, and its arrows and
+    // letters must not move the calendar behind it.
+    if (e.target.closest && e.target.closest('puter-user-menu')) return;
     // The mobile drawer sits over the calendar behind a scrim, like any other
     // overlay — so Escape dismisses it too, and hands focus back to the button
     // that opened it (the drawer's controls are about to leave the screen).
@@ -1131,7 +1234,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
   };
   const unsubDragEnd = onDragEnd(flushPending);
   const unsubMenuClose = onContextMenuClose(flushPending);
-  const reminders = createReminderScheduler({ store });
+  const reminders = createReminderScheduler({ store, isStored: storedReminders ? (key) => storedReminders.handles(key) : undefined });
   reminders.start();
   document.addEventListener('keydown', onKeydown);
 
@@ -1190,6 +1293,28 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       state.view = normalizeView(view);
       render();
     },
+    /** A clicked push notification (see push.js): open the event it names,
+     *  answering it when Yes / No was pressed, else the invitations list it
+     *  came from. */
+    async openNotification(click) {
+      const { eventId, uid, respond } = notificationTarget(click);
+      const lookup = () => (eventId ? store.getEvent(eventId) : uid && mail ? mail.intake.findByUid(uid) : null);
+      let ev = lookup();
+      if (!ev && eventId) {
+        await store.load();
+        ev = lookup();
+      }
+      if (ev) return openEventRecord(ev, { respond });
+      if (!uid || !mail) return;
+      // A notification can beat the intake to a just-recorded invitation.
+      Promise.resolve(mail.intake.pump())
+        .catch(() => {})
+        .then(() => {
+          const found = lookup();
+          if (found) openEventRecord(found, { respond });
+          else actions.showMailInvites();
+        });
+    },
     /** New invitations landed in the tray while the app was open. Called by
      *  main.js, which wires it to the intake once both exist. */
     notifyMailDetected(count) {
@@ -1208,6 +1333,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       unsubDragEnd();
       unsubMenuClose();
       reminders.stop();
+      if (storedReminders) storedReminders.stop();
       clearInterval(tick);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       document.removeEventListener('keydown', onKeydown);
@@ -1260,4 +1386,5 @@ export function applyTheme(theme) {
     const os = (m.getAttribute('media') || '').includes('dark') ? 'dark' : 'light';
     m.setAttribute('content', THEME_COLORS[theme] || THEME_COLORS[os]);
   }
+  syncUserMenuTheme();
 }

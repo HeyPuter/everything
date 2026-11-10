@@ -198,3 +198,25 @@ describe('patternSegments', () => {
     expect(res.segs.length).toBeGreaterThan(0);
   });
 });
+
+describe('patternSegments on boundary edges along the lines', () => {
+  it('draws nothing outside rectangles whose sides lie on pattern lines', () => {
+    const rect = (x0, y0, x1, y1) => [x0, y0, 0, x1, y0, 0, x1, y1, 0, x0, y1, 0];
+    for (const [box, pat, ang] of [
+      [[10, 10, 50, 40], 'GRID', 0],
+      [[0, 10, 60, 70], 'GRID', 0],
+      [[0, 10, 60, 70], 'LINES', Math.PI / 4],
+      [[100, 100, 300, 250], 'GRID', 0],
+    ]) {
+      const [x0, y0, x1, y1] = box;
+      const s = patternSegments(loopsToRings([rect(...box)]), pat, 1, ang).segs;
+      expect(s.length).toBeGreaterThan(0);
+      for (let i = 0; i < s.length; i += 2) {
+        expect(s[i]).toBeGreaterThanOrEqual(x0 - 1e-9);
+        expect(s[i]).toBeLessThanOrEqual(x1 + 1e-9);
+        expect(s[i + 1]).toBeGreaterThanOrEqual(y0 - 1e-9);
+        expect(s[i + 1]).toBeLessThanOrEqual(y1 + 1e-9);
+      }
+    }
+  });
+});

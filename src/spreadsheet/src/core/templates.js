@@ -8,6 +8,7 @@ import { Workbook } from './workbook.js';
 import { parseInput, todaySerial, ymdToSerial, serialToYMD } from './format.js';
 import { parseCellRef, parseRange, cellKey } from './cell.js';
 import { sampleWorkbook } from './sample.js';
+import { t } from '../i18n/index.js';
 
 const INPUT = '#0a63f0';
 const HEAD = { bold: true, bg: '#eef2ff', color: '#1e3a8a' };
@@ -399,20 +400,30 @@ function habits() {
   return finish(wb, sh);
 }
 
+/**
+ * The gallery: each template's name and description are messages, read where they are shown (and the
+ * name, too, for the new file's default name), never here at import time, before the language is loaded.
+ */
+const template = (id, nameKey, descriptionKey, iconName, build) => ({
+  id, icon: iconName, build, nameKey, descriptionKey,
+  get name() { return t(this.nameKey); },
+  get description() { return t(this.descriptionKey); },
+});
+
 export const TEMPLATES = [
-  { id: 'blank', name: 'Blank spreadsheet', description: 'An empty grid.', icon: 'filePlus', build: () => new Workbook() },
-  { id: 'budget', name: 'Monthly budget', description: 'Planned against actual spending, fed by an expense log on a second sheet.', icon: 'currency', build: () => sampleWorkbook() },
-  { id: 'expenses', name: 'Expense tracker', description: 'A log table with category dropdowns, totals by category, and a donut chart.', icon: 'chartPie', build: expenses },
-  { id: 'invoice', name: 'Invoice', description: 'A line-item table with quantities, prices, tax, and the total due.', icon: 'sheet', build: invoice },
-  { id: 'todo', name: 'To-do list', description: 'A task table with checkboxes, due dates, priorities, and counts of what is open and overdue.', icon: 'check', build: todo },
-  { id: 'loan', name: 'Loan calculator', description: 'Monthly payment, total interest, and a 60-payment amortization schedule.', icon: 'percent', build: loan },
-  { id: 'gradebook', name: 'Grade book', description: 'Weighted averages, letter grades, class statistics, and a color scale.', icon: 'sparkle', build: gradebook },
-  { id: 'schedule', name: 'Weekly schedule', description: 'Hours down the side, days across the top, dated from this Monday.', icon: 'calendar', build: schedule },
-  { id: 'timeline', name: 'Project timeline', description: 'Tasks with owners and dates, drawn as bars across a five-week calendar.', icon: 'rows', build: timeline },
-  { id: 'calendar', name: 'Monthly calendar', description: 'A month at a glance from a start date, with room for notes under each day and today highlighted.', icon: 'calendar', build: calendar },
-  { id: 'habits', name: 'Habit tracker', description: 'Habits down the side, a checkbox per day, and a completion rate for the month.', icon: 'check', build: habits },
+  template('blank', 'coreTemplates.blank.name', 'coreTemplates.blank.description', 'filePlus', () => new Workbook()),
+  template('budget', 'coreTemplates.budget.name', 'coreTemplates.budget.description', 'currency', () => sampleWorkbook()),
+  template('expenses', 'coreTemplates.expenses.name', 'coreTemplates.expenses.description', 'chartPie', expenses),
+  template('invoice', 'coreTemplates.invoice.name', 'coreTemplates.invoice.description', 'sheet', invoice),
+  template('todo', 'coreTemplates.todo.name', 'coreTemplates.todo.description', 'check', todo),
+  template('loan', 'coreTemplates.loan.name', 'coreTemplates.loan.description', 'percent', loan),
+  template('gradebook', 'coreTemplates.gradebook.name', 'coreTemplates.gradebook.description', 'sparkle', gradebook),
+  template('schedule', 'coreTemplates.schedule.name', 'coreTemplates.schedule.description', 'calendar', schedule),
+  template('timeline', 'coreTemplates.timeline.name', 'coreTemplates.timeline.description', 'rows', timeline),
+  template('calendar', 'coreTemplates.calendar.name', 'coreTemplates.calendar.description', 'calendar', calendar),
+  template('habits', 'coreTemplates.habits.name', 'coreTemplates.habits.description', 'check', habits),
 ];
 
 export function templateById(id) {
-  return TEMPLATES.find((t) => t.id === id) || null;
+  return TEMPLATES.find((tpl) => tpl.id === id) || null;
 }

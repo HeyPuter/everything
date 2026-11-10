@@ -1,6 +1,6 @@
 /**
- * Application chrome: title bar with the application menu and quick access
- * tools, ribbon, drawing tabs, the canvas workspace with its docked
+ * Application chrome: title bar with the application menu, quick access
+ * tools and the account (or puter.js's <puter-user-menu>), ribbon, drawing tabs, the canvas workspace with its docked
  * palettes and navigation bar, the command line, the status bar, and the
  * compact toolbar used on phones.
  */
@@ -8,6 +8,7 @@ import { h, clear, MOD } from './dom.js';
 import { icon } from './icons.js';
 import { showMenu } from './menu.js';
 import { commandTip } from './ribbon.js';
+import { userMenuSlot } from './user-menu.js';
 
 export const REPO_URL = 'https://github.com/heyputer/everything';
 
@@ -33,6 +34,8 @@ export function buildShell(app) {
     h('kbd', `${MOD} K`),
   );
   const account = h('div.account');
+  // Filled once the SDK has loaded, where it has <puter-user-menu> (see user-menu.js).
+  const userMenu = userMenuSlot();
   const themeBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Theme', 'aria-haspopup': 'menu', 'data-tip': 'Theme', onClick: (e) => app.themeMenu(e.currentTarget) }, icon('monitor', 17));
   const github = h(
     'a.icon-btn.github-link',
@@ -59,10 +62,20 @@ export function buildShell(app) {
       ),
     ),
     title,
-    h('div.tb-right', search, themeBtn, helpBtn, github, account, moreBtn),
+    h('div.tb-right', search, themeBtn, helpBtn, github, account, userMenu, moreBtn),
   );
 
   const doctabs = h('div.doctabs', { role: 'tablist', 'aria-label': 'Open drawings' });
+  // A vertical wheel scrolls the tabs sideways when they overflow (they have no scrollbar).
+  doctabs.addEventListener(
+    'wheel',
+    (e) => {
+      if (doctabs.scrollWidth <= doctabs.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      doctabs.scrollLeft += e.deltaY;
+      e.preventDefault();
+    },
+    { passive: false },
+  );
   const newTab = h('button.icon-btn.doctab-new', { type: 'button', 'aria-label': 'New drawing', 'data-tip': 'New drawing', onClick: () => app.run('NEW') }, icon('plus', 16));
   const docbar = h('div.docbar', doctabs, newTab);
 
@@ -102,15 +115,28 @@ export function buildShell(app) {
   const phonebar = h('nav.phonebar', { 'aria-label': 'Tools' });
 
   const root = h('div.app-root', titlebar, h('div.ribbon-slot'), docbar, workspace, h('div.status-slot'), phonebar);
-  return { root, titlebar, title, account, themeBtn, undoBtn, redoBtn, doctabs, glCanvas, overlay, canvasWrap, nav, emptyState, dock, dockTabs, dockBody, dockResize, workspace, phonebar, github };
+  return { root, titlebar, title, account, userMenu, themeBtn, undoBtn, redoBtn, doctabs, glCanvas, overlay, canvasWrap, nav, emptyState, dock, dockTabs, dockBody, dockResize, workspace, phonebar, github };
 }
 
 function navBtn(app, ic, label, fn) {
   return h('button.icon-btn.nav-btn', { type: 'button', 'aria-label': label, 'data-tip': label, onClick: fn }, icon(ic, 17));
 }
 
+function focusVisible(el) {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return true;
+  }
+}
+
 /** Render drawing tabs. */
 export function renderDocTabs(app, el) {
+  // Re-rendering removes the focused tab: keyboard focus moves to the active
+  // one. Not after a mouse click, so that keys then go to the drawing as before
+  // (Delete erases the selection instead of closing the tab).
+  const focused = document.activeElement;
+  const hadFocus = el.contains(focused) && focusVisible(focused);
   clear(el);
   app.docs.forEach((doc, i) => {
     const active = doc === app.doc;
@@ -160,6 +186,12 @@ export function renderDocTabs(app, el) {
     );
     el.append(tab);
   });
+  if (hadFocus) el.querySelector('.doctab.active .doctab-btn')?.focus();
+  // Keep the active tab in view, as when a new drawing is added past the right edge.
+  const a = el.querySelector('.doctab.active')?.getBoundingClientRect();
+  const b = el.getBoundingClientRect();
+  if (a && a.left < b.left) el.scrollLeft -= b.left - a.left;
+  else if (a && a.right > b.right) el.scrollLeft += a.right - b.right;
 }
 
 /** Tool groups for the phone toolbar. */

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument, paragraph, runFormat } from '../src/engine/model.js';
-import { findText } from '../src/engine/search.js';
+import { findText, matchedCase } from '../src/engine/search.js';
 import { layoutDocument, caretRect, hitTest, selectionRects } from '../src/engine/layout.js';
 import { pageGeometry } from '../src/engine/page-settings.js';
 import { expectBodyEditParts } from './helpers/expect-body-edit-parts.js';
@@ -55,15 +55,35 @@ it('uses whole-word boundaries and retries overlapping candidates rejected by a 
   expect(find(text, 'cat', whole)).toEqual([]);
 });
 
-it('keeps combining sequences, emoji modifiers and joined emoji intact, without canonical normalization', () => {
+it('keeps combining sequences, emoji modifiers and joined emoji intact, and finds either form of an accented letter', () => {
   expect(find('Á A 😀 👍🏽 👩‍💻', 'A')).toEqual([[3, 4]]);
   expect(find('Á A 😀 👍🏽 👩‍💻', 'Á')).toEqual([[0, 2]]);
   expect(find('👍🏽 👍', '👍')).toEqual([[5, 7]]);
   expect(find('👩‍💻 👩', '👩')).toEqual([[6, 8]]);
-  expect(find('café café', 'café')).toEqual([[0, 4]]);
-  expect(find('café café', 'café')).toEqual([[5, 10]]);
+  // One character (é) or a letter with a combining accent (e + ◌́): the same text, found with either.
+  expect(find('café cafe\u0301', 'café')).toEqual([[0, 4], [5, 10]]);
+  expect(find('café cafe\u0301', 'cafe\u0301')).toEqual([[0, 4], [5, 10]]);
 });
 
+it('finds canonically equivalent text in either form, on whole graphemes, and replaces what it found', () => {
+  const nfd = text => text.normalize('NFD');
+  // Case folding, whole words and a paragraph mixing both forms.
+  expect(find(`${nfd('Ångström')} ångström`, 'ÅNGSTRÖM')).toEqual([[0, 10], [11, 19]]);
+  expect(find(`${nfd('résumé')} résumés`, 'résumé', { wholeWord: true })).toEqual([[0, 8]]);
+  // Never half an accented letter, in either form: "e" is not found in é.
+  expect(find(`caf${nfd('é')} café`, 'cafe')).toEqual([]);
+  expect(find(`caf${nfd('é')} café`, 'caf')).toEqual([[0, 3], [6, 9]]);
+  // Combining marks in another order are the same letter (Vietnamese ệ written two ways), and Hangul syllables
+  // match their jamo, but a syllable's first jamo alone is no match.
+  expect(find('Việt Việt', 'Việt')).toEqual([[0, 6], [7, 12]]);
+  expect(find('한국 한', '한')).toEqual([[0, 1], [3, 6]]);
+  expect(find('한국', '하')).toEqual([]);
+  const doc = new TextDocument([paragraph(`${nfd('Café')} and café.`)]);
+  expect(doc.findMatches('café').map(m => m.text)).toEqual([nfd('Café'), 'café']);
+  doc.replaceMatches('café', 'bar', {}, true);
+  // Without Match case the replacement takes the found text's capital: Café becomes Bar.
+  expect(doc.text).toBe('Bar and bar.');
+});
 it('does not join paragraphs, tabs, manual breaks or inline pictures when finding text', () => {
   const paragraphs = [paragraph('nee'), paragraph('dle nee\tdle nee\vdle nee\fdle nee\ufffcdle')];
   expect(findText(paragraphs, 'needle')).toEqual([]);
@@ -104,7 +124,8 @@ it('maps overlapping and point bookmarks like ordinary replacements even when ma
     doc.select(doc.text.indexOf('Needle') + 3); doc.addBookmark('Point');
   }
   const matches = ordinary.findMatches('needle', whole);
-  for (const m of [...matches].reverse()) { ordinary.select(m.start, m.end); ordinary.replace('longer thread'); }
+  // Without Match case each replacement takes the found text's capitalization (Needle becomes Longer thread).
+  for (const m of [...matches].reverse()) { ordinary.select(m.start, m.end); ordinary.replace(matchedCase(m.text, 'longer thread')); }
   batch.replaceMatches('needle', 'longer thread', whole, true);
   expect(batch.text).toBe(ordinary.text);
   expect(batch.bookmarks.map(({ name, start, end }) => ({ name, start, end }))).toEqual(ordinary.bookmarks.map(({ name, start, end }) => ({ name, start, end })));
@@ -181,4 +202,45 @@ it('finds the same matches in plain Latin text by comparing characters directly,
   const started = performance.now();
   for (let i = 0; i < 10; i++) expect(findText(long, 'the')).toHaveLength(14400);
   expect(performance.now() - started).toBeLessThan(250);
+});
+
+it('without Match case gives each replacement the capitalization of the text it replaces, as Word does', () => {
+  expect(matchedCase('cat', 'dog')).toBe('dog');
+  expect(matchedCase('Cat', 'dog')).toBe('Dog');
+  expect(matchedCase('CAT', 'dog')).toBe('DOG');
+  // Found in capitals, any replacement goes into capitals; found with a capital, only an all-lower-case one changes.
+  expect(matchedCase('JD', 'Jane Doe')).toBe('JANE DOE');
+  expect(matchedCase('Jd', 'jane Doe')).toBe('jane Doe');
+  expect(matchedCase('jd', 'Jane Doe')).toBe('Jane Doe');
+  // One capital letter is a capital first letter; text without letters leaves the replacement as typed.
+  expect(matchedCase('A', 'the')).toBe('The');
+  expect(matchedCase('42', 'forty-two')).toBe('forty-two');
+  expect(matchedCase('“Cat', '“dog')).toBe('“Dog');
+  // Capitals that would change the length (ß) keep the letter, so offsets still hold.
+  expect(matchedCase('STRASSE', 'straße')).toBe('STRAßE');
+  const doc = new TextDocument([paragraph('cat, Cat and CAT.')]);
+  expect(doc.replaceMatches('cat', 'dog', {}, true)).toBe(3);
+  expect(doc.text).toBe('dog, Dog and DOG.');
+  // Match case replaces with the text as typed, as do wildcard searches.
+  const exact = new TextDocument([paragraph('Cat and CAT.')]);
+  exact.replaceMatches('cat', 'dog', { matchCase: true }, true);
+  expect(exact.text).toBe('Cat and CAT.');
+  exact.replaceMatches('Cat', 'dog', { matchCase: true }, true);
+  expect(exact.text).toBe('dog and CAT.');
+  const wild = new TextDocument([paragraph('Cat and CAT.')]);
+  wild.replaceMatches('[Cc]at', 'dog', { advanced: true, wildcards: true }, true);
+  expect(wild.text).toBe('dog and CAT.');
+  // Advanced Find's replace adapts too, and a single Replace on the selected match.
+  const advanced = new TextDocument([paragraph('Cat and CAT.')]);
+  advanced.replaceMatches('cat', 'dog', { advanced: true, ignorePunctuation: true }, true);
+  expect(advanced.text).toBe('Dog and DOG.');
+  const single = new TextDocument([paragraph('CAT and cat.')]);
+  single.select(0, 3);
+  expect(single.replaceMatches('cat', 'dog', {}, false)).toBe(1);
+  expect(single.text).toBe('DOG and cat.');
+  // With Track Changes on, the tracked insertion is in the found text's capitalization too.
+  const tracked = new TextDocument([paragraph('Cat sat.')]);
+  tracked.trackChanges = true;
+  tracked.replaceMatches('cat', 'dog', {}, true);
+  expect(tracked.paragraphs[0].runs.filter(r => r.revision?.type === 'ins').map(r => r.text).join('')).toBe('Dog');
 });

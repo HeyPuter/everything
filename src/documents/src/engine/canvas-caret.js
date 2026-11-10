@@ -1,3 +1,12 @@
+// The caret is as thick on screen at every zoom (1.5 CSS pixels, as at 100%): a width in page
+// units shrank to an invisible sliver at 10% and grew to a bar at 200%. A caret in rotated cell
+// text lies across its line, so there its thin side is its height.
+export function zoomedCaret(caret, zoom) {
+  if (!(zoom > 0)) return caret;
+  const thickness = 1.5 / zoom;
+  return caret.width !== undefined && caret.height < caret.width ? { ...caret, height: thickness } : { ...caret, width: thickness };
+}
+
 // A one-device-pixel white surround keeps the existing blue insertion caret
 // visible on dark shading and artwork without reading back the painted canvas.
 // This is an editing overlay, independent of document ink and export geometry.

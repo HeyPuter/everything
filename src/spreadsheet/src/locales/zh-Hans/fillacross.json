@@ -1,0 +1,14 @@
+{
+  "all": "全部",
+  "allHint": "内容和格式",
+  "alreadyMatch": "这些单元格在每个成组工作表上都已一致",
+  "contents": "内容",
+  "contentsHint": "值和公式；各工作表保留自己的格式",
+  "fill": "填充",
+  "filled": "{count, plural, other {已将 {ranges} 填充到 {count} 个工作表}}",
+  "formats": "格式",
+  "formatsHint": "仅格式；各工作表保留自己的值",
+  "intro": "将 {sheet} 中的 {ranges} 复制到 {sheets} 的相同单元格。",
+  "listJoin": "{a}、{b}",
+  "title": "填充成组工作表"
+}

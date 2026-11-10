@@ -106,3 +106,94 @@ describe('a section break in a one-section document with a footer', () => {
     expect(pageStoryPath(session.pageStories, 1, kind, 2, true)).toBe(pageStoryPath(session.pageStories, 0, kind, 1, true));
   });
 });
+
+it('undoes and redoes header and footer options as one step each, saving as before them', async () => {
+  const { pkg, session: s } = await setup();
+  s.settingsHost = { capture: () => pkg.settingsState(), restore: state => pkg.restoreSettings(state) };
+  const setOptions = (section, patch) => {
+    if ('firstPageDifferent' in patch) pkg.setTitlePage(section, patch.firstPageDifferent);
+    if ('pageNumbering' in patch) pkg.setPageNumbering(section, patch.pageNumbering);
+    s.definition = { ...s.definition, sections: s.definition.sections.map((value, i) => (i === section ? { ...value, ...patch } : value)) };
+  };
+  s.run(d => d.replace('Body '));
+  const typed = await parts(s, pkg), was = s.definition.sections[0].firstPageDifferent;
+  expect(s.changeSettings(() => setOptions(0, { firstPageDifferent: !was, pageNumbering: { format: 'upperRoman' } }))).toBe(true);
+  // Setting what is already set is no step.
+  expect(s.changeSettings(() => setOptions(0, { firstPageDifferent: !was }))).toBe(false);
+  expect(s.history).toHaveLength(2);
+  const changed = await parts(s, pkg);
+  expect(new TextDecoder().decode(changed['word/document.xml'])).toContain('upperRoman');
+  expect(s.undo()).toBe(true);
+  expect(s.definition.sections[0]).toMatchObject({ firstPageDifferent: was });
+  expect(s.definition.sections[0].pageNumbering).toBeUndefined();
+  expect(s.model.text.startsWith('Body ')).toBe(true);
+  expect(await parts(s, pkg)).toEqual(typed);
+  s.redo();
+  expect(await parts(s, pkg)).toEqual(changed);
+  s.undo(); s.undo();
+  expect(await parts(s, pkg)).toEqual(pkg.parts);
+});
+
+it('undoes and redoes edits to several stories made as one transaction in one step', async () => {
+  const { pkg, session: s } = await setup();
+  s.run(d => d.replace('Body '));
+  const before = await parts(s, pkg);
+  s.transact(() => {
+    s.activate(first); s.run(d => d.replace('First '));
+    s.activate(even); s.page = 1; s.run(d => d.replace('Even '));
+    s.activate(null); s.run(d => d.replace('More '));
+  });
+  const edited = await parts(s, pkg);
+  expect(s.history).toHaveLength(2);
+  expect(s.undo()).toBe(true);
+  expect(await parts(s, pkg)).toEqual(before);
+  // It ends where the transaction's first change was made.
+  expect(s.path).toBe(first);
+  expect(s.history).toHaveLength(1);
+  expect(s.redo()).toBe(true);
+  expect(await parts(s, pkg)).toEqual(edited);
+  // Round and round, the same two states.
+  s.undo(); s.redo(); s.undo();
+  expect(await parts(s, pkg)).toEqual(before);
+  s.undo();
+  expect(await parts(s, pkg)).toEqual(pkg.parts);
+  s.redo(); s.redo();
+  expect(await parts(s, pkg)).toEqual(edited);
+  // A transaction of one change is that change's own step.
+  s.transact(() => s.run(d => d.replace('Last ')));
+  expect(s.history).toHaveLength(3);
+  expect(s.history.at(-1).steps).toBeUndefined();
+});
+
+it('takes back a transaction of text and settings changes in one step', async () => {
+  const { pkg, session: s } = await setup();
+  s.settingsHost = { capture: () => pkg.settingsState(), restore: state => pkg.restoreSettings(state) };
+  const original = await parts(s, pkg), was = !!s.definition.sections[0].firstPageDifferent;
+  s.transact(() => {
+    s.run(d => d.replace('Body '));
+    s.changeSettings(() => { pkg.setTitlePage(0, !was); s.definition = { ...s.definition, sections: s.definition.sections.map((v, i) => (i ? v : { ...v, firstPageDifferent: !was })) }; });
+  });
+  const changed = await parts(s, pkg);
+  expect(s.history).toHaveLength(1);
+  s.undo();
+  expect(await parts(s, pkg)).toEqual(original);
+  expect(!!s.definition.sections[0].firstPageDifferent).toBe(was);
+  s.redo();
+  expect(await parts(s, pkg)).toEqual(changed);
+  expect(!!s.definition.sections[0].firstPageDifferent).toBe(!was);
+});
+
+it('takes back settings an edit wrote (run with settings) with the edit, in both directions', () => {
+  const s = new StorySession(new TextDocument([paragraph('Text')]));
+  let stored = { style: 'apa' };
+  s.settingsHost = { capture: () => ({ ...stored }), restore: state => { stored = { ...state }; } };
+  s.run(model => { stored = { style: 'mla' }; model.select(4); model.replace(' (MLA)'); }, undefined, { settings: true });
+  expect(s.history).toHaveLength(1);
+  s.undo();
+  expect([s.model.text, stored.style]).toEqual(['Text', 'apa']);
+  s.redo();
+  expect([s.model.text, stored.style]).toEqual(['Text (MLA)', 'mla']);
+  // A failed edit leaves both as they were.
+  expect(() => s.run(() => { stored = { style: 'ieee' }; throw new Error('refused'); }, undefined, { settings: true })).toThrow('refused');
+  expect(stored.style).toBe('mla');
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LINE_PITCH, layoutMText, measureText, textBounds } from '../src/core/text/layout.js';
+import { LINE_PITCH, layoutMText, measureText, textBounds, mtextLines } from '../src/core/text/layout.js';
 
 function mtext(props) {
   return { type: 'mtext', x: 0, y: 0, h: 1, rot: 0, value: '', width: 0, attach: 'tl', lineSpacing: 1, ...props };
@@ -9,7 +9,8 @@ describe('layoutMText', () => {
   it('splits paragraphs at newlines', () => {
     expect(layoutMText(mtext({ value: 'one\ntwo\nthree' })).lines).toBe(3);
     expect(layoutMText(mtext({ value: 'one' })).lines).toBe(1);
-    expect(layoutMText(mtext({ value: 'a\\Pb' })).lines).toBe(2);
+    // A backslash in the value is a real one (as in a path), not a break.
+    expect(layoutMText(mtext({ value: 'See C:\\Projects\\Plans' })).lines).toBe(1);
   });
 
   it('wraps words at the width', () => {
@@ -19,6 +20,18 @@ describe('layoutMText', () => {
     expect(layoutMText(mtext({ value: 'aaa bbb ccc', width: 0 })).lines).toBe(1);
     const narrow = measureText('aaa', 1) + 0.01;
     expect(layoutMText(mtext({ value: 'aaa bbb ccc', width: narrow })).lines).toBe(3);
+  });
+
+  it('drops spaces at a wrap instead of starting a line with them', () => {
+    const w = measureText('Verify on site.', 1) + 0.01;
+    const lines = (value) => mtextLines(mtext({ value, width: w })).map((l) => l.value);
+    expect(lines('Verify on site.  All dimensions in mm.')).toEqual(['Verify on site.', 'All dimensions', 'in mm.']);
+    // A trailing space that does not fit adds no empty line, so bottom-attached text stays put.
+    const exact = measureText('GENERAL NOTES', 1) + 0.01;
+    const a = layoutMText(mtext({ value: 'GENERAL NOTES ', width: exact, attach: 'bl' }));
+    const b = layoutMText(mtext({ value: 'GENERAL NOTES', width: exact, attach: 'bl' }));
+    expect(a.lines).toBe(1);
+    expect(a.box).toEqual(b.box);
   });
 
   it('breaks overlong words', () => {

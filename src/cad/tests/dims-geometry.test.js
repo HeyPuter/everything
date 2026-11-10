@@ -75,6 +75,9 @@ describe('dimensionText', () => {
   it('marks radius, diameter and angles', () => {
     expect(dimensionText(dim({ dimType: 'radius', x2: 5 }), style(), header)).toBe('R5');
     expect(dimensionText(dim({ dimType: 'diameter', x2: 5 }), style(), header)).toBe(DIAMETER_SIGN + '10');
+    // A style prefix takes the place of the symbol (AutoCAD's DIMPOST).
+    expect(dimensionText(dim({ dimType: 'radius', x2: 5 }), style({ prefix: 'MAX R' }), header)).toBe('MAX R5');
+    expect(dimensionText(dim({ dimType: 'diameter', x2: 5 }), style({ prefix: '%%c' }), header)).toBe('%%c10');
     const a = dim({ dimType: 'angular', x1: 10, y1: 0, x2: 0, y2: 10, lx: 5, ly: 5 });
     expect(dimensionText(a, style(), header)).toBe('90°');
     expect(dimensionText(a, style({ precision: 1, trailingZeros: true }), header)).toBe('90.0°');
@@ -228,6 +231,17 @@ describe('angular dimension', () => {
     expect(tight.lines.filter((l) => l.pts.length === 4).length).toBe(2);
     expect(tight.fills.length).toBe(2);
     expect(Math.atan2(tight.text.y, tight.text.x)).toBeGreaterThan(Math.PI / 2);
+  });
+  it('puts tight text past the end nearer the location, so mirroring draws the mirror image', () => {
+    // vertex (0, 0), rays at 0 and 30 degrees, location near the 0 degree ray
+    const a = { ...ent, x1: 10, y1: 0, x2: 10 * Math.cos(Math.PI / 6), y2: 5, lx: 3, ly: 0.4 };
+    const t = buildDimension(a, style(), header).text;
+    expect(t.y).toBeLessThan(0);
+    // mirrored across the y axis: the text is mirrored too
+    const m = { ...a, x1: -a.x1, x2: -a.x2, lx: -a.lx };
+    const tm = buildDimension(m, style(), header).text;
+    expect(tm.x).toBeCloseTo(-t.x, 9);
+    expect(tm.y).toBeCloseTo(t.y, 9);
   });
 });
 

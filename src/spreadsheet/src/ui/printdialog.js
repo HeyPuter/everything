@@ -5,7 +5,7 @@
 
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
-import { printSheet, printFolder, PAPER_SIZES, MARGINS, supportsPageMarginBoxes, sheetPrintPrefs, printSettingsFromPrefs, printableWidth, printableHeight, savedPrintPrefs, savePrintPrefs } from './print.js';
+import { printSheet, printFolder, PAPER_SIZES, MARGINS, defaultPrintFooter, supportsPageMarginBoxes, sheetPrintPrefs, printSettingsFromPrefs, printableWidth, printableHeight, savedPrintPrefs, savePrintPrefs } from './print.js';
 import { toast } from './toast.js';
 import { rangeName, colName } from '../core/cell.js';
 import { parseRefText } from '../core/refs.js';
@@ -14,6 +14,7 @@ import * as S from '../core/selection.js';
 import { createPrintPreview } from './print-preview.js';
 import { resolvedAbsolutePath } from '../lib/puter.js';
 import { sectionEditText, sectionStoredText } from './page-layout.js';
+import { t } from '../i18n/index.js';
 
 /** The saved print preferences of this account, as the dialog would start from them. */
 export function currentPrintPrefs(sheet) {
@@ -31,7 +32,7 @@ export function openPrintDialog(ctx) {
   // Every range of the selection (Ctrl+click adds them), the one selected last among them; each prints on pages of its own.
   const ranges = (ctx.ranges?.() || [range]).map((rg) => ({ ...rg }));
   const hasSelection = !chartSheet && (ranges.length > 1 || !S.isSingle(ctx.selection()));
-  const selectionName = ranges.length > 3 ? `${ranges.length} ranges` : ranges.map(rangeName).join(', ');
+  const selectionName = ranges.length > 3 ? t('printdialog.rangeCount', { count: ranges.length }) : ranges.map(rangeName).join(', ');
   const prefs = { ...savedPrintPrefs(), ...sheetPrintPrefs(sheet) };
   const visibleSheets = ctx.wb.sheets.filter((sh) => !sh.hidden).length;
   if (!hasSelection && prefs.area === 'selection' || prefs.area === 'workbook' && visibleSheets < 2) prefs.area = sheet.printSettings?.areas.length ? 'printArea' : 'sheet';
@@ -59,38 +60,40 @@ export function openPrintDialog(ctx) {
     });
     return group;
   };
-  const areaSeg = radios('area', 'Print', [
-    ...(!chartSheet && sheet.printSettings?.areas.length ? [['printArea', 'Print area']] : []),
-    ['sheet', 'This sheet'],
-    ...(!chartSheet ? [['selection', hasSelection ? `Selection (${selectionName})` : 'Selection', !hasSelection]] : []),
-    ['workbook', `All sheets (${visibleSheets})`, visibleSheets < 2],
+  const areaSeg = radios('area', t('printdialog.print'), [
+    ...(!chartSheet && sheet.printSettings?.areas.length ? [['printArea', t('printdialog.area.printArea')]] : []),
+    ['sheet', t('printdialog.area.sheet')],
+    ...(!chartSheet ? [['selection', hasSelection ? t('printdialog.area.selectionOf', { name: selectionName }) : t('printdialog.area.selection'), !hasSelection]] : []),
+    ['workbook', t('printdialog.area.allSheets', { count: visibleSheets }), visibleSheets < 2],
   ], () => prefs.area);
-  const orientSeg = radios('orientation', 'Orientation', [['portrait', 'Portrait'], ['landscape', 'Landscape']], () => prefs.orientation);
-  const fitSeg = radios('fit', 'Scale', [['width', 'Fit to page width'], ['actual', 'Actual size'], ['scale', 'Custom'], ['pages', 'Fit to pages']], () => prefs.fit);
+  const orientSeg = radios('orientation', t('printdialog.orientation'), [['portrait', t('printdialog.portrait')], ['landscape', t('printdialog.landscape')]], () => prefs.orientation);
+  const fitSeg = radios('fit', t('printdialog.scale'), [['width', t('printdialog.fit.width')], ['actual', t('printdialog.fit.actual')], ['scale', t('common.custom')], ['pages', t('printdialog.fit.pages')]], () => prefs.fit);
   const scaleErrorId = fieldId('print');
   const scaleError = el('p.field-error', { id: scaleErrorId, hidden: true, role: 'alert' });
   const scaleInput = el('input.input.input-sm', {
-    type: 'number', min: 10, max: 400, step: 5, value: prefs.scale || 100, 'aria-label': 'Scale percent', 'aria-describedby': scaleErrorId,
+    type: 'number', min: 10, max: 400, step: 5, value: prefs.scale || 100, 'aria-label': t('printdialog.scalePercent'), 'aria-describedby': scaleErrorId,
     // A changed value is no longer the one refused: the mark and the message go until the next Print.
     oninput: () => { scaleError.hidden = true; scaleInput.removeAttribute('aria-invalid'); const n = Number(scaleInput.value); if (n >= 10 && n <= 400) prefs.scale = n; },
   });
   const scaleField = el('label.print-scale', {}, scaleInput, el('span', {}, '%'));
   const pageInputs = ['fitWidth', 'fitHeight'].map((key, i) => el('input.input.input-sm', {
-    type: 'number', min: 0, max: 32767, step: 1, value: prefs[key] ?? 1, 'aria-label': i ? 'Pages tall' : 'Pages wide',
+    type: 'number', min: 0, max: 32767, step: 1, value: prefs[key] ?? 1, 'aria-label': i ? t('printdialog.pagesTall') : t('printdialog.pagesWide'),
     oninput: e => { const n = Number(e.target.value); if (Number.isInteger(n) && n >= 0 && n <= 32767) prefs[key] = n; },
   }));
-  const pagesField = el('div.field', {}, el('div.row.row-2', {}, pageInputs.map((input, i) => el('label.field', {}, el('span.field-label', {}, i ? 'Pages tall' : 'Pages wide'), input))), el('span.small.muted', {}, 'Use 0 for automatic.'));
-  const marginsSeg = radios('margins', 'Margins', [...MARGINS.map(([k, label]) => [k, label]), ['custom', 'Custom']], () => prefs.margins);
+  const pagesField = el('div.field', {}, el('div.row.row-2', {}, pageInputs.map((input, i) => el('label.field', {}, el('span.field-label', {}, i ? t('printdialog.pagesTall') : t('printdialog.pagesWide')), input))), el('span.small.muted', {}, t('printdialog.zeroAutomatic')));
+  const marginsSeg = radios('margins', t('printdialog.margins'), [...MARGINS.map(([k, label]) => [k, t(label)]), ['custom', t('common.custom')]], () => prefs.margins);
+  const MARGIN_LABELS = { top: 'printdialog.margin.top', right: 'printdialog.margin.right', bottom: 'printdialog.margin.bottom', left: 'printdialog.margin.left' };
+  const MARGIN_SHORT = { top: 'printdialog.marginShort.top', right: 'printdialog.marginShort.right', bottom: 'printdialog.marginShort.bottom', left: 'printdialog.marginShort.left' };
   const marginInputs = ['top', 'right', 'bottom', 'left'].map(key => el('input.input.input-sm', {
-    type: 'number', min: 0, max: 100, step: 'any', value: prefs.customMargins?.[key] ?? .5, 'aria-label': `${key[0].toUpperCase() + key.slice(1)} margin in inches`,
+    type: 'number', min: 0, max: 100, step: 'any', value: prefs.customMargins?.[key] ?? .5, 'aria-label': t(MARGIN_LABELS[key]),
     oninput: e => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0 && n <= 100) (prefs.customMargins ||= {})[key] = n; },
   }));
-  const marginField = el('div.row', {}, marginInputs.map((input, i) => el('label.field', {}, el('span.small', {}, ['Top', 'Right', 'Bottom', 'Left'][i] + ' (in)'), input)));
+  const marginField = el('div.row', {}, marginInputs.map((input, i) => el('label.field', {}, el('span.small', {}, t(MARGIN_SHORT[['top', 'right', 'bottom', 'left'][i]])), input)));
   const layoutError = fieldAlert('print-layout');
   const titleError = fieldAlert('print-titles');
   const titleInputs = ['titleRows', 'titleCols'].map((key, i) => el('input.input', {
     type: 'text', value: prefs[key]?.map(n => i ? colName(n) : n + 1).join(':') || '',
-    'aria-label': i ? 'Columns to repeat at left' : 'Rows to repeat at top', placeholder: i ? 'A:C' : '1:3',
+    'aria-label': i ? t('printdialog.titleCols') : t('printdialog.titleRows'), placeholder: i ? 'A:C' : '1:3',
     oninput: (e) => {
       titleError.clear();
       // The preview repeats the lines as they are typed; one that does not read yet changes nothing until Print says why.
@@ -101,34 +104,41 @@ export function openPrintDialog(ctx) {
     },
   }));
   const titleFields = el('div.field', {}, el('div.row.row-2', {}, titleInputs.map((input, i) =>
-    el('label.field', {}, el('span.field-label', {}, i ? 'Columns to repeat at left' : 'Rows to repeat at top'), input))), titleError.alert);
-  const paperSel = el('select.select', { 'aria-label': 'Paper size', onchange: () => { prefs.paper = paperSel.value; } },
-    ...PAPER_SIZES.map(([k, label]) => el('option', { value: k }, label)));
+    el('label.field', {}, el('span.field-label', {}, i ? t('printdialog.titleCols') : t('printdialog.titleRows')), input))), titleError.alert);
+  const paperSel = el('select.select', { 'aria-label': t('printdialog.paperSize'), onchange: () => { prefs.paper = paperSel.value; } },
+    ...PAPER_SIZES.map(([k, label]) => el('option', { value: k }, t(label))));
   paperSel.value = PAPER_SIZES.some(([k]) => k === prefs.paper) ? prefs.paper : 'letter';
   const marginBoxes = supportsPageMarginBoxes();
   // The header and footer are typed as they read, fields as &[Page] and an ampersand as itself (see sectionStoredText);
   // what is typed is kept as the file keeps it, in prefs, where the preview and the print read it.
   const original = { ...prefs };
   const stored = (key, input) => { prefs[key] = sectionStoredText(input.value, original[key] || '', { sections: true }); };
-  const headerInput = el('input.input', { type: 'text', value: sectionEditText(prefs.header || ''), placeholder: prefs.native ? 'None' : marginBoxes ? 'Nothing (the title prints above the cells)' : (ctx.doc?.name || 'Document title'), 'aria-label': 'Header text', maxlength: 255, oninput: () => stored('header', headerInput) });
-  const footerInput = el('input.input', { type: 'text', value: sectionEditText(prefs.footer || ''), placeholder: prefs.native ? 'None' : marginBoxes ? 'Page &[Page] of &[Pages]' : `Today’s date (${new Date().toLocaleDateString(getLocale())})`, 'aria-label': 'Footer text', maxlength: 255, oninput: () => stored('footer', footerInput) });
+  const headerInput = el('input.input', { type: 'text', value: sectionEditText(prefs.header || ''), placeholder: prefs.native ? t('common.none') : marginBoxes ? t('printdialog.headerNothing') : (ctx.doc?.name || t('printdialog.documentTitle')), 'aria-label': t('printdialog.headerText'), maxlength: 255, oninput: () => stored('header', headerInput) });
+  const footerInput = el('input.input', { type: 'text', value: sectionEditText(prefs.footer || ''), placeholder: prefs.native ? t('common.none') : marginBoxes ? defaultPrintFooter() : t('printdialog.todaysDate', { date: new Date().toLocaleDateString(getLocale()) }), 'aria-label': t('printdialog.footerText'), maxlength: 255, oninput: () => stored('footer', footerInput) });
   // Token chips type into whichever of the two fields was used last.
   let tokenTarget = footerInput;
   headerInput.addEventListener('focus', () => { tokenTarget = headerInput; });
   footerInput.addEventListener('focus', () => { tokenTarget = footerInput; });
+  // Each variant field's label and its input's accessible name, as catalog keys.
+  const VARIANT_LABELS = {
+    firstHeader: ['printdialog.variant.firstHeader', 'printdialog.variant.firstHeaderText'],
+    firstFooter: ['printdialog.variant.firstFooter', 'printdialog.variant.firstFooterText'],
+    evenHeader: ['printdialog.variant.evenHeader', 'printdialog.variant.evenHeaderText'],
+    evenFooter: ['printdialog.variant.evenFooter', 'printdialog.variant.evenFooterText'],
+  };
   const variantFields = ['first', 'even'].map(prefix => {
-    const label = prefix === 'first' ? 'First page' : 'Even pages';
     const flag = prefix === 'first' ? 'differentFirst' : 'differentOddEven';
     const fields = el('div.row.row-2', {}, ['Header', 'Footer'].map(kind => {
       const key = prefix + kind;
+      const [labelKey, textKey] = VARIANT_LABELS[key];
       const input = el('input.input', { type: 'text', value: sectionEditText(prefs[key] || ''), maxlength: 255,
-        placeholder: 'None', 'aria-label': `${label} ${kind.toLowerCase()} text`,
+        placeholder: t('common.none'), 'aria-label': t(textKey),
         oninput: () => stored(key, input), onfocus: () => { tokenTarget = input; } });
-      return el('label.field', {}, el('span.field-label', {}, `${label} ${kind.toLowerCase()}`), input);
+      return el('label.field', {}, el('span.field-label', {}, t(labelKey)), input);
     }));
     const toggle = el('input', { type: 'checkbox', checked: !!prefs[flag], onchange: () => { prefs[flag] = toggle.checked; sync(); } });
     const control = el('div.field', {}, el('label.check', {}, toggle,
-      el('span', {}, prefix === 'first' ? 'Different first page' : 'Different odd and even pages')), fields);
+      el('span', {}, prefix === 'first' ? t('printdialog.differentFirst') : t('printdialog.differentOddEven'))), fields);
     return { control, fields, flag };
   });
   const insertToken = (token) => {
@@ -140,27 +150,27 @@ export function openPrintDialog(ctx) {
     input.focus();
     input.setSelectionRange(start + token.length, start + token.length);
   };
-  const TOKENS = [['&[Page]', 'Page number'], ['&[Pages]', 'Page count'], ['&[Date]', 'Date'], ['&[Time]', 'Time'], ['&[Tab]', 'Sheet name'], ['&[File]', 'File name']];
-  const tokenRow = el('div.print-tokens', { role: 'group', 'aria-label': 'Insert into the header or footer' },
-    el('span.small.muted', {}, 'Insert:'),
-    TOKENS.map(([token, label]) => el('button.btn.btn-ghost.btn-sm', { type: 'button', title: `Insert ${token}`, onmousedown: (e) => e.preventDefault(), onclick: () => insertToken(token) }, label)),
+  const TOKENS = [['&[Page]', 'printdialog.token.page'], ['&[Pages]', 'printdialog.token.pages'], ['&[Date]', 'printdialog.token.date'], ['&[Time]', 'printdialog.token.time'], ['&[Tab]', 'printdialog.token.tab'], ['&[File]', 'printdialog.token.file']];
+  const tokenRow = el('div.print-tokens', { role: 'group', 'aria-label': t('printdialog.insertGroup') },
+    el('span.small.muted', {}, t('printdialog.insertLabel')),
+    TOKENS.map(([token, label]) => el('button.btn.btn-ghost.btn-sm', { type: 'button', title: t('printdialog.insertToken', { token }), onmousedown: (e) => e.preventDefault(), onclick: () => insertToken(token) }, t(label))),
     el('span.small.muted.print-tokens-hint', {}, marginBoxes
-      ? '&L, &C, and &R start the left, center, and right parts.'
-      : 'Page numbers are unavailable in this browser. &L, &C, and &R align the text.'));
+      ? t('printdialog.sectionsHint')
+      : t('printdialog.noPageNumbersHint')));
   const check = (name, label, note) => {
     const input = el('input', { type: 'checkbox', checked: !!prefs[name], onchange: () => { prefs[name] = input.checked; } });
     return el('label.check', {}, input, el('span', {}, label, note && el('span.muted', {}, ` ${note}`)));
   };
-  const frozenNote = sheet.frozenRows ? `(${sheet.frozenRows} frozen row${sheet.frozenRows === 1 ? '' : 's'})` : '(no frozen rows)';
+  const frozenNote = sheet.frozenRows ? t('printdialog.frozenRows', { count: sheet.frozenRows }) : t('printdialog.noFrozenRows');
 
-  const frozenCheck = check('repeatFrozen', 'Repeat frozen rows on every page', frozenNote);
+  const frozenCheck = check('repeatFrozen', t('printdialog.repeatFrozen'), frozenNote);
   function sync() {
     for (const { fields, flag } of variantFields) {
       fields.hidden = !prefs[flag];
       if (fields.hidden && fields.contains(tokenTarget)) tokenTarget = footerInput;
     }
     frozenCheck.querySelector('input').disabled = !!titleInputs[0].value.trim();
-    frozenCheck.title = titleInputs[0].value.trim() ? 'Rows to repeat at top take precedence.' : '';
+    frozenCheck.title = titleInputs[0].value.trim() ? t('printdialog.titleRowsPrecedence') : '';
 
     for (const [seg, name] of [[areaSeg, 'area'], [orientSeg, 'orientation'], [fitSeg, 'fit'], [marginsSeg, 'margins']]) {
       const buttons = [...seg.querySelectorAll('.seg-btn')];
@@ -189,7 +199,7 @@ export function openPrintDialog(ctx) {
     if (preparing || controller.signal.aborted) return;
     for (const input of [...(prefs.fit === 'pages' ? pageInputs : []), ...(prefs.margins === 'custom' ? marginInputs : [])]) {
       if (!input.value.trim() || !input.checkValidity()) {
-        layoutError.refuse(input, pageInputs.includes(input) ? 'Enter a whole number from 0 to 32767.' : 'Enter a margin from 0 to 100 inches.');
+        layoutError.refuse(input, pageInputs.includes(input) ? t('printdialog.error.pages') : t('printdialog.error.margin'));
         return;
       }
     }
@@ -197,7 +207,7 @@ export function openPrintDialog(ctx) {
       // A scale outside the range is refused beside the field, as every other dialog refuses a bad value, rather than clamped and printed.
       const n = scaleInput.value.trim() === '' ? NaN : Number(scaleInput.value);
       if (!(n >= 10 && n <= 400)) {
-        scaleError.textContent = 'Scale is 10 to 400 percent';
+        scaleError.textContent = t('printdialog.error.scale');
         scaleError.hidden = false;
         scaleInput.setAttribute('aria-invalid', 'true');
         scaleInput.focus();
@@ -208,13 +218,13 @@ export function openPrintDialog(ctx) {
     if (prefs.fit === 'pages') { prefs.fitWidth = Number(pageInputs[0].value); prefs.fitHeight = Number(pageInputs[1].value); }
     if (prefs.margins === 'custom') prefs.customMargins = { ...prefs.customMargins, ...Object.fromEntries(['top', 'right', 'bottom', 'left'].map((k, i) => [k, Number(marginInputs[i].value)])) };
     if (prefs.margins === 'custom' && (printableWidth(prefs) <= 1 || printableHeight(prefs) <= 1)) {
-      layoutError.refuse(marginInputs[printableWidth(prefs) <= 1 ? 3 : 0], 'The margins must leave room on the page for your sheet.');
+      layoutError.refuse(marginInputs[printableWidth(prefs) <= 1 ? 3 : 0], t('printdialog.error.marginsTooLarge'));
       return;
     }
     if (!chartSheet) for (const [i, input] of titleInputs.entries()) {
       const text = input.value.trim(), ref = text ? parseRefText(text) : null;
       if (text && (!ref || ref.sheet || ref.sheetEnd || ref.kind !== (i ? 'cols' : 'rows'))) {
-        titleError.refuse(input, i ? 'Enter a column range, such as A:C, or leave this blank.' : 'Enter a row range, such as 1:3, or leave this blank.');
+        titleError.refuse(input, i ? t('printdialog.error.titleCols') : t('printdialog.error.titleRows'));
         return;
       }
       prefs[i ? 'titleCols' : 'titleRows'] = ref ? i ? [ref.c1, ref.c2] : [ref.r1, ref.r2] : null;
@@ -225,51 +235,51 @@ export function openPrintDialog(ctx) {
     preparing = true;
     const button = content.querySelector('[type="submit"]');
     button.disabled = true;
-    button.textContent = 'Preparing…';
+    button.textContent = t('printdialog.preparing');
     content.setAttribute('aria-busy', 'true');
     const ok = await printSheet(ctx.wb, sheetId, ctx.doc?.name, { ...prefs, range: area === 'selection' ? range : null, ranges: area === 'selection' ? ranges : null, filePath, signal: controller.signal });
     preparing = false;
     button.disabled = false;
-    button.textContent = 'Print';
+    button.textContent = t('printdialog.print');
     content.removeAttribute('aria-busy');
     if (controller.signal.aborted) return;
     if (ok) modal.close();
-    else toast('Printing is not available here', { icon: 'alert' });
+    else toast(t('printdialog.unavailable'), { icon: 'alert' });
   };
 
   // The scale field is hidden unless Custom is chosen; the browser must not check it then.
   const settings = el('div.print-settings', {},
-    el('div.field', {}, el('span.field-label', {}, 'Print'), areaSeg),
+    el('div.field', {}, el('span.field-label', {}, t('printdialog.print')), areaSeg),
     el('div.row.row-2', {},
-      el('div.field', {}, el('span.field-label', {}, 'Orientation'), orientSeg),
-      el('label.field', {}, el('span.field-label', {}, 'Paper size'), paperSel)),
-    chartSheet ? el('p.small.muted', {}, 'The chart fits on one page.') : el('div.field', {}, el('span.field-label', {}, 'Scale'), el('div.row', {}, fitSeg, scaleField), scaleError),
+      el('div.field', {}, el('span.field-label', {}, t('printdialog.orientation')), orientSeg),
+      el('label.field', {}, el('span.field-label', {}, t('printdialog.paperSize')), paperSel)),
+    chartSheet ? el('p.small.muted', {}, t('printdialog.chartFits')) : el('div.field', {}, el('span.field-label', {}, t('printdialog.scale')), el('div.row', {}, fitSeg, scaleField), scaleError),
     pagesField,
-    el('div.field', {}, el('span.field-label', {}, 'Margins'), marginsSeg, marginField, layoutError.alert),
+    el('div.field', {}, el('span.field-label', {}, t('printdialog.margins')), marginsSeg, marginField, layoutError.alert),
     el('div.row.row-2', {},
-      el('label.field', {}, el('span.field-label', {}, 'Header'), headerInput),
-      el('label.field', {}, el('span.field-label', {}, 'Footer'), footerInput)),
+      el('label.field', {}, el('span.field-label', {}, t('printdialog.header')), headerInput),
+      el('label.field', {}, el('span.field-label', {}, t('printdialog.footer')), footerInput)),
     ...variantFields.map(({ control }) => control),
     tokenRow,
     !chartSheet && titleFields,
     !chartSheet && el('div.field.print-checks', {},
-      check('gridlines', 'Gridlines'),
-      check('headers', 'Row numbers and column letters'),
+      check('gridlines', t('printdialog.gridlines')),
+      check('headers', t('printdialog.headings')),
       frozenCheck,
-      check('horizontalCentered', 'Center horizontally'),
-      check('verticalCentered', 'Center vertically'),
-      check('title', 'Title and sheet name')));
+      check('horizontalCentered', t('printdialog.centerHorizontally')),
+      check('verticalCentered', t('printdialog.centerVertically')),
+      check('title', t('printdialog.titleAndSheet'))));
   const content = el('form.print-form', { onsubmit: submit, novalidate: true },
     el('div.print-layout', {}, settings, preview?.el),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Print')));
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('printdialog.print'))));
   // Before the modal opens, as the chart dialog does: it starts on the first control that is in the
   // tab order, and until sync() has laid the roving tabindex over the groups every option is, so the
   // dialog would open on an unchecked radio the Tab trap then bounces to the Close button.
   sync();
   if (preview) { content.addEventListener('input', preview.refresh); content.addEventListener('change', preview.refresh); }
-  const modal = openModal({ title: 'Print', content, wide: true, className: preview ? 'print-dialog' : '', onClose: () => { controller.abort(); preview?.destroy(); ctx.grid.focus(); } });
+  const modal = openModal({ title: t('printdialog.print'), content, wide: true, className: preview ? 'print-dialog' : '', onClose: () => { controller.abort(); preview?.destroy(); ctx.grid.focus(); } });
   preview?.refresh();
   return modal;
 }

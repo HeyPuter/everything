@@ -1,4 +1,4 @@
-import { el, isComposing } from '../ui/dom.js';
+import { el, isComposing, amountInRange } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { drawingParts } from '../engine/drawing-format.js';
@@ -97,11 +97,12 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
     vOffset.value = String(inches(at.y)); lastVerticalFrom = vOffsetFrom.value;
   }
   vOffsetFrom.addEventListener('change', () => { moveWithText.input.checked = ['paragraph', 'line'].includes(vOffsetFrom.value); convertVertical(); });
-  hOffsetFrom.addEventListener('change', () => {
+  function convertHorizontal() {
     if (!laidOut || hOffsetFrom.value === lastHorizontalFrom) return;
     const at = offsetsFor({ ...laidOut, image: { ...laidOut.image, anchor: { ...laidOut.image.anchor, horizontal: hOffsetFrom.value } } }, laidOut.x, laidOut.y);
     hOffset.value = String(inches(at.x)); lastHorizontalFrom = hOffsetFrom.value;
-  });
+  }
+  hOffsetFrom.addEventListener('change', convertHorizontal);
   const position = el('div.pic-layout-tab', { role: 'tabpanel', 'aria-label': 'Position' },
     el('fieldset.pic-fieldset', {}, el('legend', {}, 'Horizontal'),
       el('div.pic-position-row', {}, hAlignRadio.node, hAlign, el('span.pic-hint', {}, 'relative to'), hAlignFrom),
@@ -125,7 +126,10 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
   height.addEventListener('input', () => { if (lock.input.checked && Number(height.value) > 0) width.value = String(Math.round(Number(height.value) * ratio * 100) / 100); scaleH.value = String(Math.round(Number(height.value) * IN / image.height * 100)); if (lock.input.checked) scaleW.value = scaleH.value; });
   scaleW.addEventListener('input', () => { width.value = String(inches(image.width * Number(scaleW.value) / 100)); if (lock.input.checked) { scaleH.value = scaleW.value; height.value = String(inches(image.height * Number(scaleW.value) / 100)); } });
   scaleH.addEventListener('input', () => { height.value = String(inches(image.height * Number(scaleH.value) / 100)); if (lock.input.checked) { scaleW.value = scaleH.value; width.value = String(inches(image.width * Number(scaleH.value) / 100)); } });
-  const source = engine.images?.get(image.assetId), pixels = source?.bitmap || source;
+  // A picture with a style (outline, shadow, 3D frame) is a drawing whose scene holds the picture itself.
+  const scenePicture = node => !node ? null : node.image?.assetId && ['picture', 'picture3d'].includes(node.type) ? node.image.assetId : (node.children || []).map(scenePicture).find(Boolean) || null;
+  const pictureAsset = image.retainedDrawing && scenePicture(engine.model?.assets?.[image.assetId]?.scene) || image.assetId;
+  const source = engine.images?.get(pictureAsset), pixels = source?.bitmap || source;
   const original = kind === 'picture' && pixels?.width ? { width: pixels.width * EMU_PER_PX, height: pixels.height * EMU_PER_PX } : null;
   const resetSize = el('button.btn.btn-outline.btn-sm', { type: 'button', disabled: !original, onclick: () => { width.value = String(inches(original.width)); height.value = String(inches(original.height)); scaleW.value = scaleH.value = '100'; rotation.value = '0'; } }, 'Reset');
   const size = el('div.pic-layout-tab', { role: 'tabpanel', 'aria-label': 'Size' },
@@ -157,7 +161,11 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
     if (wrapped) {
       hAbsRadio.input.checked = vAbsRadio.input.checked = true;
       for (const control of [hAlignRadio.input, vAlignRadio.input, hAlign, hAlignFrom, vAlign, vAlignFrom, moveWithText.input]) control.disabled = true;
-      if (sided || mode === 'topAndBottom') { hOffsetFrom.value = 'column'; vOffsetFrom.value = 'paragraph'; hOffsetFrom.disabled = vOffsetFrom.disabled = true; }
+      if (sided || mode === 'topAndBottom') {
+        hOffsetFrom.value = 'column'; vOffsetFrom.value = 'paragraph'; hOffsetFrom.disabled = vOffsetFrom.disabled = true;
+        // Measured from the column and paragraph now, the offsets change so the object stays where it is.
+        convertHorizontal(); convertVertical();
+      }
       moveWithText.input.checked = true;
       allowOverlap.input.disabled = layoutInCell.input.disabled = true;
     }
@@ -176,7 +184,8 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
     e.preventDefault();
     error.hidden = true;
     const form = e.target;
-    for (const input of form.querySelectorAll('input[type=number]:not(:disabled)')) if (!input.checkValidity() || input.value === '') {
+    // The arrows step by hundredths, but any amount in range is taken, as Page Setup takes it (1.125 in).
+    for (const input of form.querySelectorAll('input[type=number]:not(:disabled)')) if (!amountInRange(input)) {
       // Show the tab holding the field, so the browser can point at it.
       const tab = Object.entries(panels).find(([, panel]) => panel.contains(input))?.[0];
       if (tab) select(tab);

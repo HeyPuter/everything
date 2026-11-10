@@ -7,7 +7,7 @@ import { bodyFieldRanges } from '../src/engine/body-fields.js';
 import { layoutDocument } from '../src/engine/layout.js';
 import { pageGeometry } from '../src/engine/page-settings.js';
 import { pageLookup } from '../src/engine/page-lookup.js';
-import { parseEntry, entryInstruction, markEntry, markAllEntries, writeIndex, indexFields, parseIndexInstruction, indexInstruction } from '../src/engine/index-entries.js';
+import { parseEntry, entryInstruction, markEntry, markAllEntries, writeIndex, indexFields, parseIndexInstruction, indexInstruction, indexRows } from '../src/engine/index-entries.js';
 import { insertCaption } from '../src/engine/captions.js';
 import { updateSequenceFields } from '../src/engine/field-update.js';
 import { parseAuthority, markAuthority, markAllAuthorities, writeTableOfAuthorities, tableFields, authorities } from '../src/engine/authorities.js';
@@ -151,4 +151,21 @@ describe('tables of authorities', () => {
     writeTableOfAuthorities(d, { options: { category: 1, passim: false, headings: false, keepFormatting: true, entrySeparator: '\t', pageSeparator: ', ', extra: [] }, pageOf: pages(pkg, d) });
     expect(d.text.split('\n').at(-2)).toBe(`${long}\t1, 3`);
   });
+});
+
+// Letter headings went by an entry's first character as it is: É sorts among the E entries, so the heading
+// changed E, É, E; each entry starting with a digit got a # heading of its own; and \p "A-M" left out Éclair.
+it('files accented initials under their letter and digits under one # heading', async () => {
+  const marked = async words => {
+    const blank = createDocx([paragraph()], undefined, undefined, undefined, [], {}, WRITING_STYLES);
+    const d = model(await DocxPackage.open(new Uint8Array(await blank.export().arrayBuffer())));
+    d.replace(words.join('\n'));
+    for (const w of words) { const at = d.text.indexOf(w); d.select(at, at + w.length); markEntry(d, { main: w }); }
+    return d;
+  };
+  const pageOf = () => ({ text: '1', number: 1 });
+  const headed = rows => rows.map(r => (r.heading ? '=' : '') + r.runs[0].text);
+  const d = await marked(['Eagle', 'Éclair', 'Egg', '1984', '2001', 'Apple']);
+  expect(headed(indexRows(d, parseIndexInstruction(indexInstruction({ headings: 'A' })), pageOf))).toEqual(['=#', '1984', '2001', '=A', 'Apple', '=E', 'Eagle', 'Éclair', 'Egg']);
+  expect(headed(indexRows(d, parseIndexInstruction(' INDEX \\p "A-E" '), pageOf))).toEqual(['Apple', 'Eagle', 'Éclair', 'Egg']);
 });

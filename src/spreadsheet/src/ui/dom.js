@@ -1,4 +1,6 @@
 /** Tiny element builder: el('button.btn.btn-primary', { onclick }, children...) */
+import { t, formatDate } from '../i18n/index.js';
+
 export function el(spec, attrs = {}, ...children) {
   const [tag, ...classes] = spec.split('.');
   const node = document.createElement(tag || 'div');
@@ -103,13 +105,13 @@ export function relativeTime(ts) {
   const diff = Date.now() - ms;
   // Whole units gone by, as a clock would say: 89 minutes is "1 hour ago", not two, and 23.6 hours is not yesterday.
   const min = Math.floor(diff / 60000);
-  if (min < 1) return 'Just now';
-  if (min < 60) return `${min} min ago`;
+  if (min < 1) return t('dom.justNow');
+  if (min < 60) return t('dom.minutesAgo', { count: min });
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  if (h < 24) return t('dom.hoursAgo', { count: h });
   const d = Math.floor(h / 24);
-  if (d < 7) return `${d} day${d === 1 ? '' : 's'} ago`;
-  return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  if (d < 7) return t('dom.daysAgo', { count: d });
+  return formatDate(new Date(ms), { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 /** Composition keys belong to the IME, including Safari's confirmation key. */

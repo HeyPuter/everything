@@ -12,6 +12,7 @@ import { detailView } from '../views/detail.js';
 import { editorView } from '../views/editor.js';
 import { selfSignView } from '../views/selfsign.js';
 import { settingsView, confirmSignOut } from '../views/settings.js';
+import { userMenu } from './usermenu.js';
 
 const PULL_INTERVAL_MS = 60_000;
 
@@ -26,7 +27,26 @@ function parseRoute(hash) {
 export function mountShell(appRoot) {
   const sampleBanner = el('div');
   const viewWrap = el('div');
-  const main = el('main.main', { id: 'main' }, sampleBanner, viewWrap);
+  // puter.js's <puter-user-menu> where the SDK has it (usermenu.js): the
+  // account and the Apps launcher, laid over the far end of the view's head
+  // on the desktop layout (shell.css), which keeps that much room free. Made
+  // once, with the shell: the element loads the account each time it joins
+  // the page. Its Sign out is the app's, asked first; a sign-in or sign-out
+  // it did by itself leaves the page holding another account's documents, so
+  // the page starts over.
+  const accountMenu = userMenu({ onSignOut: confirmSignOut, onSessionChanged: () => location.reload() });
+  // After the sample banner, so that it is the view's head it lies over.
+  const main = el('main.main', { id: 'main' },
+    sampleBanner,
+    accountMenu && el('div.main-account', {}, el('div.main-account-inner', {}, accountMenu)),
+    viewWrap);
+  if (accountMenu && typeof ResizeObserver === 'function') {
+    // Sign in is wider than the picture, and the Apps launcher is not always there.
+    new ResizeObserver(() => {
+      const width = accountMenu.getBoundingClientRect().width;
+      if (width) main.style.setProperty('--account-w', `${Math.ceil(width)}px`);
+    }).observe(accountMenu);
+  }
   let currentView = null;
 
   function navigate(hash) {
@@ -78,7 +98,8 @@ export function mountShell(appRoot) {
       type: 'button', html: icon('plus', 17, 2.2),
       onclick: () => openNewDocModal({ navigate }),
     }, ' New document'),
-    el('div.sidebar-user', {},
+    // Beside <puter-user-menu> the account is the element's to name and sign out.
+    !accountMenu && el('div.sidebar-user', {},
       el('span.avatar', {}, username.charAt(0).toUpperCase()),
       el('span.name', { title: username }, username),
       // Inside the Puter desktop the platform owns the session; no sign-out.
@@ -148,7 +169,7 @@ export function mountShell(appRoot) {
   }
 
   clear(appRoot);
-  appRoot.append(el('div.shell', {}, sidebar, main), tabbar);
+  appRoot.append(el(accountMenu ? 'div.shell.has-user-menu' : 'div.shell', {}, sidebar, main), tabbar);
 
   window.addEventListener('hashchange', renderRoute);
   renderRoute();

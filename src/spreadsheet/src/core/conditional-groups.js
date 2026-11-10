@@ -4,6 +4,7 @@ import { shiftFormula, sameSheetName } from './refs.js';
 import { duplicateSourceAreas, duplicateSourceFormula } from './conditional-duplicates.js';
 import { removeRangeRecords, forEachRangeRecordIn } from './range-records.js';
 import { normalizeRange } from './cell.js';
+import { t } from '../i18n/index.js';
 
 const statistical = new Set(['scale', 'databar', 'icons', 'dup', 'unique', 'top', 'bottom']);
 const equal = (a, b) => {
@@ -152,7 +153,7 @@ export function clearRules(wb, sheetId, ranges = null) {
   if (!sheet) return 0;
   const groups = conditionalRuleGroups(sheet.rules);
   let touched = 0;
-  wb.transaction('Clear rules', () => {
+  wb.transaction(t('conditionalGroups.clearRules'), () => {
     for (const group of groups) {
       const areas = group.rules.map(rule => normalizeRange(rule.range));
       const left = ranges ? ranges.reduce((list, cut) => list.flatMap(area => subtractRange(area, normalizeRange(cut))), areas) : [];
@@ -161,8 +162,11 @@ export function clearRules(wb, sheetId, ranges = null) {
       // Alternating colours left on part of their range keep counting from the rule's first row, rather than
       // starting over with a header wherever the cleared cells cut them.
       const origin = group.rule.type === 'bands' && !group.rule.bandOrigin && areas.length === 1 ? { bandOrigin: duplicateSourceFormula(areas) } : {};
-      if (!left.length) wb.deleteRuleGroup(sheetId, group.rules[0].id);
-      else wb.setRuleAreas(sheetId, group.rules[0].id, origin, left);
+      if (!left.length) { wb.deleteRuleGroup(sheetId, group.rules[0].id); continue; }
+      // A condition formula is written for the rule's top-left cell; what is left starts from another corner.
+      const field = conditionalPredicateField(group.rule);
+      const moved = field ? { [field]: rebaseConditionalPredicate(group.rule, left[0].r1 - areas[0].r1, left[0].c1 - areas[0].c1)[field] } : {};
+      wb.setRuleAreas(sheetId, group.rules[0].id, { ...origin, ...moved }, left);
     }
   });
   return touched;

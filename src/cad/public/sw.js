@@ -44,20 +44,45 @@ self.addEventListener('message', (event) => {
       return false;
     }
   });
-  event.waitUntil(
-    Promise.all(
-      urls.map((u) =>
-        fetch(u)
-          .then((res) => putAsset(u, res))
-          .catch(() => {}),
-      ),
-    ),
-  );
+  const seen = new Set();
+  event.waitUntil(Promise.all(urls.map((u) => precache(u, seen))));
 });
 
-/** Build files are named chunk-hash.ext: keep only the newest of each chunk. */
+/*
+ * Cache a build file and the build files its code loads later (workers and
+ * lazy chunks, referenced by name next to it), so DXF and DWG work offline
+ * without having been used online first.
+ */
+async function precache(url, seen) {
+  if (seen.has(url)) return;
+  seen.add(url);
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const js = /\.js$/.test(new URL(url).pathname);
+    const later = js ? siblings(url, await res.clone().text()) : [];
+    await putAsset(url, res);
+    await Promise.all(later.map((u) => precache(u, seen)));
+  } catch {
+    /* offline or gone: cached on first use instead */
+  }
+}
+
+function siblings(url, code) {
+  const out = [];
+  for (const m of code.matchAll(/["'`]([\w.-]+-[\w-]{8}\.(?:js|css|wasm))["'`]/g)) {
+    const u = new URL(m[1], url).href;
+    if (u.includes('/assets/') && u !== url) out.push(u);
+  }
+  return out;
+}
+
+/**
+ * Build files are named chunk-hash.ext: keep only the newest of each chunk.
+ * Hashes are exactly 8 characters and may contain '-' (index-B-9aQzzz.js).
+ */
 function chunkKey(url) {
-  const m = /\/assets\/(.+)-[\w-]{6,}\.(\w+)$/.exec(new URL(url).pathname);
+  const m = /\/assets\/(.+)-[\w-]{8}\.(\w+)$/.exec(new URL(url).pathname);
   return m ? `${m[1]}.${m[2]}` : null;
 }
 

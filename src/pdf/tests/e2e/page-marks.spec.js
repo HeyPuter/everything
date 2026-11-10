@@ -391,3 +391,37 @@ test('page marks count a page named twice in the range once', async ({ page }) =
     await settled(page);
   }
 });
+
+test('the header and footer places sit as they do on the page: left, center, right', async ({
+  page,
+  isMobile,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await threePages());
+  await menu(page, 'Header and footer…');
+  const dialog = page.getByRole('dialog', { name: 'Header and footer' });
+  const box = (name) => dialog.getByLabel(name, { exact: true }).boundingBox();
+  const [topLeft, topCenter, topRight, bottomLeft, bottomCenter] = await Promise.all(
+    ['Top left', 'Top center', 'Top right', 'Bottom left', 'Bottom center'].map(box),
+  );
+  if (isMobile) {
+    // A phone has room for one place a row, in reading order.
+    expect(topCenter.y).toBeGreaterThan(topLeft.y);
+    expect(topRight.y).toBeGreaterThan(topCenter.y);
+    expect(bottomLeft.y).toBeGreaterThan(topRight.y);
+    return;
+  }
+  for (const other of [topCenter, topRight]) expect(other.y).toBeCloseTo(topLeft.y, 0);
+  expect(topLeft.x).toBeLessThan(topCenter.x);
+  expect(topCenter.x).toBeLessThan(topRight.x);
+  expect(bottomLeft.y).toBeGreaterThan(topLeft.y);
+  expect(bottomLeft.x).toBeCloseTo(topLeft.x, 0);
+  expect(bottomCenter.x).toBeCloseTo(topCenter.x, 0);
+  // The longest example still shows whole.
+  expect(
+    await dialog
+      .getByLabel('Bottom center', { exact: true })
+      .evaluate((input) => input.scrollWidth <= input.clientWidth),
+  ).toBe(true);
+});

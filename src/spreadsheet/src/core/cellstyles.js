@@ -3,6 +3,7 @@
  * consistent look. Each preset is a style patch (see Workbook.applyStyle)
  * plus optional border strokes.
  */
+import { t } from '../i18n/index.js';
 
 // Sizes are in pixels, as cell styles store them: Title, Heading and Subheading are Excel's Title, Heading 1 and
 // Heading 2 at 18, 15 and 13 points, so each stands above the 11-point text of a new spreadsheet. (At 20, 15 and
@@ -23,6 +24,21 @@ export const CELL_STYLES = [
   { key: 'note', label: 'Note', patch: { bg: '#fff2cc' }, borders: [{ kind: 'outer', style: 'thin', color: '#bfbfbf' }] },
   { key: 'warning', label: 'Warning text', patch: { color: '#c22a2a' } },
 ];
+
+// `label` is the style's name as cells and files store it (`cellStyle`), so it stays English; the gallery and menus
+// show cellStyleLabel's name, Excel's own in the interface language.
+const LABEL_KEYS = {
+  normal: 'cellstyles.normal', title: 'cellstyles.title', heading: 'cellstyles.heading', subheading: 'cellstyles.subheading',
+  total: 'cellstyles.total', input: 'cellstyles.input', calc: 'cellstyles.calculation', good: 'cellstyles.good', bad: 'cellstyles.bad',
+  neutral: 'cellstyles.neutral', note: 'cellstyles.note', warning: 'cellstyles.warningText',
+};
+
+/** What the interface calls a built-in preset (by key or preset): "Good" / "好". Anything else is its own name. */
+export function cellStyleLabel(preset) {
+  const def = typeof preset === 'string' ? cellStyle(preset) : preset;
+  const key = def && LABEL_KEYS[def.key];
+  return key ? t(key) : def?.label ?? '';
+}
 
 export function cellStyle(key) {
   return CELL_STYLES.find((s) => s.key === key) || null;

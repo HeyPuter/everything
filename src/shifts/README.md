@@ -1,5 +1,7 @@
 # Shifts
 
+**Live app:** [shifts.puter.com](https://shifts.puter.com/)
+
 Shift scheduling for small teams: employee availability, shift assignments, swap requests, and attendance in a single, lightweight web app.
 
 Built with vanilla JavaScript (no UI framework), [Vite](https://vitejs.dev), [Lucide](https://lucide.dev) icons, and [Puter.js](https://docs.puter.com) as the only backend. All data lives in the signed-in user's own Puter cloud key-value store; there is no server to run.

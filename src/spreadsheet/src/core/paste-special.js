@@ -11,22 +11,24 @@ import { BORDER_STYLE_KEYS } from './style-values.js';
 import { mapPastedConditionalFormats, replaceConditionalFormats } from './conditional-paste.js';
 import { mapPastedValidations } from './validation-paste.js';
 import { maxOf } from './numeric.js';
+import { t } from '../i18n/index.js';
 
 /**
  * The Paste group of the dialog, in its two columns' reading order, with the letter each is chosen by.
  * Letters come from one rule across this group and OPERATIONS: the shortest labels choose first (ties
  * in dialog order), each taking the first letter of its label still free; B, E and L are left to the
- * dialog's Skip blanks, Transpose and Paste Link.
+ * dialog's Skip blanks, Transpose and Paste Link. Each label is a catalog key, shown with t(); the letters
+ * stay those of the English labels, and a translation that lacks its letter shows it after the label.
  */
 export const PASTE_WHAT = [
-  ['all', 'Everything', 'R'], ['allSourceTheme', 'Everything, with the source theme', 'H'],
-  ['formulas', 'Formulas', 'O'], ['noBorders', 'Everything but borders', 'Y'],
-  ['values', 'Values', 'V'], ['widths', 'Column widths', 'C'],
-  ['formats', 'Formats', 'F'], ['formulasNumFmt', 'Formulas with number formats', 'W'],
-  ['comments', 'Comments and notes', 'T'], ['valuesNumFmt', 'Values with number formats', 'U'],
-  ['validation', 'Data validation rules', 'I'], ['allMergeCF', 'Everything, merging conditional formats', 'G'],
+  ['all', 'pasteSpecial.what.all', 'R'], ['allSourceTheme', 'pasteSpecial.what.allSourceTheme', 'H'],
+  ['formulas', 'pasteSpecial.what.formulas', 'O'], ['noBorders', 'pasteSpecial.what.noBorders', 'Y'],
+  ['values', 'pasteSpecial.what.values', 'V'], ['widths', 'pasteSpecial.what.widths', 'C'],
+  ['formats', 'pasteSpecial.what.formats', 'F'], ['formulasNumFmt', 'pasteSpecial.what.formulasNumFmt', 'W'],
+  ['comments', 'pasteSpecial.what.comments', 'T'], ['valuesNumFmt', 'pasteSpecial.what.valuesNumFmt', 'U'],
+  ['validation', 'pasteSpecial.what.validation', 'I'], ['allMergeCF', 'pasteSpecial.what.allMergeCF', 'G'],
 ];
-export const OPERATIONS = [['none', 'None', 'N'], ['add', 'Add', 'A'], ['sub', 'Subtract', 'S'], ['mul', 'Multiply', 'M'], ['div', 'Divide', 'D']];
+export const OPERATIONS = [['none', 'pasteSpecial.operation.none', 'N'], ['add', 'pasteSpecial.operation.add', 'A'], ['sub', 'pasteSpecial.operation.sub', 'S'], ['mul', 'pasteSpecial.operation.mul', 'M'], ['div', 'pasteSpecial.operation.div', 'D']];
 /** Kinds the gallery offers beyond the dialog's: Keep Source Column Widths and Values & Source Formatting. */
 const EXTRA_WHAT = ['allWidths', 'valuesSourceFmt'];
 /** What the dialog still offers when the clipboard holds another app's content. */
@@ -74,11 +76,12 @@ export function legacyMode(options, { cells = true } = {}) {
 /** A label for the undo step and the notice. */
 export function pasteLabel(options) {
   const o = pasteOptions(options);
-  if (o.insert) return 'Insert copied cells';
-  if (o.link) return 'Paste links';
-  if (o.operation !== 'none') return 'Paste operation';
-  return { values: 'Paste values', valuesNumFmt: 'Paste values', valuesSourceFmt: 'Paste values', formats: 'Paste formatting', widths: 'Paste column widths',
-    comments: 'Paste comments and notes', validation: 'Paste validation' }[o.what] || 'Paste';
+  if (o.insert) return t('pasteSpecial.undo.insertCopiedCells');
+  if (o.link) return t('pasteSpecial.undo.pasteLinks');
+  if (o.operation !== 'none') return t('pasteSpecial.undo.pasteOperation');
+  const key = { values: 'pasteSpecial.undo.pasteValues', valuesNumFmt: 'pasteSpecial.undo.pasteValues', valuesSourceFmt: 'pasteSpecial.undo.pasteValues', formats: 'pasteSpecial.undo.pasteFormatting', widths: 'pasteSpecial.undo.pasteColumnWidths',
+    comments: 'pasteSpecial.undo.pasteComments', validation: 'pasteSpecial.undo.pasteValidation' }[o.what];
+  return key ? t(key) : t('pasteSpecial.undo.paste');
 }
 
 const without = (style, keys) => {
@@ -181,7 +184,7 @@ export function composePaste(wb, sheetId, data, r0, c0, target, options, limit) 
       const reached = out.filter(({ i, j }) => !o.skipBlanks || !blankCell(cells[i]?.[j])).map(({ r, c }) => ({ r, c }));
       let n = 0;
       const added = incoming ? replaceConditionalFormats([], incoming, reached, () => `ps${Date.now().toString(36)}${(n++).toString(36)}`, sheet.name) : [];
-      if (added.length) wb._setRules(sheet, [...added, ...sheet.rules], 'Paste');
+      if (added.length) wb._setRules(sheet, [...added, ...sheet.rules], t('pasteSpecial.undo.paste'));
     }
     return { block, pasted };
   }
@@ -225,7 +228,7 @@ export function composePaste(wb, sheetId, data, r0, c0, target, options, limit) 
   if (what === 'comments') {
     if (!noteWrites.length) return { block, pasted: null };
     if (wb.lockedIn(sheetId, block)) return null;
-    wb.transaction('Paste comments and notes', () => { for (const { r, c, text } of noteWrites) wb.setNote(sheetId, r, c, text); });
+    wb.transaction(t('pasteSpecial.undo.pasteComments'), () => { for (const { r, c, text } of noteWrites) wb.setNote(sheetId, r, c, text); });
     return { block, pasted: null };
   }
   if (!entries.length) return { block, pasted: null };

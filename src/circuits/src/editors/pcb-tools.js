@@ -30,7 +30,7 @@ function crosshair(b, ed, x, y, color) {
 /** Draws objects as previews into the overlay. */
 function preview(b, ed, objs, alpha = 0.75) {
   const sink = (l) => (l === 'holes' || ed.isLayerVisible(l) || isCopper(l) ? b : null);
-  const ctx = { ...ed.sceneContext(), colors: ed.layerColorsWithAlpha?.(alpha) };
+  const ctx = { ...ed.previewContext(), colors: ed.layerColorsWithAlpha?.(alpha) };
   for (const o of objs) emitPcbObject(o, sink, ctx);
 }
 
@@ -42,6 +42,7 @@ export class RouteTool {
     this.trace = null; // { net, layer, width, pts:[x,y,...], segments:[...committed objects], vias:[] }
     this.corner = editor.app.settings.get('cornerStyle') || '45start';
     this.snapExclude = null;
+    this.width = 0; // width chosen with Tab before routing (0: net class or rules)
   }
 
   get mode() { return this.editor.app.settings.get('routingMode'); }
@@ -70,7 +71,7 @@ export class RouteTool {
       if (hit.layers?.length === 1 && isCopper(hit.layers[0]) && hit.layers[0] !== ed.activeLayer) ed.setActiveLayer(hit.layers[0]);
     }
     const cls = ed.netClassOf(net);
-    this.trace = { net, layer: ed.activeLayer, width: cls?.width || ed.doc.rules.trackWidth, pts: [x, y], start: hit, placed: [] };
+    this.trace = { net, layer: ed.activeLayer, width: this.width || cls?.width || ed.doc.rules.trackWidth, pts: [x, y], start: hit, placed: [] };
     ed.setRouteNet?.(net);
     ed.updateHint();
   }
@@ -158,6 +159,9 @@ export class RouteTool {
   dblclick() { if (this.trace) this.finish(); }
   rightClick() { if (this.trace) this.finish(); else this.editor.endTool(); return true; }
 
+  /** Undo removed the trace's segments: continuing would leave a gap, so end it. */
+  historyChanged() { if (this.trace) this.finish(); }
+
   _switchLayer(dir = 1) {
     const ed = this.editor;
     const layers = copperLayers(ed.doc.board.copper);
@@ -170,6 +174,7 @@ export class RouteTool {
       const via = { id: uid(), t: 'via', x, y, d: cls?.viaDiameter || ed.doc.rules.viaDiameter, drill: cls?.viaDrill || ed.doc.rules.viaDrill, from: layers[0], to: layers[layers.length - 1], net: t.net || undefined };
       ed.doc.store.transact('Route', (s) => s.add(via), { mergeKey: `route:${t.id || (t.id = uid())}` });
       t.placed.push(via.id);
+      (t.viaFrom ||= new Map()).set(via.id, t.layer);
       t.layer = next;
     }
     ed.setActiveLayer(next);
@@ -180,7 +185,8 @@ export class RouteTool {
     const t = this.trace;
     const ed = this.editor;
     const v = await promptDialog({ title: 'Track width', label: `Width (${ed.units})`, value: formatLength(t ? t.width : ed.doc.rules.trackWidth, ed.units, { suffix: false }), validate: (s) => { const n = parseLength(s, ed.units); return n && n > 0 ? null : 'Enter a positive width'; } });
-    if (v && t) t.width = parseLength(v, ed.units);
+    // Before a trace starts, the width applies to the traces drawn next.
+    if (v) { if (t) t.width = parseLength(v, ed.units); else this.width = parseLength(v, ed.units); }
     ed.updateHint();
     ed.canvas.focus();
   }
@@ -210,7 +216,11 @@ export class RouteTool {
         const o = ed.doc.store.get(last);
         ed.doc.store.transact('Route', (s) => s.remove(last), { mergeKey: `route:${t.id}` });
         if (o?.t === 'track') t.pts = [o.x1, o.y1];
-        else if (o?.t === 'via') { t.layer = ed.activeLayer; }
+        else if (o?.t === 'via') {
+          // Removing the via returns the trace to the layer it came from.
+          t.layer = t.viaFrom?.get(last) || t.layer;
+          ed.setActiveLayer(t.layer);
+        }
       } else this.finish();
       ed.updateHint();
       return true;

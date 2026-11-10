@@ -76,6 +76,11 @@ export function scriptFontNotice(fonts = []) {
 }
 
 /** The pictures an imported Markdown file or web page held, which the import leaves out. */
+/** A Markdown file whose formatting took too long to read opened as its lines of text (markdownHtmlOffThread). */
+export function plainMarkdownNotice(plain) {
+  return plain ? [el('p', { 'data-plain-markdown': '' }, 'This Markdown file took too long to read, so it opened as plain text: its headings, lists and emphasis show as typed.')] : [];
+}
+
 export function omittedPictureNotice(count = 0) {
   if (!count) return [];
   return [el('p', { 'data-omitted-pictures': '' },

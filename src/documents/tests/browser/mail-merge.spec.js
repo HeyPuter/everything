@@ -320,6 +320,29 @@ test('Enter in a recipient list\'s search field searches without closing the dia
   expect(errors).toEqual([]);
 });
 
+test('Enter that confirms an input method\'s conversion in a new list stays in the entry', async ({ page }) => {
+  await page.goto('/playground.html');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/^A small beginning/);
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await ribbon(page).getByRole('button', { name: 'Select Recipients', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Type a New List…' }).click();
+  const grid = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'New Address List' });
+  const cell = grid.getByLabel('Last Name, entry 1');
+  await cell.click();
+  await cell.fill('山田');
+  // The Enter that picks 山田 from the input method's candidates is the input method's: no new entry, and the
+  // keyboard stays in the name.
+  await cell.evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, isComposing: true, bubbles: true, cancelable: true })));
+  await cell.evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true })));
+  await expect(cell).toBeFocused();
+  await expect(cell).toHaveValue('山田');
+  await expect(grid.locator('tr[data-row]')).toHaveCount(1);
+  // A plain Enter afterwards still starts the next entry.
+  await page.keyboard.press('Enter');
+  await expect(grid.locator('tr[data-row]')).toHaveCount(2);
+  await expect(grid.getByLabel('Title, entry 2')).toBeFocused();
+});
+
 test('Labels opens its collapsed measurements to show a value that needs fixing', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/playground.html');

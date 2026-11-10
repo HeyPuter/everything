@@ -1,4 +1,5 @@
 import { el, isComposing, styleColor } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { iconEl } from '../ui/icons.js';
 import { openMenu } from '../ui/menu.js';
 import { styleRun } from '../engine/styles.js';
@@ -108,11 +109,37 @@ export function createStylesPane({ editor, readOnly, actions }) {
           el('button.btn.btn-outline.btn-sm', { type: 'button', disabled: !currentStyle || !currentCount, onclick: () => actions.selectAll(currentStyle.id) }, currentCount ? `Select All ${currentCount} Instance${currentCount === 1 ? '' : 's'}` : 'Select All Instances'),
           el('button.btn.btn-outline.btn-sm', { type: 'button', disabled: ro, onclick: () => actions.create() }, 'New Style…'),
           el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: ro, onclick: () => actions.clearFormatting() }, 'Clear Formatting'))),
-      el('div.styles-pane-list', { role: 'list', 'aria-label': 'Apply a style' }, ...items),
+      styleListNode(items, ro),
       ...(items.length ? [] : [el('p.field-hint', {}, 'No styles to show with this filter.')]),
       el('div.styles-pane-footer', {}, el('label.ed-font-field', {}, el('span.field-label', {}, 'List'), filterSelect), el('label.ed-check', {}, previewBox, 'Show styles as they look'),
         el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => actions.manage() }, 'Manage Styles…')));
   }
+  /**
+   * The list is one Tab stop, on the selection's style: Up, Down, Home and End move between the styles, Right goes to
+   * a style's options button and Left back, as in the dialogs' lists. Tabbing through every style (and its options)
+   * took dozens of presses with All styles shown.
+   */
+  function styleListNode(items, ro) {
+    const list = el('div.styles-pane-list', { role: 'list', 'aria-label': 'Apply a style' }, ...items);
+    // Read-only, the Apply buttons are off: the options buttons (Select All Instances) are what the keys reach.
+    const stops = () => [...list.querySelectorAll(ro ? '.styles-pane-more' : '.styles-pane-apply')];
+    const rove = target => { for (const button of list.querySelectorAll('button')) button.tabIndex = button === target ? 0 : -1; };
+    rove(list.querySelector('.styles-pane-item.is-current')?.querySelector(ro ? '.styles-pane-more' : '.styles-pane-apply') || stops()[0]);
+    list.addEventListener('focusin', e => { if (e.target.matches?.('button')) rove(e.target); });
+    list.addEventListener('keydown', e => {
+      if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !e.target.matches?.('button')) return;
+      const item = e.target.closest('.styles-pane-item');
+      if (e.key === 'ArrowRight' && e.target.matches('.styles-pane-apply')) { e.preventDefault(); item.querySelector('.styles-pane-more')?.focus(); return; }
+      if (e.key === 'ArrowLeft' && e.target.matches('.styles-pane-more') && !ro) { e.preventDefault(); item.querySelector('.styles-pane-apply')?.focus(); return; }
+      const all = stops(), at = all.indexOf(item?.querySelector(ro ? '.styles-pane-more' : '.styles-pane-apply'));
+      const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[e.key];
+      if (next === undefined || at < 0) return;
+      e.preventDefault();
+      all[Math.max(0, Math.min(all.length - 1, next))]?.focus();
+    });
+    return list;
+  }
+
   function menu(style, anchor, event) {
     const e = engine(); if (!e) return;
     const count = styleUsage(e.model).get(style.id) || 0, ro = readOnly();
@@ -148,7 +175,7 @@ export function createStylesPane({ editor, readOnly, actions }) {
     const sections = revealFormatting(e.model, { styleName: id => styleDisplayName(e.model.styles.definitions[id]?.name || id) });
     const box = el('input', { type: 'checkbox', checked: distinguish, onchange: () => { distinguish = box.checked; signature = ''; refresh(); } });
     body.replaceChildren(
-      el('p.styles-reveal-sample', {}, (() => { const [a, b] = e.model.range; const text = e.model.text.slice(a, b).replace(/\s+/g, ' ').trim(); return text ? `Selected text: “${text.slice(0, 60)}${text.length > 60 ? '…' : ''}”` : 'Formatting at the cursor'; })()),
+      el('p.styles-reveal-sample', {}, (() => { const [a, b] = e.model.range; const text = e.model.text.slice(a, b).replace(/\s+/g, ' ').trim(); return text ? `Selected text: “${clipText(text, 60)}${text.length > 60 ? '…' : ''}”` : 'Formatting at the cursor'; })()),
       ...sections.map(({ title, entries }) => el('section.styles-reveal-section', { 'aria-label': title }, el('h3', {}, title),
         el('dl.styles-reveal-list', {}, ...entries.flatMap(item => [
           el('dt', {}, el('button.styles-reveal-link', { type: 'button', title: `Change ${item.label.toLowerCase()}`, onclick: () => actions.openTarget(item.target) }, item.label)),

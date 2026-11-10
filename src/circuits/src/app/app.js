@@ -1,7 +1,7 @@
 // Application shell: layout, documents and tabs, panels, project files,
 // account, and the glue between editors, the kernel and the exporters.
 
-import { h, clear, announce } from '../ui/dom.js';
+import { h, clear, announce, shortcutLabel, isMac } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { createMenubar, setMenuCommands, openMenu } from '../ui/menu.js';
 import { toast, installTooltips } from '../ui/toast.js';
@@ -15,6 +15,7 @@ import { registerCommands } from './actions.js';
 import { Settings, uiState } from './settings.js';
 import { applyTheme, resolvedTheme, currentTheme } from './theme.js';
 import * as P from './puter.js';
+import { mountUserMenu, userMenuSlot } from './user-menu.js';
 import * as storage from './storage.js';
 import * as dialogs from './dialogs.js';
 import { newComponentDialog, libraryDialog } from './lib-dialogs.js';
@@ -53,6 +54,10 @@ function pickFiles(accept) {
     input.click();
   });
 }
+
+/** A project file error in words: JSON syntax errors mean a damaged or foreign file. */
+const fileError = (err) =>
+  err instanceof SyntaxError ? 'This file is not a Circuits project, or it is damaged.' : err?.message || String(err);
 
 export const REPO_URL = 'https://github.com/heyputer/everything';
 const ALPHA_KEY = 'circuits:alpha-notice-seen';
@@ -113,6 +118,13 @@ export class App extends Emitter {
 
     const sdk = await P.loadPuter(this.puterTimeout);
     this.env = P.env();
+    // Where the SDK has <puter-user-menu>, it takes the account's place in the title bar.
+    this.userMenu = mountUserMenu(this.userMenuEl, {
+      signOut: () => this.signOut(),
+      signedIn: () => { P.accountChanged(); this._signedIn(); },
+      signedOut: () => { P.accountChanged(); this._signedOut(); },
+    });
+    if (this.userMenu) this.userMenu.parentElement.classList.add('has-user-menu');
     if (sdk && (this.env === 'app' || P.isSignedIn())) await this._loadUser();
     this.renderAccount();
     this.userLibrary.load();
@@ -143,16 +155,27 @@ export class App extends Emitter {
 
   _wireGlobal() {
     this.settings.on('change', ({ key }) => {
-      if (key === 'theme') applyTheme(this.settings.get('theme'));
+      // The button shows the choice (light, dark or system), which can change
+      // without the resolved theme changing, so redraw it here as well.
+      if (key === 'theme') { applyTheme(this.settings.get('theme')); this.renderThemeButton(); }
       if (key === 'units' || key === 'pcbGrid' || key === 'schGrid') { this.updateStatus(); for (const e of this.editors.values()) { e.requestRender(true); e._updateHud?.(); } this.panels.properties.refresh(); }
       if (key === 'onlineDrc') for (const e of this.editors.values()) e._scheduleDrc?.();
     });
     window.addEventListener('themechange', () => { this.renderThemeButton(); this.panels.components._preview(); });
     window.addEventListener('beforeunload', (e) => {
-      if (this.project?.dirty) { this._flushSave(); e.preventDefault(); e.returnValue = ''; }
+      const libDirty = [...this._libDocs.values()].some((d) => d.dirty);
+      if (this.project?.dirty || libDirty) { this._flushSave(); e.preventDefault(); e.returnValue = ''; }
     });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this._flushSave(); });
     this.compactQuery.addEventListener?.('change', () => this.applyDocks());
+    // Escape closes an open panel drawer (tablet and phone layouts). Dialogs,
+    // menus and fields that use Escape themselves stop or mark the event.
+    document.addEventListener('keydown', (e) => {
+      const drawer = this._drawerLeft || this._drawerRight;
+      if (e.key !== 'Escape' || e.defaultPrevented || !this.isCompact || !drawer) return;
+      e.preventDefault();
+      this.closeDrawers({ restoreFocus: true });
+    });
     window.addEventListener('resize', () => this._clampDocks());
   }
 
@@ -171,8 +194,10 @@ export class App extends Emitter {
     clear(root);
     this.menubar = createMenubar();
     this.docTitle = h('div.doc-title', { 'aria-live': 'polite' });
-    this.themeBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Theme', 'data-tip': 'Theme', onClick: () => this._themeMenu() });
+    this.themeBtn = h('button.icon-btn.theme-btn', { type: 'button', 'aria-label': 'Theme', 'data-tip': 'Theme', onClick: () => this._themeMenu() });
     this.accountEl = h('div.account');
+    // Filled once the SDK is known, where it has <puter-user-menu> (see user-menu.js).
+    this.userMenuEl = userMenuSlot();
     this.saveBadge = h('span.small.muted.phone-hide', { 'aria-live': 'polite', style: { margin: '0 6px', whiteSpace: 'nowrap' } });
     const quick = (cmd, ico, label, extra = '') => h(`button.icon-btn${extra}`, { type: 'button', 'aria-label': label, 'data-tip': label, 'data-kbd': this.commands.get(cmd)?.shortcut || '', onClick: () => this.commands.run(cmd) }, icon(ico, 17));
     const titlebar = h('header.titlebar', { role: 'banner' },
@@ -186,11 +211,12 @@ export class App extends Emitter {
       this.docTitle,
       this.saveBadge,
       h('button.icon-btn.compact-only.phone-hide', { type: 'button', 'aria-label': 'Design panels', 'data-tip': 'Properties and components', onClick: () => this._toggleDrawer('right') }, icon('panel-right', 17)),
-      h('button.search-box', { type: 'button', 'aria-label': 'Search commands', onClick: () => this.commandPalette() }, icon('search', 14), h('span', 'Search commands'), h('kbd', 'Ctrl K')),
+      h('button.search-box', { type: 'button', 'aria-keyshortcuts': isMac ? 'Meta+K' : 'Control+K', onClick: () => this.commandPalette() }, icon('search', 14), h('span', 'Search commands'), h('kbd', { 'aria-hidden': 'true' }, shortcutLabel('Mod+K'))),
       h('span.alpha-tag', { title: 'Early preview: features may change' }, 'Alpha'),
       this.themeBtn,
       h('a.icon-btn', { href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub (opens in a new tab)', 'data-tip': 'Source code on GitHub' }, icon('github', 17)),
-      this.accountEl);
+      this.accountEl,
+      this.userMenuEl);
     this.renderThemeButton();
 
     // Panels.
@@ -212,12 +238,14 @@ export class App extends Emitter {
     this.editorHost = h('div.editor-host');
     this.center = h('main.center#main', { tabindex: -1 }, this.docTabs, this.editorHost, this.bottomDock);
     this.sideStrip = h('div.side-strip', { role: 'toolbar', 'aria-label': 'Panels', 'aria-orientation': 'vertical' });
-    this.scrim = h('div.scrim', { hidden: true, onClick: () => this.closeDrawers() });
+    this.scrim = h('div.scrim', { hidden: true, onClick: () => this.closeDrawers({ restoreFocus: true }) });
     this.workspace = h('div.workspace', this.leftDock.el, this.center, this.rightDock.el, this.sideStrip, this.scrim);
 
     this.status = h('footer.statusbar', { role: 'contentinfo', 'aria-label': 'Status' });
     this.mobileBar = h('div.mobile-bar', { role: 'toolbar', 'aria-label': 'Quick actions' });
-    root.append(titlebar, this.menubar.el, this.workspace, this.status, this.mobileBar);
+    // A region landmark around the phone toolbar, like the status bar it replaces.
+    const mobileRegion = h('section.mobile-region', { 'aria-label': 'Quick actions' }, this.mobileBar);
+    root.append(titlebar, this.menubar.el, this.workspace, this.status, mobileRegion);
     // The mobile bar replaces the status bar row on phones.
     root.style.gridTemplateRows = '';
     this.refreshMenus();
@@ -264,8 +292,10 @@ export class App extends Emitter {
 
   _resizer(handle, side) {
     handle.addEventListener('pointerdown', (e) => {
+      // One drag at a time, with the primary button or a touch.
+      if (e.button !== 0 || handle.classList.contains('dragging')) return;
       e.preventDefault();
-      handle.setPointerCapture(e.pointerId);
+      handle.setPointerCapture?.(e.pointerId);
       handle.classList.add('dragging');
       const start = { x: e.clientX, y: e.clientY };
       const prop = side === 'left' ? '--dock-left-w' : side === 'right' ? '--dock-right-w' : '--dock-bottom-h';
@@ -277,14 +307,17 @@ export class App extends Emitter {
         const v = Math.max(side === 'bottom' ? 90 : 180, Math.min(max, startSize + d));
         document.documentElement.style.setProperty(prop, `${v}px`);
       };
+      // A drag ends on release, and also when the browser takes the pointer
+      // away (pointercancel on touch, lost capture), or it would stay stuck.
+      const ends = ['pointerup', 'pointercancel', 'lostpointercapture'];
       const up = () => {
         handle.classList.remove('dragging');
         handle.removeEventListener('pointermove', move);
-        handle.removeEventListener('pointerup', up);
+        for (const t of ends) handle.removeEventListener(t, up);
         uiState.set(prop, getComputedStyle(document.documentElement).getPropertyValue(prop).trim());
       };
       handle.addEventListener('pointermove', move);
-      handle.addEventListener('pointerup', up);
+      for (const t of ends) handle.addEventListener(t, up);
     });
     const saved = uiState.get(side === 'left' ? '--dock-left-w' : side === 'right' ? '--dock-right-w' : '--dock-bottom-h', null);
     if (saved) document.documentElement.style.setProperty(side === 'left' ? '--dock-left-w' : side === 'right' ? '--dock-right-w' : '--dock-bottom-h', saved);
@@ -339,8 +372,10 @@ export class App extends Emitter {
     if (id === 'messages') { this.setBottomDock(true); return; }
     const left = LEFT_PANELS.includes(id);
     if (left) { this.leftTab = id; this.leftOpen = true; uiState.set('leftOpen', true); } else { this.rightTab = id; this.rightOpen = true; uiState.set('rightOpen', true); }
-    if (this.isCompact) { this._drawerLeft = left; this._drawerRight = !left; }
+    const wasOpen = left ? this._drawerLeft : this._drawerRight;
+    if (this.isCompact) { this._noteDrawerOpener(); this._drawerLeft = left; this._drawerRight = !left; }
     this.applyDocks();
+    if (this.isCompact && !focus && !wasOpen) this._focusDrawer(left ? 'left' : 'right');
     if (focus) {
       const panel = this.panels[id];
       const target = focusSearch ? panel.el.querySelector('input[type=search]') : panel.el.querySelector('input, button, [tabindex="0"]');
@@ -361,11 +396,37 @@ export class App extends Emitter {
     if (open) this.panels.messages.render();
   }
 
-  closeDrawers() {
+  /**
+   * Closes the drawers. Dismissing them (Escape, the scrim) returns focus to
+   * the control that opened them; otherwise (a document or part was chosen in
+   * them) focus goes to the canvas.
+   */
+  closeDrawers({ restoreFocus = false } = {}) {
+    const wasOpen = this._drawerLeft || this._drawerRight;
     this._drawerLeft = false;
     this._drawerRight = false;
     this.applyDocks();
-    this.activeEditor?.canvas.focus();
+    const opener = this._drawerOpener;
+    this._drawerOpener = null;
+    if (restoreFocus && wasOpen && opener?.isConnected && !opener.closest('[hidden]')) opener.focus();
+    if (document.activeElement !== opener || !restoreFocus) this.activeEditor?.canvas.focus();
+  }
+
+  /** Remembers what had focus before a drawer opened (kept while switching drawers). */
+  _noteDrawerOpener() {
+    const a = document.activeElement;
+    if (this._drawerLeft || this._drawerRight) return;
+    this._drawerOpener = a && a !== document.body ? a : null;
+  }
+
+  /**
+   * Moves focus into an opened drawer, onto its selected panel tab: from
+   * there Tab reaches the panel and Escape still closes the drawer (a field
+   * would take Escape for itself).
+   */
+  _focusDrawer(side) {
+    const dock = side === 'left' ? this.leftDock : this.rightDock;
+    dock.tabs.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
   }
 
   resetLayout() {
@@ -388,7 +449,6 @@ export class App extends Emitter {
 
   _themeMenu() {
     openMenu([{ command: 'theme.system' }, { command: 'theme.light' }, { command: 'theme.dark' }], { anchor: this.themeBtn, label: 'Theme' });
-    setTimeout(() => this.renderThemeButton(), 0);
   }
 
   _mobileMenu(e) {
@@ -414,8 +474,12 @@ export class App extends Emitter {
   }
 
   _toggleDrawer(side) {
+    const opening = side === 'left' ? !this._drawerLeft : !this._drawerRight;
+    if (opening) this._noteDrawerOpener();
     if (side === 'left') { this._drawerLeft = !this._drawerLeft; this._drawerRight = false; } else { this._drawerRight = !this._drawerRight; this._drawerLeft = false; }
     this.applyDocks();
+    if (opening) this._focusDrawer(side);
+    else this._drawerOpener = null;
   }
 
   // ---------- Account ----------
@@ -423,6 +487,9 @@ export class App extends Emitter {
   renderAccount() {
     const el = this.accountEl;
     clear(el);
+    // puter.js's user menu holds the account where it renders.
+    el.hidden = !!this.userMenu;
+    if (this.userMenu) return;
     if (!P.puter()) return;
     if (!this.user) {
       if (this.env === 'app') return;
@@ -443,24 +510,34 @@ export class App extends Emitter {
   async signIn() {
     try {
       await P.signIn();
-      await this._loadUser();
-      this.renderAccount();
-      this.userLibrary.load();
-      toast(`Signed in as ${this.user?.username || 'you'}. New projects are saved to your Puter cloud.`, { kind: 'success' });
-      if (this.project && this.location?.type === 'local') {
-        toast('This project is stored in this browser only.', {
-          title: 'Keep it in your cloud?', timeout: 0,
-          actions: [{ label: 'Move to cloud', primary: true, run: () => this.moveToCloud() }, { label: 'Not now' }],
-        });
-      }
+      await this._signedIn();
     } catch (err) {
       if (err?.error !== 'auth_window_closed') toast('Sign in did not complete.', { kind: 'info' });
+    }
+  }
+
+  /** After signing in here, or after puter.js's user menu signed in. */
+  async _signedIn() {
+    await this._loadUser();
+    this.renderAccount();
+    this.userLibrary.load();
+    toast(`Signed in as ${this.user?.username || 'you'}. New projects are saved to your Puter cloud.`, { kind: 'success' });
+    if (this.project && this.location?.type === 'local') {
+      toast('This project is stored in this browser only.', {
+        title: 'Keep it in your cloud?', timeout: 0,
+        actions: [{ label: 'Move to cloud', primary: true, run: () => this.moveToCloud() }, { label: 'Not now' }],
+      });
     }
   }
 
   async signOut() {
     if (this.project?.dirty) await this.save();
     await P.signOut();
+    await this._signedOut();
+  }
+
+  /** After signing out here, or after puter.js's user menu signed out by itself. */
+  async _signedOut() {
     this.user = null;
     this.picture = null;
     this.renderAccount();
@@ -494,6 +571,11 @@ export class App extends Emitter {
     this.project = project;
     this.location = location;
     this.saveState = project.dirty ? 'dirty' : 'saved';
+    // Autosave and version timing belong to one project; start afresh.
+    clearTimeout(this._autosaveTimer);
+    this._dirtySince = 0;
+    this._lastVersionAt = 0;
+    this._saveErrorShown = false;
     const offs = [
       project.on('docchange', () => this._onProjectChanged()),
       project.on('meta', () => this._onProjectChanged()),
@@ -586,7 +668,8 @@ export class App extends Emitter {
       storage.rememberRecent({ location, name: project.name });
       return true;
     } catch (err) {
-      if (!quiet) toast(`Could not open the project: ${P.isMissing(err) ? 'the file no longer exists.' : err.message}`, { kind: 'error' });
+      const why = P.isMissing(err) ? 'the file no longer exists.' : fileError(err);
+      if (!quiet) toast(`Could not open the project: ${why}`, { kind: 'error' });
       if (P.isMissing(err)) storage.forgetRecent(location);
       return false;
     }
@@ -611,10 +694,18 @@ export class App extends Emitter {
     if (!files.length) return;
     if (files.some((f) => /\.kicad_(sch|pcb|pro)$/i.test(f.name))) { await this.importKicad(files); return; }
     const f = { text: await files[0].text(), name: files[0].name.replace(/\.(circuits|json)$/i, '') };
+    let project;
+    try {
+      project = parseProject(f.text);
+    } catch (err) {
+      toast(fileError(err), { kind: 'error', title: 'Could not open the file' });
+      return;
+    }
     if (!(await this._confirmLeave())) return;
     try {
-      const project = parseProject(f.text);
-      // Imported projects get a fresh identity and a new storage location.
+      // Imported projects get a fresh identity and a new storage location, so
+      // opening a downloaded copy never overwrites the project it came from.
+      project.id = uid('p');
       const location = await storage.newLocation(project.name, project.id).catch(() => null);
       this.setProject(project, location);
       if (location) await this.save({ quiet: true });
@@ -670,6 +761,7 @@ export class App extends Emitter {
         if (p.docs.every((d, i) => d.store.revision === revisions[i])) p.markSaved();
         this.saveState = p.dirty ? 'dirty' : 'saved';
         this._dirtySince = 0;
+        this._saveErrorShown = false; // a later failure is a new problem to report
         try { localStorage.setItem(LAST_KEY, JSON.stringify(this.location)); } catch { /* storage unavailable */ }
         if (!auto && !quiet) announce('Project saved');
         // Keep a restorable version (throttled while autosaving).
@@ -713,9 +805,19 @@ export class App extends Emitter {
     }
     const name = await promptDialog({ title: 'Save a copy', label: 'Project name', value: `${p.name} copy`, confirm: 'Save', validate: (v) => (!v ? 'Enter a name' : null) });
     if (!name) return;
+    // Find the new location first: if that fails, the project must stay as
+    // it was, or its next save would write the copy over the original.
+    const id = `${p.id}-${Date.now().toString(36)}`;
+    let location;
+    try {
+      location = await storage.newLocation(name, id);
+    } catch (err) {
+      toast(`Could not save a copy: ${err.message}`, { kind: 'error' });
+      return;
+    }
     p.rename(name);
-    p.id = `${p.id}-${Date.now().toString(36)}`;
-    this.location = await storage.newLocation(name, p.id);
+    p.id = id;
+    this.location = location;
     await this.save();
     this.panels.projects.refresh();
   }
@@ -740,6 +842,8 @@ export class App extends Emitter {
 
   /** Asks before replacing a project with unsaved changes. */
   async _confirmLeave() {
+    // Components open in the editor first: saving one changes the project.
+    for (const id of [...this._libDocs.keys()]) if (!(await this._confirmCloseLib(id))) return false;
     const p = this.project;
     if (!p || !p.dirty) return true;
     if (this.location) { await this.save({ quiet: true }); if (!p.dirty) return true; }
@@ -790,7 +894,10 @@ export class App extends Emitter {
     ed.on('highlight', () => { if (this.isPanelVisible('navigator')) this.panels.navigator.refresh(); });
     ed.on('drc', () => { if (this.activeEditor === ed) this.updateStatus(); });
     ed.on('pours', () => { if (this.view3dOpen && this.activeEditor === ed) this._update3d(); });
-    ed.doc.store.on('change', () => { if (this.view3dOpen && this.activeEditor === ed) { clearTimeout(this._3dTimer); this._3dTimer = setTimeout(() => this._update3d(), 300); } });
+    const offStore = ed.doc.store.on('change', () => { if (this.view3dOpen && this.activeEditor === ed) { clearTimeout(this._3dTimer); this._3dTimer = setTimeout(() => this._update3d(), 300); } });
+    // The document outlives the editor (tabs close and reopen), so let go of it.
+    const dispose = ed.dispose.bind(ed);
+    ed.dispose = () => { offStore(); dispose(); };
     this._buildActiveBar(ed);
     return ed;
   }
@@ -1218,6 +1325,8 @@ export class App extends Emitter {
 
   async set3d(on) {
     const ed = this.activeEditor;
+    // Invalidates an open still loading its modules (a quick double press of 3).
+    const token = (this._3dToken = (this._3dToken || 0) + 1);
     if (!on || ed?.kind !== 'pcb') {
       if (this.view3dOpen) {
         this.view3d?.viewer.dispose();
@@ -1233,6 +1342,7 @@ export class App extends Emitter {
     }
     if (this.view3dOpen) return;
     const [{ createViewer3D }, { buildBoardScene }] = await Promise.all([import('../render/viewer3d.js'), import('../render/mesh3d.js')]);
+    if (token !== this._3dToken || this.view3dOpen || this.activeEditor !== ed) return;
     const canvas = h('canvas', { tabindex: 0, 'aria-label': `3D view of ${ed.doc.name}. Drag to orbit, right drag to pan, scroll to zoom. Press 2 to return to 2D.` });
     const back = h('button.btn.sm', { type: 'button', onClick: () => this.set3d(false) }, icon('view-2d', 14), '2D view');
     const views = h('div.activebar.view3d-bar', { role: 'toolbar', 'aria-label': '3D view' }, back, h('span.ab-sep'),
@@ -1247,6 +1357,8 @@ export class App extends Emitter {
     }
     this.view3d = { el, viewer, buildBoardScene, textStrokes, editor: ed };
     this.view3dOpen = true;
+    // A 2D tool (routing, a half-drawn outline) cannot be used from the 3D view.
+    if (ed.tool !== ed.select) ed.setTool(ed.select);
     ed.activeBar.hidden = true;
     ed.hud.hidden = true;
     this._update3d();
@@ -1376,7 +1488,7 @@ export class App extends Emitter {
     const frame = h('iframe', { title: 'Print preview', style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
     document.body.append(frame);
     const landscape = ed.kind === 'sch' ? ed.doc.sheet.orientation !== 'portrait' : true;
-    const docHtml = `<!doctype html><html><head><meta charset="utf-8"><title>${ed.doc.name}</title><style>@page{size:${landscape ? 'landscape' : 'portrait'};margin:8mm}html,body{margin:0;background:#fff}svg{width:100%;height:auto;max-height:100vh;display:block}</style></head><body>${svg}</body></html>`;
+    const docHtml = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(ed.doc.name)}</title><style>@page{size:${landscape ? 'landscape' : 'portrait'};margin:8mm}html,body{margin:0;background:#fff}svg{width:100%;height:auto;max-height:100vh;display:block}</style></head><body>${svg}</body></html>`;
     frame.srcdoc = docHtml;
     frame.addEventListener('load', () => {
       try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch { toast('Printing is blocked in this browser.', { kind: 'error' }); }
@@ -1384,3 +1496,6 @@ export class App extends Emitter {
     }, { once: true });
   }
 }
+
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => HTML_ESCAPES[c]);

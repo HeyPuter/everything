@@ -22,7 +22,7 @@ import { normalizeAxisTickValues } from './axis-tick-values.js';
  *   categoryLabels: 'auto' | true | false,  does the first column (or row) name the categories rather than plot as a series?
  *   legend: boolean, stacked: boolean, stack100: boolean (stacked to 100%), trendline: boolean,
  *   trendlines?: (trend | false)[], each series' trendline: its kind, forecast and label (see trendline.js)
- *   errorBars?: (null | { x?, y? })[],   a scatter or bubble series' error bars (see error-bars.js)
+ *   errorBars?: (null | { x?, y? })[],   each series' error bars (see error-bars.js); drawn on scatter and bubble charts
  *   labels: boolean,                 write each value on its bar or point
  *   xTitle, yTitle, y2Title: string,          axis titles
  *   colors: (string|null)[],         a hex color per series (per slice for pies); null keeps the palette color
@@ -80,6 +80,7 @@ import { formatValue, dateTimeKind, numFmtToStyle, styleToNumFmt, fontKeyFor, fo
 import { isError, isRange } from './formula/functions.js';
 import { parseFormula } from './formula/parser.js';
 import { evaluate, withArrayBudget } from './formula/evaluator.js';
+import { t } from '../i18n/index.js';
 
 const CHART_MARKER_SYMBOLS = ['auto', 'circle', 'dash', 'diamond', 'dot', 'none', 'plus', 'square', 'star', 'triangle', 'x'];
 // DrawingML preset dash/gap lengths, in multiples of the line width.
@@ -87,31 +88,42 @@ export const CHART_LINE_DASHES = Object.freeze({ solid: [], dot: [1, 3], dash: [
   dashDot: [4, 3, 1, 3], lgDashDot: [8, 3, 1, 3], lgDashDotDot: [8, 3, 1, 3, 1, 3],
   sysDash: [3, 1], sysDot: [1, 1], sysDashDot: [3, 1, 1, 1], sysDashDotDot: [3, 1, 1, 1, 1, 1] });
 // The dashes a line can be given, named and ordered as Excel's Dash type menu lists them.
-export const CHART_DASH_CHOICES = Object.freeze([['solid', 'Solid'], ['sysDot', 'Round Dot'], ['sysDash', 'Square Dot'], ['dash', 'Dash'],
-  ['dashDot', 'Dash Dot'], ['lgDash', 'Long Dash'], ['lgDashDot', 'Long Dash Dot'], ['lgDashDotDot', 'Long Dash Dot Dot']]);
+// [value, label], the label read in the interface language when it is shown.
+const choice = (value, key) => Object.freeze(Object.defineProperty([value], 1, { enumerable: true, get: () => t(key) }));
+export const CHART_DASH_CHOICES = Object.freeze([choice('solid', 'charts.dashSolid'), choice('sysDot', 'charts.dashRoundDot'),
+  choice('sysDash', 'charts.dashSquareDot'), choice('dash', 'charts.dashDash'), choice('dashDot', 'charts.dashDashDot'),
+  choice('lgDash', 'charts.dashLongDash'), choice('lgDashDot', 'charts.dashLongDashDot'), choice('lgDashDotDot', 'charts.dashLongDashDotDot')]);
 
 export const CHART_DISPLAY_UNITS = Object.freeze({ hundreds: 1e2, thousands: 1e3, tenThousands: 1e4, hundredThousands: 1e5,
   millions: 1e6, tenMillions: 1e7, hundredMillions: 1e8, billions: 1e9, trillions: 1e12 });
+const DISPLAY_UNIT_LABELS = Object.freeze({ hundreds: 'charts.unitHundreds', thousands: 'charts.unitThousands',
+  tenThousands: 'charts.unitTenThousands', hundredThousands: 'charts.unitHundredThousands', millions: 'charts.unitMillions',
+  tenMillions: 'charts.unitTenMillions', hundredMillions: 'charts.unitHundredMillions', billions: 'charts.unitBillions',
+  trillions: 'charts.unitTrillions' });
+/** A built-in display unit's name in the interface language ("Thousands"), as the Format pane lists it. */
+export const displayUnitLabel = unit => (Object.hasOwn(DISPLAY_UNIT_LABELS, unit) ? t(DISPLAY_UNIT_LABELS[unit]) : String(unit));
+
+const STACKABLE_TYPES = new Set(['column', 'bar', 'line', 'area', 'combo']);
 
 export const CHART_TYPES = [
-  ['column', 'Column'],
-  ['bar', 'Bar'],
-  ['line', 'Line'],
-  ['area', 'Area'],
-  ['pie', 'Pie'],
-  ['donut', 'Donut'],
-  ['scatter', 'Scatter'],
-  ['combo', 'Combo'],
-  ['histogram', 'Histogram'],
-  ['waterfall', 'Waterfall'],
-  ['radar', 'Radar'],
-  ['bubble', 'Bubble'],
-  ['treemap', 'Treemap'],
-  ['sunburst', 'Sunburst'],
-  ['boxWhisker', 'Box & Whisker'],
-  ['funnel', 'Funnel'],
-  ['stock', 'Stock'],
-  ['surface', 'Surface'],
+  choice('column', 'charts.typeColumn'),
+  choice('bar', 'charts.typeBar'),
+  choice('line', 'charts.typeLine'),
+  choice('area', 'charts.typeArea'),
+  choice('pie', 'charts.typePie'),
+  choice('donut', 'charts.typeDonut'),
+  choice('scatter', 'charts.typeScatter'),
+  choice('combo', 'charts.typeCombo'),
+  choice('histogram', 'charts.typeHistogram'),
+  choice('waterfall', 'charts.typeWaterfall'),
+  choice('radar', 'charts.typeRadar'),
+  choice('bubble', 'charts.typeBubble'),
+  choice('treemap', 'charts.typeTreemap'),
+  choice('sunburst', 'charts.typeSunburst'),
+  choice('boxWhisker', 'charts.typeBoxWhisker'),
+  choice('funnel', 'charts.typeFunnel'),
+  choice('stock', 'charts.typeStock'),
+  choice('surface', 'charts.typeSurface'),
 ];
 
 /** Authored charts reserve 20% of a category slot between clusters. DrawingML
@@ -401,7 +413,10 @@ function normalizeChartBody(raw) {
   // before normalizing it, including negative bounds that never increment.
   if (!['r1', 'r2'].every((key) => Number.isInteger(raw.range[key]) && raw.range[key] >= 0 && raw.range[key] <= MAX_ROW)
     || !['c1', 'c2'].every((key) => Number.isInteger(raw.range[key]) && raw.range[key] >= 0 && raw.range[key] <= MAX_COL)) return null;
-  const type = CHART_TYPES.some(([t]) => t === raw.type) ? raw.type : 'column';
+  const type = CHART_TYPES.some(([id]) => id === raw.type) ? raw.type : 'column';
+  // Only these types stand their series on one another. A stack kept on another (a stacked column chart turned
+  // into a scatter chart before Edit chart stopped carrying it over) is drawn by nothing and only turned trendlines away.
+  const stackable = STACKABLE_TYPES.has(type);
   const linkedText = normalizeLinkedChartText(raw.linkedText);
   const trendlines = raw.trendline ? normalizeTrendlines(raw.trendlines) : null;
   // A bubble chart from a file once kept its error bars in its appearance; they are the chart's own now.
@@ -424,8 +439,8 @@ function normalizeChartBody(raw) {
     headers: raw.headers === true || raw.headers === false ? raw.headers : 'auto',
     categoryLabels: raw.categoryLabels === true || raw.categoryLabels === false ? raw.categoryLabels : 'auto',
     legend: raw.legend !== false,
-    stacked: !!raw.stacked,
-    stack100: !!raw.stack100,
+    stacked: stackable && !!raw.stacked,
+    stack100: stackable && !!raw.stack100,
     trendline: !!raw.trendline,
     ...(trendlines ? { trendlines } : {}),
     ...(errorBars ? { errorBars } : {}),
@@ -495,7 +510,7 @@ function normalizeSpecialOptions(type, raw) {
 
 function normalizeAppearance(raw) {
   const mixedSeries = Array.isArray(raw.seriesTypes) && raw.seriesTypes.length > 0
-    && raw.seriesTypes.every(t => ['area', 'column', 'line', 'scatter'].includes(t));
+    && raw.seriesTypes.every(type => ['area', 'column', 'line', 'scatter'].includes(type));
   // Older mixed-series charts stored CSS pixels; all other charts stored points.
   // Tag normalized values so repeated JSON/copy/import normalization is idempotent.
   const markerPoints = line => (Number.isFinite(line?.markerSize) ? line.markerSize : 5)
@@ -590,7 +605,9 @@ function normalizeAppearance(raw) {
           minorTick: ['none', 'in', 'out', 'cross'].includes(s.minorTick) ? s.minorTick : null,
           minorUnit: Number.isFinite(s.minorUnit) && s.minorUnit > 0 ? s.minorUnit : null,
           minorTimeUnit: ['days', 'months', 'years'].includes(s.minorTimeUnit) ? s.minorTimeUnit : null,
-          tickSkip: Number.isInteger(s.tickSkip) && s.tickSkip > 0 && s.tickSkip <= 4294967295 ? s.tickSkip : null }];
+          tickSkip: Number.isInteger(s.tickSkip) && s.tickSkip > 0 && s.tickSkip <= 4294967295 ? s.tickSkip : null,
+          // Format Axis' "Box around plot area": the axis line drawn again along both edges of the plot it runs beside.
+          ...(s.box === true ? { box: true } : {}) }];
       })) } : {}),
     ...Object.fromEntries(['xGridlines', 'y2Gridlines'].filter(k => typeof raw[k] === 'boolean').map(k => [k, raw[k]])),
     ...(raw.gridlineStyles && typeof raw.gridlineStyles === 'object' ? { gridlineStyles: Object.fromEntries(['x', 'y', 'y2']
@@ -1023,9 +1040,23 @@ function chartSeriesData(wb, sheetId, chart) {
     const firstCol = body.map((row) => row[0]);
     const filled = firstCol.filter((x) => !isBlank(x.v));
     const textish = filled.filter((x) => !isNum(x.v) || x.dateLike).length;
+    // Whether it counts up is the column's own, read with its hidden and filtered-out cells: hiding a year must not
+    // turn the years on show into a series.
+    const countsUp = () => {
+      const [line, from, to, written] = orientation === 'rows' ? [rowLines[0], columns[0], c2, readC2] : [columns[0], rowLines[0], r2, readR2];
+      // Past the cells written lie only blanks, which count nothing.
+      if (to > written) return false;
+      const values = [];
+      for (let k = from + 1; k <= to; k++) {
+        const v = orientation === 'rows' ? wb.getValue(sheetId, line, k) : wb.getValue(sheetId, k, line);
+        if (!isNum(v)) return false;
+        values.push(v);
+      }
+      return evenSteps(values);
+    };
     if (chart.categoryLabels === true || chart.categoryLabels === false) categoryCol = chart.categoryLabels;
     else categoryCol = filled.length > 0 && (textish >= filled.length / 2 || (blankCorner && hasHeaders)
-      || (hasHeaders && !isBlank(cells[0][0].v) && STEP_CATEGORY_TYPES.has(chart.type) && evenSteps(firstCol.map((x) => x.v))));
+      || (hasHeaders && !isBlank(cells[0][0].v) && STEP_CATEGORY_TYPES.has(chart.type) && countsUp()));
     if (chart.type === 'scatter' || chart.type === 'bubble') categoryCol = false;
   }
   const categories = body.map((row, i) => (categoryCol ? row[0].text || `${i + 1}` : `${i + 1}`));

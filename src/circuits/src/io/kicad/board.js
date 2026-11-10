@@ -7,8 +7,8 @@
 // (x negated) to give a top-side definition; the component then carries
 // side 'bottom' and the original rotation.
 
-import { parseSexpr, find, findAll, val, hasFlag, points, property } from './sexpr.js';
-import { nm, norm360, slug, arcFrom3, flipName, fontSize, strokeWidth, LAYER_MAP } from './common.js';
+import { parseSexpr, find, findAll, val, hasFlag, points, property, atomText } from './sexpr.js';
+import { nm, norm360, slug, arcFrom3, arcPoints, flipName, fontSize, strokeWidth, textAlign, LAYER_MAP } from './common.js';
 import { uid } from '../../core/emitter.js';
 import { arcToPoints, circleToPoly, polyArea, pointInPoly, bboxOfFlat, bboxEmpty, bboxAdd, rotate } from '../../core/geom.js';
 import { defaultBoard } from '../../model/project.js';
@@ -24,9 +24,20 @@ function reverse(pts) {
   return out;
 }
 
+/**
+ * Arc through three points in nm, or null when the points are (nearly) on
+ * one line: the middle point within 1 um of the chord. Such arcs are drawn
+ * as straight lines; as arcs their centre can lie kilometres away.
+ */
+function boardArc(p1, p2, p3) {
+  const dx = p3[0] - p1[0], dy = p3[1] - p1[1], len = Math.hypot(dx, dy);
+  if (len > 0 && Math.abs(dx * (p2[1] - p1[1]) - dy * (p2[0] - p1[0])) / len < 1000) return null;
+  return arcFrom3(p1, p2, p3);
+}
+
 /** Splits an arc given by three points (already in y-up nm) into a point list from p1 to p3. */
 function arcPolyline(p1, p2, p3) {
-  const a = arcFrom3(p1, p2, p3);
+  const a = boardArc(p1, p2, p3);
   if (!a) return [p1, p3];
   const pts = arcToPoints(a.cx, a.cy, a.r, a.a0, a.sweep, 2000);
   const list = [];
@@ -63,12 +74,12 @@ function chainLoops(pieces, closed, warnings) {
 
 export function importBoard(file, warnings) {
   let root;
-  try { root = parseSexpr(file.text); } catch (err) { warnings.add(`${file.name}: ${err.message}`); return null; }
+  try { root = file.root || parseSexpr(file.text); } catch (err) { warnings.add(`${file.name}: ${err.message}`); return null; }
   if (root[0] !== 'kicad_pcb') { warnings.add(`${file.name} is not a board file.`); return null; }
 
   // Nets.
   const netTable = new Map();
-  for (const n of findAll(root, 'net')) netTable.set(n[1], String(n[2] ?? ''));
+  for (const n of findAll(root, 'net')) netTable.set(n[1], atomText(n, 2));
   const cleanNet = (s) => String(s || '').replace(/^\//, '');
   const netOf = (item) => {
     const c = find(item, 'net');
@@ -99,7 +110,7 @@ export function importBoard(file, warnings) {
 
   // ---- Footprints ----
   for (const fp of [...findAll(root, 'footprint'), ...findAll(root, 'module')]) {
-    const fpName = String(fp[1]);
+    const fpName = atomText(fp, 1);
     const bottom = val(fp, 'layer') === 'B.Cu';
     const at = find(fp, 'at') || ['at', 0, 0, 0];
     const theta = Number(at[3]) || 0;
@@ -122,8 +133,8 @@ export function importBoard(file, warnings) {
       else value = String(text);
     };
     for (const t of findAll(fp, 'fp_text')) {
-      if (t[1] === 'reference') fieldFrom(t, 'designator', t[2]);
-      else if (t[1] === 'value') fieldFrom(t, 'value', t[2]);
+      if (t[1] === 'reference') fieldFrom(t, 'designator', atomText(t, 2));
+      else if (t[1] === 'value') fieldFrom(t, 'value', atomText(t, 2));
     }
     const refProp = property(fp, 'Reference'), valProp = property(fp, 'Value');
     if (refProp) fieldFrom(refProp, 'designator', refProp[2]);
@@ -134,7 +145,7 @@ export function importBoard(file, warnings) {
     const padNets = {};
     const pads = [];
     for (const pad of findAll(fp, 'pad')) {
-      const num = String(pad[1] ?? '');
+      const num = atomText(pad, 1);
       const type = String(pad[2]);
       const shape = String(pad[3]);
       const pat = find(pad, 'at') || ['at', 0, 0, 0];
@@ -143,15 +154,29 @@ export function importBoard(file, warnings) {
       const net = netOf(pad);
       if (num && net) padNets[num] = net;
       if (def) continue;
-      const [x, y] = toDef(pat[1], pat[2]);
+      const dr = find(pad, 'drill');
+      const offset = find(dr, 'offset');
+      const ox = Number(offset?.[1]) || 0, oy = Number(offset?.[2]) || 0;
+      const thru = type === 'thru_hole' || type === 'np_thru_hole';
+      let px = Number(pat[1]) || 0, py = Number(pat[2]) || 0;
+      if ((ox || oy) && !thru) {
+        // A pad offset moves the copper away from the anchor, along the pad's
+        // own axes (KiCad turns counter-clockwise on screen, y down). Without
+        // a hole the shape can simply sit where the copper is.
+        const r = ((Number(pat[3]) || 0) - theta) * (Math.PI / 180), c = Math.cos(r), sn = Math.sin(r);
+        px += ox * c + oy * sn;
+        py += -ox * sn + oy * c;
+      } else if (ox || oy) {
+        warnings.add('Pads whose copper is offset from the drill hole were imported centred on the hole; check their copper.');
+      }
+      const [x, y] = toDef(px, py);
       const w = nm(size[1]), h = nm(size[2] ?? size[1]);
       const out = { num, x, y, w, h, rot: localRot(Number(pat[3]) || 0) };
       if (shape === 'circle') { out.shape = 'round'; out.h = w; } else if (shape === 'oval') out.shape = 'oval';
       else if (shape === 'roundrect') { out.shape = 'roundrect'; out.radius = Number(val(pad, 'roundrect_rratio', 1, 0.25)); } else if (shape === 'rect') out.shape = 'rect';
       else { out.shape = 'rect'; warnings.add(`Pads with shape ${shape} were imported as rectangles.`); }
-      if (type === 'thru_hole' || type === 'np_thru_hole') {
+      if (thru) {
         out.side = 'thru';
-        const dr = find(pad, 'drill');
         const nums = dr ? dr.slice(1).filter((v) => typeof v === 'number') : [];
         out.drill = nm(nums.length ? Math.min(...nums) : 0.8);
         out.plated = type !== 'np_thru_hole';
@@ -192,11 +217,13 @@ export function importBoard(file, warnings) {
             break;
           }
           case 'fp_arc': {
-            const s = find(item, 'start'), m = find(item, 'mid'), e = find(item, 'end');
-            if (s && m && e) {
-              const a = arcFrom3(toDef(s[1], s[2]), toDef(m[1], m[2]), toDef(e[1], e[2]));
+            const ap = arcPoints(item);
+            if (ap) {
+              const [p1, p2, p3] = ap.map(([x, y]) => toDef(x, y));
+              const a = boardArc(p1, p2, p3);
               if (a) graphics.push({ t: 'arc', cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w, layer });
-            } else warnings.add('Footprint arcs in an old format were skipped.');
+              else graphics.push({ t: 'line', x1: p1[0], y1: p1[1], x2: p3[0], y2: p3[1], w, layer });
+            } else warnings.add('Footprint arcs in an unknown format were skipped.');
             break;
           }
           case 'fp_poly': {
@@ -208,7 +235,7 @@ export function importBoard(file, warnings) {
             const fat = find(item, 'at');
             if (!fat) break;
             const [x, y] = toDef(fat[1], fat[2]);
-            graphics.push({ t: 'text', x, y, text: String(item[2] ?? ''), size: nm(fontSize(item, 1)), rot: localRot(Number(fat[3]) || 0), align: { h: 'center', v: 'middle' }, layer });
+            graphics.push({ t: 'text', x, y, text: atomText(item, 2), size: nm(fontSize(item, 1)), rot: localRot(Number(fat[3]) || 0), align: textAlign(item), layer });
             break;
           }
           case 'fp_curve': warnings.add('Curves in footprints were skipped.'); break;
@@ -271,9 +298,11 @@ export function importBoard(file, warnings) {
         const layer = mapLayer(val(item, 'layer'));
         const s = find(item, 'start'), m = find(item, 'mid'), e = find(item, 'end');
         if (!layer || !s || !m || !e) break;
-        const a = arcFrom3(P(s[1], s[2]), P(m[1], m[2]), P(e[1], e[2]));
-        if (!a) break;
-        objects.push({ id: uid(), t: 'arc', layer, cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w: nm(val(item, 'width', 1, 0.25)), ...(netOf(item) ? { net: netOf(item) } : {}) });
+        const [p1, p2, p3] = [P(s[1], s[2]), P(m[1], m[2]), P(e[1], e[2])];
+        const a = boardArc(p1, p2, p3);
+        const w = nm(val(item, 'width', 1, 0.25)), net = netOf(item) ? { net: netOf(item) } : {};
+        if (a) objects.push({ id: uid(), t: 'arc', layer, cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w, ...net });
+        else objects.push({ id: uid(), t: 'track', layer, x1: p1[0], y1: p1[1], x2: p3[0], y2: p3[1], w, ...net });
         break;
       }
       case 'via': {
@@ -322,7 +351,7 @@ export function importBoard(file, warnings) {
         const h = nm(fontSize(item, 1));
         const thick = find(find(find(item, 'effects'), 'font'), 'thickness');
         const mirror = (find(find(item, 'effects'), 'justify') || []).includes('mirror');
-        objects.push({ id: uid(), t: 'text', layer, x, y, text: String(item[1] ?? ''), h, w: thick ? nm(thick[1]) : Math.round(h * 0.15), rot: norm360(Number(at[3]) || 0), mirror, align: { h: 'center', v: 'middle' } });
+        objects.push({ id: uid(), t: 'text', layer, x, y, text: atomText(item, 1), h, w: thick ? nm(thick[1]) : Math.round(h * 0.15), rot: norm360(Number(at[3]) || 0), mirror, align: textAlign(item) });
         break;
       }
       case 'dimension': warnings.add('Dimensions were skipped.'); break;
@@ -376,8 +405,8 @@ function collectEdge(item, P, pieces, closed) {
       break;
     }
     case 'gr_arc': {
-      const s = find(item, 'start'), m = find(item, 'mid'), e = find(item, 'end');
-      if (s && m && e) pieces.push(arcPolyline(P(s[1], s[2]), P(m[1], m[2]), P(e[1], e[2])));
+      const ap = arcPoints(item);
+      if (ap) pieces.push(arcPolyline(...ap.map(([x, y]) => P(x, y))));
       break;
     }
     case 'gr_rect': {
@@ -410,10 +439,11 @@ function graphicObjects(item, layer, P) {
       return s && e ? [track(P(s[1], s[2]), P(e[1], e[2]))] : [];
     }
     case 'gr_arc': {
-      const s = find(item, 'start'), m = find(item, 'mid'), e = find(item, 'end');
-      if (!s || !m || !e) return [];
-      const a = arcFrom3(P(s[1], s[2]), P(m[1], m[2]), P(e[1], e[2]));
-      return a ? [{ id: uid(), t: 'arc', layer, cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w }] : [];
+      const ap = arcPoints(item);
+      if (!ap) return [];
+      const [p1, p2, p3] = ap.map(([x, y]) => P(x, y));
+      const a = boardArc(p1, p2, p3);
+      return a ? [{ id: uid(), t: 'arc', layer, cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w }] : [track(p1, p3)];
     }
     case 'gr_circle': {
       const c = find(item, 'center'), e = find(item, 'end');

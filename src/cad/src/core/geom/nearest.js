@@ -88,7 +88,8 @@ function closestOnPl(p, x, y) {
   }
   const lo = us[Math.max(0, best - 1)],
     hi = us[Math.min(n, best + 2)];
-  let u = us[best] + (us[best + 1] - us[best]) * bestS;
+  const u0 = us[best] + (us[best + 1] - us[best]) * bestS;
+  let u = u0;
   // Solve g(u) = (C(u) - P) . C'(u) = 0 near u (Gauss-Newton, kept in [lo, hi]).
   for (let it = 0; it < 30; it++) {
     const c = curveAt(src, u);
@@ -106,10 +107,12 @@ function closestOnPl(p, x, y) {
   }
   const c = curveAt(src, u);
   const d = (c.x - x) ** 2 + (c.y - y) ** 2;
-  if (d <= bestD) return { x: c.x, y: c.y, d2: d, t: u };
-  const ax = pts[2 * best] + (pts[2 * best + 2] - pts[2 * best]) * bestS;
-  const ay = pts[2 * best + 1] + (pts[2 * best + 3] - pts[2 * best + 1]) * bestS;
-  return { x: ax, y: ay, d2: bestD, t: us[best] + (us[best + 1] - us[best]) * bestS };
+  // Should that diverge, fall back to the curve (not the chord, which can be
+  // closer to the point than the curve is) at the starting parameter.
+  const c0 = curveAt(src, u0);
+  const d0 = (c0.x - x) ** 2 + (c0.y - y) ** 2;
+  if (d <= d0) return { x: c.x, y: c.y, d2: d, t: u };
+  return { x: c0.x, y: c0.y, d2: d0, t: u0 };
 }
 
 /** Closest point among a list of primitives: { x, y, d2, t, prim }. */

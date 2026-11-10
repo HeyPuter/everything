@@ -7,7 +7,7 @@ import { h } from './dom.js';
 import { icon } from './icons.js';
 import { showMenu } from './menu.js';
 import { SNAP_MODES } from '../editor/snap.js';
-import { formatLinear, formatAngle } from '../core/units.js';
+import { formatLinear, formatDirection } from '../core/units.js';
 
 export const TOGGLES = [
   { key: 'grid', label: 'Grid', icon: 'grid', keys: 'F7' },
@@ -20,6 +20,8 @@ export const TOGGLES = [
   { key: 'lwDisplay', label: 'Show lineweights', icon: 'lineweight' },
   { key: 'selPreview', label: 'Selection preview', icon: 'sel-cycle' },
 ];
+
+export { formatDirection };
 
 export class StatusBar {
   constructor(app) {
@@ -94,7 +96,7 @@ export class StatusBar {
     if (this.coordMode === 'rel' && base) {
       const d = Math.hypot(x - base.x, y - base.y);
       const a = Math.atan2(y - base.y, x - base.x);
-      this.coords.textContent = `${formatLinear(d, hd)} < ${formatAngle(((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), hd)}`;
+      this.coords.textContent = `${formatLinear(d, hd)} < ${formatDirection(a, hd)}`;
     } else this.coords.textContent = `${formatLinear(x, hd)}, ${formatLinear(y, hd)}`;
   }
 

@@ -11,7 +11,7 @@ import { KEYS } from '../src/shared/blocks.js';
 import { EV_SHARDS, evShard, evRegion, appUidFromToken } from '../src/shared/events.js';
 import { kv, serverConfig, setServerConfig } from './lib.js';
 
-/** How long a mint or a revoke is given to answer before it is treated as unreachable. */
+/** How long a share or an unshare is given to answer before it is treated as unreachable. */
 const HANDLE_TIMEOUT_MS = 3000;
 
 /**
@@ -102,63 +102,58 @@ const MEMBER_BACKOFF_MS = {
 const DEFAULT_MEMBER_BACKOFF_MS = 10 * 60_000;
 
 /**
- * Ask Puter for a handle on this workspace's signal region for one grantee.
- * Never throws: a network failure, a timeout, and an error response all come
- * back as { ok: false, code, why }, which the caller turns into a backoff
- * rather than a failed request of its own.
+ * Run a share call with HANDLE_TIMEOUT_MS to answer; never throws. A refusal
+ * comes back as { ok: false, code, why }, which the caller turns into a
+ * backoff rather than a failed request of its own.
  */
-export async function mintHandle(wsId, granteeUuid) {
-  const appUid = workerAppUid();
-  if (!appUid) return { ok: false, code: 'no_app_uid', why: 'This worker is not running as an app' };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), HANDLE_TIMEOUT_MS);
+async function shareCall(run, failed) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('timed out'), { code: 'timeout' })), HANDLE_TIMEOUT_MS);
+  });
   try {
-    const res = await fetch(`${me.puter.APIOrigin}/events/kv-handles`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${me.puter.authToken}` },
-      body: JSON.stringify({ granteeUid: granteeUuid, prefix: evRegion(wsId) }),
-      signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, code: body?.code || `http_${res.status}`, why: body?.message || 'The handle could not be minted' };
-    if (typeof body?.handle !== 'string' || !body.handle) return { ok: false, code: 'invalid_response', why: 'The handle mint answered with no handle' };
-    return { ok: true, handle: body.handle };
+    return { ok: true, value: await Promise.race([run(), timeout]) };
   } catch (e) {
-    return { ok: false, code: e?.name === 'AbortError' ? 'timeout' : 'network', why: 'The handle mint could not be reached' };
+    return { ok: false, code: (e && typeof e.code === 'string' && e.code) || 'network', why: (e && e.message) || failed };
   } finally {
     clearTimeout(timer);
   }
 }
 
+/** A workspace name as a share label: what Puter refuses in one taken out, and cut well inside its 128 characters and 512 bytes. */
+export function shareLabel(name) {
+  const clean = String(name || '').replace(/[\p{C}\p{Zl}\p{Zp}]/gu, '').replace(/(\p{M}{3})\p{M}+/gu, '$1').trim();
+  return Array.from(clean).slice(0, 120).join('').trim() || null;
+}
+
 /**
- * Ask Puter to give up one previously minted handle, mirroring mintHandle in
- * every way that matters: never throws, the same timeout, and a network
- * failure or an error response both come back as { ok: false, code, why }.
- * Retiring an already-revoked handle is idempotent on the platform's side
- * and answers 200 with the original revokedAt, not 404; a 404 here means an
- * unknown handle, or one belonging to another account, and counts as
- * success all the same, since either way there is nothing left to take back.
+ * Share this workspace's signal region with one member, watch only, as the
+ * owner's app (puter.kv.share; the owner's `kvShare` consent covers it).
+ * The member is shown the workspace's name as the share's label.
+ */
+export async function mintHandle(wsId, granteeUuid, name = null) {
+  if (!workerAppUid()) return { ok: false, code: 'no_app_uid', why: 'This worker is not running as an app' };
+  const label = shareLabel(name);
+  const res = await shareCall(
+    () => me.puter.kv.share({ prefix: evRegion(wsId), recipient: { uid: granteeUuid }, access: 'watch', notify: true, ...(label ? { label } : {}) }),
+    'The share could not be made',
+  );
+  if (!res.ok) return res;
+  const handle = res.value?.handle;
+  if (typeof handle !== 'string' || !handle) return { ok: false, code: 'invalid_response', why: 'The share answered with no handle' };
+  return { ok: true, handle };
+}
+
+/**
+ * Stop one member's share (puter.kv.unshare). Never throws. Stopping a share
+ * that already stopped answers ok, and so does an unknown handle
+ * (`subject_does_not_exist`): either way there is nothing left to take back.
  */
 export async function revokeHandle(handle) {
-  const appUid = workerAppUid();
-  if (!appUid) return { ok: false, code: 'no_app_uid', why: 'This worker is not running as an app' };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), HANDLE_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${me.puter.APIOrigin}/events/kv-handles/${encodeURIComponent(handle)}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${me.puter.authToken}` },
-      signal: controller.signal,
-    });
-    if (res.ok) return { ok: true };
-    const body = await res.json().catch(() => ({}));
-    if (res.status === 404 && body?.code === 'subject_does_not_exist') return { ok: true };
-    return { ok: false, code: body?.code || `http_${res.status}`, why: body?.message || 'The handle could not be revoked' };
-  } catch (e) {
-    return { ok: false, code: e?.name === 'AbortError' ? 'timeout' : 'network', why: 'The handle revoke could not be reached' };
-  } finally {
-    clearTimeout(timer);
-  }
+  if (!workerAppUid()) return { ok: false, code: 'no_app_uid', why: 'This worker is not running as an app' };
+  const res = await shareCall(() => me.puter.kv.unshare(handle), 'The share could not be stopped');
+  if (res.ok || res.code === 'subject_does_not_exist') return { ok: true };
+  return res;
 }
 
 /**
@@ -181,21 +176,20 @@ export async function releaseHandle(wsId, uuid, doc = null) {
 
 /**
  * Mint a handle for one member, or hand back the one already cached on their
- * member document; never re-mints a live handle (the mint budget is 60 a
- * minute per owner account, spent even on an idempotent re-mint). A failure
+ * member document. Older shares are upgraded to notify once. A failure
  * is remembered with the backoff table above and never retried before its
  * window, worker-wide for a platform or consent problem, member-wide for
  * anything else.
  */
-async function ensureHandle(wsId, uuid, doc) {
-  if (doc?.ev?.h) return doc.ev.h;
+export async function ensureHandle(wsId, uuid, doc, name) {
+  if (doc?.ev?.h && doc.ev.notify) return doc.ev.h;
   const at = Date.now();
   if (doc?.ev?.until && doc.ev.until > at) return null;
   const cfg = await serverConfig();
   if (cfg.ev && cfg.ev.until > at) return null;
-  const res = await mintHandle(wsId, uuid);
+  const res = await mintHandle(wsId, uuid, name);
   if (res.ok) {
-    await kv().update(KEYS.member(wsId, uuid), { ev: { h: res.handle } }).catch(() => {});
+    await kv().update(KEYS.member(wsId, uuid), { ev: { h: res.handle, notify: true } }).catch(() => {});
     // Any successful mint proves the platform and the owner's consent both
     // stand, worth recording even when nothing was cached as bad before (the
     // very first mint a workspace ever makes, say), so GET /api/server has a
@@ -208,9 +202,31 @@ async function ensureHandle(wsId, uuid, doc) {
     await setServerConfig({ ev: { ok: false, appUid: workerAppUid(), why: res.code, until: at + workerMs } }).catch(() => {});
   } else {
     const memberMs = MEMBER_BACKOFF_MS[res.code] || DEFAULT_MEMBER_BACKOFF_MS;
-    await kv().update(KEYS.member(wsId, uuid), { ev: { until: at + memberMs, why: res.code } }).catch(() => {});
+    await kv().update(KEYS.member(wsId, uuid), { 'ev.until': at + memberMs, 'ev.why': res.code }).catch(() => {});
   }
   return null;
+}
+
+/** Refusals that pass on their own, never shown to a member. */
+const TRANSIENT = new Set(['too_many_requests', 'timeout', 'network', 'rate_limited']);
+
+/**
+ * The bootstrap's `push` block: whether this worker's notifications can
+ * reach the caller (`reach`, null when they can), and for the worker's own
+ * owner, a refusal that keeps every other member from them (`team`). Read
+ * after eventsBlock, which has just tried a mint for a member without one.
+ */
+export async function pushStatus(wsId, uuid, doc) {
+  if (!workerAppUid()) return { reach: 'no_app_uid', team: null };
+  const cfg = await serverConfig();
+  const worker = cfg.ev && !cfg.ev.ok && cfg.ev.why ? cfg.ev.why : null;
+  const refused = (d) => (d?.pnErr && !TRANSIENT.has(d.pnErr.code) && d.pnErr.at > Date.now() - 24 * 3600_000 ? d.pnErr.code : null);
+  if (cfg.owner === uuid) return { reach: refused(doc), team: worker };
+  const fresh = doc?.ev?.h && doc.ev.notify ? doc : await kv().get(KEYS.member(wsId, uuid)).catch(() => null);
+  const err = refused(fresh);
+  if (fresh?.ev?.h && fresh.ev.notify) return { reach: err, team: null };
+  const why = worker || fresh?.ev?.why || null;
+  return { reach: why && !TRANSIENT.has(why) ? why : err, team: null };
 }
 
 /**
@@ -245,7 +261,7 @@ export async function eventsBlock(ws, uuid, doc = null, user = null) {
     return { mode: 'own', appUid, key: KEYS.evShard(ws.id, shard), shards: EV_SHARDS, shard };
   }
   const memberDoc = doc || (await kv().get(KEYS.member(ws.id, uuid)).catch(() => null)) || {};
-  const handle = await ensureHandle(ws.id, uuid, memberDoc);
+  const handle = (await ensureHandle(ws.id, uuid, memberDoc, ws.name)) || memberDoc.ev?.h;
   if (!handle) return null;
   return { mode: 'handle', handle, shards: EV_SHARDS, shard };
 }
@@ -260,7 +276,7 @@ export async function eventsBlock(ws, uuid, doc = null, user = null) {
  * The old handle is revoked before anything else, its failure ignored:
  * releaseHandle is the only other place a handle is given back, and it reads
  * `ev.h`, which this is about to overwrite, so a handle abandoned here would
- * sit on one of the owner's live-handle slots (100 per app, 50 on free)
+ * sit on one of the owner's live-handle slots (10,000 per app, 2,000 on free)
  * until cleared by hand from a Puter session. Revoking is idempotent and
  * already answers ok on a 404/subject_does_not_exist, so the ordinary case
  * here — a handle that is already gone, which is why this was called at all

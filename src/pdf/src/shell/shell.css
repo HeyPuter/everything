@@ -415,6 +415,11 @@
 .tool-command .tool-icon {
   flex: none;
 }
+/* Inside the row: the list scrolls, and so clipped the top of the first row's ring. */
+.tool-row:focus-visible,
+.tool-command:focus-visible {
+  outline-offset: -2px;
+}
 .tool-row-label,
 .tool-command-text {
   flex: 1;
@@ -443,6 +448,11 @@
 .tool-command > svg:not(.tool-icon, .ico) {
   margin: 0 1px;
   color: var(--muted);
+}
+/* An 18px line icon takes the room of a 20px tool icon, so every label in a list starts at the
+   same place. */
+.tool-command > svg.ico:not(.tool-icon) {
+  margin: 0 1px;
 }
 .tools-more {
   margin: 6px 10px;
@@ -502,6 +512,8 @@
 }
 .editor .contextbar {
   justify-content: center;
+  /* Its own width decides how much room the options leave the hint (see below). */
+  container-type: inline-size;
   /* One line of fixed height: the page below never moves as hints and options change. */
   flex-wrap: nowrap;
   gap: 12px;
@@ -517,12 +529,32 @@
   font-size: 12px;
   min-width: 0;
   flex: 0 1 auto;
+  /* Two lines fit the bar's height, so a long hint beside a tool's options wraps once before
+     it is shortened. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: 1.3;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .editor .contextbar .tool-options {
   flex: none;
+}
+/* The measuring scale is a short number, not a full-width field. */
+.editor .contextbar .measure-ratio {
+  width: 72px;
+  min-height: 27px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+/* Where the panels beside the page leave the bar little room, option buttons with an icon show
+   just the icon (keeping their names for assistive technology and as tooltips), so the options
+   and the hint both stay in view, as they do on narrow screens. */
+@container (max-width: 720px) {
+  .editor .contextbar .tool-options .text-btn:has(> svg) > span {
+    display: none;
+  }
 }
 .editor .find-bar {
   /* A row of its own under the tool options, so it covers neither them nor the page. */
@@ -806,6 +838,53 @@
     min-width: 92px;
   }
 }
+/* The smallest phones (and a desktop window zoomed to 400%): the controls close up to stay on
+   one line, and when a long page count still does not fit, the zoom wraps onto a second line
+   instead of the row spilling off both edges. */
+@media (max-width: 360px) {
+  .editor .page-controls {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 40px;
+    gap: 0 2px;
+    padding: 0 2px;
+  }
+  .editor .page-controls .page-navigation {
+    gap: 2px;
+    padding-right: 2px;
+  }
+  .editor .page-controls .page-input {
+    width: 36px;
+  }
+  .editor .page-controls .page-navigation > span {
+    margin-right: 2px;
+  }
+}
+/* A phone turned sideways has little height: the quick tools and the page controls share one
+   row above the page instead of taking a row each, which left the page under a third of the
+   screen. The tools scroll sideways if the row runs short. */
+@media (max-width: 760px) and (min-width: 600px) and (max-height: 500px) {
+  .editor .document-view {
+    display: grid;
+    grid-template-columns: minmax(0, max-content) 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .editor .document-view > * {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .editor .document-view > .quick-tools {
+    grid-column: 1;
+    grid-row: 1;
+    max-height: none;
+  }
+  .editor .document-view > .page-controls {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: max-content;
+    height: auto;
+  }
+}
 @media (forced-colors: active) {
   .editor .quick-tools .tool-btn[aria-pressed='true'],
   .top-tab[aria-pressed='true'],
@@ -961,7 +1040,8 @@
   color: var(--ink);
 }
 .find-tool-item:hover,
-.find-tool-item:focus-visible {
+.find-tool-item:focus-visible,
+.find-tool-item.active {
   background: var(--surface-2);
 }
 
@@ -1030,6 +1110,95 @@
 }
 .organize-size input {
   width: 110px;
+}
+.organize-commands {
+  display: contents;
+}
+/* A phone: the status, tile size and Close share the first row, and the commands take the
+   second, icons only (their names stay for assistive technology and as tooltips), scrolling
+   sideways where the screen is too narrow for all of them. The toolbar wrapped onto three or
+   four rows here, taking the room the pages need. */
+@media (max-width: 760px) {
+  .organize-toolbar {
+    gap: 0 4px;
+    min-height: 0;
+    padding: 2px max(8px, var(--safe-right)) 2px max(8px, var(--safe-left));
+  }
+  .organize-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* A long count ("120 of 120 pages selected") takes two lines rather than losing its end. */
+  .organize-status {
+    flex: 1 1 0;
+    min-width: 0;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .organize-sep,
+  .organize-size svg,
+  .organize-btn span,
+  .organize-close span {
+    display: none;
+  }
+  .organize-size {
+    min-height: 40px;
+  }
+  .organize-size input {
+    width: 84px;
+  }
+  .organize-close {
+    margin-left: 0;
+  }
+  .organize-toolbar .icon-btn,
+  .organize-btn,
+  .organize-close {
+    width: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+    border-color: transparent;
+    background: transparent;
+  }
+  .organize-commands {
+    order: 1;
+    flex: 1 0 100%;
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-padding-inline: 24px;
+  }
+  /* Inside the button: the row scrolls, and so clips anything outside it. */
+  .organize-commands > :focus-visible {
+    outline-offset: -3px;
+  }
+  .organize-commands.more-start {
+    mask-image: linear-gradient(to right, transparent, #000 24px);
+  }
+  .organize-commands.more-end {
+    mask-image: linear-gradient(to left, transparent, #000 24px);
+  }
+  .organize-commands.more-start.more-end {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 24px,
+      #000 calc(100% - 24px),
+      transparent
+    );
+  }
+}
+/* Spaced so that on the smallest phones a button is cut by the fade, showing there are more. */
+@media (max-width: 360px) {
+  .organize-commands {
+    gap: 6px;
+  }
 }
 .organize-grid {
   flex: 1;
@@ -1434,6 +1603,37 @@
   grid-template-columns: 1fr 1fr;
   gap: 2px 16px;
 }
+/* A visible file picker (the digital ID file) with the app's own button, full size to tap,
+   in place of the browser's small grey one. */
+.file-input {
+  max-width: 100%;
+  font-size: 13px;
+  color: var(--muted);
+}
+.file-input::file-selector-button {
+  min-height: 38px;
+  margin-right: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .file-input::file-selector-button:hover {
+    background: var(--surface-2);
+    border-color: var(--strong);
+  }
+}
+/* Download pages as images: on a phone each choice gets the dialog's width, so it reads whole. */
+@media (max-width: 520px) {
+  .field-grid.image-export-fields {
+    grid-template-columns: 1fr;
+  }
+}
 .redact-results {
   list-style: none;
   margin: 0;
@@ -1491,12 +1691,24 @@
 .editor .thumbnail[aria-current='page'] .thumb-paper {
   overflow: visible;
 }
+/* As specific as a dialog's own field labels, which are blocks of bold caption text. */
+.dialog-body label.result-row,
 .result-row {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin: 0;
   padding: 4px 2px;
+  font-weight: 500;
   cursor: pointer;
+}
+/* The same boxes as every other dialog's: full size, in the app's color. */
+.result-row input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 /* Prepare a form: fields as labelled boxes over the page */
@@ -1560,6 +1772,15 @@
 }
 .designer-field.is-selected .designer-resize {
   display: block;
+}
+/* A finger needs a bigger corner to take, as the handles of pictures and shapes have. */
+@media (pointer: coarse) {
+  .designer-resize {
+    right: -12px;
+    bottom: -12px;
+    width: 24px;
+    height: 24px;
+  }
 }
 
 /* Two-page view: pages in pairs, side by side */
@@ -1629,6 +1850,26 @@
 .annotation-target:hover {
   border-color: color-mix(in srgb, var(--select) 60%, transparent);
 }
+/* A line, drawing, or callout takes the pointer only on what it draws (.annotation-hit). */
+.annotation-target.is-outline {
+  pointer-events: none;
+}
+.annotation-hit {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.annotation-hit path {
+  fill: none;
+  stroke: transparent;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: stroke;
+}
+.annotation-hit rect {
+  fill: transparent;
+  pointer-events: all;
+}
 .annotation-target.is-selected {
   border: 1.5px solid var(--select);
   background: color-mix(in srgb, var(--select) 8%, transparent);
@@ -1658,6 +1899,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+}
+.annotation-style .annotation-check {
+  justify-content: flex-start;
 }
 .annotation-style input[type='color'] {
   width: 28px;
@@ -1707,6 +1951,17 @@
 }
 .document-tab .document-name {
   max-width: min(220px, 100%);
+}
+/* The clipping above hid the name's keyboard focus ring entirely; the clip reaches 3px past the
+   name (the padding, taken back by the margin, leaves the layout as it was), and the ring is
+   drawn within that. */
+.document-tab .document-info,
+.document-tab .document-title {
+  padding: 3px;
+  margin: -3px;
+}
+.document-tab .document-name:focus-visible {
+  outline-offset: 1px;
 }
 .document-tab .status-row {
   flex: none;

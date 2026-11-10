@@ -1,5 +1,7 @@
 # Teamchat
 
+**Live app:** [teamchat.puter.com](https://teamchat.puter.com/)
+
 Team messaging on Puter: workspaces, public and private channels, threads,
 direct messages, reactions, mentions, and file attachments. Vanilla
 JavaScript (no frameworks), Vite, and [Puter.js](https://developer.puter.com)
@@ -120,13 +122,10 @@ as the only backend.
   reschedule, send now, or delete it before it goes out. "Remind me about
   this" on any message brings it back at the chosen time as an entry in
   Activity and a line in your own space linking to the message, with snooze
-  and done. Delivery is honest: a Puter worker only runs while handling a
-  request, so anything due is delivered by the first sync poll after its
-  time from anyone with the workspace open — usually within 20 seconds (the
-  safety-poll floor of the realtime section below; sooner with more than one
-  tab open, and the message it writes then wakes every other tab through the
-  same signal a live post does); the UI says "around 9:00" and explains what
-  that depends on.
+  and done. A Puter schedule wakes the workspace worker even when the app
+  is closed, usually within a minute of the chosen time. Without background
+  consent or scheduling support, the first sync poll after that time delivers
+  it. The UI says "around 9:00" to allow for scheduler and network delays.
 - **Pins and bookmarks**: pin any message in a channel, DM, or thread from
   its menu (up to 100 per conversation; the pinner or an admin unpins). A
   "3 pinned" bar above the messages expands to the list, the details dialog
@@ -228,8 +227,8 @@ as the only backend.
   in it and since when with a Join button, and the conversation gets a line
   when it starts and one saying how long it ran when the last person leaves.
   A huddle in a direct message rings: a toast with Join while the tab is in
-  view, a browser notification (and a push, with the app closed) when it is
-  not, an entry in Activity either way, all under the conversation's own
+  view, a notification through Puter when it is not, an entry in Activity
+  either way, all under the conversation's own
   notification setting; a channel's huddle only marks the row.
   In the huddle, a small window sits over the bottom of the sidebar wherever
   you go in the app: the people in it with a ring around whoever is
@@ -243,8 +242,8 @@ as the only backend.
   and listen. Up to 20 people per huddle. Media goes directly between the
   people in it over Puter's Peer API (see *Huddles* under Architecture);
   the workspace's server only keeps who is in which huddle.
-- **Notifications**: optional browser notifications while the tab is in the
-  background, with a setting per channel and conversation (All messages,
+- **Notifications**: through Puter, with the tab in the background or the
+  app closed, with a setting per channel and conversation (All messages,
   Mentions only, Nothing) and a mute switch, from the sidebar row's menu
   (right-click or the kebab, opened where the pointer is: details, copy
   link and name, star, "Notify you about" with all
@@ -298,8 +297,8 @@ as the only backend.
   attachment bytes included), survive a reload, and send in order when the
   connection returns; every send carries a client id the worker
   deduplicates on, so a retry after a lost response never posts twice.
-  Push notifications for mentions and direct messages arrive with the app
-  closed, respecting mute, per-conversation levels, quiet hours, pause, and
+  Notifications for mentions, direct messages, followed threads and channels
+  set to "All messages" arrive with the app closed, respecting mute, per-conversation levels, quiet hours, pause, and
   the preview preference; on iPhone and iPad, installing is what enables
   them. Install from settings (or the browser's own prompt).
 - **Rail**: a narrow column at the left edge, with the
@@ -463,7 +462,8 @@ Every read is a direct `get` of a known key. `kv.list()` is never used
 | `tc:config` | `{ owner, open }`: the account this worker runs in, and whether others may create workspaces here |
 | `tc:user:{uuid}` | a member's card (name, title, color) and the ids of their workspaces on this worker |
 | `tc:ws:{id}` | workspace: name, owner, invite code, `channels{}`, `members{}`, `former{}` (the last hundred people who left, by name, so their messages keep an author) |
-| `tc:ws:{id}:u:{uuid}` | one member's state: joined channels, DMs, read cursors, mention counts, notification settings, unread thread replies |
+| `tc:ws:{id}:u:{uuid}` | one member's state: joined channels, DMs, read cursors, mention counts, notification settings, unread thread replies, how they take pushes (`pn`, `push`) |
+| `tc:ws:{id}:na` | who hears each channel at "All messages", `{ [channel]: { [uuid]: 1 } }`, for notifications; kept apart from the workspace record so members don't see each other's settings |
 | `tc:ws:{id}:act` | activity: per-conversation `{seq, ts, lastAuthor, overlayTs}` (once the map holds over a thousand entries, a poll drops the thread entries quiet for a month, a hundred at a time; a reply writes one back), presence, version stamps, who is typing, and the huddles in progress (`h.{conv}`: who started it and when, each participant's heartbeat and peer invite) |
 | `tc:invite:{code}` | `{ ws, exp }`, or `{ ws, ch, role, exp }` for a channel-scoped code: `guest` (a guest invite) or `connect` (a share link for another workspace) |
 | `tc:connect:{id}`, `tc:connect:{id}:partner` | one connection between two workspaces sharing a channel: the host's record `{ ws, ch, partner, name, secret }` and the partner's `{ ws, ch, ref, rch, secret }`; two keys since both may live on one worker |
@@ -480,7 +480,7 @@ Every read is a direct `get` of a known key. `kv.list()` is never used
 | `tc:ws:{id}:u:{uuid}:inbox` | the member's activity inbox, a ring of `{ k, c, s, by, ts }` capped at 300, appended from the mention, reply, and reaction paths |
 | `tc:ws:{id}:u:{uuid}:threads` | threads the member is in: `{ [threadId]: { c, s, at } }`, capped at 300 |
 | `tc:ws:{id}:u:{uuid}:saved` | saved for later: `{ items: [{ c, s, ts, done }] }`, capped at 200 |
-| `tc:ws:{id}:sched` | the due queue, a map by id of scheduled messages and reminders; `act.nd` holds the earliest due time |
+| `tc:ws:{id}:sched` | the due queue, a map by id of scheduled messages and reminders (optional `scheduleId` for the creator's Puter wake-up); `act.nd` holds the earliest due time |
 | `tc:ws:{id}:ev:s{n}` | change-signal shard *n* (of 4): `{ t: <ms> }`, written whenever something a subscriber should wake for happens (see "Realtime" below); carries no topic, member, or kind of change, only a bucket and a timestamp |
 | `tc:ws:{id}:ev:r{n}:k{k}` | ring shard *n* (of 8), slot *k* (of 16): one sealed change entry `{ n, g, d, e }` (see "Ring entries" below) |
 | `tc:ws:{id}:ev:o{n}` | ping shard *n* (of 8): `{ t }`, for changes no ring entry carries |
@@ -594,8 +594,9 @@ New workspaces and the sample workspace are indexed from the start.
 
 `dist/sw.js` is emitted by a Vite plugin with the build's asset list and a
 version hash: hashed assets are served cache-first, navigations network-first
-with the cached shell as the offline fallback, the Puter SDK
-stale-while-revalidate so the app can boot offline, and API traffic
+with the cached shell as the offline fallback, the Puter SDK network-first
+(an outdated SDK in an open tab holds Puter's pushes back) with the cached
+copy to boot offline, and API traffic
 (`puter.workers.exec`) is left alone. The app stores each workspace's
 bootstrap and the newest page of every conversation it opens in IndexedDB
 and reads them back only when the network is gone, marking them stale.
@@ -606,22 +607,88 @@ before writing, looks for the same id from the same sender in the newest two
 blocks, answering with the existing message instead of a second one. That
 makes the outbox's retries, and the composer's own retry, safe.
 
-Push keeps to the per-owner model: each owner's worker generates its own
-VAPID key pair on first use and keeps it in the owner's KV (`tc:config.vapid`),
-signs its pushes with it, and encrypts payloads per RFC 8291 with WebCrypto;
-nothing runs under the app developer's account. A device subscribes per
-workspace (`POST /api/ws/:ws/push`, up to five devices per member), sending
-its quiet hours, pause, and preview choice along so the worker can respect
-them while the app is closed. Pushes go out from the request that writes a
-mention or direct message, to at most 50 recipients per post (a broadcast
-beyond that reaches people through the in-app badge), after checking each
-recipient's mute and level for that conversation; a 404/410 from the push
-service drops the subscription. Because browsers allow one application
-server key per origin, a device subscribed to several workspaces on
-different workers is re-subscribed with the key of whichever worker it
-opens; pushes from the others resume when it opens them again. Plain channel
-messages are never pushed, even at "All messages": that level governs
-in-app notifications while the tab is open.
+Pushes go through [Puter's notifications](https://docs.puter.com/Notifications/).
+They are the app's only notifications: the tab no longer draws banners of
+its own, and keeps only the in-app chime. Puter delivers each one to an
+open tab, which shows it while hidden, and pushes it to the member's other
+browsers otherwise. The one switch is on unless the member turned it off
+(`prefs.push` stored as `false`). After sign-in, `autoEnablePush()` in `src/lib/store.js`
+turns pushes on without asking where this browser already allows
+notifications; where it hasn't decided, it asks once per device, from the
+first click or key press (`tc:notify-asked` in localStorage), and after that
+only the switches ask. Turning pushes on calls `puter.notifications.enable()`
+first, then registers the member's quiet hours, pause, and preview choice
+with each workspace worker (`POST /api/ws/:ws/pn`); workers hear of it only
+once pushes were on somewhere. No background-events consent or persistent
+subscription is needed. The switch reads `notifications.status()` for this
+browser. Signing out first stops this page's `onPush()` handler, then
+`disable()`s this browser's subscription (on a website; inside the desktop
+`disable()` would revoke every device), then signs out.
+
+A tapped notification, and those this browser shows for a conversation once
+it is read to the end, are `dismiss()`ed, which closes them on the member's
+other devices too. A call (a huddle started in a direct message) is sent
+with `priority: 'high'` and a 60-second `ttl`, and stays on screen until
+acted on (`requireInteraction`). A push the service worker shows with no
+window open puts a dot on the installed app's icon.
+
+The worker runs as its owner and as Teamchat. Each other member holds a
+watch share of the workspace's signal region with `notify: true`, allowing
+`me.puter.notifications.notify({ ..., to: { handle } })` to reach them.
+The worker owner is notified without `to`. Older shares are upgraded once
+and marked `ev.notify` on the member document; the existing watch-level
+`kvShare` consent covers the upgrade. A post notifies, after the write and
+using `waitUntil` where available, at most 50 recipients: those it mentions,
+the other members of a direct message, a thread's followers who can read
+it, and members who hear the channel at "All messages". The last come from
+`tc:ws:{id}:na`, kept by the notification-setting route, so a post never
+reads every member's document; someone who has left the channel is
+skipped. A setting made before the index existed is carried into it the
+first time its member opens the workspace (`naSync` on the member document).
+Mute, level, quiet hours, and pause suppress sends. Puter checks whether an
+open page is visible and focused before pushing; recent presence suppresses
+only legacy Web Push. Reminders use the same path for their own member.
+
+Notifications use channel `chat`, a message route, and a conversation group.
+Preview off sets `sensitive: true`: Puter retains the content inside the app
+but shows generic push text; sensitive website clicks open the app root.
+Every load installs `onPush('chat', ...)`, and `on('click')` opens messages.
+`sw.js` imports Puter's `push-sw.js`. The SDK's notifications listener accepts
+only `app.message`, so it ignores the share's `kv.share.received` notice;
+raw `events.fetch()` can still read it. Puter emits it only
+on creation with notify or when notify is enabled, at most five per hour
+from one owner to one holder; the share still succeeds above that cap.
+Recipient blocks can refuse either sharing or notifying.
+
+Recipient errors never fail a post. Rate limits and blocked recipients are
+dropped; a share without notify is upgraded for the next send; a dead handle
+is cleared for lazy re-sharing. Each refusal is logged by the worker, and a
+lasting one is kept on the member document (`pnErr`) until a send goes
+through. The bootstrap's `push` block says whether the worker can reach the
+caller (`reach`: null, or the share's or notify's refusal code) and, for its
+owner, a refusal that holds every member back (`team`).
+
+When notifications would not reach someone, the app says so in a standing
+notice (`src/ui/pushnotice.js`) and in the settings switch: the browser
+blocks them, they are off on this device, iPhone outside the Home Screen
+app, or the worker's `reach`/`team` code. "Turn on" and the owner's "Allow"
+(the `kvShare` grant) fix it from the notice. Each reason, dismissed, stays
+quiet on that device for a week. A browser where Puter already reports
+pushes on, but whose account never turned them on, tells the workers on
+load, and the check runs again when the tab comes back. Sends go out concurrently, so one refusal
+never holds up the rest; a worker not running as the app sends none.
+Notifications are capped at 30/minute and 1,000/day per user per app. Pushes
+are capped at 12/minute and 1,000/day, or 6/minute and 200/day for apps under
+30 days old or unlisted. Share notifications also have a sender/recipient/app
+cap of 30/minute and 500/day. A busy channel at "All messages" can reach
+the per-minute cap; one conversation's notifications share a group, so each
+replaces the last and only the per-minute count grows.
+
+Devices subscribed before this (Web Push signed by each owner's worker with
+its own VAPID key, `POST /api/ws/:ws/push`) keep working until the member
+turns Puter's pushes on, which retires them: the origin holds one push
+subscription, and Puter's needs it. Workers keep sending to the old ones for
+clients that have not updated.
 
 ### Realtime: a poll woken by change events
 
@@ -690,27 +757,26 @@ else's data:
   (`kv:<appUid>:tc:ws:{id}:ev:s{n}`) — no handle, no consent, and no extra
   platform flag beyond Events being on. As soon as that is true in the
   owner's region, their own tabs get the fast cadence.
-- **Every other member** subscribes through a **KV share handle**: a region
-  another account can grant a watch over. The worker mints one per member
-  the first time it can (at join, and lazily at bootstrap), caches it on the
-  member's own document, and never re-mints it (minting is rate-limited per
-  owner account). This needs the owner's one-time consent — a bounded grant,
-  `manage:kv-share:<owner>:<app>:tc:ws`, covering every workspace they will
-  ever own — offered as a dismissible toast the first time the platform gives
-  a definite answer that consent is still missing; while nothing has probed
-  it yet, the question is left open for a later change to the workspace
-  rather than spending the session's one chance on an answer that was never
-  really given. Declining is remembered (`tcu:me`, `prefs.evConsent`), and
-  the toast is never shown again — but Workspace settings says which of
-  these states the workspace is in, in a **Live updates** row that carries
-  the same switch, so an owner who waved the toast away can still turn it
-  on later. The worker takes a member's handle back whenever their
-  membership ends — removed, leaving, an external seat ending, a workspace
-  deleted (a bounded batch of handles per request there) — so they stop
-  receiving even the opaque shard pings and the slot they held frees for
-  someone still here. Where the platform refuses (an older build, a
-  withdrawn consent, the mint/revoke budget the two share), the grant stands
-  until the owner revokes it from an actual Puter session, and while it
+- **Every other member** subscribes through a **KV share handle**: the
+  worker shares the workspace's signal region with them, watch only
+  (`me.puter.kv.share({ prefix, recipient: { uid }, access: 'watch', notify: true, label })`,
+  labelled with the workspace's name), the first time it can (at join, and
+  lazily at bootstrap), caches the handle on the member's own document, and
+  upgrades older shares to notify once. Further bootstraps reuse the handle.
+  This needs the owner's one-time consent, `perms.request('kvShare', { prefix:
+  'tc:ws', access: 'watch' })`, covering every workspace they will ever own.
+  Creating a workspace asks for it from that click after enabling pushes. An
+  owner who has not granted it is asked automatically, once, the
+  first time they open a workspace with someone in it: Puter's dialog
+  straight away (on a website, after Puter's own Continue prompt). Declining
+  is remembered (`tcu:me`, `prefs.evConsent`) and not asked again, but
+  Workspace settings says which state the workspace is in, in a **Live
+  updates** row that carries the same switch. The worker stops a member's
+  share (`me.puter.kv.unshare`) whenever their membership ends — removed,
+  leaving, an external seat ending, a workspace deleted (a bounded batch per
+  request there) — so they stop receiving even the opaque shard pings. Where
+  the platform refuses (a withdrawn consent, the share budget), the share
+  stands until the owner stops it from an actual Puter session, and while it
   stands it still says nothing but "a shard changed".
 
 All of this needs the worker to run as the same Puter app as the tab talking
@@ -718,7 +784,7 @@ to it. A worker deployed from the app itself does; one deployed from the
 Puter GUI or the CLI with a user token runs as an auto-created
 `sandbox-<name>` app instead, and then every tab falls back to polling. A
 share handle is bound to the app whose namespace it shares, so the worker
-reads the caller's own token before minting and skips a member whose app
+reads the caller's own token before sharing and skips a member whose app
 does not match, rather than spending one of the owner's live-handle slots on
 a handle that can never be used — freed only once the owner revokes it.
 
@@ -815,29 +881,38 @@ batches, and pokes everyone with one multi-path write of the activity
 document per fifty people; it is bounded by the workspace member cap of
 500, which is the documented ceiling (about four writes per recipient).
 
-### Scheduled delivery without a clock
+### Scheduled delivery
 
-A worker has no cron and no background timer, so a scheduled message or a
-reminder is materialised by somebody's request: the sync poll. The queue
-is one document per workspace, `tc:ws:{id}:sched`, a map by id, and the
-earliest due time is kept as `nd` in the activity document the poll
-already reads, so a poll that finds nothing due (nearly all of them) does no
-extra work at all. When one has passed, the poll claims each due entry with
-an atomic increment of its claim counter (only the poll that took it from
-zero to one delivers, so two polls racing cannot both send), delivers it,
-removes it, and recomputes `nd`. A scheduled message is delivered through
-the same `postMessage` path as a live one, as its author, so mentions
-notify, counters move, threads count, and the index is written; if the
-author can no longer post there (removed, channel deleted or made
-admin-only) the entry is dropped rather than sent elsewhere. A reminder
-becomes an inbox entry and a line in the member's own space pointing back
-at the message, and a reminder about a deleted message never fires.
+The due queue is one document per workspace, `tc:ws:{id}:sched`, with its
+earliest due time in `act.nd`. A sync poll finding nothing due reads no
+extra keys. `POST /api/ws/:ws/due` runs the same claim/deliver logic without
+the poll's presence or heartbeat writes; any authenticated member may poke
+it, and future entries are left alone. Atomic claims and client ids prevent
+a poll, a handler retry, and another wake-up from delivering an entry twice.
 
-Delivery is therefore bounded by whoever polls next, not by a clock: with
-events healthy (see "Realtime" below) that is the 20-second safety floor,
-worse case; the message a delivery writes then signals like any other post,
-so every other open tab learns of it at once rather than waiting out its own
-next poll.
+When creating a message or reminder, or changing its time, the client asks
+for `backgroundEvents` if needed (once: a decline is kept as
+`prefs.dueDeclined`) and creates an `at` schedule using the
+published `teamchat-due-v1` handler (`handlers/due.js`). It calls
+`user.workers.exec()` on `/due` and requests retries for network, 429, or 5xx
+failures. Runs usually start within 60 seconds, including a small scheduler
+delay. Declined consent, missing handlers, disabled Events, and quota errors
+silently leave poll-driven delivery in place.
+
+The schedule id is stored on the item through the existing scheduled-item
+API. Rescheduling replaces it; deleting or sending now removes it after the
+queue change succeeds. Only the creator's account can cancel it. A text edit
+keeps the same wake-up because the handler reads the queue at delivery time.
+A failed cancellation or an item already delivered leaves a harmless wake-up.
+Imported items use polling until rescheduled on their new worker.
+
+Scheduled messages use the normal post path as their author. A message
+refused at delivery remains marked for its author to edit or remove; an
+author who left is dropped. A reminder creates an Activity entry and a line
+in the member's own space, then notifies them through the share path above.
+Deleted or unreadable source messages produce no reminder. Poll delivery
+remains a fallback when nobody has granted background access or a schedule
+cannot run.
 
 ### Huddles: media between the people, a roster on the worker
 
@@ -1082,8 +1157,8 @@ than delivered.
   attachments' bytes; deep tail blocks of very long conversations and the
   attachments' small metadata keys are left behind (they cost nothing to
   keep and are unreachable).
-- Presence and notifications depend on polling cadence; expect a few seconds
-  of latency.
+- Presence and in-app activity depend on polling cadence. Background delivery
+  also depends on Puter scheduling and notification quotas.
 - Search matches whole words, not prefixes or phrases, and a word that
   appears in more than 2,000 messages in one month only finds that month's
   newest 2,000. A rare word deep in a long history takes a few "Load more"
@@ -1092,9 +1167,9 @@ than delivered.
 - Indexing runs inside the request that posts the message; every fiftieth
   message also folds a log segment into the shards, so that one send takes
   a little longer than the rest.
-- The worker revokes a member's KV share handle (see "Realtime" above)
-  whenever their membership ends. When the platform refuses the revoke (an
-  older build, a withdrawn consent, the mint/revoke budget), the grant stands
+- The worker stops a member's KV share (see "Realtime" above) whenever
+  their membership ends. When the platform refuses (a withdrawn consent,
+  the share budget), the share stands
   until the owner takes it back from an actual Puter session, and someone
   removed goes on learning "a shard had activity at this time" (nothing more:
   no content, no conversation, no participant) until they do.
@@ -1126,8 +1201,10 @@ over 16 KB are refused before anything is read from storage. Errors are
 | GET/PUT/DELETE | `/api/ws/:ws` | bootstrap (carries `events` when a change-event subscription is available), rename, rotate invite, `unfurl` on/off, delete |
 | GET/POST/DELETE | `/api/ws/:ws/icon` | the workspace's icon; admins upload (PNG, JPEG, WebP, up to 300 KB) or remove it |
 | GET | `/api/ws/:ws/sync` | activity delta, presence heartbeat, who is typing |
+| POST | `/api/ws/:ws/due` | claim and deliver due entries, without a presence heartbeat |
 | DELETE | `/api/ws/:ws/presence` | the tab is closing: its person is away from now |
-| GET/POST/DELETE | `/api/ws/:ws/push/key`, `/api/ws/:ws/push` | this worker's VAPID public key; register or remove this device's push subscription |
+| GET/POST/DELETE | `/api/ws/:ws/push/key`, `/api/ws/:ws/push` | this worker's VAPID public key; register or remove a device's Web Push subscription (clients from before Puter pushes) |
+| POST/DELETE | `/api/ws/:ws/pn` | turn the caller's Puter notifications on (quiet hours, pause, preview; answers `{ ok: true }`) or off |
 | POST | `/api/ws/:ws/conv/:conv/typing` | "I am typing here" (`{ first: true }` on the burst's first write, or `{ stop: true }`), one path write |
 | POST/DELETE | `/api/ws/:ws/conv/:conv/huddle` | take or keep (every 15 s) a seat in the conversation's huddle under one's peer `invite`, starting it when nobody is in it; leave it, the last one out ending it |
 | POST/DELETE | `/api/ws/:ws/members/:uuid[/role]` | roles, remove, leave |
@@ -1162,7 +1239,7 @@ over 16 KB are refused before anything is read from storage. Errors are
 | POST | `/api/ws/:ws/inbox/read` | clear the Activity badge |
 | POST | `/api/ws/:ws/saved` | save (`conv`, `seq`), toggle `done`, or `remove` |
 | POST | `/api/ws/:ws/scheduled`, `/api/ws/:ws/reminders` | schedule a message (`conv`, `text`, `attachments`, `dueAt`), set a reminder (`conv`, `seq`, `dueAt`, `note`) |
-| GET/PUT/DELETE | `/api/ws/:ws/scheduled[/:id]` | the caller's pending items; edit `text`, `dueAt`, or `sendNow`; delete |
+| GET/PUT/DELETE | `/api/ws/:ws/scheduled[/:id]` | the caller's pending items; edit `text`, `dueAt`, `scheduleId` (optional `scheduleFor` guards the time), or `sendNow`; delete |
 | GET | `/api/ws/:ws/search` | search (`q`, `in`, `from`, `has`, `before`, `after`, `cursor`) |
 | POST | `/api/ws/:ws/search/reindex` | admins: build the index over existing history, one bounded step per call |
 | POST/GET/DELETE | `/api/ws/:ws/files[/:id]` | upload, download; the uploader removes a file nothing names yet (picked into the box and taken out before sending) |
@@ -1190,7 +1267,9 @@ the UI:
   two mock users can huddle; `?fakemic=1` stands in a tone and a canvas for
   the microphone and camera, so no device permission is needed), so each mock user deploys
   their own fake worker exactly as a real user would, and every fake worker
-  sees its own slice of the store. Tabs share the store: open
+  sees its own slice of the store. Notifications are recorded on
+  `__mock.notifications`; mock schedules run while the page stays open and
+  can be inspected at `__mock.schedules`. Tabs share the store: open
   `/mock.html?as=alice` and `/mock.html?as=bob` side by side, create a
   workspace as alice, paste the invite as bob, and watch messages, presence,
   and unread state flow. `?reset=1` wipes everything; `?env=app` simulates
@@ -1250,6 +1329,17 @@ npm run deploy:email-worker # puter worker deploy worker/email.js teamchat-email
 
 Without it the app still works — the email tab and "Or email it" rows
 simply report that email is unavailable and point at the copyable link.
+
+Scheduled wake-ups need the app handler published once by the account that
+owns Teamchat, and again whenever `handlers/due.js` changes. `--replace`
+republishes even unchanged source to resume suspended schedules:
+
+```bash
+PUTER_TOKEN=<owner token> PUTER_APP_UID=<teamchat app uid> npm run publish:handlers
+```
+
+Without it, `onSchedule()` fails with `events_handler_not_found`; queued
+items still deliver by polling. Direct push notifications need no handler.
 
 ### Optional: one shared worker
 

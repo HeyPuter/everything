@@ -12,19 +12,34 @@ export function puterAvailable() {
 let ready = null;
 
 /**
- * Resolves true once the Puter SDK has loaded (it loads asynchronously so a
- * slow network never blocks drawing), or false if it fails to load.
+ * Resolves true once the Puter SDK has loaded. It loads asynchronously so a
+ * slow network never blocks drawing; there is no time limit, and a failed load
+ * (offline) is retried when the browser is back online.
  */
-export function whenPuter(timeoutMs = 20000) {
+export function whenPuter() {
   if (puterAvailable()) return Promise.resolve(true);
   if (ready) return ready;
   ready = new Promise((resolve) => {
-    const script = document.getElementById('puter-sdk');
-    const done = () => resolve(puterAvailable());
-    if (!script) return done();
-    script.addEventListener('load', done, { once: true });
-    script.addEventListener('error', done, { once: true });
-    setTimeout(done, timeoutMs);
+    const first = document.getElementById('puter-sdk');
+    if (!first) return resolve(false);
+    const watch = (script) => {
+      script.addEventListener('load', () => puterAvailable() && resolve(true), { once: true });
+      script.addEventListener('error', retry, { once: true });
+    };
+    const retry = () => {
+      const again = () => {
+        const s = document.createElement('script');
+        s.src = first.src;
+        s.async = true;
+        watch(s);
+        document.head.append(s);
+      };
+      if (navigator.onLine === false) window.addEventListener('online', again, { once: true });
+      else setTimeout(again, 30000);
+    };
+    // The script may have failed before this module ran (see index.html).
+    if (globalThis.__puterFailed) retry();
+    else watch(first);
   });
   return ready;
 }

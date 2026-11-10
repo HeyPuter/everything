@@ -14,6 +14,7 @@ import { SPECIAL_CHART_TYPES, renderSpecialChart, renderWaterfall } from './char
 import { fitTrend, trendEquation, trendEquationText, trendFor, trendName, trendPoints, trendRSquaredText } from '../core/trendline.js';
 import { ERROR_BAR_COLOR, errorBarExtents, errorBarsFor, errorBarsSvg } from '../core/error-bars.js';
 import { axisTickValuesIn } from '../core/axis-tick-values.js';
+import { formatNumber, t } from '../i18n/index.js';
 
 // The light theme's --series-* tokens in tokens.css, in order: every fill reads at 3:1 on white.
 export const SERIES_COLORS = ['#337bfc', '#eb6834', '#0f8f61', '#b57a00', '#c4417a', '#4a3aa7', '#0e7490', '#8a5a00', '#918f88'];
@@ -121,7 +122,7 @@ const MAX_LEGEND = 12;
 function cappedLegend(entries, most = MAX_LEGEND) {
   if (entries.length <= most) return entries;
   const named = Math.max(0, most - 1);
-  return [...entries.slice(0, named), { name: `…and ${entries.length - named} more`, i: -1, more: true, keyWidth: 0 }];
+  return [...entries.slice(0, named), { name: t('chartsvg.andMore', { count: entries.length - named }), i: -1, more: true, keyWidth: 0 }];
 }
 /** A legend down the right keeps to the entries whose rows (`height(entry)` each) fit in `room`, counting the rest. */
 function legendColumn(entries, room, height) {
@@ -188,19 +189,25 @@ function logScale(values, base, { min = null, max = null, step = null } = {}) {
   if (!(hi > lo)) hi = lo * base;
   return { min: lo, max: hi, step: step > 1 ? step : base, log: base };
 }
+/**
+ * Where `v` lies along a logarithmic axis from `min` to `max` (0 at the foot, 1 at the top), or -1 at or below zero.
+ * Measured by logarithms alone: the ratio of an axis spanning more than 1e308 is past the largest number.
+ */
+const logFraction = (v, min, max) => (v > 0 ? (Math.log(v) - Math.log(min)) / (Math.log(max) - Math.log(min)) : -1);
 /** Ticks of an axis: steps of `step`, or on a logarithmic one, factors of it from the minimum. */
 function axisTicks(domain) {
   if (!domain.log) return scaleTicks(domain);
   const ticks = [];
-  for (let v = domain.min, i = 0; v <= domain.max * (1 + 1e-9) && i < 400; i++, v = Number((domain.min * domain.step ** i).toPrecision(12))) ticks.push(v);
+  // Each factor in two halves, so a factor past the largest number still multiplies a minimum far below one.
+  for (let v = domain.min, i = 0; v <= domain.max * (1 + 1e-9) && i < 400; i++, v = Number((domain.min * domain.step ** (i / 2) * domain.step ** (i / 2)).toPrecision(12))) ticks.push(v);
   return ticks;
 }
 
 // Labels are cut by code point, so an emoji or other astral character is never left as half a surrogate pair.
 function truncate(text, max) {
-  const t = String(text ?? '');
-  const chars = Array.from(t);
-  return chars.length > max ? `${chars.slice(0, Math.max(1, max - 1)).join('')}…` : t;
+  const tx = String(text ?? '');
+  const chars = Array.from(tx);
+  return chars.length > max ? `${chars.slice(0, Math.max(1, max - 1)).join('')}…` : tx;
 }
 
 /**
@@ -222,9 +229,9 @@ function categoryShortener(categories, max) {
   // Drop whole words of the shared start, so a label does not begin mid-word.
   const cut = prefix.includes(' ') ? prefix.lastIndexOf(' ') + 1 : prefix.length;
   return (c) => {
-    const t = String(c ?? '');
-    const chars = Array.from(t);
-    return chars.length > max ? `…${truncate(chars.slice(cut).join(''), max - 1)}` : t;
+    const tx = String(c ?? '');
+    const chars = Array.from(tx);
+    return chars.length > max ? `…${truncate(chars.slice(cut).join(''), max - 1)}` : tx;
   };
 }
 
@@ -299,7 +306,7 @@ function layoutLegend(entries, style, W, H, position, titleBottom, box = null, v
   const gap = style.size / 2, keyGap = style.size / 4, lineH = style.size * 1.2;
   const available = Math.max(1, (box?.w ?? W) - gap * 2);
   const items = entries.map(e => {
-    const textWidth = Math.max(...String(e.name).split(/\r?\n/).map(t => axisTextWidth(t, style)));
+    const textWidth = Math.max(...String(e.name).split(/\r?\n/).map(tx => axisTextWidth(tx, style)));
     return { ...e, textWidth, width: e.keyWidth + keyGap + textWidth };
   });
   const columnWidths = count => {
@@ -358,9 +365,9 @@ const NAMED_COLORS = { red: '#c22a2a', green: '#1baf7a', blue: '#337bfc', orange
 
 function sparkColor(c, fallback) {
   if (!c) return fallback;
-  const t = String(c).trim().toLowerCase();
-  if (/^#[0-9a-f]{3}([0-9a-f]{3})?$/.test(t)) return t;
-  return NAMED_COLORS[t] || fallback;
+  const tx = String(c).trim().toLowerCase();
+  if (/^#[0-9a-f]{3}([0-9a-f]{3})?$/.test(tx)) return tx;
+  return NAMED_COLORS[tx] || fallback;
 }
 
 /** A tiny chart for one cell: line, column, bar (stacked), or win/loss. */
@@ -467,7 +474,7 @@ function renderChartContent(data, chart, width, height) {
   if (chart.type === 'histogram' && chart.appearance) {
     const binned = histogramBins(data.series.flatMap((s) => s.values), chart.bins, data.valueStyle || null);
     if (binned.counts.length) {
-      return renderStyledCartesian({ ...data, categories: binned.categories, series: [{ name: 'Count', values: binned.counts, style: null }], valueStyle: null, x: null },
+      return renderStyledCartesian({ ...data, categories: binned.categories, series: [{ name: t('chartsvg.histogramCount'), values: binned.counts, style: null }], valueStyle: null, x: null },
         // Its bins nearly touch, as they always have (Format Data Series offers a histogram no gap width of its own).
         { ...chart, type: 'column', stacked: false, stack100: false, secondaryAxis: false, appearance: { ...chart.appearance, gapWidth: 6, overlap: 0 } }, width, height);
     }
@@ -476,7 +483,7 @@ function renderChartContent(data, chart, width, height) {
     && (chart.type !== 'line' || (!chart.stacked && !chart.stack100) || chart.appearance.excelLayout)) return renderStyledCartesian(data, chart, width, height);
   const W = Math.max(120, width);
   const H = Math.max(80, height);
-  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || `${chart.type} chart`)}" style="${PLOT_STYLE}">`];
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || t('chartsvg.chartLabel', { type: chart.type }))}" style="${PLOT_STYLE}">`];
   parts.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="var(--surface)"/>`);
   let top = 10;
   if (chart.title) {
@@ -487,7 +494,7 @@ function renderChartContent(data, chart, width, height) {
   let series = data.series;
   const pieLike = chart.type === 'pie' || chart.type === 'donut';
   if (!series.length || (!series.some((s) => s.values.some((v) => v != null)) && !chart.appearance?.dataTable)) {
-    parts.push(`<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="13" fill="var(--ink-3)">No numbers to chart</text></svg>`);
+    parts.push(`<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="13" fill="var(--ink-3)">${esc(t('chartsvg.noNumbers'))}</text></svg>`);
     return parts.join('');
   }
   const isHistogram = chart.type === 'histogram';
@@ -499,12 +506,12 @@ function renderChartContent(data, chart, width, height) {
     // their axis take the cells' currency or percent.
     const binned = histogramBins(series.flatMap((s) => s.values), chart.bins, data.valueStyle || null);
     categories = binned.categories;
-    series = [{ name: 'Count', values: binned.counts, style: null }];
+    series = [{ name: t('chartsvg.histogramCount'), values: binned.counts, style: null }];
   }
   let wf = null;
   if (isWaterfall) {
     wf = waterfallSteps(series[0].values);
-    categories = [...categories.slice(0, series[0].values.length), 'Total'];
+    categories = [...categories.slice(0, series[0].values.length), t('chartsvg.waterfallTotal')];
     series = [series[0]];
   }
   const wfColor = (kind) => (kind === 'increase' ? seriesPaint(chart, 0) : kind === 'decrease' ? chart.colors?.[1] || 'var(--critical, #c22a2a)' : chart.colors?.[2] || 'var(--ink-3)');
@@ -516,10 +523,10 @@ function renderChartContent(data, chart, width, height) {
   const rings = chart.type === 'donut' ? series.slice(0, MAX_SERIES) : series.slice(0, 1);
   const sliceDrawn = (i) => rings.some((s) => Number.isFinite(s.values[i]) && s.values[i] !== 0);
   const allItems = pieLike ? categories.map((c, i) => ({ name: c, color: seriesPaint(chart, i), drawn: sliceDrawn(i) })).filter((it) => it.drawn)
-    : isWaterfall ? [{ name: 'Increase', color: wfColor('increase') }, { name: 'Decrease', color: wfColor('decrease') }, { name: 'Total', color: wfColor('total') }]
+    : isWaterfall ? [{ name: t('chartsvg.waterfallIncrease'), color: wfColor('increase') }, { name: t('chartsvg.waterfallDecrease'), color: wfColor('decrease') }, { name: t('chartsvg.waterfallTotal'), color: wfColor('total') }]
       : series.map((s, i) => ({ name: s.name, color: seriesPaint(chart, i) }));
   // Past a dozen entries the legend keeps its first eleven and counts the rest, rather than vanishing.
-  const legendItems = allItems.length > MAX_LEGEND ? [...allItems.slice(0, MAX_LEGEND - 1), { name: `…and ${allItems.length - (MAX_LEGEND - 1)} more`, color: null }] : allItems;
+  const legendItems = allItems.length > MAX_LEGEND ? [...allItems.slice(0, MAX_LEGEND - 1), { name: t('chartsvg.andMore', { count: allItems.length - (MAX_LEGEND - 1) }), color: null }] : allItems;
   const showLegend = chart.legend !== false && legendItems.length > 0;
   const swatch = (it, x, y) => (it.color ? `<rect x="${f(x)}" y="${f(y - 5)}" width="10" height="10" rx="2" fill="${it.color}"/>` : '');
   if (showLegend && chart.legendPos === 'right') {
@@ -528,7 +535,7 @@ function renderChartContent(data, chart, width, height) {
     const x0 = W - 8 - legendW;
     const rowsFit = Math.max(1, Math.floor((bottom - top) / 18));
     // Where the height holds fewer rows than there are entries, the last row counts the rest, as the bottom legend does.
-    const shown = items.length > rowsFit ? [...items.slice(0, rowsFit - 1), { color: null, label: `…and ${allItems.length - (rowsFit - 1)} more` }] : items;
+    const shown = items.length > rowsFit ? [...items.slice(0, rowsFit - 1), { color: null, label: t('chartsvg.andMore', { count: allItems.length - (rowsFit - 1) }) }] : items;
     shown.forEach((it, i) => {
       const y = top + 8 + i * 18;
       parts.push(swatch(it, x0, y));
@@ -551,7 +558,7 @@ function renderChartContent(data, chart, width, height) {
     if (rowsOfItems.length > 3) {
       // Past three rows the third ends with the count of the entries not shown, as the legend at the right does.
       const before = lines[0].length + lines[1].length, last = lines[2].slice();
-      const more = () => { const label = `…and ${allItems.length - before - last.length} more`; return { color: null, label, w: 14 + textW(label, 12) + 14 }; };
+      const more = () => { const label = t('chartsvg.andMore', { count: allItems.length - before - last.length }); return { color: null, label, w: 14 + textW(label, 12) + 14 }; };
       while (last.length && last.reduce((sum, it) => sum + it.w, 0) + more().w > W - 20) last.pop();
       lines = [lines[0], lines[1], [...last, more()]];
     }
@@ -720,8 +727,8 @@ function renderChartContent(data, chart, width, height) {
   if (chart.trendline) parts.push(`<clipPath id="${clipId}"><rect x="${f(plot.x)}" y="${f(plot.y)}" width="${f(plot.w)}" height="${f(plot.h)}"/></clipPath>`);
   const trendLabels = [];
   const trend = (points, toX, si) => {
-    const t = trendFor(chart, si);
-    const marks = t && trendlineMarks(points, t, { j: si, name: series[si].name, color: seriesPaint(chart, si), place: ([x, y]) => [toX(x), vy(y)], bounds: plot, clipId });
+    const tx = trendFor(chart, si);
+    const marks = tx && trendlineMarks(points, tx, { j: si, name: series[si].name, color: seriesPaint(chart, si), place: ([x, y]) => [toX(x), vy(y)], bounds: plot, clipId });
     if (!marks) return;
     parts.push(marks.svg);
     if (marks.label) trendLabels.push(marks.label);
@@ -731,7 +738,7 @@ function renderChartContent(data, chart, width, height) {
   // Where the axis spans more than a double can hold, measure in halves so the fraction stays finite. A value far
   // outside fixed bounds (the largest double over an axis of 0 to 1) is held to a few plot heights past the edge,
   // where the clip hides it, rather than becoming an infinite coordinate.
-  const held = (t) => (t > 11 ? 11 : t < -10 ? -10 : t);
+  const held = (tx) => (tx > 11 ? 11 : tx < -10 ? -10 : tx);
   const ySpan = yScale.max - yScale.min;
   const yFrac = Number.isFinite(ySpan) ? (v) => held((v - yScale.min) / ySpan) : (v) => held((v / 2 - yScale.min / 2) / (yScale.max / 2 - yScale.min / 2));
   const vy = (v) => plot.y + plot.h - yFrac(v) * plot.h;
@@ -794,7 +801,8 @@ function renderChartContent(data, chart, width, height) {
         const size = sizes ? sizes[i] : null;
         const r = sizes ? (size != null && size > 0 && maxSize ? Math.max(2.5, Math.sqrt(size / maxSize) * maxR) : 2.5) : own?.markerSize ? own.markerSize * 2 / 3 : 4;
         const point = `${s.name}: (${tipText(x, xStyle)}, ${tipText(v, chartPointStyle(s, i, vs))})`;
-        const tip = sizes ? `${point}, size ${size == null ? 'blank' : tipText(size, data.sizePointStyles?.[i] || data.sizeStyle)}` : point;
+        const tip = !sizes ? point : size == null ? t('chartsvg.bubbleTipBlank', { point })
+          : t('chartsvg.bubbleTip', { point, size: tipText(size, data.sizePointStyles?.[i] || data.sizeStyle) });
         if (own?.marker === false) { /* no marker: the point shows by its label alone */ }
         else if (own?.markerSymbol && own.markerSymbol !== 'circle') parts.push(chartMarker(own.markerSymbol, sx(x), vy(v), r * 2, color, color, tip));
         else parts.push(`<circle cx="${f(sx(x))}" cy="${f(vy(v))}" r="${f(r)}" fill="${color}" fill-opacity="${sizes ? 0.55 : 0.85}"${sizes ? ` stroke="${color}" stroke-width="1"` : ''}><title>${esc(tip)}</title></circle>`);
@@ -846,7 +854,7 @@ function renderChartContent(data, chart, width, height) {
   const fold = (rest) => {
     const sum = (of) => categories.map((_, i) => rest.reduce((acc, si) => { const v = of(series[si])[i]; return v == null ? acc : (acc ?? 0) + v; }, null));
     const raw = rest.some((si) => series[si].raw) ? { raw: sum((s) => s.raw || s.values) } : {};
-    series = [...series, { name: `…and ${rest.length} more`, values: sum((s) => s.values), ...raw, style: series[rest[0]].style, fold: true }];
+    series = [...series, { name: t('chartsvg.andMore', { count: rest.length }), values: sum((s) => s.values), ...raw, style: series[rest[0]].style, fold: true }];
     return series.length - 1;
   };
   if (barIdx.length > MAX_SERIES) {
@@ -987,10 +995,13 @@ function renderChartContent(data, chart, width, height) {
         if (idx.length === 1) parts.push(`<circle cx="${f(pts[idx[0]][0])}" cy="${f(pts[idx[0]][1])}" r="3.5" fill="${color}"/>`);
         else parts.push(`<polyline points="${line}" fill="none" stroke="${color}" stroke-width="${f(width)}" stroke-linejoin="round" stroke-linecap="round"/>`);
       }
-      if (showPoints) {
+      // A series given a marker size or shape of its own is marked however long it runs, every k-th point past the budget.
+      const marked = own?.marker !== false && (own?.markerSize != null || !!own?.markerSymbol);
+      if (showPoints || marked) {
         const r = own?.markerSize ? own.markerSize * 2 / 3 : 3;
+        const every = showPoints ? 1 : Math.max(1, Math.ceil(n * lineIdx.length / MARK_BUDGET));
         pts.forEach((p, i) => {
-          if (!p) return;
+          if (!p || i % every) return;
           if (own?.marker === false) { /* no marker */ }
           else if (own?.markerSymbol && own.markerSymbol !== 'circle') parts.push(chartMarker(own.markerSymbol, p[0], p[1], r * 2, color, color, tipFor(s, i)));
           else parts.push(`<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${f(r)}" fill="${color}"><title>${esc(tipFor(s, i))}</title></circle>`);
@@ -1043,7 +1054,8 @@ function effectAttr(a, key) {
 /** A title's own fill and outline (Format ▸ Shape Fill/Outline), sized to its text. */
 function textBox(box, effect, text, x, y, style, anchor, key) {
   if (!box || (!box.fill && !box.stroke) || (box.fill === 'none' && box.stroke === 'none')) return '';
-  const w = textW(text, style.size) + style.size, h = style.size * 1.5;
+  // Measured in the title's own font, so the box keeps half an em either side of its text.
+  const w = axisTextWidth(text, style) + style.size, h = style.size * 1.5;
   const left = anchor === 'middle' ? x - w / 2 : anchor === 'end' ? x - w + style.size / 2 : x - style.size / 2;
   const filter = effect?.glow ? ` filter="url(#chart-fx-glow-${effect.glow.slice(1)})"` : effect?.shadow ? ' filter="url(#chart-fx-shadow)"' : '';
   return `<rect data-el="${key}" x="${f(left)}" y="${f(y - style.size * 1.1)}" width="${f(w)}" height="${f(h)}" fill="${esc(box.fill && box.fill !== 'none' ? box.fill : 'transparent')}" stroke="${esc(box.stroke || 'none')}"${filter}/>`;
@@ -1072,7 +1084,7 @@ function excelPlotLayout(chart, a, W, H, legend, categoryLabels) {
 
 function renderStyledCartesian(data, chart, width, height) {
   const W = Math.max(120, width), H = Math.max(24, height), a = chart.appearance;
-  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || `${chart.type} chart`)}" style="${PLOT_STYLE}">`,
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || t('chartsvg.chartLabel', { type: chart.type }))}" style="${PLOT_STYLE}">`,
     chartAreaRect(a, W, H), elementEffectDefs(a)];
   const axisLabels = [];
   let labelTarget = parts;
@@ -1271,7 +1283,7 @@ function renderStyledCartesian(data, chart, width, height) {
   let bottom = plot.y + plot.h;
   const valueFraction = (v, domain, reverse) => {
     // A value at or below zero on a logarithmic axis lies past its foot (and is clipped there).
-    const fraction = domain.log ? (v > 0 ? Math.log(v / domain.min) / Math.log(domain.max / domain.min) : -1)
+    const fraction = domain.log ? logFraction(v, domain.min, domain.max)
       : axisFraction(v, domain.min, domain.max);
     return reverse ? 1 - fraction : fraction;
   };
@@ -1294,7 +1306,7 @@ function renderStyledCartesian(data, chart, width, height) {
   // Between-category axes leave half a base unit at each edge, including date gaps.
   const inset = numericX || a.categoryBetween === false ? 0 : .5;
   const sx = v => {
-    const fraction = dates ? dates.fraction(v) : xScale?.log ? (v > 0 ? Math.log(v / xMin) / Math.log(xMax / xMin) : -1)
+    const fraction = dates ? dates.fraction(v) : xScale?.log ? logFraction(v, xMin, xMax)
       : xMax === xMin && !inset ? .5 : axisFraction(v, xMin - inset, xMax + inset);
     return plot.x + (a.reverseCategories ? 1 - fraction : fraction) * plot.w;
   };
@@ -1373,7 +1385,7 @@ function renderStyledCartesian(data, chart, width, height) {
     }
     const texts = primaryMajor().map(v => formatted(v, percent ? '0%' : a.yFormat || (percentAxis ? '0%' : ''), stepOf(scale, v), a.yUnits, primarySource).trim()).filter(Boolean);
     if (texts.length) {
-      const boxes = texts.map(t => categoryTextLayout(t, a.yStyle, Infinity, 'none'));
+      const boxes = texts.map(tx => categoryTextLayout(tx, a.yStyle, Infinity, 'none'));
       const ascent = Math.max(...boxes.map(b => b.ascent)), descent = Math.max(...boxes.map(b => b.height - b.ascent));
       const origin = fixedLabelSide(a.yLabelPosition) ? valueHigh ? plot.y : bottom : valueAxisOrigin(crossings.y, valueAxisHigh);
       const fraction = (origin - plot.y) / plot.h;
@@ -1512,7 +1524,7 @@ function renderStyledCartesian(data, chart, width, height) {
     const furniture = a.plot ? 0 : Math.max(chart.title ? (a.title?.y ?? .035) * H + a.titleStyle.size * 1.2 : 0,
       automaticLegend && chart.legendPos === 'top' ? automaticLegend.y + automaticLegend.h : 0);
     const required = furniture + (categoryAngle ? categoryText.height + 6
-      : maxOf(categoryLayouts.map(t => t.height + t.ascent - a.xStyle.size * .5), a.xStyle.size) + 6);
+      : maxOf(categoryLayouts.map(tx => tx.height + tx.ascent - a.xStyle.size * .5), a.xStyle.size) + 6);
     const extra = Math.min(Math.max(0, plot.h - 10), Math.max(0, required - plot.y));
     plot.y += extra; plot.h -= extra; // Retain the opposite plot edge.
   }
@@ -1560,7 +1572,7 @@ function renderStyledCartesian(data, chart, width, height) {
     // use calendar units (one day when unspecified), not fractions of months.
     const step = style.minorUnit || (date ? 1 : major.step / 5);
     // A logarithmic axis marks the multiples between its powers (2, 3 … 9 × 10ⁿ).
-    if (major.log) return ticks.flatMap(t => Array.from({ length: Math.max(0, Math.ceil(major.log) - 2) }, (_, k) => t * (k + 2))).filter(v => v < major.max);
+    if (major.log) return ticks.flatMap(tx => Array.from({ length: Math.max(0, Math.ceil(major.log) - 2) }, (_, k) => tx * (k + 2))).filter(v => v < major.max);
     const candidates = date ? dates.ticks(step, unit, true)
       : scaleTicks({ ...major, step });
     let index = 0;
@@ -1568,8 +1580,8 @@ function renderStyledCartesian(data, chart, width, height) {
       while (index + 1 < ticks.length && ticks[index + 1] <= v) index++;
       // Compare locally, without rounding large values to fewer significant
       // digits (which could merge distinct, closely spaced ticks).
-      return ![ticks[index], ticks[index + 1]].some(t => t != null && Math.abs(v - t)
-        <= Math.max(Math.min(step, major.step) * 1e-8, Number.EPSILON * Math.max(Math.abs(v), Math.abs(t))));
+      return ![ticks[index], ticks[index + 1]].some(tx => tx != null && Math.abs(v - tx)
+        <= Math.max(Math.min(step, major.step) * 1e-8, Number.EPSILON * Math.max(Math.abs(v), Math.abs(tx))));
     });
   };
   // Beside custom values the minor ticks keep to the automatic grid, its major places included,
@@ -1579,8 +1591,9 @@ function renderStyledCartesian(data, chart, width, height) {
     const grid = auto(major), minor = minorTicks(key, major, grid);
     if (!minor.length) return [];
     const slack = Math.abs(major.max - major.min) * 1e-9;
-    return [...grid, ...minor].filter(v => !ticks.some(t => Math.abs(v - t) <= slack)).sort((p, q) => p - q);
+    return [...grid, ...minor].filter(v => !ticks.some(tx => Math.abs(v - tx) <= slack)).sort((p, q) => p - q);
   };
+  const boxEdges = [];
   const axis = (key, vertical, origin, start, end, major, minor, hidden) => {
     const style = a.axisStyles?.[key];
     if (!style || hidden || style.color === 'none') return;
@@ -1589,6 +1602,13 @@ function renderStyledCartesian(data, chart, width, height) {
     const segment = (cls, x1, y1, x2, y2, dashed = false) => parts.push(`<line class="${cls} chart-axis-${key}" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" ${attrs}${dashed && dash.length ? ` stroke-dasharray="${dash.map(v => v * (width || 1)).join(' ')}"` : ''} data-el="${key === 'x' ? 'xAxis' : key === 'y' ? 'yAxis' : 'y2Axis'}"/>`);
     if (vertical) segment('chart-axis-line', origin, start, origin, end, true);
     else segment('chart-axis-line', start, origin, end, origin, true);
+    // A boxed axis lines both plot edges it runs along (the left and right for a vertical axis, the top and bottom
+    // for a horizontal one) in its own line, so boxing both axes boxes the whole plot. They go over the gridlines.
+    if (style.box) {
+      const edge = (x1, y1, x2, y2) => boxEdges.push(`<line class="chart-axis-box chart-axis-${key}" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" ${attrs}${dash.length ? ` stroke-dasharray="${dash.map(v => v * (width || 1)).join(' ')}"` : ''} stroke-linecap="square"/>`);
+      if (vertical) { edge(plot.x, plot.y, plot.x, plot.y + plot.h); edge(plot.x + plot.w, plot.y, plot.x + plot.w, plot.y + plot.h); }
+      else { edge(plot.x, plot.y, plot.x + plot.w, plot.y); edge(plot.x, plot.y + plot.h, plot.x + plot.w, plot.y + plot.h); }
+    }
     const high = key === 'x' ? categoryAxisHigh : key === 'y2' ? secondAxisHigh : valueAxisHigh;
     const outward = (vertical ? 1 : -1) * (high ? 1 : -1);
     const ticks = (positions, kind, length, name) => {
@@ -1665,6 +1685,8 @@ function renderStyledCartesian(data, chart, width, height) {
     if (a.y2Gridlines) gridline('y2', plot.x, sy2(v), plot.x + plot.w, sy2(v));
     if (secondaryLabels) label(formatted(v, a.y2Format, a.y2TickValues ? v : scale2.step, a.y2Units, secondarySource).trim(), valueColumns.secondary.x, sy2(v) + a.y2Style.size * .35, a.y2Style, secondHigh ? 'start' : 'end', 'data-el="y2Axis"');
   }
+  parts.push(...boxEdges);
+
   if (horizontal) {
     if (categoryLabels) {
       const origin = fixedLabelSide(a.xLabelPosition) ? categoryHigh ? plot.x + plot.w : plot.x : xOrigin;
@@ -1754,7 +1776,7 @@ function renderStyledCartesian(data, chart, width, height) {
       bubbles[j].forEach(({ x, y, size, i }) => {
         if (i % every || !maxBubbleRadius) return;
         const r = maxBubbleRadius * (bubble.sizeRepresents === 'w' ? size / maxBubble : Math.sqrt(size / maxBubble));
-        parts.push(`<circle class="chart-bubble" cx="${f(sx(x))}" cy="${f(sy(y))}" r="${f(r)}" fill="${bubblePaint[j]}" stroke="${st?.stroke || 'none'}" stroke-width="${st?.strokeWidth ?? 1}" data-el="series" data-series="${j}" data-point="${i}"${effectAttr(a, `series:${j}`)}><title>${esc(`${s.name}: (${tipText(x, data.xStyle)}, ${tipText(y, chartPointStyle(s, i))}), size ${tipText(s.sizes[i], chartPointStyle(s, i, null, 'sizePointStyles'))}`)}</title></circle>`);
+        parts.push(`<circle class="chart-bubble" cx="${f(sx(x))}" cy="${f(sy(y))}" r="${f(r)}" fill="${bubblePaint[j]}" stroke="${st?.stroke || 'none'}" stroke-width="${st?.strokeWidth ?? 1}" data-el="series" data-series="${j}" data-point="${i}"${effectAttr(a, `series:${j}`)}><title>${esc(t('chartsvg.bubbleTip', { point: `${s.name}: (${tipText(x, data.xStyle)}, ${tipText(y, chartPointStyle(s, i))})`, size: tipText(s.sizes[i], chartPointStyle(s, i, null, 'sizePointStyles')) }))}</title></circle>`);
         if (chart.labels && labels && !hidden.has(i)) {
           const values = [labels.series && s.name, labels.category && tipText(x, data.xStyle), labels.value && formatValue(y, chartPointStyle(s, i)), labels.size && formatValue(s.sizes[i], chartPointStyle(s, i, null, 'sizePointStyles'))].filter(v => v !== false);
           if (values.length && x >= xMin && x <= xMax && y >= scale.min && y <= scale.max) bubbleLabels.push({ value: values.join(', '), x: sx(x), y: sy(y), r, labels, ...(st?.labels ? {} : { ink: inkOn(color) }) });
@@ -2042,7 +2064,7 @@ export function layoutChartDataTable(data, chart, plot, limit, automatic, axisGa
 export function renderChartDataTable(data, chart, box) {
   const table = chart.appearance.dataTable, st = table.style;
   const { heading, column, width, heights, scale, headLines, names, pad, keyWidth } = box;
-  const height = heights.reduce((a, b) => a + b, 0), parts = [`<g class="chart-data-table" role="table" aria-label="Chart data" transform="translate(${f(box.x)} ${f(box.y)}) scale(1 ${f(scale)})" font-family="${esc(fontStack(st.font))}" font-size="${st.size}" fill="${esc(st.color)}"${st.bold ? ' font-weight="700"' : ''}${st.italic ? ' font-style="italic"' : ''}>`,
+  const height = heights.reduce((a, b) => a + b, 0), parts = [`<g class="chart-data-table" role="table" aria-label="${esc(t('chartsvg.dataTable'))}" transform="translate(${f(box.x)} ${f(box.y)}) scale(1 ${f(scale)})" font-family="${esc(fontStack(st.font))}" font-size="${st.size}" fill="${esc(st.color)}"${st.bold ? ' font-weight="700"' : ''}${st.italic ? ' font-style="italic"' : ''}>`,
     `<rect width="${f(width)}" height="${f(height)}" fill="${esc(table.fill)}"/>`];
   const text = (value, lines, x, y, w, h, start = false, inset = 0) => {
     const anchor = start ? pad + inset : w / 2;
@@ -2164,7 +2186,7 @@ function chartMarker(symbol, x, y, size, fill, stroke, title = '', className = '
 function renderNativeRadar(data, chart, width, height) {
   const W = Math.max(120, width), H = Math.max(80, height), a = chart.appearance, radar = a.radar;
   const series = data.series.slice(0, MAX_SERIES), categories = data.categories, n = categories.length;
-  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || 'Radar chart')}" style="${PLOT_STYLE}">`,
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || t('chartsvg.radarChart'))}" style="${PLOT_STYLE}">`,
     `<rect width="${W}" height="${H}" fill="${esc(a.background)}"/>`];
   const label = (text, x, y, style, anchor = 'middle', extra = '') => parts.push(`<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" font-family="${esc(fontStack(style.font))}" font-size="${style.size}" fill="${esc(style.color)}"${style.bold ? ' font-weight="700"' : ''}${style.italic ? ' font-style="italic"' : ''} ${extra}>${esc(text)}</text>`);
   const titleBottom = chart.title ? (a.title?.y ?? .035) * H + a.titleStyle.size : 0;
@@ -2391,31 +2413,33 @@ function trendlineMarks(points, trend, { j, name, color, place, straight = true,
   const lines = [trend.dispEq && trendEquation(fit, format), trend.dispRSqr && r2 && [{ text: r2 }]].filter(Boolean);
   // The label sits by the end of the line that lies in the plot.
   const end = at.filter(p => p && p[0] >= bounds.x - .5 && p[0] <= bounds.x + bounds.w + .5 && p[1] >= bounds.y - .5 && p[1] <= bounds.y + bounds.h + .5).at(-1);
-  return { svg, label: lines.length && end ? { lines, x: end[0], y: end[1], j, path: at.filter(Boolean), pos: trend.labelPos } : null };
+  return { svg, label: lines.length && end ? { lines, x: end[0], y: end[1], j, path: at.filter(Boolean), pos: trend.labelPos, size: trend.labelSize } : null };
 }
 
 /**
  * Trendline labels: each by its line's end, above it or else below it, or failing both in a corner of the
  * plot: the first of those places that crosses no trendline and no label drawn before it (or the one that
  * crosses least), kept inside the plot. A label dragged somewhere (labelPos) stays there, kept inside the
- * W × H chart. An exponent is set small and raised.
+ * W × H chart. A label with its own text size (labelSize) is drawn at it, else at `style`'s. An exponent is
+ * set small and raised.
  */
 function trendLabelsSvg(labels, style, plot, W, H) {
-  const size = style.size, lineH = size * 1.25, rise = size * .4;
   const placed = [];
   // Points every few pixels along each trendline, to tell whether a place for a label lies over one.
-  const along = labels.flatMap(l => l.path.flatMap((p, k) => (k ? Array.from({ length: 12 }, (_, t) => {
+  const along = labels.flatMap(l => l.path.flatMap((p, k) => (k ? Array.from({ length: 12 }, (_, tx) => {
     const q = l.path[k - 1];
-    return [q[0] + (p[0] - q[0]) * t / 12, q[1] + (p[1] - q[1]) * t / 12];
+    return [q[0] + (p[0] - q[0]) * tx / 12, q[1] + (p[1] - q[1]) * tx / 12];
   }) : [p])));
   return labels.map(l => {
-    const widths = l.lines.map(runs => runs.reduce((w, r) => w + textW(r.text, r.sup ? size * .7 : size), 0));
+    const size = l.size || style.size, lineH = size * 1.25, rise = size * .4;
+    // Measured in its own font, as axis labels are, so a label put against the chart's left edge sits flush there.
+    const widths = l.lines.map(runs => runs.reduce((w, r) => w + axisTextWidth(r.text, { ...style, size: r.sup ? size * .7 : size }), 0));
     const w = maxOf(widths), h = l.lines.length * lineH;
     const hold = (right, top) => ({ right: Math.min(plot.x + plot.w - 4, Math.max(plot.x + w + 4, right)), top: Math.max(plot.y + 2, Math.min(plot.y + plot.h - h - 2, top)) });
     const left = plot.x + w + 4, right = plot.x + plot.w - 4, high = plot.y + 2, low = plot.y + plot.h - h - 2;
     const places = [hold(l.x, l.y - h - 6), hold(l.x, l.y + 6), hold(left, high), hold(right, high), hold(left, low), hold(right, low)];
-    const cost = ({ right: r, top: t }) => along.filter(([x, y]) => x > r - w - 3 && x < r + 3 && y > t - 3 && y < t + h + 3).length
-      + 1000 * placed.filter(p => r - w < p.right && r > p.right - p.w && t < p.top + p.h && t + h > p.top).length;
+    const cost = ({ right: r, top: tx }) => along.filter(([x, y]) => x > r - w - 3 && x < r + 3 && y > tx - 3 && y < tx + h + 3).length
+      + 1000 * placed.filter(p => r - w < p.right && r > p.right - p.w && tx < p.top + p.h && tx + h > p.top).length;
     const best = () => { const costs = places.map(cost); return places[costs.indexOf(Math.min(...costs))]; };
     const { right: end, top } = l.pos ? { right: Math.min(W, Math.max(w, l.pos.x * W + w)), top: Math.min(H - h, Math.max(0, l.pos.y * H)) } : best();
     placed.push({ right: end, w, top, h });
@@ -2429,8 +2453,8 @@ function trendLabelsSvg(labels, style, plot, W, H) {
       }).join('');
       return `<text x="${f(end)}" y="${f(top + (k + .8) * lineH)}" text-anchor="end"${font}>${spans}</text>`;
     }).join('');
-    // Where it sits, for a drag to move it from (see chart-format-pane.js).
-    return `<g class="chart-trendline-label" data-el="trendlineLabel" data-series="${l.j}" data-left="${f(end - w)}" data-top="${f(top)}">${text}</g>`;
+    // Where it sits and its size, for a drag to move or resize it from (see chart-format-pane.js).
+    return `<g class="chart-trendline-label" data-el="trendlineLabel" data-series="${l.j}" data-left="${f(end - w)}" data-top="${f(top)}" data-width="${f(w)}" data-height="${f(h)}" data-size="${f(size)}">${text}</g>`;
   }).join('');
 }
 
@@ -2460,7 +2484,7 @@ function piePaint(chart, i, overrides) {
  */
 function renderStyledPie(data, chart, width, height) {
   const W = Math.max(120, width), H = Math.max(80, height), a = chart.appearance;
-  const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || `${chart.type} chart`)}" style="${PLOT_STYLE}">`,
+  const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || t('chartsvg.chartLabel', { type: chart.type }))}" style="${PLOT_STYLE}">`,
     chartAreaRect(a, W, H), elementEffectDefs(a)];
   const label = (value, x, y, style, anchor = 'start', extra = '') => `<text ${extra} x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" font-family="${esc(fontStack(style.font))}" font-size="${style.size}"${style.bold ? ' font-weight="700"' : ''}${style.italic ? ' font-style="italic"' : ''} fill="${esc(style.color)}">${esc(value)}</text>`;
   if (chart.title) {
@@ -2535,7 +2559,7 @@ function renderStyledPie(data, chart, width, height) {
   const p = a.plot, bounds = p ? { x: p.x * W, y: p.y * H, w: (p.w ?? .85) * W, h: (p.h ?? .8) * H, W, H }
     : { x: 10, y: top, w: Math.max(20, right - 10), h: Math.max(20, bottom - top), W, H };
   if (data.series.length) out.push(renderPie(data, chart, right, top, bottom, bounds));
-  else out.push(label('No numbers to chart', W / 2, H / 2, a.legendStyle, 'middle'));
+  else out.push(label(t('chartsvg.noNumbers'), W / 2, H / 2, a.legendStyle, 'middle'));
   out.push('</svg>');
   return out.join('');
 }
@@ -2556,7 +2580,7 @@ function renderOfPie(data, chart, right, top, bottom, bounds) {
   const r = Math.max(10, Math.min(box.h / 2, box.w / (2 + gap + second)));
   const cx = box.x + (box.w - r * (2 + gap + second)) / 2 + r, cy = box.y + box.h / 2;
   const otherFrac = total ? restSum / total : 0;
-  const mainData = { ...data, categories: [...main.map(i => data.categories[i]), 'Other'],
+  const mainData = { ...data, categories: [...main.map(i => data.categories[i]), t('chartsvg.other')],
     series: [{ ...s, values: [...main.map(i => s.values[i]), restSum], pointStyles: s.pointStyles ? [...main.map(i => s.pointStyles[i]), null] : undefined }] };
   // The Other slice is centred on the right, facing the second plot.
   const startAngle = Math.PI * otherFrac;
@@ -2614,7 +2638,7 @@ function renderPie(data, chart, right, top, bottom, bounds = null, opts = {}) {
   const shrink = opts.noExplode ? 0 : (chart.explosion || 0) / 100, explode = opts.ring && opts.ring.k < opts.ring.n - 1 ? 0 : shrink;
   let r = Math.max(10, opts.center ? opts.center.r : bounds ? Math.min(bounds.w, bounds.h) / 2 : Math.min(right, bottom - top) / 2 - 14) / (1 + shrink);
   if (!total && opts.ring) return ['', ''];
-  if (!total) return `<text x="${cx}" y="${cy}" text-anchor="middle" font-size="13" fill="var(--ink-3)">No nonzero numbers to chart</text>`;
+  if (!total) return `<text x="${cx}" y="${cy}" text-anchor="middle" font-size="13" fill="var(--ink-3)">${esc(t('chartsvg.noNonzero'))}</text>`;
   // Past a slice per pixel of the rim the smallest could not be seen: they gather into one Other slice,
   // drawn last, so the slices that can be told apart keep their places and the mark count stays bounded.
   const budget = Math.min(MARK_BUDGET, Math.max(1, Math.floor(2 * Math.PI * r)));
@@ -2699,7 +2723,8 @@ function renderPie(data, chart, right, top, bottom, bounds = null, opts = {}) {
   const paint = i => opts.ring && colors.has(i) ? colors.get(i) : pie ? piePaint(chart, i, colors) : seriesPaint(chart, i);
   const ringName = opts.ring ? `${s.name} · ` : '';
   values.forEach((v, i) => { if (v) slice(v, paint(at(i)), () => `${ringName}${data.categories[i]}: ${tipText(s.values[i], chartPointStyle(s, i, style))}`, i); });
-  if (other) slice(other.value, 'var(--ink-3)', (v) => `Other (${other.count.toLocaleString('en-US')} slices)${Number.isFinite(v * scale) ? `: ${(v * scale).toLocaleString('en-US')}` : ''}`);
+  if (other) slice(other.value, 'var(--ink-3)', (v) => (Number.isFinite(v * scale) ? t('chartsvg.otherSlicesValue', { count: formatNumber(other.count), value: formatNumber(v * scale) })
+    : t('chartsvg.otherSlices', { count: formatNumber(other.count) })));
   // Labels outside the pie stand in a column down each side: each moved down past the one above it where they
   // would overlap (the first kept below the top of the plot), the column moved back up where it runs past the
   // foot, and each set just clear of the pie at the height it ends at, its leader line running to it.

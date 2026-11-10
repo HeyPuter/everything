@@ -21,7 +21,6 @@ import {
 
 const { alice, bob, carol } = USERS;
 const APP = 'app-4b1d9c20-7e3a-4f56-9a08-2c6d5e1f8b34';
-const realFetch = globalThis.fetch;
 const tick = (ms = 2) => new Promise((r) => setTimeout(r, ms));
 async function settle() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
@@ -77,7 +76,6 @@ function resetStore() {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  globalThis.fetch = realFetch;
   resetStore();
 });
 
@@ -195,14 +193,9 @@ describe('entries from the real worker', () => {
   let ping; // and its ping's
 
   beforeAll(async () => {
-    globalThis.fetch = async (url, init = {}) => {
-      const body = init.body ? JSON.parse(init.body) : {};
-      return new Response(JSON.stringify({ handle: `kvh-${body.granteeUid || 'x'}` }), { status: 200 });
-    };
     runtime = await bootRuntime({ authToken: fakeAuthToken() });
     ({ wsId, general } = await workspaceWith(alice, [bob, carol]));
     ref = `${wsId}@teamchat-api`;
-    globalThis.fetch = realFetch;
   });
 
   /** Every slot on bob's ring shard written since the last call, oldest first, as deliveries. */
@@ -227,10 +220,6 @@ describe('entries from the real worker', () => {
   }
 
   beforeEach(async () => {
-    globalThis.fetch = async (url, init = {}) => {
-      const body = init.body ? JSON.parse(init.body) : {};
-      return new Response(JSON.stringify({ handle: `kvh-${body.granteeUid || 'x'}` }), { status: 200 });
-    };
     ev = fakeEvents();
     calls = [];
     scheduled = [];

@@ -7,7 +7,7 @@ const MARGIN = 360; // Twips around the draft's text.
 
 // A rich draft owns its own positions and local history. Apply publishes one
 // drawing mutation to the document history; cancel never changes the document.
-export function openDrawingText({ engine, pkg, image, frame, select = null }) {
+export function openDrawingText({ engine, pkg, image, frame, select = null, type = null }) {
   const descriptor = pkg.drawingTextFrames(image, engine.model.assets)[frame];
   if (!descriptor || descriptor.reason) throw new Error(descriptor?.reason || 'This drawing text is unavailable.');
   const assets = {}, images = new Map();
@@ -40,6 +40,8 @@ export function openDrawingText({ engine, pkg, image, frame, select = null }) {
   });
   const content = el('div', {},
     el('p.modal-text', {}, 'Edit this text frame, then apply your changes to the drawing. The document keeps its original frame size and placement.'),
+    // Drawing text is applied with its drawing, which tracking does not record (see conformance.md); said before typing.
+    engine.session.body.trackChanges ? el('p.field-hint', {}, 'Track Changes is on, but changes to drawing text aren’t tracked.') : null,
     el('div.row', { role: 'toolbar', 'aria-label': 'Drawing text formatting' },
       tool('Bold', () => draft.toggleBold()), tool('Italic', () => draft.toggleItalic()),
       tool('Undo', () => draft.undo()), tool('Redo', () => draft.redo())),
@@ -65,6 +67,8 @@ export function openDrawingText({ engine, pkg, image, frame, select = null }) {
     // A new drawing's sample text starts selected, so typing replaces it.
     const at = select ? draft.model.text.indexOf(select) : -1;
     if (at >= 0) draft.model.select(at, at + select.length);
+    // Opened by typing with the drawing selected: the text goes on after the drawing's own, as in Word.
+    if (type !== null) { draft.model.select(draft.model.text.length); if (type) draft.typeText(() => draft.model.replace(type), type); }
     draft.focus();
   } catch (e) { modal.close(); throw e; }
   return modal;

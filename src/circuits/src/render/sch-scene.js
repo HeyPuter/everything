@@ -4,6 +4,7 @@
 import { pack } from './color.js';
 import { mm, mil } from '../core/units.js';
 import { rotate } from '../core/geom.js';
+import { textWidth } from './font.js';
 import { placeSymbol, fieldPosition } from '../model/place.js';
 import { sheetExtents } from '../model/project.js';
 import { SCH_TEXT, PIN_TEXT, LINE_W, WIRE_W, BUS_W, JUNCTION_R, powerShape, portPolygon, fieldText } from '../model/sch.js';
@@ -60,19 +61,22 @@ export function drawSheet(b, sheet, pal, info = {}) {
   split(y1, y1 + rowH, [0.4, 0.6]);
   const lab = pack(pal.titleText), val = pack(pal.titleValue);
   const ls = mm(1.6), vs = mm(2.6);
-  const cell = (x, yTop, label, value, size = vs) => {
+  const cell = (x, yTop, cellW, label, value, size = vs) => {
     b.text(label, x + mm(1.2), yTop - mm(1.2), ls, lab, { align: { h: 'left', v: 'top' } });
-    if (value) b.text(value, x + mm(1.2), yTop - rowH + mm(1.4), size, val);
+    if (!value) return;
+    // Long values shrink to stay inside their cell (and on the paper).
+    const room = cellW - mm(2.4), tw = textWidth(value, size);
+    b.text(value, x + mm(1.2), yTop - rowH + mm(1.4), tw > room ? (size * room) / tw : size, val);
   };
   const yT = y2;
-  cell(x1, yT, 'Title', sheet.title || info.projectName || '', mm(3.4));
-  cell(x1, y1 + rowH * 3, 'Size', sheet.size || 'A4');
-  cell(x1 + w * 0.25, y1 + rowH * 3, 'Number', String(sheet.number ?? ''));
-  cell(x1 + w * 0.7, y1 + rowH * 3, 'Revision', sheet.revision || '');
-  cell(x1, y1 + rowH * 2, 'Date', info.date || '');
-  cell(x1 + w * 0.4, y1 + rowH * 2, 'File', info.fileName || '');
-  cell(x1, y1 + rowH, 'Sheet', info.sheetOf || '');
-  cell(x1 + w * 0.4, y1 + rowH, 'Drawn by', [sheet.author, sheet.company].filter(Boolean).join(', '));
+  cell(x1, yT, w, 'Title', sheet.title || info.projectName || '', mm(3.4));
+  cell(x1, y1 + rowH * 3, w * 0.25, 'Size', sheet.size || 'A4');
+  cell(x1 + w * 0.25, y1 + rowH * 3, w * 0.45, 'Number', String(sheet.number ?? ''));
+  cell(x1 + w * 0.7, y1 + rowH * 3, w * 0.3, 'Revision', sheet.revision || '');
+  cell(x1, y1 + rowH * 2, w * 0.4, 'Date', info.date || '');
+  cell(x1 + w * 0.4, y1 + rowH * 2, w * 0.6, 'File', info.fileName || '');
+  cell(x1, y1 + rowH, w * 0.4, 'Sheet', info.sheetOf || '');
+  cell(x1 + w * 0.4, y1 + rowH, w * 0.6, 'Drawn by', [sheet.author, sheet.company].filter(Boolean).join(', '));
 }
 
 function graphicColor(g, pal, stroke) {
@@ -168,7 +172,7 @@ export function drawPart(b, o, lib, pal, override) {
     const f = fieldPosition(o, name, def);
     const txt = fieldText(o, name);
     if (f.hidden || !txt) continue;
-    b.text(txt, f.x, f.y, SCH_TEXT, override ?? pack(name === 'designator' ? pal.designator : pal.value));
+    b.text(txt, f.x, f.y, SCH_TEXT, override ?? pack(name === 'designator' ? pal.designator : pal.value), { align: f.align });
   }
   if (o.dnp) {
     const c = pack(pal.ercError, 0.8);
@@ -238,7 +242,8 @@ export function drawSchObject(b, o, lib, pal, override) {
       b.line(o.x - s, o.y - s, o.x + s, o.y + s, mil(10), c); b.line(o.x - s, o.y + s, o.x + s, o.y - s, mil(10), c);
       break;
     }
-    case 'text': b.text(o.text, o.x, o.y, o.size || SCH_TEXT, override ?? pack(pal.text), { rot: o.rot || 0 }); break;
+    // Free text stays readable at 180 and 270 degrees, as in KiCad.
+    case 'text': b.text(o.text, o.x, o.y, o.size || SCH_TEXT, override ?? pack(pal.text), { rot: o.rot || 0, upright: true }); break;
     case 'gline': b.polyline(o.pts, o.w || LINE_W, override ?? pack(pal.graphic)); break;
     case 'grect': drawGraphic(b, { t: 'rect', x1: o.x1, y1: o.y1, x2: o.x2, y2: o.y2, w: o.w, fill: o.fill ? 'body' : undefined }, override ?? pack(pal.graphic), pal); break;
     case 'gcircle': drawGraphic(b, { t: 'circle', cx: o.cx, cy: o.cy, r: o.r, w: o.w, fill: o.fill ? 'body' : undefined }, override ?? pack(pal.graphic), pal); break;

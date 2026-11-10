@@ -1,0 +1,23 @@
+{
+  "add": "添加到快速访问工具栏",
+  "collapseRibbon": "折叠功能区",
+  "customize": "自定义快速访问工具栏",
+  "customizeMore": "自定义快速访问工具栏…",
+  "customizeRibbon": "自定义功能区…",
+  "expandRibbon": "展开功能区",
+  "filter": "筛选",
+  "find": "查找",
+  "insertChart": "插入图表",
+  "moreCommands": "其他命令…",
+  "newSpreadsheet": "新建电子表格",
+  "print": "打印",
+  "remove": "从快速访问工具栏删除",
+  "showAbove": "在功能区上方显示",
+  "showBelow": "在功能区下方显示",
+  "showLabels": "显示命令标签",
+  "sortAscending": "升序",
+  "sortDescending": "降序",
+  "spelling": "拼写检查",
+  "toolbar": "快速访问工具栏",
+  "withShortcut": "{label} ({keys})"
+}

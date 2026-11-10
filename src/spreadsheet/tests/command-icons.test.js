@@ -244,6 +244,8 @@ it('shows Page Break Preview from View and the status bar, with each printed pag
   await flush();
   tab('View').click(); await flush();
   ribbonButton('Page Break Preview').click(); await flush();
+  // Zoomed out so that both pages are in view: the pages out of view are not drawn.
+  view.run('zoom', -0.8); await flush();
   const layer = view.el.querySelector('.grid-pages');
   expect(layer.hidden).toBe(false);
   const labels = [...layer.querySelectorAll('.page-label')].map(n => n.textContent);

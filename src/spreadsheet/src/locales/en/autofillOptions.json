@@ -1,0 +1,15 @@
+{
+  "copy": "Copy Cells",
+  "days": "Fill Days",
+  "flash": "Flash Fill",
+  "formats": "Fill Formatting Only",
+  "months": "Fill Months",
+  "series": "Fill Series",
+  "undo.fill": "Fill",
+  "undo.fillGrouped": "Fill (grouped sheets)",
+  "undo.series": "Fill series",
+  "undo.seriesGrouped": "Fill series (grouped sheets)",
+  "values": "Fill Without Formatting",
+  "weekdays": "Fill Weekdays",
+  "years": "Fill Years"
+}

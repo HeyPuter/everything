@@ -36,11 +36,7 @@ export function integerWidths(widths, total = sum(widths)) {
 export function selectionBlock(model) {
   const active = model.activeCellBlock;
   if (active) return active;
-  const [start, end] = model.range;
-  const at = offset => model.paragraphs[locate(model.paragraphs, offset).index].cellId || null;
-  // A selection ending at the start of a paragraph does not reach into it.
-  const last = end > start && locate(model.paragraphs, end).offset === 0 ? end - 1 : end;
-  const a = at(start), b = at(last);
+  const [a, b] = selectionEndCells(model);
   if (!a && !b) return null;
   const chain = id => { const out = []; for (let cell = id; cell;) { const context = cellContext(model.tables, cell); out.push({ table: context.table, cell }); cell = context.table.parentCellId; } return out; };
   const from = chain(a || b), to = chain(b || a);
@@ -52,8 +48,26 @@ export function selectionBlock(model) {
 }
 
 /**
+ * The cells (ids, or null outside a table) holding the start and the end of the text selection. A selection that
+ * ends at the start of a paragraph after its own cell's text (a cell's paragraph selected with its mark) or after
+ * the table does not reach into that paragraph. One that ends at the start of another cell's text does: Shift+Down
+ * from the start of a cell, or a drag to the start of the cell below, reaches the cell the caret is in.
+ */
+export function selectionEndCells(model) {
+  const [start, end] = model.range;
+  const at = offset => model.paragraphs[locate(model.paragraphs, offset).index]?.cellId || null;
+  const a = at(start);
+  let b = at(end);
+  if (end > start && locate(model.paragraphs, end).offset === 0) {
+    const before = at(end - 1);
+    if (!b || before === a) b = before;
+  }
+  return [a, b];
+}
+
+/**
  * Table edits that remove or rearrange text (rows, columns, cells, a whole table, merging, sorting,
- * converting) are not recorded as tracked changes, so with Track Changes on they refuse to run rather
+ * splitting, converting) are not recorded as tracked changes, so with Track Changes on they refuse to run rather
  * than change text a reviewer would never see, as sorting paragraphs does. `what` names the command.
  */
 export function refuseUntracked(model, what) {
@@ -283,10 +297,11 @@ function requireUnmerged(table, rows, left, right, message) {
 
 /** Delete Cells: shift the cells to the right of the selection left, or the cells below it up. */
 export function deleteCells(model, { shift = 'left' } = {}) {
-  refuseUntracked(model, 'Deleting table cells');
-  const block = requireBlock(model), table = block.table;
+  // Deleting whole rows or columns refuses (with Track Changes on) in its own words.
   if (shift === 'row') return deleteRows(model);
   if (shift === 'column') return deleteColumns(model);
+  refuseUntracked(model, 'Deleting table cells');
+  const block = requireBlock(model), table = block.table;
   if (!['left', 'up'].includes(shift)) throw new Error('Choose how the remaining cells move.');
   requireAligned(table, block);
   if (shift === 'left') {
@@ -333,6 +348,8 @@ export function insertCells(model, { shift = 'down', widths: measured } = {}) {
   if (shift === 'row') return insertRows(model, { above: true });
   if (shift === 'column') return insertColumns(model, { left: true, widths: measured });
   if (!['right', 'down'].includes(shift)) throw new Error('Choose how the selected cells move.');
+  // Shifting cells moves their text into other columns or rows, which a reviewer would not see.
+  refuseUntracked(model, 'Inserting cells that shift others');
   const block = requireBlock(model), table = block.table;
   requireAligned(table, block);
   const width = block.right - block.left, height = block.bottom - block.top + 1;
@@ -549,9 +566,14 @@ export function splitCells(model, { rows = 1, columns = 2, widths: measured } = 
   model.didChange(); return true;
 }
 
-/** Split Table: the selected row and those below it become a new table after an empty paragraph. */
+/**
+ * Split Table: the selected row and those below it become a new table after an empty paragraph. That
+ * paragraph (in the first row: one before the table) and the moved rows are not tracked changes, so with
+ * Track Changes on it refuses, as Move Table does.
+ */
 export function splitTable(model) {
   const block = requireBlock(model), table = block.table, at = block.top;
+  refuseUntracked(model, 'Splitting a table');
   if (at === 0) return model.insertTableParagraph(false);
   const state = M.tableContent(model, table), owners = verticalMerges(table);
   model.checkpoint();
@@ -578,6 +600,24 @@ export function splitTable(model) {
   normalizeBlockBookmarkScopes(model.paragraphs, model.tables);
   model.select(model.paragraphOffset(model.paragraphs.indexOf(separator)));
   model.didChange(); return true;
+}
+
+/**
+ * Ctrl+Enter in a table, as in Word: the caret's row starts a new page. The table splits above it and a
+ * page break goes between the parts (in the first row: before the table). A page break written into a
+ * cell is kept but does not advance (§17.3.3.1 br in a cell), so the keys would seem to do nothing.
+ * The caret stays where it was.
+ */
+export function insertTablePageBreak(model) {
+  const block = requireBlock(model);
+  if (block.table.parentCellId) throw new Error('A page break cannot go inside a nested table. Put the cursor in the outer table or below it.');
+  refuseUntracked(model, 'Breaking a table across pages');
+  const place = offset => { const at = locate(model.paragraphs, offset); return { id: model.paragraphs[at.index].id, offset: at.offset }; };
+  const anchor = place(model.selection.anchor), focus = place(model.selection.focus);
+  if (!splitTable(model) || !model.insertPageBreak()) return false;
+  const back = ({ id, offset }) => model.paragraphOffset(model.paragraphs.findIndex(p => p.id === id)) + offset;
+  model.select(back(anchor), back(focus));
+  return true;
 }
 
 /* ---- Sizes ---- */
@@ -833,7 +873,11 @@ export function setTableWrapping(model, wrap, { distance = 180 } = {}) {
   if (table.parentCellId) throw new Error('Text wrapping applies to tables outside other tables.');
   if ((wrap === 'around') === !!table.floating) return false;
   model.checkpoint();
-  if (wrap === 'none') { delete table.floating; table.floatingRemoved = true; }
+  if (wrap === 'none') {
+    delete table.floating; table.floatingRemoved = true;
+    // The table keeps the place it was read at (its tblpPr offset or alignment), which the file must now hold.
+    table.indentChanged = true; table.alignmentChanged = true;
+  }
   else {
     const spec = table.alignment === 'center' || table.alignment === 'right' ? { tblpXSpec: table.alignment } : {};
     table.floating = { horzAnchor: 'text', vertAnchor: 'text', tblpX: spec.tblpXSpec ? 0 : table.indent || 0, tblpY: 0, leftFromText: distance, rightFromText: distance, topFromText: 0, bottomFromText: 0, ...spec };
@@ -875,7 +919,7 @@ export function setRowOptions(model, { allowBreak, header } = {}) {
   if (allowBreak !== undefined && rows.some(row => !!row.cantSplit === !!allowBreak)) { model.setTableRowKeep(!allowBreak); changed = true; }
   if (header !== undefined) {
     const count = header ? block.bottom + 1 : block.top;
-    if (count !== headerRowCount(table) || !header && rows.some(r => r.header)) changed = model.setTableHeaderRows(count) || changed;
+    if (count !== headerRowCount(table) || !header && rows.some(r => r.header)) changed = model.setTableHeaderRows(count, table) || changed;
   }
   return changed;
 }
@@ -960,6 +1004,44 @@ export function sortTable(model, { keys, header = false, caseSensitive = false }
   model.didChange(); return true;
 }
 
+/**
+ * Alt+Shift+Up/Down in a table, as in Word: the selected rows move past the row above (-1) or below (1),
+ * the caret staying in its cell. Rows stop at the table's edge and at its repeating header rows, which
+ * keep to the top. A cell merged across rows cannot be pulled apart, so rows such a merge joins to the
+ * row they pass refuse; a merge wholly within the moved rows goes with them.
+ */
+export function moveTableRows(model, direction) {
+  const block = requireBlock(model), table = block.table;
+  const top = block.top, bottom = Math.max(block.top, block.bottom), other = direction < 0 ? top - 1 : bottom + 1;
+  const passed = table.rows[other];
+  if (!passed || table.rows.slice(top, bottom + 1).some(row => !!row.header !== !!passed.header)) return false;
+  refuseUntracked(model, 'Moving table rows');
+  const [low, high] = [Math.min(top, other), Math.max(bottom, other)];
+  for (const owner of new Set(verticalMerges(table).values())) {
+    if (owner.cells.length < 2 || owner.endRow < low || owner.rowIndex > high) continue;
+    if (owner.rowIndex < top || owner.endRow > bottom) throw new Error('Rows with cells merged across rows cannot be moved apart. Split those cells first.');
+  }
+  const state = M.tableContent(model, table);
+  // Swapped, a comment or bookmark from the moved rows into the passed one could end before it starts.
+  const rowOf = new Map(), edges = new Map();
+  for (let r = low; r <= high; r++) for (const cell of table.rows[r].cells) for (const p of state.byCell.get(cell.id) || []) rowOf.set(p, r === other);
+  for (const [p, passing] of rowOf) for (const marker of p.bookmarks || []) {
+    if ((marker.edge !== 'start' && marker.edge !== 'end') || marker.tableBoundary || marker.columnRange || marker.blockScope) continue;
+    if (!edges.has(marker.id)) edges.set(marker.id, {});
+    edges.get(marker.id)[marker.edge] = passing;
+  }
+  if ([...edges.values()].some(({ start, end }) => start !== undefined && end !== undefined && start !== end)) throw new Error('A comment or bookmark runs from these rows into the next, so they cannot be moved.');
+  model.checkpoint();
+  const [row] = table.rows.splice(other, 1);
+  table.rows.splice(direction < 0 ? bottom : top, 0, row);
+  M.applyTableContent(model, table, state);
+  validate(model);
+  // A cell selection follows its rows.
+  const cells = model.cellBlock;
+  if (cells) model.setCellBlock({ ...cells, top: cells.top + direction, bottom: cells.bottom + direction, ...(cells.rows ? { rows: cells.rows.map(r => r + direction) } : {}) });
+  model.didChange(); return true;
+}
+
 /* ---- Converting between text and tables ---- */
 
 const SEPARATORS = { tab: '\t', comma: ',', paragraph: null };
@@ -1006,12 +1088,12 @@ export function newTable(model, rows, columns, width) {
   styles.definitions[styleId] = { id: styleId, type: 'table', name: 'Canvas table', basedOn: null, properties: {}, reference: {}, run: {}, generated: true };
   const table = { id: tableId('t'), grid, width: { type: 'dxa', value: Math.round(width) }, layout: 'fixed', alignment: 'left', indent: 0, margins: { top: 72, right: 108, bottom: 72, left: 108 },
     borders: Object.fromEntries(['top', 'right', 'bottom', 'left', 'insideH', 'insideV'].map(s => [s, { style: 'single', size: borderSize, color: '000000' }])), styleId, rows: [] };
-  for (let r = 0; r < rows; r++) table.rows.push({ id: tableId('row'), cantSplit: true, minHeight: 0, cells: grid.map(w => ({ id: tableId('cell'), width: { type: 'dxa', value: w }, margins: { ...table.margins }, inheritedMargins: { ...table.margins }, directMargins: {}, vertical: 'top' })) });
+  for (let r = 0; r < rows; r++) table.rows.push({ id: tableId('row'), minHeight: 0, cells: grid.map(w => ({ id: tableId('cell'), width: { type: 'dxa', value: w }, margins: { ...table.margins }, inheritedMargins: { ...table.margins }, directMargins: {}, vertical: 'top' })) });
   return { table, styles };
 }
 function writingWidth(model) {
   const page = model.sectionPageSettings;
-  return model.sectionWritingWidth - (page.gutterAtTop ? 0 : page.gutter || 0) - (page.compatibilityMode >= 15 ? 10 : 0);
+  return Math.floor(model.sectionColumnWidth) - (page.compatibilityMode >= 15 ? 10 : 0);
 }
 function applyAutofit(table, autofit) {
   if (autofit === 'fixed' || !autofit) return;
@@ -1241,6 +1323,8 @@ export function clearCells(model) {
 
 /** Move a table (outside other tables) so it stands before the paragraph `beforeId`. */
 export function moveTable(model, tableId, beforeId) {
+  // Moving text is not recorded as a tracked move, as moving paragraphs is not (home-editing.js).
+  refuseUntracked(model, 'Moving a table');
   const table = model.tables.find(t => t.id === tableId);
   if (!table) throw new Error('Choose a table to move.');
   if (table.parentCellId) throw new Error('Tables inside other tables move with their cell.');

@@ -5,20 +5,22 @@
  */
 import { el } from './dom.js';
 import { openModal } from './modal.js';
+import { t } from '../i18n/index.js';
 
 const range = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => String.fromCodePoint(from + i));
+/** The subsets, each with the catalog key of its name (shown with t()) and its characters. */
 export const SYMBOL_SUBSETS = [
-  ['Latin-1 Supplement', range(0xa1, 0xff).filter((ch) => ch !== '­')],
-  ['General Punctuation', [...'‐‑‒–—―‖‗‘’‚‛“”„‟†‡•‣․‥…‧‰‱′″‴‵‶‷‸‹›※‼‽‾⁁⁂⁃⁄⁅⁆⁇⁈⁉⁊⁋']],
-  ['Currency Symbols', [...'¤¢£¥₠₡₢₣₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿']],
-  ['Letterlike Symbols', [...'℀℁ℂ℃℄℅℆ℇ℈℉ℊℋℌℍℎℏℐℑℒℓ℔ℕ№℗℘ℙℚℛℜℝ℞℟℠℡™℣ℤ℥Ω℧ℨ℩KÅℬℭ℮ℯℰℱℲℳℴℵℶℷℸ']],
-  ['Number Forms', [...'⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞⅟ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫⅬⅭⅮⅯⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹ']],
-  ['Arrows', range(0x2190, 0x21ff)],
-  ['Mathematical Operators', range(0x2200, 0x22ff)],
-  ['Greek', [...'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω']],
-  ['Geometric Shapes', range(0x25a0, 0x25ff)],
-  ['Miscellaneous Symbols', range(0x2600, 0x26ff)],
-  ['Dingbats', range(0x2700, 0x27bf)],
+  ['symboldialog.subset.latin1', range(0xa1, 0xff).filter((ch) => ch !== '­')],
+  ['symboldialog.subset.punctuation', [...'‐‑‒–—―‖‗‘’‚‛“”„‟†‡•‣․‥…‧‰‱′″‴‵‶‷‸‹›※‼‽‾⁁⁂⁃⁄⁅⁆⁇⁈⁉⁊⁋']],
+  ['symboldialog.subset.currency', [...'¤¢£¥₠₡₢₣₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿']],
+  ['symboldialog.subset.letterlike', [...'℀℁ℂ℃℄℅℆ℇ℈℉ℊℋℌℍℎℏℐℑℒℓ℔ℕ№℗℘ℙℚℛℜℝ℞℟℠℡™℣ℤ℥Ω℧ℨ℩KÅℬℭ℮ℯℰℱℲℳℴℵℶℷℸ']],
+  ['symboldialog.subset.numberForms', [...'⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞⅟ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫⅬⅭⅮⅯⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹ']],
+  ['symboldialog.subset.arrows', range(0x2190, 0x21ff)],
+  ['symboldialog.subset.math', range(0x2200, 0x22ff)],
+  ['symboldialog.subset.greek', [...'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω']],
+  ['symboldialog.subset.shapes', range(0x25a0, 0x25ff)],
+  ['symboldialog.subset.misc', range(0x2600, 0x26ff)],
+  ['symboldialog.subset.dingbats', range(0x2700, 0x27bf)],
 ];
 /** Names for the characters people look for most, so the search finds them by what they are called. */
 const NAMES = {
@@ -38,11 +40,11 @@ const codeOf = (ch) => `U+${ch.codePointAt(0).toString(16).toUpperCase().padStar
 
 export function openSymbolDialog(ctx) {
   let chosen = recentSymbols()[0] || '©';
-  const subset = el('select.select', { 'aria-label': 'Subset' }, ...SYMBOL_SUBSETS.map(([name], i) => el('option', { value: String(i) }, name)));
-  const search = el('input.input', { type: 'search', placeholder: 'Search by name or code', 'aria-label': 'Search symbols', autocomplete: 'off' });
-  const grid = el('div.symbol-grid', { role: 'listbox', 'aria-label': 'Symbols', 'data-cols': 16 });
+  const subset = el('select.select', { 'aria-label': t('symboldialog.subset') }, ...SYMBOL_SUBSETS.map(([name], i) => el('option', { value: String(i) }, t(name))));
+  const search = el('input.input', { type: 'search', placeholder: t('symboldialog.searchPlaceholder'), 'aria-label': t('symboldialog.searchLabel'), autocomplete: 'off' });
+  const grid = el('div.symbol-grid', { role: 'listbox', 'aria-label': t('symboldialog.symbols'), 'data-cols': 16 });
   const info = el('div.symbol-info', { 'aria-live': 'polite' });
-  const recent = el('div.symbol-recent', { role: 'listbox', 'aria-label': 'Recently used symbols' });
+  const recent = el('div.symbol-recent', { role: 'listbox', 'aria-label': t('symboldialog.recent') });
   const cell = (ch) => el('button.symbol-cell', {
     type: 'button', role: 'option', 'aria-selected': String(ch === chosen), title: `${NAMES[ch] || codeOf(ch)}`, dataset: { ch },
     onclick: () => select(ch), ondblclick: () => { select(ch); insert(); },
@@ -101,15 +103,15 @@ export function openSymbolDialog(ctx) {
   grid.addEventListener('keydown', walk);
   recent.addEventListener('keydown', walk);
   const content = el('form.symbol-dialog', { onsubmit: (e) => { e.preventDefault(); insert(); } },
-    el('div.row', {}, el('label.field', {}, el('span.field-label', {}, 'Subset'), el('div.select-wrap', {}, subset)), el('label.field', {}, el('span.field-label', {}, 'Search'), search)),
+    el('div.row', {}, el('label.field', {}, el('span.field-label', {}, t('symboldialog.subset')), el('div.select-wrap', {}, subset)), el('label.field', {}, el('span.field-label', {}, t('common.search')), search)),
     grid,
-    el('div.symbol-recent-wrap', {}, el('div.field-label', {}, 'Recently used symbols'), recent),
+    el('div.symbol-recent-wrap', {}, el('div.field-label', {}, t('symboldialog.recent')), recent),
     info,
     el('div.row.row-end', { style: { marginTop: '12px' } },
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Insert')));
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.insert'))));
   show();
   select(chosen);
-  const modal = openModal({ title: 'Symbol', content, wide: true, initialFocus: search, onClose: () => ctx.grid.focus() });
+  const modal = openModal({ title: t('symboldialog.title'), content, wide: true, initialFocus: search, onClose: () => ctx.grid.focus() });
   return modal;
 }

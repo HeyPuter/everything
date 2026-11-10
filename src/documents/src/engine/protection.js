@@ -6,6 +6,7 @@
 // hexadecimal text; verification accepts either input so files from both
 // kinds of writer can be unlocked.
 import { digest } from './sha.js';
+import { columnBookmarkResolver } from './column-bookmarks.js';
 
 /** Editing restrictions (§17.18.18 ST_DocProtect) offered by the Restrict Editing pane. */
 export const EDIT_RESTRICTIONS = ['none', 'readOnly', 'comments', 'trackedChanges', 'forms'];
@@ -105,23 +106,46 @@ function normalizedAlgorithm(name) {
 const length = p => p.runs.reduce((n, r) => n + r.text.length, 0);
 export const isPermissionMarker = marker => !!marker?.perm;
 
-/** Permission ranges as { id, start, end, ed, edGrp } absolute positions, in document order. */
-export function permissionRanges(paragraphs) {
+/**
+ * Permission ranges as { id, start, end, ed, edGrp } absolute positions, in document order. A range opened in a
+ * table cell with colFirst/colLast (§17.13.7.2) covers only those columns of the rows it spans: given the
+ * document's `tables`, it is listed once for each of those cells, over the cell's paragraphs.
+ */
+export function permissionRanges(paragraphs, tables = null) {
   const found = new Map(); let at = 0;
   for (const p of paragraphs) {
     for (const marker of p.bookmarks || []) {
       if (!marker.perm) continue;
       const entry = found.get(marker.permId) || { id: marker.permId };
       const position = at + Math.min(marker.offset, length(p));
-      if (marker.edge === 'start') Object.assign(entry, { start: position, ed: marker.ed || null, edGrp: marker.edGrp || null });
-      else entry.end = position;
+      if (marker.edge === 'start') Object.assign(entry, { start: position, ed: marker.ed || null, edGrp: marker.edGrp || null, startMarker: marker, startParagraph: p.id });
+      else Object.assign(entry, { end: position, endMarker: marker, endParagraph: p.id });
       found.set(marker.permId, entry);
     }
     at += length(p) + 1;
   }
-  return [...found.values()].filter(e => e.start !== undefined && e.end !== undefined && e.end >= e.start).sort((a, b) => a.start - b.start || a.end - b.end);
+  const ranges = [];
+  let resolve, cells;
+  for (const { startMarker, endMarker, startParagraph, endParagraph, ...range } of found.values()) {
+    if (range.start === undefined || range.end === undefined || range.end < range.start) continue;
+    let columns = null;
+    if (startMarker.tableColumns && tables?.length) {
+      resolve ||= columnBookmarkResolver(paragraphs, tables);
+      try { columns = resolve({ ...range, startMarker, endMarker, startParagraph, endParagraph }); } catch { columns = null; }
+    }
+    if (!columns) { ranges.push(range); continue; }
+    // One range per selected cell, from its first paragraph to its last, so the marks between them are inside.
+    cells ||= new Map(paragraphs.map(p => [p.id, p.cellId]));
+    let last = null;
+    for (const piece of columns.ranges) {
+      const cell = cells.get(piece.paragraphId);
+      if (last && last.cell === cell && last.end + 1 === piece.start) { last.end = piece.end; continue; }
+      ranges.push(last = { ...range, start: piece.start, end: piece.end, cell });
+    }
+  }
+  for (const range of ranges) delete range.cell;
+  return ranges.sort((a, b) => a.start - b.start || a.end - b.end);
 }
-
 /** Whether a user may edit a permission range: everyone, or a named editor that matches the user. */
 export function permissionApplies(range, user = {}) {
   if (range.edGrp === 'everyone') return true;
@@ -141,7 +165,38 @@ export function nextPermissionId(paragraphs) {
 /** The protected content as a flat token list: text outside editable ranges, and each protected paragraph mark. */
 export function protectedSignature(paragraphs, editable) {
   const tokens = []; let at = 0;
-  const inside = (start, end) => editable.some(r => r.start <= start && end <= r.end);
+  // A character or mark at p is editable inside a range with start <= p < end, a marker at p with start <= p <= end.
+  // The ranges are merged once: asking every range about every character made each keystroke in a long protected
+  // document with many editable regions take a large fraction of a second.
+  const merge = closed => {
+    const out = [];
+    for (const r of [...editable].sort((a, b) => a.start - b.start)) {
+      if (!closed && r.end <= r.start) continue;
+      const last = out.at(-1);
+      if (last && r.start <= last[1]) last[1] = Math.max(last[1], r.end); else out.push([r.start, r.end]);
+    }
+    return out;
+  };
+  const spans = merge(false), points = merge(true);
+  // Positions are asked about in increasing order, so the first span not yet passed is kept.
+  let next = 0;
+  const outside = (from, text) => {
+    const to = from + text.length;
+    while (next < spans.length && spans[next][1] <= from) next++;
+    let out = '', position = from;
+    for (let k = next; position < to; k++) {
+      const span = spans[k];
+      if (!span || span[0] >= to) { out += text.slice(position - from); break; }
+      if (span[0] > position) out += text.slice(position - from, span[0] - from);
+      position = Math.max(position, span[1]);
+    }
+    return out;
+  };
+  const pointInside = position => {
+    let low = 0, high = points.length - 1;
+    while (low <= high) { const middle = (low + high) >> 1; if (points[middle][1] < position) low = middle + 1; else if (points[middle][0] > position) high = middle - 1; else return true; }
+    return false;
+  };
   const push = token => {
     const last = tokens.at(-1);
     if (token[0] === 't' && last?.[0] === 't' && last[2] === token[2] && last[3] === token[3]) last[1] += token[1]; else tokens.push(token);
@@ -150,13 +205,12 @@ export function protectedSignature(paragraphs, editable) {
     const { id, runs, bookmarks, fieldMarkers, markRevision, formatRevision, ...rest } = p;
     let offset = at;
     for (const run of runs) {
-      let text = '';
-      for (let i = 0; i < run.text.length; i++) if (!inside(offset + i, offset + i + 1)) text += run.text[i];
+      const text = outside(offset, run.text);
       if (text) { const { text: _, revision, formatRevision: f, ...format } = run; push(['t', text, JSON.stringify(format), revision?.type || null]); }
       offset += run.text.length;
     }
-    const markers = (bookmarks || []).filter(m => !m.perm && !m.comment && !inside(at + m.offset, at + m.offset)).map(m => [m.id, m.edge]);
-    if (!inside(offset, offset + 1)) push(['p', JSON.stringify(rest), markers, markRevision?.type || null]);
+    const markers = (bookmarks || []).filter(m => !m.perm && !m.comment && !pointInside(at + m.offset)).map(m => [m.id, m.edge]);
+    if (outside(offset, '\n')) push(['p', JSON.stringify(rest), markers, markRevision?.type || null]);
     at = offset + 1;
   }
   return JSON.stringify(tokens);
@@ -170,6 +224,27 @@ export function originalText(paragraphs) {
     if (p.markRevision?.type !== 'ins') out += '\n';
   }
   return out;
+}
+
+/**
+ * The content of the drawings tracking cannot record changes to (text in text boxes, shapes and diagrams, a chart's
+ * series, categories and values), in document order. A drawing that is itself a tracked insertion is left out: its
+ * content is part of that insertion. Formatting (size, position, fill, a chart's colors) is not content.
+ */
+export function drawingContent(paragraphs, assets = {}) {
+  const seen = new Set();
+  const textOf = list => (list || []).map(p => p.runs.map(r => r.image ? `[${content(r.image)}]` : r.text).join('')).join('\n');
+  const scene = node => [node?.text ? textOf(node.text.paragraphs) : '', ...(node?.children || []).map(scene)].filter(Boolean).join('\n');
+  function content(image) {
+    const asset = assets[image.assetId];
+    if (!asset || seen.has(asset)) return '';
+    seen.add(asset);
+    try {
+      if (asset.chart) return JSON.stringify([asset.chart.title ?? null, (asset.chart.series || []).map(s => [s.name ?? null, s.categories ?? null, s.values ?? null, s.xValues ?? null, s.sizes ?? null])]);
+      return asset.scene ? scene(asset.scene) : '';
+    } finally { seen.delete(asset); }
+  }
+  return JSON.stringify(paragraphs.flatMap(p => p.runs.filter(r => r.image && r.revision?.type !== 'ins').map(r => content(r.image))));
 }
 
 export class ProtectionError extends Error {}
@@ -195,10 +270,12 @@ export function protectionGuard(protection, user = {}, { contentControlRanges } 
       // Track Changes stays on while tracking is locked (restrict-editing.js): what gets here is a change tracking
       // cannot record, such as field results renumbered in place (captions, citations, a table of contents) or a
       // table's structure.
-      if (originalText(before.paragraphs) !== originalText(after) || JSON.stringify(before.tables) !== JSON.stringify(model.tables)) throw new ProtectionError('This change can’t be tracked, and tracking is locked. Unlock tracking to make it.');
+      // Text in a text box, shape, chart or diagram is replaced with the drawing (drawing-text.js), untracked.
+      if (originalText(before.paragraphs) !== originalText(after) || JSON.stringify(before.tables) !== JSON.stringify(model.tables)
+        || drawingContent(before.paragraphs, model.assets) !== drawingContent(after, model.assets)) throw new ProtectionError('This change can’t be tracked, and tracking is locked. Unlock tracking to make it.');
     } else if (edit !== 'none') {
-      const regions = state => [...permissionRanges(state).filter(r => permissionApplies(r, user)), ...(edit === 'forms' && contentControlRanges ? contentControlRanges(state) : [])];
-      const changed = protectedSignature(before.paragraphs, regions(before.paragraphs)) !== protectedSignature(after, regions(after));
+      const regions = (state, tables) => [...permissionRanges(state, tables).filter(r => permissionApplies(r, user)), ...(edit === 'forms' && contentControlRanges ? contentControlRanges(state) : [])];
+      const changed = protectedSignature(before.paragraphs, regions(before.paragraphs, before.tables)) !== protectedSignature(after, regions(after, model.tables));
       if (changed) throw new ProtectionError(edit === 'comments' ? 'This document is protected: only comments can be added.' : edit === 'forms' ? 'This document is protected: only form fields can be filled in.' : 'This part of the document is protected. Edit only in the highlighted regions.');
       if (edit === 'readOnly' || edit === 'forms') {
         if (JSON.stringify(before.comments || []) !== JSON.stringify(model.comments || [])) throw new ProtectionError('This document is protected: comments cannot be changed.');

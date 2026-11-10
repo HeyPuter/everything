@@ -197,6 +197,66 @@
   font-size: var(--fs-sm);
 }
 
+/* <puter-user-menu> (puter.js; src/ui/user-menu.js): where the loaded puter.js
+   has it, it holds the Apps launcher and the account at the end of the title
+   bar. Its parts take the title bar's icon button, avatar and Sign in button
+   looks; its menu and Apps panel take the app's menu colours, in both themes. */
+
+puter-user-menu {
+  flex: none;
+  margin-left: 4px;
+}
+
+puter-user-menu::part(apps-button) {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+  color: var(--fg-muted);
+}
+
+puter-user-menu::part(avatar) {
+  width: 26px;
+  height: 26px;
+  margin: 0 2px;
+  line-height: 26px;
+  font-size: var(--fs-sm);
+}
+
+puter-user-menu::part(sign-in) {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+  }
+  puter-user-menu::part(sign-in):hover {
+    background: var(--bg-hover);
+  }
+}
+
+puter-user-menu::part(apps-button):active,
+puter-user-menu::part(sign-in):active {
+  background: var(--bg-pressed);
+}
+
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--bg-elev);
+  border-color: var(--border-strong);
+  --caret-border: var(--border-strong);
+  --caret-fill: var(--bg-elev);
+}
+
 .only-phone {
   display: none !important;
 }
@@ -276,6 +336,7 @@
 }
 
 .rb-body {
+  position: relative;
   height: var(--ribbon-h);
 }
 
@@ -298,7 +359,51 @@
   height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  /* The scroll arrows stand in for the scrollbar, and focused buttons clear them. */
+  scrollbar-width: none;
+  scroll-padding-inline: 28px;
+}
+
+.rb-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.rb-scroll {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: var(--bg-chrome);
+  color: var(--fg-muted);
+}
+
+.rb-scroll.prev {
+  left: 0;
+  border-right: 1px solid var(--border);
+}
+
+.rb-scroll.next {
+  right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.rb-scroll:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* Small button labels give way first when the panels do not fit. */
+.ribbon.compact .rb-sm-label {
+  display: none;
+}
+
+.ribbon.compact .rb-sm {
+  padding: 0 4px;
 }
 
 .rb-panel {
@@ -901,6 +1006,7 @@ button.rb-panel-title:hover {
 
 .cmd-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   min-height: 36px;
@@ -916,7 +1022,8 @@ button.rb-panel-title:hover {
 }
 
 .cmd-main {
-  flex: 1;
+  /* On a narrow line the Cancel and Enter buttons wrap below the prompt. */
+  flex: 1 1 200px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -934,7 +1041,6 @@ button.rb-panel-title:hover {
 
 .cmd-prompt {
   font-weight: 500;
-  white-space: nowrap;
 }
 
 .cmd-opt {
@@ -977,6 +1083,7 @@ button.rb-panel-title:hover {
 .cmd-actions {
   display: none;
   gap: 4px;
+  margin-left: auto;
 }
 
 .cmdline.busy .cmd-actions {
@@ -1168,12 +1275,6 @@ body.clean-screen .app-root {
   .search-btn kbd {
     display: none;
   }
-  .rb-sm-label {
-    display: none;
-  }
-  .rb-sm {
-    padding: 0 4px;
-  }
   .combo {
     width: 150px;
   }
@@ -1199,6 +1300,29 @@ body.clean-screen .app-root {
   }
 }
 
+/* An overlaid palette leaves the command line and navigation bar uncovered. */
+@media (min-width: 600px) and (max-width: 1023px) {
+  .workspace.dock-open .cmdline {
+    left: 8px;
+    right: calc(var(--dock-w, 0px) + 8px);
+    width: auto;
+    transform: none;
+  }
+  .workspace.dock-open .viewnav {
+    right: calc(var(--dock-w, 0px) + 8px);
+  }
+}
+
+@media (max-width: 599px) {
+  .workspace.dock-open .cmdline {
+    bottom: calc(var(--dock-h, 0px) + 8px);
+  }
+  /* The canvas left above the palette is short: messages stop before the navigation bar. */
+  .workspace.dock-open .cmd-history {
+    padding-right: 54px;
+  }
+}
+
 /* Phone -------------------------------------------------------------------------------------- */
 
 @media (max-width: 599px) {
@@ -1218,6 +1342,10 @@ body.clean-screen .app-root {
     display: inline-flex !important;
   }
   .signin span {
+    display: none;
+  }
+  /* The More menu and the palettes need the room; Apps is a desktop convenience. */
+  puter-user-menu::part(apps-button) {
     display: none;
   }
   .titlebar {
@@ -1322,6 +1450,9 @@ body.clean-screen .app-root {
   .rb-lg-arrow {
     height: 24px;
   }
+  .rb-scroll {
+    width: 32px;
+  }
   .icon-btn.sm {
     width: 32px;
     height: 32px;
@@ -1329,6 +1460,11 @@ body.clean-screen .app-root {
   .qat-btn,
   .icon-btn {
     min-width: 36px;
+    min-height: 36px;
+  }
+  .btn.sm,
+  .dock .input.sm,
+  .dialog .input.sm {
     min-height: 36px;
   }
 }

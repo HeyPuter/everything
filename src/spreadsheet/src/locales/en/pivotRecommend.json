@@ -1,0 +1,5 @@
+{
+  "countBy": "Count of {value} by {category}",
+  "sumBy": "Sum of {value} by {category}",
+  "sumByTwo": "Sum of {value} by {rows} and {cols}"
+}

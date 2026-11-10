@@ -42,7 +42,7 @@ for (const zoom of [0.25, 1.5, 4])
       await expect(page.locator('.paper')).toHaveAttribute('aria-busy', 'false');
       await page.getByRole('button', { name: 'Highlight', exact: true }).click();
       await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-      await page.getByRole('searchbox', { name: 'Find in PDF', exact: true }).fill('beta');
+      await page.getByRole('combobox', { name: 'Find in PDF', exact: true }).fill('beta');
       const hit = page.locator('.search-hit');
       await expect(hit).toHaveText('beta');
       const selected = await hit.evaluate((el, endpoints) => {

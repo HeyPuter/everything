@@ -4,6 +4,7 @@ import { Workbook } from '../src/core/workbook.js';
 import { workbookFromFile, workbookToXlsx } from '../src/core/io.js';
 import { xlsxAttr } from '../src/core/xlsx-styles.js';
 import { otherProgramsXlsx } from './helpers/xlsx-fixture.js';
+import { editedXlsx } from './helpers/xlsx-excel-edit.js';
 
 const viewTag = bytes => {
   const zip = X.CFB.read(new Uint8Array(bytes), { type: 'array' });
@@ -51,4 +52,18 @@ it('does not add a first visible sheet when the source view only sets window geo
   expect(wb.workbookView).toEqual({ xWindow: 20, windowWidth: 12000 });
   const tag = viewTag(await (await workbookToXlsx(wb)).arrayBuffer());
   expect(xlsxAttr(tag, 'firstSheet')).toBeUndefined();
+});
+
+// The app's own settings sheet, which Excel keeps when it saves, named the sheet the app last had open, and that
+// won over the workbook view's activeTab for good: a file left open on another sheet in Excel opened here on the
+// old one. The settings now note the tab this app's save wrote; another tab in the file was chosen in Excel.
+it('opens on the sheet the file was left open on in Excel', async () => {
+  const wb = new Workbook({ sheets: [{ name: 'First' }, { name: 'Second' }, { name: 'Third' }] });
+  wb.activeSheetId = wb.sheetByName('Second').id;
+  const saved = await workbookToXlsx(wb);
+  expect((await workbookFromFile(saved, 'mine.xlsx')).activeSheet.name).toBe('Second');
+  const tab = (n) => ({ '/xl/workbook.xml': (xml) => xml.replace(/ activeTab="\d+"/, n == null ? '' : ` activeTab="${n}"`) });
+  expect((await workbookFromFile(await editedXlsx(saved, tab(2)), 'mine.xlsx')).activeSheet.name).toBe('Third');
+  // Excel leaves the attribute out for the first sheet, its default.
+  expect((await workbookFromFile(await editedXlsx(saved, tab(null)), 'mine.xlsx')).activeSheet.name).toBe('First');
 });

@@ -6,6 +6,7 @@
  */
 
 import { MAX_IMAGE_BYTES, readImageBlob } from './images.js';
+import { clipText } from '../core/text.js';
 
 const tooLarge = () => new Error('Images must be under 15 MB');
 
@@ -26,7 +27,7 @@ export function generationError(e) {
 
 /** A short, safe file stem from the description: "a red fox in snow" -> "a-red-fox-in-snow". */
 export function fileNameForPrompt(prompt, ext = 'png') {
-  const stem = String(prompt || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
+  const stem = clipText(String(prompt || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, ''), 40).replace(/-+$/, '');
   return `${stem || 'picture'}.${ext}`;
 }
 

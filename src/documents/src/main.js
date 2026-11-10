@@ -6,7 +6,7 @@ import { closeAllModals, confirmDialog, openModal } from './ui/modal.js';
 import { closeMenu } from './ui/menu.js';
 import { session } from './lib/session.js';
 import * as P from './lib/puter.js';
-import { Doc, needsUnloadWarning } from './lib/doc.js';
+import { Doc, needsUnloadWarning, autosaveEnabled } from './lib/doc.js';
 import { errorView, signInView } from './views/gate.js';
 import { homeView } from './views/home.js';
 import { editorView } from './views/editor.js';
@@ -385,6 +385,15 @@ async function openInvitation(link, requestedHash) {
   if (!link.local && session.signedOut) { mountSignInGate(requestedHash, 'shared document'); return; }
   showLoading('Joining the shared document', { cancel: () => go(HOME) });
   try {
+    // The owner's own invitation (from their mail, say) opens the file the room belongs to: that is the document they
+    // own, saved as they edit. Joined from the link, it would be a copy of the room that nothing saves.
+    if (!link.local) {
+      const { fileOfRoom } = await import('./collab/room-memory.js');
+      const path = await unlessLeft(requestedHash, fileOfRoom(link));
+      if (path === LEFT) return LEFT;
+      if (location.hash !== requestedHash) return;
+      if (path) { history.replaceState(null, '', `#/edit/${encodeURIComponent(path)}`); return; }
+    }
     const { joinRoom } = await import('./collab/live.js');
     const user = { id: session.user?.uuid || session.username, name: session.username };
     const joining = joinRoom(link, user);
@@ -520,16 +529,18 @@ function setupOfflineBanner() {
   let banner = null;
   const update = () => {
     if (!navigator.onLine && !banner) {
-      banner = el('div.offline-banner', { html: icon('wifiOff', 15, 2) }, ' Offline. Changes will save when you reconnect');
+      // With AutoSave off only Save writes, the reconnection included: the banner must not promise otherwise.
+      const text = autosaveEnabled() ? 'Offline. Changes will save when you reconnect' : 'Offline. Save your changes when you reconnect';
+      banner = el('div.offline-banner', { html: icon('wifiOff', 15, 2) }, ` ${text}`);
       document.body.append(banner);
-      announce('Offline. Changes will save when you reconnect');
+      announce(text);
     } else if (navigator.onLine && banner) {
       banner.remove();
       banner = null;
       announce('Back online');
       // Only pending edits go out; an untouched new document has no file to write yet.
       const doc = current?.view?.doc;
-      if (doc?.dirty) doc.save({ auto: true }).catch(() => {});
+      if (doc?.dirty) doc.save({ auto: true, fresh: true }).catch(() => {});
     }
   };
   window.addEventListener('online', update);

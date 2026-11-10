@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
 import { tableCells } from '../src/engine/tables.js';
+import { StorySession } from '../src/engine/story-session.js';
 import { changeCase } from '../src/engine/home-editing.js';
 import { listKind, listMarkers } from '../src/engine/numbering.js';
 import { applyListLibrary, applyMultilevelList, BULLET_LIBRARY } from '../src/engine/list-library.js';
@@ -111,4 +112,20 @@ it('the bullet and numbering libraries and Define New Bullet reach every cell of
   const reopenedMarkers = listMarkers(reopened.paragraphs, reopened.numbering);
   const at = t => reopenedMarkers[reopened.paragraphs.findIndex(p => p.cellId && paragraphText(p) === t)]?.text ?? null;
   expect(['a1', 'b1', 'c1', 'a2', 'b2', 'b3'].map(at)).toEqual(['1)', '2)', null, '3)', '4)', '✓']);
+});
+
+it('Undo and Redo keep a block of cells selected, so the next command reaches only its cells', () => {
+  const { doc, cell } = blockDocument();
+  // The editor's history (StorySession), which takes the whole command back as one step.
+  const session = new StorySession(doc);
+  session.run(model => model.setRunFormat({ italic: true }));
+  expect(session.undo()).toBe(true);
+  expect(doc.activeCellBlock).toMatchObject({ top: 0, bottom: 1, left: 0, right: 2 });
+  expect(session.redo()).toBe(true);
+  expect(doc.activeCellBlock).toMatchObject({ top: 0, bottom: 1, left: 0, right: 2 });
+  session.undo();
+  // Bold after the undo: the block's four cells, not c1 between its corners.
+  session.run(model => model.toggleBold());
+  expect(['a1', 'b1', 'a2', 'b2'].map(t => cell(t).runs.every(r => r.bold))).toEqual([true, true, true, true]);
+  expect(cell('c1').runs.some(r => r.bold)).toBe(false);
 });

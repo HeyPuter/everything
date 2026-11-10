@@ -1,9 +1,11 @@
 // Light Markdown for assistant replies, built as DOM nodes (never HTML text):
-// paragraphs, bullet and numbered lists, fenced code, `code`, **bold** and *italic*.
+// paragraphs, bullet and numbered lists, tables, fenced code, `code`, **bold**
+// and *italic*.
 
 function inline(text: string): Node[] {
   const out: Node[] = [];
-  const re = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_)/g;
+  // _emphasis_ only between word boundaries, so names like hole_dia keep their underscores.
+  const re = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\s][^*\n]*\*|(?<![\p{L}\p{N}_])_[^_\s][^_\n]*_(?![\p{L}\p{N}_]))/gu;
   let last = 0;
   for (const m of text.matchAll(re)) {
     if (m.index! > last) out.push(document.createTextNode(text.slice(last, m.index)));
@@ -17,6 +19,45 @@ function inline(text: string): Node[] {
   }
   if (last < text.length) out.push(document.createTextNode(text.slice(last)));
   return out;
+}
+
+/** A table row's cells: split at pipes, except escaped ones (\|), without the outer pipes. */
+function cells(line: string): string[] {
+  const parts = line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/);
+  return parts.map((c) => c.trim().replace(/\\\|/g, '|'));
+}
+/** The row of dashes under a table's header, tested trimmed: no trailing \s* to backtrack over a long run of spaces. */
+const TABLE_RULE = /^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$/;
+
+/** A GitHub table: a header row, the row of dashes under it (with the columns' alignment), then rows. */
+function table(lines: string[], at: number): { el: HTMLElement; end: number } | null {
+  const head = lines[at], rule = lines[at + 1];
+  if (!head?.includes('|') || rule == null || !rule.includes('-') || !TABLE_RULE.test(rule.trim())) return null;
+  const titles = cells(head);
+  const align = cells(rule).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : ''));
+  if (titles.length !== align.length) return null;
+  const row = (texts: string[], tag: 'th' | 'td') => {
+    const tr = document.createElement('tr');
+    titles.forEach((_, i) => {
+      const cell = document.createElement(tag);
+      if (align[i]) cell.style.textAlign = align[i];
+      cell.append(...inline(texts[i] ?? ''));
+      tr.append(cell);
+    });
+    return tr;
+  };
+  const t = document.createElement('table');
+  const thead = document.createElement('thead');
+  thead.append(row(titles, 'th'));
+  const body = document.createElement('tbody');
+  let end = at + 2;
+  for (; end < lines.length && lines[end].includes('|') && lines[end].trim(); end++) body.append(row(cells(lines[end]), 'td'));
+  t.append(thead, body);
+  // Wide tables scroll inside the reply rather than widening the panel.
+  const wrap = document.createElement('div');
+  wrap.className = 'as-table';
+  wrap.append(t);
+  return { el: wrap, end: end - 1 };
 }
 
 export function renderMarkdown(src: string): DocumentFragment {
@@ -44,14 +85,32 @@ export function renderMarkdown(src: string): DocumentFragment {
       frag.append(pre);
       continue;
     }
+    const tbl = table(lines, i);
+    if (tbl) {
+      flush();
+      listEl = null;
+      frag.append(tbl.el);
+      i = tbl.end;
+      continue;
+    }
     const bullet = /^\s*[-*•]\s+(.*)$/.exec(line);
     const numbered = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
     if (bullet || numbered) {
       flush();
       const tag = bullet ? 'UL' : 'OL';
-      if (!listEl || listEl.tagName !== tag) { listEl = document.createElement(tag.toLowerCase()); frag.append(listEl); }
       const li = document.createElement('li');
       li.append(...inline(bullet ? bullet[1] : numbered![2]));
+      // A list that starts again (after a blank line or a paragraph) keeps its numbering.
+      const list = () => { const l = document.createElement(tag.toLowerCase()); if (numbered && numbered[1] !== '1') l.setAttribute('start', String(Number(numbered[1]))); return l; };
+      // An indented item goes in a list inside the item above it, so the outer numbering carries on.
+      const parent = /^\s{2,}/.test(line) ? listEl?.lastElementChild : null;
+      if (parent) {
+        let sub = parent.lastElementChild;
+        if (!sub || sub.tagName !== tag) { sub = list(); parent.append(sub); }
+        sub.append(li);
+        continue;
+      }
+      if (!listEl || listEl.tagName !== tag) { listEl = list(); frag.append(listEl); }
       listEl.append(li);
       continue;
     }

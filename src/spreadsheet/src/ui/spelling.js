@@ -13,6 +13,8 @@ import * as S from '../core/selection.js';
 import { loadPref, savePref } from '../lib/user-prefs.js';
 import { LANGUAGES, DEFAULT_SPELLING_OPTIONS, loadWordList, createSpeller, wordsIn, textCellsInOrder, replaceWord } from '../core/spelling.js';
 import { autoCorrectSettings, saveAutoCorrectSettings } from './autocorrect.js';
+import { matchCase } from '../core/thesaurus.js';
+import { t } from '../i18n/index.js';
 
 /** The person's own dictionary: words added with Add to Dictionary. */
 export const customWords = () => { const v = loadPref('dictionary', []); return Array.isArray(v) ? v.filter((w) => typeof w === 'string') : []; };
@@ -54,30 +56,30 @@ export async function openSpellingDialog(ctx, { language = spellingLanguage() } 
   }
 
   // The dialog.
-  const sentence = el('div.spell-sentence', { role: 'textbox', 'aria-readonly': 'true', 'aria-label': 'Not in dictionary', tabindex: 0 });
+  const sentence = el('div.spell-sentence', { role: 'textbox', 'aria-readonly': 'true', 'aria-label': t('spelling.notInDictionary'), tabindex: 0 });
   const where = el('span.small.muted.spell-where');
-  const changeTo = el('input.input', { type: 'text', 'aria-label': 'Change to', autocomplete: 'off', spellcheck: false });
+  const changeTo = el('input.input', { type: 'text', 'aria-label': t('spelling.changeTo'), autocomplete: 'off', spellcheck: false });
   const listId = fieldId('spell-suggestions');
-  const suggestions = el('div.spell-suggestions', { id: listId, role: 'listbox', 'aria-label': 'Suggestions', tabindex: 0 });
-  const langSelect = el('select.select', { 'aria-label': 'Dictionary language' }, ...LANGUAGES.map((l) => el('option', { value: l.code, selected: l.code === language }, l.label)));
+  const suggestions = el('div.spell-suggestions', { id: listId, role: 'listbox', 'aria-label': t('spelling.suggestions'), tabindex: 0 });
+  const langSelect = el('select.select', { 'aria-label': t('spelling.dictionaryLanguage') }, ...LANGUAGES.map((l) => el('option', { value: l.code, selected: l.code === language }, t(l.label))));
   const button = (label, onclick, extra = {}) => el('button.btn.btn-sm', { type: 'button', onclick, ...extra }, label);
-  const ignoreOnceBtn = button('Ignore Once', () => { const w = state.current; if (!w) return; ignoredOnce.add(`${w.r},${w.c},${w.start},${w.word}`); advance(); });
-  const ignoreAllBtn = button('Ignore All', () => { const w = state.current; if (!w) return; ignoredAll.add(w.word.toLowerCase()); advance(); });
-  const addBtn = button('Add to Dictionary', () => {
+  const ignoreOnceBtn = button(t('spelling.ignoreOnce'), () => { const w = state.current; if (!w) return; ignoredOnce.add(`${w.r},${w.c},${w.start},${w.word}`); advance(); });
+  const ignoreAllBtn = button(t('spelling.ignoreAll'), () => { const w = state.current; if (!w) return; ignoredAll.add(w.word.toLowerCase()); advance(); });
+  const addBtn = button(t('spelling.addToDictionary'), () => {
     const w = state.current; if (!w) return;
     saveCustomWords([...customWords(), w.word]);
     speller = createSpeller(list, { custom: customWords() });
     advance();
   });
-  const changeBtn = button('Change', () => change(false), { className: 'btn btn-sm btn-primary' });
-  const changeAllBtn = button('Change All', () => change(true));
-  const autoCorrectBtn = button('AutoCorrect', () => {
+  const changeBtn = button(t('spelling.change'), () => change(false), { className: 'btn btn-sm btn-primary' });
+  const changeAllBtn = button(t('spelling.changeAll'), () => change(true));
+  const autoCorrectBtn = button(t('spelling.autoCorrect'), () => {
     const w = state.current; const to = changeTo.value.trim(); if (!w || !to || to === w.word || /\s/.test(w.word)) return;
     const settings = autoCorrectSettings();
     saveAutoCorrectSettings({ ...settings, replacements: [...settings.replacements.filter((e) => e.from !== w.word), { from: w.word, to }] });
-    ctx.announce?.(`AutoCorrect will change ${w.word} to ${to} from now on`);
+    ctx.announce?.(t('spelling.autoCorrectAdded', { from: w.word, to }));
     change(false);
-  }, { title: 'Change the word and add the pair to AutoCorrect, so it is fixed as you type from now on' });
+  }, { title: t('spelling.autoCorrectTitle') });
   const status = el('p.small.spell-status', { role: 'status' });
   const optionBoxes = {
     ignoreUppercase: el('input', { type: 'checkbox', checked: options.ignoreUppercase }),
@@ -87,7 +89,7 @@ export async function openSpellingDialog(ctx, { language = spellingLanguage() } 
   for (const [key, box] of Object.entries(optionBoxes)) {
     box.addEventListener('change', () => { options = { ...options, [key]: box.checked }; savePref('spelling-options', options); state.offset = Math.min(state.offset, state.current?.start ?? state.offset); show(next()); });
   }
-  const dictionaryBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => openCustomDictionary(() => { speller = createSpeller(list, { custom: customWords() }); show(next()); }) }, 'Custom dictionary…');
+  const dictionaryBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => openCustomDictionary(() => { speller = createSpeller(list, { custom: customWords() }); show(next()); }) }, t('spelling.customDictionaryButton'));
   langSelect.addEventListener('change', async () => {
     language = langSelect.value;
     savePref('spelling-language', language);
@@ -103,22 +105,22 @@ export async function openSpellingDialog(ctx, { language = spellingLanguage() } 
     el('div.spell-action-pair', {}, ignoreOnceBtn, ignoreAllBtn), addBtn,
     el('div.spell-action-pair', {}, changeBtn, changeAllBtn), autoCorrectBtn);
   const content = el('div.spell-dialog', {},
-    el('div.spell-head', {}, el('span.field-label', {}, 'Not in dictionary'), where),
+    el('div.spell-head', {}, el('span.field-label', {}, t('spelling.notInDictionary')), where),
     sentence,
     el('div.spell-main', {},
       el('div.spell-left', {},
-        el('label.field', {}, el('span.field-label', {}, 'Change to'), changeTo),
-        el('span.field-label', { id: `${listId}-label` }, 'Suggestions'), suggestions),
+        el('label.field', {}, el('span.field-label', {}, t('spelling.changeTo')), changeTo),
+        el('span.field-label', { id: `${listId}-label` }, t('spelling.suggestions')), suggestions),
       actions),
     el('div.spell-foot', {},
-      el('label.field.spell-lang', {}, el('span.field-label', {}, 'Dictionary language'), langSelect),
-      el('details.spell-options', {}, el('summary', {}, 'Options'),
-        el('label.check', {}, optionBoxes.ignoreUppercase, el('span', {}, 'Ignore words in UPPERCASE')),
-        el('label.check', {}, optionBoxes.ignoreNumbers, el('span', {}, 'Ignore words with numbers')),
-        el('label.check', {}, optionBoxes.ignoreAddresses, el('span', {}, 'Ignore web, email and file addresses')),
+      el('label.field.spell-lang', {}, el('span.field-label', {}, t('spelling.dictionaryLanguage')), langSelect),
+      el('details.spell-options', {}, el('summary', {}, t('common.options')),
+        el('label.check', {}, optionBoxes.ignoreUppercase, el('span', {}, t('spelling.ignoreUppercase'))),
+        el('label.check', {}, optionBoxes.ignoreNumbers, el('span', {}, t('spelling.ignoreNumbers'))),
+        el('label.check', {}, optionBoxes.ignoreAddresses, el('span', {}, t('spelling.ignoreAddresses'))),
         dictionaryBtn)),
     status,
-    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Close')));
+    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.close'))));
   suggestions.setAttribute('aria-labelledby', `${listId}-label`);
   suggestions.addEventListener('keydown', (e) => {
     const rows = [...suggestions.children].filter((n) => n.getAttribute('role') === 'option');
@@ -146,12 +148,12 @@ export async function openSpellingDialog(ctx, { language = spellingLanguage() } 
   function show(w) {
     state.current = w;
     if (!w) {
-      sentence.replaceChildren(el('span.muted', {}, 'Nothing left to check.'));
+      sentence.replaceChildren(el('span.muted', {}, t('spelling.nothingLeft')));
       where.textContent = '';
       suggestions.replaceChildren();
       changeTo.value = '';
       changeTo.disabled = true;
-      status.textContent = `The spelling check is complete for ${scope ? 'the selection' : 'the sheet'}.`;
+      status.textContent = scope ? t('spelling.completeSelection') : t('spelling.completeSheet');
       refreshButtons();
       // As openModal does: on a phone the bottom sheet keeps its title and close button in view.
       modal?.panel?.querySelector('.row-end .btn')?.focus({ preventScroll: !matchMedia('(min-width: 640px)').matches });
@@ -164,7 +166,7 @@ export async function openSpellingDialog(ctx, { language = spellingLanguage() } 
     const found = speller.suggest(w.word);
     suggestions.replaceChildren(...(found.length ? found.map((word) => el('div.spell-suggestion', {
       role: 'option', 'aria-selected': 'false', dataset: { word }, onclick: () => pick(word), ondblclick: () => { pick(word); change(false); },
-    }, word)) : [el('div.spell-none.muted', {}, '(No suggestions)')]));
+    }, word)) : [el('div.spell-none.muted', {}, t('spelling.noSuggestions'))]));
     changeTo.value = found[0] || w.word;
     if (found[0]) pick(found[0]);
     status.textContent = '';
@@ -182,19 +184,25 @@ export async function openSpellingDialog(ctx, { language = spellingLanguage() } 
     const w = state.current;
     const to = changeTo.value;
     if (!w || !to.trim() || to === w.word) return;
-    if (wb.lockedAt(sheetId, w.r, w.c)) { status.textContent = `${cellName(w.r, w.c)} is protected; its text was left as it is.`; advance(); return; }
+    if (wb.lockedAt(sheetId, w.r, w.c)) { status.textContent = t('spelling.cellProtected', { cell: cellName(w.r, w.c) }); advance(); return; }
     if (!all) {
-      wb.setInput(sheetId, w.r, w.c, replaceWord(w.text, w.start, w.end, to), { literal: true, label: 'Spelling', preserveRichText: true });
+      wb.setInput(sheetId, w.r, w.c, replaceWord(w.text, w.start, w.end, to), { literal: true, label: t('spelling.title'), preserveRichText: true });
       state.offset = w.start + to.length;
     } else {
-      // Every cell in the check holding the word, in one step.
-      wb.transaction('Spelling', () => {
+      // Every cell in the check holding the word, in one step: in any case, as Ignore All passes over it in any case
+      // afterwards. "Teh" changed to "The" left "teh" as it was, never to be asked about again. Another case of the
+      // word takes the fix cased as it is ("TEH" → "THE"), unless the fix has a casing of its own ("iphone" → "iPhone").
+      const key = w.word.toLowerCase();
+      const plain = matchCase(w.word, to.toLowerCase()) === to ? to.toLowerCase() : null;
+      wb.transaction(t('spelling.title'), () => {
         for (const [r, c] of cells) {
           const cell = wb.getCell(sheetId, r, c);
           if (cell?.f != null || typeof cell?.v !== 'string' || wb.lockedAt(sheetId, r, c)) continue;
           let text = cell.v;
-          for (const hit of wordsIn(text, options).filter((x) => x.word === w.word).reverse()) text = replaceWord(text, hit.start, hit.end, to);
-          if (text !== cell.v) wb.setInput(sheetId, r, c, text, { literal: true, label: 'Spelling', preserveRichText: true });
+          for (const hit of wordsIn(text, options).filter((x) => x.word.toLowerCase() === key).reverse()) {
+            text = replaceWord(text, hit.start, hit.end, hit.word === w.word || plain == null ? to : matchCase(hit.word, plain));
+          }
+          if (text !== cell.v) wb.setInput(sheetId, r, c, text, { literal: true, label: t('spelling.title'), preserveRichText: true });
         }
       });
       ignoredAll.add(w.word.toLowerCase()); // what is left of it (in a protected cell) is not asked about again
@@ -203,21 +211,21 @@ export async function openSpellingDialog(ctx, { language = spellingLanguage() } 
     show(next());
   }
 
-  const modal = openModal({ title: 'Spelling', content, wide: true, initialFocus: changeTo, onClose: () => ctx.grid?.focus?.() });
+  const modal = openModal({ title: t('spelling.title'), content, wide: true, initialFocus: changeTo, onClose: () => ctx.grid?.focus?.() });
   show(next());
-  if (!cells.length) status.textContent = `There is no text to check in ${scope ? 'the selection' : 'this sheet'}.`;
+  if (!cells.length) status.textContent = scope ? t('spelling.noTextSelection') : t('spelling.noTextSheet');
   return modal;
 }
 
 /** The words added to the person's dictionary, one per line, to look over or remove. */
 export function openCustomDictionary(onSaved = null) {
-  const area = el('textarea.input.spell-custom', { rows: 12, 'aria-label': 'Custom dictionary words', spellcheck: false, value: customWords().join('\n') });
-  const content = el('form', { onsubmit: (e) => { e.preventDefault(); saveCustomWords(area.value.split('\n')); modal.close(); onSaved?.(); toast('Custom dictionary saved', { icon: 'spell', duration: 1800 }); } },
-    el('p.small.muted.modal-text', {}, 'Words here are never marked as misspelled. One word per line.'),
+  const area = el('textarea.input.spell-custom', { rows: 12, 'aria-label': t('spelling.customWords'), spellcheck: false, value: customWords().join('\n') });
+  const content = el('form', { onsubmit: (e) => { e.preventDefault(); saveCustomWords(area.value.split('\n')); modal.close(); onSaved?.(); toast(t('spelling.customSaved'), { icon: 'spell', duration: 1800 }); } },
+    el('p.small.muted.modal-text', {}, t('spelling.customHint')),
     area,
     el('div.row.row-end', { style: { marginTop: '12px' } },
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Save')));
-  const modal = openModal({ title: 'Custom dictionary', content, initialFocus: area });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.save'))));
+  const modal = openModal({ title: t('spelling.customTitle'), content, initialFocus: area });
   return modal;
 }

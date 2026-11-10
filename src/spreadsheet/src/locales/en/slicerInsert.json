@@ -1,0 +1,7 @@
+{
+  "calculatedField": "A calculated or grouped field cannot have a slicer here.",
+  "headerRow": "Turn on the table’s Header Row to insert slicers.",
+  "noRecords": "The file holds no saved records for this field; refresh the PivotTable in the program that saved it, then open it again.",
+  "protected": "Unprotect the sheet to insert slicers.",
+  "selectCell": "Select a cell in a table or PivotTable to insert slicers."
+}

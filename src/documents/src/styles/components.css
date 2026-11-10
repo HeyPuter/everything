@@ -299,10 +299,19 @@ select.input:where([size]:not([size="1"]), [multiple]), select.select:where([siz
   overscroll-behavior: contain;
   background: var(--surface);
   border-radius: var(--r-lg) var(--r-lg) 0 0;
-  padding: 8px 20px calc(20px + var(--safe-b));
+  --modal-pad-b: calc(20px + var(--safe-b));
+  padding: 8px 20px var(--modal-pad-b);
   animation: sheet-up 0.28s var(--ease-spring);
   outline: none;
 }
+/* A dialog taller than the window scrolls, and its buttons stay in view at its foot, as Word's do. The foot takes the
+   panel's bottom padding into itself, so a dialog that fits looks as it did; one that scrolls (modal.js marks it)
+   sets the foot off from the content running under it. */
+.modal-panel:has(> :not(.modal-head) > :is(.modal-actions, .fmt-footer, .row-end):last-child) { padding-bottom: 0; }
+.modal-panel > :not(.modal-head) > :is(.modal-actions, .fmt-footer, .row-end):last-child {
+  position: sticky; bottom: 0; z-index: 2; background: var(--surface); padding-bottom: var(--modal-pad-b);
+}
+.modal-panel.is-overflowing > :not(.modal-head) > :is(.modal-actions, .fmt-footer, .row-end):last-child { padding-top: 12px; border-top: 1px solid var(--hairline); }
 
 .modal-root.closing .modal-panel { animation: sheet-down 0.2s ease forwards; }
 .modal-root.closing .modal-scrim { animation: fade-out 0.2s ease forwards; }
@@ -356,7 +365,8 @@ select.input:where([size]:not([size="1"]), [multiple]), select.select:where([siz
     width: 440px;
     max-width: calc(100vw - 40px);
     border-radius: var(--r-lg);
-    padding: 20px 24px 24px;
+    --modal-pad-b: 24px;
+    padding: 20px 24px var(--modal-pad-b);
     border: 1px solid var(--hairline);
     animation: dialog-in 0.2s var(--ease-spring);
   }

@@ -37,7 +37,13 @@ import { Backgammon, opponent } from './engine/backgammon.js';
 import { canDeriveFairly, rollDice } from './engine/dice.js';
 import { LEVELS, choosePlay, shouldDouble, shouldTake } from './engine/ai.js';
 import { BoardView, nameOf } from './ui/boardView.js';
-import { OnlineSession, loadPuter } from './net/online.js';
+import { OnlineSession, loadPuter, whenPuterLoaded } from './net/online.js';
+import {
+  USER_MENU_TAG,
+  inUserMenu,
+  mountUserMenu,
+  setUserMenuTheme,
+} from './ui/userMenu.js';
 import {
   clearGame,
   eventsFrom,
@@ -98,6 +104,7 @@ const els = {
   cubeValue: $('cube-value'),
   cubeNote: $('cube-note'),
   resultBanner: $('result-banner'),
+  topbarRight: document.querySelector('.topbar-right'),
   topbarNote: $('topbar-note'),
   modeButtons: document.querySelectorAll('.mode-switch [data-mode]'),
   cardTop: $('card-top'),
@@ -309,6 +316,7 @@ let hasSave = true;
 
 // Online play.
 let session = null; // OnlineSession while hosting/joining/playing
+let userMenu = null; // the SDK's <puter-user-menu>, once it is in the top bar
 let onlineUiState = 'idle'; // 'idle'|'creating'|'hosting'|'joining'|'playing'|'ended'
 let onlineReturnState = 'idle'; // where a failed create/join falls back to
 let opponentName = null; // kept after the session ends for result text
@@ -514,6 +522,7 @@ function applyTheme() {
     button.classList.toggle('selected', active);
     button.setAttribute('aria-pressed', String(active));
   }
+  setUserMenuTheme(userMenu, themeSetting);
 }
 
 systemDark.addEventListener('change', () => {
@@ -2120,8 +2129,14 @@ function enterOnlineIdle({ inviteCode = null } = {}) {
   );
   renderAll();
   if (inviteCode) els.joinBtn.focus();
-  // Warm up the SDK and TURN relays so create/join feels instant. Only when
-  // already signed in — never trigger an auth prompt just by opening the tab.
+  warmUpOnline();
+}
+
+/**
+ * Warm up the SDK and TURN relays so create/join feels instant. Only when
+ * already signed in — never trigger an auth prompt just by opening the tab.
+ */
+function warmUpOnline() {
   loadPuter()
     .then((puter) => {
       if (puter.auth?.isSignedIn?.()) return puter.peer.ensureTurnRelays?.();
@@ -2655,6 +2670,99 @@ function downloadMat() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Account                                                             */
+/* ------------------------------------------------------------------ */
+
+// The SDK's <puter-user-menu> (ui/userMenu.js) signs the player in and out
+// from the top bar. Nothing but online play uses the account, so that is all
+// there is to keep in step with it.
+
+/** Once the SDK has loaded: the element takes its place in the top bar. */
+function showUserMenu() {
+  userMenu = mountUserMenu(els.topbarRight, {
+    theme: themeSetting,
+    signOutGuard: confirmSignOut,
+    onSignIn: handleSignedIn,
+    onSignOut: handleSignedOut,
+  });
+}
+
+/**
+ * The element's Sign out is immediate. With an online game under way that
+ * would abandon it without a word, so ask first, exactly as Leave does.
+ * Returns what to do in place of the element's own Sign out, or null when
+ * there is nothing to ask about.
+ */
+function confirmSignOut() {
+  if (
+    !(
+      mode === 'online' &&
+      session?.connected &&
+      !gameFinished() &&
+      game.history().length > 0
+    )
+  ) {
+    return null;
+  }
+  return () =>
+    askConfirm(
+      {
+        title: 'Sign out and leave the game?',
+        sub: 'Leaving now counts as abandoning the game — your friend wins.',
+        confirmLabel: 'Sign out',
+      },
+      () => {
+        // Say goodbye while the connection is still ours, then sign out; the
+        // element follows the SDK and goes back to Sign in by itself.
+        closeOnlineForSignOut();
+        Promise.resolve(window.puter?.auth?.signOut?.()).catch(() => {});
+      },
+    );
+}
+
+/**
+ * Signed out: whatever was going on online ends here rather than running on
+ * against an account that is gone. Hosting or joining backs out to where it
+ * started; a game that is still being played is left, as with Leave; a
+ * finished one stays on the board for review. Returns whether anything ended.
+ */
+function closeOnlineForSignOut() {
+  if (!session) return false;
+  if (!session.connected) {
+    cancelOnlineSetup();
+    return true;
+  }
+  session.leave();
+  session = null;
+  rematchOffered = false;
+  waitingForDice = false;
+  if (gameFinished()) {
+    onlineUiState = 'ended';
+    closeDialogs();
+    renderAll();
+  } else {
+    opponentName = null;
+    score = { me: 0, them: 0 };
+    closeDialogs();
+    enterOnlineIdle();
+  }
+  return true;
+}
+
+/** The element signed out by itself. */
+function handleSignedOut() {
+  if (!closeOnlineForSignOut()) return;
+  const text = 'You signed out, so the online game was closed.';
+  showToast(text);
+  announce(text);
+}
+
+/** The element signed in: the online tab can get ready as it would have. */
+function handleSignedIn() {
+  if (mode === 'online') warmUpOnline();
+}
+
+/* ------------------------------------------------------------------ */
 /* Wiring                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -2814,6 +2922,8 @@ function anyDialogOpen() {
 
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  // Escape in the account menu closes that menu and nothing else.
+  if (inUserMenu(e.target)) return;
   // Dialogs close natively on Escape; handle them here too so the shortcut
   // cannot be lost, and so Escape means "close dialog" before "put down".
   if (els.gameoverDialog.open) els.gameoverDialog.close();
@@ -2834,7 +2944,12 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keydown', (e) => {
   if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
   if (anyDialogOpen()) return;
-  if (e.target instanceof Element && e.target.closest('#board, input, select, textarea')) return;
+  if (
+    e.target instanceof Element &&
+    e.target.closest(`#board, input, select, textarea, ${USER_MENU_TAG}`)
+  ) {
+    return;
+  }
   const count = viewEntries();
   switch (e.key) {
     case 'ArrowLeft': goToPly(count - 1); break;
@@ -2906,6 +3021,8 @@ window.addEventListener('hashchange', () => {
 buildTimeOptions();
 loadSettings();
 applyTheme();
+// The SDK arrives with online play, if at all; the account menu comes with it.
+whenPuterLoaded(showUserMenu);
 
 const inviteFromUrl = readInviteFromUrl();
 if (inviteFromUrl && mode !== 'online') {

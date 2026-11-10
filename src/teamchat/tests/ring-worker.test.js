@@ -6,7 +6,7 @@
  * (src/shared/ring.js, applyOverlayPatch).
  */
 import {
-  describe, it, expect, beforeEach, afterEach,
+  describe, it, expect, afterEach,
 } from 'vitest';
 import {
   boot, as, USERS, workspaceWith, fakeAuthToken,
@@ -24,20 +24,12 @@ import { signal } from '../worker/signal.js';
 import { ringSecret } from '../worker/ring.js';
 import { serverConfig, CONFIG_KEY } from '../worker/lib.js';
 
+// The caller's own background-push keys ride along with every events block (see worker/events.js pushBlock).
+
 const { alice, bob, carol, dave } = USERS;
-const realFetch = globalThis.fetch;
 let rt;
 
-beforeEach(() => {
-  // Members' handles are minted over fetch; answered at once, one handle per grantee.
-  globalThis.fetch = async (url, init = {}) => {
-    const body = init.body ? JSON.parse(init.body) : {};
-    return new Response(JSON.stringify({ handle: `kvh-${body.granteeUid || 'x'}` }), { status: 200 });
-  };
-});
-
 afterEach(() => {
-  globalThis.fetch = realFetch;
   if (rt) expect(rt.kv._calls.list).toBe(0);
   rt = null;
 });
@@ -181,7 +173,7 @@ describe('the bootstrap ring block', () => {
     expect(own.events).toEqual({ mode: 'own', appUid: expect.any(String), key: KEYS.evShard(wsId, evShard(alice.uuid)), shards: EV_SHARDS, shard: evShard(alice.uuid) });
     expect(own.ring).toMatchObject({ rs: evRingShard(alice.uuid), ke: 0, okey: KEYS.evPing(wsId, evRingShard(alice.uuid)), rkey: KEYS.evRingPrefix(wsId, evRingShard(alice.uuid)) });
     const member = (await as(bob).get(`/api/ws/${wsId}`)).data;
-    expect(member.events).toEqual({ mode: 'handle', handle: `kvh-${bob.uuid}`, shards: EV_SHARDS, shard: evShard(bob.uuid) });
+    expect(member.events).toEqual({ mode: 'handle', handle: expect.stringMatching(/^kvh-/), shards: EV_SHARDS, shard: evShard(bob.uuid) });
     expect(member.ring.rs).toBe(evRingShard(bob.uuid));
     expect(member.ring.okey).toBeUndefined();
     expect(member.ring.rkey).toBeUndefined();

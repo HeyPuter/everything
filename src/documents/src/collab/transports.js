@@ -165,6 +165,8 @@ export class BroadcastRoom {
   presence(state) { this.lastPresence = state; this.post({ type: 'presence', state }); }
   /** What the room holds, as far as this tab knows. */
   state() { return this.doc ? Y.encodeStateAsUpdate(this.doc) : null; }
+  /** The page is going away: the others drop this tab from who is here now (its next presence brings it back). */
+  farewell() { this.post({ type: 'bye' }); }
   /** Sharing stopped: the other tabs keep their copies and stop receiving changes. */
   stop() { this.post({ type: 'closed' }); }
   async leave() {
@@ -183,8 +185,8 @@ export class BroadcastRoom {
  * alone, and at once after a commit.
  */
 export class WorkerTransport {
-  /** call(op, input) performs a signed request (api.js). */
-  constructor({ call, room, token = null }) { this.call = call; this.room = room; this.token = token; this.vector = null; this.maxUpdate = MAX_UPDATE; }
+  /** call(op, input) performs a signed request (api.js); prepare(op, input) resolves a function that sends one at once. */
+  constructor({ call, prepare = null, room, token = null }) { this.call = call; this.prepare = prepare; this.room = room; this.token = token; this.vector = null; this.maxUpdate = MAX_UPDATE; }
   async join(handlers) {
     this.handlers = handlers;
     this.session = handlers.session;
@@ -194,6 +196,7 @@ export class WorkerTransport {
     const state = decode(synced.update);
     Y.applyUpdate(this.doc, state);
     this.role = joined.role;
+    this.prepareFarewell();
     this.schedule(300);
     return { ...joined, state, role: joined.role };
   }
@@ -223,6 +226,8 @@ export class WorkerTransport {
         const skew = Number.isFinite(res.serverTime) ? Date.now() - res.serverTime : 0;
         this.handlers.presence(res.roster.map(p => (Number.isFinite(p.at) ? { ...p, at: p.at + skew } : p)));
       }
+      // The goodbye is signed again now and then: the credential it carries is renewed every day.
+      if (Date.now() - this.farewellAt > 10 * 60_000) this.prepareFarewell();
       this.schedule(res.roster?.some(p => p.session !== this.session) ? 1000 : 3000);
     } catch (error) {
       if (error.status === 403 || error.status === 404 || error.status === 410) { this.left = true; this.handlers.closed(error.message); return; }
@@ -241,6 +246,20 @@ export class WorkerTransport {
     this.lastPresence = state;
     // Presence rides on the next synchronization; a moved caret asks for one soon.
     if (!this.presenceSoon) { this.presenceSoon = true; setTimeout(() => { this.presenceSoon = false; this.schedule(0); }, 400); }
+  }
+  /**
+   * Leaving the room can be needed when nothing awaited would still run (the page closing): the request is signed
+   * ahead, so it goes at once.
+   */
+  prepareFarewell() {
+    this.farewellAt = Date.now();
+    // Best effort: a goodbye that cannot be made ready is sent the usual way, and joining goes on regardless.
+    if (this.prepare) Promise.resolve().then(() => this.prepare('leave', { room: this.room, session: this.session })).then(send => { this.sendFarewell = send; }, () => {});
+  }
+  /** The page is going away: its presence entry goes now, best effort (its next synchronization brings it back). */
+  farewell() {
+    try { (this.sendFarewell ? this.sendFarewell() : this.call('leave', { room: this.room, session: this.session })).catch(() => {}); }
+    catch { /* best effort */ }
   }
   async leave() {
     this.left = true; clearTimeout(this.timer);

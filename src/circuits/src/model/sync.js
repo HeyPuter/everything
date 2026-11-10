@@ -9,7 +9,7 @@ import { footprintBox } from './pcb.js';
 import { bboxOfFlat } from '../core/geom.js';
 
 /**
- * @returns {Array<{id:string, kind:'add'|'remove'|'update'|'nets'|'netlist', label:string, detail:string, apply:(store)=>void}>}
+ * @returns {Array<{id:string, kind:'add'|'remove'|'update'|'nets'|'rename'|'netlist', label:string, detail:string, apply:(store)=>void}>}
  */
 export function planSync(project, boardDoc) {
   const lib = project.library;
@@ -74,13 +74,69 @@ export function planSync(project, boardDoc) {
     }
   }
 
+  // Renamed nets: a net that left the netlist while every pad that carried it
+  // moved to one other net (annotation renamed an automatic net, a label was
+  // added, two nets merged). Routed copper and net class members follow.
+  const netNames = new Set(netlist.nets.map((n) => n.name));
+  const renameTargets = new Map();
+  for (const [u, comp] of comps) {
+    const entry = parts.get(u);
+    if (!entry) continue;
+    const next = padNetsFor(entry.part, entry.def);
+    for (const [pad, from] of Object.entries(comp.padNets || {})) {
+      if (!from || netNames.has(from)) continue;
+      let set = renameTargets.get(from);
+      if (!set) renameTargets.set(from, (set = new Set()));
+      set.add(next[pad] || '');
+    }
+  }
+  const renamedFrom = new Map();
+  const netObjects = new Map();
+  if (renameTargets.size) {
+    for (const o of boardDoc.items()) {
+      if (o.t === 'comp' || !o.net || !renameTargets.has(o.net)) continue;
+      if (!netObjects.has(o.net)) netObjects.set(o.net, []);
+      netObjects.get(o.net).push(o.id);
+    }
+  }
+  const classNets = Object.values(boardDoc.rules?.netClasses || {}).flatMap((c) => c.nets || []);
+  for (const [from, targets] of renameTargets) {
+    const to = targets.size === 1 ? [...targets][0] : '';
+    if (!to) continue;
+    if (!renamedFrom.has(to)) renamedFrom.set(to, from);
+    const ids = netObjects.get(from) || [];
+    const inClass = classNets.includes(from);
+    if (!ids.length && !inClass) continue;
+    const what = [];
+    if (ids.length) what.push(`${ids.length} object${ids.length === 1 ? '' : 's'}`);
+    if (inClass) what.push('net class');
+    const renameIn = (c) => ({ ...c, nets: [...new Set(c.nets.map((n) => (n === from ? to : n)))] });
+    changes.push({
+      id: `rename:${from}`,
+      kind: 'rename',
+      label: `Rename net ${from}`,
+      detail: `to ${to} (${what.join(' and ')})`,
+      apply: (store) => {
+        for (const id of ids) store.update(id, (o) => (o.net === from ? { ...o, net: to } : o));
+        if (!inClass) return;
+        store.update('rules', (r) => {
+          const classes = Object.entries(r.netClasses || {});
+          const next = classes.map(([k, c]) => [k, c.nets?.includes(from) ? renameIn(c) : c]);
+          return { ...r, netClasses: Object.fromEntries(next) };
+        });
+      },
+    });
+  }
+
   for (const [u, comp] of comps) {
     if (parts.has(u)) continue;
     changes.push({ id: `rm:${u}`, kind: 'remove', label: `Remove ${comp.designator}`, detail: 'not in the schematic', apply: (store) => store.remove(comp.id) });
   }
 
   // Board net list (for net classes and routing).
-  const names = Object.fromEntries(netlist.nets.map((n) => [n.name, boardDoc.nets[n.name] || {}]));
+  // A renamed net keeps its class.
+  const netInfo = (name) => boardDoc.nets[name] || boardDoc.nets[renamedFrom.get(name)] || {};
+  const names = Object.fromEntries(netlist.nets.map((n) => [n.name, netInfo(n.name)]));
   const before = Object.keys(boardDoc.nets).sort().join('\n');
   const after = Object.keys(names).sort().join('\n');
   if (before !== after) {

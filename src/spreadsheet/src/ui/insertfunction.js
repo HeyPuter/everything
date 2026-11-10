@@ -9,9 +9,10 @@ import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { FUNCTION_NAMES, FUNCTIONS } from '../core/formula/functions.js';
 import { signatureFor } from '../core/formula/hints.js';
-import { functionCategories, PRIMARY_CATEGORIES, MORE_CATEGORIES } from '../core/formula/categories.js';
+import { functionCategories, categoryLabel, PRIMARY_CATEGORIES, MORE_CATEGORIES } from '../core/formula/categories.js';
 import { evaluateParts, describeValue } from '../core/formula/print.js';
 import { recentFunctionNames } from './recent-functions.js';
+import { t } from '../i18n/index.js';
 
 // Functions that reach out to the network or an AI model are not run just to preview them.
 const NO_PREVIEW = /\b(AI|IMPORT\w*|GOOGLETRANSLATE|DETECTLANGUAGE|TRANSLATE|IMAGE|WEBSERVICE|FILTERXML)\s*\(/i;
@@ -58,30 +59,30 @@ function previewText(value) {
 function preview(ctx, text) {
   const formula = String(text || '').trim();
   if (!formula) return '';
-  if (NO_PREVIEW.test(formula)) return '(calculated when entered)';
+  if (NO_PREVIEW.test(formula)) return t('insertfunction.calculatedWhenEntered');
   const a = ctx.active();
   const context = ctx.wb.contextFor(ctx.sheetId(), a.r, a.c);
   try {
     let { error, parts } = evaluateParts(formula, context);
     // A lone literal or reference is not a part of its own; read it through a call that returns it unchanged.
     if (!error && !parts.length) ({ error, parts } = evaluateParts(`IF(TRUE,${formula})`, context));
-    if (error || !parts.length) return 'Invalid';
+    if (error || !parts.length) return t('insertfunction.invalid');
     return previewText(parts.at(-1).value);
   } catch {
-    return 'Invalid';
+    return t('insertfunction.invalid');
   }
 }
 
 /** Insert Function: search or browse, then OK opens Function Arguments for the chosen function. */
 export function openInsertFunctionDialog(ctx, { onPick } = {}) {
   const categories = functionCategories();
-  const search = el('input.input', { type: 'search', 'aria-label': 'Search for a function', placeholder: 'Type a brief description of what you want to do', autocomplete: 'off', spellcheck: false });
-  const go = el('button.btn', { type: 'button' }, 'Go');
-  const category = el('select.select', { 'aria-label': 'Or select a category' },
-    el('option', { value: 'recent' }, 'Most Recently Used'), el('option', { value: 'all' }, 'All'),
-    ...[...PRIMARY_CATEGORIES, ...MORE_CATEGORIES].filter(c => categories.get(c)?.length).map(c => el('option', { value: c }, c)));
+  const search = el('input.input', { type: 'search', 'aria-label': t('insertfunction.searchLabel'), placeholder: t('insertfunction.searchPlaceholder'), autocomplete: 'off', spellcheck: false });
+  const go = el('button.btn', { type: 'button' }, t('insertfunction.go'));
+  const category = el('select.select', { 'aria-label': t('insertfunction.categoryLabel') },
+    el('option', { value: 'recent' }, t('insertfunction.mostRecentlyUsed')), el('option', { value: 'all' }, t('insertfunction.all')),
+    ...[...PRIMARY_CATEGORIES, ...MORE_CATEGORIES].filter(c => categories.get(c)?.length).map(c => el('option', { value: c }, categoryLabel(c))));
   const listId = fieldId('fn-list');
-  const list = el('div.fn-dialog-list', { role: 'listbox', id: listId, 'aria-label': 'Select a function', tabindex: 0 });
+  const list = el('div.fn-dialog-list', { role: 'listbox', id: listId, 'aria-label': t('insertfunction.selectLabel'), tabindex: 0 });
   const signature = el('div.fn-dialog-signature');
   const description = el('p.fn-dialog-description');
   let names = [];
@@ -92,7 +93,14 @@ export function openInsertFunctionDialog(ctx, { onPick } = {}) {
     if (query) {
       const q = query.toUpperCase();
       const words = q.split(/\s+/).filter(Boolean);
-      return FUNCTION_NAMES.filter(n => n.includes(q) || words.every(w => n.includes(w) || signatureFor(n).description.toUpperCase().includes(w)));
+      // The function named by the search comes first, then the names that begin with it, those that hold it, and
+      // last those whose description does, as Excel ranks them: in name order alone, "sum" put DEVSQ, DSUM and a
+      // dozen others ahead of SUM, and Down and Enter inserted DEVSQ. A description is searched in the interface
+      // language and in English, so "average" finds AVERAGE's relatives whatever language the dialog is in.
+      const rank = n => (n === q ? 0 : n.startsWith(q) ? 1 : n.includes(q) ? 2 : 3);
+      const describes = (n, w) => signatureFor(n).description.toUpperCase().includes(w) || signatureFor(n, { source: true }).description.toUpperCase().includes(w);
+      return FUNCTION_NAMES.filter(n => n.includes(q) || words.every(w => n.includes(w) || describes(n, w)))
+        .map((n, i) => [rank(n), i, n]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , n]) => n);
     }
     if (category.value === 'recent') return recentFunctionNames().filter(n => FUNCTION_NAMES.includes(n));
     if (category.value === 'all') return [...FUNCTION_NAMES].sort();
@@ -101,7 +109,7 @@ export function openInsertFunctionDialog(ctx, { onPick } = {}) {
   const describe = () => {
     const name = names[selected];
     signature.textContent = name ? `${name}(${signatureFor(name).params === '...' ? functionParams(name).params.map(p => p.optional ? `[${p.name}]` : p.name).join(', ') + (functionParams(name).repeat ? ', ...' : '') : signatureFor(name).params})` : '';
-    description.textContent = name ? signatureFor(name).description || 'No description is available for this function.' : 'No functions match. Try other words or another category.';
+    description.textContent = name ? signatureFor(name).description || t('insertfunction.noDescription') : t('insertfunction.noMatches');
     for (const [i, option] of [...list.children].entries()) {
       option.setAttribute('aria-selected', String(i === selected));
       if (i === selected) { list.setAttribute('aria-activedescendant', option.id); option.scrollIntoView?.({ block: 'nearest' }); }
@@ -149,15 +157,15 @@ export function openInsertFunctionDialog(ctx, { onPick } = {}) {
     }
   });
   const content = el('form.fn-dialog', { onsubmit: e => { e.preventDefault(); ok(); } },
-    el('label.field', {}, el('span.field-label', {}, 'Search for a function:'), el('div.row', {}, search, go)),
-    el('label.field', {}, el('span.field-label', {}, 'Or select a category:'), el('div.select-wrap', {}, category)),
-    el('div.field', {}, el('span.field-label', { id: `${listId}-label` }, 'Select a function:'), list),
+    el('label.field', {}, el('span.field-label', {}, t('insertfunction.searchField')), el('div.row', {}, search, go)),
+    el('label.field', {}, el('span.field-label', {}, t('insertfunction.categoryField')), el('div.select-wrap', {}, category)),
+    el('div.field', {}, el('span.field-label', { id: `${listId}-label` }, t('insertfunction.selectField')), list),
     signature, description,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
   list.setAttribute('aria-labelledby', `${listId}-label`);
-  const modal = openModal({ title: 'Insert Function', content, className: 'fn-dialog-panel', initialFocus: search, onClose: () => ctx.grid?.focus?.() });
+  const modal = openModal({ title: t('insertfunction.title'), content, className: 'fn-dialog-panel', initialFocus: search, onClose: () => ctx.grid?.focus?.() });
   render();
   return modal;
 }
@@ -175,7 +183,7 @@ export function openFunctionArgumentsDialog(ctx, name, { apply, initial = [] } =
   const update = () => {
     for (const f of fields) f.value.textContent = f.input.value.trim() ? `= ${preview(ctx, f.input.value)}` : '';
     const call = buildCall(name, fields.map(f => f.input.value));
-    result.textContent = `Formula result = ${preview(ctx, call)}`;
+    result.textContent = t('insertfunction.formulaResult', { result: preview(ctx, call) });
   };
   const addField = (param, index) => {
     const id = fieldId('fn-arg');
@@ -196,11 +204,13 @@ export function openFunctionArgumentsDialog(ctx, name, { apply, initial = [] } =
   };
   params.forEach(addField);
   if (repeat && !params.length) addField({ name: 'value1', optional: false }, 0);
-  if (repeat && params.length && initial.length > params.length) for (let i = params.length; i < initial.length; i++) addField({ name: `value${i + 1}`, optional: true }, i);
+  // Every argument already written keeps a field, past those the signature lists too (AGGREGATE's ref2, ref3, ...),
+  // and past the fields offered for a new one (MAX_ARGS): OK would otherwise drop it from the call.
+  for (let i = fields.length; i < initial.length; i++) addField({ name: `value${i + 1}`, optional: true }, i);
   const submit = e => {
     e?.preventDefault();
     const missing = fields.find(f => !f.param.optional && !f.input.value.trim());
-    if (missing && fields.some(f => f.input.value.trim())) return refuse(missing.input, `${missing.param.name} is required`);
+    if (missing && fields.some(f => f.input.value.trim())) return refuse(missing.input, t('insertfunction.argumentRequired', { name: missing.param.name }));
     modal.close();
     apply?.(buildCall(name, fields.map(f => f.input.value)));
   };
@@ -209,9 +219,9 @@ export function openFunctionArgumentsDialog(ctx, name, { apply, initial = [] } =
     el('p.fn-dialog-description', {}, signatureFor(name).description || ''),
     result, error,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Function Arguments', content, className: 'fn-args-panel', initialFocus: fields[0]?.input, onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('insertfunction.argumentsTitle'), content, className: 'fn-args-panel', initialFocus: fields[0]?.input, onClose: () => ctx.grid?.focus?.() });
   update();
   return modal;
 }

@@ -8,6 +8,8 @@
 // as field codes are conventionally displayed: IF "{ MERGEFIELD City }" = "Oslo" "Hei" "Hello".
 
 import { formatPageNumber } from './page-numbering.js';
+import { formatFormulaNumber } from './table-formula.js';
+import { applyGeneralFormat, formatDatePicture as formatDate } from './field-results.js';
 
 /** Address concepts an address block or greeting line draws on, with column names they commonly appear under. */
 export const ADDRESS_FIELDS = [
@@ -145,48 +147,45 @@ function applyGeneralFormats(value, formats = []) {
     } else if (name === 'ordinal' && /^\s*\d+\s*$/.test(value)) {
       const n = Number(value), tens = n % 100;
       value = `${n}${tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
-    }
+    } else if (['cardtext', 'ordtext', 'hex'].includes(name)) value = applyGeneralFormat(value, f);
   }
   return value;
 }
 
-/** A numeric picture (\# "$#,##0.00"): digits, grouping, decimals and literal text around them. */
+/** A numeric picture (\# "$#,##0.00") applied to a merged value that reads as a number (formatFormulaNumber). */
 export function formatNumberPicture(value, picture) {
-  const number = Number(String(value).replace(/[,\s$€£¥]/g, ''));
+  const number = mergedNumber(value);
   if (!String(value).trim() || !Number.isFinite(number)) return value;
-  const sections = picture.split(';');
-  const section = number < 0 && sections[1] !== undefined ? sections[1] : number === 0 && sections[2] !== undefined ? sections[2] : sections[0];
-  const negativeSection = number < 0 && sections[1] !== undefined;
-  const first = section.search(/[0#x]/), last = Math.max(section.lastIndexOf('0'), section.lastIndexOf('#'), section.lastIndexOf('x'));
-  if (first < 0) return section.replace(/'([^']*)'/g, '$1');
-  const prefix = section.slice(0, first).replace(/'([^']*)'/g, '$1'), suffix = section.slice(last + 1).replace(/'([^']*)'/g, '$1');
-  const body = section.slice(first, last + 1), dot = body.indexOf('.');
-  const decimals = dot < 0 ? 0 : body.slice(dot + 1).replace(/[^0#]/g, '').length;
-  const required = dot < 0 ? 0 : body.slice(dot + 1).replace(/[^0]/g, '').length;
-  const integerDigits = (dot < 0 ? body : body.slice(0, dot)).replace(/[^0]/g, '').length;
-  let [whole, fraction = ''] = Math.abs(number).toFixed(decimals).split('.');
-  fraction = fraction.replace(/0+$/, '').padEnd(required, '0');
-  whole = whole.padStart(integerDigits, '0');
-  if (whole === '0' && !integerDigits && fraction) whole = '';
-  if (body.includes(',')) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const sign = number < 0 && !negativeSection ? '-' : '';
-  return `${sign}${prefix}${whole}${fraction ? '.' + fraction : ''}${suffix}`;
+  return formatFormulaNumber(number, picture);
+}
+/**
+ * A merged value read as a number. A recipient list carries no locale, so the separators are read from
+ * the value itself: with both '.' and ',' the last one is the decimal mark ("1.234,56", "1,234.56"); a
+ * single comma that is not a thousands group is a decimal comma ("12,5", "0,75"); repeated dots in
+ * thousands groups are grouping ("1.234.567"). Spaces and apostrophes group. The ambiguous "1,234" and
+ * "1.234" keep their point-decimal reading. Stripping every comma read "1.234,56" as 1.23456.
+ */
+function mergedNumber(value) {
+  const text = String(value).replace(/[\s'’$€£¥]/g, ''), digits = text.replace(/^[-+]/, '');
+  const dot = text.lastIndexOf('.'), comma = text.lastIndexOf(',');
+  let decimal = '.';
+  if (dot >= 0 && comma >= 0) decimal = dot > comma ? '.' : ',';
+  else if (comma >= 0 && comma === text.indexOf(',') && !/^[1-9]\d{0,2},\d{3}$/.test(digits)) decimal = ',';
+  else if (dot >= 0 && dot !== text.indexOf('.') && /^\d{1,3}(\.\d{3})+$/.test(digits)) decimal = '';
+  const group = decimal === ',' ? '.' : decimal === '.' ? ',' : '.';
+  const [whole, fraction, extra] = text.split(group).join('').split(decimal || '\0');
+  if (extra !== undefined) return NaN;
+  return Number(fraction === undefined ? whole : `${whole}.${fraction}`);
 }
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** A date picture (\@ "MMMM d, yyyy") applied to a value that reads as a date; other values pass through. */
 export function formatDatePicture(value, picture) {
   const text = String(value).trim();
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2}))?/.exec(text);
   const date = iso ? new Date(+iso[1], +iso[2] - 1, +iso[3], +(iso[4] || 0), +(iso[5] || 0)) : text && !/^\d+$/.test(text) ? new Date(text) : null;
   if (!date || Number.isNaN(date.getTime())) return value;
-  const pad = (n, w = 2) => String(n).padStart(w, '0');
-  const h12 = date.getHours() % 12 || 12;
-  const tokens = { yyyy: date.getFullYear(), yy: pad(date.getFullYear() % 100), MMMM: MONTHS[date.getMonth()], MMM: MONTHS[date.getMonth()].slice(0, 3), MM: pad(date.getMonth() + 1), M: date.getMonth() + 1,
-    dddd: DAYS[date.getDay()], ddd: DAYS[date.getDay()].slice(0, 3), dd: pad(date.getDate()), d: date.getDate(), HH: pad(date.getHours()), H: date.getHours(), hh: pad(h12), h: h12, mm: pad(date.getMinutes()),
-    'AM/PM': date.getHours() < 12 ? 'AM' : 'PM', 'am/pm': date.getHours() < 12 ? 'am' : 'pm' };
-  return picture.replace(/'([^']*)'|AM\/PM|am\/pm|yyyy|yy|MMMM|MMM|MM|M|dddd|ddd|dd|d|HH|H|hh|h|mm/g, (m, literal) => literal !== undefined ? literal : String(tokens[m]));
+  // The pictures DATE and TIME fields read (§17.16.4.1), seconds included.
+  return formatDate(date, picture);
 }
 
 /** Apply a field's formatting switches to a merged value. */
@@ -385,16 +384,21 @@ export function placeholderText(code) {
 export function evaluateField(code, ctx) {
   const tree = node(code), keyword = fieldKeyword(tree);
   if (!MERGE_TYPES.has(keyword) && keyword !== 'REF') return null;
-  // Nested fields evaluate first, their results standing in as single arguments.
-  const values = [];
+  // Nested fields evaluate before the field, in order, their results standing in as single arguments. An IF
+  // evaluates the fields of its condition and then only those of the branch it chooses, as Word does: a SET,
+  // ASK, FILLIN or NEXT in the other branch does not run ({ IF … "{ SET pronoun "he" }" "{ SET pronoun "she" }" }).
+  const nested = [], values = new Map();
   let flat = '';
   for (const part of tree.parts) {
     if (typeof part === 'string') { flat += part; continue; }
-    const value = evaluateField(part, ctx);
-    values.push(value ?? '');
-    flat += `\u0001${values.length - 1}\u0001`;
+    nested.push(part);
+    flat += `\u0001${nested.length - 1}\u0001`;
   }
-  const tokens = tokenizeInstruction(flat).map(t => ({ ...t, value: t.value.replace(/\u0001(\d+)\u0001/g, (_, i) => values[i]) }));
+  const valueOf = i => { if (!values.has(i)) values.set(i, evaluateField(nested[i], ctx) ?? ''); return values.get(i); };
+  const resolve = t => t.value.includes('\u0001') ? { ...t, value: t.value.replace(/\u0001(\d+)\u0001/g, (_, i) => valueOf(Number(i))) } : t;
+  const raw = tokenizeInstruction(flat);
+  if (keyword === 'IF' && !ctx.placeholders) return evaluateIf(raw.slice(1), resolve);
+  const tokens = raw.map(resolve);
   const rest = tokens.slice(1);
   if (keyword === 'REF') {
     const name = rest[0]?.value;
@@ -424,14 +428,18 @@ export function evaluateField(code, ctx) {
       return '';
     }
     case 'FILLIN': return formatValue(answerFor(ctx, 'FILLIN', args[0] || '', args[0], switches), switches);
-    case 'IF': {
-      const { result, rest: branches } = condition(rest);
-      const chosen = branches[result ? 0 : 1];
-      if (ctx.placeholders) return branches[0]?.value || '«If…»';
-      return formatValue(chosen?.value ?? '', fieldSwitches(branches.slice(2)).switches);
-    }
+    // Outside preview an IF shows its first branch (evaluated above otherwise).
+    case 'IF': return condition(rest).rest[0]?.value || '«If…»';
     default: return null;
   }
+}
+/** IF's result from its unevaluated tokens: the condition's nested fields, then the chosen branch's (`resolve` evaluates them). */
+function evaluateIf(tokens, resolve) {
+  const list = splitOperators(tokens);
+  const comparison = list.length >= 3 && OPERATORS.includes(list[1].value) && !list[1].quoted;
+  const { result } = condition(list.slice(0, comparison ? 3 : 1).map(resolve));
+  const branches = list.slice(comparison ? 3 : 1), chosen = branches[result ? 0 : 1];
+  return formatValue(chosen ? resolve(chosen).value : '', fieldSwitches(branches.slice(2).map(resolve)).switches);
 }
 function answerFor(ctx, kind, key, prompt, switches) {
   const id = `${kind}:${key}`;

@@ -3,11 +3,16 @@
 
 let sdk = null;
 
-/** Waits briefly for the SDK script (loaded with defer) and returns it or null. */
+/**
+ * Waits briefly for the SDK script (loaded with defer) and returns it or null.
+ * Stops at once when the script failed to load (offline, or blocked), which
+ * index.html records in window.__puterFailed.
+ */
 export async function loadPuter(timeoutMs = 5000) {
   if (sdk) return sdk;
   const start = Date.now();
-  while (typeof window !== 'undefined' && !window.puter && Date.now() - start < timeoutMs) {
+  const waiting = () => !window.puter && !window.__puterFailed && Date.now() - start < timeoutMs;
+  while (typeof window !== 'undefined' && waiting()) {
     await new Promise((r) => setTimeout(r, 50));
   }
   sdk = typeof window !== 'undefined' && window.puter ? window.puter : null;
@@ -57,6 +62,11 @@ export async function signIn() {
   return res;
 }
 
+/** The account changed without signIn or signOut here (puter.js's <puter-user-menu>): drops the previous one's picture. */
+export function accountChanged() {
+  pictureCache.clear();
+}
+
 export async function signOut() {
   if (!sdk) return;
   pictureCache.clear();
@@ -66,6 +76,8 @@ export async function signOut() {
 /** True when an error from puter.fs means the path does not exist. */
 export function isMissing(err) {
   const code = err?.code || err?.error?.code || err?.message || '';
+  // NotFoundError: the browser's own file storage (OPFS) has no such file.
+  if (err?.name === 'NotFoundError') return true;
   return /subject_does_not_exist|not_found|does not exist|404/i.test(String(code)) || err?.status === 404;
 }
 

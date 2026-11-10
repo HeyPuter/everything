@@ -11,9 +11,15 @@ export function openBookmarks({ entries, add, rename, remove, navigate }) {
       checkedBookmarkName(name.value);
       // Names starting with an underscore are hidden bookmarks (tables of contents, cross-references), which this list leaves out.
       if (name.value.startsWith('_')) throw new Error('Start the name with a letter. Names that start with an underscore are hidden bookmarks.');
-      if (entries().some(e => e.name === name.value && (action === 'add' || e.id !== list.value))) throw new Error('A bookmark with that name already exists.');
+      // Add with a name already in use moves that bookmark to the selection, as desktop word processors do.
+      if (action === 'rename' && entries().some(e => e.name?.toLowerCase() === name.value.toLowerCase() && e.id !== list.value)) throw new Error('A bookmark with that name already exists.');
     } catch (e) { error.hidden = false; error.textContent = e.message; return; }
-    if (action === 'add' ? add(name.value) : rename(list.value, name.value)) { refresh(); error.hidden = true; }
+    const moved = action === 'add' && entries().find(e => e.name?.toLowerCase() === name.value.toLowerCase());
+    if (action === 'add' ? add(name.value, { move: true }) : rename(list.value, name.value)) {
+      refresh(); error.hidden = true;
+      // The moved bookmark is the one chosen in the list, so Go to bookmark goes to its new place.
+      if (moved) { const now = entries().find(e => e.name?.toLowerCase() === name.value.toLowerCase()); if (now) { list.value = now.id; update(); } }
+    }
   };
   const renameButton = el('button.btn', { type: 'button', onclick: () => validate('rename') }, 'Rename');
   const removeButton = el('button.btn', { type: 'button', onclick: () => { remove(list.value); refresh(); } }, 'Delete bookmark');

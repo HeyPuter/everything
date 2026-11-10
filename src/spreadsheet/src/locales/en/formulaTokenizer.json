@@ -1,0 +1,8 @@
+{
+  "invalidSheetSpan": "Invalid sheet span",
+  "numberOutOfRange": "Number out of range",
+  "unclosedBracket": "Unclosed \"[\"",
+  "unexpectedCharacter": "Unexpected character \"{ch}\"",
+  "unknownErrorLiteral": "Unknown error literal",
+  "unterminatedString": "Unterminated string"
+}

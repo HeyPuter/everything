@@ -436,15 +436,20 @@ export function writeFrame(drawing, spec) {
     locked: flag(spec.locked, 'locked', '0'), layoutInCell: flag(spec.layoutInCell, 'layoutInCell', '1'), allowOverlap: flag(spec.allowOverlap, 'allowOverlap', '1') });
   frame.append(wp('simplePos', { x: 0, y: 0 }));
   for (const [name, axis] of [['positionH', 'horizontal'], ['positionV', 'vertical']]) {
-    const value = spec[axis] || readPosition(pick(name)) || { relativeFrom: axis === 'horizontal' ? 'column' : 'paragraph', offset: 0 };
+    // An axis left as it was keeps its element: a percentage position (wp14:pctPosHOffset) is not an offset.
+    if (!spec[axis] && pick(name)) { frame.append(pick(name).cloneNode(true)); continue; }
+    const value = spec[axis] || { relativeFrom: axis === 'horizontal' ? 'column' : 'paragraph', offset: 0 };
     const node = wp(name, { relativeFrom: value.relativeFrom });
     if (value.align) node.append(Object.assign(wp('align'), { textContent: value.align }));
     else node.append(Object.assign(wp('posOffset'), { textContent: String(Math.round(value.offset || 0)) }));
     frame.append(node);
   }
   for (const node of keep) frame.append(node);
+  // Tight or through wrapping keeps the contour it had (an edited outline) unless a new one is given.
+  const contour = !wrap.polygon && was && [...was.children].find(n => n.namespaceURI === WP && ['wrapTight', 'wrapThrough'].includes(n.localName));
+  const polygon = contour && child(contour, WP, 'wrapPolygon');
   const wrapNode = wrap.type === 'square' ? wp('wrapSquare', { wrapText: wrap.side || 'bothSides' })
-    : wrap.type === 'tight' || wrap.type === 'through' ? wp(wrap.type === 'tight' ? 'wrapTight' : 'wrapThrough', { wrapText: wrap.side || 'bothSides' }, wrapPolygon(doc, wrap.polygon))
+    : wrap.type === 'tight' || wrap.type === 'through' ? wp(wrap.type === 'tight' ? 'wrapTight' : 'wrapThrough', { wrapText: wrap.side || 'bothSides' }, polygon ? polygon.cloneNode(true) : wrapPolygon(doc, wrap.polygon))
     : wrap.type === 'topAndBottom' ? wp('wrapTopAndBottom') : wp('wrapNone');
   frame.append(wrapNode);
   // Re-sort the kept children around the new ones in schema order; anything unknown stays at the end in its order.
@@ -468,7 +473,10 @@ function wrapPolygon(doc, polygon) {
 function readPosition(node) {
   if (!node) return null;
   const align = child(node, WP, 'align'), offset = child(node, WP, 'posOffset');
-  return { relativeFrom: node.getAttribute('relativeFrom'), ...(align ? { align: align.textContent.trim() } : { offset: Number(offset?.textContent.trim() || 0) }) };
+  // A percentage of the reference (wp14:pctPosHOffset, in thousandths of a percent) has no offset to report:
+  // the dialog then shows where layout put the object.
+  const percent = !align && !offset && [...node.children].find(n => /^pctPos[HV]Offset$/.test(n.localName));
+  return { relativeFrom: node.getAttribute('relativeFrom'), ...(align ? { align: align.textContent.trim() } : percent ? { percent: Number(percent.textContent.trim()) / 1000 } : { offset: Number(offset?.textContent.trim() || 0) }) };
 }
 function readWrap(frame) {
   if (!frame) return null;

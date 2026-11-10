@@ -1,0 +1,18 @@
+{
+  "keptBy.browserCloseTab": "该组合键由浏览器保留（关闭标签页）",
+  "keptBy.browserCloseWindow": "该组合键由浏览器保留（关闭窗口）",
+  "keptBy.browserNewTab": "该组合键由浏览器保留（新建标签页）",
+  "keptBy.browserNewWindow": "该组合键由浏览器保留（新建窗口）",
+  "keptBy.browserPrivateWindow": "该组合键由浏览器保留（无痕窗口）",
+  "keptBy.browserQuit": "该组合键由浏览器保留（退出）",
+  "keptBy.browserReload": "该组合键由浏览器保留（重新加载）",
+  "keptBy.browserReopenTab": "该组合键由浏览器保留（重新打开标签页）",
+  "keptBy.copy": "该组合键保留给“复制”",
+  "keptBy.cut": "该组合键保留给“剪切”",
+  "keptBy.paste": "该组合键保留给“粘贴”",
+  "keptBy.systemCloseWindow": "该组合键由系统保留（关闭窗口）",
+  "keptBy.systemSwitchApps": "该组合键由系统保留（切换应用）",
+  "movesFocus": "{key} 用于移动焦点和关闭对话框，因此不能用作快捷方式",
+  "needsModifier": "将 Ctrl、⌘、Alt 或 Option 与该键一起使用，或使用功能键（F1 到 F12），以便仍能在单元格中正常键入",
+  "pressCombination": "按下组合键"
+}

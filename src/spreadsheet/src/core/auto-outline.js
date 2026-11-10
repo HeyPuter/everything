@@ -12,6 +12,7 @@ import { tokenize } from './formula/tokenizer.js';
 import { parseRefText } from './refs.js';
 import { parseKey } from './cell.js';
 import { outlineSettingsOf } from './workbook.js';
+import { t } from '../i18n/index.js';
 
 /** Functions that summarize the cells they read. */
 export const SUMMARY_FUNCTIONS = new Set(['SUM', 'SUBTOTAL', 'AGGREGATE', 'AVERAGE', 'AVERAGEA', 'COUNT', 'COUNTA', 'MAX', 'MAXA', 'MIN', 'MINA', 'PRODUCT',
@@ -23,16 +24,16 @@ const MAX_LEVELS = 7; // eight outline levels: the sheet's own, and seven of gro
 function summaryRefs(formula, sheetName) {
   let tokens;
   try { tokens = tokenize(String(formula)); } catch { return []; }
-  const summarizes = tokens.some((t, i) => t.type === 'name' && tokens[i + 1]?.type === 'lparen' && SUMMARY_FUNCTIONS.has(String(t.value).toUpperCase().replace(/^_XLFN\./, '')));
+  const summarizes = tokens.some((tx, i) => tx.type === 'name' && tokens[i + 1]?.type === 'lparen' && SUMMARY_FUNCTIONS.has(String(tx.value).toUpperCase().replace(/^_XLFN\./, '')));
   // A grand total written as its subtotals added up, =B5+B9, summarizes them as =SUM(B5,B9) does; it is read
   // only as such a total (see bridgedRun), so a running balance such as =C2+B3 makes no group.
-  const added = !summarizes && tokens.filter((t) => t.type === 'ref').length > 1 && tokens.every((t) => t.type === 'ref' || (t.type === 'op' && t.value === '+'));
+  const added = !summarizes && tokens.filter((tx) => tx.type === 'ref').length > 1 && tokens.every((tx) => tx.type === 'ref' || (tx.type === 'op' && tx.value === '+'));
   if (!summarizes && !added) return [];
   const out = [];
-  for (const t of tokens) {
-    if (t.type !== 'ref' || t.sheetEnd) continue;
-    if (t.sheet && t.sheet.toLowerCase() !== sheetName.toLowerCase()) continue;
-    const ref = parseRefText(t.text, t.sheet);
+  for (const tx of tokens) {
+    if (tx.type !== 'ref' || tx.sheetEnd) continue;
+    if (tx.sheet && tx.sheet.toLowerCase() !== sheetName.toLowerCase()) continue;
+    const ref = parseRefText(tx.text, tx.sheet);
     if (ref && (ref.kind === 'cell' || ref.kind === 'range')) out.push(ref);
   }
   if (added) out.addedUp = true;
@@ -115,10 +116,10 @@ export function autoOutlineGroups(wb, sheetId, range = null) {
   for (let pass = 0; pass < MAX_LEVELS && totals.length; pass++) {
     const rows = [...found.row.values()], cols = [...found.col.values()];
     let more = false;
-    for (const t of totals) {
-      const down = t.down && bridgedRun(t.refs, t.r, t.c, summaryBelow, 'row', rows);
+    for (const tx of totals) {
+      const down = tx.down && bridgedRun(tx.refs, tx.r, tx.c, summaryBelow, 'row', rows);
       if (down && !found.row.has(`${down.from}:${down.to}`)) { found.row.set(`${down.from}:${down.to}`, down); more = true; }
-      const across = t.across && bridgedRun(t.refs, t.c, t.r, summaryRight, 'col', cols);
+      const across = tx.across && bridgedRun(tx.refs, tx.c, tx.r, summaryRight, 'col', cols);
       if (across && !found.col.has(`${across.from}:${across.to}`)) { found.col.set(`${across.from}:${across.to}`, across); more = true; }
     }
     if (!more) break;
@@ -147,8 +148,8 @@ export function autoOutline(wb, sheetId, range = null) {
   const count = groups.rows.length + groups.cols.length;
   if (!count) return 0;
   const made = (list) => list.map((g) => ({ ...g, collapsed: false }));
-  wb.transaction('Auto Outline', () => {
-    wb.replaceGroups(sheetId, { rows: made(groups.rows), cols: made(groups.cols) }, 'Auto Outline');
+  wb.transaction(t('autoOutline.undo.auto'), () => {
+    wb.replaceGroups(sheetId, { rows: made(groups.rows), cols: made(groups.cols) }, t('autoOutline.undo.auto'));
     if (outlineSettingsOf(wb.sheet(sheetId)).autoStyles) applyOutlineStyles(wb, sheetId);
   });
   return count;
@@ -165,7 +166,7 @@ export function clearOutline(wb, sheetId, range = null) {
   const rows = keep(sheet.groups.rows, range?.r1, range?.r2);
   const cols = keep(sheet.groups.cols, range?.c1, range?.c2);
   if (rows.length === sheet.groups.rows.length && cols.length === sheet.groups.cols.length) return false;
-  return wb.replaceGroups(sheetId, { rows, cols }, 'Clear Outline');
+  return wb.replaceGroups(sheetId, { rows, cols }, t('autoOutline.undo.clear'));
 }
 
 /**
@@ -196,7 +197,7 @@ export function applyOutlineStyles(wb, sheetId) {
   if (!rows.size && !cols.size) return false;
   const used = wb.usedRange(sheetId);
   if (!used) return false;
-  wb.transaction('Apply outline styles', () => {
+  wb.transaction(t('autoOutline.undo.styles'), () => {
     for (const r of rows.keys()) if (r >= used.r1 && r <= used.r2) wb.applyStyle(sheetId, { r1: r, c1: used.c1, r2: r, c2: used.c2 }, { bold: true });
     for (const c of cols.keys()) if (c >= used.c1 && c <= used.c2) wb.applyStyle(sheetId, { r1: used.r1, c1: c, r2: used.r2, c2: c }, { bold: true });
   });

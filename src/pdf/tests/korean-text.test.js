@@ -13,11 +13,19 @@ const tasks = [];
 afterEach(async () => {
   await Promise.all(tasks.splice(0).map((task) => task.destroy()));
 });
-const fontBytes = (face) => readFile(new URL(`../public/fonts/${face}`, import.meta.url));
+// The full Noto Sans KR faces, as a PDF made elsewhere would embed them.
+const fontBytes = (face) => readFile(new URL(`./fixtures/fonts/${face}`, import.meta.url));
 function serveFonts() {
   return vi
     .spyOn(globalThis, 'fetch')
-    .mockImplementation(async (url) => new Response(await fontBytes(String(url).split('/').pop())));
+    .mockImplementation(
+      async (url) =>
+        new Response(
+          await readFile(
+            new URL(`../public/fonts/${String(url).split('/fonts/').pop()}`, import.meta.url),
+          ),
+        ),
+    );
 }
 async function inspect(bytes) {
   const task = pdfjs.getDocument({ data: bytes.slice(), useSystemFonts: false });

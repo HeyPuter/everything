@@ -18,7 +18,8 @@ import { exportProjectBundle, importProjectBundle, downloadBlob, BUNDLE_ACCEPT }
 import { createProjectFromTemplate } from '../storage/template-project.js';
 import { showMenu, menuButton } from './menu.js';
 import { confirmDialog, promptDialog, toast, installTooltips, openDialog } from './dialog.js';
-import { accountButton } from './topbar.js';
+import { accountButton, themeMenuItems } from './topbar.js';
+import { settingsButton, userMenu } from './user-menu.js';
 import { prefs, setPref } from './prefs.js';
 import { templateCard, templatesView, openTemplateDialog } from './home-templates.js';
 import { TemplatePreview } from './template-preview.js';
@@ -164,7 +165,11 @@ export class Home {
     const signIn = !user && this.account?.onSignIn
       ? h('button.btn.small.primary.block', { type: 'button', onclick: () => this.account.onSignIn() }, icon('cloud', 14), 'Sign in to save to Puter')
       : null;
-    const accountRow = h('div.side-account', accountButton(this.account || {}), h('span.side-user', user?.username || 'Guest'));
+    // Where puter.js has <puter-user-menu>, it holds the account at the top of the page, after Settings
+    // for the theme; the sidebar's account row stands down.
+    const sdkMenu = userMenu(this.account || {});
+    const accountBar = sdkMenu ? h('div.home-account', settingsButton(themeMenuItems), sdkMenu) : null;
+    const accountRow = sdkMenu ? null : h('div.side-account', accountButton(this.account || {}), h('span.side-user', user?.username || 'Guest'));
     const storage = h('div.side-storage', h('p.storage-where', ...where), this.usageEl, signIn);
     this.side = h('aside.home-side',
       h('div.side-brand', appIcon(26), h('span.brand-name', 'Video Studio')),
@@ -180,7 +185,8 @@ export class Home {
       h('footer.home-footer', h('a', { href: 'https://developer.puter.com', target: '_blank', rel: 'noopener' }, 'Powered by Puter')),
       this.importInput, this.bundleInput);
     this.dropHint = h('div.home-drop', { 'aria-hidden': 'true' }, h('div.home-drop-box', icon('import', 28), h('strong', 'Drop to start'), h('span', 'Media opens in a new project. Project files are added to your projects.')));
-    const page = h('div.home', this.side, this.mainEl, this.dropHint);
+    const page = h('div.home', this.side, accountBar, this.mainEl, this.dropHint);
+    page.classList.toggle('has-user-menu', Boolean(accountBar));
     this.installDrop(page);
     this.root.replaceChildren(page);
     this.root.removeAttribute('aria-busy');

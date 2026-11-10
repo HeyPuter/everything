@@ -1,4 +1,5 @@
 import { fillColorCss } from './fill-color.js';
+import { t, language } from '../i18n/index.js';
 /**
  * The AI assistant's tools: what the model may read and change in a workbook,
  * described for the model (TOOLS, in the function-calling format Puter's AI
@@ -473,11 +474,16 @@ function gridSheet(wb, name, fallbackId) {
 export function resolveRange(wb, text, sheetId) {
   const t = String(text ?? '').trim().replace(/^=/, '');
   if (!t) throw new ToolError('No range was given.');
-  const found = wb.rangeFromText(sheetId, t);
+  let found = wb.rangeFromText(sheetId, t);
   if (!found) {
     const bang = t.lastIndexOf('!');
-    if (bang > 0) sheetNamed(wb, t.slice(0, bang), sheetId); // names the missing sheet, when that is the problem
-    throw new ToolError(`"${t}" is not a range. Use A1 notation such as "B2:D10", optionally with a sheet: "Data!A1:C20".`);
+    if (bang > 0) {
+      const sheet = sheetNamed(wb, t.slice(0, bang), sheetId); // names the missing sheet, when that is the problem
+      // A sheet whose name needs quotes, named without them ("Q1 Data!B2", "2024!A1"): the sheet is plainly meant, and
+      // "not a range" sent the model hunting for what was wrong with an address that was right.
+      if (!/^'.*'$/.test(t.slice(0, bang))) found = wb.rangeFromText(sheetId, `${quoteSheet(sheet.name)}!${t.slice(bang + 1)}`);
+    }
+    if (!found) throw new ToolError(`"${t}" is not a range. Use A1 notation such as "B2:D10", optionally with a sheet: "Data!A1:C20".`);
   }
   const sheet = wb.sheet(found.sheetId);
   if (!sheet) throw new ToolError(`"${t}" is not on any sheet.`);
@@ -508,7 +514,9 @@ function dataOfLines(wb, sheetId, range) {
 
 function columnArg(text, what = 'column') {
   const c = colIndex(String(text ?? '').trim().replace(/\$/g, ''));
-  if (c < 0) throw new ToolError(`"${text}" is not a ${what} letter such as "C".`);
+  // Past XFD there is no column: "XFE" was sized as a column no file can hold, and a long run of letters named one
+  // so far out that spelling it again for the step's label never ended.
+  if (c < 0 || c > MAX_COL) throw new ToolError(`"${clip(String(text ?? ''), 20)}" is not a ${what} letter such as "C" (columns run from A to XFD).`);
   return c;
 }
 
@@ -942,7 +950,7 @@ function sheetDetails(wb, args, env) {
       // In priority order: where rules overlap, the earlier one wins.
       conditional_formats: list(groups, ({ rule, rules }) => ({
         // A rule from a file can hold thousands of areas, and a formula of thousands of characters.
-        id: rule.id, applies_to: lineList(rules.map((p) => rangeName(p.range)), 40), rule: clip(describeRule(rule), 400),
+        id: rule.id, applies_to: lineList(rules.map((p) => rangeName(p.range)), 40), rule: clip(describeRule(rule, { source: true }), 400),
         ...(ruleStyleText(rule.style) ? { format: ruleStyleText(rule.style) } : {}),
         ...(rule.type === 'scale' ? { colors: [rule.from, rule.mid, rule.to].filter(Boolean).join(' → ') } : {}),
       })),
@@ -1104,6 +1112,18 @@ function unlockedCells(wb, sheetId, range) {
   return true;
 }
 
+/**
+ * Why a validation rule refused a value, in English for the model: the rule's own message (the workbook's words), or
+ * the interface's message only while that is English (checkValue has no English-source option yet), else a plain line.
+ */
+function refusalForModel(verdict) {
+  if (verdict.rule?.message) return verdict.rule.message;
+  if (language() === 'en' && verdict.message) return verdict.message;
+  let rule = '';
+  try { rule = verdict.rule ? describeValidation(verdict.rule) : ''; } catch { /* the plain line will do */ }
+  return rule ? `not allowed by its validation rule (${rule})` : 'not allowed by its validation rule';
+}
+
 /** The errors a block's formulas now show, with the workbook's own explanation of each. */
 function formulaErrors(wb, sheetId, range, limit = 8) {
   const out = [];
@@ -1112,7 +1132,7 @@ function formulaErrors(wb, sheetId, range, limit = 8) {
       if (wb.getCell(sheetId, r, c)?.f == null) continue;
       const v = wb.getValue(sheetId, r, c);
       if (!isError(v) || v.error === '#BUSY!' || v.error === '#BLOCKED!') continue;
-      const help = wb.errorHelpAt(sheetId, r, c);
+      const help = wb.errorHelpAt(sheetId, r, c, { source: true }); // English, for the model
       out.push(`${cellName(r, c)} shows ${v.error}${typeof help === 'string' && help ? ` (${help.replace(/^#[A-Z/0!?]+:?\s*/, '')})` : ''}`);
     }
   }
@@ -1148,8 +1168,8 @@ function inputFor(value) {
 
 /** Write one cell as the user would type it; a JS number is stored as that number, whatever the regional format. */
 function writeOne(wb, sheetId, r, c, input) {
-  if (typeof input === 'number') wb.setInput(sheetId, r, c, input, { literal: true, label: 'AI edit' });
-  else wb.setInput(sheetId, r, c, input, { label: 'AI edit' });
+  if (typeof input === 'number') wb.setInput(sheetId, r, c, input, { literal: true, label: t('aitools.undo.aiEdit') });
+  else wb.setInput(sheetId, r, c, input, { label: t('aitools.undo.aiEdit') });
 }
 
 function reachingNote(env, reached) {
@@ -1174,6 +1194,7 @@ function writeCells(wb, args, env) {
   let reached = false;
   let kept = 0;
   const hidden = []; // cells under a merged cell's top-left one
+  const unformed = []; // formulas Excel refuses as typed, which would be written as their text
   rows.forEach((row, i) => row.forEach((value, j) => {
     const input = inputFor(value);
     if (input === undefined) return;
@@ -1187,22 +1208,24 @@ function writeCells(wb, args, env) {
       return;
     }
     const verdict = typeof input === 'string' ? wb.validateInput(sheetId, r, c, input) : wb.validateValue?.(sheetId, r, c, input) ?? { ok: true };
-    if (!verdict.ok && verdict.rule?.strict !== false) { refused.push(`${cellName(r, c)} (${verdict.message || 'not allowed by its validation rule'})`); return; }
+    if (!verdict.ok && verdict.rule?.strict !== false) { refused.push(`${cellName(r, c)} (${refusalForModel(verdict)})`); return; }
     if (typeof input === 'string' && input.startsWith('=') && reachesOut(wb, input.slice(1))) reached = true;
     // A cell written back with what it already holds (a block the model read and rewrites) is left as it is: written
     // again, it lost the link and the mixed formatting of its text that it had, though nothing was asked about.
     const cell = wb.getCell(sheetId, r, c);
     if (holds(cell) && (typeof input === 'string' ? keepsValue(wb, sheetId, r, c, cell, input) : cell.f == null && cell.v === input)) { kept++; return; }
+    const problem = typeof input === 'string' ? wb.typedFormulaProblem(input, { source: true }) : null;
+    if (problem) { unformed.push(`${cellName(r, c)} (${problem.message})`); return; }
     planned.push({ r, c, input });
   }));
-  if (!planned.length && kept && !refused.length && !hidden.length) return { written: qualified(wb, sheetId, range), cells: 0, unchanged: kept };
-  if (!planned.length) throw new ToolError(refused.length || hidden.length ? `Nothing was written: ${[...refused, ...hidden].slice(0, 5).join('; ')}.` : 'Every value was null, so nothing was written.');
+  if (!planned.length && kept && !refused.length && !hidden.length && !unformed.length) return { written: qualified(wb, sheetId, range), cells: 0, unchanged: kept };
+  if (!planned.length) throw new ToolError(refused.length || hidden.length || unformed.length ? `Nothing was written: ${[...refused, ...unformed, ...hidden].slice(0, 5).join('; ')}.` : 'Every value was null, so nothing was written.');
   const note = reachingNote(env, reached);
   const written = new Set(planned.filter(({ input }) => input !== '').map(({ r, c }) => cellKey(r, c)));
   const hit = spillsHit(wb, sheetId, range, (r, c) => written.has(cellKey(r, c)));
   const column = calculatedColumnCells(wb, sheetId, range, planned);
   wb.ensureSize(sheetId, range.r2 + 1, range.c2 + 1);
-  wb.transaction('AI edit', () => { for (const { r, c, input } of planned) writeOne(wb, sheetId, r, c, input); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { for (const { r, c, input } of planned) writeOne(wb, sheetId, r, c, input); });
   // The rows of a calculated column the write rewrote beyond its own block, which the model must know of.
   const rewrote = column.filter(({ r, c, f }) => (wb.getCell(sheetId, r, c)?.f ?? null) !== f).map(({ r, c }) => cellName(r, c));
   const errors = formulaErrors(wb, sheetId, range);
@@ -1212,6 +1235,7 @@ function writeCells(wb, args, env) {
     cells: planned.length,
     ...(kept ? { unchanged: kept } : {}),
     ...(refused.length ? { refused_by_validation: refused.slice(0, 10) } : {}),
+    ...(unformed.length ? { refused_formulas: unformed.slice(0, 10) } : {}),
     ...(hidden.length ? { not_written_inside_merged_cells: hidden.slice(0, 10) } : {}),
     ...(rewrote.length ? { calculated_column: `The formula went into a table's calculated column, so it was written to the column's other rows as well: ${rewrote.length} more cell${rewrote.length === 1 ? '' : 's'} (${rewrote.slice(0, 6).join(', ')}${rewrote.length > 6 ? ', …' : ''}).` } : {}),
     ...(errors.length ? { formula_errors: errors } : {}),
@@ -1227,6 +1251,9 @@ function fillFormula(wb, args, env) {
   const cells = (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
   if (cells > MAX_WRITE_CELLS) throw new ToolError(`At most ${MAX_WRITE_CELLS} cells per call.`);
   try { parseFormula(text.slice(1)); } catch (e) { throw new ToolError(`The formula could not be read: ${e?.message || 'syntax error'}.`); }
+  // One Excel refuses as typed would fill every cell with its text.
+  const problem = wb.typedFormulaProblem(text, { source: true });
+  if (problem) throw new ToolError(`Excel refuses this formula: ${problem.message}.`);
   assertWritable(wb, sheetId, range, { contents: true });
   if (wb.arrayEditBlocked(sheetId, range)) throw new ToolError(`${qualified(wb, sheetId, range)} crosses part of an array formula's result.`);
   if (!wb.canEnsureSize(sheetId, range.r2 + 1, range.c2 + 1)) throw new ToolError('The range runs past the edge of the sheet.');
@@ -1242,7 +1269,7 @@ function fillFormula(wb, args, env) {
     for (let c = range.c1; c <= range.c2; c++) if (wb._coveredByMerge?.(sheetId, r, c)) merged++;
   }
   const skipped = filtered * (range.c2 - range.c1 + 1) + merged;
-  wb.transaction('AI edit', () => wb.fillInput(sheetId, range, text, { r: range.r1, c: range.c1 }));
+  wb.transaction(t('aitools.undo.aiEdit'), () => wb.fillInput(sheetId, range, text, { r: range.r1, c: range.c1 }));
   const errors = formulaErrors(wb, sheetId, range);
   const blocked = blockedSpills(wb, sheetId, hit);
   const left = [filtered && `${filtered} row${filtered === 1 ? '' : 's'} hidden by a filter`, merged && `${merged} cell${merged === 1 ? '' : 's'} inside merged cells`].filter(Boolean);
@@ -1284,14 +1311,16 @@ function clearRange(wb, args, env) {
   if (!runs.length) return { cleared: 0, ...left };
   const filled = () => runs.reduce((n, rg) => n + filledCells(wb, sheetId, rg), 0);
   const before = wb.version;
-  wb.transaction('AI edit', () => {
+  wb.transaction(t('aitools.undo.aiEdit'), () => {
     wb.clearRange(sheetId, range, { contents: what !== 'formats', styles: what !== 'contents', skipRow: filtered ? (r) => hidden.has(r) : null });
     // Conditional formats and merged blocks are formatting too, which Clear Formats and Clear All take off with the
     // rest (see the editor's clearRulesAndMerges): left on, the cleared cells stayed highlighted, or merged.
     const refused = wb.version === before && what === 'all' && filled();
     if (what !== 'contents' && !refused) { clearRules(wb, sheetId, runs); for (const rg of runs) wb.unmergeCells(sheetId, rg); }
   });
-  if (wb.version === before && filled()) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
+  // Formats alone are not refused for an array or a pivot table (protection is checked above): a clear of them that
+  // changed nothing found no formatting to clear, however many values the cells hold.
+  if (wb.version === before && what !== 'formats' && filled()) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
   return { cleared: qualified(wb, sheetId, range), what, ...left };
 }
 
@@ -1425,7 +1454,7 @@ function copyRangeTool(wb, args, env) {
   let pasted = null;
   const refused = collectRefusals(wb, dstId, (wasRefused) => {
     wb.ensureSize(dstId, block.r2 + 1, block.c2 + 1);
-    wb.transaction('AI edit', () => {
+    wb.transaction(t('aitools.undo.aiEdit'), () => {
       if (at.transpose) {
         const sheet = wb.sheet(dstId);
         pasted = composePaste(wb, dstId, snap, r, c, null, { what, transpose: true }, { rows: sheet.rows, cols: sheet.cols })?.pasted;
@@ -1534,7 +1563,7 @@ function moveRangeTool(wb, args, env) {
   const hiddenRows = src.r2 >= MAX_ROW ? 0 : new Set([...source.hiddenRows, ...source.filterHidden].filter((r) => r >= src.r1 && r <= src.r2)).size;
   const hiddenCols = src.c2 >= MAX_COL ? 0 : [...source.hiddenCols].filter((c) => c >= src.c1 && c <= src.c2).length;
   let done = null;
-  wb.transaction('AI edit', () => {
+  wb.transaction(t('aitools.undo.aiEdit'), () => {
     if (!across) { done = wb.moveRange(sheetId, src, r0, c0); return; }
     wb.ensureSize(dstId, dst.r2 + 1, dst.c2 + 1);
     done = wb.placeMoved(dstId, r0, c0, wb.copyRange(sheetId, src, { sameBook: true }), { sheetId, range: src });
@@ -1640,7 +1669,7 @@ function findReplace(wb, args, env) {
   const before = found.map(({ sheet, matches }) => matches.map(({ r, c }) => wb.getCell(sheet.id, r, c)));
   const skipped = [];
   let n = 0;
-  wb.transaction('AI edit', () => {
+  wb.transaction(t('aitools.undo.aiEdit'), () => {
     for (const { sheet, matches } of found) if (matches.length) n += replaceCells(wb, sheet.id, matches, needle, replacement, { ...opts, skipped });
   });
   const changed = [];
@@ -1730,7 +1759,7 @@ function formatCells(wb, args, env) {
     wb.ensureSize(sheetId, range.r2 + 1, range.c2 + 1);
   }
   // Whole columns and rows are formatted as lines (the way the toolbar formats them), not cell by cell.
-  wb.transaction('AI edit', () => {
+  wb.transaction(t('aitools.undo.aiEdit'), () => {
     if (Object.keys(patch).length) wb.applyStyle(sheetId, range, patch);
     if (borders != null) wb.applyBorders(sheetId, range, borders, { scope: lineScope(range) });
   });
@@ -1748,7 +1777,7 @@ function lines(wb, args, env, { axis, remove }) {
   const n = count(args.count);
   const label = axis === 'row' ? `row${n === 1 ? '' : 's'} ${index + 1}${n > 1 ? `–${index + n}` : ''}` : `column${n === 1 ? '' : 's'} ${colName(index)}${n > 1 ? `–${colName(index + n - 1)}` : ''}`;
   let ok;
-  if (remove) ok = wb.deleteLines(sheet.id, axis, [{ from: index, to: index + n - 1 }], 'AI edit');
+  if (remove) ok = wb.deleteLines(sheet.id, axis, [{ from: index, to: index + n - 1 }], t('aitools.undo.aiEdit'));
   else ok = axis === 'row' ? wb.insertRows(sheet.id, index, n) : wb.insertCols(sheet.id, index, n);
   if (!ok) throw new ToolError(`Could not ${remove ? 'delete' : 'insert'} ${label} on ${sheet.name}: ${remove ? 'they may be protected, or split a table, pivot table or array formula.' : 'the data would be pushed past the edge of the sheet, or a table, pivot table or array formula is in the way.'}`);
   return { [remove ? 'deleted' : 'inserted']: `${label} on ${sheet.name}` };
@@ -1789,7 +1818,7 @@ function sortRange(wb, args, env) {
   const blocker = wb.rearrangeBlocker?.(sheetId, rows, 'row');
   if (blocker) throw new ToolError(`The rows of ${qualified(wb, sheetId, rows)} cannot be rearranged (${SORT_BLOCKERS[blocker] || 'merged cells, a table\'s edge, a pivot table or an array formula is in the way'}).`);
   let ok;
-  wb.transaction('AI edit', () => { ok = wb.sortRangeBy(sheetId, rows, parsed); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { ok = wb.sortRangeBy(sheetId, rows, parsed); });
   if (!ok) throw new ToolError(`${qualified(wb, sheetId, rows)} could not be sorted.`);
   return { sorted: qualified(wb, sheetId, rows), by: parsed.map((k) => `${colName(k.col)} ${k.ascending ? 'ascending' : 'descending'}`), header_kept: !!header };
 }
@@ -1988,18 +2017,18 @@ function filterRange(wb, args, env) {
   if (action !== 'apply') {
     if (!filter) throw new ToolError(`There is no filter on ${where} to ${action}.`);
     if (action === 'clear') {
-      if (Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, 'AI edit', { target: filter });
+      if (Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, t('aitools.undo.aiEdit'), { target: filter });
       return { cleared: where, ...shownCounts(wb, sheetId, range) };
     }
     // A table keeps its filter with the buttons hidden, as Data ▸ Filter leaves it: removed outright, its slicers would go too.
     if (table) {
       if (!Object.keys(filter.criteria).length && !tableFilterButtonOn(wb, sheetId, table)) throw new ToolError(`The filter on ${table.name} is already off.`);
-      wb.transaction('AI edit', () => {
-        if (Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, 'AI edit', { target: filter });
+      wb.transaction(t('aitools.undo.aiEdit'), () => {
+        if (Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, t('aitools.undo.aiEdit'), { target: filter });
         const live = sheetFilters(wb.sheet(sheetId)).find((f) => filterTable(sheet, f)?.id === table.id);
-        if (live && live.showButtons !== false) wb._setFilter(sheet, { ...live, showButtons: false }, 'AI edit', { target: live });
+        if (live && live.showButtons !== false) wb._setFilter(sheet, { ...live, showButtons: false }, t('aitools.undo.aiEdit'), { target: live });
       });
-    } else wb._setFilter(sheet, null, 'AI edit', { target: filter });
+    } else wb._setFilter(sheet, null, t('aitools.undo.aiEdit'), { target: filter });
     return { removed: `the filter on ${where}`, rows_shown: 'all' };
   }
   const specs = Array.isArray(args.columns) ? args.columns : [];
@@ -2021,7 +2050,7 @@ function filterRange(wb, args, env) {
   // filtering it shows them again, as Data ▸ Filter does, or rows went missing with nothing in the header to say why.
   if (table && filter && Object.keys(criteria).length && !tableFilterButtonOn(wb, sheetId, table)) { delete next.showButtons; delete next.hiddenButtons; }
   const replaced = !filter && !table ? sheetFilters(sheet).find((f) => !filterTable(sheet, f)) : null;
-  wb._setFilter(sheet, next, 'AI edit', filter ? { target: filter } : { create: true });
+  wb._setFilter(sheet, next, t('aitools.undo.aiEdit'), filter ? { target: filter } : { create: true });
   const after = sheetFilters(wb.sheet(sheetId)).find((f) => sameFilterRange(f, next));
   if (!after) throw new ToolError(`The filter on ${where} could not be set.`);
   return {
@@ -2133,7 +2162,7 @@ function createPivotTable(wb, args, env) {
   else if (wb.structureProtected) throw new ToolError('The workbook\'s structure is protected, so no sheet can be added for the pivot table. Give a destination cell on an existing sheet, or the user can turn this off with Review ▸ Protect Workbook.');
   const name = args.new_sheet_name ? String(args.new_sheet_name).trim() : null;
   if (dest && name) throw new ToolError('Give either a destination or a new_sheet_name, not both.');
-  if (name) { const problem = wb.validateSheetName(name); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
+  if (name) { const problem = wb.validateSheetName(name, null, { source: true }); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
   let built;
   try { built = buildPivot(wb, source.sheetId, spec); } catch (e) { if (e instanceof PivotSizeError) throw new ToolError(e.message); throw e; }
   if (!built.rowCount) throw new ToolError(`"${fields[spec.rowField].label}" has no values to group the rows by.`);
@@ -2144,10 +2173,10 @@ function createPivotTable(wb, args, env) {
     assertWritable(wb, dest.sheetId, checked.area);
     sheetId = dest.sheetId;
     const hit = pivotSpillsHit(wb, dest, built);
-    area = writePivotAt(wb, source.sheetId, built, sheetId, dest.at, { label: 'AI edit' });
+    area = writePivotAt(wb, source.sheetId, built, sheetId, dest.at, { label: t('aitools.undo.aiEdit') });
     blocked = blockedSpills(wb, sheetId, hit);
   } else {
-    const sheet = writePivotSheet(wb, source.sheetId, built, { name, label: 'AI edit' });
+    const sheet = writePivotSheet(wb, source.sheetId, built, { name, label: t('aitools.undo.aiEdit') });
     if (!sheet) throw new ToolError('No sheet could be added for the pivot table.');
     sheetId = sheet.id;
     area = { r1: 0, c1: 0, r2: built.rows - 1, c2: built.cols - 1 };
@@ -2317,7 +2346,7 @@ function updateChart(wb, args, env) {
     if (kept.length) return { chart: chart.id, unchanged: kept.join(' ') };
     throw new ToolError('Nothing to change was given.');
   }
-  wb.transaction('AI edit', () => wb.updateChart(sheet.id, chart.id, patch, 'AI edit'));
+  wb.transaction(t('aitools.undo.aiEdit'), () => wb.updateChart(sheet.id, chart.id, patch, t('aitools.undo.aiEdit')));
   const after = wb.chartById(sheet.id, chart.id);
   return { chart: chart.id, sheet: sheet.name, changed: changes, ...(after ? { type: after.type, data: chartSource(after) } : {}) };
 }
@@ -2396,7 +2425,7 @@ function deleteChart(wb, args) {
   if (sheet.kind === 'chart') throw new ToolError(`That chart is the chart sheet "${sheet.name}"; delete the sheet with manage_sheet instead.`);
   const { title } = shownTitles(wb, sheet.id, chart);
   let ok = false;
-  wb.transaction('AI edit', () => { ok = wb.deleteChart(sheet.id, chart.id); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { ok = wb.deleteChart(sheet.id, chart.id); });
   if (!ok) throw new ToolError('The chart could not be deleted (its sheet may be protected).');
   return { deleted: `${chart.type} chart${title ? ` "${clip(title, 80)}"` : ''} on ${sheet.name}` };
 }
@@ -2440,7 +2469,7 @@ function createTable(wb, args, env) {
   }
   const formulas = headerFormulas(wb, sheetId, range);
   let id;
-  wb.transaction('AI edit', () => { id = wb.addTable(sheetId, range, { ...(name ? { name } : {}), totalsRow: !!args.totals_row }); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { id = wb.addTable(sheetId, range, { ...(name ? { name } : {}), totalsRow: !!args.totals_row }); });
   if (id == null) throw new ToolError(`${qualified(wb, sheetId, range)} cannot become a table: it needs a header row and at least one row under it, and must not overlap another table, a pivot table, merged cells or an array formula.`);
   const table = wb.tableById(sheetId, id);
   return {
@@ -2486,7 +2515,7 @@ function addConditionalFormat(wb, args, env) {
     if (!rule.style.bg && !rule.style.color && !rule.style.bold) rule.style.bg = '#fef3c7';
   }
   let id;
-  wb.transaction('AI edit', () => { id = wb.addRule(sheetId, rule); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { id = wb.addRule(sheetId, rule); });
   if (id == null) throw new ToolError('The rule could not be added.');
   return { rule: `${type} on ${qualified(wb, sheetId, range)}`, id };
 }
@@ -2507,13 +2536,15 @@ function conditionalRemoval(wb, args, env) {
   if (args.rule_id) {
     const { sheet, id } = ruleSheet(wb, args.rule_id);
     const group = conditionalRuleGroups(sheet.rules).find((g) => g.rules.some((r) => r.id === id));
-    return { sheet, how: 'rule', id, touched: 1, label: `the rule ${describeRule(group.rule)} on ${group.rules.map((p) => rangeName(p.range)).join(', ')}` };
+    // The model reads the English; the person is shown the rule in the interface language.
+    const shown = { rule: describeRule(group.rule), ranges: group.rules.map((p) => rangeName(p.range)).join(', ') };
+    return { sheet, how: 'rule', id, touched: 1, label: `the rule ${describeRule(group.rule, { source: true })} on ${shown.ranges}`, shown };
   }
   if (args.range) {
     const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
     const sheet = wb.sheet(sheetId);
     const touched = conditionalRuleGroups(sheet.rules || []).filter((g) => g.rules.some((r) => overlaps(r.range, range))).length;
-    return { sheet, how: 'range', range, touched, label: `the rules on ${qualified(wb, sheetId, range)}` };
+    return { sheet, how: 'range', range, touched, label: `the rules on ${qualified(wb, sheetId, range)}`, shown: { where: qualified(wb, sheetId, range) } };
   }
   if (args.whole_sheet) {
     const sheet = gridSheet(wb, args.sheet, env.sheetId());
@@ -2527,7 +2558,7 @@ function removeConditionalFormat(wb, args, env) {
   assertWritable(wb, plan.sheet.id, null);
   if (!plan.touched) return { removed: 0, note: `${plan.how === 'sheet' ? plan.sheet.name : qualified(wb, plan.sheet.id, plan.range)} has no conditional formatting.` };
   let touched = 0;
-  wb.transaction('AI edit', () => {
+  wb.transaction(t('aitools.undo.aiEdit'), () => {
     if (plan.how === 'rule') touched = wb.deleteRuleGroup(plan.sheet.id, plan.id) ? 1 : 0;
     else touched = clearRules(wb, plan.sheet.id, plan.how === 'range' ? [plan.range] : null);
   });
@@ -2554,7 +2585,7 @@ function addDropdown(wb, args, env) {
     source = `=${qualified(wb, src.sheetId, src.range)}`;
   } else throw new ToolError('Give the choices in options, or a source_range that holds them.');
   let id;
-  wb.transaction('AI edit', () => { id = wb.addValidation(sheetId, { range, type: 'list', source, strict: args.strict !== false }); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { id = wb.addValidation(sheetId, { range, type: 'list', source, strict: args.strict !== false }); });
   if (id == null) throw new ToolError('The dropdown could not be added.');
   return { dropdown: qualified(wb, sheetId, range), choices: Array.isArray(source) ? source.length : source, ...(replaced ? { replaced: 'the rule these cells had before' } : {}) };
 }
@@ -2641,7 +2672,7 @@ function addValidation(wb, args, env) {
   if (args.error_message) rule.message = cutText(String(args.error_message).trim(), 255);
   const replaced = sameRangeValidation(wb, sheetId, range);
   let id;
-  wb.transaction('AI edit', () => { id = wb.addValidation(sheetId, rule); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { id = wb.addValidation(sheetId, rule); });
   if (id == null) throw new ToolError('The rule could not be added (the sheet may be protected).');
   const broken = type === 'checkbox' ? { n: 0, found: [] } : breakingCells(wb, sheetId, range);
   return {
@@ -2656,13 +2687,14 @@ function validationRemoval(wb, args, env) {
   if (args.rule_id) {
     const { sheet, id } = ruleSheet(wb, args.rule_id, 'validations');
     const rule = sheet.validations.find((v) => v.id === id);
-    return { sheet, how: 'rule', id, rules: [rule], label: `the ${rule.type === 'list' ? 'dropdown' : 'validation rule'} on ${quoteSheet(sheet.name)}!${rangeName(rule.range)}` };
+    const where = `${quoteSheet(sheet.name)}!${rangeName(rule.range)}`;
+    return { sheet, how: 'rule', id, rules: [rule], label: `the ${rule.type === 'list' ? 'dropdown' : 'validation rule'} on ${where}`, shown: { where } };
   }
   if (args.range) {
     const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
     const sheet = wb.sheet(sheetId);
     const rules = (sheet.validations || []).filter((v) => overlaps(v.range, range));
-    return { sheet, how: 'range', range, rules, label: `the validation on ${qualified(wb, sheetId, range)}` };
+    return { sheet, how: 'range', range, rules, label: `the validation on ${qualified(wb, sheetId, range)}`, shown: { where: qualified(wb, sheetId, range) } };
   }
   throw new ToolError('Give rule_id, or the range to clear of validation.');
 }
@@ -2672,7 +2704,7 @@ function removeValidation(wb, args, env) {
   assertWritable(wb, plan.sheet.id, null);
   if (!plan.rules.length) return { removed: 0, note: `${qualified(wb, plan.sheet.id, plan.range)} has no data validation.` };
   let ok = false;
-  wb.transaction('AI edit', () => { ok = plan.how === 'rule' ? wb.deleteValidation(plan.sheet.id, plan.id) : wb.clearValidations(plan.sheet.id, plan.range); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { ok = plan.how === 'rule' ? wb.deleteValidation(plan.sheet.id, plan.id) : wb.clearValidations(plan.sheet.id, plan.range); });
   if (!ok) throw new ToolError('The validation could not be removed (the sheet may be protected).');
   return { removed: plan.label, rules_left_on_sheet: plan.sheet.validations.length };
 }
@@ -2685,7 +2717,7 @@ function manageSheet(wb, args, env) {
   }
   if (action === 'add') {
     const name = args.sheet ? String(args.sheet).trim() : null;
-    if (name) { const problem = wb.validateSheetName(name); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
+    if (name) { const problem = wb.validateSheetName(name, null, { source: true }); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
     const sheet = wb.addSheet(name);
     return { added: sheet?.name };
   }
@@ -2699,7 +2731,7 @@ function manageSheet(wb, args, env) {
   }
   if (action === 'rename') {
     const name = String(args.new_name ?? '').trim();
-    const problem = wb.validateSheetName(name, sheet.id);
+    const problem = wb.validateSheetName(name, sheet.id, { source: true });
     if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`);
     const old = sheet.name;
     if (!wb.renameSheet(sheet.id, name)) throw new ToolError(`${old} could not be renamed.`);
@@ -2759,7 +2791,7 @@ function removeDuplicates(wb, args, env) {
   const plan = wb.duplicatesPlan(sheetId, range, { header, columns });
   if (plan === false) throw new ToolError(`Duplicates cannot be removed from ${qualified(wb, sheetId, range)}.`);
   let removed;
-  wb.transaction('AI edit', () => { removed = wb.removeDuplicates(sheetId, range, { header, columns }); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { removed = wb.removeDuplicates(sheetId, range, { header, columns }); });
   if (removed === false) throw new ToolError(`Duplicates cannot be removed from ${qualified(wb, sheetId, range)}.`);
   const span = plan ? plan.range : range;
   const total = plan ? span.r2 - plan.start + 1 : 0;
@@ -2879,14 +2911,14 @@ function splitReplaces(wb, t, entries) {
 const boundsOf = (entries) => entries.reduce((b, { r, c }) => ({ r1: Math.min(b.r1, r), c1: Math.min(b.c1, c), r2: Math.max(b.r2, r), c2: Math.max(b.c2, c) }), { r1: Infinity, c1: Infinity, r2: -1, c2: -1 });
 
 function splitTextToColumns(wb, args, env) {
-  const t = splitArgs(wb, args, env.sheetId());
-  const { sheetId } = t;
+  const split = splitArgs(wb, args, env.sheetId());
+  const { sheetId } = split;
   assertWritable(wb, sheetId, null);
-  const { plans, entries } = splitPlans(wb, t);
+  const { plans, entries } = splitPlans(wb, split);
   if (plans.some(({ plan }) => plan.reason === 'room')) throw new ToolError('The pieces would run past the last column of the sheet. Split into a destination further left, or skip some pieces.');
   if (!entries.length) {
-    const what = t.options?.mode === 'fixed' ? 'is long enough to cut at those positions' : t.options ? 'holds those delimiters' : 'holds a tab, comma, semicolon, pipe or space to split on';
-    throw new ToolError(`No text in ${qualified(wb, sheetId, t.range)} ${what}, so nothing was split.`);
+    const what = split.options?.mode === 'fixed' ? 'is long enough to cut at those positions' : split.options ? 'holds those delimiters' : 'holds a tab, comma, semicolon, pipe or space to split on';
+    throw new ToolError(`No text in ${qualified(wb, sheetId, split.range)} ${what}, so nothing was split.`);
   }
   if (entries.length > MAX_WRITE_CELLS * 10) throw new ToolError(`The split would write ${entries.length.toLocaleString('en-US')} cells; split fewer rows at a time.`);
   // Refused whole, before anything is written, where the workbook would refuse a part of it.
@@ -2902,20 +2934,20 @@ function splitTextToColumns(wb, args, env) {
   // A piece reading "=IMPORTDATA(…)" becomes that formula, as typed: blocked before it is written, as one typed is.
   const distrusted = reachingNote(env, entries.some(({ cell }) => cell?.f != null && reachesOut(wb, cell.f)));
   let rows = 0, cols = 0, reason = null;
-  wb.transaction('AI edit', () => {
+  wb.transaction(t('aitools.undo.aiEdit'), () => {
     for (const { run, plan } of plans) {
       if (!plan.entries) continue;
-      const out = wb.splitTextToColumns(sheetId, run, t.options);
+      const out = wb.splitTextToColumns(sheetId, run, split.options);
       rows += out.rows;
       cols = Math.max(cols, out.cols);
       reason ??= out.reason;
     }
   });
-  if (!rows) throw new ToolError(reason === 'merged' ? 'The pieces would land inside merged cells.' : reason === 'protected' ? 'The pieces would land in a protected range.' : `${qualified(wb, sheetId, t.range)} could not be split.`);
+  if (!rows) throw new ToolError(reason === 'merged' ? 'The pieces would land inside merged cells.' : reason === 'protected' ? 'The pieces would land in a protected range.' : `${qualified(wb, sheetId, split.range)} could not be split.`);
   const blocked = blockedSpills(wb, sheetId, hit);
   return {
-    split: qualified(wb, sheetId, t.range), cells_split: rows, columns: cols, written: qualified(wb, sheetId, bounds),
-    ...(t.options?.delimiters?.length ? { delimiters: t.options.delimiters } : {}),
+    split: qualified(wb, sheetId, split.range), cells_split: rows, columns: cols, written: qualified(wb, sheetId, bounds),
+    ...(split.options?.delimiters?.length ? { delimiters: split.options.delimiters } : {}),
     ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
     ...(distrusted ? { blocked_note: distrusted } : {}),
   };
@@ -2952,7 +2984,7 @@ function addSparklines(wb, args, env) {
     const n = sparklinesIn(wb, sheetId, loc);
     if (!n) throw new ToolError(`There are no sparklines in ${qualified(wb, sheetId, loc)}.`);
     let removed;
-    wb.transaction('AI edit', () => { removed = wb.clearNativeSparklines(sheetId, [loc]); });
+    wb.transaction(t('aitools.undo.aiEdit'), () => { removed = wb.clearNativeSparklines(sheetId, [loc]); });
     if (removed == null || removed === 0) throw new ToolError(`The sparklines in ${qualified(wb, sheetId, loc)} could not be removed: a cell of theirs is protected.`);
     return { removed_sparklines: removed, from: qualified(wb, sheetId, loc) };
   }
@@ -2983,7 +3015,7 @@ function addSparklines(wb, args, env) {
   }
   const orientation = args.series_in === 'rows' ? 'rows' : args.series_in === 'columns' ? 'columns' : 'auto';
   let error;
-  wb.transaction('AI edit', () => { error = wb.createNativeSparklines(sheetId, { source, location: rangeName(loc), type, orientation, flags }); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { error = wb.createNativeSparklines(sheetId, { source, location: rangeName(loc), type, orientation, flags, english: true }); });
   if (error) throw new ToolError(`The sparklines could not be added: ${error.message}`);
   return { sparklines: sparklinesIn(wb, sheetId, loc), type: kind, in: qualified(wb, sheetId, loc), data: source };
 }
@@ -3039,7 +3071,7 @@ function setLink(wb, args, env) {
   const existing = wb.linkAt(sheetId, r, c);
   if (args.remove) {
     if (!existing) throw new ToolError(`${at} has no link.`);
-    wb.transaction('AI edit', () => wb.removeLink(sheetId, r, c));
+    wb.transaction(t('aitools.undo.aiEdit'), () => wb.removeLink(sheetId, r, c));
     if (wb.linkAt(sheetId, r, c)) throw new ToolError(`The link on ${at} could not be removed.`);
     return { link_removed: at, shows: wb.getDisplay(sheetId, r, c) };
   }
@@ -3058,7 +3090,7 @@ function setLink(wb, args, env) {
   if (!wb.canEnsureSize(sheetId, r + 1, c + 1)) throw new ToolError('The cell is past the edge of the sheet.');
   wb.ensureSize(sheetId, r + 1, c + 1);
   let ok;
-  wb.transaction('AI edit', () => { ok = wb.setLink(sheetId, r, c, url, label); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { ok = wb.setLink(sheetId, r, c, url, label); });
   if (!ok) throw new ToolError(`A link could not be put on ${at}.`);
   return { linked: at, to: url, shows: wb.getDisplay(sheetId, r, c), ...(existing && existing.url !== url ? { replaced: `the link to ${existing.url}` } : {}) };
 }
@@ -3073,12 +3105,12 @@ function setColumnWidth(wb, args, env) {
   if (hi - lo > 200) throw new ToolError('At most 200 columns at once.');
   if (String(args.width).trim().toLowerCase() === 'fit') {
     if (!env.autofit) throw new ToolError('Columns cannot be fitted here; give a width in pixels.');
-    wb.transaction('AI edit', () => env.autofit(sheet.id, lo, hi));
+    wb.transaction(t('aitools.undo.aiEdit'), () => env.autofit(sheet.id, lo, hi));
     return { fitted: `${colName(lo)}${hi > lo ? `:${colName(hi)}` : ''} on ${sheet.name}` };
   }
   const width = Math.round(Number(args.width));
   if (!(width >= 24 && width <= 800)) throw new ToolError('width must be 24 to 800 pixels, or "fit".');
-  wb.transaction('AI edit', () => { for (let c = lo; c <= hi; c++) wb.setColWidth(sheet.id, c, width); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { for (let c = lo; c <= hi; c++) wb.setColWidth(sheet.id, c, width); });
   return { resized: `${colName(lo)}${hi > lo ? `:${colName(hi)}` : ''} on ${sheet.name}`, width };
 }
 
@@ -3122,6 +3154,16 @@ function linesLabel(axis, runs) {
   return `${axis === 'row' ? 'row' : 'column'}${many ? 's' : ''} ${listed}${runs.length > 6 ? ', …' : ''}`;
 }
 
+/** linesLabel in the interface language, for the step shown in the chat. */
+function shownLines(axis, runs) {
+  const one = (i) => (axis === 'row' ? String(i + 1) : colName(i));
+  const many = runs.length > 1 || runs[0].to > runs[0].from;
+  const listed = runs.slice(0, 6).map(({ from, to }) => (to > from ? `${one(from)}–${one(to)}` : one(from))).join(', ');
+  const list = runs.length > 6 ? t('aitools.lines.more', { list: listed }) : listed;
+  if (axis === 'row') return many ? t('aitools.lines.rows', { list }) : t('aitools.lines.row', { list });
+  return many ? t('aitools.lines.columns', { list }) : t('aitools.lines.column', { list });
+}
+
 function setRowHeight(wb, args, env) {
   const sheet = gridSheet(wb, args.sheet, env.sheetId());
   assertWritable(wb, sheet.id, null);
@@ -3137,7 +3179,7 @@ function setRowHeight(wb, args, env) {
     if (runLength(fit) > 5000) throw new ToolError('At most 5,000 rows can be fitted at once.');
     let ok = true;
     // The editor measures text on the sheet in view alone; it says so before fitting anything.
-    wb.transaction('AI edit', () => { for (const { from, to } of fit) if (ok) ok = env.autofitRows(sheet.id, from, to) !== false; });
+    wb.transaction(t('aitools.undo.aiEdit'), () => { for (const { from, to } of fit) if (ok) ok = env.autofitRows(sheet.id, from, to) !== false; });
     if (!ok) throw new ToolError(`Rows can be fitted only on the sheet the user is looking at. Show ${quoteSheet(sheet.name)} first (manage_sheet with action "activate"), or give a height in pixels.`);
     return { fitted: where };
   }
@@ -3145,11 +3187,11 @@ function setRowHeight(wb, args, env) {
   if (!(height >= MIN_ROW_PX && height <= MAX_ROW_PX)) throw new ToolError(`height must be ${MIN_ROW_PX} to ${MAX_ROW_PX} pixels, or "fit".`);
   // Every row of the sheet is the sheet's default height, as Row Height… over the whole sheet sets it.
   if (runs.length === 1 && runs[0].from === 0 && runs[0].to >= MAX_ROW) {
-    wb.transaction('AI edit', () => wb.setDefaultLineSize(sheet.id, 'row', height));
+    wb.transaction(t('aitools.undo.aiEdit'), () => wb.setDefaultLineSize(sheet.id, 'row', height));
     return { resized: `every row on ${sheet.name}`, height };
   }
   if (runLength(runs) > 20000) throw new ToolError('At most 20,000 rows at once; to size every row, give rows "1:1048576".');
-  wb.transaction('AI edit', () => { for (const { from, to } of runs) for (let r = from; r <= to; r++) wb.setRowHeight(sheet.id, r, height); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { for (const { from, to } of runs) for (let r = from; r <= to; r++) wb.setRowHeight(sheet.id, r, height); });
   return { resized: where, height };
 }
 
@@ -3181,7 +3223,7 @@ function setHidden(wb, args, env) {
   const pending = indices.filter((i) => set.has(i) !== hide);
   if (!pending.length) return { [hide ? 'hidden' : 'shown']: where, changed: 0, note: hide ? 'They were hidden already.' : byFilter || 'None of them was hidden.' };
   let ok;
-  wb.transaction('AI edit', () => { ok = wb.setHidden(sheet.id, axis, pending, hide); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { ok = wb.setHidden(sheet.id, axis, pending, hide); });
   if (!ok) throw new ToolError(`${where} cannot all be hidden: a sheet keeps at least one ${axis === 'row' ? 'row' : 'column'} showing.`);
   return { [hide ? 'hidden' : 'shown']: where, changed: pending.length, ...(byFilter ? { note: byFilter } : {}) };
 }
@@ -3234,7 +3276,7 @@ function mergeCells(wb, args, env) {
     const hit = wb.mergesIn(sheetId, asked);
     if (!hit.length) throw new ToolError(`${qualified(wb, sheetId, asked)} holds no merged cells.`);
     for (const g of hit) assertWritable(wb, sheetId, g);
-    wb.transaction('AI edit', () => wb.unmergeCells(sheetId, asked));
+    wb.transaction(t('aitools.undo.aiEdit'), () => wb.unmergeCells(sheetId, asked));
     return { unmerged: hit.slice(0, 20).map((g) => qualified(wb, sheetId, g)), ...(hit.length > 20 ? { more: hit.length - 20 } : {}) };
   }
   const across = action === 'merge_across';
@@ -3253,7 +3295,7 @@ function mergeCells(wb, args, env) {
   const hit = spillsHit(wb, sheetId, range, (r, c) => !firsts.has(cellKey(r, c)));
   const center = args.center ?? !across;
   let merged = [];
-  wb.transaction('AI edit', () => {
+  wb.transaction(t('aitools.undo.aiEdit'), () => {
     // Merged cells already inside the range give way to the new blocks, as Merge Across replaces them.
     if (across) wb.unmergeCells(sheetId, range);
     merged = wb.mergeBlocks(sheetId, blocks);
@@ -3366,7 +3408,7 @@ function manageName(wb, args, env) {
   if (action === 'delete') {
     const uses = nameUses(wb, existing);
     const fallback = shadowedName(wb, existing);
-    wb.transaction('AI edit', () => wb.deleteName(existing.name, scope));
+    wb.transaction(t('aitools.undo.aiEdit'), () => wb.deleteName(existing.name, scope));
     const now = fallback ? `now use${uses === 1 ? 's' : ''} the workbook's ${fallback.name} (${fallback.ref})` : `now show${uses === 1 ? 's' : ''} #NAME?`;
     return { deleted: label, ...(uses ? { note: `${uses} formula${uses === 1 ? ' uses' : 's use'} it and ${now}.` } : {}) };
   }
@@ -3374,7 +3416,7 @@ function manageName(wb, args, env) {
   const note = reachingNote(env, reachesOut(wb, refText));
   let problem;
   if (action === 'define') {
-    wb.transaction('AI edit', () => { problem = wb.defineName(name, refText, scope); });
+    wb.transaction(t('aitools.undo.aiEdit'), () => { problem = wb.defineName(name, refText, scope, { source: true }); });
     if (problem) throw new ToolError(`${label} could not be defined: ${problem}.`);
     return {
       defined: scope ? `${quoteSheet(scope)}!${name}` : name, refers_to: refText, scope: scope || 'workbook',
@@ -3385,7 +3427,7 @@ function manageName(wb, args, env) {
   const to = String(args.new_name ?? '').trim();
   if (!to) throw new ToolError('Give new_name, the name to rename it to.');
   if (BUILT_IN_NAME.test(to) && to.toLowerCase() !== existing.name.toLowerCase()) throw builtInRefusal(to);
-  wb.transaction('AI edit', () => { problem = wb.renameName(existing.name, scope, to, refText); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { problem = wb.renameName(existing.name, scope, to, refText, { source: true }); });
   if (problem) throw new ToolError(`${label} could not be renamed to ${to}: ${problem}.`);
   return { renamed: label, to, refers_to: refText, ...(existing.ref !== refText ? { replaced: `It referred to ${existing.ref} before.` } : {}), ...(note ? { note } : {}) };
 }
@@ -3396,12 +3438,18 @@ function addNote(wb, args, env) {
   // Blank text removes the note, as the workbook takes it; a longer note is kept to its limit, and said to be.
   const given = String(args.text ?? '');
   const text = given.trim() ? cutText(given, MAX_NOTE) : '';
+  // A cell under a merged cell's top-left one is never drawn, its note's mark with it: the note was reported added
+  // and no one could see or open it. (One already there may still be removed.)
+  const merge = text ? wb.mergeAt?.(sheetId, range.r1, range.c1) : null;
+  if (merge && (merge.r1 !== range.r1 || merge.c1 !== range.c1)) {
+    throw new ToolError(`${cellName(range.r1, range.c1)} is inside the merged cell ${rangeName(merge)}, where a note does not show; put it on ${cellName(merge.r1, merge.c1)}.`);
+  }
   // A cell holds a note or a comment thread, not both, as in Excel: a note put beside a thread was reported as
   // added, then lost when the file was saved, where the thread's own note takes the cell's one place.
   if (text && getThread(wb, sheetId, range.r1, range.c1)) {
     throw new ToolError(`${qualified(wb, sheetId, { r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 })} holds a comment thread, and a cell holds a note or a comment, not both. Put the note on another cell, or leave it to the user to reply to the thread.`);
   }
-  wb.transaction('AI edit', () => wb.setNote(sheetId, range.r1, range.c1, text));
+  wb.transaction(t('aitools.undo.aiEdit'), () => wb.setNote(sheetId, range.r1, range.c1, text));
   return {
     [text ? 'note_added' : 'note_removed']: qualified(wb, sheetId, { r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 }),
     ...(given.length > MAX_NOTE && text ? { note: `A note holds at most ${MAX_NOTE.toLocaleString('en-US')} characters; the text was cut to that.` } : {}),
@@ -3446,7 +3494,7 @@ function goalSeek(wb, args, env) {
   assertNotUnderMerge(wb, sheetId, variable, 'by_changing');
   const from = wb.getDisplay(sheetId, variable.r, variable.c);
   const before = wb.version;
-  const res = wb.goalSeek(sheetId, target, goal, variable, { label: 'AI edit' });
+  const res = wb.goalSeek(sheetId, target, goal, variable, { label: t('aitools.undo.aiEdit'), source: true });
   if (!res.ok) {
     const hint = {
       'The cell to set must contain a formula': `${name(target)} holds no formula. set_cell must be a formula that depends on by_changing.`,
@@ -3505,6 +3553,9 @@ function solverModel(wb, args, env) {
       if (['int', 'bin', 'dif'].includes(rel)) return { lhs, rel, rhs: { int: 'integer', bin: 'binary', dif: 'AllDifferent' }[rel] };
       if (k.value == null || text(k.value) === '') throw new ToolError(`Constraint ${i + 1} (${rel}) needs a value: a number, a cell or a formula.`);
       if (typeof k.value === 'number' && !Number.isFinite(k.value)) throw new ToolError(`Constraint ${i + 1}: the value must be finite.`);
+      // Solver evaluates a right side that is a formula at once and at every trial, and saves it in the model: one
+      // that reaches out sent cells to its address unasked where the workbook had been allowed external content.
+      if (typeof k.value !== 'number' && reachesOut(wb, text(k.value))) throw new ToolError(`Constraint ${i + 1}: a constraint's formula cannot reach outside the workbook.`);
       return { lhs, rel, rhs: typeof k.value === 'number' ? String(k.value) : anchored(k.value) };
     });
   } else if (fresh) model.constraints = [];
@@ -3573,7 +3624,7 @@ async function solve(wb, args, env) {
   const keep = args.keep !== false && !!result.x && (result.solved || args.keep_best_found === true);
   const allowed = availableReports(p, result);
   const built = reports.filter((r) => allowed.includes(r));
-  const { reportSheetIds: added } = applySolverResult(wb, p, result, { keep, reports: built, label: 'AI edit' });
+  const { reportSheetIds: added } = applySolverResult(wb, p, result, { keep, reports: built, label: t('aitools.undo.aiEdit') });
   const at = (v) => qualified(wb, sheetId, oneCellRange(v));
   const values = p.vars.slice(0, MAX_LISTED).map((v, j) => ({ cell: at(v), value: keep ? wb.getDisplay(sheetId, v.r, v.c) : result.x?.[j] ?? null }));
   const kept = keep ? 'The solution was kept in the variable cells.'
@@ -3734,6 +3785,11 @@ export function callTarget(wb, name, args, env) {
 const lineCount = (n) => { const v = n == null ? 1 : Math.trunc(Number(n)); return Number.isFinite(v) && v >= 1 ? v : 1; };
 const lineNumber = (n) => Math.trunc(Number(n));
 
+// A step's detail, its sentences one after another (no space after a full-width stop).
+const sentences = (list) => list.filter(Boolean).reduce((out, s) => (!out ? s : /[。！？]$/.test(out) ? out + s : `${out} ${s}`), '');
+// "a and b and c", as the chat says what a step removes.
+const joinAnd = (items) => items.reduce((a, b) => t('aitools.and', { a, b }));
+
 export function describeCall(wb, name, args = {}, env) {
   const sheetId = env.sheetId();
   const at = (text) => {
@@ -3741,16 +3797,15 @@ export function describeCall(wb, name, args = {}, env) {
   };
   const sheetName = (n) => { try { return sheetNamed(wb, n, sheetId).name; } catch { return String(n ?? ''); } };
   const filled = (s, range) => (s != null && range ? filledCells(wb, s, range) : 0);
-  const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
-  const holding = (n) => `${plural(n, 'cell')} that already ${n === 1 ? 'holds' : 'hold'} data`;
-  const blocksSpills = (n) => `Blocks the results ${n === 1 ? 'a formula spills' : `${n} formulas spill`} into these cells: ${n === 1 ? 'it' : 'they'} will show #SPILL!.`;
+  const replacesData = (count) => t('aitools.detail.replacesData', { count });
+  const blocksSpills = (count) => t('aitools.detail.blocksSpills', { count });
   switch (name) {
-    case 'get_workbook_info': return { label: 'Look over the workbook' };
-    case 'get_sheet_details': return { label: `Look over the sheet ${sheetName(args.sheet)}` };
-    case 'read_range': return { label: `Read ${at(args.range).text}` };
-    case 'calculate': return { label: `Calculate ${clip(String(args.formula ?? ''), 80)}` };
-    case 'find': return { label: `Search for “${clip(String(args.query ?? ''), 40)}”` };
-    case 'select_range': return { label: `Select ${at(args.range).text}` };
+    case 'get_workbook_info': return { label: t('aitools.step.lookWorkbook') };
+    case 'get_sheet_details': return { label: t('aitools.step.lookSheet', { sheet: sheetName(args.sheet) }) };
+    case 'read_range': return { label: t('aitools.step.read', { range: at(args.range).text }) };
+    case 'calculate': return { label: t('aitools.step.calculate', { formula: clip(String(args.formula ?? ''), 80) }) };
+    case 'find': return { label: t('aitools.step.find', { query: clip(String(args.query ?? ''), 40) }) };
+    case 'select_range': return { label: t('aitools.step.select', { range: at(args.range).text }) };
     case 'write_cells': {
       const start = at(args.start_cell);
       const rows = Array.isArray(args.values) ? args.values : [];
@@ -3774,27 +3829,35 @@ export function describeCall(wb, name, args = {}, env) {
       const formulas = [];
       if (range && start.s != null) rows.forEach((row, i) => (Array.isArray(row) ? row : []).forEach((v, j) => formulas.push({ r: range.r1 + i, c: range.c1 + j, input: v })));
       const column = range && start.s != null ? calculatedColumnCells(wb, start.s, range, formulas).filter(({ f }) => f != null).length : 0;
-      const detail = [replaced && `Replaces ${holding(replaced)}.`, column && `It goes into a table's calculated column, so it may replace the formulas in ${plural(column, 'other row')} of that column too.`,
-        spills && blocksSpills(spills)].filter(Boolean).join(' ');
-      return { label: `Write ${plural(n, 'cell')} to ${range ? qualified(wb, start.s, range) : start.text}`, destructive: !!detail, detail: detail || null };
+      const detail = sentences([replaced && replacesData(replaced), column && t('aitools.detail.calculatedColumn', { count: column }),
+        spills && blocksSpills(spills)]);
+      return { label: t('aitools.step.write', { count: n, range: range ? qualified(wb, start.s, range) : start.text }), destructive: !!detail, detail: detail || null };
     }
     case 'fill_formula': {
-      const t = at(args.range);
-      const n = filled(t.s, t.range);
-      const spills = t.s != null && t.range ? spillsHit(wb, t.s, t.range).length : 0;
-      const detail = [n && `Replaces ${holding(n)}.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
-      return { label: `Fill ${t.text} with ${clip(String(args.formula ?? ''), 60)}`, destructive: !!detail, detail: detail || null };
+      const tg = at(args.range);
+      // The cells the runner writes: a fill passes over the rows a filter hides and the cells under a merged cell's
+      // top-left one, whose data stays (a range too large to fill is refused, and counted whole).
+      const hidden = tg.s != null ? wb.sheet(tg.s)?.filterHidden : null;
+      const fills = tg.range && cellsIn(tg.range) <= MAX_WRITE_CELLS ? (r, c) => !hidden?.has(r) && !wb._coveredByMerge?.(tg.s, r, c) : () => true;
+      let n = 0;
+      if (tg.range && cellsIn(tg.range) <= MAX_WRITE_CELLS) {
+        for (let r = tg.range.r1; r <= tg.range.r2; r++) for (let c = tg.range.c1; c <= tg.range.c2; c++) if (fills(r, c) && holds(wb.getCell(tg.s, r, c))) n++;
+      } else n = filled(tg.s, tg.range);
+      const spills = tg.s != null && tg.range ? spillsHit(wb, tg.s, tg.range, fills).length : 0;
+      const detail = sentences([n && replacesData(n), spills && blocksSpills(spills)]);
+      return { label: t('aitools.step.fill', { range: tg.text, formula: clip(String(args.formula ?? ''), 60) }), destructive: !!detail, detail: detail || null };
     }
     case 'clear_range': {
-      const t = at(args.range);
+      const tg = at(args.range);
       const what = args.what || 'contents';
       // What the runner clears: the rows a filter shows.
-      const runs = t.s != null && t.range ? shownRowRuns(wb, t.s, t.range) : [];
-      const n = what === 'formats' ? 0 : runs.reduce((sum, rg) => sum + filled(t.s, rg), 0);
+      const runs = tg.s != null && tg.range ? shownRowRuns(wb, tg.s, tg.range) : [];
+      const n = what === 'formats' ? 0 : runs.reduce((sum, rg) => sum + filled(tg.s, rg), 0);
       // Clearing formats takes the conditional formats off the cells too, which remove_conditional_format asks about.
-      const rules = what !== 'contents' ? conditionalRuleGroups(wb.sheet(t.s)?.rules || []).filter((g) => g.rules.some((r) => runs.some((rg) => overlaps(r.range, rg)))).length : 0;
-      const detail = [n && `Removes ${plural(n, 'cell')} of data.`, rules && `Takes ${rules === 1 ? 'a conditional formatting rule' : `${rules} conditional formatting rules`} off these cells.`].filter(Boolean).join(' ');
-      return { label: `Clear ${what === 'all' ? 'everything in' : what === 'formats' ? 'the formatting of' : ''} ${t.text}`.replace(/\s+/g, ' '), destructive: !!detail, detail: detail || null };
+      const rules = what !== 'contents' ? conditionalRuleGroups(wb.sheet(tg.s)?.rules || []).filter((g) => g.rules.some((r) => runs.some((rg) => overlaps(r.range, rg)))).length : 0;
+      const detail = sentences([n && t('aitools.detail.removesData', { count: n }), rules && t('aitools.detail.takesRules', { count: rules })]);
+      const label = what === 'all' ? t('aitools.step.clearAll', { range: tg.text }) : what === 'formats' ? t('aitools.step.clearFormats', { range: tg.text }) : t('aitools.step.clear', { range: tg.text });
+      return { label: label.replace(/\s+/g, ' '), destructive: !!detail, detail: detail || null };
     }
     case 'copy_range': case 'move_range': {
       const move = name === 'move_range';
@@ -3803,7 +3866,7 @@ export function describeCall(wb, name, args = {}, env) {
       try { to = landing(wb, name, args, env); } catch { /* the runner explains */ }
       const dest = to ? qualified(wb, to.sheetId, to.range) : String(args.destination ?? '');
       const what = move ? 'all' : args.what || 'all';
-      let replaced = 0, notes = 0, threads = 0, spills = 0;
+      let replaced = 0, notes = 0, threads = 0, sparklines = 0, spills = 0;
       if (to && what !== 'formats') {
         // Where a move's old and new places overlap, its own cells are not data it replaces.
         const both = move && src.s === to.sheetId && src.range && overlapping(src.range, to.range) ? {
@@ -3824,30 +3887,35 @@ export function describeCall(wb, name, args = {}, env) {
             threads = notesIn(wb, to.sheetId, { r1: to.range.r1, c1: to.range.c1, r2: to.range.r1 + lines.rows - 1, c2: to.range.c1 + lines.cols - 1 }, 'comments');
           }
         }
+        // A move, and Paste All, take the sparklines off the cells they land on, as removing them with add_sparklines
+        // asks; a transposed copy leaves them.
+        if (move || (what === 'all' && !args.transpose)) sparklines = sparklinesIn(wb, to.sheetId, to.range) - (both ? sparklinesIn(wb, to.sheetId, both) : 0);
         // An array formula moving with the cells takes its results along: it blocks nothing.
         spills = spillsHit(wb, to.sheetId, to.range).filter((a) => !(move && src.s === to.sheetId && within({ r1: a.r, c1: a.c, r2: a.r, c2: a.c }, src.range))).length;
       }
-      const annotations = [notes && plural(notes, 'note'), threads && plural(threads, 'comment thread')].filter(Boolean);
-      const detail = [replaced && `Replaces ${holding(replaced)}.`, annotations.length && `Replaces ${annotations.join(' and ')} there.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
-      const label = move ? `Move ${src.text} to ${dest}` : `Copy ${what === 'all' ? '' : `the ${what} of `}${src.text} to ${dest}`;
+      const annotations = [notes && t('aitools.count.notes', { count: notes }), threads && t('aitools.count.threads', { count: threads }), sparklines && t('aitools.count.sparklines', { count: sparklines })].filter(Boolean);
+      const detail = sentences([replaced && replacesData(replaced), annotations.length && t('aitools.detail.replacesThere', { items: joinAnd(annotations) }), spills && blocksSpills(spills)]);
+      const label = move ? t('aitools.step.move', { source: src.text, dest })
+        : what === 'all' ? t('aitools.step.copy', { source: src.text, dest }) : t('aitools.step.copyPart', { what: String(what), source: src.text, dest });
       return { label, destructive: !!detail, detail: detail || null };
     }
     case 'find_replace': {
-      let n = 0, place = '';
+      let n = 0, place = null;
       try {
         const { needle, opts, found, scope } = replaceMatches(wb, args, env, searchBudget(1000));
         // The cells the replacement rewrites, as the runner's replaceCells finds them: a match it leaves alone (a
         // formula found by its result, a protected cell, a spilled value) changes nothing and is not asked about.
         const replacement = String(args.replace ?? '');
         if (args.replace != null) for (const { sheet, matches } of found) if (matches.length) n += replaceCells(wb, sheet.id, matches, needle, replacement, { ...opts, dryRun: true });
-        place = scope.range ? `in ${qualified(wb, scope.sheets[0].id, scope.range)}` : args.all_sheets ? 'on every sheet' : `on ${scope.sheets[0].name}`;
-      } catch { place = args.range ? `in ${args.range}` : `on ${sheetName(args.sheet)}`; }
-      const label = `Replace “${clip(String(args.find ?? ''), 40)}” with “${clip(String(args.replace ?? ''), 40)}” ${place}`;
-      return { label, destructive: n > 0, detail: n ? `Changes the ${plural(n, 'cell')} that match${n === 1 ? 'es' : ''}.` : null };
+        place = scope.range ? { range: qualified(wb, scope.sheets[0].id, scope.range) } : args.all_sheets ? { all: true } : { sheet: scope.sheets[0].name };
+      } catch { place = args.range ? { range: args.range } : { sheet: sheetName(args.sheet) }; }
+      const words = { find: clip(String(args.find ?? ''), 40), replace: clip(String(args.replace ?? ''), 40) };
+      const label = place.range != null ? t('aitools.step.replaceIn', { ...words, range: place.range }) : place.all ? t('aitools.step.replaceEverySheet', words) : t('aitools.step.replaceOn', { ...words, sheet: place.sheet });
+      return { label, destructive: n > 0, detail: n ? t('aitools.detail.changesMatches', { count: n }) : null };
     }
-    case 'format_cells': return { label: `Format ${at(args.range).text}` };
-    case 'insert_rows': return { label: `Insert ${plural(lineCount(args.count), 'row')} above row ${lineNumber(args.before_row)} on ${sheetName(args.sheet)}` };
-    case 'insert_columns': return { label: `Insert ${plural(lineCount(args.count), 'column')} left of ${args.before_column} on ${sheetName(args.sheet)}` };
+    case 'format_cells': return { label: t('aitools.step.format', { range: at(args.range).text }) };
+    case 'insert_rows': return { label: t('aitools.step.insertRows', { count: lineCount(args.count), row: lineNumber(args.before_row), sheet: sheetName(args.sheet) }) };
+    case 'insert_columns': return { label: t('aitools.step.insertColumns', { count: lineCount(args.count), column: String(args.before_column), sheet: sheetName(args.sheet) }) };
     case 'delete_rows': case 'delete_columns': {
       const rows = name === 'delete_rows';
       const n = lineCount(args.count);
@@ -3861,31 +3929,38 @@ export function describeCall(wb, name, args = {}, env) {
       // The notes in them go too: removing a note on its own asks, and so does removing it with its row.
       const notes = range && range.r1 >= 0 ? notesIn(wb, s, range) : 0;
       const threads = range && range.r1 >= 0 ? notesIn(wb, s, range, 'comments') : 0;
-      const which = rows ? `row${n === 1 ? '' : 's'} ${lineNumber(args.start_row)}${n > 1 ? `–${lineNumber(args.start_row) + n - 1}` : ''}` : `column${n === 1 ? '' : 's'} ${String(args.start_column).toUpperCase()}${n > 1 && range ? `–${colName(range.c2)}` : ''}`;
-      const removes = [data && `${plural(data, 'cell')} of data`, notes && plural(notes, 'note'), threads && plural(threads, 'comment thread')].filter(Boolean);
-      return { label: `Delete ${which} on ${sheetName(args.sheet)}`, destructive: removes.length > 0, detail: removes.length ? `Removes ${removes.join(' and ')}.` : null };
+      // And their sparklines, which cells hold without holding data: a column of nothing but sparklines went unasked.
+      const sparklines = range && range.r1 >= 0 ? sparklinesIn(wb, s, range) : 0;
+      const on = sheetName(args.sheet);
+      const first = rows ? lineNumber(args.start_row) : String(args.start_column).toUpperCase();
+      const label = rows
+        ? (n > 1 ? t('aitools.step.deleteRowsSpan', { from: first, to: lineNumber(args.start_row) + n - 1, sheet: on }) : t('aitools.step.deleteRow', { row: first, sheet: on }))
+        : n > 1 && range ? t('aitools.step.deleteColumnsSpan', { from: first, to: colName(range.c2), sheet: on }) : t('aitools.step.deleteColumns', { count: n, column: first, sheet: on });
+      const removes = [data && t('aitools.count.cellsOfData', { count: data }), notes && t('aitools.count.notes', { count: notes }), threads && t('aitools.count.threads', { count: threads }), sparklines && t('aitools.count.sparklines', { count: sparklines })].filter(Boolean);
+      return { label, destructive: removes.length > 0, detail: removes.length ? t('aitools.detail.removes', { items: joinAnd(removes) }) : null };
     }
-    case 'sort_range': return { label: `Sort ${at(args.range).text}` };
+    case 'sort_range': return { label: t('aitools.step.sort', { range: at(args.range).text }) };
     case 'filter_range': {
       // Named by the list the filter is over, as the runner finds it (a table, a filter around the cell, the data block).
-      const t = at(args.range);
-      let where = t.text;
-      try { const found = filterTarget(wb, t.s, t.range); where = found.table ? found.table.name : qualified(wb, t.s, found.range); } catch { /* the runner explains */ }
-      if (args.action === 'clear') return { label: `Show every row of the filter on ${where}` };
-      if (args.action === 'remove') return { label: `Remove the filter from ${where}` };
+      const tg = at(args.range);
+      let where = tg.text;
+      try { const found = filterTarget(wb, tg.s, tg.range); where = found.table ? found.table.name : qualified(wb, tg.s, found.range); } catch { /* the runner explains */ }
+      if (args.action === 'clear') return { label: t('aitools.step.filterClear', { where }) };
+      if (args.action === 'remove') return { label: t('aitools.step.filterRemove', { where }) };
       const cols = (Array.isArray(args.columns) ? args.columns : []).map((c) => String(c?.column ?? '')).filter(Boolean);
-      return { label: `Filter ${where}${cols.length ? ` by ${clip(cols.join(', '), 60)}` : ''}` };
+      return { label: cols.length ? t('aitools.step.filterBy', { where, columns: clip(cols.join(', '), 60) }) : t('aitools.step.filter', { where }) };
     }
     case 'create_pivot_table': {
       // Where it goes, and, at a destination, the data the block it takes would replace: that is asked about first.
       let plan = null;
       try { plan = pivotPlan(wb, args, env); } catch { /* the runner explains */ }
-      const what = `${args.summarize || 'sum'} of ${args.values} by ${args.rows}${args.columns ? ` and ${args.columns}` : ''}`;
-      if (!plan) return { label: `Add a pivot table (${clip(what, 80)})` };
+      const how = { agg: String(args.summarize || 'sum'), values: String(args.values), rows: String(args.rows) };
+      const what = args.columns ? t('aitools.pivot.summaryByTwo', { ...how, columns: String(args.columns) }) : t('aitools.pivot.summary', how);
+      if (!plan) return { label: t('aitools.step.pivot', { what: clip(what, 80) }) };
       const src = qualified(wb, plan.source.sheetId, plan.source.range);
       // The sheet's name as the runner takes it: trimmed, and the default one when only spaces are given.
       const named = args.new_sheet_name != null ? String(args.new_sheet_name).trim() : '';
-      if (!plan.dest) return { label: `Add a pivot table of ${src} (${clip(what, 80)}) on a new sheet${named ? ` named ${named}` : ` "${pivotSheetName(wb, plan.source.sheetId)}"`}` };
+      if (!plan.dest) return { label: named ? t('aitools.step.pivotNewSheetNamed', { source: src, what: clip(what, 80), name: named }) : t('aitools.step.pivotNewSheet', { source: src, what: clip(what, 80), name: pivotSheetName(wb, plan.source.sheetId) }) };
       let built = null;
       try { built = buildPivot(wb, plan.source.sheetId, plan.spec); } catch { /* the runner explains */ }
       const area = built && { r1: plan.dest.at.r, c1: plan.dest.at.c, r2: plan.dest.at.r + built.rows - 1, c2: plan.dest.at.c + built.cols - 1 };
@@ -3896,56 +3971,66 @@ export function describeCall(wb, name, args = {}, env) {
       const rules = (built?.filterCells || []).map(({ r, c }) => ({ r: plan.dest.at.r + r, c: plan.dest.at.c + c }))
         .map(({ r, c }) => ({ r, c, rule: sameRangeValidation(wb, plan.dest.sheetId, { r1: r, c1: c, r2: r, c2: c }) })).filter(({ rule }) => rule);
       const at = area ? qualified(wb, plan.dest.sheetId, area) : qualified(wb, plan.dest.sheetId, { r1: plan.dest.at.r, c1: plan.dest.at.c, r2: plan.dest.at.r, c2: plan.dest.at.c });
-      const detail = [n && `Replaces ${holding(n)}.`, spills && blocksSpills(spills),
-        rules.length && `Replaces the ${rules.every(({ rule }) => rule.type === 'list') ? 'dropdown' : 'validation rule'} on ${rules.map(({ r, c }) => cellName(r, c)).join(', ')} with the filter's dropdown.`].filter(Boolean).join(' ');
-      return { label: `Add a pivot table of ${src} (${clip(what, 80)}) at ${at}`, destructive: !!detail, detail: detail || null };
+      const ruleCells = rules.map(({ r, c }) => cellName(r, c)).join(', ');
+      const detail = sentences([n && replacesData(n), spills && blocksSpills(spills),
+        rules.length && (rules.every(({ rule }) => rule.type === 'list') ? t('aitools.detail.pivotReplacesDropdown', { cells: ruleCells }) : t('aitools.detail.pivotReplacesValidation', { cells: ruleCells }))]);
+      return { label: t('aitools.step.pivotAt', { source: src, what: clip(what, 80), at }), destructive: !!detail, detail: detail || null };
     }
-    case 'create_chart': return { label: `Add a ${args.type || 'column'} chart of ${at(args.data_range).text}` };
+    case 'create_chart': return { label: t('aitools.step.chart', { kind: t('aitools.chartKind', { type: String(args.type || 'column') }), range: at(args.data_range).text }) };
     case 'update_chart': case 'delete_chart': {
       let named = null;
       try { named = chartNamed(wb, args.chart); } catch { /* the runner explains */ }
       const title = named ? shownTitles(wb, named.sheet.id, named.chart).title : '';
-      const what = named ? `the ${named.chart.type} chart${title ? ` “${clip(title, 40)}”` : ''} on ${named.sheet.name}` : `the chart ${String(args.chart ?? '')}`;
-      if (name === 'delete_chart') return { label: `Delete ${what}`, destructive: !!named, detail: named ? 'Removes the chart and its formatting.' : null };
-      return { label: `Change ${what}` };
+      const kind = named ? t('aitools.chartKind', { type: String(named.chart.type) }) : '';
+      const what = !named ? t('aitools.chart.unknown', { chart: String(args.chart ?? '') })
+        : title ? t('aitools.chart.titled', { kind, title: clip(title, 40), sheet: named.sheet.name }) : t('aitools.chart.untitled', { kind, sheet: named.sheet.name });
+      if (name === 'delete_chart') return { label: t('aitools.step.deleteChart', { what }), destructive: !!named, detail: named ? t('aitools.detail.removesChart') : null };
+      return { label: t('aitools.step.changeChart', { what }) };
     }
     case 'create_table': {
       // Its header formulas become the text they show, and the result says so.
-      const t = at(args.range);
-      const range = t.s != null && t.range ? tableRange(wb, t.s, t.range) : null;
-      const n = range ? headerFormulas(wb, t.s, range) : 0;
-      return { label: `Make ${t.text} a table`, destructive: n > 0, detail: n ? `Turns ${plural(n, 'formula')} in the header row into the text ${n === 1 ? 'it shows' : 'they show'}.` : null };
+      const tg = at(args.range);
+      const range = tg.s != null && tg.range ? tableRange(wb, tg.s, tg.range) : null;
+      const n = range ? headerFormulas(wb, tg.s, range) : 0;
+      return { label: t('aitools.step.table', { range: tg.text }), destructive: n > 0, detail: n ? t('aitools.detail.headerFormulas', { count: n }) : null };
     }
-    case 'add_conditional_format': return { label: `Highlight ${at(args.range).text} (${args.rule})` };
+    case 'add_conditional_format': return { label: t('aitools.step.highlight', { range: at(args.range).text, rule: String(args.rule) }) };
     case 'remove_conditional_format': {
       let plan = null;
       try { plan = conditionalRemoval(wb, args, env); } catch { /* the runner explains */ }
-      if (!plan) return { label: 'Remove conditional formatting' };
+      if (!plan) return { label: t('aitools.step.removeConditional') };
       const n = plan.touched;
-      return { label: `Remove ${plan.label}`, destructive: n > 0, detail: n ? `${plan.how === 'range' ? 'Takes' : 'Removes'} ${n === 1 ? 'a conditional formatting rule' : `${n} conditional formatting rules`}${plan.how === 'range' ? ' off these cells' : ''}.` : null };
+      const label = plan.how === 'rule' ? t('aitools.step.removeRule', { rule: plan.shown.rule, ranges: plan.shown.ranges })
+        : plan.how === 'range' ? t('aitools.step.removeRulesOn', { range: plan.shown.where }) : t('aitools.step.removeEveryRule', { sheet: plan.sheet.name });
+      return { label, destructive: n > 0, detail: n ? (plan.how === 'range' ? t('aitools.detail.takesRules', { count: n }) : t('aitools.detail.removesRules', { count: n })) : null };
     }
     case 'add_dropdown': {
       // A range has one rule: the one on exactly these cells (the user's list of choices, or a rule of their own) goes.
-      const t = at(args.range);
-      const had = t.s != null && t.range ? sameRangeValidation(wb, t.s, t.range) : null;
-      if (!had) return { label: `Add a dropdown to ${t.text}` };
+      const tg = at(args.range);
+      const had = tg.s != null && tg.range ? sameRangeValidation(wb, tg.s, tg.range) : null;
+      if (!had) return { label: t('aitools.step.addDropdown', { range: tg.text }) };
       const list = had.type === 'list';
-      return { label: `Replace the ${list ? 'dropdown' : 'validation rule'} on ${t.text}`, destructive: true, detail: list ? 'Replaces the dropdown these cells have, and its choices.' : 'Replaces the rule these cells have for what they may hold.' };
+      return { label: list ? t('aitools.step.replaceDropdown', { range: tg.text }) : t('aitools.step.replaceValidation', { range: tg.text }), destructive: true, detail: list ? t('aitools.detail.replacesDropdown') : t('aitools.detail.replacesValidation') };
     }
     case 'add_validation': {
-      const t = at(args.range);
-      const had = t.s != null && t.range ? sameRangeValidation(wb, t.s, t.range) : null;
-      if (!had) return { label: `Limit what ${t.text} may hold` };
+      const tg = at(args.range);
+      const had = tg.s != null && tg.range ? sameRangeValidation(wb, tg.s, tg.range) : null;
+      if (!had) return { label: t('aitools.step.addValidation', { range: tg.text }) };
       const list = had.type === 'list';
-      return { label: `Replace the ${list ? 'dropdown' : 'validation rule'} on ${t.text}`, destructive: true, detail: list ? 'Replaces the dropdown these cells have, and its choices.' : 'Replaces the rule these cells have for what they may hold.' };
+      return { label: list ? t('aitools.step.replaceDropdown', { range: tg.text }) : t('aitools.step.replaceValidation', { range: tg.text }), destructive: true, detail: list ? t('aitools.detail.replacesDropdown') : t('aitools.detail.replacesValidation') };
     }
     case 'remove_validation': {
       let plan = null;
       try { plan = validationRemoval(wb, args, env); } catch { /* the runner explains */ }
-      if (!plan) return { label: 'Remove data validation' };
+      if (!plan) return { label: t('aitools.step.removeValidation') };
       const n = plan.rules.length, lists = plan.rules.filter((v) => v.type === 'list').length;
-      const kinds = lists === n ? (n === 1 ? 'a dropdown' : `${n} dropdowns`) : n === 1 ? 'a validation rule' : `${n} validation rules`;
-      return { label: `Remove ${plan.label}`, destructive: n > 0, detail: n ? `${plan.how === 'range' ? 'Takes' : 'Removes'} ${kinds}${plan.how === 'range' ? ' off these cells' : ''}.` : null };
+      const label = plan.how === 'rule'
+        ? (plan.rules[0].type === 'list' ? t('aitools.step.removeDropdownOn', { where: plan.shown.where }) : t('aitools.step.removeValidationRuleOn', { where: plan.shown.where }))
+        : t('aitools.step.removeValidationOn', { range: plan.shown.where });
+      const detail = lists === n
+        ? (plan.how === 'range' ? t('aitools.detail.takesDropdowns', { count: n }) : t('aitools.detail.removesDropdowns', { count: n }))
+        : plan.how === 'range' ? t('aitools.detail.takesValidations', { count: n }) : t('aitools.detail.removesValidations', { count: n });
+      return { label, destructive: n > 0, detail: n ? detail : null };
     }
     case 'manage_sheet': {
       // A sheet not named is the active one, which the runner acts on: the question says which sheet it is.
@@ -3953,9 +4038,13 @@ export function describeCall(wb, name, args = {}, env) {
       if (args.action === 'delete') {
         let data = 0;
         try { const s = sheetNamed(wb, args.sheet, sheetId); data = s.cells.size ? filledCells(wb, s.id, { r1: 0, c1: 0, r2: 1048575, c2: 16383 }) : 0; } catch { /* the runner explains */ }
-        return { label: `Delete the sheet ${n}`, destructive: true, detail: data ? `Removes ${plural(data, 'cell')} of data and everything else on the sheet.` : 'The sheet is removed with everything on it.' };
+        return { label: t('aitools.step.deleteSheet', { sheet: n }), destructive: true, detail: data ? t('aitools.detail.removesSheetData', { count: data }) : t('aitools.detail.removesSheet') };
       }
-      return { label: { add: `Add a sheet${args.sheet ? ` named ${args.sheet}` : ''}`, rename: `Rename ${n} to ${args.new_name}`, duplicate: `Duplicate ${n}`, activate: `Show ${n}` }[args.action] || 'Change a sheet' };
+      if (args.action === 'add') return { label: args.sheet ? t('aitools.step.addSheetNamed', { name: String(args.sheet) }) : t('aitools.step.addSheet') };
+      if (args.action === 'rename') return { label: t('aitools.step.renameSheet', { sheet: n, name: String(args.new_name) }) };
+      if (args.action === 'duplicate') return { label: t('aitools.step.duplicateSheet', { sheet: n }) };
+      if (args.action === 'activate') return { label: t('aitools.step.showSheet', { sheet: n }) };
+      return { label: t('aitools.step.changeSheet') };
     }
     case 'freeze_panes': {
       // The panes as the runner leaves them: what the call does not give stays as it is, so { rows: 0 } on a sheet with
@@ -3964,50 +4053,52 @@ export function describeCall(wb, name, args = {}, env) {
       try { sheet = sheetNamed(wb, args.sheet, sheetId); } catch { /* the runner explains */ }
       const panes = (given, now) => Math.max(0, Math.trunc(Number(given ?? now ?? 0)) || 0);
       const rows = panes(args.rows, sheet?.frozenRows), cols = panes(args.columns, sheet?.frozenCols);
-      return { label: rows || cols ? `Freeze ${[rows && plural(rows, 'row'), cols && plural(cols, 'column')].filter(Boolean).join(' and ')} on ${sheetName(args.sheet)}` : `Unfreeze ${sheetName(args.sheet)}` };
+      const on = sheetName(args.sheet);
+      return { label: rows && cols ? t('aitools.step.freezeBoth', { rows, cols, sheet: on }) : rows ? t('aitools.step.freezeRows', { rows, sheet: on }) : cols ? t('aitools.step.freezeColumns', { cols, sheet: on }) : t('aitools.step.unfreeze', { sheet: on }) };
     }
     case 'remove_duplicates': {
       // The rows that go, by the workbook's own plan: data taken away, so asked about.
-      let t = null, plan = null;
-      try { t = duplicatesArgs(wb, args, sheetId); plan = wb.duplicatesPlan(t.sheetId, t.range, t); } catch { /* the runner explains */ }
+      let tg = null, plan = null;
+      try { tg = duplicatesArgs(wb, args, sheetId); plan = wb.duplicatesPlan(tg.sheetId, tg.range, tg); } catch { /* the runner explains */ }
       const n = plan && plan.changed ? plan.removed : 0;
-      return { label: `Remove duplicate rows from ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text}`, destructive: n > 0, detail: n ? `Deletes ${plural(n, 'row')} that repeat an earlier row; ${plural(plan.kept.length, 'row')} stay.` : null };
+      return { label: t('aitools.step.removeDuplicates', { range: tg ? qualified(wb, tg.sheetId, tg.range) : at(args.range).text }), destructive: n > 0, detail: n ? t('aitools.detail.duplicates', { count: n, kept: plan.kept.length }) : null };
     }
     case 'split_text_to_columns': {
-      let t = null, replaced = 0, spills = 0;
+      let tg = null, replaced = 0, spills = 0;
       try {
-        t = splitArgs(wb, args, sheetId);
-        const { entries } = splitPlans(wb, t);
-        replaced = splitReplaces(wb, t, entries);
+        tg = splitArgs(wb, args, sheetId);
+        const { entries } = splitPlans(wb, tg);
+        replaced = splitReplaces(wb, tg, entries);
         const written = new Set(entries.map(({ r, c }) => cellKey(r, c)));
-        spills = entries.length ? spillsHit(wb, t.sheetId, boundsOf(entries), (r, c) => written.has(cellKey(r, c))).length : 0;
+        spills = entries.length ? spillsHit(wb, tg.sheetId, boundsOf(entries), (r, c) => written.has(cellKey(r, c))).length : 0;
       } catch { /* the runner explains */ }
-      const detail = [replaced && `Replaces ${holding(replaced)}.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
-      return { label: `Split the text in ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text} into columns`, destructive: !!detail, detail: detail || null };
+      const detail = sentences([replaced && replacesData(replaced), spills && blocksSpills(spills)]);
+      return { label: t('aitools.step.split', { range: tg ? qualified(wb, tg.sheetId, tg.range) : at(args.range).text }), destructive: !!detail, detail: detail || null };
     }
     case 'add_sparklines': {
-      const t = at(args.location);
+      const tg = at(args.location);
       if (args.remove) {
         // The user's sparklines go: asked about, as removing a note is.
-        const n = t.range ? sparklinesIn(wb, t.s, t.range) : 0;
-        return { label: `Remove the sparklines in ${t.text}`, destructive: n > 0, detail: n ? `Removes ${plural(n, 'sparkline')}.` : null };
+        const n = tg.range ? sparklinesIn(wb, tg.s, tg.range) : 0;
+        return { label: t('aitools.step.removeSparklines', { range: tg.text }), destructive: n > 0, detail: n ? t('aitools.detail.removesSparklines', { count: n }) : null };
       }
-      return { label: `Add ${{ column: 'column', win_loss: 'win/loss' }[args.type] || 'line'} sparklines to ${t.text}` };
+      return { label: t('aitools.step.addSparklines', { type: args.type === 'column' || args.type === 'win_loss' ? args.type : 'line', range: tg.text }) };
     }
     case 'set_link': {
       // A link the cell has, and what it shows, are the user's: replacing or removing them asks.
-      const t = at(args.cell);
-      if (t.range) { t.range = { r1: t.range.r1, c1: t.range.c1, r2: t.range.r1, c2: t.range.c1 }; t.text = qualified(wb, t.s, t.range); }
-      const had = t.range ? wb.linkAt(t.s, t.range.r1, t.range.c1) : null;
-      if (args.remove) return { label: `Remove the link from ${t.text}`, destructive: !!had, detail: had ? `Removes the link to ${clip(had.url, 80)}.` : null };
+      const tg = at(args.cell);
+      if (tg.range) { tg.range = { r1: tg.range.r1, c1: tg.range.c1, r2: tg.range.r1, c2: tg.range.c1 }; tg.text = qualified(wb, tg.s, tg.range); }
+      const had = tg.range ? wb.linkAt(tg.s, tg.range.r1, tg.range.c1) : null;
+      if (args.remove) return { label: t('aitools.step.removeLink', { cell: tg.text }), destructive: !!had, detail: had ? t('aitools.detail.removesLink', { url: clip(had.url, 80) }) : null };
       let url = null;
-      try { url = t.range ? linkTarget(wb, args, t.s) : null; } catch { /* the runner explains */ }
+      try { url = tg.range ? linkTarget(wb, args, tg.s) : null; } catch { /* the runner explains */ }
       const text = args.text != null && String(args.text).trim() ? String(args.text).trim() : null;
-      const cell = t.range ? wb.getCell(t.s, t.range.r1, t.range.c1) : null;
-      const replacesText = text != null && holds(cell) && !showsText(wb, t.s, t.range.r1, t.range.c1, cutText(text, MAX_TEXT));
+      const cell = tg.range ? wb.getCell(tg.s, tg.range.r1, tg.range.c1) : null;
+      const replacesText = text != null && holds(cell) && !showsText(wb, tg.s, tg.range.r1, tg.range.c1, cutText(text, MAX_TEXT));
       const replacesLink = !!had && url != null && had.url !== url;
-      const detail = [replacesLink && `Replaces its link to ${clip(had.url, 80)}.`, replacesText && `Replaces what the cell holds${cell.f != null ? ' (a formula)' : ''} with "${clip(text, 60)}".`].filter(Boolean).join(' ');
-      return { label: `Link ${t.text} to ${clip(url ?? String(args.url ?? args.location ?? ''), 80)}`, destructive: !!detail, detail: detail || null };
+      const detail = sentences([replacesLink && t('aitools.detail.replacesLink', { url: clip(had.url, 80) }),
+        replacesText && (cell.f != null ? t('aitools.detail.replacesFormulaWithText', { text: clip(text, 60) }) : t('aitools.detail.replacesWithText', { text: clip(text, 60) }))]);
+      return { label: t('aitools.step.link', { cell: tg.text, url: clip(url ?? String(args.url ?? args.location ?? ''), 80) }), destructive: !!detail, detail: detail || null };
     }
     case 'set_column_width': {
       // The columns as the runner reads them ("b:d" is B:D, a run given backwards is the same run).
@@ -4015,37 +4106,38 @@ export function describeCall(wb, name, args = {}, env) {
       try { const [a, b = a] = String(args.columns ?? '').split(':'); const c1 = columnArg(a), c2 = columnArg(b); lo = Math.min(c1, c2); hi = Math.max(c1, c2); } catch { /* the runner explains */ }
       const many = lo != null ? hi > lo : String(args.columns).includes(':');
       const cols = lo != null ? `${colName(lo)}${many ? `:${colName(hi)}` : ''}` : String(args.columns ?? '');
-      return { label: String(args.width).trim().toLowerCase() === 'fit' ? `Fit column${many ? 's' : ''} ${cols} to ${many ? 'their' : 'its'} contents` : `Set column${many ? 's' : ''} ${cols} to ${args.width}px` };
+      const fit = String(args.width).trim().toLowerCase() === 'fit';
+      return { label: fit ? (many ? t('aitools.step.fitColumns', { cols }) : t('aitools.step.fitColumn', { cols })) : many ? t('aitools.step.widthColumns', { cols, width: String(args.width) }) : t('aitools.step.widthColumn', { cols, width: String(args.width) }) };
     }
     case 'set_row_height': {
       let rows = String(args.rows ?? '');
-      try { rows = linesLabel('row', lineRunsArg(args.rows, 'row')); } catch { /* the runner explains */ }
+      try { rows = shownLines('row', lineRunsArg(args.rows, 'row')); } catch { /* the runner explains */ }
       const fit = String(args.height ?? '').trim().toLowerCase() === 'fit';
-      return { label: fit ? `Fit ${rows} on ${sheetName(args.sheet)} to their contents` : `Set ${rows} on ${sheetName(args.sheet)} to ${args.height}px` };
+      return { label: fit ? t('aitools.step.fitRows', { rows, sheet: sheetName(args.sheet) }) : t('aitools.step.heightRows', { rows, sheet: sheetName(args.sheet), height: String(args.height) }) };
     }
     case 'set_hidden': {
       const axis = args.rows != null && args.rows !== '' ? 'row' : 'col';
       let which = String((axis === 'row' ? args.rows : args.columns) ?? '');
-      try { which = linesLabel(axis, lineRunsArg(axis === 'row' ? args.rows : args.columns, axis)); } catch { /* the runner explains */ }
-      return { label: `${args.hidden === false ? 'Show' : 'Hide'} ${which} on ${sheetName(args.sheet)}` };
+      try { which = shownLines(axis, lineRunsArg(axis === 'row' ? args.rows : args.columns, axis)); } catch { /* the runner explains */ }
+      return { label: args.hidden === false ? t('aitools.step.showLines', { lines: which, sheet: sheetName(args.sheet) }) : t('aitools.step.hideLines', { lines: which, sheet: sheetName(args.sheet) }) };
     }
     case 'merge_cells': {
-      const t = at(args.range);
+      const tg = at(args.range);
       const action = args.action || 'merge';
-      if (action === 'unmerge') return { label: `Unmerge the merged cells in ${t.text}` };
+      if (action === 'unmerge') return { label: t('aitools.step.unmerge', { range: tg.text }) };
       // Merging keeps the top-left value alone: the other values the blocks hold are deleted, and asked about.
       const across = action === 'merge_across';
-      let dropped = 0, spills = 0, text = t.text;
-      if (t.range) {
-        const range = mergeArea(wb, t.s, t.range);
+      let dropped = 0, spills = 0, text = tg.text;
+      if (tg.range) {
+        const range = mergeArea(wb, tg.s, tg.range);
         const blocks = mergeBlocksOf(range, across);
-        dropped = mergeDrops(wb, t.s, blocks);
+        dropped = mergeDrops(wb, tg.s, blocks);
         const firsts = new Set(blocks.map((b) => cellKey(b.r1, b.c1)));
-        spills = spillsHit(wb, t.s, range, (r, c) => !firsts.has(cellKey(r, c))).length;
-        text = qualified(wb, t.s, range);
+        spills = spillsHit(wb, tg.s, range, (r, c) => !firsts.has(cellKey(r, c))).length;
+        text = qualified(wb, tg.s, range);
       }
-      const detail = [dropped && `Keeps only the top-left value${across ? ' of each row' : ''}: deletes ${plural(dropped, 'other cell')} of data.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
-      return { label: across ? `Merge each row of ${text}` : `Merge ${text}`, destructive: !!detail, detail: detail || null };
+      const detail = sentences([dropped && (across ? t('aitools.detail.mergeAcrossDrops', { count: dropped }) : t('aitools.detail.mergeDrops', { count: dropped })), spills && blocksSpills(spills)]);
+      return { label: across ? t('aitools.step.mergeAcross', { range: text }) : t('aitools.step.merge', { range: text }), destructive: !!detail, detail: detail || null };
     }
     case 'manage_name': {
       // A name is the user's work as a cell is: changing what one refers to, or deleting one, asks.
@@ -4057,31 +4149,33 @@ export function describeCall(wb, name, args = {}, env) {
       if (args.action === 'delete') {
         const uses = had && !had.hidden ? nameUses(wb, had) : 0;
         const fallback = had && shadowedName(wb, had);
-        const then = fallback ? `will use the workbook's ${fallback.name} (${clip(fallback.ref, 60)}) instead` : 'will show #NAME?';
-        return { label: `Delete the name ${label}`, destructive: !!had, detail: had ? (uses ? `Formulas that use it (${uses}) ${then}.` : 'Removes the name.') : null };
+        const then = fallback ? t('aitools.detail.nameUsesFallback', { uses, name: fallback.name, ref: clip(fallback.ref, 60) }) : t('aitools.detail.nameUsesBroken', { uses });
+        return { label: t('aitools.step.deleteName', { name: label }), destructive: !!had, detail: had ? (uses ? then : t('aitools.detail.removesName')) : null };
       }
-      const renamed = `Rename ${label} to ${String(args.new_name ?? '').trim()}`;
+      const to = String(args.new_name ?? '').trim();
+      const renamed = t('aitools.step.renameName', { name: label, to });
       // A rename keeps what the name refers to unless refers_to is given; given, it changes it as define does, and asks.
       if (args.action === 'rename' && (args.refers_to == null || args.refers_to === '')) return { label: renamed };
       let ref = String(args.refers_to ?? '').trim();
       try { ref = nameRefText(wb, args.refers_to, env); } catch { /* the runner explains */ }
       if (had && ref && had.ref !== ref) {
         const uses = nameUses(wb, had);
-        return { label: args.action === 'rename' ? `${renamed}, referring to ${clip(ref, 60)}` : `Change ${label} to refer to ${clip(ref, 60)}`, destructive: true, detail: `It refers to ${clip(had.ref, 80)} now${uses ? `, and ${plural(uses, 'formula')} that use${uses === 1 ? 's' : ''} it will change with it` : ''}.` };
+        return { label: args.action === 'rename' ? t('aitools.step.renameNameReferring', { name: label, to, ref: clip(ref, 60) }) : t('aitools.step.changeName', { name: label, ref: clip(ref, 60) }), destructive: true,
+          detail: uses ? t('aitools.detail.nameRefersUsed', { ref: clip(had.ref, 80), count: uses }) : t('aitools.detail.nameRefers', { ref: clip(had.ref, 80) }) };
       }
       if (args.action === 'rename') return { label: renamed };
-      return { label: `Define the name ${label} as ${clip(ref, 60)}` };
+      return { label: t('aitools.step.defineName', { name: label, ref: clip(ref, 60) }) };
     }
     case 'add_note': {
       // A note the cell already has is the user's writing: replacing or removing it asks, as replacing a value does.
       // Given a range, the note goes on its first cell, which is what is named.
-      const t = at(args.cell);
-      if (t.range) { t.range = { r1: t.range.r1, c1: t.range.c1, r2: t.range.r1, c2: t.range.c1 }; t.text = qualified(wb, t.s, t.range); }
-      const had = t.s != null && t.range ? wb.getNote(t.s, t.range.r1, t.range.c1) : null;
+      const tg = at(args.cell);
+      if (tg.range) { tg.range = { r1: tg.range.r1, c1: tg.range.c1, r2: tg.range.r1, c2: tg.range.c1 }; tg.text = qualified(wb, tg.s, tg.range); }
+      const had = tg.s != null && tg.range ? wb.getNote(tg.s, tg.range.r1, tg.range.c1) : null;
       const text = String(args.text ?? '');
-      if (!text.trim()) return { label: `Remove the note from ${t.text}`, destructive: !!had, detail: had ? 'Removes the note the cell has.' : null };
+      if (!text.trim()) return { label: t('aitools.step.removeNote', { cell: tg.text }), destructive: !!had, detail: had ? t('aitools.detail.removesNote') : null };
       const replaces = !!had && had !== cutText(text, MAX_NOTE);
-      return { label: `${replaces ? 'Replace the note on' : 'Add a note to'} ${t.text}`, destructive: replaces, detail: replaces ? 'Replaces the note the cell has.' : null };
+      return { label: replaces ? t('aitools.step.replaceNote', { cell: tg.text }) : t('aitools.step.addNote', { cell: tg.text }), destructive: replaces, detail: replaces ? t('aitools.detail.replacesNote') : null };
     }
     case 'goal_seek': {
       // The input cell is read on the sheet of the cell it sets, as the runner reads it.
@@ -4090,28 +4184,28 @@ export function describeCall(wb, name, args = {}, env) {
       const name = (p) => qualified(wb, p.sheetId, oneCellRange(p));
       const set = cells ? name(cells.target) : String(args.set_cell ?? '');
       const by = cells ? name(cells.variable) : String(args.by_changing ?? '');
-      const label = `Goal seek: set ${set} to ${args.to_value} by changing ${by}`;
+      const label = t('aitools.step.goalSeek', { set, value: String(args.to_value), by });
       const v = cells?.variable;
       const shown = v && holds(wb.getCell(v.sheetId, v.r, v.c)) ? wb.getDisplay(v.sheetId, v.r, v.c) : null;
-      return { label, destructive: shown != null, detail: shown != null ? `Replaces the value in ${by} (now ${shown}).` : null };
+      return { label, destructive: shown != null, detail: shown != null ? t('aitools.detail.goalSeek', { cell: by, shown }) : null };
     }
     case 'solve': {
       let built = null;
       try { built = solverModel(wb, args, env); } catch { /* the runner explains */ }
-      if (!built) return { label: args.objective ? `Solve for ${args.objective}` : 'Run the Solver model' };
+      if (!built) return { label: args.objective ? t('aitools.step.solveFor', { objective: String(args.objective) }) : t('aitools.step.solveModel') };
       const { sheetId: s, model, saved } = built;
-      const goal = { max: 'maximize', min: 'minimize' }[model.goal] || `set to ${model.value}`;
       const objective = parseRanges(wb, s, model.objective)?.[0];
       const ranges = parseRanges(wb, s, model.variables) || [];
-      const label = `Solve: ${goal} ${objective ? qualified(wb, s, objective) : model.objective} by changing ${ranges.length ? ranges.map((g) => qualified(wb, s, g)).join(', ') : model.variables}`;
+      const solving = { objective: objective ? qualified(wb, s, objective) : String(model.objective), variables: ranges.length ? ranges.map((g) => qualified(wb, s, g)).join(', ') : String(model.variables) };
+      const label = model.goal === 'max' ? t('aitools.step.solveMax', solving) : model.goal === 'min' ? t('aitools.step.solveMin', solving) : t('aitools.step.solveValue', { ...solving, value: String(model.value) });
       const data = ranges.reduce((n, g) => n + filledCells(wb, s, g), 0);
       const replacesModel = !!saved && !sameModel(wb, s, saved, model);
       const reports = Array.isArray(args.reports) ? new Set(args.reports).size : 0;
-      const detail = [
-        data && args.keep !== false && `Replaces the values in ${plural(data, 'variable cell')} with the solution, if one is found.`,
-        replacesModel && `Replaces the Solver model saved on ${wb.sheet(s).name}.`,
-        reports && `Adds ${plural(reports, 'report sheet')}.`,
-      ].filter(Boolean).join(' ');
+      const detail = sentences([
+        data && args.keep !== false && t('aitools.detail.solveVariables', { count: data }),
+        replacesModel && t('aitools.detail.solveModel', { sheet: wb.sheet(s).name }),
+        reports && t('aitools.detail.solveReports', { count: reports }),
+      ]);
       return { label, destructive: !!(data && args.keep !== false) || replacesModel, detail: detail || null };
     }
     default: return { label: name };

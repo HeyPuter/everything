@@ -3,7 +3,11 @@ import { FormDraft, formWidgets, formWidgetLayout } from './core/form-draft.js';
 
 const rgb = (value, fallback) => (value?.length === 3 ? `rgb(${[...value].join(' ')})` : fallback);
 
-export function createFormLayer({ onChange, onCommit }) {
+/**
+ * The page's fields as native controls. `onTabOut(direction)` is asked when Tab or Shift Tab
+ * would leave the page's last or first field; it returns true when it takes the focus on.
+ */
+export function createFormLayer({ onChange, onCommit, onTabOut }) {
   const draft = new FormDraft();
   const root = el('div', { class: 'form-layer', role: 'group', 'aria-label': 'Page form fields' });
   const error = el('p', {
@@ -17,7 +21,9 @@ export function createFormLayer({ onChange, onCommit }) {
   let widgets = [],
     controls = new Map(),
     key,
-    pendingFocus = null;
+    pendingFocus = null,
+    // The field an error is about, when it names one; otherwise every changed field.
+    invalidField = null;
 
   function rememberFocus() {
     const active = document.activeElement;
@@ -87,9 +93,11 @@ export function createFormLayer({ onChange, onCommit }) {
         }
       }
       control.closest('.form-widget').classList.toggle('has-draft', draft.changes.has(widget.name));
-      control.setAttribute('aria-invalid', String(!error.hidden && draft.changes.has(widget.name)));
+      control.setAttribute('aria-invalid', String(!error.hidden && isInvalid(widget)));
     }
   }
+  const isInvalid = (widget) =>
+    invalidField ? widget.name === invalidField : draft.changes.has(widget.name);
   function changed(widget, value, editingControl) {
     if (widget.readOnly || !draft.set(widget.name, value)) return;
     clearError();
@@ -99,13 +107,15 @@ export function createFormLayer({ onChange, onCommit }) {
   function clearError() {
     error.hidden = true;
     error.textContent = '';
+    invalidField = null;
     for (const control of controls.values()) control.removeAttribute('aria-errormessage');
   }
-  function showError(message, { focus = true } = {}) {
+  function showError(message, { focus = true, field = null } = {}) {
     error.hidden = false;
     error.textContent = message;
+    invalidField = widgets.some((widget) => widget.name === field) ? field : null;
     sync();
-    const widget = widgets.find((widget) => draft.changes.has(widget.name));
+    const widget = widgets.find(isInvalid);
     const control = widget && controls.get(widget.id);
     if (control) {
       control.setAttribute('aria-errormessage', error.id);
@@ -158,7 +168,10 @@ export function createFormLayer({ onChange, onCommit }) {
           multiple: widget.multiple,
           size: !widget.combo ? Math.max(2, Math.min(6, widget.options.length)) : null,
         },
-        !widget.multiple &&
+        // A list box shows its own rows, where the PDF draws them; an extra first row would
+        // put each option one row below its drawing, under the next option's.
+        widget.combo &&
+          !widget.multiple &&
           el('option', { value: '', 'data-placeholder': true }, 'Choose an option'),
         ...widget.options.map((option) =>
           el('option', { value: option.value }, option.label || '(Empty option)'),
@@ -218,6 +231,11 @@ export function createFormLayer({ onChange, onCommit }) {
         changed(widget, draft.base.get(widget.name));
         clearError();
         sync();
+      } else if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        const stops = [...root.querySelectorAll('.form-control')].filter((c) => !c.disabled);
+        const direction = event.shiftKey ? -1 : 1;
+        if (control === (event.shiftKey ? stops[0] : stops.at(-1)) && onTabOut?.(direction))
+          event.preventDefault();
       }
     });
     return control;
@@ -339,6 +357,13 @@ export function createFormLayer({ onChange, onCommit }) {
     undo,
     redo,
     owns: (element) => root.contains(element),
+    /** Focus the page's first field (`last`: its last one); false when it has none to fill. */
+    focusEdge(last = false) {
+      const stops = [...root.querySelectorAll('.form-control')].filter((c) => !c.disabled);
+      const target = last ? stops.at(-1) : stops[0];
+      target?.focus();
+      return !!target;
+    },
     clearHistory: () => {
       draft.past = [];
       draft.future = [];

@@ -416,3 +416,30 @@ describe('a list in a table cell', () => {
     expect(documentMarkdown(d)).toContain('| 1. Step one<br>2. Step two | • Point |');
   });
 });
+
+describe('the web page language', () => {
+  it('is the document’s default language, so screen readers read the page in it', () => {
+    const doc = blankDoc();
+    doc.replace('Guten Tag');
+    doc.styles.defaults.run.fontLanguage = 'de-DE';
+    expect(documentHtml(doc)).toContain('<html lang="de-DE">');
+    // Without one, or with a value that is no language tag, the page says English.
+    doc.styles.defaults.run.fontLanguage = '';
+    expect(documentHtml(doc)).toContain('<html lang="en">');
+    doc.styles.defaults.run.fontLanguage = 'x"><script>';
+    expect(documentHtml(doc)).toContain('<html lang="en">');
+  });
+});
+
+describe('Web page languages', () => {
+  it('marks East Asian text with its language where it differs from the page\'s', () => {
+    const doc = new TextDocument([paragraph('English, 日本語の直 and more.'), paragraph('中文直'), paragraph('Plain')]);
+    doc.select(9, 14); doc.setRunFormat({ fontEastAsiaLanguage: 'ja-JP' });
+    doc.select(25, 28); doc.setRunFormat({ fontEastAsiaLanguage: 'zh-CN' });
+    // A run marked Japanese but holding Latin text only needs no mark.
+    doc.select(29, 34); doc.setRunFormat({ fontEastAsiaLanguage: 'ja-JP' });
+    const html = documentHtml(doc);
+    expect(html).toContain('<html lang="en">');
+    expect(body(html)).toBe('<p>English, <span lang="ja-JP">日本語の直</span> and more.</p><p><span lang="zh-CN">中文直</span></p><p>Plain</p>');
+  });
+});

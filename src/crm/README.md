@@ -1,5 +1,7 @@
 # Sales CRM
 
+**Live app:** [crm.puter.com](https://crm.puter.com/)
+
 A CRM and sales pipeline for founders who do their own selling: leads,
 companies, deal stages, follow-ups, meeting history, and sales forecasts.
 Built with vanilla JavaScript on [Puter](https://developer.puter.com), so all

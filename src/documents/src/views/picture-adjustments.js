@@ -159,11 +159,11 @@ export function compressEdit({ ppi = 150, deleteCropped = true } = {}) {
     let image = await decodeToImageData(part.bytes, part.contentType);
     const source = child(blipFill, A, 'srcRect');
     const crop = Object.fromEntries(['l', 't', 'r', 'b'].map(k => [k, Number(source?.getAttribute(k) || 0)]));
-    let changed = false;
+    let changed = false, cropped = false;
     if (deleteCropped && Object.values(crop).some(v => v > 0) && Object.values(crop).every(v => v >= 0)) {
       image = cropPixels(image, { left: crop.l / 100000, top: crop.t / 100000, right: crop.r / 100000, bottom: crop.b / 100000 });
       setCrop(blipFill, {});
-      changed = true;
+      changed = cropped = true;
     }
     const extent = frame.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'extent')[0];
     const inches = [Number(extent.getAttribute('cx')) / 914400, Number(extent.getAttribute('cy')) / 914400];
@@ -177,6 +177,11 @@ export function compressEdit({ ppi = 150, deleteCropped = true } = {}) {
     const next = context.addPart(bytes, mime, 'canvas-compressed');
     const layer = readPictureLayer(blip);
     context.release?.(rel); if (layer?.relId) context.release?.(layer.relId);
+    if (cropped) {
+      // An SVG companion is painted in place of the bitmap: it would show the deleted areas again, uncropped.
+      for (const svg of blip.getElementsByTagNameNS('*', 'svgBlip')) { const id = svg.getAttributeNS(R, 'embed'); if (id) context.release?.(id); }
+      dropVectorCompanion(blip);
+    }
     blip.setAttributeNS(R, 'r:embed', next);
     setPictureLayer(blip, null);
     return true;

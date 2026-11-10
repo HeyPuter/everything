@@ -27,8 +27,11 @@ export function pastePayload(mode, { text = '', html = '' }, fragmentHtml) {
   return merged ? { text, html: fragmentHtml(merged) } : { text, html: '' };
 }
 
-/** Which modes make a difference for this clipboard content in this document. */
+/**
+ * Which modes make a difference for this clipboard content in this document. HTML that holds no text (a browser's
+ * Copy Image writes an <img> beside the picture) pastes nothing as formatted text.
+ */
 export function availablePasteModes(model, { html = '' } = {}) {
-  const formatted = !!html && carriesFormatting(model) && !model.tableContext;
+  const formatted = !!html && carriesFormatting(model) && !model.tableContext && !!htmlFragment(html)?.paragraphs.some(p => p.text);
   return Object.keys(PASTE_MODES).filter(mode => mode === 'text' || formatted);
 }

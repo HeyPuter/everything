@@ -2,6 +2,8 @@
 
 <h1 align="center">Parametric</h1>
 
+<p align="center"><strong>Live app:</strong> <a href="https://parametric.puter.com/">parametric.puter.com</a></p>
+
 <p align="center">Feature-based parametric 3D CAD in the browser. An open-source alternative to SolidWorks, Autodesk Fusion and Autodesk Inventor.</p>
 
 > **Early alpha.** Features may change and work could be lost. Please do not rely on Parametric for production designs yet, and keep a downloaded copy of anything important.
@@ -15,10 +17,11 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 **Sketching**
 - Lines, centerlines, corner and center rectangles, circles (center or 3 points), arcs (centerpoint, tangent, 3 point), polygons, straight slots, splines and points.
 - Inference while drawing: snapping to points, midpoints, curves and the origin, horizontal and vertical directions, and alignment guides. Matching relations are added automatically.
-- Geometric relations: coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, midpoint, collinear, symmetric and fix.
+- Geometric constraints (relations): coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, midpoint, collinear, symmetric and fix. Pick one in the Constrain group of the Sketch tab and click the geometry it applies to, or select geometry first and choose from the constraints that fit.
 - Smart Dimension: distances (aligned, horizontal, vertical), point to line, parallel lines, angles, radius and diameter, chosen from what you select and where you place the label. Driven (reference) dimensions.
 - A constraint solver with live dragging and definition status: blue geometry can still move, black is fully defined, red conflicts. The status bar shows the remaining degrees of freedom.
-- Sketch fillet, trim, extend, offset, mirror, convert model edges, construction geometry.
+- Sketch fillet, trim, extend, offset, mirror, construction geometry.
+- External geometry: Convert Entities projects model edges, faces and vertices into the sketch, and a sketch point or curve can be constrained to a model edge or vertex directly. Projected geometry stays linked to the model: when an earlier feature changes, it moves with the model and the sketch geometry constrained to it follows.
 
 **Features**
 - Extruded boss and cut (blind, through all, mid plane, two directions, draft).
@@ -35,7 +38,7 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - An AI design assistant in the right sidebar (Ctrl+J, or the sparkle button). Describe a part or a change ("a 100 × 60 × 8 mm plate with four M5 holes and rounded corners", "make the wall 3 mm", "fillet the top edges") and it builds it with the same features you use: sketches with exact geometry, relations and dimensions, extrudes, revolves, holes, fillets, chamfers, shells, patterns, mirrors, planes, lofts, sweeps and drafts, global variables and equations.
 - It reads the part precisely (feature parameters, sketch entities, faces and edges by name, measurements, mass properties), checks every change by rebuilding, undoes steps that would break a feature, and looks at the model to verify its work.
 - Attach files to a message (paperclip, paste or drop): photos and sketches of a part, dimensioned drawings and datasheets as images or PDFs, DXF outlines or CSV tables. It reads sizes and geometry from them.
-- Everything it changes in one message is a single undo step. It runs on Puter AI (Claude models; pick one at the top of the panel).
+- Everything it changes in one message is a single undo step. It runs on Puter AI (Claude Opus 5.5).
 
 **Drawings**
 - A 2D drawing sheet for each part (Drawing tab in the status bar): front, top, right, left, back, bottom and isometric views projected from the solid, with hidden lines and overall dimensions.
@@ -89,6 +92,6 @@ Settings are kept in a single key-value entry; part files are stored as files, n
 
 ## License
 
-This repository, including all its contents, sub-projects, modules, and components, is licensed under [MIT](../../LICENSE) unless explicitly stated otherwise. Third-party libraries included in this repository may be subject to their own licenses.
+Parametric is licensed under the [GNU Affero General Public License v3.0](LICENSE). Third-party libraries retain their own licenses.
 
 Third-party components and their licenses are listed in [public/licenses/THIRD_PARTY_NOTICES.txt](public/licenses/THIRD_PARTY_NOTICES.txt); the OpenCascade kernel is LGPL-2.1 and ships as a separate, replaceable WebAssembly module.

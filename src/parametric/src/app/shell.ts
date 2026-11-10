@@ -1,5 +1,6 @@
 // Builds the application chrome: title bar (brand, menus, quick access,
-// document title, command search, GitHub link, account), CommandManager
+// document title, command search, GitHub link, Apps launcher, account; or
+// puter.js's <puter-user-menu> in place of the last two), CommandManager
 // (tool groups and tabs), left pane, viewport host, task pane and status bar.
 
 import { h, formatShortcut } from '../ui/dom';
@@ -7,6 +8,8 @@ import { icon } from '../ui/icons';
 import { attachTooltip } from '../ui/overlay';
 import { dropdown, type MenuItem, closeMenus } from '../ui/menu';
 import type { CommandRegistry } from './commands';
+import { appsButton } from './apps-panel';
+import { userMenuElement } from './user-menu';
 
 export const REPO_URL = 'https://github.com/heyputer/everything';
 
@@ -18,6 +21,8 @@ export interface RibbonTab {
   id: string;
   label: string;
   groups: RibbonItem[][];
+  /** Names of the groups, shown under them. */
+  labels?: string[];
 }
 
 export interface Shell {
@@ -28,6 +33,9 @@ export interface Shell {
   search: HTMLInputElement;
   searchResults: HTMLElement;
   account: HTMLButtonElement;
+  apps: HTMLButtonElement;
+  /** puter.js's <puter-user-menu>, when the loaded SDK defines it (see user-menu.ts). */
+  userMenu: HTMLElement | null;
   cmTools: HTMLElement;
   cmTabs: HTMLElement;
   leftpane: HTMLElement;
@@ -131,7 +139,13 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   const searchResults = h('div', { class: 'cmd-results', role: 'listbox', id: 'cmd-results', hidden: true });
   const github = h('a', { class: 'icon-btn', href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub' }, icon('github', 18));
   attachTooltip(github, 'Source code on GitHub');
+  const apps = appsButton();
   const account = h('button', { class: 'avatar-btn', type: 'button', 'aria-label': 'Account', 'aria-haspopup': 'menu' }) as HTMLButtonElement;
+  // puter.js was loaded (deferred) before this module ran, so it has defined
+  // <puter-user-menu> by now if it has one. Where it renders, the app's own
+  // launcher and account button stand down from the first paint.
+  const userMenu = userMenuElement();
+  if (userMenu && !userMenu.hidden) apps.hidden = account.hidden = true;
 
   const titlebar = h('header', { class: 'titlebar' },
     mobileMenu,
@@ -140,13 +154,22 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
     h('div', { class: 'tb-center' }, docTitle, docState),
     h('div', { class: 'tb-right' }, h('div', { class: 'cmd-search' }, icon('search', 14), search, searchResults),
       commandButton(cmds, 'assistant'),
-      (() => { const b = commandButton(cmds, 'share'); b.classList.add('hide-mobile'); return b; })(), github, account));
+      (() => { const b = commandButton(cmds, 'share'); b.classList.add('hide-mobile'); return b; })(), github, apps, account, userMenu));
 
   const cmTools = h('div', { class: 'cm-tools', role: 'toolbar', 'aria-label': 'Commands' });
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => fitRibbon(cmTools)).observe(cmTools);
+  // A narrow window clips the tools on the right and the strip has no
+  // scrollbar: a plain mouse wheel scrolls it sideways (trackpads and touch
+  // already can).
+  cmTools.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.deltaX || !e.deltaY || cmTools.scrollWidth <= cmTools.clientWidth) return;
+    e.preventDefault();
+    cmTools.scrollLeft += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  }, { passive: false });
   const cmTabs = h('div', { class: 'cm-tabs', role: 'tablist', 'aria-label': 'Command groups' });
   const cm = h('section', { class: 'cm', 'aria-label': 'CommandManager' }, cmTools, cmTabs);
 
-  const lpTabs = h('div', { class: 'lp-tabs', role: 'tablist', 'aria-label': 'Panels' });
+  const lpTabs = h('div', { class: 'lp-tabs' });
   const lpBody = h('div', { class: 'lp-body', id: 'left-panel' });
   const leftpane = h('aside', { class: 'leftpane', 'aria-label': 'Design tree and properties' }, lpTabs, lpBody);
   const splitter = h('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize panel', tabindex: '0', 'aria-valuemin': '200', 'aria-valuemax': '520', 'aria-valuenow': '280' });
@@ -168,7 +191,7 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
 
   const root = h('div', { class: 'app' }, titlebar, cm, workspace, statusbar);
   return {
-    root, menubar, docTitle, docState, search, searchResults, account, cmTools, cmTabs, leftpane, lpTabs, lpBody, splitter, viewport, hud,
+    root, menubar, docTitle, docState, search, searchResults, account, apps, userMenu, cmTools, cmTabs, leftpane, lpTabs, lpBody, splitter, viewport, hud,
     confirm, taskpane, tpStrip, tpPanel, statusMsg, statusSketch, statusUnits, statusRebuild, statusCoords, treeToggle, mobileMenu,
   };
 }
@@ -176,8 +199,9 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
 /** Renders one CommandManager tab's tools. */
 export function renderRibbon(target: HTMLElement, tab: RibbonTab, cmds: CommandRegistry) {
   target.textContent = '';
-  for (const group of tab.groups) {
-    const g = h('div', { class: 'cm-group', role: 'group' });
+  tab.groups.forEach((group, i) => {
+    const name = tab.labels?.[i];
+    const g = h('div', { class: 'cm-group', role: 'group', ...(name ? { 'aria-label': name, 'data-group': name.toLowerCase() } : {}) });
     for (const it of group) {
       if ('stack' in it) {
         const st = h('div', { class: 'cm-stack' });
@@ -186,8 +210,18 @@ export function renderRibbon(target: HTMLElement, tab: RibbonTab, cmds: CommandR
       } else g.append(commandButton(cmds, it.cmd, it.size === 'row' ? 'row' : 'big', 26, it.menu));
     }
     target.append(g);
-  }
+  });
   syncCommandButtons(target, cmds);
+  fitRibbon(target);
+}
+
+/**
+ * When a tab's tools are wider than the window, groups that can (the sketch
+ * constraints) show their row buttons as icons only, named in tooltips.
+ */
+export function fitRibbon(tools: HTMLElement) {
+  tools.classList.remove('compact');
+  if (tools.scrollWidth > tools.clientWidth + 1) tools.classList.add('compact');
 }
 
 export function shortcutLabel(s?: string) {

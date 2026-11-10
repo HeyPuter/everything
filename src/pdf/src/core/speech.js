@@ -10,6 +10,21 @@ export function pageSpeechText(items) {
     .replace(/[ \t]+/g, ' ')
     .trim();
 }
+/** The last boundary between whole characters at or before `max` (`max` when none is). */
+function characterBoundary(text, max, lang) {
+  if (typeof Intl.Segmenter !== 'function') {
+    const high = text.charCodeAt(max - 1);
+    return high >= 0xd800 && high <= 0xdbff && max > 1 ? max - 1 : max;
+  }
+  let at = 0;
+  for (const { index } of new Intl.Segmenter(lang, { granularity: 'grapheme' }).segment(
+    text.slice(0, max + 1),
+  )) {
+    if (index > max) break;
+    at = index;
+  }
+  return at > 0 ? at : max;
+}
 /**
  * Page text cut into pieces to speak one after another, whole sentences where they fit.
  * Chrome stops speaking a long utterance after about fifteen seconds without ever ending it,
@@ -35,10 +50,11 @@ export function speechChunks(text, { max = 200, lang } = {}) {
     current += piece;
   };
   for (let sentence of sentences) {
-    // A sentence too long to speak whole breaks at the last space that fits.
+    // A sentence too long to speak whole breaks at the last space that fits, or else between
+    // whole characters: never inside an emoji's code units or between a letter and its mark.
     while (sentence.length > max) {
       const space = sentence.lastIndexOf(' ', max);
-      const at = space > 0 ? space + 1 : max;
+      const at = space > 0 ? space + 1 : characterBoundary(sentence, max, lang);
       add(sentence.slice(0, at));
       sentence = sentence.slice(at);
     }

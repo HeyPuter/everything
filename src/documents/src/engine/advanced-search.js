@@ -2,7 +2,7 @@ import { paragraphText, paragraphFormat, runFormat } from './model.js';
 import { effectiveStyleId } from './styles.js';
 import { inlineSegments } from './images.js';
 import { MAX_DOCUMENT_CHARACTERS } from './text-limits.js';
-import { deletedSpans, overlaps } from './search.js';
+import { skippedSpans, overlaps, matchedCase } from './search.js';
 
 /**
  * Advanced Find and Replace: special characters, a documented wildcard subset, prefix/suffix and
@@ -165,6 +165,15 @@ function rangeHasFormat(p, from, to, conditions) {
   return true;
 }
 
+/** The text with each grapheme composed (NFC) and where its grapheme boundaries lie in the original; null when it is composed. */
+function composedText(text) {
+  if (text.normalize('NFC') === text) return null;
+  const original = new Map(); let out = '';
+  for (const { segment, index } of inlineSegments(text)) { original.set(out.length, index); out += segment.normalize('NFC'); }
+  original.set(out.length, text.length);
+  return { text: out, original };
+}
+
 /**
  * Find matches. options: matchCase, wholeWord, wildcards, matchPrefix, matchSuffix, ignorePunctuation,
  * ignoreWhitespace, format (run and paragraph conditions), within ([start, end] to search a selection).
@@ -185,7 +194,7 @@ export function advancedFind(paragraphs, query, options = {}, context = {}) {
     return graphemes.get(i);
   };
   const spanAt = position => { let lo = 0, hi = spans.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (spans[mid].start <= position) lo = mid; else hi = mid - 1; } return lo; };
-  const deleted = new Map(), deletedIn = i => { if (!deleted.has(i)) deleted.set(i, deletedSpans(spans[i].p)); return deleted.get(i); };
+  const deleted = new Map(), deletedIn = i => { if (!deleted.has(i)) deleted.set(i, skippedSpans(spans[i].p, !!options.skipDeleted, options.hidden)); return deleted.get(i); };
   const pictureAt = position => {
     const s = spans[spanAt(position)]; let at = s.start;
     for (const run of s.p.runs) { if (position < at + run.text.length) return !!run.image; at += run.text.length; }
@@ -208,8 +217,8 @@ export function advancedFind(paragraphs, query, options = {}, context = {}) {
     // An object character is a picture only when it is one: ^g, ^? and wildcards never take a field,
     // equation or note reference, which Replace All then deleted.
     for (let at = text.indexOf('\uFFFC', start); at >= 0 && at < end; at = text.indexOf('\uFFFC', at + 1)) if (!pictureAt(at)) return;
-    // With Track Changes on, text tracked as deleted is not found (see findText).
-    if (options.skipDeleted) for (let i = first; i <= last; i++) if (overlaps(deletedIn(i), Math.max(start, spans[i].start) - spans[i].start, Math.min(end, spans[i].end) - spans[i].start)) return;
+    // With Track Changes on, text tracked as deleted is not found, nor text the view hides with `hidden` (see findText).
+    if (options.skipDeleted || options.hidden) for (let i = first; i <= last; i++) if (overlaps(deletedIn(i), Math.max(start, spans[i].start) - spans[i].start, Math.min(end, spans[i].end) - spans[i].start)) return;
     // Never match half a grapheme or half a picture.
     const s = spans[first], e = spans[last];
     if (!startsAt(first).has(start)) return;
@@ -217,10 +226,18 @@ export function advancedFind(paragraphs, query, options = {}, context = {}) {
     matches.push({ start, end, paragraph: first, offset: start - s.start, text: text.slice(start, end), ...(groups ? { groups } : {}) });
   };
   if (query) {
-    const pattern = compileQuery(query, options);
-    for (const m of text.matchAll(pattern)) {
+    // An accented letter is one character (é) or a letter and a combining accent (e + ◌́): the same text, as the
+    // basic search treats it (search.js). The query and text are compared composed; a match counts where it starts
+    // and ends between graphemes of the document's own text.
+    const pattern = compileQuery(query.normalize('NFC'), options), composed = composedText(text);
+    for (const m of (composed ? composed.text : text).matchAll(pattern)) {
       if (!m[0].length) continue;
-      accept(m.index, m.index + m[0].length, m.length > 1 ? m.slice(1) : null);
+      let start = m.index, end = m.index + m[0].length;
+      if (composed) {
+        if (!composed.original.has(start) || !composed.original.has(end)) continue;
+        start = composed.original.get(start); end = composed.original.get(end);
+      }
+      accept(start, end, m.length > 1 ? m.slice(1) : null);
       if (matches.length > 10000) throw new Error('More than 10,000 matches. Narrow the search.');
     }
   } else {
@@ -266,12 +283,13 @@ export function expandReplacement(template, match, { wildcards = false } = {}) {
  * format: run properties and/or { paragraphStyle } / paragraph properties to apply to the result.
  * Returns the number of replacements.
  */
-export function replaceAdvanced(model, matches, template, { wildcards = false, format = null } = {}) {
+export function replaceAdvanced(model, matches, template, { wildcards = false, format = null, matchCase = false } = {}) {
   if (!matches.length) return 0;
   const { run: runPatch, paragraph: paragraphPatch } = splitFormat(format || {});
   const { paragraphStyle, ...paragraphFormatPatch } = paragraphPatch;
   const formatOnly = !template && (Object.keys(runPatch).length || Object.keys(paragraphPatch).length);
-  const texts = matches.map(m => formatOnly ? m.text : expandReplacement(template, m, { wildcards }));
+  // Without Match case (wildcard searches always match case) the replacement takes the found text's capitalization.
+  const texts = matches.map(m => formatOnly ? m.text : wildcards || matchCase ? expandReplacement(template, m, { wildcards }) : matchedCase(m.text, expandReplacement(template, m, { wildcards })));
   if (model.text.length + matches.reduce((n, m, i) => n + texts[i].length - (m.end - m.start), 0) > MAX_DOCUMENT_CHARACTERS) throw new Error('The replacement would make the document too long.');
   model.checkpoint();
   const checkpoint = model.checkpoint;

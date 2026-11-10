@@ -1,5 +1,7 @@
 # Sudoku
 
+**Live app:** [sudoku.puter.com](https://sudoku.puter.com/)
+
 A Sudoku that generates its own puzzles, grades them by the reasoning they
 actually demand, and explains its hints instead of just filling in the answer.
 No frameworks: plain JavaScript, Vite, and Puter.js for the optional account.
@@ -119,6 +121,11 @@ by field so neither device's progress is dropped; a saved game cannot be merged
 that way, so the newer of the two wins. A read that failed is never treated as an
 empty store, which is the mistake that would let a flaky connection wipe a
 player's records.
+
+On the web, where the loaded puter.js provides `<puter-user-menu>`, that element
+is the account button at the end of the top bar (with the Apps launcher on
+puter.com), and the app's own button stands down. The app follows the
+element's sign-in, and its Sign out still goes through the app's confirmation.
 
 Inside a Puter app window (`puter.env === 'app'` or `'gui'`) the session belongs
 to the shell, so the app shows who is signed in and offers no sign-out.

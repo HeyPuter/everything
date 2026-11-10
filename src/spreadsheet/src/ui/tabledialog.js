@@ -9,7 +9,8 @@ import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
 import { looksLikeHeader } from './sortdialog.js';
 import { rangeName, normalizeRange } from '../core/cell.js';
-import { TABLE_STYLES } from '../core/tables.js';
+import { TABLE_STYLES, tableNameMessage } from '../core/tables.js';
+import { t } from '../i18n/index.js';
 import { MAX_ROWS, MAX_COLS } from '../core/workbook.js';
 import * as S from '../core/selection.js';
 
@@ -18,8 +19,8 @@ export function openTableDialog(ctx, { range = null, table = null, style: preset
   const sheetId = ctx.sheetId();
   const editing = !!table;
   const src = table ? table.range : range;
-  const nameInput = el('input.input', { type: 'text', value: table ? table.name : wb.uniqueTableName(), 'aria-label': 'Table name', spellcheck: false, autocomplete: 'off', maxlength: 60 });
-  const rangeInput = el('input.input', { type: 'text', value: rangeName(src), 'aria-label': 'Range', spellcheck: false, autocomplete: 'off', disabled: editing });
+  const nameInput = el('input.input', { type: 'text', value: table ? table.name : wb.uniqueTableName(), 'aria-label': t('tabledialog.tableName'), spellcheck: false, autocomplete: 'off', maxlength: 60 });
+  const rangeInput = el('input.input', { type: 'text', value: rangeName(src), 'aria-label': t('tabledialog.range'), spellcheck: false, autocomplete: 'off', disabled: editing });
   // A refusal names the field it is about (the range, the name, the totals box); one about the sheet itself names none.
   const { alert: error, refuse } = fieldAlert('table');
   const headerId = fieldId('table');
@@ -40,12 +41,12 @@ export function openTableDialog(ctx, { range = null, table = null, style: preset
   const totalsInput = el('input', { type: 'checkbox', id: totalsId, checked: !!table?.totalsRow });
   const bandedId = fieldId('table');
   const bandedInput = el('input', { type: 'checkbox', id: bandedId, checked: table ? table.banded !== false : true });
-  const columnOptions = [['firstColumn', 'First column'], ['lastColumn', 'Last column']].map(([key, label]) => {
+  const columnOptions = [['firstColumn', t('tabledialog.firstColumn')], ['lastColumn', t('tabledialog.lastColumn')]].map(([key, label]) => {
     const input = el('input', { type: 'checkbox', checked: !!table?.[key] });
     return { key, input, field: el('label.find-option', {}, input, el('span', {}, label)) };
   });
   const columnPrefs = () => Object.fromEntries(columnOptions.map(({ key, input }) => [key, input.checked]));
-  const styleRow = el('div.table-styles', { role: 'radiogroup', 'aria-label': 'Table style' });
+  const styleRow = el('div.table-styles', { role: 'radiogroup', 'aria-label': t('tabledialog.tableStyle') });
   let style = table?.style || (TABLE_STYLES.some(([key]) => key === preset) ? preset : 'blue');
   const firstTab = TABLE_STYLES.find(([key]) => key === style)?.[0] || TABLE_STYLES[0][0];
   const chooseStyle = (key) => {
@@ -78,21 +79,21 @@ export function openTableDialog(ctx, { range = null, table = null, style: preset
 
   const submit = (e) => {
     e?.preventDefault();
-    if (wb.isProtected(sheetId)) return refuse(null, 'This sheet is protected. Unprotect it to change the table.');
+    if (wb.isProtected(sheetId)) return refuse(null, t('tabledialog.protectedChange'));
     const name = nameInput.value.trim();
     const nameErr = wb.validateTableName(name, table?.name);
-    if (nameErr) return refuse(nameInput, nameErr);
+    if (nameErr) return refuse(nameInput, tableNameMessage(nameErr));
     if (editing) {
       if (!wb.updateTable(sheetId, table.id, { name, style, banded: bandedInput.checked, ...columnPrefs(), totalsRow: totalsInput.checked })) {
-        return refuse(null, 'Could not update the table. It may have been removed, or its totals row is protected or outside the sheet.');
+        return refuse(null, t('tabledialog.couldNotUpdate'));
       }
       modal.close();
-      toast(`Table ${name} updated`, { icon: 'table' });
+      toast(t('tabledialog.updated', { name }), { icon: 'table' });
       ctx.grid.focus();
       return;
     }
     let r = readRange();
-    if (!r) return refuse(rangeInput, wb.rangeFromText(sheetId, rangeInput.value.trim()) ? 'Enter a range on this sheet' : 'Enter a range like A1:D20');
+    if (!r) return refuse(rangeInput, wb.rangeFromText(sheetId, rangeInput.value.trim()) ? t('tabledialog.rangeOnSheet') : t('tabledialog.rangeLike'));
     // The grid's own edge, not the file format's: past it the workbook refuses every edit (a
     // file may bring a larger sheet, whose cells stay editable). The same limit addTable holds
     // the totals row to, checked here before any header row is inserted.
@@ -100,25 +101,25 @@ export function openTableDialog(ctx, { range = null, table = null, style: preset
     const limit = { r2: Math.max(sheet.rows, MAX_ROWS) - 1, c2: Math.max(sheet.cols, MAX_COLS) - 1 };
     const lastRow = Math.max(r.r2 + (headerInput.checked ? 0 : 1), r.r1 + 1) + (totalsInput.checked ? 1 : 0);
     if (r.c2 > limit.c2 || lastRow > limit.r2) {
-      return refuse(rangeInput, `Choose a range within ${rangeName({ r1: 0, c1: 0, ...limit })}, leaving room for the header and totals rows.`);
+      return refuse(rangeInput, t('tabledialog.withinLimit', { range: rangeName({ r1: 0, c1: 0, ...limit }) }));
     }
-    if (wb.tablesOn(sheetId).some((t) => !(r.r2 < t.range.r1 || r.r1 > t.range.r2 || r.c2 < t.range.c1 || r.c1 > t.range.c2))) {
-      return refuse(rangeInput, 'That range overlaps another table');
+    if (wb.tablesOn(sheetId).some((tb) => !(r.r2 < tb.range.r1 || r.r1 > tb.range.r2 || r.c2 < tb.range.c1 || r.c1 > tb.range.c2))) {
+      return refuse(rangeInput, t('tabledialog.overlapsTable'));
     }
     const reportArea = headerInput.checked ? { ...r, r2: Math.max(r.r2, r.r1 + 1) } : r;
-    if (wb.nativePivotOverlap(sheetId, reportArea)) return refuse(rangeInput, 'That range overlaps a pivot table. Choose a different range.');
+    if (wb.nativePivotOverlap(sheetId, reportArea)) return refuse(rangeInput, t('tabledialog.overlapsPivot'));
     if (totalsInput.checked) {
       const totalRow = reportArea.r2 + 1;
       if (wb.tableRowOccupied(sheetId, { ...r, r1: totalRow, r2: totalRow })
         && wb.pivotLineEditBlocked(sheetId, 'row', totalRow, headerInput.checked ? 1 : 2)) {
-        return refuse(totalsInput, 'Making room for the totals row would split a pivot table or push it past the sheet limits.');
+        return refuse(totalsInput, t('tabledialog.totalsSplitPivot'));
       }
     }
     // A protected range starting above the insertion point expands over
     // the new row. Check before inserting a header that cannot be written.
     if (!headerInput.checked && wb.sheet(sheetId).protectedRanges.some(({ range: p }) =>
       p.r1 < r.r1 && p.r2 >= r.r1 && p.c1 <= r.c2 && p.c2 >= r.c1)) {
-      return refuse(null, 'The new header row would be protected. Unprotect those cells before creating the table.');
+      return refuse(null, t('tabledialog.headerProtected'));
     }
     if (totalsInput.checked) {
       // Check before adding a header: the protected cells move with that
@@ -127,14 +128,14 @@ export function openTableDialog(ctx, { range = null, table = null, style: preset
       // would announce the protection itself, beside the message the dialog shows.
       const totalRow = (headerInput.checked ? Math.max(r.r2, r.r1 + 1) : r.r2) + 1;
       if (sheet.protectedRanges.some(({ range: p }) => p.r1 <= totalRow && p.r2 >= totalRow && p.c1 <= r.c2 && p.c2 >= r.c1)) {
-        return refuse(totalsInput, 'The totals row is protected. Unprotect it or turn off the totals row.');
+        return refuse(totalsInput, t('tabledialog.totalsProtected'));
       }
     }
     // addTable refuses merged cells; found here, before the header row is inserted, for the same reason.
-    if (wb.mergesIn(sheetId, r).length) return refuse(rangeInput, 'The range has merged cells. Unmerge them before creating the table.');
+    if (wb.mergesIn(sheetId, r).length) return refuse(rangeInput, t('tabledialog.merged'));
     let id;
     let roomForHeader = true;
-    wb.transaction('Create table', () => {
+    wb.transaction(t('tabledialog.create'), () => {
       if (!headerInput.checked) {
         // No header row yet: make room for one above the data. Refused (content would be pushed off
         // the sheet), the transaction ends here with nothing done, rather than with a table whose
@@ -146,41 +147,41 @@ export function openTableDialog(ctx, { range = null, table = null, style: preset
       if (r.r2 <= r.r1) r = { ...r, r2: r.r1 + 1 };
       id = wb.addTable(sheetId, r, { name, style, banded: bandedInput.checked, ...columnPrefs(), totalsRow: totalsInput.checked });
     });
-    if (!roomForHeader) return refuse(null, 'A header row cannot be inserted above the data: the sheet has content on its last row.');
-    if (!id) return refuse(rangeInput, 'Could not create the table there. Check the range and its protection.');
+    if (!roomForHeader) return refuse(null, t('tabledialog.noRoomHeader'));
+    if (!id) return refuse(rangeInput, t('tabledialog.couldNotCreate'));
     modal.close();
     const made = wb.tableById(sheetId, id);
     ctx.grid.setSelection(S.fromRange(made.range, { r: made.range.r1, c: made.range.c1 }));
-    toast(`Table ${made.name} created. Use ${made.name}[Column] in formulas`, { icon: 'table', duration: 3200 });
+    toast(t('tabledialog.created', { name: made.name }), { icon: 'table', duration: 3200 });
     ctx.grid.focus();
     onCreated?.(made); // Data ▸ From Table/Range goes on to the query editor
   };
   const convert = () => {
-    if (wb.isProtected(sheetId)) { refuse(null, 'This sheet is protected. Unprotect it to convert the table.'); return; }
-    if (!wb.tableById(sheetId, table.id)) { refuse(null, 'This table no longer exists.'); return; }
+    if (wb.isProtected(sheetId)) { refuse(null, t('tabledialog.protectedConvert')); return; }
+    if (!wb.tableById(sheetId, table.id)) { refuse(null, t('tabledialog.gone')); return; }
     wb.deleteTable(sheetId, table.id);
     modal.close();
-    toast('Converted to a plain range; formulas now use cell addresses', { icon: 'table', duration: 2600 });
+    toast(t('tabledialog.converted'), { icon: 'table', duration: 2600 });
     ctx.grid.focus();
   };
 
   const content = el('form', { onsubmit: submit },
     el('div.row.row-2', {},
-      el('label.field', {}, el('span.field-label', {}, 'Name'), nameInput),
-      el('label.field', {}, el('span.field-label', {}, 'Range'), rangeInput)),
+      el('label.field', {}, el('span.field-label', {}, t('common.name')), nameInput),
+      el('label.field', {}, el('span.field-label', {}, t('tabledialog.range')), rangeInput)),
     error,
-    el('div.field', {}, el('span.field-label', {}, 'Style'), styleRow),
+    el('div.field', {}, el('span.field-label', {}, t('tabledialog.style')), styleRow),
     el('div.print-checks', {},
-      !editing && el('label.find-option', { for: headerId }, headerInput, el('span', {}, 'My data has a header row (otherwise one is added above it)')),
-      el('label.find-option', { for: totalsId }, totalsInput, el('span', {}, 'Totals row (a SUBTOTAL under each numeric column)')),
-      el('label.find-option', { for: bandedId }, bandedInput, el('span', {}, 'Banded rows')), columnOptions.map(option => option.field)),
-    el('p.field-hint', {}, 'Formulas can name the table\'s columns: =SUM(Sales[Amount]), or [@Qty]*[@Price] for the same row. Typing just under or beside the table extends it.'),
+      !editing && el('label.find-option', { for: headerId }, headerInput, el('span', {}, t('tabledialog.hasHeader'))),
+      el('label.find-option', { for: totalsId }, totalsInput, el('span', {}, t('tabledialog.totalsRow'))),
+      el('label.find-option', { for: bandedId }, bandedInput, el('span', {}, t('tabledialog.bandedRows'))), columnOptions.map(option => option.field)),
+    el('p.field-hint', {}, t('tabledialog.hint')),
     el('div.row.row-end', { style: { marginTop: '16px' } },
-      editing && el('button.btn.btn-danger', { type: 'button', onclick: convert }, 'Convert to range'),
+      editing && el('button.btn.btn-danger', { type: 'button', onclick: convert }, t('tabledialog.convertToRange')),
       el('div.grow'),
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, editing ? 'Save' : 'Create table')));
-  const modal = openModal({ title: editing ? `Table ${table.name}` : 'Create table', content, initialFocus: nameInput, onClose: () => ctx.grid.focus() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, editing ? t('common.save') : t('tabledialog.create'))));
+  const modal = openModal({ title: editing ? t('tabledialog.editTitle', { name: table.name }) : t('tabledialog.create'), content, initialFocus: nameInput, onClose: () => ctx.grid.focus() });
   // The generated name is offered selected, so typing replaces it (where the field took the focus).
   if (document.activeElement === nameInput) nameInput.select();
   return modal;

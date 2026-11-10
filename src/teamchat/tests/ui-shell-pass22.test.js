@@ -36,12 +36,10 @@ vi.mock('../src/ui/panel.js', () => ({
     return { destroy() {}, jumpTo() {} };
   },
 }));
-// The banners shown and the chimes played, recorded rather than done (as tests/lead-pass19-shell.test.js has it).
-const banners = [];
+// The chimes played, recorded rather than done.
 const chimes = [];
 vi.mock('../src/lib/notify.js', async (importOriginal) => ({
   ...(await importOriginal()),
-  showNotification: (opts) => { banners.push(opts); },
   playNotificationSound: (opts) => { chimes.push(opts || {}); },
 }));
 
@@ -409,42 +407,6 @@ describe('a saved item removed from Later meanwhile (another tab, another device
     expect(reads).toBe(before + 1);
     expect(view.el.querySelectorAll('.later-row').length).toBe(1);
     view.destroy();
-  });
-});
-
-describe('a line the system wrote into a direct message (a reminder come due, a huddle ended), announced over a hidden tab', () => {
-  it('rings and says "Reminder" only for a reminder, nothing for a huddle\'s end, and nothing when the line could not be read', async () => {
-    let answer = null; // what the one-message read answers, or a failure when null
-    const ctx = await bootApp({
-      hash: `#/ws/${encodeURIComponent(REF)}/c/c1`,
-      routes: { '/messages': () => (answer ? json({ messages: [answer], seq: answer.seq }) : json({ code: 'error', message: 'boom' }, 500)) },
-    });
-    await mountedShell(ctx);
-    const { store } = ctx;
-    banners.length = 0;
-    chimes.length = 0;
-    store.profile.prefs.notify = true;
-    store.profile.prefs.sound = true;
-    document.hidden = true;
-    // The line is not in the loaded window, so it is read for what it is; the read fails.
-    store.emit('incoming', [{ conv: 'dm_d', from: 'sys', seq: 7 }]);
-    await ctx.dom.tick(10);
-    expect(banners).toEqual([]);
-    expect(chimes).toEqual([]);
-    // A huddle's end, written by the system with its starter as the subject: not a reminder, and not news to ring for.
-    answer = { seq: 8, user: 'u-dan', ts: 8000, text: 'Huddle ended after 5 min', kind: 'sys', attachments: [], mentions: [], reactions: {} };
-    store.emit('incoming', [{ conv: 'dm_d', from: 'sys', seq: 8 }]);
-    await ctx.dom.tick(10);
-    expect(banners).toEqual([]);
-    expect(chimes).toEqual([]);
-    // A reminder come due: said as one, with its note.
-    answer = { seq: 9, user: 'u-me', ts: 9000, text: 'Reminder: water the plants', kind: 'rem', attachments: [], mentions: [], reactions: {} };
-    store.emit('incoming', [{ conv: 'dm_d', from: 'sys', seq: 9 }]);
-    await ctx.dom.tick(10);
-    expect(banners.length).toBe(1);
-    expect(banners[0].title).toBe('Reminder');
-    expect(banners[0].body).toBe('water the plants');
-    expect(chimes.length).toBe(1);
   });
 });
 

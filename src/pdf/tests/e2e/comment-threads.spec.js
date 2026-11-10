@@ -1,7 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
-import { addReply, listAnnotations, setReviewState } from '../../src/core/annotations.js';
+import {
+  addReply,
+  addShapeAnnotation,
+  listAnnotations,
+  setReviewState,
+} from '../../src/core/annotations.js';
 import { addNote } from '../../src/core/notes.js';
 import { addHighlight, rectQuad } from '../../src/core/highlight.js';
 
@@ -105,4 +110,173 @@ test('a highlight shows its replies and status and takes new ones', async ({ pag
   const [kept] = await saved(page);
   expect(repliesOf(kept)).toEqual(['Why this?', 'It matters']);
   expect(kept.state).toBe('Rejected');
+});
+
+// A shape's panel is drawn again after each change; the keyboard stays where it was used.
+test('a shape keeps the keyboard in its panel through replies and changes', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 640 });
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 100, y: 200, width: 80, height: 60 },
+    text: 'Boxed',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('button', { name: 'Rectangle: Boxed', exact: true }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const scroller = props.locator('.properties-content');
+  const reply = props.getByLabel('Reply text');
+  await reply.fill('First');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('First');
+  await expect(reply).toBeFocused();
+  // The panel, scrolled down to the reply box, stays there for the next reply.
+  await scroller.evaluate((node) => (node.scrollTop = node.scrollHeight));
+  const scrolled = await scroller.evaluate((node) => node.scrollTop);
+  expect(scrolled).toBeGreaterThan(0);
+  await reply.fill('Second');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('Second');
+  await expect(reply).toBeFocused();
+  expect(await scroller.evaluate((node) => node.scrollTop)).toBeGreaterThanOrEqual(scrolled);
+  const status = props.getByLabel('Review status');
+  await status.focus();
+  await status.selectOption('Completed');
+  await settled(page);
+  await expect(status).toHaveValue('Completed');
+  await expect(status).toBeFocused();
+  const width = props.getByLabel('Line width', { exact: true });
+  await width.focus();
+  await width.selectOption('3');
+  await settled(page);
+  await expect(width).toHaveValue('3');
+  await expect(width).toBeFocused();
+  const [kept] = await saved(page);
+  expect(repliesOf(kept)).toEqual(['First', 'Second']);
+  expect(kept.state).toBe('Completed');
+  expect(kept.width).toBe(3);
+});
+
+// Saving the comment's text or zooming draws the panel again, under the words being typed.
+test('a shape keeps a reply being typed while its panel is drawn again', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 100, y: 200, width: 80, height: 60 },
+    text: 'Boxed',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('button', { name: 'Rectangle: Boxed', exact: true }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const reply = props.getByLabel('Reply text');
+  // Leaving the Comment field saves it while the first letters of the reply are typed.
+  await props.getByLabel('Comment', { exact: true }).fill('Boxed in');
+  await reply.click();
+  await page.keyboard.type('Looks', { delay: 20 });
+  await settled(page);
+  await expect(props.getByLabel('Comment', { exact: true })).toHaveValue('Boxed in');
+  await expect(reply).toHaveValue('Looks');
+  await page.keyboard.press('ControlOrMeta+=');
+  await settled(page);
+  await expect(reply).toBeFocused();
+  await page.keyboard.type(' right');
+  await expect(reply).toHaveValue('Looks right');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('Looks right');
+  await expect(reply).toHaveValue('');
+  const [kept] = await saved(page);
+  expect(kept.contents).toBe('Boxed in');
+  expect(repliesOf(kept)).toEqual(['Looks right']);
+});
+
+// Zooming draws the page again; a selected highlight stays selected, as a shape does.
+test('a highlight keeps its selection and a reply being typed through a zoom', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]).drawText('Highlighted words', { x: 40, y: 400, size: 18 });
+  addHighlight(doc, 0, {
+    quads: [rectQuad({ x: 40, y: 394, width: 150, height: 22 })],
+    text: 'Highlighted words',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Edit highlight: Highlighted words' }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const reply = props.getByLabel('Reply text');
+  await reply.click();
+  await page.keyboard.type('Looks', { delay: 20 });
+  const zoom = page.getByRole('combobox', { name: 'Zoom', exact: true });
+  const before = await zoom.inputValue();
+  // Twice: the second zoom begins while the first draws the page.
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const paper = document.querySelector('.paper');
+        const press = () =>
+          document.activeElement.dispatchEvent(
+            new KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true }),
+          );
+        new MutationObserver((_, observer) => {
+          if (paper.getAttribute('aria-busy') !== 'true') return;
+          observer.disconnect();
+          press();
+          resolve();
+        }).observe(paper, { attributeFilter: ['aria-busy'] });
+        press();
+      }),
+  );
+  await settled(page);
+  await expect.poll(() => zoom.inputValue()).not.toBe(before);
+  await expect(props.getByLabel('Highlight color')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Edit highlight: Highlighted words' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(reply).toBeFocused();
+  await page.keyboard.type(' right');
+  await expect(reply).toHaveValue('Looks right');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('Looks right');
+  // The highlight on the page keeps the keyboard, when it has it.
+  const target = page.getByRole('button', { name: 'Edit highlight: Highlighted words' });
+  await target.focus();
+  await page.keyboard.press('ControlOrMeta+-');
+  await settled(page);
+  await expect(target).toBeFocused();
+  await expect(target).toHaveAttribute('aria-pressed', 'true');
+  const [kept] = await saved(page);
+  expect(repliesOf(kept)).toEqual(['Looks right']);
+});
+
+// Zooming saves the note's own words; the note stays open, with the reply being typed to it.
+test('a sticky note stays open, with a reply being typed, through a zoom', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  addNote(doc, 0, { x: 100, y: 400, text: 'Check the totals', author: 'Ada' });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Edit note: Check the totals' }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  await props.getByLabel('Note text').fill('Check the totals again');
+  const reply = props.getByLabel('Reply text');
+  await reply.click();
+  await page.keyboard.type('On it', { delay: 20 });
+  await page.keyboard.press('ControlOrMeta+=');
+  await settled(page);
+  await expect(props.getByLabel('Note text')).toHaveValue('Check the totals again');
+  await expect(
+    page.getByRole('button', { name: 'Edit note: Check the totals again' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(reply).toBeFocused();
+  await page.keyboard.type(' now');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('On it now');
+  const [kept] = await saved(page);
+  expect(kept.contents).toBe('Check the totals again');
+  expect(repliesOf(kept)).toEqual(['On it now']);
 });

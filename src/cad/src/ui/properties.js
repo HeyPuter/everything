@@ -7,7 +7,13 @@ import { h, clear, nextId } from './dom.js';
 import { icon } from './icons.js';
 import { colorLabel, colorCss } from '../core/colors.js';
 import { LINEWEIGHTS, LW_BYLAYER, LW_BYBLOCK, LW_DEFAULT } from '../core/schema.js';
-import { formatLinear, formatAngle, parseLength, parseAngle } from '../core/units.js';
+import {
+  formatLinear,
+  formatAngle,
+  formatDirection,
+  parseLength,
+  parseAngle,
+} from '../core/units.js';
 import { lengthOf, areaOf } from '../core/geom/index.js';
 import { dimensionText } from '../core/dims.js';
 import { patternNames } from '../core/hatch/patterns.js';
@@ -39,6 +45,9 @@ const TYPE_LABEL = {
 const L = (label, key, extra) => ({ label, kind: 'length', get: (e) => e[key], set: (e, v) => ({ [key]: v }), ...extra });
 const A = (label, key, extra) => ({ label, kind: 'angle', get: (e) => e[key], set: (e, v) => ({ [key]: v }), ...extra });
 const RO = (label, get, kind = 'length') => ({ label, kind: 'ro', fmt: kind, get });
+/** Obliquing angles are limited to ±85 degrees, as in AutoCAD: the slant grows as tan(angle). */
+const MAX_OBLIQUE = (85 * Math.PI) / 180;
+const obliqueOk = (a) => Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) <= MAX_OBLIQUE + 1e-9;
 
 const GEOMETRY = {
   line: [
@@ -127,7 +136,7 @@ const GEOMETRY = {
     L('Height', 'h', { min: 1e-9 }),
     A('Rotation', 'rot'),
     { label: 'Width factor', kind: 'number', get: (e) => e.widthFactor ?? 1, set: (e, v) => ({ widthFactor: Math.max(0.01, v) }) },
-    A('Obliquing', 'oblique'),
+    A('Obliquing', 'oblique', { valid: obliqueOk }),
     L('Position X', 'x'),
     L('Position Y', 'y'),
   ],
@@ -186,6 +195,9 @@ function safe(fn) {
   }
 }
 
+/** The drawing each rendered selection belongs to. */
+const owners = new WeakMap();
+
 export class PropertiesPalette {
   constructor(app) {
     this.app = app;
@@ -227,8 +239,9 @@ export class PropertiesPalette {
     const app = this.app;
     const doc = app.doc;
     if (!doc) return;
-    // Keep focus on an input that is being edited.
-    if (!this._forceRender && this.el.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return;
+    // Keep focus on an input that is being edited, unless the fields belong
+    // to a drawing that is no longer active.
+    if (!this._forceRender && doc === this._doc && this.el.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return;
     const d = doc.drawing;
     const sel = [...doc.selection].map((id) => d.get(id)).filter(Boolean);
     const groups = new Map();
@@ -249,12 +262,16 @@ export class PropertiesPalette {
       this.typeSelect.value = this.filter;
     }
     clear(this.body);
+    this._doc = doc;
     if (!sel.length) {
       this.body.append(this.section('General', this.currentFields()));
       this.body.append(this.section('View', this.viewFields(), true));
       return;
     }
     const ents = this.filter === 'all' ? sel : groups.get(this.filter) || sel;
+    // Fields commit to the drawing they were built for, even if another one
+    // has become active since (see apply).
+    owners.set(ents, d);
     this.body.append(this.section('General', this.generalFields(ents)));
     if (this.filter !== 'all' || groups.size === 1) {
       const type = ents[0].type;
@@ -289,7 +306,7 @@ export class PropertiesPalette {
 
   /** Commit a patch function to every entity in `ents` as one step. */
   apply(ents, patchFn, label = 'Change properties') {
-    const d = this.app.doc.drawing;
+    const d = owners.get(ents) ?? this.app.doc.drawing;
     d.transaction(label, () => {
       for (const e of ents) {
         const cur = d.get(e.id);
@@ -401,7 +418,7 @@ export class PropertiesPalette {
         control = this.numberInput(v, (x) => x > 0 && commit(x));
         break;
       case 'angle':
-        control = this.angleInput(v, commit);
+        control = this.angleInput(v, (x) => (!f.valid || f.valid(x)) && commit(x));
         break;
       case 'number':
         control = this.numberInput(v, commit);
@@ -427,24 +444,30 @@ export class PropertiesPalette {
   _input(value, display, parse, onCommit, attrs = {}) {
     const inp = h('input.input.sm', { type: 'text', value: display(value), placeholder: value === undefined ? 'Varies' : '', spellcheck: 'false', ...attrs });
     let orig = inp.value;
+    const reject = () => {
+      inp.value = orig;
+      inp.setAttribute('aria-invalid', 'true');
+      setTimeout(() => inp.removeAttribute('aria-invalid'), 1200);
+      return false;
+    };
+    // Returns false when the value was rejected (unparsable, or out of range: onCommit returns false).
     const commit = () => {
-      if (inp.value === orig) return;
+      if (inp.value === orig) return true;
       const v = parse(inp.value);
-      if (v === null || (typeof v === 'number' && !Number.isFinite(v))) {
-        inp.value = orig;
-        inp.setAttribute('aria-invalid', 'true');
-        setTimeout(() => inp.removeAttribute('aria-invalid'), 1200);
-        return;
-      }
+      if (v === null || (typeof v === 'number' && !Number.isFinite(v))) return reject();
+      const prev = orig;
       orig = inp.value;
-      onCommit(v);
+      if (onCommit(v) !== false) return true;
+      orig = prev;
+      return reject();
     };
     inp.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
         e.preventDefault();
-        commit();
+        const ok = commit();
         inp.select();
+        if (!ok) return;
         // Show the formatted value and the values that depend on it.
         this._forceRender = true;
         this.refresh();
@@ -467,7 +490,7 @@ export class PropertiesPalette {
 
   angleInput(v, onCommit) {
     const hd = this.app.doc.drawing.header;
-    return this._input(v, (x) => (x === undefined || !Number.isFinite(x) ? '' : formatAngle(norm(x), hd)), (s) => parseAngle(s, hd), onCommit, { inputmode: 'decimal' });
+    return this._input(v, (x) => (x === undefined || !Number.isFinite(x) ? '' : formatDirection(x, hd)), (s) => parseAngle(s, hd), onCommit, { inputmode: 'decimal' });
   }
 
   numberInput(v, onCommit) {
@@ -498,6 +521,8 @@ export class PropertiesPalette {
   select(options, value, onChange, labelFn) {
     const sel = h('select.input.sm');
     if (value === undefined) sel.append(h('option', { value: '', disabled: true, selected: true }, 'Varies'));
+    // A value the list lacks (an imported hatch pattern, a missing style) is still shown.
+    else if (!options.some((o) => String(o) === String(value))) options = [value, ...options];
     for (const o of options) {
       sel.append(h('option', { value: String(o), selected: value !== undefined && String(o) === String(value) }, labelFn ? labelFn(o) : String(o)));
     }

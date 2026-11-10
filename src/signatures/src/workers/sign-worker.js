@@ -831,7 +831,7 @@ router.post('/admin/revoke', async (ctx) => {
 
 /** Send the visitor to the app-hosted signing page. */
 router.get('/sign/:token', async (ctx) => {
-  const page = /^https?:\/\//i.test(PAGE_URL) ? PAGE_URL : 'https://puter.com';
+  const page = /^https?:\/\//i.test(PAGE_URL) ? PAGE_URL : 'https://sign.puter.com/sign.html';
   const params = new URLSearchParams({
     w: new URL(ctx.request.url).origin,
     t: String(ctx.params.token || ''),

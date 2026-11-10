@@ -6,13 +6,22 @@
  * a lone dash. Combining marks and the zero-width joiners Persian and Indic
  * scripts write inside words sit inside their word and split nothing.
  * Thai, Lao, Khmer and Myanmar put no spaces between words, so a run that
- * holds them counts the words Intl.Segmenter finds in it. Pictures and note
- * marks (U+FFFC) are not words, and a column break separates words.
+ * holds them counts the words Intl.Segmenter finds in it. Chinese and
+ * Japanese are counted as desktop word processors count East Asian text:
+ * each ideograph or kana (and Bopomofo letter) is a word of its own, the
+ * other letters and digits between them make words as usual, and the
+ * punctuation between them is not a word. Korean puts spaces between its
+ * words and is counted like any other text. Pictures and note marks
+ * (U+FFFC) are not words, and a column break separates words.
  */
 
 const WORD_RE = /[^\s\u200B\u000e]+/gu;
 const WHITESPACE_RE = /\s/;
 const SPACELESS_RE = /[\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+// The prolonged sound mark (ー) is written inside katakana words but belongs to no one script.
+const EAST_ASIAN_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\u30FC\uFF70]/u;
+const EAST_ASIAN_SPLIT_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\u30FC\uFF70]/gu;
+const WORDLIKE_RE = /[\p{L}\p{N}]/u;
 let segmenter;
 
 function spacelessWords(token) {
@@ -23,15 +32,25 @@ function spacelessWords(token) {
   return Math.max(1, count); // a run of marks alone is still one word
 }
 
+/** A whitespace-delimited token holding Chinese or Japanese: its characters, and the words between them. */
+function eastAsianWords(token) {
+  let count = 0;
+  const pieces = token.split(EAST_ASIAN_SPLIT_RE);
+  count += pieces.length - 1;
+  for (const piece of pieces) if (piece && WORDLIKE_RE.test(piece)) count += SPACELESS_RE.test(piece) ? spacelessWords(piece) : 1;
+  return count;
+}
+
 export function countWords(text) {
   if (!text) return 0;
   let s = String(text);
   if (s.includes('\uFFFC')) s = s.replace(/\uFFFC/g, '');
   const m = s.match(WORD_RE);
   if (!m) return 0;
-  if (!SPACELESS_RE.test(s)) return m.length;
+  const spaceless = SPACELESS_RE.test(s), eastAsian = EAST_ASIAN_RE.test(s);
+  if (!spaceless && !eastAsian) return m.length;
   let count = 0;
-  for (const token of m) count += SPACELESS_RE.test(token) ? spacelessWords(token) : 1;
+  for (const token of m) count += eastAsian && EAST_ASIAN_RE.test(token) ? eastAsianWords(token) : spaceless && SPACELESS_RE.test(token) ? spacelessWords(token) : 1;
   return count;
 }
 
@@ -113,4 +132,24 @@ export function mergeEngineCounts(stats, counts) {
   if (Number.isInteger(counts.words) && counts.words >= 0) { out.words = counts.words; out.readingMinutes = readingMinutes(counts.words); }
   if (Number.isInteger(counts.paragraphs) && counts.paragraphs >= 0) out.paragraphs = counts.paragraphs;
   return out;
+}
+
+let graphemeSegmenter;
+/**
+ * The start of `text`, at most `max` UTF-16 code units long, ending between two characters a reader sees: never
+ * inside an emoji (two code units, or several joined), a flag, or a letter and its accents. A cut that would halve
+ * one leaves it out (a character longer than `max` on its own is kept whole). Text within the limit is returned as is.
+ */
+export function clipText(text, max) {
+  const s = String(text ?? '');
+  if (s.length <= max) return s;
+  graphemeSegmenter ??= typeof Intl?.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+  if (!graphemeSegmenter) return s.slice(0, /[\ud800-\udbff]/.test(s[max - 1] || '') ? max - 1 : max);
+  // Graphemes past the cut do not matter: segmenting a bounded window keeps a long text cheap.
+  let end = 0;
+  for (const { segment, index } of graphemeSegmenter.segment(s.slice(0, max + 64))) {
+    if (index + segment.length > max) return s.slice(0, end || index + segment.length);
+    end = index + segment.length;
+  }
+  return s.slice(0, end);
 }

@@ -2,6 +2,7 @@
 // on a sheet so the Messages panel can zoom to it.
 
 import { placeSymbol } from './place.js';
+import { connectionPoints } from './sch.js';
 
 const key = (x, y) => `${x},${y}`;
 
@@ -90,7 +91,7 @@ export function runErc(sheets, lib, netlist, opts = {}) {
   for (const s of sheets) {
     const si = netlist.sheets.get(s.id);
     if (!si) continue;
-    const named = namedPoints(s);
+    const named = namedPoints(s, lib);
     const junctionSet = new Set(si.junctions.map(([x, y]) => key(x, y)));
     for (const o of s.objects) {
       if (o.t !== 'wire') continue;
@@ -110,8 +111,11 @@ export function runErc(sheets, lib, netlist, opts = {}) {
 }
 
 /** Points occupied by labels, power ports, ports and junctions on a sheet. */
-function namedPoints(sheet) {
+function namedPoints(sheet, lib) {
   const out = new Set();
-  for (const o of sheet.objects) if (o.t === 'label' || o.t === 'power' || o.t === 'port' || o.t === 'junction') out.add(key(o.x, o.y));
+  for (const o of sheet.objects) {
+    if (o.t === 'port') for (const [x, y] of connectionPoints(o, lib)) out.add(key(x, y));
+    else if (o.t === 'label' || o.t === 'power' || o.t === 'junction') out.add(key(o.x, o.y));
+  }
   return out;
 }

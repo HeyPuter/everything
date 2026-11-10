@@ -161,7 +161,7 @@ describe('DOCX paragraph formatting', () => {
   it.each([
     '<w:spacing w:beforeAutospacing="invalid"/>', '<w:spacing w:beforeLines="5001"/>',
     '<w:spacing w:line="bad"/>', '<w:spacing w:before="-20"/>',
-    '<w:jc w:val="thaiDistribute"/>',
+    '<w:jc w:val="mediumKashida"/>',
   ])('rejects unsupported effective formatting: %s', async properties => {
     await expect(DocxPackage.open(await fixture(`<w:p><w:pPr>${properties}</w:pPr><w:r><w:t>One</w:t></w:r></w:p>`))).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });
   });
@@ -236,13 +236,14 @@ describe('OOXML run-format conformance', () => {
   });
   it('deflates every picture when stored pictures would exceed the open limit', async () => {
     // Random bytes exactly where the compressibility samples look, padding between them.
-    const picture = new Uint8Array(24 * 1024 * 1024), sample = 1 << 15;
+    // Past the 64 MB open limit (MAX_PACKAGE_BYTES) when stored.
+    const picture = new Uint8Array(66 * 1024 * 1024), sample = 1 << 15;
     let seed = 88675123;
     for (const at of [0, (picture.length - sample) >> 1, picture.length - sample]) for (let i = at; i < at + sample; i++) { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; picture[i] = seed & 255; }
     const output = await bytes((await DocxPackage.open(await fixture('<w:p><w:r><w:t>Hello</w:t></w:r></w:p>', { 'word/media/scan.png': picture }))).export());
     expect(output.length).toBeLessThan(1024 * 1024);
     expect((await DocxPackage.open(output)).readOnly).not.toBe(true);
-  });
+  }, 60000);
 });
 
 describe('documents without a final paragraph', () => {

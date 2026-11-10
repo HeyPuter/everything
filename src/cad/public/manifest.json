@@ -14,10 +14,11 @@
     { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
+  "launch_handler": { "client_mode": "focus-existing" },
   "file_handlers": [
     {
       "action": "./",
-      "accept": { "application/dxf": [".dxf"], "application/octet-stream": [".cad"] }
+      "accept": { "application/dxf": [".dxf"], "image/vnd.dwg": [".dwg"], "application/octet-stream": [".cad"] }
     }
   ]
 }

@@ -68,12 +68,17 @@ for (const rotation of [0, 90, 270])
     expect(textBox.width / unit).toBeCloseTo(180, -1);
     expect(textBox.height / unit).toBeCloseTo(50, -1);
     // A clicked callout's box sits up and to the right of its point, 180 points wide.
-    const callout = await page.getByRole('button', { name: 'Text box: Point here' }).boundingBox();
+    const callout = await page.getByRole('button', { name: 'Callout: Point here' }).boundingBox();
     expect(callout.x).toBeCloseTo(anchor.x, -1);
     expect(callout.x + callout.width).toBeCloseTo(anchor.x + 60 + 180 * unit, -1);
     expect(callout.y).toBeCloseTo(anchor.y - 60, -1);
-    // The label is one line wide and sits just above the middle of the measured line.
-    const label = await page.getByRole('button', { name: /^Text box: 3\.0\d in/ }).boundingBox();
+    // The label is one line wide and sits just above the middle of the measured line. It is
+    // part of the measurement, which takes the pointer there too.
+    await expect(page.getByRole('button', { name: /^Text box: 3\.0\d in/ })).toHaveCount(0);
+    const label = await page
+      .getByRole('button', { name: /^Line: 3\.0\d in/ })
+      .locator('.annotation-hit rect')
+      .boundingBox();
     expect(label.width).toBeGreaterThan(label.height * 2);
     expect(label.y + label.height).toBeLessThanOrEqual(line.y);
     expect(label.y + label.height).toBeGreaterThan(line.y - 10 * unit);

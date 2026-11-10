@@ -67,10 +67,15 @@ export class CommandLine {
       this._suggest();
       this.app.editor?.drawOverlay();
     });
-    inp.addEventListener('blur', () => setTimeout(() => this._hideSuggest(), 120));
+    // Later, so a click on a suggestion still lands; not when typing has refocused the line.
+    inp.addEventListener('blur', () =>
+      setTimeout(() => document.activeElement !== inp && this._hideSuggest(), 120),
+    );
   }
 
   _key(e) {
+    // Enter and Space belong to the input method while it composes (Space picks a candidate).
+    if (e.isComposing || e.keyCode === 229) return;
     const ed = this.app.editor;
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -115,10 +120,7 @@ export class CommandLine {
     const text = this.input.value;
     this.input.value = '';
     this._hideSuggest();
-    if (text.trim()) {
-      this.typed.push(text);
-      if (this.typed.length > 100) this.typed.shift();
-    }
+    if (text.trim()) this._remember(text);
     this.typedIndex = -1;
     this.app.editor.submit(text);
     this.app.editor.drawOverlay();
@@ -204,8 +206,10 @@ export class CommandLine {
   _suggest() {
     const t = this.input.value.trim().toUpperCase();
     if (!t || this.app.editor.request || /[\d@#<,.-]/.test(t[0])) return this._hideSuggest();
-    const seen = new Set();
-    const out = [];
+    // A typed name or alias (C for CIRCLE) comes first, before longer names that start with it.
+    const hit = this.app.commands.get(t);
+    const seen = new Set(hit ? [hit] : []);
+    const out = hit ? [{ c: hit, exact: true, alias: t !== hit.name ? t : null }] : [];
     for (const [key, c] of this.app.commands) {
       if (seen.has(c)) continue;
       if (key.startsWith(t) || c.label.toUpperCase().startsWith(t)) {
@@ -259,7 +263,14 @@ export class CommandLine {
     if (!s) return;
     this.input.value = '';
     this._hideSuggest();
-    this.typed.push(s.c.name);
+    this._remember(s.c.name);
+    this.typedIndex = -1;
     this.app.run(s.c.name);
+  }
+
+  /** Add an entry to the typed history (ArrowUp), keeping the last 100. */
+  _remember(text) {
+    this.typed.push(text);
+    if (this.typed.length > 100) this.typed.shift();
   }
 }

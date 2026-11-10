@@ -7,7 +7,8 @@
  */
 
 import { parseFormula } from './formula/parser.js';
-import { localeCurrency } from './format.js';
+import { ZERO_ARG_FUNCTIONS } from './formula/evaluator.js';
+import { localeCurrency, dateTimeKind } from './format.js';
 
 /** Functions whose result is a date, a time, or both. */
 const DATE_FUNCTIONS = new Map([
@@ -34,6 +35,12 @@ const CARRY_FUNCTIONS = new Set([
 ]);
 
 const DATE_KINDS = new Set(['date', 'datetime', 'time']);
+/**
+ * Whether a format shows dates, so that one minus another is a number of days: the Date, Date and time or Time
+ * format, or a code of its own that shows a date. A code showing only a time (h:mm, [h]:mm) is not one: a time minus
+ * a time is how long it took, which reads as a time, as in Excel.
+ */
+const dated = (style) => (style.fmt === 'custom' ? ['date', 'datetime'].includes(dateTimeKind(style, 1)) : DATE_KINDS.has(style.fmt));
 /** Formats that survive a product or quotient: a price times a count is still a price; a date times two is not a date. */
 const SCALAR_KINDS = new Set(['percent', 'currency', 'number', 'scientific']);
 /** The style keys that describe a number format (and nothing else). */
@@ -65,9 +72,10 @@ function firstOf(nodes, walk) {
  * The style patch a formula implies, or null. `styleOfRef(ref)` returns the
  * style of a reference's first cell (any sheet), or null. `refOfName(name, sheet)`
  * returns the cells a defined name stands for, so =SUM(Prices) carries their
- * format as =SUM(B2:B3) does; without it a name carries nothing.
+ * format as =SUM(B2:B3) does; without it a name carries nothing. `isName(name, sheet)` says whether a defined
+ * name (or table) answers to a bare word, which =TODAY then reads rather than calling TODAY().
  */
-export function impliedFormulaStyle(formula, styleOfRef, refOfName = null) {
+export function impliedFormulaStyle(formula, styleOfRef, refOfName = null, isName = null) {
   let ast;
   try { ast = parseFormula(formula); } catch { return null; }
   const walk = (node, depth = 0) => {
@@ -84,15 +92,23 @@ export function impliedFormulaStyle(formula, styleOfRef, refOfName = null) {
         if (node.op === '+' || node.op === '-') {
           const left = next(node.left);
           const right = next(node.right);
-          // A date minus a date is a number of days, not another date.
-          if (node.op === '-' && left && right && DATE_KINDS.has(left.fmt) && DATE_KINDS.has(right.fmt)) return null;
+          // A date minus a date is a number of days, not another date, whether a format or a code of its own shows them.
+          if (node.op === '-' && left && right && dated(left) && dated(right)) return null;
           return left || right;
         }
         if (node.op === '*' || node.op === '/') return scalarOnly(next(node.left)) || scalarOnly(next(node.right));
         return null;
       }
       case 'call': {
+        // A bare word calls nothing, even one spelled like a function (a name Rate beside RATE): it is a defined
+        // name, which stands for the cells it was given.
         const name = String(node.name).toUpperCase();
+        if (node.bare) {
+          const ref = refOfName?.(node.name, node.sheet);
+          if (ref) return formatPart(styleOfRef(ref));
+          // Where no name has its spelling, =TODAY and =NOW still call the function, which takes no arguments.
+          if (node.sheet || !ZERO_ARG_FUNCTIONS.has(name) || isName?.(node.name, node.sheet)) return null;
+        }
         const args = node.args || [];
         const dated = DATE_FUNCTIONS.get(name);
         if (dated) return { fmt: dated };
@@ -105,11 +121,6 @@ export function impliedFormulaStyle(formula, styleOfRef, refOfName = null) {
         if (name === 'SUMIF' || name === 'AVERAGEIF') return next(args[2] ?? args[0]);
         if (name === 'LET') return args.length ? next(args[args.length - 1]) : null;
         if (CARRY_FUNCTIONS.has(name)) return firstOf(args, next);
-        // A bare word no function answers to is a defined name, which stands for the cells it was given.
-        if (node.bare && refOfName) {
-          const ref = refOfName(node.name, node.sheet);
-          return ref ? formatPart(styleOfRef(ref)) : null;
-        }
         return null;
       }
       default:

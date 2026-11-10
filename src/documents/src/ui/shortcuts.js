@@ -1,5 +1,6 @@
 import { el, MOD_KEY, IS_MAC } from './dom.js';
 import { openModal } from './modal.js';
+import { displayedChordReserved } from '../views/keymap.js';
 
 /**
  * What the keyboard does in the editor. Each row names a result and the
@@ -31,6 +32,8 @@ const GROUPS = [
     ['Ctrl + Shift + F', 'Choose a font'],
     ['Ctrl + Shift + P', 'Font size'],
     ['Shift + F3', 'Change case'],
+    [`${MOD_KEY} + Shift + Space`, 'Nonbreaking space'],
+    [`${MOD_KEY} + Shift + Hyphen`, 'Nonbreaking hyphen'],
   ]],
   ['Paragraph', [
     [[`${MOD_KEY} + L`, `${MOD_KEY} + Shift + L`], 'Align left'],
@@ -94,7 +97,15 @@ const GROUPS = [
 ];
 
 export function openShortcuts({ custom = [] } = {}) {
-  const groups = custom.length ? [...GROUPS, ['Your shortcuts', custom]] : GROUPS;
+  // A chord of your own runs your command instead of the built-in one, which the sheet then no longer promises.
+  const taken = new Set(custom.flatMap(([keys]) => [keys].flat()).map(chord => chord.toLowerCase()));
+  // Nor are chords promised that the browser keeps for itself here (Ctrl+T opens a tab on Windows and Linux, and
+  // Ctrl+Shift+W closes the window): a result with no other chord is left to its menu or ribbon command.
+  const builtIn = GROUPS.map(([title, rows]) => [title, rows.map(([keys, what]) => {
+    const left = [keys].flat().filter(chord => !taken.has(chord.toLowerCase()) && !displayedChordReserved(chord));
+    return left.length ? [left, what] : null;
+  }).filter(Boolean)]);
+  const groups = custom.length ? [...builtIn, ['Your shortcuts', custom]] : builtIn;
   const content = el('div.shortcuts', {},
     groups.map(([title, rows]) => el('section.shortcut-group', {},
       el('h3', {}, title),

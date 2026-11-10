@@ -48,7 +48,7 @@ test('F9 updates supported REF fields, reports retained cache, and preserves und
   await input.press('F9');
   const expected = 'below\n  source text  \n  source text  \nabove\ncache';
   await expect(input).toHaveValue(expected);
-  await expect(page.getByText('This REF uses switches that cannot be refreshed yet; its cached result is retained.', { exact: true })).toBeVisible();
+  await expect(page.getByText('This REF uses number switches for a paragraph whose number cannot be worked out here; its cached result is retained.', { exact: true })).toBeVisible();
   const event = page.waitForEvent('download'); await downloadDocx(page);
   const saved = info.outputPath('updated-ref.docx'); await (await event).saveAs(saved);
   await input.press('ControlOrMeta+z'); await expect(input).toHaveValue(original);

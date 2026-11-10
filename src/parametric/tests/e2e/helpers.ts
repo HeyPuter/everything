@@ -1,12 +1,11 @@
 import { type Page, expect } from '@playwright/test';
 
-/** Opens the app, dismisses the alpha notice and returns collected errors. */
+/** Opens the app and returns collected errors. */
 export async function openApp(page: Page): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !/js\.puter\.com|Failed to load resource/.test(m.text())) errors.push(m.text()); });
   await page.goto('/');
-  await page.getByRole('button', { name: 'I understand' }).click();
   return errors;
 }
 
@@ -19,4 +18,11 @@ export async function canvasCenter(page: Page) {
 export async function waitForFeature(page: Page, name: string) {
   await expect(page.getByRole('treeitem', { name })).toBeVisible();
   await expect(page.locator('.loading-kernel')).toHaveCount(0, { timeout: 30_000 });
+}
+
+/** Picks a theme from View › Theme (the account menu may be puter.js's, which has none). */
+export async function chooseTheme(page: Page, theme: 'Light' | 'Dark' | 'System') {
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'View' }).click();
+  await page.getByRole('menuitem', { name: 'Theme' }).click();
+  await page.getByRole('menuitemradio', { name: `${theme} Theme` }).click();
 }

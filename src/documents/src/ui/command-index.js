@@ -6,6 +6,8 @@
  * entry: { id, label, path: [String], shortcut, disabled, run() }
  */
 
+import { ariaKeyshortcuts } from './menu.js';
+
 const clean = label => String(label || '').replace(/…$/, '').replace(/\s+/g, ' ').trim();
 
 /** Ribbon commands: one entry per labelled button in each tab's panel. */
@@ -103,4 +105,38 @@ export function searchEntries(entries, query, limit = 8) {
     .map(([entry]) => entry)
     .filter(entry => { const key = `${entry.label}|${entry.disabled}`; if (seen.has(key)) return false; seen.add(key); return true; })
     .slice(0, limit);
+}
+
+/**
+ * Menu items with the shortcuts they run now: `shown(id, builtIn)` gives a command's chords, by the id its entry has
+ * under `prefix` (as menuEntries names it), so a chord given to another command in Customize Keyboard leaves this one.
+ */
+export function withShownShortcuts(items, prefix, shown) {
+  const walk = (list, ids) => (list || []).map(item => {
+    if (!item || item.separator || item.header || item.note || item.custom || !item.label) return item;
+    const label = clean(item.label);
+    if (item.items) return { ...item, items: walk(item.items, [...ids, label]) };
+    if (!item.onSelect) return item;
+    const shortcut = shown(`${prefix}/${[...ids, label].join('/')}`, item.shortcut || null)[0] || null;
+    return shortcut === (item.shortcut || null) ? item : { ...item, shortcut };
+  });
+  return walk(items, []);
+}
+
+/**
+ * Ribbon buttons' tooltips and aria-keyshortcuts as the keymap now runs them: "Bold (Ctrl+B)" loses the chord once
+ * another command has it, and a command given a chord of its own shows it. The built-in chord stays the entry's.
+ */
+export function syncShownShortcuts(entries, shown) {
+  for (const entry of entries) {
+    const control = entry.control;
+    if (!control) continue;
+    if (!('shownBase' in control.dataset)) control.dataset.shownBase = control.title || '';
+    const builtIn = control.dataset.shortcut || '', base = control.dataset.shownBase, chords = shown(entry.id, builtIn || null), first = chords[0] || '';
+    const marker = builtIn && base.includes(` (${builtIn})`) ? ` (${builtIn})` : null;
+    const title = marker ? base.replace(marker, first ? ` (${first})` : '') : first ? `${base || entry.label} (${first})` : base;
+    if (control.title !== title) control.title = title;
+    if (chords.length) control.setAttribute('aria-keyshortcuts', ariaKeyshortcuts(chords.join(', ')));
+    else control.removeAttribute('aria-keyshortcuts');
+  }
 }

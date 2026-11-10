@@ -1,0 +1,19 @@
+{
+  "commentIndicators.hover": "显示标识符，悬停时显示注释",
+  "commentIndicators.indicator": "仅显示标识符，单击时显示批注和注释",
+  "commentIndicators.none": "无标识符，也不弹出",
+  "draftDelay.fiveMinutes": "5 分钟后",
+  "draftDelay.fiveSeconds": "5 秒后",
+  "draftDelay.minute": "1 分钟后",
+  "draftDelay.second": "每次更改后约 1 秒",
+  "draftDelay.thirtySeconds": "30 秒后",
+  "enterDirection.down": "向下",
+  "enterDirection.left": "向左",
+  "enterDirection.right": "向右",
+  "enterDirection.up": "向上",
+  "newCalcMode.automatic": "自动",
+  "newCalcMode.manual": "手动",
+  "newView.normal": "普通",
+  "newView.pageBreak": "分页预览",
+  "newView.pageLayout": "页面布局"
+}

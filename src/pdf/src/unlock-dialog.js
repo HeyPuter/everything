@@ -59,6 +59,8 @@ export async function promptUnlock(
       if (pending) return;
       const password = input.value;
       if (!password) {
+        // Open sits outside the form, so the field's own "required" never spoke up.
+        toast('Enter the password to open the PDF.', { error: true });
         input.focus();
         return;
       }
@@ -153,8 +155,13 @@ export function promptOwner(protection, { signal, isCurrent = () => true, onOpen
       ),
     );
     const unlock = async () => {
-      if (pending || !form.reportValidity()) return;
+      if (pending) return;
       const password = input.value;
+      if (!password) {
+        toast('Enter the permissions password.', { error: true });
+        input.focus();
+        return;
+      }
       pending = true;
       unlockButton.disabled = true;
       try {

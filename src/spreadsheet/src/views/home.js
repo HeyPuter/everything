@@ -11,7 +11,7 @@ import { icon } from '../ui/icons.js';
 import { openMenu } from '../ui/menu.js';
 import { confirmDialog, promptDialog } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
-import { openAppMenu, renderAccountButton } from '../ui/appmenu.js';
+import { accountControls } from '../ui/appmenu.js';
 import { openTemplatePicker } from '../ui/templates.js';
 import { templateThumbnail } from '../ui/template-thumbnail.js';
 import { openShareDialog } from '../ui/share.js';
@@ -25,6 +25,7 @@ import { madeFiles, forgetMade } from '../lib/made.js';
 import { listDrafts, clearDraft, draftKey, liveDraftKey, moveDraft, parkDraft } from '../lib/drafts.js';
 import { removeVersions, moveVersions, parkVersions } from '../lib/versions.js';
 import { moveExternalDecision, copyExternalDecision, forgetExternalDecision } from '../lib/doc.js';
+import { t, compareText } from '../i18n/index.js';
 
 let views = 0; // headings name their sections by id, and each home screen has ids of its own
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/') + 1);
@@ -50,7 +51,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   const pickDevice = () => fileInput.click();
 
   const search = el('input.input.home-search', {
-    type: 'search', placeholder: 'Search spreadsheets', 'aria-label': 'Search spreadsheets', 'aria-keyshortcuts': '/',
+    type: 'search', placeholder: t('home.searchSpreadsheets'), 'aria-label': t('home.searchSpreadsheets'), 'aria-keyshortcuts': '/',
     oninput: () => { query = search.value.trim().toLowerCase(); renderList(); },
     // Escape in a search field empties it where the browser does not already; an empty one lets go of the keyboard.
     onkeydown: (e) => {
@@ -66,8 +67,8 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   // "/" goes to the search from anywhere on the screen, as it does on most file lists, unless something is being typed.
   const onSlash = (e) => {
     if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || !root.isConnected) return;
-    const t = e.target;
-    if (t.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], .modal-root, .menu')) return;
+    const target = e.target;
+    if (target.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], .modal-root, .menu, puter-user-menu')) return;
     e.preventDefault();
     search.focus();
     search.select();
@@ -102,14 +103,15 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
    */
   const dayStart = (ago) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ago); return d.getTime(); };
   const groupOf = (stamp) => {
-    if (!stamp) return 'Earlier';
+    if (!stamp) return 'earlier';
     const ts = stamp < 1e12 ? stamp * 1000 : stamp; // the drive counts seconds, as relativeTime knows
-    if (ts >= dayStart(0)) return 'Today';
-    if (ts >= dayStart(1)) return 'Yesterday';
-    if (ts >= dayStart(7)) return 'Previous 7 days';
-    if (ts >= dayStart(30)) return 'Previous 30 days';
-    return 'Earlier';
+    if (ts >= dayStart(0)) return 'today';
+    if (ts >= dayStart(1)) return 'yesterday';
+    if (ts >= dayStart(7)) return 'previous7';
+    if (ts >= dayStart(30)) return 'previous30';
+    return 'earlier';
   };
+  const GROUP_LABELS = { today: 'home.group.today', yesterday: 'home.group.yesterday', previous7: 'home.group.previous7', previous30: 'home.group.previous30', earlier: 'home.group.earlier' };
   const groupsOf = (shown) => [...new Set(shown.map((f) => groupOf(f.modified)))];
   let shownFiles = [];
   let shownGroups = null; // the labels drawn, joined, or null when the list is drawn without them
@@ -121,14 +123,14 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   };
   const clock = setInterval(tick, 60000);
 
-  const list = el('div.file-list', { role: 'list', 'aria-label': 'Spreadsheets' });
-  const listHeading = el('h2.home-h2', { id: ids.files, tabindex: -1 }, 'Your spreadsheets');
+  const list = el('div.file-list', { role: 'list', 'aria-label': t('home.spreadsheets') });
+  const listHeading = el('h2.home-h2', { id: ids.files, tabindex: -1 }, t('home.yourSpreadsheets'));
   // How many there are, beside the heading; the status line below already says it, so this is for the eye only.
   const listCount = el('span.home-count', { 'aria-hidden': 'true', hidden: true });
   const showCount = (n) => { listCount.hidden = n == null; listCount.textContent = n == null ? '' : String(n); };
   // The list's columns, drawn once over it on a wide screen. The rows carry their own values, so the header is for the eye.
   const colHead = el('div.file-cols', { 'aria-hidden': 'true', hidden: true },
-    el('span.file-col-name', {}, 'Name'), el('span.file-col-when', {}, 'Last modified'), el('span.file-col-size', {}, 'Size'));
+    el('span.file-col-name', {}, t('common.name')), el('span.file-col-when', {}, t('home.lastModified')), el('span.file-col-size', {}, t('home.size')));
   /**
    * The list is rebuilt in silence: a wait, its end and a search that narrows it are all shown and
    * none of them is said. The skeleton rows are hidden from assistive tech on purpose, so the wait is
@@ -163,7 +165,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     pendingFocus = null;
   }
 
-  const draftsWrap = el('section.home-recent.home-drafts', { hidden: true, 'aria-label': 'Unsaved spreadsheets' });
+  const draftsWrap = el('section.home-recent.home-drafts', { hidden: true, 'aria-label': t('home.drafts.title') });
   let lostDrafts = new Set(); // keys of drafts of files the drive no longer has (see findLostDrafts)
   function renderDrafts() {
     keepingFocus(draftsWrap, () => draftsWrap.querySelector('.home-h2') || listHeading, paintDrafts);
@@ -177,16 +179,16 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       el('div.home-drafts-head', {},
         el('span.home-drafts-icon', { html: icon('alert', 18), 'aria-hidden': 'true' }),
         el('div', {},
-          el('h2.home-h2', { tabindex: -1 }, 'Unsaved spreadsheets'),
-          el('p.small.muted', {}, 'Kept only on this device, never saved to your cloud. Open one to recover it.'))),
+          el('h2.home-h2', { tabindex: -1 }, t('home.drafts.title')),
+          el('p.small.muted', {}, t('home.drafts.about')))),
       el('div.recent-list', { role: 'list' }, ...drafts.map((draft) => el('div.recent-chip', { role: 'listitem', dataset: { focusKey: draft.key } },
         // The edits to a file that is gone open through its old address, where they become a new spreadsheet.
         el('button.recent-open', {
-          type: 'button', 'aria-label': `Recover ${draft.name}`, title: draft.path && 'The file no longer exists; the edits kept here open as a new spreadsheet',
+          type: 'button', 'aria-label': t('home.drafts.recover', { name: draft.name }), title: draft.path && t('home.drafts.fileGone'),
           onclick: () => (draft.path ? openPath(draft.path) : recoverDraft?.(draft.key)),
         },
           el('span', { html: icon('sheet', 16) }), el('span.recent-name', { dir: 'auto' }, draft.name), when('span.recent-when', draft.savedAt)),
-        el('button.icon-btn.recent-forget', { type: 'button', html: icon('x', 14), 'aria-label': `Discard ${draft.name}`, title: 'Discard this unsaved spreadsheet', onclick: () => discardDraft(draft) })))));
+        el('button.icon-btn.recent-forget', { type: 'button', html: icon('x', 14), 'aria-label': t('home.drafts.discardLabel', { name: draft.name }), title: t('home.drafts.discardTitle'), onclick: () => discardDraft(draft) })))));
   }
   /**
    * Drafts keyed by a file's address whose file the drive no longer has (deleted elsewhere, say)
@@ -225,7 +227,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   }
   /** Unsaved work that was never a file is gone for good once discarded: ask first, as deleting a file does. */
   async function discardDraft(draft) {
-    const ok = await confirmDialog({ title: `Discard "${draft.name}"?`, message: 'This unsaved spreadsheet is removed from this device. This cannot be undone.', confirmLabel: 'Discard' });
+    const ok = await confirmDialog({ title: t('home.drafts.discardConfirmTitle', { name: draft.name }), message: t('home.drafts.discardConfirmMessage'), confirmLabel: t('home.drafts.discard') });
     if (!ok || destroyed) return;
     clearDraft(draft.key);
     clearDraft(liveDraftKey(draft.key)); // edits made to the file while that draft awaited a decision were kept beside it, and go with it
@@ -235,7 +237,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
    * Spreadsheets other people shared with the user, at the masked addresses the drive gives them. Each
    * says whose it is and whether it may be edited; the × leaves the share, which only its owner can undo.
    */
-  const sharedWrap = el('section.home-recent.home-shared', { hidden: true, 'aria-label': 'Shared with you' });
+  const sharedWrap = el('section.home-recent.home-shared', { hidden: true, 'aria-label': t('home.shared.title') });
   // The newest few, as many as the files opened elsewhere keep: a long list would push the user's own far down.
   const SHARED_SHOWN = 8;
   let sharedAll = false;
@@ -246,25 +248,25 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     sharedWrap.hidden = !shared.length;
     if (!shared.length) { sharedWrap.replaceChildren(); return; }
     const chips = shared.map((f) => {
-        const access = f.mode === 'write' || f.mode === 'manage' ? 'can edit' : 'view only';
-        const from = [f.owner && `From ${f.owner}`, access].filter(Boolean).join(' · ');
+        const mode = f.mode === 'write' || f.mode === 'manage' ? 'edit' : 'view';
+        const from = f.owner ? t('home.shared.fromOwner', { owner: f.owner, mode }) : t('home.shared.access', { mode });
         return el('div.recent-chip', { role: 'listitem', dataset: { focusKey: f.path } },
-          el('button.recent-open', { type: 'button', title: `${f.name} · ${from}`, 'aria-label': `Open ${stripExtension(f.name)}, ${from}`, onclick: () => openPath(f.path) },
+          el('button.recent-open', { type: 'button', title: `${f.name} · ${from}`, 'aria-label': t('home.shared.openLabel', { name: stripExtension(f.name), details: from }), onclick: () => openPath(f.path) },
             el('span', { html: icon('users', 16) }), el('span.recent-name', { dir: 'auto' }, stripExtension(f.name)), el('span.recent-when', {}, from)),
-          el('button.icon-btn.recent-forget', { type: 'button', html: icon('x', 14), 'aria-label': `Leave ${stripExtension(f.name)}`, title: 'Remove this spreadsheet from what is shared with you', onclick: () => leaveShared(f) }));
+          el('button.icon-btn.recent-forget', { type: 'button', html: icon('x', 14), 'aria-label': t('home.shared.leaveLabel', { name: stripExtension(f.name) }), title: t('home.shared.leaveTitle'), onclick: () => leaveShared(f) }));
     });
     // Shown or hidden in place, not rebuilt, so the focus stays on the button that did it.
     const more = shared.length > SHARED_SHOWN && el('button.btn.btn-ghost.btn-sm.home-shared-more', { type: 'button', onclick: () => { sharedAll = !sharedAll; fold(); } });
     function fold() {
       chips.forEach((chip, i) => { chip.hidden = !sharedAll && i >= SHARED_SHOWN; });
       if (!more) return;
-      more.textContent = sharedAll ? 'Show fewer' : `Show all ${shared.length}`;
+      more.textContent = sharedAll ? t('home.shared.showFewer') : t('home.shared.showAll', { count: shared.length });
       more.setAttribute('aria-expanded', String(sharedAll));
     }
     fold();
     // The native replaceChildren writes `false` out as text; only a list long enough to fold has the button.
     sharedWrap.replaceChildren(
-      el('h2.home-h2', { tabindex: -1 }, 'Shared with you'),
+      el('h2.home-h2', { tabindex: -1 }, t('home.shared.title')),
       el('div.recent-list', { role: 'list' }, ...chips),
       ...(more ? [more] : []));
   }
@@ -278,9 +280,9 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   }
   async function leaveShared(f) {
     const ok = await confirmDialog({
-      title: `Leave "${stripExtension(f.name)}"?`,
-      message: `You will no longer be able to open this spreadsheet${f.owner ? `. ${f.owner} can share it with you again` : ''}. The file itself is not deleted.`,
-      confirmLabel: 'Leave',
+      title: t('home.shared.leaveConfirmTitle', { name: stripExtension(f.name) }),
+      message: f.owner ? t('home.shared.leaveConfirmMessageOwner', { owner: f.owner }) : t('home.shared.leaveConfirmMessage'),
+      confirmLabel: t('home.shared.leave'),
     });
     if (!ok || destroyed) return;
     try {
@@ -288,16 +290,16 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       // a leave does not reach. Said so, the chip stays; gone meanwhile (the owner stopped sharing), it goes.
       if (!await P.leaveShare(f.path) && await P.statFile(f.path).catch(() => null)) {
         if (destroyed) return;
-        toast(`This spreadsheet is shared with a team you are in, so it cannot be left here${f.owner ? `. Ask ${f.owner} to stop sharing it with the team` : ''}`, { icon: 'info', duration: 6000 });
+        toast(f.owner ? t('home.shared.teamOwner', { owner: f.owner }) : t('home.shared.team'), { icon: 'info', duration: 6000 });
         return;
       }
       if (destroyed) return;
       forgetRecent(f.path);
       shared = shared.filter((s) => s.path !== f.path);
       renderShared();
-      toast('Removed from shared with you', { icon: 'check' });
+      toast(t('home.shared.left'), { icon: 'check' });
     } catch (e) {
-      toast(P.failureText(e, 'Could not leave the share'), { icon: 'alert' });
+      toast(P.failureText(e, t('home.shared.couldNotLeave')), { icon: 'alert' });
     }
   }
   // Files opened from elsewhere on the drive (not in the app folder) are remembered on this device.
@@ -311,55 +313,51 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     recentWrap.hidden = !recent.length;
     if (!recent.length) { recentWrap.replaceChildren(); return; }
     recentWrap.replaceChildren(
-      el('h2.home-h2', { tabindex: -1 }, 'Recently opened elsewhere'),
+      el('h2.home-h2', { tabindex: -1 }, t('home.recent.title')),
       el('div.recent-list', { role: 'list' }, ...recent.map((r) => el('div.recent-chip', { role: 'listitem', dataset: { focusKey: r.path } },
         el('button.recent-open', { type: 'button', title: r.path, onclick: () => (r.uid && openFile ? openFile(r.uid) : openPath(r.path)) }, el('span', { html: icon('sheet', 16) }), el('span.recent-name', { dir: 'auto' }, stripExtension(r.name)), when('span.recent-when', r.at)),
-        el('button.icon-btn.recent-forget', { type: 'button', html: icon('x', 14), 'aria-label': `Forget ${stripExtension(r.name)}`, title: 'Remove from this list', onclick: () => { forgetRecent(r.path); renderRecent(); } })))));
+        el('button.icon-btn.recent-forget', { type: 'button', html: icon('x', 14), 'aria-label': t('home.recent.forget', { name: stripExtension(r.name) }), title: t('home.recent.forgetTitle'), onclick: () => { forgetRecent(r.path); renderRecent(); } })))));
   }
-  const SORTS = [['modified', 'Last modified'], ['name', 'Name'], ['size', 'Size']];
+  const SORTS = [['modified', 'home.lastModified'], ['name', 'common.name'], ['size', 'home.size']];
   const sortBtn = el('button.btn.btn-ghost.btn-sm.home-sort', {
     type: 'button', 'aria-haspopup': 'menu',
     onclick: (e) => openMenu({
-      anchor: e.currentTarget, align: 'end', label: 'Sort by',
+      anchor: e.currentTarget, align: 'end', label: t('home.sortBy'),
       // One order of several: a radio item, not a checkbox.
-      items: SORTS.map(([key, label]) => ({ label, checked: sortBy === key, radio: true, onSelect: () => { sortBy = key; try { localStorage.setItem('spreadsheet:homeSort', key); } catch { /* no storage */ } renderList(); } })),
+      items: SORTS.map(([key, label]) => ({ label: t(label), checked: sortBy === key, radio: true, onSelect: () => { sortBy = key; try { localStorage.setItem('spreadsheet:homeSort', key); } catch { /* no storage */ } renderList(); } })),
     }),
   });
   /** The button shows the current order; its spoken name says what the order is of and includes it. */
   const labelSort = () => {
-    const order = SORTS.find(([k]) => k === sortBy)[1];
+    const order = t(SORTS.find(([k]) => k === sortBy)[1]);
     sortBtn.replaceChildren(el('span', { html: icon('chevUD', 14, 2) }), el('span', {}, order));
-    sortBtn.setAttribute('aria-label', `Sort spreadsheets by: ${order}`);
+    sortBtn.setAttribute('aria-label', t('home.sortLabel', { order }));
     colHead.dataset.sort = sortBy;
   };
   labelSort(); // labelled from the start, not only once the list has loaded
   const sortedFiles = () => {
     const out = [...files];
-    if (sortBy === 'name') out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }));
-    else if (sortBy === 'size') out.sort((a, b) => (b.size || 0) - (a.size || 0) || a.name.localeCompare(b.name));
+    if (sortBy === 'name') out.sort((a, b) => compareText(a.name, b.name));
+    else if (sortBy === 'size') out.sort((a, b) => (b.size || 0) - (a.size || 0) || compareText(a.name, b.name));
     else out.sort((a, b) => (b.modified || 0) - (a.modified || 0));
     return out;
   };
 
-  const avatar = el('button.icon-btn.user-btn', {
-    type: 'button', 'aria-label': 'Account menu', 'aria-haspopup': 'menu',
-    onclick: (e) => openAppMenu(e.currentTarget),
-  });
-  renderAccountButton(avatar);
+  const account = accountControls({ label: t('home.accountMenu') });
 
   const root = el('div.home.view', {},
     fileInput,
     el('header.home-head', {},
-      el('div.brand', {}, el('span.brand-mark', { html: icon('brand', 20, 2) }), el('h1.brand-name', {}, 'Spreadsheet')),
+      el('div.brand', {}, el('span.brand-mark', { html: icon('brand', 20, 2) }), el('h1.brand-name', {}, t('common.spreadsheet'))),
       el('div.grow'),
-      avatar),
+      ...account.nodes),
     el('main.home-main', {},
       el('section.home-start', { 'aria-labelledby': ids.start },
         el('div.home-section-head', {},
-          el('h2.home-h2', { id: ids.start }, 'Start a new spreadsheet'),
+          el('h2.home-h2', { id: ids.start }, t('home.start.title')),
           el('div.home-actions', {},
-            el('button.btn.btn-outline.btn-sm', { type: 'button', html: icon('upload', 16), onclick: pickDevice }, el('span', {}, 'Import file')),
-            P.canPickFiles() && el('button.btn.btn-outline.btn-sm', { type: 'button', html: icon('folderOpen', 16), onclick: openFromPuter }, el('span', {}, 'Open from Puter')))),
+            el('button.btn.btn-outline.btn-sm', { type: 'button', html: icon('upload', 16), onclick: pickDevice }, el('span', {}, t('home.start.importFile'))),
+            P.canPickFiles() && el('button.btn.btn-outline.btn-sm', { type: 'button', html: icon('folderOpen', 16), onclick: openFromPuter }, el('span', {}, t('home.start.openFromPuter'))))),
         startTiles()),
       draftsWrap,
       sharedWrap,
@@ -378,15 +376,15 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
    */
   function startTiles() {
     const FEATURED = ['budget', 'expenses', 'invoice', 'todo'];
-    const featured = FEATURED.map((id) => TEMPLATES.find((t) => t.id === id)).filter(Boolean);
+    const featured = FEATURED.map((id) => TEMPLATES.find((tpl) => tpl.id === id)).filter(Boolean);
     const more = TEMPLATES.length - 1 - featured.length;
     const tile = (cls, { name, sub, glyph, preview, onclick, dataset }) => el(`button.start-tile${cls}`, { type: 'button', onclick, dataset },
       el(`span.start-thumb${preview ? '.has-preview' : ''}`, { 'aria-hidden': 'true' }, preview || el('span.start-glyph', { html: glyph })),
       el('span.start-label', {}, el('span.start-name', {}, name), sub && el('span.start-sub', {}, sub)));
     return el('div.start-grid', { role: 'group', 'aria-labelledby': ids.start },
-      tile('.start-blank', { name: 'Blank spreadsheet', glyph: icon('plus', 28, 2), onclick: newDoc }),
-      ...featured.map((t) => tile('', { name: t.name, preview: templateThumbnail(t.id), glyph: icon(t.icon, 22), onclick: () => templateDoc(t.id), dataset: { template: t.id } })),
-      more > 0 && tile('.start-more', { name: 'All templates', sub: `${more} more`, glyph: icon('layers', 22), onclick: fromTemplate }));
+      tile('.start-blank', { name: t('home.start.blank'), glyph: icon('plus', 28, 2), onclick: newDoc }),
+      ...featured.map((tpl) => tile('', { name: tpl.name, preview: templateThumbnail(tpl.id), glyph: icon(tpl.icon, 22), onclick: () => templateDoc(tpl.id), dataset: { template: tpl.id } })),
+      more > 0 && tile('.start-more', { name: t('home.start.allTemplates'), sub: t('home.start.more', { count: more }), glyph: icon('layers', 22), onclick: fromTemplate }));
   }
 
   async function openFromPuter() {
@@ -425,7 +423,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     } catch (e) {
       if (destroyed || requestId !== loadId) return;
       console.error(e);
-      error = navigator.onLine ? 'Could not load your files from Puter.' : 'You are offline. Connect to see your files.';
+      error = navigator.onLine ? t('home.errors.load') : t('home.errors.offline');
     }
     loading = false;
     renderList();
@@ -436,16 +434,16 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
 
   function fileMenu(file, anchor) {
     openMenu({
-      anchor, align: 'end', label: `${file.name} options`,
+      anchor, align: 'end', label: t('home.file.menuLabel', { name: file.name }),
       items: [
-        { label: 'Open', icon: 'sheet', onSelect: () => openPath(file.path) },
+        { label: t('common.open'), icon: 'sheet', onSelect: () => openPath(file.path) },
         // The ellipsis marks the items that open a dialog first: Rename asks for the name, Delete asks to be sure.
-        { label: 'Rename…', icon: 'pencil', onSelect: () => rename(file) },
-        P.canShare() && { label: 'Share…', icon: 'share', onSelect: () => openShareDialog({ path: file.path, name: stripExtension(file.name), uid: file.uid }) },
-        { label: 'Duplicate', icon: 'duplicate', onSelect: () => duplicate(file) },
-        { label: 'Download', icon: 'download', onSelect: () => download(file) },
+        { label: t('home.file.rename'), icon: 'pencil', onSelect: () => rename(file) },
+        P.canShare() && { label: t('home.file.share'), icon: 'share', onSelect: () => openShareDialog({ path: file.path, name: stripExtension(file.name), uid: file.uid }) },
+        { label: t('home.file.duplicate'), icon: 'duplicate', onSelect: () => duplicate(file) },
+        { label: t('home.file.download'), icon: 'download', onSelect: () => download(file) },
         { separator: true },
-        { label: 'Delete…', icon: 'trash', danger: true, onSelect: () => remove(file) },
+        { label: t('home.file.delete'), icon: 'trash', danger: true, onSelect: () => remove(file) },
       ].filter(Boolean),
     });
   }
@@ -455,12 +453,12 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     // A typed "Budget.xlsx" names the file Budget.xlsx, not Budget.xlsx.xlsx.
     const stem = (typed) => { const clean = P.sanitizeName(typed); return clean.toLowerCase().endsWith(ext.toLowerCase()) ? clean.slice(0, -ext.length).trim() : clean; };
     const name = await promptDialog({
-      title: 'Rename', label: 'Name', value: stripExtension(file.name), confirmLabel: 'Rename',
+      title: t('common.rename'), label: t('common.name'), value: stripExtension(file.name), confirmLabel: t('common.rename'),
       validate: (v) => {
         const clean = stem(v);
-        if (!clean) return 'Enter a name';
+        if (!clean) return t('home.rename.enterName');
         // Only a file in the same folder takes the name: the list holds spreadsheets made elsewhere on the drive too.
-        if (files.some((f) => f.name.toLowerCase() === `${clean}${ext}`.toLowerCase() && f.path !== file.path && dirOf(f.path) === dirOf(file.path))) return 'A file with that name already exists';
+        if (files.some((f) => f.name.toLowerCase() === `${clean}${ext}`.toLowerCase() && f.path !== file.path && dirOf(f.path) === dirOf(file.path))) return t('home.rename.exists');
         return null;
       },
     });
@@ -478,10 +476,10 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       forgetRecent(file.path);
       forgetMade(file.path, target);
       moveVersions({ path: file.path, uid: file.uid }, { path: target, uid: file.uid }).catch(() => {});
-      toast('Renamed');
+      toast(t('home.rename.done'));
       load();
     } catch (e) {
-      toast(P.failureText(e, 'Could not rename'), { icon: 'alert' });
+      toast(P.failureText(e, t('home.rename.failed')), { icon: 'alert' });
     }
   }
 
@@ -490,10 +488,10 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       const bytes = await P.readFile(file.path);
       const stem = stripExtension(file.name);
       const ext = file.name.slice(file.name.lastIndexOf('.'));
-      let name = `${stem} copy${ext}`;
+      let name = t('home.duplicate.name', { stem, ext });
       let n = 2;
       // The copy goes in the app folder: a file of that name elsewhere (the list holds spreadsheets made outside it) is no clash.
-      while (files.some((f) => P.inAppFolder(f.path) && f.name.toLowerCase() === name.toLowerCase())) name = `${stem} copy ${n++}${ext}`;
+      while (files.some((f) => P.inAppFolder(f.path) && f.name.toLowerCase() === name.toLowerCase())) name = t('home.duplicate.nameNumbered', { stem, n: n++, ext });
       // The displayed list may be stale, or another tab may claim the name.
       const written = await P.writeFile(`${P.FOLDER}/${name}`, new Blob([bytes]), { dedupe: true });
       // The copy holds the same content: whether it may load outside content is decided already.
@@ -502,10 +500,10 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       // A history left under the copy's name by a file that is gone is not the copy's: it is put aside,
       // as a first save and Save as do, so that a stranger's snapshots are not listed and restored here.
       await parkVersions({ path: copyPath, uid: written?.uid || written?.id || null }).catch(() => {});
-      toast('Duplicated');
+      toast(t('home.duplicate.done'));
       load();
     } catch (e) {
-      toast(P.failureText(e, 'Could not duplicate'), { icon: 'alert' });
+      toast(P.failureText(e, t('home.duplicate.failed')), { icon: 'alert' });
     }
   }
 
@@ -515,12 +513,12 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       const blob = new Blob([bytes]);
       P.downloadBlob(blob, file.name);
     } catch (e) {
-      toast(P.failureText(e, 'Could not download'), { icon: 'alert' });
+      toast(P.failureText(e, t('home.download.failed')), { icon: 'alert' });
     }
   }
 
   async function remove(file) {
-    const ok = await confirmDialog({ title: `Delete "${stripExtension(file.name)}"?`, message: 'The file is removed from your Puter cloud. This cannot be undone.', confirmLabel: 'Delete' });
+    const ok = await confirmDialog({ title: t('home.delete.confirmTitle', { name: stripExtension(file.name) }), message: t('home.delete.confirmMessage'), confirmLabel: t('common.delete') });
     if (!ok) return;
     try {
       await P.deleteFile(file.path);
@@ -533,9 +531,9 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       files = files.filter((f) => f.path !== file.path);
       rowCache.delete(file);
       renderList();
-      toast('Deleted', { icon: 'trash' });
+      toast(t('home.delete.done'), { icon: 'trash' });
     } catch (e) {
-      toast(P.failureText(e, 'Could not delete'), { icon: 'alert' });
+      toast(P.failureText(e, t('home.delete.failed')), { icon: 'alert' });
     }
   }
 
@@ -559,15 +557,15 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       list.removeAttribute('role');
       list.append(el('div.empty', {},
         el('div.empty-icon', { html: icon('cloud', 26) }),
-        el('h3', {}, 'Sign in to see your spreadsheets'),
-        el('p', {}, 'Spreadsheets are saved as .xlsx files in your own Puter cloud. Sign in to open them here, or start working without an account.'),
+        el('h3', {}, t('home.signedOut.title')),
+        el('p', {}, t('home.signedOut.about')),
         el('div.row', { style: { justifyContent: 'center', marginTop: '18px', flexWrap: 'wrap' } },
-          el('button.btn.btn-primary', { type: 'button', html: icon('login', 16, 2.2), onclick: () => session.signIn() }, el('span', {}, 'Sign in to Puter')),
-          el('button.btn.btn-outline', { type: 'button', html: icon('plus', 16, 2.2), onclick: newDoc }, el('span', {}, 'New spreadsheet')))));
+          el('button.btn.btn-primary', { type: 'button', html: icon('login', 16, 2.2), onclick: () => session.signIn() }, el('span', {}, t('home.signedOut.signIn'))),
+          el('button.btn.btn-outline', { type: 'button', html: icon('plus', 16, 2.2), onclick: newDoc }, el('span', {}, t('home.newSpreadsheet'))))));
       return;
     }
     if (loading) {
-      say('Loading your spreadsheets…');
+      say(t('home.loading'));
       list.removeAttribute('role');
       list.append(...['46%', '32%', '54%', '38%'].map((w) => el('div.file-row.skeleton-row', { 'aria-hidden': 'true' },
         el('div.skeleton', { style: { width: '36px', height: '36px', flex: 'none' } }),
@@ -577,8 +575,8 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     if (error) {
       say(error);
       list.removeAttribute('role');
-      list.append(el('div.empty', {}, el('div.empty-icon', { html: icon('cloudOff', 26) }), el('h3', {}, 'Nothing to show'), el('p', {}, error),
-        el('button.btn.btn-outline', { type: 'button', style: { marginTop: '16px' }, onclick: load }, 'Try again')));
+      list.append(el('div.empty', {}, el('div.empty-icon', { html: icon('cloudOff', 26) }), el('h3', {}, t('home.errors.nothingToShow')), el('p', {}, error),
+        el('button.btn.btn-outline', { type: 'button', style: { marginTop: '16px' }, onclick: load }, t('common.tryAgain'))));
       return;
     }
     const ordered = sortedFiles();
@@ -587,18 +585,18 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     if (!shown.length) {
       // The search finds a name holding the text anywhere, and the messages say so, in the case it was typed.
       const typed = search.value.trim();
-      say(files.length ? `No spreadsheet names contain "${typed}"` : 'No spreadsheets yet');
+      say(files.length ? t('home.empty.noMatchesFor', { query: typed }) : t('home.empty.none'));
       list.removeAttribute('role');
       list.append(files.length
-        ? el('div.empty', {}, el('div.empty-icon', { html: icon('search', 26) }), el('h3', {}, 'No matches'), el('p', {}, `No spreadsheet names contain "${typed}"`))
-        : el('div.empty', {}, el('div.empty-icon', { html: icon('sheet', 26) }), el('h3', {}, 'No spreadsheets yet'),
+        ? el('div.empty', {}, el('div.empty-icon', { html: icon('search', 26) }), el('h3', {}, t('home.empty.noMatches')), el('p', {}, t('home.empty.noMatchesFor', { query: typed })))
+        : el('div.empty', {}, el('div.empty-icon', { html: icon('sheet', 26) }), el('h3', {}, t('home.empty.none')),
           el('div.row', { style: { justifyContent: 'center', marginTop: '18px', flexWrap: 'wrap' } },
-            el('button.btn.btn-primary', { type: 'button', html: icon('plus', 16, 2.2), onclick: newDoc }, el('span', {}, 'New spreadsheet')),
-            el('button.btn.btn-outline', { type: 'button', html: icon('sparkle', 16), onclick: sampleDoc }, el('span', {}, 'Try sample data')))));
+            el('button.btn.btn-primary', { type: 'button', html: icon('plus', 16, 2.2), onclick: newDoc }, el('span', {}, t('home.newSpreadsheet'))),
+            el('button.btn.btn-outline', { type: 'button', html: icon('sparkle', 16), onclick: sampleDoc }, el('span', {}, t('home.empty.trySample'))))));
       return;
     }
-    say(`${shown.length} spreadsheet${shown.length === 1 ? '' : 's'}${query ? ` containing "${search.value.trim()}"` : ''}`);
-    showCount(query ? `${shown.length} of ${files.length}` : files.length);
+    say(query ? t('home.status.countMatching', { count: shown.length, query: search.value.trim() }) : t('home.status.count', { count: shown.length }));
+    showCount(query ? t('home.countOf', { shown: shown.length, total: files.length }) : files.length);
     colHead.hidden = false;
     // Groups only in order of change, and only when there is more than one: a single "Today" says nothing.
     const groups = sortBy === 'modified' ? groupsOf(shown) : [];
@@ -609,7 +607,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     list.append(...shown.flatMap((file) => {
       const label = grouped && groupOf(file.modified) !== group ? (group = groupOf(file.modified)) : null;
       const row = fileRow(file);
-      return label ? [el('div.file-group', { 'aria-hidden': 'true' }, label), row] : [row];
+      return label ? [el('div.file-group', { 'aria-hidden': 'true' }, t(GROUP_LABELS[label])), row] : [row];
     }));
   }
 
@@ -632,7 +630,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
           el('span.file-name', { dir: 'auto' }, stripExtension(file.name)),
           meta)),
       el('button.icon-btn.file-menu-btn', {
-        type: 'button', html: icon('moreV', 18), 'aria-label': `Options for ${stripExtension(file.name)}`, 'aria-haspopup': 'menu',
+        type: 'button', html: icon('moreV', 18), 'aria-label': t('home.file.optionsFor', { name: stripExtension(file.name) }), 'aria-haspopup': 'menu',
         onclick: (e) => fileMenu(file, e.currentTarget),
       }));
     rowCache.set(file, { row, time });
@@ -643,11 +641,13 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   load();
 
   let hadSession = !session.signedOut;
+  let wasSignedIn = session.signedIn;
   const onSession = () => {
-    renderAccountButton(avatar);
-    // Signing in brings the list; the sign-in state is replaced by the files.
-    if (!hadSession && !session.signedOut) load();
+    account.refresh();
+    // Signing in brings the list; the sign-in state is replaced by the files. Signing out takes them away.
+    if ((!hadSession && !session.signedOut) || (wasSignedIn && session.signedOut)) load();
     hadSession = !session.signedOut;
+    wasSignedIn = session.signedIn;
   };
   session.addEventListener?.('change', onSession);
 

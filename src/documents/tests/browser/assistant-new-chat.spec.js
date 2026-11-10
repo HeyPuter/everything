@@ -159,3 +159,60 @@ test('a reply that arrives below the fold is scrolled into view', async ({ page 
     return box.bottom <= log.bottom + 1 || Math.abs(box.top - log.top) <= 1;
   })).toBe(true);
 });
+
+test('Stop lets a reply that never comes go, and the conversation goes on', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled({ timeout: 20000 });
+  // The first request hangs, as one on a stalled connection does; the next is answered.
+  await page.evaluate(() => { const chat = puter.ai.chat.bind(puter.ai); let first = true; puter.ai.chat = (...args) => { if (first) { first = false; return new Promise(() => {}); } return chat(...args); }; });
+  await page.getByRole('textbox', { name: 'Document text' }).fill('Plans for the project.');
+  await page.locator('.as-title-button').click();
+  const pane = page.getByRole('complementary', { name: 'Assistant pane' });
+  await pane.getByRole('radio', { name: 'Whole document' }).click();
+  const box = pane.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('First question?');
+  await box.press('Enter');
+  await expect(pane.getByText('Thinking…')).toBeVisible();
+  await expect(pane.getByRole('button', { name: 'Send' })).toBeDisabled();
+  await pane.getByRole('button', { name: 'Stop' }).click();
+  await expect(pane.getByText('Stopped.')).toBeVisible();
+  await expect(box).toBeFocused();
+  await box.fill('Second question?');
+  await box.press('Enter');
+  await expect(pane.getByText(/answers: Second question/)).toBeVisible();
+  // The question asked before is still the conversation's.
+  await expect(pane.getByText('First question?')).toBeVisible();
+});
+
+test('the reply’s Undo takes back only that reply, not an edit made after it', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled({ timeout: 20000 });
+  await page.evaluate(() => { puter.ai.chat = async () => ({ message: { content: 'TEXT:\nInserted reply.' } }); });
+  const text = page.getByRole('textbox', { name: 'Document text' });
+  await text.focus();
+  await page.keyboard.type('Start ');
+  await page.locator('.as-title-button').click();
+  const pane = page.getByRole('complementary', { name: 'Assistant pane' });
+  await pane.getByRole('radio', { name: 'Whole document' }).click();
+  await pane.getByRole('textbox', { name: 'Message the assistant' }).fill('Write one sentence.');
+  await pane.getByRole('textbox', { name: 'Message the assistant' }).press('Enter');
+  await pane.getByRole('button', { name: 'Insert at Cursor' }).click();
+  await expect(text).toHaveValue('Start Inserted reply.');
+  // An edit made after the reply: the reply's Undo can no longer take it back alone.
+  await text.focus();
+  await page.keyboard.type('Mine');
+  await expect(text).toHaveValue('Start Inserted reply.Mine');
+  const undo = pane.getByRole('button', { name: 'Undo' });
+  await expect(undo).toBeDisabled();
+  await undo.click({ force: true });
+  await expect(text).toHaveValue('Start Inserted reply.Mine');
+  // Taking the later edit back makes the reply's step the latest again.
+  await text.press('ControlOrMeta+z');
+  await expect(text).toHaveValue('Start Inserted reply.');
+  await expect(undo).toBeEnabled();
+  await undo.click();
+  await expect(text).toHaveValue('Start ');
+  await expect(pane.getByText('Undone')).toBeVisible();
+});

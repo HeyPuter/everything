@@ -25,6 +25,10 @@ import { isError } from './formula/functions.js';
 import { solveLP, sensitivity, branchAndBound } from './solver-lp.js';
 import { solveNLP, solveNLPMultistart, seededRandom, violations } from './solver-nlp.js';
 import { solveEvolutionary } from './solver-evo.js';
+import { t, tSource } from '../i18n/index.js';
+
+/** A refusal of the model: `error` in English (the assistant reads it), `shown` in the interface's language. */
+const refusal = (key, values, extra) => ({ error: tSource(key, values), shown: t(key, values), ...extra });
 
 export const RELATIONS = [['<=', '<='], ['=', '='], ['>=', '>='], ['int', 'int'], ['bin', 'bin'], ['dif', 'dif']];
 const REL_CODE = { '<=': 1, '=': 2, '>=': 3, int: 4, bin: 5, dif: 6 };
@@ -67,7 +71,7 @@ function unqualify(wb, sheetId, text) {
 
 /** "$B$2:$B$4,$D$2" (or names of ranges) as ranges on the sheet; null when a part is not one. */
 export function parseRanges(wb, sheetId, text) {
-  const parts = String(text ?? '').split(/[,;]/).map((t) => t.trim()).filter(Boolean);
+  const parts = String(text ?? '').split(/[,;]/).map((part) => part.trim()).filter(Boolean);
   if (!parts.length) return null;
   const out = [];
   for (const part of parts) {
@@ -242,12 +246,12 @@ export function modelFromCells(wb, sheetId, range) {
   const formulas = cells.map((cell) => (cell?.f != null ? String(cell.f).replace(/^=/, '') : null));
   const model = emptyModel();
   const first = formulas[0];
-  if (!first) return { error: 'The first cell must hold the objective, as Save Model writes it (=MAX(…), =MIN(…) or =cell=value)' };
+  if (!first) return { error: t('coreSolver.load.noObjective') };
   let m;
   if ((m = /^(MAX|MIN)\(([^()]+)\)$/i.exec(first))) { model.goal = m[1].toUpperCase() === 'MAX' ? 'max' : 'min'; model.objective = m[2]; }
   else if ((m = /^([^=<>]+)=(-?[\d.eE+-]+)$/.exec(first))) { model.goal = 'value'; model.objective = m[1]; model.value = Number(m[2]); }
-  else return { error: 'The first cell must hold the objective, as Save Model writes it (=MAX(…), =MIN(…) or =cell=value)' };
-  if (!formulas[1] || !(m = /^COUNT\((.+)\)$/i.exec(formulas[1]))) return { error: 'The second cell must count the variable cells, as =COUNT(…)' };
+  else return { error: t('coreSolver.load.noObjective') };
+  if (!formulas[1] || !(m = /^COUNT\((.+)\)$/i.exec(formulas[1]))) return { error: t('coreSolver.load.noCount') };
   model.variables = m[1];
   let i = 2;
   for (; i < formulas.length && formulas[i]; i++) {
@@ -263,13 +267,13 @@ export function modelFromCells(wb, sheetId, range) {
     } else if ((m = /^INT\(([^()]+)\)=\1$/i.exec(f))) k = { lhs: m[1], rel: 'int', rhs: 'integer' };
     else if ((m = /^OR\(([^=,()]+)=0,\1=1\)$/i.exec(f))) k = { lhs: m[1], rel: 'bin', rhs: 'binary' };
     else if ((m = /^([^<>=]+?)(<=|>=|=)(.+)$/.exec(f))) k = { lhs: m[1], rel: m[2], rhs: m[3] };
-    if (!k) return { error: `The constraint in cell ${i + 1} of the range is not one Save Model writes` };
+    if (!k) return { error: t('coreSolver.load.badConstraint', { n: i + 1 }) };
     model.constraints.push(k);
   }
   const optionsCell = cells[i] && typeof cells[i].v === 'string' ? cells[i].v : (i + 1 < cells.length && typeof cells[i + 1]?.v === 'string' ? cells[i + 1].v : null);
   if (optionsCell && /^Solver model:/i.test(optionsCell)) {
     for (const part of optionsCell.replace(/^Solver model:/i, '').split(';')) {
-      const [key, raw] = part.split('=').map((t) => t?.trim());
+      const [key, raw] = part.split('=').map((side) => side?.trim());
       if (!key) continue;
       if (key === 'engine') { if (ENGINE_CODE[raw]) model.engine = raw; continue; }
       if (key === 'nonnegative') { model.nonNegative = raw !== '0'; continue; }
@@ -306,28 +310,28 @@ const numeric = (v) => (typeof v === 'number' ? v : v == null || v === '' ? 0 : 
  */
 export function prepareSolver(wb, sheetId, model, { now = () => Date.now() } = {}) {
   const sheet = wb.sheet(sheetId);
-  if (!sheet || sheet.kind === 'chart') return { error: 'Solver works on a worksheet' };
+  if (!sheet || sheet.kind === 'chart') return refusal('coreSolver.errors.notWorksheet');
   const options = { ...DEFAULT_OPTIONS, ...(model.options || {}) };
   const objRanges = parseRanges(wb, sheetId, model.objective);
   if (!objRanges || objRanges.length !== 1 || objRanges[0].r1 !== objRanges[0].r2 || objRanges[0].c1 !== objRanges[0].c2) {
-    return { error: 'Enter one cell on this sheet for the objective, like $B$10', field: 'objective' };
+    return refusal('coreSolver.errors.objectiveCell', undefined, { field: 'objective' });
   }
   const objective = { r: objRanges[0].r1, c: objRanges[0].c1 };
-  if (model.goal === 'value' && !Number.isFinite(Number(model.value))) return { error: 'Enter the number the objective should reach', field: 'value' };
+  if (model.goal === 'value' && !Number.isFinite(Number(model.value))) return refusal('coreSolver.errors.value', undefined, { field: 'value' });
   const varRanges = parseRanges(wb, sheetId, model.variables);
-  if (!varRanges) return { error: 'Enter the variable cells as ranges on this sheet, like $B$2:$B$5 or $B$2,$D$2', field: 'variables' };
+  if (!varRanges) return refusal('coreSolver.errors.variables', undefined, { field: 'variables' });
   const vars = cellsOf(varRanges);
-  if (vars.length > MAX_VARIABLES) return { error: `A model can have at most ${MAX_VARIABLES} variable cells`, field: 'variables' };
+  if (vars.length > MAX_VARIABLES) return refusal('coreSolver.errors.tooMany', { max: MAX_VARIABLES }, { field: 'variables' });
   const varIndex = new Map(vars.map((p, j) => [cellKey(p.r, p.c), j]));
   for (const p of vars) {
     const cell = sheet.cells.get(cellKey(p.r, p.c));
-    if (cell?.f != null) return { error: `The variable cell ${abs(p)} holds a formula; variable cells must hold numbers or be blank`, field: 'variables' };
-    if (cell?.v != null && typeof cell.v !== 'number') return { error: `The variable cell ${abs(p)} holds text; variable cells must hold numbers or be blank`, field: 'variables' };
-    if (cell?.v == null && wb.spillAt(sheetId, p.r, p.c)) return { error: `The variable cell ${abs(p)} shows part of an array formula's result`, field: 'variables' };
+    if (cell?.f != null) return refusal('coreSolver.errors.variableFormula', { cell: abs(p) }, { field: 'variables' });
+    if (cell?.v != null && typeof cell.v !== 'number') return refusal('coreSolver.errors.variableText', { cell: abs(p) }, { field: 'variables' });
+    if (cell?.v == null && wb.spillAt(sheetId, p.r, p.c)) return refusal('coreSolver.errors.variableSpill', { cell: abs(p) }, { field: 'variables' });
   }
-  if (wb._gridLocked?.(sheet) && vars.some((p) => wb.lockedAt(sheetId, p.r, p.c))) return { error: 'The sheet is protected and some variable cells are locked', field: 'variables' };
+  if (wb._gridLocked?.(sheet) && vars.some((p) => wb.lockedAt(sheetId, p.r, p.c))) return refusal('coreSolver.errors.locked', undefined, { field: 'variables' });
   const objCell = sheet.cells.get(cellKey(objective.r, objective.c));
-  if (!objCell || objCell.f == null) return { error: 'The objective cell must hold a formula that depends on the variable cells', field: 'objective' };
+  if (!objCell || objCell.f == null) return refusal('coreSolver.errors.objectiveFormula', undefined, { field: 'objective' });
 
   const n = vars.length;
   const lb = new Array(n).fill(-Infinity), ub = new Array(n).fill(Infinity);
@@ -337,12 +341,12 @@ export function prepareSolver(wb, sheetId, model, { now = () => Date.now() } = {
   const ignoreInteger = !!options.ignoreInteger;
   for (const [index, k] of model.constraints.entries()) {
     const lhsRanges = parseRanges(wb, sheetId, k.lhs);
-    if (!lhsRanges || lhsRanges.length !== 1) return { error: `Constraint ${index + 1}: enter its cell reference as one range on this sheet`, field: 'constraint', index };
+    if (!lhsRanges || lhsRanges.length !== 1) return refusal('coreSolver.errors.constraintRange', { n: index + 1 }, { field: 'constraint', index });
     const L = lhsRanges[0];
     const cells = cellsOf([L]);
     if (REL_WORD[k.rel]) {
       const js = cells.map((p) => varIndex.get(cellKey(p.r, p.c)));
-      if (js.some((j) => j == null)) return { error: `Constraint ${index + 1}: ${k.rel === 'dif' ? 'all-different' : k.rel === 'bin' ? 'binary' : 'integer'} constraints apply to variable cells only`, field: 'constraint', index };
+      if (js.some((j) => j == null)) return refusal('coreSolver.errors.constraintKind', { n: index + 1, kind: k.rel }, { field: 'constraint', index });
       cells.forEach((p, i) => rows.push({ constraint: index, lhs: p, rel: k.rel, rhs: { kind: 'word' }, j: js[i], bound: true }));
       if (ignoreInteger) continue;
       if (k.rel === 'dif') {
@@ -358,7 +362,7 @@ export function prepareSolver(wb, sheetId, model, { now = () => Date.now() } = {
     }
     // The right side: a number, a reference (one cell, or a range the size of the left), or a formula.
     const text = String(k.rhs ?? '').trim().replace(/^=/, '');
-    if (!text) return { error: `Constraint ${index + 1}: enter a number, a reference or a formula for the constraint`, field: 'constraint', index };
+    if (!text) return refusal('coreSolver.errors.constraintEmpty', { n: index + 1 }, { field: 'constraint', index });
     let rhsOf;
     const constant = optNumber(text);
     if (constant != null) rhsOf = () => ({ kind: 'const', v: constant });
@@ -369,11 +373,11 @@ export function prepareSolver(wb, sheetId, model, { now = () => Date.now() } = {
         const R = found.range;
         const h = R.r2 - R.r1 + 1, w = R.c2 - R.c1 + 1;
         const one = h === 1 && w === 1;
-        if (!one && (h !== L.r2 - L.r1 + 1 || w !== L.c2 - L.c1 + 1)) return { error: `Constraint ${index + 1}: the right side must be one cell or a range the size of the left side`, field: 'constraint', index };
+        if (!one && (h !== L.r2 - L.r1 + 1 || w !== L.c2 - L.c1 + 1)) return refusal('coreSolver.errors.constraintSize', { n: index + 1 }, { field: 'constraint', index });
         rhsOf = (p) => ({ kind: 'cell', sheetId: found.sheetId, r: one ? R.r1 : R.r1 + (p.r - L.r1), c: one ? R.c1 : R.c1 + (p.c - L.c1) });
       } else {
         const probe = wb.evaluateText(sheetId, L.r1, L.c1, text);
-        if (isError(probe) && ['#NAME?', '#REF!'].includes(probe.error)) return { error: `Constraint ${index + 1}: the right side is not a number, a reference or a formula`, field: 'constraint', index };
+        if (isError(probe) && ['#NAME?', '#REF!'].includes(probe.error)) return refusal('coreSolver.errors.constraintRhs', { n: index + 1 }, { field: 'constraint', index });
         rhsOf = () => ({ kind: 'formula', text, r: L.r1, c: L.c1 });
       }
     }
@@ -441,24 +445,25 @@ export function prepareSolver(wb, sheetId, model, { now = () => Date.now() } = {
 
 /* ---------- Solving ---------- */
 
+/** What each outcome says, as message keys: the dialog shows it in the interface's language; the answer report and the assistant have it in English. */
 const MESSAGES = {
-  optimal: 'Solver found a solution. All constraints and optimality conditions are met.',
-  optimalInteger: 'Solver found an integer solution within the integer optimality tolerance. All constraints are met.',
-  localOptimal: 'Solver found a locally optimal solution. All constraints and optimality conditions are met.',
-  converged: 'Solver converged on the current solution. All constraints are met.',
-  evoConverged: 'Solver converged on this solution, which is likely near the best one. All constraints are met.',
-  noImprovement: 'Solver could not improve on the current solution. All constraints are met.',
-  infeasible: 'Solver could not find a solution that meets all the constraints.',
-  unbounded: 'The objective can grow without limit. Add constraints or bounds on the variable cells.',
-  notLinear: 'This model is not linear, so Simplex LP cannot solve it. Choose GRG Nonlinear or Evolutionary.',
-  stopped: 'Solving was stopped. The best solution found so far is shown.',
-  timeLimit: 'Solving reached the time limit. The best solution found so far is shown.',
-  iterationLimit: 'Solving reached the iteration limit. The best solution found so far is shown.',
-  nodeLimit: 'Solving reached the limit on subproblems. The best solution found so far is shown.',
-  feasibleLimit: 'Solving reached the limit on integer solutions. The best solution found so far is shown.',
-  error: 'A trial value made a formula in the model fail (an error, or text where a number was expected).',
-  needsBounds: 'The Evolutionary method needs a lower and an upper bound on every variable cell. Add them as constraints, or clear Require Bounds on Variables in Options.',
-  notNumber: 'The objective cell does not hold a number.',
+  optimal: 'coreSolver.result.optimal',
+  optimalInteger: 'coreSolver.result.optimalInteger',
+  localOptimal: 'coreSolver.result.localOptimal',
+  converged: 'coreSolver.result.converged',
+  evoConverged: 'coreSolver.result.evoConverged',
+  noImprovement: 'coreSolver.result.noImprovement',
+  infeasible: 'coreSolver.result.infeasible',
+  unbounded: 'coreSolver.result.unbounded',
+  notLinear: 'coreSolver.result.notLinear',
+  stopped: 'coreSolver.result.stopped',
+  timeLimit: 'coreSolver.result.timeLimit',
+  iterationLimit: 'coreSolver.result.iterationLimit',
+  nodeLimit: 'coreSolver.result.nodeLimit',
+  feasibleLimit: 'coreSolver.result.feasibleLimit',
+  error: 'coreSolver.result.error',
+  needsBounds: 'coreSolver.result.needsBounds',
+  notNumber: 'coreSolver.result.notNumber',
 };
 
 /** Statuses after which the solution found can be kept. */
@@ -466,7 +471,10 @@ const KEEPABLE = new Set(['optimal', 'optimalInteger', 'localOptimal', 'converge
 /** Statuses that are a solution meeting the model, not a stop on the way. */
 const SOLVED = new Set(['optimal', 'optimalInteger', 'localOptimal', 'converged', 'evoConverged', 'noImprovement']);
 
-export const solverMessage = (status) => MESSAGES[status] || MESSAGES.error;
+/** The outcome in English, as the answer report and the assistant have it. */
+export const solverMessage = (status) => tSource(MESSAGES[status] || MESSAGES.error);
+/** The outcome in the interface's language, for the Results dialog. */
+export const solverMessageShown = (status) => t(MESSAGES[status] || MESSAGES.error);
 
 /**
  * Solve: a generator yielding progress ({ phase, evals, iterations, subproblems, objective }) and returning
@@ -525,7 +533,7 @@ export function* solverSteps(p) {
     }
     // Linearity: predicted and recalculated values must agree at points away from the base.
     const rand = seededRandom(9157);
-    for (let t = 0; t < 2; t++) {
+    for (let trial = 0; trial < 2; trial++) {
       const delta = base.map((v) => (rand() * 2 - 1) * Math.max(1, Math.abs(v)));
       const F = evaluate(base.map((v, j) => v + delta[j]));
       yield progress({ phase: 'linear' });

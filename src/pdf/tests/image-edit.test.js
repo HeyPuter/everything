@@ -501,3 +501,20 @@ it('keeps indexing images when another block of the page is drawn under a singul
     expect(images[0].editable, content).toBe(k < 3);
   }
 });
+
+it('finds the images of a page whose content ends with a stray Q, as readers draw it', async () => {
+  const doc = await fixture(),
+    page = doc.getPage(0);
+  const contents = page.node.Contents();
+  const stray = doc.context.register(doc.context.flateStream('Q'));
+  page.node.set(
+    PDFName.of('Contents'),
+    doc.context.obj([
+      ...(contents.asArray ? contents.asArray() : [page.node.get(PDFName.of('Contents'))]),
+      stray,
+    ]),
+  );
+  const entries = inspectImages(doc, 0);
+  expect(entries).toHaveLength(2);
+  expect(entries.every((i) => i.editable)).toBe(true);
+});

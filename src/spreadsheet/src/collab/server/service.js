@@ -16,6 +16,10 @@ const DAY = 86_400_000;
 const INLINE = 100_000;
 /** A log position someone claimed but never wrote is given up after this long. */
 const HOLE_AFTER = 20_000;
+/** And one its commit sealed (see seal) but never wrote, a commit that stopped between the two, after this long. */
+const SEALED_HOLE_AFTER = 300_000;
+/** What a seal adds to a position's claim count; a claimant that lost the race adds one. */
+const SEAL = 1_000_000;
 /** Records kept in memory per room. */
 const CACHE = 2000;
 const MAX_XLSX = 16_000_000;
@@ -194,7 +198,7 @@ export class RoomService {
     let entry = this.rooms.get(room);
     if (!entry) {
       const cp = await this.kv.get(`ss:${room}:cp`);
-      entry = { head: cp?.rev ?? 0, base: cp?.rev ?? 0, records: new Map(), holes: new Map() };
+      entry = { head: cp?.rev ?? 0, base: cp?.rev ?? 0, records: new Map(), holes: new Map(), sealed: new Map() };
       this.rooms.set(room, entry);
       if (this.rooms.size > 16) { const [oldest] = this.rooms.keys(); if (oldest !== room) this.rooms.delete(oldest); }
     }
@@ -218,15 +222,34 @@ export class RoomService {
         const seen = entry.holes.get(rev) ?? this.now();
         entry.holes.set(rev, seen);
         if (this.now() - seen < HOLE_AFTER) return;
+        // A commit still writing its record (a large change, a slow store) sealed the place first: it is not given
+        // up under it, or those who read the empty record would never have the change its author was told was taken.
+        // The wait on it counts from when it was found sealed: its commit may have taken nearly as long to get there.
+        if (!(await this.seal(room, rev))) {
+          const sealed = entry.sealed.get(rev) ?? this.now();
+          entry.sealed.set(rev, sealed);
+          if (this.now() - sealed < SEALED_HOLE_AFTER) return;
+        }
         const empty = { rev, user: null, at: this.now(), changes: [] };
         await this.kv.set(`ss:${room}:log:${pad(rev)}`, empty);
         entry.holes.delete(rev);
+        entry.sealed.delete(rev);
         this.keep(entry, empty);
         continue;
       }
       entry.holes.delete(rev);
+      entry.sealed.delete(rev);
       this.keep(entry, record);
     }
+  }
+
+  /**
+   * Seal a claimed position in the log: true for the first to seal it. Its commit seals it just before writing the
+   * record, and the room when giving it up; whichever comes second leaves it to the first. A seal adds SEAL to the
+   * position's claim count, which a claimant that lost the race raises by one only, so the first seal sees less than two.
+   */
+  async seal(room, rev) {
+    return (await this.kv.incr(`ss:${room}:claim:${pad(rev)}`, SEAL)) < 2 * SEAL;
   }
 
   keep(entry, record) {
@@ -503,6 +526,13 @@ export class RoomService {
     try {
       const stored = text.length > INLINE ? { ...record, changes: undefined, file: this.path(room, `log/${pad(rev)}.json`) } : record;
       if (stored.file) await this.writeText(stored.file, text);
+      // Given up while this was being written (it took longer than the room waits), the place holds an empty record,
+      // which others may have read already: the change is sent again on top of it, as when someone else came first.
+      if (!(await this.seal(room, rev))) {
+        if (stored.file) await this.fs.delete(stored.file).catch(() => {});
+        await this.refresh(room, entry);
+        return { accepted: false, head: entry.head, records: await this.since(room, entry, base) };
+      }
       await this.kv.set(`ss:${room}:log:${pad(rev)}`, stored);
     } catch (error) {
       this.rooms.delete(room);

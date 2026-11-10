@@ -11,6 +11,7 @@
 import { sheetsToPdf } from '../core/sheet-pdf.js';
 import { rangeToCsv } from '../core/io.js';
 import * as P from './puter.js';
+import { t } from '../i18n/index.js';
 
 /** The one shared, app-owned worker (see src/workers/email-worker.js). */
 export const EMAIL_WORKER_URL = 'https://spreadsheet-email.puter.work';
@@ -39,9 +40,16 @@ export function parseRecipients(input) {
   let duplicates = 0;
   const src = String(input || '');
   // Named addresses first: their names may hold spaces and commas, which would split them.
-  const rest = src.replace(/(?:"([^"]*)"|([^,;<>\n]*?))\s*<([^<>\s]+)>/g, (_, quoted, plain, address) => `\u0000${JSON.stringify([(quoted ?? plain ?? '').trim(), address])}\u0000`);
+  const rest = src.replace(/(?:"([^"]*)"|([^,;<>\n]*?))\s*<([^<>\s]+)>/g, (_, quoted, plain, address) => {
+    // Addresses typed ahead of the name with spaces alone between them ("bob@example.com Ana <ana@…>") are
+    // recipients of their own, split off as everywhere else, not the start of the name. Only words shaped like an
+    // address are: an @ in a name otherwise ("Ana (@ana_d)", "Sales @ HQ") stays part of it.
+    const words = (quoted ?? plain ?? '').trim().split(/\s+/);
+    const ahead = quoted == null ? words.findLastIndex((w) => /^[^\s@<>()"]+@[^\s@<>()"]+$/.test(w)) + 1 : 0;
+    return `${words.slice(0, ahead).join(' ')}\u0000${JSON.stringify([words.slice(ahead).join(' '), address])}\u0000`;
+  });
   // Between the markers stand the named addresses; everything else splits at the separators.
-  const tokens = rest.split('\u0000').flatMap((part, i) => (i % 2 ? [part] : part.split(/[,;\s]+/))).map((t) => t.trim()).filter(Boolean);
+  const tokens = rest.split('\u0000').flatMap((part, i) => (i % 2 ? [part] : part.split(/[,;\s]+/))).map((token) => token.trim()).filter(Boolean);
   for (const token of tokens) {
     let name = '', raw = token;
     if (token.startsWith('[')) {
@@ -59,18 +67,19 @@ export function parseRecipients(input) {
 /** What is wrong with a recipient list, in words for the dialog, or null when it can be sent to. */
 export function recipientProblem({ people, invalid }, { max = MAX_RECIPIENTS } = {}) {
   if (invalid.length) {
-    return invalid.length === 1
-      ? `"${invalid[0]}" is not an email address`
-      : `These are not email addresses: ${invalid.slice(0, 3).map((t) => `"${t}"`).join(', ')}${invalid.length > 3 ? '…' : ''}`;
+    const [a, b, c] = invalid;
+    if (invalid.length === 1) return t('mail.recipients.notAnAddress', { a });
+    if (invalid.length === 2) return t('mail.recipients.notAddresses2', { a, b });
+    return invalid.length === 3 ? t('mail.recipients.notAddresses3', { a, b, c }) : t('mail.recipients.notAddressesMore', { a, b, c });
   }
-  if (!people.length) return 'Enter at least one email address';
-  if (people.length > max) return `You can send to at most ${max} people at a time`;
+  if (!people.length) return t('mail.recipients.none');
+  if (people.length > max) return t('mail.recipients.tooMany', { max });
   return null;
 }
 
 /** A size in words: "3.4 MB". */
 export function formatSize(bytes) {
-  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024) return t('mail.size.bytes', { bytes });
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
@@ -78,16 +87,20 @@ export function formatSize(bytes) {
 /** Why an attachment of `bytes` cannot be sent, or null. */
 export function attachmentProblem(bytes) {
   return bytes > MAX_ATTACHMENT_BYTES
-    ? `The copy is ${formatSize(bytes)}; an email can carry at most ${formatSize(MAX_ATTACHMENT_BYTES)}. Send a link instead, or send one sheet.`
+    ? t('mail.attachmentTooLarge', { size: formatSize(bytes), max: formatSize(MAX_ATTACHMENT_BYTES) })
     : null;
 }
 
 /* ---------- The attachment ---------- */
 
+/** [value, label] for one format, its label read in the interface language each time it is drawn (not as this loads). */
+const format = (value, key) => Object.defineProperty([value], 1, { enumerable: true, get: () => t(key) });
+
+/** Send a Copy's formats, [value, label]. */
 export const COPY_FORMATS = [
-  ['xlsx', 'Workbook (.xlsx)'],
-  ['pdf', 'PDF (.pdf)'],
-  ['csv', 'Sheet as .csv'],
+  format('xlsx', 'mail.format.xlsx'),
+  format('pdf', 'mail.format.pdf'),
+  format('csv', 'mail.format.csv'),
 ];
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -136,36 +149,35 @@ export function describeResult(out, { noun = 'email' } = {}) {
   const sent = out?.sent || 0, failed = out?.failed || 0, optedOut = out?.suppressed || 0;
   const capped = (out?.results || []).filter((r) => r.status === 'skipped' && r.reason === 'daily_limit').length;
   const already = (out?.results || []).filter((r) => r.status === 'skipped' && r.reason === 'already_sent').length;
-  const to = (n) => `${n} ${n === 1 ? 'person' : 'people'}`;
   if (capped) {
-    return { variant: 'danger', message: sent ? `Sent to ${to(sent)}, but ${capped} could not be sent: today's email limit was reached.` : "Today's email limit was reached. Try again tomorrow." };
+    return { variant: 'danger', message: sent ? t('mail.result.someCapped', { sent, capped }) : t('mail.result.capped') };
   }
   if (failed) {
-    return { variant: 'danger', message: sent ? `Sent to ${to(sent)}, but ${failed} could not be delivered.` : `The ${noun} could not be delivered.` };
+    return { variant: 'danger', message: sent ? t('mail.result.someFailed', { sent, failed }) : t('mail.result.failed', { noun }) };
   }
   if (optedOut) {
-    return { variant: 'default', message: `${sent ? `Sent to ${to(sent)}. ` : ''}${optedOut === 1 ? 'One person has' : `${optedOut} people have`} opted out of these emails.` };
+    return { variant: 'default', message: sent ? t('mail.result.sentSomeOptedOut', { sent, optedOut }) : t('mail.result.optedOut', { optedOut }) };
   }
   if (sent) {
     const only = out.results?.find((r) => r.status === 'sent')?.email;
-    return { variant: 'success', message: sent === 1 && only ? `${noun[0].toUpperCase()}${noun.slice(1)} sent to ${only}` : `${noun[0].toUpperCase()}${noun.slice(1)} sent to ${to(sent)}` };
+    return { variant: 'success', message: sent === 1 && only ? t('mail.result.sentTo', { noun, email: only }) : t('mail.result.sentToCount', { noun, sent }) };
   }
-  if (already) return { variant: 'default', message: 'They were already told.' };
-  return { variant: 'default', message: 'Nothing was sent.' };
+  if (already) return { variant: 'default', message: t('mail.result.alreadyTold') };
+  return { variant: 'default', message: t('mail.result.nothingSent') };
 }
 
 /** A refused request in words. */
 export function failureMessage(status, data) {
   const code = data?.error || '';
-  if (status === 401 || code === 'sign_in_required') return 'Sign in to Puter again to send email.';
-  if (status === 429 || code === 'daily_limit') return "You've reached today's email limit. Try again tomorrow.";
-  if (status === 413 || code === 'attachment_too_large') return `The attachment is too large to email (at most ${formatSize(MAX_ATTACHMENT_BYTES)}).`;
-  if (code === 'too_many_recipients') return `You can send to at most ${MAX_RECIPIENTS} people at a time.`;
-  if (code === 'invalid_recipient') return 'One of the addresses is not a valid email address.';
-  if (code === 'invalid_attachment') return 'The email service could not accept this file.';
-  if (code === 'invalid_link') return 'The email service could not accept the link to this workbook.';
-  if (status === 404) return 'The email service is unavailable right now.';
-  return 'Could not send the email. Please try again.';
+  if (status === 401 || code === 'sign_in_required') return t('mail.failure.signIn');
+  if (status === 429 || code === 'daily_limit') return t('mail.failure.dailyLimit');
+  if (status === 413 || code === 'attachment_too_large') return t('mail.failure.attachmentTooLarge', { max: formatSize(MAX_ATTACHMENT_BYTES) });
+  if (code === 'too_many_recipients') return t('mail.failure.tooManyRecipients', { max: MAX_RECIPIENTS });
+  if (code === 'invalid_recipient') return t('mail.failure.invalidRecipient');
+  if (code === 'invalid_attachment') return t('mail.failure.invalidAttachment');
+  if (code === 'invalid_link') return t('mail.failure.invalidLink');
+  if (status === 404) return t('mail.failure.unavailable');
+  return t('mail.failure.other');
 }
 
 /* ---------- Sending ---------- */
@@ -182,7 +194,7 @@ export function createMailer({ getPuter = () => globalThis.puter, workerUrl = EM
   }
 
   async function post(route, body) {
-    if (!available()) throw new Error('Email is not available here. Open the spreadsheet in Puter to send email.');
+    if (!available()) throw new Error(t('mail.notAvailable'));
     let res;
     try {
       res = await getPuter().workers.exec(`${workerUrl}${route}`, {
@@ -192,7 +204,7 @@ export function createMailer({ getPuter = () => globalThis.puter, workerUrl = EM
       });
     } catch (e) {
       console.error(e);
-      throw new Error('Could not reach the email service. Check your connection and try again.');
+      throw new Error(t('mail.unreachable'));
     }
     const data = await res.json().catch(() => null);
     if (!res.ok || !data || !data.ok) throw Object.assign(new Error(failureMessage(res.status, data)), { status: res.status, code: data?.error || null });

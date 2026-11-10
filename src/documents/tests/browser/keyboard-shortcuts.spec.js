@@ -153,3 +153,23 @@ test('a shortcut a menu shows belongs to that command alone and runs it', async 
     await expect(page.getByRole('dialog', { name: 'Word Count' })).toBeVisible();
   }
 });
+
+test('Ctrl+Shift+Space and Ctrl+Shift+Hyphen type a nonbreaking space and a nonbreaking hyphen', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.focus();
+  await page.keyboard.type('Mr');
+  await input.press('ControlOrMeta+Shift+Space');
+  await page.keyboard.type('Smith, 555');
+  await input.press('ControlOrMeta+Shift+Minus');
+  await page.keyboard.type('0100');
+  await expect(input).toHaveValue('Mr Smith, 555‑0100');
+  // Typed as characters are: one undo step with the word typed around them.
+  await input.press('ControlOrMeta+z');
+  await expect(input).toHaveValue('Mr Smith, ');
+  await input.press('ControlOrMeta+z');
+  await expect(input).toHaveValue('Mr\u00a0');
+  await input.press('ControlOrMeta+z');
+  await expect(input).toHaveValue('');
+});

@@ -17,10 +17,11 @@ afterAll(() => dom.window.close());
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const FORMATS = [['chineseCounting', '%1、'], ['decimalEnclosedCircle', '%1'], ['ordinalText', '%1:'], ['ganada', '%1.'], ['japaneseCounting', '第%1条'], ['decimalFullWidth', '%1．']];
-function listPackage(count = 3) {
-  const abstracts = FORMATS.map(([format, text], i) => `<w:abstractNum w:abstractNumId="${i}"><w:multiLevelType w:val="singleLevel"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>`).join('');
-  const nums = FORMATS.map((_, i) => `<w:num w:numId="${i + 1}"><w:abstractNumId w:val="${i}"/></w:num>`).join('');
-  const body = FORMATS.flatMap((_, i) => Array.from({ length: count }, (__, n) => `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="${i + 1}"/></w:numPr></w:pPr><w:r><w:t>Item ${n + 1}</w:t></w:r></w:p>`)).join('');
+function listPackage(count = 3, formats = FORMATS) {
+  const FORMATS_ = formats;
+  const abstracts = FORMATS_.map(([format, text], i) => `<w:abstractNum w:abstractNumId="${i}"><w:multiLevelType w:val="singleLevel"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>`).join('');
+  const nums = FORMATS_.map((_, i) => `<w:num w:numId="${i + 1}"><w:abstractNumId w:val="${i}"/></w:num>`).join('');
+  const body = FORMATS_.flatMap((_, i) => Array.from({ length: count }, (__, n) => `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="${i + 1}"/></w:numPr></w:pPr><w:r><w:t>Item ${n + 1}</w:t></w:r></w:p>`)).join('');
   return zipSync(Object.fromEntries(Object.entries({
     '[Content_Types].xml': `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/></Types>`,
     '_rels/.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="word/document.xml"/></Relationships>`,
@@ -74,4 +75,29 @@ it('numbers lists in Korean, Hebrew, Arabic and iroha sequences', () => {
   expect(sample('arabicAbjad', [1, 2, 3, 28, 29])).toEqual(['أ', 'ب', 'ج', 'غ', '29']);
   expect(sample('arabicAlpha', [1, 2, 3, 28])).toEqual(['أ', 'ب', 'ت', 'ي']);
   expect(sample('irohaFullWidth', [1, 2, 3, 47, 48])).toEqual(['イ', 'ロ', 'ハ', 'ス', '48']);
+});
+
+it('numbers in half-width iroha and in Thai and Devanagari digits, keeping the formats on save (§17.18.59)', async () => {
+  const formats = [['iroha', '%1.'], ['thaiNumbers', '%1.'], ['hindiNumbers', '%1)']];
+  const pkg = await DocxPackage.open(listPackage(3, formats));
+  expect(pkg.readOnly).toBeFalsy();
+  expect(labels(pkg)).toEqual(['ｲ.', 'ﾛ.', 'ﾊ.', '๑.', '๒.', '๓.', '१)', '२)', '३)']);
+  // The spec's examples, and numbers past them.
+  expect([1, 2, 3, 24, 25, 26, 43, 47].map(n => importedNumeral(n, 'iroha')).join('')).toBe('ｲﾛﾊｳヰﾉヱｽ');
+  expect(importedNumeral(48, 'iroha')).toBe('48');
+  expect([2, 3, 4, 10, 2026].map(n => importedNumeral(n, 'thaiNumbers'))).toEqual(['๒', '๓', '๔', '๑๐', '๒๐๒๖']);
+  expect([1, 2, 3, 10, 2026].map(n => importedNumeral(n, 'hindiNumbers'))).toEqual(['१', '२', '३', '१०', '२०२६']);
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  doc.select(doc.text.indexOf('Item 1') + 6); doc.replace(' edited');
+  const parts = unzipSync(new Uint8Array(await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets).arrayBuffer()));
+  for (const [format] of formats) expect(strFromU8(parts['word/numbering.xml'])).toContain(`<w:numFmt w:val="${format}"/>`);
+});
+
+it('leaves formats whose definition the specification leaves unclear read-only', async () => {
+  // §17.18.59 shows 10 as 一○ for chineseCountingThousand, taiwaneseCountingThousand and taiwaneseDigital, and swaps
+  // the examples of hindiVowels and hindiConsonants; the counting words and letter sets are given only by their first
+  // examples.
+  for (const format of ['chineseCountingThousand', 'taiwaneseCountingThousand', 'taiwaneseDigital', 'taiwaneseCounting', 'hindiVowels', 'hindiConsonants', 'hindiCounting', 'thaiLetters', 'thaiCounting', 'russianLower', 'vietnameseCounting']) {
+    await expect(DocxPackage.open(listPackage(1, [[format, '%1.']])), format).rejects.toThrow(/numbering format/);
+  }
 });

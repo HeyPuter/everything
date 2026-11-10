@@ -1,0 +1,13 @@
+{
+  "errors.cannotForecast": "These values cannot be forecast: the timeline needs a constant step",
+  "errors.constantStep": "The timeline needs a constant step between its points",
+  "errors.endAfterStart": "The forecast must end after it starts",
+  "errors.endPastLast": "The forecast end must be at least one step past the last point",
+  "errors.noNewSheet": "The workbook would not take a new sheet",
+  "errors.selectColumns": "Select a timeline column and a column of values beside it",
+  "errors.startAfterHistory": "The forecast must start after at least three points of history",
+  "errors.threePoints": "A forecast needs at least three points on its timeline",
+  "errors.timelineDates": "The timeline must hold dates or numbers",
+  "errors.valuesNumbers": "The values must hold numbers",
+  "undo.create": "Create forecast worksheet"
+}

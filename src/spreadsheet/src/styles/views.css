@@ -90,6 +90,126 @@
 .user-btn { width: 36px; height: 36px; border-radius: var(--r-full); }
 .user-btn .user-avatar { width: 32px; height: 32px; }
 
+/* ---------- <puter-user-menu> (puter.js; src/ui/user-menu.js) ----------
+   Where the loaded puter.js has it, it holds the Apps launcher and the account, after the Settings button. Its
+   parts take the header's icon button and primary button looks; its menu and Apps panel take the app's card,
+   in both themes. */
+puter-user-menu { flex: none; }
+puter-user-menu::part(apps-button) { border-radius: var(--r-sm); color: var(--ink-2); }
+.topbar puter-user-menu::part(apps-button) { width: 32px; height: 32px; }
+puter-user-menu::part(sign-in) {
+  height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-sm);
+  background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.topbar puter-user-menu::part(sign-in) { height: 28px; padding: 0 10px; }
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover { background: var(--surface-2); color: var(--ink); }
+  puter-user-menu::part(sign-in):hover { background: var(--accent-strong); }
+}
+puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
+  background: var(--surface); border-color: var(--hairline-strong);
+  --caret-border: var(--hairline-strong); --caret-fill: var(--surface);
+}
+/* A phone's title bar has no room to spare: the spreadsheet's name keeps it. The settings are in File ▸ Options
+   there, and the launcher stays on the home screen. */
+@media (max-width: 640px) {
+  .topbar .settings-btn, .topbar puter-user-menu::part(apps-button) { display: none; }
+}
+
+/* ---------- Apps launcher (src/ui/apps-panel.js) ----------
+   A card under the 3×3 button showing puter.com/embed/apps, with a caret on the button. It lives on <body>,
+   fixed under the button; --apps-panel-top comes from the button's position, so the height fits the space
+   left below. On phones it is an edge-to-edge sheet. Built once, then toggled with [hidden]. */
+.apps-btn[aria-expanded="true"] { background: var(--surface-2); color: var(--ink); }
+
+.apps-panel {
+  position: fixed;
+  top: var(--apps-panel-top, 56px);
+  right: calc(8px + var(--safe-r));
+  z-index: 55; /* over the views, under dialogs (60) and menus (70) */
+  width: 400px;
+  max-width: calc(100vw - 16px);
+  height: min(580px, calc(100dvh - var(--apps-panel-top, 56px) - 12px));
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
+  /* Fade and slide only: the caret is placed from the panel's box on open, and a scale would move its edge. */
+  animation: apps-panel-in 0.14s ease-out;
+}
+.apps-panel[hidden] { display: none; }
+.apps-panel:focus, .apps-panel:focus-visible { outline: none; }
+@keyframes apps-panel-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .apps-panel { animation: none; } }
+
+/* The caret: an outlined triangle (::before) under a filled one (::after) that also covers the card's top edge. */
+.apps-panel::before,
+.apps-panel::after {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: var(--apps-caret-x, calc(100% - 40px));
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-top: none;
+  border-bottom-color: var(--hairline-strong);
+  pointer-events: none;
+}
+.apps-panel::after { top: -7px; border-bottom-color: var(--surface); }
+.apps-panel.caret-hidden::before, .apps-panel.caret-hidden::after { display: none; }
+
+.apps-panel-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+.apps-panel-title { font-size: 14px; font-weight: 600; color: var(--ink); }
+.apps-panel-actions { display: flex; align-items: center; gap: 2px; }
+.apps-panel-action { width: 28px; height: 28px; text-decoration: none; }
+
+/* The iframe fills the rest of the card; the body clips it to the card's bottom corners. */
+.apps-panel-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 0 0 calc(var(--r-md) - 1px) calc(var(--r-md) - 1px);
+}
+.apps-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
+/* A spinner over the still blank frame, until it loads. */
+.apps-panel-loading {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+.apps-panel-loading .spin { display: inline-flex; }
+.apps-panel-body.is-loading .apps-panel-loading { display: flex; }
+.apps-panel-body.is-loading .apps-frame { visibility: hidden; }
+
+@media (max-width: 600px) {
+  .apps-panel {
+    left: calc(8px + var(--safe-l));
+    right: calc(8px + var(--safe-r));
+    width: auto;
+    max-width: none;
+    height: calc(100dvh - var(--apps-panel-top, 56px) - 8px - var(--safe-b));
+  }
+  .apps-panel-header { padding: 6px 6px 6px 16px; }
+  .apps-panel-title { font-size: 15px; }
+  .apps-panel-action { width: 40px; height: 40px; border-radius: 10px; }
+}
+
 .home-main {
   width: 100%;
   max-width: 960px;

@@ -90,7 +90,7 @@
 .quick-access .qat-btn, .quick-access .tb-btn { width: 30px; height: 30px; min-width: 30px; display: grid; place-items: center; border-radius: 5px; color: var(--chrome-ink); }
 .quick-access .tb-btn:disabled { opacity: 0.4; }
 @media (hover: hover) { .quick-access .qat-btn:hover:not(:disabled), .quick-access .tb-btn:hover:not(:disabled) { background: var(--chrome-hover); } }
-@media (max-width: 640px) { .quick-access .qat-btn[aria-label="Save"] { display: none; } }
+@media (max-width: 640px) { .quick-access .qat-btn.qat-save { display: none; } }
 
 /* A large command's drop-down mark sits beside its icon, leaving both label lines in view. */
 .ribbon .tb-btn.ribbon-large[aria-haspopup="menu"] { position: relative; }
@@ -150,6 +150,18 @@
 .freeze-bar.h { height: 3px; }
 @media (hover: hover) { .freeze-bar:hover { background: var(--xl-green); } }
 .freeze-bar.dragging { background: var(--xl-green); }
+/* Under forced colours (Windows High Contrast) the selection, its handle, the selected headers and the freeze bars are
+   drawn in system colours (grid.css); the look above comes later and took that back, so the selection was outlined in
+   the text colour of every cell border, the handle lost its fill, and the freeze bars went the colour of the canvas. */
+@media (forced-colors: active) {
+  .fill-handle { background: Highlight; border-color: Canvas; }
+  .sel-range { border: 2px solid Highlight; background: transparent; }
+  .sel-active { border-color: Highlight; }
+  .fill-preview, .cut-range { border-color: Highlight; }
+  .hcell.sel { background: Highlight; color: HighlightText; border-color: Highlight; }
+  .freeze-bar { background: CanvasText; opacity: 1; }
+  .freeze-bar.dragging { background: Highlight; }
+}
 
 /* ---------- Sheet tabs and status bar ---------- */
 @media (pointer: fine) {
@@ -234,6 +246,8 @@
 .watch-window { position: fixed; right: 24px; bottom: 64px; z-index: 40; width: min(620px, calc(100vw - 32px)); max-height: 280px; display: flex; flex-direction: column;
   background: var(--surface); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.1); font-size: 12px; }
 .watch-window[hidden] { display: none; }
+/* Narrower than the panel and its 24px gutter (a phone), it spans the window less 16px each side, not 8px and 24px. */
+@media (max-width: 668px) { .watch-window { right: 16px; } }
 .watch-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 4px 12px; cursor: move; border-bottom: 1px solid var(--hairline); }
 .watch-title { font-weight: 600; font-size: 13px; }
 .watch-actions { display: flex; gap: 6px; padding: 6px 10px; }
@@ -479,6 +493,7 @@ button.chg-place { text-decoration: underline; text-underline-offset: 2px; text-
 /* Background error checking: a green triangle in a cell's top-left corner, and the smart tag beside the active cell.
    A value its validation rule refuses is marked the same way. */
 .cell.err-flag::before, .cell.invalid::before { content: ""; position: absolute; top: 0; left: 0; width: 0; height: 0; border-style: solid; border-width: 6px 6px 0 0; border-color: #1f8f3a transparent transparent transparent; }
+@media (forced-colors: active) { .cell.invalid::before { border-top-color: CanvasText; } }
 .error-smarttag { position: fixed; z-index: 30; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 3px; color: #b07800; background: var(--surface); border: 1px solid var(--hairline-strong); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
 .error-smarttag[hidden] { display: none; }
 @media (hover: hover) { .error-smarttag:hover { background: var(--surface-2); } }

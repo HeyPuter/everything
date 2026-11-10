@@ -34,6 +34,8 @@ export class Drawing {
     this.listeners = new Set();
     this._tx = null;
     this._depth = 0;
+    /** Tag stored on steps committed now (the running command), see groupSince(). */
+    this.stepTag = null;
     /** Incremented on every committed change; used for "modified" tracking. */
     this.revision = 0;
     /** Count of steps dropped off the bottom of the undo stack (keeps saved indices valid). */
@@ -105,12 +107,28 @@ export class Drawing {
     return () => this.listeners.delete(fn);
   }
 
-  /** Put re-added objects back in their draw-order place before reporting. */
+  /**
+   * Put re-added objects back in their draw-order place before reporting:
+   * they were appended, the rest is still in order, so merge them in.
+   */
   _finish(change) {
     if (change.resort) {
       const key = this.orderKey;
-      this.entities = new Map([...this.entities].sort((a, b) => key.get(a[0]) - key.get(b[0])));
+      const ents = this.entities;
+      const back = new Set(change.restored.filter((id) => ents.has(id)));
+      const ins = [...back].sort((a, b) => key.get(a) - key.get(b));
+      const out = new Map();
+      let i = 0;
+      for (const [id, e] of ents) {
+        if (back.has(id)) continue;
+        const k = key.get(id);
+        for (; i < ins.length && key.get(ins[i]) < k; i++) out.set(ins[i], ents.get(ins[i]));
+        out.set(id, e);
+      }
+      for (; i < ins.length; i++) out.set(ins[i], ents.get(ins[i]));
+      this.entities = out;
     }
+    delete change.restored;
     return change;
   }
 
@@ -150,7 +168,9 @@ export class Drawing {
     const tx = this._tx;
     this._tx = null;
     if (tx.records.length) {
-      this.undoStack.push({ label, records: tx.records });
+      // rev0/rev1: revision before and after the step (see groupSince).
+      const rev0 = this.revision;
+      this.undoStack.push({ label, records: tx.records, tag: this.stepTag, rev0, rev1: rev0 + 1 });
       if (this.undoStack.length > UNDO_LIMIT) {
         this.undoStack.shift();
         this.shifted++;
@@ -177,7 +197,10 @@ export class Drawing {
             const key = this.orderKey.get(rec.id);
             if (key === undefined) this.orderKey.set(rec.id, ++this.nextOrder);
             // Coming back (undo of an erase): restore its place in the draw order.
-            else if (key < this.nextOrder) change.resort = true;
+            else if (key < this.nextOrder) {
+              change.resort = true;
+              (change.restored ??= []).push(rec.id);
+            }
           }
           this.entities.set(rec.id, value);
         } else this.entities.delete(rec.id);
@@ -244,10 +267,11 @@ export class Drawing {
     return after;
   }
 
-  /** Shallow-merge `patch` into an entity. */
+  /** Shallow-merge `patch` into an entity (no change is recorded when it changes nothing). */
   update(id, patch) {
     const before = this.entities.get(id);
     if (!before) return null;
+    if (Object.keys(patch).every((k) => before[k] === patch[k])) return before;
     return this.replace(id, { ...before, ...patch, id });
   }
 
@@ -262,6 +286,19 @@ export class Drawing {
     const moved = before.filter((id) => set.has(id));
     const rest = before.filter((id) => !set.has(id));
     const after = toFront ? rest.concat(moved) : moved.concat(rest);
+    this._record({ kind: 'order', before, after });
+  }
+
+  /** Reorder: move the given ids to just before `target` (drawn under it). */
+  moveBefore(ids, target) {
+    const set = new Set(ids);
+    if (set.has(target) || !this.entities.has(target)) return;
+    const before = [...this.entities.keys()];
+    const after = [];
+    for (const id of before) {
+      if (id === target) for (const m of before) if (set.has(m)) after.push(m);
+      if (!set.has(id)) after.push(id);
+    }
     this._record({ kind: 'order', before, after });
   }
 
@@ -282,6 +319,8 @@ export class Drawing {
 
   setHeader(patch) {
     const before = this.header;
+    // Setting values that are already current is not a change (no undo step, not modified).
+    if (Object.keys(patch).every((k) => Object.is(before[k], patch[k]) && k in before)) return;
     const after = { ...before, ...patch };
     this._record({ kind: 'header', before, after });
   }
@@ -332,6 +371,39 @@ export class Drawing {
     this.undoStack.push({ label: label || steps.at(-1).label, records: steps.flatMap((s) => s.records) });
   }
 
+  /**
+   * Merge each run of consecutive steps after `index` tagged `tag` into one
+   * step, so a command undoes as a unit while changes made outside it in the
+   * meantime (a palette edit, a redo) stay separate steps.
+   */
+  groupSince(index, tag, label) {
+    const out = this.undoStack.slice(0, index);
+    let run = null;
+    for (let i = index; i < this.undoStack.length; i++) {
+      const s = this.undoStack[i];
+      if (tag == null || s.tag !== tag) {
+        run = null;
+        out.push(s);
+      } else if (!run) {
+        const { rev0, rev1 } = s;
+        run = { label: label || s.label, records: s.records.slice(), tag, rev0, rev1 };
+        out.push(run);
+      } else {
+        for (const r of s.records) run.records.push(r);
+        // Revisions stay contiguous only while nothing else happened in between.
+        run.rev1 = run.rev1 === s.rev0 ? s.rev1 : NaN;
+      }
+    }
+    // A command that took back everything it did (LINE then U) leaves no
+    // step, and a drawing it found saved is saved again.
+    this.undoStack = out.filter((s, i) => {
+      if (i < index || tag == null || s.tag !== tag || !isNoop(s.records)) return true;
+      const saved = s.rev0 === this.savedRevision && s.rev1 === this.revision;
+      if (saved) this.savedRevision = this.revision;
+      return false;
+    });
+  }
+
   /** Label of the step undo() would revert. */
   get undoLabel() {
     return this.undoStack.at(-1)?.label ?? null;
@@ -358,6 +430,20 @@ export class Drawing {
     const l = this.layers.get(name);
     return !l || (l.on && !l.frozen && !l.locked);
   }
+}
+
+/** True when a step's records add up to no change (each touched item ends as it began). */
+function isNoop(records) {
+  const first = new Map();
+  const last = new Map();
+  for (const r of records) {
+    if (r.kind === 'order') return false;
+    const key = r.kind === 'ent' ? r.id : `${r.kind}:${r.table ?? ''}:${r.key ?? ''}`;
+    if (!first.has(key)) first.set(key, r.before);
+    last.set(key, r.after);
+  }
+  for (const [key, before] of first) if (last.get(key) !== before) return false;
+  return true;
 }
 
 function newChange() {

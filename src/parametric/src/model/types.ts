@@ -58,9 +58,23 @@ export type AxisRef =
 
 // ---- Sketch ----
 
+/**
+ * Link from projected sketch geometry to the model. Every rebuild puts the
+ * entity back on its model edge (or vertex), and the solver holds it fixed.
+ * - edge: a line, arc or circle on the projected edge; a point for a straight
+ *   edge seen end-on.
+ * - vertex: a point on a model vertex, found again as the end the edges
+ *   meeting there share (p is where it was, to pick between candidates).
+ */
+export type ExtRef =
+  | { kind: 'edge'; edge: EdgeRef }
+  | { kind: 'vertex'; edges: EdgeRef[]; p: Vec3 };
+
 export interface SkBase {
   id: Id;
   construction?: boolean;
+  /** Projected from the model and kept linked to it. */
+  ext?: ExtRef;
 }
 
 export interface SkPoint extends SkBase {

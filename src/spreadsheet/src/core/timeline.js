@@ -17,11 +17,12 @@ import { parseModelXml, modelChildren } from './data-model-metadata.js';
 import { decodeXlsxString } from './xlsx-string.js';
 import { MAX_ROW, parseRefText, sheetKey } from './refs.js';
 import { placeAlong } from './charts.js';
+import { t, formatDate } from '../i18n/index.js';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 
-export const TIMELINE_LEVELS = [['years', 'YEARS'], ['quarters', 'QUARTERS'], ['months', 'MONTHS'], ['days', 'DAYS']];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** The time levels, each with the key of its name in the level menu. */
+export const TIMELINE_LEVELS = [['years', 'coreTimeline.level.years'], ['quarters', 'coreTimeline.level.quarters'], ['months', 'coreTimeline.level.months'], ['days', 'coreTimeline.level.days']];
 export const TIMELINE_DEFAULTS = { w: 336, h: 140 };
 
 export { pivotDateSerial };
@@ -30,9 +31,13 @@ const toUtc = serial => new Date(((serial < 61 ? serial + 1 : serial) - 25569) *
 const fromUtc = (y, m, d) => pivotDateSerial(`${String(y).padStart(4, '0')}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
 /** Calendar parts of a serial: { y, m (0–11), d }. */
 export function serialParts(serial) {
-  const t = toUtc(Math.floor(serial));
-  return { y: t.getUTCFullYear(), m: t.getUTCMonth(), d: t.getUTCDate() };
+  const at = toUtc(Math.floor(serial));
+  return { y: at.getUTCFullYear(), m: at.getUTCMonth(), d: at.getUTCDate() };
 }
+
+/** A calendar date in the interface's language ("Mar", "Mar 2024", "Mar 5, 2024" in English). */
+const dateText = (p, options) => { const at = new Date(0); at.setUTCFullYear(p.y, p.m, p.d ?? 1); return formatDate(at, { timeZone: 'UTC', ...options }); };
+const monthText = (p) => dateText(p, { month: 'short' });
 
 /** The first and last day (serials) of the period of `level` holding `serial`. */
 export function periodBounds(serial, level) {
@@ -50,8 +55,8 @@ export function timelinePeriods(min, max, level, limit = 5000) {
   const out = [];
   for (let at = periodBounds(min, level).start; at <= max && out.length < limit;) {
     const { start, end } = periodBounds(at, level), { y, m, d } = serialParts(start);
-    const label = level === 'years' ? String(y) : level === 'quarters' ? `Q${m / 3 + 1}` : level === 'months' ? MONTHS[m].toUpperCase() : String(d);
-    const group = level === 'years' ? '' : level === 'days' ? `${MONTHS[m].toUpperCase()} ${y}` : String(y);
+    const label = level === 'years' ? String(y) : level === 'quarters' ? t('coreTimeline.quarterTile', { q: m / 3 + 1 }) : level === 'months' ? monthText({ y, m }).toUpperCase() : String(d);
+    const group = level === 'years' ? '' : level === 'days' ? dateText({ y, m }, { month: 'short', year: 'numeric' }).toUpperCase() : String(y);
     out.push({ start, end, label, group });
     at = end + 1;
   }
@@ -60,16 +65,19 @@ export function timelinePeriods(min, max, level, limit = 5000) {
 
 /** The selection as the timeline's caption line reads it: "Mar 2024", "Q1 - Q3 2024", "All Periods". */
 export function timelineSelectionLabel(start, end, level) {
-  if (start == null || end == null) return 'All Periods';
+  if (start == null || end == null) return t('coreTimeline.allPeriods');
   const a = serialParts(start), b = serialParts(end);
-  const one = (p, lvl) => lvl === 'years' ? `${p.y}` : lvl === 'quarters' ? `Q${Math.floor(p.m / 3) + 1} ${p.y}` : lvl === 'months' ? `${MONTHS[p.m]} ${p.y}` : `${MONTHS[p.m]} ${p.d}, ${p.y}`;
+  const quarter = p => Math.floor(p.m / 3) + 1;
+  const one = (p, lvl) => lvl === 'years' ? `${p.y}` : lvl === 'quarters' ? t('coreTimeline.quarter', { q: quarter(p), year: p.y })
+    : lvl === 'months' ? dateText(p, { month: 'short', year: 'numeric' }) : dateText(p, { month: 'short', day: 'numeric', year: 'numeric' });
   const first = one(a, level), last = one(b, level);
   if (first === last) return first;
   if (a.y === b.y && level !== 'years') {
-    const short = p => level === 'quarters' ? `Q${Math.floor(p.m / 3) + 1}` : level === 'months' ? MONTHS[p.m] : `${MONTHS[p.m]} ${p.d}`;
-    return `${short(a)} - ${short(b)} ${a.y}`;
+    if (level === 'quarters') return t('coreTimeline.quarterRange', { from: quarter(a), to: quarter(b), year: a.y });
+    const short = p => level === 'months' ? monthText(p) : dateText(p, { month: 'short', day: 'numeric' });
+    return t('coreTimeline.rangeInYear', { from: short(a), to: short(b), year: a.y });
   }
-  return `${first} - ${last}`;
+  return t('coreTimeline.range', { from: first, to: last });
 }
 
 export function normalizeTimeline(raw) {
@@ -147,14 +155,14 @@ export function setTimelineSelection(wb, sheetId, id, start, end) {
   const control = wb.chartById(sheetId, id), owner = wb.sheet(sheetId);
   if (control?.type !== 'timeline' || !owner || wb._locked(owner)) return false;
   const source = timelineSource(wb, control);
-  if (!source) throw new Error('The PivotTable or date field this timeline filters is no longer there.');
+  if (!source) throw new Error(t('coreTimeline.errors.sourceGone'));
   if ((start == null) !== (end == null) || start != null && (!Number.isFinite(start) || !Number.isFinite(end) || start > end)) return false;
   const pivots = indexNativePivotField(source.pivots, source.pivot.cache, source.index);
   const cache = pivots.caches.find(c => c.key === source.pivot.cache);
   const items = start == null ? null : readNativePivotCache(cache, { includeRecords: false }).fields[source.index].items
     .flatMap((item, i) => { const d = item.type === 'date' ? pivotDateSerial(item.value) : null; return d != null && d >= start && d < end + 1 ? [i] : []; });
   const sheet = wb.sheet(source.pivot.owner);
-  if (!sheet || sheet.kind === 'chart') throw new Error('The PivotTable is not on a worksheet.');
+  if (!sheet || sheet.kind === 'chart') throw new Error(t('coreTimeline.errors.notWorksheet'));
   // The date field gets its full item list (with its default subtotal) before members are hidden.
   const report = { ...source.pivot, xml: withFieldItems(source.pivot.xml, source.index, readNativePivotCache(cache, { includeRecords: false }).fields[source.index].items.length) };
   const plan = planNativePivotReport(report, cache, { nativePivots: pivots, selections: [{ field: source.index, items }],
@@ -179,9 +187,9 @@ export function setTimelineSelection(wb, sheetId, id, start, end) {
 
 /** Put a timeline for a date field of a report on the report's sheet, beside it. Returns its id. */
 export function insertTimeline(wb, sheetId, pivot, fieldIndex, { at = null } = {}) {
-  if (wb.isProtected?.(sheetId)) throw new Error('Unprotect the sheet to insert a timeline.');
+  if (wb.isProtected?.(sheetId)) throw new Error(t('coreTimeline.errors.protected'));
   const field = pivotDateFields(wb, pivot).find(f => f.index === fieldIndex);
-  if (!field) throw new Error('Choose a date field of the PivotTable.');
+  if (!field) throw new Error(t('coreTimeline.errors.noDateField'));
   const range = parseRefText(pivot.ref || '');
   const start = at || { r: range ? range.r1 : 0, c: range ? range.c2 + 2 : 0 };
   const taken = wb.sheet(sheetId).charts.filter(c => c.type === 'timeline' || c.type === 'slicer').length;

@@ -122,7 +122,7 @@ the article text and links are present in the generated HTML.
 
 ### Hosting
 
-The production site will be hosted at `https://inventory.zone`. Deploy the complete
+The production site is hosted at `https://inventory.puter.com`. Deploy the complete
 `dist/` directory at the origin's root. The build emits an `index.html` for each
 article and collection, plus `404.html`; configure the
 static host to serve directory indexes and use that file for missing pages.
@@ -130,7 +130,7 @@ Do not rewrite all requests to the app's root document. App routes continue to
 use `#/…`. The Vite development server also supports library routes, canonical
 trailing-slash redirects, and missing-article responses.
 
-The default build uses `https://inventory.zone` for canonical links, absolute
+The default build uses `https://inventory.puter.com` for canonical links, absolute
 social URLs, structured article metadata, and `sitemap.xml`:
 
 ```sh

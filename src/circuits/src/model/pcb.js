@@ -38,12 +38,14 @@ export function compFieldPlacement(comp, name, def) {
   const fb = footprintBox(def);
   const h = f.h || mm(1);
   const hidden = f.hidden ?? name === 'value';
-  // Default: designator above the footprint, value below, in board orientation.
+  // Default: designator beyond the footprint's top edge, value beyond its bottom
+  // edge, turning with the part (the local offset has no x, so the bottom-side
+  // mirror leaves it as is).
   const dx = f.dx ?? 0;
   const dy = f.dy ?? (name === 'designator' ? fb.maxY + h * 0.5 : fb.minY - h * 1.5);
   const [rx, ry] = f.dx === undefined && f.dy === undefined ? rotate(dx, dy, comp.rot || 0) : [dx, dy];
   const bottom = comp.side === 'bottom';
-  const x = comp.x + (f.dx === undefined && bottom ? -rx : rx), y = comp.y + ry;
+  const x = comp.x + rx, y = comp.y + ry;
   return { x, y, h, rot: f.rot ?? norm360(comp.rot || 0), hidden, layer: bottom ? 'bottomOverlay' : 'topOverlay', mirror: bottom };
 }
 
@@ -220,7 +222,14 @@ export function rotatePcb(o, px, py, deg) {
 
 /** Flips a component to the other side of the board (mirrors about its origin). */
 export function flipComp(o) {
-  const fields = o.fields ? Object.fromEntries(Object.entries(o.fields).map(([k, f]) => [k, f.dx === undefined ? f : { ...f, dx: -f.dx }])) : o.fields;
+  // A placed field mirrors too: its position across the part origin, its angle like the part's.
+  const flipField = (f) => {
+    if (f.dx === undefined) return f;
+    const out = { ...f, dx: -f.dx };
+    if (f.rot !== undefined) out.rot = norm360(-f.rot);
+    return out;
+  };
+  const fields = o.fields ? Object.fromEntries(Object.entries(o.fields).map(([k, f]) => [k, flipField(f)])) : o.fields;
   return { ...o, side: o.side === 'bottom' ? 'top' : 'bottom', rot: norm360(-(o.rot || 0)), fields };
 }
 

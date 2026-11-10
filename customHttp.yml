@@ -199,6 +199,12 @@ applications:
           - key: 'Cache-Control'
             value: 'no-cache, max-age=0, s-maxage=0, must-revalidate'
 
+      # Revalidate the push service worker.
+      - pattern: '/puter-sw.js'
+        headers:
+          - key: 'Cache-Control'
+            value: 'no-cache, max-age=0, s-maxage=0, must-revalidate'
+
       # Vite includes content hashes in generated asset filenames.
       # Keep unversioned public files outside this directory.
       - pattern: '/assets/*'
@@ -229,7 +235,7 @@ applications:
       - pattern: '**'
         headers:
           - key: 'Content-Security-Policy'
-            value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-Ae92DMlvhX2of26U5jhemEEtmQDwlfAX4yVGQ8Mrsfc=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
+            value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-Ae92DMlvhX2of26U5jhemEEtmQDwlfAX4yVGQ8Mrsfc=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; frame-src https://puter.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
           - key: 'X-Content-Type-Options'
             value: 'nosniff'
           - key: 'Referrer-Policy'
@@ -261,7 +267,7 @@ applications:
       - pattern: '**'
         headers:
           - key: 'Content-Security-Policy'
-            value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-v7136Z35nIU0KjaihRH6no7bcvyaZAOfuwZKn+G2HqU=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
+            value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-v7136Z35nIU0KjaihRH6no7bcvyaZAOfuwZKn+G2HqU=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; frame-src https://puter.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
           - key: 'X-Content-Type-Options'
             value: 'nosniff'
           - key: 'Referrer-Policy'
@@ -317,7 +323,7 @@ applications:
       - pattern: '**'
         headers:
           - key: 'Content-Security-Policy'
-            value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-8Q7822F2YXiJ2Rwt6mdL7EjOvJsLqJE6RqpKo+gbpmA=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
+            value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-8Q7822F2YXiJ2Rwt6mdL7EjOvJsLqJE6RqpKo+gbpmA=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; frame-src https://puter.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
           - key: 'X-Content-Type-Options'
             value: 'nosniff'
           - key: 'Referrer-Policy'

@@ -44,10 +44,9 @@ export function formatNumber(v: number, decimals: number): string {
 }
 
 /** Shortest round-trippable text for an editable value (no forced decimals). */
-export function formatEditable(v: number, maxDecimals = 6): string {
+export function formatEditable(v: number): string {
   if (!Number.isFinite(v)) return '0';
-  const s = Number(v.toFixed(maxDecimals)).toString();
-  return s === '-0' ? '0' : s;
+  return v.toString();
 }
 
 export function formatLength(mm: number, units: UnitSystem, decimals: number, withUnit = false): string {

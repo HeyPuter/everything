@@ -13,6 +13,21 @@ export function calc(formula, cells = {}) {
   return wb.getValue(id, 99, 25);
 }
 
+/**
+ * Evaluate one formula as a file stores it rather than as typed: a formula giving a function too few or too many
+ * arguments (ROUND(2.5), N()) stays text when typed, as Excel refuses it, but a file may still hold one.
+ */
+export function calcStored(formula, cells = {}) {
+  const wb = new Workbook();
+  const id = wb.sheets[0].id;
+  for (const [a1, text] of Object.entries(cells)) {
+    const { r, c } = parseCellRef(a1);
+    wb.setInput(id, r, c, String(text));
+  }
+  wb.setCells(id, [{ r: 99, c: 25, cell: { v: null, f: formula } }]);
+  return wb.getValue(id, 99, 25);
+}
+
 /** Evaluate against stored values, preserving their bits instead of converting
  * them through typed text or a numeric formula literal.
  */

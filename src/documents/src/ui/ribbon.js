@@ -10,6 +10,7 @@
 
 import { el, isComposing } from './dom.js';
 import { commandIcon } from './command-icons.js';
+import { displayedChordReserved } from '../views/keymap.js';
 
 /** An icon from the office set as a live SVG element. */
 export function commandIconEl(name, size = 16) {
@@ -77,6 +78,8 @@ export function split(main, { label, open, size = 'small' } = {}) {
 
 /** A button the ribbon owns, for commands that have no editor control of their own. */
 export function command(label, icon, onclick, { size = 'small', text = null, shortcut = null, caret = false, attrs = {} } = {}) {
+  // A chord the browser keeps for itself on this platform (Ctrl+Shift+N opens a private window) is not offered.
+  if (displayedChordReserved(shortcut)) shortcut = null;
   const button = el('button', { type: 'button', 'aria-label': label, title: shortcut ? `${label} (${shortcut})` : label, onclick, ...attrs });
   if (shortcut) button.dataset.shortcut = shortcut;
   button.dataset.icon = icon;
@@ -363,7 +366,17 @@ export function createRibbon({ tabs, fileButton, focusEditor, onSelect }) {
       if (c.tabIndex !== index) c.tabIndex = index;
     }
   }
-  card.addEventListener('focusin', e => { if (e.target.matches('button, select, input')) { tabStop = e.target; tabStopChosen = true; refreshTabStops(); } });
+  card.addEventListener('focusin', e => { if (e.target.matches('button, select, input')) { tabStop = e.target; tabStopChosen = true; refreshTabStops(); revealControl(e.target); } });
+  /** A strip that scrolls sideways (phones) shows the focused command whole, clear of its faded edges, as revealTab
+   * does for the tabs: the browser scrolled a half-hidden command no further than it already was. */
+  function revealControl(control) {
+    const panel = control.closest('.ribbon-panel');
+    if (!compact.matches || !panel || panel.scrollWidth <= panel.clientWidth + 1) return;
+    const box = control.getBoundingClientRect(), strip = panel.getBoundingClientRect(), edge = 24;
+    if (!box.width) return;
+    if (box.left < strip.left + edge) panel.scrollLeft -= strip.left + edge - box.left;
+    else if (box.right > strip.right - edge) panel.scrollLeft += box.right - (strip.right - edge);
+  }
   // The card and a collapsed group's drop-down share one keyboard model.
   card.addEventListener('keydown', navigate);
   function navigate(e) {

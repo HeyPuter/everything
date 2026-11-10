@@ -1,0 +1,19 @@
+{
+  "recent": "近期使用过的符号",
+  "searchLabel": "搜索符号",
+  "searchPlaceholder": "按名称或代码搜索",
+  "subset": "子集",
+  "subset.arrows": "箭头",
+  "subset.currency": "货币符号",
+  "subset.dingbats": "装饰符号",
+  "subset.greek": "希腊语",
+  "subset.latin1": "拉丁语-1 增补",
+  "subset.letterlike": "类似字母的符号",
+  "subset.math": "数学运算符",
+  "subset.misc": "其他符号",
+  "subset.numberForms": "数字形式",
+  "subset.punctuation": "广义标点",
+  "subset.shapes": "几何图形",
+  "symbols": "符号",
+  "title": "符号"
+}

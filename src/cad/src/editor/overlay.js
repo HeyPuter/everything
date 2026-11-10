@@ -15,7 +15,9 @@ export class Overlay {
   readColors() {
     const cs = getComputedStyle(document.documentElement);
     const v = (n, f) => cs.getPropertyValue(n).trim() || f;
-    const dark = cs.colorScheme?.includes('dark') || matchMedia('(prefers-color-scheme: dark)').matches;
+    // color-scheme follows the chosen theme; the media query only knows the system one.
+    const scheme = cs.colorScheme;
+    const dark = scheme ? scheme.includes('dark') : matchMedia('(prefers-color-scheme: dark)').matches;
     this.colors = {
       cursor: dark ? '#e8ecf2' : '#20262f',
       accent: v('--accent', '#4d8dff'),

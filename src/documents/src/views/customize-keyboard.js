@@ -1,6 +1,6 @@
 import { el, typesCharacter } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
-import { chordOf, bindable, displayChord } from './keymap.js';
+import { chordOf, bindable, displayChord, browserReserved } from './keymap.js';
 
 /**
  * Customize Keyboard: give any command — a ribbon button or a menu item — a shortcut of your own, or
@@ -22,11 +22,23 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
     shown = all.filter(e => (!category.value || e.path[0] === category.value) && (!q || `${e.label} ${e.path.join(' ')}`.toLowerCase().includes(q))).slice(0, 400);
     list.replaceChildren(...shown.map((entry, i) => el('div.kb-item', { role: 'option', id: `kb-item-${i}`, 'aria-selected': String(entry === chosen), onclick: () => pick(entry) },
       el('span.kb-label', {}, entry.label), el('span.kb-path', {}, entry.path.filter(Boolean).join(' › ')),
-      el('span.kb-keys', {}, [...keymap.chordsFor(entry.id).map(c => displayChord(c)), ...(keymap.isCustom(entry.id) ? [] : entry.shortcut ? [entry.shortcut] : [])].join(', ')))));
+      el('span.kb-keys', {}, [...new Set([...keymap.chordsFor(entry.id).map(c => displayChord(c)), ...(builtIn(entry) ? [entry.shortcut] : [])])].join(', ')))));
     if (!shown.length) list.append(el('p.field-hint', {}, 'No commands match.'));
     const at = shown.indexOf(chosen);
     if (at >= 0) list.setAttribute('aria-activedescendant', `kb-item-${at}`); else list.removeAttribute('aria-activedescendant');
   }
+  /** The command a shortcut of your own on this entry's built-in shortcut runs instead, or null. */
+  function takenBy(entry) {
+    if (!entry.shortcut) return null;
+    const shown = entry.shortcut.toLowerCase();
+    const owner = Object.entries(keymap.custom).find(([id, chords]) => id !== entry.id && chords.some(chord => displayChord(chord).toLowerCase() === shown))?.[0];
+    return owner ? all.find(e => e.id === owner) || { label: 'another command' } : null;
+  }
+  /**
+   * Whether the entry's built-in shortcut still runs it: not taken by another command's. A shortcut of its own is
+   * one more way to run it (the built-in one, which the document or the window handles, goes on working).
+   */
+  const builtIn = entry => !!entry.shortcut && !takenBy(entry);
   function pick(entry) { chosen = entry; renderList(); renderDetail(); list.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' }); }
   list.addEventListener('keydown', e => {
     const at = shown.indexOf(chosen);
@@ -52,7 +64,9 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
       e.preventDefault(); e.stopPropagation();
       const chord = chordOf(e);
       if (!chord) return;
-      if (!bindable(chord)) { capture.value = displayChord(chord); hint.textContent = 'Use a modifier key (Ctrl, Alt, Cmd or Option), or a function key.'; assign.disabled = true; return; }
+      // Most of the browser's own chords never get here; one that does (an installed app's window) still opens a tab elsewhere.
+      if (browserReserved(chord)) { capture.value = displayChord(chord); hint.textContent = `The browser keeps ${displayChord(chord)} for its own windows and tabs, so the document never receives it. Choose another shortcut.`; pending = null; assign.disabled = true; return; }
+      if (!bindable(chord)) { capture.value = displayChord(chord); hint.textContent = 'Use a modifier key (Ctrl, Alt, Cmd or Option), or a function key.'; pending = null; assign.disabled = true; return; }
       // AltGr and Option keys that type a character keep typing it, so they cannot be a shortcut.
       if (typesCharacter(e)) { capture.value = displayChord(chord); hint.textContent = `These keys type ${e.key}. Choose another shortcut.`; pending = null; assign.disabled = true; return; }
       pending = chord; capture.value = displayChord(chord); assign.disabled = false;
@@ -65,8 +79,9 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
       el('h3.kb-title', {}, chosen.label), el('p.kb-path', {}, chosen.path.filter(Boolean).join(' › ')),
       el('div.kb-current', {},
         el('span.field-label', {}, 'Current shortcuts'),
-        !custom.length && !(chosen.shortcut && !keymap.isCustom(chosen.id)) ? el('p.field-hint', {}, 'None') : null,
-        ...(chosen.shortcut && !keymap.isCustom(chosen.id) && !custom.map(c => displayChord(c)).includes(chosen.shortcut) ? [el('div.kb-chord', {}, el('span.kbd', {}, chosen.shortcut), el('span.field-hint', {}, 'built in'))] : []),
+        !custom.length && !builtIn(chosen) ? el('p.field-hint', {}, 'None') : null,
+        ...(builtIn(chosen) && !custom.map(c => displayChord(c)).includes(chosen.shortcut) ? [el('div.kb-chord', {}, el('span.kbd', {}, chosen.shortcut), el('span.field-hint', {}, 'built in'))] : []),
+        ...(takenBy(chosen) ? [el('p.field-hint', {}, `${chosen.shortcut} now runs ${takenBy(chosen).label}.`)] : []),
         ...custom.map(chord => el('div.kb-chord', {}, el('span.kbd', {}, displayChord(chord)),
           el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => { keymap.remove(chosen.id, chord); changed(); } }, 'Remove')))),
       el('label.field', {}, el('span.field-label', {}, 'New shortcut'), capture), hint,
@@ -74,10 +89,11 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
         el('button.btn.btn-ghost', { type: 'button', disabled: !keymap.isCustom(chosen.id), onclick: () => { keymap.reset(chosen.id); changed(); } }, 'Reset')));
   }
   const resetAll = el('button.btn.btn-ghost', { type: 'button', onclick: () => { keymap.reset(); renderList(); renderDetail(); } }, 'Reset All');
-  const modal = openModal({ title: 'Customize Keyboard', wide: true, onClose, content: el('div.kb-dialog', {},
+  // A form, as the other dialogs are: Enter presses Done, the default button (the shortcut field takes Enter as a key).
+  const modal = openModal({ title: 'Customize Keyboard', wide: true, onClose, content: el('form.kb-dialog', { onsubmit: e => { e.preventDefault(); modal.close(); } },
     el('div.kb-browse', {}, el('div.kb-filters', {}, category, filter), list),
     detail,
-    el('div.row.row-end.kb-actions', {}, resetAll, el('button.btn.btn-primary', { type: 'button', onclick: () => modal.close() }, 'Done'))) });
+    el('div.row.row-end.kb-actions', {}, resetAll, el('button.btn.btn-primary', { type: 'submit' }, 'Done'))) });
   modal.panel.classList.add('kb-panel');
   renderList(); renderDetail();
   filter.focus();

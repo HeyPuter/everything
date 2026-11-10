@@ -59,13 +59,13 @@ export const OPTION_DEFAULTS = Object.freeze({
   aiFeatures: true,
 });
 
-/** The choices of the options that take one of a list. */
+/** The choices of the options that take one of a list: [value, message key of its label]. */
 export const OPTION_CHOICES = Object.freeze({
-  newView: [['normal', 'Normal'], ['pageLayout', 'Page Layout'], ['pageBreak', 'Page Break Preview']],
-  enterDirection: [['down', 'Down'], ['right', 'Right'], ['up', 'Up'], ['left', 'Left']],
-  commentIndicators: [['none', 'No indicators or pop-ups'], ['indicator', 'Indicators only, comments and notes on click'], ['hover', 'Indicators, and the note on hover']],
-  newCalcMode: [['automatic', 'Automatic'], ['manual', 'Manual']],
-  draftDelay: [[1, 'About a second after each change'], [5, 'After 5 seconds'], [30, 'After 30 seconds'], [60, 'After a minute'], [300, 'After 5 minutes']],
+  newView: [['normal', 'appOptions.newView.normal'], ['pageLayout', 'appOptions.newView.pageLayout'], ['pageBreak', 'appOptions.newView.pageBreak']],
+  enterDirection: [['down', 'appOptions.enterDirection.down'], ['right', 'appOptions.enterDirection.right'], ['up', 'appOptions.enterDirection.up'], ['left', 'appOptions.enterDirection.left']],
+  commentIndicators: [['none', 'appOptions.commentIndicators.none'], ['indicator', 'appOptions.commentIndicators.indicator'], ['hover', 'appOptions.commentIndicators.hover']],
+  newCalcMode: [['automatic', 'appOptions.newCalcMode.automatic'], ['manual', 'appOptions.newCalcMode.manual']],
+  draftDelay: [[1, 'appOptions.draftDelay.second'], [5, 'appOptions.draftDelay.fiveSeconds'], [30, 'appOptions.draftDelay.thirtySeconds'], [60, 'appOptions.draftDelay.minute'], [300, 'appOptions.draftDelay.fiveMinutes']],
 });
 
 /** Number options: [min, max, whole]. */

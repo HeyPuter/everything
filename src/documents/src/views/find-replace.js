@@ -41,7 +41,8 @@ export function findReplacePanel(api) {
   for (const [value, label] of api.scopes?.() || []) scope.append(el('option', { value }, label));
   const advancedUsed = () => ADVANCED_FLAGS.some(([key]) => flags[key].checked) || Object.keys(findFormat).length || Object.keys(replaceFormat).length || /\^/.test(query.value) || /\^|\\[1-9]/.test(replacement.value) || scope.value !== 'document';
   const options = () => {
-    const base = { matchCase: matchCase.checked, wholeWord: wholeWord.checked };
+    // What the view hides (a deletion in Simple Markup, hidden text) is not found, as a reader would not find it.
+    const base = { matchCase: matchCase.checked, wholeWord: wholeWord.checked, visibleOnly: true };
     if (!advancedUsed()) return base;
     return { ...base, advanced: true, ...Object.fromEntries(ADVANCED_FLAGS.map(([key]) => [key, flags[key].checked])), format: findFormat, replaceFormat, ...(within ? { within } : {}), scope: scope.value };
   };
@@ -145,6 +146,9 @@ export function findReplacePanel(api) {
     replacement.disabled = !!api.readOnly?.();
     all.disabled = replacement.disabled || !matches.length;
     replace.disabled = replacement.disabled || current < 0;
+    // A button that turns itself off (Replace all, with nothing left to find) would drop the keyboard on the page
+    // body, out of the panel's keys: the search field takes it.
+    if ([previous, next, replace, all].some(button => button.disabled && document.activeElement === button)) query.focus();
     return { matches, current };
   }
   function navigate(direction = 0) {

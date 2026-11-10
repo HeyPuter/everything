@@ -12,6 +12,7 @@
     "build:worker": "vite build --config vite.worker.config.js",
     "preview": "vite preview",
     "deploy:email-worker": "puter worker deploy worker/email.js teamchat-email",
+    "publish:handlers": "node scripts/publish-handlers.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

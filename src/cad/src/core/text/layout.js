@@ -26,12 +26,15 @@ import {
 /** Baseline-to-baseline distance of mtext lines, in text heights. */
 export const LINE_PITCH = 5 / 3;
 
-const SPECIAL = { d: '°', p: '±', c: '⌀', '%': '%' };
-const SPECIAL_RE = /%%(?:([dDpPcC%])|(\d{3}))|\\[uU]\+([0-9a-fA-F]{4})/g;
+const SPECIAL = { d: '°', p: '±', c: '⌀', '%': '%', u: '', o: '', k: '' };
+const SPECIAL_RE = /%%(?:([dDpPcC%uUoOkK])|(\d{3}))|\\[uU]\+([0-9a-fA-F]{4})/g;
+/** Heights (glyph units) of the underline, overline and strike-through lines. */
+const DECOR_Y = { u: -0.15, o: 1.12, k: 0.45 };
 
 /**
  * Decode drafting control codes: %%d degree, %%p plus-minus, %%c diameter,
- * %%% percent, %%nnn decimal character code, and \U+XXXX escapes.
+ * %%% percent, %%nnn decimal character code, and \U+XXXX escapes. The
+ * underline, overline and strike-through toggles %%u, %%o and %%k are removed.
  */
 export function decodeSpecial(str) {
   if (str == null) return '';
@@ -70,6 +73,13 @@ export function measureText(value, h, widthFactor = 1, font = 'sans') {
   return advanceUnits(decodeSpecial(value), font === 'mono') * h * widthFactor;
 }
 
+/** Slant limit: obliquing angles are limited to ±85 degrees, as in AutoCAD. */
+const MAX_TAN = Math.tan((85 * Math.PI) / 180);
+const slant = (a) => {
+  const t = Math.tan(a);
+  return Number.isFinite(t) ? Math.max(-MAX_TAN, Math.min(MAX_TAN, t)) : 0;
+};
+
 /** Resolve font, width factor and oblique from the entity, then the style. */
 function params(ent, style) {
   const font = typeof style === 'string' ? style : (style?.font ?? ent.font ?? 'sans');
@@ -77,7 +87,7 @@ function params(ent, style) {
   return {
     h: ent.h > 0 ? ent.h : 1,
     wf: ent.widthFactor > 0 ? ent.widthFactor : so?.widthFactor > 0 ? so.widthFactor : 1,
-    tan: Math.tan(ent.oblique ?? so?.oblique ?? 0),
+    tan: slant(ent.oblique ?? so?.oblique ?? 0),
     mono: font === 'mono',
     rot: ent.rot || 0,
   };
@@ -130,6 +140,33 @@ function rectCorners(x, y, cs, sn, x0, y0, x1, y1) {
   ];
 }
 
+/**
+ * Underline, overline and strike-through runs of a raw text value as
+ * [kind, from, to] in glyph units along the decoded string, or null.
+ */
+function decorRuns(raw, mono) {
+  if (raw.indexOf('%%') < 0) return null;
+  const open = {};
+  const runs = [];
+  let pen = 0,
+    last = 0;
+  for (const m of raw.matchAll(SPECIAL_RE)) {
+    pen += advanceUnits(raw.slice(last, m.index), mono);
+    last = m.index + m[0].length;
+    const k = m[1]?.toLowerCase();
+    if (k in DECOR_Y) {
+      if (open[k] === undefined) open[k] = pen;
+      else {
+        if (pen > open[k]) runs.push([k, open[k], pen]);
+        delete open[k];
+      }
+    } else pen += advanceUnits(decodeSpecial(m[0]), mono);
+  }
+  pen += advanceUnits(raw.slice(last), mono);
+  for (const k in open) if (pen > open[k]) runs.push([k, open[k], pen]);
+  return runs.length ? runs : null;
+}
+
 /** Alignment, transform and box of a single-line text entity. */
 function textFrame(ent, style) {
   const p = params(ent, style);
@@ -173,6 +210,11 @@ export function layoutText(ent, style) {
   const fr = textFrame(ent, style);
   const strokes = [];
   emit(fr.str, fr.mono, fr.a, fr.b, fr.c, fr.d, fr.e, fr.f, strokes);
+  for (const [k, u0, u1] of decorRuns(String(ent.value ?? ''), fr.mono) ?? []) {
+    const v = DECOR_Y[k];
+    const { a, b, c, d, e, f } = fr;
+    strokes.push([a * u0 + c * v + e, b * u0 + d * v + f, a * u1 + c * v + e, b * u1 + d * v + f]);
+  }
   return { strokes, box: fr.box };
 }
 
@@ -202,8 +244,12 @@ function wrapLines(str, limit, mono) {
           lw += spaceW + ww;
           continue;
         }
-        texts.push(line);
-        widths.push(lw);
+        // Spaces at a break belong to neither line: one that does not fit
+        // does not start a new line, and the line ends without them.
+        if (!word) continue;
+        const trimmed = line.replace(/ +$/, '');
+        texts.push(trimmed);
+        widths.push(lw - (line.length - trimmed.length) * spaceW);
       }
       if (ww > limit + eps) {
         // Break the word: fill each line with as many characters as fit (at least one).
@@ -240,7 +286,9 @@ const ATTACH_Y = { t: 0, m: 0.5, b: 1 };
 function mtextFrame(ent, style) {
   const p = params(ent, style);
   const { h, wf } = p;
-  const str = decodeSpecial(String(ent.value ?? '').replace(/\r\n?/g, '\n').replace(/\\P/g, '\n'));
+  // Paragraph breaks are '\n' in the model (readers turn MTEXT's \P into
+  // it); a backslash left in the value is a real one, as in C:\Projects.
+  const str = decodeSpecial(String(ent.value ?? '').replace(/\r\n?/g, '\n'));
   const width = ent.width > 0 ? ent.width : 0;
   const { texts, widths } = wrapLines(str, width / (h * wf), p.mono);
   const n = texts.length;
@@ -284,6 +332,21 @@ export function layoutMText(ent, style) {
     emit(fr.texts[i], p.mono, a, b, c, d, x + cs * lx - sn * ly, y + sn * lx + cs * ly, strokes);
   }
   return { strokes, box: fr.box, lines: fr.n };
+}
+
+/**
+ * Each line of an 'mtext' entity as single-line text placement:
+ * [{ value, x, y, halign }], (x, y) being the alignment point on the line's
+ * baseline. Laying these out as 'text' reproduces layoutMText's strokes.
+ */
+export function mtextLines(ent, style) {
+  const fr = mtextFrame(ent, style);
+  const halign = fr.fx === 0.5 ? 'center' : fr.fx === 1 ? 'right' : 'left';
+  const lx = fr.left + fr.fx * fr.frameW;
+  return fr.texts.map((value, i) => {
+    const ly = fr.top - fr.p.h - i * fr.pitch;
+    return { value, x: fr.x + fr.cs * lx - fr.sn * ly, y: fr.y + fr.sn * lx + fr.cs * ly, halign };
+  });
 }
 
 /** Axis-aligned [minX, minY, maxX, maxY] of a flat point list. */

@@ -6,6 +6,7 @@
  */
 
 import { colName, normalizeRange, parseKey } from './cell.js';
+import { t } from '../i18n/index.js';
 
 export const SUBTOTAL_FUNCTIONS = [
   [9, 'Sum'], [3, 'Count'], [1, 'Average'], [4, 'Max'], [5, 'Min'], [6, 'Product'], [2, 'Count numbers'], [7, 'Standard deviation'], [10, 'Variance'],
@@ -66,7 +67,7 @@ export function groupsContiguous(wb, sheetId, range, groupCol) {
 /** Does a table share any cell with the range? Subtotals cannot go inside one. */
 export function tableOverlaps(wb, sheetId, range) {
   const n = normalizeRange(range);
-  return (wb.sheet(sheetId)?.tables || []).some(({ range: t }) => t.r1 <= n.r2 && t.r2 >= n.r1 && t.c1 <= n.c2 && t.c2 >= n.c1);
+  return (wb.sheet(sheetId)?.tables || []).some(({ range: g }) => g.r1 <= n.r2 && g.r2 >= n.r1 && g.c1 <= n.c2 && g.c2 >= n.c1);
 }
 
 /** Number-format fields of a style, so a total row shows money as money. */
@@ -106,7 +107,7 @@ export function addSubtotals(wb, sheetId, range, { groupCol, code = 9, totalCols
   if (n.r2 - new Set(subtotalRows(wb, sheetId, n)).size < r0) return null;
   const top = wb.historyTop;
   let refused = false;
-  const out = wb.transaction('Add subtotals', () => {
+  const out = wb.transaction(t('subtotal.undo.add'), () => {
     const end = n.r2 - removeSubtotals(wb, sheetId, n);
     if (sort) wb.sortRangeBy(sheetId, { ...n, r1: r0, r2: end }, [{ col: groupCol, ascending: true }]);
     const groups = [];
@@ -136,10 +137,13 @@ export function addSubtotals(wb, sheetId, range, { groupCol, code = 9, totalCols
     groups.forEach((g, i) => totalRow(g.to + i + 1, `${wb.getDisplay(sheetId, g.from, groupCol) || '(blank)'} ${word}`, g.from + i, g.to + i, g.to, {}));
     totalRow(last, `Grand ${word}`, r0, last - 1, end, { bt: true, bs: 'thin' });
     if (!wb.insertRowsAt(sheetId, [...groups.map((g) => g.to + 1), end + 1])) { refused = true; return null; }
-    wb.setCells(sheetId, entries, 'Add subtotals');
+    wb.setCells(sheetId, entries, t('subtotal.undo.add'));
     if (group) {
       wb.groupLines(sheetId, 'row', r0, last - 1);
-      groups.forEach((g, i) => wb.groupLines(sheetId, 'row', g.from + i, g.to + i));
+      // The categories' groups lie apart from one another, so each is checked against the outline as it stands and
+      // all of them go in as one step: one step a group copied the whole outline each time.
+      const inner = groups.map((g, i) => ({ from: g.from + i, to: g.to + i })).filter((g) => !wb.groupRefusal(sheetId, 'row', g.from, g.to));
+      wb._editGroups(sheetId, 'row', { add: inner }, t('subtotal.undo.groupRows'));
     }
     // Every total row belongs on the same side of the filter. Those inserted inside a filtered list grew
     // its range with them, while the last group's total and the grand total landed under it: the range is
@@ -160,10 +164,11 @@ export function removeSubtotals(wb, sheetId, range) {
   const n = normalizeRange(range);
   const rows = [...new Set(subtotalRows(wb, sheetId, n))].sort((a, b) => a - b);
   if (!rows.length) return 0;
-  wb.transaction('Remove subtotals', () => {
-    for (const g of wb.outlineGroups(sheetId, 'row').filter((x) => x.from >= n.r1 && x.to <= n.r2).sort((a, b) => b.from - a.from)) wb.ungroupLines(sheetId, 'row', g.from, g.to);
+  wb.transaction(t('subtotal.undo.remove'), () => {
+    // Every group inside the range goes, as one step.
+    wb._editGroups(sheetId, 'row', { remove: wb.sheet(sheetId).groups.rows.filter((x) => x.from >= n.r1 && x.to <= n.r2) }, t('subtotal.undo.ungroupRows'));
     // One deletion for every total row, however many groups there were.
-    wb.deleteLines(sheetId, 'row', rows.map((r) => ({ from: r, to: r })), 'Remove subtotals');
+    wb.deleteLines(sheetId, 'row', rows.map((r) => ({ from: r, to: r })), t('subtotal.undo.remove'));
   });
   return rows.length;
 }

@@ -278,6 +278,61 @@ textarea {
   padding: 0 40px 0 2px;
   color: var(--t-dd, #dedfe1);
 }
+/* <puter-user-menu> (puter.js; src/ui/usermenu.ts): the Apps launcher and the account at the end
+   of the top bar, where the loaded puter.js has it. Its parts take the top bar's button looks and
+   its panels the menus' colours, in every theme. */
+puter-user-menu {
+  flex: none;
+  margin-left: 6px;
+}
+puter-user-menu::part(apps-button) {
+  width: 24px;
+  height: 22px;
+  border-radius: var(--radius);
+  color: var(--t-d9, #dadbdd);
+}
+puter-user-menu::part(apps-button):hover {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.1);
+  color: var(--t-ff, #ffffff);
+}
+puter-user-menu::part(avatar) {
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  font-size: 11px;
+}
+puter-user-menu::part(sign-in) {
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--c-text-on-accent, #ffffff);
+  font-size: 12px;
+  white-space: nowrap;
+}
+puter-user-menu::part(sign-in):hover {
+  background: var(--accent-hi);
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--w-menu-back);
+  border-color: var(--g-24, #212223);
+  --caret-border: var(--g-24, #212223);
+  --caret-fill: var(--w-menu-back);
+}
+/* a narrow top bar keeps the width for the workspace tabs */
+@media (max-width: 1100px) {
+  puter-user-menu::part(apps-button) {
+    display: none;
+  }
+}
+/* narrower still, the scene and view layer names give up the width Sign in needs */
+@media (max-width: 900px) {
+  .topbar:has(puter-user-menu) .tb-scene .text-field {
+    width: 74px;
+  }
+}
 
 .screen-wrap {
   position: relative;

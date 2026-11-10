@@ -366,3 +366,18 @@ it('read-only and locked markup flags still prohibit recoloring and deletion', a
     expect(doc.getPage(0).node.Annots().size()).toBe(1);
   }
 });
+
+// Recoloring a highlight left its modified date as it was, so the Comments panel and exported
+// comments dated the change to when the highlight was first made.
+it('records when a recolored markup was changed', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 300]);
+  addHighlight(doc, 0, { quads: [rectQuad({ x: 20, y: 200, width: 60, height: 14 })] });
+  const dict = () => doc.context.lookup(doc.getPage(0).node.Annots().get(0));
+  dict().set(PDFName.of('M'), PDFString.of('D:20200101000000Z'));
+  const [entry] = listHighlights(doc, 0);
+  editHighlight(doc, 0, entry.id, { hex: '#00ff00' });
+  const modified = dict().lookup(PDFName.of('M')).decodeText();
+  expect(modified).not.toBe('D:20200101000000Z');
+  expect(modified.slice(2, 6)).toBe(String(new Date().getUTCFullYear()));
+});

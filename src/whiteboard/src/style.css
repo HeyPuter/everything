@@ -677,6 +677,227 @@ nav + .workspace-label {
 .account-menu-items button:focus-visible {
   outline-offset: -3px;
 }
+/* <puter-user-menu> (puter.js; user-menu.js): where the loaded puter.js has
+   it, it ends both headers with the Apps launcher and the account. Its parts
+   take the headers' icon button and Sign in looks; its menu and Apps panel
+   take the account menu's card, in both themes (the tokens follow the
+   theme). */
+puter-user-menu {
+  flex: none;
+}
+puter-user-menu::part(apps-button) {
+  width: 40px;
+  height: 40px;
+  border-radius: 7px;
+  color: var(--text);
+}
+puter-user-menu::part(apps-button):hover {
+  background: var(--hover);
+}
+puter-user-menu::part(apps-button):active {
+  background: var(--soft);
+}
+puter-user-menu::part(sign-in) {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+puter-user-menu::part(sign-in):hover,
+puter-user-menu::part(sign-in):active {
+  border-color: var(--field-line);
+  background: var(--hover);
+  color: var(--text);
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  border-color: var(--line);
+  background: var(--surface);
+  --caret-border: var(--line);
+  --caret-fill: var(--surface);
+}
+@media (max-width: 760px) {
+  .editor-actions puter-user-menu::part(apps-button) {
+    width: 36px;
+  }
+}
+@media (max-width: 460px) {
+  .editor-actions puter-user-menu::part(apps-button) {
+    width: 32px;
+  }
+  /* As the app's own Sign in does where a header row has no room for its
+     label, the element's keeps only an icon; the label stays its name. */
+  puter-user-menu::part(sign-in) {
+    width: 36px;
+    padding: 0;
+    font-size: 0;
+  }
+  puter-user-menu::part(sign-in)::before {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    margin: auto;
+    background: currentColor;
+    /* An arrow entering a door. */
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.65' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m10 17 5-5-5-5'/%3E%3Cpath d='M15 12H3'/%3E%3Cpath d='M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+}
+/* The Apps launcher (apps-panel.js): a card under the grid button showing
+   puter.com/embed/apps, with a caret on the button. It lives on <body>,
+   fixed under the button; --apps-panel-top comes from the button, so the
+   height fits the space below. On phones it is an edge-to-edge sheet. */
+.apps-button[aria-expanded="true"] {
+  background: var(--soft);
+}
+.apps-panel {
+  position: fixed;
+  top: var(--apps-panel-top, 56px);
+  right: 8px;
+  /* Over the board's panels and toolbars, under the toast, menus and
+     tooltips; dialogs are in the top layer. */
+  z-index: 28;
+  width: 400px;
+  max-width: calc(100vw - 16px);
+  height: min(580px, calc(100dvh - var(--apps-panel-top, 56px) - 12px));
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow:
+    0 12px 32px -12px #0f172940,
+    0 2px 6px #0f172914;
+  color: var(--text);
+  /* Fade and slide only: a scale would move the caret's edge. */
+  animation: account-menu-in 0.14s ease-out;
+}
+.apps-panel:focus,
+.apps-panel:focus-visible {
+  outline: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .apps-panel {
+    animation: none;
+  }
+}
+/* The caret: an outlined triangle under a filled one that also covers the
+   card's top edge. */
+.apps-panel::before,
+.apps-panel::after {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: var(--apps-caret-x, calc(100% - 40px));
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-top: none;
+  border-bottom-color: var(--line);
+  pointer-events: none;
+}
+.apps-panel::after {
+  top: -7px;
+  border-bottom-color: var(--surface);
+}
+.apps-panel.caret-hidden::before,
+.apps-panel.caret-hidden::after {
+  display: none;
+}
+.apps-panel-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.apps-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.apps-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.apps-panel-action {
+  width: 32px;
+  height: 32px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.apps-panel-action svg {
+  width: 17px;
+  height: 17px;
+}
+@media (hover: hover) {
+  .apps-panel-action:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+}
+/* The iframe fills the rest of the card; the body clips it to the card's
+   bottom corners. */
+.apps-panel-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 0 0 11px 11px;
+}
+.apps-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+/* A spinner over the still blank frame, until it loads. */
+.apps-panel-loading {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.apps-panel-body.is-loading .apps-panel-loading {
+  display: flex;
+}
+.apps-panel-body.is-loading .apps-frame {
+  visibility: hidden;
+}
+@media (max-width: 600px) {
+  .apps-panel {
+    left: calc(8px + env(safe-area-inset-left, 0px));
+    right: calc(8px + env(safe-area-inset-right, 0px));
+    width: auto;
+    max-width: none;
+    height: calc(
+      100dvh - var(--apps-panel-top, 56px) - 8px -
+        env(safe-area-inset-bottom, 0px)
+    );
+  }
+  .apps-panel-header {
+    padding: 4px 4px 4px 16px;
+  }
+  .apps-panel-title {
+    font-size: 15px;
+  }
+  .apps-panel-action {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+}
 .library-body {
   max-width: 1430px;
   padding: 46px 46px 0;
@@ -7685,6 +7906,7 @@ dialog::backdrop {
     .panel,
     dialog,
     .account-menu,
+    .apps-panel,
     .preferences-menu,
     .selection-menu,
     .selection-popover,

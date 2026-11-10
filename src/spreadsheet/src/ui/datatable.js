@@ -5,6 +5,7 @@ import { el } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { parseCellRef } from '../core/cell.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
+import { t } from '../i18n/index.js';
 
 export function openDataTable(ctx) {
   const sheetId = ctx.sheetId();
@@ -18,8 +19,8 @@ export function openDataTable(ctx) {
     c2: whole.c2 >= MAX_COL ? Math.max(whole.c1 + 1, Math.min(whole.c2, used?.c2 ?? 0)) : whole.c2,
   };
   const field = (label) => el('input.input', { type: 'text', 'aria-label': label, spellcheck: false, autocomplete: 'off' });
-  const rowInput = field('Row input cell');
-  const colInput = field('Column input cell');
+  const rowInput = field(t('datatable.rowInput'));
+  const colInput = field(t('datatable.columnInput'));
   const { alert: error, refuse } = fieldAlert('data-table');
   // An input cell may be typed with $ signs; it must be on this sheet.
   const read = (input) => {
@@ -30,19 +31,19 @@ export function openDataTable(ctx) {
   const submit = (e) => {
     e?.preventDefault();
     const row = read(rowInput), col = read(colInput);
-    if (row === false) return refuse(rowInput, 'Input cell reference is not valid');
-    if (col === false) return refuse(colInput, 'Input cell reference is not valid');
+    if (row === false) return refuse(rowInput, t('datatable.invalidRef'));
+    if (col === false) return refuse(colInput, t('datatable.invalidRef'));
     const res = ctx.wb.createDataTable(sheetId, range, row, col);
     if (!res.ok) return refuse(null, res.reason);
     modal.close();
   };
   const content = el('form.data-table-dialog', { onsubmit: submit },
-    el('label.field', {}, el('span.field-label', {}, 'Row input cell:'), rowInput),
-    el('label.field', {}, el('span.field-label', {}, 'Column input cell:'), colInput),
+    el('label.field', {}, el('span.field-label', {}, t('datatable.rowInputLabel')), rowInput),
+    el('label.field', {}, el('span.field-label', {}, t('datatable.columnInputLabel')), colInput),
     error,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Data Table', content, initialFocus: rowInput, onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('datatable.title'), content, initialFocus: rowInput, onClose: () => ctx.grid?.focus?.() });
   return modal;
 }

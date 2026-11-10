@@ -23,18 +23,21 @@ import { FindBar } from './find.js';
 import { Dictation } from './dictation.js';
 import { createAi } from './assist.js';
 import { KeyTips } from './keytips.js';
+import { appsButton, closeAppsPanel, destroyAppsPanel } from './apps-panel.js';
+import { userMenu, USER_MENU_TAG } from './user-menu.js';
 
 /**
  * The application controller: owns navigation state and wires the store,
  * the navigation panes, the ribbon and the page editor together.
  */
 export class App {
-  constructor(root, { store, user, env = 'web', onSignOut, readOnlyView = false }) {
+  constructor(root, { store, user, env = 'web', onSignOut, onSessionChange, readOnlyView = false }) {
     this.root = root;
     this.store = store;
     this.user = user;
     this.env = env;
     this.onSignOut = onSignOut;
+    this.onSessionChange = onSessionChange;
     this.readOnlyView = readOnlyView;
     const p = prefs();
     this.state = {
@@ -78,6 +81,8 @@ export class App {
     this.disposers = [];
     this.editor.destroy();
     this.removeThemeListener?.();
+    destroyAppsPanel();
+    this.userMenu?.dispose();
     document.getElementById('tag-styles')?.remove();
   }
 
@@ -106,9 +111,19 @@ export class App {
     this.syncBtn = h('button.icon-btn.sync-btn', { type: 'button', 'aria-label': 'All changes saved', 'data-tip': 'All changes saved', 'data-status': 'saved', onclick: () => this.syncNow() }, icon('cloudCheck', 18));
     this.shareBtn = h('button.share-btn', { type: 'button', 'data-tip': 'Share', 'aria-label': 'Share', onclick: () => this.runCommand('share') }, icon('share', 16), h('span', 'Share'));
     this.mobileMore = h('button.icon-btn.mobile-only', { type: 'button', 'aria-label': 'More commands' }, icon('more', 20));
+    // Where puter.js has <puter-user-menu> (user-menu.js), it ends the title bar with the Apps launcher and the
+    // account, and the app's own Apps button and the rail's account button stand down. Its Sign out is the app's,
+    // which saves first; a sign-in or sign-out it did by itself reaches the app as a session change.
+    this.userMenu = userMenu({ env: this.env, onSignOut: this.onSignOut ? () => this.signOut() : null, onSessionChange: () => this.onSessionChange?.() });
+    // Otherwise Puter's apps, just left of the right-most control (Share; More on phones).
+    this.appsBtn = this.userMenu ? null : appsButton({ env: this.env });
     this.mobileMore.addEventListener('click', () => {
       if (this.mobileMore._menuJustClosed) return;
-      openMenu(this.mobileMore, [...fileMenu(this), { type: 'sep' }, ...this.accountItems()], { label: 'More commands', align: 'end' });
+      closeAppsPanel();
+      // Phones have no rail, so More carries the account menu too. Beside the element only its Theme, Keyboard
+      // Shortcuts and About would be left, and the File menu has all three.
+      const items = this.userMenu ? fileMenu(this) : [...fileMenu(this), { type: 'sep' }, ...this.accountItems()];
+      openMenu(this.mobileMore, items, { label: 'More commands', align: 'end' });
     });
     this.titlebar = h('header.titlebar', { role: 'banner' },
       h('div.titlebar-start',
@@ -117,7 +132,7 @@ export class App {
         h('span.desktop-only', { style: { display: 'contents' } }, this.undoBtn, this.redoBtn, moreBtn),
       ),
       this.titleText,
-      h('div.titlebar-end', this.syncBtn, this.shareBtn, this.mobileMore),
+      h('div.titlebar-end', this.syncBtn, this.appsBtn, this.shareBtn, this.mobileMore, this.userMenu),
     );
 
     // Ribbon
@@ -139,10 +154,12 @@ export class App {
     this.avatar = h('button.avatar-btn', { type: 'button', 'aria-label': 'Account', 'data-tip': this.user?.username || 'Account', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, this.initials());
     this.avatar.addEventListener('click', () => {
       if (this.avatar._menuJustClosed) return;
+      closeAppsPanel();
       const r = this.avatar.getBoundingClientRect();
       openMenu({ x: r.right + 6, y: r.bottom }, this.accountItems(), { label: 'Account' });
     });
-    this.rail.append(...Object.values(this.railButtons), h('span.rail-spacer'), this.avatar);
+    this.rail.append(...Object.values(this.railButtons), h('span.rail-spacer'));
+    if (!this.userMenu) this.rail.append(this.avatar);
 
     this.nav = new Nav(this);
     this.search = new SearchPanel(this);
@@ -205,7 +222,7 @@ export class App {
   }
 
   async loadAvatar() {
-    if (!this.user || typeof puter === 'undefined' || !puter.auth?.getProfilePicture) return;
+    if (this.userMenu || !this.user || typeof puter === 'undefined' || !puter.auth?.getProfilePicture) return;
     try {
       const pic = await puter.auth.getProfilePicture();
       if (pic) this.avatar.replaceChildren(h('img', { src: pic, alt: '' }));
@@ -1256,7 +1273,8 @@ export class App {
         this.cycleRegions(e.shiftKey ? -1 : 1);
         return;
       }
-      const inField = e.target.closest?.('input, textarea, select');
+      // Keys from inside <puter-user-menu> arrive as the element's: its menu's arrows, Enter and Escape are its own.
+      const inField = e.target.closest?.(`input, textarea, select, ${USER_MENU_TAG}`);
       for (const c of shortcutCommands) {
         if (!matchShortcut(e, c.key)) continue;
         // Plain typing keys stay in form fields.

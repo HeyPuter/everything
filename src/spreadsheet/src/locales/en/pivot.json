@@ -1,0 +1,16 @@
+{
+  "range.noData": "The range needs a header row and at least one row of data",
+  "range.none": "Choose the data to summarize",
+  "range.tooManyRows": "That range holds {rows, number} rows of data; a pivot table summarizes up to {max, number}",
+  "range.twoColumns": "The range needs at least two columns",
+  "refresh.changed": "The PivotTable on this sheet has been cleared or changed since it was built, so it was not refreshed",
+  "refresh.fieldGone": "The field “{field}” is no longer in the PivotTable's source",
+  "refresh.noRows": "The rows field has no values to group by",
+  "refresh.none": "This sheet has no PivotTable to refresh",
+  "refresh.overwrite": "The refreshed PivotTable would cover cells beside it that hold data",
+  "refresh.protected": "This sheet is protected. Unprotect it to refresh the PivotTable",
+  "refresh.sourceGone": "The PivotTable's source data is gone",
+  "refresh.tableGone": "The PivotTable is gone from this sheet",
+  "tooManyColumns": "This pivot needs {cols} columns; a sheet supports {max}. Choose a columns field with fewer categories, or choose None.",
+  "tooManyRows": "This pivot needs {rows} rows; a sheet supports {max}. Choose a rows field with fewer categories or a smaller source range."
+}

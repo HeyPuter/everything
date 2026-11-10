@@ -815,6 +815,14 @@
   text-decoration: inherit;
 }
 .print-table td.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Turned text, as the grid draws it: its line box is just the turned text, with no strut above or below it. */
+.print-table td.rot .print-cell { line-height: 0; }
+.print-table td.rot .rot-text { display: inline-block; white-space: pre; line-height: 1.2; vertical-align: top; transform-origin: center; }
+.print-table td.rot .rot-text.up, .print-table td.rot .rot-text.down { writing-mode: vertical-rl; }
+.print-table td.rot .rot-text.up { transform: rotate(180deg); }
+/* Angled text: the box of its turned bounds is what the cell aligns; the text turns about its centre inside it. */
+.print-table td.rot .rot-bounds { display: inline-block; position: relative; vertical-align: top; }
+.print-table td.rot .rot-bounds > .rot-text { position: absolute; left: 50%; top: 50%; }
 /* A label that runs over the empty cells beside it, as on screen: the cell lets it out, the span stops it at the last empty cell. */
 .print-table td.spill { overflow: visible; text-overflow: clip; }
 .print-table td.spill > .print-cell-box > .print-cell { right: auto; z-index: 1; text-overflow: clip; }

@@ -132,32 +132,33 @@ function tokens(instruction) {
 const quote = value => /[\s"\\]/.test(value) || !value ? `"${String(value).replace(/["\\]/g, '\\$&')}"` : value;
 
 /**
- * A CITATION instruction (§17.16.5.8): { tags, lcid, pages, prefix, suffix, volume, noAuthor, noYear, noTitle }.
- * Each \m adds a source; pages and the other options apply to the first source.
+ * A CITATION instruction (§17.16.5.8): { tags, lcid, pages, prefix, suffix, volume, noAuthor, noYear, noTitle,
+ * sourceOptions }. Each \m adds a source, and the switches after it are that source's (as Word writes a citation
+ * of several sources): pages and the other options at the top are the first source's, and `sourceOptions[i]` holds
+ * those of the source tags[i + 1].
  */
 export function parseCitation(instruction) {
   const list = tokens(instruction || '');
   if (list[0]?.toUpperCase() !== 'CITATION' || !list[1] || list[1].startsWith('\\')) return null;
-  const result = { tags: [list[1]], lcid: '', pages: '', prefix: '', suffix: '', volume: '', noAuthor: false, noYear: false, noTitle: false };
+  const result = { tags: [list[1]], lcid: '', pages: '', prefix: '', suffix: '', volume: '', noAuthor: false, noYear: false, noTitle: false, sourceOptions: [] };
+  let current = result;
   for (let i = 2; i < list.length; i++) {
     const t = list[i], next = list[i + 1];
     if (t === '\\l' && next) { result.lcid = next; i++; }
-    else if (t === '\\p' && next !== undefined) { result.pages = next; i++; }
-    else if (t === '\\f' && next !== undefined) { result.prefix = next; i++; }
-    else if (t === '\\s' && next !== undefined) { result.suffix = next; i++; }
-    else if (t === '\\v' && next !== undefined) { result.volume = next; i++; }
-    else if (t === '\\m' && next) { result.tags.push(next); i++; }
-    else if (t === '\\n') result.noAuthor = true;
-    else if (t === '\\y') result.noYear = true;
-    else if (t === '\\t') result.noTitle = true;
+    else if (t === '\\p' && next !== undefined) { current.pages = next; i++; }
+    else if (t === '\\f' && next !== undefined) { current.prefix = next; i++; }
+    else if (t === '\\s' && next !== undefined) { current.suffix = next; i++; }
+    else if (t === '\\v' && next !== undefined) { current.volume = next; i++; }
+    else if (t === '\\m' && next) { result.tags.push(next); result.sourceOptions.push(current = {}); i++; }
+    else if (t === '\\n') current.noAuthor = true;
+    else if (t === '\\y') current.noYear = true;
+    else if (t === '\\t') current.noTitle = true;
   }
   return result;
 }
 
-export function citationInstruction({ tags, lcid = '1033', pages = '', prefix = '', suffix = '', volume = '', noAuthor = false, noYear = false, noTitle = false }) {
-  const parts = ['CITATION', quote(tags[0])];
-  if (lcid) parts.push('\\l', lcid);
-  for (const tag of tags.slice(1)) parts.push('\\m', quote(tag));
+const sourceSwitches = ({ pages = '', prefix = '', suffix = '', volume = '', noAuthor = false, noYear = false, noTitle = false } = {}) => {
+  const parts = [];
   if (prefix) parts.push('\\f', quote(prefix));
   if (suffix) parts.push('\\s', quote(suffix));
   if (pages) parts.push('\\p', quote(pages));
@@ -165,6 +166,15 @@ export function citationInstruction({ tags, lcid = '1033', pages = '', prefix = 
   if (noAuthor) parts.push('\\n');
   if (noYear) parts.push('\\y');
   if (noTitle) parts.push('\\t');
+  return parts;
+};
+/** The instruction of a citation (parseCitation's shape): each source's switches follow its tag. */
+export function citationInstruction({ tags, lcid = '1033', sourceOptions = [], ...first }) {
+  const parts = ['CITATION', quote(tags[0])];
+  if (lcid) parts.push('\\l', lcid);
+  // The first source's switches come before the next \m: written after it, they belong to that source.
+  parts.push(...sourceSwitches(first));
+  tags.slice(1).forEach((tag, i) => parts.push('\\m', quote(tag), ...sourceSwitches(sourceOptions[i])));
   return ` ${parts.join(' ')} `;
 }
 

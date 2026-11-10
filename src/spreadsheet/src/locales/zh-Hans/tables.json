@@ -1,0 +1,15 @@
+{
+  "name.cellLike": "该名称类似单元格引用",
+  "name.characters": "名称须以字母或下划线开头，且只能包含字母、数字、下划线和句点",
+  "name.empty": "请输入名称",
+  "name.taken": "该名称已被使用",
+  "name.tooLong": "名称过长",
+  "style.blue": "蓝色",
+  "style.gray": "灰色",
+  "style.green": "绿色",
+  "style.light": "浅色",
+  "style.none": "无",
+  "style.orange": "橙色",
+  "style.purple": "紫色",
+  "style.red": "红色"
+}

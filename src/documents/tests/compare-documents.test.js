@@ -1,8 +1,8 @@
 import { beforeAll, afterAll, it, expect, describe } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
-import { DocxPackage } from '../src/engine/docx.js';
-import { TextDocument } from '../src/engine/model.js';
+import { DocxPackage, createDocx } from '../src/engine/docx.js';
+import { TextDocument, paragraph } from '../src/engine/model.js';
 import { tokenize, diffSequences, mergeDocuments, finalText, documentAuthor } from '../src/engine/compare.js';
 import { bodyFieldRanges } from '../src/engine/body-fields.js';
 
@@ -78,6 +78,24 @@ describe('edit script', () => {
     expect(peak).toBeLessThan(200e6);
   });
 });
+
+it('compares two long, very different documents in little time', () => {
+  // A seeded mix of words: the original and the revised documents share none, as when comparing the wrong file.
+  let seed = 1;
+  const pick = words => words[(seed = seed * 16807 % 2147483647) % words.length];
+  const document = (words, n) => { const pkg = createDocx(Array.from({ length: n }, () => paragraph(Array.from({ length: 12 }, () => pick(words)).join(' ') + '.'))); return { paragraphs: pkg.paragraphs, tables: pkg.tables }; };
+  const original = document('alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi'.split(' '), 2000);
+  const revised = document('one two three four five six seven eight nine ten eleven twelve'.split(' '), 2000);
+  const started = performance.now();
+  const result = mergeDocuments(revised, original, { author: 'Rev', date: '2026-02-03T04:05:06Z' });
+  // Every paragraph of one was compared with every paragraph of the other, building both bigram lists each
+  // time: this took about 40 s.
+  expect(performance.now() - started).toBeLessThan(15000);
+  // Each original paragraph is deleted and each revised one inserted (the last two share the final mark).
+  expect(result.paragraphs).toHaveLength(3999);
+  expect(result.stats.paragraphs).toBe(4000);
+  expect(result.stats.inserted).toBe(revised.paragraphs.reduce((n, p) => n + finalText(p).length, 0));
+}, 120000);
 
 describe('compare documents', () => {
   it('marks word changes in a paragraph, deletions before insertions', async () => {
@@ -221,4 +239,33 @@ it('names the author from a core properties part stored under another name', asy
   delete parts['docProps/core.xml'];
   parts['_rels/.rels'] = strToU8(strFromU8(parts['_rels/.rels']).replace('Target="docProps/core.xml"', `Target="/${path}"`));
   expect(documentAuthor(parts)).toBe('Grace Hopper');
+});
+
+// Paragraphs only in the other document were copied without their list: in Compare, a list item the revised copy
+// removed came back unnumbered when its deletion was rejected; in Combine, an item it added was unnumbered when
+// accepted. Where the result's numbering has the list (versions of one document share theirs) it is kept.
+describe('list items', () => {
+  const build = async texts => {
+    const d = new TextDocument(texts.map(t => paragraph(t)));
+    d.select(0, d.text.length); d.toggleList('bullet');
+    return DocxPackage.open(new Uint8Array(await createDocx(d.paragraphs).export(d.paragraphs, d.pageSettings, d.numbering, d.styles, d.tables, d.assets).arrayBuffer()));
+  };
+  const lists = d => d.paragraphs.map(p => p.list ? p.list.numId : null);
+  it.each(['compare', 'combine'])('keeps the list of an item only one version has (%s), through save and reopen', async mode => {
+    const original = await build(['One', 'Two', 'Three']), revised = await build(['One', 'Three', 'Four']);
+    const [base, other] = mode === 'combine' ? [original, revised] : [revised, original];
+    const result = mergeDocuments({ paragraphs: base.paragraphs, tables: base.tables }, { paragraphs: other.paragraphs, tables: other.tables }, { mode, author: 'Rev', numbering: base.numbering });
+    const bytes = new Uint8Array(await base.export(result.paragraphs, base.pageSettings, base.numbering, base.styles, result.tables, base.assets).arrayBuffer());
+    const numId = original.paragraphs[0].list.numId;
+    for (const [accept, text] of [[true, 'One\nThree\nFour'], [false, 'One\nTwo\nThree']]) {
+      const pkg = await DocxPackage.open(bytes), d = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+      expect(lists(d)).toEqual([numId, numId, numId, numId]);
+      d.resolveRevisions(accept);
+      expect(d.text).toBe(text);
+      expect(lists(d)).toEqual([numId, numId, numId]);
+    }
+    // Without the numbering, as before: the copy is not numbered.
+    const plain = mergeDocuments({ paragraphs: base.paragraphs, tables: base.tables }, { paragraphs: other.paragraphs, tables: other.tables }, { mode, author: 'Rev' });
+    expect(plain.paragraphs.filter(p => !p.list)).toHaveLength(1);
+  });
 });

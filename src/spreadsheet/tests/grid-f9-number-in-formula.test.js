@@ -75,3 +75,31 @@ it('writes a very large or small number in E notation a formula reads', async ()
   await vi.advanceTimersByTimeAsync(1);
   expect(wb.getValue(id, 0, 0)).toBe(1.5e21);
 });
+
+// A range went in as its first value alone: F9 on A2:A4 in =SUM(A2:A4) gave =SUM(1), and Enter stored 1, not 6.
+it('puts a range into the formula as an array constant of its values', async () => {
+  const { wb, id, editor } = await editFormula('=SUM(A2:B3)', (wb, id) => {
+    wb.setInput(id, 1, 0, '1'); wb.setInput(id, 1, 1, '2'); wb.setInput(id, 2, 0, 'a"b');
+  });
+  editor.setSelectionRange(5, 10);
+  f9(editor);
+  expect(editor.value).toBe('=SUM({1,2;"a""b",0})');
+  editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await vi.advanceTimersByTimeAsync(1);
+  expect(wb.getValue(id, 0, 0)).toBe(3);
+});
+
+it('leaves a range too large for a formula as it was', async () => {
+  const { editor } = await editFormula('=SUM(A2:E3000)');
+  editor.setSelectionRange(5, 13);
+  f9(editor);
+  expect(editor.value).toBe('=SUM(A2:E3000)');
+});
+
+// A whole column reads only its cells in use, but is a million rows: =ROWS(B:B) is 1048576, not the two filled.
+it('leaves a whole column as it was, however few of its cells are filled', async () => {
+  const { editor } = await editFormula('=ROWS(B:B)', (wb, id) => { wb.setInput(id, 0, 1, '1'); wb.setInput(id, 1, 1, '2'); });
+  editor.setSelectionRange(6, 9);
+  f9(editor);
+  expect(editor.value).toBe('=ROWS(B:B)');
+});

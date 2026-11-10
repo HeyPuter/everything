@@ -64,4 +64,17 @@ describe('a hidden cell named in the name box', () => {
     expect(grid.active).toEqual({ r: 5, c: 1 });
     grid.destroy();
   });
+
+  // A range of hidden lines alone keeps its active cell there (so Unhide knows the lines meant). The cell is drawn
+  // for aria-activedescendant when the frame is rebuilt, but a selection inside the rows and columns already drawn
+  // kept the frame as it was, which leaves hidden cells out: the screen reader's cursor named a node that did not exist.
+  it('keeps a node for an active cell left in a hidden column inside the cells drawn', async () => {
+    const { grid } = await mount((wb, id) => { wb.setHidden(id, 'col', [0], true); });
+    expect(grid.selectByName('A19:A20')).toBe(true);
+    expect(grid.active).toEqual({ r: 18, c: 0 });
+    await flush();
+    expect(grid.viewport.getAttribute('aria-activedescendant')).toBe('gc-18-0');
+    expect(grid.el.querySelector('#gc-18-0')).toBeTruthy();
+    grid.destroy();
+  });
 });

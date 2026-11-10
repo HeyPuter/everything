@@ -20,7 +20,12 @@ export class SelectTool {
   }
 
   hint() {
-    if (this.move) return 'Moving: Space rotates, X / Y mirror, Esc cancels';
+    if (this.move) {
+      // Only offer what this editor's move session supports.
+      const mirror = typeof this.move.mirror === 'function' ? ', X / Y mirror' : '';
+      const flip = typeof this.move.flip === 'function' ? ', L flips to the other side' : '';
+      return `Moving: Space rotates${mirror}${flip}, Esc cancels`;
+    }
     return null;
   }
 
@@ -124,8 +129,10 @@ export class SelectTool {
   key(e, combo) {
     if (this.move) {
       if (combo === 'Space') { this.move.rotate(); return true; }
-      if (combo === 'X') { this.move.mirror('x'); return true; }
-      if (combo === 'Y') { this.move.mirror('y'); return true; }
+      // X and Y stay consumed mid-move even where mirroring is unsupported,
+      // so they do not open a menu by its accelerator.
+      if (combo === 'X') { this.move.mirror?.('x'); return true; }
+      if (combo === 'Y') { this.move.mirror?.('y'); return true; }
       if (combo === 'L' && this.move.flip) { this.move.flip(); return true; }
       if (combo === 'Escape') { this.cancelDrag(); return true; }
       return false;

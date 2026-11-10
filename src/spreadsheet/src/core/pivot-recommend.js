@@ -6,6 +6,7 @@
 import { pivotFields, pivotFieldValues } from './pivot.js';
 import { normalizeRange } from './cell.js';
 import { dateTimeKind, formatValue, NUMBER_FORMAT_KEYS } from './format.js';
+import { t } from '../i18n/index.js';
 
 const MAX_RECOMMENDATIONS = 10;
 const PREVIEW_ROWS = 8;
@@ -103,16 +104,16 @@ export function recommendPivots(wb, sheetId, rawRange) {
   const out = [];
   for (const cat of categories) {
     for (const val of values) {
-      out.push({ title: `Sum of ${val.label} by ${cat.label}`, spec: { range, rowField: cat.index, colField: null, valueField: val.index, agg: 'sum', filters: [] },
+      out.push({ title: t('pivotRecommend.sumBy', { value: val.label, category: cat.label }), spec: { range, rowField: cat.index, colField: null, valueField: val.index, agg: 'sum', filters: [] },
         headers: [cat.label, `Sum of ${val.label}`], preview: previewTable(wb, sheetId, range, cat.col, val.col, 'sum', null, labelsOf), format: valueFormat(wb, sheetId, range, val.col, 'sum') });
     }
-    out.push({ title: `Count of ${cat.label} by ${cat.label}`, spec: { range, rowField: cat.index, colField: null, valueField: cat.index, agg: 'count', filters: [] },
+    out.push({ title: t('pivotRecommend.countBy', { value: cat.label, category: cat.label }), spec: { range, rowField: cat.index, colField: null, valueField: cat.index, agg: 'count', filters: [] },
       headers: [cat.label, `Count of ${cat.label}`], preview: previewTable(wb, sheetId, range, cat.col, cat.col, 'count', null, labelsOf), format: null });
   }
   // A second category across the columns, for the first value, when the list has two.
   if (categories.length >= 2 && values.length) {
     const [a, b] = categories, val = values[0];
-    if (b.distinct <= 12) out.splice(1, 0, { title: `Sum of ${val.label} by ${a.label} and ${b.label}`, spec: { range, rowField: a.index, colField: b.index, valueField: val.index, agg: 'sum', filters: [] },
+    if (b.distinct <= 12) out.splice(1, 0, { title: t('pivotRecommend.sumByTwo', { value: val.label, rows: a.label, cols: b.label }), spec: { range, rowField: a.index, colField: b.index, valueField: val.index, agg: 'sum', filters: [] },
       headers: [a.label, ...previewColumns(labelsOf, b.col), 'Total'], preview: previewTable(wb, sheetId, range, a.col, val.col, 'sum', b.col, labelsOf),
       format: valueFormat(wb, sheetId, range, val.col, 'sum') });
   }

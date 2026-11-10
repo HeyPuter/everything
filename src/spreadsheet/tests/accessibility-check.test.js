@@ -34,7 +34,7 @@ describe('Check Accessibility', () => {
     wb.addSheet();
     const found = rules(wb);
     expect(found).toEqual([
-      'error:altText:TextBox 1 (Sheet1)',
+      'error:altText:Text Box 1 (Sheet1)',
       'warning:merged:A3:C3 (Sheet1)',
       'warning:contrast:A1 (Sheet1)',
       'tip:sheetName:Sheet1',

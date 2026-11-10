@@ -100,16 +100,72 @@ function itemBox(it) {
   return { minX, minY, maxX, maxY };
 }
 
-function insideHoles(x, y, holes) {
-  if (!holes) return false;
-  for (const h of holes) if (pointInPoly(x, y, h)) return true;
-  return false;
-}
-
 function polyEdgesDist(pts, fn) {
   let d = Infinity;
   for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
     d = Math.min(d, fn(pts[j], pts[j + 1], pts[i], pts[i + 1]));
+    if (d <= 0) return 0;
+  }
+  return d;
+}
+
+const ringBoxCache = new WeakMap();
+function ringBox(pts) {
+  let b = ringBoxCache.get(pts);
+  if (!b) {
+    b = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    for (let i = 0; i < pts.length; i += 2) {
+      if (pts[i] < b.minX) b.minX = pts[i];
+      if (pts[i] > b.maxX) b.maxX = pts[i];
+      if (pts[i + 1] < b.minY) b.minY = pts[i + 1];
+      if (pts[i + 1] > b.maxY) b.maxY = pts[i + 1];
+    }
+    ringBoxCache.set(pts, b);
+  }
+  return b;
+}
+
+// Holes of a pour fill, indexed by box once (a large pour has thousands).
+const holeIndexCache = new WeakMap();
+function holesNear(holes, box) {
+  if (!holes?.length) return [];
+  if (holes.length <= 16) return holes.filter((h) => h.length >= 6 && boxGap(ringBox(h), box) === 0);
+  let tree = holeIndexCache.get(holes);
+  if (!tree) {
+    tree = new RBush(16);
+    tree.load(holes.filter((h) => h.length >= 6).map((h) => ({ ...ringBox(h), h })));
+    holeIndexCache.set(holes, tree);
+  }
+  return tree.search(box).map((e) => e.h);
+}
+
+function insideHoles(x, y, holes) {
+  for (const h of holesNear(holes, { minX: x, minY: y, maxX: x, maxY: y })) if (pointInPoly(x, y, h)) return true;
+  return false;
+}
+
+const boxGap = (a, b) => Math.hypot(Math.max(a.minX - b.maxX, b.minX - a.maxX, 0), Math.max(a.minY - b.maxY, b.minY - a.maxY, 0));
+
+/**
+ * Smallest fn(edge) over every ring of a polygon item: its outline and its
+ * holes. A hole's edge is copper too (the inside of a pour clearance or a
+ * thermal gap). Rings whose box is farther from `near` than the best so far
+ * are skipped.
+ */
+function ringsEdgesDist(it, near, fn) {
+  let d = Infinity;
+  // Holes around the item first: they usually decide (thermal gaps, clearances).
+  const touching = holesNear(it.holes, near);
+  for (const h of touching) {
+    d = Math.min(d, polyEdgesDist(h, fn));
+    if (d <= 0) return 0;
+  }
+  d = Math.min(d, polyEdgesDist(it.pts, fn));
+  if (d <= 0 || !it.holes?.length) return d;
+  const reach = { minX: near.minX - d, minY: near.minY - d, maxX: near.maxX + d, maxY: near.maxY + d };
+  for (const h of holesNear(it.holes, reach)) {
+    if (touching.includes(h) || boxGap(ringBox(h), near) >= d) continue;
+    d = Math.min(d, polyEdgesDist(h, fn));
     if (d <= 0) return 0;
   }
   return d;
@@ -124,17 +180,28 @@ export function itemDistance(a, b) {
     if (b.kind === 'disc') return distPointSeg(b.x, b.y, a.x1, a.y1, a.x2, a.y2) - a.r - b.r;
     // seg vs poly
     if ((pointInPoly(a.x1, a.y1, b.pts) && !insideHoles(a.x1, a.y1, b.holes)) || (pointInPoly(a.x2, a.y2, b.pts) && !insideHoles(a.x2, a.y2, b.holes))) return -1;
-    return polyEdgesDist(b.pts, (x1, y1, x2, y2) => distSegSeg(a.x1, a.y1, a.x2, a.y2, x1, y1, x2, y2)) - a.r;
+    const near = { minX: Math.min(a.x1, a.x2), minY: Math.min(a.y1, a.y2), maxX: Math.max(a.x1, a.x2), maxY: Math.max(a.y1, a.y2) };
+    return ringsEdgesDist(b, near, (x1, y1, x2, y2) => distSegSeg(a.x1, a.y1, a.x2, a.y2, x1, y1, x2, y2)) - a.r;
   }
   if (a.kind === 'disc') {
     if (b.kind === 'disc') return Math.hypot(a.x - b.x, a.y - b.y) - a.r - b.r;
     if (pointInPoly(a.x, a.y, b.pts) && !insideHoles(a.x, a.y, b.holes)) return -1;
-    return polyEdgesDist(b.pts, (x1, y1, x2, y2) => distPointSeg(a.x, a.y, x1, y1, x2, y2)) - a.r;
+    const near = { minX: a.x, minY: a.y, maxX: a.x, maxY: a.y };
+    return ringsEdgesDist(b, near, (x1, y1, x2, y2) => distPointSeg(a.x, a.y, x1, y1, x2, y2)) - a.r;
   }
   // poly vs poly
   for (let i = 0; i < a.pts.length; i += 2) if (pointInPoly(a.pts[i], a.pts[i + 1], b.pts) && !insideHoles(a.pts[i], a.pts[i + 1], b.holes)) return -1;
   for (let i = 0; i < b.pts.length; i += 2) if (pointInPoly(b.pts[i], b.pts[i + 1], a.pts) && !insideHoles(b.pts[i], b.pts[i + 1], a.holes)) return -1;
-  return polyEdgesDist(a.pts, (x1, y1, x2, y2) => polyEdgesDist(b.pts, (x3, y3, x4, y4) => distSegSeg(x1, y1, x2, y2, x3, y3, x4, y4)));
+  // Edges of every ring: a pad whose corners sit in a pour's thermal gaps
+  // still meets the pour's copper along the gap (hole) edges.
+  let d = Infinity;
+  for (const ra of a.holes ? [a.pts, ...a.holes] : [a.pts]) {
+    if (ra.length < 6) continue;
+    const near = ringBox(ra);
+    d = Math.min(d, ringsEdgesDist(b, near, (x1, y1, x2, y2) => polyEdgesDist(ra, (x3, y3, x4, y4) => distSegSeg(x1, y1, x2, y2, x3, y3, x4, y4))));
+    if (d <= 0) return 0;
+  }
+  return d;
 }
 
 const sharesLayer = (a, b) => a.layers.some((l) => b.layers.includes(l));

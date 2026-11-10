@@ -287,6 +287,22 @@
   background: var(--ribbon-accent);
   border-color: var(--ribbon-accent);
 }
+/* The Apps button sits beside the account circle, as small as the bar's
+   other icon buttons. */
+.editor .topbar-actions .btn.apps-btn {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  color: var(--chrome-muted);
+}
+.editor .topbar-actions .btn.apps-btn:hover:not(:disabled) {
+  background: var(--chrome-hover);
+  color: var(--chrome-ink);
+}
+.editor .topbar-actions .btn.apps-btn[aria-expanded="true"] {
+  background: var(--chrome-pressed);
+  color: var(--chrome-ink);
+}
 /* The account button is a fixed circle: it must not shrink with the header,
    or a profile picture inside it is squeezed into an oval. */
 .editor-header .account-button {

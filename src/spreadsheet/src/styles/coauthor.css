@@ -17,6 +17,14 @@
 }
 @media (hover: hover) { .collab-list-btn:hover { background: var(--chrome-hover); } }
 .collab-more { font-weight: 600; }
+/* A phone's title row has no room for the faces: they took the document's name down to a letter or two. The
+   button counts everyone here instead, and lists them, each a click away from where they are, as the faces are. */
+.collab-count { display: none; font-weight: 600; }
+@media (max-width: 640px) {
+  .collab-avatar, .collab-more { display: none; }
+  .collab-count { display: inline; }
+  .collab-list-btn { margin-left: 0; }
+}
 
 /* The save pill of a shared workbook: live, syncing, offline (warning colour) or not connected. */
 .save-status.shared.connected { color: var(--accent); }

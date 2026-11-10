@@ -75,7 +75,7 @@ async function prepare(page, phase) {
       return post.call(this, message, ...rest);
     };
   }, phase);
-  return page.getByRole('searchbox', { name: 'Find in PDF', exact: true });
+  return page.getByRole('combobox', { name: 'Find in PDF', exact: true });
 }
 async function followLink(page) {
   await page

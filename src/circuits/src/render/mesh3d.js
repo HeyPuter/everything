@@ -214,7 +214,7 @@ function graphicPaths(g, textStrokes) {
     case 'polyline': return [{ pts: toMm(g.pts) }];
     case 'poly': return [{ pts: toMm(g.pts), closed: true, fill: !!g.fill }];
     case 'rect': return [{ pts: toMm([g.x1, g.y1, g.x2, g.y1, g.x2, g.y2, g.x1, g.y2]), closed: true, fill: !!g.fill }];
-    case 'circle': return [{ pts: toMm(circlePts(g.cx, g.cy, g.r, 32)), closed: true, fill: !!g.fill }];
+    case 'circle': return [{ pts: toMm(circlePts(g.cx, g.cy, g.r + (g.fill ? (g.w || 0) / 2 : 0), 32)), closed: true, fill: !!g.fill }];
     case 'arc': return [{ pts: toMm(arcToPoints(g.cx, g.cy, g.r, g.a0, g.sweep, Math.max(g.r * 0.01, 2000))) }];
     case 'text': {
       if (!textStrokes || !g.text) return [];

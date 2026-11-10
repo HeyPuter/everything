@@ -11,6 +11,8 @@ import { MAIL_DIR } from './lib/mailbox.js';
 import { createDraftStore } from './lib/drafts.js';
 import { createSettings } from './lib/settings.js';
 import { createSampleDataPopulator } from './lib/demo.js';
+import { clickedMessage } from './lib/notify.js';
+import { releasePushHere } from './ui/push.js';
 
 let demoSession = null;
 window.email = { populateSampleData: createSampleDataPopulator(() =>
@@ -80,11 +82,41 @@ const requestPermission = (permission) =>
 // would fight it, so it only exists in the web environment.
 const canSignOut = () => window.puter && puter.env !== 'app';
 
+/**
+ * A click on a new-mail notification, the one that opened this page
+ * included: the SDK hands that one to the first click handler, so this is
+ * added before anything else is awaited and held until an inbox is on screen.
+ */
+let openClicked = null;
+let heldClick = null;
+const onNotificationClick = (click) => {
+  // The tap's target, `?message=<id>`, has served its purpose once read.
+  const url = new URL(location.href);
+  if (url.searchParams.has('message')) {
+    url.searchParams.delete('message');
+    history.replaceState(history.state, '', url.href);
+  }
+  if (openClicked) openClicked(click);
+  else heldClick = click;
+  // Closes the same notification on the user's other devices.
+  if (click?.uid) puter.notifications.dismiss(click.uid).catch(() => {});
+};
+
 const signOut = async () => {
   if (!closeComposers()) return;
+  await releasePushHere();
   try {
     await puter.auth.signOut();
   } catch {}
+  start();
+};
+
+// A sign-in or a sign-out <puter-user-menu> did by itself (src/ui/usermenu.js):
+// the session has already changed, so what is open cannot be asked about
+// first. The composers are closed as far as they will go, which keeps their
+// drafts, and start-up runs again for whoever is here now.
+const sessionChanged = () => {
+  closeComposers();
   start();
 };
 
@@ -95,6 +127,7 @@ async function start() {
       () => location.reload());
     return;
   }
+  openClicked = null;
 
   if (!puter.auth.isSignedIn()) {
     renderIntro(root, {
@@ -162,6 +195,10 @@ async function start() {
   const resumable = () => drafts.list()
     .find((entry) => !isDraftSending({ username, mailPath, id: entry.id })) ?? null;
 
+  // New-mail pushes need both: notifications to receive them, and a
+  // persistent subscription to run the handler that sends them.
+  const canPush = Boolean(puter.notifications?.enable && puter.notifications?.status && puter.events?.onPersistent);
+
   const app = renderApp(root, {
     fs: puter.fs,
     mailPath,
@@ -171,11 +208,15 @@ async function start() {
     drafts,
     settings,
     flagStore: accountStore(),
+    kv: puter.kv ?? null,
+    notifications: puter.notifications ?? null,
+    perms: puter.perms ?? null,
     // The Events API, where this Puter has it: the shell watches `.mail` over
     // it instead of polling, so mail shows up as it lands and a change made
     // on another device shows up here. Without it the shell falls back to a
     // timed check.
     events: window.puter?.events ?? null,
+    canPush,
     // `hooks` lets the shell hear about the sent copy it has to list, and
     // carries the signature, read fresh on every open.
     onCompose: (prefill, hooks) => openCompose({
@@ -200,13 +241,27 @@ async function start() {
       ? (blob, name) => puter.ui.showSaveFilePicker(blob, name)
       : null,
     onSignOut: canSignOut() ? signOut : null,
+    onSessionChanged: sessionChanged,
   });
 
   demoSession = { fs: puter.fs, mailPath, app };
-  if (shouldOnboard()) openOnboarding();
+  openClicked = (click) => app.openMessage(clickedMessage(click));
+  if (heldClick) {
+    openClicked(heldClick);
+    heldClick = null;
+  }
+  if (shouldOnboard()) {
+    openOnboarding({
+      notificationsOn: await app.notificationsOn(),
+      onNotify: canPush ? () => app.enableNotifications() : null,
+    });
+  }
 }
 
-waitForPuter().then(() => start()).catch((e) => {
+waitForPuter().then(() => {
+  window.puter?.notifications?.on?.('click', onNotificationClick);
+  return start();
+}).catch((e) => {
   renderError(root, `Something went wrong: ${e?.message ?? e}`, () => location.reload());
   toast('Startup failed.', { iconName: 'alert' });
 });

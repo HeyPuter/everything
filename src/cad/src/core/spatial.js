@@ -6,8 +6,13 @@
 import RBush from 'rbush';
 import { entityBounds } from './geom/index.js';
 import { emitEntity, makeContext, BoundsSink } from './tessellate.js';
+import { blocksUsing } from './display.js';
 
 const COMPLEX = new Set(['text', 'mtext', 'dimension', 'leader', 'insert', 'point']);
+/** Objects whose extents depend on text and dimension styles and unit formats. */
+const STYLED = new Set(['text', 'mtext', 'dimension', 'leader', 'insert']);
+/** Header keys that change dimension text, and so dimension and block extents. */
+const BOUNDS_HEADER_KEYS = ['linearFormat', 'linearPrecision', 'angularFormat', 'angularPrecision'];
 
 export class SpatialIndex {
   constructor(drawing) {
@@ -22,19 +27,31 @@ export class SpatialIndex {
   boundsOf(ent) {
     if (!COMPLEX.has(ent.type)) {
       const b = entityBounds(ent);
+      if (b && ent.type === 'polyline' && ent.width > 0) return this._drawnBounds(ent, b);
       if (b) return b;
     }
     if (ent.type === 'point') return [ent.x, ent.y, ent.x, ent.y];
+    return this._drawnBounds(ent, null);
+  }
+
+  /**
+   * Bounds of the entity as drawn (text strokes, blocks, the band of a wide
+   * polyline), joined with `base` when given.
+   */
+  _drawnBounds(ent, base) {
     const sink = new BoundsSink();
-    const ctx = makeContext(this.drawing, { tol: boundsTol(ent), pointSize: 0, patterns: false, bounds: true });
+    const tol = base ? Math.max(base[2] - base[0], base[3] - base[1], ent.width || 0) * 1e-4 || 1e-6 : boundsTol(ent);
+    const ctx = makeContext(this.drawing, { tol, pointSize: 0, patterns: false, bounds: true });
     // Bounds must not depend on layer visibility, so resolve as if visible.
     ctx.ignoreVisibility = true;
     try {
       emitEntity(ent, sink, ctx);
     } catch {
-      return null;
+      return base;
     }
-    return sink.bounds;
+    const b = sink.bounds;
+    if (!base || !b) return b ?? base;
+    return [Math.min(b[0], base[0]), Math.min(b[1], base[1]), Math.max(b[2], base[2]), Math.max(b[3], base[3])];
   }
 
   rebuild() {
@@ -63,18 +80,24 @@ export class SpatialIndex {
 
   /** Apply a Drawing change record. */
   applyChange(change) {
-    // Block and style changes can move any extent; bulk loading also beats
-    // item-by-item inserts for very large edits.
+    // Bulk loading beats item-by-item inserts for very large edits.
     const styles = change.tableNames && (change.tableNames.has('textStyles') || change.tableNames.has('dimStyles'));
-    if (styles || change.ids.size > Math.max(5000, this.items.size / 4)) {
+    const units = change.headerKeys && BOUNDS_HEADER_KEYS.some((k) => change.headerKeys.has(k));
+    let ids = change.ids;
+    // Styles and unit formats only move text, dimensions and the blocks that may hold them.
+    if (styles || units) {
+      ids = new Set(ids);
+      for (const [id, e] of this.drawing.entities) if (STYLED.has(e.type)) ids.add(id);
+    }
+    if (ids.size > Math.max(5000, this.items.size / 4)) {
       this.rebuild();
       return;
     }
-    // A redefined block moves only the references that use it.
-    let ids = change.ids;
+    // A redefined block moves only the references that use it (or a block nesting it).
     if (change.blocks.size) {
       ids = new Set(ids);
-      for (const [id, e] of this.drawing.entities) if (e.type === 'insert') ids.add(id);
+      const affected = blocksUsing(this.drawing, change.blocks);
+      for (const [id, e] of this.drawing.entities) if (e.type === 'insert' && affected.has(e.name)) ids.add(id);
     }
     for (const id of ids) {
       const old = this.items.get(id);

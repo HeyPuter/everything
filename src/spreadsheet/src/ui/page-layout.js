@@ -6,11 +6,12 @@
  * draws what lies around the cells: the paper, the header and footer in each page's margins (each of
  * their left, center and right sections editable in place), and the rulers in inches.
  */
-import { el } from './dom.js';
+import { el, isMod } from './dom.js';
 import { printBands, printTitleStarts, quantizePrintScale } from './print-pagination.js';
 import { printPageText, splitPrintSections, printRange, manualBreaksApply, effectivePrintSettings } from './print.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
 import { richHeaderSections } from './print-header.js';
+import { t } from '../i18n/index.js';
 
 export const PX_PER_INCH = 96;
 export const PAGE_GAP = 12; // unzoomed pixels of grey between pages
@@ -154,15 +155,17 @@ export function sectionStoredText(text, raw = '', { sections = false } = {}) {
 
 /** The header or footer text with one section replaced: &L, &C and &R parts, the empty ones left out. */
 export function joinSections(sections) {
-  return [['L', sections.left], ['C', sections.center], ['R', sections.right]].filter(([, t]) => t).map(([code, t]) => `&${code}${t}`).join('');
+  return [['L', sections.left], ['C', sections.center], ['R', sections.right]].filter(([, text]) => text).map(([code, text]) => `&${code}${text}`).join('');
 }
 
 const SIDES = ['left', 'center', 'right'];
-// The Header & Footer elements to insert, as their codes.
-export const HEADER_ELEMENTS = [['Page Number', '&[Page]'], ['Number of Pages', '&[Pages]'], ['Current Date', '&[Date]'], ['Current Time', '&[Time]'],
-  ['File Path', '&[Path]&[File]'], ['File Name', '&[File]'], ['Sheet Name', '&[Tab]']];
-const HEADER_OPTIONS = [['Different First Page', 'differentFirst', false], ['Different Odd & Even Pages', 'differentOddEven', false],
-  ['Scale with Document', 'scaleWithDoc', true], ['Align with Page Margins', 'alignWithMargins', true]];
+// The Header & Footer elements to insert: [name (an id), code, catalog key of the label shown].
+export const HEADER_ELEMENTS = [['Page Number', '&[Page]', 'pageLayout.element.pageNumber'], ['Number of Pages', '&[Pages]', 'pageLayout.element.numberOfPages'],
+  ['Current Date', '&[Date]', 'pageLayout.element.currentDate'], ['Current Time', '&[Time]', 'pageLayout.element.currentTime'],
+  ['File Path', '&[Path]&[File]', 'pageLayout.element.filePath'], ['File Name', '&[File]', 'pageLayout.element.fileName'], ['Sheet Name', '&[Tab]', 'pageLayout.element.sheetName']];
+// [catalog key of the label, setting, its default].
+const HEADER_OPTIONS = [['pageLayout.option.differentFirst', 'differentFirst', false], ['pageLayout.option.differentOddEven', 'differentOddEven', false],
+  ['pageLayout.option.scaleWithDoc', 'scaleWithDoc', true], ['pageLayout.option.alignWithMargins', 'alignWithMargins', true]];
 
 /** Put text at the caret in a section (or at its end), and the caret after it. */
 function insertAtCaret(section, text) {
@@ -181,8 +184,6 @@ function insertAtCaret(section, text) {
   sel?.removeAllRanges();
   sel?.addRange(range);
 }
-const SIDE_LABEL = { left: 'Left', center: 'Center', right: 'Right' };
-const KIND_LABEL = { header: 'Header', footer: 'Footer', firstHeader: 'First Page Header', firstFooter: 'First Page Footer', evenHeader: 'Even Page Header', evenFooter: 'Even Page Footer' };
 
 /**
  * The provider grid.setPageLayout takes. `commit(sheetId, patch)` saves page setup fields (a header or
@@ -194,7 +195,7 @@ export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () 
   const pageNodes = new Map(); // page key → node, with its signature in dataset.sig
 
   function info(sheet, page) {
-    return { file: fileName() || 'Spreadsheet', path: filePath(), tab: sheet.name, palette: wb.colorPalette, normalFont: wb.normalFont, page: page.number, pages: page.pages };
+    return { file: fileName() || t('common.spreadsheet'), path: filePath(), tab: sheet.name, palette: wb.colorPalette, normalFont: wb.normalFont, page: page.number, pages: page.pages };
   }
 
   /** A section's drawn text, as print draws it, put back in the flow of its own box. */
@@ -225,7 +226,7 @@ export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () 
     for (const side of SIDES) {
       const section = el('div.pl-section', {
         role: 'textbox', 'aria-multiline': 'true', tabindex: -1, spellcheck: false,
-        'aria-label': `${KIND_LABEL[key]}, ${SIDE_LABEL[side]} section`, title: canEdit ? `${KIND_LABEL[key]}: ${SIDE_LABEL[side].toLowerCase()} section` : null,
+        'aria-label': t('pageLayout.sectionLabel', { kind: key, side }), title: canEdit ? t('pageLayout.sectionTitle', { kind: key, side }) : null,
         contenteditable: canEdit ? 'true' : 'false',
         dataset: { side, kind, key },
       }, parts[side] ? sectionView(text, sheet, page, side, fontScale) : null);
@@ -233,7 +234,7 @@ export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () 
       section.addEventListener('blur', () => endEdit(section, sheet, page, metrics, unit));
       box.append(section);
     }
-    if (!text) box.append(el('span.pl-add', { 'aria-hidden': 'true' }, kind === 'header' ? 'Add header' : 'Add footer'));
+    if (!text) box.append(el('span.pl-add', { 'aria-hidden': 'true' }, kind === 'header' ? t('pageLayout.addHeader') : t('pageLayout.addFooter')));
     if (canEdit) box.append(tools(kind, sheet.id, s));
     return box;
   }
@@ -245,18 +246,18 @@ export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () 
   function tools(kind, sheetId, s) {
     const keep = (e) => e.preventDefault(); // the section keeps the focus and its caret
     const button = (label, attrs, onclick) => el('button.pl-tool', { type: 'button', tabindex: -1, title: label, ...attrs, onpointerdown: keep, onmousedown: keep, onclick }, label);
-    const elements = HEADER_ELEMENTS.map(([label, code]) => button(label, { dataset: { code } }, () => { if (editing) insertAtCaret(editing.section, code); }));
+    const elements = HEADER_ELEMENTS.map(([, code, label]) => button(t(label), { dataset: { code } }, () => { if (editing) insertAtCaret(editing.section, code); }));
     const other = kind === 'header' ? 'footer' : 'header';
-    const go = button(kind === 'header' ? 'Go to Footer' : 'Go to Header', {}, (e) => {
+    const go = button(kind === 'header' ? t('pageLayout.goToFooter') : t('pageLayout.goToHeader'), {}, (e) => {
       e.target.closest('.pl-page')?.querySelector(`.pl-${other} .pl-section[data-side="center"]`)?.focus();
     });
-    const options = HEADER_OPTIONS.map(([label, field, fallback]) => button(label, { 'aria-pressed': String(s[field] ?? fallback), dataset: { option: field } }, (e) => {
+    const options = HEADER_OPTIONS.map(([label, field, fallback]) => button(t(label), { 'aria-pressed': String(s[field] ?? fallback), dataset: { option: field } }, (e) => {
       const current = pageSettings(wb.sheet(sheetId));
       const on = !(current[field] ?? fallback);
       commit(sheetId, { [field]: on });
       e.target.setAttribute('aria-pressed', String(on));
     }));
-    return el('div.pl-tools', { role: 'toolbar', 'aria-label': 'Header & Footer' },
+    return el('div.pl-tools', { role: 'toolbar', 'aria-label': t('pageLayout.headerAndFooter') },
       el('div.pl-tool-row', {}, ...elements, go), el('div.pl-tool-row', {}, ...options));
   }
 
@@ -304,6 +305,13 @@ export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () 
   function onKey(e) {
     const section = e.target.closest?.('.pl-section');
     if (!section) return;
+    // Save and Print are the app's: the header typed so far is finished first, so it goes with them. Kept from the
+    // app, the keys fell to the browser, whose own "Save page as" dialog opened.
+    if (isMod(e) && !e.altKey && ['s', 'p'].includes(e.key.toLowerCase())) {
+      section.blur();
+      focusGrid();
+      return;
+    }
     e.stopPropagation(); // the keys belong to the header, not to the cells
     if (e.key === 'Escape') {
       e.preventDefault();

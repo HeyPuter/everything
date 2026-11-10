@@ -31,6 +31,9 @@ export class FeatureTree {
   private expanded = new Set<Id>();
   private focusKey: string | null = null;
   private renaming: Id | null = null;
+  private renameEl: HTMLInputElement | null = null;
+  private rendering = false;
+  private draggingBar = false;
 
   constructor(private app: App, flyout = false) {
     const filterInput = h('input', { type: 'search', placeholder: 'Filter', 'aria-label': 'Filter the design tree' }) as HTMLInputElement;
@@ -75,7 +78,14 @@ export class FeatureTree {
     const built = app.store.builtCount;
     const rows = this.rows();
     const sel = app.selection;
+    // Rows are rebuilt; keyboard focus inside the tree moves to the new rows.
+    const active = document.activeElement;
+    const hadFocus = !!active && this.list.contains(active);
+    const barFocused = hadFocus && active.classList.contains('rollback-bar');
+    const tabKey = this.focusKey && rows.some((r) => r.key === this.focusKey) ? this.focusKey : 'part';
+    this.rendering = true;
     this.list.textContent = '';
+    this.rendering = false;
     let rollbackPlaced = false;
     const editingId = app.editingFeatureId;
     for (const r of rows) {
@@ -89,9 +99,9 @@ export class FeatureTree {
       const status = f ? app.featureStatus(f.id) : null;
       const selected = r.item ? sel.has(r.item) : false;
       const el = h('div', {
-        class: `ti${f?.suppressed ? ' suppressed' : ''}${f && index >= built ? ' rolled' : ''}${status && !status.ok ? ' error' : ''}${editingId === f?.id ? ' editing' : ''}`,
+        class: `ti${f?.suppressed || status?.suppressed ? ' suppressed' : ''}${f && index >= built ? ' rolled' : ''}${status && !status.ok ? ' error' : ''}${editingId === f?.id ? ' editing' : ''}`,
         role: 'treeitem',
-        tabindex: this.focusKey === r.key || (!this.focusKey && r.key === 'part') ? '0' : '-1',
+        tabindex: r.key === tabKey ? '0' : '-1',
         'aria-selected': r.item ? String(selected) : null,
         'aria-level': String(r.depth + 1),
         'aria-expanded': r.children ? String(!!r.expanded) : null,
@@ -125,6 +135,12 @@ export class FeatureTree {
       this.list.append(el);
     }
     if (!rollbackPlaced) this.list.append(this.rollbackBar());
+    if (hadFocus) {
+      const target = this.renaming && this.renameEl?.isConnected ? this.renameEl
+        : barFocused ? this.list.querySelector<HTMLElement>('.rollback-bar')
+        : this.list.querySelector<HTMLElement>(`[data-key="${CSS.escape(tabKey)}"]`);
+      target?.focus({ preventScroll: true });
+    }
   }
 
   private rollbackBar(): HTMLElement {
@@ -134,11 +150,24 @@ export class FeatureTree {
       if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); this.app.setRollback(this.app.store.builtCount - 1); this.focusBar(); }
       if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); this.app.setRollback(this.app.store.builtCount + 1); this.focusBar(); }
     });
+    if (this.draggingBar) bar.classList.add('dragging');
     bar.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       bar.setPointerCapture(e.pointerId);
       bar.classList.add('dragging');
+      this.draggingBar = true;
+      // One undo step for the whole drag.
+      this.app.store.beginBatch('Rollback', () => {
+        this.draggingBar = false;
+        this.list.querySelector('.rollback-bar')?.classList.remove('dragging');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      });
+      // Every roll re-renders the tree and replaces this bar, so the drag
+      // follows the pointer on the window rather than on the bar.
       const move = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
         // Find the feature row under the pointer.
         const items = [...this.list.querySelectorAll<HTMLElement>('.ti[aria-level="2"]')].filter((x) => this.app.store.feature(x.dataset.key!));
         let idx = this.app.store.doc.features.length;
@@ -148,13 +177,13 @@ export class FeatureTree {
         }
         if (idx !== this.app.store.builtCount) this.app.setRollback(idx);
       };
-      const up = () => {
-        bar.classList.remove('dragging');
-        bar.removeEventListener('pointermove', move);
-        bar.removeEventListener('pointerup', up);
+      const up = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        this.app.store.endBatch();
       };
-      bar.addEventListener('pointermove', move);
-      bar.addEventListener('pointerup', up);
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
     });
     return bar;
   }
@@ -164,29 +193,37 @@ export class FeatureTree {
   }
 
   private renameInput(f: Feature): HTMLInputElement {
-    const input = h('input', { class: 'rename', value: f.name, 'aria-label': 'Feature name' }) as HTMLInputElement;
+    // Re-renders during a rename (rebuilds, selection) keep the text typed so far.
+    if (this.renameEl?.dataset.id === f.id) return this.renameEl;
+    const input = h('input', { class: 'rename', value: f.name, 'aria-label': 'Feature name', 'data-id': f.id }) as HTMLInputElement;
+    this.renameEl = input;
     const finish = (save: boolean) => {
       if (this.renaming !== f.id) return;
       this.renaming = null;
+      this.renameEl = null;
       const name = input.value.trim();
       if (save && name && name !== f.name) this.app.renameFeature(f.id, name);
       else this.render();
       this.focus(f.id);
     };
     input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       e.stopPropagation();
       if (e.key === 'Enter') finish(true);
       if (e.key === 'Escape') finish(false);
     });
-    input.addEventListener('blur', () => finish(true));
+    input.addEventListener('blur', () => { if (!this.rendering && input.isConnected) finish(true); });
     input.addEventListener('click', (e) => e.stopPropagation());
-    requestAnimationFrame(() => { input.focus(); input.select(); });
+    requestAnimationFrame(() => { if (document.activeElement !== input) { input.focus(); input.select(); } });
     return input;
   }
 
   startRename(id: Id) {
     this.renaming = id;
+    this.renameEl = null;
     this.render();
+    const input = this.renameEl as HTMLInputElement | null;
+    if (input?.isConnected) { input.focus(); input.select(); }
   }
 
   private toggle(key: string) {
@@ -208,6 +245,15 @@ export class FeatureTree {
   private onDouble(r: Row) {
     if (r.feature) this.app.editFeature(r.feature.id);
     else if (r.key === 'part') this.app.commands.run('properties');
+  }
+
+  /**
+   * The features a row's Delete or context-menu command acts on: the whole
+   * selection when the row is part of it (as in a file manager), else the row.
+   */
+  targets(id: Id): Id[] {
+    const sel = this.app.selection.ofKind('feature').map((x) => x.id);
+    return sel.includes(id) ? sel : [id];
   }
 
   focus(key: string) {
@@ -237,20 +283,34 @@ export class FeatureTree {
       case 'ArrowLeft':
         if (items[cur].getAttribute('aria-expanded') === 'true') { e.preventDefault(); this.toggle(key); this.focus(key); }
         break;
+      // These re-render the rows, so the app-wide shortcut handler would see a
+      // detached target and treat the key as a global shortcut (Space opening
+      // the view menu, Enter closing the panel just opened).
       case 'Enter':
         e.preventDefault();
+        e.stopPropagation();
         if (this.app.store.feature(key)) this.app.editFeature(key);
         break;
       case ' ':
         e.preventDefault();
+        e.stopPropagation();
         items[cur].click();
         break;
+      // The keyboard context menu: browsers on macOS never fire contextmenu for Shift+F10.
+      case 'F10':
+        if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          const r = items[cur].getBoundingClientRect();
+          items[cur].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 24, clientY: r.bottom }));
+        }
+        break;
       case 'F2':
-        if (this.app.store.feature(key)) { e.preventDefault(); this.startRename(key); }
+        if (this.app.store.feature(key)) { e.preventDefault(); e.stopPropagation(); this.startRename(key); }
         break;
       case 'Delete':
       case 'Backspace':
-        if (this.app.store.feature(key)) { e.preventDefault(); e.stopPropagation(); this.app.deleteFeatures([key]); }
+        if (this.app.store.feature(key)) { e.preventDefault(); e.stopPropagation(); void this.app.deleteFeatures(this.targets(key)); }
         break;
     }
   }

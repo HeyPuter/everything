@@ -13,58 +13,66 @@ import { ICON_SETS, DATE_PERIODS } from '../core/condformat.js';
 import { CELL_STYLES } from '../core/cellstyles.js';
 import { numberOf, equalValueOf, ruleValueText } from './condformat.js';
 import { dateTimeKind } from '../core/format.js';
+import { t } from '../i18n/index.js';
+
+/** Rows whose label (the element at `at`) is in the interface language each time it is read. */
+const labelled = (rows, at, keys) => rows.map((row, i) => Object.defineProperty(row, at, { get: () => t(keys[i]), enumerable: true }));
 
 const styleOf = key => ({ ...CELL_STYLES.find(s => s.key === key)?.patch });
-/** Formats a quick rule can apply, drawn from the app's own Good, Bad and Neutral cell styles. */
+/** Formats a quick rule can apply, drawn from the app's own Good, Bad and Neutral cell styles: [key, message key, style]. */
 export const QUICK_STYLES = [
-  ['bad', 'Light red fill with dark red text', () => styleOf('bad')],
-  ['neutral', 'Yellow fill with dark yellow text', () => styleOf('neutral')],
-  ['good', 'Green fill with dark green text', () => styleOf('good')],
-  ['redFill', 'Light red fill', () => ({ bg: styleOf('bad').bg })],
-  ['redText', 'Red text', () => ({ color: styleOf('bad').color })],
-  ['bold', 'Bold text', () => ({ bold: true })],
+  ['bad', 'condformatQuick.style.bad', () => styleOf('bad')],
+  ['neutral', 'condformatQuick.style.neutral', () => styleOf('neutral')],
+  ['good', 'condformatQuick.style.good', () => styleOf('good')],
+  ['redFill', 'condformatQuick.style.redFill', () => ({ bg: styleOf('bad').bg })],
+  ['redText', 'condformatQuick.style.redText', () => ({ color: styleOf('bad').color })],
+  ['bold', 'condformatQuick.style.bold', () => ({ bold: true })],
 ];
 
+/** The quick rules: `title`, `prompt` and `menu` are message keys (the dialog's title and prompt, the menu item). */
 export const QUICK_RULES = {
-  gt: { title: 'Greater Than', prompt: 'Format cells that are GREATER THAN:', type: 'gt', args: 1, numeric: true },
-  lt: { title: 'Less Than', prompt: 'Format cells that are LESS THAN:', type: 'lt', args: 1, numeric: true },
-  between: { title: 'Between', prompt: 'Format cells that are BETWEEN:', type: 'between', args: 2, numeric: true },
-  eq: { title: 'Equal To', prompt: 'Format cells that are EQUAL TO:', type: 'eq', args: 1 },
-  contains: { title: 'Text That Contains', prompt: 'Format cells that contain the text:', type: 'contains', args: 1 },
-  date: { title: 'A Date Occurring', prompt: 'Format cells that contain a date occurring:', type: 'date', args: 0, date: true },
-  dup: { title: 'Duplicate Values', prompt: 'Format cells that contain:', type: 'dup', args: 0, choice: [['dup', 'Duplicate'], ['unique', 'Unique']] },
-  top: { title: 'Top 10 Items', prompt: 'Format cells that rank in the TOP:', type: 'top', args: 1, numeric: true, count: true },
-  bottom: { title: 'Bottom 10 Items', prompt: 'Format cells that rank in the BOTTOM:', type: 'bottom', args: 1, numeric: true, count: true },
-  topPercent: { title: 'Top 10%', prompt: 'Format cells that rank in the TOP (percent of the values):', type: 'top', args: 1, numeric: true, count: true, percent: true },
-  bottomPercent: { title: 'Bottom 10%', prompt: 'Format cells that rank in the BOTTOM (percent of the values):', type: 'bottom', args: 1, numeric: true, count: true, percent: true },
-  above: { title: 'Above Average', prompt: 'Format cells that are ABOVE the average for the selected range:', type: 'formula', args: 0, average: '>' },
-  below: { title: 'Below Average', prompt: 'Format cells that are BELOW the average for the selected range:', type: 'formula', args: 0, average: '<' },
+  gt: { title: 'condformatQuick.rule.gt', prompt: 'condformatQuick.prompt.gt', menu: 'condformatQuick.menu.gt', type: 'gt', args: 1, numeric: true },
+  lt: { title: 'condformatQuick.rule.lt', prompt: 'condformatQuick.prompt.lt', menu: 'condformatQuick.menu.lt', type: 'lt', args: 1, numeric: true },
+  between: { title: 'condformatQuick.rule.between', prompt: 'condformatQuick.prompt.between', menu: 'condformatQuick.menu.between', type: 'between', args: 2, numeric: true },
+  eq: { title: 'condformatQuick.rule.eq', prompt: 'condformatQuick.prompt.eq', menu: 'condformatQuick.menu.eq', type: 'eq', args: 1 },
+  contains: { title: 'condformatQuick.rule.contains', prompt: 'condformatQuick.prompt.contains', menu: 'condformatQuick.menu.contains', type: 'contains', args: 1 },
+  date: { title: 'condformatQuick.rule.date', prompt: 'condformatQuick.prompt.date', menu: 'condformatQuick.menu.date', type: 'date', args: 0, date: true },
+  dup: { title: 'condformatQuick.rule.dup', prompt: 'condformatQuick.prompt.dup', menu: 'condformatQuick.menu.dup', type: 'dup', args: 0, choice: [['dup', 'condformatQuick.choice.dup'], ['unique', 'condformatQuick.choice.unique']] },
+  top: { title: 'condformatQuick.rule.top', prompt: 'condformatQuick.prompt.top', menu: 'condformatQuick.menu.top', type: 'top', args: 1, numeric: true, count: true },
+  bottom: { title: 'condformatQuick.rule.bottom', prompt: 'condformatQuick.prompt.bottom', menu: 'condformatQuick.menu.bottom', type: 'bottom', args: 1, numeric: true, count: true },
+  topPercent: { title: 'condformatQuick.rule.topPercent', prompt: 'condformatQuick.prompt.topPercent', menu: 'condformatQuick.menu.topPercent', type: 'top', args: 1, numeric: true, count: true, percent: true },
+  bottomPercent: { title: 'condformatQuick.rule.bottomPercent', prompt: 'condformatQuick.prompt.bottomPercent', menu: 'condformatQuick.menu.bottomPercent', type: 'bottom', args: 1, numeric: true, count: true, percent: true },
+  above: { title: 'condformatQuick.rule.above', prompt: 'condformatQuick.prompt.above', menu: 'condformatQuick.menu.above', type: 'formula', args: 0, average: '>' },
+  below: { title: 'condformatQuick.rule.below', prompt: 'condformatQuick.prompt.below', menu: 'condformatQuick.menu.below', type: 'formula', args: 0, average: '<' },
 };
 
-const BAR_COLORS = [['Blue', '#8fb8ff'], ['Green', '#9fdcb4'], ['Orange', '#ffd58a'], ['Red', '#f6a6a6'], ['Purple', '#c9b8f5'], ['Gray', '#c3c2b7']];
-export const SCALES = [
-  ['Green - Yellow - Red', '#63be7b', '#ffeb84', '#f8696b'], ['Red - Yellow - Green', '#f8696b', '#ffeb84', '#63be7b'],
-  ['Green - White - Red', '#63be7b', '#fcfcff', '#f8696b'], ['Red - White - Green', '#f8696b', '#fcfcff', '#63be7b'],
-  ['Blue - White - Red', '#5a8ac6', '#fcfcff', '#f8696b'], ['White - Green', '#fcfcff', null, '#63be7b'],
-  ['Green - White', '#63be7b', null, '#fcfcff'], ['White - Red', '#fcfcff', null, '#f8696b'],
-];
+const BAR_COLORS = [['condformatQuick.bar.blue', '#8fb8ff'], ['condformatQuick.bar.green', '#9fdcb4'], ['condformatQuick.bar.orange', '#ffd58a'], ['condformatQuick.bar.red', '#f6a6a6'], ['condformatQuick.bar.purple', '#c9b8f5'], ['condformatQuick.bar.gray', '#c3c2b7']];
+/** The color scale presets: [name, low, middle (or null), high]. */
+export const SCALES = labelled([
+  ['', '#63be7b', '#ffeb84', '#f8696b'], ['', '#f8696b', '#ffeb84', '#63be7b'],
+  ['', '#63be7b', '#fcfcff', '#f8696b'], ['', '#f8696b', '#fcfcff', '#63be7b'],
+  ['', '#5a8ac6', '#fcfcff', '#f8696b'], ['', '#fcfcff', null, '#63be7b'],
+  ['', '#63be7b', null, '#fcfcff'], ['', '#fcfcff', null, '#f8696b'],
+], 0, [
+  'condformatQuick.scale.gyr', 'condformatQuick.scale.ryg', 'condformatQuick.scale.gwr', 'condformatQuick.scale.rwg', 'condformatQuick.scale.bwr', 'condformatQuick.scale.wg', 'condformatQuick.scale.gw', 'condformatQuick.scale.wr',
+]);
 
 /** The menu's items; `run` reaches the editor's commands. */
 export function conditionalFormattingItems(run) {
-  const quick = key => ({ label: `${QUICK_RULES[key].title}…`, onSelect: () => run('quickRule', key) });
+  const quick = key => ({ label: t(QUICK_RULES[key].menu), onSelect: () => run('quickRule', key) });
   return [
-    { label: 'Highlight Cells Rules', icon: 'highlighter', submenu: ['gt', 'lt', 'between', 'eq', 'contains', 'date', 'dup'].map(quick) },
-    { label: 'Top/Bottom Rules', icon: 'sortDesc', submenu: ['top', 'topPercent', 'bottom', 'bottomPercent', 'above', 'below'].map(quick) },
-    { label: 'Data Bars', icon: 'chartBar', submenu: BAR_COLORS.map(([label, color]) => ({ label: `${label} data bar`, swatch: color, onSelect: () => run('quickRule', { kind: 'databar', barColor: color }) })) },
-    { label: 'Color Scales', icon: 'palette', submenu: SCALES.map(([label, from, mid, to]) => ({ label, swatch: from, onSelect: () => run('quickRule', { kind: 'scale', from, mid, to }) })) },
-    { label: 'Icon Sets', icon: 'sparkle', submenu: Object.entries(ICON_SETS).map(([set, def]) => ({ label: `${def.label}  ${def.glyphs.join(' ')}`, onSelect: () => run('quickRule', { kind: 'icons', set }) })) },
+    { label: t('condformatQuick.highlightRules'), icon: 'highlighter', submenu: ['gt', 'lt', 'between', 'eq', 'contains', 'date', 'dup'].map(quick) },
+    { label: t('condformatQuick.topBottomRules'), icon: 'sortDesc', submenu: ['top', 'topPercent', 'bottom', 'bottomPercent', 'above', 'below'].map(quick) },
+    { label: t('condformatQuick.dataBars'), icon: 'chartBar', submenu: BAR_COLORS.map(([labelKey, color]) => ({ label: t(labelKey), swatch: color, onSelect: () => run('quickRule', { kind: 'databar', barColor: color }) })) },
+    { label: t('condformatQuick.colorScales'), icon: 'palette', submenu: SCALES.map(([label, from, mid, to]) => ({ label, swatch: from, onSelect: () => run('quickRule', { kind: 'scale', from, mid, to }) })) },
+    { label: t('condformatQuick.iconSets'), icon: 'sparkle', submenu: Object.entries(ICON_SETS).map(([set, def]) => ({ label: t('condformatQuick.iconSetItem', { name: def.label, glyphs: def.glyphs.join(' ') }), onSelect: () => run('quickRule', { kind: 'icons', set }) })) },
     { separator: true },
-    { label: 'New Rule…', icon: 'plus', onSelect: () => run('condFormat') },
-    { label: 'Clear Rules', icon: 'eraser', submenu: [
-      { label: 'Clear Rules from Selected Cells', onSelect: () => run('clearRules', 'selection') },
-      { label: 'Clear Rules from Entire Sheet', onSelect: () => run('clearRules', 'sheet') },
+    { label: t('condformatQuick.newRule'), icon: 'plus', onSelect: () => run('condFormat') },
+    { label: t('condformatQuick.clearRules'), icon: 'eraser', submenu: [
+      { label: t('condformatQuick.clearSelection'), onSelect: () => run('clearRules', 'selection') },
+      { label: t('condformatQuick.clearSheet'), onSelect: () => run('clearRules', 'sheet') },
     ] },
-    { label: 'Manage Rules…', icon: 'sliders', onSelect: () => run('condFormat') },
+    { label: t('condformatQuick.manageRules'), icon: 'sliders', onSelect: () => run('condFormat') },
   ];
 }
 
@@ -129,35 +137,36 @@ export function openQuickRuleDialog(ctx, key, range) {
   const dated = ['date', 'datetime'].includes(dateTimeKind(wb.displayStyleAt?.(sheetId, range.r1, range.c1), avg));
   const suggest = (n) => ruleValueText(dated ? Math.round(n) : round(n), wb, sheetId, { type: def.type, range });
   const first = def.count ? '10' : key === 'between' ? suggest(min) : def.numeric ? suggest(avg) : '';
-  const value1 = el('input.input', { type: 'text', 'aria-label': def.title, value: first, autocomplete: 'off', spellcheck: false });
-  const value2 = el('input.input', { type: 'text', 'aria-label': 'and', value: suggest(max), autocomplete: 'off', spellcheck: false });
-  const period = el('select.select', { 'aria-label': def.title }, ...DATE_PERIODS.map(p => el('option', { value: p.value }, p.label)));
-  const choice = el('select.select', { 'aria-label': 'Values' }, ...(def.choice || []).map(([value, label]) => el('option', { value }, label)));
-  const format = el('select.select', { 'aria-label': 'with' }, ...QUICK_STYLES.map(([value, label]) => el('option', { value }, label)));
+  const title = t(def.title);
+  const value1 = el('input.input', { type: 'text', 'aria-label': title, value: first, autocomplete: 'off', spellcheck: false });
+  const value2 = el('input.input', { type: 'text', 'aria-label': t('condformat.and'), value: suggest(max), autocomplete: 'off', spellcheck: false });
+  const period = el('select.select', { 'aria-label': title }, ...DATE_PERIODS.map(p => el('option', { value: p.value }, p.label)));
+  const choice = el('select.select', { 'aria-label': t('condformatQuick.values') }, ...(def.choice || []).map(([value, labelKey]) => el('option', { value }, t(labelKey))));
+  const format = el('select.select', { 'aria-label': t('condformatQuick.with') }, ...QUICK_STYLES.map(([value, labelKey]) => el('option', { value }, t(labelKey))));
   const { alert: error, refuse } = fieldAlert(fieldId('cfq'));
   const submit = e => {
     e?.preventDefault();
-    if (def.args >= 1 && !value1.value.trim()) return refuse(value1, 'Enter a value');
+    if (def.args >= 1 && !value1.value.trim()) return refuse(value1, t('condformat.enterValue'));
     const n1 = def.numeric && def.args >= 1 ? numberOf(value1.value) : null, n2 = def.args >= 2 ? numberOf(value2.value) : null;
-    if (def.numeric && def.args >= 1 && n1 == null) return refuse(value1, 'Enter a number');
+    if (def.numeric && def.args >= 1 && n1 == null) return refuse(value1, t('condformat.enterNumber'));
     const most = def.percent ? 100 : 1000;
-    if (def.count && !(Number.isInteger(n1) && n1 >= 1 && n1 <= most)) return refuse(value1, `Enter a whole number from 1 to ${most}`);
-    if (def.args >= 2 && n2 == null) return refuse(value2, 'Enter a number');
+    if (def.count && !(Number.isInteger(n1) && n1 >= 1 && n1 <= most)) return refuse(value1, t('condformatQuick.wholeNumber', { max: most }));
+    if (def.args >= 2 && n2 == null) return refuse(value2, t('condformat.enterNumber'));
     const style = QUICK_STYLES.find(([k]) => k === format.value)[2]();
     const value = def.date ? period.value : def.numeric ? n1 : def.type === 'eq' ? equalValueOf(value1.value) : value1.value.trim();
     const rule = quickRule(range, key, { value, value2: n2, choice: choice.value, style });
-    if (!wb.addRule(sheetId, rule)) return refuse(def.args ? value1 : format, wb.isProtected(sheetId) ? 'This sheet is protected' : 'The rule could not be added');
+    if (!wb.addRule(sheetId, rule)) return refuse(def.args ? value1 : format, wb.isProtected(sheetId) ? t('condformatQuick.protected') : t('condformatQuick.notAdded'));
     modal.close();
   };
-  const fields = def.date ? [period] : def.choice ? [choice] : def.args >= 2 ? [value1, el('span.cfq-and', {}, 'and'), value2] : def.percent ? [value1, el('span.cfq-and', {}, '%')] : def.args ? [value1] : [];
+  const fields = def.date ? [period] : def.choice ? [choice] : def.args >= 2 ? [value1, el('span.cfq-and', {}, t('condformat.and')), value2] : def.percent ? [value1, el('span.cfq-and', {}, '%')] : def.args ? [value1] : [];
   const content = el('form.cfq', { onsubmit: submit },
-    el('p.cfq-prompt', {}, def.prompt),
-    el('div.cfq-row', {}, ...fields, el('span.cfq-with', {}, def.choice ? 'values with' : 'with'), el('div.select-wrap', {}, format)),
-    el('p.field-hint', {}, `Applies to ${rangeName(range)}.`), error,
+    el('p.cfq-prompt', {}, t(def.prompt)),
+    el('div.cfq-row', {}, ...fields, el('span.cfq-with', {}, def.choice ? t('condformatQuick.valuesWith') : t('condformatQuick.with')), el('div.select-wrap', {}, format)),
+    el('p.field-hint', {}, t('condformatQuick.appliesTo', { range: rangeName(range) })), error,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: def.title, content, className: 'cfq-dialog', initialFocus: fields[0] || format, onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title, content, className: 'cfq-dialog', initialFocus: fields[0] || format, onClose: () => ctx.grid?.focus?.() });
   if (fields[0]?.select) fields[0].select();
   return modal;
 }

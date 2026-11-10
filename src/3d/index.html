@@ -9,12 +9,16 @@
       content="3D is a focused browser-based workspace for creating and arranging 3D scenes."
     />
     <title>3D · Scene editor</title>
+    <link rel="canonical" href="https://3d.puter.com/" />
     <link rel="icon" href="./favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="icon" href="./favicon-16x16.png" type="image/png" sizes="16x16" />
     <link rel="icon" href="./favicon-32x32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="./favicon-48x48.png" type="image/png" sizes="48x48" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="./manifest.json" />
+    <!-- The app works without Puter (offline, blocked): a failed load only leaves out the account menu,
+         and the assistant tries again when it is used (src/assistant/puter.ts). -->
+    <script src="https://js.puter.com/v2/" defer onerror="window.__puterFailed = true"></script>
   </head>
   <body>
     <div id="app"></div>

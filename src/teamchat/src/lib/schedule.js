@@ -1,8 +1,6 @@
 /**
  * Times for "send later" and "remind me": presets in the user's local zone,
- * and the wording that never promises a second. Delivery happens at the
- * first sync poll after the time by anyone with the workspace open, so the
- * app says "around 9:00" and explains what that depends on.
+ * and approximate delivery wording: background wake-ups and polls may arrive late.
  */
 
 const HOUR = 3600_000;
@@ -46,13 +44,12 @@ export function sendPresets(now = Date.now()) {
 
 /** Presets for a reminder. */
 export function remindPresets(now = Date.now()) {
-  const d = new Date(now);
   return [
     { key: '30m', label: 'In 30 minutes', at: now + 30 * 60_000 },
     { key: '3h', label: 'In 3 hours', at: now + 3 * HOUR },
     { key: 'tomorrow', label: 'Tomorrow at 9', at: at(now, 9, 0, 1) },
     { key: 'week', label: 'Next week', at: at(now, 9, 0, 7) },
-  ].filter((p) => p.at > now + 60_000 || d.getHours() >= 0);
+  ].filter((p) => p.at > now + 60_000);
 }
 
 /** "around 9:00 AM tomorrow" style phrase for a due time. */
@@ -74,4 +71,4 @@ export function toLocalInput(ts) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export const DELIVERY_NOTE = 'Delivered by the first sync after that time from anyone with the workspace open, usually within seconds. If nobody has Teamchat open, it waits.';
+export const DELIVERY_NOTE = 'Background delivery usually starts within a minute. Without background access, it waits for someone to open the workspace.';

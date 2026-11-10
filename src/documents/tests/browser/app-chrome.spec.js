@@ -230,6 +230,28 @@ test('the ContextMenu key on the status bar starts its Customize menu on the fir
   await expect(menu).toBeFocused();
 });
 
+test('a Language search that finds nothing applies nothing, not a language an earlier letter showed', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Bonjour');
+  await select(page, 0, 7);
+  const status = page.locator('.ed-statusbar .ed-status-language');
+  await expect(status).toContainText('English (United States)');
+  const history = await page.evaluate(() => window.__docs.current.view.engine.session.history.length);
+  await status.click();
+  const dialog = page.getByRole('dialog', { name: 'Language' });
+  // "z" alone finds a language (German (Switzerland)); "zzzz" finds none.
+  await page.keyboard.type('zzzz');
+  await expect(dialog.getByRole('option')).toHaveCount(0);
+  await expect(dialog.getByText('No languages match.')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'OK' })).toBeDisabled();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(status).toContainText('English (United States)');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.session.history.length)).toBe(history);
+});
+
 test('the Language list is one tab stop that the arrow keys move through', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Bonjour');
@@ -261,6 +283,26 @@ test('the Language list is one tab stop that the arrow keys move through', async
   await expect(page.locator('.ed-statusbar .ed-status-language')).toContainText('French (Canada)');
 });
 
+test('properties typed on the Info page are kept when the File view is left without Save Properties', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Harbour report');
+  const view = page.getByRole('dialog', { name: 'File' });
+  await page.locator('.ribbon-file').click();
+  await view.getByRole('textbox', { name: 'Title', exact: true }).fill('Harbour Report');
+  await page.keyboard.press('Escape');
+  await expect(view).toBeHidden();
+  await page.locator('.ribbon-file').click();
+  await expect(view.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Harbour Report');
+  // Going to another page keeps them too.
+  await view.getByRole('textbox', { name: 'Subject', exact: true }).fill('Tides');
+  await view.getByRole('tab', { name: 'Export' }).click();
+  await view.getByRole('tab', { name: 'Info' }).click();
+  await expect(view.getByRole('textbox', { name: 'Subject', exact: true })).toHaveValue('Tides');
+  await view.getByRole('button', { name: 'Back to the document' }).click();
+  await expect(view).toBeHidden();
+  await expect(text(page)).toBeFocused();
+});
+
 test('the ribbon collapses to its tabs and shows KeyTips for the keyboard', async ({ page }) => {
   await openEditor(page);
   const card = page.locator('.ed-ribbon');
@@ -287,6 +329,45 @@ test('the ribbon collapses to its tabs and shows KeyTips for the keyboard', asyn
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(page.locator('.ed-keytip')).toHaveCount(0);
+});
+
+test('a KeyTip letter that goes nowhere is ignored, and the letters typed before it still stand', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Keys');
+  await select(page, 0, 4);
+  await page.keyboard.press('Alt');
+  await page.keyboard.press('h');
+  // On Home, B is Bold and QB is the bulleted list.
+  await expect(page.locator('.ed-keytip', { hasText: /^B$/ })).toBeVisible();
+  await expect(page.locator('.ed-keytip', { hasText: /^QB$/ })).toBeVisible();
+  await page.keyboard.press('q');
+  const dimmed = await page.locator('.ed-keytip.is-filtered').count();
+  expect(dimmed).toBeGreaterThan(0);
+  // No KeyTip starts QZ: the key changes nothing.
+  await expect(page.locator('.ed-keytip', { hasText: /^QZ/ })).toHaveCount(0);
+  await page.keyboard.press('z');
+  await expect(page.locator('.ed-keytip.is-filtered')).toHaveCount(dimmed);
+  await page.keyboard.press('b');
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.listFormatting)).toBe('bullet');
+  expect((await engine(page)).bold).toBe(false);
+});
+
+test('Escape in the text, then Tab, goes to the ribbon, and Escape there comes back', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Words');
+  await text(page).focus();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#ribbon-tab-home')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#ribbon-panel-home').getByRole('button', { name: 'Paste', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(text(page)).toBeFocused();
+  expect((await engine(page)).text).toBe('Words');
+  // Without Escape first, Tab is typed into the text.
+  await page.keyboard.press('Tab');
+  expect((await engine(page)).text).toBe('Words\t');
 });
 
 test('Down on a tab of a collapsed ribbon shows its commands and moves into them', async ({ page }) => {
@@ -372,6 +453,85 @@ test('copy and paste formatting, Repeat, and Customize Keyboard bindings', async
   // The help sheet lists it.
   await text(page).press('ControlOrMeta+/');
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Underline');
+});
+
+test('Customize Keyboard keeps listing a command\'s built-in shortcut beside one of your own, and both run it', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Some words');
+  await (await openMenu(page, 'Tools')).getByRole('menuitem', { name: 'Customize Keyboard…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Customize Keyboard' });
+  const row = name => dialog.locator('.kb-item').filter({ has: page.locator('.kb-label', { hasText: new RegExp(`^${name}$`) }) }).first();
+  const italic = MAC ? 'Cmd+I' : 'Ctrl+I', own = MAC ? 'Cmd+Option+J' : 'Ctrl+Alt+J';
+  await dialog.getByRole('searchbox', { name: 'Search commands' }).fill('italic');
+  await row('Italic').click();
+  await dialog.getByRole('textbox', { name: 'New shortcut' }).click();
+  await page.keyboard.press('ControlOrMeta+Alt+j');
+  await dialog.getByRole('button', { name: 'Assign' }).click();
+  await expect(row('Italic').locator('.kb-keys')).toHaveText(`${own}, ${italic}`);
+  await expect(dialog.locator('.kb-current')).toContainText(italic);
+  await expect(dialog.locator('.kb-current')).toContainText('built in');
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await select(page, 0, 4);
+  await text(page).press('ControlOrMeta+i');
+  expect((await engine(page)).italic).toBe(true);
+  await text(page).press('ControlOrMeta+Alt+j');
+  expect((await engine(page)).italic).toBe(false);
+});
+
+test('tooltips and menus name the chords the keymap runs now, after a change in this tab or another', async ({ page, context }) => {
+  await openEditor(page);
+  const mod = MAC ? 'Cmd' : 'Ctrl', meta = MAC ? 'Meta' : 'Control';
+  const button = name => page.locator('.ribbon-card').getByRole('button', { name, exact: true });
+  await expect(button('Bold')).toHaveAttribute('title', `Bold (${mod}+B)`);
+  // Another tab gives Bold's chord and the Font dialog's to Italic.
+  const other = await context.newPage();
+  await other.goto('/mock.html#/new');
+  await expect(other.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await other.evaluate(() => localStorage.setItem('documents:keybindings', JSON.stringify({ 'ribbon:home/font/Italic': ['Mod+B', 'Mod+D'] })));
+  await expect(button('Bold')).toHaveAttribute('title', 'Bold');
+  await expect(button('Bold')).not.toHaveAttribute('aria-keyshortcuts', /./);
+  await expect(button('Italic')).toHaveAttribute('title', `Italic (${mod}+I)`);
+  await expect(button('Italic')).toHaveAttribute('aria-keyshortcuts', `${meta}+I ${meta}+B ${meta}+D`);
+  const format = await openMenu(page, 'Format');
+  await expect(format.getByRole('menuitem', { name: /^Font…/ })).not.toContainText(`${mod}+D`);
+  await page.keyboard.press('Escape');
+  // Taken back, the chords show where they were.
+  await other.evaluate(() => localStorage.removeItem('documents:keybindings'));
+  await expect(button('Bold')).toHaveAttribute('title', `Bold (${mod}+B)`);
+  await expect(button('Bold')).toHaveAttribute('aria-keyshortcuts', `${meta}+B`);
+  await expect((await openMenu(page, 'Format')).getByRole('menuitem', { name: /^Font…/ })).toContainText(`${mod}+D`);
+  await other.close();
+});
+
+test('Customize Keyboard no longer lists a built-in shortcut for its command once another command takes it', async ({ page }) => {
+  await openEditor(page);
+  await (await openMenu(page, 'Tools')).getByRole('menuitem', { name: 'Customize Keyboard…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Customize Keyboard' });
+  const search = dialog.getByRole('searchbox', { name: 'Search commands' });
+  const row = name => dialog.locator('.kb-item').filter({ has: page.locator('.kb-label', { hasText: new RegExp(`^${name}$`) }) }).first();
+  const bold = MAC ? 'Cmd+B' : 'Ctrl+B';
+  await search.fill('bold');
+  await expect(row('Bold').locator('.kb-keys')).toHaveText(bold);
+  // Bold's chord, given to Italic.
+  await search.fill('italic');
+  await row('Italic').click();
+  await dialog.getByRole('textbox', { name: 'New shortcut' }).click();
+  await page.keyboard.press('ControlOrMeta+b');
+  await expect(dialog.locator('#kb-capture-hint')).toHaveText('Built in for Bold. Your shortcut will take its place in the document.');
+  await dialog.getByRole('button', { name: 'Assign' }).click();
+  await expect(row('Italic').locator('.kb-keys')).toContainText(bold);
+  // Bold no longer claims it: the chord now runs Italic.
+  await search.fill('bold');
+  await expect(row('Bold').locator('.kb-keys')).toHaveText('');
+  await row('Bold').click();
+  await expect(dialog.locator('.kb-current')).not.toContainText('built in');
+  await expect(dialog.locator('.kb-current')).toContainText(`${bold} now runs Italic.`);
+  // Resetting Italic gives it back.
+  await search.fill('italic'); await row('Italic').click();
+  await dialog.getByRole('button', { name: 'Reset', exact: true }).click();
+  await search.fill('bold');
+  await expect(row('Bold').locator('.kb-keys')).toHaveText(bold);
+  await dialog.getByRole('button', { name: 'Done' }).click();
 });
 
 test('a saved document keeps versions to restore and publishes a web page from the File view', async ({ page }) => {

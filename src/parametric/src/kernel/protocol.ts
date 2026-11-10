@@ -2,7 +2,7 @@
 // (not copied) to keep large models cheap to update.
 
 import type { Frame, Vec3 } from '../math/vec';
-import type { Feature, Id } from '../model/types';
+import type { Feature, Id, SkEntity } from '../model/types';
 
 /** Features with every Param already evaluated to a number. */
 export type ResolvedFeature = Feature;
@@ -68,10 +68,14 @@ export interface FeatureStatus {
   ok: boolean;
   error?: string;
   warning?: string;
+  /** Not built: suppressed, or built on a suppressed feature. */
+  suppressed?: boolean;
 }
 
 export interface BuildResult {
   mesh: MeshData | null;
+  /** The body's mesh is the one sent with the previous result (mesh is then null). */
+  meshUnchanged?: boolean;
   faces: FaceInfo[];
   edges: EdgeInfo[];
   status: FeatureStatus[];
@@ -79,6 +83,12 @@ export interface BuildResult {
   frames: Record<Id, Frame>;
   /** Resolved axes used by features (for display). */
   bbox: { min: Vec3; max: Vec3 } | null;
+  /**
+   * Sketches with geometry projected from the model, as built: projected
+   * entities moved onto their model edges and the sketch solved again. `lost`
+   * lists projected entities whose edge or vertex is gone.
+   */
+  sketches?: Record<Id, { entities: SkEntity[]; lost: Id[] }>;
   /** Milliseconds spent building (excluding cached steps). */
   ms: number;
   /** Preview tool body for the feature being edited. */
@@ -86,6 +96,8 @@ export interface BuildResult {
   /** 'tool': draw over the body; 'body': replaces the body while editing. */
   previewKind?: 'tool' | 'body';
   previewError?: string;
+  /** Non-fatal problem of the previewed feature (a cut that removes nothing...). */
+  previewWarning?: string;
 }
 
 export interface MassProperties {
@@ -128,14 +140,21 @@ export interface ProjectionResult {
 export type WorkerRequest =
   | { id: number; type: 'init' }
   | { id: number; type: 'reset' }
-  | { id: number; type: 'build'; req: BuildRequest }
+  /**
+   * req.blobs holds only file data the worker does not have yet; `blobs`
+   * lists every id still in use (the worker drops the rest).
+   */
+  | { id: number; type: 'build'; req: BuildRequest; blobs: Id[] }
   | { id: number; type: 'mass' }
   | { id: number; type: 'project'; views: ProjectionRequest[] }
   | { id: number; type: 'measure'; a: MeasureTarget; b: MeasureTarget }
   | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number }
   | { id: number; type: 'checkImport'; format: 'step'; text: string }
-  | { id: number; type: 'convertSolidWorks'; data: Uint8Array; name: string };
+  | { id: number; type: 'convertSolidWorks'; data: Uint8Array; name: string }
+  /** Development builds only: fail on purpose to test recovery. */
+  | { id: number; type: 'debugFail'; mode: 'hang' | 'abort' | 'crash' };
 
 export type WorkerResponse =
   | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string };
+  /** fatal: the OpenCascade module aborted and the worker must be replaced. */
+  | { id: number; ok: false; error: string; fatal?: boolean };

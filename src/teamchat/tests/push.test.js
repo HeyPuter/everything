@@ -2,7 +2,7 @@
  * Web Push from the worker: the encryption and VAPID pieces are checked by
  * decrypting what a fake push service receives, the way a browser would.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { boot, as, USERS, workspaceWith } from './helpers/harness.js';
 import { KEYS } from '../src/shared/blocks.js';
 import { encryptPayload, vapidAuth, vapidKeys, fromB64url, b64url, pushAllowed } from '../worker/push.js';
@@ -98,6 +98,18 @@ describe('push crypto', () => {
 describe('push routes and delivery', () => {
   const post = (u, wsId, conv, text) => as(u).post(`/api/ws/${wsId}/conv/${conv}/messages`, { text });
 
+  it('suppresses legacy Web Push while a member has recent visible presence', async () => {
+    const { wsId, general } = await workspaceWith(alice, [bob]);
+    const dev = await subscriber();
+    await as(bob).post(`/api/ws/${wsId}/push`, { subscription: dev.subscription });
+    await as(bob).get(`/api/ws/${wsId}/sync?since=0&hb=1`);
+    await post(alice, wsId, general.id, '@bob present');
+    expect(received).toHaveLength(0);
+    await rt.kv.remove(KEYS.activity(wsId), `p.${bob.uuid}`);
+    await post(alice, wsId, general.id, '@bob away');
+    expect(received).toHaveLength(1);
+  });
+
   it('subscribes a device and pushes mentions and direct messages, encrypted, with the deep link', async () => {
     const { wsId, general } = await workspaceWith(alice, [bob, carol]);
     const key = await as(bob).get(`/api/ws/${wsId}/push/key`);
@@ -165,15 +177,15 @@ describe('push routes and delivery', () => {
     // "All messages" pushes every message in that channel.
     await as(bob).put(`/api/ws/${wsId}/conv/${general.id}/notify`, { level: 'all' });
     await post(alice, wsId, general.id, 'plain');
-    expect(received).toHaveLength(2); // plain messages are not pushed to channel members: only mentions and DMs fan out
+    expect(received).toHaveLength(3);
     // Pause: nothing while paused.
     await as(bob).post(`/api/ws/${wsId}/push`, { subscription: dev.subscription, prefs: { pauseUntil: Date.now() + 60_000 } });
     await post(alice, wsId, general.id, '@bob paused');
-    expect(received).toHaveLength(2);
+    expect(received).toHaveLength(3);
     // Preview off: the body says who, not what.
     await as(bob).post(`/api/ws/${wsId}/push`, { subscription: dev.subscription, prefs: {}, preview: false });
     await post(alice, wsId, dm, 'secret text');
-    expect(JSON.parse(await decrypt(dev, received[2].body)).body).toBe('New message');
+    expect(JSON.parse(await decrypt(dev, received[3].body)).body).toBe('New message');
     // Unsubscribe; and a dead endpoint is dropped by itself.
     await as(bob).del(`/api/ws/${wsId}/push`, { endpoint: dev.subscription.endpoint });
     expect((await rt.kv.get(KEYS.member(wsId, bob.uuid))).push).toEqual({});
@@ -182,6 +194,35 @@ describe('push routes and delivery', () => {
     globalThis.fetch = async () => new Response('', { status: 410 });
     await post(alice, wsId, dm, 'gone?');
     expect((await rt.kv.get(KEYS.member(wsId, bob.uuid))).push).toEqual({});
+  });
+
+  it('pushes a channel set to "all messages" only while its member is still in it', async () => {
+    const { wsId } = await workspaceWith(alice, [bob]);
+    const dev = await subscriber();
+    await as(bob).post(`/api/ws/${wsId}/push`, { subscription: dev.subscription });
+    const ch = (await as(alice).post(`/api/ws/${wsId}/channels`, { name: 'busy' })).data.channel;
+    expect((await as(bob).post(`/api/ws/${wsId}/channels/${ch.id}/join`, {})).ok).toBe(true);
+    await as(bob).put(`/api/ws/${wsId}/conv/${ch.id}/notify`, { level: 'all' });
+    await post(alice, wsId, ch.id, 'first');
+    expect(received).toHaveLength(1);
+    expect((await as(bob).post(`/api/ws/${wsId}/channels/${ch.id}/leave`, {})).ok).toBe(true);
+    await post(alice, wsId, ch.id, 'after leaving');
+    expect(received).toHaveLength(1);
+  });
+
+  it('carries an "all messages" setting made before the index existed into it when the member opens the workspace', async () => {
+    const { wsId } = await workspaceWith(alice, [bob]);
+    const dev = await subscriber();
+    await as(bob).post(`/api/ws/${wsId}/push`, { subscription: dev.subscription });
+    const ch = (await as(alice).post(`/api/ws/${wsId}/channels`, { name: 'older' })).data.channel;
+    await as(bob).post(`/api/ws/${wsId}/channels/${ch.id}/join`, {});
+    await rt.kv.update(KEYS.member(wsId, bob.uuid), { [`notify.${ch.id}.level`]: 'all' });
+    await post(alice, wsId, ch.id, 'not yet');
+    expect(received).toHaveLength(0);
+    await as(bob).get(`/api/ws/${wsId}`);
+    await vi.waitFor(async () => expect((await rt.kv.get(KEYS.member(wsId, bob.uuid))).naSync).toBe(1));
+    await post(alice, wsId, ch.id, 'now');
+    expect(received).toHaveLength(1);
   });
 
   it('pushes a huddle started in a direct message as a call, previews off or on', async () => {
@@ -224,14 +265,15 @@ describe('push routes and delivery', () => {
     await post(alice, wsId, thread, 'quiet');
     expect(received).toHaveLength(1);
     const chRoot = (await post(bob, wsId, general.id, 'in public')).data.message.seq;
+    // A reply in a channel thread reaches its followers (bob wrote the root) as a reply.
     await post(alice, wsId, `${general.id}_t${chRoot}`, 'plain reply');
-    expect(received).toHaveLength(1);
-    // A mention inside a channel thread is tagged by the channel, the same
-    // tag the client's own banner for it uses, so the two coalesce; the
-    // deep link still opens the thread.
-    const hit = await post(alice, wsId, `${general.id}_t${chRoot}`, '@bob see this');
     expect(received).toHaveLength(2);
-    const threadMention = JSON.parse(await decrypt(dev, received[1].body));
+    expect(JSON.parse(await decrypt(dev, received[1].body)).tag).toBe(`${wsId}@teamchat-api.test:reply-${general.id}_t${chRoot}`);
+    // A mention inside a channel thread is tagged by the channel; the deep
+    // link still opens the thread.
+    const hit = await post(alice, wsId, `${general.id}_t${chRoot}`, '@bob see this');
+    expect(received).toHaveLength(3);
+    const threadMention = JSON.parse(await decrypt(dev, received[2].body));
     expect(threadMention.tag).toBe(`${wsId}@teamchat-api.test:mention-${general.id}`);
     expect(threadMention.route).toBe(`#/ws/${wsId}@teamchat-api.test/c/${general.id}/t/${chRoot}/m/${hit.data.message.seq}`);
     // A mention inside the direct message's own thread keeps the mention tag
@@ -240,8 +282,8 @@ describe('push routes and delivery', () => {
     // this push must coalesce with.
     await as(bob).put(`/api/ws/${wsId}/conv/${dm}/notify`, { mute: false });
     await post(alice, wsId, thread, '@bob especially');
-    expect(received).toHaveLength(3);
-    expect(JSON.parse(await decrypt(dev, received[2].body)).tag).toBe(`${wsId}@teamchat-api.test:mention-${dm}`);
+    expect(received).toHaveLength(4);
+    expect(JSON.parse(await decrypt(dev, received[3].body)).tag).toBe(`${wsId}@teamchat-api.test:mention-${dm}`);
   });
 
   it('caps devices per member', async () => {

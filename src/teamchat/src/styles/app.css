@@ -134,6 +134,30 @@
 .top-drop-empty { padding: 10px 12px; font-size: 13px; color: var(--ink-3); }
 @media (min-width: 720px) { .search-view .search-header { display: none; } .side-head-row .rail-dup { display: none; } }
 @media (max-width: 719px) { .topbar { display: none; } }
+/* The bar's far end: <puter-user-menu> (puter.js; src/ui/usermenu.js), where
+   the loaded puter.js has it, with the Apps launcher and the Puter account.
+   Its parts take the bar's button looks (Back and Forward's, the primary
+   button's); its menu and Apps panel take the app's menu card, in both themes. */
+.top-end { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+puter-user-menu { flex: none; }
+puter-user-menu::part(apps-button) { width: 30px; height: 30px; border-radius: 7px; color: var(--ink-2); }
+puter-user-menu::part(avatar) { width: 28px; height: 28px; line-height: 28px; font-size: 13px; }
+puter-user-menu::part(sign-in) {
+  height: 30px; padding: 0 12px;
+  border: 0; border-radius: 7px;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover { background: var(--surface-2); color: var(--ink); }
+  puter-user-menu::part(sign-in):hover { background: var(--accent-strong); }
+}
+puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
+  background: var(--surface);
+  border-color: var(--hairline-strong);
+  --caret-border: var(--hairline-strong);
+  --caret-fill: var(--surface);
+}
 /* The top bar absorbs the top safe area for everything under it: while it
    shows (a workspace open, at widths where it is not hidden), the headers
    below must not add the inset again, or each carries a blank band; nor

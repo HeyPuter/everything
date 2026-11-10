@@ -118,3 +118,20 @@ describe('the chart dialog', () => {
     expect(sizeInput().closest('.row').hidden).toBe(true);
   });
 });
+
+// A line chart in the app's own style leaves its points unmarked past 60 categories, and kept to that when a series
+// was given a marker size or shape (Edit chart's Marker size, the assistant): the setting changed nothing.
+it('marks a long line series that was given a marker size or shape, a very long one too', () => {
+  const wb = new Workbook(), id = wb.activeSheetId;
+  wb.setInput(id, 0, 0, 'Day'); wb.setInput(id, 0, 1, 'Load'); wb.setInput(id, 0, 2, 'Base');
+  for (let r = 1; r <= 100; r++) { wb.setInput(id, r, 0, `D${r}`); wb.setInput(id, r, 1, String(r % 7)); wb.setInput(id, r, 2, '3'); }
+  const chart = normalizeChart({ type: 'line', range: { r1: 0, c1: 0, r2: 100, c2: 2 }, anchor: { r: 0, c: 5 }, seriesLines: [{ markerSize: 9 }] });
+  const svg = renderChartSvg(chartData(wb, id, chart), chart, 480, 300);
+  // The first series' 100 points at 9pt; the second, with no marker of its own, stays a bare line.
+  expect(radii(svg)).toEqual(Array(100).fill(6));
+  for (let r = 101; r <= 3000; r++) { wb.setInput(id, r, 0, `D${r}`); wb.setInput(id, r, 1, '1'); }
+  const long = { ...chart, range: { r1: 0, c1: 0, r2: 3000, c2: 1 }, seriesLines: [{ markerSymbol: 'square' }] };
+  const marks = (renderChartSvg(chartData(wb, id, long), long, 480, 300).match(/<rect class="chart-marker"/g) || []).length;
+  expect(marks).toBeGreaterThan(400);
+  expect(marks).toBeLessThanOrEqual(2000);
+});

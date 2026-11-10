@@ -5,6 +5,18 @@ import { type Vec2, angle2, cross2, dist2, dot2, sub2, wrap2Pi } from '../math/v
 
 export const ORIGIN_ID = 'O';
 
+/** Circle centre through three points; null when the points are collinear. */
+export function circumcenter(a: Vec2, b: Vec2, c: Vec2): Vec2 | null {
+  // Work relative to a picked point. Squaring world coordinates loses small
+  // radii when the sketch is far from the origin.
+  const bx = b[0] - a[0], by = b[1] - a[1];
+  const cx = c[0] - a[0], cy = c[1] - a[1];
+  const d = 2 * (bx * cy - by * cx);
+  if (Math.abs(d) < 1e-12) return null;
+  const b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+  return [a[0] + (b2 * cy - c2 * by) / d, a[1] + (bx * c2 - cx * b2) / d];
+}
+
 export class SketchIndex {
   readonly byId = new Map<Id, SkEntity>();
   constructor(readonly entities: SkEntity[]) {
@@ -257,10 +269,19 @@ export function intersectPrims(p: Prim, q: Prim, extendFirst = false): Vec2[] {
     const d = dist2(p.c!, q.c!);
     const r0 = p.r!, r1 = q.r!;
     if (d < 1e-12 || d > r0 + r1 + 1e-9 || d < Math.abs(r0 - r1) - 1e-9) return [];
-    const a = (r0 * r0 - r1 * r1 + d * d) / (2 * d);
-    const h = Math.sqrt(Math.max(0, r0 * r0 - a * a));
+    // Anchor the chord on the smaller circle: subtracting its offset from a
+    // much larger radius can erase the chord entirely. Factor the difference
+    // of the two largest squared lengths before adding the smallest square.
+    const swapped = r0 > r1;
+    const small = swapped ? q : p;
+    const r = Math.min(r0, r1), R = Math.max(r0, r1);
+    const a = (d > r
+      ? (d - R) * (d + R) + r * r
+      : (r - R) * (r + R) + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, (r - a) * (r + a)));
     const ex: Vec2 = [(q.c![0] - p.c![0]) / d, (q.c![1] - p.c![1]) / d];
-    const m: Vec2 = [p.c![0] + ex[0] * a, p.c![1] + ex[1] * a];
+    const offset = swapped ? -a : a;
+    const m: Vec2 = [small.c![0] + ex[0] * offset, small.c![1] + ex[1] * offset];
     const pts: Vec2[] = h < 1e-12 ? [m] : [[m[0] - ex[1] * h, m[1] + ex[0] * h], [m[0] + ex[1] * h, m[1] - ex[0] * h]];
     return pts.filter((x) => (extendFirst || onArc(p, x)) && onArc(q, x));
   }
@@ -268,17 +289,24 @@ export function intersectPrims(p: Prim, q: Prim, extendFirst = false): Vec2[] {
   const circ = p.kind === 'seg' ? q : p;
   const d = sub2(seg.b!, seg.a!);
   const f = sub2(seg.a!, circ.c!);
-  const A = dot2(d, d);
-  const B = 2 * dot2(f, d);
-  const C = dot2(f, f) - circ.r! * circ.r!;
-  const disc = B * B - 4 * A * C;
-  if (disc < 0 || A < 1e-24) return [];
-  const sq = Math.sqrt(disc);
-  const ts = sq < 1e-12 ? [-B / (2 * A)] : [(-B - sq) / (2 * A), (-B + sq) / (2 * A)];
+  const length = Math.hypot(d[0], d[1]);
+  if (length < 1e-12) return [];
+  const ux = d[0] / length, uy = d[1] / length;
+  // Intersect around the circle's perpendicular projection onto the line.
+  // The quadratic discriminant subtracts enormous nearly equal products for
+  // long lines, losing both roots (or inventing an intersection on a miss).
+  const perpendicular = ux * f[1] - uy * f[0];
+  const distance = Math.abs(perpendicular), radius = circ.r!;
+  if (distance > radius) return [];
+  const halfChord = Math.sqrt((radius - distance) * (radius + distance));
+  const along = -(f[0] * ux + f[1] * uy);
+  const center: Vec2 = [circ.c![0] - uy * perpendicular, circ.c![1] + ux * perpendicular];
+  const offsets = halfChord < 1e-12 ? [0] : [-halfChord, halfChord];
   const out: Vec2[] = [];
   const segIsFirst = p.kind === 'seg';
-  for (const t of ts) {
-    const pt: Vec2 = [seg.a![0] + d[0] * t, seg.a![1] + d[1] * t];
+  for (const offset of offsets) {
+    const t = (along + offset) / length;
+    const pt: Vec2 = [center[0] + ux * offset, center[1] + uy * offset];
     const segOk = (segIsFirst && extendFirst) || (t >= -1e-9 && t <= 1 + 1e-9);
     const arcOk = (!segIsFirst && extendFirst) || onArc(circ, pt);
     if (segOk && arcOk) out.push(pt);

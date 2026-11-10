@@ -30,6 +30,11 @@
 .chart-el-corner, .chart-el-handle { position: absolute; width: 6px; height: 6px; box-sizing: border-box; background: var(--surface); border: 1px solid var(--accent); }
 .chart-el-corner.nw { left: -3px; top: -3px; } .chart-el-corner.ne { right: -3px; top: -3px; }
 .chart-el-corner.sw { left: -3px; bottom: -3px; } .chart-el-corner.se { right: -3px; bottom: -3px; }
+/* A trendline label's corners resize it, with the cursor and "Resize" hint of the chart's own corner. */
+.chart-el-frame.resizable .chart-el-corner { pointer-events: auto; touch-action: none; }
+.chart-el-frame.resizable .chart-el-corner::before { content: ""; position: absolute; inset: -5px; }
+.chart-el-frame.resizable .chart-el-corner.nw, .chart-el-frame.resizable .chart-el-corner.se { cursor: nwse-resize; }
+.chart-el-frame.resizable .chart-el-corner.ne, .chart-el-frame.resizable .chart-el-corner.sw { cursor: nesw-resize; }
 /* A trendline label in the selected chart can be dragged where it reads best. */
 .chart-box.selected .chart-trendline-label { cursor: move; }
 .chart-title-editor {

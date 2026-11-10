@@ -13,6 +13,7 @@ import { rebaseWorkbookTarget, relativeWorkbookTarget, workbookPathUri } from '.
 import { tokenize } from './formula/tokenizer.js';
 import { sheetKey } from './refs.js';
 import { parseKey } from './cell.js';
+import { t } from '../i18n/index.js';
 
 /** Cells a refreshed link may cache in all, as the file format allows. */
 const MAX_CACHED_CELLS = 1048576;
@@ -55,10 +56,10 @@ export function linkEntries(wb) {
     const target = kind === 'dde' ? '' : book.target || '';
     return {
       index: i + 1, kind, target,
-      name: kind === 'dde' ? 'DDE link' : linkName(target),
-      type: kind === 'workbook' ? 'Workbook' : kind === 'dde' ? 'DDE' : 'OLE object',
+      name: kind === 'dde' ? t('editlinks.link.ddeLink') : linkName(target),
+      type: kind === 'workbook' ? t('editlinks.link.type.workbook') : kind === 'dde' ? t('editlinks.link.type.dde') : t('editlinks.link.type.ole'),
       // Workbook links follow their source whenever it is updated; the others wait to be asked.
-      update: kind === 'workbook' ? 'Automatic' : 'Manual',
+      update: kind === 'workbook' ? t('common.automatic') : t('editlinks.link.manual'),
       sheets: book.sheets.map((s) => s.name),
     };
   });
@@ -70,7 +71,7 @@ export function formulaUsesLink(formula, index) {
   let tokens;
   try { tokens = tokenize(formula); } catch { return true; }
   const prefix = `[${index}]`;
-  return tokens.some((t) => [t.sheet, t.sheetEnd].some((s) => typeof s === 'string' && s.startsWith(prefix)));
+  return tokens.some((tok) => [tok.sheet, tok.sheetEnd].some((s) => typeof s === 'string' && s.startsWith(prefix)));
 }
 
 /**
@@ -83,7 +84,7 @@ export function linkUsage(wb, index) {
   for (const sheet of wb.sheets) {
     for (const [key, cell] of sheet.cells) if (cell.f != null && formulaUsesLink(cell.f, index)) cells.push({ sheetId: sheet.id, ...parseKey(key) });
     for (const rule of [...(sheet.rules || []), ...(sheet.validations || [])]) if (textsOf(rule).some((f) => formulaUsesLink(f, index))) other++;
-    for (const t of sheet.tables || []) for (const f of Object.values(t.calc || {})) if (formulaUsesLink(f, index)) other++;
+    for (const table of sheet.tables || []) for (const f of Object.values(table.calc || {})) if (formulaUsesLink(f, index)) other++;
   }
   for (const n of wb.names || []) if (formulaUsesLink(n.ref, index)) other++;
   return { cells, other };
@@ -139,7 +140,7 @@ export function refreshedSheets(book, source) {
 }
 
 /** Update Values: refresh link `index` from its source workbook (a Workbook). One undo step. Returns the sheets the source lacked. */
-export function updateLinkValues(wb, index, source, label = 'Update link values') {
+export function updateLinkValues(wb, index, source, label = t('editlinks.undo.update')) {
   const book = wb.externalWorkbooks?.books[index - 1];
   if (!book || book.kind) return { missing: [], updated: false };
   const { sheets, missing } = refreshedSheets(book, source);
@@ -159,7 +160,7 @@ export function changeLinkSource(wb, index, target, source = null) {
   let next = { ...rest, target: String(target).trim() };
   let missing = [];
   if (source) ({ sheets: next.sheets, missing } = { ...refreshedSheets(next, source) });
-  wb.setExternalWorkbooks(withBook(wb, index, next), 'Change link source');
+  wb.setExternalWorkbooks(withBook(wb, index, next), t('editlinks.undo.changeSource'));
   return { changed: true, missing };
 }
 
@@ -175,7 +176,8 @@ export function breakLink(wb, index) {
   let converted = 0;
   let removed = false;
   let kept = 0;
-  wb.transaction('Break link', () => {
+  const label = t('editlinks.undo.break');
+  wb.transaction(label, () => {
     const bySheet = new Map();
     for (const at of linkUsage(wb, index).cells) {
       if (!bySheet.has(at.sheetId)) bySheet.set(at.sheetId, []);
@@ -186,7 +188,7 @@ export function breakLink(wb, index) {
       const { count } = snapshot;
       // A value keeps no record of the result the link last gave its formula.
       const entries = snapshot.entries.map((e) => { const cell = { ...e.cell }; delete cell.externalResult; return { ...e, cell }; });
-      if (entries.length && wb.setCells(sheetId, entries, 'Break link')) converted += count;
+      if (entries.length && wb.setCells(sheetId, entries, label)) converted += count;
     }
     const left = linkUsage(wb, index);
     kept = left.cells.length + left.other;
@@ -194,11 +196,11 @@ export function breakLink(wb, index) {
     // Nothing reads the link now: it goes, and [n+1] and after become [n] and after everywhere they are written.
     const shift = (f) => (typeof f === 'string' && f.includes('[') ? mapExternalWorkbookRefs(f, (n) => (n > index ? n - 1 : n)) : f);
     const later = wb.externalWorkbooks.books.length > index;
-    wb.setExternalWorkbooks(withBook(wb, index, null), 'Break link');
+    wb.setExternalWorkbooks(withBook(wb, index, null), label);
     if (later) {
-      wb._rewriteFormulas((f) => shift(f), 'Break link');
-      wb._rewriteNamedFormulas((f) => shift(f), 'Break link');
-      wb._rewriteRuleFormulas((f) => shift(f), 'Break link');
+      wb._rewriteFormulas((f) => shift(f), label);
+      wb._rewriteNamedFormulas((f) => shift(f), label);
+      wb._rewriteRuleFormulas((f) => shift(f), label);
     }
     removed = true;
   });

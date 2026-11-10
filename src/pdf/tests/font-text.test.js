@@ -59,7 +59,7 @@ for (const variant of ['regular', 'bold', 'italic', 'boldItalic']) {
       async (url) =>
         new Response(
           await readFile(
-            new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url),
+            new URL(`../public/fonts/${String(url).split('/fonts/').pop()}`, import.meta.url),
           ),
         ),
     );

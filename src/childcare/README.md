@@ -1,5 +1,7 @@
 # Childcare
 
+**Live app:** [childcare.puter.com](https://childcare.puter.com/)
+
 Free, open-source management for childcare centers, preschools, and family daycares. An open-source alternative to brightwheel, Procare, and HiMama.
 
 It is built with vanilla JavaScript, Vite, and [Lucide](https://lucide.dev) icons. [Puter.js](https://docs.puter.com) is the only backend: there is no framework and no server of its own.

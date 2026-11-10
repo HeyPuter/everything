@@ -4,8 +4,13 @@
 import { opts } from '../input.js';
 import { closestPoint, intersectPrims, toPrims } from '../../core/geom/index.js';
 import { findBoundary, toHatchLoops } from '../../core/hatch/boundary.js';
-import { tessellate } from '../../core/geom/index.js';
+import { loopsToRings, pointInRing } from '../../core/hatch/fill.js';
+import { getPattern, patternNames } from '../../core/hatch/patterns.js';
+import { tessellate, transformEntity } from '../../core/geom/index.js';
+import { insertMatrix } from '../../core/tessellate.js';
+import { drawBands } from '../../core/display.js';
 import { angleOf, loopFromEntity } from './util.js';
+import { tableKey } from '../../core/schema.js';
 
 const JUSTIFY = [
   { key: 'L', label: 'Left', value: 'left|baseline' },
@@ -42,8 +47,10 @@ export const TEXT = {
       if (p.option === 'style') {
         const names = [...ed.drawing.textStyles.keys()];
         const s = await ed.getString(`Text style name (${names.join(', ')})`, { default: ed.header.textStyle });
-        if (ed.drawing.textStyles.has(s)) ed.commit('Text style', () => ed.drawing.setHeader({ textStyle: s }));
-        else ed.ui.log(`There is no text style named "${s}".`, 'error');
+        // Style names ignore letter case, as in DXF and DWG.
+        const key = s ? tableKey(ed.drawing.textStyles, s) : null;
+        if (key) ed.commit('Text style', () => ed.drawing.setHeader({ textStyle: key }));
+        else if (s) ed.ui.log(`There is no text style named "${s}".`, 'error');
         continue;
       }
       break;
@@ -61,7 +68,20 @@ export const TEXT = {
     const [halign, valign] = just.split('|');
     let pos = p;
     for (;;) {
-      const base = ed.make('text', { x: pos.x, y: pos.y, h, rot, value: '', style: ed.header.textStyle, halign, valign, widthFactor: 1, oblique: 0 });
+      // New text takes the style's width factor and obliquing, like AutoCAD.
+      const wf = style?.widthFactor > 0 ? style.widthFactor : 1;
+      const base = ed.make('text', {
+        x: pos.x,
+        y: pos.y,
+        h,
+        rot,
+        value: '',
+        style: ed.header.textStyle,
+        halign,
+        valign,
+        widthFactor: wf,
+        oblique: style?.oblique || 0,
+      });
       const value = await ed.editText({ anchor: pos, height: h, rot, multiline: false, onChange: (v) => ed.renderer.setPreview(v ? [{ ...base, value: v }] : []) });
       ed.renderer.setPreview([]);
       if (!value) return;
@@ -118,7 +138,7 @@ async function dimOrigins(ed) {
     const e = pick.ent;
     if (e.type === 'line') return [{ x: e.x1, y: e.y1 }, { x: e.x2, y: e.y2 }];
     if (e.type === 'arc') return [{ x: e.cx + e.r * Math.cos(e.start), y: e.cy + e.r * Math.sin(e.start) }, { x: e.cx + e.r * Math.cos(e.end), y: e.cy + e.r * Math.sin(e.end) }];
-    if (e.type === 'circle') return [{ x: e.cx - e.r, y: e.cy }, { x: e.cx + e.r, y: e.cy }];
+    if (e.type === 'circle') return Object.assign([{ x: e.cx - e.r, y: e.cy }, { x: e.cx + e.r, y: e.cy }], { circle: e });
     if (e.type === 'polyline') {
       // The segment under the pick.
       const p = e.pts;
@@ -193,8 +213,16 @@ export const DIMLINEAR = {
     const o = await dimOrigins(ed);
     if (!o) return;
     const [a, b] = o;
+    const c = o.circle;
     const make = (p, text, fixedRot) => {
       let rot = fixedRot;
+      if (c) {
+        // A circle's diameter along the dimension: horizontal above or below it, vertical beside it.
+        if (rot === null) rot = Math.abs(p.y - c.cy) >= Math.abs(p.x - c.cx) ? 0 : Math.PI / 2;
+        const ux = Math.cos(rot) * c.r,
+          uy = Math.sin(rot) * c.r;
+        return dimBase(ed, { dimType: 'linear', x1: c.cx - ux, y1: c.cy - uy, x2: c.cx + ux, y2: c.cy + uy, lx: p.x, ly: p.y, rot, text });
+      }
       if (rot === null) {
         const inX = p.x > Math.min(a.x, b.x) && p.x < Math.max(a.x, b.x);
         const inY = p.y > Math.min(a.y, b.y) && p.y < Math.max(a.y, b.y);
@@ -233,7 +261,7 @@ export const DIMANGULAR = {
   icon: 'dim-angular',
   async run(ed) {
     const pick = await ed.getEntity('Select arc, circle or line (Enter to specify the vertex)', { filter: (e) => ['line', 'arc', 'circle'].includes(e.type) });
-    let v, p1, p2;
+    let v, p1, p2, locate;
     if (pick === null) {
       v = await ed.getPoint('Angle vertex');
       if (!v || v.option) return;
@@ -256,8 +284,13 @@ export const DIMANGULAR = {
         if (!q || q.option) return;
         p2 = q;
       } else {
-        const second = await ed.getEntity('Select second line', { filter: (x) => x.type === 'line' });
-        if (!second || second.option) return;
+        let second;
+        for (;;) {
+          second = await ed.getEntity('Select second line', { filter: (x) => x.type === 'line' });
+          if (!second || second.option) return;
+          if (second.id !== pick.id) break;
+          ed.ui.log('That line is already picked. Select a different line.', 'error');
+        }
         const f = second.ent;
         const ip = intersectPrims(toPrims(e)[0], toPrims(f)[0], { extA: true, extB: true });
         if (!ip || !ip.length) {
@@ -265,17 +298,41 @@ export const DIMANGULAR = {
           return;
         }
         v = ip[0];
-        // Rays from the vertex toward the picked side of each line.
-        const side = (ln, px, py) => {
-          const far = Math.hypot(ln.x1 - v.x, ln.y1 - v.y) > Math.hypot(ln.x2 - v.x, ln.y2 - v.y) ? { x: ln.x1, y: ln.y1 } : { x: ln.x2, y: ln.y2 };
-          const proj = (px - v.x) * (far.x - v.x) + (py - v.y) * (far.y - v.y);
-          return proj >= 0 ? far : { x: 2 * v.x - far.x, y: 2 * v.y - far.y };
+        // Each line gives a ray on both sides of the vertex: its endpoint
+        // there, or else its far endpoint mirrored through the vertex.
+        const rays = (ln) => {
+          const a = { x: ln.x1, y: ln.y1 },
+            b = { x: ln.x2, y: ln.y2 };
+          const da = Math.hypot(a.x - v.x, a.y - v.y),
+            db = Math.hypot(b.x - v.x, b.y - v.y);
+          const [far, near, dn] = da >= db ? [a, b, db] : [b, a, da];
+          const opposite = (near.x - v.x) * (far.x - v.x) + (near.y - v.y) * (far.y - v.y) < 0;
+          const mirrored = { x: 2 * v.x - far.x, y: 2 * v.y - far.y };
+          const back = opposite && dn > 1e-9 * da ? near : mirrored;
+          return [far, back];
         };
-        p1 = side(e, pick.x, pick.y);
-        p2 = side(f, second.x, second.y);
+        const r1 = rays(e),
+          r2 = rays(f);
+        // Like AutoCAD, the location picks which of the four angles (all
+        // under 180 degrees) between the lines is dimensioned.
+        locate = (p) => {
+          const ux = r1[0].x - v.x,
+            uy = r1[0].y - v.y,
+            wx = r2[0].x - v.x,
+            wy = r2[0].y - v.y;
+          const px = p.x - v.x,
+            py = p.y - v.y;
+          const det = ux * wy - uy * wx;
+          p1 = (px * wy - py * wx) / det >= 0 ? r1[0] : r1[1];
+          p2 = (ux * py - uy * px) / det >= 0 ? r2[0] : r2[1];
+        };
       }
     }
-    const make = (p, text) => dimBase(ed, { dimType: 'angular', x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, x3: v.x, y3: v.y, lx: p.x, ly: p.y, text });
+    const make = (p, text) => {
+      locate?.(p);
+      const pts = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, x3: v.x, y3: v.y, lx: p.x, ly: p.y };
+      return dimBase(ed, { dimType: 'angular', ...pts, text });
+    };
     const d = await placeDim(ed, make);
     if (d) ed.commit('Angular dimension', () => (ed.lastDim = ed.drawing.add(d)));
   },
@@ -289,8 +346,13 @@ async function radial(ed, type) {
     cy = e.cy,
     r = e.r;
   if (e.type === 'polyline') {
-    ed.ui.log('Select an arc or a circle.', 'error');
-    return;
+    // The arc segment under the pick.
+    const arc = closestPoint(e, pick.x, pick.y)?.prim;
+    if (arc?.t !== 'arc') {
+      ed.ui.log('Select an arc segment of the polyline.', 'error');
+      return;
+    }
+    ({ cx, cy, r } = arc);
   }
   const make = (p, text) => {
     const a = Math.atan2(p.y - cy, p.x - cx);
@@ -411,24 +473,175 @@ export const LEADER = {
 
 // Hatching ------------------------------------------------------------------
 
-/** Curves (polylines in world space) of visible geometry around a point, for boundary detection. */
+/**
+ * Curves (polylines in world space) of visible geometry in rect, for boundary
+ * detection. Block references contribute their objects; construction lines
+ * and rays are cut to a segment that spans the rectangle. Each curve carries
+ * the id of the object it came from.
+ */
 function curvesNear(ed, rect) {
   const out = [];
+  const d = ed.drawing;
   const tol = 0.5 / ed.camera.scale;
-  for (const id of ed.doc.index.search(rect[0], rect[1], rect[2], rect[3], false)) {
-    const e = ed.drawing.get(id);
-    if (!e || !ed.drawing.layerVisible(e.layer)) continue;
-    if (e.type === 'hatch' || e.type === 'text' || e.type === 'mtext' || e.type === 'dimension' || e.type === 'point') continue;
-    if (e.type === 'line') out.push({ pts: [e.x1, e.y1, e.x2, e.y2], closed: false });
-    else {
-      try {
-        for (const p of tessellate(e, tol)) out.push(p);
-      } catch {
-        /* skip */
+  const cx = (rect[0] + rect[2]) / 2,
+    cy = (rect[1] + rect[3]) / 2;
+  const reach = Math.hypot(rect[2] - rect[0], rect[3] - rect[1]);
+  const blocks = new Set();
+  let top = null;
+  const add = (e, depth) => {
+    switch (e.type) {
+      case 'hatch':
+      case 'text':
+      case 'mtext':
+      case 'dimension':
+      case 'point':
+        return;
+      case 'line':
+        out.push({ pts: [e.x1, e.y1, e.x2, e.y2], closed: false, id: top });
+        return;
+      case 'xline':
+      case 'ray': {
+        const l = Math.hypot(e.dx, e.dy);
+        if (!(l > 0)) return;
+        const ux = e.dx / l,
+          uy = e.dy / l;
+        const far = Math.hypot(e.x - cx, e.y - cy) + reach;
+        const t0 = e.type === 'ray' ? 0 : -far;
+        const pts = [e.x + ux * t0, e.y + uy * t0, e.x + ux * far, e.y + uy * far];
+        out.push({ pts, closed: false, id: top });
+        return;
+      }
+      case 'insert': {
+        const b = d.blocks.get(e.name);
+        if (!b || depth >= 8 || blocks.has(e.name)) return;
+        const m = insertMatrix(e, b);
+        blocks.add(e.name);
+        for (const sub of b.entities) {
+          if (sub.layer !== '0' && !d.layerVisible(sub.layer)) continue;
+          add(transformEntity(sub, m), depth + 1);
+        }
+        blocks.delete(e.name);
+        return;
+      }
+      default:
+        try {
+          for (const p of tessellate(e, tol)) out.push({ ...p, id: top });
+        } catch {
+          /* skip */
+        }
+    }
+  };
+  for (const id of ed.doc.index.search(rect[0], rect[1], rect[2], rect[3])) {
+    const e = d.get(id);
+    top = id;
+    if (e && d.layerVisible(e.layer)) add(e, 0);
+  }
+  return out;
+}
+
+/** Ids of the objects that the edges of picked loops (straight edges) lie on. */
+function boundaryIds(ed, loops) {
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity;
+  for (const l of loops) {
+    for (let i = 0; i < l.length; i += 3) {
+      x0 = Math.min(x0, l[i]);
+      y0 = Math.min(y0, l[i + 1]);
+      x1 = Math.max(x1, l[i]);
+      y1 = Math.max(y1, l[i + 1]);
+    }
+  }
+  const tol = 2 / ed.camera.scale;
+  const curves = curvesNear(ed, [x0 - tol, y0 - tol, x1 + tol, y1 + tol]).map((c) => {
+    let bx0 = Infinity,
+      by0 = Infinity,
+      bx1 = -Infinity,
+      by1 = -Infinity;
+    for (let i = 0; i < c.pts.length; i += 2) {
+      bx0 = Math.min(bx0, c.pts[i]);
+      by0 = Math.min(by0, c.pts[i + 1]);
+      bx1 = Math.max(bx1, c.pts[i]);
+      by1 = Math.max(by1, c.pts[i + 1]);
+    }
+    return { ...c, box: [bx0 - tol, by0 - tol, bx1 + tol, by1 + tol] };
+  });
+  const ids = new Set();
+  const onCurve = (c, x, y) => {
+    const p = c.pts,
+      n = p.length >> 1;
+    const m = c.closed ? n : n - 1;
+    for (let i = 0; i < m; i++) {
+      const j = (i + 1) % n;
+      const ax = p[i * 2],
+        ay = p[i * 2 + 1],
+        dx = p[j * 2] - ax,
+        dy = p[j * 2 + 1] - ay;
+      const l2 = dx * dx + dy * dy;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)) : 0;
+      if (Math.hypot(ax + dx * t - x, ay + dy * t - y) <= tol) return true;
+    }
+    return false;
+  };
+  for (const l of loops) {
+    const n = l.length / 3;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const x = (l[i * 3] + l[j * 3]) / 2,
+        y = (l[i * 3 + 1] + l[j * 3 + 1]) / 2;
+      for (const c of curves) {
+        if (c.id == null || ids.has(c.id)) continue;
+        const b = c.box;
+        if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3] && onCurve(c, x, y)) ids.add(c.id);
       }
     }
   }
-  return out;
+  return ids;
+}
+
+/**
+ * Put a new hatch behind its boundary objects, as AutoCAD does by default
+ * (HPDRAWORDER). Fills already go beneath lines within a draw-order band, so
+ * this only moves it when the boundary lies in an earlier band than the end
+ * of the drawing, where the hatch would otherwise cover it.
+ */
+function placeBehindBoundary(ed, id, loops, selected) {
+  const d = ed.drawing;
+  const bands = drawBands(d.entities.values());
+  if (!bands.band) return;
+  const ids = boundaryIds(ed, loops);
+  for (const k of selected) ids.add(k);
+  const mine = bands.of.get(id) ?? 0;
+  for (const k of d.entities.keys()) {
+    if (!ids.has(k)) continue;
+    if ((bands.of.get(k) ?? 0) < mine) d.moveBefore([id], k);
+    return;
+  }
+}
+
+/** True when (x, y) lies in the area of the picked loops (even-odd). */
+function insideLoops(loops, x, y) {
+  let n = 0;
+  for (const r of loopsToRings(loops)) if (pointInRing(x, y, r) === 1) n++;
+  return n % 2 === 1;
+}
+
+/** True when two straight-edged loops have the same vertices, in any order and direction. */
+function sameLoop(a, b, tol) {
+  if (a.length !== b.length) return false;
+  const pts = (l) => {
+    const out = [];
+    for (let i = 0; i < l.length; i += 3) {
+      if (l[i + 2]) return null;
+      out.push([l[i], l[i + 1]]);
+    }
+    return out.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  };
+  const pa = pts(a),
+    pb = pts(b);
+  if (!pa || !pb) return false;
+  return pa.every((p, i) => Math.abs(p[0] - pb[i][0]) <= tol && Math.abs(p[1] - pb[i][1]) <= tol);
 }
 
 export const HATCH = {
@@ -438,10 +651,16 @@ export const HATCH = {
   icon: 'hatch',
   async run(ed) {
     const st = (ed.hatchSettings ??= { pattern: 'SOLID', scale: 1, angle: 0 });
-    ed.ui.showHatchPanel?.(st, () => ed.renderer.setPreview(pendingPreview()));
-    const loops = [];
+    const preview = () => ed.renderer.setPreview(pendingPreview());
+    const showPanel = () => ed.ui.showHatchPanel?.(st, preview);
+    showPanel();
+    let loops = [];
+    // Loops before each pick, so Undo takes back a whole pick with its islands.
+    const history = [];
     const pendingPreview = () => (loops.length ? [ed.make('hatch', { loops, pattern: st.pattern, scale: st.scale, angle: st.angle })] : []);
     let mode = 'pick';
+    // Boundary objects chosen with Select objects.
+    const selected = new Set();
     try {
       for (;;) {
         if (mode === 'pick') {
@@ -456,13 +675,18 @@ export const HATCH = {
             continue;
           }
           if (p.option === 'undo') {
-            loops.pop();
+            if (history.length) loops = history.pop();
             ed.renderer.setPreview(pendingPreview());
             continue;
           }
           if (p.option === 'settings') {
             await hatchSettingsPrompt(ed, st);
+            showPanel();
             ed.renderer.setPreview(pendingPreview());
+            continue;
+          }
+          if (insideLoops(loops, p.x, p.y)) {
+            ed.ui.log('That area is already in the hatch.', 'muted');
             continue;
           }
           const v = ed.camera.bounds();
@@ -472,14 +696,26 @@ export const HATCH = {
             ed.ui.log('No closed boundary was found around that point. Zoom out so the whole boundary is visible, or select objects instead.', 'error');
             continue;
           }
-          for (const l of toHatchLoops(res)) loops.push(l);
+          history.push(loops);
+          loops = loops.slice();
+          // A boundary shared whole with an earlier pick (an island picked
+          // inside, or the area around one) merges the two areas.
+          const tol = 1e-9 * Math.max(1, Math.abs(p.x), Math.abs(p.y), v[2] - v[0], v[3] - v[1]);
+          for (const l of toHatchLoops(res)) {
+            const k = loops.findIndex((m) => sameLoop(m, l, tol));
+            if (k >= 0) loops.splice(k, 1);
+            else loops.push(l);
+          }
           ed.renderer.setPreview(pendingPreview());
         } else {
           const ids = await ed.getSelection('Select closed objects', { fresh: true });
           ed.clearSelection();
           for (const id of ids) {
             const l = loopFromEntity(ed.drawing.get(id));
-            if (l) loops.push(l);
+            if (l) {
+              loops.push(l);
+              selected.add(id);
+            }
           }
           if (!loops.length) {
             ed.ui.log('Select closed polylines, circles, ellipses or splines.', 'error');
@@ -490,7 +726,11 @@ export const HATCH = {
         }
       }
       if (!loops.length) return;
-      ed.commit('Hatch', () => ed.drawing.add(ed.make('hatch', { loops, pattern: st.pattern, scale: st.scale, angle: st.angle })));
+      ed.commit('Hatch', () => {
+        const { pattern, scale, angle } = st;
+        const h = ed.drawing.add(ed.make('hatch', { loops, pattern, scale, angle }));
+        placeBehindBoundary(ed, h.id, loops, selected);
+      });
     } finally {
       ed.ui.showHatchPanel?.(null);
     }
@@ -499,7 +739,12 @@ export const HATCH = {
 
 async function hatchSettingsPrompt(ed, st) {
   const name = await ed.getString('Pattern name', { default: st.pattern });
-  if (name) st.pattern = name.toUpperCase();
+  const pat = name ? getPattern(name) : null;
+  if (pat) st.pattern = pat.name;
+  else if (name) {
+    const list = patternNames().join(', ');
+    ed.ui.log(`There is no hatch pattern named "${name}". Patterns: ${list}.`, 'error');
+  }
   const s = await ed.getNumber('Pattern scale', { default: st.scale });
   if (Number.isFinite(s) && s > 0) st.scale = s;
   const a = await ed.getAngle('Pattern angle', { default: st.angle });

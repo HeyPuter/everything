@@ -67,6 +67,11 @@ describe('remove_duplicates', () => {
     expect(JSON.parse(run('remove_duplicates', { range: 'A1:C6', columns: ['A', 'B'] }).content).removed_rows).toBe(2);
   });
 
+  it('words the question for one row going and one staying', () => {
+    const { describe } = setup([['Name'], ['Ann'], ['ann']]);
+    expect(describe('remove_duplicates', { range: 'A1:A3' }).detail).toBe('Deletes 1 row that repeats an earlier row; 1 row stays.');
+  });
+
   it('says when there are no duplicates, and does not ask', () => {
     const { run, describe } = setup([['x', 1], ['y', 2]]);
     expect(describe('remove_duplicates', { range: 'A1:B2', has_header: false }).destructive).toBe(false);
