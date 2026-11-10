@@ -632,7 +632,25 @@ export class Store extends Emitter {
     }
     list.splice(index ?? list.length, 0, copy);
     this.touchNotebook(target);
-    for (const page of copiedPages) await this.copyAssets(page);
+    try {
+      for (const page of copiedPages) await this.copyAssets(page);
+    } catch (err) {
+      // A picture or file that has to be encrypted for the copy couldn't
+      // be: take the half-made copy out again rather than leave pages that
+      // point at the original's files.
+      const at = list.indexOf(copy);
+      if (at >= 0) list.splice(at, 1);
+      for (const page of copiedPages) {
+        this.cancel(`pages/${page.id}.json`);
+        this.pages.delete(page.id);
+        this.staleAssets.delete(page.id);
+        this.backend.remove(`pages/${page.id}.json`).catch(() => {});
+      }
+      this.keys.delete(copy.id);
+      this.touchNotebook(target);
+      this.emit('change', { type: 'section', id: copy.id });
+      throw err;
+    }
     this.emit('change', { type: 'section', id: copy.id });
     return copy;
   }

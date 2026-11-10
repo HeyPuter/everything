@@ -627,4 +627,26 @@ describe('password-protected sections: copies', () => {
     await store.lockSection(section.id);
     expect(await store.copySection(section.id)).toBeNull();
   });
+
+  it('takes a copy out again when its pictures cannot be encrypted for it', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    const page = await store.loadPage(meta.id);
+    const asset = await store.saveAsset(new Blob(['png bytes'], { type: 'image/png' }), 'a.png', { sectionId: section.id });
+    page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+    store.pageChanged(page);
+    await store.flush();
+    const sections = [...store.sectionsOf(store.notebooks[0])].length;
+    const writeBlob = backend.writeBlob;
+    backend.writeBlob = async () => {
+      throw new Error('network');
+    };
+    await expect(store.copySection(section.id)).rejects.toThrow('network');
+    backend.writeBlob = writeBlob;
+    await store.flush();
+    expect([...store.sectionsOf(store.notebooks[0])].length).toBe(sections);
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect([...fresh.sectionsOf(fresh.notebooks[0])].length).toBe(sections);
+  });
 });
