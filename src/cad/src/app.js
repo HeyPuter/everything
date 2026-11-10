@@ -28,7 +28,7 @@ import { Renderer } from './render/renderer.js';
 import { Overlay } from './editor/overlay.js';
 import { Editor, DEFAULT_SETTINGS, CancelError } from './editor/editor.js';
 import { buildRegistry } from './editor/commands/index.js';
-import { encodeDrawing, decodeDrawing, fileKind, kindExt, baseName } from './io/native.js';
+import { encodeDrawing, decodeDrawing, fileKind, kindExt, baseName, VERSION as NATIVE_VERSION } from './io/native.js';
 import { importDxf, exportDxf, exportDwg } from './io/dxf-client.js';
 import * as storage from './io/storage.js';
 import * as platform from './platform.js';
@@ -628,8 +628,15 @@ export class App {
     try {
       let drawing;
       let dropped;
-      if (kind === 'native') drawing = new Drawing(await decodeDrawing(buffer));
-      else {
+      if (kind === 'native') {
+        const data = await decodeDrawing(buffer);
+        drawing = new Drawing(data);
+        if (data.version > NATIVE_VERSION) {
+          // What this version does not know is not kept: Save asks before replacing the file.
+          dropped = 'content from a newer version of the app';
+          this.cmdline.log(`${name} was saved with a newer version of the app. Parts of it may be missing here.`, 'muted');
+        }
+      } else {
         const res = await importDxf(buffer);
         drawing = new Drawing(res.drawing);
         const skipped = Object.entries(res.stats?.skipped || {});
