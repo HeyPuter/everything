@@ -23,6 +23,22 @@ import { pointInRing, ringArea } from './fill.js';
  * islands clockwise), or null when the point is not enclosed.
  */
 export function findBoundary(px, py, curves, opts = {}) {
+  // Work relative to the pick point: the merge tolerance follows the size of
+  // the coordinates, and far from the origin it would swallow small shapes
+  // and close small gaps.
+  if ((px !== 0 || py !== 0) && Number.isFinite(px) && Number.isFinite(py)) {
+    const move = (pts, dx, dy) => {
+      const out = new Array(pts.length);
+      for (let i = 0; i + 1 < pts.length; i += 2) {
+        out[i] = pts[i] + dx;
+        out[i + 1] = pts[i + 1] + dy;
+      }
+      return out;
+    };
+    const near = (curves ?? []).map((c) => (c?.pts ? { pts: move(c.pts, -px, -py), closed: c.closed } : c));
+    const r = findBoundary(0, 0, near, opts);
+    return r && { outer: move(r.outer, px, py), islands: r.islands.map((i) => move(i, px, py)) };
+  }
   const segs = [];
   let x0 = Infinity,
     y0 = Infinity,

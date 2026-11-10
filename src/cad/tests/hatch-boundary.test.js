@@ -145,3 +145,26 @@ describe('findBoundary', () => {
     expect(Math.abs(ringArea(r.outer))).toBeLessThan(1.1);
   });
 });
+
+describe('findBoundary far from the origin', () => {
+  const O = 1e7;
+  const sq = (x, y, s) => ({ pts: [O + x, O + y, O + x + s, O + y, O + x + s, O + y + s, O + x, O + y + s], closed: true });
+
+  it('keeps a 4 mm island and can hatch inside it', () => {
+    const curves = [sq(0, 0, 10), sq(5, 5, 0.004)];
+    const inside = findBoundary(O + 5.002, O + 5.002, curves);
+    expect(ringArea(inside.outer)).toBeCloseTo(1.6e-5, 9);
+    const around = findBoundary(O + 2, O + 2, curves);
+    expect(ringArea(around.outer)).toBeCloseTo(100, 6);
+    expect(around.islands).toHaveLength(1);
+    // the corners come back exactly
+    expect(box(around.outer)).toEqual([O, O, O + 10, O + 10]);
+  });
+
+  it('does not close a 4 mm gap in the outline', () => {
+    const open = { pts: [O, O, O + 10, O, O + 10, O + 10, O, O + 10, O, O + 0.004], closed: false };
+    const r = findBoundary(O + 5, O + 5, [open, sq(-5, -5, 20)]);
+    expect(ringArea(r.outer)).toBeCloseTo(400, 6);
+    expect(findBoundary(O + 5, O + 5, [open])).toBeNull();
+  });
+});
