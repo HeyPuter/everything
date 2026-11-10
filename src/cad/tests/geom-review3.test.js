@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as G from '../src/core/geom/index.js';
+import { layoutText } from '../src/core/text/layout.js';
 
 describe('spline length far from the origin', () => {
   it('converges at once and matches the same curve at the origin', () => {
@@ -82,4 +83,31 @@ describe('small offsets far from the origin', () => {
       }
     }
   });
+});
+
+describe('mirroring text across its baseline direction', () => {
+  // 'H' is its own mirror image, so the mirrored strokes must cover the mirrored extent.
+  const inkBox = (ent, m) => {
+    const b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const s of layoutText(ent).strokes) {
+      for (let i = 0; i < s.length; i += 2) {
+        const q = m ? G.apply(m, s[i], s[i + 1]) : { x: s[i], y: s[i + 1] };
+        G.growBox(b, q.x, q.y);
+      }
+    }
+    return b;
+  };
+  const m = G.mirror(0, 5, 1, 5.3);
+
+  for (const valign of ['baseline', 'bottom', 'middle', 'top']) {
+    it(`puts ${valign} text where its mirror image is, and back again`, () => {
+      const t = { type: 'text', x: 3, y: 2, h: 2, rot: 0.7, value: 'H', halign: 'left', valign, widthFactor: 1, oblique: 0 };
+      const once = G.transformEntity(t, m);
+      const want = inkBox(t, m);
+      inkBox(once).forEach((v, i) => expect(v).toBeCloseTo(want[i], 9));
+      const twice = G.transformEntity(once, m);
+      const orig = inkBox(t);
+      inkBox(twice).forEach((v, i) => expect(v).toBeCloseTo(orig[i], 9));
+    });
+  }
 });
