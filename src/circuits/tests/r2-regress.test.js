@@ -151,3 +151,20 @@ describe('opening another project with unsaved changes', () => {
     app.kernel.dispose();
   });
 });
+
+describe('design rules dialog', () => {
+  it('keeps its error line out of the way until there is an error', async () => {
+    const { rulesDialog } = await import('../src/app/dialogs.js');
+    const { defaultRules } = await import('../src/model/schema.js');
+    document.body.innerHTML = '<div id="live-region"></div>';
+    const ed = { doc: { rules: defaultRules(), nets: {}, store: { transact() {} } } };
+    rulesDialog({ settings: { get: () => 'mm' } }, ed);
+    await tick(5);
+    const alert = document.querySelector('.dialog [role=alert]');
+    expect(alert.textContent).toBe('');
+    // Box styles of its own would cover the last rule shown above the buttons.
+    expect(alert.style.padding).toBe('');
+    expect(alert.style.background).toBe('');
+    expect(alert.classList.contains('dialog-error')).toBe(true);
+  });
+});

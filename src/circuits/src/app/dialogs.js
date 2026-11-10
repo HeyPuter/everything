@@ -84,7 +84,7 @@ export async function rulesDialog(app, ed) {
   for (const [k, l] of [['rules', 'Clearances and sizes'], ['classes', 'Net classes']]) tabs.append(h('button', { type: 'button', role: 'tab', dataset: { k }, onClick: () => show(k) }, l));
   show('rules');
   // The list of rules is longer than the dialog: keep the message in view.
-  const err = h('div.small.sev-error', { role: 'alert', style: { position: 'sticky', bottom: '-14px', padding: '4px 0', background: 'var(--bg-panel)' } });
+  const err = h('div.small.sev-error.dialog-error', { role: 'alert' });
   const oldWidth = r.trackWidth;
   let newWidth = null;
   await openDialog({
