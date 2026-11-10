@@ -9,6 +9,7 @@ import { showMenu } from './menu.js';
 import { RIBBON } from './ribbon-def.js';
 import { buildCombo } from './combos.js';
 import { roving } from './roving.js';
+import { focusVisible } from './focus.js';
 
 const SHORTCUTS = { UNDO: 'Ctrl+Z', REDO: 'Ctrl+Y', COPYCLIP: 'Ctrl+C', CUTCLIP: 'Ctrl+X', PASTECLIP: 'Ctrl+V', SELECTALL: 'Ctrl+A', PROPERTIES: 'Ctrl+1', SAVE: 'Ctrl+S', OPEN: 'Ctrl+O', NEW: 'Ctrl+N', PLOT: 'Ctrl+P', COPYBASE: 'Ctrl+Shift+C' };
 
@@ -77,6 +78,11 @@ export class Ribbon {
   }
 
   renderTabs() {
+    // Re-rendering removes the focused tab: keyboard focus goes to its
+    // replacement. Not after a mouse click, so that keys then go to the
+    // drawing as before (Enter repeats the last command).
+    const focused = document.activeElement;
+    const refocus = this.tablist.contains(focused) && focusVisible(focused) ? focused.id : null;
     clear(this.tablist);
     for (const t of this.tabs) {
       const selected = t.id === this.active;
@@ -120,6 +126,7 @@ export class Ribbon {
       });
       this.tablist.append(btn);
     }
+    if (refocus) [...this.tablist.children].find((b) => b.id === refocus)?.focus();
   }
 
   select(id) {

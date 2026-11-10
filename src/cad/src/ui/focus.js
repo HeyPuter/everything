@@ -25,3 +25,12 @@ export function keepScroll(scroller) {
     scroller.scrollLeft = left;
   };
 }
+
+/** Whether el has keyboard focus (true where :focus-visible is not supported). */
+export function focusVisible(el) {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return true;
+  }
+}
