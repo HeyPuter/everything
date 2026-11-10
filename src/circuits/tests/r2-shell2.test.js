@@ -450,6 +450,41 @@ describe('Messages rows', () => {
     expect(row.textContent).toBe('error: Clearance violationBoard1.pcb');
     document.body.innerHTML = '';
   });
+
+  // A check can report thousands of problems: per-row document lookups,
+  // icons built from scratch and two listeners per row made the list slow.
+  it('render a long list with one lookup per document and still open their problem', () => {
+    let lookups = 0;
+    const seen = [];
+    const app = {
+      project: { getDoc: (id) => (lookups++, { name: `${id}.sch` }) },
+      focusMessage: (m) => seen.push(m.message),
+      setBottomDock: () => {},
+    };
+    const panel = new MessagesPanel(app);
+    document.body.append(panel.el);
+    const items = Array.from({ length: 300 }, (_, i) => ({
+      severity: i % 2 ? 'error' : 'warning',
+      message: `Problem ${i}`,
+      docId: `d${i % 3}`,
+    }));
+    panel.set(items, 'Compile');
+    expect(lookups).toBe(3);
+    const rows = panel.list.querySelectorAll('.list-row');
+    expect(rows).toHaveLength(300);
+    expect(rows[1].querySelector('svg').classList.contains('sev-error')).toBe(true);
+    expect(rows[2].querySelector('svg').classList.contains('sev-warning')).toBe(true);
+    expect(rows[4].querySelector('.sub').textContent).toBe('d1.sch');
+    // A click anywhere in the row, Enter and Space all open its problem.
+    rows[7].querySelector('.grow').click();
+    rows[8].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    rows[9].dispatchEvent(space);
+    rows[9].dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+    expect(seen).toEqual(['Problem 7', 'Problem 8', 'Problem 9']);
+    expect(space.defaultPrevented).toBe(true);
+    panel.el.remove();
+  });
 });
 
 describe('SVG export file names', () => {
