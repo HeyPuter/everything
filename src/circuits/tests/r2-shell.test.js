@@ -328,3 +328,18 @@ describe('find dialog', () => {
       .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });
 });
+
+describe('messages dock', () => {
+  it('is one landmark, not two with the same name', async () => {
+    const { default: axe } = await import('axe-core');
+    const { app } = await bootLocal();
+    app.setBottomDock(true);
+    const res = await axe.run(document.getElementById('app'), {
+      runOnly: { type: 'rule', values: ['landmark-unique'] },
+    });
+    expect(res.violations.flatMap((v) => v.nodes.map((n) => n.target.join(' ')))).toEqual([]);
+    // The panel inside the dock is the labelled region.
+    expect(app.bottomDock.querySelector('section[aria-labelledby="msg-title"]')).not.toBeNull();
+    app.kernel.dispose();
+  });
+});

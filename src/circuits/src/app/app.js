@@ -231,7 +231,8 @@ export class App extends Emitter {
 
     this.leftDock = this._dock('left', LEFT_PANELS, 'Project panels');
     this.rightDock = this._dock('right', RIGHT_PANELS, 'Design panels');
-    this.bottomDock = h('section.dock.dock-bottom', { 'aria-label': 'Messages', hidden: true }, h('div.resizer', { 'aria-hidden': 'true' }), this.panels.messages.el);
+    // No landmark of its own: the Messages panel inside it is the labelled region.
+    this.bottomDock = h('div.dock.dock-bottom', { hidden: true }, h('div.resizer', { 'aria-hidden': 'true' }), this.panels.messages.el);
     this._resizer(this.bottomDock.firstChild, 'bottom');
 
     this.docTabs = h('div.doc-tabs');
