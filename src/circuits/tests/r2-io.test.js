@@ -436,3 +436,38 @@ describe('projects with missing or damaged names', () => {
     }
   });
 });
+
+describe('boards whose outline is damaged', () => {
+  const file = (over) =>
+    JSON.stringify({ format: 'circuits-project', version: 1, name: 'P', documents: [], ...over });
+
+  it('exports a board whose outline or cutouts are not point lists', () => {
+    const p = parseProject(
+      file({
+        documents: [
+          {
+            kind: 'pcb',
+            name: 'B.pcb',
+            board: { outline: 'x', cutouts: 5 },
+            objects: [{ id: 'v', t: 'via', x: mm(1), y: mm(1), d: mm(0.6), drill: mm(0.3) }],
+          },
+          {
+            kind: 'pcb',
+            name: 'C.pcb',
+            board: {
+              outline: [0, 0, mm(5), 0, mm(5), 'q'],
+              cutouts: [null, [0, 0, 1], [0, 0, mm(1), 0, mm(1), mm(1)]],
+            },
+          },
+        ],
+      }),
+    );
+    const [b, c] = p.boards;
+    expect(b.board.outline.length).toBeGreaterThanOrEqual(6);
+    expect(b.board.cutouts).toEqual([]);
+    expect(c.board.cutouts).toEqual([[0, 0, mm(1), 0, mm(1), mm(1)]]);
+    expect(c.board.outline.every(Number.isFinite)).toBe(true);
+    for (const d of p.boards)
+      expect(() => exportGerbers(d.snapshot(), p.library, {})).not.toThrow();
+  });
+});

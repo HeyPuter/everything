@@ -335,6 +335,12 @@ export function parseProject(json) {
     if (!d.id || docIds.has(d.id)) d.id = uid('d');
     docIds.add(d.id);
     if (!Array.isArray(d.objects)) d.objects = [];
+    if (d.kind === 'pcb' && isObj(d.board)) {
+      // The outline and cutouts are drawn and exported as flat point lists.
+      const flat = (r) => Array.isArray(r) && r.length % 2 === 0 && r.every(Number.isFinite);
+      d.board = { ...d.board, cutouts: (Array.isArray(d.board.cutouts) ? d.board.cutouts : []).filter((c) => flat(c) && c.length >= 6) };
+      if (!flat(d.board.outline)) delete d.board.outline; // the default outline is used
+    }
     // Ids of the document settings entries ('sheet', 'board', ...) are reserved.
     const seen = new Set(META_TYPES);
     const usable = (o) => o && typeof o === 'object' && typeof o.t === 'string' && !META_TYPES.has(o.t);
