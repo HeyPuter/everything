@@ -69,6 +69,27 @@ describe('App shell', () => {
     expect(pages()).toBe(before + 1);
   });
 
+  it('runs a dialog action once when it is clicked twice', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    let runs = 0;
+    const { dialog } = openDialog({ title: 'Copy', body: document.createElement('p'), actions: [{ label: 'Copy', primary: true, run: async () => { runs++; await tick(5); } }] });
+    const btn = dialog.querySelector('.btn.primary');
+    btn.click();
+    btn.click();
+    await tick(20);
+    expect(runs).toBe(1);
+    expect(dialog.isConnected).toBe(false);
+    // An action that keeps the dialog open can run again.
+    let tries = 0;
+    const again = openDialog({ title: 'Check', body: document.createElement('p'), actions: [{ label: 'OK', primary: true, run: async () => { tries++; return false; } }] });
+    again.dialog.querySelector('.btn.primary').click();
+    await tick();
+    again.dialog.querySelector('.btn.primary').click();
+    await tick();
+    expect(tries).toBe(2);
+    again.close();
+  });
+
   it('leaves focus where a click that ended a rename put it', async () => {
     const row = app.nav.pagesList.querySelector('.row[aria-selected="true"]');
     row.focus();
