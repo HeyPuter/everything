@@ -266,7 +266,8 @@ export class PcbEditor extends CanvasView {
   }
 
   _schedulePours(delay = 250) {
-    if (!this.app.settings.get('autoRepour') && delay > 0) return;
+    // Without automatic repour the rule check still follows edits (a repour ends with one).
+    if (!this.app.settings.get('autoRepour') && delay > 0) { this._scheduleDrc(); return; }
     clearTimeout(this._pourTimer);
     this._pourTimer = setTimeout(() => this.repour(), delay);
   }

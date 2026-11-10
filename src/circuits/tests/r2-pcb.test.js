@@ -113,3 +113,26 @@ describe('starting a trace', () => {
     expect(ed.tool.trace.layer).toBe('top');
   });
 });
+
+describe('online rule check', () => {
+  it('runs again after an edit when automatic repour is off', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    let runs = 0;
+    app.kernel.drc = async () => {
+      runs++;
+      return [];
+    };
+    app.settings.set('onlineDrc', true);
+    expect(app.settings.get('autoRepour')).toBe(false);
+    // Turning the check on runs it once; wait that out.
+    await new Promise((r) => setTimeout(r, 800));
+    runs = 0;
+    const track = { id: 't1', t: 'track', layer: 'top', w: mm(0.25), net: 'VCC' };
+    ed.doc.store.transact('Add', (s) =>
+      s.add({ ...track, x1: mm(1), y1: mm(1), x2: mm(38), y2: mm(28) }),
+    );
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(runs).toBeGreaterThan(0);
+  });
+});
