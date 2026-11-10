@@ -144,3 +144,33 @@ describe('array sizes', () => {
     expect(t.all()).toHaveLength(30);
   });
 });
+
+describe('TRIM with chosen cutting edges', () => {
+  it('leaves an object that does not cross them instead of erasing it', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    add({ type: 'line', x1: 50, y1: -5, x2: 50, y2: 5 });
+    add({ type: 'line', x1: 5, y1: -5, x2: 5, y2: 5 });
+    await t.type('TRIM', 'E');
+    await t.pick(50, 0);
+    await t.type('');
+    const steps = t.drawing.undoStack.length;
+    // Line 3 crosses line 1 but is not a cutting edge; the edge is far away.
+    await t.pick(2, 0);
+    expect(t.logs.at(-1)).toEqual(['error', 'That object does not cross a cutting edge.']);
+    expect(t.drawing.get(1)).toMatchObject({ x1: 0, x2: 10 });
+    expect(t.drawing.undoStack.length).toBe(steps);
+    expect(t.ed.busy).toBe(true);
+    await t.type('U');
+    expect(t.logs.at(-1)).toEqual(['muted', 'Nothing to undo in this command.']);
+    await t.type('');
+    expect(t.all('line')).toHaveLength(3);
+  });
+
+  it('still erases an object nothing crosses when every object is a cutting edge', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    await t.type('TRIM');
+    await t.pick(2, 0);
+    await t.type('');
+    expect(t.all()).toHaveLength(0);
+  });
+});

@@ -417,6 +417,12 @@ async function trimOrExtend(ed, extendFirst) {
         ed.ui.log('That object could not be trimmed.', 'error');
         continue;
       }
+      if (!r && edges) {
+        // Erasing is only for trimming against everything: an object clear
+        // of the chosen cutting edges is not theirs to cut.
+        ed.ui.log('That object does not cross a cutting edge.', 'error');
+        continue;
+      }
       if (!r) {
         // Nothing crosses it: trimming removes it entirely, as an eraser would.
         ed.commit('Trim', () => ed.drawing.remove(pick.id));
