@@ -187,6 +187,20 @@ export class PageEditor extends Emitter {
     const z = this.zoom;
     const viewW = this.scroller.clientWidth / z;
     const viewH = this.scroller.clientHeight / z;
+    const phone = window.innerWidth <= 760;
+    // A container that sizes to its text grows up to 640px, which on a phone
+    // runs off the screen and scrolls the page sideways as you type. There it
+    // wraps at the screen edge instead, when it starts far enough to the left
+    // to leave a readable column. Only the display changes: the note keeps
+    // its automatic width, so wider screens still show it at full measure.
+    const auto = [...this.outlinesEl.children].filter((el) => el.classList.contains('auto-width') || el.style.maxWidth);
+    const caps = auto.map((el) => {
+      const room = Math.floor(viewW - el.offsetLeft - 16);
+      return phone && el.classList.contains('auto-width') && room >= 160 && room < 640 ? `${room}px` : '';
+    });
+    auto.forEach((el, i) => {
+      if (el.style.maxWidth !== caps[i]) el.style.maxWidth = caps[i];
+    });
     let right = 0;
     let bottom = 0;
     for (const el of this.outlinesEl.children) {
@@ -202,7 +216,6 @@ export class PageEditor extends Emitter {
     // 760px breakpoint) have no room to spare: there the page is as wide as
     // the screen unless its content is wider, so it does not always scroll
     // sideways. Note positions are absolute either way.
-    const phone = window.innerWidth <= 760;
     const w = Math.max(viewW, right + (phone ? 16 : 240), phone ? 0 : 960);
     const hgt = Math.max(viewH, bottom + 320);
     this.pageEl.style.width = `${w}px`;
@@ -412,6 +425,7 @@ export class PageEditor extends Emitter {
       resized = true;
       const w = Math.max(80, Math.round(w0 + p.x - start.x));
       outline.style.width = `${w}px`;
+      outline.style.maxWidth = '';
       outline.classList.remove('auto-width');
     };
     const onUp = () => {

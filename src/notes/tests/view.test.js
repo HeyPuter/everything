@@ -225,4 +225,28 @@ describe('page width', () => {
     app.editor.layout();
     expect(app.editor.pageEl.style.width).toBe('960px');
   });
+
+  it('wraps an automatic-width note at the edge of a phone screen', async () => {
+    await mount();
+    const editor = app.editor;
+    const el = editor.createOutlineAt(150, 300);
+    Object.defineProperty(editor.scroller, 'clientWidth', { configurable: true, value: 390 });
+    Object.defineProperty(el, 'offsetLeft', { configurable: true, value: 150 });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    editor.layout();
+    expect(el.style.maxWidth).toBe('224px');
+    // The note itself keeps its automatic width.
+    expect(editor.outlineModel(el).w).toBe(null);
+    // Too far right to leave a readable column: left at its full measure.
+    Object.defineProperty(el, 'offsetLeft', { configurable: true, value: 300 });
+    editor.layout();
+    expect(el.style.maxWidth).toBe('');
+    // Wider screens show it at full measure again.
+    Object.defineProperty(el, 'offsetLeft', { configurable: true, value: 150 });
+    editor.layout();
+    expect(el.style.maxWidth).toBe('224px');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    editor.layout();
+    expect(el.style.maxWidth).toBe('');
+  });
 });
