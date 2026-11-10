@@ -259,16 +259,24 @@ export class TaskPanes {
     const outputActions = h('div', { style: { display: 'flex', gap: '6px', margin: '8px 0' }, hidden: true });
     let result = '';
     let lastSelection = null;
+    let latest = null;
     const run = async (prompt, label) => {
+      // Only the newest request's answer is shown: a slower, earlier one
+      // must not replace it (Insert would then put that answer where the
+      // newer request's selection was).
+      const request = (latest = {});
       output.replaceChildren(h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', color: 'var(--text-3)' } }, h('div.spinner'), `${label}...`));
       outputActions.hidden = true;
       try {
-        result = (await app.ai.ask(prompt)).trim();
+        const answer = (await app.ai.ask(prompt)).trim();
+        if (request !== latest) return;
+        result = answer;
         output.textContent = result || 'No answer.';
         // Rewrite and proofread replace the text they were given.
         insert.replaceChildren(icon('plus', 14), lastSelection ? 'Replace Selection' : 'Insert on Page');
         outputActions.hidden = !result;
       } catch (err) {
+        if (request !== latest) return;
         output.textContent = `Assist could not answer: ${err?.message || err?.error?.message || 'request failed'}`;
       }
     };

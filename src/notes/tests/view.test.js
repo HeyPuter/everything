@@ -83,6 +83,27 @@ describe('assist pane', () => {
     expect(button('Replace Selection')).toBeFalsy();
   });
 
+  it('shows the answer to the newest request when an older one arrives late', async () => {
+    await mount();
+    const waiting = [];
+    app.ai = { available: () => true, ask: () => new Promise((resolve) => waiting.push(resolve)) };
+    const body = app.editor.createOutlineAt(100, 200).querySelector('.outline-body');
+    body.innerHTML = '<p>Some text to work on.</p>';
+    body.dispatchEvent(new Event('input', { bubbles: true }));
+    app.runCommand('assist');
+    await new Promise((r) => setTimeout(r, 20));
+    const pane = document.querySelector('.task-pane');
+    const button = (label) => [...pane.querySelectorAll('button')].find((b) => b.textContent.includes(label));
+    button('Summarize').click();
+    button('action items').click();
+    waiting[1]('ACTION ITEMS');
+    await new Promise((r) => setTimeout(r, 0));
+    waiting[0]('SUMMARY');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pane.textContent).toContain('ACTION ITEMS');
+    expect(pane.textContent).not.toContain('SUMMARY');
+  });
+
   it('replaces a triple-clicked paragraph without taking the next paragraph with it', async () => {
     await mount();
     app.ai = { available: () => true, ask: async () => 'Better text.' };
