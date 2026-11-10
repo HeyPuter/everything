@@ -5,7 +5,7 @@
 
 import { mm } from '../core/units.js';
 import { padForPin } from './place.js';
-import { footprintBox } from './pcb.js';
+import { footprintBox, pcbBounds } from './pcb.js';
 import { bboxOfFlat } from '../core/geom.js';
 
 /**
@@ -42,6 +42,12 @@ export function planSync(project, boardDoc) {
   // Placement for new components: a grid to the right of the board outline.
   const outline = bboxOfFlat(boardDoc.board?.outline || [0, 0, 0, 0]);
   let cursorX = outline.maxX + mm(10), cursorY = outline.maxY, rowH = 0;
+  // Parts from an earlier update may still wait there: start below them.
+  for (const o of boardDoc.items()) {
+    if (o.t !== 'comp') continue;
+    const b = pcbBounds(o, lib);
+    if (b.maxX > outline.maxX && b.minY - mm(3) < cursorY) cursorY = b.minY - mm(3);
+  }
   const colLimit = outline.maxX + mm(10) + Math.max(mm(60), (outline.maxX - outline.minX) * 0.8);
 
   const sortedParts = [...parts.values()].sort((a, b) => a.part.designator.localeCompare(b.part.designator, undefined, { numeric: true }));

@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { planSync, applySync } from '../src/model/sync.js';
 import { Project, newProjectData } from '../src/model/project.js';
 import { findComponent, cloneDef } from '../src/model/library/builtin.js';
+import { pcbBounds } from '../src/model/pcb.js';
 import { mil } from '../src/core/units.js';
 
 let project, sheet, board;
@@ -77,5 +78,27 @@ describe('planSync after annotation shifts the designators', () => {
     expect(board.store.get('joined').net).not.toBe(board.store.get('stub').net);
     expect(board.rules.netClasses.a.nets).toEqual([comp('u1').padNets[2]]);
     expect(board.rules.netClasses.b.nets).toEqual([comp('u2').padNets[2]]);
+  });
+});
+
+describe('planSync placing new components', () => {
+  it('does not stack a new part on parts still waiting beside the board', () => {
+    const part = { t: 'part', comp: 'res-0603', y: mil(2000), rot: 0 };
+    sheet.store.transact('add', (s) => {
+      s.add({ ...part, id: 'p3', designator: 'R3', value: '47k', x: 0, uid: 'u3' });
+      s.add({ ...part, id: 'p4', designator: 'R4', value: '47k', x: mil(1000), uid: 'u4' });
+    });
+    applySync(board, planSync(project, board));
+    const comps = [...board.items()].filter((o) => o.t === 'comp');
+    expect(comps).toHaveLength(4);
+    const boxes = comps.map((c) => pcbBounds(c, project.library));
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const apart = a.maxX < b.minX || b.maxX < a.minX || a.maxY < b.minY || b.maxY < a.minY;
+        expect(apart, `${comps[i].designator} overlaps ${comps[j].designator}`).toBe(true);
+      }
+    }
   });
 });
