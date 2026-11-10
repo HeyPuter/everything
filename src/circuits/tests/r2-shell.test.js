@@ -267,3 +267,43 @@ describe('typing with an input method (IME)', () => {
     expect(placed).toEqual([]);
   });
 });
+
+describe('lists of rows that act as buttons', () => {
+  const structure = async (el) => {
+    const { default: axe } = await import('axe-core');
+    const rules = ['aria-required-children', 'aria-allowed-role', 'list', 'listitem'];
+    const res = await axe.run(el, { runOnly: { type: 'rule', values: rules } });
+    return res.violations.map((v) => v.id);
+  };
+
+  it('keeps the navigator a valid list for assistive technology', async () => {
+    const { NavigatorPanel } = await import('../src/ui/panels/navigator.js');
+    const part = { id: 'a', t: 'part', designator: 'R1', value: '10k', comp: 'res' };
+    const ed = { kind: 'sch', highlight: null, selection: new Set(), doc: { items: () => [part] } };
+    const netlist = () => ({ nets: [{ name: 'GND', nodes: [1, 2] }] });
+    const nav = new NavigatorPanel({ activeEditor: ed, project: { library: {}, netlist } });
+    document.body.append(nav.el);
+    nav.render();
+    expect(nav.list.querySelectorAll('[role="button"]')).toHaveLength(1);
+    expect(await structure(nav.el)).toEqual([]);
+    nav.mode = 'nets';
+    nav.render();
+    expect(nav.list.querySelectorAll('[role="button"]')).toHaveLength(1);
+    expect(await structure(nav.el)).toEqual([]);
+  });
+
+  it('keeps the messages panel a valid list too', async () => {
+    const { MessagesPanel } = await import('../src/ui/panels/messages.js');
+    const seen = [];
+    const panel = new MessagesPanel({ project: null, focusMessage: (m) => seen.push(m.message) });
+    document.body.append(panel.el);
+    panel.set([{ severity: 'error', message: 'Short between GND and VCC' }], 'Design rule check');
+    expect(await structure(panel.el)).toEqual([]);
+    const row = panel.list.querySelector('[role="button"]');
+    row.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+    row.click();
+    expect(seen).toHaveLength(2);
+  });
+});

@@ -43,14 +43,14 @@ export class MessagesPanel {
     }
     for (const m of shown.slice(0, 2000)) {
       const doc = this.app.project?.getDoc(m.docId);
-      const row = h('li.list-row', { tabindex: 0, role: 'button', 'aria-label': `${m.severity}: ${m.message}` },
+      const row = h('div.list-row', { tabindex: 0, role: 'button', 'aria-label': `${m.severity}: ${m.message}` },
         icon(m.severity === 'error' ? 'error' : 'warning', 15, m.severity === 'error' ? 'sev-error' : 'sev-warning'),
         h('div.grow', m.message),
         h('span.sub', doc?.name || ''));
       const go = () => this.app.focusMessage(m);
       row.addEventListener('click', go);
       row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
-      this.list.append(row);
+      this.list.append(h('li', row));
     }
   }
 }
