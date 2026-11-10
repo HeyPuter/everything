@@ -1851,8 +1851,10 @@ export class App {
       else this.editor.cancel();
       return;
     }
+    // On a Mac keyboard the key labelled "delete" is Backspace (there is no forward Delete key).
+    const del = e.key === 'Delete' || (MOD === 'Cmd' && e.key === 'Backspace' && !this.cmdline.value());
     // Not from the palettes: Delete on a layer or block there must not erase objects out of sight.
-    if (e.key === 'Delete' && !this.editor.busy && this.doc?.selection.size && !t.closest?.('.dock')) {
+    if (del && !this.editor.busy && this.doc?.selection.size && !t.closest?.('.dock')) {
       e.preventDefault();
       this.run('ERASE');
       return;
