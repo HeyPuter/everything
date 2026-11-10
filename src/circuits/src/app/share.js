@@ -2,7 +2,7 @@
 // other person opens it from "Shared with me", and with edit access their
 // saves go back to the same file.
 
-import { h, clear } from '../ui/dom.js';
+import { h, clear, isComposing } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { openDialog } from '../ui/dialog.js';
 import { puter, cloudAvailable } from './puter.js';
@@ -55,7 +55,7 @@ export async function shareDialog(app) {
     }
     return false;
   };
-  who.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+  who.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); add(); } });
 
   render();
   await openDialog({

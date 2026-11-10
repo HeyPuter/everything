@@ -1,6 +1,6 @@
 // Application dialogs.
 
-import { h, nextId, clear, shortcutLabel, modKey } from '../ui/dom.js';
+import { h, nextId, clear, shortcutLabel, modKey, isComposing } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { openDialog, buildForm, confirmDialog } from '../ui/dialog.js';
 import { formatLength, parseLength, mm } from '../core/units.js';
@@ -358,6 +358,7 @@ export function commandPalette(app) {
   const run = (i) => { const c = items[i]; if (!c) return; dlg.close(); setTimeout(() => app.commands.run(c.id), 0); };
   input.addEventListener('input', () => { sel = 0; render(); });
   input.addEventListener('keydown', (e) => {
+    if (isComposing(e)) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(items.length - 1, sel + 1); render(); list.children[sel]?.scrollIntoView({ block: 'nearest' }); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); render(); list.children[sel]?.scrollIntoView({ block: 'nearest' }); }
     else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); run(sel); }
@@ -563,6 +564,7 @@ export function findDialog(app) {
   const go = (i) => { const r = results[i]; if (!r) return; dlg.close(); r.go(); };
   input.addEventListener('input', () => { sel = 0; render(); });
   input.addEventListener('keydown', (e) => {
+    if (isComposing(e)) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(results.length - 1, sel + 1); render(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); render(); }
     else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go(sel); }

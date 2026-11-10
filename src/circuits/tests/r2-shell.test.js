@@ -199,3 +199,71 @@ describe('autoroute progress dialog', () => {
     expect(toasts).toEqual([]);
   });
 });
+
+describe('typing with an input method (IME)', () => {
+  // Enter that confirms a composition arrives as a keydown marked isComposing
+  // (Chrome, Firefox) or with keyCode 229 just after it ended (Safari).
+  const composingEnter = (el, init = { isComposing: true }) => {
+    const ev = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    });
+    el.dispatchEvent(ev);
+    return ev;
+  };
+
+  it('does not submit a dialog on the Enter that confirms the composition', async () => {
+    const { promptDialog } = await import('../src/ui/dialog.js');
+    let settled = false;
+    const result = promptDialog({ title: 'Rename project', label: 'Project name', value: '' });
+    result.then(() => {
+      settled = true;
+    });
+    await tick(20);
+    const input = document.querySelector('.dialog input');
+    input.value = 'かいろ';
+    composingEnter(input);
+    composingEnter(input, { keyCode: 229 });
+    await tick(5);
+    expect(settled).toBe(false);
+    expect(document.querySelector('.dialog')).not.toBeNull();
+    input.value = '回路';
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+    expect(await result).toBe('回路');
+  });
+
+  it('does not run the selected command from the command search', async () => {
+    const { commandPalette } = await import('../src/app/dialogs.js');
+    const ran = [];
+    const cmd = { id: 'file.new', label: 'New project' };
+    commandPalette({ commands: { available: () => [cmd], run: (id) => ran.push(id) } });
+    await tick(20);
+    composingEnter(document.querySelector('.palette-input'));
+    await tick(5);
+    expect(ran).toEqual([]);
+    expect(document.querySelector('.dialog')).not.toBeNull();
+    document
+      .querySelector('.dialog')
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+
+  it('does not place a part from the component search', async () => {
+    const { ComponentsPanel } = await import('../src/ui/panels/components.js');
+    const placed = [];
+    const ed = { kind: 'sch', placePart: (def) => placed.push(def.id) };
+    const panel = new ComponentsPanel({
+      activeEditor: ed,
+      project: null,
+      isCompact: false,
+      toast() {},
+    });
+    document.body.append(panel.el);
+    panel.refresh();
+    composingEnter(panel.search);
+    expect(placed).toEqual([]);
+  });
+});

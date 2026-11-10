@@ -85,6 +85,14 @@ export function shortcutLabel(s, { mac = isMac } = {}) {
 /** The primary modifier's name for help text: '⌘' on macOS, 'Ctrl' elsewhere. */
 export const modKey = ({ mac = isMac } = {}) => (mac ? '⌘' : 'Ctrl');
 
+/**
+ * True for a keydown that belongs to an input method: the Enter, Escape or
+ * arrow key that confirms or moves through a composition (Chinese, Japanese,
+ * Korean and others) is not a command. Safari reports the confirming key just
+ * after the composition ended, with keyCode 229.
+ */
+export const isComposing = (e) => !!e.isComposing || e.keyCode === 229;
+
 /** Trap Tab focus within a container; returns a release function. */
 export function trapFocus(container) {
   const onKey = (e) => {

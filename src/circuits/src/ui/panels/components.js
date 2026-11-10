@@ -2,7 +2,7 @@
 // symbol and footprint, and place parts. Double click, Enter or the Place
 // button starts placement in the active schematic or board.
 
-import { h, clear, announce } from '../dom.js';
+import { h, clear, announce, isComposing } from '../dom.js';
 import { icon } from '../icons.js';
 import { BUILTIN_COMPONENTS, CATEGORIES, searchComponents } from '../../model/library/builtin.js';
 import { drawSymbolPreview, drawFootprintPreview } from '../preview.js';
@@ -37,6 +37,7 @@ export class ComponentsPanel {
     );
     this.search.addEventListener('input', () => { this.query = this.search.value; this.renderList(); });
     this.search.addEventListener('keydown', (e) => {
+      if (isComposing(e)) return;
       if (e.key === 'ArrowDown') { e.preventDefault(); this.list.focus(); this._move(1); }
       if (e.key === 'Enter') { e.preventDefault(); if (!this.selected) this._move(1); this.place(); }
     });
