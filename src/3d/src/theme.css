@@ -327,6 +327,12 @@ puter-user-menu::part(apps-panel) {
     display: none;
   }
 }
+/* narrower still, the scene and view layer names give up the width Sign in needs */
+@media (max-width: 900px) {
+  .topbar:has(puter-user-menu) .tb-scene .text-field {
+    width: 74px;
+  }
+}
 
 .screen-wrap {
   position: relative;
