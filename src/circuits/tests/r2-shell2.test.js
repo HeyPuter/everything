@@ -68,4 +68,34 @@ describe('My library with slow storage', () => {
     await Promise.all([a, b]);
     expect(idsIn(cloud.files.get(PATH))).toEqual(['a', 'b']);
   });
+
+  it('keeps the stored components when one is added while the library is loading', async () => {
+    const stored = JSON.stringify({
+      format: 'circuits-library',
+      version: 1,
+      components: [def('old-1'), def('old-2')],
+    });
+    const cloud = slowCloud(stored);
+    const lib = new UserLibrary();
+    const loading = lib.load();
+    await tick();
+    const adding = lib.put(def('new'));
+    await tick();
+    while (cloud.writes.length) cloud.writes.pop()();
+    await tick();
+    cloud.reads.shift()();
+    await loading;
+    for (let i = 0; i < 6; i++) {
+      await tick();
+      while (cloud.writes.length) cloud.writes.pop()();
+    }
+    await adding;
+    expect(idsIn(cloud.files.get(PATH))).toEqual(['new', 'old-1', 'old-2']);
+    expect(
+      lib
+        .all()
+        .map((d) => d.id)
+        .sort(),
+    ).toEqual(['new', 'old-1', 'old-2']);
+  });
 });

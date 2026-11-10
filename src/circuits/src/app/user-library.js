@@ -40,7 +40,15 @@ export class UserLibrary extends Emitter {
     return out;
   }
 
-  async load() {
+  load() {
+    // Changes made while this runs wait for it (see put), or the load would
+    // drop them after they had already replaced the stored file.
+    const loading = this._load().finally(() => { if (this._loading === loading) this._loading = null; });
+    this._loading = loading;
+    return loading;
+  }
+
+  async _load() {
     let text = null;
     // A library that exists but could not be read must not be replaced by
     // the next save (see _save).
@@ -60,12 +68,14 @@ export class UserLibrary extends Emitter {
   }
 
   async put(def) {
+    while (this._loading) await this._loading;
     this.defs.set(def.id, structuredClone(def));
     this.emit('change');
     await this._save();
   }
 
   async remove(id) {
+    while (this._loading) await this._loading;
     if (!this.defs.delete(id)) return;
     this.emit('change');
     await this._save();
