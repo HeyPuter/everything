@@ -14,6 +14,7 @@ import { closeMenu } from './menu.js';
 import { isDark, onThemeChange } from './theme.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
+import { hasUserMenu } from './user-menu.js';
 
 export const APPS_EMBED_URL = 'https://puter.com/embed/apps';
 export const APPS_NEWTAB_URL = 'https://puter.com/#apps';
@@ -30,9 +31,9 @@ let listening = false;
 
 const accountKey = () => session.accountId || '';
 
-/** The title bar button, or null inside a Puter app window. */
+/** The title bar button, or null inside a Puter app window and where <puter-user-menu> has its own. */
 export function appsButton() {
-  if (P.isApp()) return null;
+  if (P.isApp() || hasUserMenu()) return null;
   return el('button.icon-btn.apps-btn', {
     type: 'button', html: GRID_SVG, title: 'Apps', 'aria-label': 'Apps',
     'aria-haspopup': 'dialog', 'aria-expanded': 'false',

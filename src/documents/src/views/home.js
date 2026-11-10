@@ -11,8 +11,7 @@ import { icon, iconEl } from '../ui/icons.js';
 import { openMenu, clickClosedMenu, menuAnchor, closeMenu } from '../ui/menu.js';
 import { confirmDialog, promptDialog } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
-import { openAppMenu, renderAccountButton } from '../ui/appmenu.js';
-import { appsButton } from '../ui/apps-panel.js';
+import { accountControls } from '../ui/appmenu.js';
 import { openShortcuts } from '../ui/shortcuts.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
@@ -125,11 +124,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
     renderList();
   }
 
-  const avatar = el('button.icon-btn.user-btn', {
-    type: 'button', 'aria-label': 'Account menu', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
-    onclick: (e) => openAppMenu(e.currentTarget),
-  });
-  renderAccountButton(avatar);
+  const account = accountControls();
 
   // Sorting and searching work on the listed documents: signed out, there is no list for them to work on.
   const listTools = el('div.home-list-tools', {}, sortBtn, search);
@@ -139,8 +134,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
     el('header.home-head', {},
       el('h1.brand', {}, el('img.brand-mark', { src: `${import.meta.env.BASE_URL}icons/icon-64.png`, width: 30, height: 30, alt: '' }), el('span', {}, 'Documents')),
       el('div.grow'),
-      appsButton(),
-      avatar),
+      ...account.nodes),
     el('main.home-main', {},
       el('div.home-actions', {},
         el('button.btn.btn-primary.btn-lg', { type: 'button', html: icon('plus', 18, 2.2), onclick: newDoc }, el('span', {}, 'New document')),
@@ -528,7 +522,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
 
   const onKey = (e) => {
     if (e.key !== '?' || e.altKey || e.metaKey || e.ctrlKey) return;
-    if (/^(input|textarea|select)$/i.test(e.target?.tagName || '')) return;
+    if (/^(input|textarea|select|puter-user-menu)$/i.test(e.target?.tagName || '')) return;
     // A dialog or menu on top has the keyboard; the shortcut list must not open over it.
     if (document.querySelector('.modal-root:not(.closing), .menu') || !root.contains(e.target)) return;
     e.preventDefault();
@@ -538,11 +532,13 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
 
   load();
   let hadSession = !session.signedOut;
+  let wasSignedIn = session.signedIn;
   const onSession = () => {
-    renderAccountButton(avatar);
-    // Signing in brings the list; the sign-in state is replaced by the files.
-    if (!hadSession && !session.signedOut) load();
+    account.refresh();
+    // Signing in brings the list; the sign-in state is replaced by the files. Signing out takes them away.
+    if ((!hadSession && !session.signedOut) || (wasSignedIn && session.signedOut)) load();
     hadSession = !session.signedOut;
+    wasSignedIn = session.signedIn;
   };
   session.addEventListener('change', onSession);
   // A list that could not load (offline, say) loads by itself once the connection is back; Retry is for the rest.

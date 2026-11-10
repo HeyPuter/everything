@@ -139,6 +139,35 @@
 /* A phone's title bar has no room to spare: the document's name keeps it, and the launcher stays on the home screen. */
 @media (max-width: 480px) { .ed-header .apps-btn { display: none; } }
 
+/* ---------- <puter-user-menu> (puter.js; src/ui/user-menu.js) ----------
+   Where the loaded puter.js has it, it holds the Apps launcher and the account, after the Settings button. Its
+   parts take the header's icon button and primary button looks; its menu and Apps panel take the app's card,
+   in both themes. In the editor's title bar they match the pills beside them, as the app's own do. */
+puter-user-menu { flex: none; }
+puter-user-menu::part(apps-button) { border-radius: var(--r-sm); color: var(--ink-2); }
+puter-user-menu::part(sign-in) {
+  height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-sm);
+  background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.ed-header .settings-btn { width: 32px; height: 32px; border-radius: 7px; color: var(--ed-ink-2); }
+.ed-header puter-user-menu::part(apps-button) { width: 32px; height: 32px; border-radius: 7px; color: var(--ed-ink-2); }
+.ed-header puter-user-menu::part(avatar) { width: 28px; height: 28px; line-height: 28px; font-size: 13px; }
+.ed-header puter-user-menu::part(sign-in) { height: 28px; padding: 0 10px; border-radius: 7px; }
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover { background: var(--surface-2); color: var(--ink); }
+  puter-user-menu::part(sign-in):hover { background: var(--accent-strong); }
+  .ed-header .settings-btn:hover, .ed-header puter-user-menu::part(apps-button):hover { background: var(--ed-hover); color: var(--ed-ink); }
+}
+puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
+  background: var(--surface); border-color: var(--hairline-strong);
+  --caret-border: var(--hairline-strong); --caret-fill: var(--surface);
+}
+/* A phone's title bar has no room to spare: the launcher stays on the home screen, as the app's own does, and
+   the settings are in File ▸ Preferences there. */
+@media (max-width: 480px) {
+  .ed-header .settings-btn, .ed-header puter-user-menu::part(apps-button) { display: none; }
+}
+
 .apps-panel {
   position: fixed;
   top: var(--apps-panel-top, 56px);

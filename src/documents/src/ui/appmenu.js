@@ -2,12 +2,17 @@
  * The account menu shared by the home screen and the editor: theme,
  * shortcuts, about, and (outside the Puter desktop) sign in or out. Inside a
  * Puter app window the desktop owns the session, so neither is offered there.
+ *
+ * Where puter.js has <puter-user-menu> (user-menu.js), that holds the account
+ * and the Apps launcher, and this menu is the Settings button's beside it,
+ * without the account's rows.
  */
 
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
-import { closeAppsPanel } from './apps-panel.js';
+import { appsButton, closeAppsPanel } from './apps-panel.js';
+import { userMenu } from './user-menu.js';
 import { openModal, confirmDialog } from './modal.js';
 import { toast } from './toast.js';
 import { openShortcuts } from './shortcuts.js';
@@ -19,7 +24,8 @@ import { autolinkEnabled, setAutolinkEnabled } from '../lib/linkify.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
 
-export function openAppMenu(anchor, { extraItems = [] } = {}) {
+/** `account: false` leaves out who is signed in and Sign in or out, for the Settings button beside <puter-user-menu>. */
+export function openAppMenu(anchor, { extraItems = [], account = true } = {}) {
   // The Apps panel hangs from the same corner: never both at once.
   closeAppsPanel();
   let opened = null;
@@ -37,7 +43,7 @@ export function openAppMenu(anchor, { extraItems = [] } = {}) {
   const darkPageItem = { label: 'Dark page', icon: 'brand', checked: darkPage(), disabled: !isDark(), hint: 'Dark paper with the dark theme', onSelect: () => setDarkPage(!darkPage()) };
 
   const items = [
-    { header: session.signedOut ? 'Not signed in' : session.username },
+    account && { header: session.signedOut ? 'Not signed in' : session.username },
     { custom: themeRow },
     darkPageItem,
     { separator: true },
@@ -49,12 +55,34 @@ export function openAppMenu(anchor, { extraItems = [] } = {}) {
     { label: 'Keyboard shortcuts', icon: 'keyboard', onSelect: openShortcuts },
     { label: 'About Documents', icon: 'info', onSelect: openAbout },
   ];
-  if (!P.isApp()) {
+  if (account && !P.isApp()) {
     items.push({ separator: true });
     if (session.signedOut) items.push({ label: 'Sign in to Puter', icon: 'login', hint: 'Save documents to your own cloud', onSelect: () => session.signIn() });
     else items.push({ label: 'Sign out', icon: 'logout', onSelect: confirmSignOut });
   }
-  opened = openMenu({ anchor, items: items.filter(Boolean), align: 'end', label: 'Account', minWidth: 250 });
+  opened = openMenu({ anchor, items: items.filter(Boolean), align: 'end', label: account ? 'Account' : 'Settings', minWidth: 250 });
+}
+
+/**
+ * A header's account corner, shared by the home screen and the editor: the Apps button and the account button,
+ * or, where puter.js has it, a Settings button and <puter-user-menu>, which holds both. `refresh` redraws the
+ * account button's face after the session changed.
+ */
+export function accountControls({ label = 'Account menu', buttonClass = 'icon-btn.user-btn' } = {}) {
+  const sdkMenu = userMenu({ onSignOut: confirmSignOut });
+  if (sdkMenu) {
+    const settings = el('button.icon-btn.settings-btn', {
+      type: 'button', html: icon('settings', 20), title: 'Settings', 'aria-label': 'Settings', 'aria-haspopup': 'menu',
+      onclick: (e) => openAppMenu(e.currentTarget, { account: false }),
+    });
+    return { nodes: [settings, sdkMenu], refresh() {} };
+  }
+  const avatar = el(`button.${buttonClass}`, {
+    type: 'button', 'aria-label': label, 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+    onclick: (e) => openAppMenu(e.currentTarget),
+  });
+  renderAccountButton(avatar);
+  return { nodes: [appsButton(), avatar], refresh: () => renderAccountButton(avatar) };
 }
 
 const accountFaces = new WeakMap();
