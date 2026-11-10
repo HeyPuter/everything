@@ -97,3 +97,12 @@ describe('Markdown text that looks like markup', () => {
     expect(htmlToMarkdown('<p>v1.2 costs 3.50 - really</p>')).toBe('v1.2 costs 3.50 - really');
   });
 });
+
+describe('Markdown round trips', () => {
+  it('keeps italic inside bold, a list\'s first number and code holding a fence', () => {
+    expect(markdownToHtml('**bold with *italic* inside** and **more**')).toBe('<p><b>bold with <i>italic</i> inside</b> and <b>more</b></p>');
+    for (const original of ['<ol start="3"><li>three</li><li>four</li></ol>', '<ol><li>one</li><li>two</li></ol>', '<pre>before\n```\ninside\n```\nafter</pre>', '<pre>plain code</pre>']) {
+      expect(markdownToHtml(htmlToMarkdown(original))).toBe(original);
+    }
+  });
+});
