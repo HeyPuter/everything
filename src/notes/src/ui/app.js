@@ -1149,6 +1149,8 @@ export class App {
     btn.addEventListener('mousedown', (e) => e.preventDefault());
     btn.addEventListener('click', openList);
     input.addEventListener('keydown', (e) => {
+      // Keys pressed while an input method is composing belong to it.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         apply(input.value);
@@ -1212,6 +1214,8 @@ export class App {
       show();
     };
     input.addEventListener('keydown', (e) => {
+      // Keys pressed while an input method is composing belong to it.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         showNow();

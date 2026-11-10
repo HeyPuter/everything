@@ -295,7 +295,8 @@ export class PageEditor extends Emitter {
       }
     }, { passive: false });
     this.titleEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
+      // Enter that accepts an input method's candidate belongs to the IME.
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
         e.preventDefault();
         this.focusFirstOutline();
       }

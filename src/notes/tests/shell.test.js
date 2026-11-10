@@ -56,6 +56,32 @@ describe('App shell', () => {
     expect(store.findPage(app.state.pageId).meta.title).toBe('Renamed');
   });
 
+  it('leaves Enter to the input method while it is composing', async () => {
+    const row = app.nav.pagesList.querySelector('.row[aria-selected="true"]');
+    row.focus();
+    keydown(row, 'F2');
+    const input = app.nav.pagesList.querySelector('input.row-rename');
+    input.value = 'にほ';
+    // Enter accepts the candidate: the rename box stays open.
+    expect(keydown(input, 'Enter', { isComposing: true, keyCode: 229 }).defaultPrevented).toBe(false);
+    await tick();
+    expect(app.nav.pagesList.querySelector('input.row-rename')).toBe(input);
+    keydown(input, 'Escape');
+    await tick();
+    // The page title: focus stays in it.
+    app.editor.titleEl.focus();
+    expect(keydown(app.editor.titleEl, 'Enter', { isComposing: true, keyCode: 229 }).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(app.editor.titleEl);
+    // Tell Me does not run the first result.
+    const tell = document.querySelector('.tell-me input');
+    tell.value = 'about';
+    tell.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(200);
+    keydown(tell, 'Enter', { isComposing: true, keyCode: 229 });
+    await tick();
+    expect(document.querySelector('dialog[open]')).toBeNull();
+  });
+
   it('keeps focus in the page list after deleting a page with the Delete key', async () => {
     app.newPage({ title: 'Two' });
     app.newPage({ title: 'Three' });

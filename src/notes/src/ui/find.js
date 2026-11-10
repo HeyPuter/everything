@@ -21,6 +21,8 @@ export class FindBar {
     const runSoon = debounce(() => this.run(), 120);
     this.input.addEventListener('input', runSoon);
     this.input.addEventListener('keydown', (e) => {
+      // Keys pressed while an input method is composing belong to it.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         // Right after typing, go to the first match of the new text

@@ -498,6 +498,8 @@ export class Nav {
     };
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      // Enter that accepts an input method's candidate is not the rename's Enter.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         finish(true);
