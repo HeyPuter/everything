@@ -512,6 +512,10 @@ export class PageEditor extends Emitter {
     const outline = e.target.closest?.('.outline');
     if (!outline) return;
     this.dirty.add(outline);
+    // Where this edit left the caret, for a step recorded after the
+    // selection has moved on (undoBoundary).
+    const at = currentRange();
+    this.inputCaret = at?.collapsed ? [at.startContainer, at.startOffset] : null;
     // The resize handle follows its picture, and goes when the picture is deleted.
     if (this.selectedImage) {
       if (this.selectedImage.isConnected) this.placeImageHandle?.();
@@ -621,7 +625,31 @@ export class PageEditor extends Emitter {
     } else if (e.inputType === 'historyRedo') {
       e.preventDefault();
       this.redo();
-    } else this.noteOwnStyles(e);
+    } else {
+      this.undoBoundary(e);
+      this.noteOwnStyles(e);
+    }
+  }
+
+  /**
+   * Typing is recorded as one undo step per burst (commitSoon). An edit that
+   * replaces or removes a selection, a paste, a cut or a drop right after
+   * typing must not join that burst, or one Undo would take the typed text
+   * away along with it: the burst is recorded first.
+   */
+  undoBoundary(e) {
+    if (!this.commitSoon.pending() || e.isComposing || /Composition/.test(e.inputType || '')) return;
+    const range = currentRange();
+    const replaces = Boolean(range && !range.collapsed && this.scroller.contains(range.commonAncestorContainer));
+    // A drag-move is one step: its drop follows its delete.
+    const drop = e.inputType === 'insertFromDrop' && !this.ownStyles?.drag;
+    if (replaces || drop || ['insertFromPaste', 'deleteByCut', 'deleteByDrag'].includes(e.inputType)) this.commitTyping();
+  }
+
+  /** Records the typing so far as its own undo step, with the caret where the typing left it. */
+  commitTyping() {
+    if (!this.commitSoon.pending()) return;
+    this.commit({ caret: this.caretAt(this.inputCaret) });
   }
 
   /**
@@ -829,6 +857,8 @@ export class PageEditor extends Emitter {
     if (this.readOnly) return;
     // Pasted text is new: nothing of it was the user's own formatting here.
     this.ownStyles = null;
+    // Its own undo step, apart from the typing just before it.
+    this.commitTyping();
     const inBody = e.target.closest?.('.outline-body');
     const inTitle = e.target.closest?.('.page-title');
     if (inTitle) return; // plaintext-only handles it
@@ -1101,9 +1131,10 @@ export class PageEditor extends Emitter {
   // ------------------------------------------------------------ commit/undo
 
   /** Copies edited outlines back into the page model and saves. */
-  commit({ structural = false } = {}) {
+  commit({ structural = false, caret = null } = {}) {
     if (!this.page || this.readOnly) return;
     this.commitSoon.cancel();
+    this.inputCaret = null;
     let any = structural;
     for (const outline of this.dirty) {
       const model = this.outlineModel(outline);
@@ -1125,7 +1156,7 @@ export class PageEditor extends Emitter {
       return;
     }
     this.store.pageChanged(this.page, { title: this.page.title });
-    this.history.push(snapshotOf(this.page), this.caret(), this.caretBefore);
+    this.history.push(snapshotOf(this.page), caret ?? this.caret(), this.caretBefore);
     this.caretBefore = undefined;
     this.emit('change', {});
   }
