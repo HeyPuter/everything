@@ -120,6 +120,17 @@ export class LibEditor extends CanvasView {
     this.statusLine = h('div.lib-status', { 'aria-live': 'polite' });
     this.el.prepend(this.modeBar);
     this.el.append(this.layerBar, this.statusLine);
+    // Only the selected tab is a tab stop: the arrow keys reach the others.
+    const arrows = (bar, step) => {
+      bar.onkeydown = (e) => {
+        if ((e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') || e.target.getAttribute('role') !== 'tab') return;
+        e.preventDefault();
+        step(e.key === 'ArrowRight' ? 1 : -1);
+        bar.querySelector('[aria-selected="true"]')?.focus();
+      };
+    };
+    arrows(this.modeBar, () => this.setMode(this.mode === 'symbol' ? 'footprint' : 'symbol'));
+    arrows(this.layerBar, (d) => this.setActiveLayer(FP_LAYERS[(FP_LAYERS.indexOf(this.activeLayer) + d + FP_LAYERS.length) % FP_LAYERS.length]));
     this._renderChrome();
   }
 

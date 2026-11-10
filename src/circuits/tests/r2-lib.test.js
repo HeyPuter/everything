@@ -243,3 +243,40 @@ describe('canvas resize', () => {
     view.dispose();
   });
 });
+
+describe('component editor tabs', () => {
+  const key = (el, k) =>
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+  const selected = (bar) => bar.querySelector('[role=tab][aria-selected=true]');
+
+  // Only the selected tab is a tab stop, so without arrow keys the other
+  // view and the other drawing layers cannot be reached from the keyboard.
+  it('moves between the views and the footprint layers with the arrow keys', () => {
+    const { ed } = editor();
+    document.body.append(ed.el);
+    selected(ed.modeBar).focus();
+    key(document.activeElement, 'ArrowRight');
+    expect(ed.mode).toBe('footprint');
+    expect(document.activeElement).toBe(selected(ed.modeBar));
+    expect(document.activeElement.textContent).toBe('Footprint');
+
+    expect(ed.activeLayer).toBe('topOverlay');
+    selected(ed.layerBar).focus();
+    key(document.activeElement, 'ArrowRight');
+    expect(ed.activeLayer).toBe('mech1');
+    expect(document.activeElement).toBe(selected(ed.layerBar));
+    key(document.activeElement, 'ArrowLeft');
+    key(document.activeElement, 'ArrowLeft');
+    expect(ed.activeLayer).toBe('bottomOverlay');
+    expect(document.activeElement).toBe(selected(ed.layerBar));
+
+    // The buttons beside the view tabs are not tabs.
+    const save = [...ed.modeBar.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Save to project',
+    );
+    save.focus();
+    key(save, 'ArrowRight');
+    expect(ed.mode).toBe('footprint');
+    ed.dispose();
+  });
+});
