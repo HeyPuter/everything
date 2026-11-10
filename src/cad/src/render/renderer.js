@@ -31,6 +31,8 @@ const FRAME_BUDGET_MS = 8;
  */
 const LONG_PX = 1e6;
 const SAFE_PX = 5e5;
+/** Most erased objects whose chunk is remembered for undo (see Renderer.homeOf). */
+export const HOME_LIMIT = 1 << 17;
 /** Header values that change how existing objects look. */
 const DRAWN_HEADER_KEYS = new Set(['ltscale', 'pdmode', 'pdsize', 'linearFormat', 'linearPrecision', 'angularFormat', 'angularPrecision', 'units']);
 
@@ -336,8 +338,25 @@ export class Renderer {
       c.dirty = true;
       this.chunkOf.delete(id);
       this.homeOf.set(id, c);
+      if (this.homeOf.size > HOME_LIMIT) this._trimHomes();
     }
     if (this.infinite.delete(id)) this.infDirty = true;
+  }
+
+  /**
+   * Forget homes of erased objects: those of chunks that are gone, then the
+   * oldest, down to half the limit. An object coming back without a home
+   * only costs a full rebuild.
+   */
+  _trimHomes() {
+    const live = new Set(this.chunks);
+    for (const [id, c] of this.homeOf) if (!live.has(c)) this.homeOf.delete(id);
+    let extra = this.homeOf.size - HOME_LIMIT / 2;
+    if (extra <= 0) return;
+    for (const id of this.homeOf.keys()) {
+      this.homeOf.delete(id);
+      if (--extra <= 0) break;
+    }
   }
 
   /** True once any object has its own draw order, so bands must be kept apart. */

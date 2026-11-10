@@ -3,7 +3,7 @@
  * context that records buffer uploads instead of drawing.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Renderer } from '../src/render/renderer.js';
+import { Renderer, HOME_LIMIT } from '../src/render/renderer.js';
 import { Camera } from '../src/render/camera.js';
 import { SEG_VS, TRI_VS } from '../src/render/shaders.js';
 import { Drawing } from '../src/core/drawing.js';
@@ -105,6 +105,26 @@ describe('Renderer chunks', () => {
     expect(t.r.chunks.length).toBe(5);
     expect(t.r.chunkOf.size).toBe(5000);
     expect([...t.r.chunks.at(-1).ids]).toEqual(ids);
+  });
+
+  it('does not remember the chunk of every object ever erased', () => {
+    // A long session of drawing and erasing, 1000 objects at a time.
+    for (let k = 0; k < 300; k++) {
+      const ids = [];
+      t.d.transaction('add', () => {
+        for (let i = 0; i < 1000; i++) ids.push(t.d.add({ type: 'line', layer: '0', color: 256, x1: i, y1: 20, x2: i, y2: 30 }).id);
+      });
+      t.d.transaction('erase', () => ids.forEach((id) => t.d.remove(id)));
+    }
+    expect(t.r.homeOf.size).toBeLessThanOrEqual(HOME_LIMIT);
+    // The latest erase still goes back into its chunk without a full rebuild.
+    const id = [...t.d.entities.keys()][1500];
+    const home = t.r.chunkOf.get(id);
+    t.d.transaction('erase', () => t.d.remove(id));
+    const chunks = t.r.chunks;
+    t.d.undo();
+    expect(t.r.chunks).toBe(chunks);
+    expect(t.r.chunkOf.get(id)).toBe(home);
   });
 
   it('redraws at once when a resize clears the canvas', () => {
