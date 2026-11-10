@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { TextEditor } from '../src/ui/textedit.js';
 
 globalThis.requestAnimationFrame ??= (cb) => setTimeout(cb, 0);
@@ -60,6 +60,43 @@ describe('in-place text editor', () => {
       expect(x).toBeLessThanOrEqual(390 - 8);
       expect(y).toBeGreaterThanOrEqual(8);
       expect(y).toBeLessThanOrEqual(700 - 8);
+    }
+  });
+
+  it('stays on the canvas when an on-screen keyboard makes it shorter', () => {
+    const observers = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb) {
+          this.cb = cb;
+          this.targets = [];
+          observers.push(this);
+        }
+        observe(t) {
+          this.targets.push(t);
+        }
+        disconnect() {
+          this.targets = [];
+        }
+      },
+    );
+    try {
+      const a = openEditor({}, { x: 10, y: 600 });
+      const wrap = a.el.parentElement;
+      Object.defineProperty(a.el, 'offsetHeight', { value: 90 });
+      Object.defineProperty(a.el, 'offsetWidth', { value: 300 });
+      const watching = observers.find((o) => o.targets.includes(wrap));
+      watching.cb();
+      expect(a.el.style.top).toBe('498px');
+      // The keyboard opens: 700 px of canvas become 340.
+      wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 390, height: 340 });
+      watching.cb();
+      expect(a.el.style.top).toBe('242px');
+      a.key('Escape');
+      expect(watching.targets).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 });

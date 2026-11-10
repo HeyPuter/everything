@@ -43,11 +43,17 @@ export class TextEditor {
       el.style.top = `${y}px`;
     };
     place();
+    // The canvas gets shorter when an on-screen keyboard opens (and when the
+    // window is resized): the editor moves with it instead of ending up below
+    // the edge with the keyboard over it.
+    const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    resized?.observe(app.shell.canvasWrap);
     let done = false;
     const finish = (value) => {
       if (done) return;
       done = true;
       el.remove();
+      resized?.disconnect();
       window.removeEventListener('pointerdown', outside, true);
       this.current = null;
       app.focusCanvas();
@@ -93,6 +99,7 @@ export class TextEditor {
         if (done) return;
         done = true;
         el.remove();
+        resized?.disconnect();
         window.removeEventListener('pointerdown', outside, true);
         this.current = null;
         if (!silent) app.focusCanvas();
