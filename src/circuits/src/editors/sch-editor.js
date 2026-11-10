@@ -309,8 +309,22 @@ export class SchEditor extends CanvasView {
       // An end pushed onto or past its neighbor leaves a repeated point or a
       // stub doubling back, which would count as extra wire ends there (a
       // junction dot on a plain corner or pin).
-      return { ...w, pts: dropFoldBacks(simplifyPolyline(pts)) };
+      const flat = simplifyPolyline(pts);
+      const cut = dropFoldBacks(flat);
+      return { ...w, pts: cut.length === flat.length || stubInUse(w, flat, cut) ? flat : cut };
     });
+    // True when something else connects on the part of a wire that dropping
+    // its doubled-back stub would remove.
+    const stubInUse = (w, flat, cut) => {
+      for (let i = 0; i < flat.length; i += 2) {
+        const x = flat[i], y = flat[i + 1];
+        let kept = false;
+        for (let j = 2; j < cut.length && !kept; j += 2) kept = distPointSeg(x, y, cut[j - 2], cut[j - 1], cut[j], cut[j + 1]) === 0;
+        if (kept) continue;
+        for (const p of ed._connectionPoints({ minX: x - 1, minY: y - 1, maxX: x + 1, maxY: y + 1 }, [w.id, ...ids])) if (p.x === x && p.y === y) return true;
+      }
+      return false;
+    };
     for (const id of ids) this.hidden.add(id);
     for (const d of dragged) this.hidden.add(d.w.id);
     this._dirtyMain = true;

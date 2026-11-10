@@ -138,6 +138,26 @@ describe('wires dragged along with a moved part', () => {
   });
 });
 
+describe('a stub left when a dragged wire doubles back', () => {
+  it('stays while another wire still connects at its tip', async () => {
+    const { ed, store, r1, w, pts } = await twoResistors(
+      ...[1200, 1000, 1600, 1000, 1600, 1500, 2800, 1500, 2800, 1000],
+    );
+    const branch = wire(1600, 2000, 1600, 1500);
+    store.transact('Branch', (s) => s.add(branch));
+    const sameNet = () => {
+      const nl = app.project.netlist();
+      return nl.sheets.get(ed.doc.id).wireNet.get(branch.id) === nl.byPin.get(`${r1.id}:2`);
+    };
+    expect(sameNet()).toBe(true);
+    ed.setSelection([r1.id]);
+    ed.nudge(mil(600), mil(500));
+    expect(store.get(w.id)).toBeTruthy();
+    expect(pts().slice(0, 2)).toEqual([1800, 1500]);
+    expect(sameNet()).toBe(true);
+  });
+});
+
 describe('edits made while a drag is in progress', () => {
   const startDrag = (ed, o) => {
     ed.setSelection([o.id]);
