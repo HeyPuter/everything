@@ -3,7 +3,7 @@
  * with variants (the last used variant becomes the default), property
  * combos, toggles, panel overflow menus and a collapsible mode.
  */
-import { h, clear } from './dom.js';
+import { h, clear, MOD } from './dom.js';
 import { icon } from './icons.js';
 import { showMenu } from './menu.js';
 import { RIBBON } from './ribbon-def.js';
@@ -11,7 +11,10 @@ import { buildCombo } from './combos.js';
 import { roving } from './roving.js';
 import { focusVisible } from './focus.js';
 
-const SHORTCUTS = { UNDO: 'Ctrl+Z', REDO: 'Ctrl+Y', COPYCLIP: 'Ctrl+C', CUTCLIP: 'Ctrl+X', PASTECLIP: 'Ctrl+V', SELECTALL: 'Ctrl+A', PROPERTIES: 'Ctrl+1', SAVE: 'Ctrl+S', OPEN: 'Ctrl+O', NEW: 'Ctrl+N', PLOT: 'Ctrl+P', COPYBASE: 'Ctrl+Shift+C' };
+// Named as in the menus and the shortcut list: Cmd on a Mac, Ctrl elsewhere.
+const SHORTCUTS = Object.fromEntries(
+  Object.entries({ UNDO: 'Z', REDO: 'Y', COPYCLIP: 'C', CUTCLIP: 'X', PASTECLIP: 'V', SELECTALL: 'A', PROPERTIES: '1', SAVE: 'S', OPEN: 'O', NEW: 'N', PLOT: 'P', COPYBASE: 'Shift+C' }).map(([name, key]) => [name, `${MOD}+${key}`]),
+);
 
 export function commandTip(def, label) {
   const alias = def.aliases?.find((a) => a.length <= 4);

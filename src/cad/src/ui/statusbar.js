@@ -3,7 +3,7 @@
  * ortho, polar tracking, object snaps, tracking, dynamic input,
  * lineweights) with their option menus.
  */
-import { h } from './dom.js';
+import { h, MOD } from './dom.js';
 import { icon } from './icons.js';
 import { showMenu } from './menu.js';
 import { SNAP_MODES } from '../editor/snap.js';
@@ -76,7 +76,7 @@ export class StatusBar {
         (this.units = h('span', 'mm')),
       ),
       h('button.sb-btn', { type: 'button', 'aria-label': 'Drafting settings', 'data-tip': 'Drafting settings', onClick: () => app.run('DSETTINGS') }, icon('settings', 17)),
-      h('button.sb-btn', { type: 'button', 'aria-label': 'Clean screen', 'data-tip': 'Clean screen', 'data-tip-keys': 'Ctrl+0', onClick: () => app.toggleCleanScreen() }, icon('clean-screen', 17)),
+      h('button.sb-btn', { type: 'button', 'aria-label': 'Clean screen', 'data-tip': 'Clean screen', 'data-tip-keys': `${MOD}+0`, onClick: () => app.toggleCleanScreen() }, icon('clean-screen', 17)),
     );
     this.modelTab = h('span.sb-model', { 'aria-current': 'page' }, 'Model');
     this.el = h('footer.statusbar', { role: 'contentinfo' }, h('div.sb-left', this.modelTab, this.coords), right);

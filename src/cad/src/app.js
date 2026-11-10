@@ -1279,7 +1279,7 @@ export class App {
   toggleCleanScreen() {
     const on = !document.body.classList.contains('clean-screen');
     document.body.classList.toggle('clean-screen', on);
-    this.cmdline.log(on ? 'Clean screen on. Press Ctrl+0 to restore the interface.' : 'Clean screen off', 'muted');
+    this.cmdline.log(on ? `Clean screen on. Press ${MOD}+0 to restore the interface.` : 'Clean screen off', 'muted');
   }
 
   // Dock (palettes) ---------------------------------------------------------------------------
