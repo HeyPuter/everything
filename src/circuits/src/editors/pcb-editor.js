@@ -4,7 +4,7 @@
 
 import { CanvasView } from './view.js';
 import { SelectTool } from './select-tool.js';
-import { RouteTool, PlacePcbTool, PolygonTool, LineTool } from './pcb-tools.js';
+import { RouteTool, PlacePcbTool, PolygonTool, LineTool, TURN_KEYS } from './pcb-tools.js';
 import { Batch } from '../render/batch.js';
 import { pack, toVec4 } from '../render/color.js';
 import { PCB_PALETTES, layerColor } from '../render/palette.js';
@@ -829,7 +829,7 @@ export class PcbEditor extends CanvasView {
         ed.endTool();
         ed.setSelection(ids);
       },
-      key(e, combo) { if (combo === 'Space') { this.ops++; return true; } if (combo === 'Escape') { ed.endTool(); return true; } return false; },
+      key(e, combo) { if (combo === 'Space') { this.ops++; return true; } if (combo === 'Escape') { ed.endTool(); return true; } return TURN_KEYS.has(combo); },
       rightClick() { ed.endTool(); return true; },
       drawOverlay(b) {
         const c = ed.cursor;

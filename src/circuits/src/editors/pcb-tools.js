@@ -20,6 +20,11 @@ import { rotatePcb, flipComp } from '../model/pcb.js';
 const CORNERS = ['45start', '45end', '90start', '90end', 'any'];
 const CORNER_LABEL = { '45start': '45 degrees start', '45end': '45 degrees end', '90start': '90 degrees start', '90end': '90 degrees end', any: 'any angle' };
 
+// Keys that turn what a placing tool holds. The drawing tools have nothing to
+// turn but still take them, or they would fall through to the commands that
+// rotate and flip the selection left from before the tool started.
+export const TURN_KEYS = new Set(['Space', 'Shift+Space', 'L']);
+
 function crosshair(b, ed, x, y, color) {
   const s = 14 * ed.nmPerPx;
   const c = pack(color || ed.palette.crosshair, 0.85);
@@ -265,7 +270,7 @@ export class RouteTool {
       ed.app.toast(this.mode === 'stop' ? 'Routing stops at the first obstacle' : 'Routing ignores obstacles', { timeout: 2000 });
       return true;
     }
-    return false;
+    return TURN_KEYS.has(combo);
   }
 
   deactivate() { this.finish(); }
@@ -322,7 +327,7 @@ export class PlacePcbTool {
     if (combo === 'L' && this.template.t === 'comp') { this.template = flipComp(this.template); return true; }
     if (combo === 'Tab' && this.edit) { this.edit(this); return true; }
     if (combo === 'Escape') { this.editor.endTool(); return true; }
-    return false;
+    return TURN_KEYS.has(combo);
   }
   rightClick() { this.editor.endTool(); return true; }
   drawOverlay(b) {
@@ -388,7 +393,7 @@ export class PolygonTool {
     if (combo === 'Backspace') { this.pts = this.pts.slice(0, -2); this.editor.updateHint(); return true; }
     if (combo === 'Enter') { this.close(); return true; }
     if (combo === 'Escape') { if (this.pts.length) { this.pts = []; this.editor.updateHint(); } else this.editor.endTool(); return true; }
-    return false;
+    return TURN_KEYS.has(combo);
   }
   drawOverlay(b) {
     const ed = this.editor, c = ed.cursor;
@@ -451,7 +456,7 @@ export class LineTool {
   rightClick() { if (this.start) { this.start = null; this.editor.updateHint(); } else this.editor.endTool(); return true; }
   key(e, combo) {
     if (combo === 'Escape') { if (this.start) { this.start = null; this.editor.updateHint(); } else this.editor.endTool(); return true; }
-    return false;
+    return TURN_KEYS.has(combo);
   }
   drawOverlay(b) {
     const ed = this.editor, c = ed.cursor;

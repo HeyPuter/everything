@@ -25,8 +25,7 @@ async function bootBoard() {
 }
 
 const ev = (x, y) => ({ x, y, rawX: x, rawY: y });
-const compOf = (ed, ref) =>
-  [...ed.doc.items()].find((o) => o.t === 'comp' && o.designator === ref);
+const compOf = (ed, ref) => [...ed.doc.items()].find((o) => o.t === 'comp' && o.designator === ref);
 const press = (ed, key, code, mods = {}) =>
   ed.canvas.dispatchEvent(
     new KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true, ...mods }),
@@ -71,8 +70,26 @@ describe('edits made while a board drag is in progress', () => {
     ctx = await bootBoard();
     const { app, ed } = ctx;
     const store = ed.doc.store;
-    const via = { id: 'v1', t: 'via', x: mm(5), y: mm(5), d: mm(0.8), drill: mm(0.4), from: 'top', to: 'bottom' };
-    const track = { id: 't1', t: 'track', layer: 'top', x1: mm(5), y1: mm(5), x2: mm(9), y2: mm(5), w: mm(0.25) };
+    const via = {
+      id: 'v1',
+      t: 'via',
+      x: mm(5),
+      y: mm(5),
+      d: mm(0.8),
+      drill: mm(0.4),
+      from: 'top',
+      to: 'bottom',
+    };
+    const track = {
+      id: 't1',
+      t: 'track',
+      layer: 'top',
+      x1: mm(5),
+      y1: mm(5),
+      x2: mm(9),
+      y2: mm(5),
+      w: mm(0.25),
+    };
     store.transact('Set up', (s) => {
       s.add(via);
       s.add(track);
@@ -100,5 +117,65 @@ describe('edits made while a board drag is in progress', () => {
     expect(ed.hidden.size).toBe(0);
     store.undo();
     expect(store.get(r1.id)).toBe(r1);
+  });
+});
+
+describe('rotate and flip keys in board drawing tools', () => {
+  it.each([
+    'line',
+    'fill',
+    'dim',
+    'measure',
+    'pour',
+    'region',
+    'keepout',
+    'board',
+    'cutout',
+    'route',
+  ])('do not turn the selection left from before the %s tool started', async (tool) => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const r1 = compOf(ed, 'R1');
+    ed.setSelection([r1.id]);
+    ed.startTool(tool);
+    ed.tool.click(ev(mm(40), mm(40)));
+    press(ed, ' ', 'Space');
+    press(ed, ' ', 'Space', { shiftKey: true });
+    press(ed, 'l', 'KeyL');
+    expect(ed.doc.store.get(r1.id)).toBe(r1);
+    expect(ed.tool.name).not.toBe('select');
+  });
+
+  it.each(['via', 'text'])('do not flip the selection while placing a %s', async (tool) => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const r1 = compOf(ed, 'R1');
+    ed.setSelection([r1.id]);
+    ed.startTool(tool);
+    press(ed, 'l', 'KeyL');
+    expect(ed.doc.store.get(r1.id)).toBe(r1);
+  });
+
+  it('do not turn the selection while pasting', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const r1 = compOf(ed, 'R1');
+    ed.setSelection([r1.id]);
+    ed.pasteClip(ed.copySelection());
+    press(ed, ' ', 'Space', { shiftKey: true });
+    press(ed, 'l', 'KeyL');
+    expect(ed.doc.store.get(r1.id)).toBe(r1);
+    expect(ed.tool.name).toBe('paste');
+  });
+
+  it('still rotate and flip the selection in the select tool', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const r1 = compOf(ed, 'R1');
+    ed.setSelection([r1.id]);
+    press(ed, ' ', 'Space');
+    expect(ed.doc.store.get(r1.id).rot).toBe(((r1.rot || 0) + 90) % 360);
+    press(ed, 'l', 'KeyL');
+    expect(ed.doc.store.get(r1.id).side).not.toBe(r1.side);
   });
 });
