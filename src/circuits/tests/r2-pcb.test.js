@@ -351,3 +351,27 @@ describe('dragging a component', () => {
     ]);
   });
 });
+
+describe('routing across a pour', () => {
+  it('is not stopped by a pour of another net, which is refilled around the track', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    expect(app.settings.get('routingMode')).toBe('stop');
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    expect([pour.layer, pour.net]).toEqual(['bottom', 'GND']);
+    // The fill leaves the usual clearance hole around the VCC pin of J1.
+    const p = padOf(ed, 'J1', '1');
+    expect(p.net).toBe('VCC');
+    const c = mm(1.2);
+    const hole = [p.x - c, p.y - c, p.x - c, p.y + c, p.x + c, p.y + c, p.x + c, p.y - c];
+    ed.pourFills = new Map([[pour.id, [[pour.pts, hole]]]]);
+    ed.setActiveLayer('bottom');
+    ed.startTool('route');
+    ed.tool.corner = 'any';
+    ed.tool.click(ev(p.x, p.y));
+    expect(ed.tool.trace.net).toBe('VCC');
+    ed.tool.click(ev(p.x, p.y - mm(5)));
+    const [t] = tracks(ed);
+    expect([t.layer, t.x2, t.y2]).toEqual(['bottom', p.x, p.y - mm(5)]);
+  });
+});

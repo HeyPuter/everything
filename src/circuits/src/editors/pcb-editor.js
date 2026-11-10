@@ -571,11 +571,14 @@ export class PcbEditor extends CanvasView {
     return c?.net || null;
   }
 
-  /** Copper items of other nets near a path, for routing collision checks. */
+  /**
+   * Copper items of other nets near a path, for routing collision checks.
+   * Pour fills are not obstacles: a pour is filled again around the new track.
+   */
   obstaclesNear(pts, layer, net, margin) {
     this.analysis();
     const b = bboxOfFlat(pts, margin);
-    return this._copperTree.search(b).map((e) => e.it).filter((it) => it.layers.includes(layer) && (!net || it.net !== net) && !(it.pour && it.net === net) && (net || it.net || !it.isPad));
+    return this._copperTree.search(b).map((e) => e.it).filter((it) => it.layers.includes(layer) && (!net || it.net !== net) && !it.pour && (net || it.net || !it.isPad));
   }
 
   snapTargets(x, y, reach, exclude) {
