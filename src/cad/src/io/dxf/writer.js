@@ -363,7 +363,11 @@ class DxfWriter {
     for (const g of geom) this.scan(g, null);
     let tx = +e.lx || 0;
     let ty = +e.ly || 0;
-    const t = geom.find((g) => g.type === 'text' || g.type === 'mtext');
+    // Radius and diameter dimensions are read back with the text point (group 11)
+    // as their location, so for them it has to stay the location itself: the
+    // drawn text sits beyond it and would move the dimension on every round trip.
+    const radial = e.dimType === 'radius' || e.dimType === 'diameter';
+    const t = radial ? null : geom.find((g) => g.type === 'text' || g.type === 'mtext');
     if (t) {
       tx = +t.x || 0;
       ty = +t.y || 0;

@@ -5,6 +5,8 @@ import { handleMessage } from '../src/io/dxf/worker.js';
 import { defaultHeader, defaultLayer } from '../src/core/schema.js';
 import { defaultTextStyle, defaultDimStyle } from '../src/core/styles.js';
 import { splineFromFitPoints } from '../src/core/geom/index.js';
+import { Drawing } from '../src/core/drawing.js';
+import { exportPayload } from '../src/io/dxf-client.js';
 
 const TAU = Math.PI * 2;
 
@@ -499,5 +501,27 @@ describe('round trip of non-ASCII table names', () => {
     expect(dim.style).toBe('Maß');
     expect(back.layers.find((l) => l.name === 'Wände').linetype).toBe('Strichlinie_ä');
     expect(back.header).toMatchObject({ clayer: 'Wände', textStyle: 'Schrift_ö', dimStyle: 'Maß', cltype: 'Strichlinie_ä' });
+  });
+});
+
+describe('round trip of radius and diameter dimensions', () => {
+  it('keeps the dimension location when written with the app\'s own dimension geometry', () => {
+    const dims = [
+      ent('dimension', { ...dimBase, id: 1, dimType: 'radius', x2: 3, y2: 4, lx: 6, ly: 8 }),
+      ent('dimension', { ...dimBase, id: 2, dimType: 'diameter', x2: 3, y2: 4, lx: 6, ly: 8 }),
+      // text inside the circle: it is lifted off the dimension line
+      ent('dimension', { ...dimBase, id: 3, dimType: 'radius', x2: 3, y2: 4, lx: 1, ly: 1.5 }),
+    ];
+    let data = { ...sampleDrawing(), blocks: [], entities: dims };
+    // saving and opening again, twice, must not move anything
+    for (let pass = 0; pass < 2; pass++) {
+      const { drawing, opts } = exportPayload(new Drawing(data));
+      data = parseDxf(writeDxf(drawing, opts)).drawing;
+      data.entities.forEach((e, i) => {
+        expect(e).toMatchObject({ dimType: dims[i].dimType, x1: 0, y1: 0, x2: 3, y2: 4 });
+        expect(e.lx).toBeCloseTo(dims[i].lx, 9);
+        expect(e.ly).toBeCloseTo(dims[i].ly, 9);
+      });
+    }
   });
 });
