@@ -104,8 +104,11 @@ export class SelectTool {
       return;
     }
     if (this.move) {
-      this.move.commit();
+      // Cleared first: the editor takes any other edit during a move as a
+      // reason to cancel it, and must not see the move's own commit that way.
+      const move = this.move;
       this.move = null;
+      move.commit();
       this.editor.updateHint();
     } else if (this.box) {
       const b = this.box;

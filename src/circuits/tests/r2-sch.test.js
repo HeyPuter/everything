@@ -137,3 +137,55 @@ describe('wires dragged along with a moved part', () => {
     expect(junctions()).toEqual([]);
   });
 });
+
+describe('edits made while a drag is in progress', () => {
+  const startDrag = (ed, o) => {
+    ed.setSelection([o.id]);
+    ed.select.dragStart({ rawX: o.x, rawY: o.y, x: o.x, y: o.y });
+    ed.select.drag({ rawX: o.x + mil(300), rawY: o.y, x: o.x + mil(300), y: o.y });
+  };
+  const bootR3 = async () => {
+    app = await boot();
+    const ed = withCamera(app.activeEditor);
+    const r3 = [...ed.doc.items()].find((o) => o.designator === 'R3');
+    return { ed, store: ed.doc.store, r3 };
+  };
+
+  it('keeps an undo undone instead of re-applying it when the drag ends', async () => {
+    const { ed, store, r3 } = await bootR3();
+    store.transact('Value', (s) => s.update(r3.id, { value: '99k' }));
+    startDrag(ed, store.get(r3.id));
+    expect(ed.select.move).toBeTruthy();
+    app.commands.run('edit.undo');
+    ed.select.dragEnd();
+    expect(store.get(r3.id)).toBe(r3);
+    expect(store.canRedo).toBe(true);
+    expect(ed.hidden.size).toBe(0);
+    store.redo();
+    expect(store.get(r3.id).value).toBe('99k');
+  });
+
+  it('does not move the wires of a part deleted mid-drag', async () => {
+    const { ed, store, r3 } = await bootR3();
+    const wires = () => JSON.stringify([...ed.doc.items()].filter((o) => o.t === 'wire'));
+    const before = wires();
+    startDrag(ed, r3);
+    app.commands.run('edit.delete');
+    ed.select.dragEnd();
+    expect(wires()).toBe(before);
+    expect(store.undoLabel).toBe('Delete');
+    store.undo();
+    expect(store.get(r3.id)).toBe(r3);
+  });
+
+  it('still commits an ordinary drag as one step', async () => {
+    const { ed, store, r3 } = await bootR3();
+    startDrag(ed, r3);
+    ed.select.dragEnd();
+    expect(store.get(r3.id).x - r3.x).toBe(mil(300));
+    expect(store.undoLabel).toBe('Move');
+    expect(ed.select.move).toBeNull();
+    store.undo();
+    expect(store.get(r3.id)).toBe(r3);
+  });
+});

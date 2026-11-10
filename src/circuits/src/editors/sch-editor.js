@@ -51,6 +51,9 @@ export class SchEditor extends CanvasView {
   get grid() { return this.app.settings.get('schGrid') || SCH_GRID; }
 
   _onChange(e) {
+    // An edit from elsewhere in the middle of a drag (undo, Delete): the drag
+    // holds the objects as they were, and committing it would write them back.
+    if (this.select.move || this.select.vertex) this.select.cancelDrag();
     // Drop deleted objects from the selection.
     for (const id of e.removed.keys()) this.selection.delete(id);
     this._dirtyMain = true;
