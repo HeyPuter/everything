@@ -1476,8 +1476,9 @@ export class App extends Emitter {
   async exportPnp() {
     const { doc } = this._board();
     if (!doc) return;
-    const { pickAndPlace } = await import('../io/pnp.js');
-    storage.download(pickAndPlace(doc.snapshot(), this.project.library), `${storage.safeName(doc.name.replace(/\.pcb$/i, ''))}-pick-and-place.csv`, 'text/csv');
+    const { pickAndPlace, unpopulated } = await import('../io/pnp.js');
+    const skip = unpopulated(this.project.toJSON());
+    storage.download(pickAndPlace(doc.snapshot(), this.project.library, { skip }), `${storage.safeName(doc.name.replace(/\.pcb$/i, ''))}-pick-and-place.csv`, 'text/csv');
   }
 
   async exportNetlist() {

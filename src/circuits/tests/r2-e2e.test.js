@@ -5,6 +5,10 @@ import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { placedOf } from '../src/render/pcb-scene.js';
+import { buildBom, toCsv } from '../src/io/bom.js';
+import { pickAndPlace, unpopulated } from '../src/io/pnp.js';
+import { buildFabricationZip } from '../src/io/fabrication.js';
+import { unzipSync, strFromU8 } from 'fflate';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -455,5 +459,33 @@ describe('start-up without the Puter SDK', () => {
     expect(sdk).toMatch(/\sasync(\s|>)/);
     expect(sdk).not.toMatch(/\sdefer(\s|>)/);
     expect(sdk).toMatch(/onerror="window\.__puterFailed = true"/);
+  });
+});
+
+describe('parts marked do not populate', () => {
+  it('are left out of the pick and place file as they are out of the bill of materials', async () => {
+    const app = await boot();
+    ctx = { app };
+    await app.openExample();
+    const sheet = app.activeEditor;
+    const r1 = [...sheet.doc.items()].find((o) => o.t === 'part' && o.designator === 'R1');
+    sheet.doc.store.transact('Do not populate', (s) => s.update(r1.id, { dnp: true }));
+    const project = app.project.toJSON();
+    const board = project.documents.find((d) => d.kind === 'pcb');
+    const listed = (csv) => csv.split('\r\n').map((l) => l.split(',')[0]);
+
+    expect(listed(toCsv(buildBom(project)))).not.toContain('R1');
+    const skip = unpopulated(project);
+    expect([...skip]).toEqual([r1.uid]);
+    const pnp = listed(pickAndPlace(board, project.library, { skip }));
+    expect(pnp).not.toContain('R1');
+    expect(pnp).toContain('R2');
+    // Without the list every component is placed, as before.
+    expect(listed(pickAndPlace(board, project.library))).toContain('R1');
+
+    const zip = unzipSync(buildFabricationZip(project, board.id, {}));
+    expect(listed(strFromU8(zip['assembly/bom.csv']))).not.toContain('R1');
+    expect(listed(strFromU8(zip['assembly/pick-and-place.csv']))).not.toContain('R1');
+    expect(listed(strFromU8(zip['assembly/pick-and-place.csv']))).toContain('R2');
   });
 });
