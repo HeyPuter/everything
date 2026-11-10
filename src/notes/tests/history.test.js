@@ -185,6 +185,25 @@ describe('PageEditor undo with a selected container', () => {
   });
 });
 
+describe('PageEditor Escape in an empty container', () => {
+  it('does not select a container that is about to be removed', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [], ink: [] });
+    const el = ed.createOutlineAt(100, 200);
+    el.querySelector('.outline-body').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(el.isConnected).toBe(false);
+    expect(ed.selectedOutlines.size).toBe(0);
+    // An arrow key afterwards has nothing to move, and does not throw.
+    ed.scroller.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    ed.destroy();
+    host.remove();
+  });
+});
+
 describe('PageEditor undo selection', () => {
   it('puts back the selection a formatting change started from', async () => {
     const { PageEditor } = await import('../src/editor/page-editor.js');

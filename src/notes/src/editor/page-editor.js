@@ -500,6 +500,7 @@ export class PageEditor extends Emitter {
         outline.remove();
         if (model) this.removedEmpty = { x: model.x, y: model.y };
         this.dirty.delete(outline);
+        if (this.selectedOutlines.delete(outline)) this.emit('selection');
         // A container that never held anything was never saved: no edit to record.
         if (model?.html) this.changed({ structural: true });
         this.layout();
@@ -730,6 +731,7 @@ export class PageEditor extends Emitter {
         const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
         for (const el of this.selectedOutlines) {
           const m = this.outlineModel(el);
+          if (!m) continue;
           m.x = Math.max(0, m.x + dx);
           m.y = Math.max(0, m.y + dy);
           this.place(el, m);
@@ -775,7 +777,8 @@ export class PageEditor extends Emitter {
       e.preventDefault();
       inBody.blur();
       this.scroller.focus({ preventScroll: true });
-      if (outline.isConnected) {
+      // An empty container goes when it loses focus: nothing to select.
+      if (outline.isConnected && !isEmptyBody(inBody)) {
         this.selectOutlines([outline]);
         announce('Note container selected. Arrow keys move it, Delete removes it, Enter edits it.');
       }
