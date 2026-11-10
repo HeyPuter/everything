@@ -686,6 +686,7 @@ export async function draftingDialog(app) {
           {
             type: 'button',
             role: 'tab',
+            id: `drafting-tab-${j}`,
             'aria-selected': String(j === i),
             'aria-controls': 'drafting-panel',
             tabindex: j === i ? '0' : '-1',
@@ -701,6 +702,8 @@ export async function draftingDialog(app) {
       ),
     );
     clear(panelHost).append(panels[i]);
+    // The panel is announced by the name of its tab.
+    panelHost.setAttribute('aria-labelledby', `drafting-tab-${i}`);
     if (focus) tabBar.querySelector('[aria-selected="true"]')?.focus();
   };
   show(0);
