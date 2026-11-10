@@ -394,6 +394,98 @@ describe('Store: Deleted Notes on two devices', () => {
     return { backend, a, b, one, two };
   }
 
+  describe('a window that saves before it has seen what another one saved', () => {
+    const titles = (store) => [...store.sectionsOf(store.notebooks[0])].flatMap((s) => s.pages.map((p) => p.title)).filter(Boolean);
+    const reload = async (backend) => {
+      const c = new Store(backend, { saveDelay: 0 });
+      await c.load();
+      return c;
+    };
+    /** b gets focus back and types before its refresh has run. */
+    const typeOn = async (b, id, html = '<p>typed in the second window</p>') => {
+      b.markStale();
+      const page = await b.loadPage(id);
+      page.outlines.push({ id: 'ob', x: 0, y: 0, html });
+      b.pageChanged(page);
+      await b.flush();
+    };
+
+    it('keeps the page the other window added', async () => {
+      const { backend, a, b, one } = await twoDevices();
+      const section = [...a.sectionsOf(a.notebooks[0])].find((s) => s.pages.some((p) => p.id === one.id));
+      a.createPage(section.id, { title: 'Three' });
+      a.renameNode(section.id, 'Renamed there');
+      await a.flush();
+      await later();
+      await typeOn(b, one.id);
+      const c = await reload(backend);
+      expect(titles(c).sort()).toEqual(['One', 'Three', 'Two']);
+      expect(c.section(section.id).name).toBe('Renamed there');
+      // What was typed here is saved, and b itself shows the merged notebook.
+      expect((await c.loadPage(one.id)).outlines.at(-1).html).toContain('second window');
+      expect(titles(b).sort()).toEqual(['One', 'Three', 'Two']);
+    });
+
+    it('keeps what was made here and does not bring back what was deleted there', async () => {
+      const { backend, a, b, one, two } = await twoDevices();
+      a.deletePage(two.id);
+      await a.flush();
+      await later();
+      b.markStale();
+      const section = [...b.sectionsOf(b.notebooks[0])].find((s) => s.pages.some((p) => p.id === one.id));
+      b.createPage(section.id, { title: 'Made here' });
+      const extra = b.createSection(b.notebooks[0].id, { name: 'Section made here' });
+      b.createPage(extra.id, { title: 'In it' });
+      await b.flush();
+      const c = await reload(backend);
+      expect(titles(c).sort()).toEqual(['In it', 'Made here', 'One']);
+      expect(c.trash.map((t) => t.pages?.[0]?.title)).toContain('Two');
+    });
+
+    it('keeps the protection the other window gave a section', async () => {
+      const { backend, a, b, one } = await twoDevices();
+      const section = [...a.sectionsOf(a.notebooks[0])].find((s) => s.pages.some((p) => p.id === one.id));
+      const page = await a.loadPage(one.id);
+      page.outlines.push({ id: 'oa', x: 0, y: 0, html: '<p>the secret</p>' });
+      a.pageChanged(page);
+      await a.flush();
+      await later();
+      const onB = await b.loadPage(one.id);
+      await a.protectSection(section.id, 'pw');
+      await a.lockSection(section.id);
+      await later();
+      await typeOn(b, one.id, '<p>typed after it was protected</p>');
+      // Typing on in the page that is still open here writes nothing in the clear either.
+      onB.outlines.push({ id: 'oc', x: 0, y: 0, html: '<p>more plain text</p>' });
+      b.pageChanged(onB);
+      await b.flush();
+      const text = [...backend.files.values()].filter((v) => typeof v === 'string').join('\n');
+      expect(text).not.toContain('the secret');
+      expect(text).not.toContain('typed after it was protected');
+      expect(text).not.toContain('more plain text');
+      const c = await reload(backend);
+      expect(c.isLocked(section.id)).toBe(true);
+      expect(await c.unlockSection(section.id, 'pw')).toBe(true);
+      expect((await c.loadPage(one.id)).outlines.map((o) => o.html).join('')).toContain('the secret');
+    });
+
+    it('writes as before when nobody else saved', async () => {
+      const { backend, b, one } = await twoDevices();
+      const reads = [];
+      const readJSON = backend.readJSON;
+      backend.readJSON = (path) => (reads.push(path), readJSON(path));
+      await typeOn(b, one.id);
+      // One look at the notebook file, then none until the window gets focus again.
+      expect(reads.filter((p) => p.startsWith('notebooks/'))).toHaveLength(1);
+      const page = await b.loadPage(one.id);
+      page.title = 'One again';
+      b.pageChanged(page, { title: 'One again' });
+      await b.flush();
+      expect(reads.filter((p) => p.startsWith('notebooks/'))).toHaveLength(1);
+      expect(titles(await reload(backend)).sort()).toEqual(['One again', 'Two']);
+    });
+  });
+
   it('reads again a page that another device edited after it was loaded here', async () => {
     const { backend, a, b, one } = await twoDevices();
     // A search on b loads every page.

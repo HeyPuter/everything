@@ -351,6 +351,9 @@ export class App {
         this.reader?.close();
         if (!this.taskPanes.el.hidden) this.taskPanes.render();
       }
+      // The notebook was merged with what another window saved: the open
+      // page or section may be gone, or locked, there.
+      if (e.type === 'merged') this.ensureSelection();
     });
     this.store.on('status', (s) => this.updateSync(s));
     this.store.on('assets-renamed', ({ id, map }) => {
@@ -376,11 +379,18 @@ export class App {
       if (document.visibilityState === 'hidden') {
         this.editor.flush();
         this.store.flush();
-      } else this.refreshFromCloud();
+      } else {
+        this.store.markStale();
+        this.refreshFromCloud();
+      }
     });
     // Switching between visible windows (or Puter app windows) changes
-    // focus, not visibility.
-    this.listen(window, 'focus', () => this.refreshFromCloud());
+    // focus, not visibility. Another window may have saved meanwhile: until
+    // the refresh has looked, a save here merges instead of writing over it.
+    this.listen(window, 'focus', () => {
+      this.store.markStale();
+      this.refreshFromCloud();
+    });
     this.refreshFromCloud = debounce(async () => {
       try {
         if (await this.store.refresh()) this.ensureSelection();
