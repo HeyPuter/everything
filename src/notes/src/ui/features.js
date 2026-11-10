@@ -375,6 +375,18 @@ export async function record(app, kind) {
 
 // ------------------------------------------------------------ links
 
+/**
+ * A typed address as a link: "example.com" gets https://, "sam@example.com"
+ * mailto:. "localhost:3000" and "example.com:8080/docs" are a host and a
+ * port, not a scheme named "localhost".
+ */
+export function completeAddress(href) {
+  if (href.startsWith('#')) return href;
+  if (/^[^\s/:@?#]+:\d{1,5}([/?#]|$)/.test(href) && !/^tel:/i.test(href)) return `https://${href}`;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return href;
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(href) ? `mailto:${href}` : `https://${href}`;
+}
+
 export function linkDialog(app) {
   app.editor.ensureCaret();
   const range = currentRange()?.cloneRange();
@@ -427,7 +439,7 @@ export function linkDialog(app) {
         address.focus();
         return false;
       }
-      if (!href.startsWith('#') && !/^[a-z][a-z0-9+.-]*:/i.test(href)) href = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(href) ? `mailto:${href}` : `https://${href}`;
+      href = completeAddress(href);
       if (!safeUrl(href)) {
         error.textContent = "That address can't be used as a link.";
         address.focus();

@@ -230,6 +230,17 @@ describe('email page', () => {
   });
 });
 
+describe('link addresses', () => {
+  it('completes what was typed into a usable link', async () => {
+    const { completeAddress } = await import('../src/ui/features.js');
+    expect(completeAddress('example.com/a')).toBe('https://example.com/a');
+    expect(completeAddress('sam@example.com')).toBe('mailto:sam@example.com');
+    expect(completeAddress('localhost:3000')).toBe('https://localhost:3000');
+    expect(completeAddress('example.com:8080/docs')).toBe('https://example.com:8080/docs');
+    for (const as of ['#page=p1', 'http://a.b', 'mailto:a@b.c', 'tel:5551234', 'javascript:alert(1)']) expect(completeAddress(as)).toBe(as);
+  });
+});
+
 describe('page width', () => {
   const width = Object.getOwnPropertyDescriptor(window, 'innerWidth');
   afterEach(() => {
