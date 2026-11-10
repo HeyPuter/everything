@@ -95,6 +95,8 @@ export class TextEditor {
     });
     if (opts.initial) opts.onChange?.(opts.initial);
     const handle = {
+      /** Accept the text as typed (the Done button). */
+      finish: () => finish(field.value),
       close: (silent) => {
         if (done) return;
         done = true;

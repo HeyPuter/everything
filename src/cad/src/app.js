@@ -1910,7 +1910,8 @@ export class App {
       return;
     }
     const onCanvas = t === document.body || t === this.shell.overlay;
-    if ((e.key === 'Enter' || (e.key === ' ' && this.editor.spaceSubmits)) && onCanvas) {
+    const space = e.key === ' ' && this.editor.spaceSubmits && this.editor.request?.kind !== 'text';
+    if ((e.key === 'Enter' || space) && onCanvas) {
       e.preventDefault();
       this.cmdline.submit();
       return;

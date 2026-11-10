@@ -91,7 +91,7 @@ export class CommandLine {
       e.preventDefault();
       if (this.suggestIndex >= 0 && !this.suggestEl.hidden) return this._pick(this.suggestIndex);
       this.submit();
-    } else if (e.key === ' ' && ed.spaceSubmits) {
+    } else if (e.key === ' ' && ed.spaceSubmits && ed.request?.kind !== 'text') {
       e.preventDefault();
       if (this.suggestIndex >= 0 && !this.suggestEl.hidden) return this._pick(this.suggestIndex);
       this.submit();
@@ -128,6 +128,11 @@ export class CommandLine {
 
   submit() {
     const text = this.input.value;
+    // The in-place text box holds what is typed: Enter given here (the Enter
+    // button, the phone command bar, Enter on the drawing) finishes it as its
+    // Done button does.
+    const box = this.app.editor.request?.kind === 'text' ? this.app.textEditor?.current : null;
+    if (box && !text.trim()) return box.finish();
     this.input.value = '';
     this._hideSuggest();
     if (text.trim()) this._remember(text);
