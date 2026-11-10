@@ -97,3 +97,36 @@ describe('plot dialog values', () => {
     expect(JSON.parse(localStorage.getItem('cad.plot'))).toMatchObject({ paperMm: 2, units: 100, margins: 10 });
   });
 });
+
+describe('plot dialog preview', () => {
+  it('is drawn once per edit, not once per event or key', async () => {
+    const app = plotApp();
+    const p = plotDialog(app, { fit: false, paperMm: 1, units: 100 });
+    await wait();
+    const dlg = document.querySelector('dialog[open]');
+    const preview = dlg.querySelector('canvas');
+    let draws = 0;
+    preview.getContext = () => (draws++, new Proxy({}, { get: () => () => {}, set: () => true }));
+    const hint = () => [...dlg.querySelectorAll('.field-hint')].find((x) => /Scale/.test(x.textContent)).textContent;
+    // Typing "250" into a number field.
+    const units = dlg.querySelectorAll('.scale-row input')[1];
+    for (const v of ['2', '25', '250']) {
+      units.value = v;
+      units.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    // The scale follows every key at once; the preview waits for the typing to stop.
+    expect(hint()).toBe('Scale 1:250');
+    expect(draws).toBe(0);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(draws).toBe(1);
+    // A choice fires input and change together.
+    const orient = dlg.querySelectorAll('select')[1];
+    orient.value = 'portrait';
+    orient.dispatchEvent(new Event('input', { bubbles: true }));
+    orient.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(draws).toBe(2);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Cancel').click();
+    await p;
+  });
+});

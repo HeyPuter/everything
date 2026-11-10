@@ -420,16 +420,21 @@ export async function plotDialog(app, state) {
   });
   let items = null;
   let itemsArea = null;
-  const draw = () => {
+  /** Take the fields in and show the resulting scale (cheap; the preview is drawn by draw). */
+  const update = () => {
     read();
     const area = areaFor(app, st.areaMode, st.window);
+    const s = settingsFor(area);
+    const plot = computePlot(s, area);
+    scaleText.textContent = `Scale ${plot.scaleText}`;
+    return { area, s, plot };
+  };
+  const draw = () => {
+    const { area, s, plot } = update();
     if (!items || itemsArea?.join() !== area.join()) {
       items = recordDrawing(app, { area, tol: Math.max(area[2] - area[0], area[3] - area[1]) / 2000 });
       itemsArea = area;
     }
-    const s = settingsFor(area);
-    const plot = computePlot(s, area);
-    scaleText.textContent = `Scale ${plot.scaleText}`;
     const box = { w: 360, h: 260 };
     const k = Math.min(box.w / plot.pageW, box.h / plot.pageH) * 0.92;
     const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -462,8 +467,16 @@ export async function plotDialog(app, state) {
     mmIn.value = std.paper;
     unitsIn.value = std.drawing;
   });
-  form.addEventListener('change', draw);
-  form.addEventListener('input', draw);
+  // Drawing the preview takes a while on a large drawing, so it is drawn once
+  // per edit: a choice fires both events, and typing a number one per key.
+  let drawTimer = 0;
+  const edited = (e) => {
+    update();
+    clearTimeout(drawTimer);
+    drawTimer = setTimeout(draw, e.target.matches?.('input[type=number]') ? 150 : 0);
+  };
+  form.addEventListener('change', edited);
+  form.addEventListener('input', edited);
   let action = null;
   pickBtn.addEventListener('click', () => {
     action = 'pick';
@@ -480,6 +493,7 @@ export async function plotDialog(app, state) {
       { label: 'Save PDF', primary: true, onClick: () => 'pdf' },
     ],
   });
+  clearTimeout(drawTimer);
   read();
   const { window: win, ...persist } = st;
   try {
