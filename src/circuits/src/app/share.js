@@ -49,7 +49,12 @@ export async function shareDialog(app) {
         }
       });
       const remove = h('button.btn.sm', { type: 'button', onClick: async () => {
-        try { await fs.unshare(loc.path, recipient(holder)); status.textContent = `${holder} no longer has access.`; render(); } catch (err) { status.textContent = err.message; }
+        try { await fs.unshare(loc.path, recipient(holder)); status.textContent = `${holder} no longer has access.`;
+          // This row and its button go: keep the focus in the dialog.
+          await render();
+          const dialog = list.closest('.dialog');
+          if (dialog && !dialog.contains(document.activeElement)) who.focus();
+        } catch (err) { status.textContent = err.message; }
       } }, 'Remove');
       return h('tr', h('td', holder), h('td', sel), h('td', { style: { textAlign: 'right' } }, remove));
     });

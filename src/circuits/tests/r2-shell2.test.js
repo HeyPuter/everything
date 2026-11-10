@@ -740,6 +740,25 @@ describe('share dialog', () => {
     expect(access.value).toBe('read');
     close(dialog);
   });
+
+  it('keeps keyboard focus in the dialog after removing a person', async () => {
+    const cloud = shareCloud();
+    cloud.shares.push({ holder: 'grace', mode: 'read' });
+    const dialog = open();
+    await new Promise((r) => setTimeout(r, 40)); // the dialog's first focus
+    cloud.pending.shift()();
+    await tick();
+    const remove = dialog.querySelector('tbody button');
+    cloud.shares.length = 0;
+    remove.focus();
+    remove.click();
+    await tick();
+    cloud.pending.shift()();
+    await tick();
+    expect(dialog.querySelector('tbody')).toBe(null);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    close(dialog);
+  });
 });
 
 describe('deleting a project in the Open project dialog', () => {
