@@ -217,10 +217,24 @@ export function tableToText() {
   const frag = document.createDocumentFragment();
   for (const tr of rowsOf(at.table)) {
     const p = document.createElement('p');
-    p.textContent = [...tr.children].map((c) => c.textContent.trim()).join('\t');
+    [...tr.children].forEach((cell, i) => {
+      if (i) p.append('\t');
+      // Pictures, attachments, equations, links and formatting stay; only a
+      // cell that holds paragraphs or lists of its own is reduced to its text.
+      if (cell.querySelector('p, div, ul, ol, table, h1, h2, h3, h4, h5, h6, blockquote, pre')) {
+        p.append(cell.textContent.trim());
+        return;
+      }
+      const nodes = [...cell.childNodes];
+      while (nodes.at(-1)?.nodeName === 'BR') nodes.pop();
+      p.append(...nodes);
+    });
+    if (!p.firstChild) p.append(document.createElement('br'));
     frag.append(p);
   }
+  const first = frag.firstChild;
   at.table.replaceWith(frag);
+  if (first) placeCaret(first, false);
   changed(at.root);
 }
 

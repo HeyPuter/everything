@@ -241,6 +241,15 @@ describe('tables', () => {
     expect(el.textContent).toContain('a');
   });
 
+  it('keeps pictures, attachments and links when converting a table to text', () => {
+    el = body('<table><tbody><tr><td>A</td><td><img data-asset="a1" alt="pic"><a href="https://example.com">link</a></td></tr><tr><td><br></td><td><b>bold</b></td></tr></tbody></table>');
+    caretIn(el.querySelector('td').firstChild, 0);
+    tableToText();
+    expect(el.innerHTML).toBe('<p>A\t<img data-asset="a1" alt="pic"><a href="https://example.com">link</a></p><p>\t<b>bold</b></p>');
+    // The caret is in the text, not left where the table was.
+    expect(el.firstChild.contains(document.getSelection().getRangeAt(0).startContainer)).toBe(true);
+  });
+
   it('sorts body rows without moving them into a <thead>', () => {
     el = body('<table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>b</td></tr><tr><td>a</td></tr></tbody></table>');
     caretIn(el.querySelector('td').firstChild, 0);
