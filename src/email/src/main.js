@@ -111,6 +111,15 @@ const signOut = async () => {
   start();
 };
 
+// A sign-in or a sign-out <puter-user-menu> did by itself (src/ui/usermenu.js):
+// the session has already changed, so what is open cannot be asked about
+// first. The composers are closed as far as they will go, which keeps their
+// drafts, and start-up runs again for whoever is here now.
+const sessionChanged = () => {
+  closeComposers();
+  start();
+};
+
 async function start() {
   demoSession = null;
   if (!window.puter) {
@@ -232,6 +241,7 @@ async function start() {
       ? (blob, name) => puter.ui.showSaveFilePicker(blob, name)
       : null,
     onSignOut: canSignOut() ? signOut : null,
+    onSessionChanged: sessionChanged,
   });
 
   demoSession = { fs: puter.fs, mailPath, app };

@@ -6,6 +6,7 @@ import { attachMenu } from './menu.js';
 import { confirmDialog, openModal } from './modal.js';
 import { toast } from './toast.js';
 import { applyTheme, currentTheme, THEMES } from './theme.js';
+import { userMenu } from './usermenu.js';
 import { openShortcuts, FOLDER_KEYS } from './shortcuts.js';
 import { openSnooze } from './snooze.js';
 import { createSnooze, snoozeTime } from '../lib/snooze.js';
@@ -662,29 +663,38 @@ export function renderApp(root, ctx) {
     },
   ], { beforeOpen: ctx.canPush ? () => refreshPushStatus() : null });
 
-  const accountAvatar = el('span.avatar.avatar-sm', {
-    'aria-hidden': 'true', style: { '--hue': hueFor(scope) },
-  }, initialFor(ctx.account.username));
-  const accountBtn = el('button.icon-btn.avatar-btn', {
-    type: 'button', 'aria-label': 'Account', title: 'Account',
-  }, accountAvatar);
-  // Loading the picture must not delay the mailbox. Keep the initial until
-  // the image decodes successfully, including when the SDK returns no picture.
-  if (ctx.getProfilePicture) {
-    Promise.resolve().then(() => ctx.getProfilePicture()).then((picture) => {
-      if (!picture) return;
-      const image = el('img.account-picture', {
-        alt: '',
-        onload: () => accountAvatar.replaceChildren(image),
-      });
-      image.src = picture;
-    }).catch(() => {});
-  }
-  attachMenu(accountBtn, () => [
-    { header: ctx.account.username },
-    ctx.onSignOut && { separator: true },
-    ctx.onSignOut && { label: 'Sign out', icon: 'logout', danger: true, onSelect: ctx.onSignOut },
-  ]);
+  // The account, at the end of the bar: puter.js's <puter-user-menu> where the
+  // SDK has it (usermenu.js), with the Apps launcher beside the picture, and
+  // otherwise the app's own button. The element's Sign out is the app's.
+  const accountMenu = userMenu({
+    onSignOut: ctx.onSignOut, onSessionChanged: ctx.onSessionChanged,
+  });
+  const accountButton = () => {
+    const accountAvatar = el('span.avatar.avatar-sm', {
+      'aria-hidden': 'true', style: { '--hue': hueFor(scope) },
+    }, initialFor(ctx.account.username));
+    const accountBtn = el('button.icon-btn.avatar-btn', {
+      type: 'button', 'aria-label': 'Account', title: 'Account',
+    }, accountAvatar);
+    // Loading the picture must not delay the mailbox. Keep the initial until
+    // the image decodes successfully, including when the SDK returns no picture.
+    if (ctx.getProfilePicture) {
+      Promise.resolve().then(() => ctx.getProfilePicture()).then((picture) => {
+        if (!picture) return;
+        const image = el('img.account-picture', {
+          alt: '',
+          onload: () => accountAvatar.replaceChildren(image),
+        });
+        image.src = picture;
+      }).catch(() => {});
+    }
+    attachMenu(accountBtn, () => [
+      { header: ctx.account.username },
+      ctx.onSignOut && { separator: true },
+      ctx.onSignOut && { label: 'Sign out', icon: 'logout', danger: true, onSelect: ctx.onSignOut },
+    ]);
+    return el('div.menu-anchor', {}, accountBtn);
+  };
 
   const topbar = el('header.topbar', {},
     menuBtn,
@@ -698,7 +708,7 @@ export function renderApp(root, ctx) {
     ),
     el('div.topbar-actions', {},
       el('div.menu-anchor', {}, themeBtn),
-      el('div.menu-anchor', {}, accountBtn),
+      accountMenu ?? accountButton(),
     ),
   );
 
@@ -4733,6 +4743,10 @@ export function renderApp(root, ctx) {
     // going to Trash.
     if (e.key === 'Shift' || e.key === 'CapsLock' || e.key === 'AltGraph') return;
     if (typingIn(e.target) || overlayOpen()) return;
+    // A key pressed inside puter.js's account menu (usermenu.js) is that
+    // menu's: it arrives here from the element itself, and Escape closing
+    // its menu would have closed the open message as well.
+    if (e.target instanceof Element && e.target.closest('puter-user-menu')) return;
 
     // Mid-chord, the key means a folder and nothing else -- including when it
     // names no folder, which ends the chord rather than falling through to
