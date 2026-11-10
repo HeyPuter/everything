@@ -44,6 +44,21 @@ export class BlockLibrary {
     clear(this.grid);
     this.empty.hidden = this.names().length > 0;
     const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
+    // A drawing can have hundreds of blocks, and the list is rebuilt after every
+    // change to a table: only the thumbnails scrolled into view are drawn.
+    this._thumbs?.disconnect();
+    const draws = new WeakMap();
+    const inView =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries, io) => {
+            for (const en of entries) {
+              if (!en.isIntersecting) continue;
+              io.unobserve(en.target);
+              draws.get(en.target)?.();
+            }
+          });
+    this._thumbs = inView;
     for (const name of names) {
       const b = d.blocks.get(name);
       const canvas = h('canvas.bl-thumb', { width: 120, height: 84, 'aria-hidden': 'true' });
@@ -72,7 +87,11 @@ export class BlockLibrary {
         ),
       );
       this.grid.append(item);
-      requestAnimationFrame(() => drawPreview(canvas, d, b.entities, { fg }));
+      const draw = () => drawPreview(canvas, d, b.entities, { fg });
+      if (inView) {
+        draws.set(canvas, draw);
+        inView.observe(canvas);
+      } else requestAnimationFrame(draw);
     }
   }
 
