@@ -20,6 +20,9 @@ export function toast(message, { action, duration, kind = 'info' } = {}) {
       if (!host.isConnected || host.parentNode === dialog) document.body.append(host);
     }, { once: true });
   }
+  // Above the phone layout's bottom bar when it is showing, not over it.
+  const bar = document.querySelector('.bottom-bar')?.getBoundingClientRect();
+  host.style.bottom = bar?.height ? `${Math.max(0, window.innerHeight - bar.top) + 12}px` : '';
   const el = h(`div.toast.${kind}`, { role: kind === 'error' ? 'alert' : 'status' });
   el.append(h('span.toast-msg', message));
   let timer;

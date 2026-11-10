@@ -330,6 +330,13 @@ textarea.input {
   max-width: calc(100vw - 24px);
   pointer-events: none;
 }
+/* Phones: clear of the home indicator. (Above the bottom bar of the section
+   and page lists, toast.js places them by where the bar is.) */
+@media (max-width: 760px) {
+  .toasts {
+    bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+}
 .toast {
   display: flex;
   align-items: center;
