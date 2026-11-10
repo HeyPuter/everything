@@ -536,7 +536,7 @@ export function boardInfoDialog(app, ed) {
 export function findDialog(app) {
   const ed = app.activeEditor;
   const input = h('input.palette-input', { type: 'text', placeholder: 'Designator, value or net name', 'aria-label': 'Find', autocomplete: 'off' });
-  const list = h('ul.palette-list', { role: 'listbox' });
+  const list = h('ul.palette-list', { role: 'listbox', 'aria-label': 'Results' });
   let results = [];
   let sel = 0;
   const render = () => {

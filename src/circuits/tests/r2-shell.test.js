@@ -307,3 +307,24 @@ describe('lists of rows that act as buttons', () => {
     expect(seen).toHaveLength(2);
   });
 });
+
+describe('find dialog', () => {
+  it('names its list of results', async () => {
+    const { findDialog } = await import('../src/app/dialogs.js');
+    const { default: axe } = await import('axe-core');
+    const part = { id: 'a', t: 'part', designator: 'R1', value: '10k' };
+    const ed = { kind: 'sch', doc: { name: 'Sheet1.sch', items: () => [part] }, focusObject() {} };
+    findDialog({ activeEditor: ed, project: { netlist: () => ({ nets: [] }) } });
+    await tick(20);
+    const input = document.querySelector('.palette-input');
+    input.value = 'r1';
+    input.dispatchEvent(new Event('input'));
+    expect(document.querySelectorAll('.palette-list [role="option"]')).toHaveLength(1);
+    const rules = { type: 'rule', values: ['aria-input-field-name'] };
+    const res = await axe.run(document.querySelector('.dialog'), { runOnly: rules });
+    expect(res.violations.map((v) => v.id)).toEqual([]);
+    document
+      .querySelector('.dialog')
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+});
