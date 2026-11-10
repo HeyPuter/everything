@@ -1,4 +1,4 @@
-import { blocksInRange, blockOf, currentRange, editableRoot, isBlock, selectRange } from './selection.js';
+import { blocksInRange, blockOf, currentRange, editableRoot, ensureBlocks, isBlock, selectRange } from './selection.js';
 
 /*
  * Text formatting on the current selection. Inline formatting goes through
@@ -272,7 +272,13 @@ export function retag(el, tag) {
 }
 
 export function toggleList(ordered) {
+  const range = currentRange();
+  const root = range && editableRoot(range.commonAncestorContainer);
   exec(ordered ? 'insertOrderedList' : 'insertUnorderedList');
+  // Chrome leaves the new list inside the paragraph it replaced (<p><ul>),
+  // and the text of a list it removes outside any paragraph: block commands
+  // then find no block at the caret, and the caret jumps as you type.
+  if (root?.classList.contains('outline-body')) ensureBlocks(root);
 }
 
 /** Sets list-style-type on the lists around the selection. */
