@@ -279,3 +279,84 @@ describe('project ids from files', () => {
       expect(parseProject(file(id)).id).toBe(id);
   });
 });
+
+describe('projects with damaged component definitions', () => {
+  const project = (library, comp) =>
+    JSON.stringify({
+      format: 'circuits-project',
+      version: 1,
+      name: 'P',
+      library,
+      documents: [
+        {
+          kind: 'sch',
+          name: 'S.sch',
+          objects: [{ id: 'a', t: 'part', comp, x: 0, y: 0, designator: 'U1', uid: 'u1' }],
+        },
+        {
+          kind: 'pcb',
+          name: 'B.pcb',
+          objects: [{ id: 'b', t: 'comp', comp, x: 0, y: 0, designator: 'U1', uid: 'u1' }],
+        },
+      ],
+    });
+  const damaged = {
+    'not an object': 5,
+    'no symbol': { id: 'x', name: 'X' },
+    'symbol without lists': { id: 'x', symbol: {} },
+    'lists of the wrong type': {
+      id: 'x',
+      symbol: { pins: 'x', graphics: 5 },
+      footprint: { pads: 5, graphics: 'y' },
+    },
+    'empty entries': {
+      id: 'x',
+      symbol: { pins: [null], graphics: [null, 7] },
+      footprint: { pads: [null], graphics: [null] },
+    },
+    'shapes without points': {
+      id: 'x',
+      symbol: { pins: [], graphics: [{ t: 'poly' }] },
+      footprint: { pads: [], graphics: [{ t: 'polyline', layer: 'topOverlay' }] },
+    },
+    'a footprint of the wrong type': {
+      id: 'x',
+      symbol: { pins: [], graphics: [] },
+      footprint: 'SOIC-8',
+    },
+  };
+
+  for (const [what, def] of Object.entries(damaged)) {
+    it(`opens a project whose definition has ${what}`, () => {
+      const p = parseProject(project({ x: def }, 'x'));
+      expect([...p.sheets[0].items()].length).toBe(1);
+      expect([...p.boards[0].items()].length).toBe(1);
+      expect(() => p.netlist()).not.toThrow();
+      expect(() => exportGerbers(p.boards[0].snapshot(), p.library, {})).not.toThrow();
+      expect(() => parseProject(JSON.stringify(p.toJSON()))).not.toThrow();
+    });
+  }
+
+  it('leaves complete definitions as they were', () => {
+    const def = {
+      id: 'x',
+      name: 'X',
+      prefix: 'U',
+      params: { MPN: '1' },
+      symbol: {
+        pins: [{ num: '1', name: 'A', x: 0, y: 0, length: 100, rot: 0, type: 'passive' }],
+        graphics: [{ t: 'poly', pts: [0, 0, 1, 0, 1, 1], w: 0 }],
+        designatorPos: { x: 1, y: 2 },
+      },
+      footprint: {
+        name: 'F',
+        pads: [{ num: '1', x: 0, y: 0, shape: 'rect', w: 10, h: 10, side: 'top' }],
+        graphics: [],
+        courtyard: { x1: 0, y1: 0, x2: 1, y2: 1 },
+      },
+    };
+    const noFootprint = { id: 'y', name: 'Y', symbol: { pins: [], graphics: [] }, footprint: null };
+    const saved = parseProject(project({ x: def, y: noFootprint }, 'x')).toJSON();
+    expect(JSON.parse(JSON.stringify(saved.library))).toEqual({ x: def, y: noFootprint });
+  });
+});

@@ -276,6 +276,34 @@ function hasPoints(o) {
   return Array.isArray(pts) && pts.length >= min * 2 && pts.length % 2 === 0 && pts.every(Number.isFinite);
 }
 
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const objectsOf = (list) => (Array.isArray(list) ? list.filter(isObj) : []);
+/** Graphics need a type, and shapes drawn through points need their point list. */
+const graphicsOf = (list) => objectsOf(list).filter((g) => typeof g.t === 'string' && ((g.t !== 'poly' && g.t !== 'polyline') || Array.isArray(g.pts)));
+
+/**
+ * Component definitions in the shape the rest of the app relies on: a symbol
+ * with pin and graphic lists, and a footprint that is absent or has pad and
+ * graphic lists. A damaged entry is repaired (or dropped when it is not a
+ * definition at all) instead of making the whole project impossible to open.
+ */
+function cleanLibrary(library) {
+  const out = {};
+  if (!isObj(library)) return out;
+  for (const [id, def] of Object.entries(library)) {
+    if (!isObj(def)) continue;
+    const sym = isObj(def.symbol) ? def.symbol : {};
+    const fp = isObj(def.footprint) ? def.footprint : null;
+    out[id] = {
+      ...def,
+      id: typeof def.id === 'string' ? def.id : id,
+      symbol: { ...sym, pins: objectsOf(sym.pins), graphics: graphicsOf(sym.graphics) },
+      footprint: fp ? { ...fp, pads: objectsOf(fp.pads), graphics: graphicsOf(fp.graphics) } : def.footprint === undefined ? undefined : null,
+    };
+  }
+  return out;
+}
+
 /** Validates and upgrades parsed JSON. Throws with a readable message. */
 export function parseProject(json) {
   const data = typeof json === 'string' ? JSON.parse(json) : json;
@@ -285,6 +313,7 @@ export function parseProject(json) {
   // The id names the project's file and version folder in storage, so one
   // read from a file must be a plain name (never a path such as '..').
   if (typeof data.id !== 'string' || !/^[\w-]{1,128}$/.test(data.id)) data.id = uid('p');
+  data.library = cleanLibrary(data.library);
   data.documents = data.documents.filter((d) => d && typeof d === 'object');
   const docIds = new Set();
   const partUids = new Set();
