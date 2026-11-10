@@ -35,8 +35,18 @@ export async function shareDialog(app) {
     const rows = shares.map((s) => {
       const holder = typeof s.holder === 'string' ? s.holder : s.holder?.username || s.holder?.email || '';
       const sel = h('select', { 'aria-label': `Access for ${holder}` }, MODES.concat([['manage', 'Can edit and share']]).map(([v, l]) => h('option', { value: v, selected: v === s.mode }, l)));
+      let current = s.mode;
       sel.addEventListener('change', async () => {
-        try { await fs.share(loc.path, recipient(holder), sel.value); status.textContent = `Updated access for ${holder}.`; } catch (err) { status.textContent = err.message; }
+        const wanted = sel.value;
+        try {
+          await fs.share(loc.path, recipient(holder), wanted);
+          current = wanted;
+          status.textContent = `Updated access for ${holder}.`;
+        } catch (err) {
+          // Nothing changed: show the access the person still has.
+          if (sel.value === wanted) sel.value = current;
+          status.textContent = `Could not change access: ${err?.message || err}`;
+        }
       });
       const remove = h('button.btn.sm', { type: 'button', onClick: async () => {
         try { await fs.unshare(loc.path, recipient(holder)); status.textContent = `${holder} no longer has access.`; render(); } catch (err) { status.textContent = err.message; }

@@ -719,4 +719,22 @@ describe('share dialog', () => {
     expect(dialog.textContent).not.toContain('Not shared with anyone yet');
     close(dialog);
   });
+
+  it('shows the access a person still has when changing it fails', async () => {
+    const cloud = shareCloud();
+    cloud.shares.push({ holder: 'grace', mode: 'read' });
+    const dialog = open();
+    await tick();
+    cloud.pending.shift()();
+    await tick();
+    const access = dialog.querySelector('tbody select');
+    expect(access.value).toBe('read');
+    cloud.failShare = true;
+    access.value = 'write';
+    access.dispatchEvent(new Event('change'));
+    await tick();
+    expect(dialog.querySelector('[role=status]').textContent).toContain('No permission');
+    expect(access.value).toBe('read');
+    close(dialog);
+  });
 });
