@@ -140,6 +140,31 @@ describe('layer changes while routing', () => {
   });
 });
 
+describe('messages for a removed document', () => {
+  it('go away with the document instead of pointing into another one', async () => {
+    const app = await boot();
+    ctx = { app };
+    await app.openExample();
+    const second = app.addDoc('sch');
+    second.store.transact('Add', (s) => s.add({ t: 'wire', pts: [0, 0, 2_540_000, 0] }));
+    app.compile();
+    const mine = app.panels.messages.items.filter((m) => m.docId === second.id);
+    expect(mine.length).toBeGreaterThan(0);
+    const others = app.panels.messages.items.length - mine.length;
+    app.openDoc(app.project.boards[0].id);
+    const board = app.activeEditor;
+    let moved = 0;
+    board.focusObject = () => moved++;
+    app.removeDoc(second.id);
+    expect(app.panels.messages.items.filter((m) => m.docId === second.id)).toHaveLength(0);
+    expect(app.panels.messages.items).toHaveLength(others);
+    // A row that is still on screen for a document that is gone does nothing.
+    app.focusMessage(mine[0]);
+    expect(moved).toBe(0);
+    expect(app.activeEditor).toBe(board);
+  });
+});
+
 describe('messages across projects', () => {
   it('drops check results when the project is closed or replaced', async () => {
     const app = await boot();

@@ -988,6 +988,9 @@ export class App extends Emitter {
   removeDoc(id) {
     this.closeTab(id);
     this.project.removeDoc(id);
+    // Its check results would otherwise point into whichever document is open.
+    const msgs = this.panels.messages;
+    if (msgs.items.some((m) => m.docId === id)) { msgs.set(msgs.items.filter((m) => m.docId !== id), msgs.source); this.updateStatus(); }
   }
 
   addDoc(kind) {
@@ -1289,6 +1292,7 @@ export class App extends Emitter {
   }
 
   focusMessage(m) {
+    if (m.docId && !this._doc(m.docId)) return;
     if (m.docId) this.openDoc(m.docId);
     const ed = this.activeEditor;
     if (!ed) return;
