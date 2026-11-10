@@ -8,6 +8,7 @@ import { drawPreview } from './preview.js';
 import { openDialog, promptDialog, confirmDialog } from './dialog.js';
 import { showMenu } from './menu.js';
 import { tableKey } from '../core/schema.js';
+import { keepScroll } from './focus.js';
 
 export class BlockLibrary {
   constructor(app) {
@@ -41,6 +42,8 @@ export class BlockLibrary {
     if (!this.app.doc) return;
     const d = this.app.doc.drawing;
     const names = this.names().filter((n) => !this.query || n.toLowerCase().includes(this.query));
+    // The dock scrolls the palette; emptying the list would send it back to the top.
+    const restoreScroll = keepScroll(this.el.parentElement);
     clear(this.grid);
     this.empty.hidden = this.names().length > 0;
     const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
@@ -93,6 +96,7 @@ export class BlockLibrary {
         inView.observe(canvas);
       } else requestAnimationFrame(draw);
     }
+    restoreScroll();
   }
 
   usage(name) {

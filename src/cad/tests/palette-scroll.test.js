@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Drawing } from '../src/core/drawing.js';
 import { LayerManager } from '../src/ui/layers.js';
 import { PropertiesPalette } from '../src/ui/properties.js';
+import { BlockLibrary } from '../src/ui/blocks.js';
 
 /**
  * A browser drops a scroller's position when the content under it goes away
@@ -58,5 +59,22 @@ describe('palettes keep their scroll position when they re-render', () => {
     dropScrollWhenEmptied(dockBody, p.body);
     p.render();
     expect(dockBody.scrollTop).toBe(700);
+  });
+
+  it('block list', () => {
+    globalThis.requestAnimationFrame ??= (cb) => setTimeout(cb, 0);
+    const d = new Drawing();
+    d.transaction('blocks', () => {
+      for (let i = 0; i < 40; i++) d.setBlock(`B${i}`, { name: `B${i}`, base: { x: 0, y: 0 }, entities: [] });
+    });
+    const bl = new BlockLibrary({ doc: { drawing: d }, run() {} });
+    const dockBody = document.createElement('div');
+    dockBody.append(bl.el);
+    document.body.append(dockBody);
+    bl.render();
+    dockBody.scrollTop = 1200;
+    dropScrollWhenEmptied(dockBody, bl.grid);
+    bl.render();
+    expect(dockBody.scrollTop).toBe(1200);
   });
 });
