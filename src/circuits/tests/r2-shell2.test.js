@@ -339,6 +339,7 @@ describe('layer stack dialog', () => {
     expect(ed.doc.board.thickness).toBe(thickness);
     // The layer stack dialog stays open so the choice can be changed.
     expect(document.querySelectorAll('.dialog').length).toBe(1);
+    expect(document.querySelector('.dialog').contains(document.activeElement)).toBe(true);
     button('Cancel').click();
     shutDown(app);
   });

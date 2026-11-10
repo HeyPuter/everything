@@ -46,7 +46,12 @@ export function openDialog({ title, body, actions = [{ label: 'Close', primary: 
           const keep = await a.run(api);
           if (keep === false) return;
           close(a.value ?? a.label);
-        } finally { btn.disabled = false; }
+        } finally {
+          btn.disabled = false;
+          // A dialog opened from run() could not hand the focus back to the
+          // disabled button when it closed: take it, or it is left on the page behind.
+          if (!closed && stack.at(-1) === api && !dialog.contains(document.activeElement)) btn.focus();
+        }
       } else close(a.value ?? a.label);
     });
     if (a.left) { left.append(btn); hasLeft = true; } else foot.append(btn);
