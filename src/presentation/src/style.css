@@ -277,6 +277,65 @@ select {
   background: var(--surface-2);
   color: var(--ink);
 }
+/* ---------- <puter-user-menu> (puter.js; src/user-menu.js) ----------
+   Where the loaded puter.js has it, it holds the Apps launcher and the
+   account, after the Settings button. Its parts take the header's icon button
+   and primary button looks; its menu and Apps panel take the app's card, in
+   both themes. */
+puter-user-menu {
+  flex: none;
+}
+.btn.settings-button {
+  flex: none;
+  color: var(--muted);
+}
+.btn.settings-button:hover:not(:disabled) {
+  color: var(--ink);
+}
+puter-user-menu::part(apps-button) {
+  border-radius: 8px;
+  color: var(--muted);
+}
+puter-user-menu::part(sign-in) {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* The editor's title bar is full: its Sign in is the size of the pills there,
+   and where the bar is tight the command search gives up the width Sign in
+   has over the account button it stands in for. */
+.editor-header puter-user-menu::part(sign-in) {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+@media (max-width: 1350px) {
+  .editor-header .header-right:has(puter-user-menu) .command-search {
+    width: 96px;
+  }
+}
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+  puter-user-menu::part(sign-in):hover {
+    filter: brightness(0.94);
+  }
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--surface);
+  border-color: var(--line);
+  --caret-border: var(--line);
+  --caret-fill: var(--surface);
+}
 .apps-panel {
   position: fixed;
   top: var(--apps-panel-top, 56px);

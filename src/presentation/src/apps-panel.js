@@ -9,6 +9,7 @@
 // the embed for the new account.
 import { el, icon, closeMenu } from "./ui.js";
 import { isApp } from "./cloud.js";
+import { hasUserMenu } from "./user-menu.js";
 
 export const APPS_EMBED_URL = "https://puter.com/embed/apps";
 export const APPS_NEWTAB_URL = "https://puter.com/#apps";
@@ -45,9 +46,12 @@ function gridIcon() {
   return svg;
 }
 
-/** The header button, or null inside a Puter app window. */
+/**
+ * The header button, or null inside a Puter app window and where puter.js's
+ * <puter-user-menu> has its own.
+ */
 export function appsButton(cls = "") {
-  if (isApp()) return null;
+  if (isApp() || hasUserMenu()) return null;
   const control = el(
     "button",
     {
