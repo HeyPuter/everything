@@ -204,6 +204,28 @@ describe('PageEditor Escape in an empty container', () => {
   });
 });
 
+describe('PageEditor keys on the page header', () => {
+  it('leaves Enter and Delete on the date button alone while a container is selected', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>a</p>' }], ink: [] });
+    ed.selectOutlines([ed.outlineEl('o1')]);
+    ed.dateBtn.focus();
+    for (const key of ['Enter', 'Delete', 'ArrowRight']) {
+      const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      ed.dateBtn.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(false);
+    }
+    expect(document.activeElement).toBe(ed.dateBtn);
+    expect(ed.page.outlines).toHaveLength(1);
+    expect(ed.page.outlines[0].x).toBe(40);
+    ed.destroy();
+    host.remove();
+  });
+});
+
 describe('PageEditor undo selection', () => {
   it('puts back the selection a formatting change started from', async () => {
     const { PageEditor } = await import('../src/editor/page-editor.js');

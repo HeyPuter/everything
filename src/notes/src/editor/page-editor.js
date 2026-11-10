@@ -721,6 +721,15 @@ export class PageEditor extends Emitter {
       return;
     }
     if (!inBody) {
+      // The title and the date and time buttons keep their own keys: Enter
+      // presses the button, Delete does not remove the selected container.
+      if (e.target.closest?.('.page-header')) {
+        if (e.key === 'Escape') {
+          this.selectOutlines([]);
+          this.ink.clearSelection();
+        }
+        return;
+      }
       if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selectedOutlines.size || this.ink.selected.size) && !e.target.closest?.('.page-title')) {
         e.preventDefault();
         this.deleteSelectedOutlines();
