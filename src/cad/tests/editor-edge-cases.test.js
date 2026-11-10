@@ -444,3 +444,42 @@ describe('CUTCLIP', () => {
     expect(t.ed.app.clipboard.entities).toHaveLength(1);
   });
 });
+
+describe('Pan tool on touch screens', () => {
+  const touch = (type, id, sx, sy) => {
+    const e = new MouseEvent(type, { clientX: sx, clientY: sy, button: 0, bubbles: true });
+    Object.defineProperties(e, { pointerId: { value: id }, pointerType: { value: 'touch' } });
+    t.ed.el.dispatchEvent(e);
+  };
+
+  it('does not jump when one finger of a pinch lifts and the other keeps moving', async () => {
+    await t.type('PAN');
+    touch('pointerdown', 1, 300, 300);
+    touch('pointermove', 1, 310, 300);
+    expect(t.ed.camera.state.cx).toBeCloseTo(-2.5);
+    touch('pointerdown', 2, 500, 300);
+    // Both fingers move 100 px to the right: a two-finger pan.
+    touch('pointermove', 1, 410, 300);
+    touch('pointermove', 2, 600, 300);
+    expect(t.ed.camera.state.cx).toBeCloseTo(-27.5);
+    touch('pointerup', 1, 410, 300);
+    // The remaining finger pans on from where it is: 4 px is one unit.
+    touch('pointermove', 2, 604, 300);
+    expect(t.ed.camera.state.cx).toBeCloseTo(-28.5);
+    touch('pointerup', 2, 604, 300);
+    expect(t.ed.panning).toBeNull();
+    expect(t.ed.busy).toBe(true);
+  });
+
+  it('survives a cancelled finger during the pinch', async () => {
+    await t.type('PAN');
+    touch('pointerdown', 1, 300, 300);
+    touch('pointerdown', 2, 500, 300);
+    touch('pointermove', 1, 400, 300);
+    touch('pointermove', 2, 600, 300);
+    const cx = t.ed.camera.state.cx;
+    touch('pointercancel', 2, 600, 300);
+    touch('pointermove', 1, 404, 300);
+    expect(t.ed.camera.state.cx).toBeCloseTo(cx - 1);
+  });
+});

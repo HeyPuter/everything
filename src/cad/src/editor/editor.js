@@ -895,22 +895,11 @@ export class Editor {
     const p = this.pointers.get(e.pointerId);
     this.pointers.delete(e.pointerId);
     if (this.gesture) {
-      if (this.pointers.size < 2) {
-        this.gesture = null;
-        // The remaining finger keeps panning from where it is now.
-        for (const q of this.pointers.values()) {
-          q.panned = true;
-          q.lx = q.sx;
-          q.ly = q.sy;
-        }
-      }
+      if (this.pointers.size < 2) this._endGesture();
       return;
     }
     if (this.panning && this.panning.id === e.pointerId) {
-      const pan = this.panning;
-      this.panning = null;
-      this.el.classList.remove('is-panning');
-      if (!pan.moved && pan.mid) return;
+      this._endPan();
       return;
     }
     if (!p) return;
@@ -935,8 +924,28 @@ export class Editor {
 
   _cancelPointer(e) {
     this.pointers.delete(e.pointerId);
-    if (this.pointers.size < 2) this.gesture = null;
-    if (this.panning?.id === e.pointerId) this.panning = null;
+    if (this.gesture && this.pointers.size < 2) this._endGesture();
+    else if (this.panning?.id === e.pointerId) this._endPan();
+  }
+
+  _endPan() {
+    this.panning = null;
+    this.el.classList.remove('is-panning');
+  }
+
+  /**
+   * A pinch ended: the remaining finger keeps panning from where it is now
+   * (with the Pan tool too, whose drag began before the pinch).
+   */
+  _endGesture() {
+    this.gesture = null;
+    for (const [id, q] of this.pointers) {
+      q.panned = true;
+      q.lx = q.sx;
+      q.ly = q.sy;
+      if (this.panning) Object.assign(this.panning, { id, sx: q.sx, sy: q.sy });
+    }
+    if (this.panning && !this.pointers.size) this._endPan();
   }
 
   _startGesture() {
