@@ -6,6 +6,7 @@ import { selectedRoots, visibleRows } from './model/layers';
 import { layerLock, type LockOperation } from './model/locks';
 import { DocumentSession } from './app/session';
 import { appShell } from './app/shell';
+import { installUserMenu } from './app/user-menu';
 import { MenuBar } from './app/menubar';
 import { Toolbar } from './app/toolbar';
 import { Dock } from './app/dock';
@@ -72,6 +73,7 @@ export class Editor {
   documentHooks: ((doc: PhotoDocument, before: PhotoDocument) => void)[] = [];
   constructor(public root: HTMLElement) {
     appShell(root);
+    installUserMenu(this);
     this.preferences = readPreferences();
     this.windows = new WindowManager(this);
     this.session = this.newSession();
@@ -802,6 +804,8 @@ export class Editor {
   }
   private keyDown(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
+    // puter.js's user menu takes its own keys (they arrive from the element).
+    if (target.closest('puter-user-menu')) return;
     if (this.menubar?.isOpen && target.closest('.menubar')) return;
     if (this.transform.active && target.matches('#transform-proportions,#transform-snap') && ['Enter', 'Escape'].includes(e.key)) {
       e.preventDefault();

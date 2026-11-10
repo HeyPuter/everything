@@ -106,7 +106,7 @@ export function bindCanvas(e: Editor) {
     { passive: false },
   );
   document.addEventListener('keydown', (event) => {
-    if (event.code === 'Space' && !event.repeat && !(event.target as HTMLElement).closest('input,textarea,select,[contenteditable]')) {
+    if (event.code === 'Space' && !event.repeat && !(event.target as HTMLElement).closest('input,textarea,select,[contenteditable],puter-user-menu')) {
       spaceHeld = true;
       viewport.classList.add('space-pan');
     }

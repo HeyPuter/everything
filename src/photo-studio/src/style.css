@@ -167,6 +167,23 @@ svg.icon { flex: none; display: block; }
 .export-button { border-color: var(--input-line); }
 .save-button span { font-size: 11px; }
 .account { width: 26px; }
+.account[hidden] { display: none; }
+/* <puter-user-menu> (puter.js; src/app/user-menu.ts): when the loaded puter.js
+   has it, it holds the Apps launcher and the account in place of the account
+   button. Its parts take the top bar's button looks, its panels the menus'. */
+puter-user-menu { flex: none; }
+puter-user-menu::part(apps-button) { width: 26px; height: 22px; border-radius: 3px; color: var(--text); }
+puter-user-menu::part(apps-button):hover { background: var(--hover); }
+puter-user-menu::part(avatar) { width: 22px; height: 22px; line-height: 22px; font-size: 11px; }
+puter-user-menu::part(sign-in) {
+  height: 22px; padding: 0 9px; border: 1px solid var(--accent-fill); border-radius: 3px;
+  background: var(--accent-fill); color: var(--accent-text); font-size: 12px; white-space: nowrap;
+}
+puter-user-menu::part(sign-in):hover { background: color-mix(in srgb, var(--accent-fill) 88%, white); }
+puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
+  background: var(--menu); border-color: var(--line-soft);
+  --caret-border: var(--line-soft); --caret-fill: var(--menu);
+}
 
 /* Options bar */
 .optionsbar { display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--chrome); border-bottom: 1px solid var(--line); min-width: 0; overflow: hidden; }
@@ -535,6 +552,7 @@ svg.histogram { width: 100%; height: 100px; background: var(--input); border: 1p
   .dock-column { width: min(300px, 80vw); }
   .menubar-button { padding: 0 5px; }
   .save-button span { display: none; }
+  puter-user-menu::part(apps-button) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .marching .ants-black { animation: none; }
