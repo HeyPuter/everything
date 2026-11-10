@@ -170,3 +170,23 @@ describe('hidden layers and selection', () => {
     expect(pick()).toEqual([]);
   });
 });
+
+describe('editing a footprint in the library', () => {
+  it('moves the ratsnest and the routing targets with the pad', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const before = padOf(ed, 'U1', '1');
+    expect(ed.copperAt(before.x, before.y, 'top', true)?.net).toBe('GND');
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    const def = structuredClone(ed.lib[u1.comp]);
+    def.footprint.pads.find((p) => p.num === '1').x -= mm(5);
+    app.project.putComponent(def);
+    const after = padOf(ed, 'U1', '1');
+    expect(after.x).toBe(before.x - mm(5));
+    expect(ed.copperAt(after.x, after.y, 'top', true)?.net).toBe('GND');
+    expect(ed.copperAt(before.x, before.y, 'top', true)).toBeNull();
+    const ends = ed.analysis().ratsnest.flatMap((l) => [`${l.x1},${l.y1}`, `${l.x2},${l.y2}`]);
+    expect(ends).toContain(`${after.x},${after.y}`);
+    expect(ends).not.toContain(`${before.x},${before.y}`);
+  });
+});

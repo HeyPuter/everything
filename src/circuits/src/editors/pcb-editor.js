@@ -57,7 +57,8 @@ export class PcbEditor extends CanvasView {
     this._buildChrome();
     this._unsub = [
       doc.store.on('change', (e) => this._onChange(e)),
-      project.on('library', () => { this._dirtyLayers.add('*'); this._schedulePours(); this.requestRender(true); }),
+      // A replaced footprint moves pads without a new store revision: drop the cached connectivity.
+      project.on('library', () => { this._analysis = null; this._dirtyLayers.add('*'); this._schedulePours(); this.requestRender(true); }),
       app.settings.on('change', ({ key }) => {
         if (key === 'layerColors' || key === 'pcbGridStyle') { this._dirtyLayers.add('*'); this.requestRender(true); }
         if (key === 'padLabels') this._scheduleLabels();
