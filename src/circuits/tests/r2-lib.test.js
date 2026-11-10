@@ -5,6 +5,7 @@ import { LibDoc, LibEditor } from '../src/editors/lib-editor.js';
 import { findComponent } from '../src/model/library/builtin.js';
 import { Project, newProjectData } from '../src/model/project.js';
 import { mm } from '../src/core/units.js';
+import { createViewer3D } from '../src/render/viewer3d.js';
 
 // jsdom has no 2D canvas or WebGL; the editor logic runs without them.
 HTMLCanvasElement.prototype.getContext = () => null;
@@ -49,7 +50,9 @@ describe('pin table', () => {
     name.dispatchEvent(new Event('input', { bubbles: true }));
     length.value = '300';
     length.dispatchEvent(new Event('input', { bubbles: true }));
-    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    name.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
     await tick();
     expect(document.querySelector('.dialog')).toBeNull();
     expect(pins(doc)[0].name).toBe('TRIGGER');
@@ -70,7 +73,10 @@ describe('footprint courtyard', () => {
     expect(doc.toDef().footprint.courtyard).toEqual({ x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 });
     ed.endVertexDrag({ id: r.id, index: 2, x: r.x2 + mm(2), y: r.y2 + mm(1) }, true);
     expect(doc.toDef().footprint.courtyard).toEqual({
-      x1: r.x1, y1: r.y1, x2: r.x2 + mm(2), y2: r.y2 + mm(1),
+      x1: r.x1,
+      y1: r.y1,
+      x2: r.x2 + mm(2),
+      y2: r.y2 + mm(1),
     });
     doc.fpStore.undo();
     expect(doc.toDef().footprint.courtyard).toEqual({ x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 });
@@ -82,11 +88,22 @@ describe('footprint courtyard', () => {
     doc.fpStore.transact('Redraw courtyard', (s) => {
       s.remove(courtyardRect(doc).id);
       s.update('fpmeta', { courtyard: undefined });
-      s.add({ t: 'rect', layer: 'courtyard', w: mm(0.05), x1: mm(3), y1: mm(2), x2: mm(-3), y2: mm(-2) });
+      s.add({
+        t: 'rect',
+        layer: 'courtyard',
+        w: mm(0.05),
+        x1: mm(3),
+        y1: mm(2),
+        x2: mm(-3),
+        y2: mm(-2),
+      });
     });
     await ed.save();
     expect(project.library['res-0603'].footprint.courtyard).toEqual({
-      x1: mm(-3), y1: mm(-2), x2: mm(3), y2: mm(2),
+      x1: mm(-3),
+      y1: mm(-2),
+      x2: mm(3),
+      y2: mm(2),
     });
   });
 
@@ -95,5 +112,44 @@ describe('footprint courtyard', () => {
     const before = doc.toDef().footprint.courtyard;
     doc.fpStore.transact('Delete', (s) => s.remove(courtyardRect(doc).id));
     expect(doc.toDef().footprint.courtyard).toEqual(before);
+  });
+});
+
+/** A WebGL2 context that accepts every call, for code that only needs one to exist. */
+function fakeGl() {
+  return new Proxy(
+    {},
+    {
+      get: (t, k) => {
+        if (k in t) return t[k];
+        if (typeof k !== 'string') return undefined;
+        if (/^[A-Z0-9_]+$/.test(k)) return 1;
+        if (k.startsWith('create')) return () => ({});
+        if (/^get(Shader|Program)Parameter$/.test(k)) return () => true;
+        return () => null;
+      },
+    },
+  );
+}
+
+describe('3D viewer', () => {
+  // Pressing on the canvas cancels the pointer event's default action (to
+  // keep the page from selecting or scrolling), which also keeps the browser
+  // from focusing the canvas, so the viewer has to do it.
+  it('takes keyboard focus when the canvas is pressed', () => {
+    const canvas = document.createElement('canvas');
+    canvas.getContext = () => fakeGl();
+    const other = document.createElement('button');
+    document.body.append(canvas, other);
+    const viewer = createViewer3D(canvas);
+    expect(viewer.supported).toBe(true);
+    other.focus();
+    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 });
+    canvas.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(canvas);
+    viewer.dispose();
+    canvas.remove();
+    other.remove();
   });
 });

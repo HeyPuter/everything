@@ -395,6 +395,9 @@ export function createViewer3D(canvas, opts = {}) {
 
   function onPointerDown(e) {
     if (!supported) return;
+    // Cancelling the event below also cancels the focus a press gives, and
+    // the keyboard controls need it.
+    canvas.focus({ preventScroll: true });
     canvas.setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (e.pointerType === 'touch') {
