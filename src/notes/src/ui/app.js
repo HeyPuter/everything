@@ -1140,6 +1140,8 @@ export class App {
       this.updateFormatState();
     };
     const openList = () => {
+      // The press that closed the open list is not a request to open it again.
+      if (wrap._menuJustClosed) return;
       const items = isName
         ? FONTS.map((f) => ({ label: f.label, radio: true, checked: this.format.fontName === f.label, run: () => apply(f.label) }))
         : SIZES.map((s) => ({ label: String(s), radio: true, checked: this.format.fontSize === s, run: () => apply(s) }));
