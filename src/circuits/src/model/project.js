@@ -89,7 +89,9 @@ export class Project extends Emitter {
     this.created = data.created || new Date().toISOString();
     this.modified = data.modified || this.created;
     this.settings = { units: 'mm', ...(data.settings || {}) };
-    this.library = { ...(data.library || {}) };
+    // No prototype: a component id such as 'constructor' must not find
+    // Object's own members where a definition is expected.
+    this.library = Object.assign(Object.create(null), data.library);
     this.docs = [];
     this._libRevision = 0;
     this._metaDirty = false;
@@ -288,7 +290,7 @@ const graphicsOf = (list) => objectsOf(list).filter((g) => typeof g.t === 'strin
  * definition at all) instead of making the whole project impossible to open.
  */
 function cleanLibrary(library) {
-  const out = {};
+  const out = Object.create(null);
   if (!isObj(library)) return out;
   for (const [id, def] of Object.entries(library)) {
     if (!isObj(def)) continue;

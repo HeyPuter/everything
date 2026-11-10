@@ -360,3 +360,44 @@ describe('projects with damaged component definitions', () => {
     expect(JSON.parse(JSON.stringify(saved.library))).toEqual({ x: def, y: noFootprint });
   });
 });
+
+describe('component ids that are also built-in property names', () => {
+  it('treats them as missing components instead of failing to open the project', () => {
+    for (const comp of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      const p = parseProject(
+        JSON.stringify({
+          format: 'circuits-project',
+          version: 1,
+          name: 'P',
+          documents: [
+            {
+              kind: 'sch',
+              name: 'S.sch',
+              objects: [{ id: 'a', t: 'part', comp, x: 0, y: 0, designator: 'U1', uid: 'u1' }],
+            },
+            {
+              kind: 'pcb',
+              name: 'B.pcb',
+              objects: [{ id: 'b', t: 'comp', comp, x: 0, y: 0, designator: 'U1', uid: 'u1' }],
+            },
+          ],
+        }),
+      );
+      expect(p.library[comp]).toBeUndefined();
+      expect([...p.sheets[0].items()].length).toBe(1);
+      expect(() => p.netlist()).not.toThrow();
+      expect(() => exportGerbers(p.boards[0].snapshot(), p.library, {})).not.toThrow();
+    }
+  });
+
+  it('stores a definition under such an id like any other', () => {
+    const p = parseProject(
+      JSON.stringify({ format: 'circuits-project', version: 1, documents: [] }),
+    );
+    const def = { id: '__proto__', name: 'X', symbol: { pins: [], graphics: [] }, footprint: null };
+    p.putComponent(def);
+    expect(Object.keys(p.library)).toEqual(['__proto__']);
+    expect(Object.getPrototypeOf(p.library)).toBe(null);
+    expect(JSON.parse(JSON.stringify(p.toJSON())).library.__proto__).toEqual(def);
+  });
+});
