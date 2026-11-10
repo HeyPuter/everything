@@ -230,6 +230,15 @@ describe('email page', () => {
   });
 });
 
+describe('importing Markdown', () => {
+  it('takes the title from a first-line heading only', async () => {
+    const { markdownTitle } = await import('../src/ui/features.js');
+    expect(markdownTitle('# Trip plan\n\nPack the tent')).toEqual({ title: 'Trip plan', body: '\nPack the tent' });
+    expect(markdownTitle('\n# 2\\*3\n')).toEqual({ title: '2*3', body: '' });
+    for (const text of ['## Agenda\n\ntext\n\n# Appendix\n', '#todo buy milk\n\n# Later\n', 'Intro\n\n# Heading\n']) expect(markdownTitle(text)).toEqual({ title: '', body: text });
+  });
+});
+
 describe('link addresses', () => {
   it('completes what was typed into a usable link', async () => {
     const { completeAddress } = await import('../src/ui/features.js');

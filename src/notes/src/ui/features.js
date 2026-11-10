@@ -1074,6 +1074,17 @@ export async function exportNotebook(app, notebookId) {
   download(`${safeName(nb.name)}.notes.json`, new Blob([JSON.stringify(backup)], { type: 'application/json' }));
 }
 
+/**
+ * A Markdown file's title: its first line when that is a level 1 heading,
+ * which then leaves the body. A file that opens with "## Agenda" or "#todo"
+ * has none (a "# " heading further down is not the page's title).
+ */
+export function markdownTitle(text) {
+  const m = String(text).match(/^\s*#[ \t]+(.+?)[ \t]*(?:\r?\n|$)/);
+  if (!m) return { title: '', body: text };
+  return { title: m[1].replace(/\\([\\`*_[\]~#+\-.>)])/g, '$1').trim(), body: text.slice(m[0].length) };
+}
+
 /** Rebuilds a notebook from a backup with fresh ids so it never collides. */
 export async function importBackup(app, backup) {
   const store = app.store;
@@ -1147,11 +1158,9 @@ export function importFiles(app) {
           title = doc.querySelector('title')?.textContent?.trim() || doc.querySelector('h1')?.textContent?.trim() || title;
           html = sanitizeHtml(doc.body?.innerHTML || '');
         } else if (/\.(md|markdown)$/i.test(file.name)) {
-          const m = text.match(/^#\s+(.+)$/m);
-          if (m && text.trimStart().startsWith('#')) {
-            title = m[1].trim();
-            html = markdownToHtml(text.replace(/^\s*#\s+.+\n?/, ''));
-          } else html = markdownToHtml(text);
+          const { title: heading, body } = markdownTitle(text);
+          if (heading) title = heading;
+          html = markdownToHtml(body);
         } else html = sanitizeHtml(textToHtml(text));
         if (!app.store.section(app.state.sectionId)) app.newSection();
         const meta = app.store.createPage(app.state.sectionId, { title, outlines: [{ id: uid('o'), x: 48, y: 140, w: 720, html }] });
