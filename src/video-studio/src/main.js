@@ -154,9 +154,20 @@ async function startSignedIn(env) {
       location.hash = '';
       location.reload();
     },
+    onSessionChange: sessionChanged,
   };
   watchWindowClose();
   route();
+}
+
+/**
+ * puter.js's <puter-user-menu> signed in or out by itself (its Sign out is
+ * normally taken over by onSignOut, see ui/user-menu.js). Either changes which
+ * library and account the app uses, so start over.
+ */
+function sessionChanged(kind) {
+  if (kind === 'signout') location.hash = '';
+  location.reload();
 }
 
 /** Inside the Puter desktop: save (or ask) before the window closes, from any screen. */
@@ -199,6 +210,7 @@ function startLocal(env) {
         /* closed */
       }
     } : null,
+    onSessionChange: sessionChanged,
   };
   watchWindowClose();
   route();

@@ -294,7 +294,8 @@
 .editor[data-layout='phone'] .app-menu-label,
 .editor[data-layout='phone'] .app-menu-btn > .icon,
 .editor[data-layout='phone'] .topbar-right > .icon-btn:not(.m-details-btn):not(.ai-btn),
-.editor[data-layout='phone'] .topbar-right > .avatar-btn {
+.editor[data-layout='phone'] .topbar-right > .avatar-btn,
+.editor[data-layout='phone'] .topbar-right > puter-user-menu {
   display: none;
 }
 

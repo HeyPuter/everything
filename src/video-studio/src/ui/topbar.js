@@ -1,12 +1,14 @@
 /**
  * Editor title bar: app menu, autosave status, project name, and the
- * account and Export buttons.
+ * account and Export buttons (or puter.js's <puter-user-menu> after Export,
+ * see user-menu.js).
  */
 import { h } from '../lib/dom.js';
 import { icon, appIcon } from '../lib/icons.js';
 import { menuButton } from './menu.js';
 import { getTheme, setTheme, prefs } from './prefs.js';
 import { promptDialog, toast } from './dialog.js';
+import { userMenu } from './user-menu.js';
 
 export function themeMenuItems() {
   const t = getTheme();
@@ -234,11 +236,14 @@ export function createTopbar(ctx) {
   aiBtn.addEventListener('click', () => commands.run('assistant'));
   shortcutsBtn.addEventListener('click', () => ctx.openShortcuts());
 
-  const account = accountButton(ctx.account);
+  // Where puter.js has <puter-user-menu> it ends the bar and holds the account; the theme, which the
+  // account menu also has, is in the View menu and the app menu.
+  const sdkMenu = userMenu(ctx.account);
+  const account = sdkMenu ? null : accountButton(ctx.account);
   const el = h('header.topbar', { role: 'banner' },
     h('div.topbar-left', menuBtn, menubar, status),
     h('div.topbar-center', nameBtn),
-    h('div.topbar-right', aiBtn, layoutBtn, shortcutsBtn, account, shareBtn, exportBtn),
+    h('div.topbar-right', aiBtn, layoutBtn, shortcutsBtn, account, shareBtn, exportBtn, sdkMenu),
   );
 
   const fmt = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
