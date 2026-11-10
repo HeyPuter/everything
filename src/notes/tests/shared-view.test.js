@@ -23,6 +23,19 @@ describe('shared page view', () => {
     delete globalThis.fetch;
   });
 
+  it('shows a message for a link that was cut short, and survives a damaged note', async () => {
+    document.body.innerHTML = '<div id="app" class="app" aria-busy="true"></div><div id="live-region"></div>';
+    window.location.hash = '#view=%E0%A4%A';
+    vi.resetModules();
+    await import('../src/main.js');
+    await tick(10);
+    const app = document.getElementById('app');
+    expect(app.getAttribute('aria-busy')).toBeNull();
+    expect(app.textContent).toContain("This link doesn't work");
+    const root = await openShared({ ...PAGE, outlines: [null, { x: 40, y: 120, html: '<p>Still here</p>' }] });
+    expect(root.querySelectorAll('.outline-body')[1].textContent).toBe('Still here');
+  });
+
   it('shows the page on phones, where the app hides it unless the page level is current', async () => {
     const root = await openShared(PAGE);
     expect(root.querySelector('.outline-body').textContent).toBe('Pack the tent');
