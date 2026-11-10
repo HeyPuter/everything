@@ -207,22 +207,29 @@ function movedBack(orig, loc, res, dx, dy) {
   return out;
 }
 
-function filletGeneral(e1, p1, e2, p2, r) {
-  // Work near the origin: the intersection tolerances grow with the
-  // coordinates, and far away they take crossing circles for tangent ones.
+/**
+ * Run a corner operation fn(e1, p1, e2, p2) on copies moved so the first
+ * object starts at the origin, and move its result ({ e1, e2 } and the
+ * connecting `key` entity) back. The tolerances grow with the coordinates:
+ * far from the origin they take crossing circles for tangent ones and
+ * lines a few thousandths long for nothing.
+ */
+function nearOrigin(e1, p1, e2, p2, key, fn) {
   const ox = e1.type === 'line' ? e1.x1 : e1.cx,
     oy = e1.type === 'line' ? e1.y1 : e1.cy;
-  if (ox || oy) {
-    const l1 = moved(e1, -ox, -oy),
-      l2 = moved(e2, -ox, -oy);
-    const res = filletGeneral(l1, { x: p1.x - ox, y: p1.y - oy }, l2, { x: p2.x - ox, y: p2.y - oy }, r);
-    if (!res) return null;
-    return {
-      e1: movedBack(e1, l1, res.e1, ox, oy),
-      e2: movedBack(e2, l2, res.e2, ox, oy),
-      arc: res.arc ? moved(res.arc, ox, oy) : res.arc,
-    };
-  }
+  if (!ox && !oy) return fn(e1, p1, e2, p2);
+  const l1 = moved(e1, -ox, -oy),
+    l2 = moved(e2, -ox, -oy);
+  const res = fn(l1, { x: p1.x - ox, y: p1.y - oy }, l2, { x: p2.x - ox, y: p2.y - oy });
+  if (!res) return null;
+  return {
+    e1: movedBack(e1, l1, res.e1, ox, oy),
+    e2: movedBack(e2, l2, res.e2, ox, oy),
+    [key]: res[key] ? moved(res[key], ox, oy) : res[key],
+  };
+}
+
+function filletGeneral(e1, p1, e2, p2, r) {
   if (!(r > 0)) {
     const hits = intersectPrims(curvePrim(e1), curvePrim(e2), { extA: true, extB: true });
     let best = null,
@@ -269,8 +276,8 @@ export function fillet(e1, p1, e2, p2, r) {
   if (!e1 || !e2 || e1 === e2) return null;
   const ok = (e) => (e.type === 'line' && lineDir(e)) || (e.type === 'arc' && e.r > 0);
   if (!ok(e1) || !ok(e2)) return null;
-  if (e1.type === 'line' && e2.type === 'line') return filletLines(e1, p1, e2, p2, r);
-  return filletGeneral(e1, p1, e2, p2, r);
+  const lines = e1.type === 'line' && e2.type === 'line';
+  return nearOrigin(e1, p1, e2, p2, 'arc', (a, pa, b, pb) => (lines ? filletLines(a, pa, b, pb, r) : filletGeneral(a, pa, b, pb, r)));
 }
 
 /**
@@ -279,6 +286,10 @@ export function fillet(e1, p1, e2, p2, r) {
  */
 export function chamfer(e1, p1, e2, p2, d1, d2 = d1) {
   if (!e1 || !e2 || e1.type !== 'line' || e2.type !== 'line') return null;
+  return nearOrigin(e1, p1, e2, p2, 'line', (a, pa, b, pb) => chamferLines(a, pa, b, pb, d1, d2));
+}
+
+function chamferLines(e1, p1, e2, p2, d1, d2) {
   const c = lineCorner(e1, p1, e2, p2);
   if (!c || c.parallel) return null;
   const { X, v1, v2 } = c;

@@ -432,3 +432,38 @@ describe('removing duplicate points from long lists', () => {
     expect(G.perpendicularFrom(cloud, 3, 4)).toHaveLength(3000);
   });
 });
+
+describe('fillet and chamfer of small corners far from the origin', () => {
+  const O = 1e7;
+  const a = { id: 1, type: 'line', x1: O, y1: O, x2: O + 0.008, y2: O };
+  const b = { id: 2, type: 'line', x1: O + 0.008, y1: O, x2: O + 0.008, y2: O + 0.008 };
+  const pa = { x: O + 0.001, y: O },
+    pb = { x: O + 0.008, y: O + 0.007 };
+
+  it('chamfers two 8 mm lines by 3 mm instead of deleting them', () => {
+    const c = G.chamfer(a, pa, b, pb, 0.003);
+    expect(c.e1 && c.e2 && c.line).toBeTruthy();
+    expect(G.lengthOf(c.e1)).toBeCloseTo(0.005, 7);
+    expect(G.lengthOf(c.e2)).toBeCloseTo(0.005, 7);
+    expect(G.lengthOf(c.line)).toBeCloseTo(0.003 * Math.SQRT2, 7);
+    expect(c.e1.x1).toBe(a.x1);
+    expect(c.e2.y2).toBe(b.y2);
+  });
+
+  it('fillets them with a 3 mm radius', () => {
+    const f = G.fillet(a, pa, b, pb, 0.003);
+    expect(f.e1 && f.e2 && f.arc).toBeTruthy();
+    expect(f.arc.r).toBe(0.003);
+    expect(G.lengthOf(f.e1)).toBeCloseTo(0.005, 7);
+    expect(f.arc.cx - O).toBeCloseTo(0.005, 7);
+    expect(f.arc.cy - O).toBeCloseTo(0.003, 7);
+  });
+
+  it('joins parallel lines 5 mm apart with a half circle', () => {
+    const p = { id: 1, type: 'line', x1: O, y1: O, x2: O + 1, y2: O };
+    const q = { id: 2, type: 'line', x1: O, y1: O + 0.005, x2: O + 1, y2: O + 0.005 };
+    const f = G.fillet(p, { x: O + 1, y: O }, q, { x: O + 1, y: O + 0.005 }, 0.1);
+    expect(f.arc.r).toBeCloseTo(0.0025, 9);
+    expect(G.lengthOf(f.arc)).toBeCloseTo(Math.PI * 0.0025, 7);
+  });
+});
