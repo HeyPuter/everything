@@ -494,7 +494,12 @@ export class Nav {
       // Renaming the open page changes its title without redrawing the
       // list, so put the label back whenever the box is still there.
       if (input.isConnected) this.app.renderNav();
-      setTimeout(() => this.focusRow(row.dataset.id));
+      // Back to the row, unless the rename ended by clicking somewhere
+      // else: then focus stays where the click put it.
+      setTimeout(() => {
+        const at = document.activeElement;
+        if (!at || at === document.body || at === input || !at.isConnected) this.focusRow(row.dataset.id);
+      });
     };
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();

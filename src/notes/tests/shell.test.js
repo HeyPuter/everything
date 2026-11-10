@@ -56,6 +56,18 @@ describe('App shell', () => {
     expect(store.findPage(app.state.pageId).meta.title).toBe('Renamed');
   });
 
+  it('leaves focus where a click that ended a rename put it', async () => {
+    const row = app.nav.pagesList.querySelector('.row[aria-selected="true"]');
+    row.focus();
+    keydown(row, 'F2');
+    const input = app.nav.pagesList.querySelector('input.row-rename');
+    input.value = 'Renamed';
+    app.editor.titleEl.focus();
+    await tick();
+    expect(store.findPage(app.state.pageId).meta.title).toBe('Renamed');
+    expect(document.activeElement).toBe(app.editor.titleEl);
+  });
+
   it('leaves Enter to the input method while it is composing', async () => {
     const row = app.nav.pagesList.querySelector('.row[aria-selected="true"]');
     row.focus();
