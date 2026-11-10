@@ -1038,7 +1038,11 @@ class DxfParser {
           seen |= 32;
           break;
         case 60:
-          if (int(vals[i]) === 1) return false;
+          if (int(vals[i]) === 1) {
+            // Not kept, so saving over the file would remove it: reported with what was not imported.
+            this.skip('invisible');
+            return false;
+          }
           break;
         case 67:
           if (cont.model && int(vals[i]) === 1) return false;

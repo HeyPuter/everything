@@ -72,7 +72,8 @@ describe('DWG reader: versions', () => {
       expect(d.layers.find((l) => l.name === 'Locked').locked).toBe(true);
       expect(d.layers.find((l) => l.name === 'TrueColor').color).toBe('#3366cc');
       expect(d.layers.find((l) => l.name === 'Ünïcode Layer')).toBeTruthy();
-      expect(res.stats.skipped).toEqual({ ATTDEF: 1, POLYLINE: 1, '3DFACE': 1 });
+      // the fixture has one invisible line, which is reported with what was not imported
+      expect(res.stats.skipped).toEqual({ ATTDEF: 1, POLYLINE: 1, '3DFACE': 1, invisible: 1 });
     });
   }
 

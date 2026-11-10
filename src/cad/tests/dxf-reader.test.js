@@ -66,7 +66,25 @@ describe('parseDxf: basic entities and common properties', () => {
     );
     expect(drawing.entities.length).toBe(1);
     expect(stats.entities).toBe(1);
-    expect(stats.skipped).toEqual({ '3DSOLID': 2, WIPEOUT: 1 });
+    // Invisible objects are reported like the kinds that cannot be read: saving
+    // over the file removes them, and the app asks before it does.
+    expect(stats.skipped).toEqual({ invisible: 1, '3DSOLID': 2, WIPEOUT: 1 });
+  });
+
+  it('counts invisible objects in blocks and invisible polylines once each', () => {
+    const { drawing, stats } = parseDxf(
+      dxf(
+        [
+          0, 'POLYLINE', 60, 1, 66, 1, 70, 0, 0, 'VERTEX', 10, 0, 20, 0, 0, 'VERTEX', 10, 5, 20, 0, 0, 'SEQEND',
+          0, 'INSERT', 2, 'B', 10, 0, 20, 0,
+          0, 'CIRCLE', 60, 0, 10, 0, 20, 0, 40, 1,
+        ],
+        { blocks: [0, 'BLOCK', 2, 'B', 10, 0, 20, 0, 0, 'LINE', 10, 0, 20, 0, 11, 1, 21, 1, 0, 'LINE', 60, 1, 10, 0, 20, 0, 11, 2, 21, 2, 0, 'ENDBLK'] },
+      ),
+    );
+    expect(drawing.entities.map((e) => e.type)).toEqual(['insert', 'circle']);
+    expect(drawing.blocks[0].entities).toHaveLength(1);
+    expect(stats.skipped).toEqual({ invisible: 2 });
   });
 
   it('reads CIRCLE, ARC (degrees to radians) and ELLIPSE', () => {
