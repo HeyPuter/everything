@@ -1336,22 +1336,19 @@ export class App {
       if (navigator.clipboard?.read) {
         const items = await navigator.clipboard.read();
         for (const item of items) {
+          // Everything the item offers goes to the editor's own paste, which
+          // picks the same way as Ctrl+V: copied cells or text come with a
+          // picture of themselves, and the picture is not what was copied.
+          const dt = new DataTransfer();
           const imageType = item.types.find((t) => t.startsWith('image/'));
-          if (imageType) {
-            const blob = await item.getType(imageType);
-            this.editor.restoreRange();
-            await this.editor.insertImage(new File([blob], `pasted.${imageType.split('/')[1]}`, { type: imageType }));
-            return;
-          }
-          if (item.types.includes('text/html') || item.types.includes('text/plain')) {
-            const dt = new DataTransfer();
-            if (item.types.includes('text/html')) dt.setData('text/html', await (await item.getType('text/html')).text());
-            if (item.types.includes('text/plain')) dt.setData('text/plain', await (await item.getType('text/plain')).text());
-            this.editor.restoreRange();
-            const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
-            document.activeElement.dispatchEvent(ev);
-            return;
-          }
+          if (imageType) dt.items.add(new File([await item.getType(imageType)], `pasted.${imageType.split('/')[1]}`, { type: imageType }));
+          if (item.types.includes('text/html')) dt.setData('text/html', await (await item.getType('text/html')).text());
+          if (item.types.includes('text/plain')) dt.setData('text/plain', await (await item.getType('text/plain')).text());
+          if (!dt.items.length) continue;
+          this.editor.restoreRange();
+          const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+          document.activeElement.dispatchEvent(ev);
+          return;
         }
       }
       throw new Error('no clipboard access');
