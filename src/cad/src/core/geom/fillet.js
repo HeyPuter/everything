@@ -143,8 +143,8 @@ function offsetPrims(e, r) {
   return out;
 }
 
-/** Foot of the tangent point of a circle of center C on entity e. */
-function footOn(e, C) {
+/** Tangent point on entity e of a circle of radius r and centre C tangent to it. */
+function footOn(e, C, r) {
   if (e.type === 'line') {
     const d = lineDir(e);
     const t = (C.x - e.x1) * d.dx + (C.y - e.y1) * d.dy;
@@ -153,7 +153,10 @@ function footOn(e, C) {
   const dx = C.x - e.cx,
     dy = C.y - e.cy;
   const l = Math.hypot(dx, dy) || 1;
-  return { x: e.cx + (dx / l) * e.r, y: e.cy + (dy / l) * e.r };
+  // A larger circle around the arc's circle touches it on the far side of
+  // the arc's centre; outside it or inside it, on the near side.
+  const k = r > e.r && l < r ? -e.r / l : e.r / l;
+  return { x: e.cx + dx * k, y: e.cy + dy * k };
 }
 
 /** Trim or extend a line or arc to point T, keeping the side containing pick p. */
@@ -199,8 +202,8 @@ function filletGeneral(e1, p1, e2, p2, r) {
   for (const a of offsetPrims(e1, r)) {
     for (const b of offsetPrims(e2, r)) {
       for (const h of intersectPrims(a, b, { extA: true, extB: true })) {
-        const T1 = footOn(e1, h),
-          T2 = footOn(e2, h);
+        const T1 = footOn(e1, h, r),
+          T2 = footOn(e2, h, r);
         const s = Math.hypot(T1.x - p1.x, T1.y - p1.y) + Math.hypot(T2.x - p2.x, T2.y - p2.y);
         if (s < bs) {
           bs = s;

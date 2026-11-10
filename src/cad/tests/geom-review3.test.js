@@ -204,3 +204,21 @@ describe('objects that end exactly on an ellipse or spline', () => {
     expect(G.closestPoint(r.add[0], 0, 2.5).d).toBeGreaterThan(4);
   });
 });
+
+describe('fillet with a radius larger than the arc', () => {
+  const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const joins = (arc, e) => Math.min(...G.endpoints(arc).flatMap((p) => G.endpoints(e).map((q) => near(p, q))));
+
+  it('connects the fillet to both objects when its circle goes around the arc', () => {
+    const arc = { id: 1, type: 'arc', cx: -0.889, cy: -3.328, r: 1.558, start: 4.712, end: 5.82 };
+    const line = { id: 2, type: 'line', x1: -3.2085, y1: -4.638, x2: -7.1035, y2: 2.6063 };
+    const f = G.fillet(arc, { x: 0.5045, y: -4.0241 }, line, { x: -3.2085, y: -4.638 }, 2.712);
+    expect(f.arc.r).toBe(2.712);
+    expect(joins(f.arc, f.e1)).toBeLessThan(1e-9);
+    expect(joins(f.arc, f.e2)).toBeLessThan(1e-9);
+    // the trimmed arc stays on its circle and the line on its carrier
+    expect([f.e1.cx, f.e1.cy, f.e1.r]).toEqual([arc.cx, arc.cy, arc.r]);
+    const d = Math.hypot(f.arc.cx - arc.cx, f.arc.cy - arc.cy);
+    expect(Math.min(Math.abs(d - (2.712 + arc.r)), Math.abs(d - (2.712 - arc.r)))).toBeLessThan(1e-9);
+  });
+});
