@@ -244,3 +244,34 @@ describe('unroute all', () => {
     expect(left.map((o) => o.layer).sort()).toEqual(['mech1', 'topOverlay', 'topOverlay']);
   });
 });
+
+describe('online rule check and pours', () => {
+  it('never checks an edited board against fills from before the edit', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    // Fills remember the revision they were computed for.
+    app.kernel.pours = async () =>
+      Object.assign(new Map([[pour.id, [[pour.pts]]]]), { rev: ed.doc.store.revision });
+    const stale = [];
+    app.kernel.drc = async (doc, lib, { pourFills }) => {
+      if (pourFills.rev !== ed.doc.store.revision) stale.push(ed.doc.store.revision);
+      return [];
+    };
+    app.settings.set('autoRepour', true);
+    app.settings.set('onlineDrc', true);
+    await ed.repour();
+    const track = { t: 'track', layer: 'bottom', w: mm(0.25), net: 'VCC', x1: mm(5), x2: mm(9) };
+    const add = (id, y) =>
+      ed.doc.store.transact('Add', (s) => s.add({ ...track, id, y1: y, y2: y }));
+    add('first', mm(5));
+    // The repour for the first edit has finished and its rule check is waiting
+    // when the second edit arrives.
+    await sleep(600);
+    add('second', mm(7));
+    await sleep(1200);
+    expect(stale).toEqual([]);
+    expect(ed.pourFills.rev).toBe(ed.doc.store.revision);
+  });
+});
