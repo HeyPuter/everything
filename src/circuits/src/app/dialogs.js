@@ -79,11 +79,12 @@ export async function rulesDialog(app, ed) {
   const pageHost = h('div');
   const show = (k) => {
     for (const b of tabs.children) b.setAttribute('aria-selected', String(b.dataset.k === k));
-    pageHost.replaceChildren(pages[k]);
+    if (pageHost.firstChild !== pages[k]) pageHost.replaceChildren(pages[k]);
   };
   for (const [k, l] of [['rules', 'Clearances and sizes'], ['classes', 'Net classes']]) tabs.append(h('button', { type: 'button', role: 'tab', dataset: { k }, onClick: () => show(k) }, l));
   show('rules');
-  const err = h('div.small.sev-error', { role: 'alert' });
+  // The list of rules is longer than the dialog: keep the message in view.
+  const err = h('div.small.sev-error', { role: 'alert', style: { position: 'sticky', bottom: '-14px', padding: '4px 0', background: 'var(--bg-panel)' } });
   const oldWidth = r.trackWidth;
   let newWidth = null;
   await openDialog({
@@ -92,10 +93,19 @@ export async function rulesDialog(app, ed) {
     actions: [{ label: 'Cancel' }, {
       label: 'Apply', primary: true,
       run: () => {
+        // Show the rules page before focusing the field at fault: putting the
+        // page in place afterwards would take the focus out of the dialog.
+        show('rules');
         const msg = form.validate();
-        if (msg) { err.textContent = msg; show('rules'); return false; }
+        if (msg) { err.textContent = msg; return false; }
         const v = form.values();
-        if (v.viaDrill >= v.viaDiameter) { err.textContent = 'Via hole: must be smaller than the via diameter'; show('rules'); return false; }
+        if (v.viaDrill >= v.viaDiameter) {
+          const hole = form.inputs.get('viaDrill').input;
+          hole.setAttribute('aria-invalid', 'true');
+          hole.focus();
+          err.textContent = 'Via hole: must be smaller than the via diameter';
+          return false;
+        }
         const next = { ...v, thermal: { ...r.thermal, spoke: v.spoke, gap: v.gap }, netClasses: classes };
         delete next.spoke; delete next.gap;
         ed.doc.store.transact('Edit design rules', (s) => s.update('rules', next));

@@ -299,6 +299,35 @@ describe('sizes typed into the board dialogs', () => {
     expect(ed.doc.rules.minTrackWidth).toBe(100_000);
   });
 
+  it('keeps focus on the rule that needs correcting', async () => {
+    ctx = await bootBoard();
+    const { app } = ctx;
+    // Let the dialog place its initial focus before using it.
+    const settled = () => new Promise((r) => setTimeout(r, 40));
+    for (const fromTab of ['Clearances and sizes', 'Net classes']) {
+      const done = app.editRules();
+      await settled();
+      const field = fieldOf('Via diameter');
+      field.value = 'abc';
+      [...dialog().querySelectorAll('[role="tab"]')].find((t) => t.textContent === fromTab).click();
+      await apply();
+      // Focus left on the page behind would also take Escape away from the dialog.
+      expect(field.isConnected, fromTab).toBe(true);
+      expect(document.activeElement, fromTab).toBe(field);
+      expect(field.getAttribute('aria-invalid')).toBe('true');
+      expect(dialog().querySelector('[role="alert"]').textContent).toMatch(/Via diameter/);
+      dialog().querySelector('[aria-label="Close dialog"]').click();
+      await done;
+    }
+    const done = app.editRules();
+    await settled();
+    fieldOf('Via hole').value = '2';
+    await apply();
+    expect(document.activeElement).toBe(fieldOf('Via hole'));
+    dialog().querySelector('[aria-label="Close dialog"]').click();
+    await done;
+  });
+
   it('refuses a board thickness of zero or less', async () => {
     ctx = await bootBoard();
     const { app, ed } = ctx;
