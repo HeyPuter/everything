@@ -6,6 +6,10 @@ import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { mm } from '../src/core/units.js';
+import { createKernel } from '../src/kernel/ops.js';
+import { defaultRules } from '../src/model/schema.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 async function bootBoard() {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
@@ -293,5 +297,55 @@ describe('the layers panel', () => {
     mode().dispatchEvent(new Event('change', { bubbles: true }));
     expect(document.activeElement).toBe(mode());
     expect(mode().value).toBe('gray');
+  });
+});
+
+describe('a board file with tracks and vias that lack a size', () => {
+  const wasm = fs.readFileSync(path.resolve(import.meta.dirname, '../src/kernel/kernel.wasm'));
+  const pad = (num, x) => ({ num, x, y: 0, shape: 'rect', w: mm(1), h: mm(1), side: 'top' });
+  const lib = {
+    r: {
+      id: 'r',
+      symbol: { pins: [], graphics: [] },
+      footprint: { pads: [pad('1', -mm(1.5)), pad('2', mm(1.5))], graphics: [] },
+    },
+  };
+  const comp = (id, x, padNets) => ({
+    ...{ id, t: 'comp', comp: 'r', x, y: mm(10), rot: 0, side: 'top', designator: id },
+    padNets,
+  });
+  const track = (id, y, net, w) => ({
+    ...{ id, t: 'track', layer: 'top', x1: mm(1), y1: y, x2: mm(8), y2: y, w, net },
+  });
+  const board = () => ({
+    id: 'b',
+    kind: 'pcb',
+    name: 'Board',
+    board: { outline: [0, 0, mm(30), 0, mm(30), mm(20), 0, mm(20)], copper: 2 },
+    rules: defaultRules(),
+    nets: { GND: {}, SIG: {} },
+    objects: [
+      comp('R1', mm(5), { 1: 'GND', 2: 'SIG' }),
+      comp('R2', mm(20), { 1: 'SIG', 2: 'GND' }),
+      // Two tracks of different nets, 0.05 mm apart: a real clearance violation.
+      track('t1', mm(2), 'SIG', mm(0.25)),
+      track('t2', mm(2.3), 'GND', mm(0.25)),
+      // Damaged: no width, no diameter.
+      track('bad', mm(5), 'SIG', undefined),
+      { id: 'badvia', t: 'via', x: mm(3), y: mm(15), from: 'top', to: 'bottom', net: 'SIG' },
+    ],
+  });
+
+  it('is still checked against the design rules', async () => {
+    const kernel = await createKernel(wasm);
+    const list = await kernel.drc(board(), lib);
+    const hit = list.find((v) => v.rule === 'clearance' && v.ids.includes('t1'));
+    expect(hit?.ids).toContain('t2');
+  });
+
+  it('can still be autorouted', async () => {
+    const kernel = await createKernel(wasm);
+    const res = await kernel.autoroute(board(), lib, { timeLimitMs: 3000 });
+    expect(res.routed).toBeGreaterThan(0);
   });
 });
