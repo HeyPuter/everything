@@ -1028,7 +1028,8 @@ export class Store extends Emitter {
     const trashed = [];
     try {
       if (oldKey) {
-        // Deleted pages of this section move to the new key too.
+        // Deleted pages of this section, and their pictures and files, move
+        // to the new key too.
         for (const entry of this.trash) {
           if (entry.kind !== 'page' || entry.lockedSection !== id) continue;
           if (entry.sealedPages) {
@@ -1043,6 +1044,7 @@ export class Store extends Emitter {
             page.outlines ||= [];
             this.pages.set(m.id, page);
             trashed.push(page);
+            await this.rekeyAssets(page, { from: oldKey, sectionId: id, force: true, log });
             this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
           }
         }

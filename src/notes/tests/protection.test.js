@@ -510,4 +510,20 @@ describe('password-protected sections: a change that fails halfway', () => {
     await expectReadable(backend, section, null, metas);
     expect(allText(backend)).toContain('treasure');
   });
+
+  it("moves a deleted page's picture to the new password", async () => {
+    const { backend, store, section, metas } = await withPictures();
+    const entry = store.deletePage(metas[1].id);
+    await store.flush();
+    expect(await store.protectSection(section.id, 'pw2')).toBe(true);
+    await store.lockSection(section.id);
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(await fresh.unlockSection(section.id, 'pw2')).toBe(true);
+    expect(await fresh.openTrash(entry.id)).toBe(true);
+    fresh.restore(entry.id);
+    const page = await fresh.loadPage(metas[1].id);
+    const img = page.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+    expect(await (await fresh.assetBlob(img)).text()).toBe(`png of ${metas[1].id}`);
+  });
 });
