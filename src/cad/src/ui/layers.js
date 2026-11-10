@@ -277,6 +277,8 @@ export class LayerManager {
     };
     inp.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      // Enter and Escape belong to the input method while it composes a name.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') finish(true);
       else if (e.key === 'Escape') finish(false);
     });

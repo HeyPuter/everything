@@ -1134,6 +1134,8 @@ export async function commandPalette(app) {
   };
   input.addEventListener('input', () => ((index = 0), render()));
   input.addEventListener('keydown', (e) => {
+    // Enter and the arrow keys belong to the input method while it composes.
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       index = Math.min(items.length - 1, index + 1);
