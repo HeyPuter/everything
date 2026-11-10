@@ -64,7 +64,7 @@ export class App {
     this.docs = [];
     this.doc = null;
     this.commands = buildRegistry();
-    this.settings = { ...SETTING_DEFAULTS, ...loadJSON(SETTINGS_KEY, {}) };
+    this.settings = { ...SETTING_DEFAULTS, ...usableSettings(loadJSON(SETTINGS_KEY, {})) };
     this.themePref = loadTheme();
     this.clipboard = null;
     this.user = null;
@@ -1122,11 +1122,12 @@ export class App {
 
   async syncSettingsFromCloud() {
     try {
-      const saved = await puter.kv.get('settings');
-      if (saved && typeof saved === 'object') {
+      const record = await puter.kv.get('settings');
+      if (record && typeof record === 'object') {
+        const saved = usableSettings(record);
         // The record holds only non-default values, so a missing key means the default.
         for (const k of SYNCED_SETTINGS) this.settings[k] = k in saved ? saved[k] : structuredClone(SETTING_DEFAULTS[k]);
-        if (saved.theme) this.setTheme(saved.theme, false);
+        if (['system', 'light', 'dark'].includes(saved.theme)) this.setTheme(saved.theme, false);
         this.applySettings();
         saveJSON(SETTINGS_KEY, this.settings);
       }
@@ -1322,8 +1323,10 @@ export class App {
       { id: 'layers', label: 'Layers', comp: this.layers },
       { id: 'blocks', label: 'Blocks', comp: this.blocks },
     ];
-    this.dockOpen = new Set(saved.open || []);
-    this.dockActive = saved.active || null;
+    // Only palettes this version has: a stored name it does not know would stop the app from starting.
+    const known = new Set(this.dockPanels.map((p) => p.id));
+    this.dockOpen = new Set((Array.isArray(saved.open) ? saved.open : []).filter((id) => known.has(id)));
+    this.dockActive = known.has(saved.active) ? saved.active : null;
   }
 
   /** Show a palette; focus: 'tab' keeps focus on its tab, true moves focus into the palette. */
@@ -1888,6 +1891,23 @@ function loadJSON(key, def) {
   } catch {
     return def;
   }
+}
+
+/**
+ * Stored settings without the values the app cannot use: a setting kept by
+ * another version, or a damaged record, of another kind than its default
+ * (a number where the list of object snaps should be) breaks whatever reads it.
+ */
+function usableSettings(saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+  const out = { ...saved };
+  for (const [k, def] of Object.entries(SETTING_DEFAULTS)) {
+    const v = out[k];
+    if (v === undefined) continue;
+    const ok = Array.isArray(def) ? Array.isArray(v) : typeof v === typeof def && (typeof v !== 'number' || Number.isFinite(v));
+    if (!ok) delete out[k];
+  }
+  return out;
 }
 
 function saveJSON(key, value) {

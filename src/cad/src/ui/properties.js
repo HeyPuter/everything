@@ -561,7 +561,8 @@ export class PropertiesPalette {
 
 function loadCollapsed() {
   try {
-    return JSON.parse(localStorage.getItem('cad.propsCollapsed') || '{}');
+    const saved = JSON.parse(localStorage.getItem('cad.propsCollapsed') || '{}');
+    return saved && typeof saved === 'object' ? saved : {};
   } catch {
     return {};
   }

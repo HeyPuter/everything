@@ -293,7 +293,8 @@ export class Ribbon {
   current(it) {
     if (!it.variants) return { cmd: it.cmd, args: it.args, icon: it.icon, label: it.label };
     const key = `${it.cmd}`;
-    const idx = Math.min(this.choice[key] ?? 0, it.variants.length - 1);
+    const saved = this.choice[key];
+    const idx = Number.isInteger(saved) && saved >= 0 ? Math.min(saved, it.variants.length - 1) : 0;
     const v = it.variants[idx];
     return { cmd: v.cmd || it.cmd, args: v.args, icon: v.icon, label: it.label, vlabel: v.label };
   }
@@ -420,7 +421,8 @@ export class Ribbon {
 
 function loadChoices() {
   try {
-    return JSON.parse(localStorage.getItem('cad.ribbonChoices') || '{}');
+    const saved = JSON.parse(localStorage.getItem('cad.ribbonChoices') || '{}');
+    return saved && typeof saved === 'object' ? saved : {};
   } catch {
     return {};
   }
