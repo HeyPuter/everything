@@ -385,3 +385,27 @@ describe('draw order of copies', () => {
     expect(colors()).toEqual([1, 5, 1, 5]);
   });
 });
+
+describe('picking overlapping objects', () => {
+  const square = (x, y) => [x, y, 0, x + 10, y, 0, x + 10, y + 10, 0, x, y + 10, 0];
+
+  it('picks the fill on top after the draw order was changed', async () => {
+    add({ type: 'hatch', loops: [square(0, 0)], pattern: 'SOLID', scale: 1, angle: 0 });
+    add({ type: 'hatch', loops: [square(5, 5)], pattern: 'SOLID', scale: 1, angle: 0 });
+    expect(t.ed._pick(7, 7).id).toBe(2);
+    t.ed.setSelection([1]);
+    await t.type('DRAWORDER', 'F');
+    expect(t.ed._pick(7, 7).id).toBe(1);
+    t.drawing.undo();
+    expect(t.ed._pick(7, 7).id).toBe(2);
+  });
+
+  it('picks the upper of two coincident lines after the draw order was changed', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    expect(t.ed._pick(5, 0).id).toBe(2);
+    t.ed.setSelection([2]);
+    await t.type('DRAWORDER', 'B');
+    expect(t.ed._pick(5, 0).id).toBe(1);
+  });
+});

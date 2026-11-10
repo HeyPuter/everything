@@ -146,21 +146,23 @@ export function entityCrossesRect(drawing, ent, rect, tol) {
 
 /**
  * Pick the topmost entity within `radius` of (px, py).
- * `candidates` are ids from the spatial index; later ids in draw order win
- * ties. Returns { id, d } or null.
+ * `candidates` are ids from the spatial index; the object drawn later (on
+ * top) wins ties. Returns { id, d } or null.
  */
 export function pickEntity(drawing, candidates, px, py, radius, filter) {
   let best = null;
   let fillHit = null;
   const tol = radius / 4;
+  // Place in the draw order, which DRAWORDER changes without changing ids.
+  const above = (a, b) => (drawing.orderKey?.get(a) ?? a) > (drawing.orderKey?.get(b) ?? b);
   for (const id of candidates) {
     const ent = drawing.entities.get(id);
     if (!ent || (filter && !filter(ent))) continue;
     const m = measure(drawing, ent, px, py, tol);
     // Lines and edges near the cursor win over filled areas under it.
     if (m.d <= radius) {
-      if (!best || m.d < best.d || (m.d === best.d && id > best.id)) best = { id, d: m.d };
-    } else if (m.inFill && (!fillHit || id > fillHit.id)) fillHit = { id, d: 0 };
+      if (!best || m.d < best.d || (m.d === best.d && above(id, best.id))) best = { id, d: m.d };
+    } else if (m.inFill && (!fillHit || above(id, fillHit.id))) fillHit = { id, d: 0 };
   }
   return best ?? fillHit;
 }
