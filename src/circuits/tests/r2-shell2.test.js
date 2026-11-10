@@ -10,6 +10,7 @@ import { App } from '../src/app/app.js';
 import { Project, newProjectData } from '../src/model/project.js';
 import { isMac } from '../src/ui/dom.js';
 import { closeMenus } from '../src/ui/menu.js';
+import { MessagesPanel } from '../src/ui/panels/messages.js';
 import { PropertiesPanel } from '../src/ui/panels/properties.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -421,5 +422,27 @@ describe('component editor status line', () => {
     expect(line.textContent).not.toBe(text);
     expect(changes).toBeGreaterThan(0);
     seen.disconnect();
+  });
+});
+
+describe('Messages rows', () => {
+  it('have a name that contains everything the row shows', () => {
+    const app = {
+      project: { getDoc: () => ({ name: 'Board1.pcb' }) },
+      focusMessage: () => {},
+      setBottomDock: () => {},
+    };
+    const panel = new MessagesPanel(app);
+    document.body.innerHTML = '<main></main>';
+    document.querySelector('main').append(panel.el);
+    panel.set([{ severity: 'error', message: 'Clearance violation', docId: 'd1' }], 'DRC');
+    const row = panel.el.querySelector('.list-row');
+    // An aria-label that leaves out part of the visible text breaks voice
+    // control ("click Board1.pcb"); the row is named by what it contains.
+    expect(row.hasAttribute('aria-label')).toBe(false);
+    expect(row.getAttribute('role')).toBe('button');
+    expect(row.querySelector('.sr-only').textContent).toBe('error: ');
+    expect(row.textContent).toBe('error: Clearance violationBoard1.pcb');
+    document.body.innerHTML = '';
   });
 });

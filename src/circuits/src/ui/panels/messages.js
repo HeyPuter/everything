@@ -43,7 +43,10 @@ export class MessagesPanel {
     }
     for (const m of shown.slice(0, 2000)) {
       const doc = this.app.project?.getDoc(m.docId);
-      const row = h('div.list-row', { tabindex: 0, role: 'button', 'aria-label': `${m.severity}: ${m.message}` },
+      // Named by its content (severity, message, document), so the name always
+      // contains what the row shows.
+      const row = h('div.list-row', { tabindex: 0, role: 'button' },
+        h('span.sr-only', `${m.severity}: `),
         icon(m.severity === 'error' ? 'error' : 'warning', 15, m.severity === 'error' ? 'sev-error' : 'sev-warning'),
         h('div.grow', m.message),
         h('span.sub', doc?.name || ''));
