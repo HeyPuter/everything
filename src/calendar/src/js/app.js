@@ -8,6 +8,7 @@ import { icon } from './icons.js';
 import { toast } from './toast.js';
 import { signOut, userInitial } from './auth.js';
 import { showProfilePicture, clearCachedPicture } from './profile.js';
+import { userMenu, syncUserMenuTheme } from './user-menu.js';
 import { clearSnapshot } from './offline-store.js';
 import { isBlocked, isOfflineError } from './offline.js';
 import { createEventModal } from './modal.js';
@@ -581,18 +582,33 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
     on: { click: () => search.open() },
   });
 
-  const avatarBtn = el('button', {
-    class: 'avatar',
-    type: 'button',
-    'aria-label': 'Account and settings',
-    'aria-haspopup': 'dialog',
-    text: userInitial(user),
-    on: { click: (e) => toggleUserMenu(e) },
-  });
+  // puter.js's <puter-user-menu> where the SDK has it (user-menu.js): it ends
+  // the header with the account and the Apps launcher, and the avatar before
+  // it is a Settings button for the rest of what its menu holds. Made once,
+  // with the header: the element loads the account each time it joins the page.
+  const accountMenu = userMenu({ onSignOut: handleSignOut, onSessionChanged: handleSessionChanged });
+  const avatarBtn = accountMenu
+    ? el('button', {
+        class: 'icon-btn',
+        type: 'button',
+        'aria-label': 'Settings',
+        title: 'Settings',
+        'aria-haspopup': 'dialog',
+        html: icon('settings'),
+        on: { click: (e) => toggleUserMenu(e) },
+      })
+    : el('button', {
+        class: 'avatar',
+        type: 'button',
+        'aria-label': 'Account and settings',
+        'aria-haspopup': 'dialog',
+        text: userInitial(user),
+        on: { click: (e) => toggleUserMenu(e) },
+      });
   // Upgrade the letter to the account's public profile picture when it has one
   // (cached copy first, then a fresh read). Strictly fire-and-forget: every
   // failure path inside keeps the letter, and nothing here can reject.
-  showProfilePicture(avatarBtn, user);
+  if (!accountMenu) showProfilePicture(avatarBtn, user);
 
   const menuBtn = el('button', {
     class: 'icon-btn menu-toggle',
@@ -632,7 +648,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       headerTitleEl,
     ]),
     el('div', { class: 'header__spacer' }),
-    el('div', { class: 'header__tools' }, [searchBtn, segmented, avatarBtn]),
+    el('div', { class: 'header__tools' }, [searchBtn, segmented, avatarBtn, accountMenu]),
   ]);
 
   const shell = el('div', { class: 'app' }, [header, sidebarSlot, mainEl, tabbar]);
@@ -804,16 +820,20 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       // Not a menu: it holds a segmented control, toggles and a button. Expose
       // it as a labelled dialog and make it programmatically focusable.
       role: 'dialog',
-      'aria-label': 'Account and settings',
+      'aria-label': accountMenu ? 'Settings' : 'Account and settings',
       tabindex: '-1',
       style: { minWidth: '284px' },
     }, [
-      el('div', { class: 'popover__header' }, [
-        el('span', { class: 'popover__name', text: (user && user.username) || 'Signed in' }),
-        user && user.email
-          ? el('span', { class: 'popover__meta', text: user.email })
-          : null,
-      ]),
+      // Beside <puter-user-menu> this is the Settings menu: the element names
+      // the account and signs out.
+      accountMenu
+        ? null
+        : el('div', { class: 'popover__header' }, [
+            el('span', { class: 'popover__name', text: (user && user.username) || 'Signed in' }),
+            user && user.email
+              ? el('span', { class: 'popover__meta', text: user.email })
+              : null,
+          ]),
       el('div', { style: { padding: '4px 8px 8px' } }, [
         el('span', { class: 'field__label', style: { display: 'block', marginBottom: '6px' }, text: 'Appearance' }),
         themeSeg,
@@ -871,13 +891,15 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
           },
         },
       }),
-      el('div', { class: 'ctx-menu__sep' }),
-      el('button', {
-        class: 'menu-item',
-        type: 'button',
-        html: icon('logout', { size: 'sm' }) + '<span>Sign out</span>',
-        on: { click: handleSignOut },
-      }),
+      accountMenu ? null : el('div', { class: 'ctx-menu__sep' }),
+      accountMenu
+        ? null
+        : el('button', {
+            class: 'menu-item',
+            type: 'button',
+            html: icon('logout', { size: 'sm' }) + '<span>Sign out</span>',
+            on: { click: handleSignOut },
+          }),
     ]);
 
     document.body.append(box);
@@ -1043,6 +1065,25 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
 
   async function handleSignOut() {
     closeUserMenu();
+    dropAccountData();
+    try {
+      await releasePush().catch(() => {});
+      await signOut();
+    } finally {
+      window.location.reload();
+    }
+  }
+
+  // A sign-in or sign-out <puter-user-menu> did by itself (user-menu.js): the
+  // session is already another one, so what this account left on the device
+  // goes the same way and the page starts over.
+  function handleSessionChanged() {
+    closeUserMenu();
+    dropAccountData();
+    window.location.reload();
+  }
+
+  function dropAccountData() {
     reminders.stop();
     if (storedReminders) storedReminders.stop();
     // Drop this account's cached calendar so it can't be read offline on a
@@ -1058,12 +1099,6 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       // own idle timeout. Disposing second so invalidate() can still tell this
       // window's subscribers that the suggestions they were showing are gone.
       contacts.dispose();
-    }
-    try {
-      await releasePush().catch(() => {});
-      await signOut();
-    } finally {
-      window.location.reload();
     }
   }
 
@@ -1094,6 +1129,10 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       return;
     }
     if (search.isOpen() || otherOverlayOpen()) return;
+    // A key pressed inside puter.js's account menu (user-menu.js) is that
+    // menu's: it arrives here from the element itself, and its arrows and
+    // letters must not move the calendar behind it.
+    if (e.target.closest && e.target.closest('puter-user-menu')) return;
     // The mobile drawer sits over the calendar behind a scrim, like any other
     // overlay — so Escape dismisses it too, and hands focus back to the button
     // that opened it (the drawer's controls are about to leave the screen).
@@ -1347,4 +1386,5 @@ export function applyTheme(theme) {
     const os = (m.getAttribute('media') || '').includes('dark') ? 'dark' : 'light';
     m.setAttribute('content', THEME_COLORS[theme] || THEME_COLORS[os]);
   }
+  syncUserMenuTheme();
 }
