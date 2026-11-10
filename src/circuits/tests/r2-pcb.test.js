@@ -5,7 +5,10 @@ import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { placedOf } from '../src/render/pcb-scene.js';
+import { createKernel } from '../src/kernel/ops.js';
 import { mm } from '../src/core/units.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 async function bootBoard() {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
@@ -373,5 +376,47 @@ describe('routing across a pour', () => {
     ed.tool.click(ev(p.x, p.y - mm(5)));
     const [t] = tracks(ed);
     expect([t.layer, t.x2, t.y2]).toEqual(['bottom', p.x, p.y - mm(5)]);
+  });
+});
+
+describe('routing to copper without a net', () => {
+  const shorts = async (ed) => {
+    const wasm = fs.readFileSync(path.resolve(import.meta.dirname, '../src/kernel/kernel.wasm'));
+    const kernel = await createKernel(wasm);
+    const list = await kernel.drc(ed.doc.snapshot(), ed.lib);
+    return list.filter((v) => v.rule === 'short').map((v) => v.message);
+  };
+  const via = { t: 'via', d: mm(0.6), drill: mm(0.3), from: 'top', to: 'bottom' };
+
+  it('gives a via the net of the trace that starts on it', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const p = padOf(ed, 'R1', '2');
+    ed.doc.store.transact('Add', (s) => s.add({ ...via, id: 'v', x: p.x + mm(4), y: p.y }));
+    ed.startTool('route');
+    ed.tool.corner = 'any';
+    ed.tool.click(ev(p.x + mm(4), p.y));
+    ed.tool.click(ev(p.x, p.y));
+    expect(tracks(ed).map((t) => t.net)).toEqual(['VCC']);
+    expect(ed.doc.store.get('v').net).toBe('VCC');
+    expect(await shorts(ed)).toEqual([]);
+  });
+
+  it('gives a via the net of the trace that ends on it', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const p = padOf(ed, 'R1', '2');
+    ed.doc.store.transact('Add', (s) => s.add({ ...via, id: 'v', x: p.x + mm(4), y: p.y }));
+    ed.startTool('route');
+    ed.tool.corner = 'any';
+    ed.tool.click(ev(p.x, p.y));
+    ed.tool.click(ev(p.x + mm(4), p.y));
+    expect(ed.tool.trace).toBeNull();
+    expect(ed.doc.store.get('v').net).toBe('VCC');
+    expect(await shorts(ed)).toEqual([]);
+    // One undo step takes back the track and the via's net.
+    app.undo();
+    expect(tracks(ed)).toHaveLength(0);
+    expect(ed.doc.store.get('v').net).toBeUndefined();
   });
 });

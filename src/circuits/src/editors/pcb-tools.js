@@ -136,8 +136,20 @@ export class RouteTool {
     const onStart = hit && t.start && hit.objId === t.start.objId && (!hit.isPad || samePad);
     if (hit && !onStart && (!t.net || !hit.net || hit.net === t.net)) {
       if (!t.net && hit.net) this._assignNet(hit.net);
+      else if (!hit.net) this._adopt(hit.objId);
       this.finish();
     }
+  }
+
+  /**
+   * Loose copper without a net (a via, a track, a free pad) takes the net of
+   * the trace joined to it; left without one it would count as shorted to it.
+   */
+  _adopt(objId) {
+    const t = this.trace;
+    const o = this.editor.doc.store.get(objId);
+    if (!t.net || !o || o.net || !['via', 'track', 'arc', 'pad'].includes(o.t)) return;
+    this.editor.doc.store.transact('Route', (s) => s.update(objId, { net: t.net }), { mergeKey: `route:${t.id}` });
   }
 
   _commitPath(path) {
@@ -158,6 +170,7 @@ export class RouteTool {
     const t = this.trace;
     t.net = net;
     this.editor.doc.store.transact('Route', (s) => { for (const id of t.placed) if (s.get(id)) s.update(id, { net }); }, { mergeKey: `route:${t.id}` });
+    if (t.start) this._adopt(t.start.objId);
   }
 
   finish() {

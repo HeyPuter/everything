@@ -574,11 +574,13 @@ export class PcbEditor extends CanvasView {
   /**
    * Copper items of other nets near a path, for routing collision checks.
    * Pour fills are not obstacles: a pour is filled again around the new track.
+   * Neither is loose copper without a net (a via, a track, a free pad), which
+   * a trace may join; a component pad without a net stays an obstacle.
    */
   obstaclesNear(pts, layer, net, margin) {
     this.analysis();
     const b = bboxOfFlat(pts, margin);
-    return this._copperTree.search(b).map((e) => e.it).filter((it) => it.layers.includes(layer) && (!net || it.net !== net) && !it.pour && (net || it.net || !it.isPad));
+    return this._copperTree.search(b).map((e) => e.it).filter((it) => it.layers.includes(layer) && (!net || it.net !== net) && !it.pour && (it.net || (net && it.pad?.compId)));
   }
 
   snapTargets(x, y, reach, exclude) {
