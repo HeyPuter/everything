@@ -9,7 +9,7 @@
  * transparency are kept) or DWG 2000 (AC1015).
  */
 import { writeDxf } from '../dxf/writer.js';
-import { BitWriter, crc16, crc32, R2000, R2004, R2007, R2010 } from './bits.js';
+import { BitWriter, crc16, crc32, cut1252, encode1252, R2000, R2004, R2007, R2010 } from './bits.js';
 import { compress2004, checksum2004, headerMask } from './container.js';
 import { SpecWriter } from './spec.js';
 import { headerSpec, SENTINEL_HEADER, SENTINEL_HEADER_END } from './header.js';
@@ -1110,9 +1110,12 @@ function eedBytes(w, blocks, ver) {
           bytes.push(0, s.length & 0xff, s.length >> 8);
           for (let k = 0; k < s.length; k++) bytes.push(s.charCodeAt(k) & 0xff, s.charCodeAt(k) >> 8);
         } else {
-          const enc = [];
-          for (let k = 0; k < s.length; k++) enc.push(s.charCodeAt(k) < 256 ? s.charCodeAt(k) : 63);
-          // length, then the codepage high byte first
+          // one byte holds the length; the codepage follows, high byte first
+          const enc = encode1252(s);
+          if (enc.length > 255) {
+            cut1252(enc, 255);
+            w.truncated = true;
+          }
           bytes.push(0, enc.length, 0, 30, ...enc);
         }
       } else if (c === 70) {

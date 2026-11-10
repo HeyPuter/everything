@@ -297,6 +297,22 @@ describe('DWG writer', () => {
     }
   });
 
+  it('keeps layer descriptions in any script, up to the 255 bytes extended data allows', () => {
+    const d = everything();
+    d.layers.push({ ...defaultLayer('A'), description: 'Preis € – “x” 日本' }, { ...defaultLayer('B'), description: 'd'.repeat(300) }, { ...defaultLayer('C'), description: 'after' });
+    for (const version of [2004, 2000]) {
+      const warnings = [];
+      const bytes = writeDwg(d, { dimensionEntities, hatchPatterns, warnings, version });
+      expect(warnings).toEqual(['Text longer than a DWG file can hold was cut off.']);
+      const db = readDatabase(bytes, { check: true });
+      expect([...db.objects.values()].filter((o) => o.error || (o.left && o.left.data > 7)).map((o) => o.type)).toEqual([]);
+      const layers = parseDwg(bytes).drawing.layers;
+      expect(layers.find((l) => l.name === 'A').description).toBe('Preis € – “x” 日本');
+      expect(layers.find((l) => l.name === 'B').description).toBe('d'.repeat(255));
+      expect(layers.find((l) => l.name === 'C').description).toBe('after');
+    }
+  });
+
   it('writes an empty drawing', () => {
     const d = { version: 1, header: defaultHeader(), layers: [defaultLayer('0')], linetypes: [], textStyles: [], dimStyles: [], blocks: [], entities: [] };
     const back = parseDwg(writeDwg(d));
