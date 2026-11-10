@@ -756,18 +756,23 @@ export class App extends Emitter {
     const run = (async () => {
       try {
         const text = JSON.stringify(p.toJSON());
-        this.location = await storage.saveText(this.location, p.name, text);
+        const location = await storage.saveText(this.location, p.name, text);
         // Only mark saved if nothing changed while writing.
         if (p.docs.every((d, i) => d.store.revision === revisions[i])) p.markSaved();
+        // Another project may have opened while writing: the location, the
+        // badge and the timers are its own now.
+        if (this.project !== p) { recordVersion(location, p.id, text); return true; }
+        this.location = location;
         this.saveState = p.dirty ? 'dirty' : 'saved';
         this._dirtySince = 0;
         this._saveErrorShown = false; // a later failure is a new problem to report
         try { localStorage.setItem(LAST_KEY, JSON.stringify(this.location)); } catch { /* storage unavailable */ }
         if (!auto && !quiet) announce('Project saved');
         // Keep a restorable version (throttled while autosaving).
-        recordVersion(this.location, p.id, text, { auto, lastAt: this._lastVersionAt || 0 }).then((at) => { this._lastVersionAt = at; });
+        recordVersion(this.location, p.id, text, { auto, lastAt: this._lastVersionAt || 0 }).then((at) => { if (this.project === p) this._lastVersionAt = at; });
         return true;
       } catch (err) {
+        if (this.project !== p) return false;
         this.saveState = 'error';
         if (!auto || !this._saveErrorShown) {
           this._saveErrorShown = true;
