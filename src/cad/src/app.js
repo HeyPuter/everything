@@ -1830,6 +1830,13 @@ export class App {
       if (inCmd && (k === 'c' || k === 'x' || k === 'v' || k === 'a') && this.cmdline.value()) return;
       // Text selected in the command history is copied as text, like anywhere else.
       if (k === 'c' && !e.shiftKey && this.cmdline.textSelected()) return;
+      // At a prompt, Paste brings text from the clipboard (coordinates, a value)
+      // to the command line, where the browser then pastes it. Pasting objects
+      // would cancel the command that is asking.
+      if (k === 'v' && this.editor.busy) {
+        if (!inCmd) this.cmdline.input.focus({ preventScroll: true });
+        return;
+      }
       const fn = map[k];
       if (fn) {
         e.preventDefault();
