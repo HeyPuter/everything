@@ -1040,6 +1040,11 @@ export class App {
   }
 
   async signIn() {
+    // Offline, or the SDK is blocked or still loading: there is nothing to sign in with yet.
+    if (!platform.puterAvailable()) {
+      toast('Puter could not be reached, so signing in is not possible right now. Check your connection and try again.', { kind: 'error', timeout: 7000 });
+      return false;
+    }
     try {
       await platform.signIn();
       await this.afterSignIn();
