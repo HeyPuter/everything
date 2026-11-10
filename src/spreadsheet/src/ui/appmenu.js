@@ -2,12 +2,17 @@
  * The account menu shared by the home screen and the editor: theme,
  * shortcuts, about, and (outside the Puter desktop) sign in or out. Inside a
  * Puter app window the desktop owns the session, so neither is offered there.
+ *
+ * Where puter.js has <puter-user-menu> (user-menu.js), that holds the account
+ * and the Apps launcher, and this menu is the Settings button's beside it,
+ * without the account's rows.
  */
 
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
-import { closeAppsPanel } from './apps-panel.js';
+import { appsButton, closeAppsPanel } from './apps-panel.js';
+import { userMenu } from './user-menu.js';
 import { openModal, confirmDialog } from './modal.js';
 import { openShortcuts } from './shortcuts.js';
 import { openOptionsDialog } from './options-dialog.js';
@@ -31,8 +36,11 @@ import scowlLicenseUrl from '../vendor/SCOWL-LICENSE.txt?url&no-inline';
 import { version as APP_VERSION } from '../../package.json';
 import { t } from '../i18n/index.js';
 
-/** `onOptions` opens File ▸ Options from the editor, which knows the workbook; elsewhere the options open on their own. */
-export function openAppMenu(anchor, { onOptions = null } = {}) {
+/**
+ * `onOptions` opens File ▸ Options from the editor, which knows the workbook; elsewhere the options open on their own.
+ * `account: false` leaves out who is signed in and Sign in or out, for the Settings button beside <puter-user-menu>.
+ */
+export function openAppMenu(anchor, { onOptions = null, account = true } = {}) {
   // The Apps panel hangs from the same corner: never both at once.
   closeAppsPanel();
   const theme = currentTheme();
@@ -53,7 +61,7 @@ export function openAppMenu(anchor, { onOptions = null } = {}) {
   // than a parenthesis nested in one; the spoken name carries both.
   const localeName = LOCALES.find(([c]) => c === getLocale())?.[1] || getLocale();
   const items = [
-    { header: session.signedOut ? t('appmenu.notSignedIn') : session.username },
+    ...(account ? [{ header: session.signedOut ? t('appmenu.notSignedIn') : session.username }] : []),
     { custom: themeRow },
     { separator: true },
     { label: t('appmenu.regionalFormatMenu'), icon: 'monitor', shortcut: localeName, ariaLabel: t('appmenu.regionalFormatAria', { locale: localeName }), onSelect: openLocaleDialog },
@@ -62,12 +70,34 @@ export function openAppMenu(anchor, { onOptions = null } = {}) {
     { label: t('appmenu.keyboardShortcuts'), icon: 'keyboard', onSelect: openShortcuts },
     { label: t('appmenu.about'), icon: 'info', onSelect: openAbout },
   ];
-  if (!P.isApp()) {
+  if (account && !P.isApp()) {
     items.push({ separator: true });
     if (session.signedOut) items.push({ label: t('appmenu.signIn'), icon: 'login', hint: t('appmenu.signInHint'), onSelect: () => session.signIn() });
     else items.push({ label: t('appmenu.signOut'), icon: 'logout', onSelect: confirmSignOut });
   }
-  openMenu({ anchor, items, align: 'end', label: t('appmenu.account'), minWidth: 240 });
+  openMenu({ anchor, items, align: 'end', label: account ? t('appmenu.account') : t('appmenu.settings'), minWidth: 240 });
+}
+
+/**
+ * A header's account corner, shared by the home screen and the editor: the Apps button and the account button,
+ * or, where puter.js has it, a Settings button and <puter-user-menu>, which holds both. `label` names the account
+ * button until its face is drawn; `refresh` redraws that face after the session changed.
+ */
+export function accountControls({ onOptions = null, label = '' } = {}) {
+  const sdkMenu = userMenu({ onSignOut: confirmSignOut });
+  if (sdkMenu) {
+    const settings = el('button.icon-btn.settings-btn', {
+      type: 'button', html: icon('settings', 20), title: t('appmenu.settings'), 'aria-label': t('appmenu.settings'), 'aria-haspopup': 'menu',
+      onclick: (e) => openAppMenu(e.currentTarget, { onOptions, account: false }),
+    });
+    return { nodes: [settings, sdkMenu], refresh() {} };
+  }
+  const avatar = el('button.icon-btn.user-btn', {
+    type: 'button', 'aria-label': label, 'aria-haspopup': 'menu',
+    onclick: (e) => openAppMenu(e.currentTarget, { onOptions }),
+  });
+  renderAccountButton(avatar);
+  return { nodes: [appsButton(), avatar], refresh: () => renderAccountButton(avatar) };
 }
 
 const accountButtons = new WeakMap();

@@ -142,8 +142,7 @@ import { openValuePicker } from '../ui/listpicker.js';
 import { promptDialog, openModal, confirmDialog, fieldAlert } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import { confirmValidation, validationAlertStyle } from '../ui/validation-alert.js';
-import { openAppMenu, openLocaleDialog, openAbout, renderAccountButton } from '../ui/appmenu.js';
-import { appsButton } from '../ui/apps-panel.js';
+import { accountControls, openLocaleDialog, openAbout } from '../ui/appmenu.js';
 import { createMenubar, SPECIAL_KINDS } from '../ui/menubar.js';
 import { paletteCommands, openCommandPalette } from '../ui/palette.js';
 import { openVersionHistory } from '../ui/versions.js';
@@ -6526,11 +6525,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   // A plain status while signed in; without a session it is the button that starts the sign-in and the save.
   const status = el('button.save-status', { type: 'button', 'aria-live': 'polite', disabled: true, onclick: () => { if (session.signedOut || doc.asksWhereToSave) run('save'); } });
   const searchBtn = el('button.icon-btn.desktop-only', { type: 'button', html: icon('search', 20), 'aria-label': t('editor.topbar.searchMenus'), title: t('editor.topbar.searchMenusTip', { mod: MOD_KEY }), onclick: () => run('palette') });
-  const avatar = el('button.icon-btn.user-btn', {
-    type: 'button', 'aria-label': t('editor.topbar.accountMenu'), 'aria-haspopup': 'menu',
-    onclick: (e) => openAppMenu(e.currentTarget, { onOptions: () => run('options') }),
-  });
-  renderAccountButton(avatar);
+  const account = accountControls({ onOptions: () => run('options'), label: t('editor.topbar.accountMenu') });
 
   // Save, Undo and Redo stand in the title row as a quick access toolbar; the ribbon fills it.
   // The AutoSave switch leads the row: off, edits wait for Save (they are still kept in this browser's draft).
@@ -6560,7 +6555,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       el('button.icon-btn.desktop-only.topbar-comments', { type: 'button', html: icon('chat', 20), 'aria-label': t('editor.topbar.comments'), title: t('editor.topbar.comments'), onclick: () => run('toggleComments') }),
       peopleBar?.el,
       ...(P.canShare() ? [el('button.btn.share-btn.desktop-only', { type: 'button', title: t('editor.topbar.shareTip'), onclick: () => run('share') },
-      el('span', { html: icon('share', 16) }), el('span', {}, t('editor.topbar.share')))] : []), appsButton(), avatar));
+      el('span', { html: icon('share', 16) }), el('span', {}, t('editor.topbar.share')))] : []), ...account.nodes));
   const header = el('header.editor-header', {}, topbar);
 
   function refreshStatus() {
@@ -7041,7 +7036,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   doc.addEventListener('path', refreshTitle);
   const onSession = () => {
     syncChangeAuthor();
-    renderAccountButton(avatar);
+    account.refresh();
     refreshStatus();
     // Edits made before signing in now have a place to go; with AutoSave off they wait for Save, as any edit does
     // (the session also changes when a preference kept with the account does, choosing a theme, say).

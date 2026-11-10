@@ -11,8 +11,7 @@ import { icon } from '../ui/icons.js';
 import { openMenu } from '../ui/menu.js';
 import { confirmDialog, promptDialog } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
-import { openAppMenu, renderAccountButton } from '../ui/appmenu.js';
-import { appsButton } from '../ui/apps-panel.js';
+import { accountControls } from '../ui/appmenu.js';
 import { openTemplatePicker } from '../ui/templates.js';
 import { templateThumbnail } from '../ui/template-thumbnail.js';
 import { openShareDialog } from '../ui/share.js';
@@ -69,7 +68,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   const onSlash = (e) => {
     if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || !root.isConnected) return;
     const target = e.target;
-    if (target.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], .modal-root, .menu')) return;
+    if (target.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], .modal-root, .menu, puter-user-menu')) return;
     e.preventDefault();
     search.focus();
     search.select();
@@ -344,19 +343,14 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     return out;
   };
 
-  const avatar = el('button.icon-btn.user-btn', {
-    type: 'button', 'aria-label': t('home.accountMenu'), 'aria-haspopup': 'menu',
-    onclick: (e) => openAppMenu(e.currentTarget),
-  });
-  renderAccountButton(avatar);
+  const account = accountControls({ label: t('home.accountMenu') });
 
   const root = el('div.home.view', {},
     fileInput,
     el('header.home-head', {},
       el('div.brand', {}, el('span.brand-mark', { html: icon('brand', 20, 2) }), el('h1.brand-name', {}, t('common.spreadsheet'))),
       el('div.grow'),
-      appsButton(),
-      avatar),
+      ...account.nodes),
     el('main.home-main', {},
       el('section.home-start', { 'aria-labelledby': ids.start },
         el('div.home-section-head', {},
@@ -647,11 +641,13 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   load();
 
   let hadSession = !session.signedOut;
+  let wasSignedIn = session.signedIn;
   const onSession = () => {
-    renderAccountButton(avatar);
-    // Signing in brings the list; the sign-in state is replaced by the files.
-    if (!hadSession && !session.signedOut) load();
+    account.refresh();
+    // Signing in brings the list; the sign-in state is replaced by the files. Signing out takes them away.
+    if ((!hadSession && !session.signedOut) || (wasSignedIn && session.signedOut)) load();
     hadSession = !session.signedOut;
+    wasSignedIn = session.signedIn;
   };
   session.addEventListener?.('change', onSession);
 

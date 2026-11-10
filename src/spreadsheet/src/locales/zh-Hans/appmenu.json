@@ -33,6 +33,7 @@
   "regionalFormat": "区域格式",
   "regionalFormatAria": "区域格式，{locale}",
   "regionalFormatMenu": "区域格式…",
+  "settings": "设置",
   "signIn": "登录 Puter",
   "signInHint": "将电子表格保存到你自己的云端",
   "signOut": "退出登录",
