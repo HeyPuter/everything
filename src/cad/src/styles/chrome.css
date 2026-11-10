@@ -1469,4 +1469,8 @@ body.clean-screen .app-root {
   .dialog .input.sm {
     min-height: 36px;
   }
+  /* As tall as the app's own Sign in button, which it stands in for. */
+  puter-user-menu::part(sign-in) {
+    height: 36px;
+  }
 }
