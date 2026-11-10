@@ -236,6 +236,18 @@ describe('DWG writer', () => {
     }
   });
 
+  it('does not link the BLOCK and ENDBLK entities of DWG 2000 to their neighbours', () => {
+    // "no links" means the previous and next entities are the handles before and after
+    const db = readDatabase(writeDwg(everything(), { dimensionEntities, hatchPatterns, version: 2000 }), { check: true });
+    const ends = [...db.objects.values()].filter((o) => o.type === 'BLOCK' || o.type === 'ENDBLK');
+    expect(ends.length).toBeGreaterThan(4);
+    expect(ends.filter((o) => o.noLinks || o.prev || o.next || o.error).length).toBe(0);
+    // entities in a block still form a chain from the first to the last
+    const bolt = [...db.objects.values()].find((o) => o.type === 'BLOCK_HEADER' && o.name === 'Bolt');
+    expect(db.objects.get(bolt.firstEntity).next).toBe(bolt.lastEntity);
+    expect(db.objects.get(bolt.lastEntity).next).toBe(0);
+  });
+
   it('writes DWG 2000 on request, with colors as color numbers', () => {
     const d = everything();
     d.layers[1].color = '#ff8000';

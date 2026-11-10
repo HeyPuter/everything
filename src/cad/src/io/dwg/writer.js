@@ -579,7 +579,7 @@ class Builder {
       const bh = begin ? begin.hnd(5) : this.newHandle();
       const eh = def?.end ? def.end.hnd(5) : this.newHandle();
       const layer0 = hard(this.named('LAYER', '0'));
-      const entCommon = (h) => ({ entmode: 0, owner: soft(br.h), xdicMissing: ver >= R2004 ? 1 : 0, xdic: owner(0), isByLayerLt: 1, noLinks: 1, color: { index: 256, rgb: null }, ltscale: 1, ltFlags: 0, psFlags: 0, invisible: 0, lwIndex: 29, layer: layer0, handle: h });
+      const entCommon = (h) => ({ entmode: 0, owner: soft(br.h), xdicMissing: ver >= R2004 ? 1 : 0, xdic: owner(0), isByLayerLt: 1, noLinks: 0, prev: soft(0), next: soft(0), color: { index: 256, rgb: null }, ltscale: 1, ltFlags: 0, psFlags: 0, invisible: 0, lwIndex: 29, layer: layer0, handle: h });
       this.add(bh, 'BLOCK', { ...entCommon(bh), name: br.name }, true);
       this.add(eh, 'ENDBLK', entCommon(eh), true);
       const bv = {
