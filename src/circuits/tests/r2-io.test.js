@@ -5,6 +5,8 @@ import { exportGerbers } from '../src/io/gerber.js';
 import { importKicad } from '../src/io/kicad/index.js';
 import { UserLibrary } from '../src/app/user-library.js';
 import { setPuterForTests } from '../src/app/puter.js';
+import { recordVersion } from '../src/app/history.js';
+import { parseProject } from '../src/model/project.js';
 import { mm } from '../src/core/units.js';
 import { defaultRules } from '../src/model/schema.js';
 
@@ -211,5 +213,69 @@ describe('My library when it cannot be read', () => {
     await lib.load();
     await lib.put(def('first'));
     expect(idsIn(cloud.files.get(PATH))).toEqual(['first']);
+  });
+});
+
+describe('project ids from files', () => {
+  const file = (id) =>
+    JSON.stringify({ format: 'circuits-project', version: 1, id, name: 'P', documents: [] });
+
+  /** In-memory cloud that resolves '..' in paths the way a real file system does. */
+  function pathCloud() {
+    const files = new Map();
+    const norm = (p) => {
+      const out = [];
+      for (const part of p.split('/')) {
+        if (part === '..') out.pop();
+        else if (part && part !== '.') out.push(part);
+      }
+      return out.join('/');
+    };
+    const missing = () =>
+      Object.assign(new Error('subject_does_not_exist'), { code: 'subject_does_not_exist' });
+    const fs = {
+      async write(path, text) {
+        files.set(norm(path), text);
+        return { path: norm(path) };
+      },
+      async readdir(dir) {
+        const d = `${norm(dir)}/`;
+        const out = [];
+        for (const p of files.keys()) {
+          if (p.startsWith(d) && !p.slice(d.length).includes('/'))
+            out.push({ name: p.slice(d.length), path: p, modified: 1 });
+        }
+        if (!out.length) throw missing();
+        return out;
+      },
+      async delete(path) {
+        files.delete(norm(path));
+      },
+    };
+    setPuterForTests({ env: 'web', auth: { isSignedIn: () => true }, fs });
+    return files;
+  }
+
+  afterEach(() => setPuterForTests(null));
+
+  it('keeps versions of a project inside its own version folder', async () => {
+    const files = pathCloud();
+    for (let i = 0; i < 45; i++) files.set(`Projects/Mine ${i}.circuits`, '{}');
+    // A file from someone else can carry any id; it names the version folder.
+    const p = parseProject(file('..'));
+    await recordVersion({ type: 'cloud', path: 'Projects/P.circuits' }, p.id, '{}');
+    const projects = [...files.keys()].filter((k) => /^Projects\/[^/]+\.circuits$/.test(k));
+    expect(projects.length).toBe(45);
+    expect(
+      [...files.keys()].filter((k) => k.startsWith(`Projects/.versions/${p.id}/`)).length,
+    ).toBe(1);
+  });
+
+  it('replaces ids that are not plain names and keeps the ones the app makes', () => {
+    for (const id of ['..', '../../x', 'a/b', 'a\\b', '', 7, null, { a: 1 }, 'x'.repeat(500)]) {
+      expect(parseProject(file(id)).id).toMatch(/^[\w-]{1,128}$/);
+    }
+    for (const id of ['pmh1x2abc9zk3', 'pmh1x2abc9zk3-mh1x2b00', 'p_1'])
+      expect(parseProject(file(id)).id).toBe(id);
   });
 });

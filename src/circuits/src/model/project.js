@@ -282,6 +282,9 @@ export function parseProject(json) {
   if (!data || data.format !== FORMAT) throw new Error('This file is not a Circuits project.');
   if (typeof data.version !== 'number' || data.version > FORMAT_VERSION) throw new Error('This project was saved by a newer version of Circuits.');
   if (!Array.isArray(data.documents)) throw new Error('The project has no documents.');
+  // The id names the project's file and version folder in storage, so one
+  // read from a file must be a plain name (never a path such as '..').
+  if (typeof data.id !== 'string' || !/^[\w-]{1,128}$/.test(data.id)) data.id = uid('p');
   data.documents = data.documents.filter((d) => d && typeof d === 'object');
   const docIds = new Set();
   const partUids = new Set();
