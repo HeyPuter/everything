@@ -248,6 +248,22 @@ describe('DWG writer', () => {
     expect(db.objects.get(bolt.lastEntity).next).toBe(0);
   });
 
+  it('lists the inserts of a block in its block record', () => {
+    const d = everything();
+    d.blocks.push({ name: 'Outer', bx: 0, by: 0, description: '', entities: [ent('insert', { id: 1, name: 'Bolt', x: 5, y: 5, sx: 1, sy: 1, rot: 0 })] });
+    d.entities.push(ent('insert', { id: 900, name: 'Bolt', x: 1, y: 1, sx: 1, sy: 1, rot: 0 }), ent('insert', { id: 901, name: 'Outer', x: 0, y: 0, sx: 1, sy: 1, rot: 0 }));
+    for (const version of [2004, 2000]) {
+      const db = readDatabase(writeDwg(d, { dimensionEntities, hatchPatterns, version }), { check: true });
+      const objs = [...db.objects.values()];
+      expect(objs.filter((o) => o.error).map((o) => o.type)).toEqual([]);
+      for (const bh of objs.filter((o) => o.type === 'BLOCK_HEADER')) {
+        const refs = objs.filter((o) => o.type === 'INSERT' && o.block === bh.handle).map((o) => o.handle);
+        expect([...bh.inserts].sort((a, b) => a - b)).toEqual(refs.sort((a, b) => a - b));
+      }
+      expect(objs.find((o) => o.type === 'BLOCK_HEADER' && o.name === 'Bolt').inserts.length).toBe(3);
+    }
+  });
+
   it('writes DWG 2000 on request, with colors as color numbers', () => {
     const d = everything();
     d.layers[1].color = '#ff8000';

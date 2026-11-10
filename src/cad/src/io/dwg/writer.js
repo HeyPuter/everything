@@ -615,6 +615,15 @@ class Builder {
       void brByHandle;
     }
 
+    // every block lists the inserts that reference it
+    for (const o of this.objs.values()) {
+      if (o.type !== 'INSERT') continue;
+      const bo = this.objs.get(o.v.block.value);
+      if (!bo || bo.type !== 'BLOCK_HEADER') continue;
+      bo.v.inserts.push(soft(o.handle));
+      bo.v.insertCount = bo.v.inserts.length;
+    }
+
     // control objects
     const control = (table, type, extra = {}) => {
       const c = C[table] || { handle: this.newHandle(), entries: [] };
