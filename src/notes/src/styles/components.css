@@ -347,6 +347,10 @@ textarea.input {
   background: var(--danger);
   color: #fff;
 }
+/* The dark theme's danger red is light: white on it is about 2.3:1. */
+:root[data-theme-resolved="dark"] .toast.error {
+  color: #1f1f1f;
+}
 .toast.leaving {
   opacity: 0;
   transition: opacity 150ms;
