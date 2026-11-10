@@ -195,7 +195,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .seg-ctl { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
 .seg-ctl button { border: 0; background: var(--bg-input); padding: 0 8px; height: 24px; color: var(--text-2); }
 .seg-ctl button + button { border-left: 1px solid var(--border-strong); }
-.seg-ctl button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); }
+.seg-ctl button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-text); }
 .check-row { display: flex; align-items: center; gap: 8px; }
 .check-row input { margin: 0; accent-color: var(--accent); }
 .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.35); flex: none; display: inline-block; }
