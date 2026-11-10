@@ -158,6 +158,33 @@ describe('PageEditor arrow-key moves', () => {
   });
 });
 
+describe('PageEditor undo with a selected container', () => {
+  it('keeps the selection on the rebuilt container', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>a</p>' }], ink: [] });
+    const key = (k) => ed.scroller.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    ed.selectOutlines([ed.outlineEl('o1')]);
+    key('ArrowRight');
+    ed.flush();
+    expect(ed.page.outlines[0].x).toBe(50);
+    await ed.undo();
+    const live = ed.outlineEl('o1');
+    expect([...ed.selectedOutlines]).toEqual([live]);
+    expect(live.classList.contains('selected')).toBe(true);
+    // The keys act on what is on screen, not on a detached element.
+    key('ArrowRight');
+    expect(live.style.left).toBe('50px');
+    key('Delete');
+    expect(ed.page.outlines).toHaveLength(0);
+    expect(host.querySelectorAll('.outline')).toHaveLength(0);
+    ed.destroy();
+    host.remove();
+  });
+});
+
 describe('PageEditor undo selection', () => {
   it('puts back the selection a formatting change started from', async () => {
     const { PageEditor } = await import('../src/editor/page-editor.js');

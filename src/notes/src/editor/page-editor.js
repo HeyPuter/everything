@@ -107,11 +107,21 @@ export class PageEditor extends Emitter {
     this.titleEl.dataset.placeholder = this.readOnly ? '' : '';
     this.updateDate();
     this.applyBackground();
+    // Every container is rebuilt: what pointed at the old elements (the
+    // selection after an undo, the picture being resized) follows or goes.
+    const selected = new Set([...this.selectedOutlines].map((el) => el.dataset.id));
+    this.selectedOutlines = new Set();
+    this.activeOutline = null;
+    this.clearImageSelection();
     this.outlinesEl.replaceChildren();
     const jobs = [];
     for (const o of page.outlines) {
       const el = this.buildOutline(o);
       this.outlinesEl.append(el);
+      if (selected.has(o.id)) {
+        el.classList.add('selected');
+        this.selectedOutlines.add(el);
+      }
       jobs.push(hydrate(el.querySelector('.outline-body'), this.store));
     }
     this.ink.render();
