@@ -7,6 +7,7 @@ import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { mm } from '../src/core/units.js';
 import { createKernel } from '../src/kernel/ops.js';
+import { mstIslands, analyseBoard } from '../src/model/connectivity.js';
 import { defaultRules } from '../src/model/schema.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -347,5 +348,137 @@ describe('a board file with tracks and vias that lack a size', () => {
     const kernel = await createKernel(wasm);
     const res = await kernel.autoroute(board(), lib, { timeLimitMs: 3000 });
     expect(res.routed).toBeGreaterThan(0);
+  });
+});
+
+describe('the ratsnest of nets with large islands', () => {
+  // The implementation before the grid search, kept as the reference.
+  function mstIslandsReference(islands) {
+    const n = islands.length;
+    const inTree = new Uint8Array(n);
+    const best = new Float64Array(n).fill(Infinity);
+    const bestPair = new Array(n);
+    inTree[0] = 1;
+    const relax = (from) => {
+      const A = islands[from].pts;
+      for (let j = 0; j < n; j++) {
+        if (inTree[j]) continue;
+        const B = islands[j].pts;
+        for (const [ax, ay] of A)
+          for (const [bx, by] of B) {
+            const d = (ax - bx) ** 2 + (ay - by) ** 2;
+            if (d < best[j]) {
+              best[j] = d;
+              bestPair[j] = { x1: ax, y1: ay, x2: bx, y2: by };
+            }
+          }
+      }
+    };
+    relax(0);
+    const out = [];
+    for (let k = 1; k < n; k++) {
+      let m = -1;
+      for (let j = 0; j < n; j++) if (!inTree[j] && (m < 0 || best[j] < best[m])) m = j;
+      if (m < 0 || best[m] === Infinity) break;
+      inTree[m] = 1;
+      out.push(bestPair[m]);
+      relax(m);
+    }
+    return out;
+  }
+
+  // Deterministic random numbers (mulberry32).
+  const rng = (seed) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  /** Islands of mixed sizes; `step` puts anchors on a coarse grid so that ties abound. */
+  function randomIslands(rand, { count, maxSize, span, step, shape }) {
+    const int = (n) => Math.floor(rand() * n);
+    const islands = [];
+    for (let i = 0; i < count; i++) {
+      const size = 1 + int(rand() < 0.5 ? maxSize : 6);
+      const ox = int(span) * step,
+        oy = int(span) * step;
+      const spread = 1 + int(shape === 'far' ? 8 : span);
+      const pts = [];
+      for (let k = 0; k < size; k++) {
+        if (shape === 'line') pts.push([ox + int(spread) * step, oy]);
+        else if (shape === 'chain' && pts.length && rand() < 0.5)
+          pts.push([...pts[pts.length - 1]]);
+        else pts.push([ox + int(spread) * step, oy + int(spread) * step]);
+      }
+      islands.push({ pts });
+    }
+    return islands;
+  }
+
+  it('is the same, pair for pair, as the plain search gives', () => {
+    const rand = rng(20261109);
+    let big = 0;
+    for (let round = 0; round < 260; round++) {
+      const shape = ['blob', 'line', 'chain', 'far'][round % 4];
+      const opts = {
+        count: 2 + Math.floor(rand() * 14),
+        maxSize: [60, 150, 400][round % 3],
+        span: [6, 40, 3000][Math.floor(rand() * 3)],
+        step: [1, 7, 250000, 0.37][Math.floor(rand() * 4)],
+        shape,
+      };
+      const islands = randomIslands(rand, opts);
+      if (islands.some((i) => i.pts.length >= 48)) big++;
+      expect(mstIslands(islands), JSON.stringify(opts)).toEqual(mstIslandsReference(islands));
+    }
+    expect(big).toBeGreaterThan(150);
+  });
+
+  it('is the same when anchors are missing a coordinate or lie infinitely far away', () => {
+    const rand = rng(7);
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      for (let round = 0; round < 12; round++) {
+        const islands = randomIslands(rand, {
+          count: 6,
+          maxSize: 120,
+          span: 30,
+          step: 5,
+          shape: 'blob',
+        });
+        islands[round % 6].pts[0] = [bad, 3];
+        islands[(round + 2) % 6].pts.push([4, bad]);
+        expect(mstIslands(islands)).toEqual(mstIslandsReference(islands));
+      }
+    }
+    const lost = [{ pts: Array.from({ length: 60 }, () => [NaN, NaN]) }, { pts: [[1, 1]] }];
+    expect(mstIslands(lost)).toEqual(mstIslandsReference(lost));
+  });
+
+  it('compares each anchor of a long routed trace with a few neighbours, not with every anchor', () => {
+    // Two parallel traces of 400 segments each, 1 mm apart, on one net.
+    const objects = [];
+    for (let c = 0; c < 2; c++) {
+      for (let i = 0; i < 400; i++) {
+        const y = c * mm(1);
+        const seg = { x1: i * mm(0.2), y1: y, x2: (i + 1) * mm(0.2), y2: y, w: mm(0.15) };
+        objects.push({ id: `t${c}_${i}`, t: 'track', layer: 'top', net: 'GND', ...seg });
+      }
+    }
+    // Count the anchor coordinates read while the ratsnest is worked out.
+    let reads = 0;
+    const res = analyseBoard({ board: { copper: 2 } }, objects, {});
+    const islands = [0, 1].map((c) => ({
+      pts: res.items
+        .filter((it) => it.y1 === c * mm(1))
+        .flatMap((it) => it.anchors)
+        .map((p) => new Proxy(p, { get: (t, k) => (k === '0' && reads++, t[k]) })),
+    }));
+    expect(islands[0].pts).toHaveLength(800);
+    const lines = mstIslands(islands);
+    expect(lines).toEqual([{ x1: 0, y1: 0, x2: 0, y2: mm(1) }]);
+    expect(res.ratsnest).toEqual([{ net: 'GND', ...lines[0] }]);
+    // The plain search reads 800 x 800 pairs.
+    expect(reads).toBeLessThan(800 * 60);
   });
 });

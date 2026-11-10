@@ -279,8 +279,89 @@ export function analyseBoard(boardDoc, objects, lib, { pourFills } = {}) {
   return { items, dsu, ratsnest, unrouted, shorts };
 }
 
-/** Prim's algorithm over islands using their closest anchor pairs. */
-function mstIslands(islands) {
+// Islands with at least this many anchors are searched through a grid.
+const GRID_MIN = 48;
+
+/**
+ * Buckets an island's anchors into a uniform grid (about one anchor per
+ * cell) for nearestAnchor. Null when the anchors have no finite extent.
+ */
+function anchorGrid(pts) {
+  const n = pts.length;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const x = pts[i][0], y = pts[i][1];
+    if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  const w = maxX - minX, h = maxY - minY;
+  if (!Number.isFinite(w + h)) return null;
+  const cell = Math.max(Math.sqrt((w * h) / n), Math.max(w, h) / n, 1);
+  const nx = Math.floor(w / cell) + 1, ny = Math.floor(h / cell) + 1;
+  const cellOf = new Int32Array(n);
+  const start = new Int32Array(nx * ny + 1);
+  for (let i = 0; i < n; i++) {
+    const gx = Math.min(nx - 1, Math.max(0, Math.floor((pts[i][0] - minX) / cell)));
+    const gy = Math.min(ny - 1, Math.max(0, Math.floor((pts[i][1] - minY) / cell)));
+    cellOf[i] = (gy || 0) * nx + (gx || 0);
+    start[cellOf[i] + 1]++;
+  }
+  for (let c = 0; c < nx * ny; c++) start[c + 1] += start[c];
+  // Anchors of a cell stay in their original order.
+  const fill = start.slice(0, nx * ny);
+  const order = new Int32Array(n);
+  for (let i = 0; i < n; i++) order[fill[cellOf[i]]++] = i;
+  return { pts, minX, minY, maxX, maxY, cell, nx, ny, start, order };
+}
+
+let nearD = 0, nearI = -1;
+
+/**
+ * The grid's anchor closest to a point, among those no farther than `limit`
+ * (squared); of several equally close, the first in the island's own order.
+ * Leaves the squared distance in nearD and the index (-1: none) in nearI.
+ */
+function nearestAnchor(g, bx, by, limit) {
+  const { pts, cell, nx, ny, start, order } = g;
+  let bd = limit, bi = -1;
+  const cx = Math.min(nx - 1, Math.max(0, Math.floor((bx - g.minX) / cell)));
+  const cy = Math.min(ny - 1, Math.max(0, Math.floor((by - g.minY) / cell)));
+  // How far the point lies outside the grid on each axis.
+  const ox = Math.max(g.minX - bx, bx - g.maxX, 0), oy = Math.max(g.minY - by, by - g.maxY, 0);
+  for (let r = 0; ; r++) {
+    const x0 = cx - r, x1 = cx + r, y0 = cy - r, y1 = cy + r;
+    if (x0 < 0 && y0 < 0 && x1 >= nx && y1 >= ny) break;
+    if (r > 0) {
+      // Anchors not seen yet are at least r - 1 cells away along one axis
+      // (with a margin for rounding where anchors sit on cell borders).
+      const reach = (r - 1) * cell * (1 - 1e-6);
+      if (Math.min((reach + ox) ** 2 + oy * oy, ox * ox + (reach + oy) ** 2) > bd) break;
+    }
+    for (let gy = Math.max(y0, 0), gyEnd = Math.min(y1, ny - 1); gy <= gyEnd; gy++) {
+      // The ring's top and bottom rows in full, only the two end cells of the rows between.
+      const full = gy === y0 || gy === y1;
+      for (let gx = full ? Math.max(x0, 0) : x0; gx <= x1 && gx < nx; gx += full ? 1 : x1 - x0) {
+        if (gx < 0) continue;
+        const c = gy * nx + gx;
+        for (let k = start[c], end = start[c + 1]; k < end; k++) {
+          const i = order[k];
+          const d = (pts[i][0] - bx) ** 2 + (pts[i][1] - by) ** 2;
+          if (d < bd || (d === bd && (bi < 0 || i < bi))) { bd = d; bi = i; }
+        }
+      }
+    }
+  }
+  nearD = bd;
+  nearI = bi;
+}
+
+/**
+ * Prim's algorithm over islands using their closest anchor pairs. Each island
+ * that joins the tree is compared with every island still outside it: anchor
+ * by anchor when it is small, through a grid of its anchors when it is large
+ * (a routed net has few islands with thousands of anchors each). Both ways
+ * choose the same pair, the first of the closest in anchor order.
+ */
+export function mstIslands(islands) {
   const n = islands.length;
   const inTree = new Uint8Array(n);
   const best = new Float64Array(n).fill(Infinity);
@@ -288,9 +369,21 @@ function mstIslands(islands) {
   inTree[0] = 1;
   const relax = (from) => {
     const A = islands[from].pts;
+    const grid = A.length >= GRID_MIN ? anchorGrid(A) : null;
     for (let j = 0; j < n; j++) {
       if (inTree[j]) continue;
       const B = islands[j].pts;
+      if (grid) {
+        let bd = best[j], pa = -1, pb = -1;
+        for (let k = 0; k < B.length; k++) {
+          const bx = B[k][0], by = B[k][1];
+          if (!Number.isFinite(bx + by)) continue;
+          nearestAnchor(grid, bx, by, bd);
+          if (nearI >= 0 && (nearD < bd || (pa >= 0 && nearI < pa))) { bd = nearD; pa = nearI; pb = k; }
+        }
+        if (pa >= 0) { best[j] = bd; bestPair[j] = { x1: A[pa][0], y1: A[pa][1], x2: B[pb][0], y2: B[pb][1] }; }
+        continue;
+      }
       for (const [ax, ay] of A) for (const [bx, by] of B) {
         const d = (ax - bx) ** 2 + (ay - by) ** 2;
         if (d < best[j]) { best[j] = d; bestPair[j] = { x1: ax, y1: ay, x2: bx, y2: by }; }
