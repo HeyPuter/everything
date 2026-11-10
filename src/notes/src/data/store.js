@@ -920,8 +920,11 @@ export class Store extends Emitter {
         }
         if (node.type === 'section' && node.locked) {
           const key = this.keys.get(node.id);
+          // The ids stay readable (they say nothing about the pages): a
+          // locked section deleted for good must still find its page files.
           if (key) jobs.push(sealJSON(key, node.pages).then((sealed) => {
             node.sealed = sealed;
+            node.pageIds = node.pages.map((p) => p.id);
             node.pages = [];
           }));
           else node.pages = [];
@@ -980,6 +983,7 @@ export class Store extends Emitter {
       }
     }
     node.sealed = await sealJSON(key, node.pages);
+    node.pageIds = pageIds;
     this.keys.delete(id);
     node.pages = [];
     for (const pid of [...pageIds, ...trashed]) {
@@ -1124,6 +1128,7 @@ export class Store extends Emitter {
     }
     delete f.node.locked;
     delete f.node.sealed;
+    delete f.node.pageIds;
     for (const entry of entries) {
       delete entry.sealedPages;
       delete entry.lockedSection;
@@ -1491,11 +1496,13 @@ export function normalizeLevels(pages) {
 }
 
 function trashPageIds(entry) {
-  if (entry.kind === 'page') return entry.pages.map((p) => p.id);
+  // What is deleted from a locked section keeps only its page ids readable
+  // (pageIds); the page list itself is sealed.
+  if (entry.kind === 'page') return entry.pages.length ? entry.pages.map((p) => p.id) : entry.pageIds || [];
   const ids = [];
   const visit = (node) => {
     if (node.type === 'group') node.children.forEach(visit);
-    else ids.push(...node.pages.map((p) => p.id));
+    else ids.push(...(node.pages.length ? node.pages.map((p) => p.id) : node.pageIds || []));
   };
   if (entry.kind === 'notebook') entry.notebook.sections.forEach(visit);
   else visit(entry.node);

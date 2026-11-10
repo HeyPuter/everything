@@ -527,3 +527,40 @@ describe('password-protected sections: a change that fails halfway', () => {
     expect(await (await fresh.assetBlob(img)).text()).toBe(`png of ${metas[1].id}`);
   });
 });
+
+describe('password-protected sections: deleting for good', () => {
+  const pageFiles = (backend) => [...backend.files.keys()].filter((k) => k.startsWith('pages/') || k.startsWith('published/'));
+
+  it('removes the files of a page deleted from a section that is locked again', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    backend.files.set(`published/${meta.id}.json`, '{}');
+    const entry = store.deletePage(meta.id);
+    await store.lockSection(section.id);
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(pageFiles(backend).some((k) => k.includes(meta.id))).toBe(true);
+    await fresh.purge(entry.id);
+    await fresh.flush();
+    expect(pageFiles(backend).filter((k) => k.includes(meta.id))).toEqual([]);
+  });
+
+  it('removes the page files of a locked section emptied from Deleted Notes', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    await store.lockSection(section.id);
+    store.deleteNode(section.id);
+    await store.flush();
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    await fresh.emptyTrash();
+    await fresh.flush();
+    expect(pageFiles(backend).filter((k) => k.includes(meta.id))).toEqual([]);
+    // A live locked section keeps its pages.
+    const other = await setup();
+    await other.store.protectSection(other.section.id, 'pw');
+    await other.store.lockSection(other.section.id);
+    await other.store.emptyTrash();
+    expect(pageFiles(other.backend).some((k) => k.includes(other.meta.id))).toBe(true);
+  });
+});
