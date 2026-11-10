@@ -266,4 +266,14 @@ describe('the layers panel', () => {
     await new Promise((r) => setTimeout(r, 120));
     expect(rebuilt).toBe(1);
   });
+
+  it('marks the current layer without list-box attributes on plain list items', async () => {
+    const { ed, panel } = await open();
+    expect(panel.body.querySelectorAll('li[aria-selected]')).toHaveLength(0);
+    const current = panel.body.querySelectorAll('li[aria-current="true"]');
+    expect(current).toHaveLength(1);
+    expect(current[0].textContent).toContain('Top');
+    ed.setActiveLayer('bottom');
+    expect(panel.body.querySelector('li[aria-current="true"]').textContent).toContain('Bottom');
+  });
 });

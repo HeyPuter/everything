@@ -26,7 +26,7 @@ export class LayersPanel {
       color.addEventListener('change', () => s.set('layerColors', { ...s.get('layerColors'), [l]: color.value }));
       const radio = h('input', { type: 'radio', name: 'active-layer', checked: l === ed.activeLayer, 'aria-label': `Make ${LAYERS[l].name} current` });
       radio.addEventListener('change', () => ed.setActiveLayer(l));
-      list.append(h('li.list-row', { 'aria-selected': String(l === ed.activeLayer) }, cb, color, h('span.grow', LAYERS[l].name), radio));
+      list.append(h('li.list-row', { 'aria-current': l === ed.activeLayer ? 'true' : null }, cb, color, h('span.grow', LAYERS[l].name), radio));
     }
     const opt = (label, key) => {
       const cb = h('input', { type: 'checkbox', checked: !!s.get(key) });

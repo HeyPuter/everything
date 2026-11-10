@@ -208,7 +208,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .list { list-style: none; margin: 0; padding: 2px 0; }
 .list-row { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 2px 10px; cursor: default; border-left: 2px solid transparent; }
 .list-row:hover { background: var(--bg-hover); }
-.list-row[aria-selected='true'] { background: var(--bg-selected); border-left-color: var(--accent); }
+.list-row[aria-selected='true'], .list-row[aria-current='true'] { background: var(--bg-selected); border-left-color: var(--accent); }
 .list-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .sub { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The dimmest text colour is too faint on the hover and selection backgrounds. */
