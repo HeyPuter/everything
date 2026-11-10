@@ -98,3 +98,26 @@ export function announce(message) {
     region.textContent = message;
   }, 30);
 }
+
+/**
+ * Follows the pointer that started a drag until it is released or the
+ * browser cancels it (a touch taken over for scrolling, a pen leaving
+ * range). Without the cancel the drag's listeners stayed, and the next
+ * pointer to move dragged the thing along; other pointers are ignored.
+ */
+export function trackPointer(start, onMove, onEnd) {
+  const same = (e) => start.pointerId === undefined || e.pointerId === undefined || e.pointerId === start.pointerId;
+  const move = (e) => {
+    if (same(e)) onMove(e);
+  };
+  const end = (e) => {
+    if (!same(e)) return;
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', end);
+    window.removeEventListener('pointercancel', end);
+    onEnd(e);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+}

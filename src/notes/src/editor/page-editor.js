@@ -1,4 +1,4 @@
-import { h, debounce, clamp, announce } from '../lib/dom.js';
+import { h, debounce, clamp, announce, trackPointer } from '../lib/dom.js';
 import { uid } from '../lib/ids.js';
 import { sanitizeHtml, safeUrl, htmlToText } from '../lib/sanitize.js';
 import { formatPageDate, formatPageTime } from '../lib/dates.js';
@@ -408,8 +408,6 @@ export class PageEditor extends Emitter {
       inkSel?.move(dx, dy);
     };
     const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
       if (!moved) return;
       for (const m of moving) {
         m.model.x = Math.round(m.el.offsetLeft);
@@ -419,8 +417,7 @@ export class PageEditor extends Emitter {
       this.layout();
       this.changed({ structural: true });
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    trackPointer(e, onMove, onUp);
   }
 
   startResize(e, outline) {
@@ -440,15 +437,12 @@ export class PageEditor extends Emitter {
       outline.classList.remove('auto-width');
     };
     const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
       if (!resized) return;
       model.w = Math.round(outline.offsetWidth);
       this.layout();
       this.changed({ structural: true });
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    trackPointer(e, onMove, onUp);
   }
 
   selectOutlines(list) {
@@ -1158,14 +1152,11 @@ export class PageEditor extends Emitter {
         placeHandle();
       };
       const onUp = () => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
         this.dirty.add(outline);
         this.commit();
         this.layout();
       };
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
+      trackPointer(ev, onMove, onUp);
     });
     if (e) {
       // Select the image as a node so Delete and copy act on it.

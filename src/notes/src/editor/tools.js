@@ -1,4 +1,5 @@
 import { uid } from '../lib/ids.js';
+import { trackPointer } from '../lib/dom.js';
 import { strokePath, shapePath, bounds, unionBounds, hitTest, insideLasso, translate, simplify, constrainShape, recognizeShape, PENS } from './ink.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -449,8 +450,6 @@ export class InkTools {
       }
     };
     const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
       if (Math.hypot(...delta) < 1) return;
       mover.end();
       for (const o of outlines) {
@@ -460,8 +459,7 @@ export class InkTools {
       this.editor.layout();
       this.editor.changed();
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackPointer(e, move, up);
   }
 
   deleteSelection() {
