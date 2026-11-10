@@ -54,6 +54,7 @@ import {
 } from './platform.js';
 import { renderViewbar } from './ui/viewbar.js';
 import { renderHome } from './ui/home.js';
+import { mountUserMenu } from './ui/user-menu.js';
 import { Settings } from './settings.js';
 import { SyncManager } from './io/sync.js';
 import { solveConstraints } from './core/constraints.js';
@@ -128,6 +129,7 @@ export class App {
         e.returnValue = '';
       }
     });
+    this.mountUserMenu();
     this.renderAccount();
     const params = new URLSearchParams(location.search);
     const recovered = params.has('sample') ? false : await files.recover(this);
@@ -135,6 +137,7 @@ export class App {
     else if (!recovered) this.showHome();
     whenPuter().then(async (ok) => {
       if (!ok) return;
+      this.mountUserMenu();
       this.renderAccount();
       await this.settingsStore.syncFromCloud();
       this.applyPreferences();
@@ -1473,6 +1476,9 @@ export class App {
 
   keydown(e) {
     const tgt = e.target;
+    // puter.js's user menu takes its own keys (they arrive from the element, not
+    // from inside its shadow root): no shortcuts while focus is in it.
+    if (tgt?.closest?.('puter-user-menu')) return;
     const typing = tgt instanceof HTMLInputElement || tgt instanceof HTMLTextAreaElement || tgt instanceof HTMLSelectElement || tgt?.isContentEditable;
     if (document.querySelector('dialog[open]')) return;
     const mod = e.ctrlKey || e.metaKey;
@@ -1717,9 +1723,27 @@ export class App {
 
   // Account ----------------------------------------------------------------------------------------
 
+  /**
+   * Once the SDK has loaded: where it has <puter-user-menu>, the element takes
+   * the account's place in the title bar (see ui/user-menu.js).
+   */
+  mountUserMenu() {
+    if (this.userMenu) return;
+    this.userMenu = mountUserMenu(this.shell.userMenu, {
+      signedIn: () => this.afterSignIn(),
+      signedOut: () => this.signedOut(),
+    });
+    if (!this.userMenu) return;
+    this.shell.userMenu = this.userMenu;
+    this.shell.titlebar.classList.add('has-user-menu');
+  }
+
   async renderAccount() {
     const el = this.shell.account;
     const seq = (this.accountSeq = (this.accountSeq || 0) + 1);
+    // puter.js's user menu holds the account where it renders.
+    el.hidden = !!this.userMenu;
+    if (this.userMenu) return clear(el);
     if (!puterAvailable()) return clear(el);
     const signed = await isSignedIn();
     if (seq !== this.accountSeq) return;
@@ -1750,11 +1774,7 @@ export class App {
   async signIn() {
     try {
       await signIn();
-      await this.renderAccount();
-      await this.settingsStore.syncFromCloud();
-      this.applyPreferences();
-      this.ribbon.renderBody();
-      this.applyTheme();
+      await this.afterSignIn();
       return true;
     } catch {
       this.toast('Sign-in was cancelled.');
@@ -1762,8 +1782,22 @@ export class App {
     }
   }
 
+  /** After signing in here, or after puter.js's user menu signed in. */
+  async afterSignIn() {
+    await this.renderAccount();
+    await this.settingsStore.syncFromCloud();
+    this.applyPreferences();
+    this.ribbon.renderBody();
+    this.applyTheme();
+  }
+
   signOut() {
     signOut();
+    this.signedOut();
+  }
+
+  /** After signing out here, or after puter.js's user menu signed out. */
+  signedOut() {
     clearProfilePicture();
     this.user = null;
     this.renderAccount();

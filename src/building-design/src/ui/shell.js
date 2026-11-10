@@ -1,12 +1,13 @@
 /**
- * Application chrome: title bar with the application menu and quick access
- * toolbar, ribbon slot, options bar, docked Properties and Project Browser,
+ * Application chrome: title bar with the application menu, quick access
+ * toolbar and the account (or puter.js's <puter-user-menu>), ribbon slot, options bar, docked Properties and Project Browser,
  * view tabs, the canvas with navigation bar and orientation cube, the view
  * control bar, the status bar and the phone toolbar.
  */
 import { h, MOD } from './dom.js';
 import { icon } from './icons.js';
 import { commandTip } from './ribbon.js';
+import { userMenuSlot } from './user-menu.js';
 
 export const REPO_URL = 'https://github.com/HeyPuter/everything';
 
@@ -27,10 +28,12 @@ export function buildShell(app) {
     h('kbd', `${MOD} K`),
   );
   const assistBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Assistant', 'aria-pressed': 'false', 'data-tip': 'Assistant', 'data-tip-desc': 'Ask about the project or ask for changes in plain words', onClick: () => app.toggleAssistant() }, icon('sparkles', 17));
-  const themeBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Theme', 'aria-haspopup': 'menu', 'data-tip': 'Theme', onClick: (e) => app.themeMenu(e.currentTarget) }, icon('monitor', 17));
+  const themeBtn = h('button.icon-btn.theme-btn', { type: 'button', 'aria-label': 'Theme', 'aria-haspopup': 'menu', 'data-tip': 'Theme', onClick: (e) => app.themeMenu(e.currentTarget) }, icon('monitor', 17));
   const helpBtn = h('button.icon-btn.hide-phone', { type: 'button', 'aria-label': 'Help', 'data-tip': 'Help', 'data-tip-keys': 'F1', onClick: () => app.run('help') }, icon('help', 17));
   const code = h('a.icon-btn.hide-phone', { href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code (opens in a new tab)', 'data-tip': 'Source code' }, icon('code', 17));
   const account = h('div.account');
+  // Filled once the SDK has loaded, where it has <puter-user-menu> (see user-menu.js).
+  const userMenu = userMenuSlot();
   const titlebar = h(
     'header.titlebar',
     h(
@@ -47,7 +50,7 @@ export function buildShell(app) {
       ),
     ),
     title,
-    h('div.tb-right', search, assistBtn, themeBtn, helpBtn, code, account),
+    h('div.tb-right', search, assistBtn, themeBtn, helpBtn, code, account, userMenu),
   );
 
   const optionsbar = h('div.optionsbar', { role: 'toolbar', 'aria-label': 'Options' });
@@ -107,6 +110,7 @@ export function buildShell(app) {
     titlebar,
     title,
     account,
+    userMenu,
     themeBtn,
     undoBtn,
     redoBtn,
