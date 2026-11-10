@@ -45,7 +45,11 @@ export function caretText(s) {
   }
   return out;
 }
-const n = (x) => String(+x || 0);
+/** A number as DXF text; damaged values that are not finite numbers become 0. */
+const n = (x) => {
+  x = +x;
+  return x && x - x === 0 ? String(x) : '0';
+};
 
 /** One record: type and parallel code / value arrays. */
 class Rec {

@@ -268,6 +268,19 @@ describe('DWG reader: other files', () => {
     expect(() => parseDwg(none)).toThrow(/Damaged DWG file: the list of objects/);
   });
 
+  it('never passes numbers that are not finite into the drawing', () => {
+    // one damaged byte makes a dimension's rotation 1.3e308 radians: infinite in degrees
+    const b = fx('sample-r14.dwg').slice();
+    b[17209] = 59;
+    const dims = [...readDatabase(b).objects.values()].filter((o) => o.type === 'DIMENSION_LINEAR');
+    expect(dims.some((o) => o.dimRotation > 1e300)).toBe(true);
+    const bad = [];
+    for (const e of parseDwg(b).drawing.entities) {
+      for (const [k, v] of Object.entries(e)) if (typeof v === 'number' && !Number.isFinite(v)) bad.push(`${e.type}.${k}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
   it('reads drawings with a damaged dictionary that has names but no entries', () => {
     const b = fx('sample-r2000.dwg').slice();
     b[16867] = 0;
