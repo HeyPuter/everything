@@ -1406,7 +1406,10 @@ export class App {
   // ------------------------------------------------------------ feature entry points
 
   copyLink(kind, id) {
-    const url = `${location.origin}${location.pathname}${location.search}#${kind}=${id}`;
+    // Without the query string, like the link in the Share dialog: inside
+    // Puter it holds the app window's launch parameters, which are not part
+    // of a link to keep or pass on.
+    const url = `${location.origin}${location.pathname}#${kind}=${id}`;
     navigator.clipboard?.writeText(url).then(() => toast('Link copied'), () => toast("Couldn't copy the link."));
   }
 
