@@ -483,3 +483,18 @@ describe('Pan tool on touch screens', () => {
     expect(t.ed.camera.state.cx).toBeCloseTo(cx - 1);
   });
 });
+
+describe('Shift+click', () => {
+  it('deselects an object clicked on one of its grips instead of dragging the grip', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    add({ type: 'line', x1: 0, y1: 5, x2: 10, y2: 5 });
+    t.ed.setSelection([1, 2]);
+    // The middle grip of the first line.
+    await click(5, 0, { shiftKey: true });
+    expect(t.ed.busy).toBe(false);
+    expect([...t.ed.selection]).toEqual([2]);
+    // Without Shift a grip is still picked up.
+    await click(5, 5);
+    expect(t.ed.active?.def.name).toBe('GRIPEDIT');
+  });
+});

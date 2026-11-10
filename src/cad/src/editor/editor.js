@@ -775,8 +775,9 @@ export class Editor {
       }
       return;
     }
-    // Idle: grips first, then objects, then a selection window.
-    if (this.hoverGrip >= 0) {
+    // Idle: grips first, then objects, then a selection window. Shift
+    // removes from the selection, also when the click lands on a grip.
+    if (this.hoverGrip >= 0 && !shift) {
       this._startGripEdit(this.hoverGrip, p);
       return;
     }
