@@ -1,6 +1,6 @@
 // Application dialogs.
 
-import { h, nextId, clear, shortcutLabel, modKey } from '../ui/dom.js';
+import { h, nextId, clear, shortcutLabel, modKey, isComposing } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { openDialog, buildForm, confirmDialog } from '../ui/dialog.js';
 import { formatLength, parseLength, mm } from '../core/units.js';
@@ -16,26 +16,35 @@ const lengthField = (key, label, value, units, extra = {}) => ({
   key, label, type: 'length', value: formatLength(value, units, { suffix: false }), parse: (v) => parseLength(v, units), hint: units, ...extra,
 });
 
+// A size has to be above zero and a clearance cannot be negative: a typing
+// slip must not reach the routing tools, the checks and the fabrication files.
+const sizeField = (key, label, value, units) => lengthField(key, label, value, units, {
+  parse: (v) => { const n = parseLength(v, units); return n > 0 ? n : null; }, error: 'enter a size above zero',
+});
+const gapField = (key, label, value, units) => lengthField(key, label, value, units, {
+  parse: (v) => { const n = parseLength(v, units); return n !== null && n >= 0 ? n : null; }, error: 'enter zero or more',
+});
+
 // ---- Design rules ----
 
 export async function rulesDialog(app, ed) {
   const u = app.settings.get('units');
   const r = ed.doc.rules;
   const form = buildForm([
-    lengthField('clearance', 'Copper clearance', r.clearance, u),
-    lengthField('trackWidth', 'Track width (preferred)', r.trackWidth, u),
-    lengthField('minTrackWidth', 'Track width (minimum)', r.minTrackWidth, u),
-    lengthField('viaDiameter', 'Via diameter', r.viaDiameter, u),
-    lengthField('viaDrill', 'Via hole', r.viaDrill, u),
-    lengthField('minDrill', 'Minimum hole', r.minDrill, u),
-    lengthField('minAnnularRing', 'Minimum annular ring', r.minAnnularRing, u),
-    lengthField('edgeClearance', 'Copper to board edge', r.edgeClearance, u),
-    lengthField('pourClearance', 'Pour clearance (new pours)', r.pourClearance, u),
-    lengthField('spoke', 'Thermal relief spoke width', r.thermal.spoke, u),
-    lengthField('gap', 'Thermal relief gap', r.thermal.gap, u),
+    gapField('clearance', 'Copper clearance', r.clearance, u),
+    sizeField('trackWidth', 'Track width (preferred)', r.trackWidth, u),
+    sizeField('minTrackWidth', 'Track width (minimum)', r.minTrackWidth, u),
+    sizeField('viaDiameter', 'Via diameter', r.viaDiameter, u),
+    sizeField('viaDrill', 'Via hole', r.viaDrill, u),
+    sizeField('minDrill', 'Minimum hole', r.minDrill, u),
+    gapField('minAnnularRing', 'Minimum annular ring', r.minAnnularRing, u),
+    gapField('edgeClearance', 'Copper to board edge', r.edgeClearance, u),
+    gapField('pourClearance', 'Pour clearance (new pours)', r.pourClearance, u),
+    sizeField('spoke', 'Thermal relief spoke width', r.thermal.spoke, u),
+    gapField('gap', 'Thermal relief gap', r.thermal.gap, u),
     lengthField('maskExpansion', 'Solder mask expansion', r.maskExpansion, u),
     lengthField('pasteExpansion', 'Paste expansion', r.pasteExpansion, u),
-    lengthField('silkWidth', 'Silkscreen line width', r.silkWidth, u),
+    sizeField('silkWidth', 'Silkscreen line width', r.silkWidth, u),
   ]);
   // Net classes as an editable table.
   const classes = structuredClone(r.netClasses || {});
@@ -70,11 +79,12 @@ export async function rulesDialog(app, ed) {
   const pageHost = h('div');
   const show = (k) => {
     for (const b of tabs.children) b.setAttribute('aria-selected', String(b.dataset.k === k));
-    pageHost.replaceChildren(pages[k]);
+    if (pageHost.firstChild !== pages[k]) pageHost.replaceChildren(pages[k]);
   };
   for (const [k, l] of [['rules', 'Clearances and sizes'], ['classes', 'Net classes']]) tabs.append(h('button', { type: 'button', role: 'tab', dataset: { k }, onClick: () => show(k) }, l));
   show('rules');
-  const err = h('div.small.sev-error', { role: 'alert' });
+  // The list of rules is longer than the dialog: keep the message in view.
+  const err = h('div.small.sev-error.dialog-error', { role: 'alert' });
   const oldWidth = r.trackWidth;
   let newWidth = null;
   await openDialog({
@@ -83,9 +93,19 @@ export async function rulesDialog(app, ed) {
     actions: [{ label: 'Cancel' }, {
       label: 'Apply', primary: true,
       run: () => {
+        // Show the rules page before focusing the field at fault: putting the
+        // page in place afterwards would take the focus out of the dialog.
+        show('rules');
         const msg = form.validate();
-        if (msg) { err.textContent = msg; show('rules'); return false; }
+        if (msg) { err.textContent = msg; return false; }
         const v = form.values();
+        if (v.viaDrill >= v.viaDiameter) {
+          const hole = form.inputs.get('viaDrill').input;
+          hole.setAttribute('aria-invalid', 'true');
+          hole.focus();
+          err.textContent = 'Via hole: must be smaller than the via diameter';
+          return false;
+        }
         const next = { ...v, thermal: { ...r.thermal, spoke: v.spoke, gap: v.gap }, netClasses: classes };
         delete next.spoke; delete next.gap;
         ed.doc.store.transact('Edit design rules', (s) => s.update('rules', next));
@@ -109,17 +129,21 @@ export async function layerStackDialog(app, ed) {
   const u = app.settings.get('units');
   const form = buildForm([
     { key: 'copper', label: 'Copper layers', type: 'select', value: String(b.copper), options: [['2', '2 layers'], ['4', '4 layers (2 inner)'], ['6', '6 layers (4 inner)']] },
-    lengthField('thickness', 'Board thickness', b.thickness, u),
+    sizeField('thickness', 'Board thickness', b.thickness, u),
   ]);
+  const err = h('div.small.sev-error', { role: 'alert', style: { marginTop: '8px' } });
   await openDialog({
     title: 'Layer stack',
-    body: [h('p.muted', 'Inner layers are added between the top and bottom copper. Removing inner layers deletes the tracks, fills and pours on them.'), form.el],
+    body: [h('p.muted', 'Inner layers are added between the top and bottom copper. Removing inner layers deletes the tracks, fills and pours on them.'), form.el, err],
     actions: [{ label: 'Cancel' }, {
       label: 'Apply', primary: true,
       run: async () => {
-        if (form.validate()) return false;
+        const msg = form.validate();
+        err.textContent = msg || '';
+        if (msg) return false;
         const v = form.values();
-        await app.setCopperLayers(Number(v.copper));
+        // Declining to remove inner layers cancels the whole change.
+        if ((await app.setCopperLayers(Number(v.copper))) === false) return false;
         ed.doc.store.transact('Board thickness', (s) => s.update('board', { thickness: v.thickness }));
         return true;
       },
@@ -252,22 +276,34 @@ export async function annotateDialog(app) {
 // ---- Autorouter ----
 
 export async function autorouteDialog(app, ed, nets = null) {
+  // Pours are refilled around new tracks, so they must not stand in the
+  // router's way: the kernel takes every fill for fixed copper, and a plane
+  // on the component side would leave it nowhere to go. The fills stay out of
+  // its input; the nets a pour already joins are left out of the work instead.
+  await ed.currentFills();
+  const todo = nets || [...ed.analysis().unrouted.keys()];
+  if (!todo.length) { app.toast('Nothing to route: every connection is already routed.', { kind: 'info' }); return; }
   const bar = h('div', { style: { width: '0%' } });
   const status = h('p', { 'aria-live': 'polite' }, 'Preparing...');
   let cancelled = false;
+  let finished = false;
   const dlg = openDialog({
     title: nets ? `Autoroute ${nets.join(', ')}` : 'Autoroute all nets',
     body: [status, h('div.progress', { role: 'progressbar', 'aria-label': 'Routing progress' }, bar)],
-    actions: [{ label: 'Stop', run: () => { cancelled = true; app.kernel.cancel(); return true; } }],
+    actions: [{ label: 'Stop' }],
+    // Stop, Escape, the close button and a click outside all stop the router.
+    onClose: () => { if (!finished) { cancelled = true; app.kernel.cancel(); } },
   });
   try {
     const t0 = performance.now();
-    const res = await app.kernel.autoroute(ed.doc.snapshot(), ed.lib, { nets: nets || undefined, pourFills: ed.pourFills }, (p) => {
+    const res = await app.kernel.autoroute(ed.doc.snapshot(), ed.lib, { nets: todo }, (p) => {
       const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
       bar.style.width = `${pct}%`;
       bar.parentElement.setAttribute('aria-valuenow', String(pct));
       status.textContent = `${p.pass > 1 ? `Trying another order (pass ${p.pass}). ` : ''}Routing connection ${p.done} of ${p.total}...`;
     });
+    if (cancelled) return;
+    finished = true;
     dlg.close();
     if (!res.tracks.length && !res.vias.length) {
       app.toast(res.total ? 'The autorouter could not route any connection. Try more room, a finer grid or more layers.' : 'Nothing to route: every connection is already routed.', { kind: res.total ? 'warning' : 'info' });
@@ -281,6 +317,7 @@ export async function autorouteDialog(app, ed, nets = null) {
     const failed = res.failed?.length || 0;
     app.toast(`Routed ${res.routed} of ${res.total} connections in ${secs} s${failed ? `; ${failed} could not be routed` : ''}${res.timedOut ? ' (time limit reached)' : ''}.`, { kind: failed ? 'warning' : 'success', title: 'Autoroute', timeout: 8000 });
   } catch (err) {
+    finished = true;
     dlg.close();
     if (!cancelled) app.toast(`Autorouting failed: ${err.message}`, { kind: 'error' });
   }
@@ -352,6 +389,7 @@ export function commandPalette(app) {
   const run = (i) => { const c = items[i]; if (!c) return; dlg.close(); setTimeout(() => app.commands.run(c.id), 0); };
   input.addEventListener('input', () => { sel = 0; render(); });
   input.addEventListener('keydown', (e) => {
+    if (isComposing(e)) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(items.length - 1, sel + 1); render(); list.children[sel]?.scrollIntoView({ block: 'nearest' }); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); render(); list.children[sel]?.scrollIntoView({ block: 'nearest' }); }
     else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); run(sel); }
@@ -444,7 +482,14 @@ export async function openProjectDialog(app) {
             if (isOpen) { await app._saving; await app.closeProject(true); }
             await deleteProject(it.location);
             if (isOpen && !app.project) app.showStart(); // drop it from the recent list
-            render();
+            // The row with the focus goes: move on to the project now in its
+            // place, or the focus would be left on the page behind the dialog.
+            const at = [...ul.children].indexOf(del.parentElement);
+            await render();
+            if (!dlg.el.contains(document.activeElement)) {
+              const rows = listHost.querySelectorAll('ul:last-of-type > li > button:first-child');
+              (rows[Math.min(at, rows.length - 1)] || dlg.el.querySelector('button'))?.focus();
+            }
           } catch (err) { app.toast(`Could not delete: ${err.message}`, { kind: 'error' }); }
         }
       });
@@ -475,7 +520,7 @@ export async function preferencesDialog(app) {
     { key: 'units', label: 'Units', type: 'select', value: s.get('units'), options: [['mm', 'Millimetres'], ['mil', 'Mils (thousandths of an inch)']] },
     { key: 'wheel', label: 'Mouse wheel', type: 'select', value: s.get('wheel'), options: [['scroll', `Scrolls (${modKey()}+wheel zooms)`], ['zoom', 'Zooms']] },
     { key: 'routingMode', label: 'Interactive routing', type: 'select', value: s.get('routingMode'), options: [['stop', 'Stop at the first obstacle'], ['ignore', 'Ignore obstacles']] },
-    { key: 'autosaveMinutes', label: 'Autosave every (minutes, 0 = off)', type: 'number', value: s.get('autosaveMinutes'), min: 0, max: 60 },
+    { key: 'autosaveMinutes', label: 'Autosave every (minutes, 0 = off)', type: 'number', value: s.get('autosaveMinutes'), min: 0, max: 60, error: 'enter a number from 0 to 60' },
     { key: 'onlineDrc', label: 'Check design rules while editing', type: 'bool', value: s.get('onlineDrc') },
     { key: 'autoRepour', label: 'Repour polygons automatically', type: 'bool', value: s.get('autoRepour') },
     { key: 'padLabels', label: 'Show net names on pads', type: 'bool', value: s.get('padLabels') },
@@ -483,13 +528,15 @@ export async function preferencesDialog(app) {
     { key: 'pcbCrosshair', label: 'Full crosshair cursor on boards', type: 'bool', value: !!s.get('pcbCrosshair') },
     { key: 'schCrosshair', label: 'Crosshair cursor on schematics', type: 'bool', value: !!s.get('schCrosshair') },
   ]);
+  const err = h('div.small.sev-error', { role: 'alert', style: { marginTop: '8px' } });
   await openDialog({
     title: 'Preferences',
-    body: form.el,
+    body: [form.el, err],
     actions: [{ label: 'Cancel' }, {
       label: 'Save', primary: true,
       run: () => {
-        if (form.validate()) return false;
+        const msg = form.validate();
+        if (msg) { err.textContent = msg; return false; }
         const v = form.values();
         for (const [k, val] of Object.entries(v)) s.set(k, val);
         app.applyPreferences();
@@ -529,7 +576,7 @@ export function boardInfoDialog(app, ed) {
 export function findDialog(app) {
   const ed = app.activeEditor;
   const input = h('input.palette-input', { type: 'text', placeholder: 'Designator, value or net name', 'aria-label': 'Find', autocomplete: 'off' });
-  const list = h('ul.palette-list', { role: 'listbox' });
+  const list = h('ul.palette-list', { role: 'listbox', 'aria-label': 'Results' });
   let results = [];
   let sel = 0;
   const render = () => {
@@ -557,6 +604,7 @@ export function findDialog(app) {
   const go = (i) => { const r = results[i]; if (!r) return; dlg.close(); r.go(); };
   input.addEventListener('input', () => { sel = 0; render(); });
   input.addEventListener('keydown', (e) => {
+    if (isComposing(e)) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(results.length - 1, sel + 1); render(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); render(); }
     else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go(sel); }

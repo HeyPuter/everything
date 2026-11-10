@@ -5,7 +5,7 @@
 
 import { mm } from '../core/units.js';
 import { padForPin } from './place.js';
-import { footprintBox } from './pcb.js';
+import { footprintBox, pcbBounds } from './pcb.js';
 import { bboxOfFlat } from '../core/geom.js';
 
 /**
@@ -42,6 +42,12 @@ export function planSync(project, boardDoc) {
   // Placement for new components: a grid to the right of the board outline.
   const outline = bboxOfFlat(boardDoc.board?.outline || [0, 0, 0, 0]);
   let cursorX = outline.maxX + mm(10), cursorY = outline.maxY, rowH = 0;
+  // Parts from an earlier update may still wait there: start below them.
+  for (const o of boardDoc.items()) {
+    if (o.t !== 'comp') continue;
+    const b = pcbBounds(o, lib);
+    if (b.maxX > outline.maxX && b.minY - mm(3) < cursorY) cursorY = b.minY - mm(3);
+  }
   const colLimit = outline.maxX + mm(10) + Math.max(mm(60), (outline.maxX - outline.minX) * 0.8);
 
   const sortedParts = [...parts.values()].sort((a, b) => a.part.designator.localeCompare(b.part.designator, undefined, { numeric: true }));
@@ -74,35 +80,43 @@ export function planSync(project, boardDoc) {
     }
   }
 
-  // Renamed nets: a net that left the netlist while every pad that carried it
-  // moved to one other net (annotation renamed an automatic net, a label was
-  // added, two nets merged). Routed copper and net class members follow.
-  const netNames = new Set(netlist.nets.map((n) => n.name));
+  // Renamed nets: every pad that carried a net moved to one other net
+  // (annotation renamed an automatic net, a label was added, two nets merged).
+  // Routed copper and net class members follow. Nets are followed by their
+  // pads, not their names: the old name may live on as the name of another
+  // net (annotation shifts NetR1_2 to NetR2_2 and NetR2_2 to NetR3_2).
   const renameTargets = new Map();
   for (const [u, comp] of comps) {
     const entry = parts.get(u);
     if (!entry) continue;
     const next = padNetsFor(entry.part, entry.def);
     for (const [pad, from] of Object.entries(comp.padNets || {})) {
-      if (!from || netNames.has(from)) continue;
+      if (!from) continue;
       let set = renameTargets.get(from);
       if (!set) renameTargets.set(from, (set = new Set()));
       set.add(next[pad] || '');
     }
   }
+  const renames = new Map();
+  for (const [from, targets] of renameTargets) {
+    const to = targets.size === 1 ? [...targets][0] : '';
+    if (to && to !== from) renames.set(from, to);
+  }
   const renamedFrom = new Map();
   const netObjects = new Map();
-  if (renameTargets.size) {
+  if (renames.size) {
     for (const o of boardDoc.items()) {
-      if (o.t === 'comp' || !o.net || !renameTargets.has(o.net)) continue;
+      if (o.t === 'comp' || !o.net || !renames.has(o.net)) continue;
       if (!netObjects.has(o.net)) netObjects.set(o.net, []);
       netObjects.get(o.net).push(o.id);
     }
   }
-  const classNets = Object.values(boardDoc.rules?.netClasses || {}).flatMap((c) => c.nets || []);
-  for (const [from, targets] of renameTargets) {
-    const to = targets.size === 1 ? [...targets][0] : '';
-    if (!to) continue;
+  const plannedClasses = boardDoc.rules?.netClasses || {};
+  const classNets = Object.values(plannedClasses).flatMap((c) => c.nets || []);
+  // Class members are rewritten from the planned lists with every rename
+  // applied so far, so a name handed along a chain is not renamed twice.
+  const appliedRenames = new Map();
+  for (const [from, to] of renames) {
     if (!renamedFrom.has(to)) renamedFrom.set(to, from);
     const ids = netObjects.get(from) || [];
     const inClass = classNets.includes(from);
@@ -110,7 +124,6 @@ export function planSync(project, boardDoc) {
     const what = [];
     if (ids.length) what.push(`${ids.length} object${ids.length === 1 ? '' : 's'}`);
     if (inClass) what.push('net class');
-    const renameIn = (c) => ({ ...c, nets: [...new Set(c.nets.map((n) => (n === from ? to : n)))] });
     changes.push({
       id: `rename:${from}`,
       kind: 'rename',
@@ -119,9 +132,13 @@ export function planSync(project, boardDoc) {
       apply: (store) => {
         for (const id of ids) store.update(id, (o) => (o.net === from ? { ...o, net: to } : o));
         if (!inClass) return;
+        appliedRenames.set(from, to);
         store.update('rules', (r) => {
-          const classes = Object.entries(r.netClasses || {});
-          const next = classes.map(([k, c]) => [k, c.nets?.includes(from) ? renameIn(c) : c]);
+          const next = Object.entries(r.netClasses || {}).map(([k, c]) => {
+            const planned = plannedClasses[k]?.nets;
+            if (!planned?.some((n) => appliedRenames.has(n))) return [k, c];
+            return [k, { ...c, nets: [...new Set(planned.map((n) => appliedRenames.get(n) ?? n))] }];
+          });
           return { ...r, netClasses: Object.fromEntries(next) };
         });
       },
@@ -134,15 +151,17 @@ export function planSync(project, boardDoc) {
   }
 
   // Board net list (for net classes and routing).
-  // A renamed net keeps its class.
-  const netInfo = (name) => boardDoc.nets[name] || boardDoc.nets[renamedFrom.get(name)] || {};
+  // A renamed net keeps its class; a name whose net was renamed away is a new net.
+  const netInfo = (name) => (renames.has(name) ? null : boardDoc.nets[name]) || boardDoc.nets[renamedFrom.get(name)] || {};
   const names = Object.fromEntries(netlist.nets.map((n) => [n.name, netInfo(n.name)]));
   const before = Object.keys(boardDoc.nets).sort().join('\n');
   const after = Object.keys(names).sort().join('\n');
-  if (before !== after) {
+  const moved = Object.keys(names).some((n) => n in boardDoc.nets && JSON.stringify(names[n]) !== JSON.stringify(boardDoc.nets[n]));
+  if (before !== after || moved) {
     const added = Object.keys(names).filter((n) => !(n in boardDoc.nets)).length;
     const removed = Object.keys(boardDoc.nets).filter((n) => !(n in names)).length;
-    changes.push({ id: 'netlist', kind: 'netlist', label: 'Update net list', detail: `${added} added, ${removed} removed`, apply: (store) => store.update('nets', { nets: names }) });
+    const detail = added || removed ? `${added} added, ${removed} removed` : 'settings follow the renamed nets';
+    changes.push({ id: 'netlist', kind: 'netlist', label: 'Update net list', detail, apply: (store) => store.update('nets', { nets: names }) });
   }
   return changes;
 }

@@ -529,7 +529,9 @@ describe('navigator', () => {
     document.body.append(nav.el);
     nav.mode = 'nets';
     nav.render();
-    const vcc = () => [...nav.list.children].find((r) => r.dataset.net === 'VCC');
+    // Rows are buttons inside the list's items.
+    const rows = () => [...nav.list.querySelectorAll('.list-row')];
+    const vcc = () => rows().find((r) => r.dataset.net === 'VCC');
     vcc().focus();
     const ev = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
     vcc().dispatchEvent(ev);

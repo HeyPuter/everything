@@ -70,3 +70,33 @@ export function nextDesignator(sheets, prefix) {
   while (set.has(n)) n++;
   return `${prefix}${n}`;
 }
+
+/**
+ * Hands out free designators for many new parts with one pass over the
+ * sheets: each call returns the next free one for its prefix and reserves it.
+ */
+export function designatorAllocator(sheets) {
+  const used = new Map();
+  const entry = (prefix) => {
+    let e = used.get(prefix);
+    if (!e) used.set(prefix, (e = { set: new Set(), n: 1 }));
+    return e;
+  };
+  for (const s of sheets) for (const o of s.objects) {
+    if (o.t !== 'part') continue;
+    const d = parseDes(o.designator);
+    if (d) entry(d.prefix).set.add(d.n);
+  }
+  const next = (prefix) => {
+    const e = entry(prefix);
+    while (e.set.has(e.n)) e.n++;
+    e.set.add(e.n);
+    return `${prefix}${e.n}`;
+  };
+  /** Marks a designator a new part keeps (R7) as taken. */
+  next.reserve = (designator) => {
+    const d = parseDes(designator);
+    if (d) entry(d.prefix).set.add(d.n);
+  };
+  return next;
+}

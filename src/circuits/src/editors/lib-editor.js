@@ -120,6 +120,17 @@ export class LibEditor extends CanvasView {
     this.statusLine = h('div.lib-status', { 'aria-live': 'polite' });
     this.el.prepend(this.modeBar);
     this.el.append(this.layerBar, this.statusLine);
+    // Only the selected tab is a tab stop: the arrow keys reach the others.
+    const arrows = (bar, step) => {
+      bar.onkeydown = (e) => {
+        if ((e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') || e.target.getAttribute('role') !== 'tab') return;
+        e.preventDefault();
+        step(e.key === 'ArrowRight' ? 1 : -1);
+        bar.querySelector('[aria-selected="true"]')?.focus();
+      };
+    };
+    arrows(this.modeBar, () => this.setMode(this.mode === 'symbol' ? 'footprint' : 'symbol'));
+    arrows(this.layerBar, (d) => this.setActiveLayer(FP_LAYERS[(FP_LAYERS.indexOf(this.activeLayer) + d + FP_LAYERS.length) % FP_LAYERS.length]));
     this._renderChrome();
   }
 
@@ -144,9 +155,14 @@ export class LibEditor extends CanvasView {
 
   _renderStatus() {
     const issues = validateComponent(this.doc.toDef()).filter((m) => m.severity !== 'info');
+    const kind = !issues.length ? 'ok' : issues.some((m) => m.severity === 'error') ? 'error' : 'warning';
+    const text = issues.length ? issues.map((m) => m.message).join(' ') : 'No problems found';
+    // The line is a live region: replacing it with the same words would have
+    // a screen reader repeat them after every edit.
+    if (this._statusShown === `${kind}:${text}`) return;
+    this._statusShown = `${kind}:${text}`;
     clear(this.statusLine);
-    if (!issues.length) { this.statusLine.append(icon('ok', 13), 'No problems found'); return; }
-    this.statusLine.append(icon(issues.some((m) => m.severity === 'error') ? 'error' : 'warning', 13), issues.map((m) => m.message).join(' '));
+    this.statusLine.append(icon(kind, 13), text);
   }
 
   setMode(m) {
@@ -651,7 +667,8 @@ export class LibEditor extends CanvasView {
       rows.forEach((p, i) => {
         const inp = (key, w, label) => {
           const el = h('input', { type: 'text', value: key === 'length' ? formatLength(p.length, 'mil', { suffix: false }) : p[key] ?? '', 'aria-label': `${label} of pin ${i + 1}`, style: { width: w } });
-          el.addEventListener('change', () => { if (key === 'length') { const v = parseLength(el.value, 'mil'); if (v > 0) p.length = v; } else p[key] = el.value.trim(); });
+          // On input, not change: Enter applies the table without the field losing focus.
+          el.addEventListener('input', () => { if (key === 'length') { const v = parseLength(el.value, 'mil'); if (v > 0) p.length = v; } else p[key] = el.value.trim(); });
           return el;
         };
         const type = h('select', { 'aria-label': `Type of pin ${i + 1}` }, PIN_TYPES.map((t) => h('option', { value: t, selected: t === p.type }, PIN_TYPE_LABELS[t])));
@@ -667,7 +684,12 @@ export class LibEditor extends CanvasView {
     render();
     const add = () => {
       const last = rows[rows.length - 1];
-      const next = last ? { ...last, id: undefined, num: nextLabel(last.num), name: nextLabel(last.name), y: last.rot === 0 || last.rot === 180 ? last.y - mil(100) : last.y, x: last.rot === 90 || last.rot === 270 ? last.x + mil(100) : last.x } : { ...this.nextPinTemplate(), x: -mil(500), y: 0 };
+      // Count up from the last row to a number no row uses: the last row is
+      // often not the highest (a ground pin listed at the end, say).
+      const used = new Set(rows.map((r) => r.num));
+      let num = last ? nextLabel(last.num) : '';
+      while (used.has(num) && nextLabel(num) !== num) num = nextLabel(num);
+      const next = last ? { ...last, id: undefined, num, name: nextLabel(last.name), y: last.rot === 0 || last.rot === 180 ? last.y - mil(100) : last.y, x: last.rot === 90 || last.rot === 270 ? last.x + mil(100) : last.x } : { ...this.nextPinTemplate(), x: -mil(500), y: 0 };
       rows.push(next);
       render();
     };
@@ -787,6 +809,7 @@ export class LibEditor extends CanvasView {
     const setBody = (patch) => setFp({ body: { w: mm(2), h: mm(2), height: mm(1), color: '#222222', shape: 'box', ...(fm.body || {}), ...patch } }, '3D body');
     const params = Object.entries(meta.params || {}).map(([k, v]) => `${k}=${v}`).join('\n');
     const def = this.doc.toDef();
+    const cy = def.footprint?.courtyard;
     const issues = validateComponent(def);
     return {
       title: 'Component',
@@ -812,7 +835,7 @@ export class LibEditor extends CanvasView {
             { label: 'Has a footprint', type: 'bool', value: !!def.footprint, onChange: (v) => setFp({ enabled: v }, 'Footprint') },
             { label: 'Footprint name', type: 'text', value: fm.name || '', onChange: (v) => setFp({ name: v }, 'Footprint name') },
             { label: 'Description', type: 'text', value: fm.description || '', onChange: (v) => setFp({ description: v }, 'Footprint description') },
-            { label: 'Courtyard', type: 'readonly', value: fm.courtyard ? `${formatLength(fm.courtyard.x2 - fm.courtyard.x1, 'mm')} x ${formatLength(fm.courtyard.y2 - fm.courtyard.y1, 'mm')}` : 'None' },
+            { label: 'Courtyard', type: 'readonly', value: cy ? `${formatLength(cy.x2 - cy.x1, 'mm')} x ${formatLength(cy.y2 - cy.y1, 'mm')}` : 'None' },
             { label: 'Fit', type: 'button', text: 'Fit courtyard to pads', onClick: () => this.fitCourtyard() },
           ],
         },

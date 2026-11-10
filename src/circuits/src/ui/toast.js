@@ -28,8 +28,18 @@ export function toast(message, { kind = 'info', title, timeout = kind === 'error
   ensureHost().append(node);
   if (kind !== 'error') announce(title ? `${title}. ${message}` : message);
   let timer = timeout ? setTimeout(() => close(), timeout) : null;
-  node.addEventListener('pointerenter', () => { clearTimeout(timer); timer = null; });
-  node.addEventListener('pointerleave', () => { if (timeout && !timer) timer = setTimeout(() => close(), 2000); });
+  // The countdown waits while the pointer is over the toast or keyboard focus is
+  // inside it, so its buttons can be reached and read before it goes.
+  const hold = () => { clearTimeout(timer); timer = null; };
+  const resume = () => {
+    if (!timeout || timer || node.matches(':hover') || node.contains(document.activeElement)) return;
+    timer = setTimeout(() => close(), 2000);
+  };
+  node.addEventListener('pointerenter', hold);
+  node.addEventListener('pointerleave', resume);
+  node.addEventListener('focusin', hold);
+  // Focus has moved on by the time the timer below runs.
+  node.addEventListener('focusout', () => setTimeout(resume, 0));
   function close() { clearTimeout(timer); node.remove(); }
   return { close, el: node };
 }

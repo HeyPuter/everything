@@ -108,15 +108,21 @@ export function buildShapes(doc, library = {}, { pourFills = null } = {}) {
     refs.push(ref);
     count++;
   };
+  // A shape with a size or place that is not a number (a damaged file: a track
+  // without a width) is left out: the kernel stops dead on one. A sum is a
+  // number only when every term is.
   const circle = (x, y, r, mask, net, ref, flags, clr = clrOf(net)) => {
+    if (!Number.isFinite(x + y + r)) return;
     head(KIND.circle, mask, net, ref, flags, clr);
     w.push(x, y, r);
   };
   const capsule = (x1, y1, x2, y2, r, mask, net, ref, flags, clr = clrOf(net)) => {
+    if (!Number.isFinite(x1 + y1 + x2 + y2 + r)) return;
     head(KIND.capsule, mask, net, ref, flags, clr);
     w.push(x1, y1, x2, y2, r);
   };
   const roundrect = (cx, cy, hw, hh, rot, radius, mask, net, ref, flags, clr = clrOf(net)) => {
+    if (!Number.isFinite(cx + cy + hw + hh + rot + radius)) return;
     head(KIND.roundrect, mask, net, ref, flags, clr);
     w.push(cx, cy, hw, hh, rot, radius);
   };
@@ -238,11 +244,11 @@ export function writePrefix(w, shapes) {
   }
 }
 
-/** Pours in fill order: lower priority number first, then document order. */
+/** Pours in fill order: lower priority number first, then document order. Shelved pours have no copper. */
 export function pourOrder(doc) {
   return (doc.objects || [])
     .map((o, i) => [o, i])
-    .filter(([o]) => o.t === 'pour' && isCopper(o.layer) && o.pts?.length >= 6)
+    .filter(([o]) => o.t === 'pour' && !o.shelved && isCopper(o.layer) && o.pts?.length >= 6)
     .sort((a, b) => (a[0].priority ?? 0) - (b[0].priority ?? 0) || a[1] - b[1])
     .map(([o]) => o);
 }

@@ -53,6 +53,22 @@ export function defToObjects(def) {
   return { symbol: symbolObjs, footprint: footprintObjs };
 }
 
+/**
+ * The box of the outline drawn on the courtyard layer (stroke centre lines),
+ * or null when nothing with an area is drawn there. What is drawn is the
+ * courtyard: the design rule check must test the box the user sees and
+ * edits, not the one stored when the footprint was generated.
+ */
+function drawnCourtyard(graphics) {
+  let b = bboxEmpty();
+  for (const g of graphics) {
+    if (g.layer !== 'courtyard' || g.t === 'text') continue;
+    const gb = graphicBox({ ...g, w: 0 });
+    if (bboxValid(gb)) b = bboxUnion(b, gb);
+  }
+  return b.minX < b.maxX && b.minY < b.maxY ? { x1: b.minX, y1: b.minY, x2: b.maxX, y2: b.maxY } : null;
+}
+
 /** Rebuilds a definition from editor objects (as produced by defToObjects). */
 export function objectsToDef(symbolObjs, footprintObjs) {
   const libmeta = symbolObjs.find((o) => o.t === 'libmeta') || {};
@@ -75,7 +91,8 @@ export function objectsToDef(symbolObjs, footprintObjs) {
   if (fpmeta.enabled ?? (pads.length > 0 || graphics.length > 0)) {
     footprint = { name: fpmeta.name || meta.name || 'Footprint', pads, graphics };
     if (fpmeta.description) footprint.description = fpmeta.description;
-    if (fpmeta.courtyard) footprint.courtyard = { ...fpmeta.courtyard };
+    const courtyard = drawnCourtyard(graphics) || fpmeta.courtyard;
+    if (courtyard) footprint.courtyard = { ...courtyard };
     if (fpmeta.body) footprint.body = { ...fpmeta.body };
     if (fpmeta.dupPads) footprint.dupPads = true;
   }

@@ -2,7 +2,7 @@
 // other person opens it from "Shared with me", and with edit access their
 // saves go back to the same file.
 
-import { h, clear } from '../ui/dom.js';
+import { h, clear, isComposing } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { openDialog } from '../ui/dialog.js';
 import { puter, cloudAvailable } from './puter.js';
@@ -22,19 +22,39 @@ export async function shareDialog(app) {
   const status = h('div.small', { role: 'status', style: { minHeight: '18px', marginTop: '6px' } });
   const list = h('div');
 
+  let listing = 0;
   const render = async () => {
-    clear(list);
+    // Lists can overlap (sharing while the first is on its way): only the
+    // last one asked for is shown, or the people would be listed twice.
+    const mine = ++listing;
     let shares = [];
     try { shares = await fs.getShares(loc.path); } catch { shares = []; }
+    if (mine !== listing) return;
+    clear(list);
     if (!shares?.length) { list.append(h('p.muted', 'Not shared with anyone yet.')); return; }
     const rows = shares.map((s) => {
       const holder = typeof s.holder === 'string' ? s.holder : s.holder?.username || s.holder?.email || '';
       const sel = h('select', { 'aria-label': `Access for ${holder}` }, MODES.concat([['manage', 'Can edit and share']]).map(([v, l]) => h('option', { value: v, selected: v === s.mode }, l)));
+      let current = s.mode;
       sel.addEventListener('change', async () => {
-        try { await fs.share(loc.path, recipient(holder), sel.value); status.textContent = `Updated access for ${holder}.`; } catch (err) { status.textContent = err.message; }
+        const wanted = sel.value;
+        try {
+          await fs.share(loc.path, recipient(holder), wanted);
+          current = wanted;
+          status.textContent = `Updated access for ${holder}.`;
+        } catch (err) {
+          // Nothing changed: show the access the person still has.
+          if (sel.value === wanted) sel.value = current;
+          status.textContent = `Could not change access: ${err?.message || err}`;
+        }
       });
       const remove = h('button.btn.sm', { type: 'button', onClick: async () => {
-        try { await fs.unshare(loc.path, recipient(holder)); status.textContent = `${holder} no longer has access.`; render(); } catch (err) { status.textContent = err.message; }
+        try { await fs.unshare(loc.path, recipient(holder)); status.textContent = `${holder} no longer has access.`;
+          // This row and its button go: keep the focus in the dialog.
+          await render();
+          const dialog = list.closest('.dialog');
+          if (dialog && !dialog.contains(document.activeElement)) who.focus();
+        } catch (err) { status.textContent = err.message; }
       } }, 'Remove');
       return h('tr', h('td', holder), h('td', sel), h('td', { style: { textAlign: 'right' } }, remove));
     });
@@ -55,7 +75,7 @@ export async function shareDialog(app) {
     }
     return false;
   };
-  who.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+  who.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); add(); } });
 
   render();
   await openDialog({

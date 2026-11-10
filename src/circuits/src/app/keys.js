@@ -18,6 +18,18 @@ export class KeyHandler {
   constructor(app) {
     this.app = app;
     document.addEventListener('keydown', (e) => this.handle(e));
+    window.addEventListener('keydown', (e) => this.guardModal(e), true);
+  }
+
+  /**
+   * While a dialog or menu is open the app's shortcuts do not run, but the
+   * ones that replace a browser command (Save, Open, Print) must not fall
+   * through to the browser's own Save page or Open file either.
+   */
+  guardModal(e) {
+    if (!(e.metaKey || e.ctrlKey) || !(dialogOpen() || isMenuOpen())) return;
+    const combo = comboOf(e);
+    if (combo.startsWith('Mod+') && this.app.commands.byShortcut(combo)?.anywhere) e.preventDefault();
   }
 
   /** True when keyboard input should go to the design canvas. */

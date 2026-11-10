@@ -117,6 +117,23 @@ export class App extends Emitter {
     this.renderAccount();
 
     const sdk = await P.loadPuter(this.puterTimeout);
+    await this._useSdk(sdk);
+    // Still loading on a slow connection: taken up when it arrives.
+    if (!sdk) P.onPuterArrived((late) => this._sdkArrived(late));
+
+    let opened = false;
+    const last = (() => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch { return null; } })();
+    // The menus work while a slow puter.js is awaited above: a project opened
+    // or created meanwhile stays.
+    if (last && !this.project && this.settings.get('openOnStart') === 'last' && (last.type === 'local' || P.cloudAvailable())) {
+      opened = await this.openLocation(last, { quiet: true });
+    }
+    if (!opened && !this.project) this.showStart();
+    this.showAlphaNotice();
+  }
+
+  /** Sets up the account, the user's library and launch files for the SDK (or for none). */
+  async _useSdk(sdk) {
     this.env = P.env();
     // Where the SDK has <puter-user-menu>, it takes the account's place in the title bar.
     this.userMenu = mountUserMenu(this.userMenuEl, {
@@ -128,8 +145,6 @@ export class App extends Emitter {
     if (sdk && (this.env === 'app' || P.isSignedIn())) await this._loadUser();
     this.renderAccount();
     this.userLibrary.load();
-
-    let opened = false;
     // Launched from the Puter desktop with a file.
     if (sdk?.ui?.onLaunchedWithItems) {
       try {
@@ -139,12 +154,17 @@ export class App extends Emitter {
         });
       } catch { /* not launched with items */ }
     }
-    const last = (() => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch { return null; } })();
-    if (last && this.settings.get('openOnStart') === 'last' && (last.type === 'local' || P.cloudAvailable())) {
-      opened = await this.openLocation(last, { quiet: true });
-    }
-    if (!opened && !this.project) this.showStart();
-    this.showAlphaNotice();
+  }
+
+  /**
+   * The SDK arrived after the app had started without it. The open project
+   * stays as it is; signing in, the cloud and the recent projects kept there
+   * become available.
+   */
+  async _sdkArrived(sdk) {
+    await this._useSdk(sdk);
+    this.panels.projects.refresh();
+    if (this.start) this.showStart();
   }
 
   async _loadUser() {
@@ -231,7 +251,8 @@ export class App extends Emitter {
 
     this.leftDock = this._dock('left', LEFT_PANELS, 'Project panels');
     this.rightDock = this._dock('right', RIGHT_PANELS, 'Design panels');
-    this.bottomDock = h('section.dock.dock-bottom', { 'aria-label': 'Messages', hidden: true }, h('div.resizer', { 'aria-hidden': 'true' }), this.panels.messages.el);
+    // No landmark of its own: the Messages panel inside it is the labelled region.
+    this.bottomDock = h('div.dock.dock-bottom', { hidden: true }, h('div.resizer', { 'aria-hidden': 'true' }), this.panels.messages.el);
     this._resizer(this.bottomDock.firstChild, 'bottom');
 
     this.docTabs = h('div.doc-tabs');
@@ -541,6 +562,8 @@ export class App extends Emitter {
     this.user = null;
     this.picture = null;
     this.renderAccount();
+    // My library is the account's: show the one kept in this browser again.
+    this.userLibrary.load();
     if (this.location?.type === 'cloud') await this.closeProject(true);
     toast('Signed out.');
   }
@@ -568,6 +591,8 @@ export class App extends Emitter {
   setProject(project, location) {
     this._disposeEditors();
     this._unsubProject?.();
+    // Check results belong to the project they were run on.
+    this.panels.messages.set([], '');
     this.project = project;
     this.location = location;
     this.saveState = project.dirty ? 'dirty' : 'saved';
@@ -660,9 +685,20 @@ export class App extends Emitter {
   async openLocation(location, { quiet = false } = {}) {
     if (this.project && storage.sameLocation(location, this.location)) return true;
     if (!(await this._confirmLeave())) return false;
+    // Opens can overlap (a slow file, then another choice): the last one asked for wins.
+    const token = (this._openToken = (this._openToken || 0) + 1);
+    // Changes the user has just chosen to discard are not asked about again below.
+    const open = this.project;
+    const stamp = () => open.docs.map((d) => `${d.id}:${d.store.revision}`).join();
+    let discarded = open?.dirty ? stamp() : null;
+    const offMeta = open?.on('meta', () => { discarded = null; });
     try {
       const text = await storage.loadText(location);
       const project = parseProject(text);
+      if (token !== this._openToken) return false;
+      // Edits made to the open project while this one loaded are saved or asked about.
+      const edited = this.project?.dirty && !(this.project === open && discarded !== null && discarded === stamp());
+      if (edited && (!(await this._confirmLeave()) || token !== this._openToken)) return false;
       project.markSaved();
       this.setProject(project, location);
       storage.rememberRecent({ location, name: project.name });
@@ -672,6 +708,8 @@ export class App extends Emitter {
       if (!quiet) toast(`Could not open the project: ${why}`, { kind: 'error' });
       if (P.isMissing(err)) storage.forgetRecent(location);
       return false;
+    } finally {
+      offMeta?.();
     }
   }
 
@@ -748,26 +786,39 @@ export class App extends Emitter {
       if (auto) return false;
       try { this.location = await storage.newLocation(p.name, p.id); } catch (err) { toast(err.message, { kind: 'error' }); return false; }
     }
-    if (this._saving) { this._saveAgain = true; return this._saving; }
+    if (this._saving) {
+      if (auto) { this._saveAgain = true; return this._saving; }
+      // Asked for by the user: once this write is done, write again what was edited after it began.
+      return this._saving.then(() => (this.project === p && p.dirty ? this.save({ quiet }) : !p.dirty));
+    }
     clearTimeout(this._autosaveTimer);
     this.saveState = 'saving';
     this.updateTitle();
     const revisions = p.docs.map((d) => d.store.revision);
+    // Renames, added or removed documents and library changes do not move a
+    // document's revision, so they are watched for separately.
+    let metaChanged = false;
+    const offMeta = p.on('meta', () => { metaChanged = true; });
     const run = (async () => {
       try {
         const text = JSON.stringify(p.toJSON());
-        this.location = await storage.saveText(this.location, p.name, text);
+        const location = await storage.saveText(this.location, p.name, text);
         // Only mark saved if nothing changed while writing.
-        if (p.docs.every((d, i) => d.store.revision === revisions[i])) p.markSaved();
+        if (!metaChanged && p.docs.every((d, i) => d.store.revision === revisions[i])) p.markSaved();
+        // Another project may have opened while writing: the location, the
+        // badge and the timers are its own now.
+        if (this.project !== p) { recordVersion(location, p.id, text); return true; }
+        this.location = location;
         this.saveState = p.dirty ? 'dirty' : 'saved';
         this._dirtySince = 0;
         this._saveErrorShown = false; // a later failure is a new problem to report
         try { localStorage.setItem(LAST_KEY, JSON.stringify(this.location)); } catch { /* storage unavailable */ }
         if (!auto && !quiet) announce('Project saved');
         // Keep a restorable version (throttled while autosaving).
-        recordVersion(this.location, p.id, text, { auto, lastAt: this._lastVersionAt || 0 }).then((at) => { this._lastVersionAt = at; });
+        recordVersion(this.location, p.id, text, { auto, lastAt: this._lastVersionAt || 0 }).then((at) => { if (this.project === p) this._lastVersionAt = at; });
         return true;
       } catch (err) {
+        if (this.project !== p) return false;
         this.saveState = 'error';
         if (!auto || !this._saveErrorShown) {
           this._saveErrorShown = true;
@@ -775,6 +826,7 @@ export class App extends Emitter {
         }
         return false;
       } finally {
+        offMeta();
         this._saving = null;
         this.updateTitle();
         this.renderTabs();
@@ -862,10 +914,12 @@ export class App extends Emitter {
     this._unsubProject?.();
     this.project = null;
     this.location = null;
+    this.panels.messages.set([], '');
     try { localStorage.removeItem(LAST_KEY); } catch { /* storage unavailable */ }
     this.showStart();
     this.panels.projects.refresh();
     this.updateTitle();
+    this.updateStatus();
     this.emit('project', null);
   }
 
@@ -908,6 +962,11 @@ export class App extends Emitter {
     this.hideStart();
     if (!this.openTabs.includes(id)) this.openTabs.push(id);
     let ed = this.editors.get(id);
+    // Browsers keep a limited number of WebGL contexts and drop the oldest
+    // for good, which leaves that editor's canvas blank: with many documents
+    // open, an editor that lost its context is rebuilt when it is shown.
+    let view = null;
+    if (ed?.renderer?.gl?.isContextLost?.()) { view = { ...ed.renderer.view }; ed.dispose(); this.editors.delete(id); ed = null; }
     if (!ed) { ed = this._createEditor(doc); this.editors.set(id, ed); }
     if (this.view3dOpen && this.activeDocId !== id) this.set3d(false);
     this.activeDocId = id;
@@ -923,6 +982,7 @@ export class App extends Emitter {
     if (this.isCompact) this.closeDrawers();
     // Size the view now (layout is synchronous) so coordinates are valid at once.
     ed._resize();
+    if (view && ed.renderer) { Object.assign(ed.renderer.view, view); ed.onViewChanged(); }
     ed.requestRender(true);
     ed.canvas.focus({ preventScroll: true });
   }
@@ -958,6 +1018,9 @@ export class App extends Emitter {
   removeDoc(id) {
     this.closeTab(id);
     this.project.removeDoc(id);
+    // Its check results would otherwise point into whichever document is open.
+    const msgs = this.panels.messages;
+    if (msgs.items.some((m) => m.docId === id)) { msgs.set(msgs.items.filter((m) => m.docId !== id), msgs.source); this.updateStatus(); }
   }
 
   addDoc(kind) {
@@ -1259,6 +1322,7 @@ export class App extends Emitter {
   }
 
   focusMessage(m) {
+    if (m.docId && !this._doc(m.docId)) return;
     if (m.docId) this.openDoc(m.docId);
     const ed = this.activeEditor;
     if (!ed) return;
@@ -1288,12 +1352,13 @@ export class App extends Emitter {
     else { const b = this.project.boards[0]; this.openDoc(b.id); dialogs.boardInfoDialog(this, this.editors.get(b.id)); }
   }
 
+  /** Resolves to false when the user chose not to remove the inner layers. */
   async setCopperLayers(n) {
     const ed = this.activeEditor;
     if (ed?.kind !== 'pcb' || ed.copperCount === n) return;
     const keep = new Set(copperLayers(n));
     const lost = [...ed.doc.items()].filter((o) => o.layer && copperLayers(6).includes(o.layer) && !keep.has(o.layer));
-    if (lost.length && !(await confirmDialog({ title: 'Remove inner layers', message: `${lost.length} object${lost.length === 1 ? ' is' : 's are'} on layers that will be removed and will be deleted.`, confirm: 'Remove layers', danger: true }))) return;
+    if (lost.length && !(await confirmDialog({ title: 'Remove inner layers', message: `${lost.length} object${lost.length === 1 ? ' is' : 's are'} on layers that will be removed and will be deleted.`, confirm: 'Remove layers', danger: true }))) return false;
     ed.doc.store.transact('Change copper layers', (s) => { s.update('board', { copper: n }); for (const o of lost) s.remove(o.id); });
     if (!keep.has(ed.activeLayer)) ed.setActiveLayer('top');
     ed._renderLayerTabs();
@@ -1336,7 +1401,9 @@ export class App extends Emitter {
         this.view3dOpen = false;
         this.updateActiveBar();
         this.refreshMenus();
-        ed?.canvas.focus();
+        // The 3D view's context may have pushed out the board's own (see openDoc).
+        if (ed?.renderer?.gl?.isContextLost?.() && this.activeDocId === ed.doc.id) this.openDoc(ed.doc.id);
+        else ed?.canvas.focus();
       }
       return;
     }
@@ -1391,8 +1458,8 @@ export class App extends Emitter {
   }
 
   async _fills(doc, ed) {
-    if (ed && ed.pourFills) return ed.pourFills;
-    return this.kernel.pours(doc.snapshot(), this.project.library);
+    // The open editor's fills, once they match the board as it is now.
+    return (await ed?.currentFills()) || this.kernel.pours(doc.snapshot(), this.project.library);
   }
 
   async exportFabrication() {
@@ -1411,7 +1478,7 @@ export class App extends Emitter {
       }
       const { buildFabricationZip } = await import('../io/fabrication.js');
       const nl = exportShape(this.project.netlist(), this.project.sheetObjects(), this.project.library);
-      const zip = buildFabricationZip(this.project.toJSON(), doc.id, { pourFills: fills, netlist: nl, untentVias: opts.untentVias });
+      const zip = buildFabricationZip(this.project.toJSON(), doc.id, { pourFills: fills, netlist: nl, untentVias: opts.untentVias, units: this.settings.get('units') });
       storage.download(new Blob([zip], { type: 'application/zip' }), `${storage.safeName(this.project.name)}-${storage.safeName(doc.name.replace(/\.pcb$/i, ''))}-fabrication.zip`);
       toast('Fabrication package downloaded.', { kind: 'success' });
     } catch (err) {
@@ -1423,7 +1490,7 @@ export class App extends Emitter {
     const { doc, ed } = this._board();
     if (!doc) return;
     const [{ exportGerbers }, { zipSync, strToU8 }] = await Promise.all([import('../io/gerber.js'), import('fflate')]);
-    const files = exportGerbers(doc.snapshot(), this.project.library, { pourFills: await this._fills(doc, ed) });
+    const files = exportGerbers(doc.snapshot(), this.project.library, { pourFills: await this._fills(doc, ed), units: this.settings.get('units') });
     const zip = zipSync(Object.fromEntries(files.map((f) => [f.name, strToU8(f.content)])));
     storage.download(new Blob([zip], { type: 'application/zip' }), `${storage.safeName(doc.name.replace(/\.pcb$/i, ''))}-gerber.zip`);
   }
@@ -1444,8 +1511,9 @@ export class App extends Emitter {
   async exportPnp() {
     const { doc } = this._board();
     if (!doc) return;
-    const { pickAndPlace } = await import('../io/pnp.js');
-    storage.download(pickAndPlace(doc.snapshot(), this.project.library), `${storage.safeName(doc.name.replace(/\.pcb$/i, ''))}-pick-and-place.csv`, 'text/csv');
+    const { pickAndPlace, unpopulated } = await import('../io/pnp.js');
+    const skip = unpopulated(this.project.toJSON());
+    storage.download(pickAndPlace(doc.snapshot(), this.project.library, { skip }), `${storage.safeName(doc.name.replace(/\.pcb$/i, ''))}-pick-and-place.csv`, 'text/csv');
   }
 
   async exportNetlist() {
@@ -1468,7 +1536,7 @@ export class App extends Emitter {
     if (ed.kind === 'pcb') {
       const { boardToSvgView } = await import('../io/board-svg.js');
       const layers = [...copperLayers(ed.copperCount), 'topOverlay', 'bottomOverlay', 'mech1', 'multi', 'keepout'].filter((l) => ed.isLayerVisible(l));
-      return boardToSvgView(ed.doc, this.project.library, { layers, pourFills: ed.pourFills, colors: this.settings.get('layerColors'), theme: theme === 'print' ? 'light' : theme, active: ed.activeLayer });
+      return boardToSvgView(ed.doc, this.project.library, { layers, pourFills: (await ed.currentFills()) || ed.pourFills, colors: this.settings.get('layerColors'), theme: theme === 'print' ? 'light' : theme, active: ed.activeLayer });
     }
     return null;
   }
@@ -1477,7 +1545,8 @@ export class App extends Emitter {
     const ed = this.activeEditor;
     if (!ed) return;
     const svg = await this._svgOf(ed, 'light');
-    storage.download(svg, `${storage.safeName(ed.doc.name)}.svg`, 'image/svg+xml');
+    if (!svg) return;
+    storage.download(svg, `${storage.safeName(ed.doc.name.replace(/\.(sch|pcb)$/i, ''))}.svg`, 'image/svg+xml');
   }
 
   /** Prints the active document through the browser (also saves as PDF). */
@@ -1485,6 +1554,7 @@ export class App extends Emitter {
     const ed = this.activeEditor;
     if (!ed) return;
     const svg = await this._svgOf(ed, 'print');
+    if (!svg) return;
     const frame = h('iframe', { title: 'Print preview', style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
     document.body.append(frame);
     const landscape = ed.kind === 'sch' ? ed.doc.sheet.orientation !== 'portrait' : true;

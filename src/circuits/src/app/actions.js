@@ -16,6 +16,8 @@ export function registerCommands(app) {
   const hasProject = () => !!app.project;
   const hasSel = () => (ed()?.selection?.size || 0) > 0;
   const hasEditor = () => !!ed()?.doc;
+  // A sheet or board, which can be drawn as SVG; the component editor cannot.
+  const hasDrawing = () => ed()?.kind === 'sch' || ed()?.kind === 'pcb';
 
   c.registerAll([
     // ---- File ----
@@ -29,7 +31,7 @@ export function registerCommands(app) {
     { id: 'file.importKicad', label: 'Import KiCad files', menuLabel: '&KiCad schematic and board files...', icon: 'upload', run: () => app.importKicad() },
     { id: 'file.share', label: 'Share project', menuLabel: 'S&hare...', icon: 'share', enabled: hasProject, run: () => app.share() },
     { id: 'file.history', label: 'Version history', menuLabel: '&Version history...', icon: 'history', enabled: hasProject, run: () => app.history() },
-    { id: 'file.print', label: 'Print', menuLabel: '&Print...', icon: 'print', shortcut: 'Mod+P', anywhere: true, enabled: hasEditor, run: () => app.print() },
+    { id: 'file.print', label: 'Print', menuLabel: '&Print...', icon: 'print', shortcut: 'Mod+P', anywhere: true, enabled: hasDrawing, run: () => app.print() },
     { id: 'file.close', label: 'Close project', menuLabel: '&Close project', enabled: hasProject, run: () => app.closeProject() },
 
     // ---- Export ----
@@ -39,7 +41,7 @@ export function registerCommands(app) {
     { id: 'export.bom', label: 'Bill of materials', menuLabel: '&Bill of materials (CSV)', icon: 'bom', enabled: hasProject, run: () => app.exportBom() },
     { id: 'export.pnp', label: 'Pick and place file', menuLabel: '&Pick and place (CSV)', enabled: () => !!app.project?.boards.length, run: () => app.exportPnp() },
     { id: 'export.netlist', label: 'Netlist', menuLabel: '&Netlist', icon: 'network', enabled: hasProject, run: () => app.exportNetlist() },
-    { id: 'export.svg', label: 'Export current document as SVG', menuLabel: '&SVG image of this document', icon: 'image', enabled: hasEditor, run: () => app.exportSvg() },
+    { id: 'export.svg', label: 'Export current document as SVG', menuLabel: '&SVG image of this document', icon: 'image', enabled: hasDrawing, run: () => app.exportSvg() },
 
     // ---- Edit ----
     { id: 'edit.undo', label: 'Undo', menuLabel: '&Undo', icon: 'undo', shortcut: 'Mod+Z', enabled: () => !!ed()?.doc?.store.canUndo, run: () => app.undo() },

@@ -89,7 +89,9 @@ export class Project extends Emitter {
     this.created = data.created || new Date().toISOString();
     this.modified = data.modified || this.created;
     this.settings = { units: 'mm', ...(data.settings || {}) };
-    this.library = { ...(data.library || {}) };
+    // No prototype: a component id such as 'constructor' must not find
+    // Object's own members where a definition is expected.
+    this.library = Object.assign(Object.create(null), data.library);
     this.docs = [];
     this._libRevision = 0;
     this._metaDirty = false;
@@ -276,20 +278,69 @@ function hasPoints(o) {
   return Array.isArray(pts) && pts.length >= min * 2 && pts.length % 2 === 0 && pts.every(Number.isFinite);
 }
 
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const objectsOf = (list) => (Array.isArray(list) ? list.filter(isObj) : []);
+/** Graphics need a type, and shapes drawn through points need their point list. */
+const graphicsOf = (list) => objectsOf(list).filter((g) => typeof g.t === 'string' && ((g.t !== 'poly' && g.t !== 'polyline') || Array.isArray(g.pts)));
+
+/**
+ * Component definitions in the shape the rest of the app relies on: a symbol
+ * with pin and graphic lists, and a footprint that is absent or has pad and
+ * graphic lists. A damaged entry is repaired (or dropped when it is not a
+ * definition at all) instead of making the whole project impossible to open.
+ */
+function cleanLibrary(library) {
+  const out = Object.create(null);
+  if (!isObj(library)) return out;
+  for (const [id, def] of Object.entries(library)) {
+    if (!isObj(def)) continue;
+    const sym = isObj(def.symbol) ? def.symbol : {};
+    const fp = isObj(def.footprint) ? def.footprint : null;
+    out[id] = {
+      ...def,
+      id: typeof def.id === 'string' ? def.id : id,
+      symbol: { ...sym, pins: objectsOf(sym.pins), graphics: graphicsOf(sym.graphics) },
+      footprint: fp ? { ...fp, pads: objectsOf(fp.pads), graphics: graphicsOf(fp.graphics) } : def.footprint === undefined ? undefined : null,
+    };
+  }
+  return out;
+}
+
 /** Validates and upgrades parsed JSON. Throws with a readable message. */
 export function parseProject(json) {
   const data = typeof json === 'string' ? JSON.parse(json) : json;
   if (!data || data.format !== FORMAT) throw new Error('This file is not a Circuits project.');
   if (typeof data.version !== 'number' || data.version > FORMAT_VERSION) throw new Error('This project was saved by a newer version of Circuits.');
   if (!Array.isArray(data.documents)) throw new Error('The project has no documents.');
+  // The id names the project's file and version folder in storage, so one
+  // read from a file must be a plain name (never a path such as '..').
+  if (typeof data.id !== 'string' || !/^[\w-]{1,128}$/.test(data.id)) data.id = uid('p');
+  // Names end up in file names and document tabs: they must be text.
+  if (typeof data.name !== 'string' || !data.name.trim()) data.name = 'Untitled';
+  data.library = cleanLibrary(data.library);
   data.documents = data.documents.filter((d) => d && typeof d === 'object');
   const docIds = new Set();
   const partUids = new Set();
+  const named = (d) => typeof d.name === 'string' && d.name.trim() !== '';
+  const docNames = new Set(data.documents.filter(named).map((d) => d.name.toLowerCase()));
   for (const d of data.documents) {
     if (!['sch', 'pcb'].includes(d.kind)) throw new Error(`Unknown document type "${d.kind}".`);
+    if (!named(d)) {
+      const [base, ext] = d.kind === 'sch' ? ['Sheet', 'sch'] : ['Board', 'pcb'];
+      let i = 1;
+      while (docNames.has(`${base}${i}.${ext}`.toLowerCase())) i++;
+      d.name = `${base}${i}.${ext}`;
+      docNames.add(d.name.toLowerCase());
+    }
     if (!d.id || docIds.has(d.id)) d.id = uid('d');
     docIds.add(d.id);
     if (!Array.isArray(d.objects)) d.objects = [];
+    if (d.kind === 'pcb' && isObj(d.board)) {
+      // The outline and cutouts are drawn and exported as flat point lists.
+      const flat = (r) => Array.isArray(r) && r.length % 2 === 0 && r.every(Number.isFinite);
+      d.board = { ...d.board, cutouts: (Array.isArray(d.board.cutouts) ? d.board.cutouts : []).filter((c) => flat(c) && c.length >= 6) };
+      if (!flat(d.board.outline)) delete d.board.outline; // the default outline is used
+    }
     // Ids of the document settings entries ('sheet', 'board', ...) are reserved.
     const seen = new Set(META_TYPES);
     const usable = (o) => o && typeof o === 'object' && typeof o.t === 'string' && !META_TYPES.has(o.t);

@@ -69,23 +69,28 @@ export class CanvasView extends Emitter {
     if (r.width < 2 || r.height < 2) return;
     const first = !this._sized;
     this._sized = true;
-    this.renderer.resize(r.width, r.height);
+    const cleared = this.renderer.resize(r.width, r.height);
     if (first) {
       if (this._pendingFit) { this.fitBox(this._pendingFit, false); this._pendingFit = null; } else this.fitAll?.(false);
     }
-    this.requestRender();
+    // Resizing clears the drawing buffer, and the browser paints right after
+    // the resize observer runs: draw now, or every step of a window or panel
+    // resize shows a black canvas until the next frame.
+    if (cleared) { cancelAnimationFrame(this._frame); this._render(); } else this.requestRender();
   }
 
   requestRender(overlay = false) {
     if (overlay) this._dirtyOverlay = true;
     if (this._frame || this.disposed || !this.renderer) return;
-    this._frame = requestAnimationFrame(() => {
-      this._frame = 0;
-      if (this.disposed || !this.el.isConnected) return;
-      if (this._dirtyOverlay) { this._dirtyOverlay = false; this.buildOverlay(); }
-      this.draw();
-      this.emit('rendered');
-    });
+    this._frame = requestAnimationFrame(() => this._render());
+  }
+
+  _render() {
+    this._frame = 0;
+    if (this.disposed || !this.el.isConnected) return;
+    if (this._dirtyOverlay) { this._dirtyOverlay = false; this.buildOverlay(); }
+    this.draw();
+    this.emit('rendered');
   }
 
   /** Subclasses rebuild previews into this.overlay. */
@@ -175,6 +180,27 @@ export class CanvasView extends Emitter {
     let longTimer = null;
 
     const clearLong = () => { clearTimeout(longTimer); longTimer = null; };
+    // A long press opens the context menu under the finger. Where the browser
+    // does not take the long press for a gesture of its own, lifting the
+    // finger sends a click to whatever is there now, which would choose a
+    // menu item (Delete, say) nobody picked: that one click is dropped.
+    let dropClick = null;
+    const dropLiftClick = () => {
+      dropClick?.();
+      const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      const off = () => {
+        document.removeEventListener('click', stop, true);
+        c.removeEventListener('pointerup', lifted);
+        c.removeEventListener('pointercancel', lifted);
+        dropClick = null;
+      };
+      // The click follows the lift at once; later taps are real choices.
+      const lifted = () => setTimeout(off, 100);
+      document.addEventListener('click', stop, true);
+      c.addEventListener('pointerup', lifted);
+      c.addEventListener('pointercancel', lifted);
+      dropClick = off;
+    };
 
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -201,7 +227,11 @@ export class CanvasView extends Emitter {
       press = { x: e.clientX, y: e.clientY, ev, dragging: false, pointerType: e.pointerType };
       if (e.pointerType === 'touch') {
         longTimer = setTimeout(() => {
-          if (press && !press.dragging) { const p = press; press = null; this.onContextMenu(p.ev, e); }
+          if (!press || press.dragging) return;
+          const p = press;
+          press = null;
+          dropLiftClick();
+          this.onContextMenu(p.ev, e);
         }, LONG_PRESS_MS);
       }
       this.tool?.down?.(ev);

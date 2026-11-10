@@ -46,6 +46,29 @@ async function localWrite(id, name, text) {
   writeIndex(list);
 }
 
+/**
+ * Stored projects the index does not know about: the index lives in
+ * localStorage, and a write to it can be refused (full or blocked site
+ * storage) after the project file itself was saved.
+ */
+async function localUnindexed(known) {
+  const out = [];
+  try {
+    const dir = await opfsDir();
+    if (!dir?.entries) return out;
+    for await (const [file, handle] of dir.entries()) {
+      const id = file.endsWith(EXT) ? file.slice(0, -EXT.length) : null;
+      if (!id || known.has(id) || !handle.getFile) continue;
+      try {
+        const f = await handle.getFile();
+        const name = JSON.parse(await f.text()).name;
+        out.push({ id, name: String(name ?? 'Untitled'), modified: f.lastModified, size: f.size });
+      } catch { /* not a readable project */ }
+    }
+  } catch { /* storage unavailable */ }
+  return out;
+}
+
 async function localRead(id) {
   const dir = await opfsDir();
   if (!dir) throw new Error('Local storage is not available in this browser.');
@@ -132,15 +155,24 @@ export async function listProjects() {
       }
     } catch (err) { if (!isMissing(err)) console.warn('Could not list projects', err); }
   }
-  for (const p of readIndex()) out.push({ name: p.name, location: { type: 'local', id: p.id }, modified: p.modified, size: p.size });
+  const index = readIndex();
+  const unindexed = await localUnindexed(new Set(index.map((p) => p.id)));
+  if (unindexed.length) writeIndex([...index, ...unindexed]);
+  for (const p of [...index, ...unindexed]) out.push({ name: p.name, location: { type: 'local', id: p.id }, modified: p.modified, size: p.size });
   out.sort((a, b) => (b.modified || 0) - (a.modified || 0));
   return out;
 }
 
 export const sameLocation = (a, b) => !!a && !!b && a.type === b.type && (a.type === 'cloud' ? a.path === b.path : a.id === b.id);
 
+/** A stored location in a usable shape (the stored lists may be damaged or from another version). */
+const validLocation = (l) => !!l && typeof l === 'object' && (l.type === 'cloud' ? typeof l.path === 'string' : l.type === 'local' && typeof l.id === 'string');
+
 export function recentProjects() {
-  try { const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    return Array.isArray(v) ? v.filter((r) => r && validLocation(r.location)).map((r) => ({ ...r, name: String(r.name ?? 'Untitled') })) : [];
+  } catch { return []; }
 }
 
 export function rememberRecent({ location, name }) {

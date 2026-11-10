@@ -367,6 +367,8 @@ export function dpak() {
 
 // ---------------------------------------------------------------- dual row SMD
 
+const NO_EPAD_ROOM = 'The body is too small for an exposed pad. Set the exposed pad to 0 or enlarge the body';
+
 const SOP = {
   SOIC: { pitch: 1.27, C: 5.4, padL: 1.55, padW: 0.6, bodyW: 3.9, height: 1.75, lenAdd: -0.2 },
   TSSOP: { pitch: 0.65, C: 5.8, padL: 1.5, padW: 0.4, bodyW: 4.4, height: 1.2, lenAdd: 0.4 },
@@ -386,7 +388,11 @@ export function sop({ pins = 8, pitch = 1.27, C = 5.4, padL = 1.55, padW = 0.6, 
   const pads = [];
   for (let i = 0; i < n; i++) pads.push(smdPad(i + 1, -C / 2, ((n - 1) / 2 - i) * pitch, padL, padW));
   for (let i = 0; i < n; i++) pads.push(smdPad(n + i + 1, C / 2, (i - (n - 1) / 2) * pitch, padL, padW));
-  if (epad > 0) pads.push(smdPad(pins + 1, 0, 0, Math.min(epad, bodyW - 0.6), Math.min(epad * 1.3, L - 0.6), { shape: 'rect' }));
+  if (epad > 0) {
+    const ew = Math.min(epad, bodyW - 0.6), eh = Math.min(epad * 1.3, L - 0.6);
+    if (!(ew > 0 && eh > 0)) throw new Error(NO_EPAD_ROOM);
+    pads.push(smdPad(pins + 1, 0, 0, ew, eh, { shape: 'rect' }));
+  }
   const hw = bodyW / 2 + 0.1, hh = L / 2 + 0.1;
   return finish({
     name: name || `${family}-${pins}${epad > 0 ? '-EP' : ''}`,
@@ -446,6 +452,7 @@ export function qfn({ pins = 32, size = 5, pitch = 0.5, epad = 3.1, padL = 0.8, 
   const inner = size / 2 - 0.45;
   if (epad > 0) {
     const e = Math.min(epad, 2 * (inner - 0.2));
+    if (!(e > 0)) throw new Error(NO_EPAD_ROOM);
     pads.push(smdPad(pins + 1, 0, 0, e, e, { shape: 'rect' }));
   }
   const s = size / 2 + 0.1;

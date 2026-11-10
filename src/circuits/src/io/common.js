@@ -33,12 +33,15 @@ export function naturalCompare(a, b) {
   return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
 }
 
-const FORMULA_START = /^[=@]/;
+// Spreadsheets run a field as a formula when it starts with any of these.
+const FORMULA_START = /^[=@+\-\t\r]/;
+// ...except signed numbers and values (-5.08, +3V3, -12V), which stay text.
+const SIGNED_VALUE = /^[+-](\d[\d.]*[A-Za-zµΩ%°]*\d*)?$/;
 
 /** One CSV field: quoted when needed, quotes doubled, formula-like text neutralised. */
 export function csvField(value) {
   let s = value == null ? '' : String(value);
-  if (FORMULA_START.test(s)) s = `'${s}`;
+  if (FORMULA_START.test(s) && !SIGNED_VALUE.test(s)) s = `'${s}`;
   if (/[",\r\n]/.test(s) || /^\s|\s$/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
   return s;
 }

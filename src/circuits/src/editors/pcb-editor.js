@@ -4,7 +4,7 @@
 
 import { CanvasView } from './view.js';
 import { SelectTool } from './select-tool.js';
-import { RouteTool, PlacePcbTool, PolygonTool, LineTool } from './pcb-tools.js';
+import { RouteTool, PlacePcbTool, PolygonTool, LineTool, TURN_KEYS } from './pcb-tools.js';
 import { Batch } from '../render/batch.js';
 import { pack, toVec4 } from '../render/color.js';
 import { PCB_PALETTES, layerColor } from '../render/palette.js';
@@ -16,7 +16,7 @@ import { contextMenu } from '../ui/menu.js';
 import { promptDialog } from '../ui/dialog.js';
 import { installVertexEditing } from './vertex.js';
 import { LAYERS, boardLayers, copperLayers, isCopper } from '../model/layers.js';
-import { pcbBounds, pcbHitDistance, PCB_PICK_ORDER, objectLayers, translatePcb, rotatePcb, flipComp, padDistance } from '../model/pcb.js';
+import { pcbBounds, pcbHitDistance, PCB_PICK_ORDER, objectLayers, translatePcb, rotatePcb, flipComp, padDistance, pcbPickable } from '../model/pcb.js';
 import { analyseBoard, itemDistance } from '../model/connectivity.js';
 import { bboxOfFlat, bboxUnion, bboxEmpty, bboxContains, bboxIntersects } from '../core/geom.js';
 import { mm, formatLength, snap } from '../core/units.js';
@@ -57,7 +57,8 @@ export class PcbEditor extends CanvasView {
     this._buildChrome();
     this._unsub = [
       doc.store.on('change', (e) => this._onChange(e)),
-      project.on('library', () => { this._dirtyLayers.add('*'); this._schedulePours(); this.requestRender(true); }),
+      // A replaced footprint moves pads without a new store revision: drop the cached connectivity.
+      project.on('library', () => { this._analysis = null; this._dirtyLayers.add('*'); this._schedulePours(); this.requestRender(true); }),
       app.settings.on('change', ({ key }) => {
         if (key === 'layerColors' || key === 'pcbGridStyle') { this._dirtyLayers.add('*'); this.requestRender(true); }
         if (key === 'padLabels') this._scheduleLabels();
@@ -193,9 +194,15 @@ export class PcbEditor extends CanvasView {
   }
 
   cycleSingleLayer() {
-    this.singleLayer = { off: 'gray', gray: 'hide', hide: 'off' }[this.singleLayer];
+    this.setSingleLayer({ off: 'gray', gray: 'hide', hide: 'off' }[this.singleLayer]);
     this.app.toast({ off: 'Showing all layers', gray: 'Single layer mode: other layers grayed', hide: 'Single layer mode: other layers hidden' }[this.singleLayer], { timeout: 1800 });
+  }
+
+  setSingleLayer(mode) {
+    this.singleLayer = mode;
+    // Pads on layers that are now hidden lose their net names, and the readout its note.
     this._scheduleLabels();
+    this._updateHud();
     this.requestRender(true);
     this.emit('layers');
   }
@@ -203,6 +210,9 @@ export class PcbEditor extends CanvasView {
   // ---- Changes and derived data ----
 
   _onChange(e) {
+    // An edit from elsewhere in the middle of a drag (undo, Delete): the drag
+    // holds the objects as they were, and committing it would write them back.
+    if (this.select.move || this.select.vertex) this.select.cancelDrag();
     const touched = new Set();
     let boardChanged = false;
     const count = this.copperCount;
@@ -218,6 +228,12 @@ export class PcbEditor extends CanvasView {
     for (const [, before] of e.removed) mark(before);
     for (const [, { before, after }] of e.updated) { mark(before); mark(after); }
     for (const id of e.removed.keys()) this.selection.delete(id);
+    // A shelved pour has no copper: its fill goes at once, whether or not a repour follows.
+    for (const [id, { after }] of e.updated) {
+      if (after.t !== 'pour' || !after.shelved || !this.pourFills.has(id)) continue;
+      this.pourFills = new Map(this.pourFills);
+      this.pourFills.delete(id);
+    }
     // Undo and redo take back what an active tool placed (a route in progress).
     if (e.source === 'undo' || e.source === 'redo') this.tool?.historyChanged?.(e);
     if (boardChanged) {
@@ -266,9 +282,23 @@ export class PcbEditor extends CanvasView {
   }
 
   _schedulePours(delay = 250) {
-    if (!this.app.settings.get('autoRepour') && delay > 0) return;
+    // Without automatic repour the rule check still follows edits (a repour ends with one).
+    if (!this.app.settings.get('autoRepour') && delay > 0) { this._scheduleDrc(); return; }
+    this._poursDue = true;
     clearTimeout(this._pourTimer);
+    // The repour ends with a rule check; one still waiting would check stale fills.
+    clearTimeout(this._drcTimer);
     this._pourTimer = setTimeout(() => this.repour(), delay);
+  }
+
+  /**
+   * Pour fills for the board as it is now, for exports. The fills lag behind
+   * an edit, and are empty just after the board opens, until the repour that
+   * is due has run: this runs it. Null when they could not be brought up to date.
+   */
+  async currentFills() {
+    if (this._poursDue) await this.repour();
+    return this._poursDue ? null : this.pourFills;
   }
 
   /** Recomputes every pour's fill in the kernel worker. */
@@ -279,6 +309,7 @@ export class PcbEditor extends CanvasView {
     this._pourRev = rev;
     if (!pours.length) {
       if (this.pourFills.size) { this.pourFills = new Map(); this._dirtyLayers.add('*'); this.requestRender(); }
+      this._poursDue = false;
       this._scheduleDrc();
       return;
     }
@@ -286,6 +317,7 @@ export class PcbEditor extends CanvasView {
       const fills = await this.app.kernel.pours(this.doc.snapshot(), this.lib);
       if (this.disposed || this._pourRev !== rev) return;
       this.pourFills = fills;
+      if (rev === this.doc.store.revision) this._poursDue = false;
       for (const p of pours) this._dirtyLayers.add(p.layer);
       this._rebuildRats();
       this.requestRender(true);
@@ -306,6 +338,9 @@ export class PcbEditor extends CanvasView {
 
   /** Runs the design rule check; online runs update markers quietly. */
   async runDrc({ online = false } = {}) {
+    // A check that was asked for waits for the repour that is due, or it
+    // would report the new copper against the pour from before the edit.
+    if (!online) await this.currentFills();
     const rev = this.doc.store.revision;
     try {
       const list = await this.app.kernel.drc(this.doc.snapshot(), this.lib, { pourFills: this.pourFills });
@@ -519,7 +554,7 @@ export class PcbEditor extends CanvasView {
     const layers = this._pickLayers();
     const ids = [];
     for (const o of this.doc.store.query(box)) {
-      if (o.layer && !layers.has(o.layer)) continue;
+      if (!pcbPickable(o, this.lib, layers, this.copperCount)) continue;
       const b = pcbBounds(o, this.lib);
       if (crossing ? bboxIntersects(b, box) : bboxContains(box, b)) ids.push(o.id);
     }
@@ -533,12 +568,14 @@ export class PcbEditor extends CanvasView {
     return { x: o.x, y: o.y };
   }
 
-  /** Copper under a point on a layer (null layer: any visible copper). */
-  copperAt(x, y, layer, exact = false, exclude = null) {
+  /** Copper under a point on a layer (null layer: any copper, or only what is shown). */
+  copperAt(x, y, layer, exact = false, exclude = null, shownOnly = false) {
     this.analysis();
     const tol = exact ? 1 : 4 * this.nmPerPx;
+    // Vias and through-hole pads show on every layer they cross and on the multi-layer.
+    const shown = (it) => it.layers.some((l) => this.isLayerVisible(l)) || (it.layers.length > 1 && this.isLayerVisible('multi'));
     const hits = this._copperTree.search({ minX: x - tol, minY: y - tol, maxX: x + tol, maxY: y + tol }).map((e) => e.it)
-      .filter((it) => (!layer || it.layers.includes(layer) || (it.isPad && it.layers.length > 1)) && !exclude?.has(it.objId));
+      .filter((it) => (!layer || it.layers.includes(layer) || (it.isPad && it.layers.length > 1)) && !exclude?.has(it.objId) && (!shownOnly || shown(it)));
     let best = null, bd = Infinity;
     const probe = { kind: 'disc', x, y, r: tol, layers: layer ? [layer] : copperLayers(this.copperCount) };
     for (const it of hits) {
@@ -556,24 +593,32 @@ export class PcbEditor extends CanvasView {
     return { net: best.net, layers: best.layers, objId: best.objId, anchor, isPad: !!best.isPad };
   }
 
+  /** Net of the copper the user can see under a point. */
   netUnder(x, y) {
-    const c = this.copperAt(x, y, null);
+    const c = this.copperAt(x, y, null, false, null, true);
     return c?.net || null;
   }
 
-  /** Copper items of other nets near a path, for routing collision checks. */
+  /**
+   * Copper items of other nets near a path, for routing collision checks.
+   * Pour fills are not obstacles: a pour is filled again around the new track.
+   * Neither is loose copper without a net (a via, a track, a free pad), which
+   * a trace may join; a component pad without a net stays an obstacle.
+   */
   obstaclesNear(pts, layer, net, margin) {
     this.analysis();
     const b = bboxOfFlat(pts, margin);
-    return this._copperTree.search(b).map((e) => e.it).filter((it) => it.layers.includes(layer) && (!net || it.net !== net) && !(it.pour && it.net === net) && (net || it.net || !it.isPad));
+    return this._copperTree.search(b).map((e) => e.it).filter((it) => it.layers.includes(layer) && (!net || it.net !== net) && !it.pour && (it.net || (net && it.pad?.compId)));
   }
 
-  snapTargets(x, y, reach) {
+  snapTargets(x, y, reach, exclude) {
     if (!(this.tool instanceof RouteTool) && !(this.tool?.name === 'via') && !(this.tool === this.select && this.select.move)) return null;
     this.analysis();
     let best = null, bd = reach;
+    // Objects being moved are still in the board where they started: no snapping onto those.
+    const skip = exclude?.length ? new Set(exclude) : null;
     for (const { it } of this._copperTree.search({ minX: x - reach, minY: y - reach, maxX: x + reach, maxY: y + reach })) {
-      if (it.pour) continue;
+      if (it.pour || skip?.has(it.objId)) continue;
       const pts = it.isPad ? [[it.pad.x, it.pad.y]] : it.anchors;
       for (const [px, py] of pts) {
         const d = Math.hypot(px - x, py - y);
@@ -779,11 +824,21 @@ export class PcbEditor extends CanvasView {
       objs(x, y) { let objs = clip.objects; for (let i = 0; i < this.ops; i++) objs = objs.map((o) => rotatePcb(o, 0, 0, 90)); return objs.map((o) => translatePcb(o, x, y)); },
       click(ev) {
         const ids = [];
-        ed.doc.store.transact('Paste', (s) => { for (const o of this.objs(ev.x, ev.y)) { const n = { ...o, id: uid() }; if (n.t === 'comp') { n.uid = uid('u'); } s.add(n); ids.push(n.id); } });
+        // A component that was cut comes back as itself, still linked to its
+        // schematic part by uid; a copy gets a uid of its own.
+        const uids = new Set([...ed.doc.items()].filter((c) => c.t === 'comp').map((c) => c.uid));
+        ed.doc.store.transact('Paste', (s) => {
+          for (const o of this.objs(ev.x, ev.y)) {
+            const n = { ...o, id: uid() };
+            if (n.t === 'comp') { if (!n.uid || uids.has(n.uid)) n.uid = uid('u'); uids.add(n.uid); }
+            s.add(n);
+            ids.push(n.id);
+          }
+        });
         ed.endTool();
         ed.setSelection(ids);
       },
-      key(e, combo) { if (combo === 'Space') { this.ops++; return true; } if (combo === 'Escape') { ed.endTool(); return true; } return false; },
+      key(e, combo) { if (combo === 'Space') { this.ops++; return true; } if (combo === 'Escape') { ed.endTool(); return true; } return TURN_KEYS.has(combo); },
       rightClick() { ed.endTool(); return true; },
       drawOverlay(b) {
         const c = ed.cursor;
@@ -975,7 +1030,9 @@ export class PcbEditor extends CanvasView {
   }
 
   unrouteNet(net) {
-    const ids = [...this.doc.items()].filter((o) => (o.t === 'track' || o.t === 'arc' || o.t === 'via') && (net === null || o.net === net)).map((o) => o.id);
+    // Lines and arcs on silkscreen and mechanical layers are drawings, not routing.
+    const routed = (o) => o.t === 'via' || ((o.t === 'track' || o.t === 'arc') && isCopper(o.layer));
+    const ids = [...this.doc.items()].filter((o) => routed(o) && (net === null || o.net === net)).map((o) => o.id);
     if (!ids.length) return 0;
     this.doc.store.transact(net ? `Unroute ${net}` : 'Unroute all', (s) => { for (const id of ids) s.remove(id); });
     return ids.length;

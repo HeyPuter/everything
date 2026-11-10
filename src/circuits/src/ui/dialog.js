@@ -1,6 +1,6 @@
 // Modal dialogs with focus trapping, plus confirm/prompt/form helpers.
 
-import { h, nextId, trapFocus } from './dom.js';
+import { h, nextId, trapFocus, isComposing } from './dom.js';
 import { icon } from './icons.js';
 import { closeMenus } from './menu.js';
 
@@ -46,7 +46,12 @@ export function openDialog({ title, body, actions = [{ label: 'Close', primary: 
           const keep = await a.run(api);
           if (keep === false) return;
           close(a.value ?? a.label);
-        } finally { btn.disabled = false; }
+        } finally {
+          btn.disabled = false;
+          // A dialog opened from run() could not hand the focus back to the
+          // disabled button when it closed: take it, or it is left on the page behind.
+          if (!closed && stack.at(-1) === api && !dialog.contains(document.activeElement)) btn.focus();
+        }
       } else close(a.value ?? a.label);
     });
     if (a.left) { left.append(btn); hasLeft = true; } else foot.append(btn);
@@ -59,7 +64,7 @@ export function openDialog({ title, body, actions = [{ label: 'Close', primary: 
   dialog.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(undefined); }
     // A field that handles Enter itself (prevents the default) keeps it.
-    else if (e.key === 'Enter' && !e.shiftKey && !e.defaultPrevented && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT') {
+    else if (e.key === 'Enter' && !isComposing(e) && !e.shiftKey && !e.defaultPrevented && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'A') {
       const primary = actions.find((a) => a.primary);
       if (primary?.el && !primary.el.disabled) { e.preventDefault(); primary.el.click(); }
     }

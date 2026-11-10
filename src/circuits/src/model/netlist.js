@@ -6,7 +6,8 @@
 // Connection rules:
 // - A wire conducts along its whole length.
 // - A wire end, pin end, label, power port or port touching the interior of a
-//   wire connects to it (a T joint) and gets a junction dot.
+//   wire connects to it (a T joint) and gets a junction dot. A net label only
+//   names the wire it sits on, so it connects without a dot.
 // - Two wires crossing mid-segment do not connect unless a junction is placed.
 
 import { placeSymbol } from './place.js';
@@ -76,6 +77,10 @@ function analyseSheet(sheet, lib, dsu, prefix) {
   const wires = [];
   const junctionsManual = [];
   const noErc = new Set();
+  // Where labels, power ports and ports sit, and hidden pins (pointCount has
+  // the wire corners and visible pins), to tell which of them touch nothing.
+  const hotspots = new Map();
+  const hiddenPins = new Set();
 
   for (const o of objs) {
     if (o.t === 'wire') {
@@ -100,7 +105,7 @@ function analyseSheet(sheet, lib, dsu, prefix) {
         const k = prefix + key(p.x, p.y);
         dsu.find(k);
         pins.push({ part: o, pin: p, key: k, x: p.x, y: p.y });
-        if (p.hidden) named.push({ kind: 'hidden', name: p.name, key: k });
+        if (p.hidden) { named.push({ kind: 'hidden', name: p.name, key: k }); hiddenPins.add(key(p.x, p.y)); }
         else { bump(key(p.x, p.y)); tPoints.push([p.x, p.y]); }
       }
     } else if (o.t === 'label' || o.t === 'power' || o.t === 'port') {
@@ -108,12 +113,15 @@ function analyseSheet(sheet, lib, dsu, prefix) {
       const [[x, y], ...more] = connectionPoints(o, lib);
       const k = prefix + key(x, y);
       dsu.find(k);
-      named.push({ kind: o.t, name: o.t === 'label' ? o.text : o.t === 'power' ? o.net : o.name, key: k, obj: o, ground: o.t === 'power' && GROUND_STYLES.has(o.style) });
-      tPoints.push([x, y]);
+      const entry = { kind: o.t, name: o.t === 'label' ? o.text : o.t === 'power' ? o.net : o.name, key: k, obj: o, ground: o.t === 'power' && GROUND_STYLES.has(o.style), attached: false, at: [key(x, y)] };
+      named.push(entry);
+      tPoints.push([x, y, o.t === 'label', entry]);
       for (const [ex, ey] of more) {
         dsu.union(k, prefix + key(ex, ey));
-        tPoints.push([ex, ey]);
+        entry.at.push(key(ex, ey));
+        tPoints.push([ex, ey, false, entry]);
       }
+      for (const k2 of entry.at) hotspots.set(k2, (hotspots.get(k2) || 0) + 1);
     } else if (o.t === 'junction') {
       junctionsManual.push([o.x, o.y]);
       dsu.find(prefix + key(o.x, o.y));
@@ -124,11 +132,31 @@ function analyseSheet(sheet, lib, dsu, prefix) {
 
   // T joints: points on the interior of a wire connect to it.
   const autoJunctions = new Map();
-  for (const [x, y] of tPoints) {
+  for (const [x, y, noDot, entry] of tPoints) {
     for (const s of segs.at(x, y)) {
       if (onSegInterior(x, y, s[0], s[1], s[2], s[3])) {
         dsu.union(prefix + key(x, y), prefix + key(s[0], s[1]));
-        autoJunctions.set(key(x, y), [x, y]);
+        if (!noDot) autoJunctions.set(key(x, y), [x, y]);
+        if (entry) entry.attached = true;
+      }
+    }
+  }
+  // A label, power port or port touching nothing only adds its name (for the
+  // rules check to report); one on another's hotspot counts as attached.
+  for (const n of named) {
+    if (n.obj && !n.attached) n.attached = n.at.some((k) => pointCount.has(k) || hiddenPins.has(k) || hotspots.get(k) > 1);
+  }
+  // Buses carry no nets, but a label naming one is where it was meant to be.
+  const loose = named.filter((n) => n.obj && !n.attached);
+  if (loose.length) {
+    for (const o of objs) {
+      if (o.t !== 'bus') continue;
+      for (const n of loose) {
+        for (let i = 2; i < o.pts.length && !n.attached; i += 2) {
+          const ax = o.pts[i - 2], ay = o.pts[i - 1], bx = o.pts[i], by = o.pts[i + 1];
+          const { x, y } = n.obj;
+          n.attached = (x === ax && y === ay) || (x === bx && y === by) || onSegInterior(x, y, ax, ay, bx, by);
+        }
       }
     }
   }

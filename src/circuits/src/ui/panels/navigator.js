@@ -5,7 +5,7 @@
 import { h, clear } from '../dom.js';
 import { icon } from '../icons.js';
 
-/** Rows are buttons: Enter and Space activate them. */
+/** Rows are buttons inside list items: Enter and Space activate them. */
 function activate(e, go) {
   if (e.key !== 'Enter' && e.key !== ' ') return;
   e.preventDefault();
@@ -48,13 +48,14 @@ export class NavigatorPanel {
       if (!objs.length) this.list.append(h('li.panel-empty', 'No components.'));
       for (const o of objs.slice(0, 1000)) {
         const def = p.library[o.comp];
-        const row = h('li.list-row', { tabindex: 0, role: 'button', 'aria-pressed': String(ed.selection.has(o.id)) },
+        const row = h('div.list-row', { tabindex: 0, role: 'button', 'aria-pressed': String(ed.selection.has(o.id)) },
           icon('component', 14), h('span', { style: { minWidth: '44px', fontWeight: 600 } }, o.designator), h('span.grow', o.value || ''), h('span.sub', def?.footprint?.name || ''));
         const go = () => ed.focusObject(o.id);
         row.addEventListener('click', go);
         row.addEventListener('keydown', (e) => activate(e, go));
-        this.list.append(row);
+        this.list.append(h('li', row));
       }
+      if (objs.length > 1000) this.list.append(h('li.panel-empty.small', `${objs.length - 1000} more. Filter the list to see them.`));
       return;
     }
     let nets;
@@ -68,7 +69,7 @@ export class NavigatorPanel {
     if (!nets.length) this.list.append(h('li.panel-empty', ed.kind === 'pcb' ? 'No nets. Update the board from the schematic to bring nets in.' : 'No nets yet.'));
     for (const n of nets.slice(0, 2000)) {
       const active = ed.highlight?.net === n.name;
-      const row = h('li.list-row', { tabindex: 0, role: 'button', 'aria-pressed': String(active) },
+      const row = h('div.list-row', { tabindex: 0, role: 'button', 'aria-pressed': String(active) },
         icon('network', 14), h('span.grow', n.name),
         n.unrouted !== undefined ? h('span.sub', { class: n.unrouted ? 'sev-warning' : '' }, n.unrouted ? `${n.unrouted} unrouted` : 'routed') : h('span.sub', `${n.pins} pins`));
       const go = () => {
@@ -76,12 +77,13 @@ export class NavigatorPanel {
         if (active) ed.clearHighlight(); else ed.highlightNet(n.name);
         this.render();
         // The list was rebuilt; keep keyboard focus on this net.
-        if (refocus) [...this.list.children].find((r) => r.dataset.net === n.name)?.focus();
+        if (refocus) [...this.list.querySelectorAll('.list-row')].find((r) => r.dataset.net === n.name)?.focus();
       };
       row.dataset.net = n.name;
       row.addEventListener('click', go);
       row.addEventListener('keydown', (e) => activate(e, go));
-      this.list.append(row);
+      this.list.append(h('li', row));
     }
+    if (nets.length > 2000) this.list.append(h('li.panel-empty.small', `${nets.length - 2000} more. Filter the list to see them.`));
   }
 }

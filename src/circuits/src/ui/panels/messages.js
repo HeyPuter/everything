@@ -16,6 +16,12 @@ export class MessagesPanel {
       h('option', { value: 'all' }, 'All'), h('option', { value: 'error' }, 'Errors'), h('option', { value: 'warning' }, 'Warnings'));
     this.filterSel.addEventListener('change', () => { this.filter = this.filterSel.value; this.render(); });
     this.list = h('ul.list', { role: 'list' });
+    const go = (e) => {
+      const m = e.target.closest?.('.list-row')?._message;
+      if (m) { if (e.type === 'keydown') e.preventDefault(); this.app.focusMessage(m); }
+    };
+    this.list.addEventListener('click', go);
+    this.list.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); });
     this.el.append(
       h('div.panel-head', h('h2#msg-title', 'Messages'), this.summary, h('span', { style: { flex: '1' } }), this.filterSel,
         h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Clear messages', 'data-tip': 'Clear messages', onClick: () => this.set([], '') }, icon('trash', 14)),
@@ -41,16 +47,26 @@ export class MessagesPanel {
       this.list.append(h('li.panel-empty', this.source ? 'No problems found.' : 'Run Compile (electrical rules) or Design Rule Check to see results here.'));
       return;
     }
+    // Thousands of rows: one icon per severity is cloned, document names are
+    // looked up once, and the list handles the rows' clicks and keys.
+    const icons = {}, names = new Map();
+    const frag = document.createDocumentFragment();
     for (const m of shown.slice(0, 2000)) {
-      const doc = this.app.project?.getDoc(m.docId);
-      const row = h('li.list-row', { tabindex: 0, role: 'button', 'aria-label': `${m.severity}: ${m.message}` },
-        icon(m.severity === 'error' ? 'error' : 'warning', 15, m.severity === 'error' ? 'sev-error' : 'sev-warning'),
+      const sev = m.severity === 'error' ? 'error' : 'warning';
+      const proto = icons[sev] || (icons[sev] = icon(sev, 15, `sev-${sev}`));
+      let name = names.get(m.docId);
+      if (name === undefined) names.set(m.docId, (name = this.app.project?.getDoc(m.docId)?.name || ''));
+      // Named by its content (severity, message, document), so the name always
+      // contains what the row shows.
+      const row = h('div.list-row', { tabindex: 0, role: 'button' },
+        h('span.sr-only', `${m.severity}: `),
+        proto.cloneNode(true),
         h('div.grow', m.message),
-        h('span.sub', doc?.name || ''));
-      const go = () => this.app.focusMessage(m);
-      row.addEventListener('click', go);
-      row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
-      this.list.append(row);
+        h('span.sub', name));
+      row._message = m;
+      frag.append(h('li', row));
     }
+    this.list.append(frag);
+    if (shown.length > 2000) this.list.append(h('li.panel-empty.small', `${shown.length - 2000} more not shown. They appear as the problems above are fixed and the check runs again.`));
   }
 }

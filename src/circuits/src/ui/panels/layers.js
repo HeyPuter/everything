@@ -13,6 +13,16 @@ export class LayersPanel {
   }
 
   refresh() {
+    // The panel is rebuilt by the very changes its controls make: keep
+    // keyboard focus on the control that was in use.
+    const nameOf = (el) => el.getAttribute('aria-label') || el.closest('label')?.textContent || el.textContent;
+    const controls = () => [...this.body.querySelectorAll('input, select, button')];
+    const focused = this.body.contains(document.activeElement) ? nameOf(document.activeElement) : null;
+    this._build();
+    if (focused) controls().find((el) => nameOf(el) === focused && !el.disabled)?.focus();
+  }
+
+  _build() {
     clear(this.body);
     const ed = this.app.activeEditor;
     if (!ed || ed.kind !== 'pcb') { this.body.append(h('div.panel-empty', 'Open a board to configure its layers.')); return; }
@@ -26,7 +36,7 @@ export class LayersPanel {
       color.addEventListener('change', () => s.set('layerColors', { ...s.get('layerColors'), [l]: color.value }));
       const radio = h('input', { type: 'radio', name: 'active-layer', checked: l === ed.activeLayer, 'aria-label': `Make ${LAYERS[l].name} current` });
       radio.addEventListener('change', () => ed.setActiveLayer(l));
-      list.append(h('li.list-row', { 'aria-selected': String(l === ed.activeLayer) }, cb, color, h('span.grow', LAYERS[l].name), radio));
+      list.append(h('li.list-row', { 'aria-current': l === ed.activeLayer ? 'true' : null }, cb, color, h('span.grow', LAYERS[l].name), radio));
     }
     const opt = (label, key) => {
       const cb = h('input', { type: 'checkbox', checked: !!s.get(key) });
@@ -35,7 +45,7 @@ export class LayersPanel {
     };
     const mode = h('select.field', { 'aria-label': 'Single layer mode' },
       [['off', 'Show all layers'], ['gray', 'Gray other layers'], ['hide', 'Hide other layers']].map(([v, t]) => h('option', { value: v, selected: ed.singleLayer === v }, t)));
-    mode.addEventListener('change', () => { ed.singleLayer = mode.value; ed.requestRender(true); ed.emit('layers'); });
+    mode.addEventListener('change', () => ed.setSingleLayer(mode.value));
     this.body.append(
       list,
       h('div', { style: { padding: '8px 10px', display: 'grid', gap: '8px' } },

@@ -250,7 +250,8 @@ export function importSchematics(files, warnings) {
       switch (item[0]) {
         case 'symbol': {
           const libId = String(val(item, 'lib_id', 1, ''));
-          const lib = libs.get(libId);
+          // A symbol that differs from its library is kept under its own name.
+          const lib = libs.get(String(val(item, 'lib_name', 1, ''))) || libs.get(libId);
           if (!lib) { warnings.add(`Symbol ${libId} is missing from the file's symbol library and was skipped.`); break; }
           const tr = instanceTransform(item, H);
           const refProp = property(item, 'Reference'), valProp = property(item, 'Value');

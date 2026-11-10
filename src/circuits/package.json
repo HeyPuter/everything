@@ -4,6 +4,7 @@
   "description": "Circuits: schematic capture and PCB layout in the browser. Draw schematics, lay out boards with WebGL rendering, pour copper, check design rules and export Gerber files, stored in your own Puter cloud.",
   "type": "module",
   "private": true,
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=22.12"
   },

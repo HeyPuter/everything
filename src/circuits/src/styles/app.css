@@ -188,14 +188,15 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
   width: 100%; min-width: 0; height: 26px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text);
 }
 .prop-grid textarea, .dialog textarea { height: auto; min-height: 60px; padding: 5px 7px; resize: vertical; font-family: var(--font-mono); }
-.prop-grid input:focus, .prop-grid select:focus, .dialog input:focus, .dialog select:focus, .dialog textarea:focus, .prop-grid textarea:focus { outline: none; border-color: var(--focus); }
-.prop-grid input[aria-invalid='true'], .dialog input[aria-invalid='true'] { border-color: var(--danger); }
+/* The :not() chains match the rule above, which would otherwise outweigh these and keep its border. */
+.prop-grid input:not([type='checkbox']):not([type='color']):focus, .prop-grid select:focus, .dialog input:not([type='checkbox']):not([type='radio']):not([type='color']):focus, .dialog select:focus, .dialog textarea:focus, .prop-grid textarea:focus { outline: none; border-color: var(--focus); }
+.prop-grid input:not([type='checkbox']):not([type='color'])[aria-invalid='true'], .dialog input:not([type='checkbox']):not([type='radio']):not([type='color'])[aria-invalid='true'] { border-color: var(--danger); }
 .prop-grid .inline { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .prop-grid .inline > * { flex: 1; min-width: 0; }
 .seg-ctl { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
 .seg-ctl button { border: 0; background: var(--bg-input); padding: 0 8px; height: 24px; color: var(--text-2); }
 .seg-ctl button + button { border-left: 1px solid var(--border-strong); }
-.seg-ctl button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); }
+.seg-ctl button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-text); }
 .check-row { display: flex; align-items: center; gap: 8px; }
 .check-row input { margin: 0; accent-color: var(--accent); }
 .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.35); flex: none; display: inline-block; }
@@ -207,9 +208,11 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .list { list-style: none; margin: 0; padding: 2px 0; }
 .list-row { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 2px 10px; cursor: default; border-left: 2px solid transparent; }
 .list-row:hover { background: var(--bg-hover); }
-.list-row[aria-selected='true'] { background: var(--bg-selected); border-left-color: var(--accent); }
+.list-row[aria-selected='true'], .list-row[aria-current='true'] { background: var(--bg-selected); border-left-color: var(--accent); }
 .list-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .sub { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The dimmest text colour is too faint on the hover and selection backgrounds. */
+.list-row:hover .sub, .list-row[aria-selected='true'] .sub { color: var(--text-2); }
 /* Rows scrolled into view stop below the sticky group heading, not under it. */
 .list-group-head ~ .list-row { scroll-margin-top: 28px; }
 .list-group-head { position: sticky; top: 0; background: var(--bg-panel); padding: 6px 10px 3px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; z-index: 1; }
@@ -280,7 +283,9 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .layer-tab { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-2); white-space: nowrap; flex: none; }
 .layer-tab:hover { background: var(--bg-hover); color: var(--text); }
 .layer-tab[aria-selected='true'] { background: var(--bg-panel); color: var(--text); font-weight: 600; }
-.layer-tab.hidden-layer { opacity: 0.45; }
+/* Hidden layers stay readable: struck through with a faded swatch, not faded text. */
+.layer-tab.hidden-layer { color: var(--text-3); text-decoration: line-through; }
+.layer-tab.hidden-layer .swatch { opacity: 0.35; }
 .layer-current { width: 16px; height: 16px; border-radius: 3px; flex: none; margin: 0 4px 0 2px; border: 1px solid rgba(0, 0, 0, 0.4); }
 
 /* Component editor: view tabs above the canvas and a check summary below. */
@@ -335,8 +340,11 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .dialog-head h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; flex: 1; }
 .dialog-body { padding: 14px 16px; overflow: auto; min-height: 0; flex: 1; }
 .dialog-body p { margin: 0 0 10px; line-height: 1.5; }
-.dialog-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--bg-chrome-2); }
-.dialog-foot .left { margin-right: auto; display: flex; gap: 8px; align-items: center; }
+/* A message that stays in view at the bottom of a long form; it takes no room until it has text. */
+.dialog-error { position: sticky; bottom: -14px; background: var(--bg-panel); }
+.dialog-error:not(:empty) { padding: 4px 0; }
+.dialog-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--bg-chrome-2); }
+.dialog-foot .left { margin-right: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .form-grid { display: grid; grid-template-columns: minmax(120px, 34%) minmax(0, 1fr); gap: 8px 12px; align-items: center; }
 .form-grid > label { color: var(--text-2); }
 .form-grid .full { grid-column: 1 / -1; }

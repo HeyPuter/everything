@@ -13,12 +13,12 @@ import { resolvedTheme } from '../app/theme.js';
 import { sheetExtents } from '../model/project.js';
 import { schHitDistance, schBounds, SCH_PICK_ORDER, translateSch, rotateSch, mirrorSch, connectionPoints, JUNCTION_R, WIRE_W } from '../model/sch.js';
 import { placeSymbol } from '../model/place.js';
-import { bboxContains, bboxIntersects, bboxUnion, bboxEmpty, distPointSeg } from '../core/geom.js';
+import { bboxContains, bboxIntersects, bboxUnion, bboxEmpty, distPointSeg, simplifyPolyline } from '../core/geom.js';
 import { mil, SCH_GRID, snap } from '../core/units.js';
 import { uid } from '../core/emitter.js';
-import { nextDesignator } from '../model/annotate.js';
+import { designatorAllocator } from '../model/annotate.js';
 import { contextMenu } from '../ui/menu.js';
-import { installVertexEditing } from './vertex.js';
+import { installVertexEditing, dropFoldBacks } from './vertex.js';
 
 export class SchEditor extends CanvasView {
   constructor(app, project, doc) {
@@ -51,6 +51,9 @@ export class SchEditor extends CanvasView {
   get grid() { return this.app.settings.get('schGrid') || SCH_GRID; }
 
   _onChange(e) {
+    // An edit from elsewhere in the middle of a drag (undo, Delete): the drag
+    // holds the objects as they were, and committing it would write them back.
+    if (this.select.move || this.select.vertex) this.select.cancelDrag();
     // Drop deleted objects from the selection.
     for (const id of e.removed.keys()) this.selection.delete(id);
     this._dirtyMain = true;
@@ -303,8 +306,25 @@ export class SchEditor extends CanvasView {
         const corner = fixedFirst ? [pts[2], pts[1]] : [pts[0], pts[3]];
         return { ...w, pts: [pts[0], pts[1], ...corner, pts[2], pts[3]] };
       }
-      return { ...w, pts };
+      // An end pushed onto or past its neighbor leaves a repeated point or a
+      // stub doubling back, which would count as extra wire ends there (a
+      // junction dot on a plain corner or pin).
+      const flat = simplifyPolyline(pts);
+      const cut = dropFoldBacks(flat);
+      return { ...w, pts: cut.length === flat.length || stubInUse(w, flat, cut) ? flat : cut };
     });
+    // True when something else connects on the part of a wire that dropping
+    // its doubled-back stub would remove.
+    const stubInUse = (w, flat, cut) => {
+      for (let i = 0; i < flat.length; i += 2) {
+        const x = flat[i], y = flat[i + 1];
+        let kept = false;
+        for (let j = 2; j < cut.length && !kept; j += 2) kept = distPointSeg(x, y, cut[j - 2], cut[j - 1], cut[j], cut[j + 1]) === 0;
+        if (kept) continue;
+        for (const p of ed._connectionPoints({ minX: x - 1, minY: y - 1, maxX: x + 1, maxY: y + 1 }, [w.id, ...ids])) if (p.x === x && p.y === y) return true;
+      }
+      return false;
+    };
     for (const id of ids) this.hidden.add(id);
     for (const d of dragged) this.hidden.add(d.w.id);
     this._dirtyMain = true;
@@ -317,7 +337,7 @@ export class SchEditor extends CanvasView {
       draw(b) {
         const col = pack(ed.palette.selection);
         for (const o of transformed()) drawSchObject(b, o, ed.lib, ed.palette, col);
-        for (const w of draggedWires()) b.polyline(w.pts, WIRE_W, pack(ed.palette.wire));
+        for (const w of draggedWires()) if (w.pts.length >= 4) b.polyline(w.pts, WIRE_W, pack(ed.palette.wire));
       },
       commit({ label = ids.length === 1 ? 'Move' : `Move ${ids.length} objects`, mergeKey } = {}) {
         ed._endMove();
@@ -326,7 +346,8 @@ export class SchEditor extends CanvasView {
         const wires = draggedWires();
         store.transact(label, (s) => {
           for (const o of objs) s.update(o.id, o);
-          for (const w of wires) s.update(w.id, w);
+          // A wire shrunk to nothing (its pin now sits on its other end) goes.
+          for (const w of wires) if (w.pts.length >= 4) s.update(w.id, w); else s.remove(w.id);
         }, { mergeKey });
       },
       cancel() { ops = []; dx = dy = 0; ed._endMove(); },
@@ -579,16 +600,30 @@ class PasteTool {
   click(ev) {
     const ed = this.editor;
     const sheets = ed.project.sheetObjects();
+    // One pass over the project for all pasted parts; a pass per part froze
+    // the app for seconds when pasting a large selection.
+    const nextDes = designatorAllocator(sheets);
+    const uids = new Set();
+    const designators = new Set();
+    for (const sh of sheets) for (const p of sh.objects) {
+      if (p.t === 'part') { uids.add(p.uid); designators.add(p.designator); }
+    }
     const ids = [];
     ed.doc.store.transact('Paste', (s) => {
       for (const o of this._objs(ev.x, ev.y)) {
         const n = { ...o, id: uid() };
         if (n.t === 'part') {
-          n.uid = uid('u');
-          // The leading letters: R12 -> R, R? -> R, and U1A (unit A) -> U, not U1A.
-          const prefix = /^[A-Za-z_]+/.exec(o.designator || '')?.[0] || ed.lib[o.comp]?.prefix || 'U';
-          n.designator = nextDesignator(sheets, prefix);
-          sheets.push({ id: 'pending', objects: [n] });
+          // A part that was cut comes back as itself: its uid links it to the
+          // component placed and routed on the board, which an update would
+          // otherwise remove and add again. A copy gets its own identity.
+          if (!o.uid || uids.has(o.uid)) n.uid = uid('u');
+          if (n.uid !== o.uid || !o.designator || designators.has(o.designator)) {
+            // The leading letters: R12 -> R, R? -> R, and U1A (unit A) -> U, not U1A.
+            const prefix = /^[A-Za-z_]+/.exec(o.designator || '')?.[0] || ed.lib[o.comp]?.prefix || 'U';
+            n.designator = nextDes(prefix);
+          } else nextDes.reserve(n.designator);
+          uids.add(n.uid);
+          designators.add(n.designator);
         }
         s.add(n);
         ids.push(n.id);

@@ -133,7 +133,7 @@ export function pcbHitDistance(o, x, y, lib, { layers, copperCount = 2, pads = t
     case 'track': return vis(o.layer) ? Math.max(0, distPointSeg(x, y, o.x1, o.y1, o.x2, o.y2) - o.w / 2) : Infinity;
     case 'arc': return vis(o.layer) ? Math.max(0, distPointArc(x, y, o.cx, o.cy, o.r, o.a0, o.sweep) - o.w / 2) : Infinity;
     case 'via': return vis('multi') || copperLayers(copperCount).some(vis) ? Math.max(0, Math.hypot(x - o.x, y - o.y) - o.d / 2) : Infinity;
-    case 'pad': return Math.max(0, padDistance(o, x, y));
+    case 'pad': return pcbPickable(o, lib, layers, copperCount) ? Math.max(0, padDistance(o, x, y)) : Infinity;
     case 'fill': {
       if (!vis(o.layer)) return Infinity;
       const b = pcbBounds(o);
@@ -173,6 +173,19 @@ export function pcbHitDistance(o, x, y, lib, { layers, copperCount = 2, pads = t
     }
     default: return Infinity;
   }
+}
+
+/** Is any of the object on one of the given (visible) layers? No set: every layer counts. */
+export function pcbPickable(o, lib, layers, copperCount = 2) {
+  if (!layers) return true;
+  if (o.layer) return layers.has(o.layer);
+  const thru = () => layers.has('multi') || copperLayers(copperCount).some((l) => layers.has(l));
+  if (o.t === 'via') return thru();
+  if (o.t === 'pad') return o.side === 'thru' ? thru() : layers.has(o.side);
+  if (o.t !== 'comp') return true;
+  const bottom = o.side === 'bottom';
+  if (layers.has(bottom ? 'bottomOverlay' : 'topOverlay') || layers.has(bottom ? 'bottom' : 'top')) return true;
+  return (lib[o.comp]?.footprint?.pads || []).some((p) => (p.side === 'thru' ? thru() : layers.has(bottom ? flipLayer(p.side) : p.side)));
 }
 
 function polyOutlineDistance(pts, x, y) {

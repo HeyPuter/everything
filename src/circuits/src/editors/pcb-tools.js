@@ -20,6 +20,11 @@ import { rotatePcb, flipComp } from '../model/pcb.js';
 const CORNERS = ['45start', '45end', '90start', '90end', 'any'];
 const CORNER_LABEL = { '45start': '45 degrees start', '45end': '45 degrees end', '90start': '90 degrees start', '90end': '90 degrees end', any: 'any angle' };
 
+// Keys that turn what a placing tool holds. The drawing tools have nothing to
+// turn but still take them, or they would fall through to the commands that
+// rotate and flip the selection left from before the tool started.
+export const TURN_KEYS = new Set(['Space', 'Shift+Space', 'L']);
+
 function crosshair(b, ed, x, y, color) {
   const s = 14 * ed.nmPerPx;
   const c = pack(color || ed.palette.crosshair, 0.85);
@@ -62,7 +67,14 @@ export class RouteTool {
 
   _start(ev) {
     const ed = this.editor;
-    const hit = ed.copperAt(ev.rawX, ev.rawY, ed.activeLayer);
+    // Tracks are copper: from a silkscreen or mechanical layer, route on that side's copper.
+    if (!isCopper(ed.activeLayer)) ed.setActiveLayer(LAYERS[ed.activeLayer].side === 'bottom' ? 'bottom' : 'top');
+    let hit = ed.copperAt(ev.rawX, ev.rawY, ed.activeLayer);
+    if (!hit) {
+      // Nothing on the current layer: a pad on another visible layer starts the trace there.
+      const other = ed.copperAt(ev.rawX, ev.rawY, null);
+      if (other?.isPad && ed.isLayerVisible(other.layers[0])) hit = other;
+    }
     let x = ev.x, y = ev.y, net = '';
     if (hit) {
       net = hit.net || '';
@@ -82,7 +94,9 @@ export class RouteTool {
     const ax = t.pts[n - 2], ay = t.pts[n - 1];
     const c = cornerPoint(ax, ay, x, y, this.corner);
     const pts = c ? [ax, ay, c[0], c[1], x, y] : [ax, ay, x, y];
-    if (this.mode !== 'stop') return pts;
+    // A trace without a net has no other nets to keep clear of yet: it joins
+    // the copper it touches and takes the net of the copper it lands on.
+    if (this.mode !== 'stop' || !t.net) return pts;
     return this._clip(pts);
   }
 
@@ -123,11 +137,24 @@ export class RouteTool {
     const ex = path[path.length - 2], ey = path[path.length - 1];
     // Finish when the trace lands on copper of the same net (or any net when unnetted).
     const hit = this.editor.copperAt(ex, ey, t.layer, true, new Set(t.placed));
-    const onStart = hit && t.start && hit.objId === t.start.objId && (!hit.isPad || hit.anchor?.[0] === t.start.anchor?.[0]);
+    const samePad = hit?.anchor?.[0] === t.start?.anchor?.[0] && hit?.anchor?.[1] === t.start?.anchor?.[1];
+    const onStart = hit && t.start && hit.objId === t.start.objId && (!hit.isPad || samePad);
     if (hit && !onStart && (!t.net || !hit.net || hit.net === t.net)) {
       if (!t.net && hit.net) this._assignNet(hit.net);
+      else if (!hit.net) this._adopt(hit.objId);
       this.finish();
     }
+  }
+
+  /**
+   * Loose copper without a net (a via, a track, a free pad) takes the net of
+   * the trace joined to it; left without one it would count as shorted to it.
+   */
+  _adopt(objId) {
+    const t = this.trace;
+    const o = this.editor.doc.store.get(objId);
+    if (!t.net || !o || o.net || !['via', 'track', 'arc', 'pad'].includes(o.t)) return;
+    this.editor.doc.store.transact('Route', (s) => s.update(objId, { net: t.net }), { mergeKey: `route:${t.id}` });
   }
 
   _commitPath(path) {
@@ -148,6 +175,7 @@ export class RouteTool {
     const t = this.trace;
     t.net = net;
     this.editor.doc.store.transact('Route', (s) => { for (const id of t.placed) if (s.get(id)) s.update(id, { net }); }, { mergeKey: `route:${t.id}` });
+    if (t.start) this._adopt(t.start.objId);
   }
 
   finish() {
@@ -170,11 +198,22 @@ export class RouteTool {
     const next = layers[(cur + dir + layers.length) % layers.length];
     if (t) {
       const [x, y] = t.pts.slice(-2);
-      const cls = ed.netClassOf(t.net);
-      const via = { id: uid(), t: 'via', x, y, d: cls?.viaDiameter || ed.doc.rules.viaDiameter, drill: cls?.viaDrill || ed.doc.rules.viaDrill, from: layers[0], to: layers[layers.length - 1], net: t.net || undefined };
-      ed.doc.store.transact('Route', (s) => s.add(via), { mergeKey: `route:${t.id || (t.id = uid())}` });
-      t.placed.push(via.id);
-      (t.viaFrom ||= new Map()).set(via.id, t.layer);
+      const lastId = t.placed[t.placed.length - 1];
+      const last = lastId ? ed.doc.store.get(lastId) : null;
+      if (last?.t === 'via' && last.x === x && last.y === y) {
+        // Still at the via just dropped (stepping over an inner layer): it spans
+        // every layer already. Back on the layer it left, it is not needed at all.
+        if (next === t.viaFrom?.get(lastId)) {
+          ed.doc.store.transact('Route', (s) => s.remove(lastId), { mergeKey: `route:${t.id}` });
+          t.placed.pop();
+        }
+      } else {
+        const cls = ed.netClassOf(t.net);
+        const via = { id: uid(), t: 'via', x, y, d: cls?.viaDiameter || ed.doc.rules.viaDiameter, drill: cls?.viaDrill || ed.doc.rules.viaDrill, from: layers[0], to: layers[layers.length - 1], net: t.net || undefined };
+        ed.doc.store.transact('Route', (s) => s.add(via), { mergeKey: `route:${t.id || (t.id = uid())}` });
+        t.placed.push(via.id);
+        (t.viaFrom ||= new Map()).set(via.id, t.layer);
+      }
       t.layer = next;
     }
     ed.setActiveLayer(next);
@@ -231,7 +270,7 @@ export class RouteTool {
       ed.app.toast(this.mode === 'stop' ? 'Routing stops at the first obstacle' : 'Routing ignores obstacles', { timeout: 2000 });
       return true;
     }
-    return false;
+    return TURN_KEYS.has(combo);
   }
 
   deactivate() { this.finish(); }
@@ -288,7 +327,7 @@ export class PlacePcbTool {
     if (combo === 'L' && this.template.t === 'comp') { this.template = flipComp(this.template); return true; }
     if (combo === 'Tab' && this.edit) { this.edit(this); return true; }
     if (combo === 'Escape') { this.editor.endTool(); return true; }
-    return false;
+    return TURN_KEYS.has(combo);
   }
   rightClick() { this.editor.endTool(); return true; }
   drawOverlay(b) {
@@ -354,7 +393,7 @@ export class PolygonTool {
     if (combo === 'Backspace') { this.pts = this.pts.slice(0, -2); this.editor.updateHint(); return true; }
     if (combo === 'Enter') { this.close(); return true; }
     if (combo === 'Escape') { if (this.pts.length) { this.pts = []; this.editor.updateHint(); } else this.editor.endTool(); return true; }
-    return false;
+    return TURN_KEYS.has(combo);
   }
   drawOverlay(b) {
     const ed = this.editor, c = ed.cursor;
@@ -417,7 +456,7 @@ export class LineTool {
   rightClick() { if (this.start) { this.start = null; this.editor.updateHint(); } else this.editor.endTool(); return true; }
   key(e, combo) {
     if (combo === 'Escape') { if (this.start) { this.start = null; this.editor.updateHint(); } else this.editor.endTool(); return true; }
-    return false;
+    return TURN_KEYS.has(combo);
   }
   drawOverlay(b) {
     const ed = this.editor, c = ed.cursor;
