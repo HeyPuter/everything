@@ -269,16 +269,30 @@ export async function record(app, kind) {
   }
   app.editor.ensureCaret();
   const range = currentRange()?.cloneRange();
+  // Taken before the permission prompt: a second click while it is open
+  // must not start a second recording, whose microphone nothing could stop.
+  const starting = { kind, stop() {} };
+  app.recorder = starting;
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia(kind === 'video' ? { audio: true, video: true } : { audio: true });
   } catch {
+    if (app.recorder === starting) app.recorder = null;
     toast(`Allow ${kind === 'video' ? 'camera and microphone' : 'microphone'} access to record.`, { kind: 'error' });
     return;
   }
   const types = kind === 'video' ? ['video/webm;codecs=vp9,opus', 'video/webm', 'video/mp4'] : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
-  const mimeType = types.find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
-  const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  let mimeType = '';
+  let rec;
+  try {
+    mimeType = types.find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
+    rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  } catch {
+    stream.getTracks().forEach((t) => t.stop());
+    if (app.recorder === starting) app.recorder = null;
+    toast("This browser can't record here.", { kind: 'error' });
+    return;
+  }
   const chunks = [];
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   let started = Date.now();
@@ -310,13 +324,11 @@ export async function record(app, kind) {
       pauseBtn.setAttribute('aria-label', 'Pause recording');
     }
   });
-  stopBtn.addEventListener('click', () => app.recorder.stop());
-  app.recorder = {
-    kind,
-    stop: () => {
-      if (rec.state !== 'inactive') rec.stop();
-    },
+  const stop = () => {
+    if (rec.state !== 'inactive') rec.stop();
   };
+  stopBtn.addEventListener('click', stop);
+  app.recorder = { kind, stop };
   rec.onstop = async () => {
     clearInterval(tick);
     stream.getTracks().forEach((t) => t.stop());

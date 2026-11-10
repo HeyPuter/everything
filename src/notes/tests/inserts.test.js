@@ -160,3 +160,64 @@ describe('equation dialog', () => {
     expect(span.dataset.tex).toBe('x^2');
   });
 });
+
+describe('recording', () => {
+  const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+  let recorders;
+  let tracks;
+  let allow;
+
+  beforeEach(() => {
+    recorders = [];
+    tracks = [];
+    globalThis.MediaRecorder = class {
+      constructor() {
+        this.state = 'inactive';
+        this.mimeType = 'audio/webm';
+        recorders.push(this);
+      }
+      start() {
+        this.state = 'recording';
+      }
+      stop() {
+        this.state = 'inactive';
+        this.ondataavailable?.({ data: new Blob(['sound']) });
+        this.onstop?.();
+      }
+    };
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: () => new Promise((resolve) => {
+          allow = () => {
+            const track = { stopped: false, stop() { this.stopped = true; } };
+            tracks.push(track);
+            resolve({ getTracks: () => [track] });
+          };
+        }),
+      },
+    });
+  });
+
+  afterEach(() => {
+    delete globalThis.MediaRecorder;
+    delete navigator.mediaDevices;
+    document.querySelector('.toasts')?.replaceChildren();
+  });
+
+  it('starts one recording when the button is clicked twice during the permission prompt', async () => {
+    app.record('audio');
+    // The second click stops the pending one rather than starting another.
+    app.record('audio');
+    allow();
+    await tick();
+    expect(recorders).toHaveLength(1);
+    expect(document.querySelectorAll('.recording-bar')).toHaveLength(1);
+    document.querySelector('.recording-bar .btn').click();
+    await tick(10);
+    expect(tracks.every((t) => t.stopped)).toBe(true);
+    expect(app.recorder).toBeNull();
+    expect(document.querySelector('.recording-bar')).toBeNull();
+    expect(app.editor.page.outlines.map((o) => o.html).join('')).toContain('data-kind="audio"');
+  });
+});
