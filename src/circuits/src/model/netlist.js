@@ -6,7 +6,8 @@
 // Connection rules:
 // - A wire conducts along its whole length.
 // - A wire end, pin end, label, power port or port touching the interior of a
-//   wire connects to it (a T joint) and gets a junction dot.
+//   wire connects to it (a T joint) and gets a junction dot. A net label only
+//   names the wire it sits on, so it connects without a dot.
 // - Two wires crossing mid-segment do not connect unless a junction is placed.
 
 import { placeSymbol } from './place.js';
@@ -109,7 +110,7 @@ function analyseSheet(sheet, lib, dsu, prefix) {
       const k = prefix + key(x, y);
       dsu.find(k);
       named.push({ kind: o.t, name: o.t === 'label' ? o.text : o.t === 'power' ? o.net : o.name, key: k, obj: o, ground: o.t === 'power' && GROUND_STYLES.has(o.style) });
-      tPoints.push([x, y]);
+      tPoints.push([x, y, o.t === 'label']);
       for (const [ex, ey] of more) {
         dsu.union(k, prefix + key(ex, ey));
         tPoints.push([ex, ey]);
@@ -124,11 +125,11 @@ function analyseSheet(sheet, lib, dsu, prefix) {
 
   // T joints: points on the interior of a wire connect to it.
   const autoJunctions = new Map();
-  for (const [x, y] of tPoints) {
+  for (const [x, y, noDot] of tPoints) {
     for (const s of segs.at(x, y)) {
       if (onSegInterior(x, y, s[0], s[1], s[2], s[3])) {
         dsu.union(prefix + key(x, y), prefix + key(s[0], s[1]));
-        autoJunctions.set(key(x, y), [x, y]);
+        if (!noDot) autoJunctions.set(key(x, y), [x, y]);
       }
     }
   }

@@ -189,3 +189,22 @@ describe('edits made while a drag is in progress', () => {
     expect(store.get(r3.id)).toBe(r3);
   });
 });
+
+describe('net labels on a wire', () => {
+  it('name the wire without drawing a junction dot on it', () => {
+    const r1 = part('R1', 0, 0),
+      r2 = part('R2', 1000, 0);
+    const objects = [r1, r2, wire(200, 0, 800, 0), label('SIG', 500, 0)];
+    const nl = buildNetlist([{ id: 's', objects }], lib);
+    expect(nl.byPin.get(`${r1.id}:2`)).toBe('SIG');
+    expect(nl.byPin.get(`${r2.id}:1`)).toBe('SIG');
+    expect(nl.sheets.get('s').junctions).toEqual([]);
+  });
+
+  it('leave the dot of a wire that ends at the same place', () => {
+    const r1 = part('R1', 0, 0);
+    const objects = [r1, wire(200, 0, 800, 0), wire(500, 0, 500, 300), label('SIG', 500, 0)];
+    const nl = buildNetlist([{ id: 's', objects }], lib);
+    expect(nl.sheets.get('s').junctions).toEqual([[mil(500), 0]]);
+  });
+});
