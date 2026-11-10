@@ -8,7 +8,7 @@ import { colorLabel, colorCss } from '../core/colors.js';
 import { defaultLayer, freeTableName, LINEWEIGHTS, LW_DEFAULT } from '../core/schema.js';
 import { lwLabel } from './combos.js';
 import { confirmDialog } from './dialog.js';
-import { preserveFocus } from './focus.js';
+import { preserveFocus, keepScroll } from './focus.js';
 
 export class LayerManager {
   constructor(app) {
@@ -100,6 +100,7 @@ export class LayerManager {
     const d = this.drawing;
     const counts = this.usage();
     const names = [...d.layers.keys()].sort((a, b) => (a === '0' ? -1 : b === '0' ? 1 : a.localeCompare(b, undefined, { numeric: true })));
+    const restoreScroll = keepScroll(this.table.parentElement);
     clear(this.tbody);
     let shown = 0;
     for (const name of names) {
@@ -206,6 +207,7 @@ export class LayerManager {
       );
       this.tbody.append(row);
     }
+    restoreScroll();
     this.status.textContent = `${shown} of ${names.length} layers shown. Current layer: ${d.header.clayer}.`;
   }
 

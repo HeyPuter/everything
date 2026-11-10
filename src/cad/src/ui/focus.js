@@ -10,3 +10,18 @@ export function preserveFocus(container, render) {
   const next = [...container.querySelectorAll('[data-key]')].find((el) => el.dataset.key === key);
   next?.focus({ preventScroll: true });
 }
+
+/**
+ * Keep a scroller where it is across a re-render: taking out the rows (and the
+ * focused control with them) drops its position. Returns restore(), to call
+ * once the new content is in place.
+ */
+export function keepScroll(scroller) {
+  const top = scroller?.scrollTop;
+  const left = scroller?.scrollLeft;
+  return () => {
+    if (!scroller || (!top && !left)) return;
+    scroller.scrollTop = top;
+    scroller.scrollLeft = left;
+  };
+}
