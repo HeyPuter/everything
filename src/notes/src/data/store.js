@@ -60,6 +60,8 @@ export class Store extends Emitter {
     // Re-encrypted assets' old copies, by page id: removed once the page
     // pointing at the new copies is saved.
     this.staleAssets = new Map();
+    // Loaded pages that another device has saved a newer copy of (refresh).
+    this.stalePages = new Set();
     this.loadedSnapshots = new Map();
     this.status = 'saved';
     // Keys of unlocked password-protected sections, by section id. Never stored.
@@ -182,6 +184,16 @@ export class Store extends Emitter {
         }
         this.notebooks[i] = remote;
         changed = true;
+        // Pages already loaded here (a search or the tag summary loads them
+        // all) that the other device edited: they are read again when next
+        // asked for, or the old copy would be shown, searched and, once
+        // edited, saved over the newer one.
+        for (const s of this.sectionsOf(remote)) {
+          for (const m of s.pages || []) {
+            const cached = this.pages.get(m.id);
+            if (cached && String(m.modified || '') > String(cached.modified || '')) this.stalePages.add(m.id);
+          }
+        }
       }
     }
     if (changed) {
@@ -238,6 +250,7 @@ export class Store extends Emitter {
       const key = this.keys.get(this.findPage(id)?.section.id);
       remote = key ? await openJSON(key, remote.sealed).catch(() => null) : null;
     }
+    if (remote) this.stalePages.delete(id);
     // Edits made while the copy was read win: never replace them.
     if (unsaved() || local.modified !== modified) return false;
     if (!remote?.modified || remote.modified <= local.modified) return false;
@@ -514,7 +527,10 @@ export class Store extends Emitter {
   }
 
   async loadPage(id) {
-    if (this.pages.has(id)) return this.pages.get(id);
+    if (this.pages.has(id)) {
+      if (this.stalePages.has(id)) await this.refreshPage(id);
+      return this.pages.get(id);
+    }
     if (this.pageLoads.has(id)) return this.pageLoads.get(id);
     const job = (async () => {
       // A sealed save still waiting to be retried is newer than the file.

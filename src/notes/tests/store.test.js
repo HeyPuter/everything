@@ -394,6 +394,44 @@ describe('Store: Deleted Notes on two devices', () => {
     return { backend, a, b, one, two };
   }
 
+  it('reads again a page that another device edited after it was loaded here', async () => {
+    const { backend, a, b, one } = await twoDevices();
+    // A search on b loads every page.
+    await b.search('anything');
+    const page = await a.loadPage(one.id);
+    page.outlines.push({ id: 'o1', x: 0, y: 0, html: '<p>written on the other device</p>' });
+    a.pageChanged(page);
+    await a.flush();
+    await later();
+    expect(await b.refresh()).toBe(true);
+    expect((await b.search('written on the other')).map((r) => r.meta.id)).toEqual([one.id]);
+    const onB = await b.loadPage(one.id);
+    expect(onB.outlines.map((o) => o.html).join('')).toContain('written on the other device');
+    // An edit here then builds on that text instead of saving over it.
+    onB.outlines.push({ id: 'o2', x: 0, y: 100, html: '<p>added here</p>' });
+    b.pageChanged(onB);
+    await b.flush();
+    const saved = JSON.parse(backend.files.get(`pages/${one.id}.json`));
+    expect(saved.outlines.map((o) => o.id)).toEqual(['o1', 'o2']);
+  });
+
+  it('keeps a page with unsaved edits here when another device edited it too', async () => {
+    const { a, b, one } = await twoDevices();
+    const onB = await b.loadPage(one.id);
+    const page = await a.loadPage(one.id);
+    page.outlines.push({ id: 'o1', x: 0, y: 0, html: '<p>theirs</p>' });
+    a.pageChanged(page);
+    await a.flush();
+    await later();
+    await b.refresh();
+    // Edits waiting to be saved here are never replaced by the read.
+    b.saveDelay = 1000;
+    onB.outlines.push({ id: 'o2', x: 0, y: 0, html: '<p>mine</p>' });
+    b.pageChanged(onB);
+    expect((await b.loadPage(one.id)).outlines.map((o) => o.id)).toEqual(['o2']);
+    b.cancel(`pages/${one.id}.json`);
+  });
+
   it('keeps pages deleted on each device in Deleted Notes', async () => {
     const { backend, a, b, one, two } = await twoDevices();
     a.deletePage(one.id);
