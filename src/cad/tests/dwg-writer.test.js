@@ -196,6 +196,16 @@ describe('DWG writer', () => {
     expect(warnings.some((w) => /ANSI31.*45/.test(w))).toBe(true);
   });
 
+  it('writes hatch pattern names with non-ASCII letters as text, not as escapes', () => {
+    const d = everything();
+    d.entities = [ent('hatch', { loops: [[0, 0, 0, 10, 0, 0, 10, 10, 0]], pattern: 'Schräg', scale: 1, angle: 0 })];
+    const warnings = [];
+    const bytes = writeDwg(d, { dimensionEntities, warnings });
+    expect(warnings.some((w) => w.includes("Hatch pattern 'Schräg' has no definition"))).toBe(true);
+    expect([...readDatabase(bytes).objects.values()].find((o) => o.type === 'HATCH').name).toBe('Schräg');
+    expect(parseDwg(bytes).drawing.entities[0].pattern).toBe('SCHRÄG');
+  });
+
   it('writes DWG 2000 on request, with colors as color numbers', () => {
     const d = everything();
     d.layers[1].color = '#ff8000';

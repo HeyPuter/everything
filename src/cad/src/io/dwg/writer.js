@@ -1026,7 +1026,7 @@ function hatchValues(r) {
   for (; i < g.length; i++) {
     const [c, val] = g[i];
     if (c === 30) v.elevation = +val;
-    else if (c === 2) v.name = val;
+    else if (c === 2) v.name = unescape(val);
     else if (c === 70) v.solid = +val & 1;
     else if (c === 71) v.associative = +val;
     else if (c === 91) {
