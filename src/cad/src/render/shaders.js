@@ -13,6 +13,14 @@ precision highp int;
 `;
 
 /**
+ * Keeps the high/low subtraction exact: without it Metal (Chrome and Safari
+ * on Apple devices) compiles vertex shaders with fast math, regroups the sum
+ * as (hi + lo) - camera and so rounds positions to single floats, which
+ * moves and collapses geometry far from the origin.
+ */
+const EXACT = 'invariant gl_Position;';
+
+/**
  * Depth of a draw-order band: later bands are nearer, band 0 is the far
  * plane. Steps of 2^-21 stay distinct in a 24-bit depth buffer.
  */
@@ -53,6 +61,7 @@ flat out uint v_row;
 flat out uint v_flags;
 flat out vec4 v_cut;        // joint bisector normals at the start (xy) and end (zw)
 flat out vec4 v_joint;      // start (xy) and end (zw) points in window pixels
+${EXACT}
 
 const float JOIN_STEP = 0.024639942; // 2 PI / 255, see batch.js
 ${BAND_DEPTH}
@@ -189,6 +198,7 @@ uniform vec2 u_xt;
 uniform vec2 u_xp;
 uniform int u_fills;   // 0 all, 1 opaque only, 2 translucent only (draw-order bands)
 out vec4 v_color;
+${EXACT}
 ${BAND_DEPTH}
 void main() {
   vec2 p = (a_pos.xy - u_camHi) + (a_pos.zw - u_camLo);

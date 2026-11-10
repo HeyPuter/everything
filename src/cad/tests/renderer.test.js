@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Renderer } from '../src/render/renderer.js';
 import { Camera } from '../src/render/camera.js';
+import { SEG_VS, TRI_VS } from '../src/render/shaders.js';
 import { Drawing } from '../src/core/drawing.js';
 
 globalThis.requestAnimationFrame ??= () => 1;
@@ -215,5 +216,13 @@ describe('Renderer block changes', () => {
     let id;
     d.transaction('insert', () => (id = d.add(insert('Y')).id));
     expect(r.infinite.has(id)).toBe(true);
+  });
+});
+
+describe('Shaders', () => {
+  it('keep vertex positions exact where the compiler uses fast math', () => {
+    // Metal regroups (hi - camHi) + (lo - camLo) unless the position is
+    // invariant, which loses the low parts far from the origin.
+    for (const src of [SEG_VS, TRI_VS]) expect(src).toMatch(/^invariant gl_Position;$/m);
   });
 });
