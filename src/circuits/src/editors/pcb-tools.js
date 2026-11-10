@@ -82,7 +82,9 @@ export class RouteTool {
     const ax = t.pts[n - 2], ay = t.pts[n - 1];
     const c = cornerPoint(ax, ay, x, y, this.corner);
     const pts = c ? [ax, ay, c[0], c[1], x, y] : [ax, ay, x, y];
-    if (this.mode !== 'stop') return pts;
+    // A trace without a net has no other nets to keep clear of yet: it joins
+    // the copper it touches and takes the net of the copper it lands on.
+    if (this.mode !== 'stop' || !t.net) return pts;
     return this._clip(pts);
   }
 
