@@ -168,3 +168,23 @@ describe('findBoundary far from the origin', () => {
     expect(findBoundary(O + 5, O + 5, [open])).toBeNull();
   });
 });
+
+describe('findBoundary vertex merging', () => {
+  it('joins ends that differ by less than the tolerance on every side of the pick point', () => {
+    // Corners sit in all four quadrants around the pick point (negative and
+    // positive grid cells) and each pair of ends is off by a fraction of tol.
+    const e = 4e-9;
+    const curves = [
+      seg(-50, -30, 50 + e, -30 - e),
+      seg(50, -30, 50 - e, 30 + e),
+      seg(50, 30, -50 - e, 30 - e),
+      seg(-50, 30, -50 + e, -30 + e),
+    ];
+    const r = findBoundary(0.25, -0.5, curves, { tol: 1e-8 });
+    expect(r).not.toBeNull();
+    expect(r.outer.length).toBe(8);
+    expect(ringArea(r.outer)).toBeCloseTo(6000, 5);
+    // ends farther apart than the tolerance stay open
+    expect(findBoundary(0.25, -0.5, curves, { tol: 1e-9 })).toBeNull();
+  });
+});
