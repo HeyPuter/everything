@@ -597,3 +597,34 @@ describe('password-protected sections: shared links', () => {
     expect(allText(backend)).not.toContain('treasure');
   });
 });
+
+describe('password-protected sections: copies', () => {
+  it('protects the copy of a protected section with the same password', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    const page = await store.loadPage(meta.id);
+    const asset = await store.saveAsset(new Blob(['png bytes'], { type: 'image/png' }), 'a.png', { sectionId: section.id });
+    page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+    store.pageChanged(page);
+    await store.flush();
+    const copy = await store.copySection(section.id);
+    await store.flush();
+    expect(copy.locked).toBeTruthy();
+    const text = allText(backend);
+    expect(text).not.toContain('treasure');
+    expect(text).not.toContain('Secret plans');
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(fresh.isLocked(copy.id)).toBe(true);
+    expect(await fresh.unlockSection(copy.id, 'wrong')).toBe(false);
+    expect(await fresh.unlockSection(copy.id, 'pw')).toBe(true);
+    const copied = await fresh.loadPage(fresh.section(copy.id).pages[0].id);
+    expect(copied.outlines[0].html).toContain('treasure');
+    const img = copied.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+    expect(img).not.toBe(asset);
+    expect(await (await fresh.assetBlob(img)).text()).toBe('png bytes');
+    // The original is untouched and a locked section can't be copied.
+    await store.lockSection(section.id);
+    expect(await store.copySection(section.id)).toBeNull();
+  });
+});

@@ -607,9 +607,15 @@ export class Store extends Emitter {
     const target = this.notebook(notebookId || f.notebook.id);
     const list = parentId ? this.findNode(parentId)?.node.children : target.sections;
     const now = this.now();
+    // A locked section's pages can't be read to copy them.
+    if (f.node.locked && !this.keys.has(id)) return null;
     const copy = { ...structuredClone(f.node), id: uid('s'), created: now, modified: now, pages: [] };
-    delete copy.locked;
+    // The copy of a protected section is protected by the same password:
+    // an unprotected copy would put everything in it in storage as plain
+    // text, without a word.
+    if (f.node.locked) this.keys.set(copy.id, this.keys.get(id));
     delete copy.sealed;
+    delete copy.pageIds;
     const copiedPages = [];
     if (target === f.notebook) copy.name = `${f.node.name} (copy)`;
     // Load every page first: a failed load then leaves no half-made copy behind.
