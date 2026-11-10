@@ -65,7 +65,18 @@ export function hatchTab(app, st, onChange) {
           'aria-label': label,
           ...attrs,
         });
-        inp.addEventListener('keydown', (e) => e.stopPropagation());
+        inp.addEventListener('keydown', (e) => {
+          e.stopPropagation();
+          if (e.key !== 'Escape') return;
+          e.preventDefault();
+          // First undo what is being typed; with nothing typed, Escape cancels
+          // the hatch as it does on the drawing.
+          if (inp.value.trim() === '' || Number(inp.value) !== get()) inp.value = get();
+          else {
+            app.editor.cancel();
+            app.focusCanvas();
+          }
+        });
         inp.addEventListener('change', () => {
           const v = Number(inp.value);
           if (inp.value.trim() !== '' && Number.isFinite(v) && onSet(v) !== false) {
