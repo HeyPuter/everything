@@ -751,6 +751,8 @@ export const BREAK = {
     const filter = (e) => ['line', 'xline', 'ray', 'circle', 'arc', 'ellipse', 'polyline'].includes(e.type);
     const pick = await ed.getEntity('Select object (the pick point is the first break point)', { filter });
     if (!pick || pick.option) return;
+    // "@" for the second point means the first one: break without a gap.
+    ed.lastPoint = { x: pick.x, y: pick.y };
     const pts = await whileSelected(ed, [pick.id], async () => {
       const p2 = await ed.getPoint('Second break point', { options: opts('First point') });
       if (!p2) return null;

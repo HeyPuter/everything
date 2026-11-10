@@ -498,3 +498,18 @@ describe('Shift+click', () => {
     expect(t.ed.active?.def.name).toBe('GRIPEDIT');
   });
 });
+
+describe('BREAK', () => {
+  it('takes @ as the first break point, not the last point of an earlier command', async () => {
+    await t.type('LINE', '0,0', '10,0', '');
+    await t.type('BREAK');
+    await t.pick(5, 0);
+    await t.type('@');
+    expect(t.ed.busy).toBe(false);
+    const xs = t.all('line').map((l) => [l.x1, l.x2]);
+    expect(xs).toEqual([
+      [0, 5],
+      [5, 10],
+    ]);
+  });
+});
