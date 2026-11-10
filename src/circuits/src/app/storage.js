@@ -139,8 +139,14 @@ export async function listProjects() {
 
 export const sameLocation = (a, b) => !!a && !!b && a.type === b.type && (a.type === 'cloud' ? a.path === b.path : a.id === b.id);
 
+/** A stored location in a usable shape (the stored lists may be damaged or from another version). */
+const validLocation = (l) => !!l && typeof l === 'object' && (l.type === 'cloud' ? typeof l.path === 'string' : l.type === 'local' && typeof l.id === 'string');
+
 export function recentProjects() {
-  try { const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    return Array.isArray(v) ? v.filter((r) => r && validLocation(r.location)).map((r) => ({ ...r, name: String(r.name ?? 'Untitled') })) : [];
+  } catch { return []; }
 }
 
 export function rememberRecent({ location, name }) {

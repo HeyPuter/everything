@@ -426,3 +426,32 @@ describe('notifications and the keyboard', () => {
     expect(t.el.isConnected).toBe(false);
   });
 });
+
+describe('a damaged recent-projects list', () => {
+  it('does not stop the app from starting', async () => {
+    document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
+    localStorage.clear();
+    const good = { location: { type: 'local', id: 'p1' }, name: 'Kept' };
+    const junk = [
+      null,
+      7,
+      { name: 'No location' },
+      { location: { type: 'cloud' }, name: 'No path' },
+    ];
+    localStorage.setItem('circuits:recent', JSON.stringify([...junk, good]));
+    localStorage.setItem('circuits:last-project', JSON.stringify({ type: 'local', id: 'gone' }));
+    expect(storage.recentProjects()).toEqual([good]);
+    setPuterForTests(null);
+    delete window.puter;
+    const opfs = memoryOpfs();
+    Object.defineProperty(navigator, 'storage', {
+      value: { getDirectory: opfs.getDirectory },
+      configurable: true,
+    });
+    const app = new App(document.getElementById('app'), { puterTimeout: 10 });
+    await app.init(); // threw: Cannot read properties of null (reading 'location')
+    const names = [...document.querySelectorAll('.start-page .recent-list button')];
+    expect(names.map((b) => b.querySelector('.grow').textContent)).toEqual(['Kept']);
+    app.kernel.dispose();
+  });
+});
