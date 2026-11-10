@@ -108,8 +108,10 @@ afterEach(() => {
 });
 
 describe('opening another project with unsaved changes', () => {
-  const dialogs = () => [...document.querySelectorAll('.dialog')].filter((d) => /Unsaved changes/.test(d.textContent));
-  const press = (label) => [...dialogs()[0].querySelectorAll('button')].find((b) => b.textContent === label).click();
+  const dialogs = () =>
+    [...document.querySelectorAll('.dialog')].filter((d) => /Unsaved changes/.test(d.textContent));
+  const press = (label) =>
+    [...dialogs()[0].querySelectorAll('button')].find((b) => b.textContent === label).click();
 
   it('asks about discarding them once, not again when the file has loaded', async () => {
     const { app } = await bootLocal();
@@ -166,5 +168,38 @@ describe('design rules dialog', () => {
     expect(alert.style.padding).toBe('');
     expect(alert.style.background).toBe('');
     expect(alert.classList.contains('dialog-error')).toBe(true);
+  });
+});
+
+describe('a Puter SDK that arrives after the app has started', () => {
+  const sdkMock = () => {
+    const sdk = {
+      env: 'web',
+      auth: { isSignedIn: () => false, getUser: async () => null },
+      fs: {},
+      kv: { get: async () => null, set: async () => true },
+      ui: {},
+    };
+    return sdk;
+  };
+
+  it('is taken up: signing in becomes possible without reloading', async () => {
+    const script = document.createElement('script');
+    script.setAttribute('src', 'https://js.puter.com/v2/');
+    script.type = 'text/plain'; // never fetched in tests; it only stands for the tag in index.html
+    document.head.append(script);
+    const { app } = await bootLocal();
+    expect(app.env).toBe('none');
+    expect(document.querySelector('.start-page').textContent).not.toMatch(/Sign in to Puter/);
+    window.puter = sdkMock();
+    script.dispatchEvent(new Event('load'));
+    await tick(5);
+    expect(app.env).toBe('web');
+    expect(document.querySelectorAll('.start-page')).toHaveLength(1);
+    expect(document.querySelector('.start-page').textContent).toMatch(/Sign in to Puter/);
+    script.remove();
+    delete window.puter;
+    setPuterForTests(null);
+    app.kernel.dispose();
   });
 });

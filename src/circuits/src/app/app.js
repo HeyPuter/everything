@@ -117,6 +117,21 @@ export class App extends Emitter {
     this.renderAccount();
 
     const sdk = await P.loadPuter(this.puterTimeout);
+    await this._useSdk(sdk);
+    // Still loading on a slow connection: taken up when it arrives.
+    if (!sdk) P.onPuterArrived((late) => this._sdkArrived(late));
+
+    let opened = false;
+    const last = (() => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch { return null; } })();
+    if (last && this.settings.get('openOnStart') === 'last' && (last.type === 'local' || P.cloudAvailable())) {
+      opened = await this.openLocation(last, { quiet: true });
+    }
+    if (!opened && !this.project) this.showStart();
+    this.showAlphaNotice();
+  }
+
+  /** Sets up the account, the user's library and launch files for the SDK (or for none). */
+  async _useSdk(sdk) {
     this.env = P.env();
     // Where the SDK has <puter-user-menu>, it takes the account's place in the title bar.
     this.userMenu = mountUserMenu(this.userMenuEl, {
@@ -128,8 +143,6 @@ export class App extends Emitter {
     if (sdk && (this.env === 'app' || P.isSignedIn())) await this._loadUser();
     this.renderAccount();
     this.userLibrary.load();
-
-    let opened = false;
     // Launched from the Puter desktop with a file.
     if (sdk?.ui?.onLaunchedWithItems) {
       try {
@@ -139,12 +152,17 @@ export class App extends Emitter {
         });
       } catch { /* not launched with items */ }
     }
-    const last = (() => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch { return null; } })();
-    if (last && this.settings.get('openOnStart') === 'last' && (last.type === 'local' || P.cloudAvailable())) {
-      opened = await this.openLocation(last, { quiet: true });
-    }
-    if (!opened && !this.project) this.showStart();
-    this.showAlphaNotice();
+  }
+
+  /**
+   * The SDK arrived after the app had started without it. The open project
+   * stays as it is; signing in, the cloud and the recent projects kept there
+   * become available.
+   */
+  async _sdkArrived(sdk) {
+    await this._useSdk(sdk);
+    this.panels.projects.refresh();
+    if (this.start) this.showStart();
   }
 
   async _loadUser() {

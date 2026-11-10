@@ -4,7 +4,7 @@
 let sdk = null;
 
 /**
- * Waits briefly for the SDK script (loaded with defer) and returns it or null.
+ * Waits briefly for the SDK script (loaded async) and returns it or null.
  * Stops at once when the script failed to load (offline, or blocked), which
  * index.html records in window.__puterFailed.
  */
@@ -17,6 +17,21 @@ export async function loadPuter(timeoutMs = 5000) {
   }
   sdk = typeof window !== 'undefined' && window.puter ? window.puter : null;
   return sdk;
+}
+
+/**
+ * After loadPuter() gave up waiting: calls `fn` if the SDK script still
+ * arrives (a slow connection), so the session is not left without an account
+ * and cloud storage.
+ */
+export function onPuterArrived(fn) {
+  if (sdk || typeof document === 'undefined') return;
+  const script = document.querySelector('script[src^="https://js.puter.com/"]');
+  script?.addEventListener('load', () => {
+    if (sdk || !window.puter) return;
+    sdk = window.puter;
+    fn(sdk);
+  }, { once: true });
 }
 
 export const puter = () => sdk;
