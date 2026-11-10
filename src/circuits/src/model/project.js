@@ -315,12 +315,23 @@ export function parseProject(json) {
   // The id names the project's file and version folder in storage, so one
   // read from a file must be a plain name (never a path such as '..').
   if (typeof data.id !== 'string' || !/^[\w-]{1,128}$/.test(data.id)) data.id = uid('p');
+  // Names end up in file names and document tabs: they must be text.
+  if (typeof data.name !== 'string' || !data.name.trim()) data.name = 'Untitled';
   data.library = cleanLibrary(data.library);
   data.documents = data.documents.filter((d) => d && typeof d === 'object');
   const docIds = new Set();
   const partUids = new Set();
+  const named = (d) => typeof d.name === 'string' && d.name.trim() !== '';
+  const docNames = new Set(data.documents.filter(named).map((d) => d.name.toLowerCase()));
   for (const d of data.documents) {
     if (!['sch', 'pcb'].includes(d.kind)) throw new Error(`Unknown document type "${d.kind}".`);
+    if (!named(d)) {
+      const [base, ext] = d.kind === 'sch' ? ['Sheet', 'sch'] : ['Board', 'pcb'];
+      let i = 1;
+      while (docNames.has(`${base}${i}.${ext}`.toLowerCase())) i++;
+      d.name = `${base}${i}.${ext}`;
+      docNames.add(d.name.toLowerCase());
+    }
     if (!d.id || docIds.has(d.id)) d.id = uid('d');
     docIds.add(d.id);
     if (!Array.isArray(d.objects)) d.objects = [];

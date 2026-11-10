@@ -7,6 +7,7 @@ import { UserLibrary } from '../src/app/user-library.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import { recordVersion } from '../src/app/history.js';
 import { parseProject } from '../src/model/project.js';
+import { safeName } from '../src/app/storage.js';
 import { mm } from '../src/core/units.js';
 import { defaultRules } from '../src/model/schema.js';
 
@@ -399,5 +400,39 @@ describe('component ids that are also built-in property names', () => {
     expect(Object.keys(p.library)).toEqual(['__proto__']);
     expect(Object.getPrototypeOf(p.library)).toBe(null);
     expect(JSON.parse(JSON.stringify(p.toJSON())).library.__proto__).toEqual(def);
+  });
+});
+
+describe('projects with missing or damaged names', () => {
+  const file = (over) =>
+    JSON.stringify({ format: 'circuits-project', version: 1, name: 'P', documents: [], ...over });
+
+  it('names documents that have no usable name, so sheets can still be added', () => {
+    const p = parseProject(
+      file({
+        documents: [
+          { kind: 'sch' },
+          { kind: 'sch', name: 7 },
+          { kind: 'pcb', name: '  ' },
+          { kind: 'sch', name: 'Sheet1.sch' },
+        ],
+      }),
+    );
+    expect(p.docs.map((d) => d.name)).toEqual([
+      'Sheet2.sch',
+      'Sheet3.sch',
+      'Board1.pcb',
+      'Sheet1.sch',
+    ]);
+    expect(p.addSheet().name).toBe('Sheet4.sch');
+    expect(p.addBoard().name).toBe('Board2.pcb');
+  });
+
+  it('gives a project whose name is not text a name that can be saved', () => {
+    for (const name of [5, { a: 1 }, ['x'], '', null]) {
+      const p = parseProject(file({ name }));
+      expect(p.name).toBe('Untitled');
+      expect(safeName(p.name)).toBe('Untitled');
+    }
   });
 });
