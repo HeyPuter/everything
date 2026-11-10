@@ -29,6 +29,7 @@ import {
 } from './services/stats.js';
 import * as cloud from './services/puter-sync.js';
 import { shouldAdoptRemote } from './services/save-arbitration.js';
+import { inUserMenu, mountUserMenu } from './ui/user-menu.js';
 
 // Start the cardmeister download immediately rather than waiting for the
 // first rich-face build mid-render, so the opening deal doesn't paint as
@@ -67,6 +68,9 @@ let remoteSaveTrusted = false;
 // matters: it's the guard that stops a slow cloud round-trip from clobbering
 // whatever the player is now looking at.
 let playerOwnsBoard = false;
+// Bumped whenever the account changes (see the account block at the end), so
+// a cloud round-trip begun for one session can't finish into the next.
+let cloudEpoch = 0;
 
 const animator = createAnimator({ boardEl });
 
@@ -417,6 +421,7 @@ window.addEventListener('resize', () => {
 });
 window.addEventListener('keydown', e => {
   if (!modeMenu.hidden) return; // the menu handles its own keys
+  if (inUserMenu(e.target)) return; // and so does the account menu
   if (e.key === 'z' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); doUndo(); }
   if (e.key === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey) newGame();
 });
@@ -454,7 +459,9 @@ function restoreLocal() {
 // succeeds, so a failed read never licenses a later push over an unseen save.
 async function restoreFromCloud() {
   if (!signedIn) return null;
+  const epoch = cloudEpoch;
   const pulled = await cloud.pullSave();
+  if (epoch !== cloudEpoch) return null; // an answer for an account since left
   remoteSaveTrusted = pulled.ok;
   if (!pulled.ok || !pulled.value) return null;
   return { save: pulled.value, ts: pulled.value.ts || 0 };
@@ -476,11 +483,18 @@ requestRender();
 // isSignedIn() alone already gives silent auto-sync in the one place this
 // game expects to run; loaded as a plain website instead, it stays silent
 // too, because isSignedIn() itself never prompts (see puter-sync.js).
-(async () => {
-  signedIn = await cloud.isSignedIn();
+//
+// The same path runs again when the player signs in from the header (see
+// the account block below).
+async function startCloudSync() {
+  const epoch = ++cloudEpoch;
+  const now = await cloud.isSignedIn();
+  if (epoch !== cloudEpoch) return;
+  signedIn = now;
   if (!signedIn) return;
 
   await syncStats(); // pull, merge, push — fire-and-forget beyond its local effect
+  if (epoch !== cloudEpoch) return;
 
   // Last-write-wins on timestamp, no merge, and compared against `bootSave`
   // (captured above) rather than a fresh restoreLocal() call — the several
@@ -496,8 +510,38 @@ requestRender();
   // in-progress drag via getGame(). The adopt/skip decision itself is a
   // pure function so it can be unit tested — see save-arbitration.js.
   const remote = await restoreFromCloud();
+  if (epoch !== cloudEpoch) return;
   const bootTs = bootSave ? bootSave.ts : 0;
   const remoteTs = remote ? remote.ts : 0;
   const adopt = remote && shouldAdoptRemote({ bootTs, remoteTs, playerOwnsBoard });
   if (adopt && adoptSave(remote.save)) requestRender();
-})();
+}
+startCloudSync();
+
+// ---- Account ----
+// puter.js's <puter-user-menu> (ui/user-menu.js) at the end of the header:
+// Sign in, or the player's picture and account menu, and the Apps launcher
+// on puter.com. It signs in and out by itself and says so afterwards; the
+// game only has to start or stop syncing. Mounted here, at startup: the SDK's
+// script tag comes before this module, so the element is either defined by
+// now or (offline, or an older SDK) isn't going to be.
+mountUserMenu(document.querySelector('header .actions'), {
+  theme: 'dark', // the table is dark whatever the OS says
+  // Signed in: the same pull-and-merge as a load that finds the player
+  // already signed in. A board the player has touched stays theirs, and is
+  // saved to the account from the next move on.
+  onSignIn: () => {
+    remoteSaveTrusted = false;
+    startCloudSync();
+    toast('Signed in. Your game and records now sync to your account.');
+  },
+  // Signed out: nothing more goes to the account that was left, and whatever
+  // was still on its way back from it is dropped. The game on the table and
+  // the records stay on this device, as for anyone playing signed out.
+  onSignOut: () => {
+    cloudEpoch++;
+    signedIn = false;
+    remoteSaveTrusted = false;
+    toast('Signed out. Your game stays on this device.');
+  },
+});
