@@ -243,6 +243,31 @@ describe('DWG reader: other files', () => {
     expect(reads).toBeLessThan(2e6);
   });
 
+  it('keeps the readable part of a damaged object map, and says so', () => {
+    const src = fx('sample-r2000.dwg');
+    // the object map is section 2 of the R2000 file header
+    let addr = 0;
+    let size = 0;
+    for (let i = 0; i < src[0x15]; i++) {
+      const p = 0x19 + i * 9;
+      if (src[p] === 2) {
+        addr = src[p + 1] | (src[p + 2] << 8) | (src[p + 3] << 16);
+        size = src[p + 5] | (src[p + 6] << 8) | (src[p + 7] << 16);
+      }
+    }
+    expect(size).toBeGreaterThan(100);
+    // an entry near the end that never terminates
+    const tail = src.slice();
+    for (let k = 10; k <= 20; k++) tail[addr + size - k] |= 0x80;
+    const res = parseDwg(tail);
+    expect(res.drawing.entities.length).toBe(32);
+    expect(res.warnings.some((w) => /list of objects.*damaged/.test(w))).toBe(true);
+    // nothing readable: an error, not an empty drawing
+    const none = src.slice();
+    none.fill(0, addr, addr + size);
+    expect(() => parseDwg(none)).toThrow(/Damaged DWG file: the list of objects/);
+  });
+
   it('reads drawings with a damaged dictionary that has names but no entries', () => {
     const b = fx('sample-r2000.dwg').slice();
     b[16867] = 0;
