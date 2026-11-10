@@ -16,7 +16,7 @@ import { contextMenu } from '../ui/menu.js';
 import { promptDialog } from '../ui/dialog.js';
 import { installVertexEditing } from './vertex.js';
 import { LAYERS, boardLayers, copperLayers, isCopper } from '../model/layers.js';
-import { pcbBounds, pcbHitDistance, PCB_PICK_ORDER, objectLayers, translatePcb, rotatePcb, flipComp, padDistance } from '../model/pcb.js';
+import { pcbBounds, pcbHitDistance, PCB_PICK_ORDER, objectLayers, translatePcb, rotatePcb, flipComp, padDistance, pcbPickable } from '../model/pcb.js';
 import { analyseBoard, itemDistance } from '../model/connectivity.js';
 import { bboxOfFlat, bboxUnion, bboxEmpty, bboxContains, bboxIntersects } from '../core/geom.js';
 import { mm, formatLength, snap } from '../core/units.js';
@@ -520,7 +520,7 @@ export class PcbEditor extends CanvasView {
     const layers = this._pickLayers();
     const ids = [];
     for (const o of this.doc.store.query(box)) {
-      if (o.layer && !layers.has(o.layer)) continue;
+      if (!pcbPickable(o, this.lib, layers, this.copperCount)) continue;
       const b = pcbBounds(o, this.lib);
       if (crossing ? bboxIntersects(b, box) : bboxContains(box, b)) ids.push(o.id);
     }

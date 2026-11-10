@@ -136,3 +136,37 @@ describe('online rule check', () => {
     expect(runs).toBeGreaterThan(0);
   });
 });
+
+describe('hidden layers and selection', () => {
+  it('a selection box leaves parts, pads and vias on hidden layers alone', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const r1 = [...ed.doc.items()].find((o) => o.designator === 'R1');
+    ed.setSelection([r1.id]);
+    ed.flipSelection();
+    ed.setSelection([]);
+    const pad = { t: 'pad', shape: 'rect', w: mm(1), h: mm(1), num: '' };
+    ed.doc.store.transact('Add', (s) => {
+      s.add({ ...pad, id: 'bottomPad', side: 'bottom', x: mm(35), y: mm(25) });
+      s.add({ ...pad, id: 'topPad', side: 'top', x: mm(37), y: mm(25) });
+      s.add({ id: 'via', t: 'via', x: mm(35), y: mm(27), d: mm(0.6), drill: mm(0.3) });
+    });
+    const box = { minX: mm(26), minY: mm(18), maxX: mm(39), maxY: mm(29) };
+    const pick = () => ed.boxSelect(box, true).sort();
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    expect(pour.layer).toBe('bottom');
+    expect(pick()).toEqual(['bottomPad', r1.id, pour.id, 'topPad', 'via'].sort());
+    ed.setLayerVisible('bottom', false);
+    ed.setLayerVisible('bottomOverlay', false);
+    // The bottom-side resistor and pad are not drawn any more: they stay unselected.
+    expect(pick()).toEqual(['topPad', 'via']);
+    expect(ed.pickAll(mm(35), mm(25))).toEqual([]);
+    expect(ed.pickAll(mm(37), mm(25)).map((o) => o.id)).toEqual(['topPad']);
+    // A via shows on the multi-layer and on every copper layer.
+    ed.setLayerVisible('multi', false);
+    expect(pick()).toEqual(['topPad', 'via']);
+    ed.setActiveLayer('topOverlay');
+    ed.setLayerVisible('top', false);
+    expect(pick()).toEqual([]);
+  });
+});
