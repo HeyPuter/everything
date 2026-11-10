@@ -276,4 +276,22 @@ describe('the layers panel', () => {
     ed.setActiveLayer('bottom');
     expect(panel.body.querySelector('li[aria-current="true"]').textContent).toContain('Bottom');
   });
+
+  it('keeps keyboard focus on the control that was just changed', async () => {
+    const { ed, panel } = await open();
+    const box = () => panel.body.querySelector('input[aria-label="Show Bottom Layer"]');
+    const name = box() ? 'Show Bottom Layer' : null;
+    expect(name).toBeTruthy();
+    box().focus();
+    box().checked = false;
+    box().dispatchEvent(new Event('change', { bubbles: true }));
+    expect(ed.hiddenLayers.has('bottom')).toBe(true);
+    expect(document.activeElement).toBe(box());
+    const mode = () => panel.body.querySelector('select[aria-label="Single layer mode"]');
+    mode().focus();
+    mode().value = 'gray';
+    mode().dispatchEvent(new Event('change', { bubbles: true }));
+    expect(document.activeElement).toBe(mode());
+    expect(mode().value).toBe('gray');
+  });
 });
