@@ -1082,6 +1082,12 @@ export async function importBackup(app, backup) {
     if (!idMap.has(old)) idMap.set(old, uid(prefix));
     return idMap.get(old);
   };
+  // The structure is read first: a file that isn't a notebook backup after
+  // all is refused before anything is uploaded or an empty notebook made.
+  const cloneNodes = (nodes) => nodes.map((n) => (n.type === 'group'
+    ? { ...n, id: fresh(n.id, 'g'), children: cloneNodes(n.children || []) }
+    : { ...n, id: fresh(n.id, 's'), locked: undefined, pages: (n.pages || []).map((p) => ({ ...p, id: fresh(p.id, 'p') })) }));
+  const sections = cloneNodes(backup.notebook.sections || []);
   const assetMap = new Map();
   let failed = 0;
   for (const [oldId, dataUrl] of Object.entries(backup.assets || {})) {
@@ -1101,13 +1107,13 @@ export async function importBackup(app, backup) {
   }
   if (failed) toast(`${failed} ${failed === 1 ? 'picture or file' : 'pictures or files'} couldn't be imported. Check your connection and import the backup again.`, { kind: 'error' });
   const nb = store.createNotebook(store.notebooks.some((n) => n.name === backup.notebook.name) ? `${backup.notebook.name} (imported)` : backup.notebook.name, { color: backup.notebook.color, silent: true });
-  const cloneNodes = (nodes) => nodes.map((n) => (n.type === 'group'
-    ? { ...n, id: fresh(n.id, 'g'), children: cloneNodes(n.children || []) }
-    : { ...n, id: fresh(n.id, 's'), locked: undefined, pages: (n.pages || []).map((p) => ({ ...p, id: fresh(p.id, 'p') })) }));
-  nb.sections = cloneNodes(backup.notebook.sections || []);
+  nb.sections = sections;
   for (const [oldId, page] of Object.entries(backup.pages || {})) {
     const id = fresh(oldId, 'p');
-    const copy = { ...page, id, outlines: (page.outlines || []).map((o) => ({ ...o, html: sanitizeHtml(String(o.html || '').replace(/data-asset="([^"]+)"/g, (m, a) => `data-asset="${assetMap.get(a) || a}"`).replace(/#page=([\w-]+)/g, (m, p) => `#page=${idMap.get(p) || p}`)) })) };
+    // The copy's links go to the copy's pages and sections, and it is not
+    // shared: the read-only link belongs to the page it was made from.
+    const { published, ...rest } = page;
+    const copy = { ...rest, id, outlines: (page.outlines || []).map((o) => ({ ...o, html: sanitizeHtml(String(o.html || '').replace(/data-asset="([^"]+)"/g, (m, a) => `data-asset="${assetMap.get(a) || a}"`).replace(/#(page|section)=([\w-]+)/g, (m, kind, p) => `#${kind}=${idMap.get(p) || p}`)) })) };
     store.pages.set(id, copy);
     store.schedule(`pages/${id}.json`, () => store.pages.get(id), 0);
   }

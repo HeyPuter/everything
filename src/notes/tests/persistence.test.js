@@ -193,6 +193,32 @@ describe('Importing a notebook backup', () => {
     expect(await store.assetBlob(id)).toBeTruthy();
   });
 
+  it('points the copy\'s links at the copy and does not carry the shared link over', async () => {
+    const { app, store } = await mount();
+    const { importBackup } = await import('../src/ui/features.js');
+    const data = backup([]);
+    data.pages.pOld.outlines[0].html = '<p><a href="#section=sOld">section</a> <a href="#page=pOld">page</a></p>';
+    data.pages.pOld.published = { at: '2026-01-01T00:00:00.000Z', expires: '30d' };
+    const nb = await importBackup(app, data);
+    const section = [...store.sectionsOf(nb)][0];
+    const page = await store.loadPage(section.pages[0].id);
+    expect(page.outlines[0].html).toContain(`href="#section=${section.id}"`);
+    expect(page.outlines[0].html).toContain(`href="#page=${page.id}"`);
+    expect(page.published).toBeUndefined();
+  });
+
+  it('refuses a damaged backup before making a notebook or uploading anything', async () => {
+    const { app, store, backend } = await mount();
+    const { importBackup } = await import('../src/ui/features.js');
+    const data = backup(['aold1.png']);
+    data.notebook.sections = { not: 'a list' };
+    const notebooks = store.notebooks.length;
+    const writes = backend.writes;
+    await expect(importBackup(app, data)).rejects.toThrow();
+    expect(store.notebooks.length).toBe(notebooks);
+    expect(backend.writes).toBe(writes);
+  });
+
   it('says how many pictures could not be saved', async () => {
     const { app, backend } = await mount();
     const { importBackup } = await import('../src/ui/features.js');
