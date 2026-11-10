@@ -205,6 +205,61 @@ describe('emitEntity', () => {
     expect(Math.max(...ys)).toBeCloseTo(1);
     expect(Math.min(...ys)).toBeCloseTo(-1);
   });
+
+  describe('wide polyline corners', () => {
+    const inRing = (x, y, r) => {
+      let inside = false;
+      for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) {
+        if (r[i + 1] > y !== r[j + 1] > y && x < ((r[j] - r[i]) * (y - r[i + 1])) / (r[j + 1] - r[i + 1]) + r[i]) inside = !inside;
+      }
+      return inside;
+    };
+    const cover = (items, x, y) => items.filter((i) => i.kind === 'fill' && inRing(x, y, i.rings[0])).length;
+
+    it('fills the outside of a corner and does not overlap on the inside', () => {
+      const d = drawing();
+      const items = emit(d, { ...P, type: 'polyline', pts: [0, 0, 0, 10, 0, 0, 10, 10, 0], closed: false, width: 2 });
+      expect(items).toHaveLength(2);
+      // the outer corner of the band is at (11, -1), the inner one at (9, 1)
+      expect(cover(items, 10.9, -0.9)).toBe(1);
+      expect(cover(items, 10.5, -0.2)).toBe(1);
+      expect(cover(items, 9.3, 0.6)).toBe(1);
+      expect(cover(items, 9.6, 0.3)).toBe(1);
+      expect(cover(items, 11.1, -1.1)).toBe(0);
+      // the ends stay square
+      expect(cover(items, -0.1, 0)).toBe(0);
+      expect(cover(items, 10, 10.1)).toBe(0);
+    });
+
+    it('covers a filled donut without slits or overlaps', () => {
+      const d = drawing();
+      // inner radius 0, outer radius 10
+      const items = emit(d, { ...P, type: 'polyline', pts: [-5, 0, 1, 5, 0, 1], closed: true, width: 10 });
+      let holes = 0,
+        doubled = 0;
+      // angles that never fall on the edge between two quads
+      for (let a = 0.41; a < 360; a += 1.9) {
+        for (const r of [0.5, 3, 5, 7, 9, 9.9]) {
+          const c = cover(items, r * Math.cos((a * Math.PI) / 180), r * Math.sin((a * Math.PI) / 180));
+          if (c === 0) holes++;
+          if (c > 1) doubled++;
+        }
+      }
+      expect(holes).toBe(0);
+      expect(doubled).toBe(0);
+      expect(cover(items, 10.2, 0.3)).toBe(0);
+    });
+
+    it('cuts off the corner of a very sharp turn instead of drawing a long spike', () => {
+      const d = drawing();
+      const items = emit(d, { ...P, type: 'polyline', pts: [0, 0, 0, 10, 0, 0, 0, 0.5, 0], closed: false, width: 1 });
+      // two bands and the triangle that closes the notch between their ends
+      expect(items).toHaveLength(3);
+      const xs = items.flatMap((i) => i.rings[0].filter((_, k) => k % 2 === 0));
+      expect(Math.max(...xs)).toBeLessThan(10.1);
+      expect(cover(items, 10.004, -0.2)).toBeGreaterThan(0);
+    });
+  });
 });
 
 describe('BoundsSink and insertMatrix', () => {
