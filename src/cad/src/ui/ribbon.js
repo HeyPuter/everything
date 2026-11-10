@@ -47,6 +47,16 @@ export class Ribbon {
     this.renderTabs();
     this.renderBody();
     new ResizeObserver(() => this.fit()).observe(this.body);
+    // A short window (a phone held sideways) has no room for the panels next to
+    // a drawing: there the ribbon is minimized and opens from its tabs, until
+    // the window is tall again or the user expands it.
+    const short = window.matchMedia?.('(max-height: 480px) and (min-width: 600px)');
+    const fitHeight = () => {
+      if (short.matches && !this.collapsed) this.setCollapsed(true, true);
+      else if (!short.matches && this.collapsed && this.autoCollapsed) this.setCollapsed(false);
+    };
+    short?.addEventListener?.('change', fitHeight);
+    if (short) fitHeight();
     // A flyout from the minimized ribbon closes when you click elsewhere.
     document.addEventListener('pointerdown', (e) => {
       if (this.flyoutOpen && !this.el.contains(e.target) && !e.target.closest?.('.menu')) this.closeFlyout();
@@ -138,8 +148,9 @@ export class Ribbon {
     this.renderBody();
   }
 
-  setCollapsed(c) {
+  setCollapsed(c, auto = false) {
     this.collapsed = c;
+    this.autoCollapsed = c && auto;
     this.el.classList.toggle('collapsed', c);
     this.el.classList.remove('flyout-open');
     this.collapseBtn.setAttribute('aria-expanded', String(!c));
