@@ -69,3 +69,21 @@ describe('markdownToHtml', () => {
     expect(markdownToHtml('`a\\*b` and \\*c\\*')).toBe('<p><code>a\\*b</code> and *c*</p>');
   });
 });
+
+describe('Markdown links', () => {
+  // The sanitizer adds target and rel to web links: compare without them.
+  const bare = (html) => html.replace(/ target="_blank" rel="noopener noreferrer"/g, '');
+  const read = (md) => bare(markdownToHtml(md));
+  const roundTrip = (html) => bare(markdownToHtml(htmlToMarkdown(html)));
+
+  it('leaves underscores and asterisks in addresses alone', () => {
+    expect(read('[init](https://github.com/x/y/blob/main/__init__.py)')).toBe('<p><a href="https://github.com/x/y/blob/main/__init__.py">init</a></p>');
+    expect(read('[a](https://x.com/_a) and [b](https://x.com/_b)')).toBe('<p><a href="https://x.com/_a">a</a> and <a href="https://x.com/_b">b</a></p>');
+    expect(read('[**bold**](https://x.com/a*b*c)')).toBe('<p><a href="https://x.com/a*b*c"><b>bold</b></a></p>');
+  });
+
+  it('keeps addresses with parentheses or spaces whole', () => {
+    for (const html of ['<p><a href="https://en.wikipedia.org/wiki/Mercury_(planet)">Mercury</a> next</p>', '<p><a href="https://x.com/a b">spaced</a></p>', '<p>see <a href="https://x.com/f(1)(2)">f</a>.</p>']) expect(roundTrip(html)).toBe(html);
+    expect(read('[m](https://en.wikipedia.org/wiki/Mercury_(planet))')).toBe('<p><a href="https://en.wikipedia.org/wiki/Mercury_(planet)">m</a></p>');
+  });
+});

@@ -9,6 +9,11 @@ import { TAG_BY_ID } from '../data/tags.js';
 
 // ------------------------------------------------------------ HTML -> Markdown
 
+/** A link destination: in angle brackets when it has a space or a parenthesis, which would end it early. */
+function dest(url) {
+  return /[\s()<>]/.test(url) ? `<${url.replace(/[<>]/g, (c) => encodeURIComponent(c))}>` : url;
+}
+
 function inline(node) {
   let out = '';
   for (const c of node.childNodes) {
@@ -34,8 +39,8 @@ function inline(node) {
     else if (tag === 'I' || tag === 'EM' || /font-style:\s*italic/.test(style)) out += inner.trim() ? `*${inner}*` : inner;
     else if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL' || /line-through/.test(style)) out += inner.trim() ? `~~${inner}~~` : inner;
     else if (tag === 'CODE' || tag === 'KBD') out += `\`${c.textContent}\``;
-    else if (tag === 'A') out += `[${inner}](${c.getAttribute('href') || ''})`;
-    else if (tag === 'IMG') out += `![${c.getAttribute('alt') || ''}](${c.dataset.mdSrc || c.getAttribute('src') || ''})`;
+    else if (tag === 'A') out += `[${inner}](${dest(c.getAttribute('href') || '')})`;
+    else if (tag === 'IMG') out += `![${(c.getAttribute('alt') || '').replace(/([\\\[\]])/g, '\\$1')}](${dest(c.dataset.mdSrc || c.getAttribute('src') || '')})`;
     else out += inner;
   }
   return out;
@@ -144,12 +149,18 @@ export function inlineMd(s) {
     return `\u0000${held.length - 1}\u0000`;
   });
   t = esc(t);
-  t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, src) => `<img alt="${alt}" src="${src}">`);
-  t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text, href) => `<a href="${href}">${text}</a>`);
+  // Addresses are held like code spans: "__init__.py" or "/_a" in one is
+  // not emphasis. They may be in angle brackets, or have balanced
+  // parentheses of their own ("Mercury_(planet)").
+  const hold = (html) => `\u0000${held.push(html) - 1}\u0000`;
+  const DEST = '\\((?:&lt;(.+?)&gt;|((?:[^()\\s]|\\([^()\\s]*\\))+))\\)';
+  t = t.replace(new RegExp(`!\\[([^\\]]*)\\]${DEST}`, 'g'), (_, alt, a, b) => hold(`<img alt="${alt}" src="${a ?? b}">`));
+  t = t.replace(new RegExp(`\\[([^\\]]+)\\]${DEST}`, 'g'), (_, text, a, b) => `<a href="${hold(a ?? b)}">${text}</a>`);
   t = t.replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, a, b) => `<b>${a || b}</b>`);
   t = t.replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\*)/g, '$1<i>$2</i>').replace(/(^|[^_\w])_([^_\s][^_]*)_(?!_)/g, '$1<i>$2</i>');
   t = t.replace(/~~([^~]+)~~/g, '<s>$1</s>');
-  t = t.replace(/\u0000(\d+)\u0000/g, (_, i) => held[Number(i)]);
+  // Held pieces may hold others (an escaped character inside an address).
+  for (let pass = 0; pass < 4 && t.includes('\u0000'); pass++) t = t.replace(/\u0000(\d+)\u0000/g, (_, i) => held[Number(i)]);
   return t;
 }
 
