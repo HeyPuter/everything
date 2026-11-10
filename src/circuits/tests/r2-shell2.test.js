@@ -26,6 +26,41 @@ async function boot() {
   await app.init();
   return app;
 }
+/** Minimal in-memory private file system. */
+function memoryDir() {
+  const kids = new Map();
+  return {
+    async getDirectoryHandle(name) {
+      if (!kids.has(name)) kids.set(name, memoryDir());
+      return kids.get(name);
+    },
+    async getFileHandle(name, { create } = {}) {
+      if (!kids.has(name)) {
+        if (!create) throw new DOMException('missing', 'NotFoundError');
+        const f = { text: '' };
+        kids.set(name, {
+          getFile: async () => ({
+            text: async () => f.text,
+            size: f.text.length,
+            lastModified: 1234,
+          }),
+          createWritable: async () => {
+            let next = '';
+            return {
+              write: async (t) => void (next += t),
+              close: async () => void (f.text = next),
+            };
+          },
+        });
+      }
+      return kids.get(name);
+    },
+    async *entries() {
+      yield* kids.entries();
+    },
+  };
+}
+
 const shutDown = (app) => {
   app.kernel.dispose();
   closeMenus();
@@ -239,41 +274,6 @@ describe('app shortcuts while a dialog is open', () => {
 });
 
 describe('a project saved in the browser when the project list cannot be written', () => {
-  /** Minimal in-memory private file system. */
-  function memoryDir() {
-    const kids = new Map();
-    return {
-      async getDirectoryHandle(name) {
-        if (!kids.has(name)) kids.set(name, memoryDir());
-        return kids.get(name);
-      },
-      async getFileHandle(name, { create } = {}) {
-        if (!kids.has(name)) {
-          if (!create) throw new DOMException('missing', 'NotFoundError');
-          const f = { text: '' };
-          kids.set(name, {
-            getFile: async () => ({
-              text: async () => f.text,
-              size: f.text.length,
-              lastModified: 1234,
-            }),
-            createWritable: async () => {
-              let next = '';
-              return {
-                write: async (t) => void (next += t),
-                close: async () => void (f.text = next),
-              };
-            },
-          });
-        }
-        return kids.get(name);
-      },
-      async *entries() {
-        yield* kids.entries();
-      },
-    };
-  }
-
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
@@ -541,5 +541,46 @@ describe('My library after signing out', () => {
     expect(saved.components.map((c) => c.id)).toEqual(['guest']);
     setPuterForTests(null);
     shutDown(app);
+  });
+});
+
+describe('starting while puter.js is slow to load', () => {
+  it('keeps the project opened meanwhile instead of reopening the last one over it', async () => {
+    const root = memoryDir();
+    const start = async (puterTimeout) => {
+      document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
+      setPuterForTests(null);
+      delete window.puter;
+      delete window.__puterFailed;
+      Object.defineProperty(navigator, 'storage', {
+        value: { getDirectory: async () => root },
+        configurable: true,
+      });
+      const app = new App(document.getElementById('app'), { puterTimeout });
+      return { app, ready: app.init() };
+    };
+    localStorage.clear();
+    // An earlier visit left a project to reopen.
+    const first = await start(10);
+    await first.ready;
+    const project = new Project(newProjectData('Last time'));
+    first.app.setProject(project, await storage.newLocation('Last time', project.id));
+    await first.app.save({ quiet: true });
+    first.app.kernel.dispose();
+
+    const second = await start(150);
+    await tick();
+    expect(second.app.project).toBe(null);
+    await second.app.openExample();
+    const example = second.app.project;
+    await second.ready;
+    expect(second.app.project).toBe(example);
+    shutDown(second.app);
+
+    // Left alone, it does reopen the last project.
+    const third = await start(10);
+    await third.ready;
+    expect(third.app.project?.name).toBe('Last time');
+    shutDown(third.app);
   });
 });

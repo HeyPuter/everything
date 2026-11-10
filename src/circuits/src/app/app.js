@@ -123,7 +123,9 @@ export class App extends Emitter {
 
     let opened = false;
     const last = (() => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch { return null; } })();
-    if (last && this.settings.get('openOnStart') === 'last' && (last.type === 'local' || P.cloudAvailable())) {
+    // The menus work while a slow puter.js is awaited above: a project opened
+    // or created meanwhile stays.
+    if (last && !this.project && this.settings.get('openOnStart') === 'last' && (last.type === 'local' || P.cloudAvailable())) {
       opened = await this.openLocation(last, { quiet: true });
     }
     if (!opened && !this.project) this.showStart();
