@@ -1,6 +1,6 @@
 // End-to-end review, round 2: bugs found by driving complete workflows in the
 // real app, pinned here through the App and its editors in jsdom.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
@@ -205,5 +205,44 @@ describe('editors whose WebGL context was dropped', () => {
     app.openDoc(app.project.sheets[0].id);
     expect(app.activeEditor).toBe(first);
     expect(first.disposed).toBe(false);
+  });
+});
+
+describe('long press on a touch screen', () => {
+  const touchEvent = (type, x, y) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+    Object.defineProperty(e, 'pointerId', { value: 7 });
+    Object.defineProperty(e, 'pointerType', { value: 'touch' });
+    return e;
+  };
+
+  afterEach(() => vi.useRealTimers());
+
+  it('does not choose the menu item that opens under the finger when it lifts', async () => {
+    const app = await boot();
+    ctx = { app };
+    await app.openExample();
+    const ed = app.activeEditor;
+    ed.canvas.setPointerCapture = () => {};
+    const before = JSON.stringify([...ed.doc.items()]);
+    ed.selectAll();
+    const toasts = document.querySelectorAll('.toast').length;
+    vi.useFakeTimers();
+    ed.canvas.dispatchEvent(touchEvent('pointerdown', 200, 200));
+    vi.advanceTimersByTime(700);
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu).not.toBeNull();
+    const item = [...menu.querySelectorAll('.menu-item')].find((b) => !b.disabled);
+    // The finger lifts where it pressed, now over the menu; browsers that do
+    // not treat the long press as their own gesture follow up with a click.
+    ed.canvas.dispatchEvent(touchEvent('pointerup', 200, 200));
+    item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    expect(document.querySelectorAll('.toast')).toHaveLength(toasts);
+    expect(JSON.stringify([...ed.doc.items()])).toBe(before);
+    // A tap on an item after that is a real choice.
+    vi.advanceTimersByTime(400);
+    item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 });

@@ -180,6 +180,27 @@ export class CanvasView extends Emitter {
     let longTimer = null;
 
     const clearLong = () => { clearTimeout(longTimer); longTimer = null; };
+    // A long press opens the context menu under the finger. Where the browser
+    // does not take the long press for a gesture of its own, lifting the
+    // finger sends a click to whatever is there now, which would choose a
+    // menu item (Delete, say) nobody picked: that one click is dropped.
+    let dropClick = null;
+    const dropLiftClick = () => {
+      dropClick?.();
+      const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      const off = () => {
+        document.removeEventListener('click', stop, true);
+        c.removeEventListener('pointerup', lifted);
+        c.removeEventListener('pointercancel', lifted);
+        dropClick = null;
+      };
+      // The click follows the lift at once; later taps are real choices.
+      const lifted = () => setTimeout(off, 100);
+      document.addEventListener('click', stop, true);
+      c.addEventListener('pointerup', lifted);
+      c.addEventListener('pointercancel', lifted);
+      dropClick = off;
+    };
 
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -206,7 +227,11 @@ export class CanvasView extends Emitter {
       press = { x: e.clientX, y: e.clientY, ev, dragging: false, pointerType: e.pointerType };
       if (e.pointerType === 'touch') {
         longTimer = setTimeout(() => {
-          if (press && !press.dragging) { const p = press; press = null; this.onContextMenu(p.ev, e); }
+          if (!press || press.dragging) return;
+          const p = press;
+          press = null;
+          dropLiftClick();
+          this.onContextMenu(p.ev, e);
         }, LONG_PRESS_MS);
       }
       this.tool?.down?.(ev);
