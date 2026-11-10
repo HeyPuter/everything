@@ -277,3 +277,66 @@ describe('rotate and mirror keys in drawing tools', () => {
     expect(ed.doc.store.get(r3.id).rot).toBe(90);
   });
 });
+
+describe('ERC: names that touch nothing', () => {
+  const power = (net, x, y) => ({
+    id: `pw${++n}`,
+    t: 'power',
+    net,
+    style: 'bar',
+    x: mil(x),
+    y: mil(y),
+    rot: 0,
+  });
+  const check = (objects) => {
+    const sheets = [{ id: 's', name: 'Sheet1', objects }];
+    return runErc(sheets, lib, buildNetlist(sheets, lib), { requireFootprints: false });
+  };
+  // R1-R2 carry CLK properly; R3-R4 are meant to, but their label misses the wire.
+  const wired = () => [
+    part('R1', 0, 0),
+    part('R2', 1000, 0),
+    wire(200, 0, 800, 0),
+    label('CLK', 500, 0),
+    part('R3', 0, 1000),
+    part('R4', 1000, 1000),
+    wire(200, 1000, 800, 1000),
+  ];
+  const quiet = (list) => list.filter((e) => e.rule !== 'unconnected-pin');
+
+  it('reports a net label beside a wire whose name already exists elsewhere', () => {
+    const loose = label('CLK', 500, 1100);
+    const list = quiet(check([...wired(), loose]));
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ rule: 'floating-label', severity: 'warning', ids: [loose.id] });
+    expect(list[0]).toMatchObject({ x: loose.x, y: loose.y, sheetId: 's' });
+  });
+
+  it('reports a power port that touches nothing', () => {
+    const loose = power('VCC', 500, 1100);
+    const list = quiet(check([...wired(), power('VCC', -200, 0), loose]));
+    expect(list.map((e) => e.ids)).toEqual([[loose.id]]);
+  });
+
+  it('accepts labels and power ports on a wire end, along a wire and directly on a pin', () => {
+    const objects = [
+      ...wired(),
+      label('CLK', 600, 1000),
+      label('CLK', 800, 1000),
+      power('VCC', -200, 0),
+    ];
+    expect(quiet(check(objects))).toEqual([]);
+  });
+
+  it('accepts a label naming a bus', () => {
+    const bus = { id: `b${++n}`, t: 'bus', pts: [0, 2000, 1000, 2000].map(mil) };
+    const list = quiet(check([...wired(), bus, label('D[0..7]', 400, 2000)]));
+    expect(list.filter((e) => /not attached/.test(e.message))).toEqual([]);
+  });
+
+  it('reports a lone label once', () => {
+    const loose = label('NOWHERE', 500, 2000);
+    const list = quiet(check([...wired(), loose]));
+    expect(list.map((e) => e.ids)).toEqual([[loose.id]]);
+  });
+});

@@ -79,7 +79,14 @@ export function runErc(sheets, lib, netlist, opts = {}) {
       add('warning', 'single-pin-net', `Net ${n.name} connects to only one pin`, l.sheetId, l.obj.x, l.obj.y, [l.obj.id]);
     }
     if (!pins.length && n.labels.length) {
-      for (const l of n.labels) if (l.obj && l.kind === 'label') add('warning', 'floating-label', `Net label ${l.name} is not connected to any pin`, l.sheetId, l.obj.x, l.obj.y, [l.obj.id]);
+      for (const l of n.labels) if (l.obj && l.kind === 'label' && l.attached) add('warning', 'floating-label', `Net label ${l.name} is not connected to any pin`, l.sheetId, l.obj.x, l.obj.y, [l.obj.id]);
+    }
+    // A name that touches nothing still joins its net by name, so the wire
+    // or pin it was meant for silently stays on another net.
+    for (const l of n.labels) {
+      if (!l.obj || l.attached) continue;
+      const what = l.kind === 'label' ? 'Net label' : l.kind === 'power' ? 'Power port' : 'Port';
+      add('warning', 'floating-label', `${what} ${l.name} is not attached to a wire or pin`, l.sheetId, l.obj.x, l.obj.y, [l.obj.id]);
     }
     if (n.aliases.length) {
       const l = n.labels.find((x) => x.obj) || n.nodes[0];
