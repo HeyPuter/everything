@@ -215,6 +215,11 @@
   gap: 18px;
 }
 
+.plot-cols > * {
+  /* The fields and the preview narrow with a small screen instead of being cut off. */
+  min-width: 0;
+}
+
 .plot-prev {
   display: grid;
   place-items: center;
@@ -225,6 +230,8 @@
 
 .plot-preview {
   display: block;
+  max-width: 100%;
+  height: auto;
   border: 1px solid var(--border-strong);
 }
 
@@ -272,7 +279,8 @@
 
 .aci-extra {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 6px 16px;
   margin-top: 10px;
 }
 
@@ -322,6 +330,13 @@
 .tab[aria-selected='true'] {
   color: var(--fg);
   border-bottom-color: var(--accent);
+}
+
+@media (max-width: 599px) {
+  /* Every tab stays in sight: a touch screen shows no scrollbar to hint at more. */
+  .tabs {
+    flex-wrap: wrap;
+  }
 }
 
 .snap-grid {

@@ -437,8 +437,8 @@ export async function plotDialog(app, state) {
       ch = Math.round(plot.pageH * k);
     preview.width = cw * dpr;
     preview.height = ch * dpr;
+    // The height follows the width (see .plot-preview), also when a narrow screen caps it.
     preview.style.width = `${cw}px`;
-    preview.style.height = `${ch}px`;
     const ctx = preview.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#fff';
