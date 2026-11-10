@@ -12,7 +12,9 @@ JavaScript, HTML, and CSS, built with Vite.
 - **Online play** — private peer-to-peer games over the
   [Puter Peer API](https://docs.puter.com/Peer/) (WebRTC): create a game,
   share the invite code or link, and play with resign and rematch support.
-  The Puter SDK is loaded only when online mode is opened. **The dice are
+  The Puter SDK is loaded only when online mode is opened; once it has, the
+  top bar shows Puter's account menu (sign in and out, and the Apps launcher
+  on puter.com). **The dice are
   agreed between the two players rather than thrown by either of them** — see
   [Fair dice](#fair-dice) below.
 - **The doubling cube** — off by default, and a setting like the clock. With it
