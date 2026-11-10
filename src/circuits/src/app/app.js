@@ -660,9 +660,12 @@ export class App extends Emitter {
   async openLocation(location, { quiet = false } = {}) {
     if (this.project && storage.sameLocation(location, this.location)) return true;
     if (!(await this._confirmLeave())) return false;
+    // Opens can overlap (a slow file, then another choice): the last one asked for wins.
+    const token = (this._openToken = (this._openToken || 0) + 1);
     try {
       const text = await storage.loadText(location);
       const project = parseProject(text);
+      if (token !== this._openToken) return false;
       project.markSaved();
       this.setProject(project, location);
       storage.rememberRecent({ location, name: project.name });

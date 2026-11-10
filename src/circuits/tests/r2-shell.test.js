@@ -132,3 +132,22 @@ describe('a save that finishes after another project opened', () => {
     app.kernel.dispose();
   });
 });
+
+describe('opening a project while another is still loading', () => {
+  it('ends on the project asked for last', async () => {
+    const { app, opfs } = await bootLocal();
+    const a = await stored(app, 'Slow');
+    const b = await stored(app, 'Fast');
+    await stored(app, 'Current');
+    const hold = deferred();
+    opfs.holdReads = { [`${a.location.id}${storage.EXT}`]: hold.promise };
+    const first = app.openLocation(a.location);
+    await tick(5);
+    expect(await app.openLocation(b.location)).toBe(true);
+    hold.resolve();
+    expect(await first).toBe(false);
+    expect(app.project.name).toBe('Fast');
+    expect(app.location).toEqual(b.location);
+    app.kernel.dispose();
+  });
+});
