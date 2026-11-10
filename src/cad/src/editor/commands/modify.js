@@ -21,6 +21,8 @@ import {
   closestPoint,
   lengthOf,
   refitSpline,
+  arcFromBulge,
+  ccwSweep,
 } from '../../core/geom/index.js';
 import { insertMatrix, mulMatrix } from '../../core/tessellate.js';
 import { buildDimension, buildLeader, dimStyleOf } from '../../core/dims.js';
@@ -687,8 +689,19 @@ export function stretchEntity(e, inside, dx, dy) {
     case 'arc': {
       const s = { x: e.cx + e.r * Math.cos(e.start), y: e.cy + e.r * Math.sin(e.start) };
       const t = { x: e.cx + e.r * Math.cos(e.end), y: e.cy + e.r * Math.sin(e.end) };
-      if (inside(s.x, s.y) && inside(t.x, t.y)) return transformEntity(e, M.translate(dx, dy));
-      return e;
+      const ins = inside(s.x, s.y),
+        int = inside(t.x, t.y);
+      if (ins && int) return transformEntity(e, M.translate(dx, dy));
+      if (!ins && !int) return e;
+      // One end moves: the arc through the new ends with the same height
+      // over its chord (the sagitta), on the same side.
+      const sweep = ccwSweep(e.start, e.end);
+      const h = e.r * (1 - Math.cos(sweep / 2));
+      if (ins) [s.x, s.y] = [s.x + dx, s.y + dy];
+      else [t.x, t.y] = [t.x + dx, t.y + dy];
+      const a = arcFromBulge(s.x, s.y, t.x, t.y, (2 * h) / Math.hypot(t.x - s.x, t.y - s.y));
+      if (!a || !Number.isFinite(a.r + a.cx + a.cy)) return e;
+      return { ...e, cx: a.cx, cy: a.cy, r: a.r, start: a.a0, end: a.a1 };
     }
     case 'dimension': {
       // Definition points (the angular vertex too) move one by one; with all

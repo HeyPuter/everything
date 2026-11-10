@@ -189,6 +189,43 @@ describe('STRETCH', () => {
     expect(t.drawing.get(1)).toMatchObject({ x1: 10, y1: 0, x2: 0, y2: 10, x3: -2, y3: -2, lx: 5 });
   });
 
+  it('moves the one end of an arc that is inside the window, keeping its height over the chord', async () => {
+    // quarter arc from (5, 0) to (0, 5) with a line continuing from its start
+    add({ type: 'arc', cx: 0, cy: 0, r: 5, start: 0, end: Math.PI / 2 });
+    add({ type: 'line', x1: 5, y1: 0, x2: 5, y2: -10 });
+    await t.type('STRETCH', '4,-1', '6,1', '5,0', '7,1');
+    const a = t.all('arc')[0];
+    const at = (ang) => [a.cx + a.r * Math.cos(ang), a.cy + a.r * Math.sin(ang)];
+    // still joined to the line, which stretched with it; the other end stayed
+    expect(t.all('line')[0]).toMatchObject({ x1: 7, y1: 1 });
+    expect(at(a.start)[0]).toBeCloseTo(7);
+    expect(at(a.start)[1]).toBeCloseTo(1);
+    expect(at(a.end)[0]).toBeCloseTo(0);
+    expect(at(a.end)[1]).toBeCloseTo(5);
+    // same height over the new chord, bulging to the same side
+    const sweep = a.end - a.start;
+    expect(sweep).toBeGreaterThan(0);
+    expect(sweep).toBeLessThan(Math.PI);
+    expect(a.r * (1 - Math.cos(sweep / 2))).toBeCloseTo(5 * (1 - Math.cos(Math.PI / 4)));
+    // the end point alone, on an arc of more than half a turn
+    t.drawing.transaction('Clear', () => t.all().forEach((e) => t.drawing.remove(e.id)));
+    add({ type: 'arc', cx: 0, cy: 0, r: 5, start: 0, end: (3 * Math.PI) / 2 });
+    await t.type('STRETCH', '-1,-6', '1,-4', '0,-5', '0,-7');
+    const b = t.all('arc')[0];
+    expect(b.cx + b.r * Math.cos(b.start)).toBeCloseTo(5);
+    expect(b.cy + b.r * Math.sin(b.start)).toBeCloseTo(0);
+    expect(b.cx + b.r * Math.cos(b.end)).toBeCloseTo(0);
+    expect(b.cy + b.r * Math.sin(b.end)).toBeCloseTo(-7);
+    let sw = (b.end - b.start) % (2 * Math.PI);
+    if (sw < 0) sw += 2 * Math.PI;
+    expect(sw).toBeGreaterThan(Math.PI);
+    expect(b.r * (1 - Math.cos(sw / 2))).toBeCloseTo(5 * (1 - Math.cos((3 * Math.PI) / 4)));
+    // with neither end inside it stays as it is
+    const before = t.all('arc')[0];
+    await t.type('STRETCH', '-6,2', '-4,4', '0,0', '3,3');
+    expect(t.all('arc')[0]).toBe(before);
+  });
+
   it('moves a whole linear dimension away from the origin when it is all inside', async () => {
     await t.type('DIMLINEAR', '100,100', '120,100', '110,110');
     await t.type('STRETCH', '90,90', '130,130', '0,0', '0,50');
