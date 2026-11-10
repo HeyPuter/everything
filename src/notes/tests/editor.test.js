@@ -54,6 +54,29 @@ describe('selection helpers', () => {
     expect(textOffset(el, r.startContainer, r.startOffset)).toBe(7);
   });
 
+  it('finds the block of a caret that sits between blocks', () => {
+    // A new or re-entered container: the caret is at (body, n), not in a paragraph.
+    const el = body('<p>one</p><ul><li>two</li><li>three</li></ul><hr><table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>');
+    const at = (offset) => {
+      const r = document.createRange();
+      r.setStart(el, offset);
+      r.collapse(true);
+      return blocksInRange(r, el).map((b) => b.textContent);
+    };
+    expect(at(1)).toEqual(['one']);
+    expect(at(0)).toEqual(['one']);
+    expect(at(2)).toEqual(['three']);
+    expect(at(3)).toEqual([]);
+    expect(at(4)).toEqual(['b']);
+    const empty = body('<p><br></p>');
+    const r = document.createRange();
+    r.selectNodeContents(empty);
+    r.collapse(false);
+    selectRange(r);
+    expect(toggleTag('todo')).toBeTruthy();
+    expect(empty.querySelector('p > .nt-tag')).not.toBeNull();
+  });
+
   it('finds the blocks a selection touches', () => {
     const el = body('<p>one</p><p>two</p><p>three</p>');
     const r = document.createRange();
