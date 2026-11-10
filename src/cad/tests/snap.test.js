@@ -40,4 +40,23 @@ describe('intersection snap', () => {
     // an arc passing near the cursor on the far side of its circle does not count
     expect(findSnap(d, [1, 3], 4, 12, 0.5, INT, null)).toBeNull();
   });
+
+  it('keeps close crossings apart far from the origin', () => {
+    const O = 1e7;
+    const d = drawingOf([
+      { type: 'circle', layer: '0', cx: O, cy: O, r: 0.004 },
+      { type: 'line', layer: '0', x1: O - 1, y1: O, x2: O + 1, y2: O },
+      { type: 'spline', layer: '0', degree: 3, ctrl: [O - 0.5, O - 0.25, O - 0.3, O + 0.5, O - 0.1, O - 0.5, O + 0.2, O + 0.25] },
+    ]);
+    const left = findSnap(d, [1, 2], O - 0.004, O + 0.0005, 0.001, INT, null);
+    const right = findSnap(d, [1, 2], O + 0.004, O + 0.0005, 0.001, INT, null);
+    expect(left.x).toBeCloseTo(O - 0.004, 8);
+    expect(right.x).toBeCloseTo(O + 0.004, 8);
+    expect(right.y).toBe(O);
+    // curves are moved to local coordinates too
+    const s = findSnap(d, [2, 3], O - 0.4, O + 0.01, 0.2, INT, null);
+    expect(s.mode).toBe('int');
+    expect(s.y).toBe(O);
+    expect(Math.abs(s.x - (O - 0.4))).toBeLessThan(0.2);
+  });
 });

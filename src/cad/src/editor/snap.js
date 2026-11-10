@@ -14,6 +14,7 @@ import {
   closestPoint,
   toPrims,
   intersectPrims,
+  shiftPrim,
   transformEntity,
 } from '../core/geom/index.js';
 import { insertMatrix, mulMatrix } from '../core/tessellate.js';
@@ -86,13 +87,27 @@ function expandInsert(drawing, ins, depth = 0, m0 = null, used = null) {
   return list;
 }
 
-/** The primitives that pass within `pad` of (x, y); infinite lines and curves are always kept. */
-function primsNear(prims, x, y, pad) {
+/**
+ * Spacing of the origins used for local intersection coordinates. A power of
+ * two, so moving a nearby coordinate there and back is exact, and drawings
+ * within half of it of the origin are not moved at all.
+ */
+const LOCAL_GRID = 1024;
+
+const shiftCache = new WeakMap();
+
+/**
+ * The primitives that pass within `pad` of (x, y), moved by (-ox, -oy).
+ * Infinite lines and curve approximations are always kept (curves reject by
+ * box per chord themselves); moved curves are cached per origin.
+ */
+function primsNear(prims, x, y, pad, ox, oy) {
   const out = [];
   const x0 = x - pad,
     x1 = x + pad,
     y0 = y - pad,
     y1 = y + pad;
+  const moved = ox !== 0 || oy !== 0;
   for (const p of prims) {
     if (p.t === 'seg') {
       if ((p.x1 < x0 && p.x2 < x0) || (p.x1 > x1 && p.x2 > x1)) continue;
@@ -106,8 +121,13 @@ function primsNear(prims, x, y, pad) {
       if (d2 > far * far) continue;
       const inner = p.r - pad * 1.5;
       if (inner > 0 && d2 < inner * inner) continue;
+    } else if (p.t === 'pl' && moved) {
+      let hit = shiftCache.get(p);
+      if (!hit || hit.ox !== ox || hit.oy !== oy) shiftCache.set(p, (hit = { ox, oy, prim: shiftPrim(p, -ox, -oy) }));
+      out.push(hit.prim);
+      continue;
     }
-    out.push(p);
+    out.push(moved ? shiftPrim(p, -ox, -oy) : p);
   }
   return out;
 }
@@ -198,8 +218,13 @@ export function findSnap(drawing, ids, x, y, radius, modes, base) {
 
   if (modes.has('int')) {
     const close = top.filter((g) => g.d <= radius).slice(0, 12);
-    // Only primitives that reach the aperture can cross inside it.
-    const lists = close.map((g) => primsNear(primsOf(g.ent), x, y, radius * 2 + 1e-6));
+    // Only primitives that reach the aperture can cross inside it, and they
+    // are intersected in coordinates local to the cursor: the kernel's
+    // tolerances follow the size of the coordinates, so far from the origin
+    // close hits would merge and near misses would count.
+    const ox = Math.round(x / LOCAL_GRID) * LOCAL_GRID,
+      oy = Math.round(y / LOCAL_GRID) * LOCAL_GRID;
+    const lists = close.map((g) => primsNear(primsOf(g.ent), x, y, radius * 2 + 1e-6, ox, oy));
     for (let i = 0; i < close.length; i++) {
       const pa = lists[i];
       if (!pa.length) continue;
@@ -208,7 +233,7 @@ export function findSnap(drawing, ids, x, y, radius, modes, base) {
         const pb = lists[j];
         for (const a of pa) {
           for (const b of pb) {
-            for (const p of safe(intersectPrims, a, b)) consider(p.x, p.y, 'int', close[i].id);
+            for (const p of safe(intersectPrims, a, b)) consider(p.x + ox, p.y + oy, 'int', close[i].id);
           }
         }
       }
