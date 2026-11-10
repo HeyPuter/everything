@@ -266,7 +266,7 @@ export class LayerManager {
       }
       this.render();
       // Focus the (possibly renamed) layer again, and show any error after the re-render.
-      const shown = err || !v ? name : v;
+      const shown = ok && !err && v ? v : name;
       [...this.tbody.querySelectorAll('.lm-name')].find((b) => b.textContent === shown)?.focus();
       if (err) this.say(err);
     };
