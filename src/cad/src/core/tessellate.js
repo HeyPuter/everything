@@ -27,6 +27,8 @@ const LW_INDEX = new Map(LINEWEIGHTS.map((w, i) => [w, i]));
  *   patterns  include scaled linetype patterns in styles (exporters); the GPU
  *             renderer only needs basePattern and ltscale
  *   bounds    measuring extents: construction lines inside blocks are skipped
+ *   clip      { box: () => [minX, minY, maxX, maxY], state: { used } } for
+ *             view-dependent curve tessellation (see geom/tessellate.js)
  */
 export function makeContext(drawing, opts) {
   return {
@@ -42,6 +44,7 @@ export function makeContext(drawing, opts) {
     warnings: opts.warnings ?? null,
     patterns: opts.patterns !== false,
     bounds: !!opts.bounds,
+    clip: opts.clip ?? null,
     blockStack: null,
   };
 }
@@ -183,7 +186,7 @@ export function emitEntity(ent, sink, ctx, parent = null, topId = ent.id, depth 
     case 'arc':
     case 'ellipse':
     case 'spline':
-      for (const p of tessellate(ent, ctx.tol)) sink.line(p.pts, p.closed, style);
+      for (const p of tessellate(ent, ctx.tol, ctx.clip)) sink.line(p.pts, p.closed, style);
       return;
     case 'polyline':
       emitPolyline(ent, sink, ctx, style);
@@ -242,7 +245,7 @@ function emitInfinite(ent, sink, ctx, style) {
 }
 
 function emitPolyline(ent, sink, ctx, style) {
-  const parts = tessellate(ent, ctx.tol);
+  const parts = tessellate(ent, ctx.tol, ctx.clip);
   if (!(ent.width > 0)) {
     for (const p of parts) sink.line(p.pts, p.closed, style);
     return;
@@ -464,6 +467,7 @@ function emitInsert(ent, sink, ctx, eff, topId, depth) {
   const blockStack = new Set(ctx.blockStack || []);
   blockStack.add(ent.name);
   const child = { ...ctx, tol: ctx.tol / scale, pointSize: ctx.pointSize / scale, view: invView(ctx.view, m), blockStack };
+  if (ctx.clip) child.clip = clipInBlock(ctx.clip, m);
   const tsink = new TransformSink(sink, m);
   const parent = {
     layer: eff.layerName,
@@ -473,6 +477,12 @@ function emitInsert(ent, sink, ctx, eff, topId, depth) {
     ltscale: eff.ltscale,
   };
   for (const e of block.entities) emitEntity(e, tsink, child, parent, topId, depth + 1);
+}
+
+/** The clip box of view-dependent tessellation in block coordinates, worked out only if a curve asks. */
+function clipInBlock(clip, m) {
+  let box = null;
+  return { state: clip.state, box: () => (box ??= invView(clip.box(), m)) };
 }
 
 /** Approximate the view rectangle in block coordinates (for construction lines). */

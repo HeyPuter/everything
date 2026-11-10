@@ -250,6 +250,64 @@ describe('Renderer long lines', () => {
   });
 });
 
+describe('Renderer very large curves', () => {
+  it('tessellates the part in view exactly and rebuilds once the view leaves it', () => {
+    const t = setup(10);
+    const R = 1e5;
+    t.d.transaction('add', () => {
+      t.d.add({ type: 'circle', layer: '0', color: 256, cx: 0, cy: 0, r: R });
+    });
+    // Looking at the circle between two vertices of its 4096-chord outline.
+    const a = Math.PI / 4096;
+    t.r.camera.state = { cx: R * Math.cos(a), cy: R * Math.sin(a), scale: 1000 };
+    const lines = [];
+    const line = t.r.batch.line.bind(t.r.batch);
+    t.r.batch.line = (pts, closed, style) => (lines.push(pts), line(pts, closed, style));
+    t.r.frame();
+    const c = t.r.chunks[0];
+    expect(c.safe).toBeTruthy();
+    // Every chord crossing the view stays within a quarter pixel of the circle.
+    const v = t.r.camera.bounds();
+    const pts = lines.find((p) => p.length > 8000);
+    let seen = 0,
+      worst = 0;
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const mx = (pts[i] + pts[i + 2]) / 2,
+        my = (pts[i + 1] + pts[i + 3]) / 2;
+      if (Math.min(pts[i], pts[i + 2]) > v[2] || Math.max(pts[i], pts[i + 2]) < v[0]) continue;
+      if (Math.min(pts[i + 1], pts[i + 3]) > v[3] || Math.max(pts[i + 1], pts[i + 3]) < v[1]) continue;
+      seen++;
+      worst = Math.max(worst, R - Math.hypot(mx, my));
+    }
+    expect(seen).toBeGreaterThan(0);
+    expect(worst * 1000).toBeLessThan(0.26);
+    expect(pts.length / 2).toBeLessThan(4096 + 3000);
+    t.r.batch.line = line;
+    let builds = 0;
+    const orig = t.r._buildChunk.bind(t.r);
+    t.r._buildChunk = (ch, ctx) => (builds++, orig(ch, ctx));
+    t.r.camera.panBy(-3000, 3000);
+    t.r.frame();
+    expect(builds).toBe(0);
+    // A quarter turn away the exact part has run out.
+    t.r.camera.state = { cx: 0, cy: R, scale: 1000 };
+    t.r.frame();
+    expect(builds).toBe(1);
+    expect(c.safe[3]).toBeGreaterThan(R);
+  });
+
+  it('leaves ordinary curves alone', () => {
+    const t = setup(10);
+    t.d.transaction('add', () => {
+      t.d.add({ type: 'circle', layer: '0', color: 256, cx: 0, cy: 0, r: 500 });
+      t.d.add({ type: 'polyline', layer: '0', color: 256, pts: [0, 0, 1, 50, 0, 0, 50, 50, 0], closed: true });
+    });
+    t.r.camera.state = { cx: 500, cy: 0, scale: 100 };
+    t.r.frame();
+    expect(t.r.chunks.every((c) => !c.safe)).toBe(true);
+  });
+});
+
 describe('Camera fit', () => {
   it('fits inside the margins', () => {
     const c = new Camera();

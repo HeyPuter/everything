@@ -181,6 +181,13 @@ export class Renderer {
     this.patternData = new Float32Array(PATTERN_W * PATTERN_ROWS);
     this.patternDirty = true;
     this.batch = new Batch((p) => this._patternRow(p), 65536, 4096);
+    /**
+     * Curves too large for the chord limit are tessellated exactly only
+     * inside the batch's clip box (see tessellate() in core/geom); `used`
+     * is set by a build that did so, and its buffers are then rebuilt when
+     * the view leaves the box, like those with cut long segments.
+     */
+    this.clip = { state: { used: false }, box: () => this.batch.box };
     this.stats = { segments: 0, triangles: 0, chunks: 0, frameMs: 0 };
     this._raf = 0;
     this._lost = false;
@@ -533,6 +540,7 @@ export class Renderer {
       pointSize: 6 / cam.scale,
       warnings: this.warnings,
       patterns: false,
+      clip: this.clip,
       ...extra,
     });
   }
@@ -544,6 +552,13 @@ export class Renderer {
     const r = (SAFE_PX + Math.max(cam.width, cam.height) / 2) / cam.scale;
     b.longLen = LONG_PX / cam.scale;
     b.box = [cam.cx - r, cam.cy - r, cam.cx + r, cam.cy + r];
+  }
+
+  /** True when the build just made depends on the clip box: something was cut or refined inside it. */
+  _viewBound() {
+    const used = this.clip.state.used;
+    this.clip.state.used = false;
+    return this.batch.clipped || used;
   }
 
   _buildChunk(c, ctx) {
@@ -575,7 +590,7 @@ export class Renderer {
     if (!c.gpu) c.gpu = new GpuBatch(this.gl);
     c.gpu.upload(b);
     c.bounds = b.bounds;
-    c.safe = b.clipped ? b.box : null;
+    c.safe = this._viewBound() ? b.box : null;
     c.dirty = false;
     c.builtScale = this.camera.scale;
     b.shrink();
@@ -594,7 +609,7 @@ export class Renderer {
     b.flags = 0;
     b.band = 0;
     gpu.upload(b);
-    gpu.safe = b.clipped ? b.box : null;
+    gpu.safe = this._viewBound() ? b.box : null;
     b.shrink();
   }
 
@@ -604,6 +619,7 @@ export class Renderer {
     b.flags = 0;
     for (const e of list) emitSafe(e, b, ctx);
     gpu.upload(b);
+    this.clip.state.used = false;
     b.shrink();
   }
 

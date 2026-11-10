@@ -124,10 +124,24 @@ class RectSink {
   }
 }
 
+/**
+ * The screen draws very large curves with extra chords inside the view (see
+ * tessellate() in core/geom); hit tests ask for the same around the place
+ * they look at, or a click on the curve as drawn would miss it.
+ */
+const clipTo = (box) => ({ state: { used: false }, box: () => box });
+const NEAR = [0, 0, 0, 0];
+const NEAR_CLIP = clipTo(NEAR);
+
 /** Distance from (px, py) to the entity's strokes, and whether the point is inside one of its fills. */
 function measure(drawing, ent, px, py, tol) {
   const sink = new DistanceSink(px, py);
-  emitEntity(ent, sink, makeContext(drawing, { tol, view: [px - 1e6, py - 1e6, px + 1e6, py + 1e6], pointSize: tol * 20 }));
+  const r = tol * 8;
+  NEAR[0] = px - r;
+  NEAR[1] = py - r;
+  NEAR[2] = px + r;
+  NEAR[3] = py + r;
+  emitEntity(ent, sink, makeContext(drawing, { tol, view: [px - 1e6, py - 1e6, px + 1e6, py + 1e6], pointSize: tol * 20, clip: NEAR_CLIP }));
   return { d: Math.sqrt(sink.d2), inFill: !!sink.inFill };
 }
 
@@ -140,7 +154,7 @@ export function entityDistance(drawing, ent, px, py, tol) {
 /** True when any drawn part of the entity touches the rectangle. */
 export function entityCrossesRect(drawing, ent, rect, tol) {
   const sink = new RectSink(rect);
-  emitEntity(ent, sink, makeContext(drawing, { tol, view: rect, pointSize: tol * 20 }));
+  emitEntity(ent, sink, makeContext(drawing, { tol, view: rect, pointSize: tol * 20, clip: clipTo(rect) }));
   return sink.hit;
 }
 

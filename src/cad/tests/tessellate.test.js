@@ -4,6 +4,7 @@ import { emitEntity, makeContext, BoundsSink, insertMatrix } from '../src/core/t
 import { RecordingSink } from '../src/core/display.js';
 import { STANDARD_LINETYPES } from '../src/core/linetypes.js';
 import { PALETTE } from '../src/core/colors.js';
+import { tessellate } from '../src/core/geom/tessellate.js';
 
 const P = { layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ltscale: 1 };
 
@@ -277,5 +278,99 @@ describe('BoundsSink and insertMatrix', () => {
     expect(m[1] * 1 + m[3] * 1 + m[5]).toBeCloseTo(20);
     expect(m[0] * 2 + m[2] * 2 + m[4]).toBeCloseTo(12);
     expect(m[1] * 2 + m[3] * 2 + m[5]).toBeCloseTo(23);
+  });
+});
+
+describe('view-dependent tessellation of very large curves', () => {
+  const TOL = 2.5e-4;
+  // Largest distance from the curve to the chords that cross the box.
+  const worstIn = (pts, closed, box, dist) => {
+    const n = pts.length >> 1;
+    let worst = 0,
+      seen = 0;
+    for (let i = 0, m = closed ? n : n - 1; i < m; i++) {
+      const j = (i + 1) % n;
+      const x1 = pts[i * 2],
+        y1 = pts[i * 2 + 1],
+        x2 = pts[j * 2],
+        y2 = pts[j * 2 + 1];
+      if (Math.min(x1, x2) > box[2] || Math.max(x1, x2) < box[0] || Math.min(y1, y2) > box[3] || Math.max(y1, y2) < box[1]) continue;
+      seen++;
+      worst = Math.max(worst, dist((x1 + x2) / 2, (y1 + y2) / 2));
+    }
+    return { worst, seen };
+  };
+  const clipAt = (x, y, half = 500) => ({ state: { used: false }, box: () => [x - half, y - half, x + half, y + half] });
+  const R = 1e5;
+  const a = 1 + Math.PI / 4096;
+  const px = R * Math.cos(a),
+    py = R * Math.sin(a);
+  const view = [px - 1, py - 1, px + 1, py + 1];
+
+  it('keeps circles, arcs and polyline arcs within tolerance inside the clip box', () => {
+    const circ = { type: 'circle', cx: 0, cy: 0, r: R };
+    const onCircle = (x, y) => Math.abs(R - Math.hypot(x, y));
+    const plain = tessellate(circ, TOL)[0];
+    expect(worstIn(plain.pts, true, view, onCircle).worst).toBeGreaterThan(TOL * 10);
+    const clip = clipAt(px, py);
+    const fine = tessellate(circ, TOL, clip)[0];
+    expect(clip.state.used).toBe(true);
+    const r = worstIn(fine.pts, true, clip.box(), onCircle);
+    expect(r.seen).toBeGreaterThan(10);
+    expect(r.worst).toBeLessThanOrEqual(TOL * 1.001);
+    // the plain points are all still there, in order
+    let k = 0;
+    for (let i = 0; i < fine.pts.length && k < plain.pts.length; i += 2) {
+      if (fine.pts[i] === plain.pts[k] && fine.pts[i + 1] === plain.pts[k + 1]) k += 2;
+    }
+    expect(k).toBe(plain.pts.length);
+    expect(fine.pts.length / 2).toBeLessThan(4096 + 2000);
+
+    const arc = { type: 'arc', cx: 0, cy: 0, r: R, start: 0.2, end: 3 };
+    const fa = tessellate(arc, TOL, clipAt(px, py))[0];
+    expect(worstIn(fa.pts, false, view, onCircle).worst).toBeLessThanOrEqual(TOL * 1.001);
+    expect(fa.pts.slice(0, 2)).toEqual(tessellate(arc, TOL)[0].pts.slice(0, 2));
+    expect(fa.pts.slice(-2)).toEqual(tessellate(arc, TOL)[0].pts.slice(-2));
+
+    // a half circle as a polyline arc segment, both directions
+    for (const bulge of [1, -1]) {
+      const pl = { type: 'polyline', pts: [R, 0, bulge, -R, 0, 0], closed: false };
+      const y = bulge > 0 ? py : -py;
+      const fp = tessellate(pl, TOL, clipAt(px, y))[0];
+      const res = worstIn(fp.pts, false, [px - 1, y - 1, px + 1, y + 1], onCircle);
+      expect(res.seen).toBeGreaterThan(0);
+      expect(res.worst).toBeLessThanOrEqual(TOL * 1.001);
+      expect(fp.pts.slice(0, 2)).toEqual([R, 0]);
+      expect(fp.pts.slice(-2)).toEqual([-R, 0]);
+    }
+  });
+
+  it('keeps ellipses within tolerance inside the clip box', () => {
+    const e = { type: 'ellipse', cx: 10, cy: -5, mx: R * Math.cos(0.3), my: R * Math.sin(0.3), ratio: 0.4, start: 0, end: Math.PI * 2 };
+    const t = 0.7 + Math.PI / 4096;
+    const at = (u) => [e.cx + e.mx * Math.cos(u) - e.ratio * e.my * Math.sin(u), e.cy + e.my * Math.cos(u) + e.ratio * e.mx * Math.sin(u)];
+    const [ex, ey] = at(t);
+    // distance to the ellipse, by its implicit equation scaled to length
+    const dist = (x, y) => {
+      const c = Math.cos(0.3),
+        s = Math.sin(0.3);
+      const u = ((x - e.cx) * c + (y - e.cy) * s) / R,
+        v = (-(x - e.cx) * s + (y - e.cy) * c) / (R * 0.4);
+      const f = u * u + v * v - 1;
+      return Math.abs(f) / (2 * Math.hypot(u / R, v / (R * 0.4)));
+    };
+    const box = [ex - 1, ey - 1, ex + 1, ey + 1];
+    expect(worstIn(tessellate(e, TOL)[0].pts, true, box, dist).worst).toBeGreaterThan(TOL * 5);
+    const clip = clipAt(ex, ey);
+    const fine = tessellate(e, TOL, clip)[0];
+    expect(clip.state.used).toBe(true);
+    expect(worstIn(fine.pts, true, box, dist).worst).toBeLessThanOrEqual(TOL * 1.001);
+  });
+
+  it('does nothing for curves the chord limit is fine enough for', () => {
+    const clip = clipAt(100, 0);
+    const c = { type: 'circle', cx: 0, cy: 0, r: 100 };
+    expect(tessellate(c, 0.01, clip)).toEqual(tessellate(c, 0.01));
+    expect(clip.state.used).toBe(false);
   });
 });
