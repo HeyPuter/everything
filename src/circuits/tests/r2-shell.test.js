@@ -410,3 +410,19 @@ describe('links in dialogs', () => {
     dlg.close();
   });
 });
+
+describe('notifications and the keyboard', () => {
+  it('stay while focus is inside them, like under the pointer', async () => {
+    const { toast } = await import('../src/ui/toast.js');
+    const t = toast('Example project. Save it to keep your changes.', {
+      timeout: 40,
+      actions: [{ label: 'Save' }],
+    });
+    t.el.querySelector('.actions button').focus();
+    t.el.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await tick(90);
+    expect(t.el.isConnected).toBe(true);
+    t.close();
+    expect(t.el.isConnected).toBe(false);
+  });
+});
