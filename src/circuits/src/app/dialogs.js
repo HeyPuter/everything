@@ -131,13 +131,16 @@ export async function layerStackDialog(app, ed) {
     { key: 'copper', label: 'Copper layers', type: 'select', value: String(b.copper), options: [['2', '2 layers'], ['4', '4 layers (2 inner)'], ['6', '6 layers (4 inner)']] },
     sizeField('thickness', 'Board thickness', b.thickness, u),
   ]);
+  const err = h('div.small.sev-error', { role: 'alert', style: { marginTop: '8px' } });
   await openDialog({
     title: 'Layer stack',
-    body: [h('p.muted', 'Inner layers are added between the top and bottom copper. Removing inner layers deletes the tracks, fills and pours on them.'), form.el],
+    body: [h('p.muted', 'Inner layers are added between the top and bottom copper. Removing inner layers deletes the tracks, fills and pours on them.'), form.el, err],
     actions: [{ label: 'Cancel' }, {
       label: 'Apply', primary: true,
       run: async () => {
-        if (form.validate()) return false;
+        const msg = form.validate();
+        err.textContent = msg || '';
+        if (msg) return false;
         const v = form.values();
         // Declining to remove inner layers cancels the whole change.
         if ((await app.setCopperLayers(Number(v.copper))) === false) return false;
@@ -510,7 +513,7 @@ export async function preferencesDialog(app) {
     { key: 'units', label: 'Units', type: 'select', value: s.get('units'), options: [['mm', 'Millimetres'], ['mil', 'Mils (thousandths of an inch)']] },
     { key: 'wheel', label: 'Mouse wheel', type: 'select', value: s.get('wheel'), options: [['scroll', `Scrolls (${modKey()}+wheel zooms)`], ['zoom', 'Zooms']] },
     { key: 'routingMode', label: 'Interactive routing', type: 'select', value: s.get('routingMode'), options: [['stop', 'Stop at the first obstacle'], ['ignore', 'Ignore obstacles']] },
-    { key: 'autosaveMinutes', label: 'Autosave every (minutes, 0 = off)', type: 'number', value: s.get('autosaveMinutes'), min: 0, max: 60 },
+    { key: 'autosaveMinutes', label: 'Autosave every (minutes, 0 = off)', type: 'number', value: s.get('autosaveMinutes'), min: 0, max: 60, error: 'enter a number from 0 to 60' },
     { key: 'onlineDrc', label: 'Check design rules while editing', type: 'bool', value: s.get('onlineDrc') },
     { key: 'autoRepour', label: 'Repour polygons automatically', type: 'bool', value: s.get('autoRepour') },
     { key: 'padLabels', label: 'Show net names on pads', type: 'bool', value: s.get('padLabels') },
@@ -518,13 +521,15 @@ export async function preferencesDialog(app) {
     { key: 'pcbCrosshair', label: 'Full crosshair cursor on boards', type: 'bool', value: !!s.get('pcbCrosshair') },
     { key: 'schCrosshair', label: 'Crosshair cursor on schematics', type: 'bool', value: !!s.get('schCrosshair') },
   ]);
+  const err = h('div.small.sev-error', { role: 'alert', style: { marginTop: '8px' } });
   await openDialog({
     title: 'Preferences',
-    body: form.el,
+    body: [form.el, err],
     actions: [{ label: 'Cancel' }, {
       label: 'Save', primary: true,
       run: () => {
-        if (form.validate()) return false;
+        const msg = form.validate();
+        if (msg) { err.textContent = msg; return false; }
         const v = form.values();
         for (const [k, val] of Object.entries(v)) s.set(k, val);
         app.applyPreferences();

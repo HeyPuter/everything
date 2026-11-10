@@ -343,3 +343,38 @@ describe('layer stack dialog', () => {
     shutDown(app);
   });
 });
+
+describe('dialogs that refuse a value', () => {
+  const footButton = (label) =>
+    [...document.querySelectorAll('.dialog-foot button')].find((b) => b.textContent === label);
+
+  it('Preferences says what is wrong with the autosave interval', async () => {
+    const app = await boot();
+    app.preferences();
+    const field = document.querySelector('.dialog input[type=number]');
+    field.value = '99';
+    footButton('Save').click();
+    await tick();
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    const alert = document.querySelector('.dialog [role=alert]');
+    expect(alert?.textContent).toMatch(/Autosave.*0 to 60/);
+    expect(app.settings.get('autosaveMinutes')).not.toBe(99);
+    footButton('Cancel').click();
+    shutDown(app);
+  });
+
+  it('Layer stack says what is wrong with the thickness', async () => {
+    const app = await boot();
+    app.setProject(new Project(newProjectData('Stack')), null);
+    app.openDoc(app.project.docs.find((d) => d.kind === 'pcb').id);
+    app.editLayerStack();
+    const field = document.querySelector('.dialog input');
+    field.value = 'thick';
+    footButton('Apply').click();
+    await tick();
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(document.querySelector('.dialog [role=alert]')?.textContent).toMatch(/Board thickness/);
+    footButton('Cancel').click();
+    shutDown(app);
+  });
+});
