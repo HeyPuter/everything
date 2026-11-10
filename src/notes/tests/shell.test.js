@@ -56,6 +56,19 @@ describe('App shell', () => {
     expect(store.findPage(app.state.pageId).meta.title).toBe('Renamed');
   });
 
+  it('types AltGr characters instead of running Ctrl+Alt shortcuts', async () => {
+    const pages = () => store.findNode(app.state.sectionId).node.pages.length;
+    const before = pages();
+    const body = app.editor.createOutlineAt(100, 300).querySelector('.outline-body');
+    // Polish "ń" is AltGr+N, which Windows reports as Ctrl+Alt+N (New Page).
+    const e = keydown(body, 'ń', { code: 'KeyN', ctrlKey: true, altKey: true, modifierAltGraph: true });
+    expect(e.defaultPrevented).toBe(false);
+    expect(pages()).toBe(before);
+    // The real shortcut still works.
+    expect(keydown(body, 'n', { code: 'KeyN', ctrlKey: true, altKey: true }).defaultPrevented).toBe(true);
+    expect(pages()).toBe(before + 1);
+  });
+
   it('leaves focus where a click that ended a rename put it', async () => {
     const row = app.nav.pagesList.querySelector('.row[aria-selected="true"]');
     row.focus();
