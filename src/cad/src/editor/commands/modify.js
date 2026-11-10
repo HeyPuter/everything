@@ -1090,20 +1090,32 @@ export const ALIGNCMD = {
     if (!s1 || s1.option) return;
     const d1 = await ed.getPoint('First destination point', { base: s1 });
     if (!d1 || d1.option) return;
-    const s2 = await ed.getPoint('Second source point (Enter to only move)');
+    // Each pair of points gives a direction (and a length to scale by), so
+    // the second point of a pair cannot sit on the first.
+    let s2;
+    for (;;) {
+      s2 = await ed.getPoint('Second source point (Enter to only move)');
+      if (!s2 || s2.option || dist(s1, s2) > 1e-12) break;
+      ed.ui.log('The second source point must differ from the first.', 'error');
+    }
     if (!s2 || s2.option) {
       transformAll(ed, ids, M.translate(d1.x - s1.x, d1.y - s1.y), false, 'Align');
       ed.clearSelection();
       return;
     }
-    const d2 = await ed.getPoint('Second destination point', { base: s2 });
-    if (!d2 || d2.option) return;
+    let d2;
+    for (;;) {
+      d2 = await ed.getPoint('Second destination point', { base: s2 });
+      if (!d2 || d2.option) return;
+      if (dist(d1, d2) > 1e-12) break;
+      ed.ui.log('The second destination point must differ from the first.', 'error');
+    }
     const scale = await ed.getKeyword('Scale objects to the alignment points?', opts('Yes', 'No'), 'no');
     if (scale === null) return;
     const a = angleOf(d1, d2) - angleOf(s1, s2);
     let m = mulMatrix(M.rotate(a, d1.x, d1.y), M.translate(d1.x - s1.x, d1.y - s1.y));
     if (scale === 'yes') {
-      const k = dist(d1, d2) / Math.max(1e-12, dist(s1, s2));
+      const k = dist(d1, d2) / dist(s1, s2);
       m = mulMatrix(M.scale(k, d1.x, d1.y), m);
     }
     transformAll(ed, ids, m, false, 'Align');
