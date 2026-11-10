@@ -340,3 +340,39 @@ describe('ERC: names that touch nothing', () => {
     expect(list.map((e) => e.ids)).toEqual([[loose.id]]);
   });
 });
+
+describe('designators of parts being placed', () => {
+  it('skip numbers taken on another sheet while the tool was waiting', async () => {
+    app = await boot();
+    const first = app.activeEditor;
+    const sheet1 = first.doc;
+    first.placePart(res);
+    const waiting = first.tool.template.designator;
+    // Same component on a second sheet takes that number first.
+    app.addDoc('sch');
+    const second = app.activeEditor;
+    expect(second.doc).not.toBe(sheet1);
+    second.placePart(res);
+    second.tool.click({ x: mil(1000), y: mil(1000) });
+    expect([...second.doc.items()][0].designator).toBe(waiting);
+    app.openDoc(sheet1.id);
+    first.tool.click({ x: mil(6000), y: mil(6000) });
+    const names = app.project
+      .sheetObjects()
+      .flatMap((sh) => sh.objects.filter((o) => o.t === 'part').map((o) => o.designator));
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('reuse the number of a placement that was undone', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    ed.placePart(res);
+    const des = ed.tool.template.designator;
+    ed.tool.click({ x: mil(6000), y: mil(6000) });
+    ed.doc.store.undo();
+    ed.tool.click({ x: mil(6000), y: mil(6000) });
+    expect(ed.selection.size).toBe(0);
+    expect([...ed.doc.items()].filter((o) => o.designator === des)).toHaveLength(1);
+    expect(ed.tool.template.designator).not.toBe(des);
+  });
+});

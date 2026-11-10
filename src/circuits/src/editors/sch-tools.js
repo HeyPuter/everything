@@ -91,7 +91,12 @@ export class PlacePartTool extends PlaceTool {
   }
   finalize(o) { return { ...o, uid: uid('u'), params: { ...(this.def.params || {}) } }; }
   click(ev) {
+    // The number picked when the tool last looked can have been taken since
+    // (the same part placed on another sheet) or freed (an undo). One typed
+    // in with Tab is the user's to keep.
+    if (!this.customDes) this.nextDes();
     super.click(ev);
+    this.customDes = false;
     if (!this.repeat) { this.editor.endTool(); return; }
     this.nextDes();
   }
@@ -104,7 +109,10 @@ export class PlacePartTool extends PlaceTool {
       ],
       confirm: 'Apply',
     });
-    if (v) Object.assign(this.template, v);
+    if (v) {
+      if (v.designator !== this.template.designator) this.customDes = true;
+      Object.assign(this.template, v);
+    }
     this.editor.canvas.focus();
   }
 }
