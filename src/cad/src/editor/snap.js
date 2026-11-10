@@ -86,6 +86,32 @@ function expandInsert(drawing, ins, depth = 0, m0 = null, used = null) {
   return list;
 }
 
+/** The primitives that pass within `pad` of (x, y); infinite lines and curves are always kept. */
+function primsNear(prims, x, y, pad) {
+  const out = [];
+  const x0 = x - pad,
+    x1 = x + pad,
+    y0 = y - pad,
+    y1 = y + pad;
+  for (const p of prims) {
+    if (p.t === 'seg') {
+      if ((p.x1 < x0 && p.x2 < x0) || (p.x1 > x1 && p.x2 > x1)) continue;
+      if ((p.y1 < y0 && p.y2 < y0) || (p.y1 > y1 && p.y2 > y1)) continue;
+    } else if (p.t === 'arc') {
+      const dx = p.cx - x,
+        dy = p.cy - y;
+      const far = p.r + pad * 1.5;
+      if (dx > far || -dx > far || dy > far || -dy > far) continue;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > far * far) continue;
+      const inner = p.r - pad * 1.5;
+      if (inner > 0 && d2 < inner * inner) continue;
+    }
+    out.push(p);
+  }
+  return out;
+}
+
 function safe(fn, ...args) {
   try {
     return fn(...args) || [];
@@ -172,11 +198,14 @@ export function findSnap(drawing, ids, x, y, radius, modes, base) {
 
   if (modes.has('int')) {
     const close = top.filter((g) => g.d <= radius).slice(0, 12);
+    // Only primitives that reach the aperture can cross inside it.
+    const lists = close.map((g) => primsNear(primsOf(g.ent), x, y, radius * 2 + 1e-6));
     for (let i = 0; i < close.length; i++) {
-      const pa = primsOf(close[i].ent);
+      const pa = lists[i];
+      if (!pa.length) continue;
       // Self intersections of polylines are not needed for snapping.
       for (let j = i + 1; j < close.length; j++) {
-        const pb = primsOf(close[j].ent);
+        const pb = lists[j];
         for (const a of pa) {
           for (const b of pb) {
             for (const p of safe(intersectPrims, a, b)) consider(p.x, p.y, 'int', close[i].id);
