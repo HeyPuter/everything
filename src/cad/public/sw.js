@@ -124,13 +124,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // The app's own files are the same for every request. A host that answers
+  // with "Vary: Origin" must not make the cached copy miss: the page asks for
+  // its script and style sheet with an Origin header (they are crossorigin),
+  // while the copies were fetched here without one.
   if (url.pathname.includes('/assets/')) {
-    event.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => store(req, res))));
+    event.respondWith(caches.match(req, { ignoreVary: true }).then((hit) => hit || fetch(req).then((res) => store(req, res))));
     return;
   }
 
   event.respondWith(
-    caches.match(req).then((hit) => {
+    caches.match(req, { ignoreVary: true }).then((hit) => {
       const fresh = fetch(req)
         .then((res) => store(req, res))
         .catch(() => hit);
