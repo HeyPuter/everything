@@ -284,8 +284,18 @@ export class PageEditor extends Emitter {
     s.addEventListener('copy', (e) => this.onCopy(e));
     s.addEventListener('cut', (e) => this.onCopy(e, { cut: true }));
     s.addEventListener('drop', (e) => this.onDrop(e));
+    // A drag that starts in the page moves the note's own text.
+    s.addEventListener('dragstart', () => {
+      this.draggingOwn = true;
+    });
+    s.addEventListener('dragend', () => {
+      this.draggingOwn = false;
+    });
     s.addEventListener('dragover', (e) => {
-      if (!this.readOnly && [...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
+      const types = [...(e.dataTransfer?.types || [])];
+      // Files anywhere on the page; formatted text from outside too, where
+      // there is no note under it to take the drop by itself.
+      if (!this.readOnly && (types.includes('Files') || (types.includes('text/html') && !this.draggingOwn && !e.target.closest?.('.outline-body')))) e.preventDefault();
     });
     s.addEventListener('click', (e) => this.onClick(e));
     s.addEventListener('wheel', (e) => {
@@ -1000,7 +1010,11 @@ export class PageEditor extends Emitter {
   async onDrop(e) {
     if (this.readOnly) return;
     const files = [...(e.dataTransfer?.files || [])];
-    if (!files.length) return;
+    // Formatted text dragged in from another page or app is cleaned like a
+    // paste; the browser would insert it as it is, classes and styles and
+    // all. Text dragged within the page is the note's own and moves as is.
+    const html = !files.length && !this.draggingOwn ? e.dataTransfer?.getData('text/html') : '';
+    if (!files.length && !html) return;
     e.preventDefault();
     const body = e.target.closest?.('.outline-body');
     if (body) {
@@ -1016,7 +1030,10 @@ export class PageEditor extends Emitter {
       const p = this.pagePoint(e);
       this.createOutlineAt(p.x, p.y);
     }
-    await this.insertFiles(files);
+    if (html) {
+      this.commitTyping();
+      await this.pasteHtml(cleanPastedHtml(html));
+    } else await this.insertFiles(files);
   }
 
   nextFreeY() {
