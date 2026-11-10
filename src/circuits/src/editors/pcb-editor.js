@@ -562,12 +562,14 @@ export class PcbEditor extends CanvasView {
     return { x: o.x, y: o.y };
   }
 
-  /** Copper under a point on a layer (null layer: any visible copper). */
-  copperAt(x, y, layer, exact = false, exclude = null) {
+  /** Copper under a point on a layer (null layer: any copper, or only what is shown). */
+  copperAt(x, y, layer, exact = false, exclude = null, shownOnly = false) {
     this.analysis();
     const tol = exact ? 1 : 4 * this.nmPerPx;
+    // Vias and through-hole pads show on every layer they cross and on the multi-layer.
+    const shown = (it) => it.layers.some((l) => this.isLayerVisible(l)) || (it.layers.length > 1 && this.isLayerVisible('multi'));
     const hits = this._copperTree.search({ minX: x - tol, minY: y - tol, maxX: x + tol, maxY: y + tol }).map((e) => e.it)
-      .filter((it) => (!layer || it.layers.includes(layer) || (it.isPad && it.layers.length > 1)) && !exclude?.has(it.objId));
+      .filter((it) => (!layer || it.layers.includes(layer) || (it.isPad && it.layers.length > 1)) && !exclude?.has(it.objId) && (!shownOnly || shown(it)));
     let best = null, bd = Infinity;
     const probe = { kind: 'disc', x, y, r: tol, layers: layer ? [layer] : copperLayers(this.copperCount) };
     for (const it of hits) {
@@ -585,8 +587,9 @@ export class PcbEditor extends CanvasView {
     return { net: best.net, layers: best.layers, objId: best.objId, anchor, isPad: !!best.isPad };
   }
 
+  /** Net of the copper the user can see under a point. */
   netUnder(x, y) {
-    const c = this.copperAt(x, y, null);
+    const c = this.copperAt(x, y, null, false, null, true);
     return c?.net || null;
   }
 

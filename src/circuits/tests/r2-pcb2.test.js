@@ -179,3 +179,67 @@ describe('rotate and flip keys in board drawing tools', () => {
     expect(ed.doc.store.get(r1.id).side).not.toBe(r1.side);
   });
 });
+
+describe('copper on hidden layers', () => {
+  const setUp = async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const y = mm(70);
+    ed.doc.store.transact('Set up', (s) => {
+      s.add({
+        id: 'tb',
+        t: 'track',
+        layer: 'bottom',
+        x1: 0,
+        y1: y,
+        x2: mm(4),
+        y2: y,
+        w: mm(0.3),
+        net: 'HID',
+      });
+      s.add({
+        id: 'vb',
+        t: 'via',
+        x: mm(8),
+        y,
+        d: mm(0.8),
+        drill: mm(0.4),
+        from: 'top',
+        to: 'bottom',
+        net: 'VIA',
+      });
+    });
+    return { ed, y };
+  };
+
+  it('is not named by the readout or highlighted with Ctrl+click', async () => {
+    const { ed, y } = await setUp();
+    expect(ed.netUnder(mm(2), y)).toBe('HID');
+    ed.setLayerVisible('bottom', false);
+    expect(ed.netUnder(mm(2), y)).toBeNull();
+    ed.select.click({ ...ev(mm(2), y), ctrl: true });
+    expect(ed.highlight).toBeNull();
+    // A via shows through the board on the layers still visible.
+    expect(ed.netUnder(mm(8), y)).toBe('VIA');
+    ed.setLayerVisible('bottom', true);
+    ed.select.click({ ...ev(mm(2), y), ctrl: true });
+    expect(ed.highlight.net).toBe('HID');
+  });
+
+  it('is not named in single layer mode when other layers are hidden', async () => {
+    const { ed, y } = await setUp();
+    ed.singleLayer = 'hide';
+    expect(ed.activeLayer).toBe('top');
+    expect(ed.netUnder(mm(2), y)).toBeNull();
+    expect(ed.netUnder(mm(8), y)).toBe('VIA');
+  });
+
+  it('still gives its net to a via placed on it', async () => {
+    const { ed, y } = await setUp();
+    ed.setLayerVisible('bottom', false);
+    ed.startTool('via');
+    ed.tool.click(ev(mm(2), y));
+    const via = [...ed.doc.items()].find((o) => o.t === 'via' && o.x === mm(2));
+    expect(via.net).toBe('HID');
+  });
+});
