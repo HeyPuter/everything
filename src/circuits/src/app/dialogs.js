@@ -482,7 +482,14 @@ export async function openProjectDialog(app) {
             if (isOpen) { await app._saving; await app.closeProject(true); }
             await deleteProject(it.location);
             if (isOpen && !app.project) app.showStart(); // drop it from the recent list
-            render();
+            // The row with the focus goes: move on to the project now in its
+            // place, or the focus would be left on the page behind the dialog.
+            const at = [...ul.children].indexOf(del.parentElement);
+            await render();
+            if (!dlg.el.contains(document.activeElement)) {
+              const rows = listHost.querySelectorAll('ul:last-of-type > li > button:first-child');
+              (rows[Math.min(at, rows.length - 1)] || dlg.el.querySelector('button'))?.focus();
+            }
           } catch (err) { app.toast(`Could not delete: ${err.message}`, { kind: 'error' }); }
         }
       });

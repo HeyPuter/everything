@@ -57,6 +57,9 @@ function memoryDir() {
       }
       return kids.get(name);
     },
+    async removeEntry(name) {
+      if (!kids.delete(name)) throw new DOMException('missing', 'NotFoundError');
+    },
     async *entries() {
       yield* kids.entries();
     },
@@ -736,5 +739,43 @@ describe('share dialog', () => {
     expect(dialog.querySelector('[role=status]').textContent).toContain('No permission');
     expect(access.value).toBe('read');
     close(dialog);
+  });
+});
+
+describe('deleting a project in the Open project dialog', () => {
+  it('keeps keyboard focus in the dialog, on the next project', async () => {
+    document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
+    localStorage.clear();
+    setPuterForTests(null);
+    delete window.puter;
+    const root = memoryDir();
+    Object.defineProperty(navigator, 'storage', {
+      value: { getDirectory: async () => root },
+      configurable: true,
+    });
+    const app = new App(document.getElementById('app'), { puterTimeout: 10 });
+    await app.init();
+    for (const name of ['Alpha', 'Beta', 'Gamma'])
+      await storage.saveText({ type: 'local', id: name }, name, JSON.stringify({ name }));
+    app.openProjectDialog();
+    await new Promise((r) => setTimeout(r, 40)); // the list, and the dialog's first focus
+    const dialog = document.querySelector('.dialog');
+    const names = () => [...dialog.querySelectorAll('.recent-list li')].map((li) => li.textContent);
+    expect(names().length).toBe(3);
+    const second = dialog.querySelectorAll('.recent-list li')[1];
+    const gone = second.querySelector('button').textContent;
+    const del = second.querySelector('.icon-btn');
+    del.focus();
+    del.click();
+    await tick();
+    [...document.querySelectorAll('.dialog')].at(-1).querySelector('.btn.danger').click();
+    for (let i = 0; i < 8; i++) await tick();
+    expect(names().length).toBe(2);
+    expect(names().join()).not.toContain(gone);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    // The project that took the deleted one's place.
+    expect(document.activeElement).toBe(dialog.querySelectorAll('.recent-list li')[1].firstChild);
+    dialog.querySelector('[aria-label="Close dialog"]').click();
+    shutDown(app);
   });
 });
