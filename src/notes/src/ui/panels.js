@@ -34,7 +34,7 @@ function resultRow(app, { notebook, section, meta, snippet }, terms, find) {
     h('div.result-path', h('span.dot', { style: { '--sec-color': color } }), `${notebook.name} › ${section.name}`, h('span', { style: { marginLeft: 'auto' } }, formatRelative(meta.modified || meta.created))),
   );
   if (snippet) btn.append(h('div.result-snippet', { html: highlightSnippet(snippet, terms) }));
-  btn.addEventListener('click', () => app.openPage(meta.id, { find }));
+  btn.addEventListener('click', () => app.openPage(meta.id, { find: find ? { text: find, words: true } : undefined }));
   return btn;
 }
 

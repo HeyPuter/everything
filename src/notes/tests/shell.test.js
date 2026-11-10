@@ -638,6 +638,26 @@ describe('Find on Page', () => {
     const { app } = await mount();
     app.newPage({ title: 'Find', outlines: [{ id: 'o1', x: 48, y: 140, w: 600, html: '<p>form fold fox food</p>' }] });
     await tick(10);
+    // A match runs across formatting inside a paragraph, not across paragraphs.
+    const body = app.editor.createOutlineAt(100, 400).querySelector('.outline-body');
+    body.innerHTML = '<p>The <b>quar</b>terly bud<i>get</i></p><p>quar</p><p>terly</p>';
+    app.find.open('quarterly budget');
+    expect(app.find.ranges.map((r) => r.toString())).toEqual(['quarterly budget']);
+    // From Search, whose results hold every word in any order: the words.
+    app.find.open({ text: 'budget quarterly', words: true });
+    expect(app.find.ranges.map((r) => r.toString())).toEqual(['quarterly', 'budget']);
+    app.find.input.dispatchEvent(new Event('input'));
+    app.find.run();
+    expect(app.find.ranges).toHaveLength(0);
+    // The page changing under the open bar keeps the place in the matches.
+    body.innerHTML = '<p>fig one</p><p>fig two</p><p>fig three</p>';
+    app.find.open('fig');
+    app.find.step(1);
+    expect(app.find.count.textContent).toBe('2 of 3');
+    body.firstChild.remove();
+    app.find.refresh();
+    expect(app.find.count.textContent).toBe('2 of 2');
+    body.remove();
     app.find.open('fo');
     expect(app.find.ranges).toHaveLength(4);
     app.find.input.value = 'fox';
