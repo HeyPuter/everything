@@ -23,6 +23,13 @@ export function formatRelative(iso, now = new Date(), locale) {
   return d.toLocaleDateString(locale, sameYear ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+/** The day for a group heading: "Today", "Yesterday", a weekday this week, else a date. */
+export function formatDay(iso, now = new Date(), locale) {
+  const d = new Date(iso);
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return sameDay ? 'Today' : formatRelative(iso, now, locale);
+}
+
 /** The value of an <input type="datetime-local"> for an ISO timestamp, in local time. */
 export function toLocalInput(iso) {
   const d = new Date(iso);

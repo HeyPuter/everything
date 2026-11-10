@@ -1,6 +1,6 @@
 import { h } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { formatRelative } from '../lib/dates.js';
+import { formatDay } from '../lib/dates.js';
 import { TAG_BY_ID, tagLabel, setTagDoneInHtml, extractTags } from '../data/tags.js';
 import { pageText } from '../data/store.js';
 import { insertHtml } from '../editor/format.js';
@@ -110,7 +110,7 @@ export class TaskPanes {
       tag: (t) => tagLabel(t.tag),
       section: (t) => t.section.name,
       title: (t) => t.meta.title || 'Untitled Page',
-      date: (t) => formatRelative(t.meta.modified || t.meta.created),
+      date: (t) => formatDay(t.meta.modified || t.meta.created),
       text: (t) => (t.text[0] || '#').toUpperCase(),
     }[o.group];
     const groups = new Map();
@@ -120,7 +120,11 @@ export class TaskPanes {
       groups.get(k).push(t);
     }
     const nodes = [];
-    for (const [k, group] of [...groups].sort((a, b) => a[0].localeCompare(b[0]))) {
+    // Days go newest first; their labels ("Today", "Friday", "Sep 30") say
+    // nothing about their order. Everything else is alphabetical.
+    const newest = (group) => Math.max(...group.map((t) => Date.parse(t.meta.modified || t.meta.created) || 0));
+    const order = o.group === 'date' ? (a, b) => newest(b[1]) - newest(a[1]) : (a, b) => a[0].localeCompare(b[0]);
+    for (const [k, group] of [...groups].sort(order)) {
       nodes.push(h('div.group-label', { role: 'presentation' }, `${k} (${group.length})`));
       for (const t of group) nodes.push(this.tagItem(t));
     }

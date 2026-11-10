@@ -414,6 +414,26 @@ describe('App shell', () => {
     app.editor.setZoom(before);
   });
 
+  it('groups the Tags Summary by day, newest first', async () => {
+    const section = store.section(app.state.sectionId);
+    const day = (n, hour) => {
+      const d = new Date();
+      d.setDate(d.getDate() - n);
+      d.setHours(hour, 0, 0, 0);
+      return d.toISOString();
+    };
+    const item = (text, modified) => ({ tag: 'todo', done: false, text, index: 0, outlineId: 'o', section, meta: { id: text, title: text, modified } });
+    store.collectTags = async () => [item('old', day(40, 9)), item('this morning', day(0, 1)), item('yesterday', day(1, 9)), item('earlier today', day(0, 0))];
+    app.runCommand('findTags');
+    const group = app.taskPanes.el.querySelector('select[aria-label="Group tags by"]');
+    group.value = 'date';
+    group.dispatchEvent(new Event('change'));
+    await tick(20);
+    const labels = [...app.taskPanes.el.querySelectorAll('.group-label')].map((l) => l.textContent);
+    expect(labels.slice(0, 2)).toEqual(['Today (2)', 'Yesterday (1)']);
+    expect(labels).toHaveLength(3);
+  });
+
   it('keeps the Tags Summary for the scope chosen last when an earlier search finishes later', async () => {
     const section = store.section(app.state.sectionId);
     store.createPage(section.id, { title: 'Tagged', outlines: [{ id: 'o1', x: 0, y: 0, html: '<p><span class="nt-tag" data-tag="todo" data-done="false" contenteditable="false"></span>Buy milk</p>' }] });
