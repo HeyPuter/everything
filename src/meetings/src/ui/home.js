@@ -12,6 +12,7 @@ import { mountAgenda } from './agenda.js';
 import { clearAgendaCaches } from '../lib/agenda.js';
 import { brandLockup } from './brand.js';
 import { openHomeSettings } from './nickname.js';
+import { userMenu } from './user-menu.js';
 
 /**
  * Home screen: start or join a meeting.
@@ -40,6 +41,9 @@ export function mountHome(root, ctx) {
   );
 
   const userSlot = el('div', { class: 'home-user' });
+  // puter.js's <puter-user-menu> where the SDK has it (src/ui/user-menu.js):
+  // made once, since it loads the account each time it joins the page.
+  const accountMenu = userMenu({ onSignOut: signOut, onSignIn: onSignedIn, onSignedOut });
   let closeSettings = null;
   const settingsBtn = el('button', {
     class: 'icon-btn', 'aria-label': 'Settings', title: 'Settings',
@@ -375,7 +379,40 @@ export function mountHome(root, ctx) {
     }
   }
 
+  async function signOut() {
+    try {
+      await window.puter.auth.signOut();
+    } catch {
+      /* noop */
+    }
+    onSignedOut();
+  }
+
+  function onSignedOut() {
+    forgetUser();
+    // Whoever signs in next must not be shown this account's
+    // meetings from the panel's snapshot — nor by the panel
+    // itself, which is mounted afresh for the account now here.
+    clearAgendaCaches();
+    renderUser();
+    mountAgendaPanel();
+  }
+
+  function onSignedIn() {
+    forgetUser();
+    renderUser();
+    mountAgendaPanel();
+  }
+
   async function renderUser() {
+    if (accountMenu) {
+      // The element shows the account by itself; the app still takes the
+      // username as the fallback display name.
+      if (!userSlot.contains(accountMenu)) clear(userSlot).append(accountMenu);
+      const user = await currentUser();
+      if (mounted && user && !ctx.getUserName?.()) ctx.setUserName?.(user.username ?? 'You');
+      return;
+    }
     clear(userSlot);
     if (!hasPuter()) return;
     const puter = window.puter;
@@ -394,20 +431,7 @@ export function mountHome(root, ctx) {
               class: 'icon-btn',
               title: 'Sign out',
               'aria-label': 'Sign out',
-              onclick: async () => {
-                try {
-                  await puter.auth.signOut();
-                } catch {
-                  /* noop */
-                }
-                forgetUser();
-                // Whoever signs in next must not be shown this account's
-                // meetings from the panel's snapshot — nor by the panel
-                // itself, which is mounted afresh for the account now here.
-                clearAgendaCaches();
-                renderUser();
-                mountAgendaPanel();
-              },
+              onclick: signOut,
             },
             icon('logout')
           )
@@ -425,9 +449,7 @@ export function mountHome(root, ctx) {
               onclick: async () => {
                 try {
                   await puter.auth.signIn();
-                  forgetUser();
-                  renderUser();
-                  mountAgendaPanel();
+                  onSignedIn();
                 } catch {
                   /* user dismissed */
                 }

@@ -86,6 +86,57 @@
   animation: avatar-shimmer 1.4s linear infinite;
 }
 
+/* <puter-user-menu> (puter.js; src/ui/user-menu.js): where the loaded
+   puter.js has it, it holds the Apps launcher and the account in place of
+   the picture and the Sign in / Sign out buttons above. Its parts take the
+   header's icon button and Sign in button looks; its menu and Apps panel
+   take the app's raised surface, in both themes. */
+puter-user-menu {
+  flex: none;
+  margin-left: 4px;
+}
+
+puter-user-menu::part(apps-button) {
+  width: 40px;
+  height: 40px;
+  color: var(--text-secondary);
+}
+
+puter-user-menu::part(sign-in) {
+  height: 38px;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--accent);
+  font: 500 15px var(--font);
+  white-space: nowrap;
+}
+
+puter-user-menu::part(avatar) {
+  width: 34px;
+  height: 34px;
+  line-height: 34px;
+}
+
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--surface-2);
+  }
+
+  puter-user-menu::part(sign-in):hover {
+    background: var(--accent-soft);
+  }
+}
+
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--surface-raised);
+  border-color: var(--border);
+  --caret-border: var(--border);
+  --caret-fill: var(--surface-raised);
+}
+
 @keyframes avatar-shimmer {
   from { background-position: 200% 0; }
   to { background-position: -200% 0; }
@@ -353,6 +404,15 @@
 
   .home-clock {
     display: none;
+  }
+
+  /* The brand would wrap with a fifth control in the header. */
+  puter-user-menu::part(apps-button) {
+    display: none;
+  }
+
+  puter-user-menu::part(sign-in) {
+    padding: 0 14px;
   }
 
   .home-actions {
