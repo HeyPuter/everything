@@ -93,6 +93,19 @@ beforeEach(() => {
   t = setup();
 });
 
+/** Mouse events on the canvas, at a world position. */
+const mouse = (type, x, y, init = {}) => {
+  const s = t.ed.camera.toScreen(x, y);
+  const e = new MouseEvent(type, { clientX: s.x, clientY: s.y, button: 0, bubbles: true, ...init });
+  t.ed.el.dispatchEvent(e);
+};
+const click = async (x, y, init) => {
+  mouse('pointermove', x, y, init);
+  mouse('pointerdown', x, y, init);
+  mouse('pointerup', x, y, init);
+  await flush();
+};
+
 const base = { layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ltscale: 1 };
 const add = (e) => t.drawing.transaction('Add', () => t.drawing.add({ ...base, ...e }));
 
@@ -172,5 +185,18 @@ describe('TRIM with chosen cutting edges', () => {
     await t.pick(2, 0);
     await t.type('');
     expect(t.all()).toHaveLength(0);
+  });
+});
+
+describe('selection window', () => {
+  it('does not stay on screen when a command is typed after its first corner', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    await click(50, 50);
+    expect(t.ed.window).not.toBeNull();
+    await t.type('LINE');
+    expect(t.ed.window).toBeNull();
+    await click(20, 20);
+    expect(t.ed.request.prompt).toBe('Next point');
+    expect(t.ed.window).toBeNull();
   });
 });

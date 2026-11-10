@@ -191,6 +191,8 @@ export class Editor {
     }
     if (def.transparent && this.active) return this._transparent(def, args);
     if (this.active) await this._stopActive();
+    // A selection window begun while idle is not part of the command.
+    this.window = null;
     const token = {};
     const active = { def, token, done: null };
     this.active = active;
