@@ -8,6 +8,7 @@ import { Project, newProjectData } from '../src/model/project.js';
 import { mm } from '../src/core/units.js';
 import { findWizard } from '../src/model/library/wizards.js';
 import { createViewer3D } from '../src/render/viewer3d.js';
+import { CanvasView } from '../src/editors/view.js';
 
 // jsdom has no 2D canvas or WebGL; the editor logic runs without them.
 HTMLCanvasElement.prototype.getContext = () => null;
@@ -149,6 +150,7 @@ function fakeGl() {
         if (/^[A-Z0-9_]+$/.test(k)) return 1;
         if (k.startsWith('create')) return () => ({});
         if (/^get(Shader|Program)Parameter$/.test(k)) return () => true;
+        if (k === 'getActiveUniform') return () => ({ name: 'u' });
         return () => null;
       },
     },
@@ -194,5 +196,50 @@ describe('footprint wizards', () => {
       for (const p of fp.pads) expect(p.w > 0 && p.h > 0).toBe(true);
       expect(fp.pads.at(-1).shape).toBe('rect');
     }
+  });
+});
+
+describe('canvas resize', () => {
+  // Resizing a canvas clears its drawing buffer, and the browser paints
+  // right after resize observers run. A redraw left for the next animation
+  // frame shows the cleared (black) canvas first, on every step of a window
+  // or panel resize.
+  it('redraws in the same turn as the drawing buffer is resized', async () => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = () => fakeGl();
+    class View extends CanvasView {
+      draws = 0;
+      draw() {
+        this.draws++;
+      }
+    }
+    const view = new View(
+      { settings: { get: () => undefined, on: () => () => {} } },
+      { label: 'Test' },
+    );
+    HTMLCanvasElement.prototype.getContext = getContext;
+    document.body.append(view.el);
+    const size = (width, height) => {
+      view.wrap.getBoundingClientRect = () => ({ width, height, left: 0, top: 0 });
+    };
+    const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    expect(view.renderer).toBeTruthy();
+
+    size(800, 600);
+    view._resize();
+    expect(view.draws).toBe(1);
+    size(700, 500);
+    view._resize();
+    expect(view.draws).toBe(2);
+    expect(view.canvas.width).toBe(700);
+    await frame();
+    expect(view.draws).toBe(2);
+
+    // Nothing was cleared when the size did not change: an ordinary frame.
+    view._resize();
+    expect(view.draws).toBe(2);
+    await frame();
+    expect(view.draws).toBe(3);
+    view.dispose();
   });
 });

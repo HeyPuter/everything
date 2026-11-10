@@ -69,23 +69,28 @@ export class CanvasView extends Emitter {
     if (r.width < 2 || r.height < 2) return;
     const first = !this._sized;
     this._sized = true;
-    this.renderer.resize(r.width, r.height);
+    const cleared = this.renderer.resize(r.width, r.height);
     if (first) {
       if (this._pendingFit) { this.fitBox(this._pendingFit, false); this._pendingFit = null; } else this.fitAll?.(false);
     }
-    this.requestRender();
+    // Resizing clears the drawing buffer, and the browser paints right after
+    // the resize observer runs: draw now, or every step of a window or panel
+    // resize shows a black canvas until the next frame.
+    if (cleared) { cancelAnimationFrame(this._frame); this._render(); } else this.requestRender();
   }
 
   requestRender(overlay = false) {
     if (overlay) this._dirtyOverlay = true;
     if (this._frame || this.disposed || !this.renderer) return;
-    this._frame = requestAnimationFrame(() => {
-      this._frame = 0;
-      if (this.disposed || !this.el.isConnected) return;
-      if (this._dirtyOverlay) { this._dirtyOverlay = false; this.buildOverlay(); }
-      this.draw();
-      this.emit('rendered');
-    });
+    this._frame = requestAnimationFrame(() => this._render());
+  }
+
+  _render() {
+    this._frame = 0;
+    if (this.disposed || !this.el.isConnected) return;
+    if (this._dirtyOverlay) { this._dirtyOverlay = false; this.buildOverlay(); }
+    this.draw();
+    this.emit('rendered');
   }
 
   /** Subclasses rebuild previews into this.overlay. */
