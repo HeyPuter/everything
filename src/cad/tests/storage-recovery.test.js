@@ -83,4 +83,29 @@ describe('recovery storage', () => {
     expect(await recovery.put({ id: 2 })).toBe(true);
     expect(idb.opens).toBe(2);
   });
+
+  it('gives up on a database open that never answers', async () => {
+    // Seen in browsers: the open request fires neither success nor error.
+    vi.useFakeTimers();
+    try {
+      let late;
+      const closed = [];
+      const idb = { open: () => (late = {}) };
+      const recovery = await load(idb);
+      const answers = [];
+      recovery.getSession().then((v) => answers.push(['session', v]));
+      recovery.put({ id: 1 }).then((v) => answers.push(['put', v]));
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(answers).toEqual([
+        ['session', null],
+        ['put', false],
+      ]);
+      // An answer that comes after all is not left open.
+      late.result = { close: () => closed.push(1) };
+      late.onsuccess();
+      expect(closed).toEqual([1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

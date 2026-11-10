@@ -183,6 +183,7 @@ export function download(blob, name) {
 
 const DB_NAME = 'cad';
 const DB_VERSION = 1;
+const DB_OPEN_MS = 5000;
 let dbPromise = null;
 
 /**
@@ -194,6 +195,12 @@ function db() {
   const p = new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('No IndexedDB'));
     const req = indexedDB.open(DB_NAME, DB_VERSION);
+    // Some browsers at times never answer an open; the app must not wait on it forever.
+    let late = false;
+    const timer = setTimeout(() => {
+      late = true;
+      reject(new Error('IndexedDB did not open'));
+    }, DB_OPEN_MS);
     req.onupgradeneeded = () => {
       const d = req.result;
       if (!d.objectStoreNames.contains('docs')) d.createObjectStore('docs', { keyPath: 'id' });
@@ -201,6 +208,8 @@ function db() {
     };
     req.onsuccess = () => {
       const d = req.result;
+      clearTimeout(timer);
+      if (late) return d.close();
       d.onclose = () => forgetDb(p);
       d.onversionchange = () => {
         d.close();
@@ -208,7 +217,10 @@ function db() {
       };
       resolve(d);
     };
-    req.onerror = () => reject(req.error);
+    req.onerror = () => {
+      clearTimeout(timer);
+      reject(req.error);
+    };
   });
   dbPromise = p;
   p.catch(() => forgetDb(p));
