@@ -142,7 +142,10 @@ async function printout(app, file, range) {
     if (range) app.editor.lastRange = range;
     app.editor.restoreRange();
     await app.editor.insertAttachment(file);
-    const sectionId = app.store.findPage(app.editor.page.id)?.section.id;
+    // The pages take a while to draw: if another page is opened meanwhile,
+    // they must not land on it.
+    const target = app.editor.page;
+    const sectionId = app.store.findPage(target.id)?.section.id;
     const images = [];
     for (let i = 1; i <= count; i++) {
       const page = await doc.getPage(i);
@@ -155,9 +158,11 @@ async function printout(app, file, range) {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport, canvas }).promise;
       const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+      if (app.editor.page !== target) throw new Error('its page was closed before it finished');
       const id = await app.store.saveAsset(blob, `printout-${i}.png`, { sectionId });
       images.push(`<p><img data-asset="${id}" alt="${escapeHtml(`Page ${i} of ${file.name}`)}" style="width: 640px"></p>`);
     }
+    if (app.editor.page !== target) throw new Error('its page was closed before it finished');
     const el = app.editor.createOutlineAt(48, app.editor.nextFreeY(), '');
     const body = el.querySelector('.outline-body');
     body.innerHTML = sanitizeHtml(images.join(''));

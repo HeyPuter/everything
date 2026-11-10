@@ -1086,18 +1086,33 @@ export class PageEditor extends Emitter {
     const width = await imageWidth(probe);
     URL.revokeObjectURL(probe);
     if (width === null) return this.insertAttachment(file);
+    const page = this.requirePage();
     this.ensureCaret();
-    const id = await this.store.saveAsset(file, file.name || 'picture.png', { sectionId: this.store.findPage?.(this.page.id)?.section.id });
+    const id = await this.store.saveAsset(file, file.name || 'picture.png', { sectionId: this.store.findPage?.(page.id)?.section.id });
     const url = await this.store.assetUrl(id);
+    this.requirePage(page);
     const style = width > 600 ? ' style="width: 600px"' : '';
     this.ensureCaret();
     insertHtml(`<img data-asset="${id}" src="${url}" alt="${escapeAttr(alt || file.name || '')}"${style}>`);
     this.markActiveDirty();
   }
 
+  /**
+   * The open page, for an insert that uploads first. Called again with that
+   * page once the upload is done: if another page was opened meanwhile (or
+   * the section locked), the insert stops instead of landing on that page,
+   * with a file saved for the first page's section.
+   */
+  requirePage(page) {
+    if (!this.page || (page && this.page !== page)) throw new Error(page ? 'its page was closed before the upload finished' : 'no page is open');
+    return this.page;
+  }
+
   async insertAttachment(file, kind) {
+    const page = this.requirePage();
     this.ensureCaret();
-    const id = await this.store.saveAsset(file, file.name, { sectionId: this.store.findPage?.(this.page.id)?.section.id });
+    const id = await this.store.saveAsset(file, file.name, { sectionId: this.store.findPage?.(page.id)?.section.id });
+    this.requirePage(page);
     this.ensureCaret();
     const span = fileSpan({ asset: id, name: file.name || 'Attachment', size: file.size, type: file.type, kind: kind || (file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'file') });
     insertNode(span);

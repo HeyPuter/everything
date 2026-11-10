@@ -800,6 +800,22 @@ describe('copying and pasting embeds', () => {
     host.remove();
   });
 
+  it('does not put an upload on the page opened while it was uploading', async () => {
+    let finish;
+    const { ed, host } = await setup('<p>A </p>', { saveAsset: () => new Promise((r) => (finish = r)) });
+    const first = ed.page;
+    const insert = ed.insertAttachment(new File(['x'], 'big.pdf', { type: 'application/pdf' }));
+    const second = { id: 'p2', title: '', created: new Date().toISOString(), outlines: [], ink: [] };
+    await ed.open(second);
+    finish('new.pdf');
+    await expect(insert).rejects.toThrow(/page was closed/);
+    expect(second.outlines).toHaveLength(0);
+    expect(host.querySelector('.nt-file')).toBeNull();
+    expect(first.outlines[0].html).toBe('<p>A </p>');
+    ed.destroy();
+    host.remove();
+  });
+
   it('copies attachments and equations in their stored form', async () => {
     const { ed, body, host } = await setup('<p>Eq <span class="nt-math" data-tex="x^2" contenteditable="false"></span> <span class="nt-file" data-asset="a1.txt" data-name="n.txt" data-kind="file" contenteditable="false"></span></p>');
     const r = document.createRange();
