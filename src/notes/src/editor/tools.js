@@ -414,6 +414,12 @@ export class InkTools {
     return true;
   }
 
+  /** The box around the selected ink, or null. */
+  selectionBounds() {
+    const items = this.selectedItems();
+    return items.length ? unionBounds(items.map(bounds)) : null;
+  }
+
   beginMove() {
     const items = this.selectedItems();
     const els = items.map((i) => this.layer.querySelector(`[data-id="${i.id}"]`));
@@ -439,10 +445,16 @@ export class InkTools {
     const start = this.editor.pagePoint(e);
     const mover = this.beginMove();
     const outlines = [...this.editor.selectedOutlines].map((el) => ({ el, model: this.editor.outlineModel(el), x: el.offsetLeft, y: el.offsetTop }));
+    // The selection moves as one and stops at the page's top and left edges:
+    // ink dragged past them could not be scrolled to again, and containers
+    // stopped there on their own while the ink went on.
+    const box = this.selectionBounds();
+    const minX = Math.max(0, Math.min(box ? box.x : Infinity, ...outlines.map((o) => o.x)));
+    const minY = Math.max(0, Math.min(box ? box.y : Infinity, ...outlines.map((o) => o.y)));
     let delta = [0, 0];
     const move = (ev) => {
       const p = this.editor.pagePoint(ev);
-      delta = [p.x - start.x, p.y - start.y];
+      delta = [Math.max(p.x - start.x, -minX), Math.max(p.y - start.y, -minY)];
       mover.move(...delta);
       for (const o of outlines) {
         o.el.style.left = `${o.x + delta[0]}px`;
@@ -455,6 +467,7 @@ export class InkTools {
       for (const o of outlines) {
         o.model.x = Math.max(0, Math.round(o.x + delta[0]));
         o.model.y = Math.max(0, Math.round(o.y + delta[1]));
+        this.editor.place(o.el, o.model);
       }
       this.editor.layout();
       this.editor.changed();

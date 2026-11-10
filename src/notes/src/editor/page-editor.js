@@ -394,11 +394,16 @@ export class PageEditor extends Emitter {
     if (!this.selectedOutlines.has(outline)) this.selectOutlines([outline]);
     const moving = [...this.selectedOutlines].map((el) => ({ el, model: this.outlineModel(el), x: el.offsetLeft, y: el.offsetTop }));
     const inkSel = this.ink.selected.size ? this.ink.beginMove() : null;
+    // Everything selected moves together and stops at the page's top and
+    // left edges as one (see InkTools.dragSelection).
+    const box = this.ink.selectionBounds();
+    const minX = Math.max(0, Math.min(box ? box.x : Infinity, ...moving.map((m) => m.x)));
+    const minY = Math.max(0, Math.min(box ? box.y : Infinity, ...moving.map((m) => m.y)));
     let moved = false;
     const onMove = (ev) => {
       const p = this.pagePoint(ev);
-      const dx = p.x - start.x;
-      const dy = p.y - start.y;
+      const dx = Math.max(p.x - start.x, -minX);
+      const dy = Math.max(p.y - start.y, -minY);
       if (!moved && Math.hypot(dx, dy) < 2) return;
       moved = true;
       for (const m of moving) {
