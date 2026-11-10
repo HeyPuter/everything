@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { exportGerbers } from '../src/io/gerber.js';
+import { importKicad } from '../src/io/kicad/index.js';
 import { mm } from '../src/core/units.js';
 import { defaultRules } from '../src/model/schema.js';
 
@@ -87,5 +88,45 @@ describe('Gerber drawings on paste, mask and mechanical layers', () => {
     expect(body(silk).length).toBeGreaterThan(1);
     expect(body(mask)).toEqual(body(silk));
     expect(body(gerber(emptyBoard([{ ...text, layer: 'topSolder' }]), 'GBS'))).toEqual([]);
+  });
+});
+
+describe('KiCad symbols edited in the schematic', () => {
+  const F = '(effects (font (size 1.27 1.27)))';
+  const sym = (name, sub, pinX) => `(symbol "${name}"
+    (property "Reference" "R" (at 2 0 90) ${F}) (property "Value" "R" (at 0 0 90) ${F})
+    (symbol "${sub}_1_1"
+      (pin passive line (at ${pinX} 3.81 270) (length 1.27) (name "~" ${F}) (number "1" ${F}))))`;
+  const part = (
+    ref,
+    x,
+    libName,
+  ) => `(symbol ${libName ? `(lib_name "${libName}") ` : ''}(lib_id "Device:R")
+    (at ${x} 50.8 0) (unit 1) (uuid "${ref}")
+    (property "Reference" "${ref}" (at 0 0 0) ${F}) (property "Value" "10k" (at 0 0 0) ${F}))`;
+
+  it('uses the symbol variant an instance names with lib_name', async () => {
+    // KiCad keeps a symbol that differs from its library under its own name
+    // ("R_1") and points the instance at it with lib_name.
+    const text = `(kicad_sch (version 20231120) (generator "eeschema") (paper "A4")
+      (lib_symbols ${sym('Device:R', 'R', 0)} ${sym('R_1', 'R_1', 2.54)})
+      ${part('R1', 100.33)} ${part('R2', 120.65, 'R_1')})`;
+    const { project, warnings } = await importKicad([{ name: 'a.kicad_sch', text }]);
+    const parts = project.documents[0].objects.filter((o) => o.t === 'part');
+    const pinX = (ref) =>
+      project.library[parts.find((p) => p.designator === ref).comp].symbol.pins[0].x;
+    expect(parts.map((p) => p.designator)).toEqual(['R1', 'R2']);
+    expect(pinX('R1')).toBe(0);
+    expect(pinX('R2')).toBe(mm(2.54));
+    expect(warnings).toEqual([]);
+  });
+
+  it('imports an instance whose library entry only exists under its lib_name', async () => {
+    const text = `(kicad_sch (version 20231120) (generator "eeschema") (paper "A4")
+      (lib_symbols ${sym('R_1', 'R_1', 2.54)})
+      ${part('R2', 120.65, 'R_1')})`;
+    const { project, warnings } = await importKicad([{ name: 'a.kicad_sch', text }]);
+    expect(project.documents[0].objects.filter((o) => o.t === 'part').length).toBe(1);
+    expect(warnings).toEqual([]);
   });
 });
