@@ -373,3 +373,22 @@ describe('fillet of an arc picked at its start point', () => {
     }
   });
 });
+
+describe('stretching an arc that spans a full turn', () => {
+  it('gives a whole ellipse, not an empty arc', () => {
+    for (let i = 0; i < 60; i++) {
+      const a = (i * 0.37) % 6.2;
+      const arc = { type: 'arc', cx: 3, cy: -2, r: 4, start: a, end: a };
+      expect(G.lengthOf(arc)).toBeCloseTo(8 * Math.PI, 9);
+      const m = G.multiply(G.rotate((i * 0.11) % 3), G.scale(1.5, 0, 0, -3));
+      const e = G.transformEntity(arc, m);
+      expect(e.type).toBe('ellipse');
+      expect(G.isFullEllipse(e)).toBe(true);
+      const circle = G.transformEntity({ type: 'circle', cx: 3, cy: -2, r: 4 }, m);
+      expect(G.lengthOf(e)).toBeCloseTo(G.lengthOf(circle), 9);
+      const b = G.entityBounds(e),
+        bc = G.entityBounds(circle);
+      b.forEach((v, k) => expect(v).toBeCloseTo(bc[k], 9));
+    }
+  });
+});

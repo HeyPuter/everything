@@ -271,7 +271,9 @@ export function transformEntity(ent, m) {
         break;
       }
       const sw = ccwSweep(ent.start, ent.end);
-      const g = transformEllipseGeom(ent.cx, ent.cy, ent.r, 0, 0, ent.r, ent.start, ent.start + sw, false, m);
+      // An arc of a full turn (equal angles) becomes a full ellipse; as an
+      // arc its mapped end would round to a hair past its start.
+      const g = transformEllipseGeom(ent.cx, ent.cy, ent.r, 0, 0, ent.r, ent.start, ent.start + sw, sw >= TWO_PI, m);
       delete out.r;
       return Object.assign(out, { type: 'ellipse' }, g);
     }
