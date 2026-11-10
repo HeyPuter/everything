@@ -190,3 +190,22 @@ describe('editing a footprint in the library', () => {
     expect(ends).not.toContain(`${before.x},${before.y}`);
   });
 });
+
+describe('finishing a trace', () => {
+  it('ends on another pad of the same part that lines up with the first', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    // Pins 1 and 2 of U1 sit in one column; put them on one net.
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    ed.doc.store.transact('Nets', (s) => s.update(u1.id, { padNets: { ...u1.padNets, 1: 'THR' } }));
+    const a = padOf(ed, 'U1', '1');
+    const b = padOf(ed, 'U1', '2');
+    expect(a.x).toBe(b.x);
+    ed.startTool('route');
+    ed.tool.corner = 'any';
+    ed.tool.click(ev(a.x, a.y));
+    ed.tool.click(ev(b.x, b.y));
+    expect(tracks(ed)).toHaveLength(1);
+    expect(ed.tool.trace).toBeNull();
+  });
+});

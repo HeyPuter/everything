@@ -132,7 +132,8 @@ export class RouteTool {
     const ex = path[path.length - 2], ey = path[path.length - 1];
     // Finish when the trace lands on copper of the same net (or any net when unnetted).
     const hit = this.editor.copperAt(ex, ey, t.layer, true, new Set(t.placed));
-    const onStart = hit && t.start && hit.objId === t.start.objId && (!hit.isPad || hit.anchor?.[0] === t.start.anchor?.[0]);
+    const samePad = hit?.anchor?.[0] === t.start?.anchor?.[0] && hit?.anchor?.[1] === t.start?.anchor?.[1];
+    const onStart = hit && t.start && hit.objId === t.start.objId && (!hit.isPad || samePad);
     if (hit && !onStart && (!t.net || !hit.net || hit.net === t.net)) {
       if (!t.net && hit.net) this._assignNet(hit.net);
       this.finish();
