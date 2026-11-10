@@ -30,6 +30,8 @@ export class KeyHandler {
 
   handle(e) {
     if (e.defaultPrevented || dialogOpen() || isMenuOpen()) return;
+    // puter.js's user menu takes its own keys (they arrive from the element, not from inside its shadow root).
+    if (e.target?.closest?.('puter-user-menu')) return;
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     const combo = comboOf(e);
     const typing = isTypingTarget(e.target);

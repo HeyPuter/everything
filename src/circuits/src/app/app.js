@@ -15,6 +15,7 @@ import { registerCommands } from './actions.js';
 import { Settings, uiState } from './settings.js';
 import { applyTheme, resolvedTheme, currentTheme } from './theme.js';
 import * as P from './puter.js';
+import { mountUserMenu, userMenuSlot } from './user-menu.js';
 import * as storage from './storage.js';
 import * as dialogs from './dialogs.js';
 import { newComponentDialog, libraryDialog } from './lib-dialogs.js';
@@ -117,6 +118,13 @@ export class App extends Emitter {
 
     const sdk = await P.loadPuter(this.puterTimeout);
     this.env = P.env();
+    // Where the SDK has <puter-user-menu>, it takes the account's place in the title bar.
+    this.userMenu = mountUserMenu(this.userMenuEl, {
+      signOut: () => this.signOut(),
+      signedIn: () => { P.accountChanged(); this._signedIn(); },
+      signedOut: () => { P.accountChanged(); this._signedOut(); },
+    });
+    if (this.userMenu) this.userMenu.parentElement.classList.add('has-user-menu');
     if (sdk && (this.env === 'app' || P.isSignedIn())) await this._loadUser();
     this.renderAccount();
     this.userLibrary.load();
@@ -186,8 +194,10 @@ export class App extends Emitter {
     clear(root);
     this.menubar = createMenubar();
     this.docTitle = h('div.doc-title', { 'aria-live': 'polite' });
-    this.themeBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Theme', 'data-tip': 'Theme', onClick: () => this._themeMenu() });
+    this.themeBtn = h('button.icon-btn.theme-btn', { type: 'button', 'aria-label': 'Theme', 'data-tip': 'Theme', onClick: () => this._themeMenu() });
     this.accountEl = h('div.account');
+    // Filled once the SDK is known, where it has <puter-user-menu> (see user-menu.js).
+    this.userMenuEl = userMenuSlot();
     this.saveBadge = h('span.small.muted.phone-hide', { 'aria-live': 'polite', style: { margin: '0 6px', whiteSpace: 'nowrap' } });
     const quick = (cmd, ico, label, extra = '') => h(`button.icon-btn${extra}`, { type: 'button', 'aria-label': label, 'data-tip': label, 'data-kbd': this.commands.get(cmd)?.shortcut || '', onClick: () => this.commands.run(cmd) }, icon(ico, 17));
     const titlebar = h('header.titlebar', { role: 'banner' },
@@ -205,7 +215,8 @@ export class App extends Emitter {
       h('span.alpha-tag', { title: 'Early preview: features may change' }, 'Alpha'),
       this.themeBtn,
       h('a.icon-btn', { href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub (opens in a new tab)', 'data-tip': 'Source code on GitHub' }, icon('github', 17)),
-      this.accountEl);
+      this.accountEl,
+      this.userMenuEl);
     this.renderThemeButton();
 
     // Panels.
@@ -476,6 +487,9 @@ export class App extends Emitter {
   renderAccount() {
     const el = this.accountEl;
     clear(el);
+    // puter.js's user menu holds the account where it renders.
+    el.hidden = !!this.userMenu;
+    if (this.userMenu) return;
     if (!P.puter()) return;
     if (!this.user) {
       if (this.env === 'app') return;
@@ -496,24 +510,34 @@ export class App extends Emitter {
   async signIn() {
     try {
       await P.signIn();
-      await this._loadUser();
-      this.renderAccount();
-      this.userLibrary.load();
-      toast(`Signed in as ${this.user?.username || 'you'}. New projects are saved to your Puter cloud.`, { kind: 'success' });
-      if (this.project && this.location?.type === 'local') {
-        toast('This project is stored in this browser only.', {
-          title: 'Keep it in your cloud?', timeout: 0,
-          actions: [{ label: 'Move to cloud', primary: true, run: () => this.moveToCloud() }, { label: 'Not now' }],
-        });
-      }
+      await this._signedIn();
     } catch (err) {
       if (err?.error !== 'auth_window_closed') toast('Sign in did not complete.', { kind: 'info' });
+    }
+  }
+
+  /** After signing in here, or after puter.js's user menu signed in. */
+  async _signedIn() {
+    await this._loadUser();
+    this.renderAccount();
+    this.userLibrary.load();
+    toast(`Signed in as ${this.user?.username || 'you'}. New projects are saved to your Puter cloud.`, { kind: 'success' });
+    if (this.project && this.location?.type === 'local') {
+      toast('This project is stored in this browser only.', {
+        title: 'Keep it in your cloud?', timeout: 0,
+        actions: [{ label: 'Move to cloud', primary: true, run: () => this.moveToCloud() }, { label: 'Not now' }],
+      });
     }
   }
 
   async signOut() {
     if (this.project?.dirty) await this.save();
     await P.signOut();
+    await this._signedOut();
+  }
+
+  /** After signing out here, or after puter.js's user menu signed out by itself. */
+  async _signedOut() {
     this.user = null;
     this.picture = null;
     this.renderAccount();

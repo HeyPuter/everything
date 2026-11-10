@@ -66,6 +66,27 @@ button { cursor: pointer; }
 .avatar.initial { display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: var(--on-accent); font-weight: 600; font-size: var(--fs-xs); }
 .account-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px 0 3px; border: 0; border-radius: 14px; background: transparent; color: var(--text); }
 .account-btn:hover { background: var(--bg-hover); }
+
+/* <puter-user-menu> (puter.js; src/app/user-menu.js): where the loaded puter.js
+   has it, it holds the Apps launcher and the account at the end of the title
+   bar. Its parts take the title bar's icon button, avatar and Sign in button
+   looks; its menu and Apps panel take the app's menu colours, in both themes. */
+puter-user-menu { flex: none; margin-left: 2px; }
+puter-user-menu::part(apps-button) { width: 28px; height: 28px; border-radius: var(--radius); color: var(--text-2); }
+puter-user-menu::part(apps-button):active { background: var(--bg-active); }
+puter-user-menu::part(avatar) { width: 24px; height: 24px; margin: 0 4px 0 1px; line-height: 24px; font-size: var(--fs-xs); }
+puter-user-menu::part(sign-in) {
+  height: 24px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--bg-panel-2); color: var(--text); font-size: var(--fs-xs); white-space: nowrap;
+}
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover { background: var(--bg-hover); color: var(--text); }
+  puter-user-menu::part(sign-in):hover { background: var(--bg-hover); }
+}
+puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
+  background: var(--bg-menu); border-color: var(--border-strong);
+  --caret-border: var(--border-strong); --caret-fill: var(--bg-menu);
+}
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: 28px; padding: 0 12px; border-radius: var(--radius); border: 1px solid var(--border-strong);
@@ -393,6 +414,9 @@ table.grid td input[type='checkbox'] { accent-color: var(--accent); }
   .mobile-only { display: inline-flex !important; }
   .phone-hide { display: none !important; }
   .compact-only.phone-hide { display: none !important; }
+  /* The title needs the room: Apps is a desktop convenience, and its Sign in is wider than the app's icon, so Theme stays in the View menu only. */
+  puter-user-menu::part(apps-button) { display: none; }
+  .titlebar.has-user-menu .theme-btn { display: none; }
   .titlebar .doc-title { text-align: left; padding: 0 4px; }
   .icon-btn { width: 36px; height: 36px; }
   .statusbar { display: none; }

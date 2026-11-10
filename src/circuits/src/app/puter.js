@@ -62,6 +62,11 @@ export async function signIn() {
   return res;
 }
 
+/** The account changed without signIn or signOut here (puter.js's <puter-user-menu>): drops the previous one's picture. */
+export function accountChanged() {
+  pictureCache.clear();
+}
+
 export async function signOut() {
   if (!sdk) return;
   pictureCache.clear();
