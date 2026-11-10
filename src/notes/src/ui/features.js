@@ -1409,7 +1409,7 @@ export function passwordDialog(app, section) {
     title: isNew ? 'Password Protection' : 'Change Password',
     width: 420,
     body: h('div',
-      h('p.dialog-message', isNew ? `Pages in "${section.name}" will be encrypted with this password. They lock again after 10 minutes without use, or with Lock All.` : `Change the password for "${section.name}", or remove it.`),
+      h('p.dialog-message', isNew ? `Pages in "${section.name}" will be encrypted with this password. They lock again after 10 minutes without use, or with Lock All. Read-only links to its pages stop working.` : `Change the password for "${section.name}", or remove it.`),
       first.field,
       second.field,
       error,

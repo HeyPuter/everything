@@ -564,3 +564,36 @@ describe('password-protected sections: deleting for good', () => {
     expect(pageFiles(other.backend).some((k) => k.includes(other.meta.id))).toBe(true);
   });
 });
+
+describe('password-protected sections: shared links', () => {
+  async function published() {
+    const s = await setup();
+    const page = await s.store.loadPage(s.meta.id);
+    await s.backend.writeJSON(`published/${page.id}.json`, { format: 'notes-shared-page', outlines: page.outlines });
+    page.published = { at: new Date().toISOString(), expires: '30d' };
+    s.store.pageChanged(page);
+    await s.store.flush();
+    return s;
+  }
+
+  it('ends a page\'s read-only link when its section is protected', async () => {
+    const { backend, store, section, meta } = await published();
+    expect(allText(backend)).toContain('treasure');
+    await store.protectSection(section.id, 'pw');
+    await store.flush();
+    expect(backend.files.has(`published/${meta.id}.json`)).toBe(false);
+    expect(allText(backend)).not.toContain('treasure');
+    expect((await store.loadPage(meta.id)).published).toBeUndefined();
+  });
+
+  it('ends the link of a page moved into a protected section', async () => {
+    const { backend, store, meta } = await published();
+    const vault = store.createSection(store.notebooks[0].id, { name: 'Vault' });
+    await store.protectSection(vault.id, 'pw');
+    expect(store.movePage(meta.id, { sectionId: vault.id })).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    await store.flush();
+    expect(backend.files.has(`published/${meta.id}.json`)).toBe(false);
+    expect(allText(backend)).not.toContain('treasure');
+  });
+});

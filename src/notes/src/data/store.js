@@ -629,6 +629,7 @@ export class Store extends Emitter {
         this.loadPage(m.id).then((page) => {
           this.rekeyAssets(page);
           this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
+          if (target.node.locked) this.unpublish(page);
         }).catch(() => {});
       }
     }
@@ -1072,6 +1073,7 @@ export class Store extends Emitter {
       throw err;
     }
     this.retireAssets(log);
+    if (!oldLock) await Promise.all(pages.map((page) => this.unpublish(page)));
     // Saved again so the old copies go: a page saved while the others were
     // still being moved had nothing marked for removal yet.
     for (const pid of new Set(log.map((e) => e.pageId))) this.schedule(`pages/${pid}.json`, () => this.pages.get(pid), 0);
@@ -1085,6 +1087,22 @@ export class Store extends Emitter {
     await this.flush();
     this.emit('change', { type: 'protect', id });
     return true;
+  }
+
+  /**
+   * Ends a page's read-only link when the page becomes protected: the link
+   * serves a plain copy of the page to anyone who has it.
+   */
+  async unpublish(page) {
+    if (!page?.published) return;
+    try {
+      await this.backend.remove(`published/${page.id}.json`);
+    } catch {
+      // Still shared: the Share dialog keeps showing it, to stop it there.
+      return;
+    }
+    delete page.published;
+    this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
   }
 
   /** Removes a section's password (the section must be unlocked). */
