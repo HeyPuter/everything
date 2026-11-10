@@ -392,3 +392,43 @@ describe('stretching an arc that spans a full turn', () => {
     }
   });
 });
+
+describe('removing duplicate points from long lists', () => {
+  // The plain rule: keep a point unless an already kept one is within tol.
+  const plain = (pts, tol) => {
+    const out = [];
+    for (const p of pts) if (!out.some((q) => Math.hypot(p.x - q.x, p.y - q.y) <= tol)) out.push(p);
+    return out;
+  };
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+
+  it('keeps exactly the points the plain rule keeps, in the same order', () => {
+    for (const [tol, off, spread] of [
+      [1e-3, 0, 1],
+      [0.5, 1e6, 20],
+      [1e-9, 0, 1e-6],
+      [2, -300, 1e4],
+    ]) {
+      const pts = [];
+      for (let i = 0; i < 600; i++) {
+        const base = i % 3 && pts.length ? pts[Math.floor(rnd() * pts.length)] : { x: off + (rnd() - 0.5) * spread, y: off + (rnd() - 0.5) * spread };
+        const d = [0, tol * 0.999, tol * 1.001, tol * 2.2 * rnd()][i % 4];
+        const a = rnd() * 7;
+        pts.push({ x: base.x + d * Math.cos(a), y: base.y + d * Math.sin(a) });
+      }
+      const got = G.dedupePoints(pts, tol);
+      const want = plain(pts, tol);
+      expect(got).toHaveLength(want.length);
+      expect(got.every((p, i) => p === want[i])).toBe(true);
+    }
+  });
+
+  it('gives every arc centre of a polyline with thousands of arcs', () => {
+    const pts = [];
+    for (let i = 0; i < 3000; i++) pts.push(100 * Math.cos((i / 3000) * G.TWO_PI), 100 * Math.sin((i / 3000) * G.TWO_PI), 0.6);
+    const cloud = { type: 'polyline', pts, closed: true, width: 0 };
+    expect(G.centers(cloud)).toHaveLength(3000);
+    expect(G.perpendicularFrom(cloud, 3, 4)).toHaveLength(3000);
+  });
+});
