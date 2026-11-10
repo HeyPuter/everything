@@ -280,7 +280,9 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .layer-tab { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-2); white-space: nowrap; flex: none; }
 .layer-tab:hover { background: var(--bg-hover); color: var(--text); }
 .layer-tab[aria-selected='true'] { background: var(--bg-panel); color: var(--text); font-weight: 600; }
-.layer-tab.hidden-layer { opacity: 0.45; }
+/* Hidden layers stay readable: struck through with a faded swatch, not faded text. */
+.layer-tab.hidden-layer { color: var(--text-3); text-decoration: line-through; }
+.layer-tab.hidden-layer .swatch { opacity: 0.35; }
 .layer-current { width: 16px; height: 16px; border-radius: 3px; flex: none; margin: 0 4px 0 2px; border: 1px solid rgba(0, 0, 0, 0.4); }
 
 /* Component editor: view tabs above the canvas and a check summary below. */
