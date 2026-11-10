@@ -902,13 +902,17 @@ export class PageEditor extends Emitter {
     const dt = e.clipboardData;
     if (!dt) return;
     const files = [...dt.files];
-    if (files.length) {
+    const html = dt.getData('text/html');
+    const text = dt.getData('text/plain');
+    // Spreadsheets and word processors put a picture of the selection on the
+    // clipboard next to its HTML: the cells or text are what was copied. A
+    // file is pasted when it comes alone or with HTML that is only a picture
+    // (an image copied from a web page).
+    if (files.length && !hasPastedText(html)) {
       e.preventDefault();
       await this.insertFiles(files);
       return;
     }
-    const html = dt.getData('text/html');
-    const text = dt.getData('text/plain');
     if (!inBody) {
       // Pasting onto the page with no caret starts a container.
       if (!html && !text) return;
@@ -1368,6 +1372,15 @@ export function cleanPastedHtml(html) {
     }
   }
   return root.innerHTML;
+}
+
+/** Whether clipboard HTML holds text or a table, not just a picture. */
+function hasPastedText(html) {
+  if (!html) return false;
+  const root = document.implementation.createHTMLDocument('').createElement('div');
+  root.innerHTML = stripPasteWrapper(String(html));
+  for (const el of root.querySelectorAll('style, script, meta, title, head')) el.remove();
+  return Boolean(root.textContent.trim());
 }
 
 /*

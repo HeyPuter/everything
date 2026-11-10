@@ -775,6 +775,31 @@ describe('copying and pasting embeds', () => {
     host.remove();
   });
 
+  it('pastes copied cells as a table, not as the picture of them that comes along', async () => {
+    const { ed, body, host } = await setup('<p>A </p>');
+    caretIn(body.querySelector('p').firstChild, 2);
+    const calls = [];
+    ed.insertFiles = async (files) => calls.push(['files', files.map((f) => f.name)]);
+    ed.pasteHtml = async (html) => calls.push(['html', html]);
+    const paste = async (types, files) => {
+      const ev = new Event('paste', { bubbles: true, cancelable: true });
+      ev.clipboardData = { files, getData: (t) => types[t] || '' };
+      body.dispatchEvent(ev);
+      await new Promise((r) => setTimeout(r));
+    };
+    const png = new File(['x'], 'image.png', { type: 'image/png' });
+    // A spreadsheet: the cells as HTML and a rendering of them.
+    await paste({ 'text/html': '<meta charset="utf-8"><table><tr><td>1</td><td>2</td></tr></table>', 'text/plain': '1\t2' }, [png]);
+    // An image copied from a web page: HTML that is only the picture.
+    await paste({ 'text/html': '<meta charset="utf-8"><img src="https://example.com/a.png" alt="">' }, [png]);
+    // A screenshot: only the file.
+    await paste({}, [png]);
+    expect(calls.map((c) => c[0])).toEqual(['html', 'files', 'files']);
+    expect(calls[0][1]).toContain('<td>1</td>');
+    ed.destroy();
+    host.remove();
+  });
+
   it('copies attachments and equations in their stored form', async () => {
     const { ed, body, host } = await setup('<p>Eq <span class="nt-math" data-tex="x^2" contenteditable="false"></span> <span class="nt-file" data-asset="a1.txt" data-name="n.txt" data-kind="file" contenteditable="false"></span></p>');
     const r = document.createRange();
