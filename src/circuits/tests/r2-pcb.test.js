@@ -330,3 +330,24 @@ describe('shelving a pour', () => {
     expect(copper()).toBe(0);
   });
 });
+
+describe('dragging a component', () => {
+  it('does not snap onto its own pads where they were before the move', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    const pad = padOf(ed, 'U1', '8');
+    const grid = ed.grid;
+    expect(pad.y % grid).not.toBe(0);
+    ed.setSelection([u1.id]);
+    ed.select.dragStart({ ...ev(u1.x, u1.y), sx: 0, sy: 0 });
+    // The part's origin passes over the place one of its own pads started at.
+    ed.select.drag({ ...ev(pad.x + 2000, pad.y + 2000), sx: 0, sy: 0 });
+    ed.select.dragEnd();
+    const moved = ed.doc.store.get(u1.id);
+    expect([moved.x, moved.y]).toEqual([
+      Math.round(pad.x / grid) * grid,
+      Math.round(pad.y / grid) * grid,
+    ]);
+  });
+});

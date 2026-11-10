@@ -578,12 +578,14 @@ export class PcbEditor extends CanvasView {
     return this._copperTree.search(b).map((e) => e.it).filter((it) => it.layers.includes(layer) && (!net || it.net !== net) && !(it.pour && it.net === net) && (net || it.net || !it.isPad));
   }
 
-  snapTargets(x, y, reach) {
+  snapTargets(x, y, reach, exclude) {
     if (!(this.tool instanceof RouteTool) && !(this.tool?.name === 'via') && !(this.tool === this.select && this.select.move)) return null;
     this.analysis();
     let best = null, bd = reach;
+    // Objects being moved are still in the board where they started: no snapping onto those.
+    const skip = exclude?.length ? new Set(exclude) : null;
     for (const { it } of this._copperTree.search({ minX: x - reach, minY: y - reach, maxX: x + reach, maxY: y + reach })) {
-      if (it.pour) continue;
+      if (it.pour || skip?.has(it.objId)) continue;
       const pts = it.isPad ? [[it.pad.x, it.pad.y]] : it.anchors;
       for (const [px, py] of pts) {
         const d = Math.hypot(px - x, py - y);
