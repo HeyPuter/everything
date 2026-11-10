@@ -489,6 +489,35 @@ describe('start-up without the Puter SDK', () => {
   });
 });
 
+describe('design rule check right after an edit', () => {
+  it('checks against the pour as it will be filled, not the fill from before the edit', async () => {
+    const app = await boot();
+    ctx = { app };
+    app.settings.set('autoRepour', true);
+    let checked = null;
+    app.kernel.pours = (doc) =>
+      new Promise((resolve) => {
+        const fills = new Map();
+        fills.tracks = doc.objects.filter((o) => o.t === 'track').length;
+        setTimeout(() => resolve(fills), 20);
+      });
+    app.kernel.drc = async (doc, lib, opts) => {
+      checked = opts.pourFills;
+      return [];
+    };
+    await app.openExample();
+    app.openDoc(app.project.boards[0].id);
+    const ed = app.activeEditor;
+    await ed.currentFills();
+    const track = { t: 'track', layer: 'bottom', x1: 5e6, y1: 5e6, x2: 2e7, y2: 5e6, w: 250_000 };
+    ed.doc.store.transact('Route', (s) => s.add({ ...track, net: 'VCC' }));
+    // Asked for at once, before the automatic repour: the old fill has no
+    // clearance around the new track and would be reported as a violation.
+    await ed.runDrc();
+    expect(checked.tracks).toBe(1);
+  });
+});
+
 describe('parts marked do not populate', () => {
   it('are left out of the pick and place file as they are out of the bill of materials', async () => {
     const app = await boot();

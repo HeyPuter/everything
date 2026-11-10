@@ -329,6 +329,9 @@ export class PcbEditor extends CanvasView {
 
   /** Runs the design rule check; online runs update markers quietly. */
   async runDrc({ online = false } = {}) {
+    // A check that was asked for waits for the repour that is due, or it
+    // would report the new copper against the pour from before the edit.
+    if (!online) await this.currentFills();
     const rev = this.doc.store.revision;
     try {
       const list = await this.app.kernel.drc(this.doc.snapshot(), this.lib, { pourFills: this.pourFills });
