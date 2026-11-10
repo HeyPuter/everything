@@ -304,3 +304,42 @@ describe('a project saved in the browser when the project list cannot be written
     ]);
   });
 });
+
+describe('layer stack dialog', () => {
+  const button = (label) =>
+    [...document.querySelectorAll('.dialog')]
+      .at(-1)
+      .querySelector('.dialog-foot')
+      .querySelectorAll('button')
+      .values()
+      .find((b) => b.textContent === label);
+
+  it('changes nothing when removing the inner layers is cancelled', async () => {
+    const app = await boot();
+    app.setProject(new Project(newProjectData('Stack')), null);
+    app.openDoc(app.project.docs.find((d) => d.kind === 'pcb').id);
+    const ed = app.activeEditor;
+    await app.setCopperLayers(4);
+    ed.doc.store.transact('Track', (s) =>
+      s.add({ t: 'track', layer: 'in1', w: 250000, x1: 0, y1: 0, x2: 5000000, y2: 0 }),
+    );
+    const thickness = ed.doc.board.thickness;
+    app.editLayerStack();
+    const dialog = document.querySelector('.dialog');
+    const [layers, thick] = dialog.querySelectorAll('select, input');
+    layers.value = '2';
+    thick.value = '0.8';
+    button('Apply').click();
+    await tick();
+    expect(document.querySelectorAll('.dialog').length).toBe(2);
+    button('Cancel').click();
+    await tick();
+    await tick();
+    expect(ed.doc.board.copper).toBe(4);
+    expect(ed.doc.board.thickness).toBe(thickness);
+    // The layer stack dialog stays open so the choice can be changed.
+    expect(document.querySelectorAll('.dialog').length).toBe(1);
+    button('Cancel').click();
+    shutDown(app);
+  });
+});

@@ -1348,12 +1348,13 @@ export class App extends Emitter {
     else { const b = this.project.boards[0]; this.openDoc(b.id); dialogs.boardInfoDialog(this, this.editors.get(b.id)); }
   }
 
+  /** Resolves to false when the user chose not to remove the inner layers. */
   async setCopperLayers(n) {
     const ed = this.activeEditor;
     if (ed?.kind !== 'pcb' || ed.copperCount === n) return;
     const keep = new Set(copperLayers(n));
     const lost = [...ed.doc.items()].filter((o) => o.layer && copperLayers(6).includes(o.layer) && !keep.has(o.layer));
-    if (lost.length && !(await confirmDialog({ title: 'Remove inner layers', message: `${lost.length} object${lost.length === 1 ? ' is' : 's are'} on layers that will be removed and will be deleted.`, confirm: 'Remove layers', danger: true }))) return;
+    if (lost.length && !(await confirmDialog({ title: 'Remove inner layers', message: `${lost.length} object${lost.length === 1 ? ' is' : 's are'} on layers that will be removed and will be deleted.`, confirm: 'Remove layers', danger: true }))) return false;
     ed.doc.store.transact('Change copper layers', (s) => { s.update('board', { copper: n }); for (const o of lost) s.remove(o.id); });
     if (!keep.has(ed.activeLayer)) ed.setActiveLayer('top');
     ed._renderLayerTabs();

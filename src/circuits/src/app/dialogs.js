@@ -139,7 +139,8 @@ export async function layerStackDialog(app, ed) {
       run: async () => {
         if (form.validate()) return false;
         const v = form.values();
-        await app.setCopperLayers(Number(v.copper));
+        // Declining to remove inner layers cancels the whole change.
+        if ((await app.setCopperLayers(Number(v.copper))) === false) return false;
         ed.doc.store.transact('Board thickness', (s) => s.update('board', { thickness: v.thickness }));
         return true;
       },
