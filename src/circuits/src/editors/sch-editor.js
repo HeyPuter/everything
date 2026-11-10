@@ -16,7 +16,7 @@ import { placeSymbol } from '../model/place.js';
 import { bboxContains, bboxIntersects, bboxUnion, bboxEmpty, distPointSeg, simplifyPolyline } from '../core/geom.js';
 import { mil, SCH_GRID, snap } from '../core/units.js';
 import { uid } from '../core/emitter.js';
-import { nextDesignator } from '../model/annotate.js';
+import { designatorAllocator } from '../model/annotate.js';
 import { contextMenu } from '../ui/menu.js';
 import { installVertexEditing, dropFoldBacks } from './vertex.js';
 
@@ -585,7 +585,9 @@ class PasteTool {
   }
   click(ev) {
     const ed = this.editor;
-    const sheets = ed.project.sheetObjects();
+    // One pass over the project for all pasted parts; a pass per part froze
+    // the app for seconds when pasting a large selection.
+    const nextDes = designatorAllocator(ed.project.sheetObjects());
     const ids = [];
     ed.doc.store.transact('Paste', (s) => {
       for (const o of this._objs(ev.x, ev.y)) {
@@ -594,8 +596,7 @@ class PasteTool {
           n.uid = uid('u');
           // The leading letters: R12 -> R, R? -> R, and U1A (unit A) -> U, not U1A.
           const prefix = /^[A-Za-z_]+/.exec(o.designator || '')?.[0] || ed.lib[o.comp]?.prefix || 'U';
-          n.designator = nextDesignator(sheets, prefix);
-          sheets.push({ id: 'pending', objects: [n] });
+          n.designator = nextDes(prefix);
         }
         s.add(n);
         ids.push(n.id);

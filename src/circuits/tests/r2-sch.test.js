@@ -208,3 +208,39 @@ describe('net labels on a wire', () => {
     expect(nl.sheets.get('s').junctions).toEqual([[mil(500), 0]]);
   });
 });
+
+describe('pasting many parts', () => {
+  it('numbers them in one pass over the project, not one pass per pasted part', async () => {
+    app = await boot();
+    const ed = withCamera(app.activeEditor);
+    const store = ed.doc.store;
+    ed.project.ensureComponent(res);
+    const N = 40;
+    store.transact('Set up', (s) => {
+      for (const o of [...ed.doc.items()]) s.remove(o.id);
+      for (let i = 0; i < N; i++) s.add(part(`R${i + 1}`, 1000 + i * 600, 1000));
+    });
+    ed.selectAll();
+    const clip = ed.copySelection();
+    // Count how often existing parts are looked at while the paste is numbered.
+    let reads = 0;
+    const sheetObjects = ed.project.sheetObjects.bind(ed.project);
+    ed.project.sheetObjects = () =>
+      sheetObjects().map((sh) => ({
+        ...sh,
+        objects: sh.objects.map(
+          (o) => new Proxy(o, { get: (t, k) => (k === 'designator' && reads++, t[k]) }),
+        ),
+      }));
+    ed.pasteClip(clip);
+    ed.tool.click({ x: mil(1000), y: mil(3000) });
+    const names = [...ed.doc.items()].map((o) => o.designator);
+    expect(names).toHaveLength(2 * N);
+    expect(new Set(names).size).toBe(2 * N);
+    expect(ed.selectedObjects().map((o) => o.designator)).toEqual(
+      Array.from({ length: N }, (_, i) => `R${N + i + 1}`),
+    );
+    expect(reads).toBeLessThanOrEqual(4 * N);
+    expect(store.undoLabel).toBe('Paste');
+  });
+});
