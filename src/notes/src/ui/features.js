@@ -240,6 +240,20 @@ export async function insertScreenshot(app) {
   }
 }
 
+/**
+ * The type to open an attachment as in a new tab, or '' to download it.
+ * The tab shows a blob: URL, which belongs to this app's origin: a file
+ * that can run script there (HTML, SVG, XML) would run it with the app's
+ * access to the account, so only types that can't are shown. Other text
+ * (CSV, Markdown, code) is shown as plain text.
+ */
+export function viewType(type) {
+  const t = String(type).toLowerCase().split(';')[0].trim();
+  if (/^image\/(png|jpeg|gif|webp|bmp|avif|x-icon|vnd\.microsoft\.icon)$/.test(t) || /^(audio|video)\//.test(t) || t === 'application/pdf') return t;
+  if (/^text\//.test(t) && !/html|xml|svg/.test(t)) return 'text/plain;charset=utf-8';
+  return '';
+}
+
 export async function openAttachment(app, data) {
   try {
     const blob = await app.store.assetBlob(data.asset);
@@ -247,10 +261,10 @@ export async function openAttachment(app, data) {
       toast("This attachment couldn't be found.", { kind: 'error' });
       return;
     }
-    const file = new Blob([blob], { type: data.type || blob.type || 'application/octet-stream' });
+    const view = viewType(data.type || blob.type || '');
+    const file = new Blob([blob], { type: view || data.type || blob.type || 'application/octet-stream' });
     const url = URL.createObjectURL(file);
-    const previewable = /^(image|audio|video|text)\/|application\/pdf/.test(file.type);
-    const a = h('a', { href: url, download: previewable ? null : data.name || 'attachment', target: '_blank', rel: 'noopener' });
+    const a = h('a', { href: url, download: view ? null : data.name || 'attachment', target: '_blank', rel: 'noopener' });
     document.body.append(a);
     a.click();
     a.remove();

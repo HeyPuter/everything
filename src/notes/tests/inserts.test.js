@@ -161,6 +161,37 @@ describe('equation dialog', () => {
   });
 });
 
+describe('opening attachments', () => {
+  it('opens only files that cannot run script in a tab, and downloads the rest', async () => {
+    const { viewType } = await import('../src/ui/features.js');
+    expect(viewType('image/png')).toBe('image/png');
+    expect(viewType('application/pdf')).toBe('application/pdf');
+    expect(viewType('audio/webm;codecs=opus')).toBe('audio/webm');
+    expect(viewType('text/csv')).toBe('text/plain;charset=utf-8');
+    for (const type of ['text/html', 'TEXT/HTML; charset=utf-8', 'image/svg+xml', 'application/xhtml+xml', 'text/xml', 'application/javascript', '']) expect(viewType(type)).toBe('');
+    const clicked = [];
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      clicked.push({ download: this.getAttribute('download'), target: this.target });
+    };
+    const createObjectURL = URL.createObjectURL;
+    const blobs = [];
+    URL.createObjectURL = (b) => (blobs.push(b), 'blob:x');
+    try {
+      const id = await store.saveAsset(new File(['<script>alert(1)</script>'], 'invoice.html', { type: 'text/html' }), 'invoice.html', {});
+      const { openAttachment } = await import('../src/ui/features.js');
+      await openAttachment(app, { asset: id, name: 'invoice.html', type: 'text/html' });
+      await openAttachment(app, { asset: id, name: 'notes.md', type: 'text/markdown' });
+    } finally {
+      HTMLAnchorElement.prototype.click = click;
+      URL.createObjectURL = createObjectURL;
+    }
+    expect(clicked[0].download).toBe('invoice.html');
+    expect(clicked[1].download).toBeNull();
+    expect(blobs.at(-1).type).toBe('text/plain;charset=utf-8');
+  });
+});
+
 describe('recording', () => {
   const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
   let recorders;
