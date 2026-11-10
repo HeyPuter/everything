@@ -473,3 +473,73 @@ describe('SVG export file names', () => {
     shutDown(app);
   });
 });
+
+describe('My library after signing out', () => {
+  it('no longer lists the account’s components, nor saves them in the browser', async () => {
+    const PATH = 'Libraries/My components.circuitslib';
+    const def = (id) => ({ id, name: id, symbol: { pins: [], graphics: [] }, footprint: null });
+    const cloudFiles = new Map([
+      [PATH, JSON.stringify({ format: 'circuits-library', version: 1, components: [def('mine')] })],
+    ]);
+    const missing = () =>
+      Object.assign(new Error('subject_does_not_exist'), { code: 'subject_does_not_exist' });
+    let signedIn = true;
+    const fake = {
+      env: 'web',
+      auth: {
+        isSignedIn: () => signedIn,
+        getUser: async () => ({ username: 'ada' }),
+        signOut: async () => void (signedIn = false),
+      },
+      fs: {
+        read: async (path) => {
+          if (!cloudFiles.has(path)) throw missing();
+          return new Blob([cloudFiles.get(path)]);
+        },
+        write: async (path, text) => (cloudFiles.set(path, text), { path }),
+        readdir: async () => [],
+      },
+    };
+    // The browser's own storage, where a signed-out library is kept.
+    const local = new Map();
+    const root = {
+      async getFileHandle(name, { create } = {}) {
+        if (!local.has(name)) {
+          if (!create) throw new DOMException('missing', 'NotFoundError');
+          local.set(name, '');
+        }
+        return {
+          getFile: async () => ({ text: async () => local.get(name) }),
+          createWritable: async () => {
+            let next = '';
+            return {
+              write: async (t) => void (next += t),
+              close: async () => void local.set(name, next),
+            };
+          },
+        };
+      },
+      getDirectoryHandle: async () => root,
+    };
+    document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
+    localStorage.clear();
+    setPuterForTests(fake);
+    Object.defineProperty(navigator, 'storage', {
+      value: { getDirectory: async () => root },
+      configurable: true,
+    });
+    const app = new App(document.getElementById('app'), { puterTimeout: 10 });
+    await app.init();
+    for (let i = 0; i < 5; i++) await tick();
+    expect(app.userLibrary.all().map((d) => d.id)).toEqual(['mine']);
+
+    await app.signOut();
+    for (let i = 0; i < 5; i++) await tick();
+    expect(app.userLibrary.all().map((d) => d.id)).toEqual([]);
+    await app.userLibrary.put(def('guest'));
+    const saved = JSON.parse(local.get('my-components.circuitslib'));
+    expect(saved.components.map((c) => c.id)).toEqual(['guest']);
+    setPuterForTests(null);
+    shutDown(app);
+  });
+});

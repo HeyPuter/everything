@@ -560,6 +560,8 @@ export class App extends Emitter {
     this.user = null;
     this.picture = null;
     this.renderAccount();
+    // My library is the account's: show the one kept in this browser again.
+    this.userLibrary.load();
     if (this.location?.type === 'cloud') await this.closeProject(true);
     toast('Signed out.');
   }
