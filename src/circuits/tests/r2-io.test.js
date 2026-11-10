@@ -3,6 +3,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { unzipSync, strFromU8 } from 'fflate';
 import { exportGerbers } from '../src/io/gerber.js';
+import { pickAndPlace } from '../src/io/pnp.js';
+import { csvField } from '../src/io/common.js';
 import { buildFabricationZip } from '../src/io/fabrication.js';
 import { importKicad } from '../src/io/kicad/index.js';
 import { UserLibrary } from '../src/app/user-library.js';
@@ -571,5 +573,47 @@ describe('fabrication package dimensions', () => {
       strFromU8(unzipSync(buildFabricationZip(project, 'b1', { units }))['gerber/Board.GM1']);
     expect(mech('mil')).not.toBe(mech('mm'));
     expect(mech(undefined)).toBe(mech('mm'));
+  });
+});
+
+describe('CSV fields a spreadsheet would run as formulas', () => {
+  it('neutralises text starting with a sign, a tab or a return', () => {
+    expect(csvField("+1+cmd|' /C calc'!A0")).toBe("'+1+cmd|' /C calc'!A0");
+    expect(csvField('-2+3')).toBe("'-2+3");
+    expect(csvField('+HYPERLINK("http://x","y")')).toBe('"\'+HYPERLINK(""http://x"",""y"")"');
+    expect(csvField('-SUM(A1:A9)')).toBe("'-SUM(A1:A9)");
+    expect(csvField('\t=1+1')).toBe("'\t=1+1");
+    expect(csvField('\r=1+1')).toBe('"\'\r=1+1"');
+  });
+
+  it('leaves signed numbers and signed values as they are', () => {
+    for (const s of [
+      '-5.0000',
+      '+12.5',
+      '-12V',
+      '+5V',
+      '+3V3',
+      '-40°C',
+      '-',
+      '+',
+      '10k',
+      'R1, R2',
+    ]) {
+      expect(csvField(s).replace(/^"|"$/g, '')).toBe(s);
+    }
+    const doc = emptyBoard([
+      {
+        id: 'c',
+        t: 'comp',
+        comp: 'x',
+        x: -mm(5),
+        y: -mm(2.5),
+        rot: 0,
+        side: 'top',
+        designator: 'U1',
+        value: '-12V',
+      },
+    ]);
+    expect(pickAndPlace(doc, {}).split('\r\n')[1]).toBe('U1,-12V,,-5.0000,-2.5000,0,Top');
   });
 });
