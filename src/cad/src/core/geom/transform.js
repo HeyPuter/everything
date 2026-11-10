@@ -7,6 +7,7 @@ import { TWO_PI, normAngle, ccwSweep } from './vec.js';
 import { arcFromBulge } from './bulge.js';
 import { arcSegments } from './tessellate.js';
 import { isFullEllipse } from './ellipse.js';
+import { DESCENDER } from '../text/font.js';
 
 export function identity() {
   return [1, 0, 0, 1, 0, 0];
@@ -147,7 +148,9 @@ export function transformEllipseGeom(cx, cy, Mx, My, Nx, Ny, start, end, full, m
   return { cx: c.x, cy: c.y, mx: ax, my: ay, ratio, start: s0, end: s1 };
 }
 
-const VFLIP = { baseline: 'top', bottom: 'top', top: 'bottom', middle: 'middle' };
+// A vertical flip mirrors the band between the baseline and the cap height,
+// which 'baseline' and 'top' text hang from ('bottom' is moved to its baseline).
+const VFLIP = { baseline: 'top', bottom: 'top', top: 'baseline', middle: 'middle' };
 const HFLIP = { left: 'right', right: 'left', center: 'center' };
 const ROWFLIP = { t: 'b', b: 't', m: 'm' };
 const COLFLIP = { l: 'r', r: 'l', c: 'c' };
@@ -268,7 +271,9 @@ export function transformEntity(ent, m) {
         break;
       }
       const sw = ccwSweep(ent.start, ent.end);
-      const g = transformEllipseGeom(ent.cx, ent.cy, ent.r, 0, 0, ent.r, ent.start, ent.start + sw, false, m);
+      // An arc of a full turn (equal angles) becomes a full ellipse; as an
+      // arc its mapped end would round to a hair past its start.
+      const g = transformEllipseGeom(ent.cx, ent.cy, ent.r, 0, 0, ent.r, ent.start, ent.start + sw, sw >= TWO_PI, m);
       delete out.r;
       return Object.assign(out, { type: 'ellipse' }, g);
     }
@@ -293,8 +298,15 @@ export function transformEntity(ent, m) {
       break;
     }
     case 'text': {
-      const p = apply(m, ent.x, ent.y);
       const f = textFrame(m, ent.rot || 0);
+      let ax = ent.x,
+        ay = ent.y;
+      if (f.flipV && ent.valign === 'bottom') {
+        const rot = ent.rot || 0;
+        ax += Math.sin(rot) * DESCENDER * ent.h;
+        ay -= Math.cos(rot) * DESCENDER * ent.h;
+      }
+      const p = apply(m, ax, ay);
       out.x = p.x;
       out.y = p.y;
       out.rot = f.rot;

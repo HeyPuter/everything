@@ -53,10 +53,15 @@ export function readClasses(u8, ver, maint, decoder) {
   return out;
 }
 
-/** Object map: handle -> offset in the objects data. */
-export function readObjectMap(u8) {
+/**
+ * Object map: handle -> offset in the objects data. The map is a list of
+ * independent pages; a damaged page loses its remaining entries only (noted
+ * in `warnings`).
+ */
+export function readObjectMap(u8, warnings) {
   const map = new Map();
   let p = 0;
+  let damaged = false;
   while (p + 2 <= u8.length) {
     const size = (u8[p] << 8) | u8[p + 1];
     if (size <= 2) break;
@@ -64,13 +69,18 @@ export function readObjectMap(u8) {
     const r = new BitReader(u8, R2000, (p + 2) * 8, end * 8);
     let handle = 0;
     let loc = 0;
-    while (r.pos < r.end) {
-      handle += r.UMC();
-      loc += r.MC();
-      map.set(handle, loc);
+    try {
+      while (r.pos < r.end) {
+        handle += r.UMC();
+        loc += r.MC();
+        map.set(handle, loc);
+      }
+    } catch {
+      damaged = true;
     }
     p += size + 2;
   }
+  if (damaged && warnings) warnings.push('The list of objects in this file is damaged; some objects may be missing.');
   return map;
 }
 
@@ -171,6 +181,9 @@ export function decodeObject(u8, loc, ctx) {
   const start = r.pos;
   const end = start + size * 8;
   if (end > u8.length * 8) throw new RangeError('object extends past the end of the file');
+  // Objects do not overlap, so together they are no larger than their
+  // section. Damaged sizes that claim more would each be decoded in full.
+  if (ctx.budget !== undefined && (ctx.budget -= size) < 0) throw new RangeError('object sizes exceed the file size');
   r.end = end;
   const typeNum = r.OT();
   let bitsize = ver >= R2000 && ver <= R2007 ? r.RL() : 0;
@@ -238,8 +251,9 @@ export function readDatabase(input, opts = {}) {
   } catch (err) {
     warnings.push(`Class definitions could not be read (${err.message}).`);
   }
-  const map = readObjectMap(c.sections.handles);
-  const ctx = { ver, classes, decoder, check: !!opts.check };
+  const map = readObjectMap(c.sections.handles, warnings);
+  if (!map.size) throw new Error('Damaged DWG file: the list of objects could not be read.');
+  const ctx = { ver, classes, decoder, check: !!opts.check, budget: c.sections.objects.length * 4 + 0x10000 };
   const objects = new Map();
   let bad = 0;
   for (const [handle, loc] of map) {

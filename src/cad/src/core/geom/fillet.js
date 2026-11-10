@@ -7,7 +7,7 @@
  * connecting entity (no id) or null. The functions return null when the
  * operation is not possible.
  */
-import { TWO_PI, normAngle, ccwSweep, tolFor, clamp } from './vec.js';
+import { TWO_PI, normAngle, ccwSweep, sweepOffset, tolFor, clamp } from './vec.js';
 import { BULGE_EPS } from './bulge.js';
 import { update, arcFrom, lineFrom } from './entity.js';
 import { intersectPrims } from './intersect.js';
@@ -143,8 +143,8 @@ function offsetPrims(e, r) {
   return out;
 }
 
-/** Foot of the tangent point of a circle of center C on entity e. */
-function footOn(e, C) {
+/** Tangent point on entity e of a circle of radius r and centre C tangent to it. */
+function footOn(e, C, r) {
   if (e.type === 'line') {
     const d = lineDir(e);
     const t = (C.x - e.x1) * d.dx + (C.y - e.y1) * d.dy;
@@ -153,7 +153,10 @@ function footOn(e, C) {
   const dx = C.x - e.cx,
     dy = C.y - e.cy;
   const l = Math.hypot(dx, dy) || 1;
-  return { x: e.cx + (dx / l) * e.r, y: e.cy + (dy / l) * e.r };
+  // A larger circle around the arc's circle touches it on the far side of
+  // the arc's centre; outside it or inside it, on the near side.
+  const k = r > e.r && l < r ? -e.r / l : e.r / l;
+  return { x: e.cx + dx * k, y: e.cy + dy * k };
 }
 
 /** Trim or extend a line or arc to point T, keeping the side containing pick p. */
@@ -170,13 +173,60 @@ function trimTo(e, T, p) {
   const sw = ccwSweep(e.start, e.end);
   const aT = Math.atan2(T.y - e.cy, T.x - e.cx);
   const uT = normAngle(aT - e.start);
-  const up = normAngle(Math.atan2(p.y - e.cy, p.x - e.cx) - e.start);
+  // A pick at the very start of the arc may come out a rounding error before
+  // it; that still is the start, not a full turn later.
+  const up = sweepOffset(Math.atan2(p.y - e.cy, p.x - e.cx), e.start, sw);
   let keepStart;
   if (uT <= sw) keepStart = up < uT;
   else keepStart = uT - sw < TWO_PI - uT;
   const tol = tolFor(e.r) / e.r;
   if (keepStart) return uT <= tol ? null : update(e, { end: normAngle(aT) });
   return Math.abs(sw - uT) <= tol ? null : update(e, { start: normAngle(aT) });
+}
+
+const X_KEYS = ['x1', 'x2', 'cx'],
+  Y_KEYS = ['y1', 'y2', 'cy'];
+
+/** Copy of a line or arc moved by (dx, dy). */
+function moved(e, dx, dy) {
+  const out = { ...e };
+  for (const k of X_KEYS) if (k in e) out[k] = e[k] + dx;
+  for (const k of Y_KEYS) if (k in e) out[k] = e[k] + dy;
+  return out;
+}
+
+/**
+ * Result `res` for the moved copy `loc` of `orig`, moved back by (dx, dy);
+ * coordinates the operation left alone keep their original values exactly.
+ */
+function movedBack(orig, loc, res, dx, dy) {
+  if (!res) return res;
+  const out = { ...res };
+  for (const k of X_KEYS) if (k in res) out[k] = res[k] === loc[k] ? orig[k] : res[k] + dx;
+  for (const k of Y_KEYS) if (k in res) out[k] = res[k] === loc[k] ? orig[k] : res[k] + dy;
+  return out;
+}
+
+/**
+ * Run a corner operation fn(e1, p1, e2, p2) on copies moved so the first
+ * object starts at the origin, and move its result ({ e1, e2 } and the
+ * connecting `key` entity) back. The tolerances grow with the coordinates:
+ * far from the origin they take crossing circles for tangent ones and
+ * lines a few thousandths long for nothing.
+ */
+function nearOrigin(e1, p1, e2, p2, key, fn) {
+  const ox = e1.type === 'line' ? e1.x1 : e1.cx,
+    oy = e1.type === 'line' ? e1.y1 : e1.cy;
+  if (!ox && !oy) return fn(e1, p1, e2, p2);
+  const l1 = moved(e1, -ox, -oy),
+    l2 = moved(e2, -ox, -oy);
+  const res = fn(l1, { x: p1.x - ox, y: p1.y - oy }, l2, { x: p2.x - ox, y: p2.y - oy });
+  if (!res) return null;
+  return {
+    e1: movedBack(e1, l1, res.e1, ox, oy),
+    e2: movedBack(e2, l2, res.e2, ox, oy),
+    [key]: res[key] ? moved(res[key], ox, oy) : res[key],
+  };
 }
 
 function filletGeneral(e1, p1, e2, p2, r) {
@@ -199,8 +249,8 @@ function filletGeneral(e1, p1, e2, p2, r) {
   for (const a of offsetPrims(e1, r)) {
     for (const b of offsetPrims(e2, r)) {
       for (const h of intersectPrims(a, b, { extA: true, extB: true })) {
-        const T1 = footOn(e1, h),
-          T2 = footOn(e2, h);
+        const T1 = footOn(e1, h, r),
+          T2 = footOn(e2, h, r);
         const s = Math.hypot(T1.x - p1.x, T1.y - p1.y) + Math.hypot(T2.x - p2.x, T2.y - p2.y);
         if (s < bs) {
           bs = s;
@@ -226,8 +276,8 @@ export function fillet(e1, p1, e2, p2, r) {
   if (!e1 || !e2 || e1 === e2) return null;
   const ok = (e) => (e.type === 'line' && lineDir(e)) || (e.type === 'arc' && e.r > 0);
   if (!ok(e1) || !ok(e2)) return null;
-  if (e1.type === 'line' && e2.type === 'line') return filletLines(e1, p1, e2, p2, r);
-  return filletGeneral(e1, p1, e2, p2, r);
+  const lines = e1.type === 'line' && e2.type === 'line';
+  return nearOrigin(e1, p1, e2, p2, 'arc', (a, pa, b, pb) => (lines ? filletLines(a, pa, b, pb, r) : filletGeneral(a, pa, b, pb, r)));
 }
 
 /**
@@ -236,6 +286,10 @@ export function fillet(e1, p1, e2, p2, r) {
  */
 export function chamfer(e1, p1, e2, p2, d1, d2 = d1) {
   if (!e1 || !e2 || e1.type !== 'line' || e2.type !== 'line') return null;
+  return nearOrigin(e1, p1, e2, p2, 'line', (a, pa, b, pb) => chamferLines(a, pa, b, pb, d1, d2));
+}
+
+function chamferLines(e1, p1, e2, p2, d1, d2) {
   const c = lineCorner(e1, p1, e2, p2);
   if (!c || c.parallel) return null;
   const { X, v1, v2 } = c;

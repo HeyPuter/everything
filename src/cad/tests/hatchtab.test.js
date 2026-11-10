@@ -7,7 +7,9 @@ globalThis.requestAnimationFrame = () => 0;
 
 function render(st) {
   const changes = [];
-  const tab = hatchTab({ doc: { drawing: null } }, st, () => changes.push({ ...st }));
+  const cancelled = [];
+  const app = { doc: { drawing: null }, editor: { cancel: () => cancelled.push('cancel') }, focusCanvas: () => cancelled.push('focus') };
+  const tab = hatchTab(app, st, () => changes.push({ ...st }));
   const el = tab.render();
   document.body.replaceChildren(el);
   const field = (label) => el.querySelector(`input[aria-label="${label}"]`);
@@ -15,7 +17,7 @@ function render(st) {
     inp.value = v;
     inp.dispatchEvent(new Event('change'));
   };
-  return { el, field, set, changes };
+  return { el, field, set, changes, cancelled };
 }
 
 describe('Hatch Creation tab', () => {
@@ -36,5 +38,26 @@ describe('Hatch Creation tab', () => {
     set(field('Angle'), '');
     expect(field('Angle').value).toBe('30');
     expect(changes).toHaveLength(2);
+  });
+
+  it('cancels the hatch on Escape in a field, after undoing what was typed there', () => {
+    const st = { pattern: 'SOLID', scale: 1.5, angle: 0 };
+    const { field, cancelled, changes } = render(st);
+    const scale = field('Scale');
+    const esc = () => {
+      const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      scale.dispatchEvent(e);
+      return e;
+    };
+    // A value being typed: Escape first puts the current one back.
+    scale.value = '7';
+    esc();
+    expect(scale.value).toBe('1.5');
+    expect(cancelled).toEqual([]);
+    // Nothing typed: Escape cancels the command, as it does on the drawing.
+    esc();
+    expect(cancelled).toEqual(['cancel', 'focus']);
+    expect(changes).toHaveLength(0);
+    expect(st.scale).toBe(1.5);
   });
 });

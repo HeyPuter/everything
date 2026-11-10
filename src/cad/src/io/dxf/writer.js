@@ -25,7 +25,8 @@ import { defaultHeader, defaultLayer, LW_DEFAULT } from '../../core/schema.js';
 import { hexToRgb, nearestIndex } from '../../core/colors.js';
 import { STANDARD_LINETYPES } from '../../core/linetypes.js';
 import { defaultTextStyle, defaultDimStyle } from '../../core/styles.js';
-import { uniformKnots, normAngle } from './geom.js';
+import { getPattern } from '../../core/hatch/patterns.js';
+import { uniformKnots, normAngle, OWN_PATTERN } from './geom.js';
 import { splineFromFitPoints } from '../../core/geom/spline.js';
 
 const RAD = 180 / Math.PI;
@@ -363,7 +364,11 @@ class DxfWriter {
     for (const g of geom) this.scan(g, null);
     let tx = +e.lx || 0;
     let ty = +e.ly || 0;
-    const t = geom.find((g) => g.type === 'text' || g.type === 'mtext');
+    // Radius and diameter dimensions are read back with the text point (group 11)
+    // as their location, so for them it has to stay the location itself: the
+    // drawn text sits beyond it and would move the dimension on every round trip.
+    const radial = e.dimType === 'radius' || e.dimType === 'diameter';
+    const t = radial ? null : geom.find((g) => g.type === 'text' || g.type === 'mtext');
     if (t) {
       tx = +t.x || 0;
       ty = +t.y || 0;
@@ -1145,7 +1150,9 @@ class DxfWriter {
     this.n(210, 0);
     this.n(220, 0);
     this.n(230, fx);
-    this.s(2, solid ? 'SOLID' : pattern);
+    // an imported pattern that was renamed apart from the app's own goes back under its name
+    const base = pattern.endsWith(OWN_PATTERN) ? pattern.slice(0, -OWN_PATTERN.length) : '';
+    this.s(2, solid ? 'SOLID' : base && getPattern(base) ? base : pattern);
     this.i(70, solid ? 1 : 0);
     this.i(71, 0);
     this.i(91, loops.length);

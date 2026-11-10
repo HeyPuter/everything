@@ -91,9 +91,56 @@ export function growBox(box, x, y) {
   return box;
 }
 
+/**
+ * dedupePoints for long lists: kept points go into a grid of tol-sized cells,
+ * so each point is only compared with the kept points around it. Returns
+ * null when the grid cannot index the points (their extent is astronomically
+ * larger than tol).
+ */
+function dedupeGrid(pts, tol) {
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity;
+  for (const p of pts) {
+    if (p.x < x0) x0 = p.x;
+    if (p.x > x1) x1 = p.x;
+    if (p.y < y0) y0 = p.y;
+    if (p.y > y1) y1 = p.y;
+  }
+  if (!(Math.max(x1 - x0, y1 - y0) / tol < 1e12)) return null;
+  const cols = new Map();
+  const out = [];
+  const t2 = tol * tol;
+  outer: for (const p of pts) {
+    const ix = Math.floor((p.x - x0) / tol),
+      iy = Math.floor((p.y - y0) / tol);
+    // Two cells each way: one for the distance, one for rounding in the division.
+    for (let i = ix - 2; i <= ix + 2; i++) {
+      const col = cols.get(i);
+      if (!col) continue;
+      for (let j = iy - 2; j <= iy + 2; j++) {
+        const cell = col.get(j);
+        if (cell) for (const q of cell) if (dist2(p.x, p.y, q.x, q.y) <= t2) continue outer;
+      }
+    }
+    let col = cols.get(ix);
+    if (!col) cols.set(ix, (col = new Map()));
+    const cell = col.get(iy);
+    if (cell) cell.push(p);
+    else col.set(iy, [p]);
+    out.push(p);
+  }
+  return out;
+}
+
 /** Remove points closer than tol to an already kept point. */
 export function dedupePoints(pts, tol) {
   if (pts.length < 2) return pts;
+  if (pts.length > 64 && tol > 0) {
+    const fast = dedupeGrid(pts, tol);
+    if (fast) return fast;
+  }
   const out = [];
   const t2 = tol * tol;
   outer: for (const p of pts) {

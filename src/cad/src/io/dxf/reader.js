@@ -19,6 +19,7 @@ import {
   tessellateSpline,
   ellipsePoints,
   conjugateToEllipse,
+  OWN_PATTERN,
 } from './geom.js';
 import { splineFromFitPoints } from '../../core/geom/spline.js';
 
@@ -287,9 +288,11 @@ export function stripMtext(s) {
     } else if (c === '{' || c === '}') {
       i++;
     } else if (c === '%' && s[i + 1] === '%' && i + 2 < n) {
-      // %% codes stay, the text decodes them
-      out += s.slice(i, i + 3);
-      i += 3;
+      // %% codes stay, the text decodes them; a formatting code or brace after %% is not part of one
+      const d = s[i + 2];
+      const k = d === '\\' || d === '{' || d === '}' ? 2 : 3;
+      out += s.slice(i, i + k);
+      i += k;
     } else if (c === '^' && i + 1 < n) {
       const d = s.charCodeAt(i + 1);
       if (d === 32 || d === 73 || d === 74 || d === 77) {
@@ -341,8 +344,8 @@ class Tokenizer {
         i++;
       }
       if (i >= end) {
-        if (end === this.pos && e < len) {
-          // tolerate a blank line between groups
+        if (!neg && e < len) {
+          // tolerate a blank line between groups (empty, or only spaces and tabs)
           this.pos = e + 1;
           this.line++;
           continue;
@@ -380,9 +383,10 @@ class Tokenizer {
 /* Helpers on the current record                                       */
 /* ------------------------------------------------------------------ */
 
+/** Real value of a group; 0 for anything that is not a finite number. */
 function num(v) {
   const n = +v;
-  return n === n ? n : 0;
+  return n - n === 0 ? n : 0;
 }
 
 function int(v) {
@@ -577,7 +581,8 @@ class DxfParser {
       if (this.sawEof || !more) break;
     }
     if (!this.sawSection) throw new Error('Not a DXF file: no SECTION found.');
-    if (tk.bad) this.warn(`Malformed group code near line ${tk.line + 1}; the rest of the file was ignored.`);
+    // Whatever follows EOF (a DOS end-of-file character, padding) is not part of the drawing.
+    if (tk.bad && !this.sawEof) this.warn(`Malformed group code near line ${tk.line + 1}; the rest of the file was ignored.`);
     else if (!this.sawEof) this.warn('Unexpected end of file; the file may be truncated.');
     this.finish();
     return { drawing: this.drawing, warnings: this.collectWarnings(), stats: this.stats };
@@ -868,10 +873,10 @@ class DxfParser {
           ds.trailingZeros = (int(v) & 8) === 0;
           break;
         case 176:
-          ds.lineColor = int(v);
+          ds.lineColor = dimColor(v);
           break;
         case 178:
-          ds.textColor = int(v);
+          ds.textColor = dimColor(v);
           break;
         case 3: {
           const post = decodeUnicode(v);
@@ -1033,7 +1038,11 @@ class DxfParser {
           seen |= 32;
           break;
         case 60:
-          if (int(vals[i]) === 1) return false;
+          if (int(vals[i]) === 1) {
+            // Not kept, so saving over the file would remove it: reported with what was not imported.
+            this.skip('invisible');
+            return false;
+          }
           break;
         case 67:
           if (cont.model && int(vals[i]) === 1) return false;
@@ -1124,6 +1133,9 @@ class DxfParser {
           return this.mtext(R, cont);
         case 'DIMENSION':
           return this.dimension(R, cont);
+        case 'ARC_DIMENSION':
+        case 'LARGE_RADIAL_DIMENSION':
+          return this.dimensionBlock(R, cont);
         case 'LEADER':
           return this.leader(R, cont);
         case 'HATCH':
@@ -1414,8 +1426,10 @@ class DxfParser {
       this.warn('Polyline with fewer than two vertices skipped.');
       return;
     }
-    if (!uniform && cw === null) this.warn('Variable-width polylines imported with a constant width.');
-    this.addPolyline(cont, this.base('polyline'), pts, closed, cw ?? w0 ?? 0, this.ocs, elev);
+    // widths on the vertices replace the constant width (some writers store 0 there anyway)
+    const fixed = cw > 0;
+    if (!uniform && !fixed) this.warn('Variable-width polylines imported with a constant width.');
+    this.addPolyline(cont, this.base('polyline'), pts, closed, (fixed ? cw : w0 ?? cw) ?? 0, this.ocs, elev);
   }
 
   addPolyline(cont, e, pts, closed, width, o, z) {
@@ -1439,6 +1453,8 @@ class DxfParser {
       elev: gNum(R, 30),
       ocs: this.ocs,
       w: gNum(R, 40),
+      w0: null,
+      uniform: true,
       pts: [],
       ent: ok ? this.base('polyline') : null,
       handle: this.curHandle,
@@ -1469,6 +1485,13 @@ class DxfParser {
         case 42:
           b = num(R.vals[i]);
           break;
+        case 40:
+        case 41: {
+          const w = num(R.vals[i]);
+          if (st.w0 === null) st.w0 = w;
+          else if (w !== st.w0) st.uniform = false;
+          break;
+        }
         case 70:
           f = int(R.vals[i]);
           break;
@@ -1491,7 +1514,10 @@ class DxfParser {
     const cur = this.curHandle;
     this.curHandle = st.handle;
     try {
-      this.addPolyline(st.cont, st.ent, st.pts, (st.flags & 1) !== 0, st.w, is3d ? null : st.ocs, st.elev);
+      // the default width of the POLYLINE, else the one its vertices carry
+      const fixed = st.w > 0;
+      if (!st.uniform && !fixed) this.warn('Variable-width polylines imported with a constant width.');
+      this.addPolyline(st.cont, st.ent, st.pts, (st.flags & 1) !== 0, fixed ? st.w : st.w0 ?? 0, is3d ? null : st.ocs, st.elev);
     } catch (err) {
       this.warn(`Could not read POLYLINE: ${err.message}`);
     }
@@ -1630,6 +1656,9 @@ class DxfParser {
     const vcode = isAttrib ? 74 : 73;
     for (let i = 0; i < R.end; i++) {
       const v = vals[i];
+      // A multiline attribute (R2018+) ends with an embedded MTEXT object (101)
+      // that reuses 1, 10, 11, 40, 41, 72 ... with other meanings.
+      if (codes[i] === 101) break;
       switch (codes[i]) {
         case 10:
           x = num(v);
@@ -1908,9 +1937,31 @@ class DxfParser {
         if (P[0] !== 0 || P[1] !== 0) this.warn('Ordinate dimensions with a non-zero origin are measured from 0,0.');
         break;
       default:
-        this.skip('DIMENSION');
+        this.dimensionBlock(R, cont);
         return;
     }
+    this.add(cont, e);
+  }
+
+  /**
+   * A dimension of a kind the drawing model lacks (arc length, jogged radius):
+   * a reference to the anonymous block that holds its drawn geometry, which is
+   * in world coordinates.
+   */
+  dimensionBlock(R, cont) {
+    const name = decodeUnicode(gStr(R, 2).trim());
+    if (!name || !this.blockMap.has(name.toLowerCase())) {
+      this.skip(R.type);
+      return;
+    }
+    this.warn('Dimensions of kinds that are not supported were imported as blocks.');
+    const e = this.base('insert');
+    e.name = name;
+    e.x = 0;
+    e.y = 0;
+    e.sx = 1;
+    e.sy = 1;
+    e.rot = 0;
     this.add(cont, e);
   }
 
@@ -2016,10 +2067,12 @@ class DxfParser {
     e.loops = loops;
     e.pattern = solid ? 'SOLID' : name.toUpperCase() || 'SOLID';
     e.scale = scale;
-    // Patterns the app does not know are drawn from the file's own definition.
-    const own = e.pattern !== 'SOLID' && !getPattern(e.pattern);
-    const families = own ? patternFamilies(defs, angle, scale) : null;
-    if (families) e.families = families;
+    // Patterns the app does not know are drawn from the file's own definition,
+    // and so are those that only share their name with one of the app's.
+    const families = e.pattern !== 'SOLID' && defs.length ? patternFamilies(defs, angle, scale) : null;
+    const lib = families && getPattern(e.pattern);
+    if (lib && !sameFamilies(lib.families, families)) e.pattern += OWN_PATTERN;
+    if (families && (!lib || e.pattern.endsWith(OWN_PATTERN))) e.families = families;
     e.angle = o ? normAngle(ocsAngle(o, angle)) : angle;
     // A mirrored OCS mirrors the pattern: drawn reflected, then turned by the
     // angle mapped like a direction, it is the mirror image.
@@ -2537,6 +2590,12 @@ function signedAngle(a) {
   return a > Math.PI ? a - TWO_PI : a;
 }
 
+/** Color of a dimension style (0 = ByBlock, 256 = ByLayer); ByBlock for values that are no color index. */
+function dimColor(v) {
+  const c = int(v);
+  return c >= 0 && c <= 256 ? c : 0;
+}
+
 function arrowFromName(raw) {
   let k = raw.trim().toLowerCase();
   if (k.startsWith('_')) k = k.slice(1);
@@ -2569,6 +2628,23 @@ function patternFamilies(defs, angle, scale) {
     out.push({ angle: deg, x: r(x), y: r(y), dx: r(dx), dy: r(dy), dashes: d.dashes.map((v) => r(v / scale)) });
   }
   return out.length ? out : null;
+}
+
+/** True when imported pattern families are the lines of the app's pattern `lib`. */
+function sameFamilies(lib, fams) {
+  if (lib.length !== fams.length) return false;
+  const eq = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a));
+  for (let i = 0; i < lib.length; i++) {
+    const a = lib[i];
+    const b = fams[i];
+    // imported families have dy > 0 and angles in [0, 360)
+    const sg = a.dy < 0 ? -1 : 1;
+    const da = (((a.angle - b.angle) % 360) + 540) % 360 - 180;
+    if (Math.abs(da) > 1e-6 || !eq(a.x, b.x) || !eq(a.y, b.y) || !eq(sg * a.dx, b.dx) || !eq(sg * a.dy, b.dy)) return false;
+    if (a.dashes.length !== b.dashes.length) return false;
+    for (let k = 0; k < a.dashes.length; k++) if (!eq(a.dashes[k], b.dashes[k])) return false;
+  }
+  return true;
 }
 
 /** Hatch circular arc edge appended as a start vertex with a bulge. */

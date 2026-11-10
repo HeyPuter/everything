@@ -18,7 +18,7 @@ import { lengthOf, areaOf } from '../core/geom/index.js';
 import { dimensionText } from '../core/dims.js';
 import { patternNames } from '../core/hatch/patterns.js';
 import { lwLabel } from './combos.js';
-import { preserveFocus } from './focus.js';
+import { preserveFocus, keepScroll } from './focus.js';
 
 const TAU = Math.PI * 2;
 const norm = (a) => ((a % TAU) + TAU) % TAU;
@@ -261,11 +261,14 @@ export class PropertiesPalette {
       if (groups.size === 1) this.filter = [...groups.keys()][0];
       this.typeSelect.value = this.filter;
     }
+    // The dock scrolls the palette.
+    const restoreScroll = keepScroll(this.el.parentElement);
     clear(this.body);
     this._doc = doc;
     if (!sel.length) {
       this.body.append(this.section('General', this.currentFields()));
       this.body.append(this.section('View', this.viewFields(), true));
+      restoreScroll();
       return;
     }
     const ents = this.filter === 'all' ? sel : groups.get(this.filter) || sel;
@@ -281,6 +284,7 @@ export class PropertiesPalette {
       this.body.append(this.section(title, geo));
       if (type === 'polyline' && ents.length === 1) this.body.append(this.section('Vertices', this.vertexFields(ents[0]), true));
     }
+    restoreScroll();
   }
 
   section(title, rows, startCollapsed = false) {
@@ -463,6 +467,8 @@ export class PropertiesPalette {
     };
     inp.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      // Enter and Escape belong to the input method while it composes text.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         const ok = commit();
@@ -557,7 +563,8 @@ export class PropertiesPalette {
 
 function loadCollapsed() {
   try {
-    return JSON.parse(localStorage.getItem('cad.propsCollapsed') || '{}');
+    const saved = JSON.parse(localStorage.getItem('cad.propsCollapsed') || '{}');
+    return saved && typeof saved === 'object' ? saved : {};
   } catch {
     return {};
   }

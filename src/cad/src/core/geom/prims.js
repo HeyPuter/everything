@@ -7,9 +7,11 @@
  *                                           a1 = a0 + sweep (may exceed 2PI);
  *                                           full circles have a0 = 0, a1 = 2PI
  *   { t: 'inf', x, y, dx, dy, ray }         xline (ray = false) or ray
- *   { t: 'pl', pts, us, src }               flat polyline approximation of an
+ *   { t: 'pl', pts, us, src, dev }          flat polyline approximation of an
  *                                           ellipse or spline; us[i] is the curve
- *                                           parameter of vertex i and src the entity
+ *                                           parameter of vertex i, src the entity
+ *                                           and dev the chord tolerance it was
+ *                                           sampled with
  *
  * Primitives from polylines, leaders and hatch loops carry `seg` (index of the
  * source segment); bulge arcs traversed clockwise also carry `rev: true`.
@@ -20,6 +22,7 @@ import { arcFromBulge, BULGE_EPS } from './bulge.js';
 import { ellipseAxes, ellipseSweep, isFullEllipse } from './ellipse.js';
 import { appendEllipse, ellipseSegments } from './tessellate.js';
 import { sampleSpline } from './spline.js';
+import { shiftEntity } from './entity.js';
 
 /** Relative tolerance used for curve approximations inside primitives. */
 export const PL_REL_TOL = 1e-4;
@@ -66,7 +69,7 @@ export function ellipsePrim(e, relTol = PL_REL_TOL) {
   const pts = appendEllipse([], e, t0, sw, n);
   const us = new Array(n + 1);
   for (let i = 0; i <= n; i++) us[i] = t0 + (sw * i) / n;
-  return { t: 'pl', pts, us, src: e };
+  return { t: 'pl', pts, us, src: e, dev: a * relTol };
 }
 
 /** Flat polyline primitive for a spline (us = knot parameters). */
@@ -83,8 +86,31 @@ export function splinePrim(s, relTol = PL_REL_TOL) {
     if (c[i + 1] > y1) y1 = c[i + 1];
   }
   const size = Math.max(x1 - x0, y1 - y0);
-  const { pts, us } = sampleSpline(s, size > 0 ? size * relTol : 1e-9);
-  return { t: 'pl', pts, us, src: s };
+  const dev = size > 0 ? size * relTol : 1e-9;
+  const { pts, us } = sampleSpline(s, dev);
+  return { t: 'pl', pts, us, src: s, dev };
+}
+
+/** Copy of a primitive moved by (dx, dy). */
+export function shiftPrim(p, dx, dy) {
+  switch (p.t) {
+    case 'seg':
+      return { ...p, x1: p.x1 + dx, y1: p.y1 + dy, x2: p.x2 + dx, y2: p.y2 + dy };
+    case 'arc':
+      return { ...p, cx: p.cx + dx, cy: p.cy + dy };
+    case 'inf':
+      return { ...p, x: p.x + dx, y: p.y + dy };
+    case 'pl': {
+      const pts = p.pts.slice();
+      for (let i = 0; i + 1 < pts.length; i += 2) {
+        pts[i] += dx;
+        pts[i + 1] += dy;
+      }
+      return { t: 'pl', pts, us: p.us, src: shiftEntity(p.src, dx, dy), dev: p.dev };
+    }
+    default:
+      return p;
+  }
 }
 
 /** Decompose an entity into primitives (see module comment). */

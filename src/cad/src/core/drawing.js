@@ -36,8 +36,15 @@ export class Drawing {
     this._depth = 0;
     /** Tag stored on steps committed now (the running command), see groupSince(). */
     this.stepTag = null;
-    /** Incremented on every committed change; used for "modified" tracking. */
+    /**
+     * Identifies the current content; used for "modified" tracking. Every
+     * committed change gets a new number, and undo and redo go back to the
+     * number of the state they restore, so undoing to the saved state (or
+     * redoing back to it) is "saved" again.
+     */
     this.revision = 0;
+    /** Highest revision handed out so far. */
+    this._revSeq = 0;
     /** Count of steps dropped off the bottom of the undo stack (keeps saved indices valid). */
     this.shifted = 0;
     this.savedRevision = 0;
@@ -75,7 +82,7 @@ export class Drawing {
     this.undoStack = [];
     this.redoStack = [];
     this.ensureDefaults();
-    this.revision++;
+    this.revision = ++this._revSeq;
     this.savedRevision = this.revision;
   }
 
@@ -167,16 +174,24 @@ export class Drawing {
     }
     const tx = this._tx;
     this._tx = null;
+    // Entities replaced by equal copies (a move by nothing) are no edit: the
+    // originals go back, with no undo step and nothing marked as changed.
+    // A real edit is told apart at its first record.
+    if (tx.records.length && tx.records.every((r) => r.kind === 'ent' && r.before && r.after && sameEntity(r.before, r.after))) {
+      for (let i = tx.records.length - 1; i >= 0; i--) this._apply(tx.records[i], true, tx.change);
+      return result;
+    }
     if (tx.records.length) {
       // rev0/rev1: revision before and after the step (see groupSince).
       const rev0 = this.revision;
-      this.undoStack.push({ label, records: tx.records, tag: this.stepTag, rev0, rev1: rev0 + 1 });
+      const rev1 = ++this._revSeq;
+      this.undoStack.push({ label, records: tx.records, tag: this.stepTag, rev0, rev1 });
       if (this.undoStack.length > UNDO_LIMIT) {
         this.undoStack.shift();
         this.shifted++;
       }
       this.redoStack.length = 0;
-      this.revision++;
+      this.revision = rev1;
       this._emit(this._finish(tx.change));
     }
     return result;
@@ -271,8 +286,16 @@ export class Drawing {
   update(id, patch) {
     const before = this.entities.get(id);
     if (!before) return null;
-    if (Object.keys(patch).every((k) => before[k] === patch[k])) return before;
-    return this.replace(id, { ...before, ...patch, id });
+    let same = true;
+    for (const k in patch) {
+      if (!sameValue(before[k], patch[k]) || !(k in before)) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return before;
+    this._record({ kind: 'ent', id, before, after: { ...before, ...patch, id } });
+    return this.entities.get(id);
   }
 
   get(id) {
@@ -341,7 +364,9 @@ export class Drawing {
     const change = newChange();
     for (let i = step.records.length - 1; i >= 0; i--) this._apply(step.records[i], true, change);
     this.redoStack.push(step);
-    this.revision++;
+    // Back at the state the step started from, when the step knows it (merged
+    // steps do not) and nothing else happened since.
+    this.revision = step.rev1 === this.revision && Number.isFinite(step.rev0) ? step.rev0 : ++this._revSeq;
     this._emit(this._finish(change));
     return step.label;
   }
@@ -352,7 +377,7 @@ export class Drawing {
     const change = newChange();
     for (const rec of step.records) this._apply(rec, false, change);
     this.undoStack.push(step);
-    this.revision++;
+    this.revision = step.rev0 === this.revision && Number.isFinite(step.rev1) ? step.rev1 : ++this._revSeq;
     this._emit(this._finish(change));
     return step.label;
   }
@@ -430,6 +455,40 @@ export class Drawing {
     const l = this.layers.get(name);
     return !l || (l.on && !l.frozen && !l.locked);
   }
+}
+
+/** True when two values are equal in content (numbers, strings, arrays and plain objects, nested). */
+function sameValue(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i],
+        y = b[i];
+      if (x !== y && (typeof x !== 'object' || !sameValue(x, y))) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(b)) return false;
+  let n = 0;
+  for (const k in a) {
+    if (!(k in b) || !sameValue(a[k], b[k])) return false;
+    n++;
+  }
+  for (const k in b) n--;
+  return n === 0;
+}
+
+/** True when two stored entities are equal in content. */
+function sameEntity(before, next) {
+  let n = 0;
+  for (const k in before) {
+    if (!(k in next) || !sameValue(before[k], next[k])) return false;
+    n++;
+  }
+  for (const k in next) n--;
+  return n === 0;
 }
 
 /** True when a step's records add up to no change (each touched item ends as it began). */

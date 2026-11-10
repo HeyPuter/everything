@@ -3,8 +3,9 @@
  * context that records buffer uploads instead of drawing.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Renderer } from '../src/render/renderer.js';
+import { Renderer, HOME_LIMIT } from '../src/render/renderer.js';
 import { Camera } from '../src/render/camera.js';
+import { SEG_VS, TRI_VS } from '../src/render/shaders.js';
 import { Drawing } from '../src/core/drawing.js';
 
 globalThis.requestAnimationFrame ??= () => 1;
@@ -104,6 +105,26 @@ describe('Renderer chunks', () => {
     expect(t.r.chunks.length).toBe(5);
     expect(t.r.chunkOf.size).toBe(5000);
     expect([...t.r.chunks.at(-1).ids]).toEqual(ids);
+  });
+
+  it('does not remember the chunk of every object ever erased', () => {
+    // A long session of drawing and erasing, 1000 objects at a time.
+    for (let k = 0; k < 300; k++) {
+      const ids = [];
+      t.d.transaction('add', () => {
+        for (let i = 0; i < 1000; i++) ids.push(t.d.add({ type: 'line', layer: '0', color: 256, x1: i, y1: 20, x2: i, y2: 30 }).id);
+      });
+      t.d.transaction('erase', () => ids.forEach((id) => t.d.remove(id)));
+    }
+    expect(t.r.homeOf.size).toBeLessThanOrEqual(HOME_LIMIT);
+    // The latest erase still goes back into its chunk without a full rebuild.
+    const id = [...t.d.entities.keys()][1500];
+    const home = t.r.chunkOf.get(id);
+    t.d.transaction('erase', () => t.d.remove(id));
+    const chunks = t.r.chunks;
+    t.d.undo();
+    expect(t.r.chunks).toBe(chunks);
+    expect(t.r.chunkOf.get(id)).toBe(home);
   });
 
   it('redraws at once when a resize clears the canvas', () => {
@@ -215,5 +236,203 @@ describe('Renderer block changes', () => {
     let id;
     d.transaction('insert', () => (id = d.add(insert('Y')).id));
     expect(r.infinite.has(id)).toBe(true);
+  });
+});
+
+describe('Renderer long lines', () => {
+  it('cuts a line far longer than the view and rebuilds once the view leaves the cut part', () => {
+    const t = setup(10);
+    t.d.transaction('add', () => {
+      t.d.add({ type: 'line', layer: '0', color: 256, x1: -1e6, y1: -1e6, x2: 1e6, y2: 1e6 });
+    });
+    t.r.camera.state = { cx: 0, cy: 0, scale: 1e4 };
+    t.r.frame();
+    const c = t.r.chunks[0];
+    expect(c.safe).toBeTruthy();
+    let builds = 0;
+    const orig = t.r._buildChunk.bind(t.r);
+    t.r._buildChunk = (ch, ctx) => (builds++, orig(ch, ctx));
+    // Panning within the cut part reuses the buffers.
+    t.r.camera.panBy(-3000, 3000);
+    t.r.frame();
+    expect(builds).toBe(0);
+    // Far along the line the cut part has run out.
+    t.r.camera.state = { cx: 500, cy: 500, scale: 1e4 };
+    t.r.frame();
+    expect(builds).toBe(1);
+    expect(c.safe[0]).toBeLessThan(500);
+    expect(c.safe[2]).toBeGreaterThan(500);
+  });
+
+  it('leaves drawings without such lines alone', () => {
+    const t = setup(2000);
+    expect(t.r.chunks.every((c) => !c.safe)).toBe(true);
+  });
+});
+
+describe('Renderer very large curves', () => {
+  it('tessellates the part in view exactly and rebuilds once the view leaves it', () => {
+    const t = setup(10);
+    const R = 1e5;
+    t.d.transaction('add', () => {
+      t.d.add({ type: 'circle', layer: '0', color: 256, cx: 0, cy: 0, r: R });
+    });
+    // Looking at the circle between two vertices of its 4096-chord outline.
+    const a = Math.PI / 4096;
+    t.r.camera.state = { cx: R * Math.cos(a), cy: R * Math.sin(a), scale: 1000 };
+    const lines = [];
+    const line = t.r.batch.line.bind(t.r.batch);
+    t.r.batch.line = (pts, closed, style) => (lines.push(pts), line(pts, closed, style));
+    t.r.frame();
+    const c = t.r.chunks[0];
+    expect(c.safe).toBeTruthy();
+    // Every chord crossing the view stays within a quarter pixel of the circle.
+    const v = t.r.camera.bounds();
+    const pts = lines.find((p) => p.length > 8000);
+    let seen = 0,
+      worst = 0;
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const mx = (pts[i] + pts[i + 2]) / 2,
+        my = (pts[i + 1] + pts[i + 3]) / 2;
+      if (Math.min(pts[i], pts[i + 2]) > v[2] || Math.max(pts[i], pts[i + 2]) < v[0]) continue;
+      if (Math.min(pts[i + 1], pts[i + 3]) > v[3] || Math.max(pts[i + 1], pts[i + 3]) < v[1]) continue;
+      seen++;
+      worst = Math.max(worst, R - Math.hypot(mx, my));
+    }
+    expect(seen).toBeGreaterThan(0);
+    expect(worst * 1000).toBeLessThan(0.26);
+    expect(pts.length / 2).toBeLessThan(4096 + 3000);
+    t.r.batch.line = line;
+    let builds = 0;
+    const orig = t.r._buildChunk.bind(t.r);
+    t.r._buildChunk = (ch, ctx) => (builds++, orig(ch, ctx));
+    t.r.camera.panBy(-3000, 3000);
+    t.r.frame();
+    expect(builds).toBe(0);
+    // A quarter turn away the exact part has run out.
+    t.r.camera.state = { cx: 0, cy: R, scale: 1000 };
+    t.r.frame();
+    expect(builds).toBe(1);
+    expect(c.safe[3]).toBeGreaterThan(R);
+  });
+
+  it('leaves ordinary curves alone', () => {
+    const t = setup(10);
+    t.d.transaction('add', () => {
+      t.d.add({ type: 'circle', layer: '0', color: 256, cx: 0, cy: 0, r: 500 });
+      t.d.add({ type: 'polyline', layer: '0', color: 256, pts: [0, 0, 1, 50, 0, 0, 50, 50, 0], closed: true });
+    });
+    t.r.camera.state = { cx: 500, cy: 0, scale: 100 };
+    t.r.frame();
+    expect(t.r.chunks.every((c) => !c.safe)).toBe(true);
+  });
+});
+
+describe('Renderer previews drawn through a matrix', () => {
+  const lines = (n) => Array.from({ length: n }, (_, i) => ({ type: 'line', layer: '0', color: 256, x1: i, y1: 0, x2: i, y2: 5 }));
+
+  it('builds the buffers once and reuses them while only the matrix changes', () => {
+    const t = setup(10);
+    const list = lines(100);
+    let builds = 0;
+    const orig = t.r._buildEntities.bind(t.r);
+    t.r._buildEntities = (...a) => (builds++, orig(...a));
+    t.r.setPreview(list, [1, 0, 0, 1, 3, 4]);
+    t.r.frame();
+    expect(builds).toBe(1);
+    expect(t.r.previewGpu.segCount).toBe(100);
+    for (let i = 0; i < 5; i++) {
+      t.r.setPreview(list, [1, 0, 0, 1, 3 + i, 4]);
+      t.r.frame();
+    }
+    t.r.camera.panBy(20, 10);
+    t.r.frame();
+    expect(builds).toBe(1);
+    // a big zoom change refreshes the level of detail
+    t.r.camera.state = { cx: 5, cy: 2, scale: t.r.camera.scale * 20 };
+    t.r.frame();
+    expect(builds).toBe(2);
+    // a change to the drawing may change how the preview looks
+    t.d.transaction('add', () => t.d.add({ type: 'line', layer: '0', color: 256, x1: 0, y1: 0, x2: 1, y2: 1 }));
+    t.r.frame();
+    expect(builds).toBe(3);
+    // another list, or none, replaces it
+    t.r.setPreview(lines(3), [1, 0, 0, 1, 0, 0]);
+    t.r.frame();
+    expect(t.r.previewGpu.segCount).toBe(3);
+    t.r.setPreview([]);
+    t.r.frame();
+    expect(t.r.previewGpu.segCount).toBe(0);
+    expect(t.r.previewMatrix).toBeNull();
+  });
+
+  it('keeps construction lines in a moved preview across the view', () => {
+    const t = setup(10);
+    const list = [{ type: 'xline', layer: '0', color: 256, x: 0, y: 0, dx: 1, dy: 0 }];
+    let builds = 0;
+    const orig = t.r._buildEntities.bind(t.r);
+    t.r._buildEntities = (...a) => (builds++, orig(...a));
+    t.r.setPreview(list, [1, 0, 0, 1, 0, 2]);
+    t.r.frame();
+    t.r.setPreview(list, [1, 0, 0, 1, 5000, 2]);
+    t.r.frame();
+    expect(builds).toBe(2);
+    expect(t.r.previewGpu.segCount).toBe(1);
+  });
+
+  it('cuts long lines for the place the preview is moved to', () => {
+    const t = setup(10);
+    const list = [{ type: 'line', layer: '0', color: 256, x1: -1e6, y1: 0, x2: 1e6, y2: 0 }];
+    t.r.camera.state = { cx: 0, cy: 0, scale: 1e4 };
+    t.r.setPreview(list, [1, 0, 0, 1, 0, 0]);
+    t.r.frame();
+    const safe = t.r.previewGpu.safe;
+    expect(safe).toBeTruthy();
+    // moved 500 units left, the view sees the part of the line around x = 500
+    t.r.setPreview(list, [1, 0, 0, 1, -500, 0]);
+    t.r.frame();
+    expect(t.r.previewGpu.safe).not.toBe(safe);
+    expect(t.r.previewGpu.safe[0]).toBeLessThan(500);
+    expect(t.r.previewGpu.safe[2]).toBeGreaterThan(500);
+    // the chunk builds that follow use the view's own box again
+    expect(t.r.batch.box[0]).toBeLessThan(0);
+    expect(t.r.batch.box[2]).toBeGreaterThan(0);
+    expect(t.r.batch.box[2]).toBeLessThan(400);
+  });
+});
+
+describe('Camera fit', () => {
+  it('fits inside the margins', () => {
+    const c = new Camera();
+    c.setSize(1000, 800);
+    c.fit(0, 0, 100, 100, 24);
+    expect(c.scale).toBeCloseTo(7.52, 6);
+    expect([c.cx, c.cy]).toEqual([50, 50]);
+  });
+
+  it('does not zoom out to nothing on a canvas squeezed to no height', () => {
+    const c = new Camera();
+    // A short window leaves the canvas no height at all.
+    c.setSize(667, 0);
+    c.fit(0, 0, 100, 100, 24);
+    expect(c.scale).toBeCloseTo(6.19, 6);
+    // Smaller than the margins: they give way.
+    c.setSize(667, 40);
+    c.fit(0, 0, 100, 100, 24);
+    expect(c.scale).toBeCloseTo(0.2, 6);
+    // No size at all: the zoom is kept.
+    c.setSize(0, 0);
+    c.scale = 3;
+    c.fit(0, 0, 100, 100, 24);
+    expect(c.scale).toBe(3);
+    expect([c.cx, c.cy]).toEqual([50, 50]);
+  });
+});
+
+describe('Shaders', () => {
+  it('keep vertex positions exact where the compiler uses fast math', () => {
+    // Metal regroups (hi - camHi) + (lo - camLo) unless the position is
+    // invariant, which loses the low parts far from the origin.
+    for (const src of [SEG_VS, TRI_VS]) expect(src).toMatch(/^invariant gl_Position;$/m);
   });
 });

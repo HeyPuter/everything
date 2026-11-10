@@ -21,6 +21,8 @@ import {
   closestPoint,
   lengthOf,
   refitSpline,
+  arcFromBulge,
+  ccwSweep,
 } from '../../core/geom/index.js';
 import { insertMatrix, mulMatrix } from '../../core/tessellate.js';
 import { buildDimension, buildLeader, dimStyleOf } from '../../core/dims.js';
@@ -41,6 +43,10 @@ const transformAll = (ed, ids, m, copy, label) =>
     }
     return out;
   });
+
+/** The most objects one array (rectangular, polar or COPY Array) may hold. */
+const MAX_ARRAY_OBJECTS = 200000;
+const TOO_MANY = 'That array would create too many objects (limit 200,000).';
 
 function showSelection(ed, ids) {
   ed.renderer.setSelection(new Set(ids));
@@ -108,7 +114,7 @@ export const COPY = {
   label: 'Copy',
   icon: 'copy',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const base = await ed.getPoint('Base point');
@@ -125,6 +131,10 @@ export const COPY = {
         const n0 = await ed.getNumber('Number of items to array', { default: 3, min: 2, max: 10000 });
         if (!Number.isFinite(n0)) continue;
         const n = Math.max(2, Math.round(n0));
+        if (n * ids.length > MAX_ARRAY_OBJECTS) {
+          ed.ui.log(TOO_MANY, 'error');
+          continue;
+        }
         const last = await ed.getPoint('Second point', {
           base,
           onMove: (p) => ed.renderer.setDragMatrix(M.translate(p.x - base.x, p.y - base.y)),
@@ -147,7 +157,7 @@ export const ROTATE = {
   label: 'Rotate',
   icon: 'rotate',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const base = await ed.getPoint('Base point');
@@ -193,7 +203,7 @@ export const SCALE = {
   label: 'Scale',
   icon: 'scale',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const base = await ed.getPoint('Base point');
@@ -243,7 +253,7 @@ export const MIRROR = {
   label: 'Mirror',
   icon: 'mirror',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const a = await ed.getPoint('First point of mirror line');
@@ -409,6 +419,12 @@ async function trimOrExtend(ed, extendFirst) {
         ed.ui.log('That object could not be trimmed.', 'error');
         continue;
       }
+      if (!r && edges) {
+        // Erasing is only for trimming against everything: an object clear
+        // of the chosen cutting edges is not theirs to cut.
+        ed.ui.log('That object does not cross a cutting edge.', 'error');
+        continue;
+      }
       if (!r) {
         // Nothing crosses it: trimming removes it entirely, as an eraser would.
         ed.commit('Trim', () => ed.drawing.remove(pick.id));
@@ -475,6 +491,8 @@ async function filletOrChamfer(ed, isChamfer) {
         out = null;
       }
       if (out) ed.commit(isChamfer ? 'Chamfer' : 'Fillet', () => ed.drawing.replace(p.id, out));
+      else if (isChamfer) ed.ui.log('No corner was chamfered: the distances are zero or too large for the segments, or there are no straight corners.', 'error');
+      else ed.ui.log('No corner was filleted: the radius is zero or too large for the segments, or there are no straight corners.', 'error');
       if (!multiple) return;
       continue;
     }
@@ -519,7 +537,7 @@ export const ARRAYRECT = {
   label: 'Rectangular array',
   icon: 'array-rect',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const b = ids
@@ -534,8 +552,8 @@ export const ARRAYRECT = {
     if (!Number.isFinite(r0)) return;
     const cols = Math.max(1, Math.round(c0)),
       rows = Math.max(1, Math.round(r0));
-    if (cols * rows * ids.length > 200000) {
-      ed.ui.log('That array would create too many objects (limit 200,000).', 'error');
+    if (cols * rows * ids.length > MAX_ARRAY_OBJECTS) {
+      ed.ui.log(TOO_MANY, 'error');
       return;
     }
     const dx = await ed.getDistance('Distance between columns', { default: ed.arrDx ?? w });
@@ -561,7 +579,7 @@ export const ARRAYPOLAR = {
   label: 'Polar array',
   icon: 'array-polar',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     showSelection(ed, ids);
     const c = await ed.getPoint('Center point of array');
@@ -569,6 +587,10 @@ export const ARRAYPOLAR = {
     const n0 = await ed.getNumber('Number of items', { default: ed.polarItems ?? 6, min: 2, max: 10000 });
     if (!Number.isFinite(n0)) return;
     const n = Math.max(2, Math.round(n0));
+    if (n * ids.length > MAX_ARRAY_OBJECTS) {
+      ed.ui.log(TOO_MANY, 'error');
+      return;
+    }
     let fill;
     for (;;) {
       fill = await ed.getAngle('Angle to fill (+ counter-clockwise, - clockwise)', { default: TAU });
@@ -669,8 +691,19 @@ export function stretchEntity(e, inside, dx, dy) {
     case 'arc': {
       const s = { x: e.cx + e.r * Math.cos(e.start), y: e.cy + e.r * Math.sin(e.start) };
       const t = { x: e.cx + e.r * Math.cos(e.end), y: e.cy + e.r * Math.sin(e.end) };
-      if (inside(s.x, s.y) && inside(t.x, t.y)) return transformEntity(e, M.translate(dx, dy));
-      return e;
+      const ins = inside(s.x, s.y),
+        int = inside(t.x, t.y);
+      if (ins && int) return transformEntity(e, M.translate(dx, dy));
+      if (!ins && !int) return e;
+      // One end moves: the arc through the new ends with the same height
+      // over its chord (the sagitta), on the same side.
+      const sweep = ccwSweep(e.start, e.end);
+      const h = e.r * (1 - Math.cos(sweep / 2));
+      if (ins) [s.x, s.y] = [s.x + dx, s.y + dy];
+      else [t.x, t.y] = [t.x + dx, t.y + dy];
+      const a = arcFromBulge(s.x, s.y, t.x, t.y, (2 * h) / Math.hypot(t.x - s.x, t.y - s.y));
+      if (!a || !Number.isFinite(a.r + a.cx + a.cy)) return e;
+      return { ...e, cx: a.cx, cy: a.cy, r: a.r, start: a.a0, end: a.a1 };
     }
     case 'dimension': {
       // Definition points (the angular vertex too) move one by one; with all
@@ -733,6 +766,8 @@ export const BREAK = {
     const filter = (e) => ['line', 'xline', 'ray', 'circle', 'arc', 'ellipse', 'polyline'].includes(e.type);
     const pick = await ed.getEntity('Select object (the pick point is the first break point)', { filter });
     if (!pick || pick.option) return;
+    // "@" for the second point means the first one: break without a gap.
+    ed.lastPoint = { x: pick.x, y: pick.y };
     const pts = await whileSelected(ed, [pick.id], async () => {
       const p2 = await ed.getPoint('Second break point', { options: opts('First point') });
       if (!p2) return null;
@@ -946,7 +981,7 @@ export const EXPLODE = {
   label: 'Explode',
   icon: 'explode',
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     let count = 0;
     ed.commit('Explode', () => {
@@ -1090,20 +1125,32 @@ export const ALIGNCMD = {
     if (!s1 || s1.option) return;
     const d1 = await ed.getPoint('First destination point', { base: s1 });
     if (!d1 || d1.option) return;
-    const s2 = await ed.getPoint('Second source point (Enter to only move)');
+    // Each pair of points gives a direction (and a length to scale by), so
+    // the second point of a pair cannot sit on the first.
+    let s2;
+    for (;;) {
+      s2 = await ed.getPoint('Second source point (Enter to only move)');
+      if (!s2 || s2.option || dist(s1, s2) > 1e-12) break;
+      ed.ui.log('The second source point must differ from the first.', 'error');
+    }
     if (!s2 || s2.option) {
       transformAll(ed, ids, M.translate(d1.x - s1.x, d1.y - s1.y), false, 'Align');
       ed.clearSelection();
       return;
     }
-    const d2 = await ed.getPoint('Second destination point', { base: s2 });
-    if (!d2 || d2.option) return;
+    let d2;
+    for (;;) {
+      d2 = await ed.getPoint('Second destination point', { base: s2 });
+      if (!d2 || d2.option) return;
+      if (dist(d1, d2) > 1e-12) break;
+      ed.ui.log('The second destination point must differ from the first.', 'error');
+    }
     const scale = await ed.getKeyword('Scale objects to the alignment points?', opts('Yes', 'No'), 'no');
     if (scale === null) return;
     const a = angleOf(d1, d2) - angleOf(s1, s2);
     let m = mulMatrix(M.rotate(a, d1.x, d1.y), M.translate(d1.x - s1.x, d1.y - s1.y));
     if (scale === 'yes') {
-      const k = dist(d1, d2) / Math.max(1e-12, dist(s1, s2));
+      const k = dist(d1, d2) / dist(s1, s2);
       m = mulMatrix(M.scale(k, d1.x, d1.y), m);
     }
     transformAll(ed, ids, m, false, 'Align');

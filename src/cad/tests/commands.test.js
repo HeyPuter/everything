@@ -97,6 +97,24 @@ describe('drawing commands', () => {
     expect(t.drawing.modified).toBe(true);
   });
 
+  it('records no step when a move or rotation changes nothing', async () => {
+    await t.type('PLINE', '0,0', '10,0', '10,5', '');
+    await t.type('CIRCLE', '3,3', '2');
+    t.drawing.markSaved();
+    const steps = t.drawing.undoStack.length;
+    const before = t.all();
+    t.ed.setSelection(before.map((e) => e.id));
+    await t.type('MOVE', '5,5', '5,5');
+    t.ed.setSelection(before.map((e) => e.id));
+    await t.type('ROTATE', '0,0', '0');
+    expect(t.drawing.undoStack.length).toBe(steps);
+    expect(t.drawing.modified).toBe(false);
+    expect(t.all()).toEqual(before);
+    t.ed.setSelection(before.map((e) => e.id));
+    await t.type('MOVE', '5,5', '6,5');
+    expect(t.drawing.undoStack.length).toBe(steps + 1);
+  });
+
   it('records no step when Match properties changes nothing', async () => {
     await t.type('LINE', '0,0', '10,0', '');
     await t.type('LINE', '0,5', '10,5', '');
@@ -475,6 +493,44 @@ describe('editing commands', () => {
       expect(h.loops).toHaveLength(1);
       expect(filled(h, 2, 2)).toBe(true);
       expect(filled(h, 10, 10)).toBe(true);
+    });
+
+    const add = (props) => t.drawing.transaction('Add', () => t.drawing.add(t.ed.make(props.type, props)));
+
+    it('finds a boundary whose lines and arcs end on a circle from outside', async () => {
+      // The ends lie exactly on the curve, outside the chords it is drawn with.
+      let found = 0;
+      const angles = [0.11, 0.37, 0.52, 0.83, 1.02, 1.21, 1.4];
+      for (const a of angles) {
+        t.drawing.transaction('Clear', () => t.all().forEach((e) => t.drawing.remove(e.id)));
+        add({ type: 'circle', cx: 0, cy: 0, r: 5 });
+        add({ type: 'line', x1: 20, y1: 0, x2: 5 * Math.cos(a), y2: 5 * Math.sin(a) });
+        // the other side is an arc from (20, 0) that ends on the circle
+        const qx = 5 * Math.cos(-a * 0.9),
+          qy = 5 * Math.sin(-a * 0.9);
+        const l = Math.hypot(20 - qx, qy);
+        const cx = (20 + qx) / 2 + (qy / l) * 30,
+          cy = qy / 2 + ((20 - qx) / l) * 30;
+        const a0 = Math.atan2(-cy, 20 - cx),
+          a1 = Math.atan2(qy - cy, qx - cx);
+        add({ type: 'arc', cx, cy, r: Math.hypot(qx - cx, qy - cy), start: Math.min(a0, a1), end: Math.max(a0, a1) });
+        await t.type('HATCH');
+        await t.pick(8, 0);
+        await t.type('');
+        const [h] = t.all('hatch');
+        if (h && filled(h, 8, 0) && !filled(h, 0, 0) && !filled(h, 21, 0)) found++;
+      }
+      expect(found).toBe(angles.length);
+    });
+
+    it('does not close a real gap between a line and a curve', async () => {
+      add({ type: 'circle', cx: 0, cy: 0, r: 5 });
+      add({ type: 'line', x1: 20, y1: 0, x2: 5.02 * Math.cos(0.37), y2: 5.02 * Math.sin(0.37) });
+      add({ type: 'line', x1: 20, y1: 0, x2: 5 * Math.cos(-0.33), y2: 5 * Math.sin(-0.33) });
+      await t.type('HATCH');
+      await t.pick(8, 0);
+      await t.type('');
+      expect(t.all('hatch')).toHaveLength(0);
     });
 
     it('finds boundaries in block references and construction lines', async () => {

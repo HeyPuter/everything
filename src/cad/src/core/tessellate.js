@@ -27,6 +27,8 @@ const LW_INDEX = new Map(LINEWEIGHTS.map((w, i) => [w, i]));
  *   patterns  include scaled linetype patterns in styles (exporters); the GPU
  *             renderer only needs basePattern and ltscale
  *   bounds    measuring extents: construction lines inside blocks are skipped
+ *   clip      { box: () => [minX, minY, maxX, maxY], state: { used } } for
+ *             view-dependent curve tessellation (see geom/tessellate.js)
  */
 export function makeContext(drawing, opts) {
   return {
@@ -42,6 +44,7 @@ export function makeContext(drawing, opts) {
     warnings: opts.warnings ?? null,
     patterns: opts.patterns !== false,
     bounds: !!opts.bounds,
+    clip: opts.clip ?? null,
     blockStack: null,
   };
 }
@@ -183,7 +186,7 @@ export function emitEntity(ent, sink, ctx, parent = null, topId = ent.id, depth 
     case 'arc':
     case 'ellipse':
     case 'spline':
-      for (const p of tessellate(ent, ctx.tol)) sink.line(p.pts, p.closed, style);
+      for (const p of tessellate(ent, ctx.tol, ctx.clip)) sink.line(p.pts, p.closed, style);
       return;
     case 'polyline':
       emitPolyline(ent, sink, ctx, style);
@@ -242,30 +245,144 @@ function emitInfinite(ent, sink, ctx, style) {
 }
 
 function emitPolyline(ent, sink, ctx, style) {
-  const parts = tessellate(ent, ctx.tol);
+  const parts = tessellate(ent, ctx.tol, ctx.clip);
   if (!(ent.width > 0)) {
     for (const p of parts) sink.line(p.pts, p.closed, style);
     return;
   }
-  // Wide polyline: one quad per tessellated piece, plus round-free joints.
-  const hw = ent.width / 2;
   const solid = { ...style, basePattern: EMPTY, pattern: EMPTY };
-  for (const p of parts) {
-    const pts = p.pts;
-    const n = pts.length >> 1;
-    const segs = p.closed ? n : n - 1;
-    for (let i = 0; i < segs; i++) {
-      const j = (i + 1) % n;
-      const ax = pts[i * 2],
-        ay = pts[i * 2 + 1],
-        bx = pts[j * 2],
-        by = pts[j * 2 + 1];
-      const len = Math.hypot(bx - ax, by - ay);
-      if (len === 0) continue;
-      const nx = (-(by - ay) / len) * hw,
-        ny = ((bx - ax) / len) * hw;
-      sink.fill([[ax + nx, ay + ny, bx + nx, by + ny, bx - nx, by - ny, ax - nx, ay - ny]], solid);
+  for (const p of parts) emitBand(p.pts, p.closed, ent.width / 2, sink, solid);
+}
+
+/** Longest mitre, in half widths, before a corner of a wide polyline is cut off instead. */
+const MITER_LIMIT = 4;
+const MITER_MIN = 2 / (MITER_LIMIT * MITER_LIMIT);
+
+/** The points without repeats of the previous point (the same array when there are none). */
+function distinctPoints(pts, closed) {
+  let n = pts.length >> 1;
+  let same = closed && n > 2 && pts[0] === pts[2 * n - 2] && pts[1] === pts[2 * n - 1];
+  for (let i = 2; !same && i < 2 * n; i += 2) same = pts[i] === pts[i - 2] && pts[i + 1] === pts[i - 1];
+  if (!same) return pts;
+  const P = [];
+  for (let i = 0; i < 2 * n; i += 2) {
+    const k = P.length;
+    if (k && P[k - 2] === pts[i] && P[k - 1] === pts[i + 1]) continue;
+    P.push(pts[i], pts[i + 1]);
+  }
+  n = P.length >> 1;
+  if (closed && n > 2 && P[0] === P[2 * n - 2] && P[1] === P[2 * n - 1]) P.length -= 2;
+  return P;
+}
+
+/**
+ * Band of half width hw along a flat polyline: one quad per segment. Segments
+ * share their corner points at a joint (a mitre), so the band has no notch on
+ * the outside of a corner and no overlap on the inside. Very sharp corners are
+ * cut off (a bevel), and where the corner lines of a short segment cross
+ * before the full width (a tight arc) that edge shrinks to the crossing.
+ */
+function emitBand(pts, closed, hw, sink, style) {
+  const P = distinctPoints(pts, closed);
+  const n = P.length >> 1;
+  if (n < 2) return;
+  const loop = closed && n > 2;
+  const segs = loop ? n : n - 1;
+  // Unit direction and length of the current segment, starting with the first.
+  // (sqrt of the squares, not Math.hypot: several times faster, and lengths here need no overflow care)
+  let dx = P[2] - P[0],
+    dy = P[3] - P[1];
+  let cl = Math.sqrt(dx * dx + dy * dy);
+  let cx = dx / cl,
+    cy = dy / cl;
+  const fx = cx,
+    fy = cy;
+  // Mitre offset to the left at the start of the current segment (sm: there is one).
+  let sm = false,
+    sx = 0,
+    sy = 0;
+  if (loop) {
+    dx = P[0] - P[2 * n - 2];
+    dy = P[1] - P[2 * n - 1];
+    const l = Math.sqrt(dx * dx + dy * dy);
+    const px = dx / l,
+      py = dy / l;
+    const k = 1 + px * cx + py * cy;
+    if (k > MITER_MIN) {
+      sm = true;
+      sx = (-(py + cy) / k) * hw;
+      sy = ((px + cx) / k) * hw;
     }
+  }
+  for (let i = 0; i < segs; i++) {
+    const j = (i + 1) % n;
+    const ax = P[i * 2],
+      ay = P[i * 2 + 1],
+      bx = P[j * 2],
+      by = P[j * 2 + 1];
+    const nx = -cy * hw,
+      ny = cx * hw;
+    // The next segment and the joint with it.
+    let em = false,
+      ex = nx,
+      ey = ny,
+      tx = 0,
+      ty = 0,
+      tl = 0;
+    if (i + 1 < segs || loop) {
+      if (i + 1 < segs) {
+        const m = ((j + 1) % n) * 2;
+        dx = P[m] - bx;
+        dy = P[m + 1] - by;
+        tl = Math.sqrt(dx * dx + dy * dy);
+        tx = dx / tl;
+        ty = dy / tl;
+      } else {
+        tx = fx;
+        ty = fy;
+      }
+      const k = 1 + cx * tx + cy * ty;
+      if (k > MITER_MIN) {
+        em = true;
+        ex = (-(cy + ty) / k) * hw;
+        ey = ((cx + tx) / k) * hw;
+      } else {
+        // Too sharp: cut the corner off with a triangle on its outer side.
+        const turn = cx * ty - cy * tx;
+        if (turn !== 0) {
+          const sg = turn > 0 ? -hw : hw;
+          sink.fill([[bx, by, bx - cy * sg, by + cx * sg, bx - ty * sg, by + tx * sg]], style);
+        }
+      }
+    }
+    if (!sm) {
+      sx = nx;
+      sy = ny;
+    }
+    // Corners: left of the start and end, then right of the end and start.
+    const q = [ax + sx, ay + sy, bx + ex, by + ey, bx - ex, by - ey, ax - sx, ay - sy];
+    // shrink: how far the mitres move the left ends together (the right ends apart).
+    const shrink = (sx - ex) * cx + (sy - ey) * cy;
+    if (shrink >= cl || -shrink >= cl) {
+      const den = sx * ey - sy * ex;
+      const t = den ? (cl * (cx * ey - cy * ex)) / den : 0;
+      const side = shrink >= cl ? 0 : 4;
+      if (side ? t < 0 && t >= -1 : t > 0 && t <= 1) {
+        q[side] = q[side + 2] = ax + sx * t;
+        q[side + 1] = q[side + 3] = ay + sy * t;
+      } else {
+        // No crossing to use: square ends on that side.
+        const e = side ? [bx - nx, by - ny, ax - nx, ay - ny] : [ax + nx, ay + ny, bx + nx, by + ny];
+        for (let k = 0; k < 4; k++) q[side + k] = e[k];
+      }
+    }
+    sink.fill([q], style);
+    sm = em;
+    sx = ex;
+    sy = ey;
+    cx = tx;
+    cy = ty;
+    cl = tl;
   }
 }
 
@@ -357,6 +474,7 @@ function emitInsert(ent, sink, ctx, eff, topId, depth) {
   const blockStack = new Set(ctx.blockStack || []);
   blockStack.add(ent.name);
   const child = { ...ctx, tol: ctx.tol / scale, pointSize: ctx.pointSize / scale, view: invView(ctx.view, m), blockStack };
+  if (ctx.clip) child.clip = clipInBlock(ctx.clip, m);
   const tsink = new TransformSink(sink, m);
   const parent = {
     layer: eff.layerName,
@@ -366,6 +484,12 @@ function emitInsert(ent, sink, ctx, eff, topId, depth) {
     ltscale: eff.ltscale,
   };
   for (const e of block.entities) emitEntity(e, tsink, child, parent, topId, depth + 1);
+}
+
+/** The clip box of view-dependent tessellation in block coordinates, worked out only if a curve asks. */
+function clipInBlock(clip, m) {
+  let box = null;
+  return { state: clip.state, box: () => (box ??= invView(clip.box(), m)) };
 }
 
 /** Approximate the view rectangle in block coordinates (for construction lines). */

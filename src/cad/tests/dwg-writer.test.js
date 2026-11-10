@@ -196,6 +196,74 @@ describe('DWG writer', () => {
     expect(warnings.some((w) => /ANSI31.*45/.test(w))).toBe(true);
   });
 
+  it('writes hatch pattern names with non-ASCII letters as text, not as escapes', () => {
+    const d = everything();
+    d.entities = [ent('hatch', { loops: [[0, 0, 0, 10, 0, 0, 10, 10, 0]], pattern: 'Schräg', scale: 1, angle: 0 })];
+    const warnings = [];
+    const bytes = writeDwg(d, { dimensionEntities, warnings });
+    expect(warnings.some((w) => w.includes("Hatch pattern 'Schräg' has no definition"))).toBe(true);
+    expect([...readDatabase(bytes).objects.values()].find((o) => o.type === 'HATCH').name).toBe('Schräg');
+    expect(parseDwg(bytes).drawing.entities[0].pattern).toBe('SCHRÄG');
+  });
+
+  it('writes the current dimension style into the $DIM header variables', () => {
+    // where they differ, AutoCAD shows style overrides and uses them for new dimensions
+    for (const units of ['mm', 'in']) {
+      for (const textAlign of ['horizontal', 'aligned']) {
+        const d = everything();
+        d.header.units = units;
+        d.header.dimStyle = 'Cur';
+        d.dimStyles.push({ ...defaultDimStyle('Cur'), textAlign, textStyle: 'Notes', arrowType: 'open', lineColor: 3, textColor: 1, precision: 5, scale: 3, prefix: 'R' });
+        for (const version of [2004, 2000]) {
+          const db = readDatabase(writeDwg(d, { dimensionEntities, hatchPatterns, version }));
+          const h = db.header;
+          const s = db.objects.get(h.DIMSTYLE);
+          expect(s.name).toBe('Cur');
+          const index = (c) => (c && typeof c === 'object' ? c.index : c);
+          const differ = [];
+          for (const k of Object.keys(s)) {
+            if (!k.startsWith('DIM') || !(k in h)) continue;
+            if (index(s[k]) !== index(h[k])) differ.push(`${k}: style ${index(s[k])}, header ${index(h[k])}`);
+          }
+          for (const [a, b] of [['DIMBLKH', 'DIMBLK'], ['DIMBLK1H', 'DIMBLK1'], ['DIMBLK2H', 'DIMBLK2']]) if (s[a] !== h[b]) differ.push(a);
+          expect(differ).toEqual([]);
+          expect(s.DIMTIH).toBe(textAlign === 'horizontal' ? 1 : 0);
+          expect(db.objects.get(h.DIMTXSTY).name).toBe('Notes');
+          expect(db.objects.get(h.DIMBLK).name).toBe('_Open');
+          expect(index(h.DIMCLRD)).toBe(3);
+        }
+      }
+    }
+  });
+
+  it('does not link the BLOCK and ENDBLK entities of DWG 2000 to their neighbours', () => {
+    // "no links" means the previous and next entities are the handles before and after
+    const db = readDatabase(writeDwg(everything(), { dimensionEntities, hatchPatterns, version: 2000 }), { check: true });
+    const ends = [...db.objects.values()].filter((o) => o.type === 'BLOCK' || o.type === 'ENDBLK');
+    expect(ends.length).toBeGreaterThan(4);
+    expect(ends.filter((o) => o.noLinks || o.prev || o.next || o.error).length).toBe(0);
+    // entities in a block still form a chain from the first to the last
+    const bolt = [...db.objects.values()].find((o) => o.type === 'BLOCK_HEADER' && o.name === 'Bolt');
+    expect(db.objects.get(bolt.firstEntity).next).toBe(bolt.lastEntity);
+    expect(db.objects.get(bolt.lastEntity).next).toBe(0);
+  });
+
+  it('lists the inserts of a block in its block record', () => {
+    const d = everything();
+    d.blocks.push({ name: 'Outer', bx: 0, by: 0, description: '', entities: [ent('insert', { id: 1, name: 'Bolt', x: 5, y: 5, sx: 1, sy: 1, rot: 0 })] });
+    d.entities.push(ent('insert', { id: 900, name: 'Bolt', x: 1, y: 1, sx: 1, sy: 1, rot: 0 }), ent('insert', { id: 901, name: 'Outer', x: 0, y: 0, sx: 1, sy: 1, rot: 0 }));
+    for (const version of [2004, 2000]) {
+      const db = readDatabase(writeDwg(d, { dimensionEntities, hatchPatterns, version }), { check: true });
+      const objs = [...db.objects.values()];
+      expect(objs.filter((o) => o.error).map((o) => o.type)).toEqual([]);
+      for (const bh of objs.filter((o) => o.type === 'BLOCK_HEADER')) {
+        const refs = objs.filter((o) => o.type === 'INSERT' && o.block === bh.handle).map((o) => o.handle);
+        expect([...bh.inserts].sort((a, b) => a - b)).toEqual(refs.sort((a, b) => a - b));
+      }
+      expect(objs.find((o) => o.type === 'BLOCK_HEADER' && o.name === 'Bolt').inserts.length).toBe(3);
+    }
+  });
+
   it('writes DWG 2000 on request, with colors as color numbers', () => {
     const d = everything();
     d.layers[1].color = '#ff8000';
@@ -275,6 +343,41 @@ describe('DWG writer', () => {
       const len = r.MS();
       const end = (r.pos >> 3) + len;
       expect(u8[end] | (u8[end + 1] << 8)).toBe(crc16(u8, loc, end, 0xc0c1));
+    }
+  });
+
+  it('cuts text that is longer than a DWG string can be, and says so', () => {
+    const mtext = (value) => ent('mtext', { x: 0, y: 0, h: 2, rot: 0, style: 'Standard', width: 0, attach: 'tl', lineSpacing: 1, value });
+    const d = everything();
+    // 16-bit lengths: 65534 bytes, and characters outside the codepage take 7 bytes each
+    d.entities = [mtext('x'.repeat(70000)), mtext('日'.repeat(10000)), mtext('y'.repeat(65534)), ent('line', { x1: 0, y1: 0, x2: 1, y2: 1 })];
+    for (const version of [2004, 2000]) {
+      const warnings = [];
+      const bytes = writeDwg(d, { dimensionEntities, hatchPatterns, warnings, version });
+      expect(warnings).toEqual(['Text longer than a DWG file can hold was cut off.']);
+      const db = readDatabase(bytes, { check: true });
+      expect([...db.objects.values()].filter((o) => o.error).map((o) => o.type)).toEqual([]);
+      const back = parseDwg(bytes).drawing.entities;
+      expect(back.map((e) => e.type)).toEqual(['mtext', 'mtext', 'mtext', 'line']);
+      expect(back[0].value).toBe('x'.repeat(65534));
+      expect(back[1].value).toBe('日'.repeat(9362));
+      expect(back[2].value).toBe('y'.repeat(65534));
+    }
+  });
+
+  it('keeps layer descriptions in any script, up to the 255 bytes extended data allows', () => {
+    const d = everything();
+    d.layers.push({ ...defaultLayer('A'), description: 'Preis € – “x” 日本' }, { ...defaultLayer('B'), description: 'd'.repeat(300) }, { ...defaultLayer('C'), description: 'after' });
+    for (const version of [2004, 2000]) {
+      const warnings = [];
+      const bytes = writeDwg(d, { dimensionEntities, hatchPatterns, warnings, version });
+      expect(warnings).toEqual(['Text longer than a DWG file can hold was cut off.']);
+      const db = readDatabase(bytes, { check: true });
+      expect([...db.objects.values()].filter((o) => o.error || (o.left && o.left.data > 7)).map((o) => o.type)).toEqual([]);
+      const layers = parseDwg(bytes).drawing.layers;
+      expect(layers.find((l) => l.name === 'A').description).toBe('Preis € – “x” 日本');
+      expect(layers.find((l) => l.name === 'B').description).toBe('d'.repeat(255));
+      expect(layers.find((l) => l.name === 'C').description).toBe('after');
     }
   });
 

@@ -3,14 +3,18 @@
  * with variants (the last used variant becomes the default), property
  * combos, toggles, panel overflow menus and a collapsible mode.
  */
-import { h, clear } from './dom.js';
+import { h, clear, MOD } from './dom.js';
 import { icon } from './icons.js';
 import { showMenu } from './menu.js';
 import { RIBBON } from './ribbon-def.js';
 import { buildCombo } from './combos.js';
 import { roving } from './roving.js';
+import { focusVisible } from './focus.js';
 
-const SHORTCUTS = { UNDO: 'Ctrl+Z', REDO: 'Ctrl+Y', COPYCLIP: 'Ctrl+C', CUTCLIP: 'Ctrl+X', PASTECLIP: 'Ctrl+V', SELECTALL: 'Ctrl+A', PROPERTIES: 'Ctrl+1', SAVE: 'Ctrl+S', OPEN: 'Ctrl+O', NEW: 'Ctrl+N', PLOT: 'Ctrl+P', COPYBASE: 'Ctrl+Shift+C' };
+// Named as in the menus and the shortcut list: Cmd on a Mac, Ctrl elsewhere.
+const SHORTCUTS = Object.fromEntries(
+  Object.entries({ UNDO: 'Z', REDO: 'Y', COPYCLIP: 'C', CUTCLIP: 'X', PASTECLIP: 'V', SELECTALL: 'A', PROPERTIES: '1', SAVE: 'S', OPEN: 'O', NEW: 'N', PLOT: 'P', COPYBASE: 'Shift+C' }).map(([name, key]) => [name, `${MOD}+${key}`]),
+);
 
 export function commandTip(def, label) {
   const alias = def.aliases?.find((a) => a.length <= 4);
@@ -43,6 +47,16 @@ export class Ribbon {
     this.renderTabs();
     this.renderBody();
     new ResizeObserver(() => this.fit()).observe(this.body);
+    // A short window (a phone held sideways) has no room for the panels next to
+    // a drawing: there the ribbon is minimized and opens from its tabs, until
+    // the window is tall again or the user expands it.
+    const short = window.matchMedia?.('(max-height: 480px) and (min-width: 600px)');
+    const fitHeight = () => {
+      if (short.matches && !this.collapsed) this.setCollapsed(true, true);
+      else if (!short.matches && this.collapsed && this.autoCollapsed) this.setCollapsed(false);
+    };
+    short?.addEventListener?.('change', fitHeight);
+    if (short) fitHeight();
     // A flyout from the minimized ribbon closes when you click elsewhere.
     document.addEventListener('pointerdown', (e) => {
       if (this.flyoutOpen && !this.el.contains(e.target) && !e.target.closest?.('.menu')) this.closeFlyout();
@@ -77,6 +91,11 @@ export class Ribbon {
   }
 
   renderTabs() {
+    // Re-rendering removes the focused tab: keyboard focus goes to its
+    // replacement. Not after a mouse click, so that keys then go to the
+    // drawing as before (Enter repeats the last command).
+    const focused = document.activeElement;
+    const refocus = this.tablist.contains(focused) && focusVisible(focused) ? focused.id : null;
     clear(this.tablist);
     for (const t of this.tabs) {
       const selected = t.id === this.active;
@@ -120,6 +139,7 @@ export class Ribbon {
       });
       this.tablist.append(btn);
     }
+    if (refocus) [...this.tablist.children].find((b) => b.id === refocus)?.focus();
   }
 
   select(id) {
@@ -128,8 +148,9 @@ export class Ribbon {
     this.renderBody();
   }
 
-  setCollapsed(c) {
+  setCollapsed(c, auto = false) {
     this.collapsed = c;
+    this.autoCollapsed = c && auto;
     this.el.classList.toggle('collapsed', c);
     this.el.classList.remove('flyout-open');
     this.collapseBtn.setAttribute('aria-expanded', String(!c));
@@ -286,7 +307,8 @@ export class Ribbon {
   current(it) {
     if (!it.variants) return { cmd: it.cmd, args: it.args, icon: it.icon, label: it.label };
     const key = `${it.cmd}`;
-    const idx = Math.min(this.choice[key] ?? 0, it.variants.length - 1);
+    const saved = this.choice[key];
+    const idx = Number.isInteger(saved) && saved >= 0 ? Math.min(saved, it.variants.length - 1) : 0;
     const v = it.variants[idx];
     return { cmd: v.cmd || it.cmd, args: v.args, icon: v.icon, label: it.label, vlabel: v.label };
   }
@@ -413,7 +435,8 @@ export class Ribbon {
 
 function loadChoices() {
   try {
-    return JSON.parse(localStorage.getItem('cad.ribbonChoices') || '{}');
+    const saved = JSON.parse(localStorage.getItem('cad.ribbonChoices') || '{}');
+    return saved && typeof saved === 'object' ? saved : {};
   } catch {
     return {};
   }

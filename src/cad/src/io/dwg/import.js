@@ -45,7 +45,11 @@ export function caretText(s) {
   }
   return out;
 }
-const n = (x) => String(+x || 0);
+/** A number as DXF text; damaged values that are not finite numbers become 0. */
+const n = (x) => {
+  x = +x;
+  return x && x - x === 0 ? String(x) : '0';
+};
 
 /** One record: type and parallel code / value arrays. */
 class Rec {
@@ -264,8 +268,42 @@ class Converter {
 
   /** Entities of a block header in drawing order. */
   blockEntities(bh) {
-    if (this.ver >= R2004) return (bh.owned || []).map((h) => this.get(h)).filter((o) => o && o.entity);
-    return this.chain(bh.firstEntity, bh.lastEntity, (o) => o.owner === bh.handle || o.entmode !== 0, bh);
+    let list;
+    if (this.ver >= R2004) list = (bh.owned || []).map((h) => this.get(h)).filter((o) => o && o.entity);
+    else list = this.chain(bh.firstEntity, bh.lastEntity, (o) => o.owner === bh.handle || o.entmode !== 0, bh);
+    // Every entity also records its owner. A damaged block record lists fewer
+    // than that: add the rest, in the order they were created.
+    const all = this.ownedBy(bh.handle);
+    if (all.length > list.length) {
+      const have = new Set(list);
+      for (const o of all) if (!have.has(o)) list.push(o);
+      this.recovered = true;
+    }
+    return list;
+  }
+
+  /** The entities that name a block as their owner, in handle order. */
+  ownedBy(handle) {
+    if (!this.byOwner) {
+      this.byOwner = new Map();
+      const ms = this.modelSpace();
+      const ps = this.h.BLOCK_PAPER_SPACE;
+      for (const o of this.objs.values()) {
+        if (!o.entity || SUB_ENTITIES.has(o.type)) continue;
+        const k = o.entmode === 2 ? ms : o.entmode === 1 ? ps : o.owner;
+        const l = this.byOwner.get(k);
+        if (l) l.push(o);
+        else this.byOwner.set(k, [o]);
+      }
+    }
+    return this.byOwner.get(handle) || [];
+  }
+
+  /** Handle of the model space block record. */
+  modelSpace() {
+    if (this.get(this.h.BLOCK_MODEL_SPACE)) return this.h.BLOCK_MODEL_SPACE;
+    const bh = this.all('BLOCK_HEADER').find((b) => (b.name || '').toLowerCase() === '*model_space');
+    return bh ? bh.handle : this.h.BLOCK_MODEL_SPACE;
   }
 
   /**
@@ -338,8 +376,14 @@ class Converter {
 
   entities() {
     this.sec('ENTITIES');
-    const ms = this.get(this.h.BLOCK_MODEL_SPACE) || this.all('BLOCK_HEADER').find((b) => (b.name || '').toLowerCase() === '*model_space');
-    if (ms) for (const e of this.blockEntities(ms)) this.entity(e);
+    const ms = this.get(this.modelSpace());
+    if (ms && ms.type === 'BLOCK_HEADER') for (const e of this.blockEntities(ms)) this.entity(e);
+    else {
+      // the block record itself is unreadable
+      const all = this.ownedBy(this.modelSpace());
+      if (all.length) this.recovered = true;
+      for (const e of all) this.entity(e);
+    }
     this.endsec();
   }
 
@@ -790,6 +834,7 @@ export function parseDwg(input, opts = {}) {
   const records = conv.run();
   const res = parseRecords(records, opts);
   const warnings = [...db.warnings];
+  if (conv.recovered) warnings.push('A damaged list of objects was rebuilt; the draw order of those objects may have changed.');
   for (const [type, count] of conv.skipped) warnings.push(`${count} ${type} entit${count === 1 ? 'y' : 'ies'} could not be read and ${count === 1 ? 'was' : 'were'} skipped.`);
   warnings.push(...res.warnings);
   return { ...res, warnings, version: db.version, release: RELEASE[db.version] || db.version };

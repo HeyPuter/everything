@@ -109,6 +109,21 @@ export function encode1252(s) {
   return out;
 }
 
+/**
+ * Cut encode1252() bytes to at most `max`, without leaving half of a
+ * \U+XXXX escape (or a lone backslash) at the end.
+ */
+export function cut1252(b, max) {
+  if (b.length <= max) return b;
+  b.length = max;
+  for (let i = max - 1; i >= 0 && i > max - 7; i--) {
+    if (b[i] !== 0x5c) continue;
+    if (i === max - 1 || b[i + 1] === 0x55) b.length = i;
+    break;
+  }
+  return b;
+}
+
 /* ------------------------------------------------------------------ */
 /* Reader                                                              */
 /* ------------------------------------------------------------------ */
@@ -496,6 +511,8 @@ export class BitWriter {
     this.ver = ver;
     this.u8 = new Uint8Array(size);
     this.pos = 0;
+    /** Set when a string had to be cut to the longest the format can hold. */
+    this.truncated = false;
   }
 
   ensure(bits) {
@@ -728,6 +745,11 @@ export class BitWriter {
     if (!b.length) {
       this.BS(0);
       return;
+    }
+    // the length is a 16-bit count that includes the terminator
+    if (b.length > 0xfffe) {
+      cut1252(b, 0xfffe);
+      this.truncated = true;
     }
     this.BS(b.length + 1);
     this.rawBytes(b);

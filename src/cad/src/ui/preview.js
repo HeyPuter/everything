@@ -59,6 +59,8 @@ export function drawPreview(canvas, drawing, entities, { fg = '#888', bounds = n
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   const ctx = canvas.getContext('2d');
+  // The browser can refuse a context; a blank thumbnail beats an exception per block.
+  if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   let b = bounds;

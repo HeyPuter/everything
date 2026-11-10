@@ -4,6 +4,8 @@
  */
 export const NATIVE_EXT = '.cad';
 export const FORMAT = 'cad-drawing';
+/** The file version this app writes (see Drawing.toJSON); a higher one comes from a newer app. */
+export const VERSION = 1;
 
 export async function encodeDrawing(drawing) {
   const json = JSON.stringify({ format: FORMAT, ...drawing.toJSON() });

@@ -73,4 +73,24 @@ describe('command line', () => {
     key('ArrowUp');
     expect(cl.input.value).toBe('CIRCLE');
   });
+
+  it('finishes the text being typed in place when Enter is given here', () => {
+    // Enter of the command line and of the phone command bar while the in-place
+    // text box is open: the box holds the value, so it finishes as its Done does.
+    const { cl, key, submitted } = setup();
+    let finished = 0;
+    cl.app.editor.request = { kind: 'text' };
+    cl.app.textEditor = { current: { finish: () => finished++ } };
+    cl.enterBtn.click();
+    key('Enter');
+    expect(finished).toBe(2);
+    // Space does not stand for Enter while text is typed.
+    key(' ');
+    expect(finished).toBe(2);
+    // Something typed here is no bare Enter: it goes the usual way.
+    cl.input.value = 'note';
+    key('Enter');
+    expect(finished).toBe(2);
+    expect(submitted).toEqual(['note']);
+  });
 });

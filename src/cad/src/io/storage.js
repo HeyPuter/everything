@@ -50,6 +50,8 @@ export async function cloudWrite(path, blob, overwrite = true) {
 /** True when a write failed because the file already exists. */
 export function isExistsError(err) {
   const s = `${err?.code ?? ''} ${err?.error?.code ?? ''} ${err?.message ?? ''}`;
+  // "..._does_not_exist" (a missing folder or source) is the opposite failure
+  if (/does[_ ]?not[_ ]?exist/i.test(s)) return false;
   return /exist|already|conflict/i.test(s);
 }
 
@@ -181,6 +183,7 @@ export function download(blob, name) {
 
 const DB_NAME = 'cad';
 const DB_VERSION = 1;
+const DB_OPEN_MS = 5000;
 let dbPromise = null;
 
 /**
@@ -192,6 +195,12 @@ function db() {
   const p = new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('No IndexedDB'));
     const req = indexedDB.open(DB_NAME, DB_VERSION);
+    // Some browsers at times never answer an open; the app must not wait on it forever.
+    let late = false;
+    const timer = setTimeout(() => {
+      late = true;
+      reject(new Error('IndexedDB did not open'));
+    }, DB_OPEN_MS);
     req.onupgradeneeded = () => {
       const d = req.result;
       if (!d.objectStoreNames.contains('docs')) d.createObjectStore('docs', { keyPath: 'id' });
@@ -199,6 +208,8 @@ function db() {
     };
     req.onsuccess = () => {
       const d = req.result;
+      clearTimeout(timer);
+      if (late) return d.close();
       d.onclose = () => forgetDb(p);
       d.onversionchange = () => {
         d.close();
@@ -206,7 +217,10 @@ function db() {
       };
       resolve(d);
     };
-    req.onerror = () => reject(req.error);
+    req.onerror = () => {
+      clearTimeout(timer);
+      reject(req.error);
+    };
   });
   dbPromise = p;
   p.catch(() => forgetDb(p));
@@ -263,11 +277,12 @@ export const recovery = {
       /* ignore */
     }
   },
+  /** Every stored record, or null when they cannot be read (which is not the same as none). */
   async all() {
     try {
       return (await tx('docs', 'readonly', (s) => s.getAll())) || [];
     } catch {
-      return [];
+      return null;
     }
   },
   async setSession(value) {
@@ -277,6 +292,7 @@ export const recovery = {
       /* ignore */
     }
   },
+  /** The stored session, undefined when there is none, or null when it cannot be read. */
   async getSession() {
     try {
       return await tx('meta', 'readonly', (s) => s.get('session'));
@@ -310,9 +326,12 @@ export function acquireSessionLock() {
 
 const RECENT_KEY = 'cad.recent';
 
+/** The stored list, without anything that is not a file entry (another version or a damaged value). */
 export function recentFiles() {
   try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    if (!Array.isArray(list)) return [];
+    return list.filter((r) => r && typeof r.name === 'string' && typeof r.path === 'string');
   } catch {
     return [];
   }

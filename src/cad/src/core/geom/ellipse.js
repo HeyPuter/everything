@@ -102,6 +102,21 @@ export function ellipseClosestParamFull(e, x, y) {
       }
       px = (a2 * u) / (t + a2);
       py = (b2 * v) / (t + b2);
+      if (!(t + b2 > 1e-4 * b2)) {
+        // A hair off the major axis the root sits on the pole at -b^2 and py
+        // is noise (or 0 / 0): take the point of the ellipse above px unless
+        // the computed one is closer.
+        const pc = Math.min(1, px / a);
+        const qx = a * pc,
+          qy = b * Math.sqrt(1 - pc * pc);
+        const n = Math.hypot(px / a, py / b);
+        const rx = px / n,
+          ry = py / n;
+        if (!((rx - u) ** 2 + (ry - v) ** 2 <= (qx - u) ** 2 + (qy - v) ** 2)) {
+          px = qx;
+          py = qy;
+        }
+      }
     } else {
       px = 0;
       py = b;

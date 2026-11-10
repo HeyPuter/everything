@@ -5,6 +5,9 @@ import { handleMessage } from '../src/io/dxf/worker.js';
 import { defaultHeader, defaultLayer } from '../src/core/schema.js';
 import { defaultTextStyle, defaultDimStyle } from '../src/core/styles.js';
 import { splineFromFitPoints } from '../src/core/geom/index.js';
+import { Drawing } from '../src/core/drawing.js';
+import { exportPayload } from '../src/io/dxf-client.js';
+import { PATTERNS } from '../src/core/hatch/patterns.js';
 
 const TAU = Math.PI * 2;
 
@@ -499,5 +502,68 @@ describe('round trip of non-ASCII table names', () => {
     expect(dim.style).toBe('Maß');
     expect(back.layers.find((l) => l.name === 'Wände').linetype).toBe('Strichlinie_ä');
     expect(back.header).toMatchObject({ clayer: 'Wände', textStyle: 'Schrift_ö', dimStyle: 'Maß', cltype: 'Strichlinie_ä' });
+  });
+});
+
+describe('round trip of radius and diameter dimensions', () => {
+  it('keeps the dimension location when written with the app\'s own dimension geometry', () => {
+    const dims = [
+      ent('dimension', { ...dimBase, id: 1, dimType: 'radius', x2: 3, y2: 4, lx: 6, ly: 8 }),
+      ent('dimension', { ...dimBase, id: 2, dimType: 'diameter', x2: 3, y2: 4, lx: 6, ly: 8 }),
+      // text inside the circle: it is lifted off the dimension line
+      ent('dimension', { ...dimBase, id: 3, dimType: 'radius', x2: 3, y2: 4, lx: 1, ly: 1.5 }),
+    ];
+    let data = { ...sampleDrawing(), blocks: [], entities: dims };
+    // saving and opening again, twice, must not move anything
+    for (let pass = 0; pass < 2; pass++) {
+      const { drawing, opts } = exportPayload(new Drawing(data));
+      data = parseDxf(writeDxf(drawing, opts)).drawing;
+      data.entities.forEach((e, i) => {
+        expect(e).toMatchObject({ dimType: dims[i].dimType, x1: 0, y1: 0, x2: 3, y2: 4 });
+        expect(e.lx).toBeCloseTo(dims[i].lx, 9);
+        expect(e.ly).toBeCloseTo(dims[i].ly, 9);
+      });
+    }
+  });
+});
+
+describe('round trip of hatch patterns', () => {
+  const loop = [0, 0, 0, 50, 0, 0, 50, 50, 0, 0, 50, 0];
+
+  it('reads every pattern of the app back as that pattern', () => {
+    const names = PATTERNS.map((p) => p.name).filter((n) => n !== 'SOLID');
+    const hatches = names.map((pattern, i) =>
+      ent('hatch', { id: i + 1, loops: [loop], pattern, scale: 2.5, angle: 0.7, ...(i % 2 ? { mirror: true } : {}) }),
+    );
+    const { drawing, opts } = exportPayload(new Drawing({ entities: hatches }));
+    const back = parseDxf(writeDxf(drawing, opts)).drawing.entities;
+    expect(back.map((e) => e.pattern)).toEqual(names);
+    expect(back.filter((e) => e.families)).toEqual([]);
+  });
+
+  it('keeps the lines of a file\'s pattern that only shares its name with one of the app\'s', () => {
+    // AutoCAD's STEEL at scale 10: two families of 45 degree lines, 1.25 apart
+    const o = 1.25 * Math.SQRT1_2;
+    const text = [
+      0, 'SECTION', 2, 'ENTITIES', 0, 'HATCH', 10, 0, 20, 0, 30, 0, 2, 'STEEL', 70, 0, 71, 0, 91, 1,
+      92, 3, 72, 0, 73, 1, 93, 4, 10, 0, 20, 0, 10, 50, 20, 0, 10, 50, 20, 50, 10, 0, 20, 50, 97, 0,
+      75, 0, 76, 1, 52, 0, 41, 10, 77, 0, 78, 2,
+      53, 45, 43, 0, 44, 0, 45, -o, 46, o, 79, 0,
+      53, 45, 43, 0, 44, 0.625, 45, -o, 46, o, 79, 0,
+      98, 0, 0, 'ENDSEC', 0, 'EOF',
+    ].join('\r\n');
+    const fams = [
+      { angle: 45, x: 0, y: 0, dx: 0, dy: 0.125, dashes: [] },
+      { angle: 45, x: 0, y: 0.0625, dx: 0, dy: 0.125, dashes: [] },
+    ];
+    let data = parseDxf(text).drawing;
+    for (let pass = 0; pass < 2; pass++) {
+      expect(data.entities[0]).toMatchObject({ pattern: 'STEEL_IMPORTED', scale: 10, families: fams });
+      // written under the name it came with, and with its own lines
+      const { drawing, opts } = exportPayload(new Drawing(data));
+      const out = writeDxf(drawing, opts);
+      expect(val(records(out).find((r) => r.type === 'HATCH'), 2)).toBe('STEEL');
+      data = parseDxf(out).drawing;
+    }
   });
 });

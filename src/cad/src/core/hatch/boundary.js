@@ -23,6 +23,22 @@ import { pointInRing, ringArea } from './fill.js';
  * islands clockwise), or null when the point is not enclosed.
  */
 export function findBoundary(px, py, curves, opts = {}) {
+  // Work relative to the pick point: the merge tolerance follows the size of
+  // the coordinates, and far from the origin it would swallow small shapes
+  // and close small gaps.
+  if ((px !== 0 || py !== 0) && Number.isFinite(px) && Number.isFinite(py)) {
+    const move = (pts, dx, dy) => {
+      const out = new Array(pts.length);
+      for (let i = 0; i + 1 < pts.length; i += 2) {
+        out[i] = pts[i] + dx;
+        out[i + 1] = pts[i + 1] + dy;
+      }
+      return out;
+    };
+    const near = (curves ?? []).map((c) => (c?.pts ? { pts: move(c.pts, -px, -py), closed: c.closed } : c));
+    const r = findBoundary(0, 0, near, opts);
+    return r && { outer: move(r.outer, px, py), islands: r.islands.map((i) => move(i, px, py)) };
+  }
   const segs = [];
   let x0 = Infinity,
     y0 = Infinity,
@@ -218,7 +234,8 @@ function buildGraph(segs, tol) {
     }
   }
 
-  // Vertex merging on a hash grid.
+  // Vertex merging on a hash grid: columns by cell x, each a map by cell y
+  // (numeric keys: building a string key per probe dominated big drawings).
   const xs = [],
     ys = [];
   const cell = tol * 2;
@@ -227,8 +244,10 @@ function buildGraph(segs, tol) {
     const gx = Math.floor(x / cell),
       gy = Math.floor(y / cell);
     for (let a = gx - 1; a <= gx + 1; a++) {
+      const col = grid.get(a);
+      if (!col) continue;
       for (let b = gy - 1; b <= gy + 1; b++) {
-        const list = grid.get(a + ',' + b);
+        const list = col.get(b);
         if (!list) continue;
         for (const v of list) if (Math.abs(xs[v] - x) <= tol && Math.abs(ys[v] - y) <= tol) return v;
       }
@@ -236,10 +255,11 @@ function buildGraph(segs, tol) {
     const v = xs.length;
     xs.push(x);
     ys.push(y);
-    const key = gx + ',' + gy;
-    const list = grid.get(key);
+    let col = grid.get(gx);
+    if (!col) grid.set(gx, (col = new Map()));
+    const list = col.get(gy);
     if (list) list.push(v);
-    else grid.set(key, [v]);
+    else col.set(gy, [v]);
     return v;
   };
 
@@ -248,7 +268,8 @@ function buildGraph(segs, tol) {
   const seen = new Set();
   const addEdge = (a, b) => {
     if (a === b) return;
-    const key = a < b ? a + ',' + b : b + ',' + a;
+    // Vertex ids stay far below 2^26, so the pair packs into one exact number.
+    const key = a < b ? a * 67108864 + b : b * 67108864 + a;
     if (seen.has(key)) return;
     seen.add(key);
     ea.push(a);

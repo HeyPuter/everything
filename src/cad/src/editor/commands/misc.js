@@ -203,7 +203,7 @@ export const BLOCK = {
   label: 'Create block',
   icon: 'block-create',
   async run(ed) {
-    const ids = await ed.getSelection('Select objects for the block');
+    const ids = ed.inDrawOrder(await ed.getSelection('Select objects for the block'));
     if (!ids.length) return;
     let name;
     for (;;) {
@@ -483,7 +483,7 @@ export const COPYCLIP = {
   icon: 'copy-clip',
   noRepeat: true,
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     const b = boundsOf(ed, ids);
     await copyToClipboard(ed, ids, b ? { x: b[0], y: b[1] } : { x: 0, y: 0 });
@@ -497,10 +497,14 @@ export const CUTCLIP = {
   icon: 'cut',
   noRepeat: true,
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     const b = boundsOf(ed, ids);
+    const doc = ed.doc;
     await copyToClipboard(ed, ids, b ? { x: b[0], y: b[1] } : { x: 0, y: 0 });
+    // The system clipboard can take a while: after a switch to another
+    // drawing the ids would name that drawing's objects.
+    if (ed.doc !== doc) return;
     ed.commit('Cut', () => ids.forEach((id) => ed.drawing.remove(id)));
     ed.clearSelection();
   },
@@ -512,7 +516,7 @@ export const COPYBASE = {
   icon: 'copy-base',
   noRepeat: true,
   async run(ed) {
-    const ids = await ed.getSelection();
+    const ids = ed.inDrawOrder(await ed.getSelection());
     if (!ids.length) return;
     ed.renderer.setSelection(new Set(ids));
     const base = await ed.getPoint('Base point');
@@ -576,7 +580,9 @@ export const PASTECLIP = {
     }
     const base = data.base || { x: 0, y: 0 };
     const at = (p) => data.entities.map((e) => transformEntity(e, M.translate(p.x - base.x, p.y - base.y)));
-    const p = await ed.getPoint('Insertion point', { preview: (c) => at(c) });
+    // The preview is the copied objects drawn moved, not a moved copy of each per mouse move.
+    const moved = { entities: data.entities, matrix: (c) => M.translate(c.x - base.x, c.y - base.y) };
+    const p = await ed.getPoint('Insertion point', { moved });
     if (!p || p.option) return;
     const d = ed.drawing;
     const fix = sameNames(d, data);

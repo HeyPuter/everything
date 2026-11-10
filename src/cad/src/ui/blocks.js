@@ -8,6 +8,7 @@ import { drawPreview } from './preview.js';
 import { openDialog, promptDialog, confirmDialog } from './dialog.js';
 import { showMenu } from './menu.js';
 import { tableKey } from '../core/schema.js';
+import { keepScroll } from './focus.js';
 
 export class BlockLibrary {
   constructor(app) {
@@ -41,9 +42,30 @@ export class BlockLibrary {
     if (!this.app.doc) return;
     const d = this.app.doc.drawing;
     const names = this.names().filter((n) => !this.query || n.toLowerCase().includes(this.query));
+    // The dock scrolls the palette; emptying the list would send it back to the top.
+    const restoreScroll = keepScroll(this.el.parentElement);
+    // Rebuilding the list takes the focused button with it (after Delete or
+    // Rename from an item's menu, or any change to the drawing's tables).
+    const active = this.grid.contains(document.activeElement) ? document.activeElement : null;
+    const index = active ? [...this.grid.children].indexOf(active.closest('li')) : -1;
     clear(this.grid);
     this.empty.hidden = this.names().length > 0;
     const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
+    // A drawing can have hundreds of blocks, and the list is rebuilt after every
+    // change to a table: only the thumbnails scrolled into view are drawn.
+    this._thumbs?.disconnect();
+    const draws = new WeakMap();
+    const inView =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries, io) => {
+            for (const en of entries) {
+              if (!en.isIntersecting) continue;
+              io.unobserve(en.target);
+              draws.get(en.target)?.();
+            }
+          });
+    this._thumbs = inView;
     for (const name of names) {
       const b = d.blocks.get(name);
       const canvas = h('canvas.bl-thumb', { width: 120, height: 84, 'aria-hidden': 'true' });
@@ -51,7 +73,7 @@ export class BlockLibrary {
         'li.bl-item',
         h(
           'button.bl-btn',
-          { type: 'button', 'aria-label': `Insert ${name}`, onClick: () => this.app.run('INSERT', { name }) },
+          { type: 'button', 'aria-label': `Insert ${name}`, 'data-key': `insert:${name}`, onClick: () => this.app.run('INSERT', { name }) },
           canvas,
           h('span.bl-name', name),
         ),
@@ -61,6 +83,7 @@ export class BlockLibrary {
             type: 'button',
             'aria-label': `More actions for ${name}`,
             'aria-haspopup': 'menu',
+            'data-key': `more:${name}`,
             onClick: (e) =>
               showMenu(e.currentTarget, [
                 { label: 'Insert', icon: 'block-insert', action: () => this.app.run('INSERT', { name }) },
@@ -72,7 +95,18 @@ export class BlockLibrary {
         ),
       );
       this.grid.append(item);
-      requestAnimationFrame(() => drawPreview(canvas, d, b.entities, { fg }));
+      const draw = () => drawPreview(canvas, d, b.entities, { fg });
+      if (inView) {
+        draws.set(canvas, draw);
+        inView.observe(canvas);
+      } else requestAnimationFrame(draw);
+    }
+    restoreScroll();
+    if (active) {
+      const same = [...this.grid.querySelectorAll('[data-key]')].find((el) => el.dataset.key === active.dataset.key);
+      // Its block is gone: the block now in its place, or the search box.
+      const li = this.grid.children[Math.min(index, this.grid.children.length - 1)];
+      (same ?? li?.querySelector('.bl-btn') ?? this.search).focus({ preventScroll: true });
     }
   }
 

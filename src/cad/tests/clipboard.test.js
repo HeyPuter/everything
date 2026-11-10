@@ -153,4 +153,38 @@ describe('clipboard', () => {
     expect(ins.layer).toBe('Holes');
     expect(ins.name).toBe('Bolt');
   });
+
+  it('previews a paste as the copied objects drawn moved, not as new copies per mouse move', async () => {
+    const { ed, type } = setup();
+    const a = doc();
+    a.drawing.transaction('Setup', () => {
+      a.drawing.add({ ...P, layer: '0', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+      a.drawing.add({ ...P, layer: '0', type: 'circle', cx: 5, cy: 5, r: 2 });
+    });
+    ed.attach(a);
+    ed.setSelection([...a.drawing.entities.keys()]);
+    await type('COPYCLIP');
+    const calls = [];
+    ed.renderer.setPreview = (list, m) => calls.push([list, m]);
+    await type('PASTECLIP');
+    for (const [x, y] of [[10, 20], [30, -5]]) {
+      const s = ed.camera.toScreen(x, y);
+      ed._updateCursor(s.x, s.y);
+    }
+    const moves = calls.filter(([, m]) => m);
+    expect(moves).toHaveLength(2);
+    expect(moves[0][0]).toBe(moves[1][0]);
+    expect(moves[0][0]).toHaveLength(2);
+    const base = ed.app.clipboard.base;
+    expect(moves[1][1]).toEqual([1, 0, 0, 1, 30 - base.x, -5 - base.y]);
+    // the paste itself lands where the preview showed it
+    const line = moves[0][0].find((e) => e.type === 'line');
+    await type('30,-5');
+    const pasted = [...a.drawing.entities.values()].filter((e) => e.type === 'line').at(-1);
+    expect(pasted.x1).toBeCloseTo(line.x1 + moves[1][1][4]);
+    expect(pasted.y1).toBeCloseTo(line.y1 + moves[1][1][5]);
+    // and the prompt's end clears the preview and its matrix
+    expect(calls.at(-1)[0]).toEqual([]);
+    expect(calls.at(-1)[1]).toBeUndefined();
+  });
 });

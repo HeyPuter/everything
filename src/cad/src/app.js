@@ -28,7 +28,7 @@ import { Renderer } from './render/renderer.js';
 import { Overlay } from './editor/overlay.js';
 import { Editor, DEFAULT_SETTINGS, CancelError } from './editor/editor.js';
 import { buildRegistry } from './editor/commands/index.js';
-import { encodeDrawing, decodeDrawing, fileKind, kindExt, baseName } from './io/native.js';
+import { encodeDrawing, decodeDrawing, fileKind, kindExt, baseName, VERSION as NATIVE_VERSION } from './io/native.js';
 import { importDxf, exportDxf, exportDwg } from './io/dxf-client.js';
 import * as storage from './io/storage.js';
 import * as platform from './platform.js';
@@ -64,7 +64,7 @@ export class App {
     this.docs = [];
     this.doc = null;
     this.commands = buildRegistry();
-    this.settings = { ...SETTING_DEFAULTS, ...loadJSON(SETTINGS_KEY, {}) };
+    this.settings = { ...SETTING_DEFAULTS, ...usableSettings(loadJSON(SETTINGS_KEY, {})) };
     this.themePref = loadTheme();
     this.clipboard = null;
     this.user = null;
@@ -124,6 +124,7 @@ export class App {
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.applyTheme());
     this.observeSize();
     this.bindKeys();
+    this.bindDrop();
     this.bindDock();
     this.renderPhonebar();
     this.applySettings();
@@ -443,10 +444,26 @@ export class App {
     );
   }
 
+  /**
+   * Write a recovery copy. Copies of one drawing are written one at a time:
+   * two at once could finish in either order and leave the older one stored.
+   * Asked again meanwhile, one more copy follows the one being written.
+   */
   autosave(doc) {
-    const p = this._autosave(doc);
+    if (doc._autosaveNext) return doc._autosaveNext;
+    let p;
+    if (doc._autosaveRun) {
+      p = doc._autosaveNext = doc._autosaveRun.then(() => {
+        doc._autosaveNext = null;
+        return this._autosave(doc);
+      });
+    } else p = this._autosave(doc);
+    doc._autosaveRun = p;
     this._autosaving.add(p);
-    p.finally(() => this._autosaving.delete(p));
+    p.finally(() => {
+      this._autosaving.delete(p);
+      if (doc._autosaveRun === p) doc._autosaveRun = null;
+    });
     return p;
   }
 
@@ -501,7 +518,7 @@ export class App {
     if (!this.ownsSession) return;
     clearTimeout(this._sessionTimer);
     this._sessionTimer = setTimeout(() => {
-      storage.recovery.setSession({ docs: this.docs.map((d) => d.id), active: this.doc?.id ?? null });
+      this.writeSession();
       // Make sure every open drawing has a recovery copy.
       for (const d of this.docs) if (!d._recorded) {
         d._recorded = true;
@@ -510,10 +527,30 @@ export class App {
     }, 300);
   }
 
+  async writeSession() {
+    if (this._sessionUnread) {
+      // The drawings of last time were not restored because they could not be
+      // read. Keep them listed, or the next start would delete their copies.
+      const last = await storage.recovery.getSession();
+      if (last === null) return;
+      this._sessionUnread = false;
+      this._sessionKept = Array.isArray(last?.docs) ? last.docs : [];
+    }
+    const docs = this.docs.map((d) => d.id);
+    const kept = (this._sessionKept || []).filter((id) => !docs.includes(id));
+    storage.recovery.setSession({ docs: [...kept, ...docs], active: this.doc?.id ?? null });
+  }
+
   async restoreSession() {
     const session = await storage.recovery.getSession();
+    const all = session === null ? null : session?.docs?.length ? await storage.recovery.all() : [];
+    if (all === null) {
+      this._sessionUnread = true;
+      // Without a session it is not known whether there were any (storage may just be off).
+      if (session) toast('The drawings of your last visit could not be read from this browser. They are kept: reload the page to try again.', { kind: 'error', timeout: 9000 });
+      return;
+    }
     if (!session || !session.docs?.length) return;
-    const all = await storage.recovery.all();
     const byId = new Map(all.map((r) => [r.id, r]));
     let active = null;
     const damaged = [];
@@ -591,8 +628,15 @@ export class App {
     try {
       let drawing;
       let dropped;
-      if (kind === 'native') drawing = new Drawing(await decodeDrawing(buffer));
-      else {
+      if (kind === 'native') {
+        const data = await decodeDrawing(buffer);
+        drawing = new Drawing(data);
+        if (data.version > NATIVE_VERSION) {
+          // What this version does not know is not kept: Save asks before replacing the file.
+          dropped = 'content from a newer version of the app';
+          this.cmdline.log(`${name} was saved with a newer version of the app. Parts of it may be missing here.`, 'muted');
+        }
+      } else {
         const res = await importDxf(buffer);
         drawing = new Drawing(res.drawing);
         const skipped = Object.entries(res.stats?.skipped || {});
@@ -876,6 +920,43 @@ export class App {
     }
   }
 
+  /**
+   * Files dropped on the window open as drawings. Left to the browser, a
+   * dropped file replaces the app with the file's own contents.
+   */
+  bindDrop() {
+    const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    window.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = document.querySelector('dialog[open]') ? 'none' : 'copy';
+    });
+    window.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      // Not behind a dialog that is waiting for an answer.
+      if (!document.querySelector('dialog[open]')) this.openDropped(e.dataTransfer);
+    });
+  }
+
+  async openDropped(transfer) {
+    // The files and their handles (which let Save write back to the file,
+    // where the browser has them) can only be taken while the drop is handled.
+    const items = [...(transfer.items || [])].filter((it) => it.kind === 'file');
+    const dropped = items.length
+      ? items.map((it) => ({ file: it.getAsFile(), handle: Promise.resolve(it.getAsFileSystemHandle?.()).catch(() => null) }))
+      : [...(transfer.files || [])].map((file) => ({ file, handle: null }));
+    for (const { file, handle } of dropped) {
+      if (!file) continue;
+      try {
+        const h = await handle;
+        await this.openBuffer(await file.arrayBuffer(), file.name, { source: 'device', handle: h?.kind === 'file' ? h : null, path: null });
+      } catch (err) {
+        this.fileError('open', err);
+      }
+    }
+  }
+
   /** Files opened from the Puter desktop (double click on a .cad, .dwg or .dxf). */
   async handleLaunchItems() {
     // Files opened with the installed app (manifest file_handlers).
@@ -1002,6 +1083,11 @@ export class App {
   }
 
   async signIn() {
+    // Offline, or the SDK is blocked or still loading: there is nothing to sign in with yet.
+    if (!platform.puterAvailable()) {
+      toast('Puter could not be reached, so signing in is not possible right now. Check your connection and try again.', { kind: 'error', timeout: 7000 });
+      return false;
+    }
     try {
       await platform.signIn();
       await this.afterSignIn();
@@ -1079,11 +1165,12 @@ export class App {
 
   async syncSettingsFromCloud() {
     try {
-      const saved = await puter.kv.get('settings');
-      if (saved && typeof saved === 'object') {
+      const record = await puter.kv.get('settings');
+      if (record && typeof record === 'object') {
+        const saved = usableSettings(record);
         // The record holds only non-default values, so a missing key means the default.
         for (const k of SYNCED_SETTINGS) this.settings[k] = k in saved ? saved[k] : structuredClone(SETTING_DEFAULTS[k]);
-        if (saved.theme) this.setTheme(saved.theme, false);
+        if (['system', 'light', 'dark'].includes(saved.theme)) this.setTheme(saved.theme, false);
         this.applySettings();
         saveJSON(SETTINGS_KEY, this.settings);
       }
@@ -1235,7 +1322,7 @@ export class App {
   toggleCleanScreen() {
     const on = !document.body.classList.contains('clean-screen');
     document.body.classList.toggle('clean-screen', on);
-    this.cmdline.log(on ? 'Clean screen on. Press Ctrl+0 to restore the interface.' : 'Clean screen off', 'muted');
+    this.cmdline.log(on ? `Clean screen on. Press ${MOD}+0 to restore the interface.` : 'Clean screen off', 'muted');
   }
 
   // Dock (palettes) ---------------------------------------------------------------------------
@@ -1279,8 +1366,10 @@ export class App {
       { id: 'layers', label: 'Layers', comp: this.layers },
       { id: 'blocks', label: 'Blocks', comp: this.blocks },
     ];
-    this.dockOpen = new Set(saved.open || []);
-    this.dockActive = saved.active || null;
+    // Only palettes this version has: a stored name it does not know would stop the app from starting.
+    const known = new Set(this.dockPanels.map((p) => p.id));
+    this.dockOpen = new Set((Array.isArray(saved.open) ? saved.open : []).filter((id) => known.has(id)));
+    this.dockActive = known.has(saved.active) ? saved.active : null;
   }
 
   /** Show a palette; focus: 'tab' keeps focus on its tab, true moves focus into the palette. */
@@ -1782,6 +1871,15 @@ export class App {
         '-': () => this.editor.zoomBy(1 / 1.6),
       };
       if (inCmd && (k === 'c' || k === 'x' || k === 'v' || k === 'a') && this.cmdline.value()) return;
+      // Text selected in the command history is copied as text, like anywhere else.
+      if (k === 'c' && !e.shiftKey && this.cmdline.textSelected()) return;
+      // At a prompt, Paste brings text from the clipboard (coordinates, a value)
+      // to the command line, where the browser then pastes it. Pasting objects
+      // would cancel the command that is asking.
+      if (k === 'v' && this.editor.busy) {
+        if (!inCmd) this.cmdline.input.focus({ preventScroll: true });
+        return;
+      }
       const fn = map[k];
       if (fn) {
         e.preventDefault();
@@ -1803,14 +1901,17 @@ export class App {
       else this.editor.cancel();
       return;
     }
+    // On a Mac keyboard the key labelled "delete" is Backspace (there is no forward Delete key).
+    const del = e.key === 'Delete' || (MOD === 'Cmd' && e.key === 'Backspace' && !this.cmdline.value());
     // Not from the palettes: Delete on a layer or block there must not erase objects out of sight.
-    if (e.key === 'Delete' && !this.editor.busy && this.doc?.selection.size && !t.closest?.('.dock')) {
+    if (del && !this.editor.busy && this.doc?.selection.size && !t.closest?.('.dock')) {
       e.preventDefault();
       this.run('ERASE');
       return;
     }
     const onCanvas = t === document.body || t === this.shell.overlay;
-    if ((e.key === 'Enter' || (e.key === ' ' && this.editor.spaceSubmits)) && onCanvas) {
+    const space = e.key === ' ' && this.editor.spaceSubmits && this.editor.request?.kind !== 'text';
+    if ((e.key === 'Enter' || space) && onCanvas) {
       e.preventDefault();
       this.cmdline.submit();
       return;
@@ -1843,6 +1944,23 @@ function loadJSON(key, def) {
   } catch {
     return def;
   }
+}
+
+/**
+ * Stored settings without the values the app cannot use: a setting kept by
+ * another version, or a damaged record, of another kind than its default
+ * (a number where the list of object snaps should be) breaks whatever reads it.
+ */
+function usableSettings(saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+  const out = { ...saved };
+  for (const [k, def] of Object.entries(SETTING_DEFAULTS)) {
+    const v = out[k];
+    if (v === undefined) continue;
+    const ok = Array.isArray(def) ? Array.isArray(v) : typeof v === typeof def && (typeof v !== 'number' || Number.isFinite(v));
+    if (!ok) delete out[k];
+  }
+  return out;
 }
 
 function saveJSON(key, value) {

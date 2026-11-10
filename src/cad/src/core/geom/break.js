@@ -3,6 +3,7 @@
  */
 import { paramModel } from './trim.js';
 import { closestOnPrims } from './nearest.js';
+import { shiftEntity, localOrigin } from './entity.js';
 
 function paramAt(model, x, y) {
   const c = closestOnPrims(model.prims, x, y);
@@ -23,6 +24,12 @@ function paramAt(model, x, y) {
  * ids), or null when the entity cannot be broken.
  */
 export function breakEntity(ent, x1, y1, x2, y2) {
+  // Relative to the object, where the tolerances do not grow with its coordinates.
+  const o = localOrigin(ent);
+  if (o) {
+    const r = breakEntity(shiftEntity(ent, -o.x, -o.y), x1 - o.x, y1 - o.y, x2 - o.x, y2 - o.y);
+    return r && r.map((e) => shiftEntity(e, o.x, o.y));
+  }
   const model = paramModel(ent);
   if (!model) return null;
   const u1 = paramAt(model, x1, y1),
@@ -56,6 +63,11 @@ export function breakEntity(ent, x1, y1, x2, y2) {
  * split (circles, full ellipses).
  */
 export function breakAtPoint(ent, x, y) {
+  const o = localOrigin(ent);
+  if (o) {
+    const r = breakAtPoint(shiftEntity(ent, -o.x, -o.y), x - o.x, y - o.y);
+    return r && r.map((e) => shiftEntity(e, o.x, o.y));
+  }
   const model = paramModel(ent);
   if (!model) return null;
   const u = paramAt(model, x, y);

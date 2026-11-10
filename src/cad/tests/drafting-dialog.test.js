@@ -32,4 +32,17 @@ describe('drafting settings', () => {
   it('takes positive spacings', async () => {
     expect(await setSpacing('2.5', '50')).toMatchObject({ snapSpacing: 2.5, gridSpacing: 50 });
   });
+  it('names the tab panel after the selected tab', async () => {
+    const settings = { osnapModes: [], snapSpacing: 10, gridSpacing: 20, polarInc: 90, pickbox: 5, aperture: 10 };
+    const p = draftingDialog({ settings, setSetting() {} });
+    const dlg = document.querySelector('dialog[open]');
+    const panel = dlg.querySelector('[role=tabpanel]');
+    const name = () => document.getElementById(panel.getAttribute('aria-labelledby'))?.textContent;
+    expect(name()).toBe('Object snap');
+    [...dlg.querySelectorAll('[role=tab]')][2].click();
+    expect(name()).toBe('Polar tracking');
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Cancel').click();
+    await p;
+    dlg.remove();
+  });
 });

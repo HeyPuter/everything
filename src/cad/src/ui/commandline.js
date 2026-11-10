@@ -67,6 +67,16 @@ export class CommandLine {
       this._suggest();
       this.app.editor?.drawOverlay();
     });
+    // Text picked in the history stays selected until the next press elsewhere
+    // (the canvas keeps the browser from clearing it), so Copy can tell text
+    // that is meant to be copied from a selection left behind.
+    document.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (!this.history.contains(e.target) && this.textSelected()) window.getSelection().removeAllRanges();
+      },
+      true,
+    );
     // Later, so a click on a suggestion still lands; not when typing has refocused the line.
     inp.addEventListener('blur', () =>
       setTimeout(() => document.activeElement !== inp && this._hideSuggest(), 120),
@@ -81,7 +91,7 @@ export class CommandLine {
       e.preventDefault();
       if (this.suggestIndex >= 0 && !this.suggestEl.hidden) return this._pick(this.suggestIndex);
       this.submit();
-    } else if (e.key === ' ' && ed.spaceSubmits) {
+    } else if (e.key === ' ' && ed.spaceSubmits && ed.request?.kind !== 'text') {
       e.preventDefault();
       if (this.suggestIndex >= 0 && !this.suggestEl.hidden) return this._pick(this.suggestIndex);
       this.submit();
@@ -118,6 +128,11 @@ export class CommandLine {
 
   submit() {
     const text = this.input.value;
+    // The in-place text box holds what is typed: Enter given here (the Enter
+    // button, the phone command bar, Enter on the drawing) finishes it as its
+    // Done button does.
+    const box = this.app.editor.request?.kind === 'text' ? this.app.textEditor?.current : null;
+    if (box && !text.trim()) return box.finish();
     this.input.value = '';
     this._hideSuggest();
     if (text.trim()) this._remember(text);
@@ -140,6 +155,12 @@ export class CommandLine {
 
   setValue(v) {
     this.input.value = v;
+  }
+
+  /** Whether text in the history is selected (for the browser's own Copy). */
+  textSelected() {
+    const sel = window.getSelection?.();
+    return !!sel && !sel.isCollapsed && this.history.contains(sel.anchorNode) && String(sel) !== '';
   }
 
   /** Show the active prompt, or the idle state when text is null. */

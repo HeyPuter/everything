@@ -66,7 +66,25 @@ describe('parseDxf: basic entities and common properties', () => {
     );
     expect(drawing.entities.length).toBe(1);
     expect(stats.entities).toBe(1);
-    expect(stats.skipped).toEqual({ '3DSOLID': 2, WIPEOUT: 1 });
+    // Invisible objects are reported like the kinds that cannot be read: saving
+    // over the file removes them, and the app asks before it does.
+    expect(stats.skipped).toEqual({ invisible: 1, '3DSOLID': 2, WIPEOUT: 1 });
+  });
+
+  it('counts invisible objects in blocks and invisible polylines once each', () => {
+    const { drawing, stats } = parseDxf(
+      dxf(
+        [
+          0, 'POLYLINE', 60, 1, 66, 1, 70, 0, 0, 'VERTEX', 10, 0, 20, 0, 0, 'VERTEX', 10, 5, 20, 0, 0, 'SEQEND',
+          0, 'INSERT', 2, 'B', 10, 0, 20, 0,
+          0, 'CIRCLE', 60, 0, 10, 0, 20, 0, 40, 1,
+        ],
+        { blocks: [0, 'BLOCK', 2, 'B', 10, 0, 20, 0, 0, 'LINE', 10, 0, 20, 0, 11, 1, 21, 1, 0, 'LINE', 60, 1, 10, 0, 20, 0, 11, 2, 21, 2, 0, 'ENDBLK'] },
+      ),
+    );
+    expect(drawing.entities.map((e) => e.type)).toEqual(['insert', 'circle']);
+    expect(drawing.blocks[0].entities).toHaveLength(1);
+    expect(stats.skipped).toEqual({ invisible: 2 });
   });
 
   it('reads CIRCLE, ARC (degrees to radians) and ELLIPSE', () => {
@@ -272,6 +290,8 @@ describe('parseDxf: text', () => {
     expect(stripMtext('{\\fArial|b1|i0;Hello}\\PWorld')).toBe('Hello\nWorld');
     expect(stripMtext('\\H2.5x;Big \\C1;red\\~x')).toBe('Big red\u00a0x');
     expect(stripMtext('\\S1^2; and \\S3#4;')).toBe('1/2 and 3/4');
+    // %% right before a formatting code or a closing brace does not swallow it
+    expect(stripMtext('50%%\\Pnext {\\fArial;100%%} %%c5 %%%')).toBe('50%%\nnext 100%% %%c5 %%%');
     expect(stripMtext('a\\\\b \\{c\\} \\U+00E9 \\Lunder\\l %%d')).toBe('a\\b {c} \u00e9 under %%d');
     // %% codes are drawn by the text and stay in the value, as AutoCAD keeps them
     expect(decodeText('25%%d %%c10 %%p0.1 %%% %%176')).toBe('25%%d %%c10 %%p0.1 %%% %%176');
@@ -744,6 +764,79 @@ describe('parseDxf: encodings and robustness', () => {
     expect(drawing.entities[0]).toMatchObject({ type: 'point', x: 1.5, y: 2.5 });
   });
 
+  it('reads dimension style colors outside the color index range as ByBlock', () => {
+    // LibreDWG writes raw color words such as -1056964608 here
+    const { drawing } = parseDxf(
+      dxf([], {
+        tables: [
+          0, 'TABLE', 2, 'DIMSTYLE',
+          0, 'DIMSTYLE', 2, 'RAW', 176, -1056964608, 178, 300,
+          0, 'DIMSTYLE', 2, 'OK', 176, 256, 178, 3,
+          0, 'ENDTAB',
+        ],
+      }),
+    );
+    const by = Object.fromEntries(drawing.dimStyles.map((d) => [d.name, [d.lineColor, d.textColor]]));
+    expect(by.RAW).toEqual([0, 0]);
+    expect(by.OK).toEqual([256, 3]);
+  });
+
+  it('shows dimensions of kinds the app does not have through their drawn block', () => {
+    const blk = (n) => [0, 'BLOCK', 2, n, 70, 1, 10, 0, 20, 0, 0, 'LINE', 8, '0', 62, 0, 10, 0, 20, 0, 11, 5, 21, 5, 0, 'ENDBLK'];
+    const { drawing, warnings, stats } = parseDxf(
+      dxf(
+        [
+          // arc length and jogged radius dimensions, and a linear one for comparison
+          0, 'ARC_DIMENSION', 8, 'Dims', 62, 3, 2, '*D1', 10, 5, 20, 5, 11, 5, 21, 6, 70, 37, 13, 0, 23, 0, 14, 5, 24, 5, 15, 0, 25, 5,
+          0, 'LARGE_RADIAL_DIMENSION', 8, 'Dims', 2, '*d2', 10, 5, 20, 5, 11, 5, 21, 6, 70, 36, 13, 0, 23, 0, 14, 5, 24, 5, 15, 0, 25, 5,
+          0, 'ARC_DIMENSION', 8, 'Dims', 2, '*D9', 10, 5, 20, 5, 70, 37,
+          0, 'DIMENSION', 2, '*D3', 10, 5, 20, 5, 11, 5, 21, 6, 70, 32, 13, 0, 23, 0, 14, 10, 24, 0,
+        ],
+        { blocks: [...blk('*D1'), ...blk('*D2'), ...blk('*D3')] },
+      ),
+    );
+    expect(drawing.entities.map((e) => e.type)).toEqual(['insert', 'insert', 'dimension']);
+    expect(drawing.entities[0]).toMatchObject({ name: '*D1', layer: 'Dims', color: 3, x: 0, y: 0, sx: 1, sy: 1, rot: 0 });
+    expect(drawing.entities[1].name).toBe('*D2');
+    // their blocks stay, the one of the dimension the app draws itself goes
+    expect(drawing.blocks.map((b) => b.name)).toEqual(['*D1', '*D2']);
+    expect(stats.skipped).toEqual({ ARC_DIMENSION: 1 });
+    expect(warnings).toEqual(['Dimensions of kinds that are not supported were imported as blocks. (2 times)']);
+  });
+
+  it('keeps a width that is given only on the vertices of a polyline', () => {
+    const { drawing, warnings } = parseDxf(
+      dxf([
+        // constant width 0 in the header, the real width on every vertex
+        0, 'LWPOLYLINE', 90, 2, 70, 0, 43, 0, 10, 0, 20, 0, 40, 2, 41, 2, 10, 5, 20, 0, 40, 2, 41, 2,
+        0, 'POLYLINE', 66, 1, 70, 0, 0, 'VERTEX', 10, 0, 20, 0, 40, 3, 41, 3, 0, 'VERTEX', 10, 5, 20, 0, 40, 3, 41, 3, 0, 'SEQEND',
+        0, 'POLYLINE', 66, 1, 70, 0, 40, 1, 41, 1, 0, 'VERTEX', 10, 0, 20, 0, 0, 'VERTEX', 10, 5, 20, 0, 0, 'SEQEND',
+        0, 'POLYLINE', 66, 1, 70, 0, 0, 'VERTEX', 10, 0, 20, 0, 40, 0, 41, 4, 0, 'VERTEX', 10, 5, 20, 0, 40, 4, 41, 0, 0, 'VERTEX', 10, 9, 20, 0, 0, 'SEQEND',
+      ]),
+    );
+    expect(drawing.entities.map((e) => e.width)).toEqual([2, 3, 1, 0]);
+    expect(warnings).toEqual(['Variable-width polylines imported with a constant width.']);
+  });
+
+  it('does not report text after EOF, such as a DOS end-of-file character, as damage', () => {
+    for (const tail of ['\x1a', '\x1a\r\n', '  \r\n\r\n', 'trailing junk\r\n']) {
+      const { drawing, warnings } = parseDxf(dxf([0, 'POINT', 10, 1, 20, 2]) + tail);
+      expect(drawing.entities).toHaveLength(1);
+      expect(warnings).toEqual([]);
+    }
+  });
+
+  it('reads overflowing and infinite numbers as 0, never as Infinity', () => {
+    const { drawing } = parseDxf(
+      dxf([0, 'LINE', 10, '1e400', 20, '-1e999', 11, 'Infinity', 21, 4, 0, 'CIRCLE', 10, 1, 20, 2, 40, '-Infinity', 0, 'POINT', 10, '1e308', 20, 5]),
+    );
+    const [line, point] = drawing.entities;
+    expect([line.x1, line.y1, line.x2, line.y2]).toEqual([0, 0, 0, 4]);
+    // the circle has no usable radius
+    expect(point).toMatchObject({ type: 'point', x: 1e308, y: 5 });
+    expect(JSON.stringify(drawing.entities)).not.toContain('null');
+  });
+
   it('parses a large file quickly', () => {
     const parts = ['  0\r\nSECTION\r\n  2\r\nENTITIES\r\n'];
     for (let i = 0; i < 100000; i++) {
@@ -777,5 +870,55 @@ describe('parseDxf: draw order', () => {
     const front = parseDxf(dxf(lines, { objects: sortents(331, 21, 5, '2F', 331, 22, 5, 30) })).drawing;
     expect(order(front)).toBe('3 4 5 1* 2*');
     expect(front.entities[3].orderGroup).not.toBe(front.entities[4].orderGroup);
+  });
+});
+
+describe('parseDxf: stray blank lines', () => {
+  const line = (x) => [0, 'LINE', 8, '0', 10, x, 20, 0, 11, x + 1, 21, 1];
+  const text = dxf([...line(1), ...line(5)]);
+  // put the stray line where the group code of the second LINE belongs
+  const cut = text.indexOf('  0\r\nLINE', 40);
+
+  for (const [what, stray] of [
+    ['an empty line', '\r\n'],
+    ['a line of spaces', '   \r\n'],
+    ['a line with a tab', '\t\r\n'],
+  ]) {
+    it(`reads on past ${what} between two groups`, () => {
+      const { drawing, warnings } = parseDxf(text.slice(0, cut) + stray + text.slice(cut));
+      expect(drawing.entities.map((e) => e.x1)).toEqual([1, 5]);
+      expect(warnings).toEqual([]);
+    });
+  }
+
+  it('still stops at a group code that is not a number', () => {
+    const { drawing, warnings } = parseDxf(text.slice(0, cut) + ' - \r\n' + text.slice(cut));
+    // the record that was being read may be incomplete, so it is not kept either
+    expect(drawing.entities).toEqual([]);
+    expect(warnings.join(' ')).toMatch(/Malformed group code/);
+  });
+});
+
+describe('parseDxf: multiline attributes', () => {
+  it('does not take the embedded MTEXT object of an R2018 ATTRIB for its own groups', () => {
+    // After group 101 the attribute carries an MTEXT object whose groups 10, 11,
+    // 40, 41, 72 and 1 mean other things: the direction vector, the width of the
+    // text box, the drawing direction and the formatted text.
+    const { drawing } = parseDxf(
+      dxf(
+        [
+          0, 'INSERT', 66, 1, 2, 'TAG', 10, 0, 20, 0,
+          0, 'ATTRIB', 100, 'AcDbEntity', 8, '0', 100, 'AcDbText', 10, 12, 20, 34, 30, 0, 40, 2.5, 1, 'Line one Line two',
+          41, 0.8, 7, 'Standard', 100, 'AcDbAttribute', 280, 0, 2, 'NOTE', 70, 0, 71, 2, 72, 0, 73, 0,
+          101, 'Embedded Object', 10, 12, 20, 36.5, 30, 0, 40, 3.5, 41, 60, 46, 0, 71, 1, 72, 5,
+          1, '{\\fArial|b0|i0;Line one\\PLine two}', 7, 'Standard', 11, 1, 21, 0, 31, 0, 73, 1, 44, 1,
+          0, 'SEQEND',
+        ],
+        { blocks: [0, 'BLOCK', 2, 'TAG', 10, 0, 20, 0, 0, 'ENDBLK'] },
+      ),
+    );
+    const t = drawing.entities[1];
+    expect(t).toMatchObject({ type: 'text', value: 'Line one Line two', x: 12, y: 34, h: 2.5, widthFactor: 0.8, halign: 'left', valign: 'baseline' });
+    expect(t.rot).toBe(0);
   });
 });

@@ -174,6 +174,7 @@ code {
   gap: 12px;
   text-align: left;
   width: 100%;
+  white-space: normal;
 }
 
 .btn.big span {

@@ -100,12 +100,17 @@
   .dock-resize {
     display: none;
   }
+  /* Overlaid on the canvas: in a narrow window the palette gives way first, so
+     that 340 px of drawing and a command line of usable width stay beside it. */
   .dock {
     position: absolute;
     right: 0;
     top: 0;
     bottom: 0;
-    width: min(380px, 92vw) !important;
+    width: min(380px, 92vw, max(260px, 100vw - 340px)) !important;
+  }
+  .dock.wide {
+    min-width: min(600px, 60vw, max(260px, 100vw - 340px));
   }
 }
 
@@ -234,6 +239,8 @@
 .lm-toolbar,
 .bl-toolbar {
   display: flex;
+  /* A narrow palette puts the search box on a second row. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   padding: 8px;
@@ -309,13 +316,24 @@
 }
 
 .lm-name {
+  display: block;
   width: 100%;
+  /* The column stays in place while the others scroll: a long name must not take their room. */
+  max-width: min(240px, 45vw);
   height: 26px;
   border: 0;
   background: transparent;
   text-align: left;
   padding: 0 4px;
   border-radius: var(--r-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-c-name .input {
+  width: 100%;
+  max-width: min(240px, 45vw);
 }
 
 .lm-c-color .input {
@@ -698,6 +716,13 @@
 
 body > .alpha-notice {
   position: fixed;
+}
+
+/* A palette overlaid on the canvas leaves the notice uncovered, and the notice leaves it usable. */
+@media (min-width: 600px) and (max-width: 1023px) {
+  .workspace.dock-open .alpha-notice {
+    width: min(380px, calc(100% - var(--dock-w, 0px) - 32px));
+  }
 }
 
 @media (max-width: 599px) {

@@ -190,8 +190,21 @@ export function decompress2007(src, start, srcLen, outSize) {
 /* Pages                                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The most a section of a file of `fileSize` bytes can hold once it is
+ * decompressed. Sizes read from a damaged file are checked against it before
+ * memory is allocated for them.
+ */
+export function maxSectionSize(fileSize) {
+  return fileSize * 1024 + 0x100000;
+}
+
+const DAMAGED = 'Damaged DWG 2007 file: a page size is not valid.';
+
 export function systemPage(u8, addr, compSize, uncompSize, factor) {
-  const pesize = ((compSize + 7) & ~7) * factor;
+  if (!(compSize >= 0 && uncompSize >= 0 && factor >= 0 && addr >= 0)) throw new Error(DAMAGED);
+  const pesize = Math.ceil(compSize / 8) * 8 * factor;
+  if (pesize > u8.length || uncompSize > maxSectionSize(u8.length)) throw new Error(DAMAGED);
   const blocks = Math.ceil(pesize / SYS_BYTES);
   const data = deinterleave(u8, addr, blocks, SYS_BYTES);
   if (compSize < uncompSize) return decompress2007(data, 0, compSize, uncompSize);
@@ -242,6 +255,8 @@ export function readR2007(u8) {
     const encoded = u64(sm, p + 48);
     const numPages = u64(sm, p + 56);
     p += 64;
+    // a damaged map: stop before its sizes are used as loop bounds
+    if (!(nameLen >= 0 && nameLen <= sm.length - p)) break;
     let name = '';
     for (let k = 0; k + 1 < nameLen; k += 2) {
       const c = sm[p + k] | (sm[p + k + 1] << 8);
@@ -267,7 +282,11 @@ export function readR2007(u8) {
     const s = sections[name];
     if (!s || s.encrypted === 1) return null;
     let total = s.dataSize;
-    for (const pg of s.pages) total = Math.max(total, pg.offset + pg.uncomp);
+    for (const pg of s.pages) {
+      if (!(pg.offset >= 0 && pg.uncomp >= 0 && pg.comp >= 0 && pg.comp <= u8.length)) throw new Error(DAMAGED);
+      total = Math.max(total, pg.offset + pg.uncomp);
+    }
+    if (!(total >= 0 && total <= maxSectionSize(u8.length))) throw new Error(DAMAGED);
     const buf = new Uint8Array(total);
     for (const pg of s.pages) {
       const loc = pages.get(pg.id);

@@ -8,7 +8,7 @@ import { colorLabel, colorCss } from '../core/colors.js';
 import { defaultLayer, freeTableName, LINEWEIGHTS, LW_DEFAULT } from '../core/schema.js';
 import { lwLabel } from './combos.js';
 import { confirmDialog } from './dialog.js';
-import { preserveFocus } from './focus.js';
+import { preserveFocus, keepScroll } from './focus.js';
 
 export class LayerManager {
   constructor(app) {
@@ -100,6 +100,7 @@ export class LayerManager {
     const d = this.drawing;
     const counts = this.usage();
     const names = [...d.layers.keys()].sort((a, b) => (a === '0' ? -1 : b === '0' ? 1 : a.localeCompare(b, undefined, { numeric: true })));
+    const restoreScroll = keepScroll(this.table.parentElement);
     clear(this.tbody);
     let shown = 0;
     for (const name of names) {
@@ -140,6 +141,8 @@ export class LayerManager {
           'data-key': `layer:${name}:name`,
           'aria-pressed': String(this.selected === name),
           'aria-label': `Layer ${name}${cur ? ', current' : ''}. Press F2 to rename.`,
+          // A long name is cut short in its column.
+          title: name.length > 24 ? name : null,
           onDblclick: () => this.rename(name, nameCell),
           onKeydown: (e) => {
             if (e.key === 'F2') {
@@ -206,6 +209,7 @@ export class LayerManager {
       );
       this.tbody.append(row);
     }
+    restoreScroll();
     this.status.textContent = `${shown} of ${names.length} layers shown. Current layer: ${d.header.clayer}.`;
   }
 
@@ -236,6 +240,11 @@ export class LayerManager {
     const l = src ? { ...src, name, on: true, frozen: false, locked: false, description: '' } : defaultLayer(name);
     d.transaction('New layer', () => d.setTable('layers', name, l));
     this.selected = name;
+    // A search that does not match the new layer would hide it and its name field.
+    if (this.query && !name.toLowerCase().includes(this.query)) {
+      this.query = '';
+      this.search.value = '';
+    }
     this.render();
     const cell = [...this.tbody.querySelectorAll('.lm-name')].find((b) => b.textContent === name)?.parentElement;
     if (cell) this.rename(name, cell);
@@ -262,12 +271,14 @@ export class LayerManager {
       }
       this.render();
       // Focus the (possibly renamed) layer again, and show any error after the re-render.
-      const shown = err || !v ? name : v;
+      const shown = ok && !err && v ? v : name;
       [...this.tbody.querySelectorAll('.lm-name')].find((b) => b.textContent === shown)?.focus();
       if (err) this.say(err);
     };
     inp.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      // Enter and Escape belong to the input method while it composes a name.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') finish(true);
       else if (e.key === 'Escape') finish(false);
     });

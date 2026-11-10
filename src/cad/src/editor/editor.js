@@ -26,6 +26,8 @@ export class CancelError extends Error {
 }
 
 const DRAG_PX = 5;
+// Two presses this close in time (and within DRAG_PX) are a double click.
+const DOUBLE_CLICK_MS = 500;
 const TOUCH_HIT_PX = 14;
 const ACQUIRE_MS = 450;
 
@@ -72,7 +74,7 @@ export class Editor {
     this.snap = null;
     this.tracks = [];
     this.acquired = [];
-    this._acq = null;
+    this._acqKey = null;
     this.angleLock = null;
     this.window = null;
     this.hoverId = null;
@@ -97,6 +99,7 @@ export class Editor {
     this.lastLineEnd = doc.lastLineEnd ?? null;
     this.doc = doc;
     this.acquired = [];
+    this._acqKey = null;
     this.renderer.setSelection(doc.selection);
     this.refreshGrips();
     this.drawOverlay();
@@ -191,6 +194,8 @@ export class Editor {
     }
     if (def.transparent && this.active) return this._transparent(def, args);
     if (this.active) await this._stopActive();
+    // A selection window begun while idle is not part of the command.
+    this.window = null;
     const token = {};
     const active = { def, token, done: null };
     this.active = active;
@@ -248,6 +253,7 @@ export class Editor {
     this.selMode = 'add';
     clearTimeout(this._acqTimer);
     this.acquired = [];
+    this._acqKey = null;
   }
 
   /**
@@ -515,6 +521,18 @@ export class Editor {
     this.setSelection(s);
   }
 
+  /**
+   * The ids in draw order (bottom first) instead of the order they were
+   * picked or found in, so that copies stack like their originals.
+   */
+  inDrawOrder(ids) {
+    if (ids.length < 2) return ids;
+    const set = new Set(ids);
+    const out = [];
+    for (const id of this.drawing.entities.keys()) if (set.has(id)) out.push(id);
+    return out;
+  }
+
   _editable(id) {
     const e = this.drawing.get(id);
     return !!e && this.drawing.layerEditable(e.layer);
@@ -532,6 +550,9 @@ export class Editor {
   submit(text) {
     const t = text.trim();
     const r = this.request;
+    // In-place text editing (app.editText) finishes in its own box: Enter
+    // from the command line would end the command and drop the text typed.
+    if (r?.kind === 'text') return;
     if (!r) {
       if (!t) {
         if (this.lastCommand) this.run(this.lastCommand);
@@ -734,6 +755,8 @@ export class Editor {
           p.dragResolve = true;
           return;
         }
+        // The second press of a double click on a grip does not place it (see _dblclick).
+        if (this._gripDoubleClick(this.cursor.sx, this.cursor.sy)) return;
         const pt = { x: this.cursor.fx, y: this.cursor.fy };
         this.lastPoint = pt;
         this._resolve(pt);
@@ -752,8 +775,9 @@ export class Editor {
       }
       return;
     }
-    // Idle: grips first, then objects, then a selection window.
-    if (this.hoverGrip >= 0) {
+    // Idle: grips first, then objects, then a selection window. Shift
+    // removes from the selection, also when the click lands on a grip.
+    if (this.hoverGrip >= 0 && !shift) {
       this._startGripEdit(this.hoverGrip, p);
       return;
     }
@@ -872,22 +896,11 @@ export class Editor {
     const p = this.pointers.get(e.pointerId);
     this.pointers.delete(e.pointerId);
     if (this.gesture) {
-      if (this.pointers.size < 2) {
-        this.gesture = null;
-        // The remaining finger keeps panning from where it is now.
-        for (const q of this.pointers.values()) {
-          q.panned = true;
-          q.lx = q.sx;
-          q.ly = q.sy;
-        }
-      }
+      if (this.pointers.size < 2) this._endGesture();
       return;
     }
     if (this.panning && this.panning.id === e.pointerId) {
-      const pan = this.panning;
-      this.panning = null;
-      this.el.classList.remove('is-panning');
-      if (!pan.moved && pan.mid) return;
+      this._endPan();
       return;
     }
     if (!p) return;
@@ -912,8 +925,28 @@ export class Editor {
 
   _cancelPointer(e) {
     this.pointers.delete(e.pointerId);
-    if (this.pointers.size < 2) this.gesture = null;
-    if (this.panning?.id === e.pointerId) this.panning = null;
+    if (this.gesture && this.pointers.size < 2) this._endGesture();
+    else if (this.panning?.id === e.pointerId) this._endPan();
+  }
+
+  _endPan() {
+    this.panning = null;
+    this.el.classList.remove('is-panning');
+  }
+
+  /**
+   * A pinch ended: the remaining finger keeps panning from where it is now
+   * (with the Pan tool too, whose drag began before the pinch).
+   */
+  _endGesture() {
+    this.gesture = null;
+    for (const [id, q] of this.pointers) {
+      q.panned = true;
+      q.lx = q.sx;
+      q.ly = q.sy;
+      if (this.panning) Object.assign(this.panning, { id, sx: q.sx, sy: q.sy });
+    }
+    if (this.panning && !this.pointers.size) this._endPan();
   }
 
   _startGesture() {
@@ -970,8 +1003,11 @@ export class Editor {
   }
 
   _dblclick(e) {
-    if (this.request || this.active) return;
     const { sx, sy } = this._pos(e);
+    // A double click on a grip opens the object like one anywhere else on
+    // it: the grip edit its first or second press began is dropped.
+    if (this._gripDoubleClick(sx, sy)) this.cancelAll();
+    else if (this.request || this.active) return;
     const w = this.camera.toWorld(sx, sy);
     const hit = this._pick(w.x, w.y);
     if (hit) this.ui.editEntity?.(hit.id);
@@ -992,6 +1028,8 @@ export class Editor {
     const wantsPoint = r && (r.kind === 'point' || r.kind === 'distance' || r.kind === 'angle');
     this.snap = null;
     this.tracks = [];
+    // Set again by _track when the point is on a tracking line.
+    this.trackLabel = null;
     let fx = w.x,
       fy = w.y;
     if (wantsPoint) {
@@ -1045,6 +1083,8 @@ export class Editor {
         console.warn(err);
       }
     }
+    // A rigid preview: the same objects drawn through a matrix (see Renderer.setPreview).
+    if (wantsPoint && r.opts.moved) this.renderer.setPreview(r.opts.moved.entities, r.opts.moved.matrix({ x: fx, y: fy }));
     if (wantsPoint && r.opts.onMove) r.opts.onMove({ x: fx, y: fy });
     this.ui.coords(fx, fy, r?.opts.base);
     this.drawOverlay();
@@ -1184,9 +1224,13 @@ export class Editor {
   /** Hovering an object snap point for a moment acquires it for tracking. */
   _acquire(s) {
     if (!this.settings.otrack && this.snapOverride !== 'ext') return;
+    const key = s ? `${s.x.toFixed(9)},${s.y.toFixed(9)}` : null;
+    // One visit toggles a point once: resting on it (a hand is never quite
+    // still) must not start over and toggle it back.
+    if (key === this._acqKey) return;
+    this._acqKey = key;
     clearTimeout(this._acqTimer);
     if (!s) return;
-    const key = `${s.x.toFixed(9)},${s.y.toFixed(9)}`;
     this._acqTimer = setTimeout(() => {
       const i = this.acquired.findIndex((p) => p.key === key);
       if (i >= 0) this.acquired.splice(i, 1);
@@ -1252,7 +1296,15 @@ export class Editor {
     // Releasing after a mouse drag places the grip; a click (or a tap) waits for a second one.
     const drag = !!p && p.type !== 'touch';
     if (drag) p.gripDrag = true;
+    this._gripPress = p ? { sx: p.sx0, sy: p.sy0, t: performance.now() } : null;
     this.run({ name: 'GRIPEDIT', label: 'Grip edit', noRepeat: true, run: (ed) => gripEdit(ed, g, drag) });
+  }
+
+  /** True at (sx, sy) right after the press there that began a grip edit still waiting for its point. */
+  _gripDoubleClick(sx, sy) {
+    const g = this._gripPress;
+    if (!g || this.active?.def.name !== 'GRIPEDIT' || !this.request) return false;
+    return performance.now() - g.t < DOUBLE_CLICK_MS && Math.hypot(sx - g.sx, sy - g.sy) <= DRAG_PX;
   }
 
   // View ----------------------------------------------------------------------
@@ -1267,6 +1319,13 @@ export class Editor {
     const b = this.doc.index.extents((id) => this.drawing.layerVisible(this.drawing.get(id)?.layer));
     if (!b) {
       this.camera.fit(-10, -10, 290, 200);
+    } else if (b[2] - b[0] <= 0 && b[3] - b[1] <= 0) {
+      // A single point has no size to fit (it would zoom in as far as the
+      // view goes): centre it at the current zoom.
+      const c = this.camera;
+      const ins = this.ui.viewInsets?.();
+      c.cx = b[0] - (ins ? (ins.left - ins.right) / (2 * c.scale) : 0);
+      c.cy = b[1] + (ins ? (ins.top - ins.bottom) / (2 * c.scale) : 0);
     } else {
       const pad = Math.max(b[2] - b[0], b[3] - b[1]) * 0.02;
       this.fitView(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad, 24);
@@ -1391,7 +1450,14 @@ export class Editor {
     const r = this.request;
     const items = [];
     if (r) {
-      items.push({ label: 'Enter', shortcut: 'Enter', action: () => this.submit('') });
+      // While text is typed in place the text box holds the value: Enter
+      // finishes it as its Done button does (when the box offers that).
+      const enter = () => {
+        const box = this.request?.kind === 'text' ? this.app?.textEditor?.current : null;
+        if (typeof box?.finish === 'function') box.finish();
+        else this.submit('');
+      };
+      items.push({ label: 'Enter', shortcut: 'Enter', action: enter });
       items.push({ label: 'Cancel', shortcut: 'Esc', action: () => this.cancel() });
       if (r.options.length) {
         items.push({ separator: true });
@@ -1460,7 +1526,7 @@ async function gripEdit(ed, grip, fromPointer) {
   let base = { x: grip.x, y: grip.y };
   let copy = false;
   // Objects on layers locked since they were selected stay put.
-  const ids = [...ed.selection].filter((id) => ed._editable(id));
+  const ids = ed.inDrawOrder([...ed.selection].filter((id) => ed._editable(id)));
   ed.hotGrip = grip;
   const options = [
     { key: 'B', label: 'Base point', value: 'base' },

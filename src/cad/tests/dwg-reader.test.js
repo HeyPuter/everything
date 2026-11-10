@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { parseDwg } from '../src/io/dwg/import.js';
-import { readDatabase } from '../src/io/dwg/database.js';
+import { readDatabase, readObjectMap } from '../src/io/dwg/database.js';
+import { writeDwg } from '../src/io/dwg/writer.js';
 import { dwgVersion, readContainer } from '../src/io/dwg/container.js';
+import { BitReader } from '../src/io/dwg/bits.js';
 import { parseDxf } from '../src/io/dxf/reader.js';
 import { handleMessage } from '../src/io/dxf/worker.js';
 
@@ -70,7 +72,8 @@ describe('DWG reader: versions', () => {
       expect(d.layers.find((l) => l.name === 'Locked').locked).toBe(true);
       expect(d.layers.find((l) => l.name === 'TrueColor').color).toBe('#3366cc');
       expect(d.layers.find((l) => l.name === 'Ünïcode Layer')).toBeTruthy();
-      expect(res.stats.skipped).toEqual({ ATTDEF: 1, POLYLINE: 1, '3DFACE': 1 });
+      // the fixture has one invisible line, which is reported with what was not imported
+      expect(res.stats.skipped).toEqual({ ATTDEF: 1, POLYLINE: 1, '3DFACE': 1, invisible: 1 });
     });
   }
 
@@ -180,6 +183,138 @@ describe('DWG reader: other files', () => {
         expect(res.drawing.layers.length).toBeGreaterThan(0);
       }
     }
+  });
+
+  it('rejects DWG 2007 files whose page or section sizes are damaged', () => {
+    // a negative name length in the section map used to loop until memory ran out
+    const b = fx('mleader-r2007.dwg').slice();
+    b[28298] = 0x34;
+    expect(() => parseDwg(b)).toThrow(/Damaged DWG 2007 file/);
+    // a huge page map size in the file header
+    const c = fx('mleader-r2007.dwg').slice();
+    c.set([0xff, 0xff, 0xff, 0x7f], 224);
+    expect(() => parseDwg(c)).toThrow(/Damaged DWG 2007 file/);
+  });
+
+  it('does not allocate the sizes a damaged DWG 2004+ section map asks for', () => {
+    const big = [0xff, 0xff, 0xff, 0x7f];
+    const sizes = [];
+    const Real = globalThis.Uint8Array;
+    globalThis.Uint8Array = new Proxy(Real, {
+      construct(target, args) {
+        if (typeof args[0] === 'number') sizes.push(args[0]);
+        return new target(...args);
+      },
+    });
+    try {
+      // the size of the page map, of a section, of a section's pages, and a page offset
+      for (const at of [13380, 13640, 13747, 13892]) {
+        const b = fx('extras-r2018.dwg').slice();
+        b.set(big, at);
+        try {
+          parseDwg(b);
+        } catch (err) {
+          expect(err.message).toMatch(/^Damaged DWG file/);
+        }
+      }
+    } finally {
+      globalThis.Uint8Array = Real;
+    }
+    expect(Math.max(...sizes)).toBeLessThan(64 * 1024 * 1024);
+  });
+
+  it('does not decode the rest of the file once for every object with a damaged size', () => {
+    // a damaged page leaves 280 objects that each claim the rest of the section
+    const b = fx('sample-r2004.dwg').slice();
+    b[774] = 0x7a;
+    b.set([0xff, 0xff, 0xff, 0x7f], 16330);
+    const real = BitReader.prototype.RC;
+    let reads = 0;
+    BitReader.prototype.RC = function () {
+      reads++;
+      return real.call(this);
+    };
+    let res;
+    try {
+      res = parseDwg(b);
+    } finally {
+      BitReader.prototype.RC = real;
+    }
+    expect(res.warnings.some((w) => /damaged objects were skipped/.test(w))).toBe(true);
+    // it was 33 million byte reads for this 20 KB file
+    expect(reads).toBeLessThan(2e6);
+  });
+
+  it('keeps the readable part of a damaged object map, and says so', () => {
+    const src = fx('sample-r2000.dwg');
+    // the object map is section 2 of the R2000 file header
+    let addr = 0;
+    let size = 0;
+    for (let i = 0; i < src[0x15]; i++) {
+      const p = 0x19 + i * 9;
+      if (src[p] === 2) {
+        addr = src[p + 1] | (src[p + 2] << 8) | (src[p + 3] << 16);
+        size = src[p + 5] | (src[p + 6] << 8) | (src[p + 7] << 16);
+      }
+    }
+    expect(size).toBeGreaterThan(100);
+    // an entry near the end that never terminates
+    const tail = src.slice();
+    for (let k = 10; k <= 20; k++) tail[addr + size - k] |= 0x80;
+    const res = parseDwg(tail);
+    expect(res.drawing.entities.length).toBe(32);
+    expect(res.warnings.some((w) => /list of objects.*damaged/.test(w))).toBe(true);
+    // nothing readable: an error, not an empty drawing
+    const none = src.slice();
+    none.fill(0, addr, addr + size);
+    expect(() => parseDwg(none)).toThrow(/Damaged DWG file: the list of objects/);
+  });
+
+  it('never passes numbers that are not finite into the drawing', () => {
+    // one damaged byte makes a dimension's rotation 1.3e308 radians: infinite in degrees
+    const b = fx('sample-r14.dwg').slice();
+    b[17209] = 59;
+    const dims = [...readDatabase(b).objects.values()].filter((o) => o.type === 'DIMENSION_LINEAR');
+    expect(dims.some((o) => o.dimRotation > 1e300)).toBe(true);
+    const bad = [];
+    for (const e of parseDwg(b).drawing.entities) {
+      for (const [k, v] of Object.entries(e)) if (typeof v === 'number' && !Number.isFinite(v)) bad.push(`${e.type}.${k}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('recovers the objects of model space when its block record is damaged', () => {
+    const src = fx('sample-r2000.dwg');
+    const c = readContainer(src);
+    const whole = parseDwg(src).drawing;
+    // R2000 objects are at file offsets
+    const loc = readObjectMap(c.sections.handles).get(readDatabase(src).header.BLOCK_MODEL_SPACE);
+    // 23: the first and last entity handles; 3: the handle, so the record is skipped
+    for (const k of [23, 3, 10]) {
+      const b = src.slice();
+      b[loc + k] ^= 0x55;
+      const res = parseDwg(b);
+      expect(res.drawing.entities.length).toBe(whole.entities.length);
+      expect(res.warnings.some((w) => /damaged list of objects was rebuilt/.test(w))).toBe(true);
+    }
+    // the same for a file with compressed sections: wipe the record's bytes
+    const ours = writeDwg(whole);
+    const sec = readContainer(ours).sections;
+    const at = readObjectMap(sec.handles).get(readDatabase(ours).header.BLOCK_MODEL_SPACE);
+    const body = sec.objects.subarray(at + 2, at + 14);
+    let pos = -1;
+    for (let i = 0; i + body.length <= ours.length && pos < 0; i++) {
+      let same = true;
+      for (let j = 0; j < body.length && same; j++) same = ours[i + j] === body[j];
+      if (same) pos = i;
+    }
+    expect(pos).toBeGreaterThan(0);
+    ours.fill(0xff, pos, pos + body.length);
+    const res = parseDwg(ours);
+    expect(res.drawing.entities.length).toBe(parseDwg(writeDwg(whole)).drawing.entities.length);
+    expect(res.warnings.some((w) => /damaged list of objects was rebuilt/.test(w))).toBe(true);
+    // intact files are read as before, without the warning
+    expect(parseDwg(src).warnings.filter((w) => /rebuilt/.test(w))).toEqual([]);
   });
 
   it('reads drawings with a damaged dictionary that has names but no entries', () => {

@@ -220,11 +220,18 @@ export async function saveAsDialog(app, doc) {
 
 // Display lists for output -------------------------------------------------------------
 
-/** Record the visible drawing (optionally only an area) as display-list items. */
-export function recordDrawing(app, { tol, area } = {}) {
+/**
+ * Record the visible drawing (optionally only an area) as display-list items.
+ * pointSize is the size of point markers without a set size (PDSIZE 0), which
+ * on screen is a fixed number of pixels: by default 1/280 of the area, about
+ * 1.5 mm on an A3 page.
+ */
+export function recordDrawing(app, { tol, area, pointSize } = {}) {
   const doc = app.doc;
   const sink = new RecordingSink();
-  const ctx = makeContext(doc.drawing, { fg: [0, 0, 0], tol: tol ?? 0.01, plot: true, view: area ?? doc.index.extents() ?? [0, 0, 1, 1], pointSize: 1 });
+  const view = area ?? doc.index.extents() ?? [0, 0, 1, 1];
+  pointSize ??= Math.max(view[2] - view[0], view[3] - view[1]) / 280 || 1;
+  const ctx = makeContext(doc.drawing, { fg: [0, 0, 0], tol: tol ?? 0.01, plot: true, view, pointSize });
   const ids = area ? doc.index.search(area[0], area[1], area[2], area[3], true) : [...doc.drawing.entities.keys()];
   const order = new Map([...doc.drawing.entities.keys()].map((id, i) => [id, i]));
   ids.sort((a, b) => order.get(a) - order.get(b));
@@ -297,7 +304,7 @@ export async function exportDialog(app) {
   const area = areaFor(app, areaSel.value);
   const busy = toast('Exporting...', { timeout: 0 });
   try {
-    const items = recordDrawing(app, { area, tol: Math.max(area[2] - area[0], area[3] - area[1]) / 4000 });
+    const items = recordDrawing(app, { area, tol: exportTolerance(kind, area, Number(width.value)) });
     const monochrome = mono.querySelector('input').checked;
     const lineweights = lw.querySelector('input').checked;
     const background = bg.value === 'white' ? '#ffffff' : bg.value === 'dark' ? '#1f242c' : null;
@@ -323,6 +330,18 @@ export async function exportDialog(app) {
     busy.remove();
     app.fileError('export', err);
   }
+}
+
+/**
+ * Chord tolerance for curves in an exported image of the area. Vector files
+ * are looked at closely and printed: 1/20000 of the area is 0.02 mm on the A3
+ * page of the PDF, as in a plot. For a PNG half a pixel is enough.
+ */
+export function exportTolerance(kind, area, pngWidth) {
+  const extent = Math.max(area[2] - area[0], area[3] - area[1]);
+  if (kind !== 'png') return extent / 20000;
+  const w = Math.max(100, Math.min(16000, pngWidth || 2400));
+  return extent / Math.max(4000, 2 * w);
 }
 
 function aw4(area) {
@@ -420,16 +439,21 @@ export async function plotDialog(app, state) {
   });
   let items = null;
   let itemsArea = null;
-  const draw = () => {
+  /** Take the fields in and show the resulting scale (cheap; the preview is drawn by draw). */
+  const update = () => {
     read();
     const area = areaFor(app, st.areaMode, st.window);
+    const s = settingsFor(area);
+    const plot = computePlot(s, area);
+    scaleText.textContent = `Scale ${plot.scaleText}`;
+    return { area, s, plot };
+  };
+  const draw = () => {
+    const { area, s, plot } = update();
     if (!items || itemsArea?.join() !== area.join()) {
       items = recordDrawing(app, { area, tol: Math.max(area[2] - area[0], area[3] - area[1]) / 2000 });
       itemsArea = area;
     }
-    const s = settingsFor(area);
-    const plot = computePlot(s, area);
-    scaleText.textContent = `Scale ${plot.scaleText}`;
     const box = { w: 360, h: 260 };
     const k = Math.min(box.w / plot.pageW, box.h / plot.pageH) * 0.92;
     const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -437,8 +461,8 @@ export async function plotDialog(app, state) {
       ch = Math.round(plot.pageH * k);
     preview.width = cw * dpr;
     preview.height = ch * dpr;
+    // The height follows the width (see .plot-preview), also when a narrow screen caps it.
     preview.style.width = `${cw}px`;
-    preview.style.height = `${ch}px`;
     const ctx = preview.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#fff';
@@ -462,8 +486,16 @@ export async function plotDialog(app, state) {
     mmIn.value = std.paper;
     unitsIn.value = std.drawing;
   });
-  form.addEventListener('change', draw);
-  form.addEventListener('input', draw);
+  // Drawing the preview takes a while on a large drawing, so it is drawn once
+  // per edit: a choice fires both events, and typing a number one per key.
+  let drawTimer = 0;
+  const edited = (e) => {
+    update();
+    clearTimeout(drawTimer);
+    drawTimer = setTimeout(draw, e.target.matches?.('input[type=number]') ? 150 : 0);
+  };
+  form.addEventListener('change', edited);
+  form.addEventListener('input', edited);
   let action = null;
   pickBtn.addEventListener('click', () => {
     action = 'pick';
@@ -480,6 +512,7 @@ export async function plotDialog(app, state) {
       { label: 'Save PDF', primary: true, onClick: () => 'pdf' },
     ],
   });
+  clearTimeout(drawTimer);
   read();
   const { window: win, ...persist } = st;
   try {
@@ -515,7 +548,8 @@ export async function plotDialog(app, state) {
   const busy = toast('Preparing plot...', { timeout: 0 });
   try {
     const plot = computePlot(s, area);
-    const fine = recordDrawing(app, { area, tol: 0.02 / plot.scale });
+    // 1.5 mm point markers on the page
+    const fine = recordDrawing(app, { area, tol: 0.02 / plot.scale, pointSize: 1.5 / plot.scale });
     if (r === 'pdf') {
       const bytes = await exportPdf(fine, s);
       busy.remove();
@@ -672,6 +706,7 @@ export async function draftingDialog(app) {
           {
             type: 'button',
             role: 'tab',
+            id: `drafting-tab-${j}`,
             'aria-selected': String(j === i),
             'aria-controls': 'drafting-panel',
             tabindex: j === i ? '0' : '-1',
@@ -687,6 +722,8 @@ export async function draftingDialog(app) {
       ),
     );
     clear(panelHost).append(panels[i]);
+    // The panel is announced by the name of its tab.
+    panelHost.setAttribute('aria-labelledby', `drafting-tab-${i}`);
     if (focus) tabBar.querySelector('[aria-selected="true"]')?.focus();
   };
   show(0);
@@ -1120,6 +1157,8 @@ export async function commandPalette(app) {
   };
   input.addEventListener('input', () => ((index = 0), render()));
   input.addEventListener('keydown', (e) => {
+    // Enter and the arrow keys belong to the input method while it composes.
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       index = Math.min(items.length - 1, index + 1);

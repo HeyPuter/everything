@@ -72,6 +72,13 @@ describe('construction helpers', () => {
     expect(loopFromEntity({ type: 'polyline', pts: [0, 0, 0, 1, 0, 0, 1, 1, 0], closed: true })).toHaveLength(9);
     expect(loopFromEntity({ type: 'polyline', pts: [0, 0, 0, 1, 0, 0, 1, 1, 0], closed: false })).toBeNull();
     expect(loopFromEntity({ type: 'line', x1: 0, y1: 0, x2: 1, y2: 1 })).toBeNull();
+    // open curves are not boundaries either, as open polylines are not
+    const full = { type: 'ellipse', cx: 0, cy: 0, mx: 4, my: 0, ratio: 0.5, start: 0, end: Math.PI * 2 };
+    expect(loopFromEntity(full).length).toBeGreaterThan(9);
+    expect(loopFromEntity({ ...full, end: Math.PI })).toBeNull();
+    const open = { type: 'spline', degree: 3, ctrl: [0, 0, 2, 4, 6, 4, 8, 0], closed: false };
+    expect(loopFromEntity(open)).toBeNull();
+    expect(loopFromEntity({ ...open, ctrl: [0, 0, 2, 4, 6, 4, 8, 0, 4, -3, 0, 0] }).length).toBeGreaterThan(9);
   });
 
   it('builds affine matrices', () => {

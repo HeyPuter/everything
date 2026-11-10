@@ -6,6 +6,14 @@
  */
 import { TWO_PI } from '../../core/schema.js';
 
+/**
+ * Appended to the name of an imported hatch pattern that shares its name with
+ * one of the app's patterns but has other lines (AutoCAD's STEEL, BRICK, CROSS,
+ * DOTS and DASH do), so that the hatch keeps the lines of its file. The writer
+ * removes it again.
+ */
+export const OWN_PATTERN = '_IMPORTED';
+
 /** Normalize an angle to [0, 2*PI). */
 export function normAngle(a) {
   a %= TWO_PI;

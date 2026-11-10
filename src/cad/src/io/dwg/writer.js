@@ -9,7 +9,7 @@
  * transparency are kept) or DWG 2000 (AC1015).
  */
 import { writeDxf } from '../dxf/writer.js';
-import { BitWriter, crc16, crc32, R2000, R2004, R2007, R2010 } from './bits.js';
+import { BitWriter, crc16, crc32, cut1252, encode1252, R2000, R2004, R2007, R2010 } from './bits.js';
 import { compress2004, checksum2004, headerMask } from './container.js';
 import { SpecWriter } from './spec.js';
 import { headerSpec, SENTINEL_HEADER, SENTINEL_HEADER_END } from './header.js';
@@ -579,7 +579,7 @@ class Builder {
       const bh = begin ? begin.hnd(5) : this.newHandle();
       const eh = def?.end ? def.end.hnd(5) : this.newHandle();
       const layer0 = hard(this.named('LAYER', '0'));
-      const entCommon = (h) => ({ entmode: 0, owner: soft(br.h), xdicMissing: ver >= R2004 ? 1 : 0, xdic: owner(0), isByLayerLt: 1, noLinks: 1, color: { index: 256, rgb: null }, ltscale: 1, ltFlags: 0, psFlags: 0, invisible: 0, lwIndex: 29, layer: layer0, handle: h });
+      const entCommon = (h) => ({ entmode: 0, owner: soft(br.h), xdicMissing: ver >= R2004 ? 1 : 0, xdic: owner(0), isByLayerLt: 1, noLinks: 0, prev: soft(0), next: soft(0), color: { index: 256, rgb: null }, ltscale: 1, ltFlags: 0, psFlags: 0, invisible: 0, lwIndex: 29, layer: layer0, handle: h });
       this.add(bh, 'BLOCK', { ...entCommon(bh), name: br.name }, true);
       this.add(eh, 'ENDBLK', entCommon(eh), true);
       const bv = {
@@ -613,6 +613,15 @@ class Builder {
       }
       if (!model && !paper) entries.push(br.h);
       void brByHandle;
+    }
+
+    // every block lists the inserts that reference it
+    for (const o of this.objs.values()) {
+      if (o.type !== 'INSERT') continue;
+      const bo = this.objs.get(o.v.block.value);
+      if (!bo || bo.type !== 'BLOCK_HEADER') continue;
+      bo.v.inserts.push(soft(o.handle));
+      bo.v.insertCount = bo.v.inserts.length;
     }
 
     // control objects
@@ -764,16 +773,52 @@ class Builder {
     const now = julian(new Date());
     hv.TDCREATE = now;
     hv.TDUPDATE = now;
+    // The $DIM variables are the current dimension style: where they differ,
+    // other programs see overrides of the style and use them for new dimensions.
+    hv.DIMTXSTY = hard(this.named('STYLE', 'Standard'));
     const ds = this.objs.get(hv.DIMSTYLE.value);
-    if (ds) for (const k of Object.keys(ds.v)) if (k.startsWith('DIM') && k.length > 3 && !k.endsWith('H') && typeof ds.v[k] !== 'object') hv[k] = ds.v[k];
+    if (ds) {
+      const dv = specValues(specFor('DIMSTYLE'), ver, ds.v);
+      for (const k of Object.keys(dv)) {
+        if (!k.startsWith('DIM')) continue;
+        const v = dv[k];
+        if (DIM_HANDLES[k]) {
+          if (v && v.value) hv[DIM_HANDLES[k]] = v;
+        } else if (v && typeof v === 'object') hv[k] = v.index ?? 0;
+        else hv[k] = v;
+      }
+    }
     hv.PUCSNAME = hard(0);
     hv.UCSNAME = hard(0);
     for (const k of ['PUCSORTHOREF', 'PUCSBASE', 'UCSORTHOREF', 'UCSBASE', 'DIMTXSTY', 'DIMLDRBLK', 'DIMBLK', 'DIMBLK1', 'DIMBLK2', 'DIMLTYPE', 'DIMLTEX1', 'DIMLTEX2', 'CMATERIAL', 'INTERFEREOBJVS', 'INTERFEREVPVS', 'DRAGVS', 'VPORT_ENTITY_HEADER']) hv[k] ??= hard(0);
-    hv.DIMTXSTY = hard(this.named('STYLE', 'Standard'));
     hv.HANDSEED = this.maxHandle + 1;
     void R2007;
     void R2010;
   }
+}
+
+/** Handles of a DIMSTYLE and the header variables that hold the same thing. */
+const DIM_HANDLES = { DIMTXSTY: 'DIMTXSTY', DIMLDRBLK: 'DIMLDRBLK', DIMBLKH: 'DIMBLK', DIMBLK1H: 'DIMBLK1', DIMBLK2H: 'DIMBLK2', DIMLTYPE: 'DIMLTYPE', DIMLTEX1: 'DIMLTEX1', DIMLTEX2: 'DIMLTEX2' };
+
+/** Every field a spec writes for `values`, with the spec's defaults filled in. */
+function specValues(spec, ver, values) {
+  const out = {};
+  const io = new Proxy(
+    { ver, o: values },
+    {
+      get(target, method) {
+        if (method in target) return target[method];
+        return (k, def) => {
+          let v = values[k];
+          if (v === undefined) v = def !== undefined ? def : method === 'T' ? '' : 0;
+          if (k) out[k] = v;
+          return v;
+        };
+      },
+    },
+  );
+  spec(io, values);
+  return out;
 }
 
 /** Imperial defaults for dimension variables of a drawing in inches. */
@@ -1026,7 +1071,7 @@ function hatchValues(r) {
   for (; i < g.length; i++) {
     const [c, val] = g[i];
     if (c === 30) v.elevation = +val;
-    else if (c === 2) v.name = val;
+    else if (c === 2) v.name = unescape(val);
     else if (c === 70) v.solid = +val & 1;
     else if (c === 71) v.associative = +val;
     else if (c === 91) {
@@ -1110,9 +1155,12 @@ function eedBytes(w, blocks, ver) {
           bytes.push(0, s.length & 0xff, s.length >> 8);
           for (let k = 0; k < s.length; k++) bytes.push(s.charCodeAt(k) & 0xff, s.charCodeAt(k) >> 8);
         } else {
-          const enc = [];
-          for (let k = 0; k < s.length; k++) enc.push(s.charCodeAt(k) < 256 ? s.charCodeAt(k) : 63);
-          // length, then the codepage high byte first
+          // one byte holds the length; the codepage follows, high byte first
+          const enc = encode1252(s);
+          if (enc.length > 255) {
+            cut1252(enc, 255);
+            w.truncated = true;
+          }
           bytes.push(0, enc.length, 0, 30, ...enc);
         }
       } else if (c === 70) {
@@ -1166,6 +1214,7 @@ function encodeObject(b, o) {
   }
   const spec = specFor(o.type);
   if (spec) spec(io, o.v);
+  if (d.truncated) b.warn('Text longer than a DWG file can hold was cut off.');
   patchRL(d, bsPos, d.pos);
   d.append(hs);
   const body = d.bytes();

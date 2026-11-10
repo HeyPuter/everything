@@ -64,8 +64,16 @@ export function ellipseArcLength(e, t0, sweep) {
 export function splineLength(s) {
   const br = splineBreaks(s);
   let len = 0;
+  // Measure a copy moved to the origin: far from it the rounding noise of the
+  // control points exceeds the integration tolerance, which then never converges.
+  const c = s.ctrl;
+  const local = { degree: s.degree, knots: s.knots, ctrl: new Array(c.length) };
+  for (let i = 0; i + 1 < c.length; i += 2) {
+    local.ctrl[i] = c[i] - c[0];
+    local.ctrl[i + 1] = c[i + 1] - c[1];
+  }
   const f = (u) => {
-    const r = evalSplineFull(s, u);
+    const r = evalSplineFull(local, u);
     return Math.hypot(r.dx, r.dy);
   };
   for (let k = 0; k + 1 < br.length; k++) len += integrate(f, br[k], br[k + 1], 1e-12, 2);

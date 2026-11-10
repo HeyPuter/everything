@@ -1,7 +1,7 @@
 /**
  * Small geometric helpers shared by commands.
  */
-import { toPrims, closestPoint } from '../../core/geom/index.js';
+import { toPrims, closestPoint, isFullEllipse } from '../../core/geom/index.js';
 
 export const TAU = Math.PI * 2;
 export const norm = (a) => ((a % TAU) + TAU) % TAU;
@@ -216,11 +216,15 @@ export function loopFromEntity(ent) {
     return p;
   }
   if (ent.type === 'ellipse' || ent.type === 'spline') {
+    // Elliptical arcs are open, like arcs.
+    if (ent.type === 'ellipse' && !isFullEllipse(ent)) return null;
     const prims = toPrims(ent);
     const out = [];
     for (const pr of prims) {
       if (pr.t === 'pl') for (let i = 0; i < pr.pts.length; i += 2) out.push(pr.pts[i], pr.pts[i + 1], 0);
     }
+    // A spline is a boundary only when it ends where it starts, as a polyline is.
+    if (ent.type === 'spline' && !closesItself(out)) return null;
     return out.length >= 9 ? out : null;
   }
   return null;
