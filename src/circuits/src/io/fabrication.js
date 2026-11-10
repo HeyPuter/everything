@@ -15,7 +15,7 @@ const LAYER_DESCRIPTIONS = { profile: 'Board outline' };
 /**
  * @param {object} project
  * @param {string} boardDocId
- * @param {{pourFills?: Map|object, netlist?: object, date?: Date, untentVias?: boolean}} opts
+ * @param {{pourFills?: Map|object, netlist?: object, date?: Date, untentVias?: boolean, units?: 'mm'|'mil'}} opts
  * @returns {Uint8Array} zip archive bytes
  */
 export function buildFabricationZip(project, boardDocId, opts = {}) {
@@ -24,7 +24,7 @@ export function buildFabricationZip(project, boardDocId, opts = {}) {
   const library = project.library || {};
   const name = baseName(boardDoc.name || project.name);
   const date = opts.date instanceof Date ? opts.date : new Date();
-  const gerbers = exportGerbers(boardDoc, library, { pourFills: opts.pourFills, boardName: name, untentVias: opts.untentVias });
+  const gerbers = exportGerbers(boardDoc, library, { pourFills: opts.pourFills, boardName: name, untentVias: opts.untentVias, units: opts.units });
   const drills = exportDrill(boardDoc, library, { boardName: name });
   const files = {};
   for (const f of gerbers) files[`gerber/${f.name}`] = strToU8(f.content);

@@ -1,7 +1,9 @@
 // Round 2 review: manufacturing outputs, import, the project format and storage.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { unzipSync, strFromU8 } from 'fflate';
 import { exportGerbers } from '../src/io/gerber.js';
+import { buildFabricationZip } from '../src/io/fabrication.js';
 import { importKicad } from '../src/io/kicad/index.js';
 import { UserLibrary } from '../src/app/user-library.js';
 import { setPuterForTests } from '../src/app/puter.js';
@@ -469,5 +471,105 @@ describe('boards whose outline is damaged', () => {
     expect(c.board.outline.every(Number.isFinite)).toBe(true);
     for (const d of p.boards)
       expect(() => exportGerbers(d.snapshot(), p.library, {})).not.toThrow();
+  });
+});
+
+describe('Gerber dimensions', () => {
+  const dim = { id: 'd', t: 'dim', x1: 0, y1: 0, x2: mm(10), y2: 0, offset: mm(2), h: mm(1.2) };
+  const moves = (text) => body(text).filter((l) => l.startsWith('X'));
+
+  it('draws a dimension on the layer it was placed on, as the canvas shows it', () => {
+    const silk = gerber(emptyBoard([{ ...dim, layer: 'topOverlay' }]), 'GTO');
+    // Dimension line, raised by the offset, and both extension lines running 0.8 mm past it.
+    expect(silk).toContain('X0Y2000000D02*\nX10000000Y2000000D01*');
+    expect(silk).toContain('X0Y0D02*\nX0Y2800000D01*');
+    expect(silk).toContain('X10000000Y0D02*\nX10000000Y2800000D01*');
+    expect(silk).toContain('%ADD10C,0.1*%');
+    // Arrowheads at both ends.
+    expect(silk).toContain(
+      [
+        'G36*',
+        'X0Y2000000D02*',
+        'X1000000Y2350000D01*',
+        'X1000000Y1650000D01*',
+        'X0Y2000000D01*',
+        'G37*',
+      ].join('\n'),
+    );
+    expect(silk).toContain(
+      [
+        'G36*',
+        'X10000000Y2000000D02*',
+        'X9000000Y2350000D01*',
+        'X9000000Y1650000D01*',
+        'X10000000Y2000000D01*',
+        'G37*',
+      ].join('\n'),
+    );
+    // The measured length, centred above the dimension line.
+    const label = {
+      id: 't',
+      t: 'text',
+      layer: 'topOverlay',
+      x: mm(5),
+      y: mm(2.5),
+      text: '10mm',
+      h: mm(1.2),
+      align: { h: 'center', v: 'bottom' },
+    };
+    const labelMoves = moves(gerber(emptyBoard([label]), 'GTO'));
+    expect(labelMoves.length).toBeGreaterThan(4);
+    expect(moves(silk)).toEqual(expect.arrayContaining(labelMoves));
+  });
+
+  it('labels in the units asked for and prefers a label stored on the dimension', () => {
+    const doc = emptyBoard([{ ...dim, x2: mm(25.4), layer: 'mech1' }]);
+    const text = (t) =>
+      moves(
+        gerber(
+          emptyBoard([
+            {
+              id: 't',
+              t: 'text',
+              layer: 'mech1',
+              x: mm(12.7),
+              y: mm(2.5),
+              text: t,
+              h: mm(1.2),
+              align: { h: 'center', v: 'bottom' },
+            },
+          ]),
+          'GM1',
+        ),
+      );
+    const mech = (d, opts) =>
+      moves(exportGerbers(d, {}, opts).find((f) => f.layer === 'mech1').content);
+    expect(mech(doc, { units: 'mil' })).toEqual(expect.arrayContaining(text('1000mil')));
+    expect(mech(doc, {})).toEqual(expect.arrayContaining(text('25.4mm')));
+    doc.objects[0].label = 'A';
+    expect(mech(doc, {})).toEqual(expect.arrayContaining(text('A')));
+  });
+});
+
+describe('fabrication package dimensions', () => {
+  it('labels dimensions in the units passed to the package', () => {
+    const doc = emptyBoard([
+      {
+        id: 'd',
+        t: 'dim',
+        layer: 'mech1',
+        x1: 0,
+        y1: 0,
+        x2: mm(25.4),
+        y2: 0,
+        offset: mm(2),
+        h: mm(1.2),
+      },
+    ]);
+    const project = { name: 'P', library: {}, documents: [doc] };
+    const mech = (units) =>
+      strFromU8(unzipSync(buildFabricationZip(project, 'b1', { units }))['gerber/Board.GM1']);
+    expect(mech('mil')).not.toBe(mech('mm'));
+    expect(mech(undefined)).toBe(mech('mm'));
   });
 });

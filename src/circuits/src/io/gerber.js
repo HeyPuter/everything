@@ -6,9 +6,10 @@
 import { placeFootprint } from '../model/place.js';
 import { copperLayers, spanLayers, LAYERS } from '../model/layers.js';
 import { defaultRules } from '../model/schema.js';
-import { compFieldPlacement } from '../model/pcb.js';
+import { compFieldPlacement, dimNormal } from '../model/pcb.js';
 import { rotate, norm360, polyArea, arcToPoints } from '../core/geom.js';
 import { textStrokes, strokeWidthFor } from '../render/font.js';
+import { formatLength } from '../core/units.js';
 import { defOf, fillOf, baseName, mmStr } from './common.js';
 
 const MIN_APERTURE = 10_000; // 0.01 mm, used when a stroke has no width
@@ -412,19 +413,44 @@ function writeCopper(ctx, layer, opts) {
  * Draws a free board drawing (line, arc, text or filled shape) of a
  * non-copper layer, so every layer file shows what the canvas shows.
  */
-function drawBoardDrawing(g, o, defaultWidth) {
-  if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w || defaultWidth);
+function drawBoardDrawing(g, o, defaultWidth, units) {
+  if (o.t === 'dim') drawDimension(g, o, units);
+  else if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w || defaultWidth);
   else if (o.t === 'arc') g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w || defaultWidth);
   else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w);
   else if (o.t === 'region') g.region([o.pts]);
   else if (o.t === 'fill') g.region([[o.x1, o.y1, o.x2, o.y1, o.x2, o.y2, o.x1, o.y2]]);
 }
 
+/**
+ * A dimension with the geometry the canvas draws (see pcb-scene.js): two
+ * extension lines, the dimension line with an arrowhead at each end, and the
+ * measured length (or the stored label) above its middle.
+ */
+function drawDimension(g, o, units = 'mm') {
+  const w = 100_000, ah = 1_000_000, aw = 350_000;
+  const [nx, ny] = dimNormal(o);
+  const off = o.offset || 0;
+  const ax = o.x1 + nx * off, ay = o.y1 + ny * off, bx = o.x2 + nx * off, by = o.y2 + ny * off;
+  const ext = Math.sign(off || 1) * 800_000;
+  g.line(o.x1, o.y1, ax + nx * ext, ay + ny * ext, w);
+  g.line(o.x2, o.y2, bx + nx * ext, by + ny * ext, w);
+  g.line(ax, ay, bx, by, w);
+  const len = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / len, uy = (by - ay) / len;
+  g.region([[ax, ay, ax + ux * ah + nx * aw, ay + uy * ah + ny * aw, ax + ux * ah - nx * aw, ay + uy * ah - ny * aw]]);
+  g.region([[bx, by, bx - ux * ah + nx * aw, by - uy * ah + ny * aw, bx - ux * ah - nx * aw, by - uy * ah - ny * aw]]);
+  let ang = (Math.atan2(uy, ux) * 180) / Math.PI;
+  if (ang > 90 || ang <= -90) ang += 180;
+  const label = o.label ?? formatLength(Math.hypot(o.x2 - o.x1, o.y2 - o.y1), units);
+  const align = { h: 'center', v: 'bottom' };
+  drawText(g, label, (ax + bx) / 2 + nx * 500_000, (ay + by) / 2 + ny * 500_000, o.h || 1_200_000, ang, align, false, 0);
+}
+
 function writeOverlay(ctx, layer, opts) {
   const side = layer === 'topOverlay' ? 'Top' : 'Bot';
   const g = new GerberWriter({ fileFunction: `Legend,${side}`, origin: ctx.origin, date: opts.date });
   const { objects, comps, rules } = ctx;
-  for (const o of objects) if (o.layer === layer) drawBoardDrawing(g, o, rules.silkWidth);
+  for (const o of objects) if (o.layer === layer) drawBoardDrawing(g, o, rules.silkWidth, opts.units);
   for (const { comp, def, placed } of comps) {
     for (const prim of placed.graphics) if (prim.layer === layer) drawGraphic(g, prim, rules.silkWidth);
     for (const f of fieldTexts(comp, def)) {
@@ -454,7 +480,7 @@ function writeMask(ctx, layer, opts) {
     } else if (o.t === 'via' && (opts.untentVias || o.tented === false)) {
       if (!spanLayers(o.from || 'top', o.to || 'bottom', copper).includes(copperSide)) continue;
       g.flash(g.circle(o.d + 2 * rules.maskExpansion), o.x, o.y);
-    } else if (o.layer === layer) drawBoardDrawing(g, o, 0);
+    } else if (o.layer === layer) drawBoardDrawing(g, o, 0, opts.units);
   }
   return g;
 }
@@ -474,7 +500,7 @@ function writePaste(ctx, layer, opts) {
   for (const o of objects) {
     if (o.t === 'pad') {
       if ((o.side || 'top') === copperSide && !o.noPaste) flashPad(g, o, rules.pasteExpansion);
-    } else if (o.layer === layer) drawBoardDrawing(g, o, 0);
+    } else if (o.layer === layer) drawBoardDrawing(g, o, 0, opts.units);
   }
   return g;
 }
@@ -490,7 +516,7 @@ function writeProfile(ctx, opts) {
 function writeMechanical(ctx, layer, opts) {
   const g = new GerberWriter({ fileFunction: `Other,${LAYERS[layer]?.name.replace(/\s+/g, '') || layer}`, origin: ctx.origin, date: opts.date });
   const { objects, comps, rules } = ctx;
-  for (const o of objects) if (o.layer === layer) drawBoardDrawing(g, o, rules.silkWidth);
+  for (const o of objects) if (o.layer === layer) drawBoardDrawing(g, o, rules.silkWidth, opts.units);
   for (const { placed } of comps) for (const prim of placed.graphics) if (prim.layer === layer) drawGraphic(g, prim, rules.silkWidth);
   return g;
 }
@@ -511,7 +537,8 @@ export function gerberExtension(layer, copper = 2) {
  * Exports every manufacturing layer of a board.
  * @param {object} boardDoc
  * @param {Map|object} library component definitions by id
- * @param {{pourFills?: Map|object, boardName?: string, date?: string, untentVias?: boolean}} opts
+ * @param {{pourFills?: Map|object, boardName?: string, date?: string, untentVias?: boolean, units?: 'mm'|'mil'}} opts
+ *   units: the units dimensions are labelled in (as shown on the canvas)
  * @returns {{name:string, layer:string, content:string}[]}
  */
 export function exportGerbers(boardDoc, library, opts = {}) {

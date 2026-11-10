@@ -1411,7 +1411,7 @@ export class App extends Emitter {
       }
       const { buildFabricationZip } = await import('../io/fabrication.js');
       const nl = exportShape(this.project.netlist(), this.project.sheetObjects(), this.project.library);
-      const zip = buildFabricationZip(this.project.toJSON(), doc.id, { pourFills: fills, netlist: nl, untentVias: opts.untentVias });
+      const zip = buildFabricationZip(this.project.toJSON(), doc.id, { pourFills: fills, netlist: nl, untentVias: opts.untentVias, units: this.settings.get('units') });
       storage.download(new Blob([zip], { type: 'application/zip' }), `${storage.safeName(this.project.name)}-${storage.safeName(doc.name.replace(/\.pcb$/i, ''))}-fabrication.zip`);
       toast('Fabrication package downloaded.', { kind: 'success' });
     } catch (err) {
@@ -1423,7 +1423,7 @@ export class App extends Emitter {
     const { doc, ed } = this._board();
     if (!doc) return;
     const [{ exportGerbers }, { zipSync, strToU8 }] = await Promise.all([import('../io/gerber.js'), import('fflate')]);
-    const files = exportGerbers(doc.snapshot(), this.project.library, { pourFills: await this._fills(doc, ed) });
+    const files = exportGerbers(doc.snapshot(), this.project.library, { pourFills: await this._fills(doc, ed), units: this.settings.get('units') });
     const zip = zipSync(Object.fromEntries(files.map((f) => [f.name, strToU8(f.content)])));
     storage.download(new Blob([zip], { type: 'application/zip' }), `${storage.safeName(doc.name.replace(/\.pcb$/i, ''))}-gerber.zip`);
   }
