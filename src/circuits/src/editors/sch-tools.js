@@ -17,6 +17,11 @@ import { promptDialog, formDialog } from '../ui/dialog.js';
 const CORNERS = ['90start', '90end', '45start', '45end', 'any'];
 const CORNER_LABEL = { '90start': '90 degrees, horizontal first', '90end': '90 degrees, vertical first', '45start': '45 degrees start', '45end': '45 degrees end', any: 'any angle' };
 
+// Keys that turn what a placing tool holds. The drawing tools have nothing to
+// turn but still take them, or they would fall through to the commands that
+// rotate and mirror the selection left from before the tool started.
+const TURN_KEYS = new Set(['Space', 'Shift+Space', 'X', 'Y']);
+
 /** Increments the trailing number of a label: NET1 -> NET2, D0 -> D1. */
 export function incrementName(s) {
   const m = /^(.*?)(\d+)$/.exec(s);
@@ -260,7 +265,7 @@ export class WireTool {
       if (this.pts) this.finish(); else this.editor.endTool();
       return true;
     }
-    return false;
+    return TURN_KEYS.has(combo);
   }
   deactivate() { this.finish(); }
   drawOverlay(b) {
@@ -310,7 +315,7 @@ export class ShapeTool {
   rightClick() { if (this.start) { this.start = null; this.editor.updateHint(); } else this.editor.endTool(); return true; }
   key(e, combo) {
     if (combo === 'Escape') { if (this.start) { this.start = null; this.editor.updateHint(); } else this.editor.endTool(); return true; }
-    return false;
+    return TURN_KEYS.has(combo);
   }
   drawOverlay(b) {
     const c = this.editor.cursor;

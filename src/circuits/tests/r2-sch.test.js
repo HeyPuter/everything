@@ -244,3 +244,36 @@ describe('pasting many parts', () => {
     expect(store.undoLabel).toBe('Paste');
   });
 });
+
+describe('rotate and mirror keys in drawing tools', () => {
+  const press = (ed, key, code) =>
+    ed.canvas.dispatchEvent(
+      new KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true }),
+    );
+
+  it.each(['wire', 'bus', 'line', 'rect', 'circle'])(
+    'do not turn the selection left from before the %s tool started',
+    async (tool) => {
+      app = await boot();
+      const ed = withCamera(app.activeEditor);
+      const r3 = [...ed.doc.items()].find((o) => o.designator === 'R3');
+      ed.setSelection([r3.id]);
+      ed.startTool(tool);
+      ed.tool.click({ x: mil(1000), y: mil(1000) });
+      press(ed, ' ', 'Space');
+      press(ed, 'x', 'KeyX');
+      press(ed, 'y', 'KeyY');
+      expect(ed.doc.store.get(r3.id)).toBe(r3);
+      expect(ed.tool.name).not.toBe('select');
+    },
+  );
+
+  it('still rotate the selection in the select tool', async () => {
+    app = await boot();
+    const ed = withCamera(app.activeEditor);
+    const r3 = [...ed.doc.items()].find((o) => o.designator === 'R3');
+    ed.setSelection([r3.id]);
+    press(ed, ' ', 'Space');
+    expect(ed.doc.store.get(r3.id).rot).toBe(90);
+  });
+});
