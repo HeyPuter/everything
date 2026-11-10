@@ -16,26 +16,35 @@ const lengthField = (key, label, value, units, extra = {}) => ({
   key, label, type: 'length', value: formatLength(value, units, { suffix: false }), parse: (v) => parseLength(v, units), hint: units, ...extra,
 });
 
+// A size has to be above zero and a clearance cannot be negative: a typing
+// slip must not reach the routing tools, the checks and the fabrication files.
+const sizeField = (key, label, value, units) => lengthField(key, label, value, units, {
+  parse: (v) => { const n = parseLength(v, units); return n > 0 ? n : null; }, error: 'enter a size above zero',
+});
+const gapField = (key, label, value, units) => lengthField(key, label, value, units, {
+  parse: (v) => { const n = parseLength(v, units); return n !== null && n >= 0 ? n : null; }, error: 'enter zero or more',
+});
+
 // ---- Design rules ----
 
 export async function rulesDialog(app, ed) {
   const u = app.settings.get('units');
   const r = ed.doc.rules;
   const form = buildForm([
-    lengthField('clearance', 'Copper clearance', r.clearance, u),
-    lengthField('trackWidth', 'Track width (preferred)', r.trackWidth, u),
-    lengthField('minTrackWidth', 'Track width (minimum)', r.minTrackWidth, u),
-    lengthField('viaDiameter', 'Via diameter', r.viaDiameter, u),
-    lengthField('viaDrill', 'Via hole', r.viaDrill, u),
-    lengthField('minDrill', 'Minimum hole', r.minDrill, u),
-    lengthField('minAnnularRing', 'Minimum annular ring', r.minAnnularRing, u),
-    lengthField('edgeClearance', 'Copper to board edge', r.edgeClearance, u),
-    lengthField('pourClearance', 'Pour clearance (new pours)', r.pourClearance, u),
-    lengthField('spoke', 'Thermal relief spoke width', r.thermal.spoke, u),
-    lengthField('gap', 'Thermal relief gap', r.thermal.gap, u),
+    gapField('clearance', 'Copper clearance', r.clearance, u),
+    sizeField('trackWidth', 'Track width (preferred)', r.trackWidth, u),
+    sizeField('minTrackWidth', 'Track width (minimum)', r.minTrackWidth, u),
+    sizeField('viaDiameter', 'Via diameter', r.viaDiameter, u),
+    sizeField('viaDrill', 'Via hole', r.viaDrill, u),
+    sizeField('minDrill', 'Minimum hole', r.minDrill, u),
+    gapField('minAnnularRing', 'Minimum annular ring', r.minAnnularRing, u),
+    gapField('edgeClearance', 'Copper to board edge', r.edgeClearance, u),
+    gapField('pourClearance', 'Pour clearance (new pours)', r.pourClearance, u),
+    sizeField('spoke', 'Thermal relief spoke width', r.thermal.spoke, u),
+    gapField('gap', 'Thermal relief gap', r.thermal.gap, u),
     lengthField('maskExpansion', 'Solder mask expansion', r.maskExpansion, u),
     lengthField('pasteExpansion', 'Paste expansion', r.pasteExpansion, u),
-    lengthField('silkWidth', 'Silkscreen line width', r.silkWidth, u),
+    sizeField('silkWidth', 'Silkscreen line width', r.silkWidth, u),
   ]);
   // Net classes as an editable table.
   const classes = structuredClone(r.netClasses || {});
@@ -86,6 +95,7 @@ export async function rulesDialog(app, ed) {
         const msg = form.validate();
         if (msg) { err.textContent = msg; show('rules'); return false; }
         const v = form.values();
+        if (v.viaDrill >= v.viaDiameter) { err.textContent = 'Via hole: must be smaller than the via diameter'; show('rules'); return false; }
         const next = { ...v, thermal: { ...r.thermal, spoke: v.spoke, gap: v.gap }, netClasses: classes };
         delete next.spoke; delete next.gap;
         ed.doc.store.transact('Edit design rules', (s) => s.update('rules', next));
@@ -109,7 +119,7 @@ export async function layerStackDialog(app, ed) {
   const u = app.settings.get('units');
   const form = buildForm([
     { key: 'copper', label: 'Copper layers', type: 'select', value: String(b.copper), options: [['2', '2 layers'], ['4', '4 layers (2 inner)'], ['6', '6 layers (4 inner)']] },
-    lengthField('thickness', 'Board thickness', b.thickness, u),
+    sizeField('thickness', 'Board thickness', b.thickness, u),
   ]);
   await openDialog({
     title: 'Layer stack',

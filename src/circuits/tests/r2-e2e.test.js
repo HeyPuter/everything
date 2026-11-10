@@ -246,3 +246,77 @@ describe('long press on a touch screen', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 });
+
+describe('sizes typed into the board dialogs', () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const dialog = () => [...document.querySelectorAll('.dialog')].pop();
+  const fieldOf = (label) => {
+    const l = [...dialog().querySelectorAll('label')].find((x) => x.textContent === label);
+    return dialog().querySelector(`#${l.getAttribute('for')}`);
+  };
+  const apply = async () => {
+    dialog().querySelector('button.primary').click();
+    await tick();
+  };
+
+  it('refuses design rules that are negative, zero sizes or a via hole wider than the via', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const before = JSON.stringify(ed.doc.rules);
+    const cases = [
+      ['Track width (preferred)', '-0.25'],
+      ['Track width (preferred)', '0'],
+      ['Track width (minimum)', '0'],
+      ['Copper clearance', '-0.2'],
+      ['Via diameter', '0'],
+      ['Via hole', '0'],
+      ['Via hole', '5'],
+      ['Copper to board edge', '-1'],
+      ['Thermal relief spoke width', '0'],
+    ];
+    for (const [label, value] of cases) {
+      const done = app.editRules();
+      fieldOf(label).value = value;
+      await apply();
+      expect(dialog(), `${label} = ${value}`).toBeTruthy();
+      expect(dialog().querySelector('[role="alert"]').textContent, `${label} = ${value}`).not.toBe(
+        '',
+      );
+      expect(JSON.stringify(ed.doc.rules)).toBe(before);
+      dialog().querySelector('[aria-label="Close dialog"]').click();
+      await done;
+    }
+    // Zero clearances and negative mask or paste expansion are legitimate.
+    const done = app.editRules();
+    fieldOf('Copper to board edge').value = '0';
+    fieldOf('Paste expansion').value = '-0.05';
+    fieldOf('Track width (minimum)').value = '0.1';
+    await apply();
+    await done;
+    expect(dialog()).toBeUndefined();
+    expect(ed.doc.rules.edgeClearance).toBe(0);
+    expect(ed.doc.rules.pasteExpansion).toBe(-50_000);
+    expect(ed.doc.rules.minTrackWidth).toBe(100_000);
+  });
+
+  it('refuses a board thickness of zero or less', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const before = ed.doc.board.thickness;
+    for (const value of ['0', '-1.6']) {
+      const done = app.editLayerStack();
+      fieldOf('Board thickness').value = value;
+      await apply();
+      expect(dialog(), value).toBeTruthy();
+      expect(fieldOf('Board thickness').getAttribute('aria-invalid')).toBe('true');
+      expect(ed.doc.board.thickness).toBe(before);
+      dialog().querySelector('[aria-label="Close dialog"]').click();
+      await done;
+    }
+    const done = app.editLayerStack();
+    fieldOf('Board thickness').value = '0.8';
+    await apply();
+    await done;
+    expect(ed.doc.board.thickness).toBe(800_000);
+  });
+});
