@@ -72,6 +72,37 @@ function atan2Fast(y, x) {
   return y < 0 ? -r : r;
 }
 
+/** Ends of the part of a segment inside a box, as fractions of its length (see clipSeg). */
+let clip0 = 0,
+  clip1 = 1;
+
+/** Clip segment (x1, y1)-(x2, y2) to box [minX, minY, maxX, maxY]; false when it lies outside. */
+function clipSeg(x1, y1, x2, y2, box) {
+  const dx = x2 - x1,
+    dy = y2 - y1;
+  let t0 = 0,
+    t1 = 1;
+  for (let i = 0; i < 4; i++) {
+    const p = i === 0 ? -dx : i === 1 ? dx : i === 2 ? -dy : dy;
+    const q = i === 0 ? x1 - box[0] : i === 1 ? box[2] - x1 : i === 2 ? y1 - box[1] : box[3] - y1;
+    if (p === 0) {
+      if (q < 0) return false;
+    } else {
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+    }
+  }
+  clip0 = t0;
+  clip1 = t1;
+  return true;
+}
+
 /** Grown buffers are kept this long after a build last needed them (ms). */
 const KEEP_GROWN_MS = 10000;
 
@@ -98,6 +129,17 @@ export class Batch {
     this.alphaScale = 1;
     /** True once a fill with some transparency was emitted since reset(). */
     this.translucent = false;
+    /**
+     * Segments longer than longLen are cut down to the part inside `box`
+     * ([minX, minY, maxX, maxY] around the view). The GPU works in single
+     * floats relative to the camera, so an end millions of pixels away is
+     * placed only roughly: the line wobbles in the view, and vanishes once
+     * its width is lost in the rounding. `clipped` is set when a build cut
+     * anything, and its buffers are then good only for views inside the box.
+     */
+    this.longLen = Infinity;
+    this.box = null;
+    this.clipped = false;
     this.minX = Infinity;
     this.minY = Infinity;
     this.maxX = -Infinity;
@@ -108,6 +150,7 @@ export class Batch {
     this.segCount = 0;
     this.vertCount = 0;
     this.translucent = false;
+    this.clipped = false;
     this.minX = this.minY = Infinity;
     this.maxX = this.maxY = -Infinity;
   }
@@ -192,7 +235,9 @@ export class Batch {
     period *= patScale;
     const flags = this.flags;
     const band = this.band;
+    const longLen = this.longLen;
     let dist = 0;
+    let count = 0;
     let o = this.segCount * SEG_FLOATS;
     // Length and unit direction of the current segment, each computed once.
     let len = 0,
@@ -236,30 +281,58 @@ export class Batch {
         }
         endJoin = joinUnits(ux, uy, nux, nuy);
       }
-      const x1h = fround(x1),
-        y1h = fround(y1),
-        x2h = fround(x2),
-        y2h = fround(y2);
-      F[o] = x1h;
-      F[o + 1] = y1h;
-      F[o + 2] = x2h;
-      F[o + 3] = y2h;
-      F[o + 4] = x1 - x1h;
-      F[o + 5] = y1 - y1h;
-      F[o + 6] = x2 - x2h;
-      F[o + 7] = y2 - y2h;
-      F[o + 8] = period > 0 ? dist % period : dist;
-      F[o + 9] = patScale;
-      const b = (o + 10) * 4;
-      U[b] = rgb[0];
-      U[b + 1] = rgb[1];
-      U[b + 2] = rgb[2];
-      U[b + 3] = a;
-      U[b + 4] = lw | (flags << 5);
-      U[b + 5] = row;
-      U[b + 6] = prevJoin;
-      U[b + 7] = endJoin;
-      F[o + 12] = band;
+      // The part to draw: all of it, unless it is long enough to need cutting.
+      let ax = x1,
+        ay = y1,
+        bx = x2,
+        by = y2,
+        d0 = dist,
+        j0 = prevJoin,
+        j1 = endJoin,
+        draw = true;
+      if (len > longLen) {
+        this.clipped = true;
+        draw = clipSeg(x1, y1, x2, y2, this.box);
+        if (draw && clip0 > 0) {
+          ax = x1 + clip0 * (x2 - x1);
+          ay = y1 + clip0 * (y2 - y1);
+          d0 += clip0 * len;
+          j0 = 0;
+        }
+        if (draw && clip1 < 1) {
+          bx = x1 + clip1 * (x2 - x1);
+          by = y1 + clip1 * (y2 - y1);
+          j1 = 0;
+        }
+      }
+      if (draw) {
+        const x1h = fround(ax),
+          y1h = fround(ay),
+          x2h = fround(bx),
+          y2h = fround(by);
+        F[o] = x1h;
+        F[o + 1] = y1h;
+        F[o + 2] = x2h;
+        F[o + 3] = y2h;
+        F[o + 4] = ax - x1h;
+        F[o + 5] = ay - y1h;
+        F[o + 6] = bx - x2h;
+        F[o + 7] = by - y2h;
+        F[o + 8] = period > 0 ? d0 % period : d0;
+        F[o + 9] = patScale;
+        const b = (o + 10) * 4;
+        U[b] = rgb[0];
+        U[b + 1] = rgb[1];
+        U[b + 2] = rgb[2];
+        U[b + 3] = a;
+        U[b + 4] = lw | (flags << 5);
+        U[b + 5] = row;
+        U[b + 6] = j0;
+        U[b + 7] = j1;
+        F[o + 12] = band;
+        o += SEG_FLOATS;
+        count++;
+      }
       prevJoin = endJoin;
       dist += len;
       len = nlen;
@@ -267,9 +340,8 @@ export class Batch {
       uy = nuy;
       this._bound(x1, y1);
       this._bound(x2, y2);
-      o += SEG_FLOATS;
     }
-    this.segCount += segs;
+    this.segCount += count;
   }
 
   /** Fast path for many independent segments, flat [x1, y1, x2, y2, ...]. */
@@ -284,12 +356,30 @@ export class Batch {
     const lw = style.lwIndex ?? 0;
     const flags = this.flags;
     const band = this.band;
+    const longLen = this.longLen;
     let o = this.segCount * SEG_FLOATS;
+    let skipped = 0;
     for (let i = 0; i < s.length; i += 4) {
-      const x1 = s[i],
+      let x1 = s[i],
         y1 = s[i + 1],
         x2 = s[i + 2],
         y2 = s[i + 3];
+      this._bound(x1, y1);
+      this._bound(x2, y2);
+      // Long segments are cut to the box, as in line().
+      if (Math.abs(x2 - x1) + Math.abs(y2 - y1) > longLen) {
+        this.clipped = true;
+        if (!clipSeg(x1, y1, x2, y2, this.box)) {
+          skipped++;
+          continue;
+        }
+        const dx = x2 - x1,
+          dy = y2 - y1;
+        x2 = x1 + clip1 * dx;
+        y2 = y1 + clip1 * dy;
+        x1 += clip0 * dx;
+        y1 += clip0 * dy;
+      }
       const x1h = fround(x1),
         y1h = fround(y1),
         x2h = fround(x2),
@@ -314,11 +404,9 @@ export class Batch {
       U[b + 6] = 0;
       U[b + 7] = 0;
       F[o + 12] = band;
-      this._bound(x1, y1);
-      this._bound(x2, y2);
       o += SEG_FLOATS;
     }
-    this.segCount += count;
+    this.segCount += count - skipped;
   }
 
   /** display-list sink: filled polygon with holes */

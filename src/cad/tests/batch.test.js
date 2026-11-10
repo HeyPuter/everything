@@ -147,4 +147,68 @@ describe('Batch', () => {
     b.line([0, 0, 1, 0], false, style);
     expect(b.segCount).toBe(1);
   });
+
+  describe('long segments', () => {
+    const ends = (b, i = 0) => {
+      const o = i * SEG_FLOATS,
+        F = b.segF;
+      return [F[o] + F[o + 4], F[o + 1] + F[o + 5], F[o + 2] + F[o + 6], F[o + 3] + F[o + 7]];
+    };
+    const clipping = () => {
+      const b = new Batch(() => 3);
+      b.longLen = 1000;
+      b.box = [-100, -100, 100, 100];
+      return b;
+    };
+
+    it('are cut to the box around the view, keeping their place and dash phase', () => {
+      const b = clipping();
+      const pattern = [3, -1];
+      // Passes through (7, 0) at 45 degrees.
+      b.line([7 - 1e6, -1e6, 7 + 1e6, 1e6], false, { ...style, basePattern: pattern });
+      expect(b.segCount).toBe(1);
+      expect(b.clipped).toBe(true);
+      const [x1, y1, x2, y2] = ends(b);
+      expect(x1).toBeCloseTo(-93, 6);
+      expect(y1).toBeCloseTo(-100, 6);
+      expect(x2).toBeCloseTo(100, 6);
+      expect(y2).toBeCloseTo(93, 6);
+      // Dashes continue from the real start of the line.
+      expect(b.segF[8]).toBeCloseTo(((1e6 - 100) * Math.SQRT2) % 4, 4);
+      // The extents are still those of the whole line.
+      expect(b.bounds).toEqual([7 - 1e6, -1e6, 7 + 1e6, 1e6]);
+    });
+
+    it('are left out when they miss the box, and short ones are untouched', () => {
+      const b = clipping();
+      b.line([-1e6, 500, 1e6, 500, 1e6, 495, 1e6 + 5, 495], false, style);
+      expect(b.segCount).toBe(2);
+      expect(ends(b, 0)).toEqual([1e6, 500, 1e6, 495]);
+      expect(ends(b, 1)).toEqual([1e6, 495, 1e6 + 5, 495]);
+      b.reset();
+      expect(b.clipped).toBe(false);
+      b.line([-500, 3, 400, 3], false, style);
+      expect(ends(b)).toEqual([-500, 3, 400, 3]);
+      expect(b.clipped).toBe(false);
+    });
+
+    it('lose the joint at a cut end only', () => {
+      const b = clipping();
+      b.line([-1e6, 0, 50, 0, 50, 20], false, style);
+      const u = new Uint8Array(b.segBuf);
+      expect(ends(b)).toEqual([-100, 0, 50, 0]);
+      expect(u[46]).toBe(0);
+      expect(u[47]).not.toBe(0);
+      expect(u[SEG_STRIDE + 46]).toBe(u[47]);
+    });
+
+    it('are cut on the fast path for independent segments too', () => {
+      const b = clipping();
+      b.segs([-1e6, 5, 1e6, 5, 0, 0, 1, 1, -1e6, 500, 1e6, 500], style);
+      expect(b.segCount).toBe(2);
+      expect(ends(b, 0)).toEqual([-100, 5, 100, 5]);
+      expect(ends(b, 1)).toEqual([0, 0, 1, 1]);
+      expect(b.bounds).toEqual([-1e6, 0, 1e6, 500]);
+    });
+  });
 });

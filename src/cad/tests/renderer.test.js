@@ -219,6 +219,37 @@ describe('Renderer block changes', () => {
   });
 });
 
+describe('Renderer long lines', () => {
+  it('cuts a line far longer than the view and rebuilds once the view leaves the cut part', () => {
+    const t = setup(10);
+    t.d.transaction('add', () => {
+      t.d.add({ type: 'line', layer: '0', color: 256, x1: -1e6, y1: -1e6, x2: 1e6, y2: 1e6 });
+    });
+    t.r.camera.state = { cx: 0, cy: 0, scale: 1e4 };
+    t.r.frame();
+    const c = t.r.chunks[0];
+    expect(c.safe).toBeTruthy();
+    let builds = 0;
+    const orig = t.r._buildChunk.bind(t.r);
+    t.r._buildChunk = (ch, ctx) => (builds++, orig(ch, ctx));
+    // Panning within the cut part reuses the buffers.
+    t.r.camera.panBy(-3000, 3000);
+    t.r.frame();
+    expect(builds).toBe(0);
+    // Far along the line the cut part has run out.
+    t.r.camera.state = { cx: 500, cy: 500, scale: 1e4 };
+    t.r.frame();
+    expect(builds).toBe(1);
+    expect(c.safe[0]).toBeLessThan(500);
+    expect(c.safe[2]).toBeGreaterThan(500);
+  });
+
+  it('leaves drawings without such lines alone', () => {
+    const t = setup(2000);
+    expect(t.r.chunks.every((c) => !c.safe)).toBe(true);
+  });
+});
+
 describe('Shaders', () => {
   it('keep vertex positions exact where the compiler uses fast math', () => {
     // Metal regroups (hi - camHi) + (lo - camLo) unless the position is

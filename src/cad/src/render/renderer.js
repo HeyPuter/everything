@@ -24,6 +24,13 @@ const TOL_PX = 0.25;
 const LOD_UP = 3;
 const LOD_DOWN = 8;
 const FRAME_BUDGET_MS = 8;
+/**
+ * Segments longer than LONG_PX pixels are cut to a box reaching SAFE_PX
+ * beyond the view when buffers are built (see Batch.longLen); the buffers
+ * are rebuilt when the view leaves that box.
+ */
+const LONG_PX = 1e6;
+const SAFE_PX = 5e5;
 /** Header values that change how existing objects look. */
 const DRAWN_HEADER_KEYS = new Set(['ltscale', 'pdmode', 'pdsize', 'linearFormat', 'linearPrecision', 'angularFormat', 'angularPrecision', 'units']);
 
@@ -530,6 +537,15 @@ export class Renderer {
     });
   }
 
+  /** Tell the batch which segments are too long for the current view, and the box to cut them to. */
+  _setClip() {
+    const cam = this.camera,
+      b = this.batch;
+    const r = (SAFE_PX + Math.max(cam.width, cam.height) / 2) / cam.scale;
+    b.longLen = LONG_PX / cam.scale;
+    b.box = [cam.cx - r, cam.cy - r, cam.cx + r, cam.cy + r];
+  }
+
   _buildChunk(c, ctx) {
     const b = this.batch;
     b.reset();
@@ -559,6 +575,7 @@ export class Renderer {
     if (!c.gpu) c.gpu = new GpuBatch(this.gl);
     c.gpu.upload(b);
     c.bounds = b.bounds;
+    c.safe = b.clipped ? b.box : null;
     c.dirty = false;
     c.builtScale = this.camera.scale;
     b.shrink();
@@ -577,6 +594,7 @@ export class Renderer {
     b.flags = 0;
     b.band = 0;
     gpu.upload(b);
+    gpu.safe = b.clipped ? b.box : null;
     b.shrink();
   }
 
@@ -598,6 +616,7 @@ export class Renderer {
     const cam = this.camera;
     const ctx = this._ctx();
     const view = cam.bounds(4 / cam.scale);
+    this._setClip();
 
     // Rebuild dirty chunks: visible (or never built) ones now, the rest
     // within the frame budget; then refresh the level of detail of visible
@@ -613,7 +632,7 @@ export class Renderer {
     }
     for (const c of this.chunks) {
       if (c.dirty || !c.bounds || !overlaps(c.bounds, view)) continue;
-      if (lodStale(cam.scale, c.builtScale)) {
+      if (lodStale(cam.scale, c.builtScale) || (c.safe && !inside(view, c.safe))) {
         if (performance.now() - t0 < FRAME_BUDGET_MS) this._buildChunk(c, ctx);
         else pending = true;
       }
@@ -631,7 +650,8 @@ export class Renderer {
       for (const id of this.infinite) if (this.selection.has(id)) selInf.push(id);
     }
     const selStale = this.selection.size < 5000 && lodStale(cam.scale, this.selScale);
-    if (this.selDirty || (this.selection.size && selStale)) {
+    const selOut = this.selGpu.safe && !inside(view, this.selGpu.safe);
+    if (this.selDirty || (this.selection.size && (selStale || selOut))) {
       const ids = selInf.length
         ? [...this.selection].filter((id) => !this.infinite.has(id))
         : this.selection;
@@ -642,7 +662,7 @@ export class Renderer {
     if (selInf.length || this.selInfGpu.segCount || this.selInfGpu.vertCount) {
       this._buildIds(this.selInfGpu, selInf, F_HIGHLIGHT, ctx);
     }
-    if (this.hoverDirty || (this.hover != null && (this.infinite.has(this.hover) || lodStale(cam.scale, this.hoverScale)))) {
+    if (this.hoverDirty || (this.hover != null && (this.infinite.has(this.hover) || lodStale(cam.scale, this.hoverScale) || (this.hoverGpu.safe && !inside(view, this.hoverGpu.safe))))) {
       this._buildIds(this.hoverGpu, this.hover != null ? [this.hover] : [], F_HIGHLIGHT, ctx);
       this.hoverDirty = false;
       this.hoverScale = cam.scale;
@@ -880,6 +900,11 @@ function lodStale(scale, built) {
 
 function overlaps(a, b) {
   return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+}
+
+/** True when rectangle a lies within rectangle b. */
+function inside(a, b) {
+  return a[0] >= b[0] && a[1] >= b[1] && a[2] <= b[2] && a[3] <= b[3];
 }
 
 function union(a, b) {
