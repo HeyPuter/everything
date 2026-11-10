@@ -171,7 +171,8 @@ export function applyGrip(ent, i, x, y) {
         if (len >= minor) return { ...ent, mx: s * vx, my: s * vy, ratio: minor / len };
         const ux = -vy / len,
           uy = vx / len;
-        return { ...ent, mx: ux * minor * s, my: uy * minor * s, ratio: len / minor, ...shiftParams(ent, -s * (Math.PI / 2)) };
+        // Either end gives the same new major axis (s undoes the sign of v), so the same shift.
+        return { ...ent, mx: ux * minor * s, my: uy * minor * s, ratio: len / minor, ...shiftParams(ent, -Math.PI / 2) };
       }
       const ux = ent.mx / major,
         uy = ent.my / major;

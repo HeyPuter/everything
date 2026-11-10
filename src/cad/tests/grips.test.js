@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { gripsOf, applyGrip } from '../src/editor/grips.js';
 import { stretchEntity } from '../src/editor/commands/modify.js';
-import { splineFromFitPoints, evalSpline } from '../src/core/geom/index.js';
+import { splineFromFitPoints, evalSpline, ellipsePoint } from '../src/core/geom/index.js';
 
 const P = { layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ltscale: 1 };
 
@@ -154,5 +154,28 @@ describe('elliptical arc grips', () => {
 
   it('does not close the arc when an end is dropped on the other end', () => {
     expect(applyGrip(arc, 5, 0, 5)).toBe(arc);
+  });
+
+  it('keeps an elliptical arc in place when either major grip is dragged inside the minor radius', () => {
+    for (const rot of [0, 0.7]) {
+      const ux = Math.cos(rot),
+        uy = Math.sin(rot);
+      const e = { ...P, type: 'ellipse', cx: 1, cy: 2, mx: 10 * ux, my: 10 * uy, ratio: 0.5, start: 0.4, end: 2.2 };
+      // Minor radius 5: a major radius of 5.01 keeps the axes, 4.99 swaps them.
+      // The arc must not jump between the two.
+      for (const [i, s] of [
+        [1, 1],
+        [2, -1],
+      ]) {
+        const before = applyGrip(e, i, e.cx + s * ux * 5.01, e.cy + s * uy * 5.01);
+        const after = applyGrip(e, i, e.cx + s * ux * 4.99, e.cy + s * uy * 4.99);
+        expect(after.ratio).toBeCloseTo(4.99 / 5, 9);
+        for (const k of ['start', 'end']) {
+          const a = ellipsePoint(before, before[k]),
+            b = ellipsePoint(after, after[k]);
+          expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(0.05);
+        }
+      }
+    }
   });
 });
