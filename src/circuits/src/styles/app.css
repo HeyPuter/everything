@@ -339,8 +339,8 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .dialog-head h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; flex: 1; }
 .dialog-body { padding: 14px 16px; overflow: auto; min-height: 0; flex: 1; }
 .dialog-body p { margin: 0 0 10px; line-height: 1.5; }
-.dialog-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--bg-chrome-2); }
-.dialog-foot .left { margin-right: auto; display: flex; gap: 8px; align-items: center; }
+.dialog-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--bg-chrome-2); }
+.dialog-foot .left { margin-right: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .form-grid { display: grid; grid-template-columns: minmax(120px, 34%) minmax(0, 1fr); gap: 8px 12px; align-items: center; }
 .form-grid > label { color: var(--text-2); }
 .form-grid .full { grid-column: 1 / -1; }
