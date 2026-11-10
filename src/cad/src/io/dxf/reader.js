@@ -380,9 +380,10 @@ class Tokenizer {
 /* Helpers on the current record                                       */
 /* ------------------------------------------------------------------ */
 
+/** Real value of a group; 0 for anything that is not a finite number. */
 function num(v) {
   const n = +v;
-  return n === n ? n : 0;
+  return n - n === 0 ? n : 0;
 }
 
 function int(v) {

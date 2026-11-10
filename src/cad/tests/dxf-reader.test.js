@@ -744,6 +744,17 @@ describe('parseDxf: encodings and robustness', () => {
     expect(drawing.entities[0]).toMatchObject({ type: 'point', x: 1.5, y: 2.5 });
   });
 
+  it('reads overflowing and infinite numbers as 0, never as Infinity', () => {
+    const { drawing } = parseDxf(
+      dxf([0, 'LINE', 10, '1e400', 20, '-1e999', 11, 'Infinity', 21, 4, 0, 'CIRCLE', 10, 1, 20, 2, 40, '-Infinity', 0, 'POINT', 10, '1e308', 20, 5]),
+    );
+    const [line, point] = drawing.entities;
+    expect([line.x1, line.y1, line.x2, line.y2]).toEqual([0, 0, 0, 4]);
+    // the circle has no usable radius
+    expect(point).toMatchObject({ type: 'point', x: 1e308, y: 5 });
+    expect(JSON.stringify(drawing.entities)).not.toContain('null');
+  });
+
   it('parses a large file quickly', () => {
     const parts = ['  0\r\nSECTION\r\n  2\r\nENTITIES\r\n'];
     for (let i = 0; i < 100000; i++) {
