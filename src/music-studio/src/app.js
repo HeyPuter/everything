@@ -177,6 +177,8 @@ export class App extends Emitter {
   installKeyboard() {
     document.addEventListener('keydown', (e) => {
       if (e.defaultPrevented || e.isComposing) return;
+      // puter.js's user menu takes its own keys (they arrive from the element).
+      if (e.target?.closest?.('puter-user-menu')) return;
       if (document.querySelector('.dialog-backdrop') || isMenuOpen() || isTyping(e.target)) {
         // App shortcuts that the browser would turn into a reload, save page,
         // open or print do nothing here instead (a reload loses a running export).
@@ -204,7 +206,7 @@ export class App extends Emitter {
       this.commands.run(cmd.id);
     });
     document.addEventListener('keyup', (e) => {
-      if (this.prefs.get('typingKeyboard')) this.emitKeyboardNote?.(e, false);
+      if (this.prefs.get('typingKeyboard') && !e.target?.closest?.('puter-user-menu')) this.emitKeyboardNote?.(e, false);
     });
     // F10 focuses the menu bar, like desktop apps.
     document.addEventListener('keydown', (e) => {

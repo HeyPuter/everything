@@ -334,6 +334,55 @@
   height: 28px;
 }
 
+/* <puter-user-menu> (puter.js; src/ui/user-menu.js): when the loaded puter.js has it, it holds
+   the Apps launcher and the account in place of the Sign in and account buttons. Its parts
+   take the toolbar's icon button, avatar and primary button looks, its panels the menus'. */
+puter-user-menu {
+  flex: none;
+}
+
+puter-user-menu::part(apps-button) {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+puter-user-menu::part(apps-button):hover {
+  background: var(--raised-hover);
+  color: var(--text);
+}
+
+puter-user-menu::part(avatar) {
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+  font-size: 13px;
+}
+
+puter-user-menu::part(sign-in) {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+puter-user-menu::part(sign-in):hover {
+  background: var(--accent-hover);
+}
+
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--panel-2);
+  border-color: var(--border-strong);
+  --caret-border: var(--border-strong);
+  --caret-fill: var(--panel-2);
+}
+
 /* ------------------------------------------------------------ workspace */
 
 .workspace {
@@ -766,10 +815,24 @@
   padding: 0 4px;
 }
 
+/* The phone toolbar is full: the element keeps the account and gives up its Apps button. */
+.is-phone puter-user-menu::part(apps-button) {
+  display: none;
+}
+
+.is-phone puter-user-menu::part(sign-in) {
+  padding: 0 6px;
+}
+
 @media (max-width: 420px) {
   .is-phone .tb-pattern,
   .is-phone .time-display {
     display: none;
+  }
+
+  .is-phone puter-user-menu::part(sign-in) {
+    padding: 0 4px;
+    font-size: var(--fs-xs);
   }
 }
 
