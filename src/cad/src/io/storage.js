@@ -50,6 +50,8 @@ export async function cloudWrite(path, blob, overwrite = true) {
 /** True when a write failed because the file already exists. */
 export function isExistsError(err) {
   const s = `${err?.code ?? ''} ${err?.error?.code ?? ''} ${err?.message ?? ''}`;
+  // "..._does_not_exist" (a missing folder or source) is the opposite failure
+  if (/does[_ ]?not[_ ]?exist/i.test(s)) return false;
   return /exist|already|conflict/i.test(s);
 }
 

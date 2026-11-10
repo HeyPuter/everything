@@ -22,4 +22,12 @@ describe('storage: Puter error classification', () => {
     expect(isAuthError({ error: { code: 'storage_limit_reached' } })).toBe(false);
     expect(errorText({ error: { message: 'Quota' } })).toBe('Quota');
   });
+
+  it('does not take a missing folder or file for a name that is already used', () => {
+    // Puter's codes for a missing destination or source contain the word "exist"
+    expect(isExistsError({ code: 'dest_does_not_exist', message: 'Destination does not exist.' })).toBe(false);
+    expect(isExistsError({ error: { code: 'subject_does_not_exist', message: 'The file does not exist.' } })).toBe(false);
+    expect(isExistsError({ code: 'item_with_same_name_exists', message: 'An item with name `a.cad` already exists.' })).toBe(true);
+    expect(isExistsError({ message: 'File already exists' })).toBe(true);
+  });
 });
