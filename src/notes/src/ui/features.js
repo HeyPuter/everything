@@ -781,15 +781,20 @@ export function openReader(app) {
   };
   const synth = window.speechSynthesis;
   let speaking = false;
+  let reading = 0;
+  let readingAt = 0;
   const playBtn = h('button.reader-play', { type: 'button', 'aria-label': 'Read aloud' }, icon('play', 26));
   const stopSpeech = () => {
+    // Ends this reading for good: a cancelled utterance may still report
+    // its end, which must not read on.
+    reading++;
     synth?.cancel();
     speaking = false;
     playBtn.replaceChildren(icon('play', 26));
     playBtn.setAttribute('aria-label', 'Read aloud');
     if (globalThis.CSS?.highlights) CSS.highlights.delete('nt-read');
   };
-  const speak = () => {
+  const speak = (from = 0) => {
     if (!synth) {
       toast('Read aloud is not available in this browser.');
       return;
@@ -805,12 +810,15 @@ export function openReader(app) {
       return;
     }
     const paras = [...content.children];
-    let i = 0;
+    let i = Number.isInteger(from) ? from : 0;
+    const mine = ++reading;
     speaking = true;
     playBtn.replaceChildren(icon('pause', 26));
     playBtn.setAttribute('aria-label', 'Pause reading');
     const next = () => {
+      if (mine !== reading) return;
       if (!speaking || i >= paras.length) return stopSpeech();
+      readingAt = i;
       const el = paras[i++];
       const text = el.textContent;
       const u = new SpeechSynthesisUtterance(text);
@@ -829,7 +837,7 @@ export function openReader(app) {
     };
     next();
   };
-  playBtn.addEventListener('click', speak);
+  playBtn.addEventListener('click', () => speak());
   const close = () => {
     stopSpeech();
     overlay.remove();
@@ -883,8 +891,10 @@ export function openReader(app) {
   rateSel.addEventListener('change', () => {
     settings.rate = Number(rateSel.value);
     if (speaking) {
+      // Go on from the paragraph being read, at the new speed.
+      const at = readingAt;
       stopSpeech();
-      speak();
+      speak(at);
     }
     apply();
   });

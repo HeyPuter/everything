@@ -230,6 +230,57 @@ describe('email page', () => {
   });
 });
 
+describe('read aloud', () => {
+  afterEach(() => {
+    delete window.speechSynthesis;
+    delete globalThis.SpeechSynthesisUtterance;
+    document.querySelector('.reader')?.remove();
+    app?.destroy();
+  });
+
+  it('goes on from the paragraph being read when the voice speed changes', async () => {
+    await mount();
+    const { openReader } = await import('../src/ui/features.js');
+    const page = app.editor.page;
+    page.title = 'Title';
+    page.outlines.push({ id: 'o1', x: 40, y: 140, w: null, html: '<p>para one</p><p>para two</p><p>para three</p>' });
+    await app.editor.open(page);
+    const spoken = [];
+    let current = null;
+    globalThis.SpeechSynthesisUtterance = class {
+      constructor(text) {
+        this.text = text;
+      }
+    };
+    // An engine that reports the end of a cancelled utterance, as some do.
+    window.speechSynthesis = {
+      paused: false,
+      speak(u) {
+        spoken.push(`${u.text}@${u.rate}`);
+        current = u;
+      },
+      cancel() {
+        const u = current;
+        current = null;
+        if (u) setTimeout(() => u.onend?.());
+      },
+    };
+    const finish = () => current.onend();
+    openReader(app);
+    const reader = document.querySelector('.reader');
+    reader.querySelector('.reader-play').click();
+    finish();
+    finish();
+    const rate = reader.querySelector('select[aria-label="Voice speed"]');
+    rate.value = '1.5';
+    rate.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 10));
+    finish();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(spoken).toEqual(['Title@1', 'para one@1', 'para two@1', 'para two@1.5', 'para three@1.5']);
+  });
+});
+
 describe('importing Markdown', () => {
   it('takes the title from a first-line heading only', async () => {
     const { markdownTitle } = await import('../src/ui/features.js');
