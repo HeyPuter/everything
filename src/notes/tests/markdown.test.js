@@ -87,3 +87,13 @@ describe('Markdown links', () => {
     expect(read('[m](https://en.wikipedia.org/wiki/Mercury_(planet))')).toBe('<p><a href="https://en.wikipedia.org/wiki/Mercury_(planet)">m</a></p>');
   });
 });
+
+describe('Markdown text that looks like markup', () => {
+  it('reads back as the text it was', () => {
+    for (const original of ['<p>2026. A great year</p>', '<p>- not a bullet</p>', '<p>+ plus</p>', '<p>1) first</p>', '<p>&gt; not a quote</p>', '<p># not a heading</p>', '<p>---</p>', '<p>~~not struck~~</p>', '<p>line one<br>- line two</p>', '<p>-5 degrees</p>', '<p>v1.2 and 3.14</p>']) {
+      expect(markdownToHtml(htmlToMarkdown(original))).toBe(original);
+    }
+    // Text that needs no escaping gets none.
+    expect(htmlToMarkdown('<p>v1.2 costs 3.50 - really</p>')).toBe('v1.2 costs 3.50 - really');
+  });
+});

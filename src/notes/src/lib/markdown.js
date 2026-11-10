@@ -18,7 +18,7 @@ function inline(node) {
   let out = '';
   for (const c of node.childNodes) {
     if (c.nodeType === 3) {
-      out += c.nodeValue.replace(/ /g, ' ').replace(/([\\`*_[\]])/g, '\\$1');
+      out += c.nodeValue.replace(/ /g, ' ').replace(/([\\`*_[\]~])/g, '\\$1');
       continue;
     }
     if (c.nodeType !== 1) continue;
@@ -44,6 +44,15 @@ function inline(node) {
     else out += inner;
   }
   return out;
+}
+
+/**
+ * Escapes what would make a paragraph's line read back as something else:
+ * "2026. A great year" as a numbered list (losing the "2026."), "- x" as a
+ * bullet, "> x" as a quote, "# x" as a heading, "---" as a rule.
+ */
+function plainLines(text) {
+  return text.split('\n').map((l) => l.replace(/^(\s*)(?:(#{1,6}(?=\s))|([-+>])|(\d+)(?=[.)]\s))/, (m, lead, hash, mark, num) => (hash ? `${lead}\\${hash}` : mark ? `${lead}\\${mark}` : `${lead}${num}\\`))).join('\n');
 }
 
 function tagPrefix(block) {
@@ -98,7 +107,7 @@ function blocks(root) {
   let run = [];
   const flush = () => {
     const text = inline({ childNodes: run }).trim();
-    if (text) out.push(text);
+    if (text) out.push(plainLines(text));
     run = [];
   };
   for (const c of root.childNodes) {
@@ -120,7 +129,7 @@ function blocks(root) {
       const prefix = tagPrefix(c);
       const text = inline(c).trim();
       if (prefix.startsWith('[')) out.push(`- ${prefix}${text}`);
-      else out.push(prefix + text);
+      else out.push(prefix + (prefix ? text : plainLines(text)));
     }
   }
   flush();
@@ -144,7 +153,7 @@ export function inlineMd(s) {
   // Pull out escapes and code spans in one left-to-right pass, so an escaped
   // character never opens formatting and a backslash inside code stays literal.
   const held = [];
-  let t = s.replace(/\\([\\`*_[\]])|`([^`]+)`/g, (_, ch, code) => {
+  let t = s.replace(/\\([\\`*_[\]~#+\-.>)])|`([^`]+)`/g, (_, ch, code) => {
     held.push(ch !== undefined ? esc(ch) : `<code>${esc(code)}</code>`);
     return `\u0000${held.length - 1}\u0000`;
   });
