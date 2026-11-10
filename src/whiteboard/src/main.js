@@ -487,6 +487,7 @@ import { EXTRA_ICONS } from "./extra-icons.js";
 import { createAI } from "./ai/ai-ui.js";
 import { createAccountUI } from "./account-ui.js";
 import { createAppsPanel } from "./apps-panel.js";
+import { createUserMenu } from "./user-menu.js";
 import { createOnboarding } from "./help/onboarding.js";
 import { createHelpCenter } from "./help/help-center.js";
 import { createAltText } from "./accessibility/alt-text.js";
@@ -1571,6 +1572,18 @@ const appsPanel = createAppsPanel({
     return user?.uuid || user?.username || appsPanel.PENDING;
   },
 });
+// Where puter.js has <puter-user-menu>, it ends both headers with the Apps
+// launcher and the account, and the two controls above stand down. Its Sign
+// out is the app's, which leaves a shared board and uploads a waiting edit
+// first; a sign-in or sign-out it did by itself is followed.
+const userMenu = createUserMenu({
+  theme: () => theme,
+  signOut: () => action("sign-out"),
+  onSignIn: () => accountSignedIn().catch((e) => toast(e.message)),
+  onSignOut: () => accountSignedOut().catch((e) => toast(e.message)),
+});
+const accountCorner = () =>
+  userMenu.active() ? userMenu.markup() : appsPanel.markup() + account.markup();
 const altText = createAltText({
   board: () => current,
   view: () => facilitation.masked(current),
@@ -2993,6 +3006,7 @@ function applyTheme() {
         ? "dark"
         : "light"
       : theme;
+  userMenu.syncTheme();
 }
 applyTheme();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
@@ -3584,7 +3598,7 @@ async function home({
       ),
     ].map((canvas) => [canvas.dataset.preview, canvas]),
   );
-  app.innerHTML = `<div class="workspace"><aside class="sidebar"><a class="brand" href="#" aria-label="Whiteboard home">${logo}</a><div class="workspace-label">Personal workspace</div><nav aria-label="Board library"><button data-filter="all" class="nav-item ${filter === "all" ? "active" : ""}">${icon("layout-dashboard")}All boards<span>${libraryFigure(boards.filter((b) => !b.deletedAt).length + cloudOnly().length)}</span></button><button data-filter="favorites" class="nav-item ${filter === "favorites" ? "active" : ""}">${icon("star")}Favorites<span>${libraryFigure(boards.filter((b) => b.favorite && !b.deletedAt).length)}</span></button><button data-filter="trash" class="nav-item ${filter === "trash" ? "active" : ""}">${icon("trash-2")}Trash</button>${organizationHome.notificationsItem()}</nav>${organizationHome.sidebar()}<div class="sidebar-bottom">${window.puter?.auth?.isSignedIn?.() ? "" : `<div class="sidebar-note" role="note">${icon("hard-drive")}<span>${t("Boards stay in this browser until you sign in.")}</span><button class="text-btn" data-action="sign-in">${t("Sign in")}</button></div>`}${feedbackAvailable() ? `<button class="nav-item feedback-item" data-action="feedback">${icon("message-square-heart")}${t("Send feedback")}</button>` : ""}${themeControl(true)}<a class="powered" href="https://developer.puter.com" target="_blank" rel="noopener">Powered by Puter ${icon("arrow-up-right")}</a></div></aside><main class="library"><h1 class="sr-only">Whiteboard</h1><header class="library-top"><span class="crumbs"><span class="crumb-parent">Workspace <span class="slash">/</span></span> <strong>${filter === "trash" ? "Trash" : filter === "favorites" ? "Favorites" : "All boards"}</strong></span><div class="top-right">${button("command", "Command palette (Ctrl/Cmd K)", "commands")}${button("users", "Join shared board", "join-shared")}${button("circle-help", "Help and training", "help-center")}${button("keyboard", "Keyboard shortcuts", "help")}${appsPanel.markup()}${account.markup()}</div></header><div class="library-body">${
+  app.innerHTML = `<div class="workspace"><aside class="sidebar"><a class="brand" href="#" aria-label="Whiteboard home">${logo}</a><div class="workspace-label">Personal workspace</div><nav aria-label="Board library"><button data-filter="all" class="nav-item ${filter === "all" ? "active" : ""}">${icon("layout-dashboard")}All boards<span>${libraryFigure(boards.filter((b) => !b.deletedAt).length + cloudOnly().length)}</span></button><button data-filter="favorites" class="nav-item ${filter === "favorites" ? "active" : ""}">${icon("star")}Favorites<span>${libraryFigure(boards.filter((b) => b.favorite && !b.deletedAt).length)}</span></button><button data-filter="trash" class="nav-item ${filter === "trash" ? "active" : ""}">${icon("trash-2")}Trash</button>${organizationHome.notificationsItem()}</nav>${organizationHome.sidebar()}<div class="sidebar-bottom">${window.puter?.auth?.isSignedIn?.() ? "" : `<div class="sidebar-note" role="note">${icon("hard-drive")}<span>${t("Boards stay in this browser until you sign in.")}</span><button class="text-btn" data-action="sign-in">${t("Sign in")}</button></div>`}${feedbackAvailable() ? `<button class="nav-item feedback-item" data-action="feedback">${icon("message-square-heart")}${t("Send feedback")}</button>` : ""}${themeControl(true)}<a class="powered" href="https://developer.puter.com" target="_blank" rel="noopener">Powered by Puter ${icon("arrow-up-right")}</a></div></aside><main class="library"><h1 class="sr-only">Whiteboard</h1><header class="library-top"><span class="crumbs"><span class="crumb-parent">Workspace <span class="slash">/</span></span> <strong>${filter === "trash" ? "Trash" : filter === "favorites" ? "Favorites" : "All boards"}</strong></span><div class="top-right">${button("command", "Command palette (Ctrl/Cmd K)", "commands")}${button("users", "Join shared board", "join-shared")}${button("circle-help", "Help and training", "help-center")}${button("keyboard", "Keyboard shortcuts", "help")}${accountCorner()}</div></header><div class="library-body">${
     filter === "trash"
       ? ""
       : `<section aria-labelledby="start-heading"><div class="section-heading"><h2 id="start-heading">Start with a little inspiration</h2><button class="text-btn" data-action="templates">Browse all templates ${icon("arrow-up-right")}</button></div><div class="templates">${featuredTemplates()
@@ -3598,6 +3612,7 @@ async function home({
   bindShared();
   account.bind();
   appsPanel.bind();
+  userMenu.bind();
   organizationHome.bind();
   document
     .querySelector('[data-filter="organization"]')
@@ -4301,10 +4316,11 @@ function editor() {
   // controls in the order they are laid out: header, top row, rail, then the
   // zoom controls at the bottom. Comment pins and link badges, which can
   // number hundreds, come after all of them.
-  app.innerHTML = `<main class="editor"><h1 id="board-heading" class="sr-only" data-user-content>${escape(current.title)}</h1><p id="board-announcer" class="sr-only" role="status" aria-live="polite"></p><header class="editor-header"><div class="editor-heading">${button("arrow-left", "Back to boards", "home")}<span class="mini-brand">${brandImage}</span><div><input id="board-title" aria-label="Board name" maxlength="200" value="${escape(current.title)}"><span id="save-state" role="status" aria-live="polite" title="${saveState}"${saveTone ? ` data-tone="${saveTone}"` : ""}>${saveState}</span></div></div><div class="editor-actions">${button("command", "Command palette (Ctrl/Cmd K)", "commands")}<details class="preferences"><summary class="icon-btn" aria-label="${t("Preferences")}" title="${t("Preferences")}">${icon("settings-2")}</summary><div class="preferences-menu" role="group" aria-label="${t("Preferences")}">${themeControl(true)}${current.shared ? `<label class="preferences-check"><input type="checkbox" id="show-authors" ${showAuthors ? "checked" : ""}><span>${t("Show sticky note authors")}</span></label>` : ""}${navigator.maxTouchPoints > 0 ? `<label class="preferences-check"><input type="checkbox" id="pen-only" ${penOnly ? "checked" : ""}><span>${t("After a pen, fingers only move the board")}</span></label>` : ""}</div></details>${button(boardStorage(current) === "cloud" ? "cloud-check" : "cloud-upload", cloudSaveLabel(current), "cloud-save", `data-storage="${boardStorage(current)}"`)}${button("history", "Version history (Ctrl/Cmd Alt/Option Shift H)", "history")}${button("download", "Export board", "export")}${button("ellipsis", "More tools", "more-tools")}<button class="primary share-button" data-action="share" aria-label="Share board">${icon("users")}<span>Share</span></button>${appsPanel.markup()}${account.markup()}</div></header><div class="canvas-wrap"><canvas id="canvas" role="img" aria-label="Whiteboard canvas. Use Board objects to select and edit objects with the keyboard." tabindex="0"></canvas><div id="hover-outline" class="hover-outline" aria-hidden="true" hidden></div><div id="board-outline" class="sr-only" role="group" aria-label="Canvas objects" aria-describedby="board-outline-hint"></div><p id="board-outline-hint" class="sr-only">Arrow keys, Home and End move between objects. Page Down and Page Up move to the next or previous frame.</p><div class="canvas-top"><span class="board-tag" data-storage="${boardStorage(current)}" title="${escape(storageLabel(current))}">${storageTag(current)}</span><button class="participants" data-action="participants" hidden></button><div class="canvas-navigation"><button type="button" class="icon-btn live-access" data-action="live" aria-label="${t("Live reactions and raise hand")}" title="${t("Live reactions and raise hand")}" aria-haspopup="dialog" aria-controls="live-popover" aria-expanded="false" hidden>${icon("smile-plus")}</button>${button("tags", "Tags", "tags", 'id="tag-access" hidden')}${button("columns-3", "Table cells", "table-cells", 'id="table-cell-access" hidden')}${button("arrow-up-right", "Object link", "object-link", 'id="object-link-access" hidden')}${button("link", "Text links", "text-links", 'id="text-link-access" hidden')}<button type="button" class="icon-btn timer-access" data-action="timer" data-timer-access aria-label="${t("Timer")}" title="${t("Timer")}" aria-controls="workshop-timer" aria-expanded="false">${icon("timer")}<span class="timer-badge" hidden></span></button><button type="button" class="icon-btn facilitation-access" data-action="facilitation" aria-label="${t("Facilitation")}" title="${t("Facilitation")}" aria-controls="facilitation-panel" aria-expanded="false">${icon("vote")}</button>${button("sparkles", "AI assistant", "ai")}${button("message-square", "Comments", "comments", 'aria-expanded="false" aria-controls="comments-panel"')}${button("search", "Find on board (Ctrl/Cmd F)", "board-search", 'aria-expanded="false" aria-controls="board-search"')}${button("map", "Minimap (M)", "minimap", 'aria-controls="minimap" aria-expanded="false" aria-pressed="false"')}${button("scan", "Frames and navigation", "frames", 'aria-expanded="false" aria-controls="frames-panel"')}${button("list", "Board objects", "objects")}${button("presentation", "Presentation", "present")}</div></div><div class="left-rail"><div class="tools panel" role="toolbar" aria-label="Drawing tools">${tools.map(([key, ic, label, shortcut]) => button(ic, `${label} (${shortcut})`, `tool-${key}`, `aria-pressed="${tool === key}"`)).join("")}<span class="tool-divider"></span>${button("layout-template", "Templates", "templates")}${button("shapes", "Shapes (S)", "shapes")}${button("image-plus", "Add image", "image")}${button("circle-plus", "Add content", "add-content", 'aria-haspopup="dialog"')}</div><div class="panel history-tools">${button("undo-2", "Undo (Ctrl/Cmd Z)", "undo")}${button("redo-2", "Redo (Ctrl/Cmd Shift Z)", "redo")}${button("magnet", "Snap to objects", "toggle-snapping", `aria-pressed="${snapping}"`)}</div></div><div class="drop-hint" aria-hidden="true"><strong>Drop content here</strong><span>Images, files, text, and links</span></div><div id="selection-tools" class="selection-tools panel" role="toolbar" aria-label="${t("Selection tools")}" hidden></div><div id="quick-ports" role="group" hidden></div><section id="minimap" class="minimap panel" hidden></section><div class="canvas-bottom"><span id="tool-hint" class="tool-hint">Select and move · Double-click to edit · Space to pan</span><div class="panel zoom-tools">${button("maximize", "Fit board to screen", "fit")}<span class="tool-divider"></span>${button("minus", "Zoom out", "zoom-out")}<button class="zoom-label" data-action="reset-zoom" title="Reset zoom to 100 percent">100%</button>${button("plus", "Zoom in", "zoom-in")}<span class="tool-divider"></span>${button("circle-help", "Help and training", "help-center")}</div></div><div id="object-link-badges" class="object-link-badges" role="group" aria-label="Object links"></div><div id="comment-pins" class="comment-pins" role="group" aria-label="Board comments"></div></div></main>`;
+  app.innerHTML = `<main class="editor"><h1 id="board-heading" class="sr-only" data-user-content>${escape(current.title)}</h1><p id="board-announcer" class="sr-only" role="status" aria-live="polite"></p><header class="editor-header"><div class="editor-heading">${button("arrow-left", "Back to boards", "home")}<span class="mini-brand">${brandImage}</span><div><input id="board-title" aria-label="Board name" maxlength="200" value="${escape(current.title)}"><span id="save-state" role="status" aria-live="polite" title="${saveState}"${saveTone ? ` data-tone="${saveTone}"` : ""}>${saveState}</span></div></div><div class="editor-actions">${button("command", "Command palette (Ctrl/Cmd K)", "commands")}<details class="preferences"><summary class="icon-btn" aria-label="${t("Preferences")}" title="${t("Preferences")}">${icon("settings-2")}</summary><div class="preferences-menu" role="group" aria-label="${t("Preferences")}">${themeControl(true)}${current.shared ? `<label class="preferences-check"><input type="checkbox" id="show-authors" ${showAuthors ? "checked" : ""}><span>${t("Show sticky note authors")}</span></label>` : ""}${navigator.maxTouchPoints > 0 ? `<label class="preferences-check"><input type="checkbox" id="pen-only" ${penOnly ? "checked" : ""}><span>${t("After a pen, fingers only move the board")}</span></label>` : ""}</div></details>${button(boardStorage(current) === "cloud" ? "cloud-check" : "cloud-upload", cloudSaveLabel(current), "cloud-save", `data-storage="${boardStorage(current)}"`)}${button("history", "Version history (Ctrl/Cmd Alt/Option Shift H)", "history")}${button("download", "Export board", "export")}${button("ellipsis", "More tools", "more-tools")}<button class="primary share-button" data-action="share" aria-label="Share board">${icon("users")}<span>Share</span></button>${accountCorner()}</div></header><div class="canvas-wrap"><canvas id="canvas" role="img" aria-label="Whiteboard canvas. Use Board objects to select and edit objects with the keyboard." tabindex="0"></canvas><div id="hover-outline" class="hover-outline" aria-hidden="true" hidden></div><div id="board-outline" class="sr-only" role="group" aria-label="Canvas objects" aria-describedby="board-outline-hint"></div><p id="board-outline-hint" class="sr-only">Arrow keys, Home and End move between objects. Page Down and Page Up move to the next or previous frame.</p><div class="canvas-top"><span class="board-tag" data-storage="${boardStorage(current)}" title="${escape(storageLabel(current))}">${storageTag(current)}</span><button class="participants" data-action="participants" hidden></button><div class="canvas-navigation"><button type="button" class="icon-btn live-access" data-action="live" aria-label="${t("Live reactions and raise hand")}" title="${t("Live reactions and raise hand")}" aria-haspopup="dialog" aria-controls="live-popover" aria-expanded="false" hidden>${icon("smile-plus")}</button>${button("tags", "Tags", "tags", 'id="tag-access" hidden')}${button("columns-3", "Table cells", "table-cells", 'id="table-cell-access" hidden')}${button("arrow-up-right", "Object link", "object-link", 'id="object-link-access" hidden')}${button("link", "Text links", "text-links", 'id="text-link-access" hidden')}<button type="button" class="icon-btn timer-access" data-action="timer" data-timer-access aria-label="${t("Timer")}" title="${t("Timer")}" aria-controls="workshop-timer" aria-expanded="false">${icon("timer")}<span class="timer-badge" hidden></span></button><button type="button" class="icon-btn facilitation-access" data-action="facilitation" aria-label="${t("Facilitation")}" title="${t("Facilitation")}" aria-controls="facilitation-panel" aria-expanded="false">${icon("vote")}</button>${button("sparkles", "AI assistant", "ai")}${button("message-square", "Comments", "comments", 'aria-expanded="false" aria-controls="comments-panel"')}${button("search", "Find on board (Ctrl/Cmd F)", "board-search", 'aria-expanded="false" aria-controls="board-search"')}${button("map", "Minimap (M)", "minimap", 'aria-controls="minimap" aria-expanded="false" aria-pressed="false"')}${button("scan", "Frames and navigation", "frames", 'aria-expanded="false" aria-controls="frames-panel"')}${button("list", "Board objects", "objects")}${button("presentation", "Presentation", "present")}</div></div><div class="left-rail"><div class="tools panel" role="toolbar" aria-label="Drawing tools">${tools.map(([key, ic, label, shortcut]) => button(ic, `${label} (${shortcut})`, `tool-${key}`, `aria-pressed="${tool === key}"`)).join("")}<span class="tool-divider"></span>${button("layout-template", "Templates", "templates")}${button("shapes", "Shapes (S)", "shapes")}${button("image-plus", "Add image", "image")}${button("circle-plus", "Add content", "add-content", 'aria-haspopup="dialog"')}</div><div class="panel history-tools">${button("undo-2", "Undo (Ctrl/Cmd Z)", "undo")}${button("redo-2", "Redo (Ctrl/Cmd Shift Z)", "redo")}${button("magnet", "Snap to objects", "toggle-snapping", `aria-pressed="${snapping}"`)}</div></div><div class="drop-hint" aria-hidden="true"><strong>Drop content here</strong><span>Images, files, text, and links</span></div><div id="selection-tools" class="selection-tools panel" role="toolbar" aria-label="${t("Selection tools")}" hidden></div><div id="quick-ports" role="group" hidden></div><section id="minimap" class="minimap panel" hidden></section><div class="canvas-bottom"><span id="tool-hint" class="tool-hint">Select and move · Double-click to edit · Space to pan</span><div class="panel zoom-tools">${button("maximize", "Fit board to screen", "fit")}<span class="tool-divider"></span>${button("minus", "Zoom out", "zoom-out")}<button class="zoom-label" data-action="reset-zoom" title="Reset zoom to 100 percent">100%</button>${button("plus", "Zoom in", "zoom-in")}<span class="tool-divider"></span>${button("circle-help", "Help and training", "help-center")}</div></div><div id="object-link-badges" class="object-link-badges" role="group" aria-label="Object links"></div><div id="comment-pins" class="comment-pins" role="group" aria-label="Board comments"></div></div></main>`;
   bindShared();
   account.bind();
   appsPanel.bind();
+  userMenu.bind();
   workshopTimer.bind();
   facilitation.bind(document.querySelector(".canvas-wrap"));
   attention.bind(document.querySelector(".canvas-wrap"));
@@ -12251,16 +12267,20 @@ async function connect() {
         ? error
         : Error("Sign in with Puter to continue.");
     });
-    // Every header now shows who is signed in.
-    await account.refresh();
-    // Someone who signs in now gets their organization's policies, such as
-    // its AI settings, just as if they had been signed in on arrival.
-    await reconnectOrganization().catch(() => {});
-    cloud ??= new CloudStore(window.puter);
-    loadCloudIndex();
+    await accountArrived();
   }
   cloud ??= new CloudStore(window.puter);
   return cloud;
+}
+// What follows a sign-in, whoever asked for it.
+async function accountArrived() {
+  // Every header now shows who is signed in.
+  await account.refresh();
+  // Someone who signs in now gets their organization's policies, such as
+  // its AI settings, just as if they had been signed in on arrival.
+  await reconnectOrganization().catch(() => {});
+  cloud ??= new CloudStore(window.puter);
+  loadCloudIndex();
 }
 // Reconnect to a remembered or site-configured organization quietly.
 async function reconnectOrganization() {
@@ -12316,6 +12336,16 @@ async function signInAccount() {
   } catch (e) {
     return toast(e.message || "Could not sign in. Try again.");
   }
+  greetAccount();
+}
+// <puter-user-menu> signed in by itself: the app follows, as after its own
+// Sign in.
+async function accountSignedIn() {
+  if (!window.puter?.auth?.isSignedIn?.()) return;
+  await accountArrived();
+  greetAccount();
+}
+function greetAccount() {
   loadCloudIndex();
   // The library's reminder that boards stay in this browser is answered.
   document.querySelector(".sidebar-note")?.remove();
@@ -12339,6 +12369,19 @@ async function signOutAccount() {
   if (current && pendingCloud.has(current.id)) await sync(clone(current));
   await cloud?.queue.catch(() => {});
   window.puter.auth.signOut();
+  await accountLeft();
+}
+// <puter-user-menu> signed out by itself, which it does only if a later
+// puter.js names its Sign out item otherwise: nothing could be uploaded
+// first, and a shared board, which lives in the account, is closed now.
+async function accountSignedOut() {
+  if (window.puter?.auth?.isSignedIn?.()) return;
+  if (current?.shared) await home().catch(() => {});
+  clearTimeout(cloudTimer);
+  await accountLeft();
+}
+// What follows a sign-out, whoever asked for it.
+async function accountLeft() {
   cloud = null;
   cloudIds.clear();
   cloudIndex.clear();
@@ -13905,9 +13948,13 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (!document.querySelector("dialog[open]") && boardSearch.keydown(e)) return;
+  // Keys from inside <puter-user-menu> arrive as the element's own: Space
+  // and Enter there press its buttons, and letters are no tool shortcuts.
   if (
     document.querySelector("dialog[open]") ||
-    e.target.closest("input,textarea,select,[contenteditable],#context-menu")
+    e.target.closest(
+      "input,textarea,select,[contenteditable],#context-menu,puter-user-menu",
+    )
   )
     return;
   // Board shortcuts would act on the board hidden behind a followed

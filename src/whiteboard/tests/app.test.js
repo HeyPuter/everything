@@ -26081,6 +26081,168 @@ test("signing out uploads an edit still waiting for its Puter save", async () =>
   }
 });
 
+// A stand-in for puter.js's <puter-user-menu> with the real element's
+// shape: an open shadow root holding the Sign in button and the Sign out
+// item, whose own handler would sign out at once.
+function defineUserMenu(w, signOut = () => {}) {
+  class FakeUserMenu extends w.HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML =
+        '<button class="sign-in"></button><div class="menu"><button class="menu-item sign-out"></button></div>';
+      this.shadowRoot
+        .querySelector(".sign-out")
+        .addEventListener("click", () => signOut(this));
+    }
+  }
+  w.customElements.define("puter-user-menu", FakeUserMenu);
+}
+test("puter.js's user menu stands in for the header's Apps button and account control, and its Sign out stays the app's", async () => {
+  const remote = board("Remote plan");
+  remote.items = [item("note", 0, 0, { text: "From Puter" })];
+  const files = new Map([
+    [
+      "whiteboard/catalog.json",
+      JSON.stringify([{ id: remote.id, title: remote.title }]),
+    ],
+    [`whiteboard/${remote.id}.json`, JSON.stringify(remote)],
+  ]);
+  let signedIn = true,
+    signOuts = 0,
+    ownSignOuts = 0;
+  const puter = {
+    env: "web",
+    auth: {
+      isSignedIn: () => signedIn,
+      signIn: async () => {},
+      signOut: () => {
+        signOuts++;
+        signedIn = false;
+      },
+      getUser: async () => ({ uuid: "u1", username: "alice" }),
+    },
+    fs: {
+      async read(path) {
+        if (!files.has(path)) throw { code: "subject_does_not_exist" };
+        return new Blob([files.get(path)]);
+      },
+      async readdir() {
+        return [];
+      },
+      async write(path, value) {
+        files.set(path, typeof value === "string" ? value : await value.text());
+        return { path };
+      },
+    },
+  };
+  const app = await setup(puter, {
+    preferences: { "whiteboard-theme": "dark" },
+    prepare: (w) => defineUserMenu(w, () => ownSignOuts++),
+  });
+  try {
+    const { doc, w, tick } = app;
+    const waitFor = async (fn, what) => {
+      for (let n = 0; n < 200 && !fn(); n++) await tick();
+      assert.ok(fn(), what);
+    };
+    const toastText = () => doc.querySelector("#toast").textContent;
+    const inLibrary = doc.querySelector(".library-top puter-user-menu");
+    assert.ok(inLibrary, "The library header has the element");
+    assert.equal(
+      doc.querySelector(".library-top .top-right").lastElementChild,
+      inLibrary,
+    );
+    assert.equal(inLibrary.getAttribute("theme"), "dark");
+    assert.equal(inLibrary.getAttribute("sign-in-label"), "Sign in");
+    assert.equal(doc.querySelector("[data-apps]"), null);
+    assert.equal(doc.querySelector("[data-account]"), null);
+    await waitFor(
+      () => doc.querySelector("[data-open-cloud]"),
+      "The board in Puter has a card",
+    );
+    await app.click("[data-open-cloud]");
+    await waitFor(
+      () => doc.querySelector("#board-title")?.value === "Remote plan",
+      "The board opens",
+    );
+    assert.equal(doc.querySelectorAll("puter-user-menu").length, 1);
+    const element = doc.querySelector(".editor-header puter-user-menu");
+    assert.equal(
+      doc.querySelector(".editor-actions").lastElementChild,
+      element,
+      "The editor header ends with the element",
+    );
+    assert.equal(doc.querySelector("[data-apps]"), null);
+    assert.equal(doc.querySelector("[data-account]"), null);
+    // Space on one of its buttons presses it; on the board it pans.
+    const space = () =>
+      new w.KeyboardEvent("keydown", {
+        key: " ",
+        code: "Space",
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+      });
+    const inside = space();
+    element.shadowRoot.querySelector(".sign-in").dispatchEvent(inside);
+    assert.equal(inside.defaultPrevented, false);
+    const outside = space();
+    doc.body.dispatchEvent(outside);
+    assert.equal(outside.defaultPrevented, true);
+    doc.body.dispatchEvent(
+      new w.KeyboardEvent("keyup", { key: " ", code: "Space", bubbles: true }),
+    );
+    // The theme chosen in Preferences reaches it.
+    const theme = doc.querySelector("#theme");
+    theme.value = "system";
+    theme.dispatchEvent(new w.Event("change", { bubbles: true }));
+    assert.equal(element.hasAttribute("theme"), false);
+    // The edit's upload waits its 1.5 s; signing out comes first.
+    const title = doc.querySelector("#board-title");
+    title.value = "Renamed before leaving";
+    title.dispatchEvent(new w.Event("change"));
+    element.shadowRoot.querySelector(".sign-out").click();
+    await waitFor(() => !signedIn, "Signed out");
+    assert.equal(ownSignOuts, 0, "The element's own sign-out did not run");
+    assert.equal(signOuts, 1);
+    await waitFor(
+      () =>
+        JSON.parse(files.get(`whiteboard/${remote.id}.json`)).title ===
+        "Renamed before leaving",
+      "The waiting edit reached Puter before the account left",
+    );
+    await waitFor(
+      () =>
+        toastText() === "Signed out. Your local boards are still available.",
+      "The app's sign-out ran to its end",
+    );
+    assert.equal(
+      doc.querySelector(".editor-header puter-user-menu"),
+      element,
+      "The header keeps its element",
+    );
+    // A sign-in and a sign-out the element did by itself are followed.
+    signedIn = true;
+    element.dispatchEvent(
+      new w.CustomEvent("signin", { detail: { user: { username: "alice" } } }),
+    );
+    await waitFor(
+      () => toastText() === "Signed in as alice.",
+      "The app follows the element's sign-in",
+    );
+    signedIn = false;
+    element.dispatchEvent(new w.CustomEvent("signout"));
+    await waitFor(
+      () =>
+        toastText() === "Signed out. Your local boards are still available.",
+      "The app follows the element's sign-out",
+    );
+    assert.equal(signOuts, 1, "The app did not sign out a second time");
+  } finally {
+    await app.close();
+  }
+});
+
 test("a drag that starts inside a dialog and ends over its backdrop leaves it open", async () => {
   const app = await setup();
   const { doc, w, click } = app;

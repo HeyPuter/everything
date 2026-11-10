@@ -677,6 +677,78 @@ nav + .workspace-label {
 .account-menu-items button:focus-visible {
   outline-offset: -3px;
 }
+/* <puter-user-menu> (puter.js; user-menu.js): where the loaded puter.js has
+   it, it ends both headers with the Apps launcher and the account. Its parts
+   take the headers' icon button and Sign in looks; its menu and Apps panel
+   take the account menu's card, in both themes (the tokens follow the
+   theme). */
+puter-user-menu {
+  flex: none;
+}
+puter-user-menu::part(apps-button) {
+  width: 40px;
+  height: 40px;
+  border-radius: 7px;
+  color: var(--text);
+}
+puter-user-menu::part(apps-button):hover {
+  background: var(--hover);
+}
+puter-user-menu::part(apps-button):active {
+  background: var(--soft);
+}
+puter-user-menu::part(sign-in) {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+puter-user-menu::part(sign-in):hover,
+puter-user-menu::part(sign-in):active {
+  border-color: var(--field-line);
+  background: var(--hover);
+  color: var(--text);
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  border-color: var(--line);
+  background: var(--surface);
+  --caret-border: var(--line);
+  --caret-fill: var(--surface);
+}
+@media (max-width: 760px) {
+  .editor-actions puter-user-menu::part(apps-button) {
+    width: 36px;
+  }
+}
+@media (max-width: 460px) {
+  .editor-actions puter-user-menu::part(apps-button) {
+    width: 32px;
+  }
+  /* As the app's own Sign in does where a header row has no room for its
+     label, the element's keeps only an icon; the label stays its name. */
+  puter-user-menu::part(sign-in) {
+    width: 36px;
+    padding: 0;
+    font-size: 0;
+  }
+  puter-user-menu::part(sign-in)::before {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    margin: auto;
+    background: currentColor;
+    /* An arrow entering a door. */
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.65' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m10 17 5-5-5-5'/%3E%3Cpath d='M15 12H3'/%3E%3Cpath d='M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+}
 /* The Apps launcher (apps-panel.js): a card under the grid button showing
    puter.com/embed/apps, with a caret on the button. It lives on <body>,
    fixed under the button; --apps-panel-top comes from the button, so the
