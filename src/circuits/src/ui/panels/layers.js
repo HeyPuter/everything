@@ -35,7 +35,7 @@ export class LayersPanel {
     };
     const mode = h('select.field', { 'aria-label': 'Single layer mode' },
       [['off', 'Show all layers'], ['gray', 'Gray other layers'], ['hide', 'Hide other layers']].map(([v, t]) => h('option', { value: v, selected: ed.singleLayer === v }, t)));
-    mode.addEventListener('change', () => { ed.singleLayer = mode.value; ed.requestRender(true); ed.emit('layers'); });
+    mode.addEventListener('change', () => ed.setSingleLayer(mode.value));
     this.body.append(
       list,
       h('div', { style: { padding: '8px 10px', display: 'grid', gap: '8px' } },

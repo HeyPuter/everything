@@ -243,3 +243,27 @@ describe('copper on hidden layers', () => {
     expect(via.net).toBe('HID');
   });
 });
+
+describe('the layers panel', () => {
+  const open = async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    app.showPanel('layers');
+    const panel = app.panels.layers;
+    panel.refresh();
+    return { app, ed, panel };
+  };
+
+  it('refreshes pad net labels when single layer mode is chosen, as Shift+S does', async () => {
+    const { ed, panel } = await open();
+    const mode = panel.body.querySelector('select[aria-label="Single layer mode"]');
+    clearTimeout(ed._labelTimer);
+    let rebuilt = 0;
+    ed._rebuildLabels = () => rebuilt++;
+    mode.value = 'hide';
+    mode.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(ed.singleLayer).toBe('hide');
+    await new Promise((r) => setTimeout(r, 120));
+    expect(rebuilt).toBe(1);
+  });
+});

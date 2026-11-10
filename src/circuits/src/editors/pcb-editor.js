@@ -194,9 +194,15 @@ export class PcbEditor extends CanvasView {
   }
 
   cycleSingleLayer() {
-    this.singleLayer = { off: 'gray', gray: 'hide', hide: 'off' }[this.singleLayer];
+    this.setSingleLayer({ off: 'gray', gray: 'hide', hide: 'off' }[this.singleLayer]);
     this.app.toast({ off: 'Showing all layers', gray: 'Single layer mode: other layers grayed', hide: 'Single layer mode: other layers hidden' }[this.singleLayer], { timeout: 1800 });
+  }
+
+  setSingleLayer(mode) {
+    this.singleLayer = mode;
+    // Pads on layers that are now hidden lose their net names, and the readout its note.
     this._scheduleLabels();
+    this._updateHud();
     this.requestRender(true);
     this.emit('layers');
   }
