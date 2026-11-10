@@ -444,10 +444,26 @@ export class App {
     );
   }
 
+  /**
+   * Write a recovery copy. Copies of one drawing are written one at a time:
+   * two at once could finish in either order and leave the older one stored.
+   * Asked again meanwhile, one more copy follows the one being written.
+   */
   autosave(doc) {
-    const p = this._autosave(doc);
+    if (doc._autosaveNext) return doc._autosaveNext;
+    let p;
+    if (doc._autosaveRun) {
+      p = doc._autosaveNext = doc._autosaveRun.then(() => {
+        doc._autosaveNext = null;
+        return this._autosave(doc);
+      });
+    } else p = this._autosave(doc);
+    doc._autosaveRun = p;
     this._autosaving.add(p);
-    p.finally(() => this._autosaving.delete(p));
+    p.finally(() => {
+      this._autosaving.delete(p);
+      if (doc._autosaveRun === p) doc._autosaveRun = null;
+    });
     return p;
   }
 
