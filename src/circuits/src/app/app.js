@@ -1541,7 +1541,7 @@ export class App extends Emitter {
     const ed = this.activeEditor;
     if (!ed) return;
     const svg = await this._svgOf(ed, 'light');
-    storage.download(svg, `${storage.safeName(ed.doc.name)}.svg`, 'image/svg+xml');
+    storage.download(svg, `${storage.safeName(ed.doc.name.replace(/\.(sch|pcb)$/i, ''))}.svg`, 'image/svg+xml');
   }
 
   /** Prints the active document through the browser (also saves as PDF). */

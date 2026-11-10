@@ -446,3 +446,30 @@ describe('Messages rows', () => {
     document.body.innerHTML = '';
   });
 });
+
+describe('SVG export file names', () => {
+  it('leave out the document extension, like the other exports', async () => {
+    const app = await boot();
+    app.setProject(new Project(newProjectData('Names')), null);
+    const names = [];
+    URL.createObjectURL ??= () => 'blob:test';
+    URL.revokeObjectURL ??= () => {};
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
+      names.push(this.download);
+    });
+    for (const doc of app.project.docs) {
+      app.openDoc(doc.id);
+      await app.exportSvg();
+    }
+    expect(app.project.docs.map((d) => d.name)).toEqual(['Sheet1.sch', 'Board1.pcb']);
+    expect(names).toEqual(['Sheet1.svg', 'Board1.svg']);
+    // A dot inside a name is not an extension.
+    app.project.renameDoc(app.project.docs[0].id, 'Rev 1.2 power');
+    app.openDoc(app.project.docs[0].id);
+    await app.exportSvg();
+    expect(names.at(-1)).toBe('Rev 1.2 power.svg');
+    vi.restoreAllMocks();
+    shutDown(app);
+  });
+});
