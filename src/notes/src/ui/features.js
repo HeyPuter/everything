@@ -229,9 +229,12 @@ export async function insertScreenshot(app) {
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+    if (!blob) throw new Error('the screen could not be captured');
     if (range) app.editor.lastRange = range;
     app.editor.restoreRange();
     await app.editor.insertImage(new File([blob], `Screenshot ${new Date().toLocaleString()}.png`, { type: 'image/png' }), { alt: 'Screenshot' });
+  } catch (err) {
+    toast(`Couldn't insert the screenshot: ${err?.message || 'the screen could not be captured'}`, { kind: 'error' });
   } finally {
     stream.getTracks().forEach((t) => t.stop());
   }
