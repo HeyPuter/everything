@@ -3,6 +3,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { setPuterForTests } from '../src/app/puter.js';
 import * as storage from '../src/app/storage.js';
+import { LibDoc, LibEditor } from '../src/editors/lib-editor.js';
+import { findComponent } from '../src/model/library/builtin.js';
 import { UserLibrary } from '../src/app/user-library.js';
 import { App } from '../src/app/app.js';
 import { Project, newProjectData } from '../src/model/project.js';
@@ -377,5 +379,47 @@ describe('dialogs that refuse a value', () => {
     expect(document.querySelector('.dialog [role=alert]')?.textContent).toMatch(/Board thickness/);
     footButton('Cancel').click();
     shutDown(app);
+  });
+});
+
+describe('component editor status line', () => {
+  it('is not announced again when an edit leaves it unchanged', async () => {
+    const project = new Project(newProjectData('Lib'));
+    const def = structuredClone(findComponent('res-0603'));
+    project.putComponent(def);
+    const noop = () => {};
+    const app = {
+      settings: { get: () => undefined, on: () => () => {} },
+      commands: { run: noop },
+      toast: noop,
+      renderTabs: noop,
+      updateTitle: noop,
+      updateStatus: noop,
+      refreshMenus: noop,
+      updateActiveBar: noop,
+    };
+    const ed = new LibEditor(app, project, new LibDoc({ def }));
+    ed._renderStatus();
+    const line = ed.statusLine;
+    expect(line.getAttribute('aria-live')).toBe('polite');
+    const text = line.textContent;
+    // A live region is read out whenever its content is replaced, even by the same words.
+    let changes = 0;
+    const seen = new MutationObserver((list) => (changes += list.length));
+    seen.observe(line, { childList: true, characterData: true, subtree: true });
+    ed._renderStatus();
+    ed._renderStatus();
+    await tick();
+    expect(line.textContent).toBe(text);
+    expect(changes).toBe(0);
+    // A new problem still shows.
+    ed.doc.symStore.transact('Remove pins', (s) => {
+      for (const o of [...ed.doc.symStore.all()]) if (o.t === 'pin') s.remove(o.id);
+    });
+    ed._renderStatus();
+    await tick();
+    expect(line.textContent).not.toBe(text);
+    expect(changes).toBeGreaterThan(0);
+    seen.disconnect();
   });
 });

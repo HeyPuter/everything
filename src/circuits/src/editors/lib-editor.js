@@ -155,9 +155,14 @@ export class LibEditor extends CanvasView {
 
   _renderStatus() {
     const issues = validateComponent(this.doc.toDef()).filter((m) => m.severity !== 'info');
+    const kind = !issues.length ? 'ok' : issues.some((m) => m.severity === 'error') ? 'error' : 'warning';
+    const text = issues.length ? issues.map((m) => m.message).join(' ') : 'No problems found';
+    // The line is a live region: replacing it with the same words would have
+    // a screen reader repeat them after every edit.
+    if (this._statusShown === `${kind}:${text}`) return;
+    this._statusShown = `${kind}:${text}`;
     clear(this.statusLine);
-    if (!issues.length) { this.statusLine.append(icon('ok', 13), 'No problems found'); return; }
-    this.statusLine.append(icon(issues.some((m) => m.severity === 'error') ? 'error' : 'warning', 13), issues.map((m) => m.message).join(' '));
+    this.statusLine.append(icon(kind, 13), text);
   }
 
   setMode(m) {
