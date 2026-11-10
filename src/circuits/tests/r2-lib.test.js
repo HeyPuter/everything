@@ -5,6 +5,7 @@ import { LibDoc, LibEditor } from '../src/editors/lib-editor.js';
 import { findComponent } from '../src/model/library/builtin.js';
 import { Project, newProjectData } from '../src/model/project.js';
 import { mm } from '../src/core/units.js';
+import { findWizard } from '../src/model/library/wizards.js';
 import { createViewer3D } from '../src/render/viewer3d.js';
 
 // jsdom has no 2D canvas or WebGL; the editor logic runs without them.
@@ -151,5 +152,25 @@ describe('3D viewer', () => {
     viewer.dispose();
     canvas.remove();
     other.remove();
+  });
+});
+
+describe('footprint wizards', () => {
+  // The exposed pad is clamped to the room between the pad rows. On a very
+  // small body that room is negative, and the pad came out with a negative
+  // size: nothing sensible on screen and an invalid aperture when exported.
+  it('refuses an exposed pad that does not fit instead of giving it a negative size', () => {
+    const tiny = { pins: 8, size: mm(1), pitch: mm(0.3), padL: mm(0.3) };
+    expect(() => findWizard('qfn').generate(tiny)).toThrow(/exposed pad/);
+    expect(() =>
+      findWizard('soic').generate({ pins: 4, pitch: mm(0.3), padW: mm(0.15), epad: mm(0.5) }),
+    ).toThrow(/exposed pad/);
+    const noPad = findWizard('qfn').generate({ ...tiny, epad: 0 });
+    expect(noPad.pads).toHaveLength(8);
+    for (const w of ['qfn', 'soic']) {
+      const fp = findWizard(w).generate({ epad: mm(2.4) });
+      for (const p of fp.pads) expect(p.w > 0 && p.h > 0).toBe(true);
+      expect(fp.pads.at(-1).shape).toBe('rect');
+    }
   });
 });
