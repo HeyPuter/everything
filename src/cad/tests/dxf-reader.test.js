@@ -744,6 +744,20 @@ describe('parseDxf: encodings and robustness', () => {
     expect(drawing.entities[0]).toMatchObject({ type: 'point', x: 1.5, y: 2.5 });
   });
 
+  it('keeps a width that is given only on the vertices of a polyline', () => {
+    const { drawing, warnings } = parseDxf(
+      dxf([
+        // constant width 0 in the header, the real width on every vertex
+        0, 'LWPOLYLINE', 90, 2, 70, 0, 43, 0, 10, 0, 20, 0, 40, 2, 41, 2, 10, 5, 20, 0, 40, 2, 41, 2,
+        0, 'POLYLINE', 66, 1, 70, 0, 0, 'VERTEX', 10, 0, 20, 0, 40, 3, 41, 3, 0, 'VERTEX', 10, 5, 20, 0, 40, 3, 41, 3, 0, 'SEQEND',
+        0, 'POLYLINE', 66, 1, 70, 0, 40, 1, 41, 1, 0, 'VERTEX', 10, 0, 20, 0, 0, 'VERTEX', 10, 5, 20, 0, 0, 'SEQEND',
+        0, 'POLYLINE', 66, 1, 70, 0, 0, 'VERTEX', 10, 0, 20, 0, 40, 0, 41, 4, 0, 'VERTEX', 10, 5, 20, 0, 40, 4, 41, 0, 0, 'VERTEX', 10, 9, 20, 0, 0, 'SEQEND',
+      ]),
+    );
+    expect(drawing.entities.map((e) => e.width)).toEqual([2, 3, 1, 0]);
+    expect(warnings).toEqual(['Variable-width polylines imported with a constant width.']);
+  });
+
   it('does not report text after EOF, such as a DOS end-of-file character, as damage', () => {
     for (const tail of ['\x1a', '\x1a\r\n', '  \r\n\r\n', 'trailing junk\r\n']) {
       const { drawing, warnings } = parseDxf(dxf([0, 'POINT', 10, 1, 20, 2]) + tail);

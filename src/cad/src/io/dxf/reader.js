@@ -1416,8 +1416,10 @@ class DxfParser {
       this.warn('Polyline with fewer than two vertices skipped.');
       return;
     }
-    if (!uniform && cw === null) this.warn('Variable-width polylines imported with a constant width.');
-    this.addPolyline(cont, this.base('polyline'), pts, closed, cw ?? w0 ?? 0, this.ocs, elev);
+    // widths on the vertices replace the constant width (some writers store 0 there anyway)
+    const fixed = cw > 0;
+    if (!uniform && !fixed) this.warn('Variable-width polylines imported with a constant width.');
+    this.addPolyline(cont, this.base('polyline'), pts, closed, (fixed ? cw : w0 ?? cw) ?? 0, this.ocs, elev);
   }
 
   addPolyline(cont, e, pts, closed, width, o, z) {
@@ -1441,6 +1443,8 @@ class DxfParser {
       elev: gNum(R, 30),
       ocs: this.ocs,
       w: gNum(R, 40),
+      w0: null,
+      uniform: true,
       pts: [],
       ent: ok ? this.base('polyline') : null,
       handle: this.curHandle,
@@ -1471,6 +1475,13 @@ class DxfParser {
         case 42:
           b = num(R.vals[i]);
           break;
+        case 40:
+        case 41: {
+          const w = num(R.vals[i]);
+          if (st.w0 === null) st.w0 = w;
+          else if (w !== st.w0) st.uniform = false;
+          break;
+        }
         case 70:
           f = int(R.vals[i]);
           break;
@@ -1493,7 +1504,10 @@ class DxfParser {
     const cur = this.curHandle;
     this.curHandle = st.handle;
     try {
-      this.addPolyline(st.cont, st.ent, st.pts, (st.flags & 1) !== 0, st.w, is3d ? null : st.ocs, st.elev);
+      // the default width of the POLYLINE, else the one its vertices carry
+      const fixed = st.w > 0;
+      if (!st.uniform && !fixed) this.warn('Variable-width polylines imported with a constant width.');
+      this.addPolyline(st.cont, st.ent, st.pts, (st.flags & 1) !== 0, fixed ? st.w : st.w0 ?? 0, is3d ? null : st.ocs, st.elev);
     } catch (err) {
       this.warn(`Could not read POLYLINE: ${err.message}`);
     }
