@@ -58,9 +58,12 @@ export class Camera {
   fit(minX, minY, maxX, maxY, marginPx = 24) {
     const w = Math.max(maxX - minX, 1e-9),
       h = Math.max(maxY - minY, 1e-9);
-    const sx = (this.width - marginPx * 2) / w,
-      sy = (this.height - marginPx * 2) / h;
-    this.scale = clampScale(Math.max(Math.min(sx, sy), 1e-9));
+    // A side too short for the margins gives them up, and a collapsed side
+    // (a hidden or squeezed-out canvas) does not count: fitting to it would
+    // zoom out until nothing can be seen once the canvas is back.
+    const room = (size) => (size > 1 ? Math.max(size - marginPx * 2, size / 2) : Infinity);
+    const s = Math.min(room(this.width) / w, room(this.height) / h);
+    if (Number.isFinite(s)) this.scale = clampScale(s);
     this.cx = (minX + maxX) / 2;
     this.cy = (minY + maxY) / 2;
   }

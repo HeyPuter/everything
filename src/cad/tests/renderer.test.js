@@ -250,6 +250,34 @@ describe('Renderer long lines', () => {
   });
 });
 
+describe('Camera fit', () => {
+  it('fits inside the margins', () => {
+    const c = new Camera();
+    c.setSize(1000, 800);
+    c.fit(0, 0, 100, 100, 24);
+    expect(c.scale).toBeCloseTo(7.52, 6);
+    expect([c.cx, c.cy]).toEqual([50, 50]);
+  });
+
+  it('does not zoom out to nothing on a canvas squeezed to no height', () => {
+    const c = new Camera();
+    // A short window leaves the canvas no height at all.
+    c.setSize(667, 0);
+    c.fit(0, 0, 100, 100, 24);
+    expect(c.scale).toBeCloseTo(6.19, 6);
+    // Smaller than the margins: they give way.
+    c.setSize(667, 40);
+    c.fit(0, 0, 100, 100, 24);
+    expect(c.scale).toBeCloseTo(0.2, 6);
+    // No size at all: the zoom is kept.
+    c.setSize(0, 0);
+    c.scale = 3;
+    c.fit(0, 0, 100, 100, 24);
+    expect(c.scale).toBe(3);
+    expect([c.cx, c.cy]).toEqual([50, 50]);
+  });
+});
+
 describe('Shaders', () => {
   it('keep vertex positions exact where the compiler uses fast math', () => {
     // Metal regroups (hi - camHi) + (lo - camLo) unless the position is
