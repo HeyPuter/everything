@@ -67,6 +67,16 @@ export class CommandLine {
       this._suggest();
       this.app.editor?.drawOverlay();
     });
+    // Text picked in the history stays selected until the next press elsewhere
+    // (the canvas keeps the browser from clearing it), so Copy can tell text
+    // that is meant to be copied from a selection left behind.
+    document.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (!this.history.contains(e.target) && this.textSelected()) window.getSelection().removeAllRanges();
+      },
+      true,
+    );
     // Later, so a click on a suggestion still lands; not when typing has refocused the line.
     inp.addEventListener('blur', () =>
       setTimeout(() => document.activeElement !== inp && this._hideSuggest(), 120),
@@ -140,6 +150,12 @@ export class CommandLine {
 
   setValue(v) {
     this.input.value = v;
+  }
+
+  /** Whether text in the history is selected (for the browser's own Copy). */
+  textSelected() {
+    const sel = window.getSelection?.();
+    return !!sel && !sel.isCollapsed && this.history.contains(sel.anchorNode) && String(sel) !== '';
   }
 
   /** Show the active prompt, or the idle state when text is null. */

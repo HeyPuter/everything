@@ -1820,6 +1820,8 @@ export class App {
         '-': () => this.editor.zoomBy(1 / 1.6),
       };
       if (inCmd && (k === 'c' || k === 'x' || k === 'v' || k === 'a') && this.cmdline.value()) return;
+      // Text selected in the command history is copied as text, like anywhere else.
+      if (k === 'c' && !e.shiftKey && this.cmdline.textSelected()) return;
       const fn = map[k];
       if (fn) {
         e.preventDefault();
