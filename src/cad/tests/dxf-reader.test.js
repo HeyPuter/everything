@@ -880,3 +880,27 @@ describe('parseDxf: stray blank lines', () => {
     expect(warnings.join(' ')).toMatch(/Malformed group code/);
   });
 });
+
+describe('parseDxf: multiline attributes', () => {
+  it('does not take the embedded MTEXT object of an R2018 ATTRIB for its own groups', () => {
+    // After group 101 the attribute carries an MTEXT object whose groups 10, 11,
+    // 40, 41, 72 and 1 mean other things: the direction vector, the width of the
+    // text box, the drawing direction and the formatted text.
+    const { drawing } = parseDxf(
+      dxf(
+        [
+          0, 'INSERT', 66, 1, 2, 'TAG', 10, 0, 20, 0,
+          0, 'ATTRIB', 100, 'AcDbEntity', 8, '0', 100, 'AcDbText', 10, 12, 20, 34, 30, 0, 40, 2.5, 1, 'Line one Line two',
+          41, 0.8, 7, 'Standard', 100, 'AcDbAttribute', 280, 0, 2, 'NOTE', 70, 0, 71, 2, 72, 0, 73, 0,
+          101, 'Embedded Object', 10, 12, 20, 36.5, 30, 0, 40, 3.5, 41, 60, 46, 0, 71, 1, 72, 5,
+          1, '{\\fArial|b0|i0;Line one\\PLine two}', 7, 'Standard', 11, 1, 21, 0, 31, 0, 73, 1, 44, 1,
+          0, 'SEQEND',
+        ],
+        { blocks: [0, 'BLOCK', 2, 'TAG', 10, 0, 20, 0, 0, 'ENDBLK'] },
+      ),
+    );
+    const t = drawing.entities[1];
+    expect(t).toMatchObject({ type: 'text', value: 'Line one Line two', x: 12, y: 34, h: 2.5, widthFactor: 0.8, halign: 'left', valign: 'baseline' });
+    expect(t.rot).toBe(0);
+  });
+});

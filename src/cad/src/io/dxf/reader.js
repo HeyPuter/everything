@@ -1652,6 +1652,9 @@ class DxfParser {
     const vcode = isAttrib ? 74 : 73;
     for (let i = 0; i < R.end; i++) {
       const v = vals[i];
+      // A multiline attribute (R2018+) ends with an embedded MTEXT object (101)
+      // that reuses 1, 10, 11, 40, 41, 72 ... with other meanings.
+      if (codes[i] === 101) break;
       switch (codes[i]) {
         case 10:
           x = num(v);
