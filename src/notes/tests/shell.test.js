@@ -328,6 +328,36 @@ describe('App shell', () => {
     expect(app.nav.sectionsList.textContent).not.toContain('This notebook');
   });
 
+  it('moves to the parent page with Left Arrow, leaving one tab stop', async () => {
+    app.renamePage(app.state.pageId, 'Parent');
+    app.newPage({ sub: true, title: 'Child' });
+    await tick();
+    const rows = () => [...app.nav.pagesList.querySelectorAll('.row')];
+    const child = rows().find((r) => r.textContent === 'Child');
+    child.focus();
+    keydown(child, 'ArrowLeft');
+    await tick();
+    expect(document.activeElement.textContent).toBe('Parent');
+    expect(rows().filter((r) => r.tabIndex === 0).map((r) => r.textContent)).toEqual(['Parent']);
+    expect(app.nav.pagesList.querySelector('.row[aria-selected="true"]').textContent).toBe('Parent');
+  });
+
+  it('shows key tips for Alt alone, not for Alt held during a click or a wheel zoom', () => {
+    const alt = (type) => document.dispatchEvent(new KeyboardEvent(type, { key: 'Alt', altKey: type === 'keydown', bubbles: true, cancelable: true }));
+    alt('keydown');
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    alt('keyup');
+    expect(app.keytips.active).toBe(false);
+    alt('keydown');
+    document.body.dispatchEvent(new Event('wheel', { bubbles: true }));
+    alt('keyup');
+    expect(app.keytips.active).toBe(false);
+    alt('keydown');
+    alt('keyup');
+    expect(app.keytips.active).toBe(true);
+    app.keytips.stop();
+  });
+
   it('closes the collapsed ribbon panel when KeyTips are cancelled', () => {
     app.ribbon.toggleCollapsed(true);
     try {
