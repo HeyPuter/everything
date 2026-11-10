@@ -19,6 +19,7 @@ import {
   tessellateSpline,
   ellipsePoints,
   conjugateToEllipse,
+  OWN_PATTERN,
 } from './geom.js';
 import { splineFromFitPoints } from '../../core/geom/spline.js';
 
@@ -2032,10 +2033,12 @@ class DxfParser {
     e.loops = loops;
     e.pattern = solid ? 'SOLID' : name.toUpperCase() || 'SOLID';
     e.scale = scale;
-    // Patterns the app does not know are drawn from the file's own definition.
-    const own = e.pattern !== 'SOLID' && !getPattern(e.pattern);
-    const families = own ? patternFamilies(defs, angle, scale) : null;
-    if (families) e.families = families;
+    // Patterns the app does not know are drawn from the file's own definition,
+    // and so are those that only share their name with one of the app's.
+    const families = e.pattern !== 'SOLID' && defs.length ? patternFamilies(defs, angle, scale) : null;
+    const lib = families && getPattern(e.pattern);
+    if (lib && !sameFamilies(lib.families, families)) e.pattern += OWN_PATTERN;
+    if (families && (!lib || e.pattern.endsWith(OWN_PATTERN))) e.families = families;
     e.angle = o ? normAngle(ocsAngle(o, angle)) : angle;
     // A mirrored OCS mirrors the pattern: drawn reflected, then turned by the
     // angle mapped like a direction, it is the mirror image.
@@ -2585,6 +2588,23 @@ function patternFamilies(defs, angle, scale) {
     out.push({ angle: deg, x: r(x), y: r(y), dx: r(dx), dy: r(dy), dashes: d.dashes.map((v) => r(v / scale)) });
   }
   return out.length ? out : null;
+}
+
+/** True when imported pattern families are the lines of the app's pattern `lib`. */
+function sameFamilies(lib, fams) {
+  if (lib.length !== fams.length) return false;
+  const eq = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a));
+  for (let i = 0; i < lib.length; i++) {
+    const a = lib[i];
+    const b = fams[i];
+    // imported families have dy > 0 and angles in [0, 360)
+    const sg = a.dy < 0 ? -1 : 1;
+    const da = (((a.angle - b.angle) % 360) + 540) % 360 - 180;
+    if (Math.abs(da) > 1e-6 || !eq(a.x, b.x) || !eq(a.y, b.y) || !eq(sg * a.dx, b.dx) || !eq(sg * a.dy, b.dy)) return false;
+    if (a.dashes.length !== b.dashes.length) return false;
+    for (let k = 0; k < a.dashes.length; k++) if (!eq(a.dashes[k], b.dashes[k])) return false;
+  }
+  return true;
 }
 
 /** Hatch circular arc edge appended as a start vertex with a bulge. */
