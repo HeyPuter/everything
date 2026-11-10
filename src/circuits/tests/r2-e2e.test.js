@@ -5,6 +5,8 @@ import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { placedOf } from '../src/render/pcb-scene.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 async function boot() {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
@@ -348,4 +350,45 @@ describe('sizes typed into the board dialogs', () => {
     await done;
     expect(ed.doc.board.thickness).toBe(800_000);
   });
+});
+
+describe('text field borders', () => {
+  // Specificity of a simple selector list entry: [classes and attributes, types].
+  const specificity = (sel) => {
+    const inner = sel.replace(/:not\(([^)]*)\)/g, ' $1 ');
+    const b = (inner.match(/\.[\w-]+|\[[^\]]*\]|:(?!not)[\w-]+/g) || []).length;
+    const c = (inner.replace(/\.[\w-]+|\[[^\]]*\]|:[\w-]+/g, ' ').match(/[a-z][\w-]*/gi) || [])
+      .length;
+    return b * 100 + c;
+  };
+  const css = fs.readFileSync(path.resolve(__dirname, '../src/styles/app.css'), 'utf8');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    selectors: m[1]
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split(',')
+      .map((x) => x.trim()),
+    body: m[2],
+  }));
+  const strongest = (test, scope) =>
+    Math.max(
+      ...rules
+        .filter((r) => test(r.body))
+        .flatMap((r) => r.selectors.filter((x) => x.startsWith(scope) && / input/.test(x)))
+        .map(specificity),
+    );
+
+  it.each(['.dialog', '.prop-grid'])(
+    'show focus and a refused value on %s text inputs',
+    (scope) => {
+      // The resting border comes from a selector with a chain of :not(); the
+      // focus and invalid borders must outweigh it, or the field never changes.
+      const base = strongest((b) => /border:\s*1px solid var\(--border-strong\)/.test(b), scope);
+      const focus = strongest((b) => /border-color:\s*var\(--focus\)/.test(b), scope);
+      const invalid = strongest((b) => /border-color:\s*var\(--danger\)/.test(b), scope);
+      expect(base).toBeGreaterThan(0);
+      expect(focus).toBeGreaterThan(base);
+      expect(invalid).toBeGreaterThan(base);
+      expect(invalid).toBeGreaterThanOrEqual(focus);
+    },
+  );
 });

@@ -188,8 +188,9 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
   width: 100%; min-width: 0; height: 26px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text);
 }
 .prop-grid textarea, .dialog textarea { height: auto; min-height: 60px; padding: 5px 7px; resize: vertical; font-family: var(--font-mono); }
-.prop-grid input:focus, .prop-grid select:focus, .dialog input:focus, .dialog select:focus, .dialog textarea:focus, .prop-grid textarea:focus { outline: none; border-color: var(--focus); }
-.prop-grid input[aria-invalid='true'], .dialog input[aria-invalid='true'] { border-color: var(--danger); }
+/* The :not() chains match the rule above, which would otherwise outweigh these and keep its border. */
+.prop-grid input:not([type='checkbox']):not([type='color']):focus, .prop-grid select:focus, .dialog input:not([type='checkbox']):not([type='radio']):not([type='color']):focus, .dialog select:focus, .dialog textarea:focus, .prop-grid textarea:focus { outline: none; border-color: var(--focus); }
+.prop-grid input:not([type='checkbox']):not([type='color'])[aria-invalid='true'], .dialog input:not([type='checkbox']):not([type='radio']):not([type='color'])[aria-invalid='true'] { border-color: var(--danger); }
 .prop-grid .inline { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .prop-grid .inline > * { flex: 1; min-width: 0; }
 .seg-ctl { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
