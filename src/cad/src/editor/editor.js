@@ -1450,7 +1450,14 @@ export class Editor {
     const r = this.request;
     const items = [];
     if (r) {
-      items.push({ label: 'Enter', shortcut: 'Enter', action: () => this.submit('') });
+      // While text is typed in place the text box holds the value: Enter
+      // finishes it as its Done button does (when the box offers that).
+      const enter = () => {
+        const box = this.request?.kind === 'text' ? this.app?.textEditor?.current : null;
+        if (typeof box?.finish === 'function') box.finish();
+        else this.submit('');
+      };
+      items.push({ label: 'Enter', shortcut: 'Enter', action: enter });
       items.push({ label: 'Cancel', shortcut: 'Esc', action: () => this.cancel() });
       if (r.options.length) {
         items.push({ separator: true });

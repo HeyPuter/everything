@@ -535,3 +535,33 @@ describe('zoom extents', () => {
     expect(t.ed.camera.scale).toBeLessThan(10);
   });
 });
+
+describe('context menu during in-place text editing', () => {
+  it('Enter finishes the text box as its Done button does', () => {
+    let items = null;
+    t.ed.ui.contextMenu = (x, y, list) => (items = list);
+    let finished = 0;
+    t.ed.request = { kind: 'text', prompt: 'Type the text', opts: {}, options: [], resolve() {}, reject() {} };
+    // Without a text box that can be finished from outside, Enter stays inert.
+    t.ed._contextMenu(10, 10);
+    items.find((i) => i.label === 'Enter').action();
+    expect(t.ed.request.kind).toBe('text');
+    t.ed.app.textEditor = { current: { finish: () => finished++ } };
+    t.ed._contextMenu(10, 10);
+    items.find((i) => i.label === 'Enter').action();
+    expect(finished).toBe(1);
+    t.ed.request = null;
+  });
+
+  it('Enter still answers other prompts', async () => {
+    let items = null;
+    t.ed.ui.contextMenu = (x, y, list) => (items = list);
+    t.ed.app.textEditor = { current: { finish: () => expect.unreachable() } };
+    await t.type('LINE', '0,0', '5,0');
+    t.ed._contextMenu(10, 10);
+    items.find((i) => i.label === 'Enter').action();
+    await flush();
+    expect(t.ed.busy).toBe(false);
+    expect(t.all('line')).toHaveLength(1);
+  });
+});
