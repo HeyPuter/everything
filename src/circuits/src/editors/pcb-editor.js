@@ -204,6 +204,9 @@ export class PcbEditor extends CanvasView {
   // ---- Changes and derived data ----
 
   _onChange(e) {
+    // An edit from elsewhere in the middle of a drag (undo, Delete): the drag
+    // holds the objects as they were, and committing it would write them back.
+    if (this.select.move || this.select.vertex) this.select.cancelDrag();
     const touched = new Set();
     let boardChanged = false;
     const count = this.copperCount;
