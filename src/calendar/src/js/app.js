@@ -31,6 +31,7 @@ import { HOLIDAY_COUNTRIES, detectCountry, countryName } from './holidays.js';
 import { renderYear } from './views/year.js';
 import { renderMonth } from './views/month.js';
 import { renderWeek } from './views/week.js';
+import { moveNowLine } from './views/timegrid.js';
 import { renderFourDay } from './views/four-day.js';
 import { renderDay } from './views/day.js';
 import { renderAgenda } from './views/agenda.js';
@@ -658,6 +659,8 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
 
   // ---- Render ----
   let lastViewKey = null;
+  // The day the view was last drawn for — see the minute tick.
+  let renderedDayMs = 0;
   let lastCursorMs = null;
   // A store change that arrived mid-drag, waiting for the gesture to end.
   let renderPending = false;
@@ -675,6 +678,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
     // free for the common case.
     applyTheme(s.theme);
     const now = new Date();
+    renderedDayMs = startOfDay(now).getTime();
     const ctx = { store, settings: s, cursor: state.cursor, miniCursor: state.miniCursor, now, actions, booking, mail };
 
     // Header title + active states.
@@ -1262,15 +1266,18 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
   window.addEventListener('resize', onResize);
 
   // Re-render each minute so the "now" line and today highlight stay accurate.
-  // Skip while any overlay is open (render would tear it down mid-interaction) or
-  // while a drag is in flight (see above).
-  const tick = setInterval(() => {
-    if (otherOverlayOpen() || search.isOpen() || isDragging()) return;
+  // A full render is skipped while any overlay is open (it would tear it down
+  // mid-interaction) or while a drag is in flight (see above) — but the
+  // now-line itself still moves: sliding the existing element is safe under
+  // all of those, so the clock never stalls behind an open card.
+  const onTick = () => {
+    if (isDragging()) return;
+    const now = new Date();
     // render() replaces both the sidebar and the view, so a focused control in
     // either region has to survive it. One that carries a data-focus-key does —
     // render() hands focus to its counterpart. One that doesn't (a day-number
     // button, a column header) would be dropped to <body> under the user, so
-    // the tick still waits it out; the clock catches up on a later tick.
+    // the full render still waits it out and catches up on a later tick.
     //
     // Waiting on ANY focus inside those regions used to be the rule, and it
     // froze the common case indefinitely: closing an event's details card
@@ -1278,9 +1285,43 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
     // highlight simply stopped moving until the user clicked elsewhere.
     const active = document.activeElement;
     const inRebuilt = active && (mainEl.contains(active) || sidebarSlot.contains(active));
-    if (inRebuilt && !active.getAttribute('data-focus-key')) return;
+    const blocked =
+      otherOverlayOpen() || search.isOpen() || (inRebuilt && !active.getAttribute('data-focus-key'));
+    if (blocked) {
+      // Past midnight the line belongs in another column, which only a render
+      // can give it; until then leave it where it was rather than wrap it to
+      // the top of yesterday.
+      if (startOfDay(now).getTime() === renderedDayMs) moveNowLine(mainEl, now);
+      return;
+    }
     render();
-  }, 60_000);
+  };
+  // Fire on the minute boundary rather than every 60s from boot, so the line
+  // changes when the clock does instead of trailing it by up to a minute.
+  let tick = null;
+  const armTick = () => {
+    clearTimeout(tick);
+    tick = setTimeout(() => {
+      onTick();
+      armTick();
+    }, 60_000 - (Date.now() % 60_000));
+  };
+  armTick();
+  // Timers are throttled in a hidden tab and stop outright while the machine
+  // sleeps, so catch up the moment the calendar is looked at again. Window
+  // focus only slides the line: it can arrive with the mousedown of a click,
+  // and rebuilding the view under that click would swallow it.
+  const onVisible = () => {
+    if (document.visibilityState === 'hidden') return;
+    onTick();
+    armTick();
+  };
+  const onWindowFocus = () => {
+    const now = new Date();
+    if (!isDragging() && startOfDay(now).getTime() === renderedDayMs) moveNowLine(mainEl, now);
+  };
+  document.addEventListener('visibilitychange', onVisible);
+  window.addEventListener('focus', onWindowFocus);
 
   render();
 
@@ -1334,7 +1375,9 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       unsubMenuClose();
       reminders.stop();
       if (storedReminders) storedReminders.stop();
-      clearInterval(tick);
+      clearTimeout(tick);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onWindowFocus);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       document.removeEventListener('keydown', onKeydown);
       window.removeEventListener('resize', onResize);

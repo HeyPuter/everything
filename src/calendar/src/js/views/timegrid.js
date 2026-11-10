@@ -27,6 +27,20 @@ import {
 } from '../date-utils.js';
 
 const HOUR_H = 52; // px per hour — mirrored by --hour-h
+
+const nowLineTop = (now) => (minutesSinceMidnight(now) / 60) * HOUR_H;
+
+/** Slide an already-drawn now-line to the current minute without rebuilding
+ *  the view. The app's minute tick falls back to this whenever a full render
+ *  would be unsafe (an open card, a focused control it could not restore), so
+ *  the line keeps time regardless. Only valid while the rendered "today" is
+ *  still today — the caller checks. */
+export function moveNowLine(root, now = new Date()) {
+  const top = `${nowLineTop(now)}px`;
+  root.querySelectorAll('.now-line').forEach((line) => {
+    line.style.top = top;
+  });
+}
 const GUTTER = 56; // px for the hour axis — mirrored by --gutter
 const MIN_EVENT_H = 18;
 const SNAP_MIN = 15; // drag-to-reschedule snaps to quarter-hours
@@ -297,8 +311,7 @@ export function renderTimeGrid(days, ctx) {
 
     // Now indicator.
     if (isToday(day, now)) {
-      const top = (minutesSinceMidnight(now) / 60) * HOUR_H;
-      col.append(el('div', { class: 'now-line', style: { top: `${top}px` } }));
+      col.append(el('div', { class: 'now-line', style: { top: `${nowLineTop(now)}px` } }));
     }
 
     cols.append(col);
