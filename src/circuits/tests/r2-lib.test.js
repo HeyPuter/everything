@@ -2,6 +2,7 @@
 // rendering stack.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { LibDoc, LibEditor } from '../src/editors/lib-editor.js';
+import { validateComponent } from '../src/editors/lib-model.js';
 import { findComponent } from '../src/model/library/builtin.js';
 import { Project, newProjectData } from '../src/model/project.js';
 import { mm } from '../src/core/units.js';
@@ -58,6 +59,27 @@ describe('pin table', () => {
     expect(document.querySelector('.dialog')).toBeNull();
     expect(pins(doc)[0].name).toBe('TRIGGER');
     expect(pins(doc)[0].length).toBe(7_620_000);
+  });
+
+  // The 555's last listed pin is pin 1 (GND, at the bottom), so counting up
+  // from the last row gave the new pin the number 2, which is taken.
+  it('gives an added pin a number that is not in use', async () => {
+    const { ed, doc } = editor();
+    ed.pinTableDialog();
+    await tick();
+    const click = (text) =>
+      [...document.querySelectorAll('.dialog button')].find((b) => b.textContent === text).click();
+    click('Add pin');
+    await tick();
+    click('Add pin');
+    await tick();
+    click('Apply');
+    await tick();
+    const nums = pins(doc).map((p) => p.num);
+    expect(nums).toHaveLength(10);
+    expect(new Set(nums).size).toBe(10);
+    expect(nums.slice(-2)).toEqual(['9', '10']);
+    expect(validateComponent(doc.toDef()).filter((m) => m.severity === 'error')).toEqual([]);
   });
 });
 

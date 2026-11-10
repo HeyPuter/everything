@@ -668,7 +668,12 @@ export class LibEditor extends CanvasView {
     render();
     const add = () => {
       const last = rows[rows.length - 1];
-      const next = last ? { ...last, id: undefined, num: nextLabel(last.num), name: nextLabel(last.name), y: last.rot === 0 || last.rot === 180 ? last.y - mil(100) : last.y, x: last.rot === 90 || last.rot === 270 ? last.x + mil(100) : last.x } : { ...this.nextPinTemplate(), x: -mil(500), y: 0 };
+      // Count up from the last row to a number no row uses: the last row is
+      // often not the highest (a ground pin listed at the end, say).
+      const used = new Set(rows.map((r) => r.num));
+      let num = last ? nextLabel(last.num) : '';
+      while (used.has(num) && nextLabel(num) !== num) num = nextLabel(num);
+      const next = last ? { ...last, id: undefined, num, name: nextLabel(last.name), y: last.rot === 0 || last.rot === 180 ? last.y - mil(100) : last.y, x: last.rot === 90 || last.rot === 270 ? last.x + mil(100) : last.x } : { ...this.nextPinTemplate(), x: -mil(500), y: 0 };
       rows.push(next);
       render();
     };
