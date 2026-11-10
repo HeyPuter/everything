@@ -210,6 +210,8 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .list-row[aria-selected='true'] { background: var(--bg-selected); border-left-color: var(--accent); }
 .list-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .sub { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The dimmest text colour is too faint on the hover and selection backgrounds. */
+.list-row:hover .sub, .list-row[aria-selected='true'] .sub { color: var(--text-2); }
 /* Rows scrolled into view stop below the sticky group heading, not under it. */
 .list-group-head ~ .list-row { scroll-margin-top: 28px; }
 .list-group-head { position: sticky; top: 0; background: var(--bg-panel); padding: 6px 10px 3px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; z-index: 1; }
