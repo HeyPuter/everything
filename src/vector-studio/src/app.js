@@ -28,6 +28,7 @@ import { LayersPanel } from './ui/panels/layers.js';
 import { nudge } from './ops/object-ops.js';
 import { swapFillStroke, defaultFillStroke, setFocusedPaint } from './ops/paint-ops.js';
 import { closePopover } from './ui/popover.js';
+import { userMenu } from './ui/user-menu.js';
 import { CORE_TOOLS } from './tools/index.js';
 import { applyTheme, THEME_OPTIONS } from './theme.js';
 import { defaultLabel } from './model/nodes.js';
@@ -37,7 +38,7 @@ import { formatLength } from './lib/units.js';
 const ACTIVATABLE = 'button, a[href], summary, select, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"]';
 
 export class App extends Emitter {
-  constructor(root, { prefs, env = 'web', user = null, picture = null, onSignIn = null, onSignOut = null, storage = null } = {}) {
+  constructor(root, { prefs, env = 'web', user = null, picture = null, onSignIn = null, onSignOut = null, onSessionChange = null, storage = null } = {}) {
     super();
     this.root = root;
     this.prefs = prefs;
@@ -46,6 +47,7 @@ export class App extends Emitter {
     this.picture = picture;
     this.onSignIn = onSignIn;
     this.onSignOut = onSignOut;
+    this.onSessionChange = onSessionChange;
     this.storage = storage;
     this.editors = [];
     this.editor = null;
@@ -179,6 +181,13 @@ export class App extends Emitter {
   renderAccount() {
     const el = this.accountEl;
     if (!el) return;
+    // Where puter.js has <puter-user-menu> it holds the account and keeps itself current
+    // (see ui/user-menu.js); it stays in place across sign-ins.
+    this.userMenu ??= userMenu({ onSessionChange: () => this.onSessionChange?.() });
+    if (this.userMenu) {
+      if (this.userMenu.parentNode !== el) el.replaceChildren(this.userMenu);
+      return;
+    }
     el.replaceChildren();
     if (this.user) {
       const avatar = this.picture ? h('img.avatar', { src: this.picture, alt: '' }) : h('span.avatar.initial', (this.user.username || '?')[0].toUpperCase());
@@ -522,6 +531,8 @@ export class App extends Emitter {
 
   #keydown(e) {
     if (e.defaultPrevented) return;
+    // puter.js's user menu takes its own keys (they arrive from the element).
+    if (e.target?.closest?.('puter-user-menu')) return;
     if (document.querySelector('dialog[open]')) return;
     const typing = this.#isTyping(e);
     const ed = this.editor;

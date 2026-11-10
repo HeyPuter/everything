@@ -104,6 +104,61 @@
   gap: 4px;
 }
 
+/* <puter-user-menu> (puter.js; src/ui/user-menu.js): when the loaded puter.js has it, it holds
+   the Apps launcher and the account in place of the Sign in and account buttons. Its parts
+   take the icon button, avatar and small primary button looks, its panels the menus'. */
+.account {
+  display: flex;
+  align-items: center;
+}
+
+puter-user-menu {
+  flex: none;
+}
+
+puter-user-menu::part(apps-button) {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+}
+
+puter-user-menu::part(apps-button):hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+puter-user-menu::part(avatar) {
+  width: 26px;
+  height: 26px;
+  line-height: 26px;
+  font-size: 12px;
+}
+
+puter-user-menu::part(sign-in) {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+puter-user-menu::part(sign-in):hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--bg-elev);
+  border-color: var(--border);
+  --caret-border: var(--border);
+  --caret-fill: var(--bg-elev);
+}
+
 /* ---- Workspace ---- */
 .workspace {
   display: grid;

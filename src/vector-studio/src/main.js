@@ -70,6 +70,13 @@ async function boot() {
             app.setUser(null, null);
           }
         : null,
+    // puter.js's <puter-user-menu> signed in or out by itself (ui/user-menu.js).
+    onSessionChange: puter
+      ? async () => {
+          const p = puter.auth.isSignedIn() ? await profile(puter) : { user: null, picture: null };
+          app.setUser(p.user, p.picture);
+        }
+      : null,
   });
   app.puter = puter;
   installFeatures(app);
