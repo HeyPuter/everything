@@ -1,6 +1,6 @@
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE, xmlAttributeText } from './text-limits.js';
 import { validFontSize } from './font-size.js';
-import { typedScriptRuns } from './script-input.js';
+import { typedScriptRuns, directedRuns } from './script-input.js';
 import {noteMarkRanges,noteMarkSelection} from './note-marks.js';
 import {bodySymbolText} from './body-symbols.js';
 import { plainTextFormattingRange, checkPlainTextObjects, formatPlainTextInputs } from './plain-text-controls.js';
@@ -56,6 +56,7 @@ import { commentAnchors, nextCommentId, addCommentMarkers, removeCommentMarkers,
 let nextId = 0;
 export { PAGINATION_DEFAULTS, PARAGRAPH_FORMAT, RUN_FORMAT, runFormat } from './formatting.js';
 import { PAGINATION_DEFAULTS, PARAGRAPH_FORMAT, PARAGRAPH_FLAGS, RUN_FORMAT, runFormat, clearAutomaticSpacing } from './formatting.js';
+import { physicalAlignment } from './rtl-paragraph.js';
 
 function commandRunFormat(run) {
   const format = runFormat(run);
@@ -534,7 +535,52 @@ export class TextDocument {
   }
   get paragraphFormatting() {
     const formats = this.selectedParagraphs.map(p => paragraphFormat(p, this.numbering, this.pageSettings));
-    return Object.fromEntries(Object.keys(PARAGRAPH_FORMAT).map(key => [key, formats.every(f => sameValue(f[key], formats[0][key])) ? formats[0][key] : null]));
+    const result = Object.fromEntries(Object.keys(PARAGRAPH_FORMAT).map(key => [key, formats.every(f => sameValue(f[key], formats[0][key])) ? formats[0][key] : null]));
+    // The side the text is aligned to on the page: the stored alignment names the reading edge, which
+    // is the right one in a right-to-left paragraph (rtl-paragraph.js). Null where the selection differs.
+    const sides = formats.map(f => physicalAlignment(f.alignment, f.bidi));
+    result.alignmentSide = sides.every(side => side === sides[0]) ? sides[0] ?? null : null;
+    return result;
+  }
+  /**
+   * Align the selected paragraphs to a side of the page. `left` and `right` name physical sides, so a
+   * right-to-left paragraph stores the opposite value (§17.3.1.13 jc, read from the leading edge).
+   */
+  setParagraphAlignment(side) {
+    const pass = this.blockCellPass(() => this.setParagraphAlignment(side));
+    if (pass !== undefined) return pass;
+    if (!['left', 'center', 'right', 'both', 'distribute', 'thaiDistribute'].includes(side)) throw new Error('Choose left, center, right, justified or distributed alignment.');
+    const targets = this.selectedParagraphs.map(p => { const format = paragraphFormat(p, this.numbering); return { p, from: format.alignment, to: physicalAlignment(side, format.bidi) }; }).filter(t => t.from !== t.to);
+    if (!targets.length) return false;
+    this.checkpoint();
+    for (const { p, to } of targets) {
+      p.format = { ...PARAGRAPH_FORMAT, ...p.format, alignment: to };
+      p.formatOverrides = { ...p.formatOverrides, alignment: to };
+    }
+    this.didChange();
+    return true;
+  }
+  /** Make the selected paragraphs right-to-left or left-to-right (§17.3.1.6 bidi). Alignment and indents keep their stored, reading-relative values, so the paragraph turns over as a whole. */
+  setParagraphDirection(rtl) {
+    const pass = this.blockCellPass(() => this.setParagraphDirection(rtl));
+    if (pass !== undefined) return pass;
+    rtl = !!rtl;
+    const targets = this.selectedParagraphs.filter(p => !!paragraphFormat(p, this.numbering).bidi !== rtl);
+    if (!targets.length) return false;
+    this.checkpoint();
+    for (const p of targets) {
+      p.format = { ...PARAGRAPH_FORMAT, ...p.format, bidi: rtl };
+      p.formatOverrides = { ...p.formatOverrides, bidi: rtl };
+      // Text typed before its paragraph was made right-to-left carries no run direction. Give it the
+      // one its letters have (script-input.js), unless some run already states a direction: such text
+      // was written with its directions chosen.
+      if (rtl && !p.runs.some(r => r.rtl || r.cs)) {
+        const directed = directedRuns(p.runs, 0, paragraphLength(p));
+        if (directed !== p.runs) p.runs = normalize(directed);
+      }
+    }
+    this.didChange();
+    return true;
   }
   get outline() { return outlineEntries(this.paragraphs); }
   get canSetOutlineLevel() { return this.selectedParagraphs.every(p => builtinOutlineLevel(effectiveStyleId(p, this.styles)) === null); }
@@ -2837,6 +2883,12 @@ export class TextDocument {
         ...(line || emptyInlineControl ? insertedRuns || typedScriptRuns(line, format, i === 0 && format.cs ? paragraphText(first).slice(0, a.offset) : '') : []),
         ...(i === lines.length - 1 ? boundaryRuns?.after || sliceRuns(last.runs, b.offset) : []),
       ]) };
+      // Text edited in a right-to-left paragraph takes its run direction from the text (script-input.js).
+      // Splitting a paragraph inserts and removes no text in it: its runs stay as they are.
+      if (p.format?.bidi && !insertedRuns && (line || !text && start !== end)) {
+        const at = i === 0 ? a.offset : 0, directed = directedRuns(p.runs, at, at + line.length);
+        if (directed !== p.runs) p.runs = normalize(directed);
+      }
       if (coveredBlockIds?.size && p.blockControls) {
         p.blockControls = p.blockControls.filter(c => !coveredBlockIds.has(c.id));
         if (!p.blockControls.length) delete p.blockControls;

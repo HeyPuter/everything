@@ -35,9 +35,12 @@ function characterGaps(span, first, last) {
  * and trailing spaces of a right-to-left run sit inside the line rather than at its end.
  */
 export function justifiedLineEnd(measured) {
-  const last = measured.stops.at(-1).x;
+  // A right-to-left paragraph's line is the mirror image of the one measured (rtl-paragraph.js): its
+  // stops are read in flow coordinates, where the line still ends at the greatest one.
+  const axis = measured.rtlAxis, flow = axis === undefined ? x => x : x => axis - x;
+  const last = flow(measured.stops.at(-1).x);
   if (!measured.bidi) return last - measured.ignoredTrailingWidth;
-  const end = Math.max(...measured.stops.map(stop => stop.x));
+  const end = Math.max(...measured.stops.map(stop => flow(stop.x)));
   return last >= end - 1e-6 ? end - measured.ignoredTrailingWidth : end;
 }
 

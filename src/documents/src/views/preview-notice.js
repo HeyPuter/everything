@@ -1,7 +1,7 @@
 import { el } from '../ui/dom.js';
 
 const names = {
-  bidi: 'Right-to-left paragraph layout',
+  'right-to-left section columns or line numbers': 'Right-to-left columns or line numbers',
   vanish: 'Hidden text',
   rPrChange: 'Tracked text-formatting changes',
   pPrChange: 'Tracked paragraph-formatting changes',

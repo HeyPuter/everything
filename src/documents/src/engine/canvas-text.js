@@ -114,7 +114,7 @@ function canvasTextState(context, style) {
     // Canvas defaults to standard ligatures; DOCX defaults to none. Explicit
     // fontKerning below retains the independent run kerning threshold.
     textRendering: style.ligatures === 'none' ? 'optimizeSpeed' : 'auto',
-    direction: style.bidiDirection || 'ltr',
+    direction: style.bidiDirection || style.labelDirection || 'ltr',
     // The East Asian language of the text (w:lang/@w:eastAsia) chooses the font that shows ideographs a run's own
     // fonts do not have: a Japanese document's kanji take their Japanese forms, not the Chinese ones the
     // interface's language would pick (直, 骨 and 角 differ).

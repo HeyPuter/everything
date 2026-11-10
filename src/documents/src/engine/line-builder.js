@@ -322,24 +322,31 @@ export class LineBuilder {
     this.settleSpaces();
     const fragments = [], stops = [], underlines = [], strikes = [], backgrounds = [], leaders = [];
     let ascent = 0, descent = 0, bidi = false;
+    // A right-to-left paragraph (page.rtlAxis) is measured as its mirror image: fields advance from the
+    // leading edge exactly as in a left-to-right paragraph, and here each field box is reflected across
+    // the axis. Text inside a field is already in visual order, so only the box moves.
+    const axis = this.page.rtlAxis, rtl = axis !== undefined;
     for (const f of this.fields) {
       settleCompleteLtrCarets(f, this.measure);
       bidi = reorderBidiField(f,this.measure) || bidi;
-      const leader = f.tab && tabLeader(f.tab, f.before, f.origin - f.before, this.measure);
+      const origin = rtl ? axis - f.origin - f.width : f.origin;
+      // The gap a tab leaves before its field, on the side the field was reached from.
+      const gap = f.origin - f.before, gapX = rtl ? axis - f.origin : f.before;
+      const leader = f.tab && tabLeader(f.tab, gapX, gap, this.measure);
       if (leader) leaders.push(leader);
-      fragments.push(...f.fragments.map(g => ({ ...g, x: g.x + f.origin })));
-      stops.push(...f.stops.map(s => ({ ...s, x: s.x + f.origin })));
-      backgrounds.push(...f.backgrounds.map(b => ({ ...b, x: b.x + f.origin })));
-      strikes.push(...f.strikes.map(s => ({ ...s, x: s.x + f.origin })));
-      underlines.push(...f.underlines.map(u => ({ ...u, x: u.x + f.origin })));
-      if (f.tab && hasRunBackground(f.tab.style) && f.origin > f.before) {
+      fragments.push(...f.fragments.map(g => ({ ...g, x: g.x + origin })));
+      stops.push(...f.stops.map(s => ({ ...s, x: s.x + origin })));
+      backgrounds.push(...f.backgrounds.map(b => ({ ...b, x: b.x + origin })));
+      strikes.push(...f.strikes.map(s => ({ ...s, x: s.x + origin })));
+      underlines.push(...f.underlines.map(u => ({ ...u, x: u.x + origin })));
+      if (f.tab && hasRunBackground(f.tab.style) && gap > 0) {
         const m = this.measure('', f.tab.style);
-        backgrounds.push({ x: f.before, width: f.origin - f.before, ascent: m.ascent, descent: m.descent, highlight: f.tab.style.highlight, shading: f.tab.style.shading });
+        backgrounds.push({ x: gapX, width: gap, ascent: m.ascent, descent: m.descent, highlight: f.tab.style.highlight, shading: f.tab.style.shading });
       }
-      if (f.tab && f.origin > f.before) strikes.push(...strikeSpans(f.tab.style, this.measure('', f.tab.style), f.before, f.origin - f.before));
-      if (f.tab?.style.underline && visibleUnderline(f.tab.style) && underlinePattern(f.tab.style) !== 'words' && f.origin > f.before) {
+      if (f.tab && gap > 0) strikes.push(...strikeSpans(f.tab.style, this.measure('', f.tab.style), gapX, gap));
+      if (f.tab?.style.underline && visibleUnderline(f.tab.style) && underlinePattern(f.tab.style) !== 'words' && gap > 0) {
         const m = this.measure('', f.tab.style);
-        underlines.push(underlineSpan(f.tab.style, m, f.before, f.origin - f.before));
+        underlines.push(underlineSpan(f.tab.style, m, gapX, gap));
       }
       ascent = Math.max(ascent, f.ascent); descent = Math.max(descent, f.descent);
     }
@@ -438,9 +445,10 @@ export class LineBuilder {
     const trailingWidth = last.width - last.contentWidth;
     if (!this.page.ulTrailSpace && trailingWidth) {
       const edge = last.origin + last.contentWidth;
-      for (const u of underlines) u.width = Math.max(0, Math.min(u.width, edge - u.x));
+      if (rtl) for (const u of underlines) { const x = Math.max(u.x, axis - edge); u.width = Math.max(0, u.x + u.width - x); u.x = x; }
+      else for (const u of underlines) u.width = Math.max(0, Math.min(u.width, edge - u.x));
     }
-    return { fragments, stops, ...(bidi ? { bidi:true } : {}), leaders, underlines: underlines.filter(u => u.width > 0), strikes, backgrounds, ascent, descent, imageOnly, spacingHeight, spacingAscent, width: this.end - this.left, ignoredTabWidth,
+    return { fragments, stops, ...(bidi ? { bidi:true } : {}), ...(rtl ? { rtlAxis: axis } : {}), leaders, underlines: underlines.filter(u => u.width > 0), strikes, backgrounds, ascent, descent, imageOnly, spacingHeight, spacingAscent, width: this.end - this.left, ignoredTabWidth,
       ignoredTrailingWidth: this.page.wrapTrailSpaces ? 0 : trailingWidth, trailingStart: last.trailingStart };
   }
 }

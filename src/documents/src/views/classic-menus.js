@@ -215,6 +215,9 @@ export function classicMenus(ctx) {
     { label: 'Font…', icon: 'fontDialog', shortcut: `${MOD_KEY}+D`, disabled: !editable(), onSelect: () => (w.fontDialog ? w.fontDialog() : ctx.toggleFormattingPane?.()) },
     w.textEffectItems && sub('Text Effects', w.textEffectItems() || []),
     control(c.paragraphGeometry, 'Paragraph…', { icon: 'paragraphDialog', shortcut: sc('format.paragraph') }),
+    // Each sets its direction (the ribbon's button toggles); the buttons carry the state for the selection.
+    sub('Text Direction', [false, true].map(rtl => opt(w.setParagraphDirection && (() => w.setParagraphDirection(rtl)), rtl ? 'Right-to-Left' : 'Left-to-Right',
+      { icon: rtl ? 'directionRtl' : 'directionLtr', radio: true, checked: c.directionButtons[+rtl].getAttribute('aria-pressed') === 'true', disabled: !!c.directionButtons[+rtl].disabled }))),
     control(c.pageSetup, 'Document…', { icon: 'pageSetup' }),
     sep,
     w.bulletsAndNumbering ? opt(w.bulletsAndNumbering, 'Bullets and Numbering…', { icon: 'numbers', disabled: !editable() }) : sub('Bullets and Numbering', [

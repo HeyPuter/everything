@@ -1,4 +1,5 @@
 import { paragraphText, paragraphFormat, locate } from './model.js';
+import { physicalAlignment } from './rtl-paragraph.js';
 import { runFormat } from './formatting.js';
 import { listKind } from './numbering.js';
 import { HIGHLIGHTS } from './backgrounds.js';
@@ -93,7 +94,8 @@ export function copyFragment(model, { hidden = () => false, objects = null } = {
     // takes it whole and runs to the document's end, as Select All does: pasted, it keeps its own formatting.
     const mark = (to >= start && to < end) || (p === last && to === end && from >= start && (from > start || start === 0) && !p.cellId);
     paragraphs.push({ text: runs.map(r => r.text).join(''), runs, mark,
-      styleId: p.styleId || null, styleName: style?.name || null, alignment: format.alignment,
+      // Alignment is relative to the paragraph's direction (rtl-paragraph.js): the two travel together.
+      styleId: p.styleId || null, styleName: style?.name || null, alignment: format.alignment, ...(format.bidi ? { bidi: true } : {}),
       list: p.list ? { kind: listKind(model.numbering, p.list), level: p.list.level } : null });
   }
   if (!paragraphs.length) return null;
@@ -153,8 +155,10 @@ export function fragmentHtml(fragment) {
     const heading = /^Heading([1-6])$/.exec(p.styleId || '')?.[1] || (p.styleId === 'Title' ? '1' : null);
     const tag = kind ? 'li' : heading ? `h${heading}` : 'p';
     // Tabs and runs of spaces are the text's own, which HTML collapses into one space unless told otherwise.
-    const align = Object.hasOwn(HTML_ALIGNMENTS, p.alignment ?? '') ? `;text-align:${HTML_ALIGNMENTS[p.alignment]}` : '';
-    html += `<${tag} style="white-space:pre-wrap${align}">${p.runs.map(runHtml).join('') || '<br>'}</${tag}>`;
+    // A right-to-left paragraph says so, and names the physical side where it is not its own start.
+    const rtl = p.bidi === true, side = physicalAlignment(p.alignment ?? 'left', rtl);
+    const align = rtl && side === 'left' ? ';text-align:left' : rtl && side === 'right' ? '' : Object.hasOwn(HTML_ALIGNMENTS, side) ? `;text-align:${HTML_ALIGNMENTS[side]}` : '';
+    html += `<${tag}${rtl ? ' dir="rtl"' : ''} style="white-space:pre-wrap${align}">${p.runs.map(runHtml).join('') || '<br>'}</${tag}>`;
   }
   if (openList) html += `</${openList}>`;
   return `<div ${FRAGMENT_ATTRIBUTE}="${escape(JSON.stringify(fragment))}">${html}</div>`;
@@ -335,7 +339,10 @@ function fromForeignHtml(body) {
     // blocks with or <center>. A table's align attribute centers the table, not its text, and the
     // cells of a table centered by its container (as Word writes one) keep their own alignment.
     const align = node.style?.textAlign || (tag !== 'TABLE' && node.getAttribute('align')) || (tag === 'CENTER' && 'center');
-    if (align || tag === 'TABLE') ctx.align = { center: 'center', right: 'right', justify: 'both' }[align && align.toLowerCase()] || null;
+    if (align || tag === 'TABLE') ctx.align = { left: 'left', center: 'center', right: 'right', justify: 'both' }[align && align.toLowerCase()] || null;
+    // Direction is inherited too: the dir attribute or the direction property (as Word and browsers write it).
+    const dir = (node.getAttribute?.('dir') || node.style?.direction || '').toLowerCase();
+    if (dir === 'rtl' || dir === 'ltr') ctx.rtl = dir === 'rtl';
     // Each list is told apart (`id`) so its items number on past paragraphs and lists inside them, and a list right
     // after another starts again; an ordered list keeps the number it starts at.
     if (tag === 'UL' || tag === 'OL') {
@@ -360,7 +367,9 @@ function fromForeignHtml(body) {
       end();
       if (!['UL', 'OL', 'TABLE', 'TBODY', 'THEAD', 'TFOOT', 'DL', 'BODY'].includes(tag)) {
         const heading = /^H([1-6])$/.exec(tag)?.[1];
-        start({ styleName: heading ? `Heading ${heading}` : 'Normal', alignment: ctx.align || null, list: tag === 'LI' ? ctx.list || { kind: 'bullet', level: 0 } : wordListItem(node) });
+        // HTML names physical sides; a right-to-left paragraph stores them relative to its right-hand start.
+        const side = ctx.rtl === undefined ? ctx.align : physicalAlignment(ctx.align || (ctx.rtl ? 'right' : 'left'), ctx.rtl);
+        start({ styleName: heading ? `Heading ${heading}` : 'Normal', alignment: side && side !== 'left' ? side : null, ...(ctx.rtl === undefined ? {} : { bidi: ctx.rtl }), list: tag === 'LI' ? ctx.list || { kind: 'bullet', level: 0 } : wordListItem(node) });
       }
     }
     if (tag === 'LI') ctx.item = current;
@@ -439,6 +448,9 @@ function applyParagraph(model, p, foreign, lists = new Map()) {
   const style = styleFor(model, p);
   if (style) attempt(() => model.setParagraphStyle(style));
   else if (!foreign && p.styleId === null) attempt(() => model.setParagraphStyle(''));
+  // This editor's own fragment states right-to-left and leaves left-to-right unsaid; other HTML may say neither.
+  const bidi = typeof p.bidi === 'boolean' ? p.bidi : foreign ? null : false;
+  if (bidi !== null && model.paragraphFormatting.bidi !== bidi) attempt(() => model.setParagraphFormat({ bidi }));
   if (p.alignment && model.paragraphFormatting.alignment !== p.alignment) attempt(() => model.setParagraphFormat({ alignment: p.alignment }));
   if (p.rule === true) attempt(() => model.setParagraphFormat({ paragraphBorders: { bottom: { style: 'single', size: 6, space: 1, color: 'auto' } } }));
   const current = model.listFormatting;

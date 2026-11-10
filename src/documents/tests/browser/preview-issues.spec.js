@@ -8,7 +8,8 @@ for(const entry of ['/playground.html','/mock.html'])test('read-only feature lis
  const notice=page.locator('.canvas-message'),summary=notice.locator('summary');
  await expect(summary).toContainText('Unsupported features detected');
  await summary.focus();await summary.press('Enter');
- const items=notice.locator('li');await expect(items.filter({hasText:'Right-to-left paragraph layout'})).toHaveCount(1);
+ // Right-to-left paragraphs (w:bidi) are laid out and editable now, so the fixture's one is not reported.
+ const items=notice.locator('li');await expect(items.filter({hasText:/right-to-left/i})).toHaveCount(0);
  // Hidden text (w:vanish) is editable now, so its repeated declarations are not reported.
  await expect(items.filter({hasText:'Hidden text'})).toHaveCount(0);await expect(items.filter({hasText:/border/i})).toHaveCount(1);
  const labels=await items.allTextContents();expect(new Set(labels).size).toBe(labels.length);

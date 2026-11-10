@@ -1,5 +1,6 @@
 import { el } from '../ui/dom.js';
 import { tabStrip, field, checkbox, group, select, distance, points, openFormatDialog, paragraphPreview } from './format-dialog-kit.js';
+import { physicalAlignment } from '../engine/rtl-paragraph.js';
 
 const ALIGNMENTS = [['left', 'Left'], ['center', 'Centered'], ['right', 'Right'], ['both', 'Justified'], ['distribute', 'Distributed']];
 const OUTLINE = [...Array.from({ length: 9 }, (_, i) => [String(i), `Level ${i + 1}`]), ['9', 'Body text']];
@@ -36,7 +37,13 @@ export function lineSetting(choice, amount) {
 export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = true, apply, openTabs, setDefault, onClose, initialTab = 'indents' }) {
   /* ---- Indents and Spacing ---- */
   // Thai Distributed (§17.18.44 thaiDistribute) is offered where a paragraph has it, so the dialog shows it and keeps it.
-  const alignment = select('Alignment', f.alignment === 'thaiDistribute' ? [...ALIGNMENTS, ['thaiDistribute', 'Thai Distributed']] : ALIGNMENTS, f.alignment, { mixed: f.alignment === null });
+  // Left and Right name sides of the page. The file keeps alignment relative to the reading direction
+  // (rtl-paragraph.js), so a right-to-left paragraph shows, and stores, the opposite value. With mixed
+  // directions the stored value is shown as it is.
+  const direction = select('Direction', [['ltr', 'Left-to-right'], ['rtl', 'Right-to-left']], f.bidi === null ? '' : f.bidi ? 'rtl' : 'ltr', { mixed: f.bidi === null });
+  const rtlNow = () => direction.value === 'rtl';
+  const alignment = select('Alignment', f.alignment === 'thaiDistribute' ? [...ALIGNMENTS, ['thaiDistribute', 'Thai Distributed']] : ALIGNMENTS, f.alignment === null ? null : physicalAlignment(f.alignment, !!f.bidi), { mixed: f.alignment === null });
+  let shownRtl = !!f.bidi;
   const outline = select('Outline level', OUTLINE, f.outlineLevel === null ? '' : String(f.outlineLevel), { mixed: f.outlineLevel === null });
   outline.disabled = !canSetOutline;
   if (!canSetOutline) outline.title = 'Built-in heading styles have a fixed outline level.';
@@ -46,8 +53,15 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
   const syncSpecial = () => { by.disabled = !special.value || special.value === 'none'; if (!by.disabled && by.value === '') by.value = unit === 'cm' ? '1.27' : '0.5'; };
   special.addEventListener('change', syncSpecial); syncSpecial();
   const leftLabel = el('span.field-label', {}, 'Left'), rightLabel = el('span.field-label', {}, 'Right');
-  const mirror = checkbox('Mirror indents', f.mirrorIndents, on => { leftLabel.textContent = on ? 'Inside' : 'Left'; rightLabel.textContent = on ? 'Outside' : 'Right'; preview(); });
-  if (f.mirrorIndents) { leftLabel.textContent = 'Inside'; rightLabel.textContent = 'Outside'; }
+  // The stored left indent is the one before the text: on the right in a right-to-left paragraph.
+  const labelIndents = on => { leftLabel.textContent = on ? 'Inside' : rtlNow() ? 'Before text' : 'Left'; rightLabel.textContent = on ? 'Outside' : rtlNow() ? 'After text' : 'Right'; };
+  const mirror = checkbox('Mirror indents', f.mirrorIndents, on => { labelIndents(on); preview(); });
+  labelIndents(!!f.mirrorIndents);
+  direction.addEventListener('change', () => {
+    // The paragraph turns over as a whole: its alignment keeps its stored value, so the side shown flips.
+    if (alignment.value) alignment.value = physicalAlignment(physicalAlignment(alignment.value, shownRtl), rtlNow());
+    shownRtl = rtlNow(); labelIndents(mirror.box.checked && !mirror.box.indeterminate); preview();
+  });
   // A document's amounts need not fall on the arrows' steps (spacing is kept in twentieths of a point, 7.5 pt or
   // 13.8 pt), so the fields take any amount, as Word does; it is rounded to the file's units where it is applied.
   const before = points('Spacing before', f.spaceBefore, { step: 'any' }), after = points('Spacing after', f.spaceAfter, { step: 'any' });
@@ -67,7 +81,7 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
   line.addEventListener('change', () => { syncLine(true); preview(); }); syncLine();
   const contextual = checkbox('Don’t add space between paragraphs of the same style', f.contextualSpacing);
   const indentsPanel = el('div', {},
-    group('General', el('div.fmt-grid', {}, field('Alignment', alignment), field('Outline level', outline))),
+    group('General', el('div.fmt-grid', {}, field('Alignment', alignment), field('Outline level', outline), field('Direction', direction))),
     group('Indentation', el('div.fmt-grid', {}, el('label.ed-font-field', {}, leftLabel, left), el('label.ed-font-field', {}, rightLabel, right), field('Special', special), field(`By (${by.unit})`, by)), mirror),
     group('Spacing', el('div.fmt-grid', {}, field('Before (pt)', before), field('After (pt)', after), field('Line spacing', line), field('At', at)), contextual));
 
@@ -88,7 +102,8 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
     const align = alignment.value || 'left';
     s.textAlign = align === 'both' || align === 'distribute' || align === 'thaiDistribute' ? 'justify' : align;
     s.textAlignLast = align === 'distribute' ? 'justify' : '';
-    const leftTw = twips(left), rightTw = twips(right);
+    const leftTw = twips(rtlNow() ? right : left), rightTw = twips(rtlNow() ? left : right);
+    s.direction = rtlNow() ? 'rtl' : 'ltr';
     s.marginLeft = `${Math.max(-20, leftTw * scale)}px`; s.marginRight = `${Math.max(-20, rightTw * scale)}px`;
     const first = special.value === 'firstLine' ? twips(by) : special.value === 'hanging' ? -twips(by) : 0;
     s.textIndent = `${first * scale}px`;
@@ -103,7 +118,10 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
   /* ---- Reading the patch ---- */
   function patch() {
     const result = {};
-    if (alignment.value && alignment.value !== f.alignment) result.alignment = alignment.value;
+    // A caller that gives no direction (a style or a search format) means left-to-right.
+    if (direction.value && (f.bidi === null || rtlNow() !== !!f.bidi)) result.bidi = rtlNow();
+    const stored = alignment.value && physicalAlignment(alignment.value, direction.value ? rtlNow() : false);
+    if (stored && stored !== f.alignment) result.alignment = stored;
     if (canSetOutline && outline.value !== '' && Number(outline.value) !== f.outlineLevel) result.outlineLevel = Number(outline.value);
     for (const [key, input] of [['indentLeft', left], ['indentRight', right]]) { const v = input.read(); if (v !== null && v !== f[key]) result[key] = v; }
     if (special.value) {

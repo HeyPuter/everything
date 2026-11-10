@@ -40,7 +40,8 @@ export function reorderBidiField(field, measure) {
   field.stops=entries.flatMap(({g})=>g.caretStops.map(s=>({...s,x:g.x+s.x}))).sort((a,b)=>a.offset-b.offset);
   // A tab boundary has two valid positions when its following logical text
   // starts at the right of an RTL group. Retain the tab's trailing affinity.
-  if(field.tab) field.stops.unshift({...originalStops[0],x:0,affinity:'backward'});
+  // In a right-to-left paragraph the field starts at its right end.
+  if(field.tab) field.stops.unshift({...originalStops[0],x:logical[0]?.bidiBase ? x : 0,affinity:'backward'});
   for(const key of ['backgrounds','underlines','strikes']) field[key]=moveSpans(field[key]);
   return true;
 }

@@ -155,8 +155,9 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemM
       }
     }
     const inner = escapeHtml(headingNumber(p, level, markers)) + p.runs.map(run => runHtml(run, !!level, pageLanguage(model))).join('') || '<br>';
-    const alignment = p.format?.alignment;
-    const align = ['center', 'right', 'both', 'thaiDistribute'].includes(alignment) ? ` style="text-align:${alignment === 'both' || alignment === 'thaiDistribute' ? 'justify' : alignment}"` : '';
+    // A right-to-left paragraph (w:bidi) says so; its stored alignment is relative to its right-hand start.
+    const rtl = !!p.format?.bidi, alignment = rtl ? { left: 'start', right: 'left' }[p.format?.alignment ?? 'left'] ?? p.format?.alignment : p.format?.alignment;
+    const align = (rtl ? ' dir="rtl"' : '') + (['center', 'right', 'left', 'both', 'thaiDistribute'].includes(alignment) && (rtl || alignment !== 'left') ? ` style="text-align:${alignment === 'both' || alignment === 'thaiDistribute' ? 'justify' : alignment}"` : '');
     html += tag ? `<li${value != null ? ` value="${value}"` : ''}${align}>${inner}` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
   }
   closeLists();

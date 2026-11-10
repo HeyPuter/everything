@@ -394,7 +394,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     },
     chooseFont: (seed, done) => fontDialog({ title: 'Find Font', seed: Object.fromEntries(Object.entries(seed || {}).filter(([k]) => k in NULL_RUN)), capture: patch => done(fontCondition(patch)) }),
     chooseParagraph: (seed, done) => {
-      const nulls = Object.fromEntries(['alignment', 'outlineLevel', 'indentLeft', 'indentRight', 'firstLine', 'spaceBefore', 'spaceAfter', 'lineRule', 'lineSpacing', 'contextualSpacing', 'mirrorIndents', 'widowControl', 'keepNext', 'keepLines', 'pageBreakBefore', 'suppressLineNumbers', 'suppressAutoHyphens'].map(k => [k, null]));
+      const nulls = Object.fromEntries(['alignment', 'outlineLevel', 'indentLeft', 'indentRight', 'firstLine', 'spaceBefore', 'spaceAfter', 'lineRule', 'lineSpacing', 'contextualSpacing', 'mirrorIndents', 'widowControl', 'keepNext', 'keepLines', 'pageBreakBefore', 'suppressLineNumbers', 'suppressAutoHyphens', 'bidi'].map(k => [k, null]));
       track(openParagraphDialog({ format: { ...nulls, ...seed }, unit: unit(), apply: patch => { done(patch); return true; } }));
     },
     styles: () => { const m = editor()?.model; return m ? [...m.paragraphStyles, ...m.characterStyles].filter(s => !s.error).map(s => ({ id: s.id, name: styleDisplayName(s.name), type: m.styles.definitions[s.id]?.type })) : []; },

@@ -19,9 +19,11 @@ import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { UnsupportedDocumentError } from './errors.js';
 // Spacing is in points, except auto line spacing, which is a multiple of a line.
 export const PAGINATION_DEFAULTS = Object.freeze({ keepNext: false, keepLines: false, widowControl: true, pageBreakBefore: false });
-// Plain on/off paragraph properties: mirrored indents (§17.3.1.18), line-number suppression (§17.3.1.34)
-// and automatic-hyphenation suppression (§17.3.1.33).
-export const PARAGRAPH_FLAGS = Object.freeze({ mirrorIndents: false, suppressLineNumbers: false, suppressAutoHyphens: false });
+// Plain on/off paragraph properties: mirrored indents (§17.3.1.18), line-number suppression (§17.3.1.34),
+// automatic-hyphenation suppression (§17.3.1.33) and right-to-left paragraph direction (§17.3.1.6 bidi).
+// In a right-to-left paragraph the stored `left` alignment, `indentLeft` and tab positions are measured
+// from the paragraph's leading (right) edge; rtl-paragraph.js maps them to physical sides.
+export const PARAGRAPH_FLAGS = Object.freeze({ mirrorIndents: false, suppressLineNumbers: false, suppressAutoHyphens: false, bidi: false });
 export const PARAGRAPH_FORMAT = Object.freeze({ paragraphBorders: Object.freeze({}), paragraphShading: 'auto', alignment: 'left', lineRule: 'auto', lineSpacing: 1, spaceBefore: 0, spaceAfter: 9, contextualSpacing: false, ...PAGINATION_DEFAULTS, indentLeft: 0, indentRight: 0, firstLine: 0, tabs: Object.freeze([]), outlineLevel: 9, ...PARAGRAPH_FLAGS });
 export const RUN_FORMAT = Object.freeze({ ...FONT_DEFAULTS, bold: false, italic: false, boldCs: false, italicCs: false, fontSizeCs: 12, cs: false, rtl: false, noProof: false, underline: false, underlineStyle: 'none', strikethrough: 'none', capitalization: 'normal', fontSize: 12, textOutline: null, textShadow: null, textFill: null, text3d: null, textScene: null, color: 'auto', underlineColor: 'auto', highlight: 'none', shading: 'auto', verticalAlign: 'baseline', baselineShift: 0, characterSpacing: 0, textScale: 100, kerning: 0, ligatures: 'none', vanish: false });
 const RUN_FORMAT_KEYS = Object.keys(RUN_FORMAT);
@@ -49,7 +51,6 @@ export function resolvedFormat(properties, characterUnit) {
   const s = properties.spacing || {}, { ind, keys: characterIndents } = characterIndent(properties.ind, characterUnit);
   const outlineLevel = properties.outlineLevel ?? 9;
   if (!Number.isInteger(outlineLevel) || outlineLevel < 0 || outlineLevel > 9) throw new UnsupportedDocumentError('outline levels outside 0–9');
-  if (properties.bidi) throw new UnsupportedDocumentError('right-to-left paragraph indents');
   const geometry = { indentLeft: ind.left ?? 0, indentRight: ind.right ?? 0, firstLine: ind.hanging !== undefined ? -ind.hanging : ind.firstLine ?? 0 };
   try {
     for (const v of Object.values(geometry)) validateIndent(v);

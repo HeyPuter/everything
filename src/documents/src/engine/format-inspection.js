@@ -1,4 +1,5 @@
 import { locate, paragraphFormat, runFormat } from './model.js';
+import { physicalAlignment } from './rtl-paragraph.js';
 import { effectiveStyleId } from './styles.js';
 import { listKind, levelFor } from './numbering.js';
 import { directRun, directParagraph } from './home-editing.js';
@@ -56,7 +57,7 @@ export function revealFormatting(model, { styleName = id => model.styles.definit
   const special = format.firstLine > 0 ? `First line ${inches(format.firstLine)}` : format.firstLine < 0 ? `Hanging ${inches(-format.firstLine)}` : 'None';
   const paragraph = [
     { label: 'Paragraph style', value: styleId ? styleName(styleId) : 'Default paragraph', direct: false, target: 'style' },
-    paraEntry('Alignment', { left: 'Left', center: 'Centered', right: 'Right', both: 'Justified' }[format.alignment] || format.alignment, ['alignment']),
+    paraEntry('Alignment', { left: 'Left', center: 'Centered', right: 'Right', both: 'Justified' }[physicalAlignment(format.alignment, format.bidi)] || format.alignment, ['alignment']),
     paraEntry('Outline level', format.outlineLevel === 9 ? 'Body text' : `Level ${format.outlineLevel + 1}`, ['outlineLevel']),
     paraEntry('Indentation', `Left ${inches(format.indentLeft)}, right ${inches(format.indentRight)}`, ['indentLeft', 'indentRight']),
     paraEntry('Special indent', special, ['firstLine']),
@@ -68,6 +69,7 @@ export function revealFormatting(model, { styleName = id => model.styles.definit
     paraEntry('Shading', format.paragraphShading === 'auto' ? 'None' : format.paragraphShading === 'foreground' ? 'Automatic' : `#${format.paragraphShading}`, ['paragraphShading'], 'borders'),
   ];
   if (format.mirrorIndents) paragraph.push(paraEntry('Mirror indents', 'Yes', ['mirrorIndents']));
+  if (format.bidi) paragraph.push(paraEntry('Direction', 'Right-to-left', ['bidi']));
   if (p.list) {
     let value = 'List';
     try { const level = levelFor(model.numbering, p.list); value = `${listKind(model.numbering, p.list) === 'bullet' ? 'Bulleted' : 'Numbered'}, level ${p.list.level + 1}${level.format === 'bullet' ? ` (${level.text})` : ''}`; } catch { /* keep the generic label */ }

@@ -612,7 +612,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     });
   });
   const alignments = ['left', 'center', 'right', 'both'];
-  const alignmentButtons = alignments.map((value, i) => tool(value === 'both' ? 'Justify' : `Align ${value}`, value === 'both' ? 'alignJustify' : `align${value[0].toUpperCase() + value.slice(1)}`, () => engine?.setParagraphFormat({ alignment: value }), { 'aria-pressed': 'false', shortcut: `${MOD_KEY}+${'LERJ'[i]}` }));
+  const alignmentButtons = alignments.map((value, i) => tool(value === 'both' ? 'Justify' : `Align ${value}`, value === 'both' ? 'alignJustify' : `align${value[0].toUpperCase() + value.slice(1)}`, () => engine?.setParagraphAlignment(value), { 'aria-pressed': 'false', shortcut: `${MOD_KEY}+${'LERJ'[i]}` }));
+  // Paragraph direction (§17.3.1.6 bidi): the paragraph starts at the left or at the right margin. The
+  // ribbon shows the right-to-left control alone, as a toggle; the Format menu lists both directions.
+  const directionButtons = [false, true].map(rtl => tool(rtl ? 'Right-to-left text direction' : 'Left-to-right text direction', rtl ? 'directionRtl' : 'directionLtr',
+    () => engine?.setParagraphDirection(rtl && directionButtons[1].getAttribute('aria-pressed') !== 'true'), { 'aria-pressed': 'false' }));
   const lineSpacing = el('select', { disabled: true, 'aria-label': 'Line spacing', onchange: () => {
     if (lineSpacing.value) engine?.setParagraphFormat({ lineRule: 'auto', lineSpacing: Number(lineSpacing.value) });
   } }, ...[1, 1.15, 1.5, 2, 2.5, 3].map(value => el('option', { value }, `${value}×`)));
@@ -820,12 +824,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const editingAreaLabel = el('label.canvas-zoom.canvas-story-area', {}, 'Editing ', editingArea);
   let editingAreaSignature;
   const textMode = el('input', { type: 'checkbox', onchange: () => { engine?.setAccessible(textMode.checked); rulers?.update(); } });
-  for (const b of [undo, redo, bold, italic, underline, underlineOptions, caps, smallCaps, strike, doubleStrike, superscript, subscript, ...alignmentButtons, pageBreak, pageBreakBefore, ...paginationTools.map(t => t.button), outdent, indent, insertTab, bullets, numbers, restart, keepRow]) b.addEventListener('mousedown', e => e.preventDefault());
+  for (const b of [undo, redo, bold, italic, underline, underlineOptions, caps, smallCaps, strike, doubleStrike, superscript, subscript, ...alignmentButtons, ...directionButtons, pageBreak, pageBreakBefore, ...paginationTools.map(t => t.button), outdent, indent, insertTab, bullets, numbers, restart, keepRow]) b.addEventListener('mousedown', e => e.preventDefault());
   // The toolbar's pickers keep the document focused when clicked, so a picker the mouse opened closes
   // back into the text; opened from the keyboard, it returns to its button.
   for (const b of [textColor, highlight, lineSpacingMenu, insertTable, fontFamily, hyperlink]) b.addEventListener('mousedown', e => { if (engine && document.activeElement === engine.input) e.preventDefault(); });
   let root = null;
   const editorCommands = createWordCommands({ editor: () => engine, pkg: () => pkg, error, zoomControl, fitWidth, openFind, root: () => root, focus: () => engine?.focus() });
+  // The Format menu's two directions each set theirs; the ribbon's control toggles.
+  editorCommands.setParagraphDirection = rtl => engine?.setParagraphDirection(rtl);
   editorCommands.drawingTextItems = () => {
     const image = engine?.model.selectedImage;
     if (!image || !pkg) return [];
@@ -1211,7 +1217,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, fontSizeMenu, bold, italic, underline,
       underlineOptions, caps, smallCaps, strike, doubleStrike, superscript, subscript, baselineShift, characterSpacing,
-      textWidth, kerning, textColor, highlight, alignmentButtons, lineSpacing, lineSpacingOptions, lineSpacingMenu, spaceBefore, spaceAfter,
+      textWidth, kerning, textColor, highlight, alignmentButtons, directionButtons, lineSpacing, lineSpacingOptions, lineSpacingMenu, spaceBefore, spaceAfter,
       bullets, numbers, restart, hyperlink, unlink, bookmarks, insertImage, imageProperties, insertTable, tableActions,
       tableProperties, cellAlignment, cellShading, cellBorders, cellMargins, rowHeight, keepRow, outdent, indent,
       paragraphGeometry, paragraphBorders, paragraphShading, insertTab, pageSetup, pageBreak, pageBreakBefore,
@@ -1639,7 +1645,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     fontFamily.textContent = !family ? 'Mixed fonts' : substituted ? `${family} → ${replacement}` : family;
     fontFamily.title = substituted ? `${family} is unavailable in this browser. Displaying ${replacement}; the original font is retained in the DOCX.` : !family ? 'The selection uses different Latin font declarations.' : `Latin font: ${family}`;
     if (document.activeElement !== fontSize) fontSize.value = run.fontSize ?? '';
-    for (const control of [pageSetup, pageBreak, pageBreakBefore, outdent, indent, paragraphGeometry, insertTab, lineSpacingOptions, lineSpacingMenu, ...alignmentButtons]) control.disabled = false;
+    for (const control of [pageSetup, pageBreak, pageBreakBefore, outdent, indent, paragraphGeometry, insertTab, lineSpacingOptions, lineSpacingMenu, ...alignmentButtons, ...directionButtons]) control.disabled = false;
     pageBreak.disabled = !!engine.model.selectedParagraphs[0]?.cellId;
     pageBreakBefore.disabled = !!selectedRows.length;
     for (const [control, kind] of [[bullets, 'bullet'], [numbers, 'number']]) {
@@ -1658,7 +1664,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       button.setAttribute('aria-pressed', format[key] === null ? 'mixed' : String(format[key]));
     }
     for (const control of [lineSpacing, spaceBefore, spaceAfter]) control.disabled = false;
-    alignmentButtons.forEach((control, i) => control.setAttribute('aria-pressed', format.alignment === null ? 'mixed' : String(format.alignment === alignments[i])));
+    alignmentButtons.forEach((control, i) => control.setAttribute('aria-pressed', format.alignmentSide === null ? 'mixed' : String(format.alignmentSide === alignments[i])));
+    directionButtons.forEach((control, i) => control.setAttribute('aria-pressed', format.bidi === null ? 'mixed' : String(format.bidi === !!i)));
     customLine.textContent = format.lineRule === null || format.lineSpacing === null ? 'Mixed' : format.lineRule === 'auto' ? `${format.lineSpacing}×` : `${format.lineRule === 'exact' ? 'Exactly' : 'At least'} ${format.lineSpacing} pt`;
     lineSpacing.value = format.lineRule === 'auto' && [1, 1.15, 1.5, 2, 2.5, 3].includes(format.lineSpacing) ? String(format.lineSpacing) : '';
     if (document.activeElement !== spaceBefore) spaceBefore.value = format.spaceBefore ?? '';

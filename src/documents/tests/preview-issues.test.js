@@ -42,19 +42,21 @@ afterAll(()=>{dom.window.close();delete globalThis.Node;delete globalThis.docume
 it('collects independent active preview failures, deduplicates repeated features and retains the source',async()=>{
  const bytes=readFileSync('tests/fixtures/preview-issues/control.docx');
  const p=await DocxPackage.open(bytes,{bestEffort:true});
- expect(p.readOnly).toBe(true);expect(p.previewIssues).toEqual(expect.arrayContaining(['bidi']));
- expect(p.previewIssues.some(x=>/border/i.test(x))).toBe(true);
- expect(p.previewIssues.filter(x=>x==='bidi')).toHaveLength(1); // Hidden text is supported since 2026-10-09.
+ // Hidden text is supported since 2026-10-09 and right-to-left paragraphs (w:bidi) since 2026-11-10:
+ // neither is reported, and the wave border alone keeps the document read-only.
+ expect(p.readOnly).toBe(true);expect(p.previewIssues).not.toContain('bidi');
+ expect(p.previewIssues.filter(x=>/border/i.test(x))).toHaveLength(1);
+ expect(p.paragraphs.find(x=>x.runs[0]?.text==='Directional paragraph').format.bidi).toBe(true);
  expect(p.parts).toEqual(unzipSync(bytes));expect(()=>p.export()).toThrow('read-only');
  expect(p.paragraphs[0].runs[0].bold).toBe(true);
  const ordinary=await DocxPackage.open(new Uint8Array(await createDocx([paragraph('Ordinary')]).export().arrayBuffer()),{bestEffort:true});
  expect(ordinary.readOnly).not.toBe(true);expect(ordinary.previewIssues).toBeUndefined();
 });
 it('uses readable feature labels and renders document-controlled diagnostic text safely',()=>{
- const nodes=previewNotice({previewIssues:['bidi','vanish','vanish','<img src=x onerror=alert(1)>']});
+ const nodes=previewNotice({previewIssues:['right-to-left section columns or line numbers','vanish','vanish','<img src=x onerror=alert(1)>']});
  const container=document.createElement('div');container.append(...nodes);
  expect(container.querySelectorAll('li')).toHaveLength(3);
- expect(container.textContent).toContain('Right-to-left paragraph layout');expect(container.textContent).toContain('Hidden text');
+ expect(container.textContent).toContain('Right-to-left columns or line numbers');expect(container.textContent).toContain('Hidden text');
  expect(container.querySelector('img')).toBeNull();expect(container.textContent).toContain('<img src=x onerror=alert(1)>');
  expect(container.querySelector('summary').textContent).toBe('Unsupported features detected (3)');
  expect(container.querySelector('details').open).toBe(false);

@@ -15,24 +15,36 @@ const trailingTypes = new Set(['WS','S','B','BN','LRE','RLE','LRO','RLO','PDF','
 const trailing = text => [...text].every(c=>trailingTypes.has(bidi.getBidiCharTypeName(c)));
 // w:rtl supplies a higher-level R classification for neutral spaces (Part 1
 // 17.3.2.30). Such a space is part of the reversed text, not an L1 line tail.
-export const bidiRtlSpace = c => c.text === ' ' && c.style.rtl && c.style.bidiLevel % 2 === 1;
+// In a right-to-left paragraph (style.bidiBase) every line-end space is at the paragraph level and hangs
+// past the trailing (left) edge, as a trailing space does in a left-to-right paragraph.
+export const bidiRtlSpace = c => c.text === ' ' && c.style.rtl && !c.style.bidiBase && c.style.bidiLevel % 2 === 1;
 
-export function bidiCharacters(chars) {
+/**
+ * Resolve embedding levels (UAX #9). `rtl` is the paragraph's base direction (§17.3.1.6 bidi).
+ *
+ * w:rtl gives a run's characters a direction of their own (§17.3.2.30): in a left-to-right paragraph
+ * consecutive rtl runs form one right-to-left embedding. A right-to-left paragraph is the mirror case,
+ * as the reference application lays it out: consecutive runs without w:rtl form one left-to-right
+ * embedding, so "Hello world." in such a run keeps its period on the right, while rtl runs are resolved
+ * at the paragraph's own right-to-left level. A tab ends an embedding and starts the next.
+ */
+export function bidiCharacters(chars, rtl = false) {
   if (!chars.length) return chars;
   chars=rtlFontCharacters(chars,text=>bidi.getBidiCharTypeName(text));
-  let proxy = '', rtl = false;
+  const open = rtl ? '\u202a' : '\u202b';
+  let proxy = '', embedded = false;
   const indices = [];
   for (const c of chars) {
-    const next = !!c.style.rtl;
-    if (next !== rtl) { proxy += next ? '\u202b' : '\u202c'; rtl = next; }
+    const next = !!c.style.rtl !== rtl;
+    if (next !== embedded) { proxy += next ? open : '\u202c'; embedded = next; }
     indices.push(proxy.length);
     if(c.bidiType) proxy+=representatives[c.bidiType];
     else for (const codePoint of c.text) proxy += codePoint.length === 1 ? codePoint : representatives[bidi.getBidiCharTypeName(codePoint)] || 'A';
-    if(rtl && c.text==='\t') proxy+='\u202c\u202b';
+    if(embedded && c.text==='\t') proxy+='\u202c'+open;
   }
-  if (rtl) proxy += '\u202c';
-  const {levels} = bidi.getEmbeddingLevels(proxy, 'ltr');
-  return chars.map((c,i) => ({...c, style:{...c.style,bidiLevel:levels[indices[i]],bidiDirection:levels[indices[i]]%2 ? 'rtl' : 'ltr'}}));
+  if (embedded) proxy += '\u202c';
+  const {levels} = bidi.getEmbeddingLevels(proxy, rtl ? 'rtl' : 'ltr');
+  return chars.map((c,i) => ({...c, style:{...c.style,bidiLevel:levels[indices[i]],bidiDirection:levels[indices[i]]%2 ? 'rtl' : 'ltr',...(rtl ? {bidiBase:1} : {})}}));
 }
 
 // UAX #9 L1 applies after line breaking, including whitespace before tabs.
@@ -40,11 +52,13 @@ export function bidiCharacters(chars) {
 export function bidiLineCharacters(chars) {
   if (!chars.some(c => c.style.bidiLevel !== undefined)) return chars;
   const result = chars.slice();
+  // The paragraph level: 1 in a right-to-left paragraph, whose line tail is at the left.
+  const reset = c => { const level = c.style.bidiBase ? 1 : 0; return {...c,style:{...c.style,bidiLevel:level,bidiDirection:level ? 'rtl' : 'ltr'}}; };
   for (let end = 0; end <= chars.length; end++) if (end === chars.length || chars[end].text === '\t') {
-    if (end < chars.length) result[end] = {...chars[end],style:{...chars[end].style,bidiLevel:0,bidiDirection:'ltr'}};
+    if (end < chars.length) result[end] = reset(chars[end]);
     for (let i=end-1;i>=0 && trailing(chars[i].text);i--) {
       if(end===chars.length && bidiRtlSpace(chars[i])) break;
-      result[i] = {...chars[i],style:{...chars[i].style,bidiLevel:0,bidiDirection:'ltr'}};
+      result[i] = reset(chars[i]);
     }
   }
   return result;

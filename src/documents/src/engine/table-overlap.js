@@ -31,7 +31,7 @@ const clip = (value, dx, dy) => ({ ...value, ...Object.fromEntries(['left','righ
 export function shiftTableItem(item, dx, dy, shared = new Map()) {
   if (!dx && !dy) return item;
   const moved = { ...item };
-  for (const key of ['x','columnLeft','hangingRight']) if (item[key] !== undefined) moved[key] += dx;
+  for (const key of ['x','columnLeft','hangingRight','hangingLeft']) if (item[key] !== undefined) moved[key] += dx;
   for (const key of ['y','baseline']) if (item[key] !== undefined) moved[key] += dy;
   for (const key of ['cellClip','textClip']) if (item[key]) moved[key] = clip(item[key],dx,dy);
   for (const key of ['fragments','stops','underlines','strikes','backgrounds','leaders','bars']) if (item[key]) moved[key] = item[key].map(f => {

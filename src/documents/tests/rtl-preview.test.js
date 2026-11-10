@@ -39,14 +39,16 @@ it('keeps the enclosing table when a cell contains active RTL text',async()=>{
   expect(cell.runs.find(r=>r.rtl)).toMatchObject({fontCs:'Courier New',fontSizeCs:16,boldCs:true});
   expect(pkg.parts).toEqual(parts);
 });
-it.each(['bidi'])('keeps unsupported paragraph %s guarded independently of run direction',async feature=>{
+// Paragraph direction (§17.3.1.6) is laid out and editable; tests/rtl-paragraph-docx.test.js covers it.
+it.each(['bidi'])('opens paragraph %s beside run direction for editing, parts untouched',async feature=>{
  const parts=unzipSync(readFileSync('tests/fixtures/rtl-font-context/control.docx'));
  const xml=new DOMParser().parseFromString(strFromU8(parts['word/document.xml']),'application/xml');
  const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main',p=xml.getElementsByTagNameNS(W,'p')[0];
  let properties=[...p.children].find(n=>n.localName==='pPr');if(!properties){properties=xml.createElementNS(W,'w:pPr');p.prepend(properties);}
  properties.append(xml.createElementNS(W,'w:'+feature));parts['word/document.xml']=strToU8(new XMLSerializer().serializeToString(xml));
- await expect(DocxPackage.open(zipSync(parts))).rejects.toMatchObject({name:'UnsupportedDocumentError'});
- const preview=await DocxPackage.open(zipSync(parts),{bestEffort:true});expect(preview.readOnly).toBe(true);expect(preview.parts).toEqual(parts);
+ const strict=await DocxPackage.open(zipSync(parts));expect(strict.readOnly).not.toBe(true);expect(strict.paragraphs[0].format.bidi).toBe(true);
+ const preview=await DocxPackage.open(zipSync(parts),{bestEffort:true});expect(preview.readOnly).not.toBe(true);expect(preview.parts).toEqual(parts);
+ expect(unzipSync(new Uint8Array(await strict.export(strict.paragraphs).arrayBuffer()))).toEqual(parts);
 });
 it('opens paragraphs and sections that state left-to-right direction explicitly for editing',async()=>{
  const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';

@@ -24692,7 +24692,7 @@ reason in the document itself. Each row has a unit regression that fails without
 
 | Feature | Specification basis | Supported subset and evidence |
 | --- | --- | --- |
-| Explicit left-to-right direction | ECMA-376 Part 1 §17.3.1.6 `bidi` (paragraph), §17.6.1 `bidi` (section), §17.17.4 on/off values | A paragraph, section or list-level (§17.9.23 numbering `pPr`) `w:bidi` whose value is off (`0`, `false`, `off`) states the default direction and no longer opens the document read-only. The element is kept in place through edits and save. An enabled `w:bidi` (absent value, `1`, `true`, `on`) still opens read-only because right-to-left paragraph and section layout are not implemented. `tests/rtl-preview.test.js`; the edited export passes `check:conformance`. |
+| Explicit left-to-right direction | ECMA-376 Part 1 §17.3.1.6 `bidi` (paragraph), §17.6.1 `bidi` (section), §17.17.4 on/off values | A paragraph, section or list-level (§17.9.23 numbering `pPr`) `w:bidi` whose value is off (`0`, `false`, `off`) states the default direction and no longer opens the document read-only. The element is kept in place through edits and save. An enabled `w:bidi` (absent value, `1`, `true`, `on`) opened read-only until 2026-11-10; right-to-left paragraphs are now laid out and editable (see "Right-to-left paragraphs" below), and only a right-to-left section with columns or line numbers still opens read-only. `tests/rtl-preview.test.js`; the edited export passes `check:conformance`. |
 | Recorded previous table grid | §17.4.48 `tblGrid` (CT_TblGrid: `gridCol*`, then optional `tblGridChange`), §17.13.5.33 `tblGridChange` | A `w:tblGridChange` as the grid's last child, with an integer `w:id` and one `w:tblGrid` of `gridCol` elements, no longer opens the document read-only (some producers write it unchanged in every table). The current `gridCol` list is laid out; the record is kept in the table shell, and when an edit rewrites the grid (inserted or resized columns) it is carried over after the new columns. Malformed or misplaced records still open read-only. Accepting or rejecting the recorded grid change is not offered. `tests/producer-table-quirks.test.js`; the edited export passes `check:conformance`. |
 | Unitless decimal table measurements | §17.4.87 CT_TblWidth `w` (ST_MeasurementOrPercent), §17.4.42 `tcMar`, §17.4.43 `tblCellMar`, §17.4.44 `tblCellSpacing` | Table, cell and indent widths, cell margins and cell spacing written as a decimal without units (`9360.0`, `100.0`; Google Docs exports do this) are not schema-valid but no longer open read-only: they are read as the nearest whole twip (or fiftieth of a percent), and a saved table states those whole values, so the export is schema-valid. Other malformed values (`9360.`, `.5`, `1e3`, `9360,0`) still open read-only. `tests/producer-table-quirks.test.js`, `tests/canvas-cell-margins.test.js`. |
 | Revision UTC times | §17.13.5.18 `ins`, §17.13.5.14 `del`, §17.13.5.22/.25 `moveFrom`/`moveTo`, §17.13.5.29/.31 `pPrChange`/`rPrChange` (CT_TrackChange); [MS-DOCX] `w16du:dateUtc`; Part 3 §10.2.1 `Ignorable` | Current Word writes `w16du:dateUtc` beside `w:date` on every tracked change. Documents with tracked insertions, deletions, moves or paragraph marks carrying it opened read-only ("revision attribute w16du:dateUtc"); they now open for editing. The value is kept with the revision and written back on rewritten insertions, deletions, moves, paragraph marks and recorded formatting changes, but only while the part's root still declares the namespace and lists it in `mc:Ignorable`; otherwise it is left out. Revisions made in this editor have no UTC time. `tests/tracked-changes.test.js`; the edited export passes `check:conformance` (standard MCE view). |
@@ -24863,3 +24863,54 @@ one where it stood, with a new `docPr` id, in front of the other drawings, and w
 tracked changes, and pastes into another document, another story, a table cell or text that takes no formatting
 get the text alone; other applications get the plain text. Tests: `tests/text-object-fragment.test.js`,
 `tests/browser/text-object-clipboard.spec.js` (save and reopen).
+
+## Right-to-left paragraphs (2026-11-10)
+
+A paragraph with `w:bidi` opened the whole document read-only ("Right-to-left paragraph layout"), and
+there was no way to make a paragraph right-to-left: Arabic, Hebrew or Persian typed into a new document
+stayed at the left margin with its punctuation on the wrong side. Such paragraphs are now laid out,
+edited and saved.
+
+| Feature | Specification basis | Supported subset and evidence |
+| --- | --- | --- |
+| Paragraph direction | ECMA-376 Part 1 §17.3.1.6 `bidi`, §17.7.2 style hierarchy, §17.17.4 on/off values | Read from the paragraph, its styles and the document defaults; an explicit off value overrides a style. Lines start at the right edge of the text area (page, column, table cell, text box, header, footer, note) and are ordered by UAX #9 from a right-to-left base. Set from the Home tab's Right-to-Left Text Direction toggle, Format > Text Direction (both directions) and the Paragraph dialog; written as `w:bidi` in `CT_PPrBase` order and kept through undo, redo, copy and paste. |
+| Alignment | §17.3.1.13 `jc`, §17.18.44 ST_Jc | `left`/`start` is the leading edge and `right`/`end` the trailing one: in a right-to-left paragraph the stored `left` is drawn at the right margin, as the reference application draws it. The alignment buttons, their shortcuts and the dialog name physical sides and store the reading-relative value per paragraph, so one command aligns a mixed selection to one side. Centered, justified and distributed text are direction-independent; a justified line fills from margin to margin. |
+| Indents | §17.3.1.12 `ind` (`left`/`start`, `right`/`end`, `firstLine`, `hanging`), §17.3.1.18 `mirrorIndents` | The stored left indent, first-line indent and hanging indent apply at the right edge, the right indent at the left. Mirrored indents swap the other way on facing pages. The ruler shows the markers mirrored and edits the same stored values; the dialog labels them Before text and After text. |
+| Tabs | §17.3.1.37 `tab`, §17.3.1.38 `tabs` | Positions are measured from the right margin and fields advance leftwards: a left tab starts its text at the stop, a right tab ends it there, center and decimal tabs align on it. Leaders, tab underlines and backgrounds fill the gap on the side the field was reached from; bar tabs are measured from the right margin. |
+| Lists | §17.9 numbering, §17.3.1.19 `numPr` | The label hangs at the right of its text with the level's indents read from the right edge, and is ordered as right-to-left text ("1." reads ".1"). A right-to-left direction stated in a numbering level's own `pPr` still opens read-only. |
+| Run direction in a right-to-left paragraph | §17.3.2.30 `rtl` | A `w:rtl` run is resolved at the paragraph's right-to-left level. Consecutive runs without `w:rtl` form one left-to-right unit, laid out as in a left-to-right paragraph. The standard does not state this; it is the reference application's behavior (`tests/fixtures/rtl-paragraphs/README.md`, twelve controls). |
+| Typed text | §17.3.2.30 `rtl`, §17.3.2.39 `szCs`, §17.3.2.2 `bCs`, §17.3.2.17 `iCs` | Text inserted into a right-to-left paragraph, and the digits, spaces and punctuation directly beside the edit, take the run direction that plain UAX #9 ordering with a right-to-left base shows: a left-to-right phrase (Latin letters with the spaces, punctuation and numbers resolved with them) is left without `w:rtl`, everything else is `w:rtl`. Text that becomes right-to-left keeps its visible size, weight and slant in the complex-script properties. Making a paragraph right-to-left applies the same rule to it once, unless a run already states a direction. Splitting a paragraph changes no run, and text in left-to-right paragraphs is marked as before. |
+| Caret and selection | UAX #9 L1, L2 | Left moves on through the text and Right back in a right-to-left paragraph (logical movement, as in left-to-right ones); Cmd+Left and Cmd+Right go to the line's physical ends. Trailing spaces hang past the left edge and are bounded there. The paragraph mark, its selection and the Show Formatting Marks symbols follow the line's left end; tab arrows point leftwards. |
+| Right-to-left section | §17.6.1 `bidi` (section) | Accepted and kept where it has nothing to reorder: one column and no line numbers. With columns or line numbering the document still opens read-only ("Right-to-left columns or line numbers"). |
+| Other formats | HTML `dir`, CSS `text-align` | Copied and exported HTML states `dir="rtl"` and a physical `text-align`; pasted HTML reads `dir` and `direction`. This editor's own clipboard fragment carries the direction with the alignment. |
+
+Paragraph layout measures a right-to-left paragraph on the mirror image of its text area
+(`src/engine/rtl-paragraph.js`), where it is an ordinary left-to-right paragraph, and reflects each finished
+tab field back. Indents, hanging labels, tabs, alignment, justification, wrapping beside floating objects and
+automatic hyphenation therefore share one implementation with left-to-right paragraphs, which are unchanged.
+
+Evidence: `tools/rtl_paragraph_fixture.py` writes `public/fixtures/rtl-paragraphs.docx` and
+`tools/rtl_paragraph_direction_fixture.py` writes `tests/fixtures/rtl-paragraphs/control.docx`, both directly
+as WordprocessingML. Both were opened in the reference application: every paragraph of the first met the same
+margin and showed the same order as the canvas, and so did a document typed in this editor and saved; the
+twelve lines of the second are tabulated in its README and checked by `tests/rtl-paragraph-controls.test.js`.
+`tests/rtl-paragraph-layout.test.js` covers exact geometry (alignment, indents, wrapping, hanging spaces,
+justification, tabs and leaders, shading, formatting marks) and the typing rule;
+`tests/rtl-paragraph-docx.test.js` import, editing, undo, clipboard, serialization and the section guard;
+`tests/browser/rtl-paragraphs.spec.js` the ribbon, keyboard, dialog, ruler, download and reopen. The fixtures
+and the edited and typed browser exports pass `check:conformance`.
+
+**Remaining gaps:** right-to-left tables (`w:bidiVisual`, §17.4.1) still open read-only, as do right-to-left
+sections with columns or line numbers and a direction stated in a numbering level. Paragraph border sides
+are physical. The Layout tab's Indent Left and Right spinners edit the stored (before and after text) values
+without relabeling. There is no keyboard shortcut for direction. The toggle makes the Home tab's Paragraph group 14px wider, so
+at a 1280px window, where that tab had 7px to spare, its lowest-priority group (Voice) folds into its
+drop-down one step earlier than before. Wrapping beside floating objects, automatic
+hyphenation, mirrored indents on facing pages and positional tabs go through the mirrored path in a
+right-to-left paragraph but have no test of their own yet. Kashida justification is not drawn. The
+reference application marks typed text by keyboard language; this editor marks it from the text, so a file
+typed there with punctuation entered on a Latin keyboard can order that punctuation differently from the same
+text typed here. Inside a `w:rtl` run, brackets around a Latin word followed by a number are ordered by
+UAX #9 rule N0, which differs from the reference application (line 12 of the control). Positions were
+compared with the reference application by eye at screen resolution, not by recorded glyph coordinates; a
+schema pass is not layout fidelity.

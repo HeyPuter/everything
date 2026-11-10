@@ -4,6 +4,9 @@
 It combines right-to-left paragraph layout, repeated hidden-text declarations,
 and a wave paragraph border with ordinary bold text. These declarations expose
 several existing import limitations without adding a new rendering feature.
+Hidden text (2026-10-09) and right-to-left paragraphs (2026-11-10) have since
+become editable: the wave border is the limitation the list still reports, and
+the other declarations check that supported features are not listed.
 
 Tests require a document-specific, deduplicated diagnostic list, retained
 supported text formatting, unchanged package parts and the existing read-only

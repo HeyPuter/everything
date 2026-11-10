@@ -30,6 +30,7 @@ import { markerGeometry } from './list-layout.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { LineBuilder } from './line-builder.js';
 import { bidiCharacters, bidiLineCharacters, bidiRtlSpace, bidiCharacterType } from './bidi-text.js';
+import { mirroredPage, mirroredInterval, mirroredRow, mirrorMarker } from './rtl-paragraph.js';
 import { createParagraphPaginator } from './pagination.js';
 import { paragraphText, paragraphFormat, runFormat } from './model.js';
 import { revisionView, runRevisionDisplay, revisionViewKey } from './revisions.js';
@@ -200,7 +201,7 @@ function layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageSt
 }
 
 function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStories, wrapHints, storyOptions) {
-  const mirroredIndents = new Map(paragraphs.filter(p => p.format?.mirrorIndents && !p.cellId && (p.format.indentRight ?? 0) !== (p.format.indentLeft ?? 0)).map(p => [p.id, ((p.format.indentRight ?? 0) - (p.format.indentLeft ?? 0)) / 15]));
+  const mirroredIndents = new Map(paragraphs.filter(p => p.format?.mirrorIndents && !p.cellId && (p.format.indentRight ?? 0) !== (p.format.indentLeft ?? 0)).map(p => [p.id, (p.format.bidi ? -1 : 1) * ((p.format.indentRight ?? 0) - (p.format.indentLeft ?? 0)) / 15]));
   const paginateParagraphs = createParagraphPaginator();
   const measure = (text, style) => measureTextGeometry(text, style, measureBase);
   // Body paragraphs measured by an earlier layout with this measurer (paragraph-measure-cache.js).
@@ -907,7 +908,9 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
   // Active RTL import/editing remains guarded while interaction is verified. Hebrew or Arabic typed
   // into an ordinary run (no w:rtl) is still right-to-left text (UAX #9): it is ordered by the same
   // path, so its carets and selection follow the glyphs instead of mirroring them.
-  if (chars.some(c=>c.style.rtl) || strongRtl(text)) chars=bidiCharacters(chars);
+  // A right-to-left paragraph (§17.3.1.6 bidi) resolves every character from a right-to-left base.
+  const rtl = !!format.bidi;
+  if (rtl || chars.some(c=>c.style.rtl) || strongRtl(text)) chars=bidiCharacters(chars, rtl);
   // Leading page/column breaks move the first text line without consuming its
   // first-line indent. Spaces, tabs, manual line breaks and list markers do
   // consume it. Keep source offsets and the break-only pagination lines intact.
@@ -918,11 +921,17 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
   const columnPage = page;
   do {
     if (columnPage.columnWidthAt && !cellBounds) page = { ...columnPage, right: columnPage.width-columnPage.left-columnPage.columnWidthAt(chars[start]?.start ?? documentOffset+text.length) };
-    if (!row) row = squareRow(wrapHints, p.id, lines.length, paragraphEdges(format, page, start <= firstIndentedStart), page, 0, format.spaceBefore * 4 / 3, clearance);
+    // A right-to-left paragraph is measured on the mirror image of its text area (rtl-paragraph.js):
+    // `flow` coordinates run from the leading edge, and each finished line is reflected back.
+    const flow = rtl ? mirroredPage(page) : page, axis = flow.rtlAxis;
+    const flowEdges = first => paragraphEdges(format, flow, first);
+    const wrapRow = (edges, ...rest) => rtl ? mirroredRow(squareRow(wrapHints, p.id, lines.length, mirroredInterval(edges, axis), page, ...rest), axis) : squareRow(wrapHints, p.id, lines.length, edges, page, ...rest);
+    if (!row) row = wrapRow(flowEdges(start <= firstIndentedStart), 0, format.spaceBefore * 4 / 3, clearance);
     const edges = row.intervals[pieceIndex], right = edges.right;
-    const { left, marker } = markerGeometry(start === 0 ? listMarker : null, markRunFormat(), edges.left, right, format, page, measure, documentOffset);
+    const { left, marker } = markerGeometry(start === 0 ? listMarker : null, markRunFormat(), edges.left, right, format, flow, measure, documentOffset);
+    if (rtl && marker) mirrorMarker(marker, axis);
     const available = right - left;
-    const scanner = new LineBuilder(left, right, format, page, measure, chars[start]?.start ?? documentOffset + text.length);
+    const scanner = new LineBuilder(left, right, format, flow, measure, chars[start]?.start ?? documentOffset + text.length);
     let end = start, lastBreak = -1, contraction = null, visibleItems = 0, oversizedInline = false;
     while (end < chars.length) {
       const c = chars[end];
@@ -956,10 +965,10 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     // A word that fits the next interval stays intact instead of being split
     // into a narrow sliver beside a floating object.
     if (lastBreak < 0 && end < chars.length && !['\v','\f','\u000e'].includes(chars[end].text) && !pieces.length) {
-      const fullEdges = paragraphEdges(format, page, start <= firstIndentedStart), fullWidth = fullEdges.right - fullEdges.left;
+      const fullEdges = flowEdges(start <= firstIndentedStart), fullWidth = fullEdges.right - fullEdges.left;
       const maximum = Math.max(...row.intervals.map(i => i.right - i.left));
       if (maximum < fullWidth - 1e-6) {
-        const word = new LineBuilder(0,1e9,format,page,measure,chars[start].start);
+        const word = new LineBuilder(0,1e9,format,flow,measure,chars[start].start);
         for (let i=start;i<chars.length;i++) {
           if ([' ','\v','\f','\u000e'].includes(chars[i].text)) break;
           word.add(chars[i]);
@@ -968,7 +977,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
         // The obstacle is cleared before emergency character breaks are used.
         // Cap at the paragraph width so overlong words still make progress.
         if (word.end > maximum + 1e-6) {
-          row = squareRow(wrapHints,p.id,lines.length,fullEdges,page,Math.min(word.end,fullWidth),format.spaceBefore * 4 / 3,clearance);
+          row = wrapRow(fullEdges,Math.min(word.end,fullWidth),format.spaceBefore * 4 / 3,clearance);
           pieceIndex = 0;
           continue;
         }
@@ -976,7 +985,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     }
     if (lastBreak < 0 && end < chars.length && !['\v','\f','\u000e'].includes(chars[end].text) && pieceIndex + 1 < row.intervals.length) {
       const maximum = Math.max(...row.intervals.slice(pieceIndex+1).map(i => i.right-i.left));
-      const word = new LineBuilder(0,1e9,format,page,measure,chars[start].start);
+      const word = new LineBuilder(0,1e9,format,flow,measure,chars[start].start);
       // Stop as soon as no later interval can contain it, rather than scanning
       // the remaining paragraph for every slice of a long unbreakable word.
       for (let i=start;i<chars.length;i++) {
@@ -990,7 +999,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     // end further from the margin than the hyphenation zone (hyphenation-layout.js).
     const autoHyphen = page.autoHyphenation && !format.suppressAutoHyphens && !oversizedInline && !contraction && end < chars.length && !['\v', '\f', '\u000e'].includes(chars[end].text)
       ? autoHyphenationBreak(chars, start, end, lastBreak, { right, zone: page.hyphenationZone, caps: !page.doNotHyphenateCaps, limitReached: page.consecutiveHyphenLimit > 0 && hyphenatedLines >= page.consecutiveHyphenLimit,
-        lineEnd: (to, hyphen) => { const probe = new LineBuilder(left, right, format, page, measure, chars[start].start); for (let i = start; i < to; i++) probe.add(chars[i]); if (hyphen) probe.add(hyphenCharacter(chars[to - 1])); return hyphen ? probe.end : probe.field.origin + probe.field.contentWidth; } })
+        lineEnd: (to, hyphen) => { const probe = new LineBuilder(left, right, format, flow, measure, chars[start].start); for (let i = start; i < to; i++) probe.add(chars[i]); if (hyphen) probe.add(hyphenCharacter(chars[to - 1])); return hyphen ? probe.end : probe.field.origin + probe.field.contentWidth; } })
       : null;
     if (autoHyphen !== null) end = lastBreak = autoHyphen;
     if (end < chars.length && !['\v', '\f', '\u000e'].includes(chars[end].text) && lastBreak > start) end = lastBreak;
@@ -1012,7 +1021,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     // added exactly this span, in order, with the same geometry. Building it again only repeats
     // every measurement (most paragraphs are one line).
     const reuse = end === chars.length && !contraction && !softBreak && autoHyphen === null && span === scanned;
-    const builder = reuse ? scanner : new LineBuilder(left, right, format, page, measure, offset);
+    const builder = reuse ? scanner : new LineBuilder(left, right, format, flow, measure, offset);
     if (!reuse) for (const c of span) builder.add(c);
     const pageBreakWithMark = hardBreak === 'page' && end === chars.length - 1 && !page.splitPgBreakAndParaMark;
     // A terminal page break sharing the paragraph mark takes that mark's
@@ -1028,7 +1037,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     if (contraction) {
       let fraction = contraction.fraction;
       for (let attempt = 0; attempt < 4; attempt++) {
-        const contracted = new LineBuilder(left, right, format, page, measure, offset);
+        const contracted = new LineBuilder(left, right, format, flow, measure, offset);
         span.forEach((c, i) => contracted.add(i + start >= contraction.first && i + start < contraction.contentEnd && !c.image && c.text !== '\u00a0'
           ? { ...c, style: { ...c.style, justificationSpacing: -fraction * contractionSpace(c.style) } } : c));
         measured = contracted.finish(markStyle, ignoreMark, !!marker);
@@ -1051,7 +1060,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
       if (range) {
         let spacing = range.spacing;
         for (let attempt = 0; attempt < 4; attempt++) {
-          const expanded = new LineBuilder(left, right, format, page, measure, offset);
+          const expanded = new LineBuilder(left, right, format, flow, measure, offset);
           span.forEach((c, index) => expanded.add(index >= range.first && index < range.last && !c.image && (!/^\p{White_Space}+$/u.test(c.text) || c.text === ' ' || c.text === '\u00a0') ? { ...c, style: justifiedStyle(c.style, range, index, spacing) } : c));
           measured = { ...expanded.finish(markStyle, ignoreMark, !!marker), justificationSpacing: spacing };
           const overflow = justifiedLineEnd(measured) - right;
@@ -1102,7 +1111,9 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
       // line taller; compression moves only that text share of the baseline.
       : format.lineRule === 'auto' ? measured.ascent + (measured.spacingAscent ?? measured.ascent) * (Math.min(1, format.lineSpacing) - 1)
       : measured.ascent + (height >= naturalHeight ? (height - naturalHeight) / 2 : height - naturalHeight);
-    const shift = Math.max(0, available - contentWidth) * (format.alignment === 'center' ? 0.5 : format.alignment === 'right' ? 1 : 0);
+    // Alignment is stored relative to the reading direction: in a right-to-left paragraph `left` is the
+    // leading (right) edge, so the same share of the free width moves the line the other way.
+    const shift = (rtl ? -1 : 1) * Math.max(0, available - contentWidth) * (format.alignment === 'center' ? 0.5 : format.alignment === 'right' ? 1 : 0);
     if (marker) marker.x += shift;
     for (const key of ['leaders', 'backgrounds', 'underlines', 'strikes']) measured[key].push(...(marker?.tabSuffix?.[key] || []));
     for (const leader of measured.leaders) leader.x += shift;
@@ -1110,7 +1121,18 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     for (const stop of measured.stops) stop.x += shift;
     for (const b of measured.backgrounds) b.x += shift;
     for (const u of [...measured.underlines, ...measured.strikes]) u.x += shift;
-    if (measured.ignoredTrailingWidth && measured.stops.at(-1).x > right) {
+    if (rtl) {
+      // Trailing spaces hang past the left edge here; bound their geometry there. The fragments keep
+      // their advances, so the shaped text is painted from an unchanged origin.
+      const edge = axis - right;
+      if (measured.ignoredTrailingWidth && measured.stops.at(-1).x < edge) {
+        measured.hangingLeft = edge;
+        for (const s of measured.stops) if (s.offset > measured.trailingStart && s.x <= edge) { s.x = edge; s.hanging = true; }
+        const clip = span => { const end = Math.max(edge, span.x + span.width); span.x = Math.max(span.x, edge); span.width = end - span.x; };
+        for (const b of measured.backgrounds) clip(b);
+        for (const u of [...measured.underlines, ...measured.strikes]) clip(u);
+      }
+    } else if (measured.ignoredTrailingWidth && measured.stops.at(-1).x > right) {
       // Source spaces remain intact. Only their visible geometry is bounded by
       // the writing edge, including in table cells and repeated headers.
       measured.hangingRight = right;
@@ -1127,6 +1149,8 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
       measured.textClip = { left: cellBounds.left, right: cellBounds.right };
       for (const stop of measured.stops) stop.x = Math.max(cellBounds.left, Math.min(stop.x, cellBounds.right));
     }
+    // The axis belongs to this measurement; placed lines move, so they keep only the direction.
+    if (rtl) { delete measured.rtlAxis; measured.rtl = true; }
     pieces.push({
       ...(page.flowColumns ? { columnMeasureWidth: page.width-page.left-page.right } : {}),
       paragraphId: p.id, marker, height, fitHeight, baseline, ...(oversizedInlineHeight ? { oversizedInlineHeight: true } : {}), clip: emptySectionBoundary || exact && !page.shapeText,
@@ -1143,7 +1167,9 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     // including the other side of a square-wrapped object on this same row.
     // Page/column breaks still terminate the row. Source break offsets remain
     // between the two pieces for caret navigation and selection.
-    const nextClearance = hardBreak === 'line' ? clearingBreakTarget(wrapHints, p.id, chars[end].start, chars[end].breakClear, row.intervals[pieceIndex], pieceIndex === 0, paragraphEdges(format, page, start <= firstIndentedStart)) : null;
+    const nextClearance = hardBreak !== 'line' ? null : rtl
+      ? clearingBreakTarget(wrapHints, p.id, chars[end].start, chars[end].breakClear, mirroredInterval(row.intervals[pieceIndex], axis), pieceIndex === row.intervals.length - 1, mirroredInterval(flowEdges(start <= firstIndentedStart), axis))
+      : clearingBreakTarget(wrapHints, p.id, chars[end].start, chars[end].breakClear, row.intervals[pieceIndex], pieceIndex === 0, paragraphEdges(format, page, start <= firstIndentedStart));
     if (end === chars.length || hardBreak && hardBreak !== 'line' || nextClearance || pieceIndex === row.intervals.length - 1) {
       const finished = pieces.length === 1 && !row.before ? pieces[0] : joinSquareLine(pieces, row.before, format);
       if (row.clearanceBefore) Object.assign(finished, { clearanceBefore: row.clearanceBefore, clearancePage: row.clearancePage });
@@ -1190,10 +1216,13 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     // page/cell clipping bounds this additional decoration.
     for (const line of lines) if (!line.virtual) {
       const geometry = line.columnMeasureWidth === undefined ? page : { ...columnPage, right: columnPage.width-columnPage.left-line.columnMeasureWidth };
-      const regular = paragraphEdges(format, geometry, false), first = paragraphEdges(format, geometry, true);
-      const x = Math.min(regular.left, first.left, ...lines.filter(l => l.marker).map(l => l.marker.x));
-      if (bordered && !cellBounds && !page.paragraphFrameFlow && (x - borderOutset(format.paragraphBorders.left) < 0 || regular.right + borderOutset(format.paragraphBorders.right) > page.width)) throw new Error('These paragraph borders extend outside the page. Increase its margins or paragraph indents, or reduce the border width and spacing.');
-      const paintLeft = x - 2, paintRight = regular.right + 2;
+      // The band spans the trailing edge to the furthest leading extent (hanging first line or list
+      // label); in a right-to-left paragraph the leading side is the right one.
+      const side = rtl ? mirroredPage(geometry) : geometry, regular = paragraphEdges(format, side, false), first = paragraphEdges(format, side, true);
+      const leading = Math.min(regular.left, first.left, ...lines.filter(l => l.marker).map(l => rtl ? side.rtlAxis - l.marker.x - l.marker.width : l.marker.x));
+      const x = rtl ? side.rtlAxis - regular.right : leading, bandRight = rtl ? side.rtlAxis - leading : regular.right;
+      if (bordered && !cellBounds && !page.paragraphFrameFlow && (x - borderOutset(format.paragraphBorders.left) < 0 || bandRight + borderOutset(format.paragraphBorders.right) > page.width)) throw new Error('These paragraph borders extend outside the page. Increase its margins or paragraph indents, or reduce the border width and spacing.');
+      const paintLeft = x - 2, paintRight = bandRight + 2;
       if (format.paragraphShading !== 'auto') line.paragraphBackground = { value: format.paragraphShading, x: paintLeft, width: paintRight - paintLeft, before: 0, after: 0 };
       if (bordered) line.paragraphFrame = { borders: format.paragraphBorders, x: paintLeft, right: paintRight, spaceAfter: format.spaceAfter * 4 / 3, contextualSpacing: format.contextualSpacing, styleId: p.resolvedStyleId ?? p.styleId ?? null };
     }
@@ -1202,7 +1231,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
   const bars = format.tabs.filter(t => t.alignment === 'bar');
   if (bars.length) for (const line of lines) if (!line.virtual) {
     const geometry = line.columnMeasureWidth === undefined ? page : columnPage;
-    line.bars = bars.map(t => ({ x: geometry.left + t.position / 15 }));
+    line.bars = bars.map(t => ({ x: rtl ? geometry.width - geometry.right - t.position / 15 : geometry.left + t.position / 15 }));
   }
   return { lines, format, styleId: 'resolvedStyleId' in p ? p.resolvedStyleId : p.styleId ?? null, leadingFlowBreaks: /^[\f\u000e]+/.exec(text)?.[0].length || 0 };
 }
@@ -1509,11 +1538,13 @@ function lineSelectionRects(layout, line, start, end) {
     if(!f.caretStops || end<=f.start || start>=f.end) return [];
     const first=f.caretStops.find(s=>s.offset>=Math.max(start,f.start)) || f.caretStops.at(-1);
     const last=[...f.caretStops].reverse().find(s=>s.offset<=Math.min(end,f.end)) || f.caretStops[0];
-    const x=Math.max(line.textClip?.left ?? -Infinity,f.x+Math.min(first.x,last.x));
+    const x=Math.max(line.textClip?.left ?? -Infinity,line.hangingLeft ?? -Infinity,f.x+Math.min(first.x,last.x));
     const right=Math.min(edge,f.x+Math.max(first.x,last.x));
     return [clipCellRect({page:line.page,x,y:line.y,width:Math.max(0,right-x),height:line.height},line.cellClip)];
-  }) : [clipCellRect({ page: line.page, x: collapsed ? a.x - 1 : a.x, y: line.y, width: collapsed ? 1 : width, height: line.height }, line.cellClip)];
-  if(line.bidi && newline) rects.push(clipCellRect({page:line.page,x:b.x,y:line.y,width:newline,height:line.height},line.cellClip));
+  }) : [clipCellRect({ page: line.page, x: collapsed ? a.x - 1 : line.rtl ? a.x - width : a.x, y: line.y, width: collapsed ? 1 : width, height: line.height }, line.cellClip)];
+  // The paragraph mark follows the text in reading order: in a right-to-left paragraph it is at the
+  // left of the whole line, whichever way the line's last text reads.
+  if(line.bidi && newline) rects.push(clipCellRect({page:line.page,x:line.rtl ? Math.min(...line.stops.map(s=>s.x))-newline : b.x,y:line.y,width:newline,height:line.height},line.cellClip));
   for (const f of line.fragments || []) if (f.image && normalizedRotation(f.image.rotation) && !isPositionedImage(f.image) && start < f.end && end > f.start) {
     const rect = positionedImageBounds(inlineImagePaintFrame(f.image, f.x, line.baseline - f.ascent));
     const bottom = Math.min(rect.y + rect.height, line.y + line.height);

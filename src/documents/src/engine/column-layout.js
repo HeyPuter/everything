@@ -30,7 +30,7 @@ function shiftLine(line, page, dx, column) {
   if (line.paragraphBackground) result.paragraphBackground = { ...line.paragraphBackground, x: line.paragraphBackground.x + dx };
   if (line.paragraphFrame) result.paragraphFrame = { ...line.paragraphFrame, x: line.paragraphFrame.x + dx, right: line.paragraphFrame.right + dx };
   for (const key of ['cellClip', 'textClip']) if (line[key]) result[key] = shiftClip(line[key], dx);
-  for (const key of ['columnLeft', 'hangingRight']) if (line[key] !== undefined) result[key] = line[key] + dx;
+  for (const key of ['columnLeft', 'hangingRight', 'hangingLeft']) if (line[key] !== undefined) result[key] = line[key] + dx;
   return result;
 }
 

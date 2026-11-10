@@ -199,6 +199,9 @@ export const COMMAND_ICONS = {
   alignCenter: p('M3 4.5h14M5.5 8.5h9M3 12.5h14M5.5 16.5h9', 'o'),
   alignRight: p('M3 4.5h14M8 8.5h9M3 12.5h14M8 16.5h9', 'o'),
   alignJustify: p('M3 4.5h14M3 8.5h14M3 12.5h14M3 16.5h9', 'o'),
+  // Paragraph direction: text lines starting at one margin, and the way the text runs.
+  directionLtr: p('M3 4.5h14M3 8.5h9', 'o') + p('M3 14.5h13M13 11.5l3 3-3 3', 'b'),
+  directionRtl: p('M3 4.5h14M8 8.5h9', 'o') + p('M17 14.5h-13M7 11.5l-3 3 3 3', 'b'),
   lineSpacing: p('M9.5 4.5h8M9.5 8.5h8M9.5 12.5h8M9.5 16.5h8', 'o') + p('M5 4.5v12M2.5 7 5 4.5 7.5 7M2.5 14 5 16.5 7.5 14', 'b thick'),
   shading: p('M3.5 9.5 9 4l6.5 6.5L10 16z', 'bf') + p('M3.5 9.5h12', 'b') + p('M9 4 6.5 1.5', 'o') + p('M16.5 11.5c1 1.6 1.6 2.6 1.6 3.3a1.6 1.6 0 0 1-3.2 0c0-.7.6-1.7 1.6-3.3z', 'ys'),
   borders: borderIcon(['bottom']),

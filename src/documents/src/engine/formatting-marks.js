@@ -74,12 +74,22 @@ export function formattingMarks(lines, text, paragraphs, pageSettings, page) {
     const stops = new Map((local.stops || []).map(stop => [stop.offset, stop.x]));
     const size = Math.max(6, (local.ascent || 12) * 1.05), baseline = local.baseline;
     const xAt = offset => stops.get(offset);
+    // A right-to-left paragraph's line ends at the left: its marks follow the text that way.
+    const rtl = !!local.rtl;
+    // A tab's gap there lies between the field after it (whose leading edge is its first stop) and the
+    // leftmost extent of the field before it; reordered text puts neither at the tab's own caret stops.
+    const rtlGap = offset => {
+      let from = offset; while (from > local.start && text[from - 1] !== '\t') from--;
+      const before = (local.stops || []).filter(stop => stop.offset >= from && stop.offset <= offset).map(stop => stop.x);
+      const edge = (local.stops || []).find(stop => stop.offset === offset + 1)?.x;
+      return before.length && edge !== undefined ? { x: edge, width: Math.max(0, Math.min(...before) - edge) } : null;
+    };
     for (let offset = local.start; offset < local.end; offset++) {
       const ch = text[offset], x = xAt(offset), next = xAt(offset + 1);
       if (x === undefined || next === undefined) continue;
       if (ch === ' ' || ch === '　') marks.push({ kind: 'space', x: (x + next) / 2, y: baseline, size, cell: line });
       else if (ch === ' ') marks.push({ kind: 'nbsp', x: (x + next) / 2, y: baseline, size, cell: line });
-      else if (ch === '\t') marks.push({ kind: 'tab', x, width: next - x, y: baseline, size, cell: line });
+      else if (ch === '\t') marks.push({ kind: 'tab', ...(rtl && rtlGap(offset) || { x, width: next - x }), y: baseline, size, cell: line, ...(rtl ? { rtl } : {}) });
       // An optional hyphen shows as ¬ where it does not break the line; where it does, its hyphen is drawn.
       else if (ch === '\u00ad' && !(offset === local.end - 1 && !local.paragraphEnd && !local.hardBreak)) marks.push({ kind: 'optionalHyphen', x, y: baseline, size, cell: line });
     }
@@ -88,17 +98,25 @@ export function formattingMarks(lines, text, paragraphs, pageSettings, page) {
       const x = xAt(entry.offset);
       if (x !== undefined) marks.push({ kind: 'fieldCode', x, y: baseline, size, text: entry.label, cell: line });
     }
-    const endX = xAt(local.end) ?? (local.stops?.at(-1)?.x ?? 0);
-    const right = Math.max(endX + 40, page.width - page.right);
-    if (local.hardBreak === 'line') marks.push({ kind: 'lineBreak', x: endX, y: baseline, size, cell: line });
-    else if (BREAK_LABELS[local.hardBreak]) marks.push({ kind: 'break', x: endX, width: right - endX, y: baseline, size, text: BREAK_LABELS[local.hardBreak], cell: line });
+    // The paragraph level puts the end of a right-to-left line at its left, even when its last text reads
+    // left to right and so has its final caret on its right.
+    const endX = rtl && local.stops?.length ? Math.min(...local.stops.map(stop => stop.x)) : xAt(local.end) ?? (local.stops?.at(-1)?.x ?? 0);
+    const rule = ruleSpan(endX, page, rtl), side = rtl ? { rtl } : {};
+    if (local.hardBreak === 'line') marks.push({ kind: 'lineBreak', x: endX, y: baseline, size, cell: line, ...side });
+    else if (BREAK_LABELS[local.hardBreak]) marks.push({ kind: 'break', ...rule, y: baseline, size, text: BREAK_LABELS[local.hardBreak], cell: line });
     if (local.paragraphEnd) {
       const role = roles.get(line.paragraphId) || {};
-      if (role.section) marks.push({ kind: 'section', x: endX, width: right - endX, y: baseline, size, text: role.section, cell: line });
-      else marks.push({ kind: role.cellEnd ? 'cell' : 'paragraph', x: endX, y: baseline, size, cell: line });
+      if (role.section) marks.push({ kind: 'section', ...rule, y: baseline, size, text: role.section, cell: line });
+      else marks.push({ kind: role.cellEnd ? 'cell' : 'paragraph', x: endX, y: baseline, size, cell: line, ...side });
     }
   }
   return marks;
+}
+
+/** A break's dotted rule runs from the end of the line's text to the far margin: the left one in a right-to-left paragraph. */
+function ruleSpan(endX, page, rtl) {
+  if (rtl) { const left = Math.min(endX - 40, page.left); return { x: left, width: endX - left }; }
+  return { x: endX, width: Math.max(endX + 40, page.width - page.right) - endX };
 }
 
 /**
@@ -117,10 +135,10 @@ export function breakMarks(lines, page, sections) {
     // The x of the line's last caret stop at its end, as formattingMarks reads it.
     let at = stops.length - 1;
     while (at >= 0 && stops[at].offset !== local.end) at--;
-    const endX = (at >= 0 ? stops[at].x : undefined) ?? (local.stops?.at(-1)?.x ?? 0);
-    const right = Math.max(endX + 40, page.width - page.right);
-    if (label) marks.push({ kind: 'break', x: endX, width: right - endX, y: baseline, size, text: label, cell: line });
-    if (section) marks.push({ kind: 'section', x: endX, width: right - endX, y: baseline, size, text: section, cell: line });
+    const endX = local.rtl && stops.length ? Math.min(...stops.map(stop => stop.x)) : (at >= 0 ? stops[at].x : undefined) ?? (local.stops?.at(-1)?.x ?? 0);
+    const rule = ruleSpan(endX, page, !!local.rtl);
+    if (label) marks.push({ kind: 'break', ...rule, y: baseline, size, text: label, cell: line });
+    if (section) marks.push({ kind: 'section', ...rule, y: baseline, size, text: section, cell: line });
   }
   return marks;
 }
@@ -161,12 +179,16 @@ export function paintFormattingMarks(ctx, marks, geometry) {
       const length = Math.min(mark.width - 2, size * 0.75), left = x + (mark.width - length) / 2, mid = y - size * 0.32, head = Math.min(size * 0.22, length / 2);
       if (length > 2) {
         ctx.lineWidth = Math.max(0.75, size * 0.06);
+        // The arrow points the way the text advances.
+        const tip = mark.rtl ? left : left + length, back = mark.rtl ? left + head : left + length - head;
         ctx.beginPath(); ctx.moveTo(left, mid); ctx.lineTo(left + length, mid);
-        ctx.moveTo(left + length - head, mid - head * 0.8); ctx.lineTo(left + length, mid); ctx.lineTo(left + length - head, mid + head * 0.8); ctx.stroke();
+        ctx.moveTo(back, mid - head * 0.8); ctx.lineTo(tip, mid); ctx.lineTo(back, mid + head * 0.8); ctx.stroke();
       }
-    } else if (mark.kind === 'paragraph') { ctx.font = `${size}px system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.fillText('¶', x + 1, y); }
-    else if (mark.kind === 'cell') { ctx.font = `${size}px system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.fillText('¤', x + 1, y); }
-    else if (mark.kind === 'lineBreak') { ctx.font = `${size}px system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.fillText('↵', x + 1, y); }
+    } else if (['paragraph', 'cell', 'lineBreak'].includes(mark.kind)) {
+      // After the text in reading order: to its left in a right-to-left paragraph.
+      ctx.font = `${size}px system-ui, sans-serif`; ctx.textAlign = mark.rtl ? 'right' : 'left';
+      ctx.fillText({ paragraph: '¶', cell: '¤', lineBreak: '↵' }[mark.kind], mark.rtl ? x - 1 : x + 1, y);
+    }
     else if (mark.kind === 'break' || mark.kind === 'section') dottedRule(ctx, x, y, mark.width, mark.text, size);
     else if (mark.kind === 'fieldCode') {
       // A hidden entry's code, drawn small above the line with a dotted underline, as hidden text appears.

@@ -1396,13 +1396,14 @@ export class DocxPackage {
     // declaration is ordinary inherited formatting, not unsupported direction.
     // Tracked formatting changes (rPrChange/pPrChange) are retained in the
     // property XML; the previous formatting they record is never displayed.
-    // Right-to-left paragraphs and sections (§17.3.1.6, §17.6.1) are guarded; an explicit
-    // off value (<w:bidi w:val="0"/>, written by several producers) is the default direction.
-    const forbidden = ['bidi'];
+    // Right-to-left paragraphs (§17.3.1.6) are laid out from their right edge. A right-to-left section
+    // (§17.6.1) orders only section-level content: it is accepted where that has nothing to reorder (one
+    // column, no line numbers) and guarded otherwise. An explicit off value is the default direction.
     const recordedFormatting = node => { for (let a = node.parentNode; a; a = a.parentNode) if (a.namespaceURI === W && ['rPrChange', 'pPrChange'].includes(a.localName)) return true; return false; };
-    for (const name of forbidden) {
-      const nodes = activeNodes.filter(n => n.namespaceURI === W && n.localName === name && enabled(n) && !recordedFormatting(n));
-      if (nodes.length) unsupported(name);
+    for (const node of activeNodes) {
+      if (node.namespaceURI !== W || node.localName !== 'bidi' || node.parentNode?.localName !== 'sectPr' || !enabled(node) || recordedFormatting(node)) continue;
+      const cols = child(node.parentNode, 'cols'), count = Number(cols?.getAttributeNS(W, 'num') || 1);
+      if (count > 1 || children(cols).some(n => n.localName === 'col') && children(cols).length > 1 || child(node.parentNode, 'lnNumType')) unsupported('right-to-left section columns or line numbers');
     }
     for (const [index, section] of activeNodes.filter(n => n.namespaceURI === W && n.localName === 'sectPr').entries()) {
       if (section.parentNode !== body && !(section.parentNode === child(section.parentNode?.parentNode, 'pPr') && section.parentNode.parentNode.parentNode === body)) unsupported('nested section properties');
@@ -2072,7 +2073,6 @@ export class DocxPackage {
           // (§17.13.8.1 proofErr, cached spelling results) are left out of a rewritten story.
           if (activeDescendants(root).filter(p => p.namespaceURI === W && p.localName === 'p').some(p => children(p).some(n => n.namespaceURI !== W || !['pPr', 'r', 'fldSimple', 'hyperlink', 'proofErr'].includes(n.localName)))) unsupported('unsupported header/footer structure');
           if (activeDescendants(root).some(n => n.namespaceURI === W && ['bookmarkStart', 'bookmarkEnd'].includes(n.localName))) unsupported('header/footer bookmark scope');
-          if (activeDescendants(root).some(n => n.namespaceURI === W && forbidden.includes(n.localName) && !recordedFormatting(n))) unsupported('unsupported header/footer formatting');
           story.tables = [];
           const paragraphs = readBlocks(children(root), { pageStory: path }, 0, story.tables);
           documentBlocks(paragraphs, story.tables);

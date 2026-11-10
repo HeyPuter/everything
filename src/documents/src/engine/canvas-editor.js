@@ -92,6 +92,9 @@ export function joinedBarRanges(ranges) {
 }
 
 /** Canvas paint surface plus a real textarea for native input, composition and accessible text. */
+/** Whether the caret's paragraph is right-to-left (w:bidi). */
+const focusParagraphRtl = model => !!model.paragraphs[model.locate(model.selection.focus).index]?.format?.bidi;
+
 export class CanvasEditor {
   constructor(host, { paragraphs, pageSettings, numbering, styles, tables, pageStories, comments = null, trackChanges, assets = {}, images = new Map(), borrowImages = false, drawingLayouts, inputLabel, readOnly = false, protectedPageFields = false, onChange = () => {}, onSelection = () => {}, onSave = () => {}, onLink = () => {}, onOpenLink = () => {}, onLinkClick = () => {}, onError = () => {}, onNotice = () => {}, onContextMenu = () => {}, onUpdateFields = null, correctTyping = null, linkTyping = null, measure = null, preparePicture = null } = {}) {
     this.host = host;
@@ -669,6 +672,8 @@ export class CanvasEditor {
   clearDirectTextFormatting() { this.finishComposition(); const ok = this.execute(() => this.model.clearDirectTextFormatting()); this.focus(); return ok; }
   clearDirectParagraphFormatting() { this.finishComposition(); const ok = this.execute(() => this.model.clearDirectParagraphFormatting()); this.focus(); return ok; }
   setParagraphFormat(patch) { this.execute(() => this.model.setParagraphFormat(patch)); this.focus(); }
+  setParagraphAlignment(side) { this.execute(() => this.model.setParagraphAlignment(side)); this.focus(); }
+  setParagraphDirection(rtl) { this.execute(() => this.model.setParagraphDirection(rtl)); this.focus(); }
   setParagraphLineSpacing(value) { return this.execute(() => this.model.setParagraphLineSpacing(value)); }
   setParagraphGeometry(patch, defaultTabStop) { return this.execute(() => this.model.setParagraphGeometry(patch, defaultTabStop)); }
   toggleList(kind) { this.execute(() => this.model.toggleList(kind)); this.focus(); }
@@ -1155,7 +1160,10 @@ export class CanvasEditor {
             if (line.cellClip) { ctx.beginPath(); ctx.rect(line.cellClip.left ?? 0, line.cellClip.top, (line.cellClip.right ?? geometry.width) - (line.cellClip.left ?? 0), line.cellClip.bottom - line.cellClip.top); ctx.clip(); }
             if (line.textClip) { ctx.beginPath(); ctx.rect(line.textClip.left, 0, line.textClip.right - line.textClip.left, geometry.height); ctx.clip(); }
             if (!imagesOnly && line.marker) {
-              const marker = line.marker; ctx.fillStyle = paintColor(marker.color, foregroundBackground(marker, background)); setCanvasTextStyle(ctx, marker); paintTextShadows(ctx, marker, line.baseline); paintText(ctx, marker, line.baseline);
+              const marker = line.marker; ctx.fillStyle = paintColor(marker.color, foregroundBackground(marker, background)); setCanvasTextStyle(ctx, marker);
+              // A right-to-left label is ordered by the canvas from its left edge (rtl-paragraph.js).
+              const labelAlign = ctx.textAlign; if (marker.labelDirection) ctx.textAlign = 'left';
+              paintTextShadows(ctx, marker, line.baseline); paintText(ctx, marker, line.baseline); ctx.textAlign = labelAlign;
               for (const u of marker.underlines || []) { ctx.fillStyle = paintColor(u.color, foregroundBackground(u, background)); paintUnderline(ctx, { ...u, x: u.x + marker.x }, line.baseline); }
             }
             // Bar tabs: a hairline over the line's full height, so consecutive lines join.
@@ -1722,6 +1730,9 @@ export class CanvasEditor {
       const forward = (key === 'ArrowDown' ? 1 : -1) === currentLine.cellText.matrix[1];
       key = forward ? 'ArrowRight' : 'ArrowLeft';
     }
+    // In a right-to-left paragraph (§17.3.1.6) the text advances leftwards: Left goes on to the next
+    // character and Right back to the previous one, whatever the direction of the run under the caret.
+    else if (['ArrowLeft', 'ArrowRight'].includes(key) && focusParagraphRtl(this.model)) key = key === 'ArrowLeft' ? 'ArrowRight' : 'ArrowLeft';
     if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(key)) this.preferredX = null;
     // With a block of table cells selected, Shift+Left and Shift+Right grow or shrink it by a cell, as in Word,
     // rather than moving its corner a character at a time through the cell's text.
@@ -1967,7 +1978,8 @@ export class CanvasEditor {
     if (this.accessible) return; // Native textarea navigation in accessible text mode.
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
       e.preventDefault();
-      if (e.metaKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) this.move(e.key === 'ArrowLeft' ? 'Home' : 'End', e.shiftKey, false, false);
+      // Cmd+Left and Cmd+Right go to the line's physical ends: its end is the left one in a right-to-left paragraph.
+      if (e.metaKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) this.move((e.key === 'ArrowLeft') !== focusParagraphRtl(this.model) ? 'Home' : 'End', e.shiftKey, false, false);
       // Cmd+Up and Cmd+Down go to the start and end of the document on a Mac.
       else if (e.metaKey && ['ArrowUp', 'ArrowDown'].includes(e.key)) this.move(e.key === 'ArrowUp' ? 'Home' : 'End', e.shiftKey, false, true);
       else this.move(e.key, e.shiftKey, e.altKey || e.ctrlKey, mod);

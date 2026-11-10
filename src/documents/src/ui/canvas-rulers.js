@@ -52,6 +52,15 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
     return { e, bounds, rect: e.canvases[index].getBoundingClientRect(), page: e.layout.pages[index] || e.layout.page,
       settings: e.model.pageSettings, format: e.model.paragraphFormatting };
   }
+  // Indents and tab stops are measured from the margin the paragraph starts at: the right one in a
+  // right-to-left paragraph (§17.3.1.6 bidi), where the ruler shows them mirrored. A selection of both
+  // directions is shown the left-to-right way.
+  const rtl = c => c.format.bidi === true;
+  const leadTwips = c => Math.round((rtl(c) ? c.page.width - c.page.right : c.page.left) * 15);
+  const trailTwips = c => Math.round((rtl(c) ? c.page.left : c.page.width - c.page.right) * 15);
+  /** A ruler position (twips from the page's left edge) as a distance from the leading margin, and back. */
+  const fromLead = (c, position) => rtl(c) ? leadTwips(c) - position : position - leadTwips(c);
+  const atLead = (c, amount) => rtl(c) ? leadTwips(c) - amount : leadTwips(c) + amount;
   function measurement(twips) { return `${+(twips / 1440 * (unit === 'cm' ? 2.54 : 1)).toFixed(2)} ${unit}`; }
   function ticks(node, length, origin, end, scale, axis) {
     const band = el('span.canvas-ruler-writing');
@@ -110,15 +119,18 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
     }
     // Cell boundaries/column resizing have their own geometry; do not show body indents there.
     if (!e.model.selectedParagraphs.some(p => p.cellId)) {
+      const mirrored = rtl(c);
+      const lead = amount => (mirrored ? p.width - p.right - amount / 15 : p.left + amount / 15) * e.zoom;
+      const trail = amount => (mirrored ? p.left + amount / 15 : p.width - p.right - amount / 15) * e.zoom;
       if (f.indentLeft !== null) {
-        handle(horizontal, 'indentLeft', 'Left indent', (p.left + f.indentLeft / 15) * e.zoom, 'x', f.indentLeft, readonly);
+        handle(horizontal, 'indentLeft', mirrored ? 'Right indent' : 'Left indent', lead(f.indentLeft), 'x', f.indentLeft, readonly);
         if (f.firstLine !== null) {
-          handle(horizontal, 'hanging', 'Hanging indent', (p.left + f.indentLeft / 15) * e.zoom, 'x', f.indentLeft, readonly);
-          handle(horizontal, 'firstLine', 'First line indent', (p.left + (f.indentLeft + f.firstLine) / 15) * e.zoom, 'x', f.firstLine, readonly);
+          handle(horizontal, 'hanging', 'Hanging indent', lead(f.indentLeft), 'x', f.indentLeft, readonly);
+          handle(horizontal, 'firstLine', 'First line indent', lead(f.indentLeft + f.firstLine), 'x', f.firstLine, readonly);
         }
       }
-      if (f.indentRight !== null) handle(horizontal, 'indentRight', 'Right indent', (p.width - p.right - f.indentRight / 15) * e.zoom, 'x', f.indentRight, readonly);
-      for (const tab of f.tabs || []) if (!tab.numberingOnly) handle(horizontal, 'tab', `${tab.alignment} tab stop`, (p.left + tab.position / 15) * e.zoom, 'x', tab.position, readonly, tab);
+      if (f.indentRight !== null) handle(horizontal, 'indentRight', mirrored ? 'Left indent' : 'Right indent', trail(f.indentRight), 'x', f.indentRight, readonly);
+      for (const tab of f.tabs || []) if (!tab.numberingOnly) handle(horizontal, 'tab', `${tab.alignment} tab stop`, lead(tab.position), 'x', tab.position, readonly, tab);
     }
     if (focusKey) [...surface.querySelectorAll('.canvas-ruler-handle')].find(h => h.dataset.kind === focusKey[0] && h.dataset.position === focusKey[1])?.focus({ preventScroll: true });
   }
@@ -138,11 +150,11 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
       if (s[source.key] < 0) amount = -amount;
       e.setPageSettings({ [source.key]: amount });
     } else {
-      const relative = position - Math.round(p.left * 15);
+      const relative = fromLead(c, position);
       if (kind === 'indentLeft') patch = { indentLeft: relative };
       if (kind === 'firstLine') patch = { firstLine: relative - f.indentLeft };
       if (kind === 'hanging') patch = { indentLeft: relative, firstLine: f.firstLine + f.indentLeft - relative };
-      if (kind === 'indentRight') patch = { indentRight: Math.round((p.width - p.right) * 15) - position };
+      if (kind === 'indentRight') patch = { indentRight: rtl(c) ? position - trailTwips(c) : trailTwips(c) - position };
       if (kind === 'tab') {
         const previous = f.tabs.find(t => t.position === tabPosition);
         const tabs = f.tabs.filter(t => t.position !== tabPosition && (remove || t.position !== relative));
@@ -153,7 +165,7 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
     }
     signature = ''; update();
     if (refocusTab) {
-      const tabKey = remove ? null : String(position - Math.round(p.left * 15));
+      const tabKey = remove ? null : String(fromLead(c, position));
       const target = [...horizontal.querySelectorAll('[data-kind="tab"]')].find(h => h.dataset.position === tabKey);
       (target || selector).focus({ preventScroll: true });
     }
@@ -162,7 +174,7 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
   function point(event, d) {
     const rect = (d.axis === 'x' ? horizontal : vertical).getBoundingClientRect();
     const raw = ((d.axis === 'x' ? event.clientX - rect.left : event.clientY - rect.top) - d.offset) / d.c.e.zoom * 15;
-    const origin = d.axis === 'x' && !['left', 'right'].includes(d.kind) ? Math.round(d.c.page.left * 15) : 0;
+    const origin = d.axis === 'x' && !['left', 'right'].includes(d.kind) ? leadTwips(d.c) : 0;
     return rulerSnap(raw - origin, unit, event.altKey) + origin;
   }
   // A fingertip covers the small markers (a first-line indent is a 12 by 8 pixel triangle) and lands a little off
@@ -205,16 +217,16 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
       if (linked) linked.style.left = h.style.left;
       if (drag.kind === 'indentLeft') {
         const first = horizontal.querySelector('[data-kind="firstLine"]');
-        if (first) first.style.left = `${(position + c.format.firstLine) / 15 * c.e.zoom}px`;
+        if (first) first.style.left = `${(position + (rtl(c) ? -1 : 1) * c.format.firstLine) / 15 * c.e.zoom}px`;
       }
     }
     const box = surface.getBoundingClientRect();
     guide.hidden = value.hidden = false; guide.dataset.axis = axis;
     guide.style.left = axis === 'x' ? `${c.rect.left - box.left + position / 15 * c.e.zoom}px` : '30px';
     guide.style.top = axis === 'y' ? `${c.rect.top - box.top + position / 15 * c.e.zoom}px` : '30px';
-    let amount = position - (axis === 'x' ? c.page.left : c.page.top) * 15;
+    let amount = axis === 'x' && rtl(c) ? (c.page.width - c.page.right) * 15 - position : position - (axis === 'x' ? c.page.left : c.page.top) * 15;
     if (drag.kind === 'firstLine') amount -= c.format.indentLeft;
-    if (drag.kind === 'indentRight') amount = (c.page.width - c.page.right) * 15 - position;
+    if (drag.kind === 'indentRight') amount = rtl(c) ? position - c.page.left * 15 : (c.page.width - c.page.right) * 15 - position;
     if (['left', 'right', 'top', 'bottom'].includes(drag.kind)) {
       const source = marginSource(c.page, c.settings, drag.kind);
       amount = drag.kind === 'right' ? c.settings.width - position : drag.kind === 'bottom' ? c.settings.height - position : position;
@@ -251,8 +263,9 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
   listen(horizontal, 'pointerdown', event => {
     if (event.target.closest('button') || event.button !== 0 || selector.disabled || touchedHandle(event)) return;
     event.preventDefault(); const c = context(); c.e.finishComposition();
-    const position = rulerSnap((event.clientX - horizontal.getBoundingClientRect().left) / c.e.zoom * 15 - c.page.left * 15, unit, event.altKey);
-    if (position >= 0 && position < (c.page.width - c.page.left - c.page.right) * 15) commit('tab', position + Math.round(c.page.left * 15), context(), NaN);
+    const clicked = (event.clientX - horizontal.getBoundingClientRect().left) / c.e.zoom * 15;
+    const position = rulerSnap(rtl(c) ? (c.page.width - c.page.right) * 15 - clicked : clicked - c.page.left * 15, unit, event.altKey);
+    if (position >= 0 && position < (c.page.width - c.page.left - c.page.right) * 15) commit('tab', atLead(c, position), context(), NaN);
   });
   listen(surface, 'dblclick', event => {
     const handle = event.target.closest('.canvas-ruler-handle');

@@ -55,6 +55,9 @@ test('Format Painter: copy and paste formatting from the keyboard, sticky with a
 });
 
 test('Dictate inserts recognized speech at the caret and shows that it is listening', async ({ page }) => {
+  // Wide enough for the Voice group to stay open: at the default 1280px the Home tab has no room to
+  // spare, and its lowest-priority group folds into a drop-down.
+  await page.setViewportSize({ width: 1440, height: 900 });
   // A scripted recognizer stands in for the browser's speech service.
   const { input, errors } = await blank(page, 'Start', () => {
     class FakeRecognition {

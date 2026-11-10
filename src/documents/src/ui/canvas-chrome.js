@@ -147,6 +147,10 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   when(marks, () => !!w.toggleMarks && !!a.hasDocument?.(), () => w.marksVisible?.() ? 'true' : 'false');
   const [alignLeft, alignCenter, alignRight, justify] = c.alignmentButtons;
   for (const [control, name] of [[alignLeft, 'alignLeft'], [alignCenter, 'alignCenter'], [alignRight, 'alignRight'], [justify, 'alignJustify']]) small(control, { icon: name });
+  // One toggle: pressed in a right-to-left paragraph, and pressing it again makes the paragraph left-to-right.
+  const directionRtl = c.directionButtons[1];
+  small(directionRtl, { icon: 'directionRtl' });
+  directionRtl.setAttribute('aria-label', 'Right-to-Left Text Direction'); directionRtl.title = 'Right-to-Left Text Direction';
   small(c.lineSpacingMenu, { icon: 'lineSpacing' });
   c.lineSpacingMenu.setAttribute('aria-label', 'Line and Paragraph Spacing'); c.lineSpacingMenu.title = 'Line and Paragraph Spacing';
   c.lineSpacingMenu.append(el('span.ribbon-caret', { 'aria-hidden': 'true' }));
@@ -162,7 +166,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const paragraphLauncher = w.paragraphDialog ? command('Paragraph Settings', 'paragraphDialog', () => w.paragraphDialog(), { shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+M' : null }) : small(c.paragraphGeometry, { icon: 'paragraphDialog' });
   if (w.paragraphDialog) { noFocusSteal(paragraphLauncher); when(paragraphLauncher, () => !!a.hasDocument?.()); }
   const paragraphGroup = [rows(
-    [bulletSplit, numberSplit, multilevel, divider(), c.outdent, c.indent, divider(), sort, divider(), marks],
+    [bulletSplit, numberSplit, multilevel, divider(), c.outdent, c.indent, directionRtl, divider(), sort, divider(), marks],
     [alignLeft, alignCenter, alignRight, justify, divider(), c.lineSpacingMenu, divider(), c.paragraphShading, bordersControl, divider(), paragraphLauncher])];
 
   // The quick style gallery shows the document's paragraph styles in their own formatting.
