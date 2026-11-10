@@ -40,3 +40,70 @@ describe('offline app shell', () => {
     expect(sw.lookups).toEqual([]);
   });
 });
+
+/** The worker with a cache that really stores, a network that has `online` files, and `tabs` open windows. */
+function workerWithCache(online, tabs) {
+  const listeners = {};
+  const stored = new Map();
+  const self = {
+    location: { origin: 'https://cad.example' },
+    addEventListener: (type, fn) => (listeners[type] = fn),
+    skipWaiting() {},
+    clients: { claim() {}, matchAll: async () => Array.from({ length: tabs.count }, () => ({})) },
+  };
+  const cache = {
+    put: async (req, res) => void stored.set(req.url ?? req, res),
+    keys: async () => [...stored.keys()].map((url) => ({ url })),
+    delete: async (req) => stored.delete(req.url ?? req),
+  };
+  const caches = { open: async () => cache, match: async (req) => stored.get(req.url ?? req)?.clone() };
+  const fetch = async (req) => {
+    const url = req.url ?? req;
+    if (!online.has(url)) throw new Error('offline');
+    return new Response(online.get(url));
+  };
+  new Function('self', 'caches', 'fetch', readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8'))(self, caches, fetch);
+  const precache = async (urls) => {
+    let done;
+    listeners.message({ data: { type: 'precache', urls }, waitUntil: (p) => (done = p) });
+    await done;
+  };
+  const request = async (url) => {
+    let answer;
+    listeners.fetch({ request: new Request(url), respondWith: (p) => (answer = p) });
+    return (await answer).text();
+  };
+  return { precache, request, stored };
+}
+
+describe('offline app shell after an update', () => {
+  const A = 'https://cad.example/assets/';
+  const oldFiles = [`${A}index-AAAAAAAA.js`, `${A}worker-AAAAAAAA.js`];
+  const newFiles = [`${A}index-BBBBBBBB.js`, `${A}worker-BBBBBBBB.js`];
+
+  it('keeps the files of the earlier build while a tab that runs it is open', async () => {
+    const online = new Map(oldFiles.map((u) => [u, 'old']));
+    const tabs = { count: 1 };
+    const sw = workerWithCache(online, tabs);
+    await sw.precache(oldFiles);
+    // The app is updated; a second tab opens with the new build.
+    online.clear();
+    for (const u of newFiles) online.set(u, 'new');
+    tabs.count = 2;
+    await sw.precache(newFiles);
+    // The first tab loads its DXF and DWG worker only now.
+    expect(await sw.request(oldFiles[1])).toBe('old');
+    expect(await sw.request(newFiles[1])).toBe('new');
+  });
+
+  it('drops the files of earlier builds once no other tab is open', async () => {
+    const online = new Map([...oldFiles, ...newFiles].map((u) => [u, 'x']));
+    const tabs = { count: 2 };
+    const sw = workerWithCache(online, tabs);
+    await sw.precache(oldFiles);
+    await sw.precache(newFiles);
+    tabs.count = 1;
+    await sw.precache(newFiles);
+    expect([...sw.stored.keys()].sort()).toEqual(newFiles);
+  });
+});

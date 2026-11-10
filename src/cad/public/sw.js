@@ -80,17 +80,27 @@ function siblings(url, code) {
 /**
  * Build files are named chunk-hash.ext: keep only the newest of each chunk.
  * Hashes are exactly 8 characters and may contain '-' (index-B-9aQzzz.js).
+ * While a second tab is open the earlier ones stay: that tab may run the
+ * earlier build and load its worker and lazy chunks later.
  */
 function chunkKey(url) {
   const m = /\/assets\/(.+)-[\w-]{8}\.(\w+)$/.exec(new URL(url).pathname);
   return m ? `${m[1]}.${m[2]}` : null;
 }
 
+async function onlyTab() {
+  try {
+    return (await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).length <= 1;
+  } catch {
+    return true;
+  }
+}
+
 async function putAsset(url, res) {
   if (!res || !res.ok) return;
   const c = await caches.open(CACHE);
   const key = chunkKey(url);
-  if (key) for (const old of await c.keys()) if (old.url !== url && chunkKey(old.url) === key) await c.delete(old);
+  if (key && (await onlyTab())) for (const old of await c.keys()) if (old.url !== url && chunkKey(old.url) === key) await c.delete(old);
   await c.put(url, res);
 }
 
