@@ -323,7 +323,7 @@ applications:
       - pattern: '**'
         headers:
           - key: 'Content-Security-Policy'
-            value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-8Q7822F2YXiJ2Rwt6mdL7EjOvJsLqJE6RqpKo+gbpmA=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
+            value: "default-src 'self'; script-src 'self' https://js.puter.com https://plausible.io 'sha256-8Q7822F2YXiJ2Rwt6mdL7EjOvJsLqJE6RqpKo+gbpmA=' 'sha256-s3GjtVo80AO5y21xNb09L193qY2mDVWzcLbCiBHrn4s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.puter.com https://puter.com https://js.puter.com https://plausible.io wss:; frame-src https://puter.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
           - key: 'X-Content-Type-Options'
             value: 'nosniff'
           - key: 'Referrer-Policy'
