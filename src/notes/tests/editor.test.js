@@ -470,6 +470,13 @@ describe('page helpers', () => {
     expect(textToHtml('see https://example.com.')).toBe('see <a href="https://example.com">https://example.com</a>.');
     expect(textToHtml('a\n\nb')).toBe('<p>a</p><p><br></p><p>b</p>');
     expect(textToHtml('<b>')).toBe('&lt;b&gt;');
+    // Quotes and brackets around an address stay outside the link.
+    expect(textToHtml('"https://a.com/x"')).toBe('&quot;<a href="https://a.com/x">https://a.com/x</a>&quot;');
+    expect(textToHtml('<https://a.com/x?a=1&b=2>')).toBe('&lt;<a href="https://a.com/x?a=1&amp;b=2">https://a.com/x?a=1&amp;b=2</a>&gt;');
+    // Indentation, aligned columns and tabs survive.
+    expect(textToHtml('def f():\n    return 1')).toBe('<p>def f():</p><p>&nbsp;&nbsp;&nbsp;&nbsp;return 1</p>');
+    expect(textToHtml('a   b')).toBe('a&nbsp;&nbsp; b');
+    expect(textToHtml('a\tb')).toBe('a&emsp;b');
   });
 
   it('draws rule lines and grids as SVG tiles', () => {

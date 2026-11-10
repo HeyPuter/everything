@@ -1414,10 +1414,26 @@ function wordLists(root, doc) {
 /** Plain text to paragraphs, keeping URLs as links. */
 export function textToHtml(text) {
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-  const linkify = (s) => esc(s).replace(/\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g, (u) => `<a href="${u}">${u}</a>`);
+  // Addresses are found in the text as it is, before escaping: found after,
+  // a quote or bracket around one ended up inside the link as "&quot" or "&gt".
+  const linkify = (s) => {
+    let out = '';
+    let last = 0;
+    for (const m of s.matchAll(/\bhttps?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]']/g)) {
+      out += `${esc(s.slice(last, m.index))}<a href="${esc(m[0])}">${esc(m[0])}</a>`;
+      last = m.index + m[0].length;
+    }
+    return out + esc(s.slice(last));
+  };
+  // A note collapses runs of spaces: indentation and aligned columns keep
+  // theirs as non-breaking spaces, and tabs as wide ones.
+  const line = (s) => linkify(s)
+    .replace(/\t/g, '&emsp;')
+    .replace(/^ +/, (m) => '&nbsp;'.repeat(m.length))
+    .replace(/ {2,}/g, (m) => `${'&nbsp;'.repeat(m.length - 1)} `);
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
-  if (lines.length === 1) return linkify(lines[0]);
-  return lines.map((l) => `<p>${l ? linkify(l).replace(/\t/g, '&emsp;') : '<br>'}</p>`).join('');
+  if (lines.length === 1) return line(lines[0]);
+  return lines.map((l) => `<p>${l ? line(l) : '<br>'}</p>`).join('');
 }
 
 function escapeAttr(s) {
