@@ -477,6 +477,44 @@ describe('editing commands', () => {
       expect(filled(h, 10, 10)).toBe(true);
     });
 
+    const add = (props) => t.drawing.transaction('Add', () => t.drawing.add(t.ed.make(props.type, props)));
+
+    it('finds a boundary whose lines and arcs end on a circle from outside', async () => {
+      // The ends lie exactly on the curve, outside the chords it is drawn with.
+      let found = 0;
+      const angles = [0.11, 0.37, 0.52, 0.83, 1.02, 1.21, 1.4];
+      for (const a of angles) {
+        t.drawing.transaction('Clear', () => t.all().forEach((e) => t.drawing.remove(e.id)));
+        add({ type: 'circle', cx: 0, cy: 0, r: 5 });
+        add({ type: 'line', x1: 20, y1: 0, x2: 5 * Math.cos(a), y2: 5 * Math.sin(a) });
+        // the other side is an arc from (20, 0) that ends on the circle
+        const qx = 5 * Math.cos(-a * 0.9),
+          qy = 5 * Math.sin(-a * 0.9);
+        const l = Math.hypot(20 - qx, qy);
+        const cx = (20 + qx) / 2 + (qy / l) * 30,
+          cy = qy / 2 + ((20 - qx) / l) * 30;
+        const a0 = Math.atan2(-cy, 20 - cx),
+          a1 = Math.atan2(qy - cy, qx - cx);
+        add({ type: 'arc', cx, cy, r: Math.hypot(qx - cx, qy - cy), start: Math.min(a0, a1), end: Math.max(a0, a1) });
+        await t.type('HATCH');
+        await t.pick(8, 0);
+        await t.type('');
+        const [h] = t.all('hatch');
+        if (h && filled(h, 8, 0) && !filled(h, 0, 0) && !filled(h, 21, 0)) found++;
+      }
+      expect(found).toBe(angles.length);
+    });
+
+    it('does not close a real gap between a line and a curve', async () => {
+      add({ type: 'circle', cx: 0, cy: 0, r: 5 });
+      add({ type: 'line', x1: 20, y1: 0, x2: 5.02 * Math.cos(0.37), y2: 5.02 * Math.sin(0.37) });
+      add({ type: 'line', x1: 20, y1: 0, x2: 5 * Math.cos(-0.33), y2: 5 * Math.sin(-0.33) });
+      await t.type('HATCH');
+      await t.pick(8, 0);
+      await t.type('');
+      expect(t.all('hatch')).toHaveLength(0);
+    });
+
     it('finds boundaries in block references and construction lines', async () => {
       await t.type('RECTANG', '0,0', '20,20');
       t.ed.setSelection([t.all()[0].id]);

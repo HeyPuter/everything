@@ -3,6 +3,7 @@
  */
 import { opts } from '../input.js';
 import { closestPoint, intersectPrims, toPrims } from '../../core/geom/index.js';
+import RBush from 'rbush';
 import { findBoundary, toHatchLoops } from '../../core/hatch/boundary.js';
 import { loopsToRings, pointInRing } from '../../core/hatch/fill.js';
 import { getPattern, patternNames } from '../../core/hatch/patterns.js';
@@ -525,7 +526,8 @@ function curvesNear(ed, rect) {
       }
       default:
         try {
-          for (const p of tessellate(e, tol)) out.push({ ...p, id: top });
+          const curved = e.type !== 'leader' && (e.type !== 'polyline' || e.pts.some((v, i) => i % 3 === 2 && v));
+          for (const p of tessellate(e, tol)) out.push(curved ? { ...p, id: top, src: e } : { ...p, id: top });
         } catch {
           /* skip */
         }
@@ -536,7 +538,96 @@ function curvesNear(ed, rect) {
     top = id;
     if (e && d.layerVisible(e.layer)) add(e, 0);
   }
+  weldEndsOnCurves(out);
   return out;
+}
+
+/**
+ * Curves are flattened to chords, which run inside the true curve, so an
+ * object that ends exactly on a curve from its outer side stops short of the
+ * chord and would leave the boundary open. Each such end is added to the
+ * curve's chords as a vertex. Ends that only come near a curve are left
+ * alone: real gaps stay open.
+ */
+function weldEndsOnCurves(curves) {
+  const items = [];
+  for (const c of curves) {
+    if (!c.src) continue;
+    const b = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity, c };
+    const p = c.pts;
+    for (let i = 0; i + 1 < p.length; i += 2) {
+      if (p[i] < b.minX) b.minX = p[i];
+      if (p[i] > b.maxX) b.maxX = p[i];
+      if (p[i + 1] < b.minY) b.minY = p[i + 1];
+      if (p[i + 1] > b.maxY) b.maxY = p[i + 1];
+    }
+    // The curve bulges out of its chords by at most the largest chord's sagitta.
+    const pad = Math.max(b.maxX - b.minX, b.maxY - b.minY) * 0.25;
+    b.minX -= pad;
+    b.minY -= pad;
+    b.maxX += pad;
+    b.maxY += pad;
+    items.push(b);
+  }
+  if (!items.length) return;
+  const tree = new RBush();
+  tree.load(items);
+  const adds = new Map();
+  const probe = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  const end = (own, x, y) => {
+    probe.minX = probe.maxX = x;
+    probe.minY = probe.maxY = y;
+    const eps = 1e-9 * Math.max(1, Math.abs(x), Math.abs(y));
+    for (const it of tree.search(probe)) {
+      const c = it.c;
+      if (c === own) continue;
+      let q = null;
+      try {
+        q = closestPoint(c.src, x, y);
+      } catch {
+        /* skip */
+      }
+      if (!q || Math.hypot(q.x - x, q.y - y) > eps) continue;
+      // Nearest chord, and where along it the end falls.
+      const p = c.pts;
+      const n = p.length >> 1;
+      let best = Infinity,
+        at = -1,
+        bt = 0;
+      for (let i = 0, m = c.closed ? n : n - 1; i < m; i++) {
+        const j = (i + 1) % n;
+        const ax = p[i * 2],
+          ay = p[i * 2 + 1];
+        const ex = p[j * 2] - ax,
+          ey = p[j * 2 + 1] - ay;
+        const l2 = ex * ex + ey * ey;
+        let u = l2 > 0 ? ((x - ax) * ex + (y - ay) * ey) / l2 : 0;
+        u = u < 0 ? 0 : u > 1 ? 1 : u;
+        const d2 = (ax + u * ex - x) ** 2 + (ay + u * ey - y) ** 2;
+        if (d2 < best) {
+          best = d2;
+          at = i;
+          bt = u;
+        }
+      }
+      if (at < 0 || !(best > eps * eps)) continue;
+      let list = adds.get(c);
+      if (!list) adds.set(c, (list = []));
+      list.push({ at, t: bt, x, y });
+    }
+  };
+  for (const c of curves) {
+    const p = c.pts;
+    if (c.closed || p.length < 4) continue;
+    end(c, p[0], p[1]);
+    end(c, p[p.length - 2], p[p.length - 1]);
+  }
+  for (const [c, list] of adds) {
+    list.sort((a, b) => b.at - a.at || b.t - a.t);
+    const pts = c.pts.slice();
+    for (const a of list) pts.splice(a.at * 2 + 2, 0, a.x, a.y);
+    c.pts = pts;
+  }
 }
 
 /** Ids of the objects that the edges of picked loops (straight edges) lie on. */
