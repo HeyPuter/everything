@@ -1083,6 +1083,8 @@ export class Editor {
         console.warn(err);
       }
     }
+    // A rigid preview: the same objects drawn through a matrix (see Renderer.setPreview).
+    if (wantsPoint && r.opts.moved) this.renderer.setPreview(r.opts.moved.entities, r.opts.moved.matrix({ x: fx, y: fy }));
     if (wantsPoint && r.opts.onMove) r.opts.onMove({ x: fx, y: fy });
     this.ui.coords(fx, fy, r?.opts.base);
     this.drawOverlay();

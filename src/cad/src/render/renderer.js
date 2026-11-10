@@ -162,6 +162,8 @@ export class Renderer {
     this.hover = null;
     this.hidden = new Set();
     this.previewEntities = [];
+    /** Matrix the preview is drawn through, or null (see setPreview). */
+    this.previewMatrix = null;
     this.dragMatrix = null;
     this.options = { grid: true, lwDisplay: false, gridSpacing: 10, gridMajor: 5, lwScale: 1 };
     this.theme = {
@@ -274,6 +276,7 @@ export class Renderer {
     this.hidden = new Set();
     this.selection = new Set();
     this.previewEntities = [];
+    this.previewMatrix = null;
     this.dragMatrix = null;
     this.rebuildAll();
   }
@@ -370,6 +373,8 @@ export class Renderer {
     // construction lines inside references), re-partition everything; so do
     // objects coming back in a drawing with draw-order bands.
     const ents = this.drawing.entities;
+    // A kept preview may show layers, styles or blocks that just changed.
+    if (this.previewMatrix) this.previewDirty = true;
     const back =
       change.resort &&
       (this._banded() ||
@@ -491,10 +496,18 @@ export class Renderer {
     this.invalidate();
   }
 
-  /** Transient entities drawn on top (rubber-band previews). */
-  setPreview(entities) {
-    this.previewEntities = entities || [];
-    this.previewDirty = true;
+  /**
+   * Transient entities drawn on top (rubber-band previews). With `matrix`
+   * ([a, b, c, d, e, f] in world space) they are drawn moved by it: calling
+   * again with the same array and another matrix reuses the buffers, so a
+   * rigid preview of many objects (paste) costs nothing per mouse move.
+   */
+  setPreview(entities, matrix = null) {
+    const list = entities || [];
+    const kept = matrix && this.previewMatrix && list === this.previewEntities;
+    this.previewEntities = list;
+    this.previewMatrix = matrix;
+    if (!kept) this.previewDirty = true;
     this.invalidate();
   }
 
@@ -632,14 +645,64 @@ export class Renderer {
     b.shrink();
   }
 
-  _buildEntities(gpu, list, ctx) {
+  _buildEntities(gpu, list, ctx, kept = false) {
     const b = this.batch;
     b.reset();
     b.flags = 0;
     for (const e of list) emitSafe(e, b, ctx);
     gpu.upload(b);
-    this.clip.state.used = false;
+    // Buffers that are kept for later frames are good only inside the clip box.
+    const bound = this._viewBound();
+    gpu.safe = kept && bound ? b.box : null;
     b.shrink();
+  }
+
+  /**
+   * The view as seen from the coordinates of a preview drawn through matrix
+   * m: camera position, zoom factor, linear part and visible box. Null when
+   * m cannot be inverted.
+   */
+  _movedView(m, view) {
+    const det = m[0] * m[3] - m[1] * m[2];
+    if (!det || !Number.isFinite(det)) return null;
+    const inv = (x, y) => {
+      const px = x - m[4],
+        py = y - m[5];
+      return [(m[3] * px - m[2] * py) / det, (m[0] * py - m[1] * px) / det];
+    };
+    const cam = this.camera;
+    const [cx, cy] = inv(cam.cx, cam.cy);
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    for (let i = 0; i < 4; i++) {
+      const [x, y] = inv(view[i & 1 ? 2 : 0], view[i & 2 ? 3 : 1]);
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    return { cx, cy, zoom: Math.sqrt(Math.abs(det)), xm: new Float32Array([m[0], m[1], m[2], m[3]]), view: [x0, y0, x1, y1] };
+  }
+
+  /** Build the buffers of a preview drawn through a matrix, when they are stale for the view `mv`. */
+  _buildMovedPreview(mv) {
+    const gpu = this.previewGpu,
+      cam = this.camera,
+      b = this.batch;
+    const scale = cam.scale * mv.zoom;
+    if (this.previewDirty) this.previewInfinite = null;
+    this.previewInfinite ??= this.previewEntities.some((e) => this._isInfinite(e));
+    const stale = this.previewDirty || this.previewInfinite || lodStale(scale, this.previewScale) || (gpu.safe && !inside(mv.view, gpu.safe));
+    if (!stale) return;
+    const r = (SAFE_PX + Math.max(cam.width, cam.height) / 2) / scale;
+    b.longLen = LONG_PX / scale;
+    b.box = [mv.cx - r, mv.cy - r, mv.cx + r, mv.cy + r];
+    this._buildEntities(gpu, this.previewEntities, this._ctx({ tol: TOL_PX / scale, view: mv.view, pointSize: 6 / scale }), true);
+    this._setClip();
+    this.previewDirty = false;
+    this.previewScale = scale;
   }
 
   // Frame -------------------------------------------------------------------
@@ -702,9 +765,14 @@ export class Renderer {
       this.hoverDirty = false;
       this.hoverScale = cam.scale;
     }
-    if (this.previewDirty || this.previewEntities.length) {
+    // A preview drawn through a matrix is built in its own coordinates and
+    // rebuilt only when stale; others follow every frame.
+    const moved = this.previewMatrix && this.previewEntities.length ? this._movedView(this.previewMatrix, view) : null;
+    if (moved) this._buildMovedPreview(moved);
+    else if (this.previewDirty || this.previewEntities.length) {
       this._buildEntities(this.previewGpu, this.previewEntities, ctx);
       this.previewDirty = false;
+      this.previewInfinite = null;
     }
     if (this.patternDirty) {
       gl.bindTexture(gl.TEXTURE_2D, this.patternTex);
@@ -797,7 +865,13 @@ export class Renderer {
         this._drawGpu(this.selInfGpu, common, true, hl, 1, xm, xt);
       }
     }
-    this._drawGpu(this.previewGpu, common, false);
+    if (moved) {
+      // The camera as seen from the preview's own coordinates, split there
+      // into high and low parts: exact however far the preview was moved.
+      const [mxh, mxl] = split(moved.cx);
+      const [myh, myl] = split(moved.cy);
+      this._drawGpu(this.previewGpu, { ...common, cxh: mxh, cyh: myh, cxl: mxl, cyl: myl }, false, undefined, 1, moved.xm);
+    } else if (!this.previewMatrix) this._drawGpu(this.previewGpu, common, false);
     gl.bindVertexArray(null);
 
     this.stats = { segments: segs, triangles: tris, chunks: this.chunks.length, frameMs: performance.now() - t0 };

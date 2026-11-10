@@ -580,7 +580,9 @@ export const PASTECLIP = {
     }
     const base = data.base || { x: 0, y: 0 };
     const at = (p) => data.entities.map((e) => transformEntity(e, M.translate(p.x - base.x, p.y - base.y)));
-    const p = await ed.getPoint('Insertion point', { preview: (c) => at(c) });
+    // The preview is the copied objects drawn moved, not a moved copy of each per mouse move.
+    const moved = { entities: data.entities, matrix: (c) => M.translate(c.x - base.x, c.y - base.y) };
+    const p = await ed.getPoint('Insertion point', { moved });
     if (!p || p.option) return;
     const d = ed.drawing;
     const fix = sameNames(d, data);

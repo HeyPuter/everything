@@ -328,6 +328,79 @@ describe('Renderer very large curves', () => {
   });
 });
 
+describe('Renderer previews drawn through a matrix', () => {
+  const lines = (n) => Array.from({ length: n }, (_, i) => ({ type: 'line', layer: '0', color: 256, x1: i, y1: 0, x2: i, y2: 5 }));
+
+  it('builds the buffers once and reuses them while only the matrix changes', () => {
+    const t = setup(10);
+    const list = lines(100);
+    let builds = 0;
+    const orig = t.r._buildEntities.bind(t.r);
+    t.r._buildEntities = (...a) => (builds++, orig(...a));
+    t.r.setPreview(list, [1, 0, 0, 1, 3, 4]);
+    t.r.frame();
+    expect(builds).toBe(1);
+    expect(t.r.previewGpu.segCount).toBe(100);
+    for (let i = 0; i < 5; i++) {
+      t.r.setPreview(list, [1, 0, 0, 1, 3 + i, 4]);
+      t.r.frame();
+    }
+    t.r.camera.panBy(20, 10);
+    t.r.frame();
+    expect(builds).toBe(1);
+    // a big zoom change refreshes the level of detail
+    t.r.camera.state = { cx: 5, cy: 2, scale: t.r.camera.scale * 20 };
+    t.r.frame();
+    expect(builds).toBe(2);
+    // a change to the drawing may change how the preview looks
+    t.d.transaction('add', () => t.d.add({ type: 'line', layer: '0', color: 256, x1: 0, y1: 0, x2: 1, y2: 1 }));
+    t.r.frame();
+    expect(builds).toBe(3);
+    // another list, or none, replaces it
+    t.r.setPreview(lines(3), [1, 0, 0, 1, 0, 0]);
+    t.r.frame();
+    expect(t.r.previewGpu.segCount).toBe(3);
+    t.r.setPreview([]);
+    t.r.frame();
+    expect(t.r.previewGpu.segCount).toBe(0);
+    expect(t.r.previewMatrix).toBeNull();
+  });
+
+  it('keeps construction lines in a moved preview across the view', () => {
+    const t = setup(10);
+    const list = [{ type: 'xline', layer: '0', color: 256, x: 0, y: 0, dx: 1, dy: 0 }];
+    let builds = 0;
+    const orig = t.r._buildEntities.bind(t.r);
+    t.r._buildEntities = (...a) => (builds++, orig(...a));
+    t.r.setPreview(list, [1, 0, 0, 1, 0, 2]);
+    t.r.frame();
+    t.r.setPreview(list, [1, 0, 0, 1, 5000, 2]);
+    t.r.frame();
+    expect(builds).toBe(2);
+    expect(t.r.previewGpu.segCount).toBe(1);
+  });
+
+  it('cuts long lines for the place the preview is moved to', () => {
+    const t = setup(10);
+    const list = [{ type: 'line', layer: '0', color: 256, x1: -1e6, y1: 0, x2: 1e6, y2: 0 }];
+    t.r.camera.state = { cx: 0, cy: 0, scale: 1e4 };
+    t.r.setPreview(list, [1, 0, 0, 1, 0, 0]);
+    t.r.frame();
+    const safe = t.r.previewGpu.safe;
+    expect(safe).toBeTruthy();
+    // moved 500 units left, the view sees the part of the line around x = 500
+    t.r.setPreview(list, [1, 0, 0, 1, -500, 0]);
+    t.r.frame();
+    expect(t.r.previewGpu.safe).not.toBe(safe);
+    expect(t.r.previewGpu.safe[0]).toBeLessThan(500);
+    expect(t.r.previewGpu.safe[2]).toBeGreaterThan(500);
+    // the chunk builds that follow use the view's own box again
+    expect(t.r.batch.box[0]).toBeLessThan(0);
+    expect(t.r.batch.box[2]).toBeGreaterThan(0);
+    expect(t.r.batch.box[2]).toBeLessThan(400);
+  });
+});
+
 describe('Camera fit', () => {
   it('fits inside the margins', () => {
     const c = new Camera();
