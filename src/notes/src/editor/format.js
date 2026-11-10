@@ -458,6 +458,9 @@ export function moveBlock(direction) {
   const top = (b) => (b.tagName !== 'LI' && b.parentElement?.tagName === 'LI' ? b.parentElement : b);
   const first = top(blocks[0]);
   const last = top(blocks[blocks.length - 1]);
+  // A table cell is not a paragraph to move: swapping it with the next
+  // cell would shift one row's columns out of line with the others.
+  if ([first, last].some((b) => b.tagName === 'TD' || b.tagName === 'TH')) return false;
   const saved = range.cloneRange();
   if (direction < 0) {
     const prev = first.previousElementSibling;

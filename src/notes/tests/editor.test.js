@@ -442,6 +442,14 @@ describe('paragraph formatting', () => {
     expect(el.textContent).toBe('cab');
   });
 
+  it('does not swap table cells when asked to move a paragraph', () => {
+    const el = body('<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>');
+    caretIn(el.querySelectorAll('td')[1].firstChild, 0);
+    expect(moveBlock(-1)).toBe(false);
+    expect(moveBlock(1)).toBe(false);
+    expect(el.textContent).toBe('ABCD');
+  });
+
   it('retags elements keeping attributes', () => {
     const el = body('<p style="text-align: center">x</p>');
     expect(retag(el.firstChild, 'H1').outerHTML).toBe('<h1 style="text-align: center">x</h1>');
