@@ -71,7 +71,13 @@ export class UserLibrary extends Emitter {
     await this._save();
   }
 
-  async _save() {
+  /** Saves one after another, so an older slow write cannot land on top of a newer one. */
+  _save() {
+    this._saving = (this._saving || Promise.resolve()).then(() => this._write());
+    return this._saving;
+  }
+
+  async _write() {
     try {
       if (this._unread) {
         // Loading failed earlier (offline, a server error): read the stored
