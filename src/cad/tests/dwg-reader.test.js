@@ -182,6 +182,17 @@ describe('DWG reader: other files', () => {
     }
   });
 
+  it('rejects DWG 2007 files whose page or section sizes are damaged', () => {
+    // a negative name length in the section map used to loop until memory ran out
+    const b = fx('mleader-r2007.dwg').slice();
+    b[28298] = 0x34;
+    expect(() => parseDwg(b)).toThrow(/Damaged DWG 2007 file/);
+    // a huge page map size in the file header
+    const c = fx('mleader-r2007.dwg').slice();
+    c.set([0xff, 0xff, 0xff, 0x7f], 224);
+    expect(() => parseDwg(c)).toThrow(/Damaged DWG 2007 file/);
+  });
+
   it('reads drawings with a damaged dictionary that has names but no entries', () => {
     const b = fx('sample-r2000.dwg').slice();
     b[16867] = 0;
