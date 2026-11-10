@@ -7,9 +7,11 @@
  *                                           a1 = a0 + sweep (may exceed 2PI);
  *                                           full circles have a0 = 0, a1 = 2PI
  *   { t: 'inf', x, y, dx, dy, ray }         xline (ray = false) or ray
- *   { t: 'pl', pts, us, src }               flat polyline approximation of an
+ *   { t: 'pl', pts, us, src, dev }          flat polyline approximation of an
  *                                           ellipse or spline; us[i] is the curve
- *                                           parameter of vertex i and src the entity
+ *                                           parameter of vertex i, src the entity
+ *                                           and dev the chord tolerance it was
+ *                                           sampled with
  *
  * Primitives from polylines, leaders and hatch loops carry `seg` (index of the
  * source segment); bulge arcs traversed clockwise also carry `rev: true`.
@@ -66,7 +68,7 @@ export function ellipsePrim(e, relTol = PL_REL_TOL) {
   const pts = appendEllipse([], e, t0, sw, n);
   const us = new Array(n + 1);
   for (let i = 0; i <= n; i++) us[i] = t0 + (sw * i) / n;
-  return { t: 'pl', pts, us, src: e };
+  return { t: 'pl', pts, us, src: e, dev: a * relTol };
 }
 
 /** Flat polyline primitive for a spline (us = knot parameters). */
@@ -83,8 +85,9 @@ export function splinePrim(s, relTol = PL_REL_TOL) {
     if (c[i + 1] > y1) y1 = c[i + 1];
   }
   const size = Math.max(x1 - x0, y1 - y0);
-  const { pts, us } = sampleSpline(s, size > 0 ? size * relTol : 1e-9);
-  return { t: 'pl', pts, us, src: s };
+  const dev = size > 0 ? size * relTol : 1e-9;
+  const { pts, us } = sampleSpline(s, dev);
+  return { t: 'pl', pts, us, src: s, dev };
 }
 
 /** Decompose an entity into primitives (see module comment). */

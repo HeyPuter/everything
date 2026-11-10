@@ -139,3 +139,68 @@ describe('trimming a long polyline among many cutters', () => {
     expect(r.add.map((e) => [e.x1, e.x2])).toEqual([[0, 4], [7, 10]]);
   });
 });
+
+describe('objects that end exactly on an ellipse or spline', () => {
+  const ell = { type: 'ellipse', cx: 2, cy: 1, mx: 5, my: 2, ratio: 0.5, start: 0, end: G.TWO_PI };
+  const fit = [6, 0, 0, 5, -7, 1, -4, -6, 3, -5];
+  const spl = { type: 'spline', ...G.splineFromFitPoints(fit), fit, closed: false };
+  const at = (e, f) => {
+    const pr = G.toPrims(e)[0];
+    return G.curveAt(e, pr.us[0] + (pr.us.at(-1) - pr.us[0]) * f);
+  };
+  const touches = (hits, p) => hits.some((h) => Math.hypot(h.x - p.x, h.y - p.y) < 1e-9);
+
+  it('intersects a line that reaches the curve from either side, at any angle', () => {
+    for (const e of [ell, spl]) {
+      for (let k = 1; k < 40; k++) {
+        const p = at(e, k / 40);
+        for (let a = 0; a < 12; a++) {
+          const ang = 0.26 + (a * Math.PI) / 6;
+          const line = { type: 'line', x1: p.x + 3 * Math.cos(ang), y1: p.y + 3 * Math.sin(ang), x2: p.x, y2: p.y };
+          expect(touches(G.intersectEntities(e, line), p)).toBe(true);
+          expect(touches(G.intersectEntities(line, e), p)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('intersects a ray, an arc and a spline that start on the curve', () => {
+    for (const e of [ell, spl]) {
+      for (let k = 1; k < 20; k++) {
+        const p = at(e, k / 20);
+        const ang = k * 0.7;
+        const ray = { type: 'ray', x: p.x, y: p.y, dx: Math.cos(ang), dy: Math.sin(ang) };
+        expect(touches(G.intersectEntities(e, ray), p)).toBe(true);
+        const arc = { type: 'arc', cx: p.x - 2 * Math.cos(ang), cy: p.y - 2 * Math.sin(ang), r: 2, start: ang, end: ang + 1 };
+        expect(touches(G.intersectEntities(e, arc), p)).toBe(true);
+        const other = G.splineFromFitPoints([p.x, p.y, p.x + 3 * Math.cos(ang), p.y + 3 * Math.sin(ang), p.x + 5, p.y + 4]);
+        expect(touches(G.intersectEntities(e, { type: 'spline', ...other }), p)).toBe(true);
+      }
+    }
+  });
+
+  it('does not report an end that stops short of the curve', () => {
+    for (let k = 1; k < 20; k++) {
+      const p = at(ell, k / 20);
+      const d = G.ellipseDeriv(ell, (k / 20) * G.TWO_PI);
+      const l = Math.hypot(d.x, d.y);
+      // outward normal of a counter-clockwise ellipse
+      const nx = d.y / l,
+        ny = -d.x / l;
+      const line = { type: 'line', x1: p.x + 3 * nx, y1: p.y + 3 * ny, x2: p.x + 1e-6 * nx, y2: p.y + 1e-6 * ny };
+      expect(G.intersectEntities(ell, line)).toEqual([]);
+    }
+  });
+
+  it('trims an ellipse with lines drawn to its quadrant points', () => {
+    const e = { type: 'ellipse', cx: 0, cy: 0, mx: 5, my: 0, ratio: 0.5, start: 0, end: G.TWO_PI };
+    const cutters = [
+      { t: 'seg', x1: 9, y1: 0, x2: 5, y2: 0 },
+      { t: 'seg', x1: -8, y1: 0, x2: -5, y2: 0 },
+    ];
+    const r = G.trimEntity(e, cutters, 0, 2.5);
+    expect(r.add).toHaveLength(1);
+    expect(G.lengthOf(r.add[0])).toBeCloseTo(G.lengthOf(e) / 2, 6);
+    expect(G.closestPoint(r.add[0], 0, 2.5).d).toBeGreaterThan(4);
+  });
+});

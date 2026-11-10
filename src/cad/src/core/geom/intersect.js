@@ -266,6 +266,93 @@ function plBox(pl) {
   return b;
 }
 
+/**
+ * How far the chords of a pl primitive may lie from its curve. An end point
+ * that lies exactly on the curve can be that far from the chords (a line
+ * drawn to the convex side of an ellipse stops short of them), so ends are
+ * also tested against the curve itself, see endTouch.
+ */
+export function plSlack(pl) {
+  return 4 * (pl.dev ?? 1e-3 * primSize(pl));
+}
+
+/** End points of the primitive last passed to nearEnds: x, y and parameter of each. */
+const END = new Float64Array(6);
+
+/**
+ * Load the end points of p that lie within pad of the box b into END and
+ * return how many (none for extended primitives, lines and closed curves).
+ */
+function nearEnds(p, ext, b, pad) {
+  if (ext || p.full) return 0;
+  const x0 = b[0] - pad,
+    y0 = b[1] - pad,
+    x1 = b[2] + pad,
+    y1 = b[3] + pad;
+  let n = 0;
+  if (p.t === 'seg') {
+    n = endIf(n, p.x1, p.y1, 0, x0, y0, x1, y1);
+    n = endIf(n, p.x2, p.y2, 1, x0, y0, x1, y1);
+  } else if (p.t === 'inf') {
+    if (p.ray) n = endIf(n, p.x, p.y, 0, x0, y0, x1, y1);
+  } else if (p.t === 'arc') {
+    if (p.a1 - p.a0 < TWO_PI) {
+      n = endIf(n, p.cx + p.r * Math.cos(p.a0), p.cy + p.r * Math.sin(p.a0), p.a0, x0, y0, x1, y1);
+      n = endIf(n, p.cx + p.r * Math.cos(p.a1), p.cy + p.r * Math.sin(p.a1), p.a1, x0, y0, x1, y1);
+    }
+  } else if (p.t === 'pl') {
+    const q = p.pts,
+      m = q.length;
+    if (m >= 4 && (q[0] !== q[m - 2] || q[1] !== q[m - 1])) {
+      n = endIf(n, q[0], q[1], p.us[0], x0, y0, x1, y1);
+      n = endIf(n, q[m - 2], q[m - 1], p.us[p.us.length - 1], x0, y0, x1, y1);
+    }
+  }
+  return n;
+}
+
+/** Store end n (point and parameter) in END when it is inside the box; returns the new count. */
+function endIf(n, x, y, t, x0, y0, x1, y1) {
+  if (x < x0 || x > x1 || y < y0 || y > y1) return n;
+  END[n * 3] = x;
+  END[n * 3 + 1] = y;
+  END[n * 3 + 2] = t;
+  return n + 1;
+}
+
+/**
+ * Curve parameter where the end point (ex, ey) touches the curve of pl next
+ * to its chord i, or null: the foot of the point on the curve when the chord
+ * is within `pad` of it and the foot within `tol`.
+ */
+function endTouch(pl, i, ex, ey, pad, tol) {
+  const pts = pl.pts,
+    us = pl.us;
+  const x1 = pts[2 * i],
+    y1 = pts[2 * i + 1];
+  const dx = pts[2 * i + 2] - x1,
+    dy = pts[2 * i + 3] - y1;
+  const l2 = dx * dx + dy * dy;
+  let s = l2 > 0 ? ((ex - x1) * dx + (ey - y1) * dy) / l2 : 0;
+  s = s < 0 ? 0 : s > 1 ? 1 : s;
+  if ((x1 + dx * s - ex) ** 2 + (y1 + dy * s - ey) ** 2 > pad * pad) return null;
+  const lo = us[i],
+    hi = us[i + 1];
+  let u = lo + (hi - lo) * s;
+  for (let it = 0; it < 20; it++) {
+    const c = curveAt(pl.src, u);
+    const h = c.dx * c.dx + c.dy * c.dy;
+    if (!(h > 0)) break;
+    let un = u - ((c.x - ex) * c.dx + (c.y - ey) * c.dy) / h;
+    if (un < lo) un = lo;
+    if (un > hi) un = hi;
+    if (Math.abs(un - u) <= 1e-15 * Math.max(1, Math.abs(u))) break;
+    u = un;
+  }
+  const c = curveAt(pl.src, u);
+  return dist2(c.x, c.y, ex, ey) <= tol * tol ? u : null;
+}
+
 /** Hits of a pl primitive against a seg / inf / arc primitive. */
 function plOther(pl, o, extO, tol, out, plIsA) {
   const pts = pl.pts,
@@ -276,22 +363,29 @@ function plOther(pl, o, extO, tol, out, plIsA) {
   const mode = L ? 0 : 1;
   const ref = L ?? o;
   const sbox = [0, 0, 0, 0];
+  const pad = tol + plSlack(pl);
   // Quick reject against an arc's circle box or a bounded segment's box.
   let ob = null;
-  if (o.t === 'arc') ob = [o.cx - o.r - tol, o.cy - o.r - tol, o.cx + o.r + tol, o.cy + o.r + tol];
+  if (o.t === 'arc') ob = [o.cx - o.r - pad, o.cy - o.r - pad, o.cx + o.r + pad, o.cy + o.r + pad];
   else if (o.t === 'seg' && !extO) {
-    ob = [Math.min(o.x1, o.x2) - tol, Math.min(o.y1, o.y2) - tol, Math.max(o.x1, o.x2) + tol, Math.max(o.y1, o.y2) + tol];
+    ob = [Math.min(o.x1, o.x2) - pad, Math.min(o.y1, o.y2) - pad, Math.max(o.x1, o.x2) + pad, Math.max(o.y1, o.y2) + pad];
   }
   if (ob) {
     const pb = plBox(pl);
     if (pb[0] > ob[2] || pb[2] < ob[0] || pb[1] > ob[3] || pb[3] < ob[1]) return;
   }
+  const ends = nearEnds(o, extO, plBox(pl), pad);
+  // One chord object for the whole loop (this runs for every snap query).
+  const S = { px: 0, py: 0, dx: 0, dy: 0, lo: 0, hi: 1 };
   for (let i = 0; i < nseg; i++) {
     if (ob) {
       segBox(pts, i, sbox);
       if (sbox[0] > ob[2] || sbox[2] < ob[0] || sbox[1] > ob[3] || sbox[3] < ob[1]) continue;
     }
-    const S = { px: pts[2 * i], py: pts[2 * i + 1], dx: pts[2 * i + 2] - pts[2 * i], dy: pts[2 * i + 3] - pts[2 * i + 1], lo: 0, hi: 1 };
+    S.px = pts[2 * i];
+    S.py = pts[2 * i + 1];
+    S.dx = pts[2 * i + 2] - S.px;
+    S.dy = pts[2 * i + 3] - S.py;
     tmp.length = 0;
     if (L) lineLine(S, L, tol, tmp, false);
     else lineArc(S, o, extO, tol, tmp, false);
@@ -308,6 +402,14 @@ function plOther(pl, o, extO, tol, out, plIsA) {
         to = arcParam(o, c.x, c.y);
       }
       hit(out, c.x, c.y, u, to, !plIsA);
+    }
+    for (let k = 0; k < ends; k++) {
+      const ex = END[k * 3],
+        ey = END[k * 3 + 1];
+      if (!ob) segBox(pts, i, sbox);
+      if (ex < sbox[0] - pad || ex > sbox[2] + pad || ey < sbox[1] - pad || ey > sbox[3] + pad) continue;
+      const u = endTouch(pl, i, ex, ey, pad, tol);
+      if (u !== null) hit(out, ex, ey, u, END[k * 3 + 2], !plIsA);
     }
   }
 }
@@ -383,6 +485,25 @@ function plPl(A, B, tol, out) {
         v = B.us[j] + (B.us[j + 1] - B.us[j]) * h.tb;
       }
       out.push({ x: cx, y: cy, ta: u, tb: v });
+    }
+  }
+  // An end of one curve lying on the other one.
+  for (const [P, Q, swap] of [
+    [A, B, false],
+    [B, A, true],
+  ]) {
+    const pad = tol + plSlack(Q);
+    const ends = nearEnds(P, false, plBox(Q), pad);
+    const nq = (Q.pts.length >> 1) - 1;
+    for (let k = 0; k < ends; k++) {
+      const ex = END[k * 3],
+        ey = END[k * 3 + 1];
+      for (let j = 0; j < nq; j++) {
+        segBox(Q.pts, j, boxB);
+        if (ex < boxB[0] - pad || ex > boxB[2] + pad || ey < boxB[1] - pad || ey > boxB[3] + pad) continue;
+        const u = endTouch(Q, j, ex, ey, pad, tol);
+        if (u !== null) hit(out, ex, ey, END[k * 3 + 2], u, swap);
+      }
     }
   }
 }

@@ -11,7 +11,7 @@ import { TWO_PI, normAngle, ccwSweep, tolFor } from './vec.js';
 import { arcFromBulge, BULGE_EPS } from './bulge.js';
 import { derive, update, lineFrom, arcFrom, polylineFrom } from './entity.js';
 import { toPrims } from './prims.js';
-import { intersectPrims, primBox, primScale, primSize } from './intersect.js';
+import { intersectPrims, primBox, primScale, plSlack } from './intersect.js';
 import { closestOnPrims } from './nearest.js';
 import { segmentCount, subPolyline, vertexCount } from './poly.js';
 import { isFullEllipse, ellipseSweep } from './ellipse.js';
@@ -155,7 +155,7 @@ export function paramModel(ent) {
 /** Box of a primitive grown past the intersection tolerance and a curve's chord error. */
 function paddedBox(p) {
   const b = primBox(p);
-  const pad = 1e-7 * Math.max(1, primScale(p)) + (p.t === 'pl' ? 1e-3 * primSize(p) : 0);
+  const pad = 1e-7 * Math.max(1, primScale(p)) + (p.t === 'pl' ? plSlack(p) : 0);
   return [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad];
 }
 
