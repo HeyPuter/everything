@@ -186,6 +186,12 @@ function field(objs, app, { label, type = 'text', get, set, options, validate, r
   };
 }
 
+/** The document's name; like Rename, it refuses an empty name and one another document has. */
+function docNameField(app, ed) {
+  const taken = (v) => app.project.docs.some((d) => d !== ed.doc && d.name.toLowerCase() === v.trim().toLowerCase());
+  return { label: 'Name', type: 'text', value: ed.doc.name, validate: (v) => !v.trim() || taken(v), onChange: (v) => app.project.renameDoc(ed.doc.id, v.trim()) };
+}
+
 // ---- Schematic ----
 
 function sheetSpec(app, ed) {
@@ -197,7 +203,7 @@ function sheetSpec(app, ed) {
       {
         title: 'Sheet',
         fields: [
-          { label: 'Name', type: 'text', value: ed.doc.name, onChange: (v) => v && app.project.renameDoc(ed.doc.id, v) },
+          docNameField(app, ed),
           { label: 'Size', type: 'select', value: sheet.size, options: Object.keys(SHEET_SIZES).map((k) => [k, k]), onChange: (v) => upd({ size: v }, 'Sheet size') },
           { label: 'Orientation', type: 'select', value: sheet.orientation, options: [['landscape', 'Landscape'], ['portrait', 'Portrait']], onChange: (v) => upd({ orientation: v }, 'Orientation') },
           { label: 'Show border', type: 'bool', value: sheet.showBorder !== false, onChange: (v) => upd({ showBorder: v }, 'Border') },
@@ -373,7 +379,7 @@ function boardSpec(app, ed) {
       {
         title: 'Board',
         fields: [
-          { label: 'Name', type: 'text', value: ed.doc.name, onChange: (v) => v && app.project.renameDoc(ed.doc.id, v) },
+          docNameField(app, ed),
           { label: 'Size', type: 'readonly', value: `${formatLength(bb.maxX - bb.minX, u)} x ${formatLength(bb.maxY - bb.minY, u)}` },
           { label: 'Shape', type: 'button', text: 'Set size', onClick: () => app.commands.run('pcb.boardSize') },
           { label: 'Copper layers', type: 'select', value: String(b.copper), options: [['2', '2 layers'], ['4', '4 layers'], ['6', '6 layers']], onChange: (v) => app.commands.run('pcb.setCopper', Number(v)) },

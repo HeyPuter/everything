@@ -3,9 +3,29 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { setPuterForTests } from '../src/app/puter.js';
 import { UserLibrary } from '../src/app/user-library.js';
+import { App } from '../src/app/app.js';
+import { Project, newProjectData } from '../src/model/project.js';
+import { closeMenus } from '../src/ui/menu.js';
 import { PropertiesPanel } from '../src/ui/panels/properties.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+
+/** The app as a signed-out visitor sees it, in a browser without private storage. */
+async function boot() {
+  document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
+  localStorage.clear();
+  setPuterForTests(null);
+  delete window.puter;
+  Object.defineProperty(navigator, 'storage', { value: undefined, configurable: true });
+  const app = new App(document.getElementById('app'), { puterTimeout: 10 });
+  await app.init();
+  return app;
+}
+const shutDown = (app) => {
+  app.kernel.dispose();
+  closeMenus();
+  document.body.innerHTML = '';
+};
 
 describe('My library with slow storage', () => {
   const PATH = 'Libraries/My components.circuitslib';
@@ -144,5 +164,37 @@ describe('properties panel fields while composing text', () => {
     expect(el.value).toBe('abcd');
     expect(document.activeElement).toBe(el);
     expect(changes).toEqual(['abcd']);
+  });
+});
+
+describe('document name in the Properties panel', () => {
+  it('refuses a name another document already has', async () => {
+    const app = await boot();
+    app.setProject(new Project(newProjectData('Named')), null);
+    const docs = app.project.docs;
+    expect(docs.length).toBeGreaterThan(1);
+    const [first, other] = docs;
+    app.openDoc(first.id);
+    app.activeEditor.clearSelection?.();
+    app.panels.properties.refresh(true);
+    const label = [...app.panels.properties.el.querySelectorAll('label')].find(
+      (l) => l.textContent === 'Name',
+    );
+    const input = document.getElementById(label.htmlFor);
+    expect(input.value).toBe(first.name);
+    const before = first.name;
+    input.focus();
+    input.value = other.name.toUpperCase();
+    input.dispatchEvent(new Event('input'));
+    expect(first.name).toBe(before);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    input.value = 'Renamed here';
+    input.dispatchEvent(new Event('input'));
+    expect(first.name).toBe('Renamed here');
+    expect(input.getAttribute('aria-invalid')).toBe('false');
+    shutDown(app);
   });
 });
