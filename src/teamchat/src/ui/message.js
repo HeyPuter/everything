@@ -255,7 +255,8 @@ function registerShortcuts(row, msg, ctx, mine) {
 
 function typingSomewhere() {
   const a = document.activeElement;
-  return a && (a.matches('input, textarea, select, [contenteditable="true"]') || a.closest('.modal-root, .menu'));
+  // puter.js's account menu too (usermenu.js): its keys arrive from the element itself.
+  return a && (a.matches('input, textarea, select, [contenteditable="true"]') || a.closest('.modal-root, .menu, puter-user-menu'));
 }
 
 document.addEventListener('keydown', (e) => {

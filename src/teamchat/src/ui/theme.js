@@ -1,3 +1,5 @@
+import { syncUserMenuTheme } from './usermenu.js';
+
 const LS_KEY = 'teamchat:theme';
 
 export function applyTheme(mode) {
@@ -11,6 +13,7 @@ export function applyTheme(mode) {
     /* storage unavailable */
   }
   updateThemeColorMeta();
+  syncUserMenuTheme();
 }
 
 export function currentTheme() {

@@ -214,6 +214,7 @@ export class DomEventTarget {
     define(ev, 'stopImmediatePropagation', () => { state.stopped = true; state.immediate = true; sip(); });
     const path = [];
     for (let n = this; n; n = n._eventParent()) path.push(n);
+    define(ev, 'composedPath', () => [...path]);
     // Capture: from the outermost down to the target's parent.
     for (let i = path.length - 1; i > 0 && !state.stopped; i--) path[i]._invoke(ev, 'capture', state);
     if (!state.stopped) path[0]._invoke(ev, 'target', state);

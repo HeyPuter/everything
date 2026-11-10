@@ -8,7 +8,8 @@ import { icon } from './icons.js';
 import { toast } from './toast.js';
 import { closeAllModals } from './modal.js';
 import { renderSidebar } from './sidebar.js';
-import { renderRail, railMode } from './rail.js';
+import { renderRail, railMode, signOutFlow } from './rail.js';
+import { userMenu } from './usermenu.js';
 import { createDmsPane } from './dmspane.js';
 import { createConversationView } from './conversation.js';
 import { createSearchView } from './search.js';
@@ -447,7 +448,14 @@ export function mountShell(appRoot) {
     // The reader went somewhere else before the pause was up (a sidebar row,
     // Back): the search they were typing does not follow them there.
     window.addEventListener('hashchange', () => { if (parseHash(location.hash).name !== 'search') clearTimeout(t); });
-    const node = el('header.topbar', { hidden: true }, el('div.top-nav-group', {}, back, fwd, hist), form, el('span.top-spacer'));
+    // The bar's far end: puter.js's account menu and Apps launcher where the
+    // SDK has them (usermenu.js). Made once, with the bar: the element loads
+    // the account each time it joins the page. Its Sign out is the app's;
+    // a sign-in or sign-out it did by itself (a later puter.js that names
+    // its item otherwise, a temporary account signing in) leaves the page
+    // holding another account's workspace, so the page starts over.
+    const account = userMenu({ onSignOut: signOutFlow, onSessionChanged: () => location.reload() });
+    const node = el('header.topbar', { hidden: true }, el('div.top-nav-group', {}, back, fwd, hist), form, account ? el('div.top-end', {}, account) : el('span.top-spacer'));
     // Whether the last route synced was the results page, so that leaving it
     // is told from a poll's sync on any other page (see below).
     let wasSearch = false;

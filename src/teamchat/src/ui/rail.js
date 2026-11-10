@@ -15,6 +15,7 @@ import { store } from '../lib/store.js';
 import { navigate, parseHash, PANE_VIEWS } from '../lib/router.js';
 import { parseRef } from '../lib/refs.js';
 import { pauseMenuItems } from './notifymenu.js';
+import { userMenuShown } from './usermenu.js';
 import { confirmDialog } from './modal.js';
 import {
   settingsDialog, createChannelDialog, browseChannelsDialog, newDmDialog, inviteDialog, workspaceSettingsDialog,
@@ -28,6 +29,25 @@ const ITEMS = [
   { key: 'files', label: 'Files', icon: 'files' },
   { key: 'later', label: 'Later', icon: 'bookmark' },
 ];
+
+/**
+ * Sign out, asked first: the huddle is left and this browser's pushes are
+ * taken down before the session goes (store.signOut), then the page starts
+ * over at the sign-in page. Shared by the rail's menu and by the top bar's
+ * <puter-user-menu> (usermenu.js), whose own Sign out it replaces.
+ */
+export async function signOutFlow() {
+  const ok = await confirmDialog({ title: 'Sign out?', message: 'You can sign back in with your Puter account anytime.', confirmLabel: 'Sign out', danger: false });
+  if (!ok) return;
+  try {
+    await store.signOut();
+  } catch (e) {
+    toast(e.message || 'Could not sign out', { icon: 'alert' });
+    return;
+  }
+  location.hash = '';
+  location.reload();
+}
 
 /**
  * The workspace menu, shared by the rail's mark and the sidebar's name: a
@@ -189,22 +209,10 @@ export function renderRail(container) {
       { label: 'Profile and settings', icon: 'gear', onSelect: () => settingsDialog() },
       { label: currentTheme() === 'system' ? 'Theme: system' : `Theme: ${currentTheme()}`, icon: 'monitor', sub: 'Choose in settings', onSelect: () => settingsDialog({ section: 'appearance' }) },
     ];
-    if (typeof puter !== 'undefined' && puter.env !== 'app') {
-      items.push('sep', {
-        label: 'Sign out', icon: 'logout',
-        onSelect: async () => {
-          const ok = await confirmDialog({ title: 'Sign out?', message: 'You can sign back in with your Puter account anytime.', confirmLabel: 'Sign out', danger: false });
-          if (!ok) return;
-          try {
-            await store.signOut();
-          } catch (e) {
-            toast(e.message || 'Could not sign out', { icon: 'alert' });
-            return;
-          }
-          location.hash = '';
-          location.reload();
-        },
-      });
+    // Not while puter.js's own account menu ends the top bar (usermenu.js):
+    // Sign out is there, and runs the same steps.
+    if (typeof puter !== 'undefined' && puter.env !== 'app' && !userMenuShown()) {
+      items.push('sep', { label: 'Sign out', icon: 'logout', onSelect: signOutFlow });
     }
     openMenu(anchor, items, { align: 'start', side: 'top', label: 'You' });
   }

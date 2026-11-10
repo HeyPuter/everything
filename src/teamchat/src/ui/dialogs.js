@@ -31,6 +31,7 @@ import { canInstall, promptInstall, isIos, isStandalone } from '../lib/pwa.js';
 import { pushProblem } from './pushnotice.js';
 import { emailAvailable, parseEmails, sendInviteEmails } from '../lib/email.js';
 import { copyToClipboard } from './clipboard.js';
+import { userMenuShown } from './usermenu.js';
 
 /* ---- helpers ------------------------------------------------------------- */
 
@@ -3950,8 +3951,8 @@ export function settingsDialog({ section = null } = {}) {
     }
   }
 
-  /* Account */
-  if (typeof puter !== 'undefined' && puter.env !== 'app') {
+  /* Account: not while puter.js's own account menu ends the top bar (usermenu.js), where Sign out is. */
+  if (typeof puter !== 'undefined' && puter.env !== 'app' && !userMenuShown()) {
     content.append(el('div.modal-actions', { style: { justifyContent: 'space-between', marginTop: '24px' } },
       el('button.btn.btn-ghost', {
         type: 'button', html: icon('logout', 16),
