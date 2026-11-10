@@ -536,6 +536,9 @@ export class Editor {
   submit(text) {
     const t = text.trim();
     const r = this.request;
+    // In-place text editing (app.editText) finishes in its own box: Enter
+    // from the command line would end the command and drop the text typed.
+    if (r?.kind === 'text') return;
     if (!r) {
       if (!t) {
         if (this.lastCommand) this.run(this.lastCommand);

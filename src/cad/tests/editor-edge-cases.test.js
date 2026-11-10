@@ -258,3 +258,32 @@ describe('double click on a grip', () => {
     expect(t.drawing.get(1)).toMatchObject({ x2: 20, y2: 5 });
   });
 });
+
+describe('in-place text editing', () => {
+  it('is not ended (losing the text) by Enter from the command line', async () => {
+    // The request app.editText() installs while its text box is open.
+    let settled = null;
+    t.ed.editText = () =>
+      new Promise((resolve, reject) => {
+        t.ed.request = {
+          kind: 'text',
+          prompt: 'Type the text. Press Enter to finish.',
+          opts: {},
+          options: [],
+          resolve: (v) => resolve((settled = ['resolved', v])),
+          reject: (err) => reject((settled = err)),
+        };
+      });
+    await t.type('TEXT', '0,0', '2.5', '0');
+    expect(t.ed.request.kind).toBe('text');
+    await t.type('', 'abc');
+    expect(settled).toBeNull();
+    expect(t.ed.request.kind).toBe('text');
+    expect(t.ed.busy).toBe(true);
+    // Escape still cancels it.
+    t.ed.cancel();
+    await flush();
+    expect(settled).toBeInstanceOf(Error);
+    expect(t.ed.busy).toBe(false);
+  });
+});
