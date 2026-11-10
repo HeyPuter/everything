@@ -665,12 +665,18 @@ export class App extends Emitter {
     if (!(await this._confirmLeave())) return false;
     // Opens can overlap (a slow file, then another choice): the last one asked for wins.
     const token = (this._openToken = (this._openToken || 0) + 1);
+    // Changes the user has just chosen to discard are not asked about again below.
+    const open = this.project;
+    const stamp = () => open.docs.map((d) => `${d.id}:${d.store.revision}`).join();
+    let discarded = open?.dirty ? stamp() : null;
+    const offMeta = open?.on('meta', () => { discarded = null; });
     try {
       const text = await storage.loadText(location);
       const project = parseProject(text);
       if (token !== this._openToken) return false;
       // Edits made to the open project while this one loaded are saved or asked about.
-      if (this.project?.dirty && (!(await this._confirmLeave()) || token !== this._openToken)) return false;
+      const edited = this.project?.dirty && !(this.project === open && discarded !== null && discarded === stamp());
+      if (edited && (!(await this._confirmLeave()) || token !== this._openToken)) return false;
       project.markSaved();
       this.setProject(project, location);
       storage.rememberRecent({ location, name: project.name });
@@ -680,6 +686,8 @@ export class App extends Emitter {
       if (!quiet) toast(`Could not open the project: ${why}`, { kind: 'error' });
       if (P.isMissing(err)) storage.forgetRecent(location);
       return false;
+    } finally {
+      offMeta?.();
     }
   }
 
