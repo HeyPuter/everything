@@ -278,6 +278,25 @@ describe('DWG writer', () => {
     }
   });
 
+  it('cuts text that is longer than a DWG string can be, and says so', () => {
+    const mtext = (value) => ent('mtext', { x: 0, y: 0, h: 2, rot: 0, style: 'Standard', width: 0, attach: 'tl', lineSpacing: 1, value });
+    const d = everything();
+    // 16-bit lengths: 65534 bytes, and characters outside the codepage take 7 bytes each
+    d.entities = [mtext('x'.repeat(70000)), mtext('日'.repeat(10000)), mtext('y'.repeat(65534)), ent('line', { x1: 0, y1: 0, x2: 1, y2: 1 })];
+    for (const version of [2004, 2000]) {
+      const warnings = [];
+      const bytes = writeDwg(d, { dimensionEntities, hatchPatterns, warnings, version });
+      expect(warnings).toEqual(['Text longer than a DWG file can hold was cut off.']);
+      const db = readDatabase(bytes, { check: true });
+      expect([...db.objects.values()].filter((o) => o.error).map((o) => o.type)).toEqual([]);
+      const back = parseDwg(bytes).drawing.entities;
+      expect(back.map((e) => e.type)).toEqual(['mtext', 'mtext', 'mtext', 'line']);
+      expect(back[0].value).toBe('x'.repeat(65534));
+      expect(back[1].value).toBe('日'.repeat(9362));
+      expect(back[2].value).toBe('y'.repeat(65534));
+    }
+  });
+
   it('writes an empty drawing', () => {
     const d = { version: 1, header: defaultHeader(), layers: [defaultLayer('0')], linetypes: [], textStyles: [], dimStyles: [], blocks: [], entities: [] };
     const back = parseDwg(writeDwg(d));

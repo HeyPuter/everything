@@ -1166,6 +1166,7 @@ function encodeObject(b, o) {
   }
   const spec = specFor(o.type);
   if (spec) spec(io, o.v);
+  if (d.truncated) b.warn('Text longer than a DWG file can hold was cut off.');
   patchRL(d, bsPos, d.pos);
   d.append(hs);
   const body = d.bytes();
