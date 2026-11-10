@@ -194,4 +194,19 @@ async function boot() {
   else signInScreen(begin);
 }
 
+// A shared link pasted into a tab that already shows the app (or a link to
+// the app pasted into a shared page) only changes the hash: the page that
+// is loaded can't show it, so load the one that can.
+window.addEventListener('hashchange', (e) => {
+  const shared = (url) => {
+    try {
+      return new URL(url).hash.startsWith('#view=');
+    } catch {
+      return false;
+    }
+  };
+  const now = location.hash.startsWith('#view=');
+  if (now !== shared(e.oldURL) || (now && e.oldURL !== e.newURL)) location.reload();
+});
+
 boot();
