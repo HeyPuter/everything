@@ -19,6 +19,9 @@ export async function localBackend() {
     const req = fn(store);
     t.oncomplete = () => resolve(req?.result);
     t.onerror = () => reject(t.error);
+    // A transaction that is aborted (storage is full) reports no error: it
+    // must still settle, or the save waits forever.
+    t.onabort = () => reject(t.error || new Error('The write was aborted.'));
   });
   return {
     kind: 'local',
