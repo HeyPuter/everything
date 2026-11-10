@@ -124,6 +124,7 @@ export class App {
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.applyTheme());
     this.observeSize();
     this.bindKeys();
+    this.bindDrop();
     this.bindDock();
     this.renderPhonebar();
     this.applySettings();
@@ -873,6 +874,43 @@ export class App {
       if (f) await this.openBuffer(f.buffer, f.name, { source: 'device', handle: f.handle, path: null });
     } catch (err) {
       this.fileError('import', err);
+    }
+  }
+
+  /**
+   * Files dropped on the window open as drawings. Left to the browser, a
+   * dropped file replaces the app with the file's own contents.
+   */
+  bindDrop() {
+    const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    window.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = document.querySelector('dialog[open]') ? 'none' : 'copy';
+    });
+    window.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      // Not behind a dialog that is waiting for an answer.
+      if (!document.querySelector('dialog[open]')) this.openDropped(e.dataTransfer);
+    });
+  }
+
+  async openDropped(transfer) {
+    // The files and their handles (which let Save write back to the file,
+    // where the browser has them) can only be taken while the drop is handled.
+    const items = [...(transfer.items || [])].filter((it) => it.kind === 'file');
+    const dropped = items.length
+      ? items.map((it) => ({ file: it.getAsFile(), handle: Promise.resolve(it.getAsFileSystemHandle?.()).catch(() => null) }))
+      : [...(transfer.files || [])].map((file) => ({ file, handle: null }));
+    for (const { file, handle } of dropped) {
+      if (!file) continue;
+      try {
+        const h = await handle;
+        await this.openBuffer(await file.arrayBuffer(), file.name, { source: 'device', handle: h?.kind === 'file' ? h : null, path: null });
+      } catch (err) {
+        this.fileError('open', err);
+      }
     }
   }
 
