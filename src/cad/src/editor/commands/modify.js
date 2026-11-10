@@ -491,6 +491,8 @@ async function filletOrChamfer(ed, isChamfer) {
         out = null;
       }
       if (out) ed.commit(isChamfer ? 'Chamfer' : 'Fillet', () => ed.drawing.replace(p.id, out));
+      else if (isChamfer) ed.ui.log('No corner was chamfered: the distances are zero or too large for the segments, or there are no straight corners.', 'error');
+      else ed.ui.log('No corner was filleted: the radius is zero or too large for the segments, or there are no straight corners.', 'error');
       if (!multiple) return;
       continue;
     }

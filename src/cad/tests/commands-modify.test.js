@@ -146,6 +146,29 @@ describe('JOIN', () => {
   });
 });
 
+describe('FILLET and CHAMFER of a whole polyline', () => {
+  it('say so when no corner can take the radius or distances', async () => {
+    add({ type: 'polyline', pts: [0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0], closed: true, width: 0 });
+    const before = t.all()[0];
+    const steps = t.drawing.undoStack.length;
+    await t.type('FILLET', 'R', '50', 'P');
+    await t.pick(5, 0);
+    expect(t.all()[0]).toBe(before);
+    expect(t.logs.filter(([k]) => k === 'error')).toHaveLength(1);
+    expect(t.logs.at(-1)[1]).toMatch(/too large/i);
+    await t.type('CHAMFER', 'D', '30', '30', 'P');
+    await t.pick(5, 0);
+    expect(t.all()[0]).toBe(before);
+    expect(t.logs.filter(([k]) => k === 'error')).toHaveLength(2);
+    expect(t.drawing.undoStack.length).toBe(steps);
+    // one that fits is applied without a message
+    await t.type('FILLET', 'R', '2', 'P');
+    await t.pick(5, 0);
+    expect(t.all()[0].pts.length).toBe(24);
+    expect(t.logs.filter(([k]) => k === 'error')).toHaveLength(2);
+  });
+});
+
 describe('STRETCH', () => {
   it('moves the vertex of an angular dimension with its rays', async () => {
     add({
