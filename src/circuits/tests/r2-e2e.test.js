@@ -444,3 +444,16 @@ describe('pour copper in exported files', () => {
     expect(runs()).toBe(before);
   });
 });
+
+describe('start-up without the Puter SDK', () => {
+  it('does not make the app wait for the SDK script to arrive', () => {
+    const html = fs.readFileSync(path.resolve(__dirname, '../index.html'), 'utf8');
+    const sdk = /<script[^>]*js\.puter\.com[^>]*>/.exec(html)[0];
+    // A deferred script runs before the module that starts the app, so a
+    // connection that stalls on the SDK would leave the page blank; an async
+    // one does not hold anything up, and loadPuter() waits for it briefly.
+    expect(sdk).toMatch(/\sasync(\s|>)/);
+    expect(sdk).not.toMatch(/\sdefer(\s|>)/);
+    expect(sdk).toMatch(/onerror="window\.__puterFailed = true"/);
+  });
+});
