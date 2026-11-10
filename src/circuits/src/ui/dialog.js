@@ -59,7 +59,7 @@ export function openDialog({ title, body, actions = [{ label: 'Close', primary: 
   dialog.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(undefined); }
     // A field that handles Enter itself (prevents the default) keeps it.
-    else if (e.key === 'Enter' && !isComposing(e) && !e.shiftKey && !e.defaultPrevented && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT') {
+    else if (e.key === 'Enter' && !isComposing(e) && !e.shiftKey && !e.defaultPrevented && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'A') {
       const primary = actions.find((a) => a.primary);
       if (primary?.el && !primary.el.disabled) { e.preventDefault(); primary.el.click(); }
     }

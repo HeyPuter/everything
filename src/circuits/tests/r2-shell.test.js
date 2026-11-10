@@ -393,3 +393,20 @@ describe('saving again while a save is still writing', () => {
     app.kernel.dispose();
   });
 });
+
+describe('links in dialogs', () => {
+  it('Enter on a link follows it instead of pressing the default button', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    const link = document.createElement('a');
+    link.href = '#somewhere';
+    link.textContent = 'Source code';
+    const dlg = openDialog({ title: 'About', body: link });
+    await tick(20);
+    link.focus();
+    const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    link.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(document.querySelector('.dialog')).not.toBeNull();
+    dlg.close();
+  });
+});
