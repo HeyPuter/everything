@@ -822,8 +822,10 @@ export function openReader(app) {
     stopSpeech();
     overlay.remove();
     document.removeEventListener('keydown', onKey, true);
+    app.reader = null;
     app.editor.restoreRange() || app.editor.scroller.focus();
   };
+  app.reader = { close };
   const onKey = (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();

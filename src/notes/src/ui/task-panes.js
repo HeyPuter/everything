@@ -150,7 +150,14 @@ export class TaskPanes {
   }
 
   async setDone(t, done) {
-    const page = await this.app.store.loadPage(t.meta.id);
+    let page;
+    try {
+      page = await this.app.store.loadPage(t.meta.id);
+    } catch {
+      // Its section locked, or the page is gone, since the list was made.
+      toast("That note can't be opened now. Refresh Results and try again.");
+      return false;
+    }
     if (this.app.state.pageId === page.id) this.app.editor.flush();
     const outline = page.outlines.find((o) => o.id === t.outlineId);
     // The note may have changed since the list was made: find the listed

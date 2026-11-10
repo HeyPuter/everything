@@ -459,3 +459,33 @@ describe('App: section passwords', () => {
     expect(await store.unlockSection(section.id, 'first one')).toBe(true);
   });
 });
+
+describe('App: locking a section', () => {
+  afterEach(() => {
+    document.querySelectorAll('dialog').forEach((d) => d.remove());
+    document.querySelector('.toasts')?.replaceChildren();
+    for (const a of mounted) a.destroy();
+    mounted = [];
+  });
+
+  it('takes the section\'s text out of the tag summary and the reading view', async () => {
+    const { openReader } = await import('../src/ui/features.js');
+    const { app, store } = await mount();
+    const section = store.section(app.state.sectionId);
+    const page = await store.loadPage(app.state.pageId);
+    page.outlines.push({ id: 'o9', x: 40, y: 200, w: null, html: '<p><span class="nt-tag" data-tag="todo" data-done="false"></span>buy the secret gift</p>' });
+    store.pageChanged(page);
+    await app.editor.open(page);
+    await store.protectSection(section.id, 'pw');
+    app.unlocked.add(section.id);
+    app.taskPanes.toggle('tags');
+    await tick(30);
+    expect(app.taskPanes.el.textContent).toContain('secret gift');
+    openReader(app);
+    expect(document.querySelector('.reader').textContent).toContain('secret gift');
+    await app.lockSection(section.id);
+    await tick(30);
+    expect(document.querySelector('.reader')).toBeNull();
+    expect(app.taskPanes.el.textContent).not.toContain('secret gift');
+  });
+});

@@ -344,6 +344,13 @@ export class App {
     this.store.on('change', (e) => {
       if (e.type === 'page-title') return;
       this.renderNav();
+      // A section that locks takes its text off the screen everywhere, not
+      // only off the page: the tag summary, an Assist answer and the
+      // reading view may still show it. (Search follows every change.)
+      if (e.type === 'lock') {
+        this.reader?.close();
+        if (!this.taskPanes.el.hidden) this.taskPanes.render();
+      }
     });
     this.store.on('status', (s) => this.updateSync(s));
     this.store.on('assets-renamed', ({ id, map }) => {
