@@ -22,6 +22,11 @@ export function openDialog({ title, body, actions = [], size = 'md', className, 
       dlg.close();
       dlg.remove();
       onClose?.(value);
+      // The browser returns focus by itself when a modal dialog closes. Done
+      // during a click on one of the dialog's buttons, Chromium leaves a text
+      // field focused but dead (keys arrive, nothing is typed), and focus()
+      // on the focused field changes nothing: leave it first.
+      if (prev && document.activeElement === prev) prev.blur?.();
       prev?.focus?.({ preventScroll: true });
       resolve(value);
     };

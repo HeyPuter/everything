@@ -25,3 +25,32 @@ describe('dialog Enter key', () => {
     expect(events).toEqual(['blur', 'ok']);
   });
 });
+
+describe('dialog focus return', () => {
+  it('focuses the field again when the browser already returned focus to it', async () => {
+    // Chromium returns focus itself as a modal dialog closes; after a click on
+    // a dialog button that leaves a text field focused but unable to take
+    // typing until it is focused anew.
+    const field = document.createElement('input');
+    document.body.append(field);
+    field.focus();
+    const close = HTMLDialogElement.prototype.close;
+    HTMLDialogElement.prototype.close = function () {
+      close.call(this);
+      field.focus();
+    };
+    try {
+      const p = openDialog({ title: 'T', body: document.createElement('p'), actions: [{ label: 'Cancel' }] });
+      const events = [];
+      field.addEventListener('blur', () => events.push('blur'));
+      field.addEventListener('focus', () => events.push('focus'));
+      [...document.querySelectorAll('dialog button')].find((b) => b.textContent === 'Cancel').click();
+      expect(await p).toBe(null);
+      expect(events.slice(-2)).toEqual(['blur', 'focus']);
+      expect(document.activeElement).toBe(field);
+    } finally {
+      HTMLDialogElement.prototype.close = close;
+      field.remove();
+    }
+  });
+});
