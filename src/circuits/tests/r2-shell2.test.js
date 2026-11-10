@@ -10,6 +10,7 @@ import { App } from '../src/app/app.js';
 import { Project, newProjectData } from '../src/model/project.js';
 import { isMac } from '../src/ui/dom.js';
 import { closeMenus } from '../src/ui/menu.js';
+import { NavigatorPanel } from '../src/ui/panels/navigator.js';
 import { MessagesPanel } from '../src/ui/panels/messages.js';
 import { PropertiesPanel } from '../src/ui/panels/properties.js';
 
@@ -610,5 +611,53 @@ describe('printing and SVG export in the component editor', () => {
     expect(app.commands.get('file.print').enabled()).toBe(true);
     vi.restoreAllMocks();
     shutDown(app);
+  });
+});
+
+describe('long lists that are cut short', () => {
+  it('Messages says how many results are not shown', () => {
+    const app = {
+      project: { getDoc: () => null },
+      focusMessage: () => {},
+      setBottomDock: () => {},
+    };
+    const panel = new MessagesPanel(app);
+    const items = Array.from({ length: 2105 }, (_, i) => ({
+      severity: 'error',
+      message: `Violation ${i}`,
+    }));
+    panel.set(items, 'Design rule check');
+    expect(panel.list.querySelectorAll('.list-row').length).toBe(2000);
+    expect(panel.list.lastElementChild.textContent).toMatch(/^105 more/);
+    panel.set(items.slice(0, 2000), 'Design rule check');
+    expect(panel.list.querySelectorAll('li').length).toBe(2000);
+  });
+
+  it('Navigator says how many components and nets are not shown', () => {
+    const parts = Array.from({ length: 1003 }, (_, i) => ({
+      id: `p${i}`,
+      t: 'comp',
+      designator: `R${i + 1}`,
+      comp: 'x',
+    }));
+    const nets = Object.fromEntries(Array.from({ length: 2004 }, (_, i) => [`N${i}`, {}]));
+    const ed = {
+      kind: 'pcb',
+      doc: { items: () => parts, nets },
+      selection: new Set(),
+      analysis: () => ({ unrouted: new Map() }),
+    };
+    const panel = new NavigatorPanel({ activeEditor: ed, project: { library: {} } });
+    panel.render();
+    expect(panel.list.querySelectorAll('.list-row').length).toBe(1000);
+    expect(panel.list.lastElementChild.textContent).toMatch(/^3 more/);
+    panel.mode = 'nets';
+    panel.render();
+    expect(panel.list.querySelectorAll('.list-row').length).toBe(2000);
+    expect(panel.list.lastElementChild.textContent).toMatch(/^4 more/);
+    // Filtering down to fewer shows them all, with no note.
+    panel.query = 'n200';
+    panel.render();
+    expect(panel.list.lastElementChild.querySelector('.list-row')).toBeTruthy();
   });
 });

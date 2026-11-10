@@ -55,6 +55,7 @@ export class NavigatorPanel {
         row.addEventListener('keydown', (e) => activate(e, go));
         this.list.append(h('li', row));
       }
+      if (objs.length > 1000) this.list.append(h('li.panel-empty.small', `${objs.length - 1000} more. Filter the list to see them.`));
       return;
     }
     let nets;
@@ -83,5 +84,6 @@ export class NavigatorPanel {
       row.addEventListener('keydown', (e) => activate(e, go));
       this.list.append(h('li', row));
     }
+    if (nets.length > 2000) this.list.append(h('li.panel-empty.small', `${nets.length - 2000} more. Filter the list to see them.`));
   }
 }

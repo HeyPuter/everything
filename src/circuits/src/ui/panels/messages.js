@@ -55,5 +55,6 @@ export class MessagesPanel {
       row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
       this.list.append(h('li', row));
     }
+    if (shown.length > 2000) this.list.append(h('li.panel-empty.small', `${shown.length - 2000} more not shown. They appear as the problems above are fixed and the check runs again.`));
   }
 }
