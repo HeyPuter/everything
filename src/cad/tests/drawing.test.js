@@ -263,4 +263,48 @@ describe('Drawing', () => {
       expect(d.get(pid)).toBe(hatch);
     }
   });
+
+  it('is saved again after undo or redo returns to the saved state', () => {
+    const d = new Drawing();
+    d.transaction('A', () => d.add(line(0, 0, 1, 1)));
+    d.markSaved();
+    d.transaction('B', () => d.add(line(1, 1, 2, 2)));
+    expect(d.modified).toBe(true);
+    d.undo();
+    expect(d.modified).toBe(false);
+    d.undo();
+    expect(d.modified).toBe(true);
+    d.redo();
+    expect(d.modified).toBe(false);
+    d.redo();
+    expect(d.modified).toBe(true);
+    // a different edit from the saved state is not the saved state, even after its undo/redo
+    d.undo();
+    d.transaction('C', () => d.add(line(5, 5, 6, 6)));
+    expect(d.modified).toBe(true);
+    d.undo();
+    expect(d.modified).toBe(false);
+    d.redo();
+    expect(d.modified).toBe(true);
+  });
+
+  it('keeps a save taken mid-way apart from later states', () => {
+    const d = new Drawing();
+    d.transaction('A', () => d.add(line(0, 0, 1, 1)));
+    const rev = d.revision; // what a slow save captured
+    d.transaction('B', () => d.add(line(1, 1, 2, 2)));
+    d.markSaved(rev);
+    expect(d.modified).toBe(true);
+    d.undo();
+    expect(d.modified).toBe(false);
+    // steps merged into one no longer know their revisions: never falsely "saved"
+    const at = d.undoStack.length;
+    d.transaction('C', () => d.add(line(2, 2, 3, 3)));
+    d.transaction('D', () => d.add(line(3, 3, 4, 4)));
+    d.mergeSince(at, 'CD');
+    d.undo();
+    expect(d.modified).toBe(true);
+    d.redo();
+    expect(d.modified).toBe(true);
+  });
 });

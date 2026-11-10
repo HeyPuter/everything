@@ -36,8 +36,15 @@ export class Drawing {
     this._depth = 0;
     /** Tag stored on steps committed now (the running command), see groupSince(). */
     this.stepTag = null;
-    /** Incremented on every committed change; used for "modified" tracking. */
+    /**
+     * Identifies the current content; used for "modified" tracking. Every
+     * committed change gets a new number, and undo and redo go back to the
+     * number of the state they restore, so undoing to the saved state (or
+     * redoing back to it) is "saved" again.
+     */
     this.revision = 0;
+    /** Highest revision handed out so far. */
+    this._revSeq = 0;
     /** Count of steps dropped off the bottom of the undo stack (keeps saved indices valid). */
     this.shifted = 0;
     this.savedRevision = 0;
@@ -75,7 +82,7 @@ export class Drawing {
     this.undoStack = [];
     this.redoStack = [];
     this.ensureDefaults();
-    this.revision++;
+    this.revision = ++this._revSeq;
     this.savedRevision = this.revision;
   }
 
@@ -177,13 +184,14 @@ export class Drawing {
     if (tx.records.length) {
       // rev0/rev1: revision before and after the step (see groupSince).
       const rev0 = this.revision;
-      this.undoStack.push({ label, records: tx.records, tag: this.stepTag, rev0, rev1: rev0 + 1 });
+      const rev1 = ++this._revSeq;
+      this.undoStack.push({ label, records: tx.records, tag: this.stepTag, rev0, rev1 });
       if (this.undoStack.length > UNDO_LIMIT) {
         this.undoStack.shift();
         this.shifted++;
       }
       this.redoStack.length = 0;
-      this.revision++;
+      this.revision = rev1;
       this._emit(this._finish(tx.change));
     }
     return result;
@@ -356,7 +364,9 @@ export class Drawing {
     const change = newChange();
     for (let i = step.records.length - 1; i >= 0; i--) this._apply(step.records[i], true, change);
     this.redoStack.push(step);
-    this.revision++;
+    // Back at the state the step started from, when the step knows it (merged
+    // steps do not) and nothing else happened since.
+    this.revision = step.rev1 === this.revision && Number.isFinite(step.rev0) ? step.rev0 : ++this._revSeq;
     this._emit(this._finish(change));
     return step.label;
   }
@@ -367,7 +377,7 @@ export class Drawing {
     const change = newChange();
     for (const rec of step.records) this._apply(rec, false, change);
     this.undoStack.push(step);
-    this.revision++;
+    this.revision = step.rev0 === this.revision && Number.isFinite(step.rev1) ? step.rev1 : ++this._revSeq;
     this._emit(this._finish(change));
     return step.label;
   }
