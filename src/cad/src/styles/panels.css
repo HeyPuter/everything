@@ -700,6 +700,13 @@ body > .alpha-notice {
   position: fixed;
 }
 
+/* A palette overlaid on the canvas leaves the notice uncovered, and the notice leaves it usable. */
+@media (min-width: 600px) and (max-width: 1023px) {
+  .workspace.dock-open .alpha-notice {
+    width: min(380px, calc(100% - var(--dock-w, 0px) - 32px));
+  }
+}
+
 @media (max-width: 599px) {
   .alpha-notice {
     left: 8px;
