@@ -15,6 +15,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     launchOptions: {
       args: [
+        // index.html loads the Puter SDK; the suite runs without it (as offline) unless a test stubs it
+        '--host-resolver-rules=MAP js.puter.com ~NOTFOUND',
         '--enable-unsafe-webgpu',
         process.platform === 'darwin' ? '--use-angle=metal' : '--use-angle=swiftshader',
       ],

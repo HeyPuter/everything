@@ -18,6 +18,8 @@ import { textField } from './widgets';
 import { setMode, activeCollection } from '../ops/object';
 import { statsLines } from '../editors/view3d/view3d';
 import { assistantOpen } from '../assistant';
+import { PUTER_LOADED } from '../assistant/puter';
+import { userMenu } from './usermenu';
 import './screenops';
 import './view2d';
 import './view2d_hosts';
@@ -84,6 +86,8 @@ export class Shell {
     addEventListener('keydown', (e) => mods(e), { capture: true, passive: true });
     addEventListener('keyup', (e) => mods(e), { capture: true, passive: true });
     addEventListener('blur', () => mods(null));
+    // the SDK arrived late (the assistant loaded it): the top bar gets puter.js's account menu
+    addEventListener(PUTER_LOADED, () => this.drawTop());
     // the mouse hints follow the editor under the pointer
     let lastHover: unknown = null;
     main.addEventListener('pointerover', () => {
@@ -313,6 +317,8 @@ export class Shell {
             h('div', { class: 'tb-scene' }, icon('scene_data'), textField('scene-name', app.doc.scene.name, (v) => ((app.doc.scene.name = v || 'Scene'), app.pushUndo('Rename Scene'), app.changed('doc')))),
             h('div', { class: 'tb-scene' }, icon('view_layer'), h('span', { class: 'tb-vl' }, 'ViewLayer')),
           ],
+      // puter.js's account menu and Apps launcher, where the loaded SDK has them (usermenu.ts)
+      userMenu(),
     ]);
     const tabs = this.top.querySelector<HTMLElement>('.ws-tabs');
     if (tabs) tabs.classList.toggle('overflow', tabs.scrollLeft + tabs.clientWidth < tabs.scrollWidth - 1);
