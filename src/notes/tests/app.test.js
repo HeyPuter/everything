@@ -428,3 +428,34 @@ describe('App: keyboard and layout regressions', () => {
     expect(document.activeElement.getAttribute('aria-selected')).toBe('true');
   });
 });
+
+describe('App: section passwords', () => {
+  afterEach(() => {
+    closeAllMenus();
+    document.querySelectorAll('dialog').forEach((d) => d.remove());
+    document.querySelector('.toasts')?.replaceChildren();
+    for (const a of mounted) a.destroy();
+    mounted = [];
+  });
+
+  it('does not report a password change that did not happen', async () => {
+    const { passwordDialog } = await import('../src/ui/features.js');
+    const { app, store } = await mount();
+    const section = store.section(app.state.sectionId);
+    await store.protectSection(section.id, 'first one');
+    passwordDialog(app, section);
+    const dialog = document.querySelector('dialog[open]');
+    // The section locks again (ten idle minutes) while the dialog is open.
+    await store.lockSection(section.id);
+    const [a, b] = dialog.querySelectorAll('input');
+    a.value = 'second one';
+    b.value = 'second one';
+    dialog.querySelector('.btn.primary').click();
+    await tick(20);
+    expect(document.querySelector('.toasts')?.textContent || '').not.toContain('Password changed');
+    expect(dialog.isConnected).toBe(true);
+    expect(dialog.querySelector('.field-error').textContent).toContain('locked');
+    expect(await store.unlockSection(section.id, 'second one')).toBe(false);
+    expect(await store.unlockSection(section.id, 'first one')).toBe(true);
+  });
+});

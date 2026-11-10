@@ -1362,7 +1362,8 @@ export function passwordDialog(app, section) {
     actions.push({ label: 'Remove Password', run: async () => {
       if (!(await confirmDialog({ title: 'Remove password?', message: `"${section.name}" will no longer be encrypted. Anyone signed in to your account will be able to read it.`, okLabel: 'Remove' }))) return false;
       try {
-        await store.unprotectSection(section.id);
+        // False: the section locked again while this dialog was open.
+        if (!(await store.unprotectSection(section.id))) throw new Error('the section is locked. Unlock it and try again.');
       } catch (err) {
         error.textContent = `Couldn't remove the password: ${err.message}`;
         return false;
@@ -1391,7 +1392,7 @@ export function passwordDialog(app, section) {
       btn.disabled = true;
       app.editor.flush();
       try {
-        await store.protectSection(section.id, a);
+        if (!(await store.protectSection(section.id, a))) throw new Error('the section is locked. Unlock it and try again.');
       } catch (err) {
         error.textContent = `Couldn't protect the section: ${err.message}`;
         btn.disabled = false;
