@@ -871,10 +871,10 @@ class DxfParser {
           ds.trailingZeros = (int(v) & 8) === 0;
           break;
         case 176:
-          ds.lineColor = int(v);
+          ds.lineColor = dimColor(v);
           break;
         case 178:
-          ds.textColor = int(v);
+          ds.textColor = dimColor(v);
           break;
         case 3: {
           const post = decodeUnicode(v);
@@ -2579,6 +2579,12 @@ class DxfParser {
 function signedAngle(a) {
   a = normAngle(a);
   return a > Math.PI ? a - TWO_PI : a;
+}
+
+/** Color of a dimension style (0 = ByBlock, 256 = ByLayer); ByBlock for values that are no color index. */
+function dimColor(v) {
+  const c = int(v);
+  return c >= 0 && c <= 256 ? c : 0;
 }
 
 function arrowFromName(raw) {

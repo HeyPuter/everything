@@ -744,6 +744,23 @@ describe('parseDxf: encodings and robustness', () => {
     expect(drawing.entities[0]).toMatchObject({ type: 'point', x: 1.5, y: 2.5 });
   });
 
+  it('reads dimension style colors outside the color index range as ByBlock', () => {
+    // LibreDWG writes raw color words such as -1056964608 here
+    const { drawing } = parseDxf(
+      dxf([], {
+        tables: [
+          0, 'TABLE', 2, 'DIMSTYLE',
+          0, 'DIMSTYLE', 2, 'RAW', 176, -1056964608, 178, 300,
+          0, 'DIMSTYLE', 2, 'OK', 176, 256, 178, 3,
+          0, 'ENDTAB',
+        ],
+      }),
+    );
+    const by = Object.fromEntries(drawing.dimStyles.map((d) => [d.name, [d.lineColor, d.textColor]]));
+    expect(by.RAW).toEqual([0, 0]);
+    expect(by.OK).toEqual([256, 3]);
+  });
+
   it('shows dimensions of kinds the app does not have through their drawn block', () => {
     const blk = (n) => [0, 'BLOCK', 2, n, 70, 1, 10, 0, 20, 0, 0, 'LINE', 8, '0', 62, 0, 10, 0, 20, 0, 11, 5, 21, 5, 0, 'ENDBLK'];
     const { drawing, warnings, stats } = parseDxf(
