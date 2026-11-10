@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { parseDwg } from '../src/io/dwg/import.js';
-import { readDatabase } from '../src/io/dwg/database.js';
+import { readDatabase, readObjectMap } from '../src/io/dwg/database.js';
+import { writeDwg } from '../src/io/dwg/writer.js';
 import { dwgVersion, readContainer } from '../src/io/dwg/container.js';
 import { BitReader } from '../src/io/dwg/bits.js';
 import { parseDxf } from '../src/io/dxf/reader.js';
@@ -279,6 +280,40 @@ describe('DWG reader: other files', () => {
       for (const [k, v] of Object.entries(e)) if (typeof v === 'number' && !Number.isFinite(v)) bad.push(`${e.type}.${k}`);
     }
     expect(bad).toEqual([]);
+  });
+
+  it('recovers the objects of model space when its block record is damaged', () => {
+    const src = fx('sample-r2000.dwg');
+    const c = readContainer(src);
+    const whole = parseDwg(src).drawing;
+    // R2000 objects are at file offsets
+    const loc = readObjectMap(c.sections.handles).get(readDatabase(src).header.BLOCK_MODEL_SPACE);
+    // 23: the first and last entity handles; 3: the handle, so the record is skipped
+    for (const k of [23, 3, 10]) {
+      const b = src.slice();
+      b[loc + k] ^= 0x55;
+      const res = parseDwg(b);
+      expect(res.drawing.entities.length).toBe(whole.entities.length);
+      expect(res.warnings.some((w) => /damaged list of objects was rebuilt/.test(w))).toBe(true);
+    }
+    // the same for a file with compressed sections: wipe the record's bytes
+    const ours = writeDwg(whole);
+    const sec = readContainer(ours).sections;
+    const at = readObjectMap(sec.handles).get(readDatabase(ours).header.BLOCK_MODEL_SPACE);
+    const body = sec.objects.subarray(at + 2, at + 14);
+    let pos = -1;
+    for (let i = 0; i + body.length <= ours.length && pos < 0; i++) {
+      let same = true;
+      for (let j = 0; j < body.length && same; j++) same = ours[i + j] === body[j];
+      if (same) pos = i;
+    }
+    expect(pos).toBeGreaterThan(0);
+    ours.fill(0xff, pos, pos + body.length);
+    const res = parseDwg(ours);
+    expect(res.drawing.entities.length).toBe(parseDwg(writeDwg(whole)).drawing.entities.length);
+    expect(res.warnings.some((w) => /damaged list of objects was rebuilt/.test(w))).toBe(true);
+    // intact files are read as before, without the warning
+    expect(parseDwg(src).warnings.filter((w) => /rebuilt/.test(w))).toEqual([]);
   });
 
   it('reads drawings with a damaged dictionary that has names but no entries', () => {
