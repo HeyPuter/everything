@@ -13,12 +13,12 @@ import { resolvedTheme } from '../app/theme.js';
 import { sheetExtents } from '../model/project.js';
 import { schHitDistance, schBounds, SCH_PICK_ORDER, translateSch, rotateSch, mirrorSch, connectionPoints, JUNCTION_R, WIRE_W } from '../model/sch.js';
 import { placeSymbol } from '../model/place.js';
-import { bboxContains, bboxIntersects, bboxUnion, bboxEmpty, distPointSeg } from '../core/geom.js';
+import { bboxContains, bboxIntersects, bboxUnion, bboxEmpty, distPointSeg, simplifyPolyline } from '../core/geom.js';
 import { mil, SCH_GRID, snap } from '../core/units.js';
 import { uid } from '../core/emitter.js';
 import { nextDesignator } from '../model/annotate.js';
 import { contextMenu } from '../ui/menu.js';
-import { installVertexEditing } from './vertex.js';
+import { installVertexEditing, dropFoldBacks } from './vertex.js';
 
 export class SchEditor extends CanvasView {
   constructor(app, project, doc) {
@@ -303,7 +303,10 @@ export class SchEditor extends CanvasView {
         const corner = fixedFirst ? [pts[2], pts[1]] : [pts[0], pts[3]];
         return { ...w, pts: [pts[0], pts[1], ...corner, pts[2], pts[3]] };
       }
-      return { ...w, pts };
+      // An end pushed onto or past its neighbor leaves a repeated point or a
+      // stub doubling back, which would count as extra wire ends there (a
+      // junction dot on a plain corner or pin).
+      return { ...w, pts: dropFoldBacks(simplifyPolyline(pts)) };
     });
     for (const id of ids) this.hidden.add(id);
     for (const d of dragged) this.hidden.add(d.w.id);
@@ -317,7 +320,7 @@ export class SchEditor extends CanvasView {
       draw(b) {
         const col = pack(ed.palette.selection);
         for (const o of transformed()) drawSchObject(b, o, ed.lib, ed.palette, col);
-        for (const w of draggedWires()) b.polyline(w.pts, WIRE_W, pack(ed.palette.wire));
+        for (const w of draggedWires()) if (w.pts.length >= 4) b.polyline(w.pts, WIRE_W, pack(ed.palette.wire));
       },
       commit({ label = ids.length === 1 ? 'Move' : `Move ${ids.length} objects`, mergeKey } = {}) {
         ed._endMove();
@@ -326,7 +329,8 @@ export class SchEditor extends CanvasView {
         const wires = draggedWires();
         store.transact(label, (s) => {
           for (const o of objs) s.update(o.id, o);
-          for (const w of wires) s.update(w.id, w);
+          // A wire shrunk to nothing (its pin now sits on its other end) goes.
+          for (const w of wires) if (w.pts.length >= 4) s.update(w.id, w); else s.remove(w.id);
         }, { mergeKey });
       },
       cancel() { ops = []; dx = dy = 0; ed._endMove(); },

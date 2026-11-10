@@ -26,7 +26,7 @@ export function handlesOf(o) {
  * dead stub, and A -> C covers the rest with the same two ends. A wire
  * folded entirely onto itself collapses to a point, which callers reject.
  */
-function dropFoldBacks(pts) {
+export function dropFoldBacks(pts) {
   const out = [...pts];
   for (let i = 2; i + 3 < out.length; ) {
     const ax = out[i - 2], ay = out[i - 1], bx = out[i], by = out[i + 1], cx = out[i + 2], cy = out[i + 3];
