@@ -8,6 +8,7 @@ import { showMenu, closeMenus } from './ui/menu.js';
 import { toast, unsavedDialog, confirmDialog, promptDialog, openDialog } from './ui/dialog.js';
 import { installTooltips } from './ui/tooltip.js';
 import { buildShell, renderDocTabs, PHONE_GROUPS, REPO_URL } from './ui/shell.js';
+import { mountUserMenu } from './ui/user-menu.js';
 import { Ribbon } from './ui/ribbon.js';
 import { CommandLine } from './ui/commandline.js';
 import { StatusBar } from './ui/statusbar.js';
@@ -922,8 +923,10 @@ export class App {
   // Account -------------------------------------------------------------------------
 
   async initAccount() {
+    this.mountUserMenu();
     this.renderAccount();
     if (!(await platform.whenPuter())) return;
+    this.mountUserMenu();
     this.signedIn = await platform.isSignedIn();
     if (this.signedIn) await this.onSignedIn();
     this.renderAccount();
@@ -943,9 +946,26 @@ export class App {
     }
   }
 
+  /**
+   * Once the SDK has loaded: where it has <puter-user-menu>, the element takes
+   * the account's place in the title bar (see ui/user-menu.js).
+   */
+  mountUserMenu() {
+    if (this.userMenu) return;
+    this.userMenu = mountUserMenu(this.shell.userMenu, {
+      signOut: () => this.signOut(),
+      signedIn: () => this.afterSignIn(),
+      signedOut: () => this.signedOut(),
+    });
+    if (this.userMenu) this.shell.userMenu = this.userMenu;
+  }
+
   renderAccount() {
     const el = this.shell.account;
     clear(el);
+    // puter.js's user menu holds the account where it renders.
+    el.hidden = !!this.userMenu;
+    if (this.userMenu) return;
     if (!this.signedIn) {
       el.append(
         h(
@@ -984,11 +1004,7 @@ export class App {
   async signIn() {
     try {
       await platform.signIn();
-      this.signedIn = await platform.isSignedIn();
-      if (this.signedIn) {
-        await this.onSignedIn();
-        toast('Signed in. You can now save drawings to your Puter drive.', { kind: 'success' });
-      }
+      await this.afterSignIn();
     } catch (err) {
       // Closing the sign-in window is a choice, not an error.
       const code = err?.error ?? err?.code ?? '';
@@ -1001,10 +1017,24 @@ export class App {
     return this.signedIn;
   }
 
+  /** After signing in here, or after puter.js's user menu signed in. */
+  async afterSignIn() {
+    this.signedIn = await platform.isSignedIn();
+    if (!this.signedIn) return;
+    await this.onSignedIn();
+    toast('Signed in. You can now save drawings to your Puter drive.', { kind: 'success' });
+  }
+
   async signOut() {
     if (!platform.canSignOut()) return;
     clearTimeout(this._kvTimer);
     platform.signOut();
+    this.signedOut();
+  }
+
+  /** After signing out here, or after puter.js's user menu signed out by itself. */
+  signedOut() {
+    clearTimeout(this._kvTimer);
     platform.clearProfilePicture();
     this.signedIn = false;
     this.user = null;
@@ -1721,6 +1751,9 @@ export class App {
   onKey(e) {
     if (e.key === 'Shift') this.editor.shiftDown = true;
     const t = e.target;
+    // puter.js's user menu takes its own keys (they arrive from the element, not
+    // from inside its shadow root): no shortcuts and no typing into the command line.
+    if (t instanceof Element && t.closest('puter-user-menu')) return;
     const inCmd = t === this.cmdline.input;
     const typing = !inCmd && t instanceof HTMLElement && (t.matches('input, textarea, select, [contenteditable]') || t.closest('dialog, .menu, .text-editor'));
     if (document.querySelector('dialog[open]')) return;
