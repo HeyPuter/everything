@@ -15,6 +15,7 @@ import { closeMenu } from './menu.js';
 import { isDark } from './theme.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
+import { hasUserMenu } from './user-menu.js';
 import { t } from '../i18n/index.js';
 
 export const APPS_EMBED_URL = 'https://puter.com/embed/apps';
@@ -32,9 +33,9 @@ let listening = false;
 
 const accountKey = () => (session.signedOut ? '' : session.user?.uuid || session.username || '');
 
-/** The toolbar button, or null inside a Puter app window. */
+/** The toolbar button, or null inside a Puter app window and where <puter-user-menu> has its own. */
 export function appsButton() {
-  if (P.isApp()) return null;
+  if (P.isApp() || hasUserMenu()) return null;
   return el('button.icon-btn.apps-btn', {
     type: 'button', html: GRID_SVG, title: t('apps.title'), 'aria-label': t('apps.title'),
     'aria-haspopup': 'dialog', 'aria-expanded': 'false',

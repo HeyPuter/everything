@@ -5,7 +5,6 @@ import { createMenubar } from '../ui/menubar.js';
 import { command, small, commandIconEl } from '../ui/ribbon.js';
 import { searchEntries } from '../ui/command-index.js';
 import { localStore } from '../lib/storage.js';
-import { appsButton } from '../ui/apps-panel.js';
 
 const QUICK_STORE = 'documents:quick-access';
 const RECENT_STORE = 'documents:recent-commands';
@@ -24,7 +23,8 @@ function writeList(key, list) { try { localStore()?.setItem(key, JSON.stringify(
 /**
  * The title bar: AutoSave, the quick access toolbar (customizable), the classic menu bar, the document's
  * name with its details, and on the right the command search box, the Editing / Reviewing / Viewing
- * switch, Comments, Share, the Apps button and the account button.
+ * switch, Comments, Share, the Apps button and the account button (`account`: both, or Settings and
+ * puter.js's <puter-user-menu>, see accountControls).
  */
 export function createTitleBar({ w, c, a, local, title, status, account, menus, focusEditor, entries, openShortcuts, keymapShortcut = () => null }) {
   /* ---- Quick access ---- */
@@ -214,7 +214,7 @@ export function createTitleBar({ w, c, a, local, title, status, account, menus, 
 
   const left = el('div.ed-title-left', {}, autosave, quick, customize, menubar.el, allMenus);
   const middle = el('div.canvas-title-wrap', {}, title, details, status);
-  const right = el('div.canvas-title-actions', {}, search, modeButton, comments, share, local ? null : appsButton(), local ? c.exportButton : account);
+  const right = el('div.canvas-title-actions', {}, search, modeButton, comments, share, local ? c.exportButton : account);
   const node = el('div.ed-titlebar', {}, left, middle, right);
   renderQuick();
 

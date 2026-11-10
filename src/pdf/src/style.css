@@ -303,6 +303,51 @@ textarea {
   color: var(--muted);
   margin-right: 8px;
 }
+/* <puter-user-menu> (puter.js; src/user-menu.js): where the loaded puter.js has it, it holds the
+   Apps launcher and the account, after Settings, and names the account in its own menu. Its
+   parts take the title bar's icon button and primary button looks; its menu and Apps panel
+   take the app's card, in both themes. */
+.user-menu-slot {
+  display: none;
+}
+.header-right:has(puter-user-menu) .account-label {
+  display: none;
+}
+puter-user-menu {
+  flex: none;
+}
+puter-user-menu::part(apps-button) {
+  border-radius: 8px;
+  color: var(--ink);
+}
+puter-user-menu::part(sign-in) {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.editor-topbar puter-user-menu::part(sign-in) {
+  font-size: 12px;
+}
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover {
+    background: var(--surface-2);
+  }
+  puter-user-menu::part(sign-in):hover {
+    filter: brightness(0.94);
+  }
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  background: var(--surface);
+  border-color: var(--strong);
+  --caret-border: var(--strong);
+  --caret-fill: var(--surface);
+}
 .home {
   min-height: 100dvh;
   display: flex;

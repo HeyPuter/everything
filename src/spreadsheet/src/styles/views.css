@@ -90,6 +90,32 @@
 .user-btn { width: 36px; height: 36px; border-radius: var(--r-full); }
 .user-btn .user-avatar { width: 32px; height: 32px; }
 
+/* ---------- <puter-user-menu> (puter.js; src/ui/user-menu.js) ----------
+   Where the loaded puter.js has it, it holds the Apps launcher and the account, after the Settings button. Its
+   parts take the header's icon button and primary button looks; its menu and Apps panel take the app's card,
+   in both themes. */
+puter-user-menu { flex: none; }
+puter-user-menu::part(apps-button) { border-radius: var(--r-sm); color: var(--ink-2); }
+.topbar puter-user-menu::part(apps-button) { width: 32px; height: 32px; }
+puter-user-menu::part(sign-in) {
+  height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-sm);
+  background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.topbar puter-user-menu::part(sign-in) { height: 28px; padding: 0 10px; }
+@media (hover: hover) {
+  puter-user-menu::part(apps-button):hover { background: var(--surface-2); color: var(--ink); }
+  puter-user-menu::part(sign-in):hover { background: var(--accent-strong); }
+}
+puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
+  background: var(--surface); border-color: var(--hairline-strong);
+  --caret-border: var(--hairline-strong); --caret-fill: var(--surface);
+}
+/* A phone's title bar has no room to spare: the spreadsheet's name keeps it. The settings are in File ▸ Options
+   there, and the launcher stays on the home screen. */
+@media (max-width: 640px) {
+  .topbar .settings-btn, .topbar puter-user-menu::part(apps-button) { display: none; }
+}
+
 /* ---------- Apps launcher (src/ui/apps-panel.js) ----------
    A card under the 3×3 button showing puter.com/embed/apps, with a caret on the button. It lives on <body>,
    fixed under the button; --apps-panel-top comes from the button's position, so the height fits the space

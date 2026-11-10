@@ -49,7 +49,7 @@ import { openMenu } from '../ui/menu.js';
 import { announce, toast } from '../ui/toast.js';
 import { confirmDialog, promptDialog } from '../ui/modal.js';
 import { saveAsTemplate, templateExists, TEMPLATE_FOLDER } from '../lib/customtemplates.js';
-import { openAppMenu, renderAccountButton } from '../ui/appmenu.js';
+import { accountControls } from '../ui/appmenu.js';
 import { openShortcuts } from '../ui/shortcuts.js';
 import { loadEngine } from '../lib/engine.js';
 import { session } from '../lib/session.js';
@@ -313,8 +313,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (!failed && session.signedOut) session.signIn();
     else if (doc.exporter) save();
   } }, 'Opening…');
-  const account = el('button.user-btn', { type: 'button', 'aria-label': 'Account', 'aria-haspopup': 'menu', onclick: () => openAppMenu(account) });
-  if (!local) renderAccountButton(account);
+  // The Apps button and the account button, or Settings and puter.js's <puter-user-menu>. A local file's window has neither.
+  const account = local ? null : accountControls({ label: 'Account', buttonClass: 'user-btn' });
   const stats = el('span.ed-status-item.ed-page-count', {}, '');
   const words = el('span', {}, '');
   const message = el('div.canvas-message', { role: 'status' }, 'Opening document…');
@@ -1207,7 +1207,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.extendTab = (id, kit) => [...(collabExtendTab?.(id, kit) || []), ...collab.extendTab(id, kit)];
   const collabExtendMenu = editorCommands.extendMenu;
   editorCommands.extendMenu = (id, kit) => [...(collabExtendMenu?.(id, kit) || []), ...collab.extendMenu(id, kit), ...assistant.extendMenu(id, kit)];
-  const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
+  const chrome = createCanvasChrome({ title, status, account: account?.nodes, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, fontSizeMenu, bold, italic, underline,
       underlineOptions, caps, smallCaps, strike, doubleStrike, superscript, subscript, baselineShift, characterSpacing,
@@ -1819,7 +1819,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     showDocumentTitle();
   };
   doc.addEventListener('path', onPath);
-  const onSession = () => { renderAccountButton(account); updateStatus(); if (session.signedIn && doc.dirty && doc.exporter) doc.save({ auto: true, fresh: true }).catch(error); };
+  const onSession = () => { account?.refresh(); updateStatus(); if (session.signedIn && doc.dirty && doc.exporter) doc.save({ auto: true, fresh: true }).catch(error); };
   if (!local) session.addEventListener('change', onSession);
   updateStatus();
 
