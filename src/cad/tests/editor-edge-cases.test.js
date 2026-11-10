@@ -118,3 +118,29 @@ describe('ALIGN', () => {
     expect(c.cy).toBeCloseTo(15);
   });
 });
+
+describe('array sizes', () => {
+  const TOO_MANY = ['error', 'That array would create too many objects (limit 200,000).'];
+  const lines = (n) => {
+    for (let i = 0; i < n; i++) add({ type: 'line', x1: i, y1: 0, x2: i, y2: 10 });
+    t.ed.setSelection(t.all().map((e) => e.id));
+  };
+
+  it('refuses a COPY Array that would create too many objects and asks again', async () => {
+    lines(30);
+    await t.type('COPY', '0,0', 'A', '10000');
+    expect(t.logs.at(-1)).toEqual(TOO_MANY);
+    expect(t.ed.busy).toBe(true);
+    await t.type('A', '3', '0,20', '');
+    expect(t.ed.busy).toBe(false);
+    expect(t.all()).toHaveLength(90);
+  });
+
+  it('refuses a polar array that would create too many objects', async () => {
+    lines(30);
+    await t.type('ARRAYPOLAR', '0,-50', '10000');
+    expect(t.logs.at(-1)).toEqual(TOO_MANY);
+    expect(t.ed.busy).toBe(false);
+    expect(t.all()).toHaveLength(30);
+  });
+});

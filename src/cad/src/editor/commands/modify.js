@@ -42,6 +42,10 @@ const transformAll = (ed, ids, m, copy, label) =>
     return out;
   });
 
+/** The most objects one array (rectangular, polar or COPY Array) may hold. */
+const MAX_ARRAY_OBJECTS = 200000;
+const TOO_MANY = 'That array would create too many objects (limit 200,000).';
+
 function showSelection(ed, ids) {
   ed.renderer.setSelection(new Set(ids));
 }
@@ -125,6 +129,10 @@ export const COPY = {
         const n0 = await ed.getNumber('Number of items to array', { default: 3, min: 2, max: 10000 });
         if (!Number.isFinite(n0)) continue;
         const n = Math.max(2, Math.round(n0));
+        if (n * ids.length > MAX_ARRAY_OBJECTS) {
+          ed.ui.log(TOO_MANY, 'error');
+          continue;
+        }
         const last = await ed.getPoint('Second point', {
           base,
           onMove: (p) => ed.renderer.setDragMatrix(M.translate(p.x - base.x, p.y - base.y)),
@@ -534,8 +542,8 @@ export const ARRAYRECT = {
     if (!Number.isFinite(r0)) return;
     const cols = Math.max(1, Math.round(c0)),
       rows = Math.max(1, Math.round(r0));
-    if (cols * rows * ids.length > 200000) {
-      ed.ui.log('That array would create too many objects (limit 200,000).', 'error');
+    if (cols * rows * ids.length > MAX_ARRAY_OBJECTS) {
+      ed.ui.log(TOO_MANY, 'error');
       return;
     }
     const dx = await ed.getDistance('Distance between columns', { default: ed.arrDx ?? w });
@@ -569,6 +577,10 @@ export const ARRAYPOLAR = {
     const n0 = await ed.getNumber('Number of items', { default: ed.polarItems ?? 6, min: 2, max: 10000 });
     if (!Number.isFinite(n0)) return;
     const n = Math.max(2, Math.round(n0));
+    if (n * ids.length > MAX_ARRAY_OBJECTS) {
+      ed.ui.log(TOO_MANY, 'error');
+      return;
+    }
     let fill;
     for (;;) {
       fill = await ed.getAngle('Angle to fill (+ counter-clockwise, - clockwise)', { default: TAU });
