@@ -238,11 +238,11 @@ export function writePrefix(w, shapes) {
   }
 }
 
-/** Pours in fill order: lower priority number first, then document order. */
+/** Pours in fill order: lower priority number first, then document order. Shelved pours have no copper. */
 export function pourOrder(doc) {
   return (doc.objects || [])
     .map((o, i) => [o, i])
-    .filter(([o]) => o.t === 'pour' && isCopper(o.layer) && o.pts?.length >= 6)
+    .filter(([o]) => o.t === 'pour' && !o.shelved && isCopper(o.layer) && o.pts?.length >= 6)
     .sort((a, b) => (a[0].priority ?? 0) - (b[0].priority ?? 0) || a[1] - b[1])
     .map(([o]) => o);
 }

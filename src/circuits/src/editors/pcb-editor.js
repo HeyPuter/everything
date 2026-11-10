@@ -219,6 +219,12 @@ export class PcbEditor extends CanvasView {
     for (const [, before] of e.removed) mark(before);
     for (const [, { before, after }] of e.updated) { mark(before); mark(after); }
     for (const id of e.removed.keys()) this.selection.delete(id);
+    // A shelved pour has no copper: its fill goes at once, whether or not a repour follows.
+    for (const [id, { after }] of e.updated) {
+      if (after.t !== 'pour' || !after.shelved || !this.pourFills.has(id)) continue;
+      this.pourFills = new Map(this.pourFills);
+      this.pourFills.delete(id);
+    }
     // Undo and redo take back what an active tool placed (a route in progress).
     if (e.source === 'undo' || e.source === 'redo') this.tool?.historyChanged?.(e);
     if (boardChanged) {

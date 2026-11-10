@@ -315,3 +315,18 @@ describe('changing layer while routing', () => {
     expect(tracks(ed).every((t) => t.layer === 'top')).toBe(true);
   });
 });
+
+describe('shelving a pour', () => {
+  it('takes its copper off the board at once, without waiting for a repour', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    ed.pourFills = new Map([[pour.id, [[pour.pts]]]]);
+    const copper = () => ed.analysis().items.filter((it) => it.pour).length;
+    expect(copper()).toBe(1);
+    ed.doc.store.transact('Shelve', (s) => s.update(pour.id, { shelved: true }));
+    // Exports and the 3D view read the same fills.
+    expect(ed.pourFills.has(pour.id)).toBe(false);
+    expect(copper()).toBe(0);
+  });
+});
