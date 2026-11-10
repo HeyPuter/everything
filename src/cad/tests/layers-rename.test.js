@@ -30,4 +30,24 @@ describe('layer manager', () => {
     expect([...d.layers.keys()]).toContain('Walls');
     expect(document.activeElement).toBe(nameBtn('Walls'));
   });
+
+  it('shows a new layer and its name field even while a search hides it', () => {
+    const { d, lm } = manager();
+    lm.search.value = 'door';
+    lm.search.dispatchEvent(new Event('input'));
+    expect(lm.tbody.children.length).toBe(1);
+    lm.newLayer();
+    expect(d.layers.has('Layer1')).toBe(true);
+    expect(lm.search.value).toBe('');
+    expect(document.activeElement.getAttribute('aria-label')).toBe('New name for layer Layer1');
+  });
+
+  it('keeps a search that matches the new layer', () => {
+    const { lm } = manager();
+    lm.search.value = 'lay';
+    lm.search.dispatchEvent(new Event('input'));
+    lm.newLayer();
+    expect(lm.search.value).toBe('lay');
+    expect(document.activeElement.getAttribute('aria-label')).toBe('New name for layer Layer1');
+  });
 });

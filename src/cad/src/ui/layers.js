@@ -240,6 +240,11 @@ export class LayerManager {
     const l = src ? { ...src, name, on: true, frozen: false, locked: false, description: '' } : defaultLayer(name);
     d.transaction('New layer', () => d.setTable('layers', name, l));
     this.selected = name;
+    // A search that does not match the new layer would hide it and its name field.
+    if (this.query && !name.toLowerCase().includes(this.query)) {
+      this.query = '';
+      this.search.value = '';
+    }
     this.render();
     const cell = [...this.tbody.querySelectorAll('.lm-name')].find((b) => b.textContent === name)?.parentElement;
     if (cell) this.rename(name, cell);
