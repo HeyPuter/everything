@@ -651,7 +651,8 @@ export class LibEditor extends CanvasView {
       rows.forEach((p, i) => {
         const inp = (key, w, label) => {
           const el = h('input', { type: 'text', value: key === 'length' ? formatLength(p.length, 'mil', { suffix: false }) : p[key] ?? '', 'aria-label': `${label} of pin ${i + 1}`, style: { width: w } });
-          el.addEventListener('change', () => { if (key === 'length') { const v = parseLength(el.value, 'mil'); if (v > 0) p.length = v; } else p[key] = el.value.trim(); });
+          // On input, not change: Enter applies the table without the field losing focus.
+          el.addEventListener('input', () => { if (key === 'length') { const v = parseLength(el.value, 'mil'); if (v > 0) p.length = v; } else p[key] = el.value.trim(); });
           return el;
         };
         const type = h('select', { 'aria-label': `Type of pin ${i + 1}` }, PIN_TYPES.map((t) => h('option', { value: t, selected: t === p.type }, PIN_TYPE_LABELS[t])));
