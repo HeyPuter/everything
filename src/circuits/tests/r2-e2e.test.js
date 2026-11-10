@@ -392,3 +392,55 @@ describe('text field borders', () => {
     },
   );
 });
+
+describe('pour copper in exported files', () => {
+  // A kernel that takes a moment, like the real worker, and counts its runs.
+  async function bootSlowPours() {
+    const app = await boot();
+    app.settings.set('autoRepour', true);
+    let runs = 0;
+    app.kernel.pours = (doc) =>
+      new Promise((resolve) => {
+        const n = ++runs;
+        const fills = new Map(
+          doc.objects.filter((o) => o.t === 'pour').map((o) => [o.id, [[o.pts]]]),
+        );
+        fills.run = n;
+        fills.tracks = doc.objects.filter((o) => o.t === 'track').length;
+        setTimeout(() => resolve(fills), 20);
+      });
+    await app.openExample();
+    return { app, runs: () => runs };
+  }
+
+  it('waits for the pour to be filled when exporting right after the board opens', async () => {
+    const { app } = await bootSlowPours();
+    ctx = { app };
+    const board = app.project.boards[0];
+    app.openDoc(board.id);
+    const ed = app.activeEditor;
+    // Nothing is filled yet: exporting this would leave the ground plane out.
+    expect(ed.pourFills.size).toBe(0);
+    const fills = await app._fills(board, ed);
+    expect(fills.size).toBe(1);
+  });
+
+  it('does not export a pour computed before the last edit', async () => {
+    const { app, runs } = await bootSlowPours();
+    ctx = { app };
+    const board = app.project.boards[0];
+    app.openDoc(board.id);
+    const ed = app.activeEditor;
+    expect((await app._fills(board, ed)).tracks).toBe(0);
+    const track = { t: 'track', layer: 'bottom', x1: 5e6, y1: 5e6, x2: 2e7, y2: 5e6, w: 250_000 };
+    ed.doc.store.transact('Route', (s) => s.add({ ...track, net: 'VCC' }));
+    // The repour for the new track is still to come; the export must not use
+    // the fill from before it, which has no clearance around the track.
+    const fills = await app._fills(board, ed);
+    expect(fills.tracks).toBe(1);
+    // Up to date fills are used as they are.
+    const before = runs();
+    expect(await app._fills(board, ed)).toBe(ed.pourFills);
+    expect(runs()).toBe(before);
+  });
+});

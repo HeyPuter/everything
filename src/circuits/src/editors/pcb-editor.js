@@ -275,10 +275,21 @@ export class PcbEditor extends CanvasView {
   _schedulePours(delay = 250) {
     // Without automatic repour the rule check still follows edits (a repour ends with one).
     if (!this.app.settings.get('autoRepour') && delay > 0) { this._scheduleDrc(); return; }
+    this._poursDue = true;
     clearTimeout(this._pourTimer);
     // The repour ends with a rule check; one still waiting would check stale fills.
     clearTimeout(this._drcTimer);
     this._pourTimer = setTimeout(() => this.repour(), delay);
+  }
+
+  /**
+   * Pour fills for the board as it is now, for exports. The fills lag behind
+   * an edit, and are empty just after the board opens, until the repour that
+   * is due has run: this runs it. Null when they could not be brought up to date.
+   */
+  async currentFills() {
+    if (this._poursDue) await this.repour();
+    return this._poursDue ? null : this.pourFills;
   }
 
   /** Recomputes every pour's fill in the kernel worker. */
@@ -289,6 +300,7 @@ export class PcbEditor extends CanvasView {
     this._pourRev = rev;
     if (!pours.length) {
       if (this.pourFills.size) { this.pourFills = new Map(); this._dirtyLayers.add('*'); this.requestRender(); }
+      this._poursDue = false;
       this._scheduleDrc();
       return;
     }
@@ -296,6 +308,7 @@ export class PcbEditor extends CanvasView {
       const fills = await this.app.kernel.pours(this.doc.snapshot(), this.lib);
       if (this.disposed || this._pourRev !== rev) return;
       this.pourFills = fills;
+      if (rev === this.doc.store.revision) this._poursDue = false;
       for (const p of pours) this._dirtyLayers.add(p.layer);
       this._rebuildRats();
       this.requestRender(true);

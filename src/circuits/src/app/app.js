@@ -1423,8 +1423,8 @@ export class App extends Emitter {
   }
 
   async _fills(doc, ed) {
-    if (ed && ed.pourFills) return ed.pourFills;
-    return this.kernel.pours(doc.snapshot(), this.project.library);
+    // The open editor's fills, once they match the board as it is now.
+    return (await ed?.currentFills()) || this.kernel.pours(doc.snapshot(), this.project.library);
   }
 
   async exportFabrication() {
@@ -1500,7 +1500,7 @@ export class App extends Emitter {
     if (ed.kind === 'pcb') {
       const { boardToSvgView } = await import('../io/board-svg.js');
       const layers = [...copperLayers(ed.copperCount), 'topOverlay', 'bottomOverlay', 'mech1', 'multi', 'keepout'].filter((l) => ed.isLayerVisible(l));
-      return boardToSvgView(ed.doc, this.project.library, { layers, pourFills: ed.pourFills, colors: this.settings.get('layerColors'), theme: theme === 'print' ? 'light' : theme, active: ed.activeLayer });
+      return boardToSvgView(ed.doc, this.project.library, { layers, pourFills: (await ed.currentFills()) || ed.pourFills, colors: this.settings.get('layerColors'), theme: theme === 'print' ? 'light' : theme, active: ed.activeLayer });
     }
     return null;
   }
