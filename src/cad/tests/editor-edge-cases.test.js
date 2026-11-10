@@ -200,3 +200,61 @@ describe('selection window', () => {
     expect(t.ed.window).toBeNull();
   });
 });
+
+describe('double click on a grip', () => {
+  const text = {
+    type: 'text',
+    x: 0,
+    y: 0,
+    h: 5,
+    rot: 0,
+    value: 'Hello',
+    style: 'Standard',
+    halign: 'left',
+    valign: 'baseline',
+    widthFactor: 1,
+    oblique: 0,
+  };
+
+  it('opens a text double clicked at its insertion point instead of dragging its grip', async () => {
+    add(text);
+    const opened = [];
+    t.ed.ui.editEntity = (id) => opened.push(id);
+    const steps = t.drawing.undoStack.length;
+    // The first click selects the text; the second lands on the grip that appeared.
+    await click(0.5, 0.5);
+    expect([...t.ed.selection]).toEqual([1]);
+    await click(0.5, 0.5);
+    mouse('dblclick', 0.5, 0.5);
+    await flush();
+    expect(opened).toEqual([1]);
+    expect(t.ed.busy).toBe(false);
+    expect(t.drawing.undoStack.length).toBe(steps);
+  });
+
+  it('opens a selected object without recording a grip edit', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    const opened = [];
+    t.ed.ui.editEntity = (id) => opened.push(id);
+    t.ed.setSelection([1]);
+    const steps = t.drawing.undoStack.length;
+    await click(10, 0);
+    expect(t.ed.active?.def.name).toBe('GRIPEDIT');
+    await click(10, 0);
+    mouse('dblclick', 10, 0);
+    await flush();
+    expect(opened).toEqual([1]);
+    expect(t.ed.busy).toBe(false);
+    expect(t.drawing.undoStack.length).toBe(steps);
+  });
+
+  it('still places a grip with a second click somewhere else', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    t.ed.settings.polar = false;
+    t.ed.setSelection([1]);
+    await click(10, 0);
+    await click(20, 5);
+    expect(t.ed.busy).toBe(false);
+    expect(t.drawing.get(1)).toMatchObject({ x2: 20, y2: 5 });
+  });
+});

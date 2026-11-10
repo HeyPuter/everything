@@ -26,6 +26,8 @@ export class CancelError extends Error {
 }
 
 const DRAG_PX = 5;
+// Two presses this close in time (and within DRAG_PX) are a double click.
+const DOUBLE_CLICK_MS = 500;
 const TOUCH_HIT_PX = 14;
 const ACQUIRE_MS = 450;
 
@@ -736,6 +738,8 @@ export class Editor {
           p.dragResolve = true;
           return;
         }
+        // The second press of a double click on a grip does not place it (see _dblclick).
+        if (this._gripDoubleClick(this.cursor.sx, this.cursor.sy)) return;
         const pt = { x: this.cursor.fx, y: this.cursor.fy };
         this.lastPoint = pt;
         this._resolve(pt);
@@ -972,8 +976,11 @@ export class Editor {
   }
 
   _dblclick(e) {
-    if (this.request || this.active) return;
     const { sx, sy } = this._pos(e);
+    // A double click on a grip opens the object like one anywhere else on
+    // it: the grip edit its first or second press began is dropped.
+    if (this._gripDoubleClick(sx, sy)) this.cancelAll();
+    else if (this.request || this.active) return;
     const w = this.camera.toWorld(sx, sy);
     const hit = this._pick(w.x, w.y);
     if (hit) this.ui.editEntity?.(hit.id);
@@ -1254,7 +1261,15 @@ export class Editor {
     // Releasing after a mouse drag places the grip; a click (or a tap) waits for a second one.
     const drag = !!p && p.type !== 'touch';
     if (drag) p.gripDrag = true;
+    this._gripPress = p ? { sx: p.sx0, sy: p.sy0, t: performance.now() } : null;
     this.run({ name: 'GRIPEDIT', label: 'Grip edit', noRepeat: true, run: (ed) => gripEdit(ed, g, drag) });
+  }
+
+  /** True at (sx, sy) right after the press there that began a grip edit still waiting for its point. */
+  _gripDoubleClick(sx, sy) {
+    const g = this._gripPress;
+    if (!g || this.active?.def.name !== 'GRIPEDIT' || !this.request) return false;
+    return performance.now() - g.t < DOUBLE_CLICK_MS && Math.hypot(sx - g.sx, sy - g.sy) <= DRAG_PX;
   }
 
   // View ----------------------------------------------------------------------
