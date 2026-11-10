@@ -135,6 +135,9 @@ export function serialize(body, { keepSrc = false } = {}) {
     span.removeAttribute('tabindex');
   }
   for (const el of clone.querySelectorAll('.nt-cell-selected')) el.classList.remove('nt-cell-selected');
+  // The span that waits for text in a font or size chosen with nothing
+  // selected (format.js typeWithStyle) is not content until it is typed in.
+  for (const span of clone.querySelectorAll('span[style]')) if (span.textContent === '\u200b' && !span.firstElementChild) span.remove();
   for (const el of clone.querySelectorAll('[class=""]')) el.removeAttribute('class');
   // A lone placeholder paragraph is an empty outline.
   let html = clone.innerHTML;

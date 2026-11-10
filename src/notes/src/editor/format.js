@@ -125,6 +125,10 @@ function applySpanStyle(prop, value) {
   if (!range) return;
   const root = editableRoot(range.commonAncestorContainer);
   if (!root) return;
+  if (range.collapsed) {
+    typeWithStyle(root, range, prop, value);
+    return;
+  }
   // The browser splits and wraps the selection for us via a sentinel font.
   withCss(false, () => exec('fontName', '__nt_sentinel__'));
   const spans = [];
@@ -152,6 +156,59 @@ function applySpanStyle(prop, value) {
     }
   }
   root.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+/**
+ * A font or size chosen with nothing selected applies to what is typed
+ * next. The browser keeps no such state for a style it doesn't know, so the
+ * caret goes into an empty span carrying the style, held open by a
+ * zero-width space that leaves with the first character typed. A span
+ * nothing was typed in goes when the caret leaves it.
+ */
+function typeWithStyle(root, range, prop, value) {
+  if (!value || !root.classList.contains('outline-body')) return;
+  // A caret between the body's blocks (a new container) belongs in the block next to it.
+  if (range.startContainer === root) {
+    const block = blocksInRange(range, root)[0];
+    if (!block) return;
+    const only = block.childNodes.length === 1 && block.firstChild.nodeName === 'BR';
+    range.selectNodeContents(block);
+    range.collapse(only);
+  }
+  const span = document.createElement('span');
+  span.style.setProperty(prop, value);
+  const hold = document.createTextNode('\u200b');
+  span.append(hold);
+  range.insertNode(span);
+  const caret = document.createRange();
+  caret.setStart(hold, 1);
+  caret.collapse(true);
+  selectRange(caret);
+  const done = () => {
+    root.removeEventListener('input', tidy);
+    document.removeEventListener('selectionchange', tidy);
+  };
+  const tidy = () => {
+    if (!span.isConnected) return done();
+    if (span.textContent === '\u200b') {
+      const at = currentRange()?.startContainer;
+      if (at && span.contains(at)) return;
+      done();
+      span.remove();
+      root.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    done();
+    const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const i = n.nodeValue.indexOf('\u200b');
+      if (i < 0) continue;
+      n.deleteData(i, 1);
+      break;
+    }
+  };
+  root.addEventListener('input', tidy);
+  document.addEventListener('selectionchange', tidy);
 }
 
 function unwrap(el) {

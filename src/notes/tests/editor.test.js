@@ -451,6 +451,39 @@ describe('paragraph formatting', () => {
     expect(el.textContent).toBe('cab');
   });
 
+  it('applies a font size chosen with nothing selected to the text typed next', async () => {
+    const { setFontSize } = await import('../src/editor/format.js');
+    const el = body('<p>abc </p>');
+    caretIn(el.firstChild.firstChild, 4);
+    setFontSize(20);
+    const span = el.querySelector('span');
+    expect(span.style.fontSize).toBe('20pt');
+    // The caret waits inside the span, which is not saved while it is empty.
+    const at = document.getSelection().getRangeAt(0);
+    expect(span.contains(at.startContainer)).toBe(true);
+    expect(serialize(el)).toBe('<p>abc </p>');
+    // Typing fills it, and the placeholder goes with the first character.
+    at.startContainer.appendData('big');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(serialize(el)).toBe('<p>abc <span style="font-size: 20pt;">big</span></p>');
+    expect(span.textContent).toBe('big');
+    // Chosen and then left without typing: nothing stays behind.
+    const again = body('<p>abc </p>');
+    caretIn(again.firstChild.firstChild, 4);
+    setFontSize(20);
+    caretIn(again.firstChild.firstChild, 0);
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(again.innerHTML).toBe('<p>abc </p>');
+    // A new container's caret sits between its blocks: the span goes in the paragraph.
+    const fresh = body('<p><br></p>');
+    const r = document.createRange();
+    r.selectNodeContents(fresh);
+    r.collapse(false);
+    selectRange(r);
+    setFontSize(20);
+    expect(fresh.querySelector('p > span')).not.toBeNull();
+  });
+
   it('does not swap table cells when asked to move a paragraph', () => {
     const el = body('<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>');
     caretIn(el.querySelectorAll('td')[1].firstChild, 0);
