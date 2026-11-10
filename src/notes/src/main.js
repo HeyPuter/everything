@@ -71,6 +71,11 @@ function errorScreen(title, message, retry) {
   );
 }
 
+function reloadForAccount() {
+  location.hash = '';
+  location.reload();
+}
+
 async function startApp(backend, user, env) {
   loading();
   const store = new Store(backend);
@@ -87,9 +92,10 @@ async function startApp(backend, user, env) {
     env,
     onSignOut: env === 'app' ? null : async () => {
       await puter.auth.signOut();
-      location.hash = '';
-      location.reload();
+      reloadForAccount();
     },
+    // <puter-user-menu> signed in or out by itself: the notebooks are the new account's.
+    onSessionChange: reloadForAccount,
   });
   window.notesApp = app;
   await app.start();

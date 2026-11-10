@@ -86,6 +86,60 @@
   display: none !important;
 }
 
+/* ---------- <puter-user-menu> (puter.js; src/ui/user-menu.js) ----------
+   Where the loaded puter.js has it, it ends the title bar with the Apps
+   launcher and the account. Its parts take the title bar's icon button and
+   the primary button looks; its menu and Apps panel take the app's menu
+   card, in both themes (the tokens follow the theme). */
+puter-user-menu {
+  flex: none;
+  margin-left: 2px;
+}
+puter-user-menu::part(apps-button) {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-m);
+  color: var(--text-2);
+}
+puter-user-menu::part(apps-button):hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+puter-user-menu::part(apps-button):active {
+  background: var(--bg-active);
+  color: var(--text);
+}
+puter-user-menu::part(avatar) {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+  line-height: 28px;
+}
+puter-user-menu::part(sign-in) {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-m);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+puter-user-menu::part(sign-in):hover,
+puter-user-menu::part(sign-in):active {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+puter-user-menu::part(menu),
+puter-user-menu::part(apps-panel) {
+  border-color: var(--card-line);
+  background: var(--bg-menu);
+  --caret-border: var(--card-line);
+  --caret-fill: var(--bg-menu);
+}
+
 /* ---------- Apps launcher (src/ui/apps-panel.js) ----------
    A card under the 3×3 button showing puter.com/embed/apps, with a caret on
    the button. Fixed on <body>; --apps-panel-top comes from the button, so the
@@ -1236,6 +1290,22 @@
   .titlebar .icon-btn {
     width: 40px;
     height: 40px;
+  }
+  puter-user-menu {
+    margin: 0 4px 0 2px;
+  }
+  puter-user-menu::part(apps-button) {
+    width: 40px;
+    height: 40px;
+  }
+  puter-user-menu::part(avatar) {
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+    line-height: 32px;
+  }
+  puter-user-menu::part(sign-in) {
+    height: 32px;
   }
   .titlebar-title {
     max-width: none;
