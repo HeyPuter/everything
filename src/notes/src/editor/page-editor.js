@@ -1135,6 +1135,12 @@ export class PageEditor extends Emitter {
     if (!this.page || this.readOnly) return;
     this.commitSoon.cancel();
     this.inputCaret = null;
+    // A container moved with the arrow keys is recorded with a delay of its
+    // own: whatever commits first takes the move along.
+    if (this.commitNudge?.pending()) {
+      this.commitNudge.cancel();
+      structural = true;
+    }
     let any = structural;
     for (const outline of this.dirty) {
       const model = this.outlineModel(outline);
@@ -1183,7 +1189,7 @@ export class PageEditor extends Emitter {
   }
 
   flush() {
-    if (this.commitSoon.pending() || this.dirty.size) this.commit();
+    if (this.commitSoon.pending() || this.dirty.size || this.commitNudge?.pending()) this.commit();
   }
 
   caret() {
