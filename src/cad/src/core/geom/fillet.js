@@ -182,7 +182,45 @@ function trimTo(e, T, p) {
   return Math.abs(sw - uT) <= tol ? null : update(e, { start: normAngle(aT) });
 }
 
+const X_KEYS = ['x1', 'x2', 'cx'],
+  Y_KEYS = ['y1', 'y2', 'cy'];
+
+/** Copy of a line or arc moved by (dx, dy). */
+function moved(e, dx, dy) {
+  const out = { ...e };
+  for (const k of X_KEYS) if (k in e) out[k] = e[k] + dx;
+  for (const k of Y_KEYS) if (k in e) out[k] = e[k] + dy;
+  return out;
+}
+
+/**
+ * Result `res` for the moved copy `loc` of `orig`, moved back by (dx, dy);
+ * coordinates the operation left alone keep their original values exactly.
+ */
+function movedBack(orig, loc, res, dx, dy) {
+  if (!res) return res;
+  const out = { ...res };
+  for (const k of X_KEYS) if (k in res) out[k] = res[k] === loc[k] ? orig[k] : res[k] + dx;
+  for (const k of Y_KEYS) if (k in res) out[k] = res[k] === loc[k] ? orig[k] : res[k] + dy;
+  return out;
+}
+
 function filletGeneral(e1, p1, e2, p2, r) {
+  // Work near the origin: the intersection tolerances grow with the
+  // coordinates, and far away they take crossing circles for tangent ones.
+  const ox = e1.type === 'line' ? e1.x1 : e1.cx,
+    oy = e1.type === 'line' ? e1.y1 : e1.cy;
+  if (ox || oy) {
+    const l1 = moved(e1, -ox, -oy),
+      l2 = moved(e2, -ox, -oy);
+    const res = filletGeneral(l1, { x: p1.x - ox, y: p1.y - oy }, l2, { x: p2.x - ox, y: p2.y - oy }, r);
+    if (!res) return null;
+    return {
+      e1: movedBack(e1, l1, res.e1, ox, oy),
+      e2: movedBack(e2, l2, res.e2, ox, oy),
+      arc: res.arc ? moved(res.arc, ox, oy) : res.arc,
+    };
+  }
   if (!(r > 0)) {
     const hits = intersectPrims(curvePrim(e1), curvePrim(e2), { extA: true, extB: true });
     let best = null,

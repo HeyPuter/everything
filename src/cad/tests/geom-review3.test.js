@@ -222,3 +222,53 @@ describe('fillet with a radius larger than the arc', () => {
     expect(Math.min(Math.abs(d - (2.712 + arc.r)), Math.abs(d - (2.712 - arc.r)))).toBeLessThan(1e-9);
   });
 });
+
+describe('fillet between arcs far from the origin', () => {
+  it('is tangent to both arcs at 1e7 as it is at the origin', () => {
+    const cases = [
+      [
+        { id: 1, type: 'arc', cx: -0.9744994714856148, cy: 5.044312972575426, r: 3.2799135139212012, start: 3.141592653589793, end: 0.32848821761849883 },
+        { id: 2, type: 'arc', cx: 2.618550803512335, cy: 7.053303934633732, r: 2.694235497387126, start: 3.7493623148700013, end: 0.7603756401489169 },
+        { x: -2.999839536845684, y: 2.4644233863800764 },
+        { x: 4.570732343941927, y: 8.91015399619937 },
+        2.355914626829326,
+      ],
+      [
+        { id: 1, type: 'arc', cx: 1.0530510060489178, cy: 1.5029311403632164, r: 2.308310674270615, start: 0.33096613020493276, end: 4.71238898038469 },
+        { id: 2, type: 'arc', cx: 2.6262276768684387, cy: 1.4009270034730434, r: 4.477566105313599, start: 0, end: 3.141592653589793 },
+        { x: 2.179095845669508, y: 3.517955008894205 },
+        { x: 4.3397180419415236, y: 5.537658683955669 },
+        0.3,
+      ],
+    ];
+    const O = 1e7;
+    for (const [a, b, p, q, r] of cases) {
+      const A = { ...a, cx: a.cx + O, cy: a.cy + O },
+        B = { ...b, cx: b.cx + O, cy: b.cy + O };
+      const f = G.fillet(A, { x: p.x + O, y: p.y + O }, B, { x: q.x + O, y: q.y + O }, r);
+      const near = G.fillet(a, p, b, q, r);
+      expect(!!f).toBe(!!near);
+      if (!f) continue;
+      for (const e of [A, B]) {
+        const d = Math.hypot(f.arc.cx - e.cx, f.arc.cy - e.cy);
+        expect(Math.min(Math.abs(d - (e.r + r)), Math.abs(d - Math.abs(e.r - r)))).toBeLessThan(1e-7);
+      }
+      // the arcs keep their circles exactly
+      expect([f.e1.cx, f.e1.cy, f.e1.r]).toEqual([A.cx, A.cy, A.r]);
+      expect([f.e2.cx, f.e2.cy, f.e2.r]).toEqual([B.cx, B.cy, B.r]);
+      expect(f.e1.id).toBe(1);
+      expect(f.arc.cx - O).toBeCloseTo(near.arc.cx, 5);
+      expect(f.arc.cy - O).toBeCloseTo(near.arc.cy, 5);
+    }
+  });
+
+  it('leaves the untouched end of a filleted line exactly where it was', () => {
+    const O = 1e7;
+    const line = { id: 1, type: 'line', x1: O + 0.1, y1: O + 0.2, x2: O + 10.3, y2: O + 0.2 };
+    const arc = { id: 2, type: 'arc', cx: O + 10.3, cy: O + 5.2, r: 5, start: 4.2, end: 1 };
+    const f = G.fillet(line, { x: O + 1, y: O + 0.2 }, arc, { x: O + 15.3, y: O + 5.2 }, 1);
+    expect(f.e1.x1).toBe(line.x1);
+    expect(f.e1.y1).toBe(line.y1);
+    expect(f.e1.x2).not.toBe(line.x2);
+  });
+});
