@@ -977,7 +977,9 @@ export class PcbEditor extends CanvasView {
   }
 
   unrouteNet(net) {
-    const ids = [...this.doc.items()].filter((o) => (o.t === 'track' || o.t === 'arc' || o.t === 'via') && (net === null || o.net === net)).map((o) => o.id);
+    // Lines and arcs on silkscreen and mechanical layers are drawings, not routing.
+    const routed = (o) => o.t === 'via' || ((o.t === 'track' || o.t === 'arc') && isCopper(o.layer));
+    const ids = [...this.doc.items()].filter((o) => routed(o) && (net === null || o.net === net)).map((o) => o.id);
     if (!ids.length) return 0;
     this.doc.store.transact(net ? `Unroute ${net}` : 'Unroute all', (s) => { for (const id of ids) s.remove(id); });
     return ids.length;

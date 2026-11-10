@@ -209,3 +209,38 @@ describe('finishing a trace', () => {
     expect(ed.tool.trace).toBeNull();
   });
 });
+
+describe('unroute all', () => {
+  it('removes copper tracks and vias but keeps silkscreen and mechanical lines', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const drawLine = (layer, y) => {
+      ed.setActiveLayer(layer);
+      ed.startTool('line');
+      ed.tool.click(ev(mm(2), y));
+      ed.tool.click(ev(mm(8), y));
+      ed.endTool();
+    };
+    drawLine('topOverlay', mm(3));
+    drawLine('mech1', mm(4));
+    drawLine('top', mm(5));
+    ed.doc.store.transact('Add', (s) => {
+      s.add({ id: 'v', t: 'via', x: mm(8), y: mm(5), d: mm(0.6), drill: mm(0.3), net: 'VCC' });
+      s.add({
+        id: 'a',
+        t: 'arc',
+        layer: 'topOverlay',
+        cx: mm(5),
+        cy: mm(8),
+        r: mm(1),
+        a0: 0,
+        sweep: 180,
+        w: mm(0.15),
+      });
+    });
+    expect(tracks(ed)).toHaveLength(3);
+    expect(ed.unrouteNet(null)).toBe(2);
+    const left = [...ed.doc.items()].filter((o) => ['track', 'arc', 'via'].includes(o.t));
+    expect(left.map((o) => o.layer).sort()).toEqual(['mech1', 'topOverlay', 'topOverlay']);
+  });
+});
