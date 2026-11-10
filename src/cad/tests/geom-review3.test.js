@@ -41,3 +41,45 @@ describe('closest point on an ellipse next to its major axis', () => {
     }
   });
 });
+
+describe('small offsets far from the origin', () => {
+  it('offsets a closed polyline at 1e6 by 0.01 on either side', () => {
+    const O = 1e6;
+    const pts = [5.36, -1.4, 0, 2.84, -2.97, 0, -3.92, -8.91, 0, -4.55, -8.75, -0.16, -7.37, 2.05, 0, 5.13, 2.19, 0];
+    const far = { type: 'polyline', pts: pts.map((v, i) => (i % 3 === 2 ? v : v + O)), closed: true, width: 0 };
+    for (const [sx, sy, sign] of [
+      [O - 8.2, O + 3.8, 1],
+      [O, O, -1],
+    ]) {
+      const r = G.offsetEntity(far, 0.01, sx, sy);
+      expect(r).toBeTruthy();
+      expect(Array.isArray(r)).toBe(false);
+      expect(r.closed).toBe(true);
+      const grown = G.areaOf(r) - G.areaOf(far);
+      expect(grown * sign).toBeGreaterThan(0);
+      expect(Math.abs(grown)).toBeCloseTo(0.01 * G.lengthOf(far), 2);
+      for (let i = 0; i < r.pts.length; i += 3) {
+        expect(G.closestPoint(far, r.pts[i], r.pts[i + 1]).d).toBeGreaterThan(0.0099);
+      }
+    }
+  });
+
+  it('offsets a full ellipse and a closed spline at 1e7 by 0.001', () => {
+    const O = 1e7;
+    const ell = { type: 'ellipse', cx: O + 2, cy: O - 3, mx: 6, my: 2, ratio: 0.5, start: 0, end: G.TWO_PI };
+    const fit = [6, 0, 0, 5, -7, 1, -4, -6, 3, -5].map((v) => v + O);
+    const spl = { type: 'spline', ...G.splineFromFitPoints(fit, true), fit, closed: true };
+    for (const e of [ell, spl]) {
+      for (const [sx, sy] of [
+        [O, O],
+        [O + 40, O + 40],
+      ]) {
+        const r = G.offsetEntity(e, 0.001, sx, sy);
+        expect(r).toBeTruthy();
+        expect(Array.isArray(r)).toBe(false);
+        expect(r.closed).toBe(true);
+        expect(G.lengthOf(r)).toBeCloseTo(G.lengthOf(e), 1);
+      }
+    }
+  });
+});

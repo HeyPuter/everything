@@ -731,6 +731,17 @@ function clipClosedOffset(pts, srcPrims, d, onSide, wedges, slack = 0) {
   return loops;
 }
 
+/** Move the polyline(s) of an offset computed near the origin back by (ox, oy). */
+function moveBack(res, ox, oy) {
+  for (const r of res ? [res].flat() : []) {
+    for (let i = 0; i + 1 < r.pts.length; i += 3) {
+      r.pts[i] += ox;
+      r.pts[i + 1] += oy;
+    }
+  }
+  return res;
+}
+
 /**
  * Offset an entity by dist toward the side of (sideX, sideY). Supports line,
  * xline, ray, circle, arc, polyline (open / closed, with bulges), ellipse and
@@ -769,6 +780,18 @@ export function offsetEntity(ent, dist, sideX, sideY, opts) {
         : derive(ent, 'arc', { cx: ent.cx, cy: ent.cy, r, start: ent.start, end: ent.end });
     }
     case 'polyline': {
+      // Work near the origin: the tolerances below scale with the coordinates,
+      // so far away they would swallow a small offset distance.
+      const ox = ent.pts[0],
+        oy = ent.pts[1];
+      if (ox || oy) {
+        const pts = ent.pts.slice();
+        for (let i = 0; i + 1 < pts.length; i += 3) {
+          pts[i] -= ox;
+          pts[i + 1] -= oy;
+        }
+        return moveBack(offsetEntity({ ...ent, pts }, dist, sideX - ox, sideY - oy, opts), ox, oy);
+      }
       const closed = !!ent.closed;
       let side;
       let onSide = null;
@@ -812,6 +835,14 @@ export function offsetEntity(ent, dist, sideX, sideY, opts) {
 /** Offset of an ellipse or spline approximated as a polyline. */
 function offsetCurve(ent, d, sideX, sideY, relTol) {
   if (ent.type === 'spline' && !(ent.ctrl && ent.ctrl.length >= 4)) return null;
+  // Work near the origin, as for polylines.
+  const ell = ent.type === 'ellipse';
+  const ox = ell ? ent.cx : ent.ctrl[0],
+    oy = ell ? ent.cy : ent.ctrl[1];
+  if (ox || oy) {
+    const local = ell ? { ...ent, cx: 0, cy: 0 } : { ...ent, ctrl: ent.ctrl.map((v, i) => v - (i & 1 ? oy : ox)) };
+    return moveBack(offsetCurve(local, d, sideX - ox, sideY - oy, relTol), ox, oy);
+  }
   const prim = ent.type === 'ellipse' ? ellipsePrim(ent, relTol) : splinePrim(ent, relTol);
   const side = pickSide([prim], sideX, sideY);
   if (!side) return null;
