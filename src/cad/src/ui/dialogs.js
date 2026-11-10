@@ -297,7 +297,7 @@ export async function exportDialog(app) {
   const area = areaFor(app, areaSel.value);
   const busy = toast('Exporting...', { timeout: 0 });
   try {
-    const items = recordDrawing(app, { area, tol: Math.max(area[2] - area[0], area[3] - area[1]) / 4000 });
+    const items = recordDrawing(app, { area, tol: exportTolerance(kind, area, Number(width.value)) });
     const monochrome = mono.querySelector('input').checked;
     const lineweights = lw.querySelector('input').checked;
     const background = bg.value === 'white' ? '#ffffff' : bg.value === 'dark' ? '#1f242c' : null;
@@ -323,6 +323,18 @@ export async function exportDialog(app) {
     busy.remove();
     app.fileError('export', err);
   }
+}
+
+/**
+ * Chord tolerance for curves in an exported image of the area. Vector files
+ * are looked at closely and printed: 1/20000 of the area is 0.02 mm on the A3
+ * page of the PDF, as in a plot. For a PNG half a pixel is enough.
+ */
+export function exportTolerance(kind, area, pngWidth) {
+  const extent = Math.max(area[2] - area[0], area[3] - area[1]);
+  if (kind !== 'png') return extent / 20000;
+  const w = Math.max(100, Math.min(16000, pngWidth || 2400));
+  return extent / Math.max(4000, 2 * w);
 }
 
 function aw4(area) {
