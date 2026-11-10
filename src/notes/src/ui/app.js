@@ -680,7 +680,10 @@ export class App {
     clearTimeout(this.lockTimer);
     if (!this.store.keys.size) return;
     this.lockTimer = setTimeout(() => {
-      if (this.store.keys.size) this.lockAll();
+      // A recording in progress is use: locking would close the page it
+      // goes on. Ask again in ten minutes.
+      if (this.recorder) this.touchProtected();
+      else if (this.store.keys.size) this.lockAll();
     }, 10 * 60 * 1000);
   }
 

@@ -220,4 +220,18 @@ describe('recording', () => {
     expect(document.querySelector('.recording-bar')).toBeNull();
     expect(app.editor.page.outlines.map((o) => o.html).join('')).toContain('data-kind="audio"');
   });
+
+  it('offers to save a recording that has no page to go on', async () => {
+    app.record('audio');
+    allow();
+    await tick();
+    // The page closes under the recording (its section locked, or it was deleted).
+    app.editor.page = null;
+    document.querySelector('.recording-bar .btn').click();
+    await tick(10);
+    const toastEl = document.querySelector('.toast.error');
+    expect(toastEl.textContent).toContain("Couldn't add the recording");
+    expect(toastEl.querySelector('.toast-action').textContent).toBe('Save to device');
+    expect(tracks[0].stopped).toBe(true);
+  });
 });

@@ -342,11 +342,15 @@ export async function record(app, kind) {
     const name = `${kind === 'video' ? 'Video' : 'Audio'} recording ${new Date().toLocaleString().replace(/[/:]/g, '-')}.${ext}`;
     if (range) app.editor.lastRange = range;
     app.editor.restoreRange();
+    const file = new File([blob], name, { type });
     try {
-      await app.editor.insertAttachment(new File([blob], name, { type }), kind);
+      await app.editor.insertAttachment(file, kind);
       toast('Recording added to the page');
     } catch (err) {
-      app.reportError(err);
+      // No page to put it on (its section locked, the page was deleted) or
+      // the upload failed: the recording is still worth keeping.
+      console.error(err);
+      toast("Couldn't add the recording to a page.", { kind: 'error', duration: 120000, action: { label: 'Save to device', run: () => download(name, file) } });
     }
   };
   rec.start(1000);
