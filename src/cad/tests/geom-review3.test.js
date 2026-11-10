@@ -467,3 +467,45 @@ describe('fillet and chamfer of small corners far from the origin', () => {
     expect(G.lengthOf(f.arc)).toBeCloseTo(Math.PI * 0.0025, 7);
   });
 });
+
+describe('offset of open polylines with features narrower than the distance', () => {
+  const poly = (pts) => ({ type: 'polyline', pts, closed: false, width: 0 });
+  const flat = (e) => e.pts.map((v) => Math.round(v * 1e9) / 1e9 + 0);
+
+  it('absorbs a notch or a step back instead of crossing itself', async () => {
+    const { offsetEntity, selfIntersections } = await import('../src/core/geom/index.js');
+    // a 1 x 0.5 bump on a straight run, offset by 2 to the other side
+    const notch = poly([0, 0, 0, 10, 0, 0, 10, 0.5, 0, 11, 0.5, 0, 11, 0, 0, 20, 0, 0]);
+    const r = offsetEntity(notch, 2, 5, -50);
+    expect(Array.isArray(r)).toBe(false);
+    expect(flat(r)).toEqual([0, -2, 0, 20, -2, 0]);
+    // towards the bump it keeps its shape
+    const up = offsetEntity(notch, 0.2, 5, 50);
+    expect(up.pts.length).toBe(18);
+    expect(selfIntersections(up)).toHaveLength(0);
+    const zig = poly([0, 0, 0, 3, 0, 0, 3, 1, 0, 6, 1, 0, 6, 0, 0, 10, 0, 0]);
+    expect(flat(offsetEntity(zig, 2, 5, -50))).toEqual([0, -2, 0, 10, -2, 0]);
+  });
+
+  it('keeps every part at the full distance and leaves offsets that do not cross alone', async () => {
+    const { offsetEntity, offsetPolylinePts, distanceTo, polyPointAt, selfIntersections } = await import('../src/core/geom/index.js');
+    // a deep narrow slot with an arc at its bottom: the far side cannot enter it
+    const slot = poly([0, 0, 0, 10, 0, 0, 10, -8, 1, 11, -8, 0, 11, 0, 0, 20, 0, 0]);
+    const d = 1.5;
+    const r = [offsetEntity(slot, d, 5, -50)].flat();
+    for (const e of r) {
+      expect(selfIntersections(e)).toHaveLength(0);
+      for (let u = 0.1; u < e.pts.length / 3 - 1; u += 0.23) {
+        const q = polyPointAt(e.pts, false, u);
+        expect(distanceTo(slot, q.x, q.y)).toBeGreaterThan(d * (1 - 1e-6));
+      }
+    }
+    const plain = poly([0, 0, 0, 10, 0, 0.3, 20, 5, 0, 30, 5, 0]);
+    expect(offsetEntity(plain, 1, 5, -50).pts).toEqual(offsetPolylinePts(plain.pts, false, -1).pts);
+    // a path that crosses itself keeps its crossing
+    const eight = poly([0, 0, 0, 10, 10, 0, 10, 0, 0, 0, 10, 0]);
+    const o = offsetEntity(eight, 0.5, 5, -50);
+    expect(Array.isArray(o)).toBe(false);
+    expect(o.pts).toEqual(offsetPolylinePts(eight.pts, false, o.pts[1] < 0 ? -0.5 : 0.5).pts);
+  });
+});

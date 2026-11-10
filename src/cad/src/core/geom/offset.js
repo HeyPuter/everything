@@ -731,6 +731,105 @@ function clipClosedOffset(pts, srcPrims, d, onSide, wedges, slack = 0) {
   return loops;
 }
 
+/**
+ * Remove the invalid parts of an open offset that crosses itself (neighbours
+ * are already trimmed against each other, but a hairpin or notch narrower
+ * than the distance folds parts that are further apart over one another):
+ * split it at its self-intersections, drop the pieces that come closer than
+ * d to the source primitives and join the rest where they meet. Returns the
+ * stride-3 point lists, or null when there is nothing to remove (no
+ * crossing, every piece valid, or none: the offset is then left as it is).
+ */
+function clipOpenOffset(pts, srcPrims, d) {
+  const m = segmentCount(pts, false);
+  if (m < 3) return null;
+  const prims = toPrims({ type: 'polyline', pts, closed: false });
+  let scale = 0,
+    size = 0;
+  for (const p of prims) {
+    scale = Math.max(scale, primScale(p));
+    size = Math.max(size, primSize(p));
+  }
+  const tol = tolFor(scale, d);
+  const joinTol = Math.max(tol * 10, 1e-9 * size);
+  const cuts = [];
+  overlappingPairs(prims, (a, b) => {
+    for (const h of intersectPrims(a, b)) {
+      const ua = hitParam(a, h.ta),
+        ub = hitParam(b, h.tb);
+      // Consecutive segments share a vertex: the same parameter on both.
+      if (Math.abs(ua - ub) <= 1e-6) continue;
+      const v = Math.max(a.seg, b.seg) * 3;
+      if (Math.abs(a.seg - b.seg) === 1 && Math.hypot(h.x - pts[v], h.y - pts[v + 1]) <= joinTol) continue;
+      cuts.push(ua, ub);
+    }
+  });
+  if (!cuts.length) return null;
+  const us = Float64Array.from(cuts).sort();
+  const cut = [0];
+  for (const u of us) if (u - cut[cut.length - 1] > 1e-9 * m && m - u > 1e-9 * m) cut.push(u);
+  cut.push(m);
+  const tooNear = nearTester(srcPrims, d - Math.max(d * 1e-6, tol));
+  const kept = [];
+  let dropped = false;
+  for (let k = 0; k + 1 < cut.length; k++) {
+    const u0 = cut[k],
+      u1 = cut[k + 1];
+    let ok = true;
+    for (const f of [0.5, 0.25, 0.75]) {
+      const q = polyPointAt(pts, false, u0 + (u1 - u0) * f);
+      if (tooNear(q.x, q.y)) ok = false;
+    }
+    const p = ok ? subPolyline(pts, false, u0, u1) : null;
+    if (p && p.length >= 6) kept.push(p);
+    else dropped = true;
+  }
+  if (!dropped || !kept.length) return null;
+  // Pieces lying on one another (collinear offsets of both sides of a notch)
+  // are kept once when they run the same way and cancel when they run opposite.
+  const near = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by) <= joinTol;
+  const used = new Array(kept.length).fill(false);
+  const mids = kept.map((p) => polyPointAt(p, false, segmentCount(p, false) / 2));
+  const ends = kept.map((p) => [p[0], p[1], p[p.length - 3], p[p.length - 2]]);
+  for (let i = 0; i < kept.length; i++) {
+    const [ax, ay, bx, by] = ends[i];
+    for (let j = i + 1; j < kept.length && !used[i]; j++) {
+      if (used[j] || !near(mids[i].x, mids[i].y, mids[j].x, mids[j].y)) continue;
+      const [cx, cy, dx, dy] = ends[j];
+      if (near(ax, ay, cx, cy) && near(bx, by, dx, dy)) used[j] = true;
+      else if (near(ax, ay, dx, dy) && near(bx, by, cx, cy)) used[i] = used[j] = true;
+    }
+  }
+  // Pieces that meet end to start (at a crossing) go on as one polyline.
+  const out = [];
+  for (let i = 0; i < kept.length; i++) {
+    if (used[i]) continue;
+    const p = kept[i];
+    const last = out[out.length - 1];
+    if (last && near(last[last.length - 3], last[last.length - 2], p[0], p[1])) {
+      last.length -= 3;
+      for (const v of p) last.push(v);
+    } else out.push(p.slice());
+  }
+  if (!out.length) return null;
+  // The cuts left vertices in the middle of straight runs: take them out.
+  return out.map((q) => {
+    const r = [q[0], q[1], q[2]];
+    for (let i = 3; i + 3 < q.length; i += 3) {
+      const k = r.length - 3;
+      const ex = q[i + 3] - r[k],
+        ey = q[i + 4] - r[k + 1];
+      const el = Math.hypot(ex, ey);
+      const straight = !r[k + 2] && !q[i + 2];
+      const between = (q[i] - r[k]) * ex + (q[i + 1] - r[k + 1]) * ey > 0 && (q[i + 3] - q[i]) * ex + (q[i + 4] - q[i + 1]) * ey > 0;
+      if (straight && between && el > 0 && Math.abs((q[i] - r[k]) * ey - (q[i + 1] - r[k + 1]) * ex) / el <= tol) continue;
+      r.push(q[i], q[i + 1], q[i + 2]);
+    }
+    r.push(q[q.length - 3], q[q.length - 2], q[q.length - 1]);
+    return r;
+  });
+}
+
 /** Move the polyline(s) of an offset computed near the origin back by (ox, oy). */
 function moveBack(res, ox, oy) {
   for (const r of res ? [res].flat() : []) {
@@ -811,7 +910,11 @@ export function offsetEntity(ent, dist, sideX, sideY, opts) {
       if (!side) return null;
       if (!closed) {
         const r = offsetPolylinePts(ent.pts, false, d * side);
-        return r ? polylineFrom(ent, r.pts, false) : null;
+        if (!r) return null;
+        const parts = clipOpenOffset(r.pts, toPrims(ent), d);
+        if (!parts) return polylineFrom(ent, r.pts, false);
+        const out = parts.map((pts) => polylineFrom(ent, pts, false));
+        return out.length === 1 ? out[0] : out;
       }
       let scale = 0;
       for (let i = 0; i + 1 < ent.pts.length; i += 3) {
