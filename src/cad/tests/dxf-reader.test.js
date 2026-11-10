@@ -744,6 +744,29 @@ describe('parseDxf: encodings and robustness', () => {
     expect(drawing.entities[0]).toMatchObject({ type: 'point', x: 1.5, y: 2.5 });
   });
 
+  it('shows dimensions of kinds the app does not have through their drawn block', () => {
+    const blk = (n) => [0, 'BLOCK', 2, n, 70, 1, 10, 0, 20, 0, 0, 'LINE', 8, '0', 62, 0, 10, 0, 20, 0, 11, 5, 21, 5, 0, 'ENDBLK'];
+    const { drawing, warnings, stats } = parseDxf(
+      dxf(
+        [
+          // arc length and jogged radius dimensions, and a linear one for comparison
+          0, 'ARC_DIMENSION', 8, 'Dims', 62, 3, 2, '*D1', 10, 5, 20, 5, 11, 5, 21, 6, 70, 37, 13, 0, 23, 0, 14, 5, 24, 5, 15, 0, 25, 5,
+          0, 'LARGE_RADIAL_DIMENSION', 8, 'Dims', 2, '*d2', 10, 5, 20, 5, 11, 5, 21, 6, 70, 36, 13, 0, 23, 0, 14, 5, 24, 5, 15, 0, 25, 5,
+          0, 'ARC_DIMENSION', 8, 'Dims', 2, '*D9', 10, 5, 20, 5, 70, 37,
+          0, 'DIMENSION', 2, '*D3', 10, 5, 20, 5, 11, 5, 21, 6, 70, 32, 13, 0, 23, 0, 14, 10, 24, 0,
+        ],
+        { blocks: [...blk('*D1'), ...blk('*D2'), ...blk('*D3')] },
+      ),
+    );
+    expect(drawing.entities.map((e) => e.type)).toEqual(['insert', 'insert', 'dimension']);
+    expect(drawing.entities[0]).toMatchObject({ name: '*D1', layer: 'Dims', color: 3, x: 0, y: 0, sx: 1, sy: 1, rot: 0 });
+    expect(drawing.entities[1].name).toBe('*D2');
+    // their blocks stay, the one of the dimension the app draws itself goes
+    expect(drawing.blocks.map((b) => b.name)).toEqual(['*D1', '*D2']);
+    expect(stats.skipped).toEqual({ ARC_DIMENSION: 1 });
+    expect(warnings).toEqual(['Dimensions of kinds that are not supported were imported as blocks. (2 times)']);
+  });
+
   it('keeps a width that is given only on the vertices of a polyline', () => {
     const { drawing, warnings } = parseDxf(
       dxf([

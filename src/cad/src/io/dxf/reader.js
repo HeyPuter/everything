@@ -1127,6 +1127,9 @@ class DxfParser {
           return this.mtext(R, cont);
         case 'DIMENSION':
           return this.dimension(R, cont);
+        case 'ARC_DIMENSION':
+        case 'LARGE_RADIAL_DIMENSION':
+          return this.dimensionBlock(R, cont);
         case 'LEADER':
           return this.leader(R, cont);
         case 'HATCH':
@@ -1925,9 +1928,31 @@ class DxfParser {
         if (P[0] !== 0 || P[1] !== 0) this.warn('Ordinate dimensions with a non-zero origin are measured from 0,0.');
         break;
       default:
-        this.skip('DIMENSION');
+        this.dimensionBlock(R, cont);
         return;
     }
+    this.add(cont, e);
+  }
+
+  /**
+   * A dimension of a kind the drawing model lacks (arc length, jogged radius):
+   * a reference to the anonymous block that holds its drawn geometry, which is
+   * in world coordinates.
+   */
+  dimensionBlock(R, cont) {
+    const name = decodeUnicode(gStr(R, 2).trim());
+    if (!name || !this.blockMap.has(name.toLowerCase())) {
+      this.skip(R.type);
+      return;
+    }
+    this.warn('Dimensions of kinds that are not supported were imported as blocks.');
+    const e = this.base('insert');
+    e.name = name;
+    e.x = 0;
+    e.y = 0;
+    e.sx = 1;
+    e.sy = 1;
+    e.rot = 0;
     this.add(cont, e);
   }
 
