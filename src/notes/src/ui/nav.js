@@ -400,8 +400,9 @@ export class Nav {
             const level = Number(row.getAttribute('aria-level'));
             for (let k = i - 1; k >= 0; k--) {
               if (Number(rows[k].getAttribute('aria-level')) < level) {
-                rows[k].tabIndex = 0;
-                rows[k].focus();
+                // Like the other arrows: the parent becomes the list's one
+                // tab stop and is opened.
+                go(k);
                 break;
               }
             }
