@@ -3,6 +3,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { setPuterForTests } from '../src/app/puter.js';
 import { UserLibrary } from '../src/app/user-library.js';
+import { PropertiesPanel } from '../src/ui/panels/properties.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -97,5 +98,51 @@ describe('My library with slow storage', () => {
         .map((d) => d.id)
         .sort(),
     ).toEqual(['new', 'old-1', 'old-2']);
+  });
+});
+
+describe('properties panel fields while composing text', () => {
+  const mount = (spec) => {
+    const panel = new PropertiesPanel({
+      settings: { get: () => 'mm' },
+      activeEditor: null,
+      toast: () => {},
+    });
+    const changes = [];
+    const [, input] = panel._field({ ...spec, onChange: (v) => changes.push(v) });
+    const el = input.querySelector?.('input') || input;
+    document.body.append(panel.el, input);
+    return { el, changes };
+  };
+  const key = (el, k, init) => {
+    const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init });
+    el.dispatchEvent(ev);
+    return ev;
+  };
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('leaves the Enter that confirms a composition to the input method', () => {
+    const { el, changes } = mount({ label: 'Rotation', type: 'angle', value: 90 });
+    el.focus();
+    el.value = '45';
+    expect(key(el, 'Enter', { isComposing: true }).defaultPrevented).toBe(false);
+    expect(key(el, 'Enter', { keyCode: 229 }).defaultPrevented).toBe(false);
+    expect(changes).toEqual([]);
+    key(el, 'Enter');
+    expect(changes).toEqual([45]);
+  });
+
+  it('leaves the Escape that cancels a composition to the input method', () => {
+    const { el, changes } = mount({ label: 'Comment', type: 'text', value: 'abc' });
+    el.focus();
+    el.value = 'abcd';
+    el.dispatchEvent(new Event('input'));
+    expect(key(el, 'Escape', { isComposing: true }).defaultPrevented).toBe(false);
+    expect(el.value).toBe('abcd');
+    expect(document.activeElement).toBe(el);
+    expect(changes).toEqual(['abcd']);
   });
 });

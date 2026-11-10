@@ -2,7 +2,7 @@
 // selected. Field specs are built per object type; edits made while typing
 // merge into one undo step per field.
 
-import { h, nextId, clear } from '../dom.js';
+import { h, nextId, clear, isComposing } from '../dom.js';
 import { icon } from '../icons.js';
 import { formDialog } from '../dialog.js';
 import { formatLength, parseLength } from '../../core/units.js';
@@ -140,6 +140,8 @@ export class PropertiesPanel {
         input.addEventListener('input', () => apply(true));
         input.addEventListener('change', () => apply(false));
         input.addEventListener('keydown', (e) => {
+          // Enter and Escape that confirm or cancel a composition belong to the input method.
+          if (isComposing(e)) return;
           if (e.key === 'Enter') { e.preventDefault(); apply(false); input.select(); }
           if (e.key === 'Escape') {
             e.preventDefault();
