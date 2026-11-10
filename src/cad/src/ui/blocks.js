@@ -44,6 +44,10 @@ export class BlockLibrary {
     const names = this.names().filter((n) => !this.query || n.toLowerCase().includes(this.query));
     // The dock scrolls the palette; emptying the list would send it back to the top.
     const restoreScroll = keepScroll(this.el.parentElement);
+    // Rebuilding the list takes the focused button with it (after Delete or
+    // Rename from an item's menu, or any change to the drawing's tables).
+    const active = this.grid.contains(document.activeElement) ? document.activeElement : null;
+    const index = active ? [...this.grid.children].indexOf(active.closest('li')) : -1;
     clear(this.grid);
     this.empty.hidden = this.names().length > 0;
     const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
@@ -69,7 +73,7 @@ export class BlockLibrary {
         'li.bl-item',
         h(
           'button.bl-btn',
-          { type: 'button', 'aria-label': `Insert ${name}`, onClick: () => this.app.run('INSERT', { name }) },
+          { type: 'button', 'aria-label': `Insert ${name}`, 'data-key': `insert:${name}`, onClick: () => this.app.run('INSERT', { name }) },
           canvas,
           h('span.bl-name', name),
         ),
@@ -79,6 +83,7 @@ export class BlockLibrary {
             type: 'button',
             'aria-label': `More actions for ${name}`,
             'aria-haspopup': 'menu',
+            'data-key': `more:${name}`,
             onClick: (e) =>
               showMenu(e.currentTarget, [
                 { label: 'Insert', icon: 'block-insert', action: () => this.app.run('INSERT', { name }) },
@@ -97,6 +102,12 @@ export class BlockLibrary {
       } else requestAnimationFrame(draw);
     }
     restoreScroll();
+    if (active) {
+      const same = [...this.grid.querySelectorAll('[data-key]')].find((el) => el.dataset.key === active.dataset.key);
+      // Its block is gone: the block now in its place, or the search box.
+      const li = this.grid.children[Math.min(index, this.grid.children.length - 1)];
+      (same ?? li?.querySelector('.bl-btn') ?? this.search).focus({ preventScroll: true });
+    }
   }
 
   usage(name) {
