@@ -220,11 +220,18 @@ export async function saveAsDialog(app, doc) {
 
 // Display lists for output -------------------------------------------------------------
 
-/** Record the visible drawing (optionally only an area) as display-list items. */
-export function recordDrawing(app, { tol, area } = {}) {
+/**
+ * Record the visible drawing (optionally only an area) as display-list items.
+ * pointSize is the size of point markers without a set size (PDSIZE 0), which
+ * on screen is a fixed number of pixels: by default 1/280 of the area, about
+ * 1.5 mm on an A3 page.
+ */
+export function recordDrawing(app, { tol, area, pointSize } = {}) {
   const doc = app.doc;
   const sink = new RecordingSink();
-  const ctx = makeContext(doc.drawing, { fg: [0, 0, 0], tol: tol ?? 0.01, plot: true, view: area ?? doc.index.extents() ?? [0, 0, 1, 1], pointSize: 1 });
+  const view = area ?? doc.index.extents() ?? [0, 0, 1, 1];
+  pointSize ??= Math.max(view[2] - view[0], view[3] - view[1]) / 280 || 1;
+  const ctx = makeContext(doc.drawing, { fg: [0, 0, 0], tol: tol ?? 0.01, plot: true, view, pointSize });
   const ids = area ? doc.index.search(area[0], area[1], area[2], area[3], true) : [...doc.drawing.entities.keys()];
   const order = new Map([...doc.drawing.entities.keys()].map((id, i) => [id, i]));
   ids.sort((a, b) => order.get(a) - order.get(b));
@@ -541,7 +548,8 @@ export async function plotDialog(app, state) {
   const busy = toast('Preparing plot...', { timeout: 0 });
   try {
     const plot = computePlot(s, area);
-    const fine = recordDrawing(app, { area, tol: 0.02 / plot.scale });
+    // 1.5 mm point markers on the page
+    const fine = recordDrawing(app, { area, tol: 0.02 / plot.scale, pointSize: 1.5 / plot.scale });
     if (r === 'pdf') {
       const bytes = await exportPdf(fine, s);
       busy.remove();
