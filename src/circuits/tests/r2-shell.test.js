@@ -343,3 +343,30 @@ describe('messages dock', () => {
     app.kernel.dispose();
   });
 });
+
+describe('changes made while a save is still writing', () => {
+  it('stay unsaved when they are a rename or a new sheet', async () => {
+    const { app, opfs } = await bootLocal();
+    app.settings.set('autosaveMinutes', 0);
+    const { project, location } = await stored(app, 'Delta');
+    for (const change of [(p) => p.rename('Delta 2'), (p) => p.addSheet('Extra.sch')]) {
+      const hold = deferred();
+      opfs.holdWrites = hold.promise;
+      project.docs[0].store.revision++; // something to save
+      const saving = app.save();
+      await tick(5);
+      change(project); // not in the text being written
+      hold.resolve();
+      opfs.holdWrites = null;
+      await saving;
+      expect(project.dirty).toBe(true);
+      expect(app.saveBadge.textContent).toBe('Edited');
+      await app.save();
+      expect(project.dirty).toBe(false);
+    }
+    const text = await storage.loadText(location);
+    expect(JSON.parse(text).name).toBe('Delta 2');
+    expect(text).toContain('Extra.sch');
+    app.kernel.dispose();
+  });
+});

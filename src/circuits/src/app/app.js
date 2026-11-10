@@ -759,12 +759,16 @@ export class App extends Emitter {
     this.saveState = 'saving';
     this.updateTitle();
     const revisions = p.docs.map((d) => d.store.revision);
+    // Renames, added or removed documents and library changes do not move a
+    // document's revision, so they are watched for separately.
+    let metaChanged = false;
+    const offMeta = p.on('meta', () => { metaChanged = true; });
     const run = (async () => {
       try {
         const text = JSON.stringify(p.toJSON());
         const location = await storage.saveText(this.location, p.name, text);
         // Only mark saved if nothing changed while writing.
-        if (p.docs.every((d, i) => d.store.revision === revisions[i])) p.markSaved();
+        if (!metaChanged && p.docs.every((d, i) => d.store.revision === revisions[i])) p.markSaved();
         // Another project may have opened while writing: the location, the
         // badge and the timers are its own now.
         if (this.project !== p) { recordVersion(location, p.id, text); return true; }
@@ -786,6 +790,7 @@ export class App extends Emitter {
         }
         return false;
       } finally {
+        offMeta();
         this._saving = null;
         this.updateTitle();
         this.renderTabs();
