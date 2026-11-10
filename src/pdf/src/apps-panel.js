@@ -1,7 +1,8 @@
 /**
  * The Apps launcher: a 3×3 grid button just left of Settings that opens a panel showing the
  * person's Puter apps (puter.com/embed/apps) in an iframe, under a caret pointing at the button.
- * Left out in a Puter desktop window, which has its own launcher. A tab Puter opened from the
+ * Left out in a Puter desktop window, which has its own launcher, and where puter.js has
+ * <puter-user-menu>, which has its own Apps button (user-menu.js). A tab Puter opened from the
  * dashboard is a plain browser tab with no launcher, so it keeps the button.
  *
  * The panel lives on <body>, so the library and the editor share it and a view change cannot
@@ -13,6 +14,7 @@ import './apps-panel.css';
 import { el, icon, iconButton } from './lib/ui.js';
 import { closeMenu } from './lib/menu.js';
 import * as P from './lib/puter.js';
+import { hasUserMenu } from './user-menu.js';
 
 export const APPS_EMBED_URL = 'https://puter.com/embed/apps';
 export const APPS_NEWTAB_URL = 'https://puter.com/#apps';
@@ -66,7 +68,10 @@ function onDesktop() {
   }
 }
 
-/** The title bar button. Hidden on the Puter desktop; refreshAppsButtons() follows the SDK. */
+/** Whether the button stands down: on the Puter desktop, and for <puter-user-menu>'s own. */
+const standsDown = () => onDesktop() || hasUserMenu();
+
+/** The title bar button. Hidden where it stands down; refreshAppsButtons() follows the SDK. */
 export function appsButton() {
   const button = iconButton('Apps', gridIcon(), (e) => {
     e.preventDefault();
@@ -76,13 +81,13 @@ export function appsButton() {
   button.classList.add('apps-btn');
   button.setAttribute('aria-haspopup', 'dialog');
   button.setAttribute('aria-expanded', 'false');
-  button.hidden = onDesktop();
+  button.hidden = standsDown();
   return button;
 }
 
 /** Once the SDK has loaded: show or hide the buttons for the environment it reports. */
 export function refreshAppsButtons() {
-  const hide = onDesktop();
+  const hide = standsDown();
   for (const button of document.querySelectorAll('.apps-btn')) button.hidden = hide;
   if (hide) closeAppsPanel();
 }

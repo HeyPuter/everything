@@ -21,6 +21,7 @@ import {
 import * as P from './lib/puter.js';
 import { waitFor } from './lib/abort.js';
 import { appsButton, closeAppsPanel, refreshAppsButtons, setAppsAccount } from './apps-panel.js';
+import { configureUserMenu, hasUserMenu, refreshUserMenus, userMenuSlot } from './user-menu.js';
 import {
   PdfSession,
   safeName,
@@ -82,6 +83,10 @@ function cancelledSignIn() {
   return error;
 }
 const sessionChanged = () => accountToken !== undefined && accountToken !== P.sessionToken();
+configureUserMenu({
+  signOut: () => run(signOut)(),
+  sessionChanged: () => run(refreshSDKAccount)(),
+});
 /** The account changed (a sign-in, or the SDK's first answer): the open view follows. */
 function setAccount(account, { profileOnly = false } = {}) {
   accountGeneration++;
@@ -208,6 +213,31 @@ async function ensureSignedIn({ signal = accountController.signal } = {}) {
   }
   return signInRequest;
 }
+/**
+ * Signs out, one request at a time, once the open PDF may be left. From Settings (`dialog`) the
+ * library follows only while that dialog is still up; from puter.js's user menu it always does.
+ */
+async function signOut(dialog = null) {
+  // Settings can be reopened while the SDK is pending. Claim this operation
+  // before its first await so repeated presses cannot start another sign-out.
+  if (signOutPending) return;
+  signOutPending = true;
+  try {
+    if (!(await canLeave())) return;
+    // Nothing can be edited behind Settings. The user menu has no dialog to hold the PDF still
+    // while the SDK signs out, so the library comes first there.
+    if (!dialog && editor) showHome();
+    await P.signOut();
+    const leaving = !!dialog?.open;
+    if (leaving) dialog.close();
+    // Closing Settings returns to work. Complete the account change without
+    // discarding later edits, replacing a newer PDF, or aborting its file read.
+    setAccount(null);
+    if (leaving && editor) showHome();
+  } finally {
+    signOutPending = false;
+  }
+}
 function settings() {
   // Settings holds the account, as the account menu does elsewhere: the Apps panel gives way.
   closeAppsPanel();
@@ -243,6 +273,14 @@ function settings() {
   let accountAction;
   const refreshAccount = () => {
     if (!dialog.open) return;
+    // puter.js's user menu, beside Settings in the title bar, holds the account where it renders.
+    accountSummary.hidden = hasUserMenu();
+    if (hasUserMenu()) {
+      accountAction = null;
+      accountActions.replaceChildren();
+      accountActions.hidden = true;
+      return;
+    }
     const focused = accountActions.contains(document.activeElement);
     accountSummary.textContent = user
       ? `Signed in as ${user.username}`
@@ -258,24 +296,9 @@ function settings() {
           'Sign out',
           'LogOut',
           run(async (event) => {
-            // Settings can be reopened while the SDK is pending. Claim this operation
-            // before its first await so repeated presses cannot start another sign-out.
-            if (signOutPending) return;
-            signOutPending = true;
-            try {
-              // Safari does not focus clicked buttons; the confirmation needs a return target.
-              event.currentTarget.focus({ preventScroll: true });
-              if (!(await canLeave())) return;
-              await P.signOut();
-              const leaving = dialog.open;
-              if (leaving) dialog.close();
-              // Closing Settings returns to work. Complete the account change without
-              // discarding later edits, replacing a newer PDF, or aborting its file read.
-              setAccount(null);
-              if (leaving && editor) showHome();
-            } finally {
-              signOutPending = false;
-            }
+            // Safari does not focus clicked buttons; the confirmation needs a return target.
+            if (!signOutPending) event.currentTarget.focus({ preventScroll: true });
+            await signOut(dialog);
           }),
         ),
       );
@@ -1045,6 +1068,7 @@ function showHome({ accountRefresh = false } = {}) {
           ),
           appsButton(),
           iconButton('Settings', 'Settings2', settings),
+          userMenuSlot(),
         ),
       ),
       el(
@@ -1215,8 +1239,11 @@ start();
 const initPuter = async () => {
   // The SDK signs the user in on its own before some cloud calls; the views follow.
   P.onAuth(run(refreshSDKAccount));
-  // The desktop has its own app launcher.
+  // The desktop has its own app launcher; puter.js's user menu, where the SDK has it, holds
+  // the launcher and the account.
   refreshAppsButtons();
+  refreshUserMenus();
+  for (const refresh of settingsAccountViews) refresh();
   // A tab Puter opened (a file opened from the dashboard, say) gets its file the same way as a
   // desktop window, once the dashboard tab hands it over with the token.
   if (P.launchedByPuter()) {

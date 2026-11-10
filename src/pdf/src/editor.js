@@ -34,6 +34,7 @@ import { pageSpeechText, speechChunks } from './core/speech.js';
 import { createOutlinePanel, destinationPage, destinationTarget } from './outline.js';
 import { createCommentsPanel } from './comments.js';
 import { appsButton } from './apps-panel.js';
+import { userMenuSlot } from './user-menu.js';
 import { createAttachmentsPanel, createLayersPanel } from './side-panels.js';
 import { createSignaturesPanel, createSignatureBar } from './signatures-panel.js';
 import { chooseDigitalId, signatureDetailsDialog } from './digital-id-dialog.js';
@@ -2348,6 +2349,7 @@ export function createEditor({
             menuButton,
             appsButton(),
             iconButton('Settings', 'Settings2', settings),
+            userMenuSlot(),
           ),
         ),
       ),
@@ -3450,7 +3452,7 @@ export function createEditor({
     !textEdit &&
     !noteEdit &&
     !e.target.isContentEditable &&
-    !/input|textarea|select|button/i.test(e.target.tagName) &&
+    !/input|textarea|select|button|puter-user-menu/i.test(e.target.tagName) &&
     !document.querySelector('dialog[open]');
   const onSpace = (e) => {
     if (e.code !== 'Space') return;
@@ -13131,6 +13133,8 @@ export function createEditor({
   function onKey(e) {
     // Native dialogs own the keyboard while open, including Escape.
     if (e.isComposing || document.querySelector('dialog[open]')) return;
+    // So does puter.js's user menu: keys from its shadow root arrive as the element's.
+    if (e.target.closest?.('puter-user-menu')) return;
     if (e.key === 'Escape' && closeOverlaidPanel(e.target)) {
       e.preventDefault();
       return;
