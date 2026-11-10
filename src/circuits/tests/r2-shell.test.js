@@ -370,3 +370,26 @@ describe('changes made while a save is still writing', () => {
     app.kernel.dispose();
   });
 });
+
+describe('saving again while a save is still writing', () => {
+  it('writes the newer edits when Save is pressed, even with autosave off', async () => {
+    const { app, opfs } = await bootLocal();
+    app.settings.set('autosaveMinutes', 0);
+    const { project, location } = await stored(app, 'Gamma');
+    const hold = deferred();
+    opfs.holdWrites = hold.promise;
+    project.rename('Gamma 1');
+    const first = app.save();
+    await tick(5);
+    project.rename('Gamma 2');
+    const second = app.save();
+    hold.resolve();
+    opfs.holdWrites = null;
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(JSON.parse(await storage.loadText(location)).name).toBe('Gamma 2');
+    expect(project.dirty).toBe(false);
+    expect(app.saveBadge.textContent).toMatch(/^Saved/);
+    app.kernel.dispose();
+  });
+});

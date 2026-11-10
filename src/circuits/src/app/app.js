@@ -754,7 +754,11 @@ export class App extends Emitter {
       if (auto) return false;
       try { this.location = await storage.newLocation(p.name, p.id); } catch (err) { toast(err.message, { kind: 'error' }); return false; }
     }
-    if (this._saving) { this._saveAgain = true; return this._saving; }
+    if (this._saving) {
+      if (auto) { this._saveAgain = true; return this._saving; }
+      // Asked for by the user: once this write is done, write again what was edited after it began.
+      return this._saving.then(() => (this.project === p && p.dirty ? this.save({ quiet }) : !p.dirty));
+    }
     clearTimeout(this._autosaveTimer);
     this.saveState = 'saving';
     this.updateTitle();
