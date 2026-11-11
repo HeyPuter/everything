@@ -101,3 +101,27 @@ test('a script menu opens with wm.call_menu and runs its operator', async ({ pag
   expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(before + 1);
   await expectNoErrors(errors);
 });
+
+test('printing past the scrollback limit adds each line to the console once', async ({ page }) => {
+  const errors = await openApp(page);
+  await scriptingWorkspace(page);
+  const lines = page.locator('.py-console .pc-line');
+  await expect(lines.first()).toBeVisible();
+  // count the line elements the console creates while a script prints 5100 lines (scrollback: 5000)
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__added = 0;
+    new MutationObserver((records) => {
+      for (const r of records) w.__added += r.addedNodes.length;
+    }).observe(document.querySelector('.py-console .pc-lines')!, { childList: true });
+  });
+  await consoleLine(page, "for (let i = 0; i < 5100; i++) print('line ' + i)");
+  await expect(lines.last()).toHaveText('line 5099');
+  await expect(lines).toHaveCount(5000);
+  // with a full scrollback the console used to redraw all 5000 lines for every printed line (minutes for a few thousand)
+  expect(await page.evaluate(() => (window as any).__added)).toBeLessThan(5200);
+  await consoleLine(page, "print('after')");
+  await expect(lines.last()).toHaveText('after');
+  await expect(lines).toHaveCount(5000);
+  await expectNoErrors(errors);
+});

@@ -21,14 +21,20 @@ export const consoleSettings = { scrollback: 5000 };
 
 export const output = {
   lines: [] as ConsoleLine[],
+  /** How many lines have left the front of `lines` (scrollback limit, Clear): lines[i] is line number dropped + i. */
+  dropped: 0,
   listeners: new Set<() => void>(),
   push(text: string, type: LineType = 'OUTPUT') {
     for (const l of String(text).replace(/\n$/, '').split('\n')) this.lines.push({ text: l, type });
     const max = Math.max(32, consoleSettings.scrollback);
-    if (this.lines.length > max) this.lines.splice(0, this.lines.length - max);
+    if (this.lines.length > max) {
+      this.dropped += this.lines.length - max;
+      this.lines.splice(0, this.lines.length - max);
+    }
     this.notify();
   },
   clear() {
+    this.dropped += this.lines.length;
     this.lines.length = 0;
     this.notify();
   },
