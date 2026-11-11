@@ -11,6 +11,8 @@ import { uid } from '../../data/defaults';
 import { renamedIn } from '../../data/names';
 import { openMenu, type MenuItem } from '../../ui/menu';
 import { cloneShared } from '../../data/cow';
+import { gnResults } from '../../geonodes/results';
+import { writeAttributes } from '../../geonodes/convert';
 
 type Field = [key: string, label: string, kind: 'num' | 'int' | 'bool' | 'enum' | 'object' | 'vgroup' | 'vec' | 'axes' | 'angle' | 'dist' | 'factor' | 'heading' | 'bone', extra?: unknown];
 
@@ -417,6 +419,9 @@ registerOperators([
       me.select_vert = undefined;
       me.hide_vert = undefined;
       me.color_attributes = mesh.colors ? [{ name: me.color_attributes[me.active_color_index]?.name ?? 'Color', domain: 'CORNER', data: new Float32Array(mesh.colors) }] : [];
+      // generic attributes of a Geometry Nodes result (the evaluated mesh carries only the built-in layers)
+      const gn = gnResults.get(ob.id);
+      if (gn && gn.evalMesh === mesh && !gn.viewer && gn.geometry.mesh) writeAttributes(me, gn.geometry.mesh);
       app.graph.invalidate(ob.id);
     },
   },

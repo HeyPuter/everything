@@ -7,12 +7,9 @@ import { app, onAppReady, registerOperators } from '../../app/app';
 import type { DocumentData, MeshData, ModifierBase, NodeGroupData, ObjectData } from '../../data/types';
 import { baseEvalMesh } from '../../eval/depsgraph';
 import type { EvalMesh } from '../../eval/types';
-import { evalMeshToGeometry, geometryToEvalMesh, materialSlots, UV_DEFAULT } from '../convert';
+import { evalMeshToGeometry, geometryToEvalMesh, materialSlots, writeAttributes } from '../convert';
 import { evaluateGroup, makeEnv } from '../modifier';
-import { EdgeHash, isInternal, readAttribute, type MeshComponent } from '../geometry';
-import { eulerToQuat } from '../rotmath';
-import type { AttrArray } from '../types';
-import type { AttributeType, MeshAttribute } from '../../data/types';
+import { readAttribute } from '../geometry';
 import type { ToolEnv } from '../exec';
 import { syncModifierInputs } from '../editor';
 import { modeMenus } from '../../editors/view3d/modemenus';
@@ -69,61 +66,6 @@ export function writeMesh(me: MeshData, m: EvalMesh) {
   me.shape_keys = [];
   me.hide_vert = undefined;
   me.color_attributes = m.colors ? [{ name: me.color_attributes[me.active_color_index]?.name ?? 'Color', domain: 'CORNER', data: new Float32Array(m.colors) }] : [];
-}
-
-/** Names the mesh keeps in its own layers rather than as generic attributes. */
-const BUILTIN = new Set(['position', 'sharp_face', 'material_index', 'sharp_edge', 'custom_normal', 'crease_edge', UV_DEFAULT]);
-
-/**
- * Write the generic attributes of a tool's output mesh into mesh data (extra UV maps go back to
- * the UV map list); `mesh` must be the mesh the evaluated arrays were made from.
- */
-export function writeAttributes(me: MeshData, mesh: MeshComponent) {
-  if (mesh.positions.length !== me.positions.length || mesh.corners.length !== me.indices.length) return;
-  const skip = new Set([...BUILTIN, me.uv_map_name, ...me.vertex_groups.map((g) => g.name), ...me.color_attributes.map((c) => c.name)]);
-  const uvNames = new Set((me.uv_layers_extra ?? []).map((u) => u.name));
-  const uvExtra: { name: string; data: Float32Array }[] = [];
-  const list: MeshAttribute[] = [];
-  const nc = mesh.cornerCount;
-  let edgeOf: ((k: number) => number) | null = null;
-  for (const [name, a] of mesh.attrs) {
-    if (isInternal(name) || skip.has(name) || a.type === 'FLOAT_COLOR') continue;
-    if (uvNames.has(name) && a.domain === 'CORNER' && a.type === 'FLOAT2') {
-      uvExtra.push({ name, data: new Float32Array(a.data) });
-      continue;
-    }
-    if (a.domain !== 'POINT' && a.domain !== 'EDGE' && a.domain !== 'FACE' && a.domain !== 'CORNER') continue;
-    // rotations are Euler triples here, quaternions (w, x, y, z) in mesh data
-    const quat = a.type === 'QUATERNION';
-    const w = quat ? 4 : a.type === 'FLOAT_VECTOR' ? 3 : a.type === 'FLOAT2' ? 2 : a.type === 'FLOAT4X4' ? 16 : 1;
-    let src = a.data;
-    if (quat) {
-      const n = src.length / 3;
-      const q = new Float32Array(n * 4);
-      for (let i = 0; i < n; i++) q.set(eulerToQuat(src[i * 3], src[i * 3 + 1], src[i * 3 + 2]), i * 4);
-      src = q;
-    }
-    let data: AttrArray = src.slice();
-    if (a.domain === 'EDGE') {
-      // stored per face corner (the edge starting there), then per loose edge
-      if (!edgeOf) {
-        const topo = mesh.topology();
-        const hash = new EdgeHash(topo.edgeCount);
-        for (let e = 0; e < topo.edgeCount; e++) hash.getOrAdd(topo.edges[e * 2], topo.edges[e * 2 + 1], e);
-        const loose = me.loose_edges ?? new Uint32Array(0);
-        edgeOf = (k) => (k < nc ? topo.cornerEdge[k] : hash.get(loose[(k - nc) * 2], loose[(k - nc) * 2 + 1]));
-      }
-      const n = nc + (me.loose_edges?.length ?? 0) / 2;
-      data = new (src.constructor as { new (n: number): AttrArray })(n * w);
-      for (let k = 0; k < n; k++) {
-        const e = edgeOf(k);
-        if (e >= 0) for (let j = 0; j < w; j++) data[k * w + j] = src[e * w + j];
-      }
-    }
-    list.push({ name, domain: a.domain, data_type: a.type as AttributeType, data: data as MeshAttribute['data'] });
-  }
-  me.attributes = list;
-  if (uvExtra.length || me.uv_layers_extra) me.uv_layers_extra = uvExtra.length ? uvExtra : undefined;
 }
 
 /** Tool environment for an object: cursor in its local space, active element, pointer and view. */
