@@ -85,12 +85,13 @@ function status(s: string) {
 
 export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  if (mode === 'open') fileEvents.saveTarget = null;
   const name = file.name.toLowerCase();
   try {
     if (isNativeFile(bytes)) {
       const { doc, extra } = decodeDocument(bytes);
-      if (mode === 'open') fileEvents.beforeReplace('Before Opening a File');
+      fileEvents.beforeReplace('Before Opening a File');
+      // the save target belongs to the replaced file (a file that fails to open keeps it)
+      fileEvents.saveTarget = null;
       app.setDocument(doc);
       app.filename = file.name;
       // Preferences ▸ Save & Load ▸ Load UI
@@ -100,6 +101,7 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
     } else if (name.endsWith('.json') || name.endsWith('.3d.json')) {
       const doc = importLegacyScene(new TextDecoder().decode(bytes));
       fileEvents.beforeReplace('Before Opening a File');
+      fileEvents.saveTarget = null;
       app.setDocument(doc);
       app.filename = file.name.replace(/\.3d\.json$|\.json$/i, '.p3d');
       app.report('INFO', `Imported legacy scene "${file.name}"`);
@@ -109,6 +111,7 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
       if (mode === 'open' && handler.open) {
         fileEvents.beforeReplace('Before Opening a File');
         await handler.open(file);
+        fileEvents.saveTarget = null;
         app.dirty = false;
         return;
       }

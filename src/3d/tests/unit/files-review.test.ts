@@ -32,4 +32,17 @@ describe('openFile', () => {
     expect(app.dirty).toBe(true);
   });
 
+  it('keeps the save target when a file fails to open', async () => {
+    const target = { name: 'project.p3d', write: async () => {} };
+    fileEvents.saveTarget = target;
+    const bad = encodeDocument(startupDocument()).slice(0, 40);
+    await openFile(new File([bad], 'broken.p3d'), 'open');
+    expect(app.reports.at(-1)?.type).toBe('ERROR');
+    expect(fileEvents.saveTarget).toBe(target);
+    // a file that opens replaces it
+    await openFile(new File([encodeDocument(startupDocument())], 'other.p3d'), 'open');
+    expect(app.filename).toBe('other.p3d');
+    expect(fileEvents.saveTarget).toBeNull();
+    expect(app.dirty).toBe(false);
+  });
 });
