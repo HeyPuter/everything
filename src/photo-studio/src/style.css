@@ -136,7 +136,7 @@ kbd { font-family: inherit; color: var(--muted); font-size: 11px; }
 .hint { color: var(--muted); font-size: 11px; }
 svg.icon { flex: none; display: block; }
 
-#app { height: 100dvh; display: grid; grid-template-rows: 30px 36px minmax(0, 1fr) 22px; }
+#app { height: 100dvh; display: grid; grid-template-rows: 30px 36px minmax(0, 1fr) 22px; grid-template-columns: minmax(0, 1fr); }
 .no-document .optionsbar #tool-options > * { opacity: 0.55; pointer-events: none; }
 
 /* Top bar and menus */
@@ -164,6 +164,17 @@ svg.icon { flex: none; display: block; }
 .submenu .menu-item:not(:hover):not(:focus) kbd { color: var(--muted); }
 .has-submenu.open > .submenu { display: block; }
 .top-actions { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+/* Narrow windows: the menu bar scrolls sideways instead of widening the
+   workspace past the screen; menus open as fixed sheets across the window
+   and submenus drop below their item, so neither leaves the screen. */
+@media (max-width: 760px) {
+  .topbar { min-width: 0; }
+  .menubar { flex: 0 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .menubar::-webkit-scrollbar { display: none; }
+  .menubar-entry > .menu-pop { position: fixed; top: 28px; left: 4px; right: 4px; min-width: 0; max-height: calc(100dvh - 36px); overflow-y: auto; }
+  .submenu { top: calc(100% - 2px); left: 14px; right: 4px; min-width: 0; z-index: 51; }
+  .top-actions { flex: none; }
+}
 .export-button { border-color: var(--input-line); }
 .save-button span { font-size: 11px; }
 .account { width: 26px; }

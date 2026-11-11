@@ -199,3 +199,32 @@ test('a swatch chosen from the keyboard keeps the focus', async ({ page }) => {
   await idle(page);
   expect(await page.evaluate((b) => b!.isConnected, before)).toBe(true);
 });
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 375, height: 740 } });
+  test('the workspace fits the screen and every menu and submenu stays on it', async ({ page }) => {
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+    const viewport = (await page.locator('#viewport').boundingBox())!;
+    expect(viewport.x + viewport.width).toBeLessThanOrEqual(375);
+    const inside = async (selector: string) => {
+      const r = (await page.locator(selector).first().boundingBox())!;
+      expect(r.x, selector).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.width, selector).toBeLessThanOrEqual(375);
+    };
+    // The last menus are reachable (the menu bar scrolls) and open on screen.
+    for (const name of ['Window', 'Help', 'File']) {
+      const button = page.getByRole('menubar').getByRole('menuitem', { name, exact: true });
+      await button.scrollIntoViewIfNeeded();
+      await inside(`.menubar-entry:has(> .menubar-button:text-is("${name}")) > .menubar-button`);
+      await button.click();
+      await inside('.menubar-entry.open > .menu-pop');
+      if (name === 'File') {
+        const sub = page.locator('.menubar-entry.open > .menu-pop > .has-submenu').first();
+        await sub.hover();
+        await expect(sub.locator(':scope > .submenu')).toBeVisible();
+        await inside('.menubar-entry.open > .menu-pop > .has-submenu.open > .submenu');
+      }
+      await page.keyboard.press('Escape');
+    }
+  });
+});
