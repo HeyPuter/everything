@@ -174,7 +174,11 @@ export class Library extends Emitter {
     const p = await this.openProject(id);
     const copy = structuredClone(p);
     copy.id = uid('p');
-    copy.name = `${p.name} copy`;
+    // "Trip copy", then "Trip copy 2"...: a name no project (Trash included) has.
+    const used = new Set((await this._readIndex()).map((x) => String(x.name).trim().toLowerCase()));
+    const base = `${p.name} copy`.slice(0, 200);
+    copy.name = base;
+    for (let n = 2; used.has(copy.name.toLowerCase()); n++) copy.name = `${base} ${n}`;
     delete copy.deletedAt;
     copy.created = copy.modified = Date.now();
     await this.saveProject(copy);

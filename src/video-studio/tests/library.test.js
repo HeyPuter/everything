@@ -65,6 +65,13 @@ describe('Library projects', () => {
     expect((await lib.listProjects()).map((x) => x.id).sort()).toEqual([p.id, copy.id].sort());
   });
 
+  it('gives each duplicate a name of its own', async () => {
+    const p = await lib.createProject({ name: 'Trip' });
+    const names = [];
+    for (let i = 0; i < 3; i++) names.push((await lib.duplicateProject(p.id)).name);
+    expect(names).toEqual(['Trip copy', 'Trip copy 2', 'Trip copy 3']);
+  });
+
   it('names new projects with the lowest free number, counting the Trash', async () => {
     expect(await lib.nextProjectName()).toBe('Project 1');
     const p1 = await lib.createProject({ name: await lib.nextProjectName() });
