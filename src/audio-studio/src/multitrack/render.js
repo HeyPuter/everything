@@ -19,23 +19,7 @@ export async function renderSession(app, session, { state = session.state, start
   if (session.stretcher?.busy) await session.stretcher.whenIdle();
   if (session.remixer?.busy) await session.remixer.whenIdle();
   const { graph, sources } = buildSessionGraph(state, session.pool, { clipIds, panLaw: { mode: app.prefs?.get('panLaw'), centerDb: app.prefs?.get('panLawDb') } });
-  if (trackId) {
-    // The track plus everything routed into it (for a bus), ignoring solo.
-    const keep = new Set([trackId]);
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const t of graph.tracks) {
-        if (!keep.has(t.id) && t.output && keep.has(t.output)) {
-          keep.add(t.id);
-          grew = true;
-        }
-      }
-    }
-    graph.tracks = graph.tracks.filter((t) => keep.has(t.id)).map((t) => (t.id === trackId ? { ...t, output: undefined, mute: false, solo: false } : { ...t, solo: false }));
-    graph.master = { gain: 1 };
-    // A bounce keeps the track's own width: six channels only for a 5.1 track.
-    if (!graph.tracks.find((t) => t.id === trackId)?.six) delete graph.surround;
-  }
+  if (trackId) bounceGraph(graph, trackId);
   app.setStatus(`${label}...`);
   // Loaded on first use, like the effect renders, so the render worker code stays out of the startup bundle.
   const { renderGraph } = await import('../engine/offline.js');
@@ -53,6 +37,34 @@ export async function renderSession(app, session, { state = session.state, start
   });
   app.setStatus(`${label} done`);
   return out;
+}
+
+/**
+ * Narrows a session graph (in place) to one track before its output routing
+ * and the master: the track plus everything routed or sent into it (for a
+ * bus), ignoring solo. A track that only sends into it keeps its own output
+ * out of the render (it goes to a muted bus).
+ */
+export function bounceGraph(graph, trackId) {
+  const keep = new Set([trackId]);
+  const feeds = (t) => (t.output && keep.has(t.output)) || (t.sends || []).some((x) => keep.has(x.target));
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const t of graph.tracks) {
+      if (!keep.has(t.id) && feeds(t)) {
+        keep.add(t.id);
+        grew = true;
+      }
+    }
+  }
+  const sink = '__bounceSink';
+  const own = (t) => (t.id === trackId ? { ...t, output: undefined, mute: false, solo: false } : { ...t, solo: false, ...(t.output && keep.has(t.output) ? {} : { output: sink }) });
+  graph.tracks = graph.tracks.filter((t) => keep.has(t.id)).map(own);
+  if (keep.size > 1) graph.tracks.push({ id: sink, bus: true, gain: 0, pan: 0, mute: true, solo: false, fx: [], clips: [] });
+  graph.master = { gain: 1 };
+  // A bounce keeps the track's own width: six channels only for a 5.1 track.
+  if (!graph.tracks.find((t) => t.id === trackId)?.six) delete graph.surround;
+  return graph;
 }
 
 /** Wraps rendered stereo data in a new AudioFile document (not yet added). */

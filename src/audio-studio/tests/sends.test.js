@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ChunkStore, renderBlock, createScratch, routingPlan, CHUNK } from '../src/engine/mixcore.js';
 import { createSessionState, createTrack, setSend, removeSend, removeTracks, wouldCycle } from '../src/model/session-edits.js';
 import { buildSessionGraph } from '../src/model/session-graph.js';
+import { bounceGraph } from '../src/multitrack/render.js';
 import '../src/effects/catalog.js';
 
 const clip = (o = {}) => ({ id: 'c', source: 'k', channels: 2, start: 0, offset: 0, length: 1000, gain: 1, fadeIn: 0, fadeOut: 0, ...o });
@@ -40,6 +41,31 @@ describe('sends', () => {
     expect(order.indexOf('b1')).toBeLessThan(order.indexOf('b2'));
     expect(plan.audible.has('b2')).toBe(true);
     expect(render(graph)[0][10]).toBeCloseTo(1);
+  });
+});
+
+describe('bouncing a bus', () => {
+  const tracks = (o = {}) => [
+    { id: 't', gain: 1, pan: 0, clips: [clip()], sends: [{ target: 'b', gain: 0.5, pan: 0, pre: false }], ...o },
+    { id: 'u', gain: 1, pan: 0, clips: [clip({ id: 'c2' })], output: 'b2' },
+    bus(),
+    bus({ id: 'b2' }),
+  ];
+
+  it('includes what other tracks send to it, but not their own output', () => {
+    const graph = bounceGraph({ tracks: tracks(), master: { gain: 0.1 } }, 'b');
+    // Only the send: 0.5 * 0.5; track t's direct output and track u (another bus) are left out.
+    expect(render(graph)[0][10]).toBeCloseTo(0.25);
+    expect(graph.tracks.some((t) => t.id === 'u')).toBe(false);
+  });
+
+  it('keeps tracks routed into it as before', () => {
+    const graph = bounceGraph({ tracks: tracks(), master: { gain: 0.1 } }, 'b2');
+    expect(render(graph)[0][10]).toBeCloseTo(0.5);
+    // Bouncing an audio track leaves out the buses it sends to.
+    const one = bounceGraph({ tracks: tracks(), master: { gain: 0.1 } }, 't');
+    expect(one.tracks.map((t) => t.id)).toEqual(['t']);
+    expect(render(one)[0][10]).toBeCloseTo(0.5);
   });
 });
 
