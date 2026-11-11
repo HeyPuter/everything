@@ -582,3 +582,24 @@ test('NLA: split strips do not share their modifiers', async ({ page }) => {
   expect(r).toEqual([2, 1]);
   await expectNoErrors(errors);
 });
+
+test('jump to keyframe passes keys between frames', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'DOPESHEET', [0, 1, 2]);
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const fc = app.doc.actions[app.activeObject.animation_data.action].fcurves[0];
+    // keys at 1, 6.4 and 11
+    fc.keyframe_points[1].co[0] = 6.4;
+    app.setFrame(1);
+  });
+  const jump = async (next: boolean) => {
+    await page.evaluate((next) => (window as any).app.run('screen.keyframe_jump', { next }), next); // eslint-disable-line @typescript-eslint/no-explicit-any
+    return page.evaluate(() => (window as any).app.doc.scene.frame_current); // eslint-disable-line @typescript-eslint/no-explicit-any
+  };
+  expect(await jump(true)).toBe(6);
+  expect(await jump(true)).toBe(11);
+  expect(await jump(false)).toBe(6);
+  expect(await jump(false)).toBe(1);
+  await expectNoErrors(errors);
+});

@@ -150,7 +150,8 @@ registerOperators([
     exec: (ctx, p) => {
       const f = ctx.doc.scene.frame_current;
       const frames = allKeyFrames();
-      const t = p.next ? frames.find((x) => x > f + 0.01) : [...frames].reverse().find((x) => x < f - 0.01);
+      // keys between frames count for the whole frame they round to (skipped when that is the current one)
+      const t = p.next ? frames.find((x) => Math.round(x) > f) : [...frames].reverse().find((x) => Math.round(x) < f);
       if (t === undefined) {
         app.report('INFO', 'No more keyframes to jump to in this direction');
         return 'CANCELLED';
