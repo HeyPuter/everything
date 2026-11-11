@@ -193,6 +193,18 @@ export function createSmartActions(ctx) {
       });
       cancel.addEventListener('click', () => d.close());
       const read = () => ({ scope: scope.value, thresholdDb: Number(thr.value), minSilence: Number(min.value), pad: Number(pad.value) });
+      const AGAIN = 'Settings changed. Press Find silences to look again.';
+      let searched = false;
+      // What was found belongs to the settings it was found with.
+      const changed = () => {
+        found = [];
+        cut.disabled = true;
+        if (searched && !ac) status.textContent = AGAIN;
+      };
+      for (const el of [scope, thr, min, pad]) {
+        el.addEventListener('input', changed);
+        el.addEventListener('change', changed);
+      }
       find.addEventListener('click', async () => {
         const o = read();
         setPref('silenceOpts', o);
@@ -206,6 +218,11 @@ export function createSmartActions(ctx) {
         status.textContent = 'Listening...';
         try {
           const ranges = await findSilences(ctx, o, { signal: ac.signal, onProgress: (x) => (status.textContent = `Listening... ${Math.round(x * 100)}%`) });
+          searched = true;
+          if (JSON.stringify(read()) !== JSON.stringify(o)) {
+            status.textContent = AGAIN;
+            return;
+          }
           found = ranges;
           const total = ranges.reduce((s, r) => s + r.end - r.start, 0);
           status.textContent = ranges.length ? `${ranges.length} silent part${ranges.length === 1 ? '' : 's'}, ${(total / US).toFixed(1)} s in all.` : 'No silences that long were found.';

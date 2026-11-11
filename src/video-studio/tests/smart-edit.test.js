@@ -63,6 +63,33 @@ describe('Remove silences dialog', () => {
   });
 });
 
+describe('Remove silences dialog settings', () => {
+  it('asks to find again after a setting changes instead of cutting what the old settings found', async () => {
+    const rate = 8000;
+    const mix = new Float32Array(4 * rate);
+    for (let i = 0; i < mix.length; i++) if (i < rate || i >= 3 * rate) mix[i] = 0.5 * Math.sin(i * 0.3);
+    mixdown.mockImplementationOnce(async () => mix);
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: {} };
+    ctx.actions = createActions(ctx);
+    ctx.actions.removeSilences();
+    const dlg = document.querySelector('dialog[open]');
+    const button = (text) => [...dlg.querySelectorAll('button')].find((b) => b.textContent === text);
+    button('Find silences').click();
+    await vi.waitFor(() => expect(button('Cut them').disabled).toBe(false));
+    const min = [...dlg.querySelectorAll('input')][1];
+    min.value = '3';
+    min.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(button('Cut them').disabled).toBe(true);
+    expect(dlg.querySelector('[role=status]').textContent).toMatch(/Find silences/);
+    button('Cut them').click();
+    expect(store.history.canUndo()).toBe(false);
+    document.body.replaceChildren();
+  });
+});
+
 describe('scene detection', () => {
   const solid = (r, g, b) => {
     const px = new Uint8ClampedArray(SIG_W * SIG_H * 4);
