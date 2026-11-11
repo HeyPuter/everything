@@ -408,7 +408,8 @@ export function createTimeline(ctx) {
       for (const clip of row.track.clips) {
         live.add(clip.id);
         const visible = T.clipEnd(clip) >= t0 && clip.start <= t1;
-        if (!visible && !store.selection.has(clip.id) && clip.id !== activeId) continue;
+        // Off-screen clips are only kept while dragged (they move into view with the drag).
+        if (!visible && !drag?.ids?.has(clip.id) && clip.id !== activeId) continue;
         keep.add(clip.id);
         const e = clipEl(clip, row.track);
         if (e.node.parentNode !== lane) lane.append(e.node);
@@ -944,7 +945,7 @@ export function createTimeline(ctx) {
     const exclude = new Set(moving);
     drag = { type: 'move', ids: exclude, cls: '', move: (ev) => move(ev), last: null };
     const points = T.snapPoints(store.project, { exclude, playhead: store.time });
-    const nodes = moving.map((mid) => clipEls.get(mid)?.node).filter(Boolean);
+    let nodes = [];
     const origStart = clip.start;
     const startRow = rows.find((r) => r.track === track);
     let minStart = origStart;
@@ -958,6 +959,9 @@ export function createTimeline(ctx) {
       autoScroll(ev); // reads layout, so before the writes below
       if (!moved) {
         moved = true;
+        // Builds the off-screen moving clips too (drag.ids keeps them), then holds them all.
+        render();
+        nodes = moving.map((mid) => clipEls.get(mid)?.node).filter(Boolean);
         drag.cls = 'dragging';
         player.pause();
         nodes.forEach((n) => n.classList.add('dragging'));

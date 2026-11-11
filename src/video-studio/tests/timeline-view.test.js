@@ -152,6 +152,31 @@ describe('timeline rendering', () => {
   });
 });
 
+describe('timeline with big selections', () => {
+  it('keeps only the clips in view in the page when many are selected, and still drags them all', () => {
+    const p = fixture();
+    const titles = Array.from({ length: 300 }, (_, i) => clip('text', i, 1));
+    for (const c of titles) T.addClip(p, c, { ripple: false });
+    const { store, tl, tracks, node, pointer } = mountTimeline(p);
+    store.setToggle('snap', false);
+    store.select(titles.map((c) => c.id));
+    tl.render();
+    const count = () => tl.el.querySelectorAll('.tl-clip').length;
+    expect(count()).toBeLessThan(60);
+    const x0 = 16 + 10;
+    pointer(node(titles[0].id), 'pointerdown', x0);
+    pointer(tracks, 'pointermove', x0 + tl.pps); // 1 s to the right
+    // While dragged, the off-screen ones are there to move into view with the drag.
+    expect(count()).toBe(300);
+    expect(node(titles[299].id).classList.contains('dragging')).toBe(true);
+    pointer(tracks, 'pointerup', x0 + tl.pps);
+    expect(titles.map((c) => T.findClip(store.project, c.id).clip.start)).toEqual(titles.map((_, i) => s(i + 1)));
+    tl.render();
+    expect(count()).toBeLessThan(60);
+    tl.dispose();
+  });
+});
+
 describe('timeline on phones', () => {
   it('zoom to fit keeps the playhead where it is when scrolling seeks', () => {
     const p = fixture();
