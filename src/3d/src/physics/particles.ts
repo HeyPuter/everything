@@ -8,14 +8,14 @@ import type { EvalMesh, GeometryInstance, ModifierContext } from '../eval/types'
 import type { Depsgraph } from '../eval/depsgraph';
 import { meshSignature } from '../eval/depsgraph';
 import { registerModifier } from '../eval/modifiers';
-import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, rand01, strHash, worldAt, type FrameCache, type SimContext } from './common';
+import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, rand01, strHash, worldAt, type FrameCache, type SimContext, stepCount } from './common';
 import { applyGuides, guidesOf, newGuideState, type GuideState } from './guides';
 import { activeBoidState, boidAccelerations, boidDamage, defaultBoidSettings, ruleObjects, type BoidOthers, type BoidSettings } from './boids';
 import { defaultParticleFluid, relaxFluid, type ParticleFluidSettings } from './sph';
 import { keyedPosition, keyedPositionTimed, keyedTargetPositions, psysTargets, targetParticles } from './keyed';
 import { collectEffectors, effectorForce, fieldsKey } from './fields';
 import { buildColliders, collidersKey, segmentHit, newHit } from './colliders';
-import { MeshSampler, distributionKey, newSample, planSamples, valueAt, type Sample } from './sampling';
+import { MAX_PARTICLES, MeshSampler, distributionKey, newSample, planSamples, valueAt, type Sample } from './sampling';
 import { groupWeights } from '../eval/meshbuild';
 import { hairDynKey, hairWithDynamics } from './hairdyn';
 import { physicsDoc } from './state';
@@ -208,7 +208,7 @@ export interface EmitterResult {
 
 /** Number of particles: the count, or the grid's points for grid distributions. */
 export function particleCount(s: ParticleSettingsX, mesh: EvalMesh, psys: ParticleSystemX | undefined, seed: number): number {
-  if (s.distribution !== 'GRID' || s.emit_from === 'VERT') return Math.max(0, Math.floor(s.count));
+  if (s.distribution !== 'GRID' || s.emit_from === 'VERT') return Math.max(0, Math.min(MAX_PARTICLES, Math.floor(s.count) || 0));
   const key = `${distributionKey(s as never)}:${mesh.positions.length}:${arrayChecksum(mesh.positions)}`;
   const hit = gridCounts.get(mesh.positions);
   if (hit && hit.key === key) return hit.n;
@@ -297,7 +297,7 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
   const n = L.state.length;
   // particle time runs at `timestep` seconds per frame (independent of the frame rate)
   const fpsv = s.timestep && s.timestep > 0 ? 1 / s.timestep : fps(ctx.doc);
-  const sub = Math.max(1, Math.round(s.timestep_substeps ?? 1));
+  const sub = stepCount(s.timestep_substeps ?? 1, 1, 20);
   const dtf = 1 / sub; // frames per substep
   const dt = (dtf / fpsv) * timeScale;
   const g = gravityOf(ctx.doc, (s.effector_weights_gravity ?? 1) * (s.effector_weights_all ?? 1));
@@ -590,6 +590,7 @@ export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleS
   if (!usable && cache.hash !== hash) cache.reset(hash);
   const f = Math.min(Math.max(frameOf(ctx.graph), pc.frame_start), pc.frame_end);
   const sctx: SimContext = { doc, graph: ctx.graph };
+  cache.rewindFor(f);
   if (!cache.frames.has(f)) {
     if (!cache.live || cache.last < pc.frame_start) {
       cache.frames.clear();
@@ -695,7 +696,7 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
   const hit0 = hairCache.get(key);
   if (hit0 && hit0.hash === hash) return hit0.result;
   const seed = hashSeed(psys.seed, s.seed ?? 0);
-  const seg = Math.max(1, Math.round(s.hair_step ?? 5));
+  const seg = stepCount(s.hair_step ?? 5, 1, 50, 5);
   const per = seg + 1;
   // children per parent: the display amount in the viewport, the render amount in renders
   const perParent = render ? (s.rendered_child_count ?? 100) : ((s as { child_percent?: number }).child_percent ?? s.child_nbr ?? 10);
@@ -960,7 +961,7 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
     const hpct = ctx.render ? 100 : (s.display_percentage ?? 100);
     const hvis = (i: number) => hpct >= 100 || rand01(psys.seed, i, 90) * 100 < hpct;
     // paths: subdivided (and smoothed with B-Spline) by the display / render steps
-    const path = smoothStrands(hair.points, per, ctx.render ? (s.render_step ?? 3) : (s.display_step ?? 2), !!s.use_hair_bspline);
+    const path = smoothStrands(hair.points, per, ctx.render ? stepCount(s.render_step ?? 3, 0, 20, 3) : stepCount(s.display_step ?? 2, 0, 10, 2), !!s.use_hair_bspline);
     // Timing: show only part of each strand (start / end, random shortening)
     if ((s.path_start ?? 0) > 0 || (s.path_end ?? 1) < 1 || (s.length_random ?? 0) > 0) {
       if (path.points === hair.points) path.points = path.points.slice();
@@ -1051,7 +1052,7 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
       let count = 0;
       for (let i = 0; i < n; i++) if (vis(i)) count++;
       // simple children: copies of every parent at fixed random offsets within the child radius
-      const nChild = s.child_type === 'SIMPLE' ? Math.max(0, Math.round(ctx.render ? (s.rendered_child_count ?? 0) : (s.child_nbr ?? 10))) : 0;
+      const nChild = s.child_type === 'SIMPLE' ? Math.max(0, Math.min(Math.floor(MAX_PARTICLES / Math.max(1, count)), Math.round(ctx.render ? (s.rendered_child_count ?? 0) : (s.child_nbr ?? 10)))) : 0;
       const childOffset = (i: number, c: number, out: Vector3) => {
         const r = (s.child_radius ?? 0.2) * Math.cbrt(rand01(seed, i, c, 100));
         const u = rand01(seed, i, c, 101) * 2 - 1,

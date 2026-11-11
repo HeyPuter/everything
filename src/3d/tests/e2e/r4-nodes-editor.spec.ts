@@ -262,3 +262,91 @@ test('compositor: Menu Switch picks the input named by a Menu node', async ({ pa
   expect(color![0]).toBeLessThan(0.1);
   await expectNoErrors(errors);
 });
+
+test('a linked material can be looked at: dragging nodes, links and edges reports instead of failing', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const R = await import('/src/library/readonly.ts');
+    const ma = Object.values((window as unknown as { app: { doc: { materials: Record<string, { library?: string }> } } }).app.doc.materials)[0];
+    // saved selection flags are locked like the rest of the data unless selection stays writable
+    for (const n of (ma as unknown as { tree: { nodes: { select: boolean }[] } }).tree.nodes) n.select = false;
+    ma.library = 'lib';
+    R.lockRecord(ma);
+  });
+  const box = await editorArea(page, 'SHADER');
+  await page.keyboard.press('Home');
+  await page.waitForTimeout(400);
+  const socket = (title: string, name: string, out: boolean) =>
+    withTree<[number, number]>(
+      page,
+      `(ed, t) => { const n = t.nodes.find((x) => x.name.startsWith(${JSON.stringify(title)})); const s = [...ed.layouts.get(n.id).sockets.values()].find((p) => p.socket.name === ${JSON.stringify(name)} && p.isOutput === ${out}); const r = ed.el.getBoundingClientRect(); const [x, y] = ed.toScreen(s.x, s.y); return [r.left + x, r.top + y]; }`,
+    );
+  const drag = async (from: [number, number], to: [number, number]) => {
+    await page.mouse.move(...from);
+    await page.mouse.down();
+    await page.mouse.move(...to, { steps: 4 });
+    await page.mouse.up();
+  };
+  // pick up the Surface link, draw a new link, move a node by its header
+  const surf = await socket('Material Output', 'Surface', false);
+  await drag(surf, [surf[0] - 60, surf[1] + 80]);
+  const bsdf = await socket('Principled', 'BSDF', true);
+  await drag(bsdf, await socket('Material Output', 'Volume', false));
+  const title = (await page.locator('.nd-node .nd-title', { hasText: 'Principled' }).first().boundingBox())!;
+  await drag([title.x + 30, title.y + title.height / 2], [title.x + 90, title.y + 60]);
+  await page.mouse.move(box.x + 300, box.y + 400);
+  await page.keyboard.press('g');
+  await page.mouse.move(box.x + 340, box.y + 420, { steps: 3 });
+  await page.mouse.click(box.x + 340, box.y + 420);
+  // selecting is allowed: a box around everything selects all nodes
+  await page.mouse.move(box.x + 70, box.y + 90);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20, { steps: 4 });
+  await page.mouse.up();
+  const state = await withTree<{ links: number; selected: number; nodes: number }>(page, '(ed, t) => ({ links: t.links.length, selected: t.nodes.filter((n) => n.select).length, nodes: t.nodes.length })');
+  expect(state.links).toBe(1);
+  expect(state.selected).toBe(state.nodes);
+  expect(await page.evaluate(() => (window as unknown as { app: { reports: { message: string }[] } }).app.reports.some((r) => /node tree is linked/.test(r.message)))).toBe(true);
+  await expectNoErrors(errors);
+});
+
+test('compositor: huge Bokeh Blur and non-separable Blur sizes finish', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = await openApp(page);
+  const r = await page.evaluate(async () => {
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('node.new_compositing_node_group');
+    const T = await import('/src/nodes/tree.ts');
+    const D = await import('/src/compositor/data.ts');
+    const RUN = await import('/src/compositor/run.ts');
+    const { newImage } = await import('/src/data/defaults.ts');
+    const img = newImage('small', 64, 64, 'UV_GRID');
+    a.doc.images[img.id] = img;
+    const out: Record<string, unknown> = {};
+    for (const [type, inputs] of [
+      ['CompositorNodeBokehBlur', { Size: 1e6 }],
+      ['CompositorNodeBlur', { Size: [4000, 4000], Separable: false }],
+    ] as const) {
+      const t = D.compositingGroup(a.doc)!.tree;
+      t.nodes = [];
+      t.links = [];
+      const ctx = T.ctxOf(a.doc, t);
+      const src = T.addNode(t, 'CompositorNodeImage', [-300, 0], { image: img.id });
+      const n = T.addNode(t, type, [0, 0]);
+      Object.assign(n.inputs, inputs);
+      const v = T.addNode(t, 'CompositorNodeViewer', [300, 0]);
+      T.connect(ctx, src.id, 'Image', n.id, 'Image');
+      T.connect(ctx, n.id, 'Image', v.id, 'Image');
+      const t0 = performance.now();
+      const res = RUN.runCompositor(a.doc, { layers: null, composite: false, viewer: true, viewerNode: v.id });
+      const finite = !!res.viewer && res.viewer.data.every((x) => Number.isFinite(x));
+      out[type] = { finite, error: res.error ?? null, slow: performance.now() - t0 > 30000 };
+    }
+    return out;
+  });
+  expect(r).toEqual({
+    CompositorNodeBokehBlur: { finite: true, error: null, slow: false },
+    CompositorNodeBlur: { finite: true, error: null, slow: false },
+  });
+  await expectNoErrors(errors);
+});

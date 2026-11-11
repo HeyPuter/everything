@@ -77,6 +77,9 @@ void main() {
   o0 = acc;
 }`;
 
+/** Gather loops wider than this sample every few pixels so huge sizes cannot hang the GPU. */
+const MAX_TAP_RADIUS = 64;
+
 const BLUR_2D = `
 uniform sampler2D u_src;
 uniform sampler2D u_kx;
@@ -87,11 +90,13 @@ layout(location = 0) out vec4 o0;
 void main() {
   int nx = textureSize(u_kx, 0).x, ny = textureSize(u_ky, 0).x;
   int rx = nx / 2, ry = ny / 2;
+  // large kernels are sampled every few pixels (at most ${2 * MAX_TAP_RADIUS + 1} taps per axis)
+  int sx = max(1, (rx + ${MAX_TAP_RADIUS - 1}) / ${MAX_TAP_RADIUS}), sy = max(1, (ry + ${MAX_TAP_RADIUS - 1}) / ${MAX_TAP_RADIUS});
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 acc = vec4(0.0);
   float wsum = 0.0;
-  for (int j = 0; j < ny; j++)
-    for (int i = 0; i < nx; i++) {
+  for (int j = ry - (ry / sy) * sy; j < ny; j += sy)
+    for (int i = rx - (rx / sx) * sx; i < nx; i += sx) {
       vec2 o = vec2(float(i - rx), float(j - ry)) / max(u_radius, vec2(1e-6));
       // circular support (slightly beyond the radius so the axes keep their full extent)
       if (dot(o, o) > (1.0 + 0.5 / max(u_radius.x, 1.0)) * (1.0 + 0.5 / max(u_radius.y, 1.0))) continue;
@@ -191,7 +196,8 @@ void main() {
 registerExec('CompositorNodeBilateralblur', (x) => {
   const r = x.input('Image');
   if (!r.domain) return x.out('Image', r);
-  const radius = Math.max(0, Math.round(x.num('Size')));
+  // the gather loop is (2r+1)² per pixel: large sizes would hang the GPU (128 as in Blender's old Iterations range)
+  const radius = Math.min(128, Math.max(0, Math.round(x.num('Size'))));
   if (!radius) return x.out('Image', r);
   const t = x.alloc(r.domain);
   const det = x.input('Determinator');
@@ -220,10 +226,14 @@ void main() {
   float rad = u_radius * clamp(cmpPx(u_mask).r, 0.0, 1.0);
   int r = int(ceil(rad));
   if (r < 1) { o0 = cmpPx(u_src); return; }
+  // large radii are sampled every few pixels (at most ${2 * MAX_TAP_RADIUS + 1} taps per axis)
+  int s = max(1, (r + ${MAX_TAP_RADIUS - 1}) / ${MAX_TAP_RADIUS});
+  int k = r / s;
   vec4 acc = vec4(0.0);
   vec4 wsum = vec4(0.0);
-  for (int j = -r; j <= r; j++)
-    for (int i = -r; i <= r; i++) {
+  for (int jj = -k; jj <= k; jj++)
+    for (int ii = -k; ii <= k; ii++) {
+      int i = ii * s, j = jj * s;
       vec2 uv = (vec2(i, j) / rad) * 0.5 + 0.5;
       if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) continue;
       vec4 w = cmpSampleUV(u_bokeh, uv);
@@ -238,7 +248,7 @@ void main() {
 registerExec('CompositorNodeBokehBlur', (x) => {
   const r = x.input('Image');
   if (!r.domain) return x.out('Image', r);
-  const size = Math.max(0, x.num('Size'));
+  const size = Math.min(Math.max(0, x.num('Size')), 256);
   if (size <= 0) return x.out('Image', r);
   let d = r.domain;
   let src = r.tex!;
@@ -253,7 +263,7 @@ registerExec('CompositorNodeBokehBlur', (x) => {
     u_src: src,
     u_bokeh: bokeh.domain ? bokeh.tex! : x.ev.tex(bokeh),
     u_mask: mask.domain ? x.ev.realize(mask, d) : x.ev.tex(mask),
-    u_radius: Math.min(size, 256),
+    u_radius: size,
     u_ext: 1,
   });
   x.out('Image', Result.image('RGBA', t, d));

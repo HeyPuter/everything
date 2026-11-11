@@ -224,7 +224,7 @@ export abstract class AnimEditor implements Editor {
     grip.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       const x0 = e.clientX,
-        w0 = this.chWidth;
+        w0 = this.channelWidth();
       const move = (ev: PointerEvent) => {
         this.chWidth = Math.max(80, Math.min(600, w0 + ev.clientX - x0));
         this.layout();
@@ -429,8 +429,14 @@ export abstract class AnimEditor implements Editor {
     this.disposed = true;
   }
 
+  /** Width the channel list gets: the chosen width, but at most about half of a narrow editor (phones). */
+  channelWidth() {
+    const w = this.el.clientWidth;
+    return w > 0 ? Math.max(80, Math.min(this.chWidth, Math.floor(w * 0.45))) : this.chWidth;
+  }
+
   layout() {
-    this.chEl.style.width = `${this.chWidth}px`;
+    this.chEl.style.width = `${this.channelWidth()}px`;
     this.chEl.style.display = this.showChannels ? '' : 'none';
     this.sbEl.hidden = !this.showSidebar || !this.sidebarTabs().length;
   }

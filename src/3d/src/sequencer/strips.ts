@@ -571,10 +571,11 @@ export function freeChannel(list: Strip[], start: number, end: number, from = 1,
  * OVERWRITE trims/removes the strips underneath, EXPAND pushes later strips to the right.
  * Returns strips removed from the list (OVERWRITE).
  */
-export function resolveOverlap(list: Strip[], moved: Strip[], mode: SequencerToolSettings['overlap_mode']): Strip[] {
+export function resolveOverlap(list: Strip[], moved: Strip[], mode: SequencerToolSettings['overlap_mode'], root: { strips: Strip[] } = { strips: list }): Strip[] {
   const set = new Set(moved);
   const removed: Strip[] = [];
   if (mode === 'OVERWRITE') {
+    let taken: Set<string> | null = null;
     for (const m of moved) {
       const a = finalStart(m),
         b = finalEnd(m);
@@ -588,7 +589,24 @@ export function resolveOverlap(list: Strip[], moved: Strip[], mode: SequencerToo
           removed.push(o);
         } else if (oa < a && ob > b) {
           // split around the overwriting strip
-          const right = cloneStrip(o, o.name + '.R');
+          taken ??= new Set(allStrips(root.strips).map((x) => x.name));
+          const name = uniqueName(root, o.name, taken);
+          taken.add(name);
+          const right = cloneStrip(o, name);
+          // a meta's copied children need names of their own too (their effects follow)
+          const kids = right.strips ? allStrips(right.strips) : [];
+          const renamed = new Map<string, string>();
+          for (const k of kids) {
+            const nn = uniqueName(root, k.name, taken);
+            taken.add(nn);
+            renamed.set(k.name, nn);
+            k.name = nn;
+          }
+          for (const k of kids) {
+            if (k.input_1 && renamed.has(k.input_1)) k.input_1 = renamed.get(k.input_1)!;
+            if (k.input_2 && renamed.has(k.input_2)) k.input_2 = renamed.get(k.input_2)!;
+            if (k.connections) k.connections = k.connections.map((n) => renamed.get(n) ?? n);
+          }
           setRightHandle(o, a);
           setLeftHandle(right, b);
           list.push(right);
@@ -655,9 +673,8 @@ export function cloneStrip(s: Strip, name: string): Strip {
  * hard split cuts the content (animation offsets). Effects whose inputs are split are split too and
  * re-linked to the right halves. Returns the new right-hand strips.
  */
-export function splitStrips(ed: { strips: Strip[] }, list: Strip[], targets: Strip[], frame: number, type: 'SOFT' | 'HARD'): Strip[] {
+export function splitStrips(ed: { strips: Strip[] }, list: Strip[], targets: Strip[], frame: number, type: 'SOFT' | 'HARD', taken: Set<string> = new Set(allStrips(ed.strips).map((s) => s.name))): Strip[] {
   frame = Math.round(frame);
-  const taken = new Set(allStrips(ed.strips).map((s) => s.name));
   const renamed = new Map<string, string>();
   const out: Strip[] = [];
   const cut = targets.filter((s) => !inputCount(s.type) && finalStart(s) < frame && finalEnd(s) > frame);
@@ -683,17 +700,20 @@ export function splitStrips(ed: { strips: Strip[] }, list: Strip[], targets: Str
     }
     if (r.strips) {
       // meta: children are split as well
-      const kids = r.strips;
+      // (split together with one shared name set, so the right halves get distinct names)
+      const kids = [...r.strips];
       r.strips = [];
       const leftKids: Strip[] = [];
+      const crossing: Strip[] = [];
       for (const k of kids) {
         if (finalEnd(k) <= frame) leftKids.push(k);
         else if (finalStart(k) >= frame) r.strips.push(k);
         else {
           leftKids.push(k);
-          r.strips.push(...splitStrips(ed, kids, [k], frame, type));
+          crossing.push(k);
         }
       }
+      if (crossing.length) r.strips.push(...splitStrips(ed, kids, crossing, frame, type, taken));
       s.strips = leftKids;
       // children of the right copy that were cloned need unique names
       for (const k of r.strips)
@@ -810,9 +830,10 @@ export function gapInsert(list: Strip[], frame: number, frames: number) {
 
 export function makeMeta(ed: SequenceEditor, list: Strip[], members: Strip[]): Strip | null {
   if (!members.length) return null;
+  members = [...new Set(members)];
   // effects need their inputs inside the meta too
   const names = new Set(members.map((s) => s.name));
-  for (const e of dependentEffects(list, names)) if (list.includes(e)) members.push(e);
+  for (const e of dependentEffects(list, names)) if (list.includes(e) && !members.includes(e)) members.push(e);
   const set = new Set(members);
   for (const s of members) for (const i of effectInputs(list, s)) if (!set.has(i) && list.includes(i)) members.push(i), set.add(i);
   const channel = Math.min(...members.map((s) => s.channel));
@@ -830,7 +851,7 @@ export function makeMeta(ed: SequenceEditor, list: Strip[], members: Strip[]): S
 }
 
 /** Move a meta strip's children back into `list` (children outside the meta range are trimmed). */
-export function separateMeta(list: Strip[], meta: Strip, overlapMode: SequencerToolSettings['overlap_mode'] = 'SHUFFLE'): Strip[] {
+export function separateMeta(list: Strip[], meta: Strip, overlapMode: SequencerToolSettings['overlap_mode'] = 'SHUFFLE', root: { strips: Strip[] } = { strips: list }): Strip[] {
   const kids = meta.strips ?? [];
   list.splice(list.indexOf(meta), 1);
   const a = finalStart(meta),
@@ -847,7 +868,7 @@ export function separateMeta(list: Strip[], meta: Strip, overlapMode: SequencerT
     out.push(k);
   }
   updateEffectRanges(list);
-  resolveOverlap(list, out, overlapMode);
+  resolveOverlap(list, out, overlapMode, root);
   return out;
 }
 

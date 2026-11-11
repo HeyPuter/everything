@@ -180,6 +180,19 @@ export function transformGizmo(v: View3D): VNode | null {
   return h('g', { class: 'transform-gizmo' }, parts);
 }
 
+/** A gizmo drag confirms when its pointer is released and cancels when the system takes the pointer. */
+function endDragWithPointer(e: PointerEvent) {
+  const modal = app.modal;
+  const end = (pe: PointerEvent) => {
+    if (pe.pointerId !== e.pointerId) return;
+    removeEventListener('pointerup', end, true);
+    removeEventListener('pointercancel', end, true);
+    if (app.modal && app.modal === modal) app.endModal(pe.type === 'pointercancel' ? 'CANCELLED' : 'FINISHED');
+  };
+  addEventListener('pointerup', end, true);
+  addEventListener('pointercancel', end, true);
+}
+
 export function gizmoPointerDown(v: View3D, e: PointerEvent): boolean {
   const t = e.target as Element;
   const g = t.closest?.('[data-gizmo]') as SVGElement | null;
@@ -194,14 +207,7 @@ export function gizmoPointerDown(v: View3D, e: PointerEvent): boolean {
   const ev = { x: e.clientX, y: e.clientY };
   const mode = kind === 'move' || kind === 'plane' || kind === 'view' ? 'TRANSLATION' : kind === 'scale' || kind === 'scaleplane' ? 'RESIZE' : kind === 'trackball' ? 'TRACKBALL' : 'ROTATION';
   const orient = gizmoOrientation(mode === 'RESIZE' ? 'scale' : mode === 'ROTATION' || mode === 'TRACKBALL' ? 'rotate' : 'move');
-  if (startTransform(mode, { constraint, event: ev, release_confirm: true, orient, redoSelf: true })) {
-    const up = (pe: PointerEvent) => {
-      removeEventListener('pointerup', up, true);
-      if (app.modal) app.endModal('FINISHED');
-      void pe;
-    };
-    addEventListener('pointerup', up, true);
-  }
+  if (startTransform(mode, { constraint, event: ev, release_confirm: true, orient, redoSelf: true })) endDragWithPointer(e);
   void transformProviders;
   return true;
 }
@@ -286,13 +292,7 @@ function cagePointerDown(v: View3D, e: PointerEvent, id: string): boolean {
   e.stopPropagation();
   const center = f.at(-ix, -iy, -iz);
   const constraint = [ix !== 0, iy !== 0, iz !== 0];
-  if (startTransform('RESIZE', { constraint, center, event: { x: e.clientX, y: e.clientY }, release_confirm: true, orient: gizmoOrientation('scale'), label: 'Scale Cage' })) {
-    const up = () => {
-      removeEventListener('pointerup', up, true);
-      if (app.modal) app.endModal('FINISHED');
-    };
-    addEventListener('pointerup', up, true);
-  }
+  if (startTransform('RESIZE', { constraint, center, event: { x: e.clientX, y: e.clientY }, release_confirm: true, orient: gizmoOrientation('scale'), label: 'Scale Cage' })) endDragWithPointer(e);
   void v;
   return true;
 }

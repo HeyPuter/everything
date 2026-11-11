@@ -346,3 +346,33 @@ test('Relocate a library to another file, pack it into the project', async ({ pa
   await expect.poll(() => page.evaluate(() => (Object.values((window as any).app.doc.libraries) as any[])[0].packed_file?.length ?? 0)).toBeGreaterThan(0);
   await expectNoErrors(errors);
 });
+
+test('File > Append on a phone keeps the file list visible', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  const errors = await openApp(page);
+  await page.evaluate(() => (window as any).app.run('wm.append'));
+  const center = page.locator('.library-browser .lb-center');
+  await expect(center).toBeVisible();
+  const box = (await center.boundingBox())!;
+  expect(box.width).toBeGreaterThan(250);
+  expect(box.height).toBeGreaterThan(100);
+  await expect(page.locator('.library-browser .lb-side')).toBeVisible();
+  await expect(page.locator('.library-browser .lb-opts')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});
+
+test('a file that cannot be read for linking is reported and not kept in the library store', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => (window as any).app.run('wm.link'));
+  const dlg = page.locator('.lb');
+  const chooser = page.waitForEvent('filechooser');
+  await dlg.locator('.fb-side-item', { hasText: 'Choose File' }).click();
+  await (await chooser).setFiles({ name: 'broken.p3d', mimeType: 'application/octet-stream', buffer: Buffer.from('P3D\0garbagegarbage') });
+  await expect(dlg.locator('.lb-center')).toContainText(/damaged|newer version|truncated/);
+  const stored = await page.evaluate(async () => (await (await import('/src/library/store.ts')).listStored()).map((e: any) => e.name));
+  expect(stored).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

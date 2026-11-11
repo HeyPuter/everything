@@ -60,12 +60,16 @@ export function setNormalsFromFaces(m: MeshEdit, keepSharp: boolean) {
   ensureCustomNormals(m);
   const corners = selectedCorners(m);
   const fsel = new Set(m.selectedFaces());
+  const vf = m.vertexFaces();
   for (const [v, cs] of byVertex(m, corners)) {
     // average of the selected faces around the vertex (all faces when keeping sharp edges is off)
     const sum = new Vector3();
-    m.faces.forEach((f, fi) => {
-      if (f.verts.includes(v) && fsel.has(fi)) sum.add(V(m.faceNormal(f)));
-    });
+    let prev = -1;
+    for (const fi of vf[v]) {
+      // a face listing the vertex twice counts once
+      if (fi !== prev && fsel.has(fi)) sum.add(V(m.faceNormal(m.faces[fi])));
+      prev = fi;
+    }
     for (const [fi, c] of cs) {
       const n = keepSharp && m.faces[fi].sharp.some(Boolean) ? V(m.faceNormal(m.faces[fi])) : sum.lengthSq() ? sum.clone() : V(m.faceNormal(m.faces[fi]));
       setN(m, fi, c, n);

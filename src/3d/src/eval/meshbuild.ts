@@ -16,6 +16,9 @@ export class MeshBuilder {
   sharp: number[] | null = null;
   creases: number[] | null = null;
   weights: number[][] | null = null;
+  /** loose edges as vertex pairs (repeated and collapsed ones are skipped) */
+  loose: number[] = [];
+  private looseKeys = new Set<number>();
 
   constructor(groupCount = 0, withColors = false) {
     if (groupCount) this.weights = Array.from({ length: groupCount }, () => []);
@@ -46,6 +49,16 @@ export class MeshBuilder {
     this.mat.push(mat);
   }
 
+  addLooseEdge(a: number, b: number) {
+    if (a === b || !(a >= 0) || !(b >= 0)) return;
+    const lo = a < b ? a : b,
+      hi = a < b ? b : a;
+    const key = lo * 4294967296 + hi;
+    if (this.looseKeys.has(key)) return;
+    this.looseKeys.add(key);
+    this.loose.push(lo, hi);
+  }
+
   build(base?: Partial<EvalMesh>): EvalMesh {
     const positions = new Float32Array(this.pos);
     const offsets = new Uint32Array(this.offsets),
@@ -74,12 +87,18 @@ export class MeshBuilder {
       vertex_groups: base?.vertex_groups,
       auto_smooth_angle: base?.auto_smooth_angle,
       instances: base?.instances,
-      looseEdges: undefined,
+      looseEdges: this.loose.length ? new Uint32Array(this.loose) : undefined,
     };
   }
 }
 
-/** Copy all faces of a mesh into a builder with a vertex remap and optional reversal. */
+/** Copy a mesh's loose edges into a builder through a vertex remap (identity when omitted). */
+export function appendLooseEdges(b: MeshBuilder, m: EvalMesh, vmap?: ArrayLike<number>) {
+  const l = m.looseEdges;
+  if (l) for (let i = 0; i + 1 < l.length; i += 2) b.addLooseEdge(vmap ? vmap[l[i]] : l[i], vmap ? vmap[l[i + 1]] : l[i + 1]);
+}
+
+/** Copy all faces (and loose edges) of a mesh into a builder with a vertex remap and optional reversal. */
 export function appendMesh(b: MeshBuilder, m: EvalMesh, vmap: ArrayLike<number>, reverse = false) {
   const nf = m.offsets.length - 1;
   for (let f = 0; f < nf; f++) {
@@ -112,6 +131,7 @@ export function appendMesh(b: MeshBuilder, m: EvalMesh, vmap: ArrayLike<number>,
       colors: m.colors ? colors : undefined,
     });
   }
+  appendLooseEdges(b, m, vmap);
 }
 
 export function weightsOf(m: EvalMesh, v: number): number[] | undefined {

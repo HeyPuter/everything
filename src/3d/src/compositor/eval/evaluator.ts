@@ -402,7 +402,11 @@ export class NodeCtx {
   }
 
   prop(id: string): SocketValue {
-    return propValue(this.node, id);
+    const v = propValue(this.node, id);
+    // unknown enum values (newer or damaged files) fall back to the default
+    const raw = this.node.props[id];
+    if (raw !== undefined && raw !== v) this.error(`Unknown ${id} "${String(raw)}", using "${String(v)}"`);
+    return v;
   }
 
   str(id: string): string {

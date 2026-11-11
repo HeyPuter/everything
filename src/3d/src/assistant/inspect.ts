@@ -210,22 +210,26 @@ export class Inspector {
     return lines.join('\n');
   }
 
-  collectionsText(): string {
+  /** The collection tree, up to `limit` collections. */
+  collectionsText(limit = 300): string {
     const d = this.doc;
     const root = d.collections[d.scene.collection];
     if (!root) return '';
     const lines: string[] = [];
+    let more = 0;
     const walk = (c: CollectionData, depth: number, seen: Set<string>) => {
       if (seen.has(c.id)) return;
       seen.add(c.id);
       const flags = [c.exclude && 'excluded', c.hide_viewport && 'disabled in viewports', c.hide && 'hidden', c.hide_render && 'hidden in renders'].filter(Boolean);
-      if (depth > 0) lines.push(`${'  '.repeat(depth - 1)}- ${q(c.name)}: ${c.objects.length} object${c.objects.length === 1 ? '' : 's'}${flags.length ? ` (${flags.join(', ')})` : ''}`);
+      if (depth > 0 && lines.length >= limit) more++;
+      else if (depth > 0) lines.push(`${'  '.repeat(depth - 1)}- ${q(c.name)}: ${c.objects.length} object${c.objects.length === 1 ? '' : 's'}${flags.length ? ` (${flags.join(', ')})` : ''}`);
       for (const id of c.children) {
         const ch = d.collections[id];
         if (ch) walk(ch, depth + 1, seen);
       }
     };
     walk(root, 0, new Set());
+    if (more) lines.push(`… and ${more} more collection${more === 1 ? '' : 's'}; use ${limit < 300 ? 'get_scene or ' : ''}a script to list them.`);
     const loose = root.objects.length;
     return lines.length || loose ? `Collections${loose ? ` (${loose} object${loose === 1 ? '' : 's'} directly in the scene collection)` : ''}:\n${lines.join('\n')}`.trimEnd() : '';
   }
@@ -234,7 +238,7 @@ export class Inspector {
   snapshot(extra: string[] = []): string {
     this.settle();
     const mats = Object.values(this.doc.materials).filter((m) => !m.grease_pencil);
-    const parts = [this.sceneHeader(), this.modeLine(), ...extra, this.objectsText(60), this.collectionsText()];
+    const parts = [this.sceneHeader(), this.modeLine(), ...extra, this.objectsText(60), this.collectionsText(40)];
     if (mats.length) parts.push(`Materials (${mats.length}): ${mats.slice(0, 40).map((m) => q(m.name)).join(', ')}${mats.length > 40 ? ', …' : ''}`);
     return parts.filter(Boolean).join('\n');
   }

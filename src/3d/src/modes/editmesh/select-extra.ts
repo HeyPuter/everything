@@ -9,7 +9,7 @@ import { MeshEdit, edgeKey } from './meshedit';
 import { editMeshObjects, ensureSelection, selectMode, active, selectHistory, pushSelectHistory, worldMatrix } from './context';
 import { editPoll } from './ops-basic';
 import { V, faceEdgeKeys, vertexNormals, edgeChains } from './geom';
-import { edgeLoop, edgeRing } from './select';
+import { edgeLoopsOf } from './select';
 import { selectFaces as selectFaceSet } from './selset';
 
 type SelFn = (me: MeshData, m: MeshEdit, sel: Uint8Array) => void;
@@ -511,7 +511,7 @@ registerOperators([
     label: 'Multi Select Loops',
     description: 'Select the edge loops of all selected edges',
     poll: editPoll,
-    exec: () => eachSel((me, m, sel) => m.selectedEdges().forEach(([a, b]) => edgeLoop(me, a, b).forEach(([x, y]) => (sel[x] = sel[y] = 1)))),
+    exec: () => eachSel((me, m, sel) => edgeLoopsOf(me, m.selectedEdges(), false).forEach(([x, y]) => (sel[x] = sel[y] = 1))),
   },
   {
     idname: 'mesh.select_edge_ring_multi',
@@ -522,7 +522,7 @@ registerOperators([
       eachSel((me, m, sel) => {
         const edges = m.selectedEdges();
         sel.fill(0);
-        edges.forEach(([a, b]) => edgeRing(me, a, b).forEach(([x, y]) => (sel[x] = sel[y] = 1)));
+        edgeLoopsOf(me, edges, true).forEach(([x, y]) => (sel[x] = sel[y] = 1));
       }),
   },
   {

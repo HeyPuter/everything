@@ -200,8 +200,8 @@ function fileOf(ctx: ExecContext): Uint8Array | null {
   return f.bytes;
 }
 
-const fileSig = (node: NodeData, env: { doc: DocumentData }) => {
-  const p = node.inputs.Path;
+const fileSig = (_node: NodeData, env: { doc: DocumentData }, ref: (input: string) => string | null) => {
+  const p = ref('Path');
   const f = typeof p === 'string' ? packedFile(env.doc, p) : null;
   return f ? `${f.id}:${f.bytes.length}` : '-';
 };

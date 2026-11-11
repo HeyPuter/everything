@@ -15,6 +15,7 @@ import { renderContext } from '../../render/context';
 import { h } from '../../ui/h';
 import { editModeHooks } from '../../editors/view3d/hooks';
 import type { MeshData } from '../../data/types';
+import { ensureMeshSize, meshEditCorners, MeshTooLargeError } from '../../mesh/limits';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
 
@@ -511,7 +512,8 @@ function bridgePair(m: MeshEdit, A: { verts: number[]; closed: boolean }, B: { v
   }
   const twist = o.twist ?? 0;
   const bvRaw = best.rev ? [...B.verts].reverse() : B.verts;
-  const bv = A.verts.map((_, i) => bvRaw[(i + best.off + twist + n * 4) % n]);
+  // any twist (the operator allows ±1000) wraps around the loop
+  const bv = A.verts.map((_, i) => bvRaw[(((i + best.off + twist) % n) + n) % n]);
   if (o.merge) {
     // merge the loops at a point between them
     const t = o.mergeFactor ?? 0.5;
@@ -526,6 +528,7 @@ function bridgePair(m: MeshEdit, A: { verts: number[]; closed: boolean }, B: { v
   }
   // rows of vertices from loop A to loop B (intermediate rows for the cuts)
   const cuts = Math.max(0, o.cuts ?? 0);
+  ensureMeshSize('Bridge Edge Loops', meshEditCorners(m) + n * (cuts + 1) * 4, m.vcount + n * cuts);
   const rows: number[][] = [A.verts];
   const smooth = (o.interpolation ?? 'PATH') !== 'LINEAR' ? o.smoothness ?? 1 : 0;
   // the loops' axis, from A towards B
@@ -899,12 +902,24 @@ function startBevelModal(p: Record<string, unknown>) {
   let lastDist = d0;
   let precise = false;
   let snapOn = false;
+  let good = { ...st };
   const apply = () => {
-    for (const sn of snaps) {
-      const c = sn.m.clone();
-      applyBevel(c, st);
-      c.write(sn.me);
+    let done: MeshEdit[];
+    try {
+      done = snaps.map((sn) => {
+        const c = sn.m.clone();
+        applyBevel(c, st);
+        return c;
+      });
+    } catch (e) {
+      // too many segments for memory: keep the last result and its settings
+      if (!(e instanceof MeshTooLargeError)) throw e;
+      app.report('WARNING', e.message);
+      Object.assign(st, good);
+      return;
     }
+    done.forEach((c, i) => c.write(snaps[i].me));
+    good = { ...st };
     app.changed('geometry');
   };
   const applyTyped = () => {
@@ -1021,6 +1036,9 @@ export function spin(m: MeshEdit, steps: number, angle: number, center: Vector3,
   }
   const faceEdges = new Set(count.keys());
   const profileEdges: [number, number][] = [...[...count.entries()].filter(([, c]) => c === 1).map(([k]) => k.split(':').map(Number) as [number, number]), ...selEdges.filter(([a, b]) => !faceEdges.has(edgeKey(a, b)))];
+  let selCorners = 0;
+  for (const fi of fsel) selCorners += m.faces[fi].verts.length;
+  ensureMeshSize(dupli ? 'Spin Duplicates' : 'Spin', meshEditCorners(m) + steps * (profileEdges.length * 4 + (dupli ? selCorners : 0)) + 2 * selCorners, m.vcount + steps * profileVerts.length);
   const full = Math.abs(Math.abs(angle) - Math.PI * 2) < 1e-4;
   const merge = !dupli && full && !!opts.autoMerge;
   const first = new Map(profileVerts.map((v) => [v, v]));

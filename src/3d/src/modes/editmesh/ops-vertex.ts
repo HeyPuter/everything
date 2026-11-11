@@ -117,19 +117,33 @@ export function symmetrySnap(m: MeshEdit, direction: string, threshold: number, 
   const done = new Set<number>();
   const src = sel.filter((v) => m.pos[v * 3 + axis] * srcSign > threshold);
   const dst = sel.filter((v) => m.pos[v * 3 + axis] * srcSign < -threshold);
+  // destinations bucketed by cells of the threshold size: only the 27 cells around a mirrored
+  // source can hold a match (comparing every pair was O(sources x destinations))
+  const cell = Math.max(threshold, 1e-6);
+  const cellOf = (x: number, y: number, z: number) => [Math.floor(x / cell), Math.floor(y / cell), Math.floor(z / cell)];
+  const buckets = new Map<string, number[]>();
+  for (const d of dst) {
+    const k = cellOf(m.pos[d * 3], m.pos[d * 3 + 1], m.pos[d * 3 + 2]).join(',');
+    (buckets.get(k) ?? buckets.set(k, []).get(k)!).push(d);
+  }
   for (const s of src) {
     const ps = V(m.p(s));
     const target = mirror(ps);
     let best = -1,
       bd = threshold;
-    for (const d of dst) {
-      if (done.has(d)) continue;
-      const dist = V(m.p(d)).distanceTo(target);
-      if (dist <= bd) {
-        bd = dist;
-        best = d;
-      }
-    }
+    const [cx, cy, cz] = cellOf(target.x, target.y, target.z);
+    for (let i = -1; i <= 1; i++)
+      for (let j = -1; j <= 1; j++)
+        for (let k = -1; k <= 1; k++)
+          for (const d of buckets.get(`${cx + i},${cy + j},${cz + k}`) ?? []) {
+            if (done.has(d)) continue;
+            const dist = V(m.p(d)).distanceTo(target);
+            // ties go to the later vertex, as when scanning all destinations in order
+            if (dist < bd || (dist === bd && d > best)) {
+              bd = dist;
+              best = d;
+            }
+          }
     if (best < 0) continue;
     done.add(best);
     if (bd < 1e-7) {

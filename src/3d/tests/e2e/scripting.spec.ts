@@ -101,3 +101,54 @@ test('a script menu opens with wm.call_menu and runs its operator', async ({ pag
   expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(before + 1);
   await expectNoErrors(errors);
 });
+
+test('printing past the scrollback limit adds each line to the console once', async ({ page }) => {
+  const errors = await openApp(page);
+  await scriptingWorkspace(page);
+  const lines = page.locator('.py-console .pc-line');
+  await expect(lines.first()).toBeVisible();
+  // count the line elements the console creates while a script prints 5100 lines (scrollback: 5000)
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__added = 0;
+    new MutationObserver((records) => {
+      for (const r of records) w.__added += r.addedNodes.length;
+    }).observe(document.querySelector('.py-console .pc-lines')!, { childList: true });
+  });
+  await consoleLine(page, "for (let i = 0; i < 5100; i++) print('line ' + i)");
+  await expect(lines.last()).toHaveText('line 5099');
+  await expect(lines).toHaveCount(5000);
+  // with a full scrollback the console used to redraw all 5000 lines for every printed line (minutes for a few thousand)
+  expect(await page.evaluate(() => (window as any).__added)).toBeLessThan(5200);
+  await consoleLine(page, "print('after')");
+  await expect(lines.last()).toHaveText('after');
+  await expect(lines).toHaveCount(5000);
+  await expectNoErrors(errors);
+});
+
+test('lines typed while the Python runtime fails to load are reported once, not downloaded for each', async ({ page }) => {
+  await openApp(page);
+  let fetches = 0;
+  await page.route(/cdn\.jsdelivr\.net\/pyodide/, async (route) => {
+    fetches++;
+    await new Promise((r) => setTimeout(r, 800));
+    await route.abort();
+  });
+  await page.locator('.ws-tab', { hasText: 'Scripting' }).first().click();
+  await page.waitForTimeout(300);
+  const input = page.locator('.py-console').first().locator('.pc-input');
+  await input.click();
+  for (const line of ['a = 1', 'b = 2', 'print(a + b)']) {
+    await input.fill(line);
+    await input.press('Enter');
+  }
+  const lines = page.locator('.py-console .pc-line');
+  await expect(lines.filter({ hasText: 'not run' })).toHaveCount(1);
+  await page.waitForTimeout(1500);
+  await expect(lines.filter({ hasText: 'Could not load the Python runtime' })).toHaveCount(1);
+  expect(fetches).toBe(1);
+  // the next line tries again
+  await input.fill('a = 1');
+  await input.press('Enter');
+  await expect(lines.filter({ hasText: 'Could not load the Python runtime' })).toHaveCount(2);
+});

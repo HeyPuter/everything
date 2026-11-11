@@ -12,7 +12,8 @@ export interface FormatHandler {
   label: string;
   /** file extensions, e.g. ['.glb', '.gltf'] */
   extensions: string[];
-  import?: (file: File) => Promise<void>;
+  /** `companions`: other files given along with it (e.g. dropped together) it may need */
+  import?: (file: File, companions?: File[]) => Promise<void>;
   /** Optional: replace the whole document (File ▸ Open). Without it Open falls back to `import`. */
   open?: (file: File) => Promise<void>;
   export?: (opts: { selectedOnly: boolean }) => Promise<{ bytes: Uint8Array | string; mime: string; ext: string }>;
@@ -83,14 +84,21 @@ function status(s: string) {
   statusFn(s);
 }
 
-export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
+/** Whether some format (or the project / legacy readers) opens this file by its name. */
+export function isReadableFile(name: string) {
+  const n = name.toLowerCase();
+  return n.endsWith('.p3d') || n.endsWith('.json') || formats.some((f) => f.import && f.extensions.some((x) => n.endsWith(x)));
+}
+
+export async function openFile(file: File, mode: 'open' | 'import' = 'open', companions: File[] = []) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  if (mode === 'open') fileEvents.saveTarget = null;
   const name = file.name.toLowerCase();
   try {
     if (isNativeFile(bytes)) {
       const { doc, extra } = decodeDocument(bytes);
-      if (mode === 'open') fileEvents.beforeReplace('Before Opening a File');
+      fileEvents.beforeReplace('Before Opening a File');
+      // the save target belongs to the replaced file (a file that fails to open keeps it)
+      fileEvents.saveTarget = null;
       app.setDocument(doc);
       app.filename = file.name;
       // Preferences ▸ Save & Load ▸ Load UI
@@ -100,6 +108,7 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
     } else if (name.endsWith('.json') || name.endsWith('.3d.json')) {
       const doc = importLegacyScene(new TextDecoder().decode(bytes));
       fileEvents.beforeReplace('Before Opening a File');
+      fileEvents.saveTarget = null;
       app.setDocument(doc);
       app.filename = file.name.replace(/\.3d\.json$|\.json$/i, '.p3d');
       app.report('INFO', `Imported legacy scene "${file.name}"`);
@@ -109,14 +118,17 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
       if (mode === 'open' && handler.open) {
         fileEvents.beforeReplace('Before Opening a File');
         await handler.open(file);
+        fileEvents.saveTarget = null;
         app.dirty = false;
         return;
       }
-      await handler.import!(file);
+      await handler.import!(file, companions);
       if (handler.handlesUndo) return;
+      // an import adds to the current file: it stays modified
       app.pushUndo(`Import ${handler.label}`);
       app.changed('doc');
       app.report('INFO', `Imported "${file.name}"`);
+      return;
     }
     app.dirty = false;
   } catch (e) {
@@ -125,21 +137,33 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
   }
 }
 
+/** A name without its file type extension (".blend", ".json", "model.glb"…); other dots ("v1.2") stay. */
+function stripFileExtension(name: string): string {
+  const lower = name.toLowerCase();
+  const known = ['.blend', '.3d.json', '.json', ...formats.flatMap((f) => f.extensions)];
+  const ext = known.find((x) => lower.endsWith(x.toLowerCase()) && lower.length > x.length) ?? (/\.blend\d+$/.exec(lower)?.[0] ?? '');
+  return ext ? name.slice(0, name.length - ext.length) : name;
+}
+
 /** Save the project (download). A copy leaves the current file name and modified state alone. */
 export function saveFile(name = app.filename, copy = false) {
   for (const f of fileEvents.beforeSave) f();
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
-  if (!name.toLowerCase().endsWith('.p3d')) name = `${name.replace(/\.[^.]+$/, '')}.p3d`;
+  if (!name.toLowerCase().endsWith('.p3d')) name = `${stripFileExtension(name)}.p3d`;
   const target = fileEvents.saveTarget;
   if (target && !copy && target.name === name) {
     // the file came from a writable folder: update it in place
+    // saved as of now: edits made while the file is being written mark it modified again
+    app.dirty = false;
     target.write(bytes).then(
       () => {
-        app.dirty = false;
         for (const f of fileEvents.saved) f(name, bytes);
         app.report('INFO', `Saved "${name}"`);
       },
-      (e) => app.report('ERROR', `Cannot save "${name}": ${e instanceof Error ? e.message : String(e)}`),
+      (e) => {
+        app.dirty = true;
+        app.report('ERROR', `Cannot save "${name}": ${e instanceof Error ? e.message : String(e)}`);
+      },
     );
     return;
   }

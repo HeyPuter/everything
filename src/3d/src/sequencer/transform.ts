@@ -84,7 +84,7 @@ export function slideBy(df: number, dc: number): boolean {
     else setRightHandle(a, finalStart(b));
   }
   afterEdit();
-  if (!handleMode) resolveOverlap(seqList(), targets, toolSettings().overlap_mode);
+  if (!handleMode) resolveOverlap(seqList(), targets, toolSettings().overlap_mode, seqEditor());
   afterEdit();
   restartPlayback();
   return true;
@@ -114,7 +114,7 @@ export function extendBy(df: number, frame: number, sideRight: boolean): boolean
     } else if (b <= frame) translateStrip(s, df);
     else setLeftHandle(s, a + df);
   }
-  resolveOverlap(list, targets, toolSettings().overlap_mode);
+  resolveOverlap(list, targets, toolSettings().overlap_mode, seqEditor());
   afterEdit();
   restartPlayback();
   return true;
@@ -226,7 +226,7 @@ export function startSlide(ed: SeqEditorLike, x0: number, y0: number, opts: Slid
     finish() {
       ed.invalid.clear();
       ed.snapLines = [];
-      if (!handleMode) resolveOverlap(list, targets, ts.overlap_mode);
+      if (!handleMode) resolveOverlap(list, targets, ts.overlap_mode, seqEditor());
       afterEdit();
       restartPlayback();
       handler.redoOp = { idname: opts.redoOp ?? 'transform.seq_slide', props: { value: [st.df, st.dc] } };
@@ -294,7 +294,7 @@ export function startExtend(ed: SeqEditorLike, x0: number): boolean {
       app.changed('doc');
     },
     finish() {
-      resolveOverlap(list, targets, toolSettings().overlap_mode);
+      resolveOverlap(list, targets, toolSettings().overlap_mode, seqEditor());
       afterEdit();
       restartPlayback();
       handler.redoOp = { idname: 'transform.transform', props: { mode: 'TIME_EXTEND', value: [st.df, 0, 0], frame: cur, side: sideRight ? 'RIGHT' : 'LEFT' } };
@@ -419,7 +419,7 @@ export function startRetimingKeyMove(ed: SeqEditorLike, s: Strip, index: number,
       app.changed('doc');
     },
     finish() {
-      resolveOverlap(seqList(), [s], toolSettings().overlap_mode);
+      resolveOverlap(seqList(), [s], toolSettings().overlap_mode, seqEditor());
       afterEdit();
       restartPlayback();
     },

@@ -81,7 +81,8 @@ export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, laye
       for (let i = a; i < e; i++) {
         wp.set(d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]).applyMatrix4(m);
         const p = v.project(wp);
-        scr.push([p.x * s, p.y * s, Math.max(0.6, d.radius[i] * scl * px * s)]);
+        // the width on screen at this point's own depth (strokes shrink with distance)
+        scr.push([p.x * s, p.y * s, Math.max(0.6, (d.radius[i] * scl * s) / pl.pixelSize(wp))]);
       }
       screenStrokes.push({ pts: scr.map((q) => [q[0], q[1]]), cyclic: !!d.cyclic[k] });
       pxPerWorld.push(px * s);

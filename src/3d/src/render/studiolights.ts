@@ -463,6 +463,12 @@ export function hdriEnvironment(renderer: WebGLRenderer, pmrem: PMREMGenerator |
   return rt.texture;
 }
 
+/** Forget every prefiltered HDRI (their GPU content is gone after a context loss). */
+export function dropHdriEnvironments() {
+  for (const rt of pmrems.values()) rt.dispose();
+  pmrems.clear();
+}
+
 export function dropHdriTextures(id: string) {
   equirects.get(id)?.dispose();
   equirects.delete(id);

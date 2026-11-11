@@ -50,7 +50,8 @@ export function uvLayers(fromView3D = false): EditLayer[] {
   const sync = !fromView3D && app.doc.scene.tool_settings.use_uv_select_sync;
   return app
     .editObjects()
-    .filter((o) => o.type === 'MESH' && o.data && app.doc.meshes[o.data])
+    // meshes without a UV map (its last one removed) have nothing to edit
+    .filter((o) => o.type === 'MESH' && o.data && app.doc.meshes[o.data] && app.doc.meshes[o.data].uvs.length === app.doc.meshes[o.data].indices.length * 2)
     .map((ob) => {
       const me = app.doc.meshes[ob.data!];
       return { ob, me, faces: visibleFaces(me, sync), sync, objectId: ob.id };

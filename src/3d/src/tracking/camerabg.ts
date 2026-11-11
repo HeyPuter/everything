@@ -50,7 +50,11 @@ function bgTexture(bg: CameraBackgroundImage): { tex: Texture; w: number; h: num
   if (!src) {
     if (!pending.has(clip.id)) {
       pending.add(clip.id);
-      void clipSource(clip)?.then(() => (pending.delete(clip.id), renderContext?.engine.requestDraw()));
+      // footage this browser cannot open stays blank (the failure is remembered by the source)
+      void clipSource(clip)?.then(
+        () => (pending.delete(clip.id), renderContext?.engine.requestDraw()),
+        () => pending.delete(clip.id),
+      );
     }
     return null;
   }
@@ -61,7 +65,10 @@ function bgTexture(bg: CameraBackgroundImage): { tex: Texture; w: number; h: num
     const k = src.key + idx;
     if (!pending.has(k)) {
       pending.add(k);
-      void src.get(idx).then(() => (pending.delete(k), renderContext?.engine.requestDraw()));
+      void src.get(idx).then(
+        () => (pending.delete(k), renderContext?.engine.requestDraw()),
+        () => pending.delete(k),
+      );
     }
     // keep showing the previous frame while the next one decodes
     const prev = clipTextures.get(clip.id);

@@ -7,6 +7,26 @@ import type { SocketContext, SocketDef, TreeType } from './types';
 
 export const ctxOf = (doc: DocumentData, tree: NodeTreeData): SocketContext => ({ doc, tree });
 
+/** Node fields that only affect how the editor draws a node, not what the tree computes. */
+const UI_ONLY = new Set(['location', 'width', 'select', 'hide', 'color', 'use_custom_color', 'parent', 'hidden_sockets', 'open_panels', 'hide_options', 'viewer_shortcut', 'show_preview']);
+
+/**
+ * JSON of what in a tree affects its result, for change keys: moving, selecting or collapsing
+ * nodes and panning the editor leave it unchanged.
+ */
+export function treeEvalJson(tree: NodeTreeData): string {
+  return JSON.stringify({
+    ...tree,
+    view: undefined,
+    active_node: undefined,
+    nodes: tree.nodes.map((n) => {
+      const o: Record<string, unknown> = {};
+      for (const k in n) if (!UI_ONLY.has(k)) o[k] = n[k as keyof NodeData];
+      return o;
+    }),
+  });
+}
+
 export function nodeById(tree: NodeTreeData, id: string) {
   return tree.nodes.find((n) => n.id === id);
 }

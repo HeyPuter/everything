@@ -112,6 +112,10 @@ export class TextEditor implements Editor {
   private gutter: HTMLElement;
   private content: HTMLElement;
   private pre: HTMLElement;
+  /** The rows of the highlight layer and the gutter as last drawn. */
+  private rowHtml: string[] = [];
+  private gutterHtml: string[] = [];
+  private curGutter: Element | null = null;
   private curLine: HTMLElement;
   private ta: HTMLTextAreaElement;
   private empty: HTMLElement;
@@ -604,10 +608,35 @@ export class TextEditor implements Editor {
       this.renderSidebar();
       return;
     }
-    const lines = highlightLines(this.ta.value, langOf(t), this.syntax);
-    this.pre.innerHTML = lines.map((l, i) => `<div class="te-line${i + 1 === this.errorLine ? ' err' : ''}">${l || ' '}</div>`).join('');
+    const rows = highlightLines(this.ta.value, langOf(t), this.syntax).map((l, i) => `<div class="te-line${i + 1 === this.errorLine ? ' err' : ''}">${l || ' '}</div>`);
+    this.patchRows(this.pre, this.rowHtml, rows);
+    this.rowHtml = rows;
     this.layout();
     this.renderSidebar();
+  }
+
+  /**
+   * Replaces only the rows that changed (typing changes a line or two): rebuilding every row
+   * on each keystroke made typing in a long text lag by a second.
+   */
+  private patchRows(el: HTMLElement, before: string[], after: string[]) {
+    if (el.children.length !== before.length) {
+      el.innerHTML = after.join('');
+      return;
+    }
+    let start = 0;
+    const n = Math.min(before.length, after.length);
+    while (start < n && before[start] === after[start]) start++;
+    let endB = before.length,
+      endA = after.length;
+    while (endB > start && endA > start && before[endB - 1] === after[endA - 1]) endB--, endA--;
+    if (start === endB && start === endA) return;
+    for (let i = endB - 1; i >= start; i--) el.children[i].remove();
+    const html = after.slice(start, endA).join('');
+    if (!html) return;
+    const next = el.children[start];
+    if (next) next.insertAdjacentHTML('beforebegin', html);
+    else el.insertAdjacentHTML('beforeend', html);
   }
 
   private layout() {
@@ -633,13 +662,17 @@ export class TextEditor implements Editor {
       const rows = this.pre.children;
       const digits = Math.max(2, String(lines.length).length);
       this.gutter.style.width = `${digits * this.charWidth + 16}px`;
-      let html = '';
+      const nums: string[] = [];
       for (let i = 0; i < lines.length; i++) {
         const hgt = this.wordWrap ? (rows[i] as HTMLElement | undefined)?.offsetHeight ?? lh : lh;
-        html += `<div class="te-ln${i + 1 === this.errorLine ? ' err' : ''}" style="height:${hgt}px">${i + 1}</div>`;
+        nums.push(`<div class="te-ln${i + 1 === this.errorLine ? ' err' : ''}" style="height:${hgt}px">${i + 1}</div>`);
       }
-      this.gutter.innerHTML = html;
-    } else this.gutter.innerHTML = '';
+      this.patchRows(this.gutter, this.gutterHtml, nums);
+      this.gutterHtml = nums;
+    } else {
+      this.gutter.innerHTML = '';
+      this.gutterHtml = [];
+    }
     this.updateCaret();
   }
 
@@ -661,8 +694,12 @@ export class TextEditor implements Editor {
       this.curLine.style.top = `${row.offsetTop}px`;
       this.curLine.style.height = `${row.offsetHeight}px`;
     }
-    this.gutter.querySelectorAll('.te-ln.cur').forEach((e) => e.classList.remove('cur'));
-    (this.gutter.children[line] as HTMLElement | undefined)?.classList.add('cur');
+    const cur = this.gutter.children[line];
+    if (cur !== this.curGutter) {
+      this.curGutter?.classList.remove('cur');
+      this.curGutter = cur ?? null;
+    }
+    cur?.classList.add('cur');
     this.renderFooter(line, col);
   }
 
@@ -750,14 +787,21 @@ export class TextEditor implements Editor {
     this.toggleSidebar(true);
   }
 
-  private matchAt(from: number, backwards = false): [number, number] | null {
-    const q = this.findText;
-    if (!q) return null;
-    const hay = settings.matchCase ? this.ta.value : this.ta.value.toLowerCase();
-    const needle = settings.matchCase ? q : q.toLowerCase();
-    let i = backwards ? hay.lastIndexOf(needle, from) : hay.indexOf(needle, from);
-    if (i < 0 && settings.wrapAround && !settings.findAll) i = backwards ? hay.lastIndexOf(needle) : hay.indexOf(needle);
-    return i < 0 ? null : [i, i + q.length];
+  /** The search text as a pattern (lower-casing the text instead moves offsets: 'İ' becomes two characters). */
+  private findPattern(): RegExp | null {
+    return this.findText ? new RegExp(this.findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), settings.matchCase ? 'g' : 'gi') : null;
+  }
+
+  private matchAt(from: number): [number, number] | null {
+    const re = this.findPattern();
+    if (!re) return null;
+    re.lastIndex = from;
+    let m = re.exec(this.ta.value);
+    if (!m && settings.wrapAround && !settings.findAll) {
+      re.lastIndex = 0;
+      m = re.exec(this.ta.value);
+    }
+    return m ? [m.index, m.index + m[0].length] : null;
   }
 
   findNext() {
@@ -775,17 +819,17 @@ export class TextEditor implements Editor {
 
   /** All Data-Blocks: open the next text (in name order, wrapping) that contains the search text. */
   private findInOtherTexts(): boolean {
-    const q = settings.matchCase ? this.findText : this.findText.toLowerCase();
-    if (!q) return false;
+    const re = this.findPattern();
+    if (!re) return false;
     const texts = Object.values(app.doc.texts).sort((a, b) => a.name.localeCompare(b.name));
     const cur = texts.findIndex((t) => t.id === this.textId);
     for (let k = 1; k <= texts.length; k++) {
       const t = texts[(cur + k) % texts.length];
-      const body = settings.matchCase ? t.body : t.body.toLowerCase();
-      const i = body.indexOf(q);
-      if (i < 0) continue;
+      re.lastIndex = 0;
+      const m = re.exec(t.body);
+      if (!m) continue;
       if (t.id !== this.textId) this.setText(t.id);
-      requestAnimationFrame(() => this.setCaret(i, i + q.length));
+      requestAnimationFrame(() => this.setCaret(m.index, m.index + m[0].length));
       return true;
     }
     return false;
@@ -805,8 +849,7 @@ export class TextEditor implements Editor {
   replaceAll() {
     const t = this.text;
     if (!t || !this.findText) return;
-    const flags = settings.matchCase ? 'g' : 'gi';
-    const re = new RegExp(this.findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+    const re = this.findPattern()!;
     const count = (this.ta.value.match(re) ?? []).length;
     if (!count) {
       app.report('WARNING', `Text not found: ${this.findText}`);
@@ -1547,6 +1590,9 @@ export function templateMenu(open: (t: (typeof templates)[number]) => void): Men
 }
 
 /** Run a text data-block in its language; reports errors (with line numbers) to Info and the status bar. */
+/** Python texts whose run is waiting for the runtime to download. */
+const waitingRuns = new Map<string, Promise<RunResult>>();
+
 export async function runText(t: TextData): Promise<RunResult> {
   let res: RunResult;
   if (t.language === 'javascript') res = runJavaScript(t.body, t.name);
@@ -1554,12 +1600,24 @@ export async function runText(t: TextData): Promise<RunResult> {
     app.report('WARNING', `"${t.name}" is plain text; set Text ▸ Language to Python or JavaScript to run it`);
     return { ok: false, error: 'not a script' };
   } else {
-    try {
-      if (!python.ready) app.report('INFO', 'Loading Python runtime…');
-      await loadPython();
-    } catch (e) {
-      app.report('ERROR', (e as Error).message);
-      return { ok: false, error: (e as Error).message };
+    // Nothing seems to happen while the runtime downloads: pressing Run Script again must not queue another run.
+    const waiting = waitingRuns.get(t.id);
+    if (waiting) return waiting;
+    if (!python.ready) {
+      const run = (async () => {
+        try {
+          app.report('INFO', 'Loading Python runtime…');
+          await loadPython();
+        } catch (e) {
+          app.report('ERROR', (e as Error).message);
+          return { ok: false, error: (e as Error).message };
+        } finally {
+          waitingRuns.delete(t.id);
+        }
+        return runText(t);
+      })();
+      waitingRuns.set(t.id, run);
+      return run;
     }
     res = runPythonText(t.body, t.name);
   }

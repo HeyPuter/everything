@@ -8,8 +8,11 @@ import { num, bool, enumProp, splitRow, axisToggles, vecProp, objectProp } from 
 import { modifierTypes, newModifier } from '../../eval/modifiers';
 import type { ModifierBase, ObjectData } from '../../data/types';
 import { uid } from '../../data/defaults';
+import { renamedIn } from '../../data/names';
 import { openMenu, type MenuItem } from '../../ui/menu';
 import { cloneShared } from '../../data/cow';
+import { gnResults, viewerState } from '../../geonodes/results';
+import { writeAttributes } from '../../geonodes/convert';
 
 type Field = [key: string, label: string, kind: 'num' | 'int' | 'bool' | 'enum' | 'object' | 'vgroup' | 'vec' | 'axes' | 'angle' | 'dist' | 'factor' | 'heading' | 'bone', extra?: unknown];
 
@@ -191,7 +194,13 @@ function modifierPanel(ob: ObjectData, m: ModifierBase, i: number): Child {
       },
       h('span', { class: 'ph-arrow' }, icon(open ? 'disclosure_tri_down' : 'disclosure_tri_right')),
       icon(t?.icon ?? 'modifier'),
-      textField(`mod-name-${m.id}`, m.name, (v) => ((m.name = v), app.pushUndo('Rename Modifier'), app.changed('doc')), { className: 'mod-name' }),
+      textField(`mod-name-${m.id}`, m.name, (v) => {
+        const n = renamedIn(ob.modifiers, m, v);
+        if (n === null) return void app.changed('ui');
+        m.name = n;
+        app.pushUndo('Rename Modifier');
+        app.changed('doc');
+      }, { className: 'mod-name' }),
       t?.supportsEditMode || t?.deformOnly ? toggle('show_in_editmode', 'editmode_hlt', 'Edit Mode') : null,
       toggle('show_viewport', 'restrict_view_off', 'Realtime (show in viewport)'),
       toggle('show_render', 'restrict_render_off', 'Render'),
@@ -382,8 +391,15 @@ registerOperators([
       // evaluate the stack up to and including this modifier
       const keep = ob.modifiers;
       ob.modifiers = keep.slice(0, idx + 1).filter((m) => m.show_viewport);
-      app.graph.invalidate(ob.id);
-      app.graph.evaluate(doc, false);
+      // an active Geometry Nodes viewer would replace the result with what it shows
+      const viewer = { ...viewerState };
+      viewerState.objectId = viewerState.modifierId = null;
+      try {
+        app.graph.invalidate(ob.id);
+        app.graph.evaluate(doc, false);
+      } finally {
+        Object.assign(viewerState, viewer);
+      }
       const mesh = app.graph.get(ob.id)?.mesh;
       ob.modifiers = keep.filter((_, i) => i > idx);
       if (!mesh) return 'CANCELLED';
@@ -404,12 +420,16 @@ registerOperators([
       me.seams = mesh.seams ? new Uint32Array(mesh.seams) : undefined;
       me.sharp = mesh.sharp ? new Uint32Array(mesh.sharp) : undefined;
       me.creases = mesh.creases ? new Float32Array(mesh.creases) : undefined;
+      me.loose_edges = mesh.looseEdges?.length ? new Uint32Array(mesh.looseEdges) : undefined;
       me.auto_smooth_angle = mesh.auto_smooth_angle;
       if (mesh.weights && mesh.vertex_groups) me.weights = mesh.weights.map((w) => new Float32Array(w));
       me.shape_keys = [];
       me.select_vert = undefined;
       me.hide_vert = undefined;
       me.color_attributes = mesh.colors ? [{ name: me.color_attributes[me.active_color_index]?.name ?? 'Color', domain: 'CORNER', data: new Float32Array(mesh.colors) }] : [];
+      // generic attributes of a Geometry Nodes result (the evaluated mesh carries only the built-in layers)
+      const gn = gnResults.get(ob.id);
+      if (gn && gn.evalMesh === mesh && !gn.viewer && gn.geometry.mesh) writeAttributes(me, gn.geometry.mesh);
       app.graph.invalidate(ob.id);
     },
   },

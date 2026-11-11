@@ -211,6 +211,21 @@ describe('context and scene', () => {
     expect(sc.camera.name).toBe('Camera');
     expect(B.context.collection.name).toBe('Collection');
   });
+
+  it('refuses a frame that is not a number instead of setting NaN', () => {
+    const sc = B.context.scene;
+    sc.frame_set(12);
+    expect(() => (sc.frame_current = 'a')).toThrow(/TypeError/);
+    expect(() => sc.frame_set(NaN)).toThrow(/TypeError/);
+    expect(() => sc.frame_set(undefined)).toThrow(/TypeError/);
+    expect(() => sc.frame_set(5, 'x')).toThrow(/TypeError/);
+    expect(app.doc.scene.frame_current).toBe(12);
+    expect(app.doc.scene.frame_subframe).toBe(0);
+    sc.frame_current = 7.6;
+    expect(app.doc.scene.frame_current).toBe(8);
+    sc.frame_current = true;
+    expect(app.doc.scene.frame_current).toBe(1);
+  });
 });
 
 describe('bpy.ops', () => {
@@ -228,6 +243,18 @@ describe('bpy.ops', () => {
     expect(() => B.ops.test.fail()).toThrow(/RuntimeError: Error: Fail: boom/);
     expect(B.ops.test.missing).toBeUndefined();
     expect(() => callOperator('test.missing')).toThrow(/could not be found/);
+  });
+
+  it('checks number properties: a wrong type raises, a value past the limits is clamped', () => {
+    let got: Record<string, unknown> = {};
+    registerOperators([{ idname: 'test.numbers', label: 'Numbers', props: [{ id: 'size', type: 'float', default: 1, min: 0 }, { id: 'count', type: 'int', default: 4, min: 3, max: 100 }], exec: (_c, p) => void (got = p) }]);
+    expect(() => B.ops.test.numbers({ size: 'big' })).toThrow(/TypeError: .*size.* expected a number/);
+    expect(() => B.ops.test.numbers({ size: NaN })).toThrow(/TypeError/);
+    expect(() => B.ops.test.numbers({ count: [1] })).toThrow(/TypeError/);
+    B.ops.test.numbers({ size: -2, count: 1e9 });
+    expect(got).toMatchObject({ size: 0, count: 100 });
+    B.ops.test.numbers({ count: 4.6, size: true });
+    expect(got).toMatchObject({ size: 1, count: 5 });
   });
 
   it('groups a script run into one undo step named "Run Script"', () => {

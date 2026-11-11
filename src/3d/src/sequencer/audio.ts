@@ -29,7 +29,8 @@ export function soundVoices(ed: SequenceEditor): Voice[] {
   return out;
 }
 
-function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: Voice, fps: number, from: number, t0: number, to = Infinity): AudioBufferSourceNode[] {
+/** Schedule a voice; the effect nodes it creates (gain, filters, echo, pan) are added to `nodes`. */
+function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: Voice, fps: number, from: number, t0: number, to = Infinity, nodes: AudioNode[] = []): AudioBufferSourceNode[] {
   const lo = Math.max(from, v.from),
     hi = Math.min(to, v.to);
   // constant-rate pieces: one for plain strips, one per speed segment for retimed strips
@@ -46,6 +47,7 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
   const live = pieces.filter((p) => p.offset < buf.duration);
   if (!live.length) return [];
   const gain = ctx.createGain();
+  nodes.push(gain);
   gain.gain.value = Math.max(0, v.s.volume ?? 1);
   const keys = keysOf(v.s, 'volume');
   if (keys) {
@@ -58,11 +60,12 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
   // equalizer modifiers: biquad filters after the gain; echo: a delay line
   for (const m of v.s.modifiers ?? []) {
     if (m.mute) continue;
-    if (m.type === 'ECHO') node = echoNode(ctx, node, m);
+    if (m.type === 'ECHO') node = echoNode(ctx, node, m, nodes);
     if (m.type !== 'SOUND_EQUALIZER') continue;
     for (const b of m.bands ?? []) {
       if (!b.gain) continue;
       const f = ctx.createBiquadFilter();
+      nodes.push(f);
       f.type = b.type === 'LOWSHELF' ? 'lowshelf' : b.type === 'HIGHSHELF' ? 'highshelf' : 'peaking';
       f.frequency.value = Math.max(20, Math.min(20000, b.frequency));
       f.gain.value = b.gain;
@@ -79,6 +82,7 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
     const [l, r] = panGains(pan);
     const gl = ctx.createGain(),
       gr = ctx.createGain();
+    nodes.push(split, merge, gl, gr);
     gl.gain.value = l;
     gr.gain.value = r;
     if (buf.numberOfChannels === 1) {
@@ -113,12 +117,23 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
 
 let ctx: AudioContext | null = null;
 let voices: AudioBufferSourceNode[] = [];
+/** effect nodes of the scheduled voices (an echo keeps ringing until they are disconnected) */
+let graph: AudioNode[] = [];
 let master: GainNode | null = null;
 let startFrame = 0;
 let startTime = 0;
 let active = false;
 let starting = false;
 let generation = 0;
+
+function release(nodes: AudioNode[]) {
+  for (const n of nodes)
+    try {
+      n.disconnect();
+    } catch {
+      /* already disconnected */
+    }
+}
 
 function stopAll() {
   for (const v of voices)
@@ -129,6 +144,8 @@ function stopAll() {
       /* already stopped */
     }
   voices = [];
+  release(graph);
+  graph = [];
   active = false;
   generation++;
 }
@@ -157,12 +174,13 @@ async function startAt(frame: number) {
   for (let i = 0; i < list.length; i++) {
     const b = bufs[i];
     if (!b) continue;
-    voices.push(...schedule(ctx, master, b, list[i], fps, from, startTime));
+    voices.push(...schedule(ctx, master, b, list[i], fps, from, startTime, Infinity, graph));
   }
   active = true;
 }
 
 let scrubVoices: AudioBufferSourceNode[] = [];
+let scrubGraph: AudioNode[] = [];
 let scrubFrame = NaN;
 
 /** Audio scrubbing: a frame's worth of sound (a little more) when the frame changes while stopped. */
@@ -184,13 +202,15 @@ export async function scrubAudio(frame: number) {
       /* ended */
     }
   scrubVoices = [];
+  release(scrubGraph);
+  scrubGraph = [];
   const fps = app.doc.scene.render.fps / (app.doc.scene.render.fps_base || 1);
   const bufs = await Promise.all(list.map((v) => loadSound(v.s.media!.bytes)));
   if (frame !== scrubFrame || app.playing) return;
   const t0 = ctx.currentTime + 0.01;
   for (let i = 0; i < list.length; i++) {
     const b = bufs[i];
-    if (b) scrubVoices.push(...schedule(ctx, master, b, list[i], fps, frame, t0, frame + Math.max(1, Math.round(fps / 10))));
+    if (b) scrubVoices.push(...schedule(ctx, master, b, list[i], fps, frame, t0, frame + Math.max(1, Math.round(fps / 10)), scrubGraph));
   }
 }
 

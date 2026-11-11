@@ -1,7 +1,7 @@
 // Retiming operators: keys, freeze frames, eased transitions, segment speed, reset, display.
 import { app, registerOperators, type Operator } from '../app/app';
 import type { Strip } from './types';
-import { seqList, selectedStrips, hasEditor, afterEdit, isLocked, toolSettings } from './context';
+import { seqList, seqEditor, selectedStrips, hasEditor, afterEdit, isLocked, toolSettings } from './context';
 import { restartPlayback } from './audio';
 import { openRedoPopup } from '../ui/redo';
 import { retimable, hasRetiming, addKey, addFreezeFrame, addTransition, deleteKeys, resetRetiming, setSegmentSpeed, segmentAt, segmentSpeed, selectedKeys, ensureKeys } from './retime';
@@ -13,7 +13,7 @@ const anyKeySelected = () => withKeys().some((s) => selectedKeys(s).length > 0);
 
 function finish(changed: Strip[]) {
   if (!changed.length) return 'CANCELLED' as const;
-  resolveOverlap(seqList(), changed, toolSettings().overlap_mode);
+  resolveOverlap(seqList(), changed, toolSettings().overlap_mode, seqEditor());
   afterEdit();
   restartPlayback();
   return 'FINISHED' as const;

@@ -5,7 +5,7 @@ import { app, registerOperators, type OpContext, type Operator } from '../app/ap
 import type { DocumentData, ID } from '../data/types';
 import { activeCollection } from '../ops/object';
 import { openMenu, type MenuItem } from '../ui/menu';
-import { openFile } from '../io/files';
+import { isReadableFile, openFile } from '../io/files';
 import { openLibraryBrowser, typeLabel, type BrowseResult, type FileRef } from './browser';
 import {
   appendFromDoc,
@@ -524,7 +524,13 @@ ops.push(
     exec: () => {
       const files = pendingImports.splice(0);
       if (!files.length) return 'CANCELLED';
-      for (const f of files) void openFile(f, 'import');
+      // files no format reads (material libraries, textures, .bin buffers) go along with the models
+      const models = files.filter((f) => isReadableFile(f.name));
+      const others = models.length ? files.filter((f) => !models.includes(f)) : [];
+      // one after another: each file's options dialog opens once the previous one is answered
+      void (async () => {
+        for (const f of models.length ? models : files) await openFile(f, 'import', others);
+      })();
       return 'CANCELLED';
     },
   },

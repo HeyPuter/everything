@@ -199,10 +199,47 @@ export function autoscaleFactor(clip: MovieClipData): number {
   return Math.min(Math.max(1, z), st.scale_max > 0 ? st.scale_max : Infinity);
 }
 
+/** Fingerprint of everything the autoscale depends on (stabilization settings, stabilizing tracks' markers). */
+function autoscaleKey(clip: MovieClipData): string {
+  const st = clip.tracking.stabilization;
+  let h = 2166136261,
+    sum = 0;
+  const mix = (x: number) => {
+    const v = Number.isFinite(x) ? Math.round(x * 1e6) : -1;
+    h = Math.imul(h ^ (v | 0), 16777619);
+    sum += x;
+  };
+  for (const x of [clip.size[0], clip.size[1], clip.frame_duration, st.anchor_frame, +st.use_stabilize_rotation, +st.use_stabilize_scale, ...st.target_position, st.target_rotation, st.target_scale, st.scale_max, st.influence_location, st.influence_rotation, st.influence_scale]) mix(x);
+  for (const t of clip.tracking.tracks) {
+    if (!(t.weight_stab > 0) || !(t.use_2d_stabilization || t.use_2d_stabilization_rotation)) continue;
+    mix(+t.use_2d_stabilization + 2 * +t.use_2d_stabilization_rotation);
+    mix(t.weight_stab);
+    for (const m of t.markers) {
+      mix(m.frame);
+      mix(m.co[0]);
+      mix(m.co[1]);
+      mix(+m.mute);
+    }
+  }
+  return `${h >>> 0}:${sum}`;
+}
+
+const autoscaleMemo = new WeakMap<MovieClipData, { key: string; value: number }>();
+
+/** Autoscale of the clip, recomputed only when its stabilization data changed. */
+export function cachedAutoscale(clip: MovieClipData): number {
+  const key = autoscaleKey(clip);
+  const hit = autoscaleMemo.get(clip);
+  if (hit && hit.key === key) return hit.value;
+  const value = autoscaleFactor(clip);
+  autoscaleMemo.set(clip, { key, value });
+  return value;
+}
+
 /** Final transform used for display/export (autoscale included when enabled). */
 export function stabilizationMatrix(clip: MovieClipData, frame: number, autoscale?: number): Affine2 {
   const st = clip.tracking.stabilization;
-  const z = st.use_autoscale ? (autoscale ?? autoscaleFactor(clip)) : 1;
+  const z = st.use_autoscale ? (autoscale ?? cachedAutoscale(clip)) : 1;
   return stabilizationTransform(clip, frame, z);
 }
 

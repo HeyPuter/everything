@@ -7,8 +7,8 @@ const css = /* css */ `
 .clip-redo { position: absolute; bottom: 0; }
 .clip-redo .redo-panel { left: 0; bottom: 8px; }
 .clip-toolbar, .clip-sidebar { position: absolute; top: 0; bottom: 0; display: flex; background: rgba(45, 46, 48, 0.96); }
-.clip-toolbar { left: 0; width: 230px; border-right: 1px solid #1f2021; }
-.clip-sidebar { right: 0; width: 290px; border-left: 1px solid #1f2021; }
+.clip-toolbar { left: 0; width: min(230px, 40%); border-right: 1px solid #1f2021; }
+.clip-sidebar { right: 0; width: min(290px, 45%); border-left: 1px solid #1f2021; }
 .clip-toolbar .sb-body, .clip-sidebar .sb-body { flex: 1; overflow-y: auto; padding: 4px 0; min-width: 0; }
 .clip-toolbar .sb-tabs { order: -1; }
 .clip-header { min-width: 0; flex: 1; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }

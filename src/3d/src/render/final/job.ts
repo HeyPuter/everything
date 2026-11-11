@@ -955,7 +955,9 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
     const base = `${doc.scene.name || 'render'}_${frames[0]}-${frames[Math.min(rendered, frames.length) - 1]}`;
     try {
       if (video) {
-        const blob = await video.finish();
+        const v = video;
+        video = null;
+        const blob = await v.finish();
         animationRecorder.setVideo(blob);
         download(blob, `${base}.webm`, 'video/webm');
       } else if (zip) download(new Blob(zip.finish() as BlobPart[], { type: 'application/zip' }), `${base}.zip`, 'application/zip');
@@ -963,6 +965,8 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
       app.report('ERROR', `Could not write the animation: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  // nothing to write (cancelled before the first frame, or failed): release the encoder
+  video?.abort?.();
   if (o.animation) animationRecorder.finish();
   renderResult.touch();
   shellStatus();

@@ -192,8 +192,8 @@ gn(
       const win = (String(prop(ctx.node, 'Window Function')) as WindowFunction) || 'Hann';
       return { Amplitude: bandAmplitude(s, ctx.float('Time'), ctx.float('Low'), ctx.float('High'), size, win, ctx.bool('All Channels'), ctx.int('Channel')) };
     },
-    sig: (node, env) => {
-      const v = node.inputs.Sound;
+    sig: (_node, env, ref) => {
+      const v = ref('Sound');
       const f = typeof v === 'string' ? packedFile(env.doc, v) : null;
       return f ? `${f.id}:${decoded.has(f.bytes) ? 'ready' : 'loading'}` : '-';
     },

@@ -4,14 +4,16 @@ import { appIcon, icon } from './icons';
 import { openMenu, promptText, type MenuItem } from './menu';
 import { app, registerOperators } from '../app/app';
 import { Screen, areaOfElement, defaultWorkspaces, workspaceTemplates, type Workspace, type LayoutNode } from './screen';
+import { sanitizeLayout } from './layout';
+import { installErrorReports } from '../app/errors';
 import { uiState, prefs, savePrefs } from '../app/prefs';
 import { projectUiState } from '../io/files';
 import { appMenu, fileMenu, editMenu, renderMenu, windowMenu, helpMenu, fileNewTemplates } from './topbar';
 
 export { fileNewTemplates };
 
-/** Extra status bar content (e.g. the progress of a running render job), drawn before reports. */
-export const statusWidgets: (() => Child)[] = [];
+import { statusWidgets } from './statuswidgets';
+export { statusWidgets };
 /** Scene / view layer selectors at the right of the top bar (replace the plain scene name field). */
 export const topbarSceneWidgets: (() => Child)[] = [];
 import { textField } from './widgets';
@@ -63,6 +65,8 @@ export class Shell {
   mods = { shift: false, ctrl: false, alt: false };
 
   constructor(root: HTMLElement) {
+    // uncaught errors show up in the status bar / Info log too (still logged to the console)
+    installErrorReports();
     this.el = root;
     root.classList.add('shell');
     this.top = document.createElement('header');
@@ -103,14 +107,22 @@ export class Shell {
       layouts: Object.fromEntries([...this.layouts.entries(), [this.active, this.screen.serialize()]]),
     });
     projectUiState.load = (s) => {
-      const layouts = s.layouts as Record<string, LayoutNode> | undefined;
-      if (layouts) for (const [k, v] of Object.entries(layouts)) this.layouts.set(k, v);
+      // layouts that are damaged (or from an unknown format) are skipped: the workspace keeps its own
+      let layouts: Record<string, LayoutNode> | undefined;
+      if (s.layouts && typeof s.layouts === 'object') {
+        layouts = {};
+        for (const [k, v] of Object.entries(s.layouts)) {
+          const l = sanitizeLayout(v);
+          if (l) layouts[k] = l;
+        }
+        for (const [k, v] of Object.entries(layouts)) this.layouts.set(k, v);
+      }
       // custom workspace lists (added, renamed, deleted or reordered workspaces)
       const list = s.workspaces as { name: string; mode?: Workspace['mode']; pinScene?: boolean; scene?: string; use_filter_by_owner?: boolean; owner_ids?: string[] }[] | undefined;
       if (Array.isArray(list) && list.length && layouts) {
         const defaults = defaultWorkspaces();
         this.workspaces = list
-          .filter((w) => layouts[w.name] || defaults.some((d) => d.name === w.name))
+          .filter((w) => w && typeof w.name === 'string' && (layouts[w.name] || defaults.some((d) => d.name === w.name)))
           .map((w) => ({ name: w.name, mode: w.mode, pinScene: w.pinScene, scene: w.scene, use_filter_by_owner: w.use_filter_by_owner, owner_ids: Array.isArray(w.owner_ids) ? w.owner_ids.filter((x) => typeof x === 'string') : undefined, layout: layouts[w.name] ?? defaults.find((d) => d.name === w.name)!.layout }));
       }
       if (typeof s.workspace === 'string' && this.workspaces.some((w) => w.name === s.workspace)) {

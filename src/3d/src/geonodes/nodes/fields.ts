@@ -206,8 +206,8 @@ statNode(
   'GeometryNodeFieldMinAndMax',
   ['FLOAT', 'INT', 'FLOAT_VECTOR'],
   [
-    ['Min', 'Min', (a) => Math.min(...a)],
-    ['Max', 'Max', (a) => Math.max(...a)],
+    ['Min', 'Min', (a) => a.reduce((m, x) => (x < m ? x : m), Infinity)],
+    ['Max', 'Max', (a) => a.reduce((m, x) => (x > m ? x : m), -Infinity)],
   ],
 );
 statNode(

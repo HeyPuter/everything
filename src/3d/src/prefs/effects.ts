@@ -5,8 +5,11 @@ import { keyTiming } from '../app/keymap';
 import { autosave } from '../io/files';
 import { shell } from '../ui/shell';
 import { onPrefsApply } from './store';
+import { loadPuter } from '../assistant/puter';
 
 let autosaveTimer = 0;
+/** Allow Online Access as last applied (undefined before the first apply: index.html loads the SDK at startup). */
+let onlineAccess: boolean | undefined;
 
 type ViewLike = { nav: { autoPersp: boolean } };
 export function forEachView3D(fn: (v: ViewLike) => void) {
@@ -39,6 +42,9 @@ onPrefsApply((p) => {
     const minutes = Math.max(1, Math.min(60, Math.round(p.autosave_interval || 2)));
     autosaveTimer = window.setInterval(() => void autosave(), minutes * 60000);
   }
+  // online access turned on: load the Puter SDK now, so the top bar gets the account menu (once)
+  if (onlineAccess === false && p.use_online_access) void loadPuter();
+  onlineAccess = p.use_online_access;
   // existing viewports pick up navigation settings immediately
   forEachView3D((v) => (v.nav.autoPersp = p.use_auto_perspective));
 });

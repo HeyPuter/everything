@@ -7,6 +7,7 @@ import { poseBoneMatrix } from './transform';
 import type { Depsgraph } from './depsgraph';
 import { solveBoneConstraints } from './constraint_solve';
 import { bboneFrames, bboneIsStraight, bboneShape } from './bbone';
+import { childBones } from './ik';
 
 export interface BoneEval {
   name: string;
@@ -239,12 +240,11 @@ function hashString(s: string) {
   return (h >>> 0).toString(36);
 }
 
-function propagateChildren(bones: Map<string, BoneEval>, name: string, delta: Matrix4) {
-  for (const b of bones.values())
-    if (b.parent === name) {
-      b.pose.premultiply(delta);
-      propagateChildren(bones, b.name, delta);
-    }
+function propagateChildren(bones: Map<string, BoneEval>, name: string, delta: Matrix4, children = childBones(bones)) {
+  for (const b of children.get(name) ?? []) {
+    b.pose.premultiply(delta);
+    propagateChildren(bones, b.name, delta, children);
+  }
 }
 
 /** Replace a bone's pose matrix and carry its children along. */

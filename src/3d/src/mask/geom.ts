@@ -277,6 +277,75 @@ export function applyData(layer: MaskLayer, data: number[]) {
     }
 }
 
+/**
+ * Remove the points matching `drop` from a layer (splines left empty go too); its shape keys keep
+ * animating the remaining points. Returns the number of points removed.
+ */
+export function removePoints(layer: MaskLayer, drop: (p: MaskPoint) => boolean): number {
+  const n = pointCount(layer) * PER_POINT;
+  const keep: boolean[] = [];
+  for (const sp of layer.splines) for (const p of sp.points) keep.push(!drop(p));
+  const removed = keep.filter((k) => !k).length;
+  if (!removed) return 0;
+  for (const sp of layer.splines) sp.points = sp.points.filter((p) => !drop(p));
+  layer.splines = layer.splines.filter((sp) => sp.points.length > 0);
+  layer.shape_keys = layer.shape_keys
+    .filter((k) => k.data.length === n)
+    .map((k) => ({ ...k, data: k.data.filter((_, j) => keep[Math.floor(j / PER_POINT)]) }));
+  if (!pointCount(layer)) layer.shape_keys = [];
+  return removed;
+}
+
+/** The layer's points in shape-key order (pass to `remapShapeKeys` after changing the points). */
+export function keyedPoints(layer: MaskLayer): MaskPoint[] {
+  return layer.splines.flatMap((sp) => sp.points);
+}
+
+/**
+ * Keep a layer's shape keys after points were added, removed or reordered (`before`: the points
+ * when the keys were valid). Kept points keep their keyed data; a new point follows the keyed motion
+ * of its old neighbours on the spline.
+ */
+export function remapShapeKeys(layer: MaskLayer, before: MaskPoint[]) {
+  const n = before.length * PER_POINT;
+  const keys = layer.shape_keys.filter((k) => k.data.length === n);
+  if (!keys.length) return;
+  const index = new Map(before.map((p, i) => [p, i]));
+  const now = keyedPoints(layer);
+  if (now.length === before.length && now.every((p, i) => index.get(p) === i)) return;
+  if (!now.length) {
+    layer.shape_keys = [];
+    return;
+  }
+  layer.shape_keys = keys.map((k) => {
+    const data: number[] = [];
+    for (const sp of layer.splines) {
+      const pts = sp.points;
+      pts.forEach((p, i) => {
+        const old = index.get(p);
+        if (old !== undefined) {
+          for (let j = 0; j < PER_POINT; j++) data.push(k.data[old * PER_POINT + j]);
+          return;
+        }
+        const nb = [pts[i - 1] ?? (sp.use_cyclic ? pts[pts.length - 1] : undefined), pts[i + 1] ?? (sp.use_cyclic ? pts[0] : undefined)];
+        let dx = 0,
+          dy = 0,
+          c = 0;
+        for (const q of nb) {
+          const o = q && q !== p ? index.get(q) : undefined;
+          if (o === undefined) continue;
+          dx += k.data[o * PER_POINT] - q!.co[0];
+          dy += k.data[o * PER_POINT + 1] - q!.co[1];
+          c++;
+        }
+        if (c) ((dx /= c), (dy /= c));
+        data.push(p.co[0] + dx, p.co[1] + dy, p.handle_left[0] + dx, p.handle_left[1] + dy, p.handle_right[0] + dx, p.handle_right[1] + dy, p.weight);
+      });
+    }
+    return { ...k, data };
+  });
+}
+
 /** Store the current point positions as a key at `frame` (replacing a key there). */
 export function insertShapeKey(layer: MaskLayer, frame: number): MaskShapeKey {
   const data = layerData(layer);

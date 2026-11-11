@@ -36,6 +36,8 @@ export interface RunOptions {
   viewerNode?: string | null;
   /** display transform for the viewer backdrop copy */
   view?: ViewSettings;
+  /** compositing size (the render result's size: a cropped render region is smaller than the frame) */
+  size?: [number, number];
 }
 
 /** The viewer node a run evaluates: the active node when it is a viewer, else the given one or the first. */
@@ -102,7 +104,7 @@ export function runCompositor(doc: DocumentData, opts: RunOptions): RunResult {
     res.error = 'The compositor needs WebGL 2 with float render targets';
     return res;
   }
-  const [W, H] = renderSize(doc.scene.render);
+  const [W, H] = opts.size ?? renderSize(doc.scene.render);
   const fps = doc.scene.render.fps / (doc.scene.render.fps_base || 1);
   beginGeneration();
   const ev = new Evaluator(g, {

@@ -3,6 +3,7 @@ import { Vector3 } from 'three';
 import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { flipFace, makeNormalsConsistent } from './ops-basic';
 import { cornerPatchGeometry, profilePoints } from './bevelprofile';
+import { ensureMeshSize, meshEditCorners } from '../../mesh/limits';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
 
@@ -57,6 +58,9 @@ export function bevelVertices(m: MeshEdit, offset: number, segments = 1, profile
   const vf = m.vertexFaces();
   const nb = m.neighbors();
   const segs = Math.max(1, Math.round(segments));
+  let valence = 0;
+  for (const v of verts) valence += nb[v].length;
+  ensureMeshSize('Bevel', meshEditCorners(m) + valence * segs * 8, m.vcount + valence * segs);
   // cut vertex → the beveled vertex it was cut for (a neighbour beveled earlier shows up as its cut vertex)
   const owner = new Map<number, number>();
   for (const v of verts) {
@@ -217,8 +221,28 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
   if (opts.clamp) offset = Math.min(offset, bevelClampLimit(m, opts.offsetType === 'ABSOLUTE'));
   const sel = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
   if (!sel.size || offset <= 0) return false;
-  const ef = m.edgeFaces();
-  const faces0 = m.faces.map((f) => [...f.verts]);
+  {
+    // strips along the edges, plus a patch of about segments² faces where three of them meet
+    const segs = Math.max(1, segments);
+    const ends = new Set<string>();
+    for (const k of sel) for (const x of k.split(':')) ends.add(x);
+    ensureMeshSize('Bevel', meshEditCorners(m) + sel.size * segs * 8 + (segs > 1 ? ends.size * segs * segs * 2 : 0), m.vcount + sel.size * segs * 2 + (segs > 1 ? ends.size * segs * segs : 0) / 2);
+  }
+  // only faces around the beveled edges' vertices change: the edge map and the original corner
+  // lists are built for those (whole-mesh string-keyed maps cost ~1 s on a 200k-vertex mesh)
+  const touched = new Set<number>();
+  for (const k of sel) k.split(':').forEach((x) => touched.add(Number(x)));
+  const faces0: number[][] = []; // sparse: touched faces only
+  const ef = new Map<string, [number, number][]>();
+  m.faces.forEach((f, fi) => {
+    if (!f.verts.some((v) => touched.has(v))) return;
+    faces0[fi] = [...f.verts];
+    const n = f.verts.length;
+    for (let i = 0; i < n; i++) {
+      const k = edgeKey(f.verts[i], f.verts[(i + 1) % n]);
+      (ef.get(k) ?? ef.set(k, []).get(k)!).push([fi, i]);
+    }
+  });
   const corner = new Map<string, number>(); // `${face}:${vertex}` -> new vertex id
   // a corner that slides along an unbeveled edge is shared by the faces on both sides of that edge
   const along = new Map<string, number>(); // `${vertex}>${neighbour}` -> new vertex id
@@ -325,17 +349,18 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
   }
   // rewrite faces: adjacent faces use their new corners; other faces around a beveled vertex
   // replace it with the new corners of the faces across their two edges at that vertex
-  const touched = new Set<number>();
-  for (const k of sel) k.split(':').forEach((x) => touched.add(Number(x)));
   const otherFace = (fi: number, a: number, b: number) => (ef.get(edgeKey(a, b)) ?? []).map(([g]) => g).find((g) => g !== fi);
   m.faces.forEach((f, fi) => {
     const src = faces0[fi];
+    if (!src) return; // away from the bevel: unchanged
     const n = src.length;
     const verts: number[] = [],
       uvs: number[] = [],
       seams: number[] = [],
       sharp: number[] = [],
-      creases: number[] = [];
+      creases: number[] = [],
+      colors: number[] = [];
+    const cattr = f.cattr ? f.cattr.map(() => [] as number[]) : null;
     for (let i = 0; i < n; i++) {
       const v = src[i];
       const own = corner.get(`${fi}:${v}`);
@@ -360,6 +385,9 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
       for (const r of rep) {
         verts.push(r);
         uvs.push(f.uvs[i * 2], f.uvs[i * 2 + 1]);
+        // corner colors and generic corner attributes follow the corner they replace
+        if (f.colors) colors.push(...f.colors.slice(i * 4, i * 4 + 4));
+        if (cattr) f.cattr!.forEach((a, k) => a && cattr[k].push(...a.slice(i * m.gattrs[k].width, (i + 1) * m.gattrs[k].width)));
         seams.push(r === rep[rep.length - 1] ? f.seams[i] : 0);
         sharp.push(r === rep[rep.length - 1] ? f.sharp[i] : 0);
         creases.push(r === rep[rep.length - 1] ? f.creases[i] : 0);
@@ -370,18 +398,25 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
     f.seams = seams;
     f.sharp = sharp;
     f.creases = creases;
-    f.colors = undefined;
+    if (f.colors) f.colors = colors;
+    if (cattr) f.cattr = f.cattr!.map((a, k) => (a ? cattr[k] : undefined));
   });
   // close junctions where the original vertex vanished: polygon through all new corners/rows there
+  // (vertex use and the original faces around each vertex are looked up, not scanned per vertex)
+  const used = new Uint8Array(m.vcount);
+  for (const f of m.faces) for (const u of f.verts) used[u] = 1;
+  for (const f of added) for (const u of f.verts) used[u] = 1;
+  const faces0Of = new Map<number, number[]>();
+  faces0.forEach((verts, fi) => {
+    for (const u of new Set(verts)) if (touched.has(u)) (faces0Of.get(u) ?? faces0Of.set(u, []).get(u)!).push(fi);
+  });
   for (const v of touched) {
-    const stillUsed = m.faces.some((f) => f.verts.includes(v)) || added.some((f) => f.verts.includes(v));
-    if (stillUsed) continue;
+    if (used[v]) continue;
     const ids = new Set<number>();
-    faces0.forEach((verts, fi) => {
-      if (!verts.includes(v)) return;
+    for (const fi of faces0Of.get(v) ?? []) {
       const c = corner.get(`${fi}:${v}`);
       if (c !== undefined) ids.add(c);
-    });
+    }
     for (const rows of junction.get(v) ?? []) rows.forEach((r) => ids.add(r));
     const rows = junction.get(v) ?? [];
     // rows that are one shared profile leave no gap to close
@@ -389,10 +424,10 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
     if (ids.size >= 3 && rows.length >= 2 && distinct >= 2) {
       const ring = orderAround(m, v, [...ids]);
       const corners = new Set<number>();
-      faces0.forEach((verts, fi) => {
-        const c = verts.includes(v) ? corner.get(`${fi}:${v}`) : undefined;
+      for (const fi of faces0Of.get(v) ?? []) {
+        const c = corner.get(`${fi}:${v}`);
         if (c !== undefined) corners.add(c);
-      });
+      }
       const patch = segs >= 2 && rows.length === 3 && ring.length === 3 * segs && corners.size === 3 ? cornerPatch(m, v, ring, corners, segs, profile) : null;
       if (patch) added.push(...patch);
       else {

@@ -603,7 +603,7 @@ export function pointsToCurves(p: PointsComponent, group: Int32Array, weight: Fl
   const offs: number[] = [0];
   for (const list of groups.values()) {
     list.sort((a, b) => weight[a] - weight[b] || a - b);
-    order.push(...list);
+    for (const i of list) order.push(i);
     offs.push(order.length);
   }
   const attrs: AttrMap = new Map();

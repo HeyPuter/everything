@@ -863,6 +863,14 @@ function convertMesh(m: IRMesh, ir: IRScene, opts: CommitOptions, warnings: stri
     s = local ? 1 : ir.unitScale;
   let positions = applyBasis(axis, s, m.positions);
   const nv = positions.length / 3;
+  // NaN / infinite coordinates (broken or hostile files) would poison bounds, picking and framing
+  let invalid = 0;
+  for (let v = 0; v < nv; v++)
+    if (!Number.isFinite(positions[v * 3]) || !Number.isFinite(positions[v * 3 + 1]) || !Number.isFinite(positions[v * 3 + 2])) {
+      positions[v * 3] = positions[v * 3 + 1] = positions[v * 3 + 2] = 0;
+      invalid++;
+    }
+  if (invalid) warnings.push(`Mesh "${m.name}": ${invalid} vertices with invalid coordinates were placed at the origin`);
   let indices = m.indices;
   let remap: Uint32Array | null = null;
   if (opts.mergeVertices) {

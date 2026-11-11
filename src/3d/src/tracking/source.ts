@@ -252,6 +252,17 @@ class VideoElementSource extends FrameSource {
   }
 }
 
+/** A video element source, released again when the browser cannot open the footage. */
+async function openVideoElement(bytes: Uint8Array, mime: string, fps: number): Promise<VideoElementSource> {
+  const v = new VideoElementSource(bytes, mime, fps);
+  try {
+    return await v.init();
+  } catch (e) {
+    v.dispose();
+    throw e;
+  }
+}
+
 /** Frame-accurate WebCodecs decoding of demuxed samples. */
 class WebCodecsSource extends FrameSource {
   private order: number[];
@@ -406,7 +417,7 @@ class MovieSource extends FrameSource {
   async init() {
     this.info = demux(this.bytes);
     if (this.info && (await WebCodecsSource.supported(this.info))) this.impl = new WebCodecsSource(this.bytes, this.info);
-    else this.impl = await new VideoElementSource(this.bytes, this.mime, this.info?.fps ?? 0).init();
+    else this.impl = await openVideoElement(this.bytes, this.mime, this.info?.fps ?? 0);
     this.sync();
     return this;
   }
@@ -428,7 +439,7 @@ class MovieSource extends FrameSource {
       if (b || this.impl.kind !== 'webcodecs' || !this.impl.error) return b;
       // WebCodecs failed on this stream: fall back to seeking a video element
       this.impl.dispose();
-      this.impl = await new VideoElementSource(this.bytes, this.mime, this.info?.fps ?? 0).init();
+      this.impl = await openVideoElement(this.bytes, this.mime, this.info?.fps ?? 0);
       const n = this.frameCount;
       this.sync();
       this.frameCount = n || this.impl.frameCount;
@@ -448,6 +459,8 @@ class MovieSource extends FrameSource {
 
 const sources = new WeakMap<Uint8Array, Promise<FrameSource>>();
 const ready = new WeakMap<Uint8Array, FrameSource>();
+/** footage that could not be opened (not retried on every redraw; Reload tries again) */
+const failures = new WeakMap<Uint8Array, string>();
 
 function footageKey(clip: MovieClipData): Uint8Array | null {
   if (clip.source === 'MOVIE') return clip.movie?.bytes ?? null;
@@ -461,7 +474,7 @@ export function clipSource(clip: MovieClipData): Promise<FrameSource> | null {
   let p = sources.get(key);
   if (!p) {
     p = clip.source === 'MOVIE' ? new MovieSource(key, clip.movie!.mime).init() : new ImageSequenceSource(clip.sequence!).init();
-    p.then((s) => ready.set(key, s)).catch(() => sources.delete(key));
+    p.then((s) => ready.set(key, s)).catch((e) => failures.set(key, e instanceof Error ? e.message : String(e)));
     sources.set(key, p);
   }
   return p;
@@ -474,6 +487,12 @@ export function readySource(clip: MovieClipData): FrameSource | null {
   const s = ready.get(key);
   if (!s) void clipSource(clip);
   return s ?? null;
+}
+
+/** Why the clip's footage could not be opened (null when it opened or is still opening). */
+export function sourceError(clip: MovieClipData): string | null {
+  const key = footageKey(clip);
+  return key ? (failures.get(key) ?? null) : null;
 }
 
 /** Probe footage to fill a new clip's size/length/fps. */
@@ -494,4 +513,5 @@ export function reloadSource(clip: MovieClipData) {
   ready.get(key)?.dispose();
   ready.delete(key);
   sources.delete(key);
+  failures.delete(key);
 }

@@ -1,6 +1,7 @@
 // Mesh primitive generators. Dimensions and default segment counts are the
 // Add > Mesh defaults (Z-up, size 2 / radius 1).
 import { buildMesh, type PolyFace } from './mesh';
+import { ensureMeshSize } from './limits';
 
 export type PrimitiveArrays = ReturnType<typeof buildMesh>;
 
@@ -88,6 +89,7 @@ export function plane(size = 2): PrimitiveArrays {
 }
 
 export function grid(xSub = 10, ySub = 10, size = 2): PrimitiveArrays {
+  ensureMeshSize('Grid', xSub * ySub * 4, (xSub + 1) * (ySub + 1));
   const p: number[] = [],
     faces: PolyFace[] = [];
   for (let j = 0; j <= ySub; j++)
@@ -105,6 +107,7 @@ export function grid(xSub = 10, ySub = 10, size = 2): PrimitiveArrays {
 }
 
 export function circle(vertices = 32, radius = 1, fill: 'NOTHING' | 'NGON' | 'TRIFAN' = 'NOTHING'): PrimitiveArrays {
+  ensureMeshSize('Circle', fill === 'NGON' ? vertices : fill === 'TRIFAN' ? vertices * 3 : 0, vertices);
   const p: number[] = [];
   for (let i = 0; i < vertices; i++) {
     const a = (i / vertices) * TAU;
@@ -134,6 +137,7 @@ function orientUp(p: number[], f: PolyFace): PolyFace {
 }
 
 export function uvSphere(segments = 32, rings = 16, radius = 1): PrimitiveArrays {
+  ensureMeshSize('UV Sphere', segments * rings * 4, segments * rings);
   const p: number[] = [];
   p.push(0, 0, radius); // top pole: 0
   for (let r = 1; r < rings; r++) {
@@ -171,6 +175,7 @@ export function uvSphere(segments = 32, rings = 16, radius = 1): PrimitiveArrays
 }
 
 export function icoSphere(subdivisions = 2, radius = 1): PrimitiveArrays {
+  ensureMeshSize('Ico Sphere', 60 * 4 ** Math.max(0, subdivisions - 1), 10 * 4 ** Math.max(0, subdivisions - 1));
   const t = (1 + Math.sqrt(5)) / 2;
   let verts: number[][] = [
     [-1, t, 0],
@@ -258,6 +263,7 @@ export function cone(
   depth = 2,
   cap: 'NOTHING' | 'NGON' | 'TRIFAN' = 'NGON',
 ): PrimitiveArrays {
+  ensureMeshSize(radius2 === 0 ? 'Cone' : 'Cylinder', vertices * (cap === 'TRIFAN' ? 10 : 6), vertices * 2 + 2);
   const p: number[] = [],
     h = depth / 2;
   const tip = radius2 === 0;
@@ -302,6 +308,7 @@ export function cone(
 }
 
 export function torus(majorSegments = 48, minorSegments = 12, majorRadius = 1, minorRadius = 0.25): PrimitiveArrays {
+  ensureMeshSize('Torus', majorSegments * minorSegments * 4, majorSegments * minorSegments);
   const p: number[] = [];
   for (let i = 0; i < majorSegments; i++) {
     const a = (i / majorSegments) * TAU,

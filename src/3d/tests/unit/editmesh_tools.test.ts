@@ -98,6 +98,22 @@ describe('extrude variants', () => {
     expect(m.vcount).toBe(12);
     expect(m.faces.length).toBe(4);
   });
+
+  it('screws a branched edge profile without broken faces', () => {
+    // a T: 0-1-2 with 3 branching off 1
+    const m = fromPrim(prim.plane());
+    m.faces = [];
+    m.pos = [1, 0, 0, 1.5, 0, 0, 2, 0, 0, 1.5, 0, 0.5];
+    m.sel = [1, 1, 1, 1];
+    m.hide = [0, 0, 0, 0];
+    m.looseEdges = [[0, 1], [1, 2], [1, 3]];
+    expect(screw(m, 4, 1, new Vector3(), new Vector3(0, 0, 1))).toBe(true);
+    expect(m.faces.length).toBe(12);
+    for (const f of m.faces) {
+      expect(f.verts.every((v) => Number.isInteger(v) && v >= 0 && v < m.vcount)).toBe(true);
+      expect(new Set(f.verts).size).toBe(4);
+    }
+  });
 });
 
 describe('clean up', () => {
@@ -565,6 +581,20 @@ describe('bridge and triangulate options', () => {
     bridgeLoops(mm, { merge: true, mergeFactor: 0.5 });
     expect(mm.vcount).toBe(8);
     expect(mm.p(0)[2]).toBeCloseTo(1);
+  });
+  it('bridges with a large negative twist', () => {
+    const plain = twoRings();
+    bridgeLoops(plain, {});
+    for (const twist of [-40, -3, 5, 43]) {
+      const m = twoRings();
+      expect(bridgeLoops(m, { twist })).toBe(true);
+      expect(m.faces.length).toBe(8);
+      for (const f of m.faces) expect(f.verts.every((v) => Number.isInteger(v) && v >= 0 && v < m.vcount)).toBe(true);
+    }
+    // a twist by whole turns is no twist
+    const turned = twoRings();
+    bridgeLoops(turned, { twist: -16 });
+    expect(turned.faces.map((f) => f.verts)).toEqual(plain.faces.map((f) => f.verts));
   });
   it('triangulates quads with fixed and alternate splits', () => {
     const a = cube();

@@ -7,7 +7,7 @@ import { app, onAppReady, registerOperators } from '../../app/app';
 import type { DocumentData, MeshData, ModifierBase, NodeGroupData, ObjectData } from '../../data/types';
 import { baseEvalMesh } from '../../eval/depsgraph';
 import type { EvalMesh } from '../../eval/types';
-import { evalMeshToGeometry, geometryToEvalMesh, materialSlots } from '../convert';
+import { evalMeshToGeometry, geometryToEvalMesh, materialSlots, writeAttributes } from '../convert';
 import { evaluateGroup, makeEnv } from '../modifier';
 import { readAttribute } from '../geometry';
 import type { ToolEnv } from '../exec';
@@ -38,6 +38,8 @@ export const toolGroups = (doc: DocumentData = app.doc) => Object.values(doc.nod
 
 /** Write an evaluated mesh into mesh data (topology, UVs, smoothing, edges flags). */
 export function writeMesh(me: MeshData, m: EvalMesh) {
+  const sameTopology =
+    m.positions.length === me.positions.length && m.offsets.length === me.offsets.length && m.indices.length === me.indices.length && m.indices.every((v, i) => v === me.indices[i]);
   me.positions = new Float32Array(m.positions);
   me.offsets = new Uint32Array(m.offsets);
   me.indices = new Uint32Array(m.indices);
@@ -48,6 +50,18 @@ export function writeMesh(me: MeshData, m: EvalMesh) {
   me.seams = m.seams ? new Uint32Array(m.seams) : undefined;
   me.sharp = m.sharp ? new Uint32Array(m.sharp) : undefined;
   me.creases = m.creases ? new Float32Array(m.creases) : undefined;
+  me.loose_edges = m.looseEdges?.length ? new Uint32Array(m.looseEdges) : undefined;
+  me.custom_normals = m.custom_normals ? new Float32Array(m.custom_normals) : undefined;
+  if (!sameTopology) {
+    // per-element data the tool does not output no longer matches the elements
+    me.bevel_weight_edge = me.bevel_weight_vert = me.crease_vert = undefined;
+    me.quad_flip = me.face_strength = undefined;
+    me.skin_vertices = undefined;
+    me.sculpt_mask = undefined;
+    me.sculpt_face_set = undefined;
+    me.hide_poly = undefined;
+    me.uv_select = me.uv_pin = me.uv_hide = undefined;
+  }
   if (m.weights && m.vertex_groups) me.weights = m.weights.map((w) => new Float32Array(w));
   me.shape_keys = [];
   me.hide_vert = undefined;
@@ -98,6 +112,7 @@ export function runTool(doc: DocumentData, ob: ObjectData, g: NodeGroupData, mod
   if (errors.length) return errors[0];
   const out = geometryToEvalMesh(r.geometry, { uvName: me.uv_map_name, vertexGroups: me.vertex_groups, slots: materialSlots(doc, ob) });
   writeMesh(me, out);
+  if (r.geometry.mesh) writeAttributes(me, r.geometry.mesh);
   const nv = me.positions.length / 3;
   const sel = r.geometry.mesh ? readAttribute(r.geometry.mesh, TOOL_SELECTION, 'POINT') : undefined;
   me.select_vert = sel && sel.data.length === nv ? Uint8Array.from(sel.data as ArrayLike<number>, (x) => (x ? 1 : 0)) : mode === 'EDIT' ? new Uint8Array(nv) : undefined;

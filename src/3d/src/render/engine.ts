@@ -57,6 +57,8 @@ export class RenderEngine {
   dpr = Math.min(2, window.devicePixelRatio || 1);
   lost = false;
   onLost?: (message: string) => void;
+  /** called when the browser gives the graphics context back (GPU reset, driver update) */
+  restoreCallbacks = new Set<() => void>();
   frameCallbacks = new Set<() => void>();
   /** called after every redraw of the shared canvas (e.g. to copy a viewport into an area window) */
   afterDraw = new Set<() => void>();
@@ -84,7 +86,13 @@ export class RenderEngine {
     this.canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       this.lost = true;
-      this.onLost?.('The graphics context was lost. Your work is kept; reload the page to continue.');
+      this.onLost?.('The graphics context was lost. Your work is kept; the view comes back when the graphics device recovers, or reload the page.');
+    });
+    // three.js re-uploads its buffers and textures by itself; content rendered into targets is redone by the callbacks
+    this.canvas.addEventListener('webglcontextrestored', () => {
+      this.lost = false;
+      for (const cb of this.restoreCallbacks) cb();
+      this.requestDraw();
     });
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
@@ -108,6 +116,8 @@ export class RenderEngine {
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
+    // a window moved to a display with another pixel density changes the ratio but not the size
+    if (Math.min(2, window.devicePixelRatio || 1) !== this.dpr) this.resize();
     for (const cb of this.frameCallbacks) cb();
     let animating = false;
     for (const v of this.viewports) if (v.visible() && v.animating?.()) animating = true;

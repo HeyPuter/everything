@@ -50,8 +50,9 @@ export class PythonConsole implements Editor {
   private busy = false;
   private queue: string[] = [];
   private fontSize = 12;
-  private renderedCount = -1;
-  private lastLine: unknown = null;
+  /** Line number (see output.dropped) of the first line not on screen yet. */
+  private renderedEnd = 0;
+  private renderQueued = false;
   private unsub: () => void;
 
   constructor(
@@ -100,7 +101,15 @@ export class PythonConsole implements Editor {
       { passive: false },
     );
     banner();
-    const fn = () => this.renderLines();
+    // A script printing thousands of lines draws them once, when it finishes.
+    const fn = () => {
+      if (this.renderQueued) return;
+      this.renderQueued = true;
+      queueMicrotask(() => {
+        this.renderQueued = false;
+        this.renderLines();
+      });
+    };
     output.listeners.add(fn);
     const pfn = () => this.updatePrompt();
     python.listeners.add(pfn);
@@ -328,14 +337,11 @@ export class PythonConsole implements Editor {
 
   private renderLines() {
     const lines = output.lines;
-    if (lines.length < this.renderedCount || (this.renderedCount > 0 && lines[this.renderedCount - 1] !== this.lastLine)) this.renderedCount = -1;
     const atBottom = this.scrollEl.scrollHeight - this.scrollEl.scrollTop - this.scrollEl.clientHeight < 30;
-    if (this.renderedCount < 0) {
-      this.linesEl.textContent = '';
-      this.renderedCount = 0;
-    }
+    // Only the lines added since the last time are drawn, and the ones that left the scrollback removed:
+    // with a full scrollback, redrawing all of it for every printed line froze the page for minutes.
     const frag = document.createDocumentFragment();
-    for (let i = this.renderedCount; i < lines.length; i++) {
+    for (let i = Math.max(0, this.renderedEnd - output.dropped); i < lines.length; i++) {
       const d = document.createElement('div');
       d.className = `pc-line ${lines[i].type.toLowerCase()}`;
       d.textContent = lines[i].text || '​';
@@ -343,10 +349,11 @@ export class PythonConsole implements Editor {
     }
     this.linesEl.append(frag);
     // keep the DOM bounded like the scrollback
-    while (this.linesEl.childElementCount > lines.length) this.linesEl.firstElementChild?.remove();
-    this.renderedCount = lines.length;
-    this.lastLine = lines[lines.length - 1] ?? null;
-    if (atBottom || this.renderedCount < 50) this.scrollBottom();
+    let extra = this.linesEl.childElementCount - lines.length;
+    if (extra >= this.linesEl.childElementCount) this.linesEl.textContent = '';
+    else while (extra-- > 0) this.linesEl.firstElementChild?.remove();
+    this.renderedEnd = output.dropped + lines.length;
+    if (atBottom || lines.length < 50) this.scrollBottom();
   }
 
   private scrollBottom() {
@@ -392,6 +399,10 @@ export class PythonConsole implements Editor {
         await loadPython();
       } catch {
         this.busy = false;
+        // Lines typed while it loaded are not run: each would download the runtime again and fail the same way.
+        const dropped = this.queue.length;
+        this.queue = [];
+        if (dropped) output.push(`${dropped} more line${dropped === 1 ? '' : 's'} typed while it loaded ${dropped === 1 ? 'was' : 'were'} not run.`, 'INFO');
         output.push('Switch the console to JavaScript (header) to keep working offline.', 'INFO');
         this.updatePrompt();
         return;

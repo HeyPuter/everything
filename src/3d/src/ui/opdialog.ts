@@ -29,6 +29,9 @@ export function operatorDialog(idname: string, init: Record<string, unknown> = {
         {
           class: 'pop-panel op-dialog',
           'data-op-dialog': idname,
+          role: 'dialog',
+          'aria-label': opts.title ?? op.label,
+          tabindex: '-1',
           onkeydown: (e: KeyboardEvent) => {
             if (e.key === 'Enter' && !(e.target as HTMLElement).closest('input, textarea')) {
               e.preventDefault();
@@ -58,5 +61,7 @@ export function operatorDialog(idname: string, init: Record<string, unknown> = {
       ),
     { width: opts.width ?? 300, className: 'op-dialog-host' },
   );
+  // the dialog takes the keyboard, so Enter confirms it (and Tab walks its fields)
+  pop.el.querySelector<HTMLElement>('.op-dialog')?.focus({ preventScroll: true });
   return pop;
 }

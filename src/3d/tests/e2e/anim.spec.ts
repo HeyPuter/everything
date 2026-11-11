@@ -466,3 +466,192 @@ test('action editor: make markers local, then add pose markers', async ({ page }
   expect(await page.evaluate(() => (window as any).app.doc.scene.timeline_markers.length)).toBe(0); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
+
+test('playback continues from a frame set while playing and after undo', async ({ page }) => {
+  const errors = await openApp(page);
+  const frame = () => page.evaluate(() => (window as any).app.doc.scene.frame_current as number); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    app.doc.scene.frame_end = 1000;
+    app.run('screen.animation_play');
+  });
+  await page.waitForFunction(() => (window as any).app.doc.scene.frame_current > 3); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // a frame jump while playing is where playback goes on from (it does not snap back)
+  await page.evaluate(() => (window as any).app.run('screen.frame_offset', { delta: 500 })); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.waitForTimeout(150);
+  expect(await frame()).toBeGreaterThanOrEqual(500);
+  await page.evaluate(() => (window as any).app.run('screen.animation_play')); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // undo replaces the document: playing every frame keeps advancing in the restored one
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    app.doc.scene.sync_mode = 'NONE';
+    app.run('transform.translate', { value: [1, 0, 0] }, { invoke: false });
+    app.run('screen.animation_play');
+  });
+  await page.waitForTimeout(150);
+  await page.evaluate(() => (window as any).app.undoStep()); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.waitForTimeout(50);
+  const f0 = await frame();
+  await page.waitForFunction((f) => (window as any).app.doc.scene.frame_current > f + 3, f0); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.evaluate(() => (window as any).app.run('screen.animation_play')); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expectNoErrors(errors);
+});
+
+test('timeline range fields keep start at or before end', async ({ page }) => {
+  const errors = await openApp(page);
+  const typeInto = async (id: string, text: string) => {
+    await page.locator(`.area[data-editor="TIMELINE"] [data-id="${id}"]`).first().dblclick();
+    const input = page.locator('input.editing');
+    await expect(input).toBeVisible();
+    await input.fill(text);
+    await input.press('Enter');
+    await expect(input).toHaveCount(0);
+  };
+  const range = () => page.evaluate(() => { const s = (window as any).app.doc.scene; return [s.frame_start, s.frame_end, s.frame_preview_start, s.frame_preview_end]; }); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await typeInto('anim-start', '300');
+  expect((await range()).slice(0, 2)).toEqual([300, 300]);
+  await typeInto('anim-end', '20');
+  expect((await range()).slice(0, 2)).toEqual([20, 20]);
+  await typeInto('anim-start', '-5');
+  expect((await range()).slice(0, 2)).toEqual([0, 20]);
+  // the preview range behaves the same
+  await page.locator('.area[data-editor="TIMELINE"] .tl-preview').first().click();
+  await typeInto('anim-end', '30');
+  await typeInto('anim-start', '40');
+  expect((await range()).slice(2)).toEqual([40, 40]);
+  await expectNoErrors(errors);
+});
+
+test('graph editor: a modifier frame range stays ordered and its blends fit inside', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'GRAPH');
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/ui/shell.ts');
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const fc = app.doc.actions[app.activeObject.animation_data.action].fcurves[0];
+    fc.modifiers.push({ type: 'NOISE', strength: 1, use_restricted_range: true, frame_start: 1, frame_end: 40 });
+    const ed = shell.screen.areas.find((a: { type: string }) => a.type === 'GRAPH').editor;
+    ed.showSidebar = true;
+    ed.sidebarTab = 'modifiers';
+    ed.refresh();
+    app.changed('doc');
+  });
+  const typeInto = async (suffix: string, text: string) => {
+    await area(page, 'GRAPH').locator(`[data-id$="-${suffix}"]`).first().dblclick();
+    const input = page.locator('input.editing');
+    await expect(input).toBeVisible();
+    await input.fill(text);
+    await input.press('Enter');
+    await expect(input).toHaveCount(0);
+  };
+  const mod = () => page.evaluate(() => { const a = (window as any).app; const m = a.doc.actions[a.activeObject.animation_data.action].fcurves[0].modifiers[0]; return [m.frame_start, m.frame_end, m.blend_in ?? 0, m.blend_out ?? 0]; }); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await typeInto('bi', '30');
+  await typeInto('bo', '30');
+  expect(await mod()).toEqual([1, 40, 30, 9]);
+  await typeInto('rs', '35');
+  expect(await mod()).toEqual([35, 40, 5, 0]);
+  await typeInto('rs', '60');
+  expect((await mod()).slice(0, 2)).toEqual([60, 60]);
+  await typeInto('re', '10');
+  expect((await mod()).slice(0, 2)).toEqual([10, 10]);
+  await expectNoErrors(errors);
+});
+
+test('NLA: split strips do not share their modifiers', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'NLA');
+  await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { pushDown } = await import('/src/animation/actionops.ts');
+    const strip = pushDown(app.doc, app.activeObject);
+    strip.select = true;
+    strip.modifiers = [{ type: 'NOISE', strength: 1 }];
+    app.setFrame(Math.round((strip.frame_start + strip.frame_end) / 2));
+    app.pushUndo('nla setup');
+    app.changed('doc');
+  });
+  await page.waitForTimeout(200);
+  const box = (await area(page, 'NLA').locator('.anim-main canvas').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('y');
+  const r = await page.evaluate(() => {
+    const strips = (window as any).app.activeObject.animation_data.nla_tracks[0].strips; // eslint-disable-line @typescript-eslint/no-explicit-any
+    strips[1].modifiers[0].strength = 5;
+    return [strips.length, strips[0].modifiers[0].strength];
+  });
+  expect(r).toEqual([2, 1]);
+  await expectNoErrors(errors);
+});
+
+test('jump to keyframe passes keys between frames', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'DOPESHEET', [0, 1, 2]);
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const fc = app.doc.actions[app.activeObject.animation_data.action].fcurves[0];
+    // keys at 1, 6.4 and 11
+    fc.keyframe_points[1].co[0] = 6.4;
+    app.setFrame(1);
+  });
+  const jump = async (next: boolean) => {
+    await page.evaluate((next) => (window as any).app.run('screen.keyframe_jump', { next }), next); // eslint-disable-line @typescript-eslint/no-explicit-any
+    return page.evaluate(() => (window as any).app.doc.scene.frame_current); // eslint-disable-line @typescript-eslint/no-explicit-any
+  };
+  expect(await jump(true)).toBe(6);
+  expect(await jump(true)).toBe(11);
+  expect(await jump(false)).toBe(6);
+  expect(await jump(false)).toBe(1);
+  await expectNoErrors(errors);
+});
+
+test('motion paths sample negative frames exactly and keep the current subframe', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { keyProperty } = await import('/src/anim/keyframes.ts');
+    const { prefs } = await import('/src/app/prefs.ts');
+    const ob = app.activeObject;
+    // x follows the frame number
+    ob.location[0] = -10;
+    keyProperty(app.doc, ob, 'location', 0, -10);
+    ob.location[0] = 300;
+    keyProperty(app.doc, ob, 'location', 0, 300);
+    app.doc.actions[ob.animation_data.action].fcurves[0].keyframe_points.forEach((k: { interpolation: string }) => (k.interpolation = 'LINEAR'));
+    app.run('object.select_all', { action: 'DESELECT' }, { invoke: false });
+    ob.select = true;
+    app.flush();
+    const was = prefs.use_negative_frames;
+    prefs.use_negative_frames = false;
+    app.setFrame(3, 0.5);
+    ob.animation_visualization = { type: 'RANGE', frame_start: -5, frame_end: 5, frame_before: 10, frame_after: 10, frame_step: 1, show_frame_numbers: false, show_keyframe_highlight: true };
+    app.run('object.paths_calculate', { display_type: 'RANGE', range: 'MANUAL' }, { invoke: false });
+    prefs.use_negative_frames = was;
+    const mp = ob.motion_path;
+    return { xs: mp.points.filter((_: number, i: number) => i % 3 === 0).map((x: number) => Math.round(x * 100) / 100), frame: [app.doc.scene.frame_current, app.doc.scene.frame_subframe] };
+  });
+  expect(r.xs).toEqual([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]);
+  expect(r.frame).toEqual([3, 0.5]);
+  await expectNoErrors(errors);
+});
+
+test('a narrow animation editor keeps room for its keys next to the channel list', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'DOPESHEET');
+  const widths = () =>
+    page.evaluate(() => {
+      const ed = document.querySelector('.area[data-editor="DOPESHEET"]')!;
+      return { ch: ed.querySelector('.anim-ch')!.getBoundingClientRect().width, main: ed.querySelector('.anim-main')!.getBoundingClientRect().width };
+    });
+  expect((await widths()).ch).toBe(200);
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/ui/shell.ts');
+    shell.screen.toggleMaximize(shell.screen.areas.find((a: { type: string }) => a.type === 'DOPESHEET'), false);
+  });
+  await page.setViewportSize({ width: 340, height: 640 });
+  // the assistant panel takes the whole width of a phone
+  const closeAssistant = page.locator('button[aria-label="Close the assistant"]');
+  if (await closeAssistant.isVisible()) await closeAssistant.click();
+  await expect.poll(async () => (await widths()).ch).toBeLessThanOrEqual(340 * 0.45);
+  expect((await widths()).main).toBeGreaterThan(150);
+  await expectNoErrors(errors);
+});

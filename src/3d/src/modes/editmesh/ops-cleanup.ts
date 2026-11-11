@@ -6,7 +6,7 @@ import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { withEdit } from './context';
 import { editPoll, mergeVerts } from './ops-basic';
 import { symmetrizeMesh } from './symmetrize';
-import { V, faceEdgeKeys, dissolveEdgeSet, dissolveCollinearVerts, splitFace, triangulateCorners, subFace, trisToQuads, removeCorner, dissolveVertex } from './geom';
+import { V, faceEdgeKeys, dissolveEdgeSet, dissolveCollinearVerts, splitFace, triangulateCorners, subFace, trisToQuads, removeCorner, dissolveVertex, dissolveIndex } from './geom';
 
 // ---------------------------------------------------------------------------
 // limited dissolve
@@ -126,8 +126,12 @@ export function dissolveLimited(m: MeshEdit, o: LimitedDissolveOptions): boolean
     }
     parent[rb] = ra;
     sum[ra].add(sum[rb]);
-    const list = [...(regionEdges.get(ra) ?? []), ...(regionEdges.get(rb) ?? [])];
+    // edges already taken are dropped from the outline (keeping them made each merge O(region))
+    const list: number[] = [];
+    for (const j of regionEdges.get(ra) ?? []) if (!taken[j]) list.push(j);
+    for (const j of regionEdges.get(rb) ?? []) if (!taken[j]) list.push(j);
     regionEdges.set(ra, list);
+    regionEdges.delete(rb);
     // the merged face's outline edges get a fresh angle
     for (const j of list) {
       if (taken[j]) continue;
@@ -500,7 +504,9 @@ export function unsubdivideStep(m: MeshEdit): boolean {
   }
   // each removed vertex's fan becomes one face
   let n = 0;
-  for (const v of remove) if (dissolveVertex(m, v)) n++;
+  const index = dissolveIndex(m);
+  for (const v of remove) if (dissolveVertex(m, v, index)) n++;
+  if (index.removed.size) m.faces = m.faces.filter((f) => !index.removed.has(f));
   if (n) m.compact();
   return n > 0;
 }

@@ -4,7 +4,7 @@ import { app, onAppReady, registerOperators } from '../app/app';
 import { workspacePanel } from '../ui/workspacepanel';
 import { propertiesTabs } from '../editors/properties/properties';
 import { activeTools } from '../app/prefs';
-import { addKeys, keyName, keymaps, keyLabel, type KeyItem } from '../app/keymap';
+import { addKeys, keyInputHooks, keyName, keymaps, keyLabel, type KeyItem } from '../app/keymap';
 import { h, type Child, type VNode } from '../ui/h';
 import { icon } from '../ui/icons';
 import { checkbox, colorSwatch, enumMenu, enumRow, numberField, panel, button, opButton, row } from '../ui/widgets';
@@ -28,7 +28,7 @@ import { operators } from '../app/app';
 import { vertexPaintStroke, sampleVertexColor } from './vpaint';
 import { weightPaintStroke, sampleWeight, ensureActiveGroup } from './wpaint';
 import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource, imagePaintOptions, imagePaintSettings, ensureStencilImage } from './tpaint';
-import { strokeActive } from './stroke';
+import { strokeActive, strokeKeyInput } from './stroke';
 import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
 import { brushFalloff, falloffPresetPoints, linearToSrgb, srgbToLinear } from './math';
@@ -1776,7 +1776,9 @@ export function brushStroke(v: View3D, e: PointerEvent, live = true): boolean {
     const mb = brushById('brush_mask');
     const cur = activeBrush('SCULPT');
     if (mb) {
-      lastStrokeStarted = sculptStroke(v, e, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
+      const start = (ev: PointerEvent) => sculptStroke(v, ev, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
+      lastStrokeStarted = start(e);
+      if (!lastStrokeStarted && live) startOnSurface(v, e, start);
       return true;
     }
   }
@@ -1788,8 +1790,15 @@ export function brushStroke(v: View3D, e: PointerEvent, live = true): boolean {
       app.report('INFO', 'Viewport color set to Attribute to show the painted colors');
     }
     lastStrokeStarted = vertexPaintStroke(v, e, sb);
-  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') lastStrokeStarted = faceSetStroke(v, e, activeBrush('SCULPT')!) !== false;
-  else if (mode === 'SCULPT') lastStrokeStarted = sculptStroke(v, e);
+  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') {
+    const start = (ev: PointerEvent) => faceSetStroke(v, ev, activeBrush('SCULPT')!) !== false;
+    lastStrokeStarted = start(e);
+    if (!lastStrokeStarted && live) startOnSurface(v, e, start);
+  }
+  else if (mode === 'SCULPT') {
+    lastStrokeStarted = sculptStroke(v, e);
+    if (!lastStrokeStarted && live) startOnSurface(v, e, (ev) => sculptStroke(v, ev));
+  }
   else if (mode === 'VERTEX_PAINT') lastStrokeStarted = vertexPaintStroke(v, e);
   else if (mode === 'WEIGHT_PAINT') {
     const am = activeMeshData();
@@ -1800,6 +1809,38 @@ export function brushStroke(v: View3D, e: PointerEvent, live = true): boolean {
     lastStrokeStarted = weightPaintStroke(v, e);
   } else lastStrokeStarted = texturePaintStroke(v, e);
   return true;
+}
+
+/**
+ * A sculpt stroke pressed off the mesh starts once the pointer reaches the surface while the button
+ * is still held (as in Blender), so a stroke can begin outside the silhouette.
+ */
+function startOnSurface(v: View3D, e: PointerEvent, start: (ev: PointerEvent) => boolean) {
+  const p = v.local(e);
+  const s0 = meshSession();
+  if (!s0 || s0.raycast(v, p.x, p.y)) return;
+  const stop = () => {
+    removeEventListener('pointermove', move, true);
+    removeEventListener('pointerup', stop, true);
+    removeEventListener('pointercancel', stop, true);
+    removeEventListener('keydown', key, true);
+  };
+  const key = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') stop();
+  };
+  const move = (ev: PointerEvent) => {
+    if (ev.pointerId !== e.pointerId) return;
+    if (!(ev.buttons & 1) || app.doc.mode !== 'SCULPT' || app.modal || strokeActive()) return stop();
+    const q = v.local(ev);
+    const s = meshSession();
+    if (!s?.raycast(v, q.x, q.y)) return;
+    stop();
+    start(ev);
+  };
+  addEventListener('pointermove', move, true);
+  addEventListener('pointerup', stop, true);
+  addEventListener('pointercancel', stop, true);
+  addEventListener('keydown', key, true);
 }
 
 /** Whether the last `brushStroke` call actually started a stroke (it hit the mesh). */
@@ -1878,6 +1919,9 @@ function toolHeaderSettingsColumn(mode: BrushMode): Child {
     mode === 'SCULPT' ? directionToggle(b) : null,
   ];
 }
+
+// a running brush stroke owns the keyboard (Esc cancels it, other shortcuts wait)
+keyInputHooks.unshift(strokeKeyInput);
 
 viewportExtensions.push((v) => {
   const orig = v.onKey.bind(v);

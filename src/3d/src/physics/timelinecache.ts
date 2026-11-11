@@ -1,7 +1,9 @@
 // Timeline: bars along the bottom showing which frames of each simulation are cached or baked,
 // with View ▸ Cache toggles per simulation kind.
 import { app } from '../app/app';
-import { timelineOverlays, timelineViewMenuHooks, type Timeline } from '../editors/timeline';
+// the registries only: importing the editor itself would pull in all the animation editors
+import { timelineOverlays, timelineViewMenuHooks } from '../animation/overlays';
+import type { Timeline } from '../editors/timeline';
 import { caches } from './common';
 import { cacheOwners } from './ops';
 import { RB_CACHE } from './rigidbody';

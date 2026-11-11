@@ -17,8 +17,29 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="./manifest.json" />
     <!-- The app works without Puter (offline, blocked): a failed load only leaves out the account menu,
-         and the assistant tries again when it is used (src/assistant/puter.ts). -->
-    <script src="https://js.puter.com/v2/" defer onerror="window.__puterFailed = true"></script>
+         and the assistant tries again when it is used (src/assistant/puter.ts). With Preferences ▸
+         System ▸ Network ▸ Allow Online Access off nothing is fetched. -->
+    <script>
+      (function () {
+        var online = true;
+        try {
+          var p = JSON.parse(localStorage.getItem('p3d.preferences.v1') || 'null');
+          online = !p || p.use_online_access !== false;
+        } catch (e) {}
+        if (!online) return;
+        var s = document.createElement('script');
+        s.src = 'https://js.puter.com/v2/';
+        s.async = true;
+        s.onerror = function () {
+          window.__puterFailed = true;
+        };
+        // arriving after the app started: the top bar adds the account menu (src/ui/shell.ts)
+        s.onload = function () {
+          dispatchEvent(new Event('puter-loaded'));
+        };
+        document.head.appendChild(s);
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

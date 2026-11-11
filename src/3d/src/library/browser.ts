@@ -12,8 +12,8 @@ import { recentFiles, recentBytes, kvGet } from '../io/session';
 import { pickFile } from '../io/native';
 import type { DocumentData } from '../data/types';
 import { idTables, tablesOf, libraries, isLinked, linkedId } from './core';
-import { rememberFile, listStored, latestBytes, type StoredLibrary } from './store';
-import { sourceDoc, formatOf, isLibraryFile } from './runtime';
+import { rememberFile, listStored, latestBytes, fingerprint, type StoredLibrary } from './store';
+import { sourceDoc, formatOf, isLibraryFile, decodeLibraryBytes, cacheSource } from './runtime';
 import './icons';
 import './library.css';
 
@@ -284,7 +284,10 @@ class LibraryBrowser {
         if (lib?.packed_file?.length) bytes = lib.packed_file;
       }
       if (!bytes) throw new Error(`"${ref.name}" is not available in this browser`);
+      // a file that cannot be read is not kept in the library store
+      const decoded = await decodeLibraryBytes(bytes, formatOf(ref.name));
       entry = await rememberFile(ref.name, bytes, { recentName: ref.recentName, handle: ref.handle, path: ref.path });
+      cacheSource(entry.key, decoded, entry, fingerprint(bytes));
     }
     const doc = await sourceDoc(entry.key, entry.bytes, formatOf(ref.name), entry);
     this.open = { ref, entry, doc };

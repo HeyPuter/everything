@@ -155,7 +155,10 @@ export function saveLibrary(id: string, immediate = false): Promise<void> {
   clearTimeout(pendingSaves.get(id));
   const write = () => {
     pendingSaves.delete(id);
-    return kvSet(libKey(id), encodeDocument(st.doc!)).then(() => undefined, () => undefined);
+    return kvSet(libKey(id), encodeDocument(st.doc!)).then(
+      () => undefined,
+      (e) => app.report('ERROR', `The asset library "${entries.find((x) => x.id === id)?.name ?? id}" could not be stored: ${e instanceof Error ? e.message : String(e)}`),
+    );
   };
   if (immediate) return write();
   return new Promise((res) => pendingSaves.set(id, setTimeout(() => void write().then(res), 250)));
@@ -207,7 +210,7 @@ export async function deleteLibrary(id: string) {
   entries.splice(i, 1);
   loaded.delete(id);
   saveIndex();
-  await kvSet(libKey(id), null);
+  await kvSet(libKey(id), null).catch(() => {});
   notifyLibraries();
   return true;
 }
@@ -282,13 +285,23 @@ function restoreCatalogState(doc: DocumentData, s: string) {
   }
 }
 
-/** Remember the catalog state of a user library before an edit (for Undo Catalog Edits). */
-export function catalogUndoPush(id: string) {
+/**
+ * Remember the catalog state of a user library before an edit (for Undo Catalog Edits).
+ * Returns a function that takes the step back when the edit changed nothing.
+ */
+export function catalogUndoPush(id: string): () => void {
   const st = loaded.get(id);
-  if (!st?.doc) return;
-  st.undo.push(catalogState(st.doc));
+  if (!st?.doc) return () => {};
+  const state = catalogState(st.doc);
+  const redo = st.redo;
+  st.undo.push(state);
   if (st.undo.length > 64) st.undo.shift();
   st.redo = [];
+  return () => {
+    if (st.undo.at(-1) !== state) return;
+    st.undo.pop();
+    st.redo = redo;
+  };
 }
 
 export const canCatalogUndo = (id: string) => !!loaded.get(id)?.undo.length;

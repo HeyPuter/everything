@@ -2,19 +2,19 @@
 import { registerModifier } from '../eval/modifiers';
 import { preEvaluateHooks, type Depsgraph } from '../eval/depsgraph';
 import type { EvalMesh, ModifierContext } from '../eval/types';
-import type { DocumentData, ModifierBase, NodeGroupData, NodeTreeData, ObjectData, SocketValue } from '../data/types';
+import type { DocumentData, ModifierBase, NodeData, NodeGroupData, NodeTreeData, ObjectData, SocketValue } from '../data/types';
 import { interfaceSocketType, findSocket, allSockets } from '../nodes/registry';
 import { alwaysEvaluated, geoExecs, type EvalEnv, type Val } from './exec';
-import { TreeEval, pruneCache, hash, coerce, FIELD_TYPES, type NodeCache, type EvalLog } from './evaluator';
+import { TreeEval, pruneCache, hash, coerce, treeEvalJson, FIELD_TYPES, type NodeCache, type EvalLog } from './evaluator';
 import { GeometrySet, identity, adaptDomain, dataComps, type Component } from './geometry';
 import { evalMeshToGeometry, geometryToEvalMesh, curveDataToCurves, materialSlots } from './convert';
 import { curveObjectModifierInput } from './curves/curvedata';
 import { greasePencilGeometry } from './curves/gpdata';
 import { attributeField } from './inputs';
-import { Field, ConstField } from './field';
+import { Field, ConstField, detectDomain } from './field';
 import { storeOn } from './nodes/geometry';
 import { isActiveViewer, VIEWER } from './nodes/output';
-import { gnResults, viewerState, resultListeners } from './results';
+import { gnResults, gnMessages, viewerState, resultListeners } from './results';
 import { viewerItems, viewerItemIn, viewerAttr } from './nodes/vieweritems';
 import { fieldTypeOfEnum, type Domain, type FieldType } from './types';
 import { hasDomain } from './nodes/common';
@@ -47,11 +47,19 @@ export function modifierDeps(doc: DocumentData, m: ModifierBase): string[] {
   const g = nodeGroupOf(doc, m);
   if (!g) return [];
   const out = new Set<string>();
-  for (const t of groupTrees(doc, g.tree))
+  for (const t of groupTrees(doc, g.tree)) {
+    const linked = new Set(t.links.map((l) => `${l.to_node}\u0001${l.to_socket}`));
     for (const n of t.nodes) {
       const ex = geoExecs[n.type];
       for (const id of ex?.deps?.(n, doc) ?? []) out.add(id);
+      // objects and collections chosen on other nodes (Switch, nested group inputs, …) and linked onward
+      for (const [k, v] of Object.entries(n.inputs)) {
+        if (typeof v !== 'string' || linked.has(`${n.id}\u0001${k}`)) continue;
+        if (doc.objects[v]) out.add(v);
+        else if (doc.collections[v]) for (const id of collectionObjects(doc, v)) out.add(id);
+      }
     }
+  }
   // object / collection inputs of the modifier
   for (const it of interfaceInputs(g.tree)) {
     const { type } = interfaceSocketType(it.socket_type);
@@ -83,11 +91,23 @@ function usesTime(doc: DocumentData, m: ModifierBase): boolean {
   return false;
 }
 
+/** Tree holding the active viewer: the group's tree, or a group opened inside it (by group node path). */
+export function viewerTree(doc: DocumentData, tree: NodeTreeData, path: string[] = viewerState.path): NodeTreeData | null {
+  let t = tree;
+  for (const id of path) {
+    const n = t.nodes.find((x) => x.id === id && x.type === 'GeometryNodeGroup');
+    const g = n && typeof n.props.node_tree === 'string' ? doc.node_groups[n.props.node_tree] : undefined;
+    if (!g) return null;
+    t = g.tree;
+  }
+  return t;
+}
+
 /** Whether this modifier currently displays its tree's active viewer. */
 export function viewerActiveFor(doc: DocumentData, ob: ObjectData, m: ModifierBase): boolean {
   if (viewerState.objectId !== ob.id || viewerState.modifierId !== m.id) return false;
   const g = nodeGroupOf(doc, m);
-  return !!g?.tree.nodes.some(isActiveViewer);
+  return !!(g && viewerTree(doc, g.tree)?.nodes.some(isActiveViewer));
 }
 
 // ---------------------------------------------------------------------------
@@ -222,15 +242,28 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
   let viewer: GeometrySet | undefined;
   let viewerDomain: Domain | undefined;
   if (withViewer) {
-    const vn = tree.nodes.find(isActiveViewer);
-    if (vn) {
+    // the viewer may sit in a group opened in the editor: evaluate it as that group node runs it
+    let vev: TreeEval | null = root;
+    for (const id of viewerState.path) {
+      const gnode: NodeData | undefined = vev.tree.nodes.find((n) => n.id === id && n.type === 'GeometryNodeGroup');
+      vev = gnode ? vev.groupEval(gnode) : null;
+      if (!vev) break;
+    }
+    const vn = vev?.tree.nodes.find(isActiveViewer);
+    if (vev && vn) {
+      const root = vev;
       const socks = allSockets(vn, root.sctx).inputs;
       const gs = socks.find((s) => s.identifier === 'Geometry');
       const vs = socks.find((s) => s.identifier === 'Value');
       const gv = gs ? root.inputValue(vn, gs) : undefined;
       viewer = gv instanceof GeometrySet ? gv : GeometrySet.empty();
       const dom = String(vn.props.domain ?? 'AUTO');
-      const pick = (c: Component): Domain => (dom !== 'AUTO' && hasDomain(c, dom as Domain) ? (dom as Domain) : c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT');
+      // Auto: the domain the viewed field's inputs live on (Face Area on faces …), else points
+      const pick = (c: Component, f: Field): Domain => {
+        if (dom !== 'AUTO' && hasDomain(c, dom as Domain)) return dom as Domain;
+        const d = dom === 'AUTO' ? detectDomain(f, c) : null;
+        return d && hasDomain(c, d) ? d : c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT';
+      };
       // extra values of the viewer, each stored as its own attribute
       for (const it of viewerItems(vn)) {
         const s = socks.find((x) => x.identifier === viewerItemIn(it));
@@ -238,14 +271,14 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
         const t = fieldTypeOfEnum(String(it.data_type ?? 'FLOAT'));
         const v = root.inputValue(vn, s);
         const f = v instanceof Field ? v : new ConstField(t, (v ?? 0) as number);
-        viewer = viewer.map((c: Component) => storeOn(c, (viewerDomain = pick(c)), viewerAttr(it), t, f));
+        viewer = viewer.map((c: Component) => storeOn(c, (viewerDomain = pick(c, f)), viewerAttr(it), t, f));
       }
       if (vs && root.links(vn.id, 'Value').length) {
         const t = fieldTypeOfEnum(vn.props.data_type ?? 'FLOAT');
         const v = root.inputValue(vn, vs);
         const f = v instanceof Field ? v : new ConstField(t, (v ?? 0) as number);
         viewer = viewer.map((c: Component) => {
-          const d: Domain = dom !== 'AUTO' && hasDomain(c, dom as Domain) ? (dom as Domain) : c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT';
+          const d = pick(c, f);
           viewerDomain = d;
           return storeOn(c, d, '.viewer', t, f);
         });
@@ -256,11 +289,15 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
   return { geometry, outputs, viewer, viewerDomain, log };
 }
 
-/** Drop node caches of modifiers that no longer exist. */
+/** Drop node caches and last results of modifiers that no longer exist. */
 export function pruneModifierCaches(doc: DocumentData) {
   const live = new Set<string>();
-  for (const ob of Object.values(doc.objects)) for (const m of ob.modifiers) if (m.type === 'NODES') live.add(`${ob.id}/${m.id}`);
+  for (const ob of Object.values(doc.objects)) for (const m of ob.modifiers ?? []) if (m.type === 'NODES') live.add(`${ob.id}/${m.id}`);
   for (const k of caches.keys()) if (!live.has(k)) caches.delete(k);
+  for (const [id, r] of gnResults) if (!live.has(`${id}/${r.modifierId}`)) gnResults.delete(id);
+  // messages of disabled modifiers or modifiers without a group are stale
+  for (const ob of Object.values(doc.objects)) for (const m of ob.modifiers ?? []) if (m.type === 'NODES' && (m.show_viewport === false || !nodeGroupOf(doc, m))) live.delete(`${ob.id}/${m.id}`);
+  for (const k of gnMessages.keys()) if (!live.has(k)) gnMessages.delete(k);
 }
 
 const VIEWER_COLOR = '.viewer_color';
@@ -307,8 +344,8 @@ registerModifier({
   signature: (m, { doc, ob }) => {
     const g = nodeGroupOf(doc, m);
     if (!g) return 'none';
-    const trees = [...groupTrees(doc, g.tree)].map((t) => JSON.stringify(t));
-    const viewer = viewerActiveFor(doc, ob, m) ? 'V' : '';
+    const trees = [...groupTrees(doc, g.tree)].map(treeEvalJson);
+    const viewer = viewerActiveFor(doc, ob, m) ? `V${viewerState.path.join('/')}` : '';
     // object/collection membership and material slots referenced by the tree
     const colls: string[] = [];
     for (const t of groupTrees(doc, g.tree))
@@ -345,6 +382,7 @@ registerModifier({
       ms: performance.now() - t0,
       executed: r.log.executed,
     });
+    gnMessages.set(`${ctx.ob.id}/${m.id}`, { warnings: r.log.warnings, warningKinds: r.log.kinds });
     for (const fn of resultListeners) fn();
     return out;
   },

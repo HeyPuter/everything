@@ -38,7 +38,7 @@ registerOperators([
       { id: 'gain', label: 'Gain', type: 'float', default: 1, min: 0, max: 10, softMax: 4 },
     ],
     poll: vpPoll,
-    exec: (_c, p) => editColors((_me, cols) => adjustColor(cols, { offset: p.offset as number, gain: p.gain as number })),
+    exec: (_c, p) => editColors((_me, cols) => adjustColor(cols, { offset: p.offset as number, gain: p.gain as number }), true),
   },
   {
     idname: 'paint.vertex_color_hsv',
@@ -50,7 +50,7 @@ registerOperators([
       { id: 'v', label: 'Value', type: 'float', default: 1, min: 0, max: 2 },
     ],
     poll: vpPoll,
-    exec: (_c, p) => editColors((_me, cols) => adjustColor(cols, { hue: p.h as number, saturation: p.s as number, value: p.v as number })),
+    exec: (_c, p) => editColors((_me, cols) => adjustColor(cols, { hue: p.h as number, saturation: p.s as number, value: p.v as number }), true),
   },
   {
     idname: 'paint.vertex_color_brightness_contrast',
@@ -61,7 +61,7 @@ registerOperators([
       { id: 'contrast', label: 'Contrast', type: 'float', default: 0, min: -100, max: 100, subtype: 'percentage' },
     ],
     poll: vpPoll,
-    exec: (_c, p) => editColors((_me, cols) => adjustColor(cols, { brightness: (p.brightness as number) / 100, contrast: (p.contrast as number) / 100 })),
+    exec: (_c, p) => editColors((_me, cols) => adjustColor(cols, { brightness: (p.brightness as number) / 100, contrast: (p.contrast as number) / 100 }), true),
   },
   {
     idname: 'paint.vertex_color_from_weight',

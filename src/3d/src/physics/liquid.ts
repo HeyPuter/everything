@@ -3,7 +3,7 @@
 import { Matrix4, Vector3 } from 'three';
 import type { ObjectData } from '../data/types';
 import type { EvalMesh, ModifierContext } from '../eval/types';
-import { rand01, frameOf, getCache, outOfTime, type FrameCache, type SimContext } from './common';
+import { rand01, frameOf, getCache, outOfTime, type FrameCache, type SimContext, stepCount } from './common';
 import { addParticle, newLiquidGrid, removeParticles, stepLiquid, type LiquidGrid, type LiquidParams } from './liquid-solver';
 import { polygonize, type FieldElement } from '../metaball/polygonize';
 import { fps } from './meshsim';
@@ -279,6 +279,7 @@ export function evaluateLiquid(ob: ObjectData, m: FluidModifier, mesh: EvalMesh,
   const f = F.frameAt(m, frameOf(ctx.graph));
   const sctx: SimContext = { doc, graph: ctx.graph };
   const replay = cacheType(m.domain_settings) === 'REPLAY';
+  cache.rewindFor(f);
   if (!cache.frames.has(f) && mayStepData(key, m) && !(pc.is_baked && !replay)) {
     if (!cache.live || cache.last < pc.frame_start || !('grid' in (cache.live as object))) {
       const s = { ...F.domainDefaults(), ...m.domain_settings };
@@ -406,7 +407,7 @@ export function buildLiquidSurface(r: { frame: LiquidFrame; live: LiquidLive }, 
       z = local[i * 3 + 2];
     els.push({ type: 'BALL', radius: rad, stiffness: 1, sx: 0, sy: 0, sz: 0, negative: false, inv: new Float64Array([1, 0, 0, -x, 0, 1, 0, -y, 0, 0, 1, -z]), min: [x - rad, y - rad, z - rad], max: [x + rad, y + rad, z + rad] });
   }
-  const mesh = polygonize(els, threshold, h / Math.max(1, s.mesh_scale ?? 2)).mesh;
+  const mesh = polygonize(els, threshold, h / stepCount(s.mesh_scale ?? 2, 1, 6, 2)).mesh;
   if ((s.mesh_generator ?? 'IMPROVED') === 'IMPROVED') smoothSurface(mesh, Math.round(s.mesh_smoothen_pos ?? 1), Math.round(s.mesh_smoothen_neg ?? 1));
   return mesh;
 }

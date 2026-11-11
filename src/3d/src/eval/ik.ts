@@ -5,18 +5,30 @@ import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { ArmatureData, Constraint, ObjectData } from '../data/types';
 import type { BoneEval } from './armature';
 
+const childrenCache = new WeakMap<Map<string, BoneEval>, { size: number; children: Map<string, BoneEval[]> }>();
+/** Child bones by parent name (cached per pose; scanning every bone for each descendant made
+ *  carrying a chain along O(bones × descendants) per call, and the IK solver calls it constantly). */
+export function childBones(bones: Map<string, BoneEval>): Map<string, BoneEval[]> {
+  const c = childrenCache.get(bones);
+  if (c && c.size === bones.size) return c.children;
+  const children = new Map<string, BoneEval[]>();
+  for (const b of bones.values()) if (b.parent) (children.get(b.parent) ?? children.set(b.parent, []).get(b.parent)!).push(b);
+  childrenCache.set(bones, { size: bones.size, children });
+  return children;
+}
+
 /** Replace a bone's pose matrix and carry its descendants along. */
 export function applyBonePose(bones: Map<string, BoneEval>, name: string, m: Matrix4) {
   const b = bones.get(name);
   if (!b) return;
   const delta = m.clone().multiply(b.pose.clone().invert());
   b.pose.copy(m);
+  const children = childBones(bones);
   const visit = (parent: string) => {
-    for (const c of bones.values())
-      if (c.parent === parent) {
-        c.pose.premultiply(delta);
-        visit(c.name);
-      }
+    for (const c of children.get(parent) ?? []) {
+      c.pose.premultiply(delta);
+      visit(c.name);
+    }
   };
   visit(name);
 }

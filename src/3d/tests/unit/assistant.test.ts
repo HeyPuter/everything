@@ -10,7 +10,7 @@ import '../../src/ops/object';
 import '../../src/eval/modifiers_extra';
 import '../../src/nodes/shader/defs';
 import { output } from '../../src/scripting/runner';
-import { runTool, toolSpecs, type AssistantHost } from '../../src/assistant/tools';
+import { changesScene, runTool, toolSpecs, type AssistantHost } from '../../src/assistant/tools';
 import { createAgent } from '../../src/assistant/agent';
 import type { ChatFn, StreamPart } from '../../src/assistant/ai';
 import { SYSTEM_PROMPT, sceneSnapshot } from '../../src/assistant/prompt';
@@ -80,6 +80,17 @@ describe('run_script', () => {
     expect(app.undo.history.length).toBe(steps);
   });
 
+  it('turns a wrong operator argument into an error the model can fix, and clamps one past the limits', async () => {
+    const bad = await script(`bpy.ops.mesh.primitive_cube_add({size: 'big'});`);
+    expect(bad.ok).toBe(false);
+    expect(bad.content).toMatch(/TypeError: bpy\.ops\.mesh\.primitive_cube_add\(\): size expected a number, not str/);
+    expect(objectNames()).toEqual(['Camera', 'Cube', 'Light']);
+    const r = await script(`bpy.ops.mesh.primitive_uv_sphere_add({segments: -5, ring_count: 1}); print(C.object.data.vertices.length);`);
+    expect(r.ok).toBe(true);
+    // Blender clamps to the property's range: 3 segments × 2 inner rings + the poles
+    expect(r.content).toContain('Printed:\n8');
+  });
+
   it('says when nothing changed', async () => {
     const r = await script(`print(D.objects.length)`);
     expect(r.ok).toBe(true);
@@ -96,6 +107,18 @@ describe('reading the scene', () => {
     expect(s).toMatch(/- "Cube" MESH: location \(0, 0, 0\); size 2 × 2 × 2; bounds x -1…1, y -1…1, z -1…1/);
     expect(s).toMatch(/- "Camera" CAMERA \(50 mm, scene camera\)/);
     expect(s).toMatch(/- "Light" LIGHT \(POINT/);
+  });
+
+  it('keeps the snapshot short in a scene with many collections', async () => {
+    await script(`for (let c = 0; c < 400; c++) { const col = D.collections.new('Group ' + c); C.scene.collection.children.link(col); }`);
+    const s = sceneSnapshot(host);
+    // every message carries the snapshot: the collection tree used to be listed whole
+    expect(s.length).toBeLessThan(6000);
+    expect(s).toContain('- "Group 0": 0 objects');
+    expect(s).toMatch(/… and 3\d\d more collections; use get_scene/);
+    const scene = await runTool(host, 'get_scene', {});
+    expect(scene.content).toContain('- "Group 298": 0 objects');
+    expect(scene.content).toMatch(/… and 10\d more collections/);
   });
 
   it('describes an object, a material and the scene', async () => {
@@ -130,6 +153,19 @@ describe('reading the scene', () => {
     expect((await runTool(host, 'api_help', { topic: 'bpy.ops.mesh.nope' })).ok).toBe(false);
   });
 
+  it('looks things up without changing the scene', async () => {
+    const before = app.undo.history.length;
+    const r = await runTool(host, 'api_help', { topic: "D.objects['Cube'].location.x = 5" });
+    expect(r.ok).toBe(true);
+    // a lookup that changed something is undone, and the model is told to use run_script
+    expect(app.doc.objects[Object.keys(app.doc.objects).find((k) => app.doc.objects[k].name === 'Cube')!].location[0]).toBe(0);
+    expect(r.content).toMatch(/changed the scene.*undone.*run_script/);
+    const op = await runTool(host, 'api_help', { topic: 'bpy.ops.mesh.primitive_cube_add({location: [4, 0, 0]})' });
+    expect(op.content).toMatch(/undone/);
+    expect(objectNames()).toEqual(['Camera', 'Cube', 'Light']);
+    expect(app.undo.history.length).toBe(before);
+  });
+
   it('offers the viewport tools only with a viewport', () => {
     const names = toolSpecs(host).map((t) => t.function.name);
     expect(names).toContain('run_script');
@@ -149,6 +185,26 @@ describe('the conversation', () => {
     };
     return { chat, requests };
   }
+
+  it('does not run the rest of a reply\'s changes after one of them failed', async () => {
+    const { chat, requests } = scripted([
+      [
+        { type: 'tool', id: 'a', name: 'run_script', input: { description: 'Add the base', code: "bpy.ops.mesh.primitive_cube_add(); C.object.name = 'Base'; D.objects.Nope.name = 'x';" } },
+        { type: 'tool', id: 'b', name: 'get_scene', input: {} },
+        { type: 'tool', id: 'c', name: 'run_script', input: { description: 'Put a ball on the base', code: "bpy.ops.mesh.primitive_uv_sphere_add({location: [0, 0, D.objects.Base.dimensions.z]}); C.object.name = 'Ball';" } },
+        { type: 'tool', id: 'd', name: 'run_script', input: { description: 'Try a size', code: "print(1)", dry_run: true } },
+      ],
+      [{ type: 'text', text: 'Fixing it.' }],
+    ]);
+    const agent = createAgent({ chat, tools: () => toolSpecs(host), runTool: (n, a) => runTool(host, n, a), system: 'S', snapshot: () => '', model: () => 'test', changes: changesScene });
+    const res = await agent.send('build', () => {});
+    // the ball was written for a base the rollback removed: it is not run; reads and dry runs still are
+    expect(res.steps.map((s) => s.status)).toEqual(['error', 'done', 'skipped', 'done']);
+    expect(objectNames()).toEqual(['Camera', 'Cube', 'Light']);
+    const results = (requests[1] as { role: string; tool_call_id?: string; content: string }[]).filter((m) => m.role === 'tool');
+    expect(results.map((m) => m.tool_call_id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(results[2].content).toMatch(/^Not run: run_script earlier in this reply failed/);
+  });
 
   it('runs the tools the model calls and answers, as one undo step', async () => {
     const { chat, requests } = scripted([

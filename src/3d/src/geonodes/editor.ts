@@ -6,7 +6,7 @@ import { icon } from '../ui/icons';
 import { app, registerOperators } from '../app/app';
 import { registerEditor, type Area } from '../ui/screen';
 import { NodeEditor } from '../nodes/editor/editor';
-import { registerNodeEditorProvider } from '../nodes/editor/context';
+import { registerNodeEditorProvider, type NodeEditorProvider } from '../nodes/editor/context';
 import { dataBlockSelector } from '../editors/properties/tabs';
 import { newNodeGroup, uid } from '../data/defaults';
 import { newModifier } from '../eval/modifiers';
@@ -16,8 +16,9 @@ import type { ModifierBase, NodeData, NodeGroupData, NodeTreeData, ObjectData, S
 import { VIEWER, isActiveViewer } from './nodes/output';
 import { captureItems, captureIn, captureOut, type CaptureItem } from './nodes/geometry';
 import { itemListUI, registerItemNode, type ItemListDef, type NodeItem } from './nodes/items';
-import { gnResults, viewerState } from './results';
-import { setModifierNameHook } from './modifier';
+import { gnMessages, viewerState } from './results';
+import { setModifierNameHook, groupTrees } from './modifier';
+import { fieldInputMessage } from './evaluator';
 import { interfaceSocketType } from '../nodes/registry';
 import { button } from '../ui/widgets';
 import type { NodeDrawContext } from '../nodes/types';
@@ -56,6 +57,18 @@ export function syncModifierInputs(m: ModifierBase, g: NodeGroupData | undefined
     if (it.in_out !== 'INPUT') continue;
     const { type } = interfaceSocketType(it.socket_type);
     if (type === 'GEOMETRY') continue;
+    const cur = m[it.identifier];
+    if (cur !== undefined && cur !== null) {
+      // a value kept from before the socket's type changed: convert it (or fall back to the default)
+      const nums = Array.isArray(cur) ? cur.filter((x): x is number => typeof x === 'number') : null;
+      const n = typeof cur === 'number' ? cur : typeof cur === 'boolean' ? Number(cur) : nums?.length ? nums[0] : undefined;
+      if (type === 'FLOAT' || type === 'INT') m[it.identifier] = n === undefined ? undefined : type === 'INT' ? Math.round(n) : n;
+      else if (type === 'BOOLEAN') m[it.identifier] = n === undefined ? undefined : n !== 0;
+      else if (type === 'VECTOR' || type === 'ROTATION') m[it.identifier] = nums && nums.length >= 3 ? nums.slice(0, 3) : n === undefined ? undefined : [n, n, n];
+      else if (type === 'RGBA') m[it.identifier] = nums && nums.length >= 3 ? [nums[0], nums[1], nums[2], nums[3] ?? 1] : n === undefined ? undefined : [n, n, n, 1];
+      else if (typeof cur !== 'string') m[it.identifier] = undefined;
+      else if (type !== 'STRING' && type !== 'MENU' && !['OBJECT', 'COLLECTION', 'MATERIAL', 'IMAGE', 'FONT', 'SOUND'].includes(type)) m[it.identifier] = undefined;
+    }
     if (m[it.identifier] === undefined) {
       const d = it.default_value;
       m[it.identifier] = Array.isArray(d)
@@ -150,7 +163,7 @@ function newGroupFor(ed: GeometryNodeEditor) {
   changed(m ? 'New Geometry Node Group' : 'New Geometry Nodes Modifier');
 }
 
-registerNodeEditorProvider({
+const geometryProvider: NodeEditorProvider = {
   id: 'GEOMETRY',
   label: 'Geometry Node Editor',
   icon: 'editor_geometry',
@@ -175,13 +188,23 @@ registerNodeEditorProvider({
   nodeWarnings: (e, node) => {
     const ed = e as GeometryNodeEditor;
     const { ob, mod } = editorGroup(ed);
-    const r = ob && mod ? gnResults.get(ob.id) : undefined;
-    if (!r || r.modifierId !== mod!.id) return undefined;
+    const r = ob && mod ? gnMessages.get(`${ob.id}/${mod.id}`) : undefined;
+    if (!r) return undefined;
     const key = [ob!.id, mod!.id, ...ed.path.map((p) => p.node), node.id].join('/');
     const messages = r.warnings.get(key);
     if (!messages?.length) return undefined;
     const kinds = messages.map((m) => r.warningKinds?.get(`${key}\n${m}`) ?? 'WARNING');
     return { messages, kind: kinds.includes('ERROR') ? 'ERROR' : kinds.includes('WARNING') ? 'WARNING' : 'INFO' };
+  },
+  // a field linked into an input taking a single value (reported by the node when evaluated)
+  linkError: (e, l) => {
+    const ed = e as GeometryNodeEditor;
+    const tree = ed.tree();
+    const to = tree ? nodeById(tree, l.to_node) : undefined;
+    if (!tree || !to) return false;
+    const s = nodeSockets(to, ctxOf(app.doc, tree)).inputs.find((x) => x.identifier === l.to_socket);
+    const w = s ? geometryProvider.nodeWarnings?.(ed, to) : undefined;
+    return !!s && !!w?.messages.includes(fieldInputMessage(s.name));
   },
   // Ctrl Shift click / node.link_viewer: link the node to the viewer
   linkViewer: (ed, node, socket) => linkToViewer(ed as NodeEditor, node, socket),
@@ -251,7 +274,8 @@ registerNodeEditorProvider({
       ),
     );
   },
-});
+};
+registerNodeEditorProvider(geometryProvider);
 
 registerEditor({
   id: 'GEOMETRY',
@@ -273,17 +297,45 @@ const VIEW_DATA_TYPE: Record<string, string> = {
   ROTATION: 'QUATERNION',
 };
 
-/** Activate a viewer node (and remember which object/modifier shows it). */
+/** Group node path from `root` down to `tree`: the path the editor shows, else the first one found. */
+function groupPathTo(root: NodeTreeData, tree: NodeTreeData): string[] | null {
+  if (root === tree) return [];
+  const ed = (app.hoverArea ?? app.activeArea)?.editor;
+  if (ed instanceof GeometryNodeEditor && ed.tree() === tree && editorGroup(ed).group?.tree === root) return ed.path.map((p) => p.node);
+  const seen = new Set<NodeTreeData>();
+  const walk = (t: NodeTreeData): string[] | null => {
+    if (seen.has(t)) return null;
+    seen.add(t);
+    for (const n of t.nodes) {
+      const g = n.type === 'GeometryNodeGroup' && typeof n.props.node_tree === 'string' ? app.doc.node_groups[n.props.node_tree] : undefined;
+      if (!g) continue;
+      if (g.tree === tree) return [n.id];
+      const rest = walk(g.tree);
+      if (rest) return [n.id, ...rest];
+    }
+    return null;
+  };
+  return walk(root);
+}
+
+/** Activate a viewer node (and remember which object/modifier and group path shows it). */
 export function activateViewer(tree: NodeTreeData, viewer: NodeData | null) {
-  for (const n of tree.nodes) if (n.type === VIEWER) n.props.viewer_active = n === viewer;
   const ob = app.activeObject;
   const mod = activeNodesModifier(ob);
-  if (viewer && ob && mod) {
+  const g = mod && typeof mod.node_group === 'string' ? app.doc.node_groups[mod.node_group] : undefined;
+  // one active viewer: also turn off the viewers of the other trees the modifier uses
+  const trees = g ? groupTrees(app.doc, g.tree) : new Set<NodeTreeData>();
+  trees.add(tree);
+  for (const t of trees) for (const n of t.nodes) if (n.type === VIEWER) n.props.viewer_active = n === viewer;
+  const path = g && viewer ? groupPathTo(g.tree, tree) : null;
+  if (viewer && ob && mod && path) {
     viewerState.objectId = ob.id;
     viewerState.modifierId = mod.id;
+    viewerState.path = path;
   } else if (!viewer) {
     viewerState.objectId = null;
     viewerState.modifierId = null;
+    viewerState.path = [];
   }
 }
 

@@ -42,6 +42,7 @@ import './outliner/ops_more';
 import './outliner/scenes';
 import { rowSync } from './outliner/sync';
 import { valueCell, idTypeFilterPopover, overridesFilterPopover, dataApiEditMenu } from './outliner/headers';
+import { renamedIn } from '../data/names';
 import './outliner/outliner.css';
 
 const MODE_ICON: Record<string, string> = {
@@ -756,6 +757,7 @@ export class Outliner implements Editor {
                   onpointerdown: (e: PointerEvent) => e.stopPropagation(),
                   onkeydown: (e: KeyboardEvent) => {
                     e.stopPropagation();
+                    if (e.isComposing) return;
                     if (e.key === 'Enter') this.rename(r, (e.target as HTMLInputElement).value);
                     if (e.key === 'Escape') {
                       this.renaming = null;
@@ -1099,6 +1101,7 @@ export class Outliner implements Editor {
     const finish = (ev: PointerEvent | null) => {
       removeEventListener('pointermove', move, true);
       removeEventListener('pointerup', up, true);
+      removeEventListener('pointercancel', cancel, true);
       removeEventListener('keydown', key, true);
       this.boxEl.hidden = true;
       if (!ev) return done?.('CANCELLED');
@@ -1107,6 +1110,8 @@ export class Outliner implements Editor {
       done?.('FINISHED');
     };
     const up = (ev: PointerEvent) => finish(ev);
+    // the browser took the touch over (scrolling the list): no box, no click
+    const cancel = () => finish(null);
     const key = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') {
         ev.stopPropagation();
@@ -1115,6 +1120,7 @@ export class Outliner implements Editor {
     };
     addEventListener('pointermove', move, true);
     addEventListener('pointerup', up, true);
+    addEventListener('pointercancel', cancel, true);
     addEventListener('keydown', key, true);
   }
 
@@ -1334,11 +1340,13 @@ export class Outliner implements Editor {
       else if (r.kind === 'collection' && r.collection) doc.collections[r.collection.id].name = uniqueName(doc, name, 'collections');
       else if (r.kind === 'scene') renameScene(doc, sceneById(doc, r.id) ?? doc.scene, name);
       else if (r.kind === 'modifier' && r.ob) {
-        const m = doc.objects[r.ob.id]?.modifiers.find((x) => x.id === r.id);
-        if (m) m.name = name;
+        const mods = doc.objects[r.ob.id]?.modifiers ?? [];
+        const m = mods.find((x) => x.id === r.id);
+        if (m) m.name = renamedIn(mods, m, name) ?? m.name;
       } else if (r.kind === 'constraint' && r.ob) {
-        const c = doc.objects[r.ob.id]?.constraints.find((x) => x.id === r.id);
-        if (c) c.name = name;
+        const cons = doc.objects[r.ob.id]?.constraints ?? [];
+        const c = cons.find((x) => x.id === r.id);
+        if (c) c.name = renamedIn(cons, c, name) ?? c.name;
       } else if (r.kind === 'strip' && r.path) {
         const ed = doc.scene.sequence_editor;
         const st = ed ? findStrip(ed.strips, r.path) : null;
@@ -1347,8 +1355,9 @@ export class Outliner implements Editor {
           st.name = name;
         }
       } else if (r.kind === 'vgroup' && r.ob?.data) {
-        const g = doc.meshes[r.ob.data]?.vertex_groups?.find((x) => x.name === r.label);
-        if (g) g.name = name;
+        const groups = doc.meshes[r.ob.data]?.vertex_groups ?? [];
+        const g = groups.find((x) => x.name === r.label);
+        if (g) g.name = renamedIn(groups, g, name) ?? g.name;
       } else if (r.table && r.id) {
         const t = tables[r.table];
         if (t?.[r.id])

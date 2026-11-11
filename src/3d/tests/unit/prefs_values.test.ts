@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest';
-import { prefs, defaultPreferences, formatDate, tabletPressure } from '../../src/app/prefs';
+import { prefs, defaultPreferences, formatDate, tabletPressure, mergeStoredPrefs } from '../../src/app/prefs';
 import { animSettings, formatSeconds } from '../../src/animation/view2d';
 import { keyframeDefaults, newKeyframe, insertKeyframe } from '../../src/anim/fcurve';
 import type { FCurve } from '../../src/data/types';
@@ -56,5 +56,28 @@ describe('preference value helpers', () => {
     expect(k.handle_left_type).toBe('VECTOR');
     const fc: FCurve = { data_path: 'location', array_index: 0, keyframe_points: [], extrapolation: 'CONSTANT', modifiers: [] } as unknown as FCurve;
     expect(insertKeyframe(fc, 5, 1).interpolation).toBe('LINEAR');
+  });
+});
+
+describe('stored preferences', () => {
+  it('keep the defaults for damaged values and keep keys of newer builds', () => {
+    const d = defaultPreferences();
+    const p = mergeStoredPrefs(d, { font_size: null, font_ui: null, undo_steps: 'x', resolution_scale: 1.5, theme: 'LIGHT', duplicate: null, autoexec_paths: {}, future_pref: 3 }) as unknown as Record<string, unknown>;
+    expect(p.font_size).toBe(d.font_size);
+    expect(p.font_ui).toBe(d.font_ui);
+    expect(p.undo_steps).toBe(d.undo_steps);
+    expect(p.autoexec_paths).toEqual([]);
+    expect(p.duplicate).toEqual(d.duplicate);
+    expect(p.resolution_scale).toBe(1.5);
+    expect(p.theme).toBe('LIGHT');
+    expect(p.future_pref).toBe(3);
+  });
+
+  it('ignore storage that is not an object', () => {
+    const d = defaultPreferences();
+    expect(mergeStoredPrefs(d, [1, 2])).toEqual(d);
+    expect(mergeStoredPrefs(d, 'Layout')).toEqual(d);
+    expect(mergeStoredPrefs(d, null)).toEqual(d);
+    expect(mergeStoredPrefs(d, { duplicate: { MESH: false } }).duplicate.MESH).toBe(false);
   });
 });

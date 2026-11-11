@@ -80,6 +80,16 @@ export interface StrokeView {
 
 let active: { handler: StrokeHandler; view: StrokeView } | null = null;
 
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'OS']);
+
+/** Key handler of the running live stroke. */
+let strokeKeys: ((e: KeyboardEvent) => boolean) | null = null;
+
+/** Keyboard input during a stroke (the paint UI puts this ahead of the shortcuts): true when used. */
+export function strokeKeyInput(e: KeyboardEvent): boolean {
+  return strokeKeys ? strokeKeys(e) : false;
+}
+
 /** A recorded stroke point in viewport pixels (top-left origin). */
 export interface StrokePoint {
   x: number;
@@ -255,12 +265,14 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
       last = q;
       return;
     }
-    const step = Math.max(1, ((handler.radiusPx() * spacing) / 100) * (st.use_pressure_spacing ? Math.max(0.1, lastRaw) : 1));
+    let step = Math.max(1, ((handler.radiusPx() * spacing) / 100) * (st.use_pressure_spacing ? Math.max(0.1, lastRaw) : 1));
     const dx = q.x - last.x,
       dy = q.y - last.y;
     const len = Math.hypot(dx, dy);
     if (len < step) return;
-    const n = Math.min(200, Math.floor(len / step));
+    // a very fast move gets at most 200 dabs, spread over all of it instead of stopping short
+    if (len / step > 200) step = len / 200;
+    const n = Math.floor(len / step);
     for (let i = 1; i <= n; i++) {
       const t = (i * step) / len;
       handler.dab(jitterDab({ x: last.x + dx * t, y: last.y + dy * t, pressure: pr, first: false, sizeFactor: dabSize() }));
@@ -302,7 +314,29 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     handler.update?.();
     if (method === 'ANCHORED') v.drawSvg();
   };
+  // other pointers (a second finger, the palm, the mouse next to a pen) neither join the stroke
+  // nor end it, and their presses do not start another stroke meanwhile
+  const own = (ev: PointerEvent) => ev.pointerId === e.pointerId;
+  const release = (ev: PointerEvent) => {
+    if (own(ev)) up();
+  };
+  const press = (ev: PointerEvent) => {
+    if (own(ev)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+  };
+  const unlisten = () => {
+    removeEventListener('pointermove', move, true);
+    removeEventListener('pointerup', release, true);
+    removeEventListener('pointercancel', release, true);
+    removeEventListener('pointerdown', press, true);
+    removeKeyHook();
+  };
   const move = (ev: PointerEvent) => {
+    if (!own(ev)) return;
+    // the release was lost (the window lost focus mid-stroke): end the stroke here instead of
+    // painting with the button up (and holding on to the keyboard)
+    if (ev.buttons === 0 && ev.pointerType !== 'touch') return up();
     const q = v.local(ev);
     cursorState.x = q.x;
     cursorState.y = q.y;
@@ -311,15 +345,20 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     else pending.push(ev);
     if (!raf) raf = requestAnimationFrame(process);
   };
+  // the stroke owns the keyboard (ahead of the shortcuts): Esc cancels it, other shortcuts
+  // (undo, mode switches, tools) would act on a document the stroke is still writing to
+  const keyHook = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') key(ev);
+    return !MODIFIER_KEYS.has(ev.key);
+  };
+  const removeKeyHook = () => {
+    if (strokeKeys === keyHook) strokeKeys = null;
+  };
   const key = (ev: KeyboardEvent) => {
-    if (ev.key !== 'Escape') return;
     ev.preventDefault();
     ev.stopPropagation();
     // cancel: drop everything this stroke did
-    removeEventListener('pointermove', move, true);
-    removeEventListener('pointerup', up, true);
-    removeEventListener('pointercancel', up, true);
-    removeEventListener('keydown', key, true);
+    unlisten();
     if (raf) cancelAnimationFrame(raf);
     if (airTimer) clearInterval(airTimer);
     lineState.a = lineState.b = null;
@@ -331,10 +370,7 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     v.drawSvg();
   };
   const up = () => {
-    removeEventListener('pointermove', move, true);
-    removeEventListener('pointerup', up, true);
-    removeEventListener('pointercancel', up, true);
-    removeEventListener('keydown', key, true);
+    unlisten();
     if (raf) cancelAnimationFrame(raf);
     if (airTimer) clearInterval(airTimer);
     process();
@@ -371,7 +407,8 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     return;
   }
   addEventListener('pointermove', move, true);
-  addEventListener('pointerup', up, true);
-  addEventListener('pointercancel', up, true);
-  addEventListener('keydown', key, true);
+  addEventListener('pointerup', release, true);
+  addEventListener('pointercancel', release, true);
+  addEventListener('pointerdown', press, true);
+  strokeKeys = keyHook;
 }

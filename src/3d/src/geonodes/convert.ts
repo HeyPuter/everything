@@ -1,9 +1,11 @@
 // Conversion between the depsgraph's evaluated meshes (EvalMesh) and geometry sets.
 import { attrWidth, attrDomainSize } from '../mesh/attributes';
+import { eulerToQuat, quatToEuler } from './rotmath';
+import type { AttrArray } from './types';
 import type { EvalMesh, GeometryInstance } from '../eval/types';
-import type { CurveData, DocumentData, MeshData, ObjectData } from '../data/types';
+import type { AttributeType, CurveData, DocumentData, MeshAttribute, MeshData, ObjectData } from '../data/types';
 import { sampleSpline } from '../eval/curve';
-import { CurvesComponent, GeometrySet, MeshComponent, PointsComponent, mulMat, isIdentity, adaptDomain, type AttrMap, type Attribute, type InstancesComponent } from './geometry';
+import { CurvesComponent, EdgeHash, GeometrySet, MeshComponent, PointsComponent, isInternal, mulMat, isIdentity, adaptDomain, type AttrMap, type Attribute, type InstancesComponent } from './geometry';
 import { cornerNormals, edgeAttrToCorners, faceNormals, smoothFlags } from './meshutil';
 import { curveObjectToCurves, evaluatedCurves } from './curves/curvedata';
 import { curvesWithGreasePencil } from './curves/gpdata';
@@ -100,17 +102,26 @@ export function evalMeshToGeometry(m: EvalMesh, source?: MeshData | null): Geome
     if (sameTopo) for (const u of source.uv_layers_extra ?? []) if (u.data.length === nc * 2 && !attrs.has(u.name)) attrs.set(u.name, { domain: 'CORNER', type: 'FLOAT2', data: u.data });
     if (sameTopo)
       for (const a of source.attributes ?? []) {
-        const w = attrWidth(a.data_type);
+        let w = attrWidth(a.data_type);
         if (a.data.length !== attrDomainSize(source, a.domain) * w || attrs.has(a.name)) continue;
         const type = (a.data_type === 'INT32_2D' ? 'FLOAT2' : a.data_type) as Attribute['type'];
+        let src = a.data;
+        if (a.data_type === 'QUATERNION') {
+          // stored as quaternions (w, x, y, z); rotations in geometry nodes are Euler triples
+          const n = src.length / 4;
+          const e = new Float32Array(n * 3);
+          for (let i = 0; i < n; i++) quatToEuler([src[i * 4], src[i * 4 + 1], src[i * 4 + 2], src[i * 4 + 3]], e, i * 3);
+          src = e;
+          w = 3;
+        }
         if (a.domain !== 'EDGE') {
-          attrs.set(a.name, { domain: a.domain, type, data: type === 'FLOAT2' && a.data_type === 'INT32_2D' ? Float32Array.from(a.data) : a.data });
+          attrs.set(a.name, { domain: a.domain, type, data: type === 'FLOAT2' && a.data_type === 'INT32_2D' ? Float32Array.from(src) : src });
           continue;
         }
         // edge values live on the corners (then loose edges); gather them per edge
         const topo = mesh.topology();
         const data = type === 'BOOLEAN' ? new Uint8Array(topo.edgeCount * w) : type === 'INT' || type === 'INT8' ? new Int32Array(topo.edgeCount * w) : new Float32Array(topo.edgeCount * w);
-        for (let c = 0; c < nc; c++) for (let k = 0; k < w; k++) data[topo.cornerEdge[c] * w + k] = a.data[c * w + k];
+        for (let c = 0; c < nc; c++) for (let k = 0; k < w; k++) data[topo.cornerEdge[c] * w + k] = src[c * w + k];
         attrs.set(a.name, { domain: 'EDGE', type, data });
       }
   } else if (m.colors && m.colors.length === nc * 4)
@@ -305,9 +316,14 @@ function flattenInstances(inst: InstancesComponent, parent: ArrayLike<number> | 
     const ref = inst.references[inst.refIndex[i]];
     if (!ref) continue;
     const local = T.subarray(i * 16, i * 16 + 16);
-    const m = parent ? mulMat(parent, local) : Float64Array.from(local);
+    const m = parent ? mulMat(parent, local) : local;
+    const matrix = (): number[] => {
+      const a = new Array<number>(16);
+      for (let k = 0; k < 16; k++) a[k] = m[k];
+      return a;
+    };
     if (ref.type === 'OBJECT' && !ref.geometry.instances) {
-      out.push({ objectId: ref.objectId, matrix: Array.from(m) });
+      out.push({ objectId: ref.objectId, matrix: matrix() });
       continue;
     }
     const g = ref.geometry;
@@ -317,9 +333,9 @@ function flattenInstances(inst: InstancesComponent, parent: ArrayLike<number> | 
         em = meshToEvalMesh(g.mesh, opts);
         refMeshCache.set(g, em);
       }
-      out.push({ mesh: em, matrix: Array.from(m) });
+      out.push({ mesh: em, matrix: matrix() });
     }
-    if (g.instances) flattenInstances(g.instances, m, out, opts, depth + 1);
+    if (g.instances) flattenInstances(g.instances, parent ? m : Float64Array.from(local), out, opts, depth + 1);
   }
 }
 
@@ -386,4 +402,59 @@ export function materialSlots(doc: DocumentData, ob: ObjectData): (string | null
   const base = data?.materials ?? [];
   if (!ob.object_materials) return [...base];
   return base.map((m, i) => (ob.material_slots_link?.[i] === 'OBJECT' ? (ob.object_materials![i] ?? null) : m));
+}
+
+/** Names the mesh keeps in its own layers rather than as generic attributes. */
+const BUILTIN = new Set(['position', 'sharp_face', 'material_index', 'sharp_edge', 'custom_normal', 'crease_edge', UV_DEFAULT]);
+
+/**
+ * Write the generic attributes of a tool's output mesh into mesh data (extra UV maps go back to
+ * the UV map list); `mesh` must be the mesh the evaluated arrays were made from.
+ */
+export function writeAttributes(me: MeshData, mesh: MeshComponent) {
+  if (mesh.positions.length !== me.positions.length || mesh.corners.length !== me.indices.length) return;
+  const skip = new Set([...BUILTIN, me.uv_map_name, ...me.vertex_groups.map((g) => g.name), ...me.color_attributes.map((c) => c.name)]);
+  const uvNames = new Set((me.uv_layers_extra ?? []).map((u) => u.name));
+  const uvExtra: { name: string; data: Float32Array }[] = [];
+  const list: MeshAttribute[] = [];
+  const nc = mesh.cornerCount;
+  let edgeOf: ((k: number) => number) | null = null;
+  for (const [name, a] of mesh.attrs) {
+    if (isInternal(name) || skip.has(name) || a.type === 'FLOAT_COLOR') continue;
+    if (uvNames.has(name) && a.domain === 'CORNER' && a.type === 'FLOAT2') {
+      uvExtra.push({ name, data: new Float32Array(a.data) });
+      continue;
+    }
+    if (a.domain !== 'POINT' && a.domain !== 'EDGE' && a.domain !== 'FACE' && a.domain !== 'CORNER') continue;
+    // rotations are Euler triples here, quaternions (w, x, y, z) in mesh data
+    const quat = a.type === 'QUATERNION';
+    const w = quat ? 4 : a.type === 'FLOAT_VECTOR' ? 3 : a.type === 'FLOAT2' ? 2 : a.type === 'FLOAT4X4' ? 16 : 1;
+    let src = a.data;
+    if (quat) {
+      const n = src.length / 3;
+      const q = new Float32Array(n * 4);
+      for (let i = 0; i < n; i++) q.set(eulerToQuat(src[i * 3], src[i * 3 + 1], src[i * 3 + 2]), i * 4);
+      src = q;
+    }
+    let data: AttrArray = src.slice();
+    if (a.domain === 'EDGE') {
+      // stored per face corner (the edge starting there), then per loose edge
+      if (!edgeOf) {
+        const topo = mesh.topology();
+        const hash = new EdgeHash(topo.edgeCount);
+        for (let e = 0; e < topo.edgeCount; e++) hash.getOrAdd(topo.edges[e * 2], topo.edges[e * 2 + 1], e);
+        const loose = me.loose_edges ?? new Uint32Array(0);
+        edgeOf = (k) => (k < nc ? topo.cornerEdge[k] : hash.get(loose[(k - nc) * 2], loose[(k - nc) * 2 + 1]));
+      }
+      const n = nc + (me.loose_edges?.length ?? 0) / 2;
+      data = new (src.constructor as { new (n: number): AttrArray })(n * w);
+      for (let k = 0; k < n; k++) {
+        const e = edgeOf(k);
+        if (e >= 0) for (let j = 0; j < w; j++) data[k * w + j] = src[e * w + j];
+      }
+    }
+    list.push({ name, domain: a.domain, data_type: a.type as AttributeType, data: data as MeshAttribute['data'] });
+  }
+  me.attributes = list;
+  if (uvExtra.length || me.uv_layers_extra) me.uv_layers_extra = uvExtra.length ? uvExtra : undefined;
 }

@@ -4,9 +4,10 @@
 // Parametric's assistant panel.
 
 import { app } from '../app/app';
+import { prefs } from '../app/prefs';
 import { clearScriptFiles } from '../scripting/files';
 import { iconEl } from '../ui/icons';
-import { type Agent, type ExchangeResult, type Step, createAgent } from './agent';
+import { type Agent, type ExchangeResult, MAX_RETRIES, type Step, createAgent } from './agent';
 import { type ChatFn, puterChat } from './ai';
 import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize, offerImages } from './attach';
 import { readAttachment } from './attachments';
@@ -14,7 +15,7 @@ import { viewportUI } from './capture';
 import { renderMarkdown } from './markdown';
 import { SYSTEM_PROMPT, sceneSnapshot } from './prompt';
 import { inPuterDesktop, isSignedIn, loadPuter, signIn } from './puter';
-import { type AssistantHost, runTool, toolSpecs } from './tools';
+import { type AssistantHost, changesScene, runTool, toolSpecs } from './tools';
 
 export const ASSISTANT_MODELS: { id: string; label: string; title: string }[] = [
   { id: 'claude-fable-5-1', label: 'Fable 5.1', title: 'Claude Fable 5.1: the most capable' },
@@ -178,10 +179,11 @@ export class AssistantPanel {
     this.agent = createAgent({
       chat: (m, o) => (this.chat ?? devChat() ?? puterChat)(m, o),
       tools: () => toolSpecs(this.host),
-      runTool: (name, args) => runTool(this.host, name, args),
+      runTool: (name, args, signal) => runTool(this.host, name, args, signal),
       system: SYSTEM_PROMPT,
       snapshot: () => sceneSnapshot(this.host),
       model: () => this.model,
+      changes: changesScene,
     });
 
     const modelSel = el('select', { class: 'as-model', 'aria-label': 'AI model', title: 'AI model' });
@@ -258,13 +260,18 @@ export class AssistantPanel {
     this.input.style.height = `${Math.min(200, this.input.scrollHeight)}px`;
   }
 
+  /** The status line is a live region: it is only written when what it says changes, or it is read out again for every streamed piece. */
+  private say(text: string) {
+    if (this.status.textContent !== text) this.status.textContent = text;
+  }
+
   private flash(message: string) {
     clearTimeout(this.flashTimer);
     this.status.textContent = message;
     this.status.classList.add('warn');
     this.flashTimer = window.setTimeout(() => {
       this.status.classList.remove('warn');
-      if (!this.agent.busy) this.status.textContent = '';
+      if (!this.agent.busy) this.say('');
     }, 6000);
   }
 
@@ -323,15 +330,20 @@ export class AssistantPanel {
     this.sendBtn.setAttribute('aria-label', on ? 'Stop' : 'Send');
     this.sendBtn.classList.toggle('stop', on);
     this.el.classList.toggle('busy', on);
-    if (!on) this.status.textContent = '';
+    if (!on) this.say('');
   }
 
   /** Whether Puter AI can be used; otherwise explains why in the conversation. */
   private async ready(): Promise<boolean> {
     if (this.chat || devChat()) return true;
-    this.status.textContent = 'Connecting to Puter…';
+    // Turned off, nothing is fetched (not even Puter's SDK), and "check your connection" would be wrong.
+    if (!prefs.use_online_access) {
+      this.notice('The assistant works online, but online access is turned off (Preferences ▸ System ▸ Network).');
+      return false;
+    }
+    this.say('Connecting to Puter…');
     const sdk = await loadPuter();
-    this.status.textContent = '';
+    this.say('');
     if (!sdk?.ai) {
       this.notice('The assistant runs on Puter AI, which could not be reached. Check your connection and try again.');
       return false;
@@ -343,6 +355,7 @@ export class AssistantPanel {
           .then((ok) => {
             if (!ok) return;
             btn.closest('.as-msg')?.remove();
+            this.input.focus();
             void this.submit();
           })
           .catch((e) => this.flash((e as Error).message));
@@ -355,8 +368,14 @@ export class AssistantPanel {
 
   private notice(text: string, action?: HTMLElement) {
     this.log.querySelector('.as-empty')?.remove();
+    // Asking again replaces the notice instead of stacking copies of it.
+    this.clearNotices();
     this.log.append(el('div', { class: 'as-msg as-notice' }, el('p', {}, text), action));
     this.scroll(true);
+  }
+
+  private clearNotices() {
+    for (const n of this.log.querySelectorAll('.as-notice')) n.remove();
   }
 
   private scroll(force = false) {
@@ -380,13 +399,13 @@ export class AssistantPanel {
     if (this.pending.length) {
       const waiting = this.pending;
       this.sending = true;
-      this.status.textContent = 'Reading attached files…';
+      this.say('Reading attached files…');
       let read: (Attachment | null)[];
       try {
         read = await Promise.all(waiting.map((it) => it.ready));
       } finally {
         this.sending = false;
-        this.status.textContent = '';
+        this.say('');
       }
       if (this.agent.busy) return;
       items = waiting.filter((it, i) => read[i] && this.pending.includes(it));
@@ -407,6 +426,7 @@ export class AssistantPanel {
     this.input.value = '';
     this.grow();
     this.log.querySelector('.as-empty')?.remove();
+    this.clearNotices();
     const bubble = el('div', { class: 'as-msg as-user' });
     if (items.length) bubble.append(sentFiles(items));
     if (text) bubble.append(el('div', { class: 'as-user-text' }, text));
@@ -544,12 +564,27 @@ export class AssistantPanel {
     return { el: node, body, text: null, steps: null, stepEls: new Map(), foot };
   }
 
-  private async run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
+  /** A reply that may still be winding down after New Chat stopped it. */
+  private inFlight: Promise<void> | null = null;
+
+  private run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>): Promise<void> {
+    // A reply New Chat stopped folds its changes into its undo step when it ends: the next one starts after that.
+    const before = this.inFlight;
+    const p = (before ? before.then(() => this.runTurn(request, go)) : this.runTurn(request, go)).finally(() => {
+      if (this.inFlight === p) this.inFlight = null;
+    });
+    this.inFlight = p;
+    return p;
+  }
+
+  private async runTurn(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
     const mark = app.undo.mark();
     const turn = this.newTurn();
     this.turn = turn;
+    // The reply is redrawn as it streams: screen readers wait for it to finish instead of reading every redraw.
+    turn.el.setAttribute('aria-busy', 'true');
     this.setBusy(true);
-    this.status.textContent = 'Thinking…';
+    this.say('Thinking…');
     this.scroll(true);
     let res: ExchangeResult;
     try {
@@ -563,7 +598,7 @@ export class AssistantPanel {
           }
           turn.text.src += e.text;
           this.queueText(turn.text);
-          this.status.textContent = 'Writing…';
+          this.say('Writing…');
         } else if (e.type === 'step') {
           if (!turn.steps) {
             if (turn.text) this.renderText(turn.text);
@@ -572,19 +607,22 @@ export class AssistantPanel {
             turn.text = null;
           }
           this.renderStep(turn, turn.steps, e.step);
-          this.status.textContent = e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…';
+          this.say(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
         } else if (e.type === 'round') {
-          this.status.textContent = 'Thinking…';
+          this.say('Thinking…');
+        } else if (e.type === 'retry') {
+          this.say(`The AI service did not answer. Trying again (${e.attempt} of ${MAX_RETRIES})…`);
         }
       });
     } catch (e) {
       res = { stopped: false, error: e as Error, steps: [] };
     }
-    if (this.turn !== turn) return;
-    if (turn.text) this.renderText(turn.text);
-    // Everything this message changed becomes one undo step.
+    turn.el.removeAttribute('aria-busy');
+    // Everything this message changed becomes one undo step, also when New Chat stopped it.
     const label = `Assistant: ${short(request, 40)}`;
     const changed = !!mark && !app.undo.isCurrent(mark) && app.undo.squash(mark, label);
+    if (this.turn !== turn) return;
+    if (turn.text) this.renderText(turn.text);
     const after = app.undo.mark();
     if (res.stopped) turn.foot.append(el('span', { class: 'as-meta' }, 'Stopped.'));
     if (res.error) {
@@ -592,6 +630,8 @@ export class AssistantPanel {
       retry.addEventListener('click', () => {
         if (this.agent.busy) return;
         turn.foot.replaceChildren();
+        // The button is gone: the keyboard goes to the message box, not to the page.
+        this.input.focus();
         void this.run(request, (on) => this.agent.retry(on));
       });
       turn.foot.append(el('div', { class: 'as-error', role: 'alert' }, `The assistant could not answer: ${res.error.message}`), retry);
@@ -605,6 +645,7 @@ export class AssistantPanel {
         }
         app.undoStep();
         undo.replaceWith(el('span', { class: 'as-meta' }, 'Changes undone.'));
+        this.input.focus();
       });
       turn.foot.prepend(undo);
     }

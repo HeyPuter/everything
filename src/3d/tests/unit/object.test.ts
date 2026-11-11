@@ -829,7 +829,8 @@ describe('speakers', () => {
   });
 });
 
-describe('quick effects', () => {
+// the first test loads the physics modules (and their property panels): give it room on a busy machine
+describe('quick effects', { timeout: 20000 }, () => {
   it('sets up a smoke domain around the emitters', async () => {
     await import('../../src/physics/index');
     const ob = cube();

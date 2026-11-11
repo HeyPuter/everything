@@ -371,4 +371,24 @@ describe('asset operators', () => {
     // and the essentials library itself is unchanged
     expect((gold as Meta).asset_data).toBeTruthy();
   });
+
+  it('keeps no empty catalog undo steps for edits that change nothing', async () => {
+    const lib = await import('../../src/assets/library');
+    lib.resetLibrariesForTests();
+    const id = await lib.createLibrary('Shelf');
+    const browser = { library: id, catalogPath: null, selected: new Set<string>(), draw: () => {} };
+    const area = { type: 'ASSETS', editor: browser };
+    app.run('asset.catalog_new', { name: 'Wood' }, { area } as never);
+    const wood = lib.libraryCatalogs(id)[0];
+    app.run('asset.catalog_rename', { catalog_id: wood.id, name: 'Oak' }, { area } as never);
+    expect(lib.catalogUndo(id)).toBe(true);
+    expect(lib.libraryCatalogs(id)[0].path).toBe('Wood');
+    expect(lib.canCatalogRedo(id)).toBe(true);
+    // moving a catalog where it already is and renaming it to its own name are no-ops
+    app.run('asset.catalog_move', { catalog_id: wood.id, parent_id: '' }, { area } as never);
+    app.run('asset.catalog_rename', { catalog_id: wood.id, name: 'Wood' }, { area } as never);
+    expect(lib.canCatalogRedo(id)).toBe(true);
+    expect(lib.catalogUndo(id)).toBe(true);
+    expect(lib.libraryCatalogs(id)).toEqual([]);
+  });
 });

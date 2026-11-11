@@ -9,6 +9,8 @@ import { AssistantPanel } from './panel';
 const STATE_KEY = 'p3d:assistant-dock';
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 720;
+/** The workspace keeps at least this much beside the docked assistant when it opens by itself. */
+const NARROW_WORKSPACE = 500;
 
 let panel: AssistantPanel | null = null;
 let dock: HTMLElement | null = null;
@@ -68,16 +70,24 @@ function create(root: HTMLElement) {
   dock.hidden = true;
   dock.append(handle, panel.el);
   root.append(dock);
+  // A narrower window (a phone turned, a window dragged smaller) gets a narrower panel, never one past its edge;
+  // widened again, the panel goes back to the width the user gave it.
+  window.addEventListener('resize', () => {
+    if (assistantOpen() && root.style.getPropertyValue('--assistant-w') !== `${clampWidth(width)}px`) setWidth(root, clampWidth(width), true, false);
+  });
 }
 
-/** Gives the dock its width; the screen's main editors give or take the room, so side editors keep their size. */
-function setWidth(root: HTMLElement, w: number, open = true) {
+/**
+ * Gives the dock its width; the screen's main editors give or take the room, so side editors keep their size
+ * (unless the window resized: then every editor scales with it, and returns to its size when the window does).
+ */
+function setWidth(root: HTMLElement, w: number, open = true, keepSides = true) {
   const screen = shell?.screen;
   const before = screen?.el.clientWidth ?? 0;
   if (dock) dock.hidden = !open;
   root.style.setProperty('--assistant-w', `${w}px`);
   root.classList.toggle('with-assistant', open);
-  if (screen && before) screen.setDock(open ? w : 0, before);
+  if (screen && before) screen.setDock(open ? w : 0, keepSides ? before : screen.el.clientWidth);
 }
 
 /** Show or hide the assistant (toggles without an argument). Opening it from a click puts the cursor in its message box. */
@@ -95,8 +105,10 @@ export function toggleAssistant(open = !assistantOpen(), focus = true) {
 export function restoreAssistant() {
   const s = load();
   if (typeof s.width === 'number' && Number.isFinite(s.width)) width = s.width;
-  // Shown without taking the keyboard, so viewport shortcuts work straight away.
-  if (s.open !== false) toggleAssistant(true, false);
+  // Shown without taking the keyboard, so viewport shortcuts work straight away. A narrow window
+  // (a phone) starts with it closed: docked, it would leave the workspace a sliver; the topbar
+  // button still opens it.
+  if (s.open !== false && window.innerWidth >= MIN_WIDTH + NARROW_WORKSPACE) toggleAssistant(true, false);
 }
 
 registerOperators([

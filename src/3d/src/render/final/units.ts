@@ -144,10 +144,19 @@ export function formatTime(sec: number): string {
 /** Output file name for a frame, following the output path's file prefix. */
 export function frameFileName(filepath: string, frame: number, ext: string, useExtension = true): string {
   const seg = filepath.replace(/\\/g, '/').split('/').pop() ?? '';
-  const hashes = seg.match(/#+/);
-  const suffix = useExtension ? `.${ext}` : '';
-  if (hashes) return seg.replace(/#+/, String(frame).padStart(hashes[0].length, '0')) + suffix;
-  return `${seg}${String(frame).padStart(4, '0')}${suffix}`;
+  // printf-style padding: the sign comes before the zeros (-005, not 00-5)
+  const num = (digits: number) => (frame < 0 ? '-' : '') + String(Math.abs(frame)).padStart(frame < 0 ? digits - 1 : digits, '0');
+  // the last run of '#' is the frame number
+  const hashes = seg.match(/#+(?=[^#]*$)/);
+  let name = hashes ? seg.slice(0, hashes.index) + num(hashes[0].length) + seg.slice(hashes.index! + hashes[0].length) : `${seg}${num(4)}`;
+  if (useExtension) {
+    // an image extension already in the path is kept when it matches, replaced when it does not
+    const known = /\.(png|jpe?g|webp|exr|tiff?|bmp|tga|hdr)$/i.exec(name);
+    const same = known && (known[1].toLowerCase() === ext.toLowerCase() || (/^jpe?g$/i.test(known[1]) && /^jpe?g$/i.test(ext)));
+    if (known && !same) name = name.slice(0, known.index);
+    if (!same) name += `.${ext}`;
+  }
+  return name;
 }
 
 /** Transparent film: the Film ▸ Transparent setting or the view layer's Environment filter. */

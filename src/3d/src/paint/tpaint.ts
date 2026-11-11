@@ -7,11 +7,14 @@ import { app, operators, registerOperators } from '../app/app';
 import { openMenu } from '../ui/menu';
 import { activeView3D } from '../editors/view3d/view3d';
 import { uid, newImage, newMaterial } from '../data/defaults';
-import type { ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } from '../data/types';
+import type { DocumentData, ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
-import { encodeImage, imageCanvas, imageTexture, primeImage, touchImage } from '../render/images';
+import { encodeImage, imageCanvas, imageReady, imageTexture, primeImage, touchImage } from '../render/images';
+import { isTiled } from '../render/udim';
 import { renderContext } from '../render/context';
 import { download } from '../io/native';
+import { fileEvents } from '../io/files';
+import { encodePngRgba } from '../io/formats/pngsync';
 import { activeBrush, type PaintBrush } from './brushes';
 import { blendColor, cachedCurveTable, falloff, linearToSrgb, sampleTable, srgbToLinear, symmetryPasses, type BlendMode } from './math';
 import { cavityValues } from './maskmath';
@@ -164,24 +167,75 @@ export function addPaintSlot(
 // persisting painted pixels
 
 let saving: Promise<void> = Promise.resolve();
+const TILED_MSG = 'Painting on UDIM tiled images is not supported yet';
+/** Images whose painted pixels are still being encoded into their bytes (count per image id). */
+const encoding = new Map<string, number>();
 
-/** Encode the canvas into the image bytes (async), then push the undo step. */
+// Save right after a stroke: store the pixels still being encoded now, or the file gets the
+// image without the last strokes
+fileEvents.beforeSave.push(() => {
+  for (const id of encoding.keys()) {
+    const img = app.doc.images[id];
+    if (!img || !imageReady(img)) continue;
+    const c = imageCanvas(img);
+    const px = c.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, c.width, c.height);
+    img.bytes = encodePngRgba(px.width, px.height, px.data, px.width * px.height > 4e6 ? 1 : 6);
+    img.mime = 'image/png';
+    img.source = 'FILE';
+    touchImage(img);
+  }
+});
+
+/**
+ * Store the painted canvas in the image bytes and push the undo step. The step is pushed right
+ * away (Ctrl+Z straight after a stroke must undo that stroke, and later operations must stack on
+ * top of it); the canvas is captured now too and its PNG bytes are filled into the step (and the
+ * live image, unless undo / redo replaced it meanwhile) once the encoding is done.
+ */
 export function commitImage(img: Img, label: string | null): Promise<void> {
-  touchImage(img);
+  const live0 = app.doc.images[img.id] ?? img;
+  // the canvas of a UDIM image is the atlas of all its tiles: storing it as the image's own
+  // (first tile's) pixels would wreck the image
+  if (isTiled(live0)) {
+    app.report('ERROR', TILED_MSG);
+    return saving;
+  }
+  touchImage(live0);
+  const rev = live0.revision;
+  // toBlob copies the canvas pixels synchronously, so later strokes cannot leak into these bytes
+  const encoded = encodeImage(live0);
+  encoded.catch(() => {});
+  if (label) app.pushUndo(label);
+  const step = label ? (app.undo.mark() as { doc?: DocumentData } | null) : null;
+  encoding.set(img.id, (encoding.get(img.id) ?? 0) + 1);
   saving = saving.then(async () => {
-    const live = app.doc.images[img.id];
-    if (!live) return;
+    let bytes: Uint8Array;
     try {
-      const bytes = await encodeImage(live);
-      live.bytes = bytes;
-      live.mime = 'image/png';
-      live.source = 'FILE';
-      // keep the cached canvas (pixels are already current) instead of decoding the bytes again
-      touchImage(live);
+      bytes = await encoded;
     } catch (e) {
       app.report('ERROR', `Could not store painted image: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    } finally {
+      const n = (encoding.get(img.id) ?? 1) - 1;
+      if (n > 0) encoding.set(img.id, n);
+      else encoding.delete(img.id);
     }
-    if (label) app.pushUndo(label);
+    const store = (im: Img) => {
+      im.bytes = bytes;
+      im.mime = 'image/png';
+      im.source = 'FILE';
+    };
+    const stepImg = step?.doc?.images[img.id];
+    if (stepImg) store(stepImg);
+    const live = app.doc.images[img.id];
+    if (live === live0) {
+      store(live);
+      // keep the cached canvas (pixels are already current) instead of decoding the bytes again
+      touchImage(live);
+    } else if (live && live.revision === rev) {
+      // redone to this step before the bytes were ready: decode them
+      store(live);
+    }
     app.changed('doc');
   });
   return saving;
@@ -241,6 +295,10 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
     return true;
   }
   img = app.doc.images[img.id];
+  if (isTiled(img)) {
+    app.report('ERROR', TILED_MSG);
+    return true;
+  }
   const canvas = imageCanvas(img);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   const W = canvas.width,
@@ -917,6 +975,7 @@ function projectImage(v: View3D, src: Img): string | null {
   const img0 = paintImage(ob);
   if (!img0) return 'No paint texture';
   const img = app.doc.images[img0.id];
+  if (isTiled(img)) return TILED_MSG;
   const canvas = imageCanvas(img);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   const W = canvas.width,

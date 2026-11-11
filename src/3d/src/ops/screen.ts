@@ -26,15 +26,28 @@ export function stopPlayback(restore = false) {
 }
 
 function startPlayback(reverse: boolean) {
-  const sc = app.doc.scene;
   app.playing = reverse ? 'reverse' : 'forward';
-  playFrameStart = sc.frame_current;
+  playFrameStart = app.doc.scene.frame_current;
   playStart = performance.now();
   lastFrameTime = playStart;
-  const fps = sc.render.fps / (sc.render.fps_base || 1);
-  let startFrame = sc.frame_current;
+  const sceneFps = () => app.doc.scene.render.fps / (app.doc.scene.render.fps_base || 1);
+  let fps = sceneFps();
+  let startFrame = app.doc.scene.frame_current;
+  /** the frame playback last showed, to notice frame changes made elsewhere */
+  let shown = startFrame;
+  let lastTick = playStart;
   const tick = (now: number) => {
     if (!app.playing) return;
+    // the document is replaced by undo or file loading while playing: always use the current one
+    const sc = app.doc.scene;
+    // continue from a frame set elsewhere (scrubbing, frame jumps, undo), after a frame rate
+    // change, and after a long pause (hidden tab) instead of jumping to the elapsed time
+    if (sc.frame_current !== shown || sceneFps() !== fps || now - lastTick > 1000) {
+      startFrame = sc.frame_current;
+      playStart = now;
+      fps = sceneFps();
+    }
+    lastTick = now;
     const [a, b] = range();
     let frame: number;
     if (sc.sync_mode === 'NONE') {
@@ -59,6 +72,7 @@ function startPlayback(reverse: boolean) {
       lastFrameTime = now;
       playbackListeners.forEach((f) => f(frame));
     }
+    shown = app.doc.scene.frame_current;
     playRaf = requestAnimationFrame(tick);
   };
   playRaf = requestAnimationFrame(tick);
@@ -98,7 +112,7 @@ registerOperators([
     label: 'Adjust Last Operation',
     description: 'Display parameters for last action performed',
     undo: false,
-    poll: () => !!app.lastOp,
+    poll: () => app.canAdjustLast,
     exec: () => openRedoPopup({ x: app.pointer.x - 140, y: app.pointer.y - 20 }),
   },
   {
@@ -136,7 +150,8 @@ registerOperators([
     exec: (ctx, p) => {
       const f = ctx.doc.scene.frame_current;
       const frames = allKeyFrames();
-      const t = p.next ? frames.find((x) => x > f + 0.01) : [...frames].reverse().find((x) => x < f - 0.01);
+      // keys between frames count for the whole frame they round to (skipped when that is the current one)
+      const t = p.next ? frames.find((x) => Math.round(x) > f) : [...frames].reverse().find((x) => Math.round(x) < f);
       if (t === undefined) {
         app.report('INFO', 'No more keyframes to jump to in this direction');
         return 'CANCELLED';

@@ -8,7 +8,7 @@ import { MeshEdit, edgeKey } from '../../src/modes/editmesh/meshedit';
 import { extrudeRegion, insetFaces, loopCut } from '../../src/modes/editmesh/ops-topology';
 import { bevelEdges, bevelVertices } from '../../src/modes/editmesh/bevel';
 import { deleteGeometry, removeDoubles, makeNormalsConsistent, flipFace, duplicateSelection } from '../../src/modes/editmesh/ops-basic';
-import { edgeLoop, edgeRing } from '../../src/modes/editmesh/select';
+import { edgeLoop, edgeRing, edgeLoopsOf } from '../../src/modes/editmesh/select';
 import { bisectMesh, packIslands } from '../../src/modes/editmesh/ops-uv';
 import { ripSelection } from '../../src/modes/editmesh/rip';
 
@@ -49,6 +49,66 @@ describe('MeshEdit', () => {
     expect(out.offsets).toEqual(me.offsets);
     expect(manifold(m)).toBe(true);
     expect(signedVolume(m)).toBeCloseTo(8, 5);
+  });
+
+  it('keeps the sculpt mask, face sets, hidden faces and UV pins through topology changes', () => {
+    const { me } = cubeEdit();
+    me.sculpt_mask = Float32Array.from({ length: 8 }, (_, i) => i / 8);
+    me.sculpt_face_set = Int32Array.from({ length: 6 }, (_, i) => i + 1);
+    me.hide_poly = Uint8Array.from({ length: 6 }, (_, i) => (i === 5 ? 1 : 0));
+    me.uv_pin = Uint8Array.from({ length: 24 }, (_, i) => (i < 4 ? 1 : 0));
+    const m = MeshEdit.from(me);
+    selectFace(m, (c) => c[2] > 0.9);
+    extrudeRegion(m);
+    m.write(me);
+    const nf = me.offsets.length - 1;
+    expect(me.sculpt_mask?.length).toBe(me.positions.length / 3);
+    expect(Array.from(me.sculpt_mask!.subarray(0, 8))).toEqual(Array.from({ length: 8 }, (_, i) => Math.fround(i / 8)));
+    expect(me.sculpt_face_set?.length).toBe(nf);
+    expect(Array.from(me.sculpt_face_set!.subarray(0, 6))).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(me.sculpt_face_set!.every((x) => x >= 1)).toBe(true);
+    expect(me.hide_poly?.length).toBe(nf);
+    expect(me.hide_poly![5]).toBe(1);
+    expect(me.uv_pin?.length).toBe(me.indices.length);
+    expect(Array.from(me.uv_pin!.subarray(0, 4))).toEqual([1, 1, 1, 1]);
+    expect(me.attributes ?? []).toEqual([]);
+    // deleting a face keeps the remaining faces' sets in order
+    const m2 = MeshEdit.from(me);
+    m2.sel = m2.sel.map(() => 0);
+    for (const v of m2.faces[0].verts) m2.sel[v] = 1;
+    deleteGeometry(m2, 'FACE');
+    m2.write(me);
+    expect(me.sculpt_face_set?.length).toBe(me.offsets.length - 1);
+    expect(me.sculpt_face_set![0]).toBe(2);
+  });
+
+  it('keeps a mesh without UV maps without one after a topology change', () => {
+    const { me } = cubeEdit();
+    me.uvs = new Float32Array(0);
+    const m = MeshEdit.from(me);
+    selectFace(m, (c) => c[2] > 0.9);
+    extrudeRegion(m);
+    m.write(me);
+    expect(me.uvs.length).toBe(0);
+    expect(me.indices.length).toBe(40);
+  });
+
+  it('bevel keeps the corner colors of the faces it reshapes', () => {
+    const { me } = cubeEdit();
+    me.color_attributes = [{ name: 'Col', domain: 'CORNER', data: Float32Array.from({ length: 24 * 4 }, (_, i) => (i % 4 === 0 || i % 4 === 3 ? 1 : 0)) }];
+    const m = MeshEdit.from(me);
+    // one edge of the top face
+    m.sel = m.sel.map(() => 0);
+    const top = m.faces.find((f) => f.verts.every((v) => m.p(v)[2] > 0.9))!;
+    m.sel[top.verts[0]] = m.sel[top.verts[1]] = 1;
+    expect(bevelEdges(m, 0.2, 1)).toBe(true);
+    m.write(me);
+    const data = me.color_attributes[0].data;
+    expect(data.length).toBe(me.indices.length * 4);
+    let red = 0;
+    for (let c = 0; c < me.indices.length; c++) if (data[c * 4] === 1 && data[c * 4 + 1] === 0) red++;
+    // the 6 original faces keep red on all their (now 4 or 5) corners; only the new strip is white
+    expect(red).toBe(me.indices.length - 4);
   });
 
   it('extrudes a face region with walls', () => {
@@ -173,6 +233,28 @@ describe('MeshEdit', () => {
     const ring = edgeRing(me, i, i + 1);
     expect(ring.length).toBe(5);
     expect(new Set(loop.map(([a, b]) => edgeKey(a, b))).size).toBe(4);
+  });
+
+  it('walks loops and rings on the current topology after it changes', () => {
+    const me = newMeshData('Grid', prim.grid(4, 4));
+    const i = 2 * 5 + 1;
+    expect(edgeLoop(me, i, i + 1).length).toBe(4);
+    expect(edgeRing(me, i, i + 1).length).toBe(5);
+    // the same mesh with a wider grid (new arrays) gives the new loop, not a cached one
+    Object.assign(me, prim.grid(6, 4));
+    expect(edgeLoop(me, 2 * 7 + 1, 2 * 7 + 2).length).toBe(6);
+    expect(edgeRing(me, 2 * 7 + 1, 2 * 7 + 2).length).toBe(5);
+  });
+
+  it('unions the loops and rings of many edges like walking each one', () => {
+    for (const me of [newMeshData('T', prim.torus(12, 8)), newMeshData('S', prim.uvSphere(8, 6)), newMeshData('G', prim.grid(5, 4))]) {
+      const edges = MeshEdit.from(me).edges();
+      for (const ring of [false, true]) {
+        const naive = new Set(edges.flatMap(([a, b]) => (ring ? edgeRing(me, a, b) : edgeLoop(me, a, b)).map(([x, y]) => edgeKey(x, y))));
+        const fast = new Set(edgeLoopsOf(me, edges, ring).map(([x, y]) => edgeKey(x, y)));
+        expect([...fast].sort()).toEqual([...naive].sort());
+      }
+    }
   });
 
   it('bisects a cube along a plane', () => {

@@ -7,7 +7,7 @@ import type { EvalMesh, ModifierContext } from '../eval/types';
 import type { Depsgraph } from '../eval/depsgraph';
 import { meshSignature, baseEvalMesh } from '../eval/depsgraph';
 import { registerModifier } from '../eval/modifiers';
-import { arrayChecksum, caches, collectionMembers, rand01, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, type FrameCache, type SimContext } from './common';
+import { arrayChecksum, caches, collectionMembers, rand01, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, type FrameCache, type SimContext, stepCount } from './common';
 import { groupWeights } from '../eval/meshbuild';
 import { proceduralTexture } from '../eval/textures';
 import { particleCacheKey, systemOf } from './particles';
@@ -816,7 +816,7 @@ export function markObstacles(ctx: SimContext, effectors: { ob: ObjectData; m: F
   for (const e of effectors) {
     const es = { ...defaultEffectorSettings(), ...e.m.effector_settings };
     if (!es.use_effector || es.effector_type === 'GUIDE') continue;
-    const subs = Math.max(0, Math.round(es.subframes ?? 0));
+    const subs = stepCount(es.subframes ?? 0, 0, 200);
     for (let sf = subs; sf >= 0; sf--) {
       const fr = k - sf / (subs + 1);
       const vx = voxelize(ctx, e.ob, fr, G, 0.75 + (es.surface_distance ?? 0), es.use_plane_init ? 0 : 1, false);
@@ -892,7 +892,7 @@ export interface FlowEmission {
  */
 export function flowEmission(ctx: SimContext, fl: { ob: ObjectData; m: FluidModifier }, k: number, G: GridFrame, gas: boolean): FlowEmission | null {
   const fs = { ...defaultFlowSettings(), ...fl.m.flow_settings };
-  const subs = Math.max(0, Math.round(fs.subframes ?? 0));
+  const subs = stepCount(fs.subframes ?? 0, 0, 200);
   let vx: Voxels | null = null;
   if (fs.flow_source === 'PARTICLES') {
     const pp = flowParticles(ctx.doc, fl.ob, fs.particle_system, k);
@@ -994,8 +994,8 @@ function stepWindow(g: GasGrid, P: GasParams, b: [number, number, number, number
 
 /** Number of solver steps for a frame from the CFL condition (cells moved per step). */
 export function timeSteps(s: FluidDomainSettings, vmax: number, dtFrame: number): number {
-  const lo = Math.max(1, Math.round(s.timesteps_min ?? 1)),
-    hi = Math.max(lo, Math.round(s.timesteps_max ?? 4));
+  const lo = stepCount(s.timesteps_min ?? 1, 1, 100),
+    hi = Math.max(lo, stepCount(s.timesteps_max ?? 4, 1, 100, 4));
   if (s.use_adaptive_timesteps === false) return lo;
   const cfl = Math.max(0.1, s.cfl_condition ?? 2);
   return Math.min(hi, Math.max(lo, Math.ceil((vmax * dtFrame) / cfl)));
@@ -1226,6 +1226,7 @@ export function evaluateDomain(ob: ObjectData, m: FluidModifier, mesh: EvalMesh,
   const f = fluidFrameAt(m, frameOf(ctx.graph));
   const sctx: SimContext = { doc, graph: ctx.graph };
   const replay = cacheType(m.domain_settings) === 'REPLAY';
+  cache.rewindFor(f);
   if (!cache.frames.has(f) && mayStepData(key, m) && !(pc.is_baked && !replay)) {
     if (!cache.live || cache.last < pc.frame_start) {
       const s = { ...defaultDomainSettings(), ...m.domain_settings };
@@ -1437,7 +1438,7 @@ export function noiseKey(s: FluidDomainSettings): string {
 export function computeNoise(frame: FluidFrame, live: FluidLive, s: FluidDomainSettings, f: number): NoiseFrame {
   return upresGas(
     { nx: live.grid.nx, ny: live.grid.ny, nz: live.grid.nz, data: frame.data, vel: frame.vel, velScale: frame.velScale },
-    { scale: s.noise_scale ?? 2, strength: s.noise_strength ?? 1, posScale: s.noise_pos_scale ?? 2, timeAnim: s.noise_time_anim ?? 0.1, frame: f },
+    { scale: stepCount(s.noise_scale ?? 2, 1, 8, 2), strength: s.noise_strength ?? 1, posScale: s.noise_pos_scale ?? 2, timeAnim: s.noise_time_anim ?? 0.1, frame: f },
   );
 }
 

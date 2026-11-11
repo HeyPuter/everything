@@ -143,7 +143,8 @@ export function visibleIndices(items: { label: string }[], f: Pick<ListFilter, '
   const q = f.text.trim().toLowerCase();
   let idx = items.map((_, i) => i);
   if (q) {
-    const re = q.includes('*') ? new RegExp(`^${q.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`) : null;
+    // wildcards: * any run of characters, ? one character
+    const re = q.includes('*') ? new RegExp(`^${q.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`) : null;
     idx = idx.filter((i) => {
       const l = items[i].label.toLowerCase();
       const m = re ? re.test(l) : l.includes(q);
@@ -221,6 +222,7 @@ export function uiList(
                     }),
                   onkeydown: (e: KeyboardEvent) => {
                     e.stopPropagation();
+                    if (e.isComposing) return;
                     if (e.key === 'Enter') {
                       renaming.delete(id);
                       opts.rename!(i, (e.target as HTMLInputElement).value);
@@ -295,7 +297,7 @@ export function uiList(
               oninput: (e: Event) => ((f.text = (e.target as HTMLInputElement).value), redraw()),
               onkeydown: (e: KeyboardEvent) => {
                 e.stopPropagation();
-                if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur();
+                if (!e.isComposing && (e.key === 'Enter' || e.key === 'Escape')) (e.target as HTMLInputElement).blur();
               },
             }),
           ),

@@ -138,6 +138,8 @@ export class App {
   modal: ModalHandler | null = null;
   reports: Report[] = [];
   lastOp: { idname: string; props: Record<string, unknown>; label: string } | null = null;
+  /** The undo step `lastOp` made: it can be adjusted only while that step is the current one. */
+  private lastOpStep: object | null = null;
   /** Area currently under the pointer */
   hoverArea: AreaLike | null = null;
   activeArea: AreaLike | null = null;
@@ -305,6 +307,7 @@ export class App {
     if (result === 'FINISHED' || result === undefined) {
       if (op.undo !== false) this.pushUndo(op.label);
       if (op.undo !== false) this.lastOp = op.redo !== false && op.exec && op.props?.some((p) => !p.hidden) ? { idname, props: full, label: op.label } : null;
+      if (op.undo !== false) this.lastOpStep = this.undo.mark();
       this.changed('doc');
       notifyOperator(idname, full);
       return 'FINISHED';
@@ -312,10 +315,18 @@ export class App {
     return result;
   }
 
+  /**
+   * Whether the last operator can be adjusted: no other undo step (a button edit, a script) came
+   * after it, so re-running it from the state before it loses nothing.
+   */
+  get canAdjustLast() {
+    return !!this.lastOp && this.undo.isCurrent(this.lastOpStep);
+  }
+
   /** Re-run the last operator with new properties (Adjust Last Operation / F9). */
   redoLast(props: Record<string, unknown>) {
     const last = this.lastOp;
-    if (!last) return;
+    if (!last || !this.canAdjustLast) return;
     const op = operators.get(last.idname);
     const prev = this.undo.previous();
     if (!op?.exec || !prev) return;
@@ -326,6 +337,7 @@ export class App {
       op.exec(this.context(area), merged);
       this.undo.replaceTop(this.doc, op.label);
       this.lastOp = { ...last, props: merged };
+      this.lastOpStep = this.undo.mark();
     } catch (e) {
       this.report('ERROR', describeError(e));
       const cur = this.undo.current();
@@ -348,6 +360,7 @@ export class App {
       m.finish?.();
       this.pushUndo(m.label);
       this.lastOp = m.redoOp ? { idname: m.redoOp.idname, props: m.redoOp.props, label: m.label } : null;
+      this.lastOpStep = this.undo.mark();
       if (m.redoOp) notifyOperator(m.redoOp.idname, m.redoOp.props);
     }
     this.changed('doc');

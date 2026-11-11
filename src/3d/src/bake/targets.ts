@@ -2,6 +2,7 @@
 // of every material slot, or the mesh's active color attribute. Problems are collected as
 // readable messages instead of failing half-way through a bake.
 import type { DocumentData, MaterialData, NodeData, ObjectData, MeshData } from '../data/types';
+import { isReadOnly } from '../library/readonly';
 
 /** One object baked into one image (the faces of `slots`) or into its active color attribute. */
 export interface BakeTarget {
@@ -61,6 +62,7 @@ export function planTargets(doc: DocumentData, objects: ObjectData[], target: 'I
     if (target === 'VERTEX_COLORS') {
       const attr = me.color_attributes?.[me.active_color_index ?? 0];
       if (!attr) out.errors.push(`"${ob.name}" has no color attribute to bake into: add one in Object Data ▸ Color Attributes`);
+      else if (isReadOnly(me)) out.errors.push(`The mesh of "${ob.name}" is linked: make it local to bake into its colors`);
       else out.targets.push({ object: ob, kind: 'COLOR', slots: [] });
       continue;
     }
@@ -93,6 +95,12 @@ export function planTargets(doc: DocumentData, objects: ObjectData[], target: 'I
         continue;
       }
       const img = node.props.image as string;
+      // the result is written into the image at the end: refuse before baking, not after
+      if (isReadOnly(doc.images[img])) {
+        out.errors.push(`Image "${doc.images[img].name}" is linked: make it local to bake into it`);
+        ok = false;
+        continue;
+      }
       let l = byImage.get(img);
       if (!l) byImage.set(img, (l = []));
       l.push(s);

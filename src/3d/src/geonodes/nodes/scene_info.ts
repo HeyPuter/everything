@@ -84,8 +84,8 @@ gn('GeometryNodeCameraInfo', 'input', {
       }
     );
   },
-  sig: (n, env) => {
-    const id = n.inputs.Camera as string | null;
+  sig: (_n, env, ref) => {
+    const id = ref('Camera');
     const ob = id ? env.doc.objects[id] : undefined;
     const r = env.doc.scene.render;
     return `${JSON.stringify(ob?.data ? (env.doc.cameras[ob.data] ?? null) : null)}|${r.resolution_x}x${r.resolution_y}|${r.pixel_aspect_x}:${r.pixel_aspect_y}`;
@@ -108,8 +108,8 @@ gn('GeometryNodeImageInfo', 'input', {
       FPS: 0,
     };
   },
-  sig: (n, env) => {
-    const id = n.inputs.Image as string | null;
+  sig: (_n, env, ref) => {
+    const id = ref('Image');
     const im = id ? env.doc.images[id] : undefined;
     return im ? `${im.width}x${im.height}:${im.alpha_mode}:${im.mime}` : '';
   },
@@ -147,8 +147,8 @@ gn(
   'input',
   {
     exec: (ctx) => boneInfo(ctx.env, ctx.idRef('Armature'), ctx.string('Bone Name'), sprop(ctx.node, 'transform_space') === 'RELATIVE'),
-    sig: (n, env) => {
-      const id = n.inputs.Armature as string | null;
+    sig: (_n, env, ref) => {
+      const id = ref('Armature');
       const ob = id ? env.doc.objects[id] : undefined;
       const arm = ob?.data ? env.doc.armatures[ob.data] : undefined;
       return `${id ? env.objectSig(id) : ''}|${JSON.stringify(ob?.pose ?? null)}|${JSON.stringify(arm?.bones ?? null)}|${arm?.pose_position}|${Array.from(env.selfWorld)

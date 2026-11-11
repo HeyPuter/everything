@@ -234,4 +234,21 @@ describe('glTF import (fixture)', () => {
     const issues = await validate(out.bytes);
     expect(issues.numErrors).toBe(0);
   });
+
+  it('exports a valid file when nothing is exported (no empty node lists)', async () => {
+    const doc = freshDoc();
+    for (const format of ['GLB', 'GLTF_EMBEDDED'] as const) {
+      const out = await writeGltf(buildExportScene(doc, {}, new Depsgraph(doc).evaluate(doc)), { format });
+      expect(out.warnings).toContain('Nothing was exported');
+      const issues = await validate(out.bytes);
+      expect(issues.messages.filter((m) => m.severity === 0)).toEqual([]);
+      const bytes = typeof out.bytes === 'string' ? new TextEncoder().encode(out.bytes) : out.bytes;
+      expect(readGltf(bytes).nodes).toEqual([]);
+    }
+  });
+
+  it('reports a truncated GLB file', () => {
+    const glb = fixture('ref_scene.glb');
+    for (const f of [0.1, 0.5, 0.99]) expect(() => readGltf(glb.slice(0, Math.floor(glb.length * f)))).toThrow('The GLB file is truncated');
+  });
 });

@@ -312,19 +312,19 @@ export function transformGeometry(g: GeometrySet, m: ArrayLike<number>): Geometr
 // ---------------------------------------------------------------------------
 // Realize instances
 
-/** Propagate instance-domain attributes onto the point domain of realized geometry. */
+/** Propagate instance-domain attributes onto the point domain of realized geometry (instance domain of nested instances). */
 function withInstanceAttrs(g: GeometrySet, inst: InstancesComponent, i: number): GeometrySet {
   if (!inst.attrs.size) return g;
   return g.map((c) => {
-    if (c.kind === 'INSTANCES') return c;
     const out = c.copy();
-    const n = c.kind === 'MESH' ? c.vertCount : c.kind === 'POINTS' ? c.count : c.pointCount;
+    const n = c.kind === 'MESH' ? c.vertCount : c.kind === 'POINTS' ? c.count : c.kind === 'CURVES' ? c.pointCount : c.count;
+    const domain = c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT';
     for (const [name, a] of inst.attrs) {
       if (name === 'position' || out.attrs.has(name)) continue;
       const comps = dataComps(a.type);
       const data = allocData(a.type, n);
       for (let v = 0; v < n; v++) for (let k = 0; k < comps; k++) data[v * comps + k] = a.data[i * comps + k];
-      out.attrs.set(name, { domain: 'POINT', type: a.type, data });
+      out.attrs.set(name, { domain, type: a.type, data });
     }
     return out;
   });
@@ -337,7 +337,10 @@ function withInstanceAttrs(g: GeometrySet, inst: InstancesComponent, i: number):
 export function realizeInstances(g: GeometrySet, selection: Uint8Array | null = null, depthOf: (i: number) => number = () => Infinity, guard = 0): GeometrySet {
   const inst = g.instances;
   if (!inst || guard > 64) return g;
-  const parts: GeometrySet[] = [new GeometrySet(g.mesh, g.points, g.curves)];
+  const base = new GeometrySet(g.mesh, g.points, g.curves);
+  base.greasePencil = g.greasePencil;
+  base.volume = g.volume;
+  const parts: GeometrySet[] = [base];
   const keepIdx: number[] = [];
   for (let i = 0; i < inst.count; i++) {
     if (selection && !selection[i]) {
@@ -353,6 +356,8 @@ export function realizeInstances(g: GeometrySet, selection: Uint8Array | null = 
     parts.push(withInstanceAttrs(sub, inst, i));
   }
   const joined = joinGeometries(parts);
+  // instances left: nested ones the depth does not reach, and the unselected ones
+  let rest = joined.instances;
   if (keepIdx.length) {
     const kept = new InstancesComponent(new Float32Array(keepIdx.length * 16), new Int32Array(keepIdx.length), inst.references);
     keepIdx.forEach((s, k) => {
@@ -367,7 +372,7 @@ export function realizeInstances(g: GeometrySet, selection: Uint8Array | null = 
       });
       kept.attrs.set(name, { domain: 'INSTANCE', type: a.type, data: d });
     }
-    return joined.with(kept);
+    rest = rest ? joinInstances([kept, rest]) : kept;
   }
-  return new GeometrySet(joined.mesh, joined.points, joined.curves);
+  return joined.with(rest ?? null, 'INSTANCES');
 }

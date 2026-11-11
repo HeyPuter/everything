@@ -173,7 +173,7 @@ registerOperators([
     label: 'Restore Defaults',
     description: 'Set the settings of the last operation back to their defaults',
     undo: false,
-    poll: () => !!app.lastOp && !!operators.get(app.lastOp.idname)?.props?.length,
+    poll: () => app.canAdjustLast && !!operators.get(app.lastOp!.idname)?.props?.length,
     exec: () => {
       const last = app.lastOp!;
       const op = operators.get(last.idname)!;

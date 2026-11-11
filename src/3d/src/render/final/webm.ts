@@ -106,6 +106,8 @@ export function muxWebM(frames: EncodedFrame[], opts: { width: number; height: n
 export interface VideoWriter {
   addFrame(canvas: HTMLCanvasElement | OffscreenCanvas, index: number): Promise<void>;
   finish(): Promise<Blob>;
+  /** Release the encoder without writing a file (a render cancelled before any frame, or a failure). */
+  abort?(): void;
 }
 
 /** Video bitrate (bits/s) for a frame size, rate and quality percentage (90 ≈ visually lossless-ish). */
@@ -167,12 +169,19 @@ function webCodecsWriter(VE: typeof VideoEncoder, config: VideoEncoderConfig, co
       while (enc.encodeQueueSize > 4) await new Promise((r) => setTimeout(r, 1));
     },
     async finish() {
-      await enc.flush();
-      enc.close();
+      try {
+        await enc.flush();
+      } finally {
+        if (enc.state !== 'closed') enc.close();
+      }
       if (error) throw error;
       frames.sort((a, b) => a.time - b.time);
       const parts = muxWebM(frames, { width: w, height: h, codec, duration: (count * 1000) / fps });
       return new Blob(parts as BlobPart[], { type: 'video/webm' });
+    },
+    abort() {
+      if (enc.state !== 'closed') enc.close();
+      frames.length = 0;
     },
   };
 }
@@ -206,6 +215,9 @@ function mediaRecorderWriter(w: number, h: number, fps: number, bitrate: number)
       rec.stop();
       await done;
       return new Blob(chunks, { type: 'video/webm' });
+    },
+    abort() {
+      for (const bmp of stored.splice(0)) bmp.close();
     },
   };
 }

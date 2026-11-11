@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import '../../src/nodes/common';
 import '../../src/nodes/shader/defs';
 import '../../src/nodes/shader/nodegen';
-import { addNode, connect, ctxOf, makeGroup, makeLinks, nodeById } from '../../src/nodes/tree';
+import { addNode, connect, ctxOf, makeGroup, makeLinks, nodeById, treeEvalJson } from '../../src/nodes/tree';
 import {
   addReroutes,
   collapseHideUnused,
@@ -315,5 +315,23 @@ describe('group interface panels', () => {
     expect(g.interface_panels).toBeUndefined();
     expect(interfaceEntries(g).every((e) => e.kind === 'socket')).toBe(true);
     expect(nodePanels(gn, ctxOf(d, t))).toEqual([]);
+  });
+});
+
+describe('treeEvalJson', () => {
+  it('ignores how nodes are drawn but not what they compute', () => {
+    const tree: NodeTreeData = { type: 'SHADER', nodes: [{ id: 'a', type: 'ShaderNodeMath', name: 'Math', location: [0, 0], inputs: { Value: 1 }, props: {} }], links: [] };
+    const k = treeEvalJson(tree);
+    const n = tree.nodes[0];
+    n.location = [50, 20];
+    n.select = true;
+    n.hide = true;
+    tree.active_node = 'a';
+    expect(treeEvalJson(tree)).toBe(k);
+    n.inputs.Value = 2;
+    expect(treeEvalJson(tree)).not.toBe(k);
+    n.inputs.Value = 1;
+    n.mute = true;
+    expect(treeEvalJson(tree)).not.toBe(k);
   });
 });

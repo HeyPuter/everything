@@ -1,7 +1,7 @@
 // Media decoding and caches, keyed by the (shared, immutable) media byte arrays so they survive
 // undo snapshots: images → ImageBitmap, movies → <video> seeking with a frame cache (or live
 // playback while the timeline plays), sounds → AudioBuffer + waveform peaks, movie thumbnails.
-import { peaks } from './wav';
+import { mixPeaks } from './wav';
 
 const MIME_BY_EXT: Record<string, string> = {
   png: 'image/png',
@@ -66,7 +66,11 @@ export function loadImage(bytes: Uint8Array, mime: string): Promise<ImageBitmap>
 export function imageNow(bytes: Uint8Array, mime: string, onReady?: () => void): ImageBitmap | null {
   const b = imagesReady.get(bytes);
   if (b) return b;
-  void loadImage(bytes, mime).then(() => onReady?.());
+  // an image that cannot be decoded just has no thumbnail (no unhandled rejection per redraw)
+  loadImage(bytes, mime).then(
+    () => onReady?.(),
+    () => {},
+  );
   return null;
 }
 
@@ -92,7 +96,10 @@ export class Movie {
   private cachePx = 0;
   private queue: Promise<unknown> = Promise.resolve();
   lastLive = 0;
+  /** last time a caller asked for this movie (getMovie) */
+  lastUsed = performance.now();
   error: string | null = null;
+  private disposed = false;
 
   constructor(bytes: Uint8Array, mime: string) {
     this.url = URL.createObjectURL(blobOf(bytes, mime));
@@ -126,8 +133,11 @@ export class Movie {
     this.info.catch(() => {});
   }
 
-  /** Exact frame at `time` seconds (serialised seeks, cached as bitmaps of the given width). */
-  frame(time: number, width = 0): Promise<ImageBitmap | null> {
+  /**
+   * Exact frame at `time` seconds (serialised seeks, cached as bitmaps of the given width). With
+   * `keep` false a decoded frame is not cached (the caller closes it unless `isCached` says so).
+   */
+  frame(time: number, width = 0, keep = true): Promise<ImageBitmap | null> {
     const key = `${time.toFixed(4)}@${width}`;
     const hit = this.cache.get(key);
     if (hit) {
@@ -140,6 +150,8 @@ export class Movie {
       const again = this.cache.get(key);
       if (again) return again.bmp;
       const info = await this.info;
+      // released (its strip was deleted): no element to seek any more
+      if (this.disposed) return null;
       const v = this.video;
       if (!v.paused) v.pause();
       const t = Math.max(0, Math.min(time, Math.max(0, info.duration - 1e-3)));
@@ -159,7 +171,7 @@ export class Movie {
       const w = width > 0 ? Math.min(width, v.videoWidth) : v.videoWidth;
       const h = Math.max(1, Math.round((w * v.videoHeight) / Math.max(1, v.videoWidth)));
       const bmp = await createImageBitmap(v, { resizeWidth: w, resizeHeight: h, resizeQuality: 'medium', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-      this.store(key, bmp, w * h);
+      if (keep) this.store(key, bmp, w * h);
       return bmp;
     });
     this.queue = job.catch(() => null);
@@ -180,6 +192,12 @@ export class Movie {
 
   get cachedFrames() {
     return this.cache.size;
+  }
+
+  /** Whether a bitmap returned by `frame` belongs to the cache (and must not be closed). */
+  isCached(bmp: ImageBitmap) {
+    for (const v of this.cache.values()) if (v.bmp === bmp) return true;
+    return false;
   }
 
   clearCache() {
@@ -207,6 +225,17 @@ export class Movie {
 
   pauseIfIdle() {
     if (!this.video.paused && performance.now() - this.lastLive > 250) this.video.pause();
+  }
+
+  /** Free the frame cache, the element's decoder and the object URL (the movie is unusable after). */
+  dispose() {
+    this.disposed = true;
+    this.clearCache();
+    const v = this.video;
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+    URL.revokeObjectURL(this.url);
   }
 }
 
@@ -242,8 +271,7 @@ async function estimateFps(v: HTMLVideoElement): Promise<number> {
   return Math.round(fps * 100) / 100;
 }
 
-const movies = new WeakMap<Uint8Array, Movie>();
-const liveMovies = new Set<Movie>();
+const movies = new Map<Uint8Array, Movie>();
 
 export function getMovie(bytes: Uint8Array, mime: string): Movie {
   let m = movies.get(bytes);
@@ -251,23 +279,55 @@ export function getMovie(bytes: Uint8Array, mime: string): Movie {
     m = new Movie(bytes, mime);
     movies.set(bytes, m);
   }
-  liveMovies.add(m);
+  m.lastUsed = performance.now();
   return m;
+}
+
+/**
+ * Release the movies and thumbnail sources of media no strip uses any more (deleted strips, failed
+ * loads, other documents): their decoders, frame caches and object URLs. Media asked for within the
+ * last `graceMs` stay (a movie being added is not in the document yet). Returns whether unused media
+ * are still waiting for the grace period to end.
+ */
+export function releaseUnusedMedia(used: Set<Uint8Array>, graceMs = 5000): boolean {
+  const now = performance.now();
+  let waiting = false;
+  for (const [bytes, m] of movies) {
+    if (used.has(bytes)) continue;
+    if (now - m.lastUsed < graceMs) waiting = true;
+    else {
+      m.dispose();
+      movies.delete(bytes);
+    }
+  }
+  for (const [bytes, t] of thumbs) {
+    if (used.has(bytes)) continue;
+    if (now - t.lastUsed < graceMs) waiting = true;
+    else {
+      for (const b of t.cache.values()) b.close();
+      t.cache.clear();
+      t.video.removeAttribute('src');
+      t.video.load();
+      URL.revokeObjectURL(t.url);
+      thumbs.delete(bytes);
+    }
+  }
+  return waiting;
 }
 
 /** Pause movies that are no longer being played back live. */
 export function pauseIdleMovies() {
-  for (const m of liveMovies) m.pauseIfIdle();
+  for (const m of movies.values()) m.pauseIfIdle();
 }
 
 export function clearMovieCaches() {
-  for (const m of liveMovies) m.clearCache();
+  for (const m of movies.values()) m.clearCache();
 }
 
 export function movieCacheStats() {
   let frames = 0;
-  for (const m of liveMovies) frames += m.cachedFrames;
-  return { movies: liveMovies.size, frames };
+  for (const m of movies.values()) frames += m.cachedFrames;
+  return { movies: movies.size, frames };
 }
 
 // ---------------------------------------------------------------------------
@@ -342,13 +402,9 @@ const peakCache = new WeakMap<AudioBuffer, Float32Array>();
 export function soundPeaks(buf: AudioBuffer): Float32Array {
   let p = peakCache.get(buf);
   if (!p) {
-    const n = buf.length;
-    const mono = new Float32Array(n);
-    for (let c = 0; c < buf.numberOfChannels; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < n; i++) mono[i] += d[i] / buf.numberOfChannels;
-    }
-    p = peaks(mono, Math.max(1, Math.ceil(buf.duration * PEAKS_PER_SECOND)));
+    const chans: Float32Array[] = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+    p = mixPeaks(chans, Math.max(1, Math.ceil(buf.duration * PEAKS_PER_SECOND)));
     peakCache.set(buf, p);
   }
   return p;
@@ -360,13 +416,15 @@ export { PEAKS_PER_SECOND };
 
 const THUMB_H = 48;
 interface ThumbSource {
+  url: string;
+  lastUsed: number;
   video: HTMLVideoElement;
   ready: Promise<boolean>;
   cache: Map<number, ImageBitmap>;
   pending: Set<number>;
   queue: Promise<unknown>;
 }
-const thumbs = new WeakMap<Uint8Array, ThumbSource>();
+const thumbs = new Map<Uint8Array, ThumbSource>();
 
 /** Thumbnail at `time` (rounded to 0.1 s); `onReady` is called when a missing one is decoded. */
 export function movieThumb(bytes: Uint8Array, mime: string, time: number, onReady: () => void): ImageBitmap | null {
@@ -375,14 +433,16 @@ export function movieThumb(bytes: Uint8Array, mime: string, time: number, onRead
     const v = document.createElement('video');
     v.muted = true;
     v.preload = 'auto';
-    v.src = URL.createObjectURL(blobOf(bytes, mime));
+    const url = URL.createObjectURL(blobOf(bytes, mime));
+    v.src = url;
     const ready = new Promise<boolean>((res) => {
       v.addEventListener('loadeddata', () => res(true), { once: true });
       v.addEventListener('error', () => res(false), { once: true });
     });
-    t = { video: v, ready, cache: new Map(), pending: new Set(), queue: Promise.resolve() };
+    t = { url, lastUsed: 0, video: v, ready, cache: new Map(), pending: new Set(), queue: Promise.resolve() };
     thumbs.set(bytes, t);
   }
+  t.lastUsed = performance.now();
   const key = Math.round(time * 10);
   const hit = t.cache.get(key);
   if (hit) return hit;

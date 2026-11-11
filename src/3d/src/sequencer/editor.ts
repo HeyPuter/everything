@@ -885,7 +885,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
 
   private fitFrames(a: number, b: number) {
     const W = Math.max(50, this.W);
-    const margin = 30;
+    // narrow timelines keep a proportionally smaller margin (a fixed 30 px left nothing at 50 px)
+    const margin = Math.min(30, W * 0.1);
     this.ppf = Math.max(0.01, Math.min(400, (W - margin * 2) / Math.max(1, b - a)));
     this.x0 = a - margin / this.ppf;
   }
@@ -938,7 +939,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       c.style.height = `${H}px`;
     }
     if (!this.fitted) {
-      this.fitted = true;
+      // an area still being laid out can be a few pixels wide: fit again once it has a usable width
+      this.fitted = W >= 120;
       const sc = app.doc.scene;
       this.fitFrames(sc.frame_start, sc.frame_end);
       this.drawChannels();
@@ -1057,7 +1059,15 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.fillStyle = 'rgba(255, 255, 255,0.35)';
       g.font = FONT;
       g.textAlign = 'center';
-      g.fillText('Add strips with Shift A, or drop movie, sound and image files here', W / 2, (RULER_H + cb) / 2);
+      // narrow timelines wrap the hint onto several lines instead of cutting it off on both sides
+      const lines: string[] = [];
+      for (const word of 'Add strips with Shift A, or drop movie, sound and image files here'.split(' ')) {
+        const last = lines.length ? `${lines[lines.length - 1]} ${word}` : word;
+        if (lines.length && g.measureText(last).width <= W - 16) lines[lines.length - 1] = last;
+        else lines.push(word);
+      }
+      const lh = 16;
+      lines.forEach((t, i) => g.fillText(t, W / 2, (RULER_H + cb) / 2 + (i - (lines.length - 1) / 2) * lh));
       g.textAlign = 'left';
     }
   }
@@ -1080,21 +1090,23 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const px = Math.round(this.fx(sc.frame_current));
     const label = S.timecode(sc.frame_current, fps, this.showSeconds);
     const tw = Math.max(26, g.measureText(label).width + 12);
+    // the frame label stays readable when the playhead is near an edge of the view
+    const lx = px >= 0 && px <= W ? Math.max(tw / 2, Math.min(W - tw / 2, px)) : px;
     g.fillStyle = T.rulerText;
     const first = Math.floor(this.xf(0) / step) * step;
     for (let f = first; this.fx(f) < W + 60; f += step) {
       const x = Math.round(this.fx(f));
       const t = S.timecode(f, fps, this.showSeconds);
       const lw = g.measureText(t).width;
-      if (Math.abs(x - px) < tw / 2 + lw / 2 + 2) continue;
+      if (Math.abs(x - lx) < tw / 2 + lw / 2 + 2) continue;
       g.fillText(t, x, RULER_H / 2 + 1);
     }
     g.fillStyle = T.playhead;
     g.beginPath();
-    roundRect(g, px - tw / 2, 2, tw, RULER_H - 4, 4);
+    roundRect(g, lx - tw / 2, 2, tw, RULER_H - 4, 4);
     g.fill();
     g.fillStyle = '#ffffff';
-    g.fillText(label, px, RULER_H / 2 + 1);
+    g.fillText(label, lx, RULER_H / 2 + 1);
     g.textBaseline = 'alphabetic';
     g.textAlign = 'left';
   }
@@ -1626,7 +1638,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       if (e.clientX < r.right - 5 || e.button !== 0) return;
       e.preventDefault();
       const x0 = e.clientX,
-        w0 = this.chWidth;
+        w0 = Math.min(this.chWidth, Math.round(r.width)); // narrow editors show it narrower (max 40%)
       const move = (ev: PointerEvent) => {
         this.chWidth = Math.max(80, Math.min(400, w0 + ev.clientX - x0));
         this.layout();

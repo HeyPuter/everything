@@ -1,6 +1,6 @@
 // Object-mode operators.
 import { circlePoints } from '../surface/nurbs';
-import { Matrix4, Vector3, Quaternion, Euler } from 'three';
+import { Matrix3, Matrix4, Vector3, Quaternion, Euler } from 'three';
 import { app, registerOperators, type OpContext, type PropDef } from '../app/app';
 import type { DocumentData, ObjectData, MeshData, Mode, ObjectType, ID, Spline } from '../data/types';
 import { newObject, newMeshData, newLight, newCamera, newCurve, newArmature, newLattice, newCollection, uid, IDENTITY, newMaterial } from '../data/defaults';
@@ -8,13 +8,14 @@ import * as prim from '../mesh/primitives';
 import { monkey } from '../mesh/monkey';
 import { applyMatrixToObject, localMatrix, toMatrix4, fromMatrix4, setRotationFromQuaternion } from '../eval/transform';
 import { cloneShared } from '../data/cow';
-import { bounds, buildMesh, toPolys } from '../mesh/mesh';
+import { bounds, buildMesh, edgeTopology, toPolys } from '../mesh/mesh';
 import { startTransform } from './transform';
 import { uiState, prefs } from '../app/prefs';
 import { activeView3D } from '../editors/view3d/view3d';
 import { openMenu, promptText } from '../ui/menu';
 import { newConstraint } from '../eval/constraints';
 import { modeHandlers } from './modes';
+import { sceneObjects } from '../scenes/scenes';
 import { curvePoints, edgeChains, surfaceCenter, translateCurve, volumeCenter } from '../object/core';
 import { defaultPoseBone } from '../eval/armature';
 import { newModifier } from '../eval/modifiers';
@@ -324,15 +325,139 @@ function transformMeshData(me: MeshData, m: Matrix4) {
     }
     return { ...k, data: d };
   });
-  if (m.determinant() < 0) {
-    // flip winding to keep normals outward
-    const polys = toPolys(me).map((f) => {
-      const n = f.verts.length;
-      const order = Array.from({ length: n }, (_, i) => (n - i) % n);
-      return { ...f, verts: order.map((i) => f.verts[i]), uvs: f.uvs ? order.flatMap((i) => [f.uvs![i * 2], f.uvs![i * 2 + 1]]) : undefined };
-    });
-    Object.assign(me, buildMesh(me.positions, polys));
+  if (me.custom_normals) {
+    // custom normals are in object space: they turn with the geometry
+    const nm = new Matrix3().getNormalMatrix(m);
+    const cn = new Float32Array(me.custom_normals);
+    for (let i = 0; i + 2 < cn.length; i += 3) {
+      v.set(cn[i], cn[i + 1], cn[i + 2]).applyMatrix3(nm).normalize();
+      cn[i] = v.x;
+      cn[i + 1] = v.y;
+      cn[i + 2] = v.z;
+    }
+    me.custom_normals = cn;
   }
+  // flip winding to keep normals outward
+  if (m.determinant() < 0) reverseWinding(me);
+}
+
+/**
+ * Colour attributes, extra UV maps and generic point / corner / face attributes of joined meshes:
+ * layers merge by name, elements a mesh has no layer for get zeros. `parts[0]` is the target as it
+ * was before the join.
+ */
+function joinLayers(target: MeshData, parts: MeshData[]) {
+  const counts = parts.map((me) => ({ POINT: me.positions.length / 3, CORNER: me.indices.length, FACE: me.offsets.length - 1 }));
+  type Layer = { data: ArrayLike<number> & { length: number }; stride: number };
+  const merge = (domain: 'POINT' | 'CORNER' | 'FACE', make: (n: number) => Float32Array | Int32Array | Uint8Array, find: (me: MeshData) => Layer | null) => {
+    const total = counts.reduce((t, c) => t + c[domain], 0);
+    const first = parts.map(find).find((l) => l);
+    if (!first) return null;
+    const out = make(total * first.stride);
+    let at = 0;
+    parts.forEach((me, i) => {
+      const n = counts[i][domain];
+      const l = find(me);
+      if (l && l.stride === first.stride && l.data.length >= n * l.stride) for (let k = 0; k < n * l.stride; k++) out[at * first.stride + k] = l.data[k];
+      at += n;
+    });
+    return out;
+  };
+  const stride = (data: { length: number }, n: number) => (n > 0 && data.length % n === 0 ? data.length / n : 0);
+  // colour attributes
+  const colNames: { name: string; domain: 'POINT' | 'CORNER' }[] = [];
+  for (const me of parts) for (const c of me.color_attributes ?? []) if (!colNames.some((x) => x.name === c.name)) colNames.push({ name: c.name, domain: c.domain });
+  target.color_attributes = colNames.map(({ name, domain }) => ({
+    name,
+    domain,
+    data: merge(domain, (n) => new Float32Array(n), (me) => {
+      const c = (me.color_attributes ?? []).find((x) => x.name === name && x.domain === domain);
+      return c ? { data: c.data, stride: 4 } : null;
+    }) as Float32Array,
+  }));
+  // extra UV maps
+  const uvNames: string[] = [];
+  for (const me of parts) for (const u of me.uv_layers_extra ?? []) if (!uvNames.includes(u.name)) uvNames.push(u.name);
+  if (uvNames.length)
+    target.uv_layers_extra = uvNames.map((name) => ({
+      name,
+      data: merge('CORNER', (n) => new Float32Array(n), (me) => {
+        const u = (me.uv_layers_extra ?? []).find((x) => x.name === name);
+        return u ? { data: u.data, stride: 2 } : null;
+      }) as Float32Array,
+    }));
+  // generic attributes (edge attributes are dropped: the joined edges are numbered anew)
+  const attrs: NonNullable<MeshData['attributes']> = [];
+  for (const me of parts)
+    for (const a of me.attributes ?? []) {
+      if (a.domain === 'EDGE' || attrs.some((x) => x.name === a.name)) continue;
+      const domain = a.domain;
+      const k = stride(a.data, counts[parts.indexOf(me)][domain]);
+      if (!k) continue;
+      const data = merge(domain, (n) => new (a.data.constructor as new (n: number) => Float32Array | Int32Array | Uint8Array)(n), (pm) => {
+        const b = (pm.attributes ?? []).find((x) => x.name === a.name && x.domain === domain && x.data_type === a.data_type);
+        return b ? { data: b.data, stride: stride(b.data, counts[parts.indexOf(pm)][domain]) } : null;
+      });
+      if (data) attrs.push({ ...a, data });
+    }
+  if (target.attributes || attrs.length) target.attributes = attrs;
+}
+
+/** Reverse the corner order of every face, carrying all corner and edge data along. */
+function reverseWinding(me: MeshData) {
+  const nf = me.offsets.length - 1,
+    nc = me.indices.length;
+  // new corner → old corner it takes its vertex (and corner data) from / old corner whose edge it now starts
+  const cmap = new Uint32Array(nc),
+    emap = new Uint32Array(nc);
+  for (let f = 0; f < nf; f++) {
+    const s = me.offsets[f],
+      n = me.offsets[f + 1] - s;
+    for (let i = 0; i < n; i++) {
+      cmap[s + i] = s + ((n - i) % n);
+      emap[s + i] = s + ((2 * n - i - 1) % n);
+    }
+  }
+  function perm<A extends Float32Array | Uint32Array | Int32Array | Uint8Array>(a: A, map: Uint32Array): A {
+    const k = Math.round(a.length / nc);
+    if (!k || a.length !== k * nc) return a;
+    const out = new (a.constructor as new (n: number) => A)(a.length);
+    for (let c = 0; c < nc; c++) for (let j = 0; j < k; j++) out[c * k + j] = a[map[c] * k + j];
+    return out;
+  }
+  const oldTopo = edgeTopology(me);
+  me.indices = perm(me.indices, cmap);
+  me.uvs = perm(me.uvs, cmap);
+  if (me.custom_normals) me.custom_normals = perm(me.custom_normals, cmap);
+  if (me.uv_select) me.uv_select = perm(me.uv_select, cmap);
+  if (me.uv_pin) me.uv_pin = perm(me.uv_pin, cmap);
+  if (me.uv_layers_extra) me.uv_layers_extra = me.uv_layers_extra.map((l) => ({ ...l, data: perm(l.data, cmap) }));
+  me.color_attributes = me.color_attributes.map((a) => (a.domain === 'CORNER' ? { ...a, data: perm(a.data, cmap) } : a));
+  for (const key of ['seams', 'sharp', 'creases', 'bevel_weight_edge'] as const) if (me[key]) (me as unknown as Record<string, unknown>)[key] = perm(me[key]!, emap);
+  if (me.attributes?.some((a) => a.domain === 'CORNER' || a.domain === 'EDGE')) {
+    // edges are the same vertex pairs, but their order follows the corners
+    const newTopo = edgeTopology(me);
+    const loose = me.loose_edges ?? new Uint32Array(0);
+    const nv = me.positions.length / 3;
+    const pairKey = (a: number, b: number) => (a < b ? a * nv + b : b * nv + a);
+    const newIndex = new Map<number, number>();
+    for (let e = 0; e < newTopo.count; e++) newIndex.set(pairKey(newTopo.verts[e * 2], newTopo.verts[e * 2 + 1]), e);
+    me.attributes = me.attributes.map((a) => {
+      if (a.domain === 'CORNER') return { ...a, data: perm(a.data, cmap) };
+      if (a.domain !== 'EDGE') return a;
+      const ne = oldTopo.count + loose.length / 2;
+      const k = Math.round(a.data.length / Math.max(1, ne));
+      if (!k || a.data.length !== k * ne) return a;
+      const out = new (a.data.constructor as new (n: number) => typeof a.data)(a.data.length);
+      for (let e = 0; e < ne; e++) {
+        const j = e < oldTopo.count ? newIndex.get(pairKey(oldTopo.verts[e * 2], oldTopo.verts[e * 2 + 1])) ?? e : newTopo.count + (e - oldTopo.count);
+        for (let x = 0; x < k; x++) out[j * k + x] = a.data[e * k + x];
+      }
+      return { ...a, data: out };
+    });
+  }
+  // flat corner normals of the reversed faces
+  me.normals = buildMesh(me.positions, toPolys(me)).normals;
 }
 
 // ---------------------------------------------------------------------------
@@ -529,7 +654,9 @@ registerOperators([
     props: [{ id: 'action', label: 'Action', type: 'enum', default: 'TOGGLE', items: [['TOGGLE', 'Toggle'], ['SELECT', 'Select'], ['DESELECT', 'Deselect'], ['INVERT', 'Invert']] }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
-      const obs = Object.values(ctx.doc.objects).filter((o) => app.isSelectable(o.id));
+      // in a Local View only the objects shown there are affected
+      const local = ctx.area?.type === 'VIEW_3D' ? activeView3D()?.localView : null;
+      const obs = Object.values(ctx.doc.objects).filter((o) => app.isSelectable(o.id) && (!local || local.has(o.id)));
       let action = p.action as string;
       if (action === 'TOGGLE') action = obs.some((o) => o.select) ? 'DESELECT' : 'SELECT';
       for (const o of obs) o.select = action === 'SELECT' ? true : action === 'DESELECT' ? false : !o.select;
@@ -818,8 +945,10 @@ registerOperators([
     props: [{ id: 'select', label: 'Select', type: 'bool', default: true }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
+      // objects of other scenes stay as they are
+      const inScene = sceneObjects(ctx.doc, ctx.doc.scene);
       for (const o of Object.values(ctx.doc.objects))
-        if (o.hide) {
+        if (o.hide && inScene.has(o.id)) {
           o.hide = false;
           if (p.select) o.select = true;
         }
@@ -915,7 +1044,14 @@ registerOperators([
       const doc = ctx.doc;
       const users = new Map<string, number>();
       for (const o of Object.values(doc.objects)) if (o.data) users.set(o.data, (users.get(o.data) ?? 0) + 1);
-      for (const ob of app.selectedObjects()) {
+      // parents first; the new world matrices of applied objects replace the evaluated ones for their children
+      const depth = (o: ObjectData) => {
+        let d = 0;
+        for (let p = o.parent; p && d < 1000; p = doc.objects[p]?.parent ?? null) d++;
+        return d;
+      };
+      const applied = new Map<string, Matrix4>();
+      for (const ob of app.selectedObjects().sort((a, b) => depth(a) - depth(b))) {
         if (ob.data && (users.get(ob.data) ?? 0) > 1) {
           app.report('WARNING', `Cannot apply to a multi user: Object "${ob.name}", ${ob.type === 'MESH' ? 'Mesh' : 'Data'} "${(doc.meshes[ob.data] ?? doc.curves[ob.data])?.name ?? ob.data}", aborting`);
           return 'CANCELLED';
@@ -950,9 +1086,11 @@ registerOperators([
         }
         if (p.scale) ob.scale = [1, 1, 1];
         const newWorld = (() => {
-          const parent = ob.parent ? app.graph.get(ob.parent)?.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)) : new Matrix4();
-          return (parent ?? new Matrix4()).multiply(localMatrix(ob));
+          const parentWorld = ob.parent ? applied.get(ob.parent) ?? app.graph.get(ob.parent)?.world : undefined;
+          const parent = parentWorld ? parentWorld.clone().multiply(toMatrix4(ob.matrix_parent_inverse)) : new Matrix4();
+          return parent.multiply(localMatrix(ob));
         })();
+        applied.set(ob.id, newWorld);
         children.forEach((c, i) => {
           c.matrix_parent_inverse = fromMatrix4(newWorld.clone().invert().multiply(childWorld[i]).multiply(localMatrix(c).invert()));
         });
@@ -1168,10 +1306,18 @@ registerOperators([
       // shape keys of the active mesh continue over the joined vertices (matching names, else the rest shape)
       const keys = tme.shape_keys.map((k) => ({ ...k, out: Array.from(k.data) }));
       const remove = new Set<string>();
+      // meshes in join order, for the colour / UV / generic attribute layers
+      const parts: MeshData[] = [{ ...tme }];
       for (const ob of app.selectedObjects()) {
         if (ob.id === target.id || ob.type !== 'MESH') continue;
-        const me = doc.meshes[ob.data!];
         const m = inv.clone().multiply(app.graph.get(ob.id)!.world);
+        let me = doc.meshes[ob.data!];
+        if (m.determinant() < 0) {
+          // a mirrored object: turn its faces around so they keep pointing outwards
+          me = { ...me };
+          reverseWinding(me);
+        }
+        parts.push(me);
         const base = positions.length / 3;
         const v = new Vector3();
         const transformed = (src: ArrayLike<number>) => {
@@ -1220,6 +1366,7 @@ registerOperators([
       tme.weights = weights.map((w) => Float32Array.from(w));
       tme.shape_keys = keys.length === 0 || keys[0].out.length !== tme.positions.length ? [] : keys.map(({ out, ...k }) => ({ ...k, data: Float32Array.from(out) }));
       tme.select_vert = undefined;
+      joinLayers(tme, parts);
       deleteObjects(doc, remove);
       target.select = true;
     },

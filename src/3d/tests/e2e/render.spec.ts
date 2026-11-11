@@ -60,6 +60,12 @@ test('Render Result: empty state, metadata burn-in, sidebar tabs and passes', as
   expect(res.passes).toEqual(expect.arrayContaining(['Combined', 'Depth', 'Position', 'IndexOB']));
   expect(res.metadata).toEqual(expect.arrayContaining(['Frame', 'Camera', 'Scene', 'Note']));
   expect(res.overlay).toBe(true);
+  // the info line is not hidden under the tool settings header, nor under the toolbar
+  const meta = (await page.locator('.ie-meta').first().boundingBox())!;
+  const hdr = (await page.locator('.ie-ui > .ie-toolhdr').first().boundingBox())!;
+  const bar = (await page.locator('.ie-ui > .ie-toolbar').first().boundingBox())!;
+  expect(meta.y).toBeGreaterThanOrEqual(hdr.y + hdr.height - 1);
+  expect(bar.y).toBeGreaterThanOrEqual(meta.y + meta.height);
   const tabs = page.locator('.ie-sidebar .sb-tab');
   await expect(tabs).toHaveText(['Tool', 'Image', 'View', 'Scopes', 'Metadata']);
   await tabs.filter({ hasText: 'Metadata' }).click();
@@ -84,6 +90,36 @@ test('Render region renders only its pixels (cropped or in the frame)', async ({
   expect(alpha.inside).toBe(1);
   const crop = await renderStill(page, { ...region, use_crop_to_border: true });
   expect([crop.width, crop.height]).toEqual([96, 54]);
+  await expectNoErrors(errors);
+});
+
+test('A cropped render region goes through the compositor', async ({ page }) => {
+  const errors = await rendering(page);
+  // Render Layers ▸ Invert ▸ Group Output
+  await page.evaluate(async (imp) => {
+    const a = (window as any).app;
+    a.run('node.new_compositing_node_group');
+    const T = await (0, eval)(imp)('/src/nodes/tree.ts');
+    const D = await (0, eval)(imp)('/src/compositor/data.ts');
+    const t = D.compositingGroup(a.doc).tree;
+    const ctx = T.ctxOf(a.doc, t);
+    const out = t.nodes.find((n: any) => n.type === 'NodeGroupOutput');
+    const rl = t.nodes.find((n: any) => n.type === 'CompositorNodeRLayers');
+    const toOut = t.links.find((l: any) => l.to_node === out.id).to_socket;
+    const inv = T.addNode(t, 'CompositorNodeInvert', [0, 0]);
+    T.connect(ctx, rl.id, 'Image', inv.id, 'Color');
+    T.connect(ctx, inv.id, 'Color', out.id, toOut);
+  }, IMPORT);
+  const crop = await renderStill(page, { use_border: true, border_min_x: 0.25, border_max_x: 0.75, border_min_y: 0, border_max_y: 0.5, use_crop_to_border: true });
+  expect([crop.width, crop.height]).toEqual([96, 54]);
+  // the composite replaced the Combined pass (the raw render is kept as the view layer)
+  expect(
+    await page.evaluate(async (imp) => {
+      const { renderResult } = await (0, eval)(imp)('/src/render/final/result.ts');
+      const r = renderResult.get();
+      return !!r.viewLayer && r.passes.Combined !== r.viewLayer.Combined;
+    }, IMPORT),
+  ).toBe(true);
   await expectNoErrors(errors);
 });
 
@@ -148,5 +184,147 @@ test('Camera data: aperture shape, safe areas and composition guides drawn in ca
   const props = page.locator('.properties').first();
   await props.locator('.rail-tab[data-tab="DATA"]').click();
   for (const t of ['Safe Areas', 'Depth of Field', 'Viewport Display']) await expect(props.locator('.panel-header .ph-title', { hasText: new RegExp(`^${t}$`) })).toBeVisible();
+  await expectNoErrors(errors);
+});
+
+test('the world is baked again after the graphics context is restored', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async (imp) => {
+    const a = (window as any).app;
+    const W = await (0, eval)(imp)('/src/nodes/shader/world.ts');
+    const { renderContext } = await (0, eval)(imp)('/src/render/context.ts');
+    const renderer = renderContext.engine.renderer;
+    const w = a.doc.worlds[a.doc.scene.world];
+    let renders = 0;
+    const orig = renderer.render.bind(renderer);
+    renderer.render = (...args: unknown[]) => (renders++, orig(...args));
+    const first = W.bakeWorld(a.doc, w)?.texture;
+    const before = renders;
+    // unchanged world: the bake is reused
+    const again = W.bakeWorld(a.doc, w)?.texture;
+    const reused = renders === before && again === first;
+    // the targets lost their pixels with the context: the next bake renders again
+    renderer.domElement.dispatchEvent(new Event('webglcontextrestored'));
+    const after = W.bakeWorld(a.doc, w)?.texture;
+    renderer.render = orig;
+    return { reused, rerendered: renders > before, fresh: !!after && after !== first };
+  }, IMPORT);
+  expect(r).toEqual({ reused: true, rerendered: true, fresh: true });
+  await expectNoErrors(errors);
+});
+
+test('the world is baked again when a node group nested two levels deep changes, not when nodes move', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async (imp) => {
+    const a = (window as any).app;
+    const W = await (0, eval)(imp)('/src/nodes/shader/world.ts');
+    const T = await (0, eval)(imp)('/src/nodes/tree.ts');
+    const { renderContext } = await (0, eval)(imp)('/src/render/context.ts');
+    const renderer = renderContext.engine.renderer;
+    const w = a.doc.worlds[a.doc.scene.world];
+    // World Output ← Group ← Group ← Background
+    const bg = w.tree.nodes.find((n: any) => n.type === 'ShaderNodeBackground');
+    const outer = T.makeGroup(a.doc, w.tree, new Set([bg.id]));
+    const g1 = a.doc.node_groups[outer.props.node_tree].tree;
+    const inner = T.makeGroup(a.doc, g1, new Set([g1.nodes.find((n: any) => n.type === 'ShaderNodeBackground').id]));
+    const g2 = a.doc.node_groups[inner.props.node_tree].tree;
+    const deep = g2.nodes.find((n: any) => n.type === 'ShaderNodeBackground');
+    let renders = 0;
+    const orig = renderer.render.bind(renderer);
+    renderer.render = (...args: unknown[]) => (renders++, orig(...args));
+    W.bakeWorld(a.doc, w);
+    const n0 = renders;
+    deep.location = [deep.location[0] + 40, deep.location[1]];
+    deep.select = !deep.select;
+    W.bakeWorld(a.doc, w);
+    const afterMove = renders;
+    deep.inputs.Color = [0.9, 0.1, 0.1, 1];
+    W.bakeWorld(a.doc, w);
+    renderer.render = orig;
+    return { moveRendered: afterMove > n0, valueRendered: renders > afterMove };
+  }, IMPORT);
+  expect(r).toEqual({ moveRendered: false, valueRendered: true });
+  await expectNoErrors(errors);
+});
+
+test('Frame All in an Image Editor squeezed below its margin keeps a usable zoom', async ({ page }) => {
+  const errors = await rendering(page);
+  await renderStill(page, {});
+  const zoom = await page.evaluate(async (imp) => {
+    const { shell } = await (0, eval)(imp)('/src/ui/shell.ts');
+    const ed = shell.screen.areas.find((a: any) => a.type === 'IMAGE_EDITOR').editor;
+    const real = ed.viewSize.bind(ed);
+    ed.viewSize = () => ({ ...real(), w: 12, h: 8 });
+    ed.frameAll(false);
+    const z = ed.zoom;
+    ed.viewSize = real;
+    ed.frameAll(false);
+    return [z, ed.zoom];
+  }, IMPORT);
+  expect(Number.isFinite(zoom[0]) && zoom[0] > 0).toBe(true);
+  expect(Number.isFinite(zoom[1]) && zoom[1] > 0).toBe(true);
+  await expectNoErrors(errors);
+});
+
+test('a WebM animation render cancelled before its first frame releases the video encoder', async ({ page }) => {
+  const errors = await rendering(page);
+  const r = await page.evaluate(async (imp) => {
+    const w = window as any;
+    if (!w.VideoEncoder) return 'no-webcodecs';
+    let made = 0,
+      closed = 0;
+    const VE = w.VideoEncoder;
+    w.VideoEncoder = class extends VE {
+      constructor(init: unknown) {
+        super(init);
+        made++;
+      }
+      close() {
+        closed++;
+        super.close();
+      }
+    };
+    const a = w.app;
+    Object.assign(a.doc.scene.render, { resolution_percentage: 10, raster_samples: 2, file_format: 'WEBM' });
+    a.doc.scene.frame_start = 1;
+    a.doc.scene.frame_end = 3;
+    const J = await (0, eval)(imp)('/src/render/final/job.ts');
+    const done = J.startRender({ animation: true, viewport: null });
+    J.cancelRender();
+    await done;
+    w.VideoEncoder = VE;
+    return { made, closed };
+  }, IMPORT);
+  if (r !== 'no-webcodecs' && (r as { made: number }).made) expect(r).toEqual({ made: 1, closed: 1 });
+  await expectNoErrors(errors);
+});
+
+test('painting on a UDIM tiled image in the Image Editor is refused up front', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async (imp) => {
+    const a = (window as any).app;
+    const { newImage } = await (0, eval)(imp)('/src/data/defaults.ts');
+    const U = await (0, eval)(imp)('/src/render/udim.ts');
+    const img = newImage('Tiles', 64, 64);
+    a.doc.images[img.id] = img;
+    U.makeTiled(img);
+    U.addTile(img, 1002, { width: 64, height: 64 });
+    const { shell } = await (0, eval)(imp)('/src/ui/shell.ts');
+    const area = shell.screen.areas.find((x: any) => x.type === 'VIEW_3D');
+    area.setType('IMAGE_EDITOR');
+    area.editor.showImage(img.id);
+    area.editor.setMode('PAINT');
+    a.changed('ui');
+  }, IMPORT);
+  await page.waitForTimeout(300);
+  const before = await page.evaluate(() => JSON.stringify((Object.values((window as any).app.doc.images) as any[]).find((i) => i.name === 'Tiles').tiles.map((t: any) => [t.revision ?? 0, !!t.bytes])));
+  const box = (await page.locator('.ie-root').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2 + 10, { steps: 3 });
+  await page.mouse.up();
+  const after = await page.evaluate(() => JSON.stringify((Object.values((window as any).app.doc.images) as any[]).find((i) => i.name === 'Tiles').tiles.map((t: any) => [t.revision ?? 0, !!t.bytes])));
+  expect(after).toBe(before);
+  expect(await page.evaluate(() => (window as any).app.reports.slice(-1)[0]?.message)).toBe('Painting on UDIM tiled images is not supported yet');
   await expectNoErrors(errors);
 });

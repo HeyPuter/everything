@@ -1296,8 +1296,9 @@ registerOperators([
         }
         const t = (f - s.frame_start) / stripLen(s);
         const actSplit = s.action_frame_start + actionLen(s) * t;
+        // a deep copy: the halves don't share modifiers, influence curves or inner strips
         const b: NlaStrip = {
-          ...s,
+          ...structuredClone(s),
           frame_start: f,
           action_frame_start: actSplit,
           blend_in: 0,

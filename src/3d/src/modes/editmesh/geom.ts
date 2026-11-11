@@ -527,23 +527,19 @@ export function trisToQuads(m: MeshEdit, faces: Set<number>, maxAngle: number, o
  * Dissolve one vertex: merge the faces around it into a single polygon without it (works for a
  * closed fan and for a fan open at a boundary). Returns false when the result would be invalid.
  */
-export function dissolveVertex(m: MeshEdit, v: number): boolean {
-  const around: number[] = [];
-  m.faces.forEach((f, i) => {
-    if (f.verts.includes(v)) around.push(i);
-  });
+export function dissolveVertex(m: MeshEdit, v: number, index?: DissolveIndex): boolean {
+  const around: EFace[] = index ? [...(index.vf.get(v) ?? [])] : m.faces.filter((f) => f.verts.includes(v));
   if (around.length < 2) return false;
-  type Path = { fi: number; corners: number[] };
-  const paths: Path[] = around.map((fi) => {
-    const f = m.faces[fi];
+  type Path = { f: EFace; corners: number[] };
+  const paths: Path[] = around.map((f) => {
     const n = f.verts.length,
       i = f.verts.indexOf(v);
     const corners: number[] = [];
     for (let k = 1; k < n; k++) corners.push((i + k) % n);
-    return { fi, corners };
+    return { f, corners };
   });
-  const first = (p: Path) => m.faces[p.fi].verts[p.corners[0]];
-  const last = (p: Path) => m.faces[p.fi].verts[p.corners[p.corners.length - 1]];
+  const first = (p: Path) => p.f.verts[p.corners[0]];
+  const last = (p: Path) => p.f.verts[p.corners[p.corners.length - 1]];
   // order the fan; an open fan starts at the path whose first vertex ends no other path
   const ends = new Set(paths.map(last));
   let start = paths.find((p) => !ends.has(first(p))) ?? paths[0];
@@ -558,7 +554,7 @@ export function dissolveVertex(m: MeshEdit, v: number): boolean {
     used.add(nx);
   }
   if (closed && first(order[0]) !== last(order[order.length - 1])) return false;
-  const tmpl = m.faces[start.fi];
+  const tmpl = start.f;
   const merged = m.makeFace([], tmpl);
   const push = (f: EFace, c: number, edgeFlags: boolean) => {
     merged.verts.push(f.verts[c]);
@@ -569,7 +565,7 @@ export function dissolveVertex(m: MeshEdit, v: number): boolean {
     if (merged.colors) merged.colors.push(...(f.colors?.slice(c * 4, c * 4 + 4) ?? [1, 1, 1, 1]));
   };
   order.forEach((p, k) => {
-    const f = m.faces[p.fi];
+    const f = p.f;
     const isLast = k === order.length - 1;
     const cs = closed || !isLast ? p.corners.slice(0, -1) : p.corners;
     cs.forEach((c, j) => push(f, c, !(isLast && !closed && j === cs.length - 1)));
@@ -577,7 +573,25 @@ export function dissolveVertex(m: MeshEdit, v: number): boolean {
   if (merged.verts.length < 3 || new Set(merged.verts).size !== merged.verts.length) return false;
   start = order[0];
   const rm = new Set(around);
-  m.faces = m.faces.filter((_, i) => !rm.has(i));
+  if (index) {
+    // removal is deferred to the caller (one pass over the faces for many dissolved vertices)
+    for (const f of around) {
+      index.removed.add(f);
+      for (const u of f.verts) index.vf.get(u)?.delete(f);
+    }
+    for (const u of merged.verts) (index.vf.get(u) ?? index.vf.set(u, new Set()).get(u)!).add(merged);
+  } else m.faces = m.faces.filter((f) => !rm.has(f));
   m.faces.push(merged);
   return true;
+}
+
+/** Faces around each vertex, for dissolving many vertices with dissolveVertex; drop `removed` from m.faces afterwards. */
+export interface DissolveIndex {
+  vf: Map<number, Set<EFace>>;
+  removed: Set<EFace>;
+}
+export function dissolveIndex(m: MeshEdit): DissolveIndex {
+  const vf = new Map<number, Set<EFace>>();
+  for (const f of m.faces) for (const u of f.verts) (vf.get(u) ?? vf.set(u, new Set()).get(u)!).add(f);
+  return { vf, removed: new Set() };
 }

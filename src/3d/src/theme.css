@@ -1211,8 +1211,8 @@ input.num-field.editing {
 }
 .menu {
   position: fixed;
-  min-width: 180px;
-  max-width: 420px;
+  min-width: min(180px, calc(100vw - 8px));
+  max-width: min(420px, calc(100vw - 8px));
   max-height: calc(100vh - 20px);
   overflow-y: auto;
   background: var(--w-menu-back);
@@ -1322,6 +1322,16 @@ input.num-field.editing {
 }
 .search-popup {
   width: 420px;
+  max-width: calc(100vw - 8px);
+  padding-top: 0;
+}
+/* the query stays at the top while the results scroll */
+.search-popup .search-field {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-top: 0;
+  box-shadow: 0 0 0 6px var(--w-menu-back);
 }
 .search-field,
 .prompt-input {
@@ -1355,8 +1365,61 @@ input.num-field.editing {
   border-radius: 6px;
   padding: 6px 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  max-width: calc(100vw - 8px);
   max-height: calc(100vh - 20px);
   overflow-y: auto;
+}
+/* colour picker: a disc or square for two components, a bar for the third */
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cp-top {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 4px 0;
+}
+.cp-wheel {
+  position: relative;
+  flex: none;
+}
+.cp-wheel canvas {
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+.cp-wheel.cp-square canvas {
+  border-radius: 3px;
+}
+.cp-cursor {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #000000;
+  pointer-events: none;
+}
+.cp-value {
+  position: relative;
+  flex: none;
+  width: 16px;
+  border-radius: 3px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.cp-vcursor {
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 3px;
+  margin-top: -2px;
+  border: 1px solid #ffffff;
+  box-shadow: 0 0 0 1px #000000;
+  pointer-events: none;
 }
 .pop-panel {
   display: flex;
@@ -1454,7 +1517,7 @@ input.num-field.editing {
 
 .tooltip {
   position: fixed;
-  max-width: 360px;
+  max-width: min(360px, calc(100vw - 8px));
   background: var(--g-1d, #1a1b1c);
   border: 1px solid var(--g-33, #303133);
   border-radius: 4px;

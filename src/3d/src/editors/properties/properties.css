@@ -9,6 +9,17 @@
 }
 .prop-body {
   position: relative;
+  container-type: inline-size;
+}
+/* a narrow Properties editor (a phone): shorter labels leave the fields room for their values */
+@container (max-width: 240px) {
+  .split-row {
+    grid-template-columns: minmax(32px, 26%) 1fr 14px;
+    gap: 3px;
+  }
+  .split-row .num-field {
+    padding: 0 4px;
+  }
 }
 .panel-drop-line {
   position: absolute;

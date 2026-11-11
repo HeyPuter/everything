@@ -315,8 +315,10 @@ export function oceanParams(mod: ModifierBase, render: boolean): OceanParams {
     L: Math.max(0.01, num(mod, 'spatial_size', 50)),
     wind: num(mod, 'wind_velocity', 30),
     direction: num(mod, 'wave_direction', 0),
-    alignment: num(mod, 'wave_alignment', 0),
-    damping: num(mod, 'damping', 0.5),
+    // Blender's ranges (scripts, drivers and keyframes can go beyond the sliders): damping above 1
+    // made the spectrum negative and a negative alignment infinite, both ending in NaN geometry
+    alignment: Math.max(0, num(mod, 'wave_alignment', 0)),
+    damping: Math.min(1, Math.max(0, num(mod, 'damping', 0.5))),
     minWave: num(mod, 'wave_scale_min', 0.01),
     scale: num(mod, 'wave_scale', 1),
     depth: num(mod, 'depth', 200),

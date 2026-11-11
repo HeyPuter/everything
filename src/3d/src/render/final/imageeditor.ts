@@ -475,7 +475,8 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     const s = this.imageSize();
     if (!s) return;
     const { w, h: hh } = this.viewSize();
-    const z = Math.min((w - 20) / s[0], (hh - 20) / s[1]);
+    // a view smaller than the margin (a collapsed area) gets the smallest zoom, not NaN
+    const z = Math.max(1 / 64, Math.min((w - 20) / s[0], (hh - 20) / s[1]));
     this.zoom = Math.max(1 / 64, Math.min(64, fit ? z : Math.pow(2, Math.floor(Math.log2(z)))));
     this.offX = this.offY = 0;
     this.fitted = true;
@@ -758,7 +759,6 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     const paint = this.paintMode();
     const mask = this.maskEditing();
     patch(this.ui, [
-      ...info,
       paint
         ? h('div', { key: 'ie-toolhdr', class: 'hdr-row ie-toolhdr' }, toolHeaderSettings('TEXTURE_PAINT'))
         : mask
@@ -770,6 +770,8 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
               ? h('div', { key: 'ie-annhdr', class: 'hdr-row ie-toolhdr ie-samplehdr' }, h('span', { class: 'ie-tool-name' }, icon('annotate'), 'Annotate'), h('span', { class: 'ie-tool-label' }, 'D + drag draws with any tool; Ctrl erases'))
               : this.sampleToolHeader()
             : null,
+      // the info line sits below the tool settings header (after it, for the CSS sibling rules)
+      ...info,
       paint && this.showToolbar ? this.paintToolbar() : null,
       mask && this.showToolbar ? imageMaskToolbar(this) : null,
       !paint && !mask && this.showToolbar && !this.host.close ? this.viewToolbar() : null,
@@ -1852,7 +1854,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
       if (e.button === 0 && this.paintMode()) {
         const img = this.image;
         if (!img) app.report('WARNING', 'No image to paint on: create or open one, or add a paint slot to the object');
-        else if (isTiled(img)) app.report('WARNING', 'Painting on UDIM tiles is not supported yet: paint a single image');
+        else if (isTiled(img)) app.report('WARNING', 'Painting on UDIM tiled images is not supported yet');
         else imagePaintStroke(this, img, e);
         return;
       }

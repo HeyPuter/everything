@@ -3,7 +3,7 @@
 import { app, registerOperators } from '../../app/app';
 import { uiState, activeTools } from '../../app/prefs';
 import { addKeys } from '../../app/keymap';
-import { editModeHooks, type SelectRegion } from './hooks';
+import { editModeHooks, followPointer, type SelectRegion } from './hooks';
 import type { View3D } from './view3d';
 import { activeView3D } from './view3d';
 
@@ -38,7 +38,8 @@ export function selectInRegion(v: View3D, r: SelectRegion, mode: SelectMode, lab
   const inside = new Set(v.idsInRect(x0, y0, x1, y1, (x, y) => inSelectRegion(r, x, y)).keys());
   const doc = app.doc;
   for (const ob of Object.values(doc.objects)) {
-    if (!app.isSelectable(ob.id)) continue;
+    // objects outside Local View keep their selection
+    if (!app.isSelectable(ob.id) || (v.localView && !v.localView.has(ob.id))) continue;
     const isIn = inside.has(ob.id);
     if (mode === 'SET') ob.select = isIn;
     else if (mode === 'ADD') ob.select = ob.select || isIn;
@@ -93,19 +94,17 @@ const local = (v: View3D, e: { clientX: number; clientY: number }) => {
 export function lassoDrag(v: View3D, e: PointerEvent, mode: SelectMode) {
   const pts = [local(v, e)];
   const move = (ev: PointerEvent) => {
+    // a right press while the left is held (it arrives as a move) cancels the lasso
+    if (ev.buttons & ~e.buttons & 2) return stopFollow(ev);
     const p = local(v, ev);
     const last = pts[pts.length - 1];
     if (Math.hypot(p.x - last.x, p.y - last.y) > 2) pts.push(p);
     drawLasso(v, pts);
   };
-  const up = () => {
-    removeEventListener('pointermove', move);
-    removeEventListener('pointerup', up);
+  const stopFollow = followPointer(e, move, (_ev, cancelled) => {
     drawLasso(v, null);
-    if (pts.length >= 3) selectInRegion(v, { kind: 'lasso', pts }, mode, 'Lasso Select');
-  };
-  addEventListener('pointermove', move);
-  addEventListener('pointerup', up);
+    if (pts.length >= 3 && !cancelled) selectInRegion(v, { kind: 'lasso', pts }, mode, 'Lasso Select');
+  });
 }
 
 /** Circle painting: every step selects (or deselects) what is under the brush. */
@@ -119,14 +118,11 @@ export function circlePaint(v: View3D, e: PointerEvent, mode: SelectMode) {
     first = false;
   };
   step(e);
-  const move = (ev: PointerEvent) => step(ev);
-  const up = (ev: PointerEvent) => {
-    removeEventListener('pointermove', move);
-    removeEventListener('pointerup', up);
-    drawCircle(v, local(v, ev), r);
-  };
-  addEventListener('pointermove', move);
-  addEventListener('pointerup', up);
+  followPointer(
+    e,
+    (ev) => step(ev),
+    (ev, cancelled) => drawCircle(v, cancelled ? null : local(v, ev), r),
+  );
 }
 
 /** Circle cursor while hovering with the circle tool. */

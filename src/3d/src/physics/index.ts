@@ -2,8 +2,8 @@
 // force fields, point caches, operators and the Physics / Particles properties tabs.
 import { app } from '../app/app';
 import { preEvaluateHooks } from '../eval/depsgraph';
-import { rapierReady, loadRapier } from './engine';
-import { simBudget, startBudget, caches } from './common';
+import { rapierReady, rapierFailed, loadRapier } from './engine';
+import { simBudget, startBudget, caches, cacheMemory } from './common';
 import { freeRigidBodyLive } from './rigidbody';
 import { particleDraw, hairRenderData } from './particles';
 import { smokeDraw } from './fluid';
@@ -69,6 +69,20 @@ queueMicrotask(() => {
   if (app?.doc.scene.rigidbody_world) void loadRapier();
 });
 rapierReady.add(() => app?.changed('frame'));
+// baked frames are never dropped: say so (once in a while) when they alone are over the budget
+let overflowReported = -Infinity;
+cacheMemory.onOverflow = (bytes) => {
+  if (performance.now() - overflowReported < 60000) return;
+  overflowReported = performance.now();
+  app?.report('WARNING', `Baked simulation frames take ${Math.round(bytes / 1048576)} MB, more than the ${Math.round(cacheMemory.budget / 1048576)} MB cache budget: free some bakes if memory runs out`);
+};
+let failReported = -Infinity;
+rapierFailed.add(() => {
+  // once per failure streak (evaluations retry every few seconds)
+  if (performance.now() - failReported < 60000) return;
+  failReported = performance.now();
+  app?.report('ERROR', 'The physics engine could not be loaded: rigid bodies will not move (check the connection and reload the page)');
+});
 import './fieldadd';
 import './dynpaint';
 import './dpops';

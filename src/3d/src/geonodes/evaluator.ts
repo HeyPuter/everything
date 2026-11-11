@@ -100,6 +100,38 @@ export function convertVal(v: Val, from: SocketType, to: SocketType): Val {
 
 const isMulti = (s: SocketDef) => !!s.multiInput;
 
+/** Message of a node given a field in an input that takes a single value (the editor draws such links red). */
+export const fieldInputMessage = (socketName: string) => `Input "${socketName}" does not support fields`;
+
+/** Node fields that only affect how the editor draws a node, not what it computes. */
+const UI_ONLY = new Set(['location', 'width', 'select', 'hide', 'color', 'use_custom_color', 'parent', 'hidden_sockets', 'open_panels', 'hide_options', 'viewer_shortcut', 'show_preview']);
+
+/** JSON of what in a tree affects evaluation (moving, selecting or collapsing nodes and panning the editor leave it unchanged). */
+export function treeEvalJson(tree: NodeTreeData): string {
+  return JSON.stringify({
+    ...tree,
+    view: undefined,
+    active_node: undefined,
+    nodes: tree.nodes.map((n) => {
+      const o: Record<string, unknown> = {};
+      for (const k in n) if (!UI_ONLY.has(k)) o[k] = n[k as keyof NodeData];
+      return o;
+    }),
+  });
+}
+
+/** JSON of a group's tree and of the trees of the groups nested in it (a cached group node is stale when any of them changes). */
+function groupTreesJson(doc: EvalEnv['doc'], tree: NodeTreeData, seen = new Set<NodeTreeData>()): string {
+  if (seen.has(tree)) return '';
+  seen.add(tree);
+  let s = treeEvalJson(tree);
+  for (const n of tree.nodes) {
+    const g = n.type === 'GeometryNodeGroup' && typeof n.props.node_tree === 'string' ? doc.node_groups[n.props.node_tree] : undefined;
+    if (g) s += `|${groupTreesJson(doc, g.tree, seen)}`;
+  }
+  return s;
+}
+
 export class TreeEval {
   private outputsMemo = new Map<string, Record<string, Val>>();
   private sigMemo = new Map<string, string>();
@@ -241,14 +273,28 @@ export class TreeEval {
     for (const o of outputs) if (this.isUsed(node.id, o.identifier)) s += `|>${o.identifier}`;
     if (node.type === 'GeometryNodeGroup') {
       const g = node.props.node_tree ? this.env.doc.node_groups[node.props.node_tree as string] : undefined;
-      s += `|g${g ? hash(JSON.stringify(g.tree)) : ''}`;
+      s += `|g${g ? hash(groupTreesJson(this.env.doc, g.tree)) : ''}`;
     }
     const ex = geoExecs[node.type];
-    if (ex?.sig) s += `|${ex.sig(node, this.env)}`;
+    if (ex?.sig) s += `|${ex.sig(node, this.env, (id) => this.refInput(node, id))}`;
     const h = hash(s);
     this.visiting.delete(node.id);
     this.sigMemo.set(node.id, h);
+    // a node still feeding the tree unchanged keeps its cached result, even when a cache hit
+    // downstream means it is not evaluated (so editing a node later does not redo its inputs)
+    const cached = this.cache.get(`${this.path}/${node.id}`);
+    if (cached && cached.sig === h) cached.used = this.log.generation;
     return h;
+  }
+
+  /** Data-block id or path a node input refers to (a linked input is evaluated), for the signatures of nodes reading data outside the tree. */
+  private refInput(node: NodeData, id: string): string | null {
+    let v: Val = node.inputs[id] as Val;
+    if (this.links(node.id, id).length) {
+      const s = findSocket(node, id, false, this.sctx);
+      v = s ? this.inputValue(node, s) : undefined;
+    }
+    return typeof v === 'string' && v ? v : null;
   }
 
   // -------------------------------------------------------------------------
@@ -293,14 +339,19 @@ export class TreeEval {
   }
 
   private groupNode(node: NodeData, path: string): Record<string, Val> {
-    const gid = node.props.node_tree as string | null;
-    const g = gid ? this.env.doc.node_groups[gid] : undefined;
-    if (!g) return {};
     if (this.depth > 32) {
       this.warn(node, 'Node group nesting is too deep');
       return {};
     }
-    const sub = new TreeEval(
+    return this.groupEval(node, path)?.groupOutputs() ?? {};
+  }
+
+  /** Evaluator of the tree of a group node, as the node runs it (null without a group). */
+  groupEval(node: NodeData, path = `${this.path}/${node.id}`): TreeEval | null {
+    const gid = node.props.node_tree as string | null;
+    const g = gid ? this.env.doc.node_groups[gid] : undefined;
+    if (!g || this.depth > 32) return null;
+    return new TreeEval(
       this.env,
       g.tree,
       path,
@@ -313,7 +364,6 @@ export class TreeEval {
       this.log,
       this.depth + 1,
     );
-    return sub.groupOutputs();
   }
 
   /** Values of the tree's active Group Output, keyed by interface identifier. */
@@ -340,7 +390,7 @@ export class TreeEval {
       if (v instanceof Field) {
         const c = constOf(v);
         if (c !== undefined) return c as Val;
-        self.warn(node, `Input "${s.name}" does not support fields`);
+        self.warn(node, fieldInputMessage(s.name));
         return coerce(node.inputs[s.identifier] ?? socketDefault(s), s.type);
       }
       return v;
@@ -425,8 +475,8 @@ export class TreeEval {
 }
 
 /**
- * Drop cache entries that have not been used for a while. Entries upstream of a cache hit are not
- * visited, so they are kept for some generations to keep re-editing a mid-tree node cheap.
+ * Drop cache entries that have not been used for a while (entries of nodes that are still part of
+ * the tree are marked used by their signature; group internals upstream of a cache hit are not).
  */
 export function pruneCache(cache: NodeCache, generation: number, keep = 24) {
   for (const [k, e] of cache) if (e.used < generation - keep) cache.delete(k);

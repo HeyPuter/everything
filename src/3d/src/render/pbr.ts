@@ -5,6 +5,7 @@ import { MeshPhysicalMaterial, Color, DoubleSide, FrontSide, type Material } fro
 import type { DocumentData, MaterialData, NodeData } from '../data/types';
 import { imageTexture } from './images';
 import { applyRealtimeMaterial, withRealtimeFx } from './realtime/materialfx';
+import { treeEvalJson } from '../nodes/tree';
 
 export type MaterialCompiler = (doc: DocumentData, ma: MaterialData) => Material;
 
@@ -24,7 +25,8 @@ export function setMaterialKeyExtra(f: ((doc: DocumentData, ma: MaterialData) =>
 }
 
 function materialKey(doc: DocumentData, ma: MaterialData) {
-  let k = JSON.stringify(ma);
+  // moving or selecting nodes does not change the material
+  let k = JSON.stringify({ ...ma, tree: undefined }) + treeEvalJson(ma.tree);
   if (materialKeyExtra) k += materialKeyExtra(doc, ma);
   for (const n of ma.tree.nodes) {
     const img = n.props.image as string | undefined;

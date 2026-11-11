@@ -157,6 +157,10 @@ describe('simulation zone', () => {
     expect(at(4)).toEqual([4, 3]);
     // skipped frames: one step from the last evaluated earlier frame
     expect(at(8)).toEqual([5, 4]);
+    // back into the skipped frames: from the latest earlier frame, keeping the later ones
+    expect(at(6)).toEqual([5, 4]);
+    expect(at(8)).toEqual([5, 4]);
+    expect(at(3)).toEqual([3, 2]);
     // before every cached frame: start over
     const k2 = `sim/${Math.random()}`;
     const at2 = (f: number) => xz(run(t, sp2, 'Geometry', GeometrySet.empty(), { frame: f, key: k2 }).geometry);

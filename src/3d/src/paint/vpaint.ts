@@ -87,6 +87,8 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBr
   const jit = colorJitterOn(ts.unified_paint as ColorJitter) ? colorJitterer(ts.unified_paint as ColorJitter, seededRandom((Date.now() ^ (Math.random() * 1e9)) >>> 0)) : null;
   const mode = (b.blend ?? 'MIX') as BlendMode;
   const orig = vertexColors(me, oldData === a.data ? { ...a, data: a.data.slice() } : { ...a, data: oldData });
+  const origCorners = a.domain === 'CORNER' ? (oldData === a.data ? a.data.slice() : oldData) : null;
+  const tmpC = [0, 0, 0, 1];
   const cur = vertexColors(me, a);
   const strokeAlpha = new Float32Array(s.nv);
   const scratch = {};
@@ -135,7 +137,18 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBr
           strokeAlpha[vi] = sa;
           blendColor(mode, orig.subarray(vi * 4, vi * 4 + 4), color, sa, tmp);
           cur.set(tmp, vi * 4);
-          writeVertex(s, a, vi, tmp, gpu);
+          if (origCorners) {
+            // face corner colors: each corner blends from its own color
+            const o = s.vf.offsets,
+              C = s.vf.corners;
+            for (let j = o[vi]; j < o[vi + 1]; j++) {
+              const c = C[j];
+              blendColor(mode, origCorners.subarray(c * 4, c * 4 + 4), color, sa, tmpC);
+              a.data.set(tmpC, c * 4);
+              if (gpu) gpu.set(tmpC, c * 4);
+              s.markColorDirty(c, c);
+            }
+          } else writeVertex(s, a, vi, tmp, gpu);
         }
       } else if (tool === 'BLUR' || tool === 'AVERAGE' || tool === 'SMEAR') {
         const prev = new Float32Array(n * 4);
@@ -235,23 +248,40 @@ export function barycentric(s: MeshSession, tri: number, p: Vector3): [number, n
 // ---------------------------------------------------------------------------
 // operators
 
+/** Smoothing and dirt need faces (the neighbours of a vertex come from them). */
+function noFaces() {
+  app.report('WARNING', 'The mesh has no faces');
+  return 'CANCELLED' as const;
+}
+
 function vpaintPoll() {
   return app.doc.mode === 'VERTEX_PAINT' && !!activeMeshData();
 }
 
-export function editColors(fn: (me: MeshData, cols: Float32Array, a: ColorAttribute) => void) {
+/**
+ * Edit the active color attribute through a per-vertex view. `pointwise` operations (each color
+ * changed on its own) work on the face corners directly, so a corner attribute keeps the different
+ * colors a vertex has on its faces; otherwise only the corners of changed vertices are written.
+ */
+export function editColors(fn: (me: MeshData, cols: Float32Array, a: ColorAttribute) => void, pointwise = false) {
   const { me } = activeMeshData()!;
   const a = ensureColorAttribute(me);
   cow(a, 'data');
   const nv = me.positions.length / 3;
-  const cols = vertexColors(me, a);
   const allowed = paintFilter(me).verts;
+  if (pointwise && a.domain === 'CORNER') {
+    const before = allowed ? a.data.slice() : null;
+    fn(me, a.data, a);
+    if (allowed && before) for (let c = 0; c < me.indices.length; c++) if (!allowed[me.indices[c]]) a.data.set(before.subarray(c * 4, c * 4 + 4), c * 4);
+    return;
+  }
+  const cols = vertexColors(me, a);
   const before = allowed ? cols.slice() : null;
   fn(me, cols, a);
   // selection masks / hidden vertices keep their colors
   if (allowed && before) for (let v = 0; v < nv; v++) if (!allowed[v]) for (let k = 0; k < 4; k++) cols[v * 4 + k] = before[v * 4 + k];
   if (a.domain === 'POINT') a.data.set(cols.subarray(0, nv * 4));
-  else for (let c = 0; c < me.indices.length; c++) a.data.set(cols.subarray(me.indices[c] * 4, me.indices[c] * 4 + 4), c * 4);
+  else for (let c = 0; c < me.indices.length; c++) if (!allowed || allowed[me.indices[c]]) a.data.set(cols.subarray(me.indices[c] * 4, me.indices[c] * 4 + 4), c * 4);
 }
 
 registerOperators([
@@ -269,7 +299,7 @@ registerOperators([
           cols[i + 2] = c[2];
           cols[i + 3] = 1;
         }
-      });
+      }, true);
     },
   },
   {
@@ -278,7 +308,8 @@ registerOperators([
     description: 'Smooth colors across vertices',
     poll: vpaintPoll,
     exec: () => {
-      const s = meshSession()!;
+      const s = meshSession();
+      if (!s) return noFaces();
       editColors((_me, cols) => {
         const nb = s.neighbors;
         const src = cols.slice();
@@ -302,7 +333,7 @@ registerOperators([
     exec: () =>
       editColors((_me, cols) => {
         for (let i = 0; i < cols.length; i += 4) for (let c = 0; c < 3; c++) cols[i + c] = 1 - cols[i + c];
-      }),
+      }, true),
   },
   {
     idname: 'paint.vertex_color_dirt',
@@ -347,7 +378,8 @@ registerOperators([
     ],
     poll: vpaintPoll,
     exec: (_ctx, p) => {
-      const s = meshSession()!;
+      const s = meshSession();
+      if (!s) return noFaces();
       editColors((_me, cols) => dirtyColors(s, cols, p.blur_strength as number, p.blur_iterations as number, p.clean_angle as number, p.dirt_angle as number, !!p.dirt_only));
     },
   },

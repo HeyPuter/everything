@@ -77,6 +77,13 @@ describe('UI list filtering', () => {
     expect(visibleIndices(items, { text: '', invert: false, sortAlpha: true, reverse: false })).toEqual([1, 2, 0, 3]);
     expect(visibleIndices(items, { text: 'g*', invert: false, sortAlpha: false, reverse: true })).toEqual([2, 0]);
   });
+
+  it('takes ? as one character in wildcard filters (any typed text is a valid filter)', () => {
+    const items = [{ label: 'Group.010' }, { label: 'Arm' }, { label: 'Group.2' }, { label: 'leg' }];
+    expect(visibleIndices(items, { text: '?*', invert: false, sortAlpha: false, reverse: false })).toEqual([0, 1, 2, 3]);
+    expect(visibleIndices(items, { text: 'l?g*', invert: false, sortAlpha: false, reverse: false })).toEqual([3]);
+    expect(visibleIndices(items, { text: '(*', invert: false, sortAlpha: false, reverse: false })).toEqual([]);
+  });
 });
 
 describe('node input data paths', () => {

@@ -2,6 +2,7 @@
 import { app } from './app';
 import { prefs } from './prefs';
 import { menuKey, pieOpen, openMenu, type MenuItem } from '../ui/menu';
+import { hasHandler } from '../ui/h';
 
 export interface KeyItem {
   key: string; // e.g. 'A', 'NUMPAD_1', 'TAB'
@@ -175,6 +176,12 @@ function isTyping(e: KeyboardEvent) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || !!t.closest?.('.cm-editor, .text-editor-input, puter-user-menu'));
 }
 
+/** A button-like control with the keyboard focus (mouse-clicked buttons drop their focus, see installKeyboard). */
+function isFocusedControl(t: EventTarget | null) {
+  const el = t as HTMLElement | null;
+  return !!el && el === document.activeElement && !!el.matches?.('button, a[href], summary, [role="button"], [role="tab"], [role="checkbox"], [role="switch"], [role="radio"]');
+}
+
 type EditorKeys = { keymaps?: string[]; onKey?(e: KeyboardEvent): boolean };
 const modsOf = (e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }) => (e.ctrlKey || e.metaKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0);
 let lastPress: { name: string; mods: number; time: number } | null = null;
@@ -261,6 +268,32 @@ export function installKeyboard() {
   addEventListener('mousedown', onExtraButton, true);
   addEventListener('mouseup', onExtraButton, true);
   addEventListener('auxclick', (e) => (e.button === 3 || e.button === 4) && e.preventDefault(), true);
+  // A button clicked with the pointer doesn't keep the keyboard focus: Enter pressed later (with the
+  // pointer over another editor) would click it again. Buttons reached with Tab keep it.
+  addEventListener(
+    'click',
+    (e) => {
+      const b = (e.target as Element | null)?.closest?.('button');
+      if (!b) return;
+      if (e.detail !== 0) {
+        // a focusable container (a dialog that takes the keys) keeps the focus
+        if (document.activeElement === b) {
+          const box = b.parentElement?.closest<HTMLElement>('[tabindex]');
+          if (box) box.focus({ preventScroll: true });
+          else b.blur();
+        }
+        return;
+      }
+      // Enter / Space on a button that acts on press (menu buttons, dropdowns) and has no click
+      // action: press and release it, so it can be used from the keyboard too
+      if (b.disabled || !hasHandler(b, 'pointerdown') || hasHandler(b, 'click')) return;
+      const r = b.getBoundingClientRect();
+      const init = { bubbles: true, cancelable: true, button: 0, buttons: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerId: 1, isPrimary: true, pointerType: 'mouse' };
+      b.dispatchEvent(new PointerEvent('pointerdown', init));
+      b.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
+    },
+    true,
+  );
   addEventListener(
     'keydown',
     (e) => {
@@ -287,6 +320,8 @@ export function installKeyboard() {
           e.preventDefault();
           return;
         }
+      // Space / Enter on a control that has the keyboard focus press that control (Space would start playback)
+      if ((e.key === ' ' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey && !e.altKey && isFocusedControl(e.target)) return;
       const area = app.hoverArea ?? app.activeArea;
       const editor = area?.editor as EditorKeys | undefined;
       if (editor?.onKey?.(e)) {
@@ -334,10 +369,35 @@ export function installKeyboard() {
     },
     true,
   );
+  // a button pressed while another one is held arrives as a pointer move with more `buttons`
+  // (a chorded press, no pointerdown): a right press during a left drag still reaches the modal,
+  // so right click cancels drags
+  let heldButtons = 0;
   addEventListener(
     'pointermove',
     (e) => {
       app.pointer = { x: e.clientX, y: e.clientY };
+      const pressed = e.buttons & ~heldButtons;
+      heldButtons = e.buttons;
+      if (pressed & 2 && app.modal?.onPointerDown) {
+        const down = new PointerEvent('pointerdown', {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          button: 2,
+          buttons: e.buttons,
+          pointerId: e.pointerId,
+          pointerType: e.pointerType,
+          shiftKey: e.shiftKey,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+        });
+        const r = app.modal.onPointerDown(down);
+        if (r) {
+          app.endModal(r);
+          return;
+        }
+      }
       if (app.modal?.onPointerMove) app.modal.onPointerMove(e);
     },
     true,
@@ -345,6 +405,7 @@ export function installKeyboard() {
   addEventListener(
     'pointerdown',
     (e) => {
+      heldButtons = e.buttons;
       if (!app.modal) return;
       // modal pointer clicks are handled by the editor under the pointer, or here as fallback
       const inArea = (e.target as HTMLElement).closest?.('.area-main');
@@ -361,6 +422,7 @@ export function installKeyboard() {
   addEventListener(
     'pointerup',
     (e) => {
+      heldButtons = e.buttons;
       if (!app.modal) return;
       const r = app.modal.onPointerUp?.(e);
       if (r) app.endModal(r);

@@ -146,6 +146,7 @@ export function numberField(o: NumberOpts): VNode {
       oninput: (e: Event) => editing.set(o.id, (e.target as HTMLInputElement).value),
       onkeydown: (e: KeyboardEvent) => {
         e.stopPropagation();
+        if (e.isComposing) return;
         if (e.key === 'Enter') {
           commitText(o, (e.target as HTMLInputElement).value);
           // Alt+Enter: also set the value on the other selected items
@@ -338,6 +339,7 @@ function startDrag(e: PointerEvent, o: NumberOpts) {
   const up = (ev: PointerEvent) => {
     removeEventListener('pointermove', move, true);
     removeEventListener('pointerup', up, true);
+    removeEventListener('pointercancel', cancel, true);
     removeEventListener('keydown', key, true);
     if (document.pointerLockElement) document.exitPointerLock();
     setWidgetDragging(false);
@@ -360,24 +362,30 @@ function startDrag(e: PointerEvent, o: NumberOpts) {
     // Alt held: copy the result to the other selected items
     if (ev.altKey) buttonHooks.altEdit(o.id);
   };
+  // Esc, or the browser taking the touch over (pointercancel, e.g. to scroll), puts the values back
+  const cancel = () => {
+    removeEventListener('pointermove', move, true);
+    removeEventListener('pointerup', up, true);
+    removeEventListener('pointercancel', cancel, true);
+    removeEventListener('keydown', key, true);
+    if (document.pointerLockElement) document.exitPointerLock();
+    setWidgetDragging(false);
+    if (multi) {
+      for (const [id, s0] of multi.starts) writeBinding(id, s0);
+      finishMulti();
+    }
+    o.set(start, false);
+    app.changed('doc');
+  };
   const key = (ev: KeyboardEvent) => {
     if (ev.key === 'Escape') {
       ev.stopPropagation();
-      removeEventListener('pointermove', move, true);
-      removeEventListener('pointerup', up, true);
-      removeEventListener('keydown', key, true);
-      if (document.pointerLockElement) document.exitPointerLock();
-      setWidgetDragging(false);
-      if (multi) {
-        for (const [id, s0] of multi.starts) writeBinding(id, s0);
-        finishMulti();
-      }
-      o.set(start, false);
-      app.changed('doc');
+      cancel();
     }
   };
   addEventListener('pointermove', move, true);
   addEventListener('pointerup', up, true);
+  addEventListener('pointercancel', cancel, true);
   addEventListener('keydown', key, true);
 }
 
@@ -571,7 +579,11 @@ export function textField(id: string, value: string, set: (v: string) => void, o
       onchange: opts.live ? null : (e: Event) => set((e.target as HTMLInputElement).value),
       onkeydown: (e: KeyboardEvent) => {
         e.stopPropagation();
-        if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur();
+        if (e.isComposing || (e.key !== 'Enter' && e.key !== 'Escape')) return;
+        const input = e.target as HTMLInputElement;
+        // Esc cancels: put the value back so leaving the field doesn't commit the typed text
+        if (e.key === 'Escape' && !opts.live) input.value = value;
+        input.blur();
       },
     }),
   );
@@ -797,11 +809,13 @@ function openColorPicker(anchor: HTMLElement, initial: number[], set: (v: number
               const up = () => {
                 removeEventListener('pointermove', pick);
                 removeEventListener('pointerup', up);
+                removeEventListener('pointercancel', up);
                 setWidgetDragging(false);
                 emit(true);
               };
               addEventListener('pointermove', pick);
               addEventListener('pointerup', up);
+              addEventListener('pointercancel', up);
             },
           }),
           h('div', { class: 'cp-cursor', style: circle ? { left: `${80 + Math.cos(ang) * pb * 80}px`, top: `${80 - Math.sin(ang) * pb * 80}px` } : { left: `${pa * 160}px`, top: `${(1 - pb) * 160}px` } }),
@@ -825,11 +839,13 @@ function openColorPicker(anchor: HTMLElement, initial: number[], set: (v: number
               const up = () => {
                 removeEventListener('pointermove', pick);
                 removeEventListener('pointerup', up);
+                removeEventListener('pointercancel', up);
                 setWidgetDragging(false);
                 emit(true);
               };
               addEventListener('pointermove', pick);
               addEventListener('pointerup', up);
+              addEventListener('pointercancel', up);
             },
           },
           h('div', { class: 'cp-vcursor', style: { top: `${(1 - pc) * 100}%` } }),

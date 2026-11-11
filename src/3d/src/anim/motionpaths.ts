@@ -66,21 +66,32 @@ interface PathTarget {
 /** Sample several paths in one pass over the frames. */
 function calculate(targets: PathTarget[]) {
   if (!targets.length) return;
-  const saved = app.doc.scene.frame_current;
+  const sc = app.doc.scene;
+  const saved = sc.frame_current,
+    savedSub = sc.frame_subframe;
   const lo = Math.min(...targets.map((t) => t.range[0])),
     hi = Math.max(...targets.map((t) => t.range[1]));
   const paths = targets.map((t) => ({ frame_start: t.range[0], points: [] as number[], step: Math.max(1, t.step) }));
   const p = new Vector3();
-  for (let f = lo; f <= hi; f++) {
-    app.setFrame(f);
-    app.flush();
-    targets.forEach((t, i) => {
-      const [a, b] = t.range;
-      if (f < a || f > b || (f - a) % paths[i].step) return;
-      if (t.sample(p)) paths[i].points.push(p.x, p.y, p.z);
-    });
+  try {
+    for (let f = lo; f <= hi; f++) {
+      // evaluate the exact frame (also negative ones when the interface doesn't allow them), without
+      // redrawing the interface for every sample
+      sc.frame_current = f;
+      sc.frame_subframe = 0;
+      app.evaluate();
+      targets.forEach((t, i) => {
+        const [a, b] = t.range;
+        if (f < a || f > b || (f - a) % paths[i].step) return;
+        if (t.sample(p)) paths[i].points.push(p.x, p.y, p.z);
+      });
+    }
+  } finally {
+    // back to the frame (and subframe) shown before
+    sc.frame_current = saved;
+    sc.frame_subframe = savedSub;
+    app.changed('frame');
   }
-  app.setFrame(saved);
   targets.forEach((t, i) => t.store(paths[i]));
 }
 

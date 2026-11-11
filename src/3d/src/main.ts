@@ -40,7 +40,7 @@ import './ops/wm';
 import './ops/data';
 import './io/files';
 import { onFileStatus, scheduleAutosave, autosave, projectUiState } from './io/files';
-import { loadRecovery, decodeDocument } from './io/native';
+import { claimRecovery, decodeDocument } from './io/native';
 import { setMode } from './ops/object';
 import { loadFonts } from './io/fonts';
 import { registerModules } from './modules';
@@ -70,7 +70,15 @@ let ctx: RenderContext;
 try {
   ctx = new RenderContext(app, document.body);
   setRenderContext(ctx);
-  ctx.engine.onLost = (msg) => showFatal(msg);
+  ctx.engine.onLost = (msg) => {
+    const el = showFatal(msg);
+    // the message goes away when the context comes back
+    const restored = () => {
+      el.remove();
+      ctx.engine.restoreCallbacks.delete(restored);
+    };
+    ctx.engine.restoreCallbacks.add(restored);
+  };
 } catch (e) {
   showFatal(`WebGL 2 is required to display the 3D viewport. ${e instanceof Error ? e.message : ''}`);
 }
@@ -114,9 +122,12 @@ void loadFonts(() => {
 const startRevision = app.revision;
 // `?factory-startup` skips session recovery
 const factoryStartup = new URLSearchParams(location.search).has('factory-startup');
-const recovered = (factoryStartup ? Promise.resolve(null) : loadRecovery())
+// (startup work such as the font loading re-evaluates without being an edit: edits leave undo steps)
+const untouched = () => app.revision === startRevision || !app.undo.canUndo;
+// every tab auto saves into its own slot; a fresh tab takes over the one a closed tab left
+const recovered = claimRecovery(!factoryStartup, untouched)
   .then((rec) => {
-    if (!rec || app.revision !== startRevision) return;
+    if (!rec || !untouched()) return;
     try {
       const { doc, extra } = decodeDocument(rec.bytes);
       const mode = doc.mode;
@@ -146,6 +157,7 @@ function showFatal(message: string) {
   el.setAttribute('role', 'alert');
   el.textContent = message;
   document.body.append(el);
+  return el;
 }
 
 // expose for scripting & debugging

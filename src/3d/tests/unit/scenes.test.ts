@@ -75,8 +75,8 @@ describe('scenes', () => {
     const n = Object.keys(app.doc.objects).length;
     expect(app.run('scene.delete', {}, { invoke: false })).toBe('FINISHED');
     expect(app.doc.scene).toBe(first);
-    // the copies lived in the deleted scene's (shared) collection, which stays: objects are kept
-    expect(Object.keys(app.doc.objects).length).toBe(n);
+    // the copies lived in the deleted scene's own collection tree, which nothing else uses: they go
+    expect(Object.keys(app.doc.objects).length).toBe(n - 3);
     expect(app.run('scene.delete', {}, { invoke: false })).toBe('CANCELLED');
   });
 

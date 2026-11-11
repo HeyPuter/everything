@@ -8,7 +8,7 @@ import type { DocumentData, ObjectData } from '../data/types';
 import type { Depsgraph } from '../eval/depsgraph';
 import type { EvalMesh } from '../eval/types';
 import { meshSignature, baseEvalMesh } from '../eval/depsgraph';
-import { frameOf, getCache, motionKey, objectWorldAt, outOfTime, strHash, type FrameCache } from './common';
+import { frameOf, getCache, motionKey, objectWorldAt, outOfTime, strHash, type FrameCache, stepCount } from './common';
 import { collectEffectors, effectorForce, fieldsKey } from './fields';
 import { triangulate } from './colliders';
 import type { ObjectPhysics, RigidBodyConstraintData, RigidBodyWorldX, RigidBodyX } from './types';
@@ -18,17 +18,31 @@ import { createJoint } from './rbjoints';
 type Rapier = typeof RAPIERNS;
 let RAPIER: Rapier | null = null;
 let loading: Promise<Rapier> | null = null;
+/** the last failed load (a new attempt is made once it is a few seconds old) */
+let failed: { at: number; promise: Promise<Rapier> } | null = null;
 export const rapierReady = new Set<() => void>();
+/** Called when the engine could not be loaded (e.g. offline). */
+export const rapierFailed = new Set<(e: unknown) => void>();
 
 export function loadRapier(): Promise<Rapier> {
-  if (!loading)
-    loading = import('@dimforge/rapier3d-compat').then(async (m) => {
+  if (!loading) {
+    // don't download again on every evaluation right after a failure
+    if (failed && performance.now() - failed.at < 5000) return failed.promise;
+    const p = import('@dimforge/rapier3d-compat').then(async (m) => {
       const mod = ((m as unknown as { default?: Rapier }).default ?? m) as Rapier;
       await mod.init();
       RAPIER = mod;
       for (const f of rapierReady) f();
       return mod;
     });
+    loading = p;
+    // a failed load is reported and can be tried again later (callers that only start loading need not handle it)
+    p.catch((e) => {
+      loading = null;
+      failed = { at: performance.now(), promise: p };
+      for (const f of rapierFailed) f(e);
+    });
+  }
   return loading;
 }
 
@@ -229,9 +243,9 @@ function buildWorld(R: Rapier, doc: DocumentData, graph: Depsgraph | null = null
   const gw = w.effector_weights_gravity ?? 1;
   const g = doc.scene.use_gravity ? doc.scene.gravity : [0, 0, 0];
   const world = new R.World({ x: g[0] * gw, y: g[1] * gw, z: g[2] * gw });
-  const substeps = Math.max(1, Math.round(w.substeps_per_frame));
+  const substeps = stepCount(w.substeps_per_frame, 1, 1000);
   world.timestep = Math.max(1e-6, (w.time_scale || 0) / fps(doc) / substeps);
-  world.integrationParameters.numSolverIterations = Math.max(1, Math.round(w.solver_iterations));
+  world.integrationParameters.numSolverIterations = stepCount(w.solver_iterations, 1, 1000);
   // split impulse: overlaps are pushed apart gently, without the push turning into a bounce
   if (w.use_split_impulse) world.integrationParameters.contact_natural_frequency = 8;
   const bodies: Body[] = [];
@@ -281,7 +295,7 @@ function buildWorld(R: Rapier, doc: DocumentData, graph: Depsgraph | null = null
     joint.setContactsEnabled(!c.disable_collisions);
     // a constraint can ask for more solver iterations than the world uses
     if (c.use_override_solver_iterations) {
-      const extra = Math.max(0, Math.round(Number(c.solver_iterations ?? 10)) - world.integrationParameters.numSolverIterations);
+      const extra = Math.max(0, stepCount(c.solver_iterations ?? 10, 1, 1000) - world.integrationParameters.numSolverIterations);
       for (const b of [b1, b2]) if (b.dynamic) b.body.setAdditionalSolverIterations(Math.max(b.body.additionalSolverIterations(), extra));
     }
     if (c.use_breaking) breakable.push({ joint, b1, b2, threshold: Math.max(0, Number(c.breaking_threshold ?? 10)), broken: false });
@@ -308,7 +322,7 @@ function snapshot(live: Live): Float32Array {
 
 function stepWorld(doc: DocumentData, live: Live, frame: number, graph: Depsgraph | null) {
   const w = doc.scene.rigidbody_world as RigidBodyWorldX;
-  const substeps = Math.max(1, Math.round(w.substeps_per_frame));
+  const substeps = stepCount(w.substeps_per_frame, 1, 1000);
   // kinematic targets at the previous and this frame
   const kin = live.bodies
     .filter((b) => b.kinematic)
@@ -427,6 +441,11 @@ export function simulateRigidBodies(doc: DocumentData, ft: number, graph: Depsgr
   if (!w) return true;
   const cache = rigidBodyCache();
   if (cache.frames.has(ft)) return true;
+  if (cache.evicted && ft < cache.last) {
+    // the frame was dropped to save memory: simulate again from the start
+    freeRigidBodyLive();
+    cache.last = -Infinity;
+  }
   if (!RAPIER) {
     void loadRapier();
     return false;

@@ -69,30 +69,42 @@ export function deleteGeometry(m: MeshEdit, type: string) {
 
 /** Dissolve selected vertices: merge their surrounding faces into one. */
 function dissolveVerts(m: MeshEdit) {
-  const vf = m.vertexFaces();
+  // faces keep their slot (merged-away ones become null, merged ones are appended) and the
+  // vertex → faces lists are updated per merge instead of rebuilt for every vertex
+  const faces: (EFace | null)[] = m.faces.slice();
+  const vf: number[][] = Array.from({ length: m.vcount }, () => []);
+  faces.forEach((f, fi) => f!.verts.forEach((v) => vf[v].push(fi)));
   const selV = m.selectedVerts();
   for (const v of selV) {
-    const faces = vf[v].filter((f) => m.faces[f] && m.faces[f].verts.includes(v));
-    if (faces.length < 2) {
+    const around = vf[v].filter((f) => faces[f] && faces[f]!.verts.includes(v));
+    if (around.length < 2) {
       // boundary or wire: just remove the vertex from its face
-      for (const fi of faces) {
-        const f = m.faces[fi];
+      for (const fi of around) {
+        const f = faces[fi]!;
         const i = f.verts.indexOf(v);
         if (f.verts.length > 3) removeCorner(f, i);
       }
       continue;
     }
     // walk the ring of faces around v to build the merged polygon
-    const merged = mergeFacesAroundVertex(m, v, faces);
+    const merged = mergeFacesAroundVertex(
+      v,
+      around.map((fi) => faces[fi]!),
+    );
     if (!merged) continue;
-    const set = new Set(faces);
-    const template = m.faces[faces[0]];
-    m.faces = m.faces.map((f, i) => (set.has(i) ? (null as unknown as EFace) : f)).filter(Boolean);
-    m.faces.push({ ...m.makeFace(merged.verts, template, merged.uvs) });
-    // recompute adjacency after each dissolve
-    const nvf = m.vertexFaces();
-    for (let i = 0; i < nvf.length; i++) vf[i] = nvf[i];
+    const template = faces[around[0]]!;
+    const gone = new Set(around);
+    const touched = new Set<number>();
+    for (const fi of around) {
+      for (const u of faces[fi]!.verts) touched.add(u);
+      faces[fi] = null;
+    }
+    for (const u of touched) vf[u] = vf[u].filter((fi) => !gone.has(fi));
+    const nf = faces.length;
+    faces.push({ ...m.makeFace(merged.verts, template, merged.uvs) });
+    for (const u of merged.verts) vf[u].push(nf);
   }
+  m.faces = faces.filter((f): f is EFace => !!f);
   const used = new Uint8Array(m.vcount);
   for (const f of m.faces) for (const v of f.verts) used[v] = 1;
   for (const [a, b] of m.looseEdges) used[a] = used[b] = 1;
@@ -108,10 +120,9 @@ function removeCorner(f: EFace, i: number) {
   if (f.colors) f.colors.splice(i * 4, 4);
 }
 
-function mergeFacesAroundVertex(m: MeshEdit, v: number, faces: number[]): { verts: number[]; uvs: number[] } | null {
+function mergeFacesAroundVertex(v: number, faces: EFace[]): { verts: number[]; uvs: number[] } | null {
   // Each face contributes the path from v's next neighbor to v's previous neighbor (excluding v)
-  const paths = faces.map((fi) => {
-    const f = m.faces[fi];
+  const paths = faces.map((f) => {
     const n = f.verts.length,
       i = f.verts.indexOf(v);
     const verts: number[] = [],
@@ -150,53 +161,97 @@ function mergeFacesAroundVertex(m: MeshEdit, v: number, faces: number[]): { vert
 
 /** Dissolve selected edges: merge the two faces on each edge. */
 function dissolveEdges(m: MeshEdit, useVerts: boolean) {
-  let changed = true;
   const selEdges = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
+  // "Dissolve Vertices" only removes vertices the dissolve leaves between two edges (not corners
+  // that already were, like a plane's)
+  const valence0 = useVerts ? m.neighbors().map((l) => l.length) : [];
+  // faces keep their slot while merging (merged-away faces become null, merged faces are appended),
+  // and the edge → faces map is updated per merge instead of rebuilt (linear, not O(edges × mesh))
+  const faces: (EFace | null)[] = m.faces.slice();
+  const ef = new Map<string, number[]>();
+  const link = (fi: number) => {
+    const vs = faces[fi]!.verts;
+    for (let i = 0; i < vs.length; i++) {
+      const k = edgeKey(vs[i], vs[(i + 1) % vs.length]);
+      (ef.get(k) ?? ef.set(k, []).get(k)!).push(fi);
+    }
+  };
+  const unlink = (fi: number) => {
+    const vs = faces[fi]!.verts;
+    for (let i = 0; i < vs.length; i++) {
+      const k = edgeKey(vs[i], vs[(i + 1) % vs.length]);
+      const l = ef.get(k);
+      if (!l) continue;
+      const rest = l.filter((x) => x !== fi);
+      if (rest.length) ef.set(k, rest);
+      else ef.delete(k);
+    }
+  };
+  for (let fi = 0; fi < faces.length; fi++) link(fi);
+  let changed = true;
   while (changed) {
     changed = false;
-    const ef = m.edgeFaces();
     for (const k of selEdges) {
       const l = ef.get(k);
-      if (!l || l.length !== 2 || l[0][0] === l[1][0]) continue;
-      const [fa, ia] = l[0],
-        [fb] = l[1];
-      const A = m.faces[fa],
-        B = m.faces[fb];
-      const a = A.verts[ia],
-        b = A.verts[(ia + 1) % A.verts.length];
-      // A: ... a b ... ; B contains b a
+      if (!l || l.length !== 2 || l[0] === l[1]) continue;
+      const [fa, fb] = l;
+      const A = faces[fa]!,
+        B = faces[fb]!;
       const na = A.verts.length,
         nb = B.verts.length;
-      const jb = B.verts.indexOf(b);
-      if (B.verts[(jb + 1) % nb] !== a) continue;
+      let ia = -1;
+      for (let i = 0; i < na && ia < 0; i++) if (edgeKey(A.verts[i], A.verts[(i + 1) % na]) === k) ia = i;
+      // B runs along the edge the other way (B contains y then x)
+      const reversedInB = (x: number, y: number) => {
+        const j = B.verts.indexOf(y);
+        return j >= 0 && B.verts[(j + 1) % nb] === x;
+      };
+      if (!reversedInB(A.verts[ia], A.verts[(ia + 1) % na])) continue;
+      // the faces may share a chain of edges around this one (A: … p0 … pm …): join across all of it,
+      // dropping the chain's inner vertices, like Blender's face join
+      let s0 = ia,
+        e0 = (ia + 1) % na,
+        chain = 1;
+      while (chain < na - 1 && reversedInB(A.verts[(s0 - 1 + na) % na], A.verts[s0])) {
+        s0 = (s0 - 1 + na) % na;
+        chain++;
+      }
+      while (chain < na - 1 && reversedInB(A.verts[e0], A.verts[(e0 + 1) % na])) {
+        e0 = (e0 + 1) % na;
+        chain++;
+      }
+      if (chain >= nb - 1) continue;
       const verts: number[] = [],
         uvs: number[] = [];
-      for (let k2 = 0; k2 < na; k2++) {
-        const j = (ia + 1 + k2) % na; // start at b, go around to a
+      for (let k2 = 0; k2 <= na - chain; k2++) {
+        const j = (e0 + k2) % na; // start at pm, go around to p0
         verts.push(A.verts[j]);
         uvs.push(A.uvs[j * 2], A.uvs[j * 2 + 1]);
       }
-      // B from after a back to before b
-      for (let k2 = 2; k2 < nb; k2++) {
-        const j = (jb + k2) % nb;
+      // B from after p0 back to before pm
+      const jp0 = B.verts.indexOf(A.verts[s0]);
+      for (let k2 = 1; k2 < nb - chain; k2++) {
+        const j = (jp0 + k2) % nb;
         verts.push(B.verts[j]);
         uvs.push(B.uvs[j * 2], B.uvs[j * 2 + 1]);
       }
-      if (new Set(verts).size !== verts.length) continue;
-      const nf = m.makeFace(verts, A, uvs);
-      m.faces = m.faces.filter((_, i) => i !== fa && i !== fb);
-      m.faces.push(nf);
+      if (verts.length < 3 || new Set(verts).size !== verts.length) continue;
+      unlink(fa);
+      unlink(fb);
+      faces[fa] = faces[fb] = null;
+      faces.push(m.makeFace(verts, A, uvs));
+      link(faces.length - 1);
       selEdges.delete(k);
       changed = true;
-      break;
     }
   }
+  m.faces = faces.filter((f): f is EFace => !!f);
   if (useVerts) {
     // remove 2-valence vertices left in the middle of straight runs
     const vf = m.vertexFaces();
     const nb = m.neighbors();
     for (let v = 0; v < m.vcount; v++) {
-      if (!m.sel[v] || nb[v].length !== 2) continue;
+      if (!m.sel[v] || nb[v].length !== 2 || valence0[v] === 2) continue;
       for (const fi of vf[v]) {
         const f = m.faces[fi];
         const i = f.verts.indexOf(v);

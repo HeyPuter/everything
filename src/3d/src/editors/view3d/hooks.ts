@@ -42,3 +42,31 @@ export const viewportUIHooks: ((v: View3D) => Child)[] = [];
 
 /** Extra View menu entries (inserted after Tool Settings). */
 export const viewMenuExtras: (() => import('../../ui/menu').MenuItem[])[] = [];
+
+/**
+ * Follow one pointer's drag until it is released or the system cancels it (pen palm rejection,
+ * touch gestures); other pointers (a second finger) are ignored.
+ */
+export function followPointer(e: PointerEvent, move: (ev: PointerEvent) => void, end: (ev: PointerEvent, cancelled: boolean) => void): (ev: PointerEvent) => void {
+  const id = e.pointerId;
+  const mv = (ev: PointerEvent) => {
+    if (ev.pointerId === id) move(ev);
+  };
+  const fin = (ev: PointerEvent) => {
+    if (ev.pointerId !== id) return;
+    removeEventListener('pointermove', mv);
+    removeEventListener('pointerup', fin);
+    removeEventListener('pointercancel', fin);
+    end(ev, ev.type === 'pointercancel');
+  };
+  addEventListener('pointermove', mv);
+  addEventListener('pointerup', fin);
+  addEventListener('pointercancel', fin);
+  /** Stop following and end as cancelled (e.g. a right press while the left button is held). */
+  return (ev: PointerEvent) => {
+    removeEventListener('pointermove', mv);
+    removeEventListener('pointerup', fin);
+    removeEventListener('pointercancel', fin);
+    end(ev, true);
+  };
+}

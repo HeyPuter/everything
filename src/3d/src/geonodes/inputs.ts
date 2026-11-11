@@ -1,5 +1,6 @@
 // Built-in input fields: Position, Normal, Index, ID, named/anonymous attributes, …
-import { InputField, allocField, type Evaluated, type FieldContext, Field } from './field';
+import { InputField, allocField, withDomainHint, type Evaluated, type FieldContext, Field } from './field';
+import type { Domain } from './types';
 import type { DataType, FieldType } from './types';
 import { fieldTypeOfData, fieldComps, dataComps } from './types';
 import { adaptDomain, readAttribute, type Component } from './geometry';
@@ -46,11 +47,20 @@ export function attrToField(data: Float32Array | Int32Array | Uint8Array, from: 
   return out;
 }
 
+/** Natural domain of a stored attribute (position lives on points). */
+const attrDomain =
+  (name: string) =>
+  (c: Component): Domain | null =>
+    name === 'position' ? (c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT') : (c.attrs.get(name)?.domain ?? null);
+
 export const positionField = () =>
-  new InputField('VECTOR', 'position', (ctx) => {
-    const a = readAttribute(ctx.comp, 'position', ctx.domain);
-    return a ? full(a.data) : zeros('VECTOR', ctx);
-  });
+  withDomainHint(
+    new InputField('VECTOR', 'position', (ctx) => {
+      const a = readAttribute(ctx.comp, 'position', ctx.domain);
+      return a ? full(a.data) : zeros('VECTOR', ctx);
+    }),
+    attrDomain('position'),
+  );
 
 export const indexField = () =>
   new InputField('INT', 'index', (ctx) => {
@@ -70,7 +80,7 @@ export const idField = () =>
 
 /** Named (or anonymous) attribute read on the context domain, converted to `type`. */
 export function attributeField(name: string, type: FieldType, exists?: boolean): Field {
-  return new InputField(exists ? 'BOOLEAN' : type, `attr:${name}:${type}:${exists ? 'e' : ''}`, (ctx) => {
+  const f = new InputField(exists ? 'BOOLEAN' : type, `attr:${name}:${type}:${exists ? 'e' : ''}`, (ctx) => {
     const a = readAttribute(ctx.comp, name, ctx.domain);
     if (exists) return { data: new Uint8Array([a ? 1 : 0]), single: true };
     if (!a) {
@@ -80,9 +90,27 @@ export function attributeField(name: string, type: FieldType, exists?: boolean):
     }
     return full(attrToField(a.data, a.type, type, ctx.size));
   });
+  return withDomainHint(f, attrDomain(name));
 }
 
-export const normalField = (trueNormal = false) => new InputField('VECTOR', trueNormal ? 'true_normal' : 'normal', (ctx) => normalOn(ctx.comp, ctx.domain, ctx.size, trueNormal));
+/** Domain mesh normals vary on: points when all is smooth, faces when all is flat, else corners. */
+function normalsDomain(c: Component): Domain | null {
+  if (c.kind === 'CURVES' || c.kind === 'POINTS') return 'POINT';
+  if (c.kind !== 'MESH') return null;
+  if (c.attrs.has('custom_normal')) return 'CORNER';
+  const flat = smoothFlags(c);
+  const sharpEdge = c.attrs.get('sharp_edge');
+  const anySharpEdge = !!sharpEdge && sharpEdge.data.some((x) => x !== 0);
+  if (!anySharpEdge && flat.every((s) => s === 1)) return 'POINT';
+  if (flat.every((s) => s === 0)) return 'FACE';
+  return 'CORNER';
+}
+
+export const normalField = (trueNormal = false) =>
+  withDomainHint(
+    new InputField('VECTOR', trueNormal ? 'true_normal' : 'normal', (ctx) => normalOn(ctx.comp, ctx.domain, ctx.size, trueNormal)),
+    normalsDomain,
+  );
 
 export function normalOn(c: Component, domain: FieldContext['domain'], size: number, trueNormal = false): Evaluated {
   if (c.kind === 'MESH') {
@@ -122,25 +150,39 @@ export const radiusField = () =>
   });
 
 export const materialIndexField = () =>
-  new InputField('INT', 'material_index', (ctx) => {
-    const a = readAttribute(ctx.comp, 'material_index', ctx.domain);
-    return a ? full(attrToField(a.data, a.type, 'INT', ctx.size)) : zeros('INT', ctx);
-  });
+  withDomainHint(
+    new InputField('INT', 'material_index', (ctx) => {
+      const a = readAttribute(ctx.comp, 'material_index', ctx.domain);
+      return a ? full(attrToField(a.data, a.type, 'INT', ctx.size)) : zeros('INT', ctx);
+    }),
+    attrDomain('material_index'),
+  );
 
 export const shadeSmoothField = () =>
-  new InputField('BOOLEAN', 'shade_smooth', (ctx) => {
-    if (ctx.comp.kind !== 'MESH') return zeros('BOOLEAN', ctx);
-    const s = smoothFlags(ctx.comp);
-    return full(adaptDomain(ctx.comp, s, 'BOOLEAN', 'FACE', ctx.domain));
-  });
+  withDomainHint(
+    new InputField('BOOLEAN', 'shade_smooth', (ctx) => {
+      if (ctx.comp.kind !== 'MESH') return zeros('BOOLEAN', ctx);
+      const s = smoothFlags(ctx.comp);
+      return full(adaptDomain(ctx.comp, s, 'BOOLEAN', 'FACE', ctx.domain));
+    }),
+    attrDomain('sharp_face'),
+  );
+
+const meshOnly = (d: Domain) => (c: Component) => (c.kind === 'MESH' ? d : null);
 
 export const faceAreaField = () =>
-  new InputField('FLOAT', 'face_area', (ctx) => {
-    if (ctx.comp.kind !== 'MESH') return zeros('FLOAT', ctx);
-    return full(adaptDomain(ctx.comp, faceAreas(ctx.comp), 'FLOAT', 'FACE', ctx.domain));
-  });
+  withDomainHint(
+    new InputField('FLOAT', 'face_area', (ctx) => {
+      if (ctx.comp.kind !== 'MESH') return zeros('FLOAT', ctx);
+      return full(adaptDomain(ctx.comp, faceAreas(ctx.comp), 'FLOAT', 'FACE', ctx.domain));
+    }),
+    meshOnly('FACE'),
+  );
 
 export const edgeAngleField = (signed: boolean) =>
+  withDomainHint(edgeAngleInput(signed), meshOnly('EDGE'));
+
+const edgeAngleInput = (signed: boolean) =>
   new InputField('FLOAT', signed ? 'edge_angle_s' : 'edge_angle_u', (ctx) => {
     if (ctx.comp.kind !== 'MESH') return zeros('FLOAT', ctx);
     const a = edgeAngles(ctx.comp);
@@ -167,7 +209,8 @@ export const splineParameterField = (which: 'Factor' | 'Length' | 'Index') =>
         for (const l of L) total += l;
         let acc = 0;
         for (let k = 0; k < c.curveCount; k++) {
-          out[k] = total ? acc / total : 0;
+          // curves all of zero length: spread by index over 0..1 (as Blender does)
+          out[k] = total ? acc / total : c.curveCount > 1 ? k / (c.curveCount - 1) : 0;
           acc += L[k];
         }
       } else for (let k = 0; k < c.curveCount; k++) out[k] = k;
@@ -179,7 +222,11 @@ export const splineParameterField = (which: 'Factor' | 'Length' | 'Index') =>
       for (let i = c.curveOffsets[k]; i < c.curveOffsets[k + 1]; i++) {
         if (which === 'Index') out[i] = i - c.curveOffsets[k];
         else if (which === 'Length') out[i] = segment[i];
-        else out[i] = total[k] ? segment[i] / total[k] : 0;
+        else {
+          const s = c.curveOffsets[k],
+            n = c.curveOffsets[k + 1] - s;
+          out[i] = total[k] ? segment[i] / total[k] : n > 1 ? (i - s) / (n - 1) : 0;
+        }
       }
     return full(out);
   });
@@ -192,7 +239,10 @@ export const curveTangentField = () =>
   });
 
 export const cyclicField = () =>
-  new InputField('BOOLEAN', 'cyclic', (ctx) => {
-    if (ctx.comp.kind !== 'CURVES') return zeros('BOOLEAN', ctx);
-    return full(adaptDomain(ctx.comp, ctx.comp.cyclic, 'BOOLEAN', 'CURVE', ctx.domain));
-  });
+  withDomainHint(
+    new InputField('BOOLEAN', 'cyclic', (ctx) => {
+      if (ctx.comp.kind !== 'CURVES') return zeros('BOOLEAN', ctx);
+      return full(adaptDomain(ctx.comp, ctx.comp.cyclic, 'BOOLEAN', 'CURVE', ctx.domain));
+    }),
+    (c) => (c.kind === 'CURVES' ? 'CURVE' : null),
+  );

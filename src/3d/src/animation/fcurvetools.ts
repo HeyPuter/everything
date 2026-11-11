@@ -4,7 +4,7 @@
 // Sheet operators (and unit tests).
 import type { FCurve, Keyframe } from '../data/types';
 import type { CurveRef } from './channels';
-import { evaluateFCurve, calcHandles, insertKeyframe } from '../anim/fcurve';
+import { evaluateFCurve, calcHandles, newKeyframe, keyframeDefaults } from '../anim/fcurve';
 import { cloneKey, editable, finalizeCurve, isKeySelected, propertyDefault, setKeySelected } from './keyedit';
 
 /** A run of consecutive selected keys on one curve (indices are inclusive). */
@@ -466,9 +466,15 @@ export function bakeKeys(curves: CurveRef[]): number {
       b = Math.max(...sel.map((k) => k.co[0]));
     const copy: FCurve = { ...fc, keyframe_points: fc.keyframe_points.map(cloneKey) };
     const type = sel[0].type;
+    // new keys are added together and the handles computed once (per-key insertion is quadratic)
+    const orig = copy.keyframe_points;
+    let i = 0;
     for (let f = Math.ceil(a - 1e-6); f <= b + 1e-6; f++) {
-      if (fc.keyframe_points.some((k) => Math.abs(k.co[0] - f) < 1e-4)) continue;
-      insertKeyframe(fc, f, evaluateFCurve(copy, f), { type });
+      while (i < orig.length && orig[i].co[0] < f - 1e-4) i++;
+      if (i < orig.length && Math.abs(orig[i].co[0] - f) < 1e-4) continue;
+      // the interpolation of the key before, as when inserting
+      const before = orig[i - 1];
+      fc.keyframe_points.push({ ...newKeyframe(f, evaluateFCurve(copy, f), before ? before.interpolation : keyframeDefaults.interpolation), type });
       added++;
     }
     for (const k of fc.keyframe_points) if (k.co[0] >= a - 1e-6 && k.co[0] <= b + 1e-6) setKeySelected(k, true);
@@ -583,11 +589,14 @@ export function keysToSamples(fc: FCurve): boolean {
 export function samplesToKeys(fc: FCurve): boolean {
   const sp = fc.sampled_points;
   if (!sp?.length) return false;
-  fc.keyframe_points = [];
+  // one key per sample, handles computed once (inserting one by one is quadratic or worse)
+  const keys = new Map<number, Keyframe>();
   for (const [f, v] of sp) {
-    const key = insertKeyframe(fc, f, v);
-    setKeySelected(key, false);
+    const k = newKeyframe(f, v);
+    setKeySelected(k, false);
+    keys.set(Math.round(f * 1e4), k);
   }
+  fc.keyframe_points = [...keys.values()];
   delete fc.sampled_points;
   finalizeCurve(fc, false);
   return true;

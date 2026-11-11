@@ -4,6 +4,7 @@ import { evalOn } from './common';
 import { GeometrySet, type InstanceReference, type Component } from '../geometry';
 import { distributePoisson, distributeRandom, buildDistributed, instanceOnPoints } from '../ops/points';
 import { pointsToVertices } from '../ops/meshops';
+import { joinInstances } from '../ops/join';
 import { attributeField, idField } from '../inputs';
 import { ConstField } from '../field';
 
@@ -111,7 +112,7 @@ gn(
     exec: (ctx) => {
       const pts = ctx.geometry('Points');
       const inst = ctx.geometry('Instance');
-      const pick = ctx.bool('Pick Instance') && !!inst.instances;
+      const pick = ctx.bool('Pick Instance') && !!inst.instances?.count;
       let refs: InstanceReference[];
       if (pick) refs = inst.instances!.references.length ? inst.instances!.references : [];
       else refs = inst.isEmpty() ? [] : [{ type: 'GEOMETRY', geometry: inst, key: refKey(inst) }];
@@ -132,41 +133,24 @@ gn(
         } else positions = c.positions;
         const idx = r.values[2];
         const pickRef = pick ? inst.instances!.refIndex : null;
+        const picked = (i: number) => ((idx[i] % pickRef!.length) + pickRef!.length) % pickRef!.length;
         const comp = instanceOnPoints(
           positions,
           c.attrs,
           r.sel,
           refs,
-          (i) => {
-            if (!pickRef) return 0;
-            const n = pickRef.length;
-            const j = ((idx[i] % n) + n) % n;
-            return pickRef[j];
-          },
+          (i) => (pickRef ? pickRef[picked(i)] : 0),
           r.values[0] as Float32Array,
           r.values[1] as Float32Array,
+          pickRef ? (i) => inst.instances!.transforms.subarray(picked(i) * 16, picked(i) * 16 + 16) : undefined,
         );
         out.push(new GeometrySet(undefined, undefined, undefined, comp));
       }
       if (!out.length) return { Instances: GeometrySet.empty() };
       if (out.length === 1) return { Instances: out[0] };
-      // several point sources: merge their instances
-      const all = out.map((g) => g.instances!);
-      const total = all.reduce((s, c) => s + c.count, 0);
-      const T = new Float32Array(total * 16),
-        R = new Int32Array(total);
-      let o = 0;
-      for (const c of all) {
-        T.set(c.transforms, o * 16);
-        R.set(c.refIndex, o);
-        o += c.count;
-      }
-      const merged = all[0].copy();
-      merged.transforms = T;
-      merged.refIndex = R;
-      merged.attrs = new Map();
+      // several point sources: merge their instances (and the attributes they carry)
       return {
-        Instances: new GeometrySet(undefined, undefined, undefined, merged),
+        Instances: new GeometrySet(undefined, undefined, undefined, joinInstances(out.map((g) => g.instances!))),
       };
     },
     implicit: { 'Instance Index': idField },

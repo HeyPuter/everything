@@ -155,3 +155,147 @@ print(img.size[0], img.size[1], Math.min(...uv).toFixed(2), Math.max(...uv).toFi
   await page.screenshot({ path: test.info().outputPath('projected.png') });
   await expectNoErrors(errors);
 });
+
+test('the assistant stays inside a window narrowed to phone width', async ({ page }) => {
+  await openApp(page);
+  await expect(page.locator('.assistant')).toBeVisible();
+  for (const w of [320, 600]) {
+    await page.setViewportSize({ width: w, height: 700 });
+    await page.waitForTimeout(200);
+    const box = await page.locator('.assistant').boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(w);
+    // its buttons stay reachable
+    for (const name of ['Send', 'Close the assistant']) {
+      const b = await page.getByRole('button', { name, exact: true }).boundingBox();
+      expect(b!.x + b!.width).toBeLessThanOrEqual(w);
+    }
+    // the workspace keeps some room
+    const view = await page.locator('.screen-wrap').boundingBox();
+    expect(view!.width).toBeGreaterThan(0);
+  }
+  // widened again, it goes back to the width the user gave it
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(200);
+  expect(Math.round((await page.locator('.assistant-dock').boundingBox())!.width)).toBe(380);
+});
+
+test('asking again while signed out shows one sign-in prompt, gone once a message goes', async ({ page }) => {
+  await openApp(page);
+  await page.evaluate(() => {
+    (window as unknown as { puter: unknown }).puter = { auth: { isSignedIn: () => false, signIn: async () => true }, ai: { chat: async () => ({ message: { content: 'Hello.' } }) } };
+  });
+  const input = page.locator('.as-input');
+  await input.fill('hello');
+  for (let i = 0; i < 3; i++) await input.press('Enter');
+  await expect(page.locator('.as-notice')).toHaveCount(1);
+  await expect(input).toHaveValue('hello');
+  await page.evaluate(() => {
+    (window as unknown as { puter: { auth: { isSignedIn: () => boolean } } }).puter.auth.isSignedIn = () => true;
+  });
+  await input.press('Enter');
+  await expect(page.locator('.as-bot .as-text')).toContainText('Hello.');
+  await expect(page.locator('.as-notice')).toHaveCount(0);
+});
+
+test('buttons that go away when used hand the keyboard to the message box', async ({ page }) => {
+  await openApp(page);
+  await scriptModel(page, [
+    [{ type: 'tool', id: 'call_1', name: 'run_script', input: { description: 'Add a cube', code: 'bpy.ops.mesh.primitive_cube_add({location: [3, 0, 0]});' } }],
+    [{ type: 'text', text: 'Added.' }],
+  ]);
+  const input = page.locator('.as-input');
+  await input.fill('add a cube');
+  await input.press('Enter');
+  const undo = page.getByRole('button', { name: 'Undo changes' });
+  await expect(undo).toBeVisible();
+  await undo.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.as-meta')).toContainText('Changes undone.');
+  await expect(input).toBeFocused();
+  // a failed reply's Try again
+  await page.evaluate(() => {
+    let n = 0;
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      if (n++ === 0) throw new Error('busy');
+      yield { type: 'text', text: 'Hello.' };
+    };
+  });
+  await input.fill('hi');
+  await input.press('Enter');
+  const retry = page.getByRole('button', { name: 'Try again' });
+  await expect(retry).toBeVisible();
+  await retry.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.as-bot .as-text').last()).toContainText('Hello.');
+  await expect(input).toBeFocused();
+});
+
+test('the status line is rewritten only when what it says changes', async ({ page }) => {
+  await openApp(page);
+  await page.evaluate(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+        yield { type: 'text', text: `word${i} ` };
+      }
+    };
+    const w = window as unknown as { __said: string[] };
+    w.__said = [];
+    const status = document.querySelector('.as-status')!;
+    new MutationObserver(() => w.__said.push(status.textContent ?? '')).observe(status, { childList: true, characterData: true, subtree: true });
+  });
+  await page.locator('.as-input').fill('hi');
+  await page.locator('.as-input').press('Enter');
+  // the reply is marked busy while it streams, so the conversation log is read once it is complete
+  await expect(page.locator('.as-bot')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.locator('.as-bot .as-text')).toContainText('word29');
+  await expect(page.locator('.as-bot')).not.toHaveAttribute('aria-busy', /.*/);
+  // a live region: every write is read out again, so a streamed reply must not say "Writing…" once per piece
+  const said = await page.evaluate(() => (window as unknown as { __said: string[] }).__said);
+  expect(said.filter((s) => s === 'Writing…').length).toBe(1);
+});
+
+test('with online access turned off the assistant says so and reaches nothing', async ({ page }) => {
+  await openApp(page);
+  await page.evaluate(async () => {
+    (await import('/src/app/prefs.ts' as string)).prefs.use_online_access = false;
+  });
+  const asked: string[] = [];
+  page.on('request', (r) => {
+    if (/puter\.com/.test(r.url())) asked.push(r.url());
+  });
+  await page.locator('.as-input').fill('hello');
+  await page.locator('.as-input').press('Enter');
+  await expect(page.locator('.as-notice')).toContainText('online access is turned off');
+  expect(asked).toEqual([]);
+  await expect(page.locator('.as-input')).toHaveValue('hello');
+});
+
+test('New Chat during a reply stops it and keeps its changes one undo step', async ({ page }) => {
+  await openApp(page);
+  await page.evaluate(() => {
+    let n = 0;
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      n++;
+      if (n === 1) {
+        yield { type: 'tool', id: 'a', name: 'run_script', input: { description: 'Add a cube', code: 'bpy.ops.mesh.primitive_cube_add({location: [3, 0, 0]});' } };
+        yield { type: 'tool', id: 'b', name: 'run_script', input: { description: 'Add a sphere', code: 'bpy.ops.mesh.primitive_uv_sphere_add({location: [-3, 0, 0]});' } };
+        return;
+      }
+      await new Promise(() => {}); // still thinking
+    };
+  });
+  const history = () => page.evaluate(() => (window as any).app.undo.history.map((h: { label: string }) => h.label)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const before = (await history()).length;
+  await page.locator('.as-input').fill('build');
+  await page.locator('.as-input').press('Enter');
+  await expect(page.locator('.as-step.done')).toHaveCount(2);
+  await page.getByRole('button', { name: 'New chat' }).click();
+  await expect(page.locator('.assistant')).not.toHaveClass(/\bbusy\b/);
+  await expect(page.locator('.as-empty')).toBeVisible();
+  await expect.poll(async () => (await history()).slice(before)).toEqual(['Assistant: build']);
+  // one Undo takes the whole reply back
+  await page.evaluate(() => (window as any).app.undoStep()); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect((await objectNames(page)).sort()).toEqual(['Camera', 'Cube', 'Light']);
+});

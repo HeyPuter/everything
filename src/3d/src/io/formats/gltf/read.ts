@@ -43,6 +43,7 @@ export function parseContainer(bytes: Uint8Array): { json: Json; bin: Uint8Array
     while (off + 8 <= length) {
       const len = dv.getUint32(off, true),
         type = dv.getUint32(off + 4, true);
+      if (off + 8 + len > bytes.length) throw new Error('The GLB file is truncated');
       const data = bytes.subarray(off + 8, off + 8 + len);
       if (type === 0x4e4f534a) json = JSON.parse(new TextDecoder().decode(data));
       else if (type === 0x004e4942 && !bin) bin = data;

@@ -134,6 +134,30 @@ describe('STL', () => {
     expect(sizes(a, 'bin')).toEqual(sizes(b, 'ascii'));
     expect(sizes(a, 'bin').faces).toBe(166);
   });
+  it('places vertices with NaN or infinite coordinates at the origin, with a warning', () => {
+    const bytes = new Uint8Array(84 + 50);
+    const dv = new DataView(bytes.buffer);
+    dv.setUint32(80, 1, true);
+    [NaN, 0, 0, 1, 0, 0, 0, Infinity, 0].forEach((v, k) => dv.setFloat32(84 + 12 + k * 4, v, true));
+    const doc = freshDoc();
+    const res = commitScene(doc, readStl(bytes));
+    const p = doc.meshes[res.objects[0].data!].positions;
+    expect([...p].every(Number.isFinite)).toBe(true);
+    expect(res.warnings.some((w) => w.includes('2 vertices with invalid coordinates'))).toBe(true);
+  });
+  it('reads Magics facet colors (bit 15 clear) and the header object color', () => {
+    const bytes = new Uint8Array(84 + 2 * 50);
+    bytes.set(new TextEncoder().encode('COLOR='), 10);
+    bytes.set([255, 0, 0, 255], 16);
+    const dv = new DataView(bytes.buffer);
+    dv.setUint32(80, 2, true);
+    for (let t = 0; t < 2; t++) [0, 0, 0, 1, 0, 0, 0, 1, 0].forEach((v, k) => dv.setFloat32(84 + t * 50 + 12 + k * 4, v + t, true));
+    dv.setUint16(84 + 48, 31 << 10, true); // own color: blue
+    dv.setUint16(84 + 50 + 48, 0x8000, true); // object color
+    const col = readStl(bytes).meshes[0].colors![0].data;
+    expect([...col.slice(0, 4)]).toEqual([0, 0, 1, 1]);
+    expect([...col.slice(12, 16)]).toEqual([1, 0, 0, 1]);
+  });
 });
 
 describe('PLY', () => {
@@ -171,6 +195,23 @@ describe('PLY', () => {
       const c0 = me.color_attributes[0].data;
       expect(Math.abs(col[0] - c0[me.indices[0] * 4]) < 0.01 || true).toBe(true);
     }
+  });
+});
+
+describe('PLY (malformed files)', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const head = (format: string, n: number | string, list = 'uchar') => `ply\nformat ${format} 1.0\nelement vertex ${n}\nproperty float x\nproperty float y\nproperty float z\nelement face 1\nproperty list ${list} int vertex_indices\nend_header\n`;
+  it('reports a truncated ASCII file instead of filling memory with empty vertices', () => {
+    expect(() => readPly(enc(`${head('ascii', 2_000_000_000)}0 0 0\n`))).toThrow('truncated');
+    expect(() => readPly(enc(`${head('ascii', 3)}0 0 0\n1 0 0\n0 1 0\n999999999 0 1\n`))).toThrow('truncated');
+    // complete files still read
+    expect(readPly(enc(`${head('ascii', 3)}0 0 0\n1 0 0\n0 1 0\n3 0 1 2\n`)).meshes[0].faceSizes).toEqual(new Uint32Array([3]));
+  });
+  it('reports a truncated binary file', () => {
+    const bytes = new Uint8Array([...enc(head('binary_little_endian', 10)), 0, 0, 0, 0, 1]);
+    expect(() => readPly(bytes)).toThrow('The PLY file is truncated');
+    const tri = new Uint8Array([...enc(head('binary_little_endian', 3, 'uint')), ...new Uint8Array(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer), 255, 255, 255, 15]);
+    expect(() => readPly(tri)).toThrow('The PLY file is truncated');
   });
 });
 

@@ -626,7 +626,12 @@ export function writeGltf(scene: ExportScene, opts: GltfWriteOptions): { bytes: 
   }
 
   // ------------------------------------------------------------ assemble
-  if (json.scenes[0].nodes.length === 0) warnings.push('Nothing was exported');
+  if (json.scenes[0].nodes.length === 0) {
+    warnings.push('Nothing was exported');
+    // glTF does not allow empty arrays: an empty scene has no node lists at all
+    delete json.scenes[0].nodes;
+    delete json.nodes;
+  }
   if (materials.length) json.materials = materials;
   if (meshes.length) json.meshes = meshes;
   if (cameras.length) json.cameras = cameras;

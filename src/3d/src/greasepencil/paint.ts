@@ -4,7 +4,7 @@
 import { Vector3 } from 'three';
 import { app, registerOperators } from '../app/app';
 import { activeTools } from '../app/prefs';
-import { editModeHooks } from '../editors/view3d/hooks';
+import { editModeHooks, viewportExtensions } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { activeView3D } from '../editors/view3d/view3d';
 import { gpRunStroke as runStroke } from './strokereplay';
@@ -228,6 +228,11 @@ export function startDraw(v: View3D, e: PointerEvent, fillGuide = false) {
     update: () => {
       setStrokePreview(c.ob.id, fromStrokes([build()]), c.layer);
       if (stab) v.drawSvg();
+    },
+    // Esc: nothing was committed yet, only the live preview to drop
+    cancel: () => {
+      lazy.on = false;
+      setStrokePreview(null, null);
     },
     end: () => {
       lazy.on = false;
@@ -530,7 +535,16 @@ editModeHooks.svg.push((v) => {
   );
 });
 
-addEventListener('pointerleave', () => (cursor.inside = false));
+// the brush ring goes away when the pointer leaves the viewport (into another editor)
+viewportExtensions.push((v) => {
+  const leave = () => {
+    if (cursor.view !== v || !cursor.inside) return;
+    cursor.inside = false;
+    v.drawSvg();
+  };
+  v.el.addEventListener('pointerleave', leave);
+  return () => v.el.removeEventListener('pointerleave', leave);
+});
 
 // Fill tool: preview of the gap closure lines
 let fillPreview: { key: string; lines: [number, number, number, number][] } = { key: '', lines: [] };

@@ -2,7 +2,8 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { ModifierBase } from '../data/types';
 import type { EvalMesh, ModifierContext, ModifierType } from './types';
-import { MeshBuilder, appendMesh, weightsOf, groupWeights, vertexNormals } from './meshbuild';
+import { ensureMeshSize } from '../mesh/limits';
+import { MeshBuilder, appendLooseEdges, appendMesh, weightsOf, groupWeights, vertexNormals } from './meshbuild';
 import { edgeTopology, polyNormal, triangulatePoly, vertexFaces } from '../mesh/mesh';
 import { armatureDeform } from './mods/skinning';
 import { proceduralTexture } from './textures';
@@ -41,6 +42,8 @@ export const creaseToSharpness = (c: number) => 10 * c * c;
 const sharpnessToCrease = (s: number) => Math.sqrt(Math.max(0, Math.min(10, s)) / 10);
 
 export function catmullClark(m: EvalMesh, levels: number, simple = false, useCreases = true, opts: SubdivOptions = {}): EvalMesh {
+  // every level makes four corners of each corner
+  if (levels > 0) ensureMeshSize('Subdivision', m.indices.length * 4 ** levels, (m.indices.length * 4 ** levels) / 4);
   // creases travel through the levels as sharpness (each level uses up one unit)
   const toSharp = (a: Float32Array | undefined) => (a ? Float32Array.from(a, creaseToSharpness) : undefined);
   let mesh: EvalMesh = useCreases && !simple && levels > 0 ? { ...m, creases: toSharp(m.creases), crease_vert: toSharp(m.crease_vert) } : m;
@@ -66,6 +69,8 @@ export function catmullClark(m: EvalMesh, levels: number, simple = false, useCre
     }
     mesh = { ...mesh, uvs };
   }
+  // a mesh without a UV map stays without one (its empty UVs would subdivide into NaN)
+  if (mesh !== m && m.indices.length && m.uvs.length !== m.indices.length * 2) mesh = { ...mesh, uvs: new Float32Array(0) };
   return mesh;
 }
 
@@ -314,6 +319,8 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, bounda
       b.addFace([m.indices[c], ebase + eNext, fbase + f, ebase + ePrev], uv, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, { seams: seam, sharp, creases, colors });
     }
   }
+  // loose edges keep their (original, first-numbered) vertices
+  appendLooseEdges(b, m);
   const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
   if (vsharp && vsharp.some((x) => x > 1)) {
     // original vertices keep what is left of their sharpness; new vertices are smooth
@@ -512,6 +519,7 @@ function removeDegenerate(m: EvalMesh): EvalMesh {
     if (verts.length > 1 && verts[0] === verts[verts.length - 1]) verts.pop();
     if (new Set(verts).size >= 3) b.addFace(verts, uvs, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
   }
+  appendLooseEdges(b, m);
   return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
 }
 
@@ -582,7 +590,20 @@ export function weld(m: EvalMesh, threshold: number, onlyLoose = false, canMerge
     }
     if (verts.length >= 3) b.addFace(verts, uvs, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
   }
-  return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
+  const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
+  if (!m.looseEdges?.length) return out;
+  // loose edges follow their merged ends (collapsed and repeated ones go)
+  const loose: number[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i + 1 < m.looseEdges.length; i += 2) {
+    const a = remap[m.looseEdges[i]],
+      c = remap[m.looseEdges[i + 1]];
+    const k = a < c ? `${a}:${c}` : `${c}:${a}`;
+    if (a < 0 || c < 0 || a === c || seen.has(k)) continue;
+    seen.add(k);
+    loose.push(a, c);
+  }
+  return loose.length ? { ...out, looseEdges: Uint32Array.from(loose) } : out;
 }
 
 // ---------------------------------------------------------------------------
@@ -687,6 +708,7 @@ function arrayMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMe
     count = Math.max(1, Math.floor(target / len + 1e-6) + 1);
   }
   count = Math.min(count, 1000);
+  ensureMeshSize('Array', count * m.indices.length, count * (m.positions.length / 3));
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
   const cur = new Matrix4();
   const v = new Vector3();
@@ -979,6 +1001,7 @@ function triangulateMeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
       src.push(...cs);
     }
   }
+  appendLooseEdges(b, m);
   const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
   // Keep Normals: the triangles keep the custom normals of the corners they come from
   if (bool(mod, 'keep_custom_normals') && m.custom_normals && src.length === out.indices.length) {
@@ -1015,6 +1038,7 @@ function screw(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const full = Math.abs(Math.abs(angle) - Math.PI * 2) < 1e-4 && !height && iterations === 1;
   const total = steps * iterations;
   const rings = full ? total : total + 1;
+  ensureMeshSize('Screw', (pairs.length / 2) * total * 4, (nv * rings));
   const b = new MeshBuilder();
   const v = new Vector3();
   const ids: number[][] = [];

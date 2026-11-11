@@ -3,7 +3,7 @@
 // (File ▸ Recover ▸ Auto Save…). Everything lives in IndexedDB; failures degrade to no-ops.
 import { app, onAppReady } from '../app/app';
 import { prefs, formatDate } from '../app/prefs';
-import { encodeDocument, decodeDocument } from './native';
+import { encodeDocument, decodeDocument, otherRecoveries, readRecovery } from './native';
 import { projectUiState, fileEvents } from './files';
 
 import { bumpRecent, MAX_RECENT, type RecentEntry } from './recentlist';
@@ -17,6 +17,8 @@ export interface Snapshot {
   size: number;
   /** why it was taken (e.g. "Before New File"); timed auto saves have none */
   reason?: string;
+  /** the last auto save of another tab that was closed or crashed */
+  recovery?: boolean;
 }
 
 const DB = 'p3d-session';
@@ -63,7 +65,9 @@ const del = (store: string, key: string) => idb(store, 'readwrite', (s) => void 
 
 /** Small persistent key/value store for UI state (bookmarks, recent folders). */
 export const kvGet = <T>(key: string) => get<T>(KV, `ui:${key}`);
-export const kvSet = (key: string, value: unknown) => put(KV, `ui:${key}`, value);
+/** Rejects when the value could not be stored (storage full or blocked); a no-op without IndexedDB. */
+export const kvSet = (key: string, value: unknown): Promise<unknown> =>
+  typeof indexedDB === 'undefined' ? Promise.resolve(undefined) : idb(KV, 'readwrite', (s) => void s.put(value, `ui:${key}`));
 
 // ---------------------------------------------------------------------------
 // recent files
@@ -81,8 +85,21 @@ export function recentFiles(): readonly RecentEntry[] {
   return recent;
 }
 
+/** The stored list (other tabs may have changed it since this one read it), else this tab's. */
+const storedRecent = async () => (await get<RecentEntry[]>(KV, 'recent')) ?? recent;
+
 export async function recordRecent(name: string, bytes: Uint8Array) {
-  if (bytes.length > MAX_STORED_BYTES) return;
+  // read-modify-write of the stored list, so tabs do not drop each other's entries
+  recent = await storedRecent();
+  if (bytes.length > MAX_STORED_BYTES) {
+    // too large to keep: an older copy of the file must not come back through Open Recent / Revert
+    if (!recent.some((e) => e.name === name)) return;
+    recent = recent.filter((e) => e.name !== name);
+    notify();
+    await del(FILES, fileKey(name));
+    await put(KV, 'recent', recent);
+    return;
+  }
   const bumped = bumpRecent(recent, { name, time: Date.now(), size: bytes.length });
   const dropped = [...bumped.dropped];
   // keep the stored total within budget (the newest file always stays)
@@ -128,7 +145,7 @@ export async function openRecent(name: string): Promise<boolean> {
   const bytes = await recentBytes(name);
   if (!bytes) {
     app.report('ERROR', `"${name}" is no longer available`);
-    recent = recent.filter((e) => e.name !== name);
+    recent = (await storedRecent()).filter((e) => e.name !== name);
     await put(KV, 'recent', recent);
     notify();
     return false;
@@ -155,8 +172,9 @@ export function hasStartupFile() {
 
 export async function saveStartupFile() {
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
+  // a failed write (storage full or unavailable) is reported, not taken for saved
+  await idb(KV, 'readwrite', (s) => void s.put(bytes, 'startup'));
   startup = bytes;
-  await put(KV, 'startup', bytes);
   notify();
 }
 
@@ -183,29 +201,33 @@ export function loadStartupFile(): boolean {
 let lastSnapshotRevision = -1;
 let lastSnapshotTime = Date.now();
 
+const storedSnapshots = async () => (await get<Snapshot[]>(KV, 'snapshots')) ?? [];
+
+/** Auto saves to offer, newest first (with the sessions other closed or crashed tabs left). */
 export async function listSnapshots(): Promise<Snapshot[]> {
-  const list = (await get<Snapshot[]>(KV, 'snapshots')) ?? [];
-  return [...list].sort((a, b) => b.time - a.time);
+  const tabs = (await otherRecoveries()).map((e): Snapshot => ({ key: e.key, name: e.name, time: e.time, size: e.bytes.length, reason: 'Another tab', recovery: true }));
+  return [...(await storedSnapshots()), ...tabs].sort((a, b) => b.time - a.time);
 }
 
 export async function takeSnapshot(reason?: string) {
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
   const name = app.filename;
-  const list = await listSnapshots();
+  const list = (await storedSnapshots()).sort((a, b) => b.time - a.time);
   const key = `snapshot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const next: Snapshot[] = [{ key, name, time: Date.now(), size: bytes.length, reason }, ...list];
   // at most MAX_SNAPSHOTS, and within the size budget (the newest always stays)
   let total = 0;
   const keep = next.filter((sn, i) => (total += sn.size) && (i === 0 || (i < MAX_SNAPSHOTS && total <= MAX_SNAPSHOT_TOTAL)));
+  // the copy must be stored before it is listed (a full disk would leave an entry without data)
+  await idb(FILES, 'readwrite', (s) => void s.put(bytes, key));
   for (const old of next) if (!keep.includes(old)) await del(FILES, old.key);
-  await put(FILES, key, bytes);
   await put(KV, 'snapshots', keep);
   lastSnapshotRevision = app.revision;
   lastSnapshotTime = Date.now();
 }
 
 export async function openSnapshot(s: Snapshot): Promise<boolean> {
-  const bytes = await get<Uint8Array>(FILES, s.key);
+  const bytes = s.recovery ? (await readRecovery(s.key))?.bytes : await get<Uint8Array>(FILES, s.key);
   if (!bytes) {
     app.report('ERROR', 'This auto save is no longer available');
     return false;

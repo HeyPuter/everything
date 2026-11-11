@@ -87,8 +87,11 @@ export interface ExecContext {
 
 export interface GeoNodeExec {
   exec(ctx: ExecContext): Record<string, Val>;
-  /** extra cache signature for nodes depending on state outside the tree (objects, time) */
-  sig?(node: NodeData, env: EvalEnv): string;
+  /**
+   * extra cache signature for nodes depending on state outside the tree (objects, time); `ref`
+   * gives the id or path an input refers to, also when it is linked
+   */
+  sig?(node: NodeData, env: EvalEnv, ref: (input: string) => string | null): string;
   /** implicit field for unlinked hidden-value inputs (e.g. Position, Normal, ID) */
   implicit?: Record<string, () => Field>;
   /** node depends on scene time */

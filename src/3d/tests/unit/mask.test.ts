@@ -93,3 +93,70 @@ describe('mask parenting', () => {
     closeTo(at5, [sq.points[0].co[0] + 0.1, sq.points[0].co[1] - 0.05]);
   });
 });
+
+describe('removing mask points', () => {
+  it('keeps the shape keys animating the remaining points', () => {
+    const layer = newLayer('L');
+    layer.splines.push(G.squareSpline(0.5, 0.5, 0.1), G.circleSpline(0.2, 0.2, 0.05));
+    G.insertShapeKey(layer, 1);
+    for (const sp of layer.splines) for (const p of sp.points) p.co = [p.co[0] + 0.1, p.co[1]];
+    G.insertShapeKey(layer, 10);
+    for (const sp of layer.splines) for (const p of sp.points) p.select = false;
+    layer.splines[0].points[2].select = true;
+    // the whole circle goes as well
+    for (const p of layer.splines[1].points) p.select = true;
+    expect(G.removePoints(layer, (p) => !!p.select)).toBe(5);
+    expect(layer.splines.length).toBe(1);
+    expect(layer.splines[0].points.length).toBe(3);
+    expect(layer.shape_keys.map((k) => k.data.length)).toEqual([21, 21]);
+    // the third remaining point is the old fourth one: frame 1 shows it where it was keyed
+    const at1 = G.layerAt(layer, 1);
+    expect(at1.splines[0].points[2].co[0]).toBeCloseTo(0.4, 6);
+    expect(G.layerAt(layer, 10).splines[0].points[2].co[0]).toBeCloseTo(0.5, 6);
+    expect(G.removePoints(layer, () => false)).toBe(0);
+    expect(G.removePoints(layer, () => true)).toBe(3);
+    expect(layer.shape_keys).toEqual([]);
+  });
+});
+
+describe('mask shape keys across topology edits', () => {
+  it('keeps the animation when points or splines are added', () => {
+    const layer = newLayer('L');
+    layer.splines.push(G.squareSpline(0.5, 0.5, 0.1));
+    G.insertShapeKey(layer, 1);
+    for (const p of layer.splines[0].points) p.co = [p.co[0] + 0.2, p.co[1]];
+    G.insertShapeKey(layer, 20);
+    // frame 1 is current: the points show their frame-1 positions
+    G.applyData(layer, G.keyedData(layer, 1)!);
+    const before = G.keyedPoints(layer);
+    G.insertPoint(layer.splines[0], 0, 0.5);
+    layer.splines.push(G.circleSpline(0.2, 0.8, 0.05));
+    G.remapShapeKeys(layer, before);
+    expect(layer.shape_keys.map((k) => k.data.length)).toEqual([9 * 7, 9 * 7]);
+    // the square still slides right; the inserted point slides with its neighbours
+    const at20 = G.layerAt(layer, 20).splines;
+    expect(at20[0].points[0].co[0]).toBeCloseTo(0.6, 6);
+    expect(at20[0].points[1].co[0]).toBeCloseTo(0.7, 6);
+    expect(at20[0].points[1].co[1]).toBeCloseTo(0.4, 6);
+    // the new spline stays where it was added
+    expect(at20[1].points[0].co[0]).toBeCloseTo(0.25, 6);
+  });
+});
+
+describe('mask render key', () => {
+  it('changes with the spline feather settings (the compositor re-rasterizes)', async () => {
+    const { maskKey } = await import('../../src/mask/raster');
+    const m = newMask('MA', 'Mask');
+    const layer = newLayer('L');
+    m.layers.push(layer);
+    const sp = G.squareSpline(0.5, 0.5, 0.1);
+    for (const p of sp.points) p.weight = 0.05;
+    layer.splines.push(sp);
+    const k0 = maskKey(m, 1);
+    sp.offset_mode = 'SMOOTH';
+    const k1 = maskKey(m, 1);
+    expect(k1).not.toBe(k0);
+    sp.weight_interpolation = 'EASE';
+    expect(maskKey(m, 1)).not.toBe(k1);
+  });
+});

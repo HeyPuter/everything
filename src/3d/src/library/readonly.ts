@@ -29,6 +29,9 @@ function allowed(key: string, extra: ReadonlySet<string>): boolean {
 
 const NONE: ReadonlySet<string> = new Set();
 
+/** Selection flags inside linked data (node trees): selecting is not editing, as in Blender. */
+const SELECTION_KEYS: ReadonlySet<string> = new Set(['select', 'active_node']);
+
 function lockNested(v: unknown, depth: number) {
   if (!v || typeof v !== 'object' || ArrayBuffer.isView(v) || readonly.has(v) || depth > 40) return;
   readonly.add(v);
@@ -40,8 +43,8 @@ function lockNested(v: unknown, depth: number) {
     return;
   }
   for (const k of Object.keys(v)) {
-    // runtime caches ("_…") stay writable
-    if (k.startsWith('_')) continue;
+    // runtime caches ("_…") and selection state (selected nodes, the active node) stay writable
+    if (k.startsWith('_') || SELECTION_KEYS.has(k)) continue;
     lockNested((v as Record<string, unknown>)[k], depth + 1);
     lockKey(v, k);
   }

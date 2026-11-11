@@ -26,8 +26,8 @@ import {
   type MovieTrackingMarker,
   type MovieTrackingTrack,
 } from './types';
-import { readySource } from './source';
-import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize';
+import { readySource, sourceError } from './source';
+import { stabilizationMatrix, type Affine2 } from './stabilize';
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { solveErrorText } from './solvepanels';
 import { reprojectBundle, clipIntrinsics, undistortPixelWith, distortPixelWith } from './reconstruction';
@@ -157,7 +157,6 @@ export class ClipEditor implements Editor {
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   canvas: HTMLCanvasElement;
   ui: HTMLElement;
-  private autoscaleCache: { key: string; value: number } | null = null;
   private loading = new Set<number>();
   private ro: ResizeObserver;
 
@@ -261,13 +260,7 @@ export class ClipEditor implements Editor {
   stab(): Affine2 | null {
     const c = this.clip;
     if (!c || !this.overlays.show_stable || !c.tracking.stabilization.use_2d_stabilization || !c.size[0]) return null;
-    let z = 1;
-    if (c.tracking.stabilization.use_autoscale) {
-      const key = JSON.stringify([c.tracking.stabilization, c.tracking.tracks.map((t) => [t.use_2d_stabilization, t.use_2d_stabilization_rotation, t.weight_stab, t.markers.length, t.markers[t.markers.length - 1]?.co])]);
-      if (this.autoscaleCache?.key !== key) this.autoscaleCache = { key, value: autoscaleFactor(c) };
-      z = this.autoscaleCache.value;
-    }
-    return stabilizationMatrix(c, this.clipFrame, z);
+    return stabilizationMatrix(c, this.clipFrame);
   }
 
   /** Lens model when the footage is shown undistorted (Render Undistorted), else null. */
@@ -347,11 +340,12 @@ export class ClipEditor implements Editor {
     if ((!c || !c.size[0]) && this.mode !== 'MASK') return;
     const [FW, FH] = this.frameSize();
     const { w, h: hh } = this.viewSize();
-    const availW = w - (this.showToolbar ? 230 : 0) - (this.showSidebar ? 290 : 0) - 20;
+    const { tb, sb } = this.panelWidths();
+    const availW = w - tb - sb - 20;
     const z = Math.min(Math.max(40, availW) / FW, (hh - 40) / FH);
     // "Frame All" uses the largest power-of-two zoom that fits; "Fit" fills the region
     this.zoom = fit ? z : Math.max(1 / 64, Math.min(64, Math.pow(2, Math.floor(Math.log2(z)))));
-    this.offX = ((this.showSidebar ? 290 : 0) - (this.showToolbar ? 230 : 0)) / 2 / this.zoom;
+    this.offX = (sb - tb) / 2 / this.zoom;
     this.offY = 0;
     this.fitted = true;
     this.draw();
@@ -435,15 +429,26 @@ export class ClipEditor implements Editor {
       ctx.fillStyle = canvasTextGrey(0x8a);
       ctx.font = '12px var(--font, sans-serif)';
       ctx.textAlign = 'center';
-      ctx.fillText('No movie clip: open one with Clip ▸ Open… (Alt O)', w / 2, hh / 2);
+      // centred in the part of the view the panels leave free, wrapped when that is narrow
+      const { tb, sb } = this.panelWidths();
+      const free = Math.max(40, w - tb - sb - 16);
+      const lines: string[] = [];
+      for (const word of 'No movie clip: open one with Clip ▸ Open… (Alt O)'.split(' ')) {
+        const joined = lines.length ? `${lines[lines.length - 1]} ${word}` : word;
+        if (lines.length && ctx.measureText(joined).width <= free) lines[lines.length - 1] = joined;
+        else lines.push(word);
+      }
+      lines.forEach((t, i) => ctx.fillText(t, (tb + w - sb) / 2, hh / 2 + (i - (lines.length - 1) / 2) * 16));
       return;
     }
     const src = readySource(c);
+    const failed = src ? null : sourceError(c);
     if (!c.size[0]) {
       if (src) {
         c.size = [src.width, src.height];
         c.frame_duration ||= src.frameCount;
-      } else return void this.retryLater();
+      } else if (failed) return this.drawSourceError(ctx, [w / 2, hh / 2], w, failed);
+      else return void this.retryLater();
     }
     if (!this.fitted) this.frameAll();
     const [W, H] = c.size;
@@ -477,6 +482,7 @@ export class ClipEditor implements Editor {
     if (this.overlays.show_grid) this.drawLensGrid(ctx, T);
     if (inRange && src && !bmp) this.request(idx);
     if (inRange && src) this.prefetchAround(idx);
+    if (failed) this.drawSourceError(ctx, this.viewScreen(W / 2, H / 2, T), w, failed);
     // frame outline
     ctx.strokeStyle = 'rgba(0, 0, 0,0.6)';
     ctx.lineWidth = 1;
@@ -513,8 +519,8 @@ export class ClipEditor implements Editor {
     ctx.fillStyle = '#e8e9ea';
     ctx.shadowColor = 'rgba(0, 0, 0,0.9)';
     ctx.shadowBlur = 2;
-    const left = this.showToolbar ? 238 : 8;
-    const info = `Frame: ${cf} / ${c.frame_duration}${src ? `  ${W}×${H}  ${src.fps} fps  [${src.kind === 'webcodecs' ? 'WebCodecs' : src.kind === 'video' ? 'Video element' : 'Image sequence'}]` : '  Loading…'}${!inRange ? '  (outside of the clip)' : ''}`;
+    const left = this.panelWidths().tb + 8;
+    const info = `Frame: ${cf} / ${c.frame_duration}${src ? `  ${W}×${H}  ${src.fps} fps  [${src.kind === 'webcodecs' ? 'WebCodecs' : src.kind === 'video' ? 'Video element' : 'Image sequence'}]` : failed ? '  Footage unavailable' : '  Loading…'}${!inRange ? '  (outside of the clip)' : ''}`;
     ctx.fillText(info, left, 16);
     const job = jobState.get();
     if (job) ctx.fillText(`${job.label}… ${Math.round(job.progress * 100)}%${job.detail ? `  ${job.detail}` : ''}  (Esc to stop)`, left, 32);
@@ -698,7 +704,7 @@ export class ClipEditor implements Editor {
     ctx.font = '11px var(--mono, monospace)';
     ctx.fillStyle = '#9a9b9c';
     ctx.textAlign = 'left';
-    ctx.fillText(`Mask frame ${W}×${H} (no footage)`, this.showToolbar ? 238 : 8, 16);
+    ctx.fillText(`Mask frame ${W}×${H} (no footage)`, this.panelWidths().tb + 8, 16);
     void w;
     void hh;
   }
@@ -708,6 +714,23 @@ export class ClipEditor implements Editor {
     const c = this.clip;
     if (!c) return null;
     return proxySource(c, this.proxyRenderSize) ?? readySource(c);
+  }
+
+  /** The footage cannot be opened in this browser: say so instead of an empty frame. */
+  private drawSourceError(ctx: CanvasRenderingContext2D, at: [number, number], w: number, message: string) {
+    ctx.fillStyle = canvasTextGrey(0xb0);
+    ctx.font = '12px var(--font, sans-serif)';
+    ctx.textAlign = 'center';
+    const max = Math.max(40, w - 24);
+    ctx.fillText('Cannot open the footage of this clip', at[0], at[1] - 8, max);
+    ctx.fillText(message, at[0], at[1] + 10, max);
+    ctx.textAlign = 'start';
+  }
+
+  /** Widths of the tool shelf and the sidebar: narrow editors give them at most 40% / 45% (style.ts). */
+  panelWidths(): { tb: number; sb: number } {
+    const w = this.viewSize().w;
+    return { tb: this.showToolbar ? Math.min(230, Math.floor(w * 0.4)) : 0, sb: this.showSidebar ? Math.min(290, Math.floor(w * 0.45)) : 0 };
   }
 
   private retryLater() {
@@ -739,7 +762,8 @@ export class ClipEditor implements Editor {
 
   /** Horizontal extent of the frame strip at the bottom of the clip view. */
   private scrubRange(w: number) {
-    return { x0: this.showToolbar ? 230 : 0, x1: w - (this.showSidebar ? 290 : 0) };
+    const { tb, sb } = this.panelWidths();
+    return { x0: tb, x1: w - sb };
   }
 
   /** Whether a local point is on the frame strip (it scrubs frames). */
@@ -1526,9 +1550,9 @@ export class ClipEditor implements Editor {
     const last = app.lastOp;
     if (this.view === 'CLIP' && last && (last.idname.startsWith('clip.') || last.idname.startsWith('mask.'))) {
       const panel = lastOpPanel(this);
-      if (panel) children.push(h('div', { key: 'redo', class: 'clip-redo', style: { left: `${this.showToolbar ? 236 : 6}px` } }, panel));
+      if (panel) children.push(h('div', { key: 'redo', class: 'clip-redo', style: { left: `${this.panelWidths().tb + 6}px` } }, panel));
     }
-    if (this.view === 'CLIP') children.push(navGizmo2D(this, this.showSidebar ? 290 : 0, this.showGizmo));
+    if (this.view === 'CLIP') children.push(navGizmo2D(this, this.panelWidths().sb, this.showGizmo));
     patch(this.ui, children);
     drawPatternPreviews(this);
   }

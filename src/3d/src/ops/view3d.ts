@@ -12,8 +12,9 @@ import { setActiveTool } from '../editors/view3d/toolbar';
 import { relativeAxisView } from '../editors/view3d/navextra';
 import { cloneShared } from '../data/cow';
 import { uid } from '../data/defaults';
-import { uniqueName, activeCollection } from './object';
-import type { ObjectData } from '../data/types';
+import { uniqueName, activeCollection, DATA_TABLES } from './object';
+import { sceneObjects } from '../scenes/scenes';
+import type { DocumentData, ObjectData } from '../data/types';
 
 const v3d = () => !!activeView3D();
 /** the view may be turned (not one of Quad View's fixed views) */
@@ -56,7 +57,8 @@ registerOperators([
     exec: (ctx, p) => {
       const v = activeView3D()!;
       if (p.center) ctx.doc.scene.cursor.location = [0, 0, 0];
-      const ids = [...app.graph.objects.values()].filter((e) => e.visible).map((e) => e.id);
+      // in Local View only the objects shown there count
+      const ids = [...app.graph.objects.values()].filter((e) => e.visible && (!v.localView || v.localView.has(e.id))).map((e) => e.id);
       const box = worldBounds(ids);
       if (box.isEmpty()) box.set(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
       for (const view of p.use_all_regions ? quadViews(v) : [v]) {
@@ -192,8 +194,9 @@ registerOperators([
     exec: (ctx) => {
       const v = activeView3D()!;
       if (!v.activeCameraId()) {
-        // use the first camera object if none is active
-        const cam = Object.values(ctx.doc.objects).find((o) => o.type === 'CAMERA');
+        // use the first camera object of this scene if none is active
+        const inScene = sceneObjects(ctx.doc, ctx.doc.scene);
+        const cam = ctx.doc.object_order.map((id) => ctx.doc.objects[id]).find((o) => o?.type === 'CAMERA' && inScene.has(o.id));
         if (!cam) {
           app.report('WARNING', 'No active camera found');
           return 'CANCELLED';
@@ -529,7 +532,7 @@ registerOperators([
       const cur = new Vector3(...ctx.doc.scene.cursor.location);
       const center = selectionMedian() ?? new Vector3();
       if (ctx.doc.mode !== 'OBJECT') return snapSelectedElements((c) => (p.use_offset ? cur.clone().add(c.sub(center)) : cur.clone())) ? 'FINISHED' : 'CANCELLED';
-      for (const ob of app.selectedObjects()) {
+      for (const ob of snapRoots()) {
         const w = app.graph.get(ob.id)!.world.clone();
         const pos = new Vector3().setFromMatrixPosition(w);
         const target = p.use_offset ? cur.clone().add(pos.clone().sub(center)) : cur;
@@ -546,7 +549,7 @@ registerOperators([
       const g = gridStep();
       const round = (v: Vector3) => new Vector3(Math.round(v.x / g) * g, Math.round(v.y / g) * g, Math.round(v.z / g) * g);
       if (ctx.doc.mode !== 'OBJECT') return snapSelectedElements((c) => round(c)) ? 'FINISHED' : 'CANCELLED';
-      for (const ob of app.selectedObjects()) {
+      for (const ob of snapRoots()) {
         const w = app.graph.get(ob.id)!.world.clone();
         w.setPosition(round(new Vector3().setFromMatrixPosition(w)));
         setWorld(ob, w);
@@ -560,7 +563,7 @@ registerOperators([
     exec: (ctx) => {
       if (ctx.doc.mode !== 'OBJECT') return snapSelectedElements((_c, active) => active ?? null) ? 'FINISHED' : 'CANCELLED';
       const target = new Vector3().setFromMatrixPosition(app.graph.get(app.activeObject!.id)!.world);
-      for (const ob of app.selectedObjects()) {
+      for (const ob of snapRoots()) {
         if (ob.id === app.activeObject!.id) continue;
         const w = app.graph.get(ob.id)!.world.clone();
         w.setPosition(target);
@@ -596,7 +599,8 @@ registerOperators([
       const data: Record<string, unknown> = {};
       for (const ob of sel) {
         if (!ob.data) continue;
-        for (const t of ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices'] as const) if ((ctx.doc[t] as Record<string, unknown>)[ob.data]) data[ob.data] = { table: t, value: cloneShared((ctx.doc[t] as Record<string, unknown>)[ob.data]) };
+        // every object data type gets its own copy (metaballs, hair curves, volumes, … included)
+        for (const t of copyTables()) if ((ctx.doc[t] as Record<string, unknown> | undefined)?.[ob.data]) data[ob.data] = { table: t, value: cloneShared((ctx.doc[t] as Record<string, unknown>)[ob.data]) };
       }
       clipboard = { objects: sel.map((o) => ({ ob: cloneShared(o), world: app.graph.get(o.id)!.world.toArray() })), data };
       app.report('INFO', `Copied ${sel.length} selected object(s)`);
@@ -635,7 +639,20 @@ registerOperators([
   },
 ]);
 
+/** Tables of object data (read lazily: ./object imports this module too). */
+const copyTables = () => [...new Set<keyof DocumentData>([...Object.values(DATA_TABLES), 'grease_pencils'])];
+
 let clipboard: { objects: { ob: ObjectData; world: number[] }[]; data: Record<string, unknown> } | null = null;
+
+/** Selected objects without a selected ancestor: children of moved parents move along with them. */
+function snapRoots(): ObjectData[] {
+  const sel = app.selectedObjects();
+  const ids = new Set(sel.map((o) => o.id));
+  return sel.filter((o) => {
+    for (let p = o.parent; p; p = app.doc.objects[p]?.parent ?? null) if (ids.has(p)) return false;
+    return true;
+  });
+}
 
 function setWorld(ob: ObjectData, w: Matrix4) {
   const parentInv = ob.parent ? app.graph.get(ob.parent)!.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();

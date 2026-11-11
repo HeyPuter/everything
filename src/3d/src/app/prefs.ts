@@ -345,19 +345,26 @@ export function readStoredPrefs(): Partial<Preferences> | null {
   }
 }
 
-function load(): Preferences {
-  const d = defaultPreferences();
-  const stored = readStoredPrefs();
-  if (!stored) return d;
-  const out = { ...d, ...stored } as Preferences;
+/**
+ * Stored values over the defaults `d`. A value of the wrong kind (damaged storage: null, NaN saved
+ * as null, a string for a number) keeps the default; keys without a default (newer builds) are kept.
+ */
+export function mergeStoredPrefs(d: Preferences, stored: unknown): Preferences {
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return d;
+  const out = { ...d } as unknown as Record<string, unknown>;
+  const defs = d as unknown as Record<string, unknown>;
+  for (const [k, v] of Object.entries(stored)) {
+    const def = defs[k];
+    if (def === undefined || def === null) out[k] = v;
+    else if (v !== null && typeof v === typeof def && Array.isArray(v) === Array.isArray(def) && (typeof v !== 'number' || Number.isFinite(v))) out[k] = v;
+  }
   // nested records merge per key so new data types get their defaults
-  out.duplicate = { ...d.duplicate, ...(stored.duplicate ?? {}) };
-  // older builds stored a light / dark choice
-  if ((stored.theme as string) === 'LIGHT') out.theme = 'LIGHT';
-  return out;
+  const dup = (stored as Partial<Preferences>).duplicate;
+  out.duplicate = { ...d.duplicate, ...(dup && typeof dup === 'object' && !Array.isArray(dup) ? dup : {}) };
+  return out as unknown as Preferences;
 }
 
-export const prefs: Preferences = load();
+export const prefs: Preferences = mergeStoredPrefs(defaultPreferences(), readStoredPrefs());
 
 export function savePrefs() {
   try {

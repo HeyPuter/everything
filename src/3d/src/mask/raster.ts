@@ -139,7 +139,7 @@ export function maskPixels(mask: MaskData, frame: number, W: number, H: number, 
 
 /** A cheap fingerprint of what a mask renders at a frame (texture caches). */
 export function maskKey(mask: MaskData, frame: number, parent?: ParentResolver): string {
-  const s = JSON.stringify(mask.layers.map((l) => [l.hide_render, l.alpha, l.blend, l.invert, l.falloff, layerAt(l, frame, parent).splines.map((sp) => [sp.use_cyclic, sp.use_fill, sp.points.map((p) => [p.co, p.handle_left, p.handle_right, p.weight])])]));
+  const s = JSON.stringify(mask.layers.map((l) => [l.hide_render, l.alpha, l.blend, l.invert, l.falloff, layerAt(l, frame, parent).splines.map((sp) => [sp.use_cyclic, sp.use_fill, sp.offset_mode, sp.weight_interpolation, sp.points.map((p) => [p.co, p.handle_left, p.handle_right, p.weight])])]));
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return `${mask.id}|${(h >>> 0).toString(36)}|${s.length}`;

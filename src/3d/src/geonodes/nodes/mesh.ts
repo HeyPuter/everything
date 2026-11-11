@@ -29,7 +29,17 @@ function prim(ctx: ExecContext, mesh: MeshComponent) {
 }
 
 gn('GeometryNodeMeshCube', 'geometry', {
-  exec: (ctx) => prim(ctx, cubeMesh(ctx.vector('Size'), ctx.int('Vertices X'), ctx.int('Vertices Y'), ctx.int('Vertices Z'), UV_DEFAULT)),
+  exec: (ctx) => {
+    const vx = ctx.int('Vertices X'),
+      vy = ctx.int('Vertices Y'),
+      vz = ctx.int('Vertices Z');
+    // as in Blender: nothing (with a note) rather than a clamped cube
+    if (!(vx >= 1 && vy >= 1 && vz >= 1)) {
+      ctx.warn('Vertices must be at least 1', 'INFO');
+      return { Mesh: GeometrySet.empty(), 'UV Map': new ConstField('VECTOR', [0, 0, 0]) };
+    }
+    return prim(ctx, cubeMesh(ctx.vector('Size'), vx, vy, vz, UV_DEFAULT));
+  },
 });
 
 gn('GeometryNodeMeshGrid', 'geometry', {
@@ -66,8 +76,17 @@ gn('GeometryNodeMeshIcoSphere', 'geometry', {
 
 function coneLike(ctx: ExecContext, rTop: number, rBottom: number, zTop: number, zBottom: number) {
   const verts = ctx.int('Vertices');
-  if (verts < 3) {
-    ctx.warn('Vertices must be at least 3');
+  const fill = sprop(ctx.node, 'fill_type') as FillType;
+  // as in Blender: nothing (with a note) for counts out of range rather than clamped counts
+  const problem = !(verts >= 3)
+    ? 'Vertices must be at least 3'
+    : !(ctx.int('Side Segments') >= 1)
+      ? 'Side Segments must be at least 1'
+      : fill !== 'NONE' && !(ctx.int('Fill Segments') >= 1)
+        ? 'Fill Segments must be at least 1'
+        : null;
+  if (problem) {
+    ctx.warn(problem, 'INFO');
     return {
       Mesh: GeometrySet.empty(),
       Top: false,
@@ -76,7 +95,7 @@ function coneLike(ctx: ExecContext, rTop: number, rBottom: number, zTop: number,
       'UV Map': new ConstField('VECTOR', [0, 0, 0]),
     };
   }
-  const r = coneMesh(verts, ctx.int('Side Segments'), ctx.int('Fill Segments'), rTop, rBottom, zTop, zBottom, sprop(ctx.node, 'fill_type') as FillType, UV_DEFAULT);
+  const r = coneMesh(verts, ctx.int('Side Segments'), ctx.int('Fill Segments'), rTop, rBottom, zTop, zBottom, fill, UV_DEFAULT);
   const u = uvOut(ctx, r.mesh);
   const out: Record<string, unknown> = { 'UV Map': u.uv };
   for (const [k, data] of [
@@ -129,14 +148,15 @@ gn(
         off = ctx.vector('Offset');
       const endPoints = prop(ctx.node, 'mode') === 'END_POINTS';
       let count = ctx.int('Count');
+      let delta = off;
       if (endPoints && prop(ctx.node, 'count_mode') === 'RESOLUTION') {
+        // edges of exactly the resolution's length towards the end point (the last one may stop short of it)
         const len = Math.hypot(off[0] - start[0], off[1] - start[1], off[2] - start[2]);
         const res = Math.max(1e-4, ctx.float('Resolution'));
         count = Math.floor(len / res) + 1;
-      }
+        delta = len > 0 ? (off.map((x, i) => ((x - start[i]) / len) * res) as [number, number, number]) : [0, 0, 0];
+      } else if (endPoints) delta = count > 1 ? (off.map((x, i) => (x - start[i]) / (count - 1)) as [number, number, number]) : [0, 0, 0];
       if (count < 1) return { Mesh: GeometrySet.empty() };
-      let delta = off;
-      if (endPoints) delta = count > 1 ? (off.map((x, i) => (x - start[i]) / (count - 1)) as [number, number, number]) : [0, 0, 0];
       return {
         Mesh: new GeometrySet(lineMesh(Math.min(count, 1e7), start, delta)),
       };

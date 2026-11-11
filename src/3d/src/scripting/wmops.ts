@@ -6,7 +6,7 @@ import { app, registerOperators, operators } from '../app/app';
 import { openMenu } from '../ui/menu';
 import { keymaps, keyLabel } from '../app/keymap';
 import { loadRecovery, decodeDocument } from '../io/native';
-import { projectUiState } from '../io/files';
+import { fileEvents, projectUiState } from '../io/files';
 import { cloneShared } from '../data/cow';
 import { openDialog, closeDialog } from './dialog';
 import { formatDate } from '../app/prefs';
@@ -328,6 +328,8 @@ registerOperators([
         }
         try {
           const { doc, extra } = decodeDocument(rec.bytes);
+          // unsaved work is kept as an auto save, as for every other replacement of the document
+          fileEvents.beforeReplace('Before Recovering the Last Session');
           app.setDocument(doc);
           app.filename = rec.name;
           if (extra.ui && typeof extra.ui === 'object') projectUiState.load(extra.ui as Record<string, unknown>);

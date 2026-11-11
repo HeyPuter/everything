@@ -69,6 +69,13 @@ describe('driver expressions', () => {
     expect(msg('self.location[0]')).toMatch(/self/);
   });
 
+  it('factorial of a huge number overflows at once instead of looping', () => {
+    expect(ev('factorial(5)')).toBe(120);
+    expect(ev('factorial(170)')).toBeGreaterThan(1e306);
+    // a loop over 1e15 multiplications would freeze the page
+    expect(ev('factorial(1e15)')).toBe(Infinity);
+  });
+
   it('marks expressions without data access as simple', () => {
     expect(compileExpr('var * 2 + sin(frame)').simple).toBe(true);
     expect(compileExpr('self.location.x').simple).toBe(false);

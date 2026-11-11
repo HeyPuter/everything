@@ -219,7 +219,7 @@ geoNode(
           for (const c of [g.mesh, g.points]) {
             if (!c || !c.positions.length) continue;
             parts.push(c.positions);
-            groups.push(...Array.from(evalFull(gidF, makeContext(c, 'POINT'))));
+            for (const id of evalFull(gidF, makeContext(c, 'POINT'))) groups.push(id);
           }
           const P = new Float32Array(parts.reduce((s, p) => s + p.length, 0));
           let o = 0;

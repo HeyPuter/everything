@@ -11,7 +11,7 @@ import { interfaceSocketType } from '../nodes/registry';
 import { newNodeGroup, uid } from '../data/defaults';
 import { uniqueGroupName } from '../nodes/tree';
 import type { ModifierBase, NodeGroupData, ObjectData } from '../data/types';
-import { gnResults } from './results';
+import { gnMessages } from './results';
 import { syncModifierInputs, setActiveModifier } from './editor';
 import { FIELD_TYPES } from './evaluator';
 import { unitOf } from '../nodes/editor/nodeui';
@@ -142,10 +142,10 @@ function nodesPanel(ob: ObjectData, m: ModifierBase): Child {
   const inputs = (g?.tree.interface ?? []).filter((i) => i.in_out === 'INPUT');
   const firstGeo = inputs.find((i) => interfaceSocketType(i.socket_type).type === 'GEOMETRY');
   const outputs = (g?.tree.interface ?? []).filter((i) => i.in_out === 'OUTPUT' && FIELD_TYPES.has(interfaceSocketType(i.socket_type).type));
-  const res = gnResults.get(ob.id);
+  const res = gnMessages.get(`${ob.id}/${m.id}`);
   // messages with their severity (errors first, then warnings, then info), each listed once
   const warnings: { text: string; kind: string }[] = [];
-  if (res && res.modifierId === m.id)
+  if (res)
     for (const [key, list] of res.warnings) for (const text of list) if (!warnings.some((w) => w.text === text)) warnings.push({ text, kind: res.warningKinds?.get(`${key}\n${text}`) ?? 'WARNING' });
   const rank: Record<string, number> = { ERROR: 0, WARNING: 1, INFO: 2 };
   warnings.sort((a, b) => rank[a.kind] - rank[b.kind]);

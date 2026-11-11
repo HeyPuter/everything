@@ -20,7 +20,7 @@ import { transformGizmo, gizmoPointerDown } from './gizmo';
 import { openMenu } from '../../ui/menu';
 import { objectContextMenu } from './menus';
 import { lastOpPanel } from '../../ui/redo';
-import { editModeHooks, viewportExtensions, viewportUIHooks } from './hooks';
+import { editModeHooks, followPointer, viewportExtensions, viewportUIHooks } from './hooks';
 import { circlePaint, lassoDrag, modeFromEvent } from './selectshapes';
 import { applyMatrixToObject } from '../../eval/transform';
 import { altMiddle, snapViewToAxis } from './navextra';
@@ -469,6 +469,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (box.isEmpty()) return;
     const c = box.getCenter(new Vector3()),
       r = box.getSize(new Vector3()).length() / 2;
+    // NaN / infinite bounds (broken coordinates) would leave the view unusable
+    if (![c.x, c.y, c.z, r].every(Number.isFinite)) return;
     this.leaveCamera();
     if (smooth) this.animateTo(c, Math.max(r, 0.05));
     else this.nav.frame(c, Math.max(r, 0.05));
@@ -681,10 +683,14 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
   private lockTimer = 0;
 
+  /** fingers on the viewport (touch screens): two of them pan and pinch-zoom the view */
+  private touches = new Map<number, { x: number; y: number }>();
+
   private onPointerDown(e: PointerEvent) {
     const t = e.target as HTMLElement;
     if (t.closest('.v3d-ui')) return;
     this.el.focus({ preventScroll: true });
+    if (e.pointerType === 'touch' && this.touchPointerDown(e)) return;
     if (app.modal) {
       const r = app.modal.onPointerDown?.(e);
       if (r) app.endModal(r);
@@ -752,17 +758,14 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (tool === 'builtin.cursor') {
       // click places the cursor, dragging moves it along the surfaces under the mouse
       placeCursor(this, p.x, p.y);
-      const mv = (ev: PointerEvent) => {
-        const q = this.local(ev);
-        placeCursor(this, q.x, q.y);
-      };
-      const upFn = () => {
-        removeEventListener('pointermove', mv);
-        removeEventListener('pointerup', upFn);
-        app.pushUndo('Set 3D Cursor');
-      };
-      addEventListener('pointermove', mv);
-      addEventListener('pointerup', upFn);
+      followPointer(
+        e,
+        (ev) => {
+          const q = this.local(ev);
+          placeCursor(this, q.x, q.y);
+        },
+        () => app.pushUndo('Set 3D Cursor'),
+      );
       return;
     }
     // the transform tools' Drag setting: what dragging away from the gizmo does
@@ -774,20 +777,37 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     // click-or-drag: tweak/box select
     const start = { ...p };
     let dragging = false;
+    const stop = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      removeEventListener('pointercancel', cancel);
+    };
+    // the system took the pointer (pen palm rejection, touch gesture): drop the selection
+    const cancel = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      stop();
+      this.boxEl.hidden = true;
+    };
     const move = (ev: PointerEvent) => {
+      // other fingers / pens do not drive this selection
+      if (ev.pointerId !== e.pointerId) return;
+      // a right press while the left is held (it arrives as a move) cancels the box / click
+      if (ev.buttons & ~e.buttons & 2) {
+        stop();
+        this.boxEl.hidden = true;
+        return;
+      }
       const q = this.local(ev);
       if (!dragging && Math.hypot(q.x - start.x, q.y - start.y) > prefs.drag_threshold_mouse) {
         dragging = true;
         if (tool === 'builtin.select_lasso' || drag === 'SELECT_LASSO') {
-          removeEventListener('pointermove', move);
-          removeEventListener('pointerup', up);
+          stop();
           lassoDrag(this, e, modeFromEvent(ev));
           return;
         }
         if (tool === 'builtin.select' || drag === 'TWEAK') {
           // tweak: select under cursor then move
-          removeEventListener('pointermove', move);
-          removeEventListener('pointerup', up);
+          stop();
           // dragging an object that is already selected moves the whole selection
           const under = app.doc.mode === 'OBJECT' ? this.pick(start.x, start.y, 8)?.id : null;
           if (!(under && app.doc.objects[under]?.select)) selectPick(this, start.x, start.y, { extend: false, deselectAll: true, toggle: false });
@@ -799,8 +819,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       if (dragging) this.showBox(start.x, start.y, q.x, q.y, 'box');
     };
     const up = (ev: PointerEvent) => {
-      removeEventListener('pointermove', move);
-      removeEventListener('pointerup', up);
+      if (ev.pointerId !== e.pointerId) return;
+      stop();
       const q = this.local(ev);
       this.boxEl.hidden = true;
       const mode = modeFromEvent(ev);
@@ -809,6 +829,74 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     };
     addEventListener('pointermove', move);
     addEventListener('pointerup', up);
+    addEventListener('pointercancel', cancel);
+  }
+
+  /**
+   * Track a finger; the second one turns the touch into a two-finger gesture (the first finger's
+   * selection is cancelled): moving both pans, pinching zooms. Returns true when it took the event.
+   */
+  private touchPointerDown(e: PointerEvent): boolean {
+    const forget = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'touch') return;
+      this.touches.delete(ev.pointerId);
+      if (!this.touches.size) {
+        removeEventListener('pointerup', forget, true);
+        removeEventListener('pointercancel', forget, true);
+      }
+    };
+    if (!this.touches.size) {
+      addEventListener('pointerup', forget, true);
+      addEventListener('pointercancel', forget, true);
+    }
+    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.touches.size !== 2) return this.touches.size > 2;
+    e.preventDefault();
+    // a running tool (move started by the first finger, …) keeps going: the second finger does nothing
+    if (app.modal) return true;
+    const [a, b] = [...this.touches.keys()];
+    const first = a === e.pointerId ? b : a;
+    // end whatever the first finger started (box select, …) without applying it
+    const pos = this.touches.get(first)!;
+    dispatchEvent(new PointerEvent('pointercancel', { pointerId: first, pointerType: 'touch', clientX: pos.x, clientY: pos.y, bubbles: true }));
+    this.touches.set(first, pos);
+    this.boxEl.hidden = true;
+    const ids = [first, e.pointerId];
+    const at = { [first]: { ...pos }, [e.pointerId]: { x: e.clientX, y: e.clientY } } as Record<number, { x: number; y: number }>;
+    const mid = () => ({ x: (at[ids[0]].x + at[ids[1]].x) / 2, y: (at[ids[0]].y + at[ids[1]].y) / 2 });
+    const span = () => Math.max(1, Math.hypot(at[ids[0]].x - at[ids[1]].x, at[ids[0]].y - at[ids[1]].y));
+    let lastMid = mid(),
+      lastSpan = span();
+    const cameraFrame = this.cameraView && !this.lockCameraToView;
+    if (!cameraFrame) this.leaveCameraIfNeeded();
+    const move = (ev: PointerEvent) => {
+      if (!ids.includes(ev.pointerId)) return;
+      at[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      const m = mid(),
+        sp = span();
+      const r = this.el.getBoundingClientRect();
+      if (cameraFrame) {
+        this.panCameraFrame(m.x - lastMid.x, m.y - lastMid.y);
+        this.zoomCameraFrame(sp / lastSpan);
+      } else {
+        this.nav.pan(m.x - lastMid.x, m.y - lastMid.y);
+        // spreading the fingers zooms in, around the point between them
+        this.zoomBy(lastSpan / sp, { x: m.x - r.left, y: m.y - r.top });
+        this.afterNav();
+      }
+      lastMid = m;
+      lastSpan = sp;
+    };
+    const end = (ev: PointerEvent) => {
+      if (!ids.includes(ev.pointerId)) return;
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', end, true);
+      removeEventListener('pointercancel', end, true);
+    };
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', end, true);
+    addEventListener('pointercancel', end, true);
+    return true;
   }
 
   showBox(x0: number, y0: number, x1: number, y1: number, kind: 'box' | 'circle' = 'box') {
@@ -823,19 +911,17 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     // in camera view, panning and zooming move the camera frame instead of leaving the camera
     if (this.cameraView && !this.lockCameraToView && (kind === 'pan' || kind === 'zoom' || (kind === 'orbit' && (e.shiftKey || e.ctrlKey)))) {
       const zoom = kind === 'zoom' || (kind === 'orbit' && e.ctrlKey && !e.shiftKey);
-      const mv = (ev: PointerEvent) => {
-        const dx = ev.clientX - last.x,
-          dy = ev.clientY - last.y;
-        last = { x: ev.clientX, y: ev.clientY };
-        if (zoom) this.zoomCameraFrame(Math.exp(-dy * 0.01));
-        else this.panCameraFrame(dx, dy);
-      };
-      const upFn = () => {
-        removeEventListener('pointermove', mv);
-        removeEventListener('pointerup', upFn);
-      };
-      addEventListener('pointermove', mv);
-      addEventListener('pointerup', upFn);
+      followPointer(
+        e,
+        (ev) => {
+          const dx = ev.clientX - last.x,
+            dy = ev.clientY - last.y;
+          last = { x: ev.clientX, y: ev.clientY };
+          if (zoom) this.zoomCameraFrame(Math.exp(-dy * 0.01));
+          else this.panCameraFrame(dx, dy);
+        },
+        () => {},
+      );
       return;
     }
     this.leaveCameraIfNeeded();
@@ -1069,13 +1155,46 @@ export function worldBounds(ids: string[]): Box3 {
     const ev = app.graph.get(id);
     if (!ev) continue;
     if (ev.mesh && ev.mesh.positions.length) {
+      // every vertex (sampling missed the extremes of big meshes), transformed inline
       const P = ev.mesh.positions;
-      const v = new Vector3();
-      const step = Math.max(1, Math.floor(P.length / 3 / 20000));
-      for (let i = 0; i < P.length / 3; i += step) box.expandByPoint(v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(ev.world));
+      const e = ev.world.elements;
+      let x0 = Infinity,
+        y0 = Infinity,
+        z0 = Infinity,
+        x1 = -Infinity,
+        y1 = -Infinity,
+        z1 = -Infinity;
+      const perspective = e[3] !== 0 || e[7] !== 0 || e[11] !== 0 || e[15] !== 1;
+      for (let i = 0; i < P.length; i += 3) {
+        const px = P[i],
+          py = P[i + 1],
+          pz = P[i + 2];
+        let x = e[0] * px + e[4] * py + e[8] * pz + e[12],
+          y = e[1] * px + e[5] * py + e[9] * pz + e[13],
+          z = e[2] * px + e[6] * py + e[10] * pz + e[14];
+        if (perspective) {
+          const w = 1 / (e[3] * px + e[7] * py + e[11] * pz + e[15]);
+          x *= w;
+          y *= w;
+          z *= w;
+        }
+        // a broken coordinate (NaN / Infinity) would turn the framed view into NaN
+        if (!(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z))) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+        if (z < z0) z0 = z;
+        if (z > z1) z1 = z;
+      }
+      if (x0 <= x1) {
+        box.expandByPoint(new Vector3(x0, y0, z0));
+        box.expandByPoint(new Vector3(x1, y1, z1));
+      }
     } else {
       const p = new Vector3().setFromMatrixPosition(ev.world);
       const s = ev.ob.type === 'EMPTY' ? ev.ob.empty_display_size : 1;
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z) || !Number.isFinite(s)) continue;
       box.expandByPoint(p.clone().addScalar(-s * 0.5));
       box.expandByPoint(p.clone().addScalar(s * 0.5));
     }

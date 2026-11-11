@@ -34,6 +34,8 @@ export interface ChatOptions {
   model?: string;
   tools?: unknown[];
   maxTokens?: number;
+  /** Aborts the request (Stop): Puter's SDK cancels its HTTP request on it. */
+  signal?: AbortSignal;
 }
 
 export type ChatFn = (messages: ChatMessage[], opts: ChatOptions) => AsyncIterable<StreamPart>;
@@ -49,6 +51,26 @@ export function aiError(e: unknown): Error {
   const inner = o && typeof o === 'object' && o.error && typeof o.error === 'object' ? (o.error as { message?: string; code?: string }) : (o as { message?: string; code?: string } | null);
   const message = (inner && typeof inner === 'object' && inner.message) || (o && typeof o === 'object' && typeof o.error === 'string' ? o.error : '') || (typeof o === 'string' ? o : '') || 'The AI service did not answer';
   return Object.assign(new Error(message), { code: (inner && typeof inner === 'object' && inner.code) || (o && typeof o === 'object' ? o.code : undefined) });
+}
+
+/**
+ * Whether a failed request is worth sending again unchanged: the service was
+ * busy, rate limited, timed out or the connection dropped. Only these are
+ * retried; anything else (no funds, a refused request, a prompt too long)
+ * would fail the same way again.
+ */
+export function isTransientError(e: unknown): boolean {
+  const err = e as { name?: string; code?: unknown; message?: unknown } | null;
+  if (!err || err.name === 'AbortError') return false;
+  const code = String(err.code ?? '');
+  if (['upstream_provider_unavailable', 'upstream_failed', 'upstream_timeout', 'upstream_rate_limited', 'network_error', 'request_timeout'].includes(code)) return true;
+  if (['upstream_bad_request', 'upstream_credits_exhausted', 'upstream_auth_failed', 'permission_denied', 'insufficient_funds', 'auth_canceled', 'auth_required', 'puter_unavailable', 'online_access_off'].includes(code)) return false;
+  const text = String(err.message ?? '').toLowerCase();
+  if (/insufficient|credit|funds|balance|too long|context|invalid|not supported|unsupported/.test(text)) return false;
+  // Status codes stand alone: a token count such as 5000 is not a 500.
+  if (/\b(408|429|500|502|503|504|529)\b/.test(text)) return true;
+  return ['overloaded', 'rate limit', 'too many requests', 'service unavailable', 'provider unavailable', 'all ai providers failed', 'bad gateway', 'gateway timeout', 'internal server error',
+    'timeout', 'timed out', 'failed to fetch', 'network', 'connection', 'socket hang up', 'econnreset', 'did not answer'].some((k) => text.includes(k));
 }
 
 /** A tool call's arguments, which may come as JSON text; unreadable text is marked, not taken for no arguments. */
@@ -68,32 +90,145 @@ const reachedLimit = (usage: { output_tokens?: number; completion_tokens?: numbe
 let callSeq = 0;
 const newCallId = () => `call_${Date.now().toString(36)}_${(++callSeq).toString(36)}`;
 
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const LONE_SURROGATES = new RegExp(LONE_SURROGATE.source, 'g');
+
+/**
+ * The value with half characters replaced by U+FFFD. Text cut to a length
+ * (old tool results, long files, names) can end in half of an emoji, and the
+ * API refuses a request holding one as invalid JSON; the cut message stays
+ * in the conversation, so every later request would fail the same way.
+ * Unchanged parts are returned as they are.
+ */
+export function wellFormed<T>(value: T): T {
+  if (typeof value === 'string') return (LONE_SURROGATE.test(value) ? value.replace(LONE_SURROGATES, '\uFFFD') : value) as T;
+  if (Array.isArray(value)) {
+    let out: unknown[] | null = null;
+    value.forEach((v, i) => { const w = wellFormed(v); if (w !== v) (out ??= [...value])[i] = w; });
+    return (out ?? value) as T;
+  }
+  if (value && typeof value === 'object') {
+    let out: Record<string, unknown> | null = null;
+    for (const [k, v] of Object.entries(value)) { const w = wellFormed(v); if (w !== v) (out ??= { ...(value as Record<string, unknown>) })[k] = w; }
+    return (out ?? value) as T;
+  }
+  return value;
+}
+
+/** The instructions and tools are the same for everyone: cached for an hour. */
+const CACHE_LONG = { type: 'ephemeral', ttl: '1h' } as const;
+const CACHE = { type: 'ephemeral' } as const;
+type Block = Record<string, unknown>;
+
+/** Content as blocks with a cache breakpoint on the last one (an empty text block cannot take one). */
+function marked(content: string | ChatPart[] | null, cache: Block): Block[] | null {
+  const blocks: Block[] = typeof content === 'string' ? (content ? [{ type: 'text', text: content }] : []) : [...(content ?? [])];
+  const last = blocks.at(-1);
+  if (!last || (last.type === 'text' && !last.text)) return null;
+  blocks[blocks.length - 1] = { ...last, cache_control: cache };
+  return blocks;
+}
+
+/**
+ * The request with prompt-cache breakpoints (Puter passes them to Claude, and
+ * caches nothing unless asked; Claude takes at most four):
+ * - the instructions, which the tools come before;
+ * - the end of the last finished turn, and on a turn's first request the end
+ *   of the one before. Earlier turns are sent shortened (no snapshot, results
+ *   cut), so they read the same in every later request; a new turn reads them
+ *   from the cache written by the turn before, instead of paying to write the
+ *   whole conversation again;
+ * - the message that started the current turn, anchoring rounds that add more
+ *   blocks than the cache looks back over;
+ * - the newest message, which the next round reads up to.
+ * A tool result goes in Claude's own shape, which keeps the breakpoint: Puter
+ * rebuilds an OpenAI tool message without it. The messages given are not changed.
+ */
+export function withCacheBreakpoints(messages: ChatMessage[]): unknown[] {
+  const out: unknown[] = [...messages];
+  const markAt = (i: number, cache: Block) => {
+    const m = messages[i];
+    if (!m) return;
+    if (m.role === 'tool') {
+      // Like an empty text block, an empty result is not given a breakpoint.
+      if (!m.content) return;
+      out[i] = { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content, cache_control: cache }] };
+      return;
+    }
+    // A breakpoint on a reply's text would sit before its tool calls, not at its end.
+    if (m.role === 'assistant' && m.tool_calls?.length) return;
+    const content = marked(m.content, cache);
+    if (content) out[i] = { ...m, content };
+  };
+  if (messages[0]?.role === 'system') markAt(0, CACHE_LONG);
+  // Where each turn starts: a message the user wrote, after the instructions or a finished reply.
+  const starts: number[] = [];
+  for (let i = 1; i < messages.length; i++) {
+    const prev = messages[i - 1];
+    if (messages[i].role === 'user' && (prev.role === 'system' || (prev.role === 'assistant' && !prev.tool_calls?.length))) starts.push(i);
+  }
+  const turn = starts.at(-1) ?? -1;
+  const last = messages.length - 1;
+  // A finished turn ends with the reply before the next turn's start.
+  if (turn === last && starts.length > 2) markAt(starts.at(-2)! - 1, CACHE);
+  if (starts.length > 1) markAt(turn - 1, CACHE);
+  if (turn > 0 && turn < last) markAt(turn, CACHE);
+  if (last > 0) markAt(last, CACHE);
+  return out;
+}
+
 /** puter.ai.chat, streamed. A reply the SDK hands back whole is yielded in the same pieces. */
 export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}): AsyncIterable<StreamPart> {
-  if (!prefs.use_online_access) throw new Error('The assistant works online, but online access is turned off (Preferences ▸ System ▸ Network).');
+  if (!prefs.use_online_access) throw Object.assign(new Error('The assistant works online, but online access is turned off (Preferences ▸ System ▸ Network).'), { code: 'online_access_off' });
   const p = (globalThis as unknown as { puter?: PuterAI }).puter;
-  if (!p?.ai?.chat) throw new Error('The assistant needs Puter, which is not available right now. Check your connection and reload.');
+  if (!p?.ai?.chat) throw Object.assign(new Error('The assistant needs Puter, which is not available right now. Check your connection and reload.'), { code: 'puter_unavailable' });
   const options: Record<string, unknown> = { stream: true };
   if (opts.model) options.model = opts.model;
-  if (opts.tools?.length) options.tools = opts.tools;
+  // Puter starts a request on the healthiest route that serves the model: after
+  // anyone's recent failure on Anthropic's, that is a reseller, which has none of
+  // this conversation in its prompt cache and may drop images. Pinned, Anthropic
+  // serves first, and Puter still falls back when it fails.
+  if (opts.model?.startsWith('claude-')) options.provider = 'claude';
+  if (opts.tools?.length) {
+    options.tools = opts.tools;
+    // Puter lets the model call one tool per reply unless asked: independent
+    // reads (the scene, an object, a material) would each cost a round trip.
+    options.parallelToolCalls = true;
+  }
   if (opts.maxTokens) options.max_tokens = opts.maxTokens;
+  // The SDK aborts its request on the signal (puter-js sendOnce). The stream is also
+  // ended directly: a generator's return() waits for the part it is waiting on,
+  // and a long tool call can stream nothing for a minute.
+  if (opts.signal) options.signal = opts.signal;
   let res: unknown;
   try {
-    res = await p.ai.chat(messages, options);
+    res = await p.ai.chat(wellFormed(withCacheBreakpoints(messages)), options);
   } catch (e) {
     throw aiError(e);
   }
   if (res && typeof (res as AsyncIterable<unknown>)[Symbol.asyncIterator] === 'function') {
+    const end = () => { Promise.resolve((res as AsyncIterator<unknown>).return?.()).catch(() => {}); };
+    if (opts.signal?.aborted) end();
+    else opts.signal?.addEventListener('abort', end, { once: true });
     try {
       for await (const part of res as AsyncIterable<Record<string, unknown>>) {
         if (!part) continue;
         if (part.type === 'error' || (part.success === false && part.error)) throw aiError(part.error ?? part);
         if (part.type === 'tool_use') yield { type: 'tool', id: String(part.id ?? newCallId()), name: String(part.name ?? ''), input: toolInput(part.input) };
-        else if (part.type === 'usage') { if (reachedLimit(part.usage as never, opts.maxTokens)) yield { type: 'cut' }; }
+        else if (part.type === 'usage') {
+          // Puter ends a reply the account's credits ran out during like one that reached the length limit,
+          // marked metadata.usage_limited (ChatCompletionDriver ranOutOfFunds); the reply did not finish.
+          if ((part.metadata as { usage_limited?: boolean } | undefined)?.usage_limited) {
+            throw Object.assign(new Error('Your Puter account ran out of AI credits, so the reply stopped.'), { code: 'insufficient_funds' });
+          }
+          if (reachedLimit(part.usage as never, opts.maxTokens)) yield { type: 'cut' };
+        }
         else if (part.type !== 'reasoning' && typeof part.text === 'string' && part.text) yield { type: 'text', text: part.text };
       }
     } catch (e) {
       throw aiError(e);
+    } finally {
+      opts.signal?.removeEventListener('abort', end);
     }
     return;
   }

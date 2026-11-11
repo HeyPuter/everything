@@ -270,6 +270,21 @@ describe('animation: key editing', () => {
     expect(a.keyframe_points.find((k) => k.co[0] === 204)!.co[1]).toBe(-2);
   });
 
+  it('Frame Relative pastes keep the offset to the frame they were copied on', () => {
+    const a = curve([
+      [5, 0],
+      [15, 2],
+    ]);
+    K.selectAll(refs(a), 'SELECT');
+    K.copyKeys(refs(a), 10);
+    const b = curve([[1, 1]], 'location', 0);
+    K.pasteKeys(refs(b), 30, 'RELATIVE');
+    expect(frames(b)).toEqual([1, 25, 35]);
+    const c = curve([[1, 1]], 'location', 0);
+    K.pasteKeys(refs(c), 30, 'NONE');
+    expect(frames(c)).toEqual([1, 5, 15]);
+  });
+
   it('pastes a single copied curve into the selected channel when paths differ', () => {
     const a = curve([
       [1, 0],

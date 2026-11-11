@@ -6,7 +6,7 @@ import { openMenu, captureMenuItems, type MenuItem } from './menu';
 import { regionSizes, setRegionSizes } from './regionscale';
 import { app, type ChangeKind, type AreaLike } from '../app/app';
 import { prefs } from '../app/prefs';
-import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, layoutEdges, edgeNear, edgeRatio, alignedEdges, type Side, type LayoutEdge } from './layout';
+import { GAP, NARROW_SCREEN, splitFirst, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, layoutEdges, edgeNear, edgeRatio, alignedEdges, type Side, type LayoutEdge } from './layout';
 
 export { areaRects, type Side, type LayoutEdge };
 
@@ -547,7 +547,8 @@ export class Screen {
   }
 
   load(layout: LayoutNode) {
-    for (const a of this.areas) {
+    const old = this.areas;
+    for (const a of old) {
       a.editor.dispose();
       a.el.remove();
     }
@@ -561,6 +562,9 @@ export class Screen {
     this.layout = layout;
     for (const st of leaves(layout)) this.areas.push(new Area(this, st));
     for (const a of this.areas) this.el.append(a.el);
+    // shortcuts must not reach the removed areas (the pointer may be outside every area now)
+    if (old.includes(app.hoverArea as Area)) app.hoverArea = null;
+    if (old.includes(app.activeArea as Area)) app.activeArea = this.findArea('VIEW_3D') ?? this.areas[0] ?? null;
     this.relayout();
     for (const a of this.areas) a.drawHeader();
   }
@@ -596,18 +600,21 @@ export class Screen {
     if (!this.layout) return;
     const W = this.el.clientWidth,
       H = this.el.clientHeight;
+    const narrow = W < NARROW_SCREEN;
     this.dividers.forEach((d) => d.remove());
     this.dividers = [];
     const place = (n: LayoutNode, x: number, y: number, w: number, hgt: number) => {
       if ('area' in n) {
         const a = this.areas.find((ar) => ar.id === n.area.id);
         if (!a) return;
+        // a new width can make the header fit (or no longer fit): measure it again
+        if (a.rect.w !== w) scheduleHeaderFit(a);
         a.rect = { x, y, w, h: hgt };
         Object.assign(a.el.style, { left: `${x}px`, top: `${y}px`, width: `${Math.max(0, w)}px`, height: `${Math.max(0, hgt)}px`, display: '' });
         return;
       }
       if (n.split === 'h') {
-        const wa = Math.round((w - GAP) * n.ratio);
+        const wa = splitFirst(n, w, narrow);
         place(n.a, x, y, wa, hgt);
         place(n.b, x + wa + GAP, y, w - wa - GAP, hgt);
         this.addDivider(n, 'h', x + wa, y, GAP, hgt);
@@ -831,6 +838,12 @@ export class Screen {
   split(a: Area, dir: 'h' | 'v', ratio = 0.5): Area | null {
     this.exitMaximized();
     if (!this.areas.includes(a)) return null;
+    // both parts keep at least a header's height / a narrow column (a factor of 0 or 1 from a script)
+    const avail = (dir === 'h' ? a.rect.w : a.rect.h) - GAP;
+    if (avail > 0) {
+      const minFrac = Math.min(0.5, 26 / avail);
+      ratio = Math.max(minFrac, Math.min(1 - minFrac, Number.isFinite(ratio) ? ratio : 0.5));
+    }
     const st = cloneAreaState(a);
     this.layout = splitLayout(this.layout, a.id, dir, ratio, st);
     const area = new Area(this, st);

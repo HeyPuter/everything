@@ -159,6 +159,19 @@ describe('bake targets', () => {
     const ma = loose.doc.materials[Object.values(loose.doc.meshes)[0].materials[0]!];
     expect(bakeImageNode(loose.doc, ma)?.id).toBe('n_img');
   });
+  it('refuses linked images and meshes before baking', async () => {
+    const { lockRecord } = await import('../../src/library/readonly');
+    const { doc } = docWithImageNode(true);
+    const cube = Object.values(doc.objects).find((o) => o.type === 'MESH')!;
+    lockRecord(doc.images.im1);
+    const plan = planTargets(doc, [cube], 'IMAGE_TEXTURES');
+    expect(plan.targets).toEqual([]);
+    expect(plan.errors[0]).toMatch(/Image "Bake" is linked/);
+    const me = doc.meshes[cube.data!];
+    me.color_attributes = [{ name: 'Col', domain: 'CORNER', data: new Float32Array(me.indices.length * 4) } as never];
+    lockRecord(me);
+    expect(planTargets(doc, [cube], 'VERTEX_COLORS').errors[0]).toMatch(/is linked/);
+  });
   it('explains what is missing', () => {
     const doc = startupDocument();
     const cube = Object.values(doc.objects).find((o) => o.type === 'MESH')!;

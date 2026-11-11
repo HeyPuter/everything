@@ -32,6 +32,7 @@ gn(
         out['Point Count'] = g.curves.pointCount;
         out['Spline Count'] = g.curves.curveCount;
       } else if (comp === 'INSTANCES' && g.instances) out['Instance Count'] = g.instances.count;
+      else if (comp === 'GREASEPENCIL' && g.greasePencil) out['Layer Count'] = g.greasePencil.layerCount;
       return out;
     },
   },

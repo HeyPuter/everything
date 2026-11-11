@@ -701,8 +701,8 @@ export class Codegen {
         return s ? inputValue(node, s) : null;
       },
       staticValue: (id) => self.staticValue(scope, node, id),
-      prop: (id) => propValue(node, id),
-      str: (id) => String(propValue(node, id) ?? ''),
+      prop: (id) => self.prop(node, id),
+      str: (id) => String(self.prop(node, id) ?? ''),
       out: (id, type, expr) => {
         outs.set(id, { expr: self.declare(type, expr), type });
       },
@@ -713,6 +713,14 @@ export class Codegen {
       feature: (f) => (self.features[f] = true),
       error: (msg) => self.errors.push(`${node.name}: ${msg}`),
     };
+  }
+
+  /** A node property; unknown enum values (newer or damaged files) fall back to the default with a message. */
+  prop(node: NodeData, id: string): SocketValue {
+    const v = propValue(node, id);
+    const raw = node.props[id];
+    if (raw !== undefined && raw !== v) this.errors.push(`${node.name}: unknown ${id} "${String(raw)}", using "${String(v)}"`);
+    return v;
   }
 
   /** Root entry: the expression for an input of an output node at the top level. */

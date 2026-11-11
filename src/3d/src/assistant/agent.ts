@@ -10,7 +10,7 @@
 // refused as malformed. Screenshots go in a user message after the tool
 // results and only with the round that took them.
 
-import type { ChatFn, ChatMessage, ChatPart, ChatToolCall } from './ai';
+import { type ChatFn, type ChatMessage, type ChatPart, type ChatToolCall, isTransientError } from './ai';
 import { ATTACHMENT_TURNS, type Attachment, type AttachmentMeta, attachmentMeta, attachmentWeight, attachmentsFit, attachmentsGone, attachmentsIntro } from './attach';
 import type { ToolResult, ToolSpec } from './tools';
 
@@ -19,6 +19,10 @@ export const MAX_OUTPUT_TOKENS = 16000;
 const OLD_RESULT_CHARS = 1500;
 /** Roughly how much transcript is sent at most (characters). */
 const HISTORY_BUDGET = 300000;
+/** A request that fails before anything arrived because the service was busy or the connection dropped is sent again this many times. */
+export const MAX_RETRIES = 3;
+/** Wait before retry n (1, 2, 4 s, give or take 15%). */
+const backoff = (n: number) => 1000 * 2 ** (n - 1) * (0.85 + Math.random() * 0.3);
 const STATE_OPEN = '<scene_state>';
 const STATE_CLOSE = '</scene_state>';
 const NO_IMAGE = '[A screenshot was shown here earlier.]';
@@ -37,7 +41,9 @@ export interface Step {
 export type AgentEvent =
   | { type: 'text'; text: string }
   | { type: 'step'; step: Step }
-  | { type: 'round' };
+  | { type: 'round' }
+  /** A request failed in a way that may pass: it is sent again after a wait. */
+  | { type: 'retry'; attempt: number; error: Error };
 
 export interface ExchangeResult {
   stopped: boolean;
@@ -49,10 +55,15 @@ export interface ExchangeResult {
 export interface AgentOptions {
   chat: ChatFn;
   tools: () => ToolSpec[];
-  runTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
+  /** The signal aborts when the user presses Stop: a tool still waiting (for the Python runtime, say) must then not change the scene. */
+  runTool: (name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult>;
   system: string;
   snapshot: () => string;
   model: () => string;
+  /** Whether a call changes the scene: after one fails, the reply's later changes are not run. */
+  changes?: (name: string, args: Record<string, unknown>) => boolean;
+  /** Milliseconds to wait before retry n (tests). */
+  retryDelay?: (n: number) => number;
 }
 
 const STOP = Symbol('stop');
@@ -136,13 +147,20 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
   const size = (m: ChatMessage, i: number) => (typeof m.content === 'string' ? m.content.length : Array.isArray(m.content) ? ((m.content[0] as { text?: string })?.text?.length ?? 0) + (weights.get(i) ?? 0) : 0) + ('tool_calls' in m ? JSON.stringify(m.tool_calls ?? '').length : 0);
   let total = out.reduce((n, m, i) => n + size(m, i), 0);
   let start = 0;
-  while (total > budget) {
+  // Old turns go in steps of a quarter of the budget, not one at a time as the
+  // conversation grows: where it starts then stays put for several requests,
+  // which read it from the prompt cache instead of paying to write it all again.
+  const step = budget / 4;
+  const excess = total > budget ? Math.ceil((total - budget) / step) * step : 0;
+  let dropped = 0;
+  while (dropped < excess) {
     let next = -1;
     for (let i = start + 1; i < out.length; i++) if (isTurn(transcript[i])) { next = i; break; }
     if (next < 0 || next > lastUser) break;
-    for (let i = start; i < next; i++) total -= size(out[i], i);
+    for (let i = start; i < next; i++) dropped += size(out[i], i);
     start = next;
   }
+  total -= dropped;
   let newest = out.length;
   while (newest > lastUser + 1 && (out[newest - 1].role === 'tool' || isUser(transcript[newest - 1]))) newest--;
   for (let i = lastUser + 1; i < newest && total > budget; i++) {
@@ -155,6 +173,11 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
   return [{ role: 'system', content: system }, ...out.slice(start)];
 }
 
+/** Drops the image data of screenshots already taken (requests show them as NO_IMAGE): a long build kept megabytes of them. */
+function releaseShots(messages: ChatMessage[]) {
+  for (const m of messages) if (isUser(m) && m.screenshot && m.content !== NO_IMAGE) m.content = NO_IMAGE;
+}
+
 export function createAgent(o: AgentOptions) {
   let transcript: ChatMessage[] = [];
   let running: { stopped: boolean; stop(): void } | null = null;
@@ -164,7 +187,8 @@ export function createAgent(o: AgentOptions) {
     const emit = (e: AgentEvent) => { try { onEvent(e); } catch (err) { console.error(err); } };
     let stopResolve!: (v: typeof STOP) => void;
     const stopSignal = new Promise<typeof STOP>((r) => { stopResolve = r; });
-    const run = { stopped: false, stop() { if (!this.stopped) { this.stopped = true; stopResolve(STOP); } } };
+    const aborter = new AbortController();
+    const run = { stopped: false, stop() { if (!this.stopped) { this.stopped = true; aborter.abort(); stopResolve(STOP); } } };
     running = run;
     const steps: Step[] = [];
     let imagesRefused = false;
@@ -177,9 +201,11 @@ export function createAgent(o: AgentOptions) {
         const calls: { id: string; name: string; input: Record<string, unknown> }[] = [];
         let req = requestMessages(messages, o.system, { noShots: imagesRefused });
         let attempt = 0;
+        let retries = 0;
         for (;;) {
           try {
-            const iter = o.chat(req, { model: o.model(), tools: o.tools(), maxTokens: MAX_OUTPUT_TOKENS })[Symbol.asyncIterator]();
+            // Stop aborts the request too, so the service stops working (and charging) on it.
+            const iter = o.chat(req, { model: o.model(), tools: o.tools(), maxTokens: MAX_OUTPUT_TOKENS, signal: aborter.signal })[Symbol.asyncIterator]();
             for (;;) {
               const next = await Promise.race([iter.next(), stopSignal]);
               if (next === STOP) { Promise.resolve(iter.return?.()).catch(() => {}); break; }
@@ -191,6 +217,19 @@ export function createAgent(o: AgentOptions) {
             }
             break;
           } catch (e) {
+            if (run.stopped) break;
+            // What arrived before the failure is already on screen: such a reply is not sent again here.
+            if (text || calls.length) throw e;
+            // The service was busy or the connection dropped: the same request, after a wait Stop cuts short.
+            if (retries < MAX_RETRIES && isTransientError(e)) {
+              retries++;
+              emit({ type: 'retry', attempt: retries, error: e as Error });
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              const waited = await Promise.race([new Promise<void>((r) => { timer = setTimeout(r, (o.retryDelay ?? backoff)(retries)); }), stopSignal]);
+              clearTimeout(timer);
+              if (waited === STOP) break;
+              continue;
+            }
             // A request with a screenshot that fails before anything arrived: try once more without images.
             let turnStart = -1;
             for (let i = messages.length - 1; i >= 0; i--) {
@@ -220,9 +259,12 @@ export function createAgent(o: AgentOptions) {
           return { stopped: false, cut: wasCut, steps };
         }
         const images: string[] = [];
+        /** A change in this reply that failed (and was rolled back): the later ones were written expecting it to work. */
+        let failed: string | null = null;
         for (const call of calls) {
           const step: Step = { id: call.id, name: call.name, args: call.input, status: 'running' };
           steps.push(step);
+          const changes = !!o.changes?.(call.name, call.input);
           let content: string;
           if (run.stopped) {
             step.status = 'skipped';
@@ -231,13 +273,17 @@ export function createAgent(o: AgentOptions) {
             step.status = 'error';
             step.summary = 'The reply hit its length limit while writing this step.';
             content = `Error: not run. Your reply reached the output limit while writing this call, so its arguments were cut off. Split the work into smaller calls.`;
+          } else if (failed && changes) {
+            step.status = 'skipped';
+            step.summary = 'Not run: an earlier change in this reply failed.';
+            content = `Not run: ${failed} earlier in this reply failed and was rolled back, and this change may depend on it. Check the scene, then call this again if it still applies.`;
           } else if (call.input.__unreadable != null) {
             step.status = 'error';
             step.summary = 'The arguments could not be read.';
             content = 'Error: the arguments could not be read as JSON.';
           } else {
             emit({ type: 'step', step: { ...step } });
-            const result = await Promise.race([o.runTool(call.name, call.input), stopSignal]);
+            const result = await Promise.race([o.runTool(call.name, call.input, aborter.signal), stopSignal]);
             if (result === STOP) {
               step.status = 'skipped';
               content = 'Stopped by the user while running; its effect may or may not have been applied. Check the scene before continuing.';
@@ -249,6 +295,7 @@ export function createAgent(o: AgentOptions) {
               content = result.content;
             }
           }
+          if (changes && step.status === 'error') failed ??= call.name;
           emit({ type: 'step', step: { ...step } });
           messages.push({ role: 'tool', tool_call_id: call.id, content });
         }
@@ -258,6 +305,8 @@ export function createAgent(o: AgentOptions) {
             const m = /^data:([^;,]+);base64,(.*)$/.exec(url);
             if (m) parts.push({ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } });
           }
+          // Only the newest screenshot is ever sent again: let the older ones' image data go.
+          releaseShots(messages);
           messages.push({ role: 'user', content: parts, screenshot: true });
         }
         if (run.stopped) return { stopped: true, steps };
@@ -279,6 +328,8 @@ export function createAgent(o: AgentOptions) {
       const lastMsg = transcript.at(-1);
       if (lastMsg && lastMsg.role !== 'assistant') transcript.push({ role: 'assistant', content: '(My previous reply did not finish.)' });
       const content = userContent(text, o.snapshot(), attachments);
+      // A screenshot goes only with the round that took it.
+      releaseShots(transcript);
       transcript.push(attachments.length ? { role: 'user', content, attachments: attachments.map(attachmentMeta) } : { role: 'user', content });
       // Files older than the turns they go with are never sent again, only named: their data is let go.
       for (const m of transcript.filter((x): x is UserMessage => isTurn(x)).slice(0, -ATTACHMENT_TURNS)) {

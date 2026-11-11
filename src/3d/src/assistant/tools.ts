@@ -13,7 +13,7 @@ import { modifierTypes } from '../eval/modifiers';
 import { modifiersSignature } from '../eval/depsgraph';
 import { getNodeType, nodeTypes } from '../nodes/registry';
 import { bridge, loadPython, runPythonText } from '../scripting/python';
-import { formatValue, jsGlobals, output, runJavaScript } from '../scripting/runner';
+import { formatValue, inScript, jsGlobals, output, runJavaScript } from '../scripting/runner';
 import { Inspector } from './inspect';
 import { GUIDES, findGuide } from './guides';
 import { handlerMark, revertHandlers } from '../scripting/handlers';
@@ -66,7 +66,7 @@ interface ToolDef {
   description: string;
   parameters: Obj;
   ui?: boolean;
-  run(a: Obj, host: AssistantHost): Promise<ToolResult | string> | ToolResult | string;
+  run(a: Obj, host: AssistantHost, signal?: AbortSignal): Promise<ToolResult | string> | ToolResult | string;
 }
 
 const obj = (properties: Obj, required: string[] = []): Obj => ({ type: 'object', properties, required, additionalProperties: false });
@@ -230,7 +230,7 @@ function describeChanges(before: SceneState, after: SceneState, ins: Inspector, 
 // ---------------------------------------------------------------------------
 // run_script
 
-async function runScript(a: Obj, host: AssistantHost): Promise<ToolResult> {
+async function runScript(a: Obj, host: AssistantHost, signal?: AbortSignal): Promise<ToolResult> {
   const app = host.app;
   const code = String(a.code ?? '');
   if (!code.trim()) throw new ToolError('code is empty.');
@@ -242,6 +242,8 @@ async function runScript(a: Obj, host: AssistantHost): Promise<ToolResult> {
     } catch (e) {
       throw new ToolError(`${(e as Error).message} Write the script in JavaScript instead.`);
     }
+    // Stopped while the runtime loaded: the exchange is over, and its changes are one undo step already.
+    if (signal?.aborted) throw new ToolError('Not run: the user stopped the assistant.');
   }
   const ins = new Inspector(app);
   ins.settle();
@@ -378,12 +380,23 @@ function apiHelp(topic: string, app: App): string {
   // Anything else is a JavaScript expression over the scripting globals.
   const g = jsGlobals();
   let v: unknown;
+  // A lookup is read-only: an expression that changes the scene (an assignment, an operator) is undone.
+  const mark = app.undo.mark();
+  const handlersBefore = handlerMark();
+  let changed = false;
   try {
-    v = new Function(...Object.keys(g), `"use strict"; return (${t});`)(...Object.values(g));
+    v = inScript('API Help', () => new Function(...Object.keys(g), `"use strict"; return (${t});`)(...Object.values(g)));
   } catch (e) {
     throw new ToolError(`Could not evaluate ${t}: ${(e as Error).message}. Topics: ${Object.keys(GUIDES).map((k) => `"${k}"`).join(', ')}, "operators", "bpy.ops.<module>", "bpy.ops.<module>.<name>", "modifiers", "modifier <TYPE>", "constraints", "nodes <words>", "node <idname>", or an expression such as D.objects['Cube'].data.`);
+  } finally {
+    if (mark && !app.undo.isCurrent(mark)) {
+      app.revertUndo(mark);
+      changed = true;
+    }
+    revertHandlers(handlersBefore);
   }
-  if (v === null || v === undefined || typeof v !== 'object') return `${t} = ${formatValue(v)} (${v === null ? 'null' : typeof v})`;
+  const note = changed ? '\n(Evaluating this changed the scene; the change was undone. api_help only looks things up: use run_script to change the scene.)' : '';
+  if (v === null || v === undefined || typeof v !== 'object') return `${t} = ${formatValue(v)} (${v === null ? 'null' : typeof v})${note}`;
   const lines = [`${t}: ${bridge.typename(v)} ${short(formatValue(v), 300)}`];
   let names: string[] = [];
   try {
@@ -405,7 +418,7 @@ function apiHelp(topic: string, app: App): string {
   }
   if (fields.length) lines.push(`Properties:\n${fields.map((f) => `- ${f}`).join('\n')}`);
   if (methods.length) lines.push(`Methods: ${methods.join(', ')}`);
-  return lines.join('\n');
+  return lines.join('\n') + note;
 }
 
 // ---------------------------------------------------------------------------
@@ -502,16 +515,19 @@ function viewOptions(a: Obj): ViewOptions {
   return { view: view as CaptureView, shading: shading as CaptureShading | undefined, frame };
 }
 
+/** Whether a call changes the scene (a dry run is undone, and the other tools only read or look). */
+export const changesScene = (name: string, args: Obj) => name === 'run_script' && args.dry_run !== true;
+
 /** Schemas for the model; the viewport tools only when there is a viewport. */
 export function toolSpecs(host: AssistantHost): ToolSpec[] {
   return TOOLS.filter((t) => !t.ui || host.ui).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 }
 
-export async function runTool(host: AssistantHost, name: string, args: Obj): Promise<ToolResult> {
+export async function runTool(host: AssistantHost, name: string, args: Obj, signal?: AbortSignal): Promise<ToolResult> {
   const tool = TOOLS.find((t) => t.name === name);
   if (!tool || (tool.ui && !host.ui)) return { ok: false, content: `Error: there is no tool named ${name}.` };
   try {
-    const r = await tool.run(args ?? {}, host);
+    const r = await tool.run(args ?? {}, host, signal);
     return typeof r === 'string' ? { ok: true, content: r } : r;
   } catch (e) {
     if (e instanceof ToolError) return { ok: false, content: `Error: ${e.message}` };

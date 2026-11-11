@@ -9,6 +9,7 @@ import { runCompositor, pickViewer, type RunResult } from './run';
 import { compositingActive, compositingGroup } from './data';
 import { imageKey, setImageDecodedCallback } from './eval/cache';
 import type { LayerSource } from './eval/evaluator';
+import { viewerRegion } from './viewregion';
 
 export const VIEWER_IMAGE = '__viewer_node__';
 
@@ -151,6 +152,7 @@ renderPostHooks.push((r, ctx) => {
     viewer: true,
     viewerNode: compositorState.viewerNode,
     view: sceneView(),
+    size: [r.width, r.height],
   });
   lastSignature = signature(doc);
   apply(out, r, active);
@@ -178,8 +180,13 @@ export function signature(doc: DocumentData): string {
   if (!g) return 'none';
   const groups = new Set<string>();
   const images = new Set<string>();
+  const clips = new Set<string>();
+  let defocus = false;
   const walk = (t: typeof g.tree, depth: number) => {
     for (const n of t.nodes) {
+      // movie clip nodes read the clip's tracking data; Defocus reads the scene camera
+      if (typeof n.props.clip === 'string') clips.add(n.props.clip);
+      if (n.type === 'CompositorNodeDefocus') defocus = true;
       const ng = n.props.node_tree as string | undefined;
       if (ng && !groups.has(ng) && doc.node_groups[ng] && depth < 32) {
         groups.add(ng);
@@ -199,7 +206,14 @@ export function signature(doc: DocumentData): string {
       g.tree.interface,
       [...groups].map((id) => doc.node_groups[id].tree),
       [...images],
+      [...clips].map((id) => {
+        const c = doc.movieclips?.[id];
+        return c ? [id, c.source, c.size, c.fps, c.frame_start, c.frame_offset, c.frame_duration, c.movie?.bytes.length ?? 0, c.sequence?.length ?? 0, c.tracking] : null;
+      }),
+      defocus && doc.scene.camera ? doc.cameras[doc.objects[doc.scene.camera]?.data ?? ''] ?? null : null,
       viewer?.id ?? null,
+      // the Viewer Region masks the viewer image
+      viewerRegion(g.tree),
       [r.resolution_x, r.resolution_y, r.resolution_percentage, r.use_compositing, r.use_pass_z, r.use_pass_normal, r.use_pass_mist, r.view_transform, r.exposure, r.gamma, r.fps, r.fps_base],
       doc.scene.use_nodes,
       doc.scene.frame_current,
@@ -236,12 +250,14 @@ export function recomposite(force = false) {
   const active = compositingActive(doc);
   if (!active) uncomposite(final);
   compositorState.running = true;
+  const src = final ?? (r && !r.rendering && finalResults.has(r) ? r : null);
   const out = runCompositor(doc, {
-    layers: layersOf(final ?? (r && !r.rendering && finalResults.has(r) ? r : null)),
+    layers: layersOf(src),
     composite: active && !!final,
     viewer: true,
     viewerNode: compositorState.viewerNode,
     view: sceneView(),
+    size: src ? [src.width, src.height] : undefined,
   });
   compositorState.running = false;
   apply(out, final, active && !!final);

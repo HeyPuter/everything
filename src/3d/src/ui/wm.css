@@ -33,6 +33,9 @@
 .op-dialog .num-field {
   min-height: var(--row);
 }
+.op-dialog:focus {
+  outline: none;
+}
 .op-dialog-buttons {
   display: flex;
   justify-content: flex-end;
