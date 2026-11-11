@@ -203,6 +203,18 @@ describe('graphs in the document', () => {
     expect(document.querySelector('.graph-data')).toBeNull();
   });
 
+  it('closing the Graph Data window with Escape puts focus back on the canvas', async () => {
+    const g = makeGraph(app);
+    app.canvasHost.focus();
+    app.graphData.show(g.id);
+    const win = document.querySelector('.graph-data');
+    expect(win.contains(document.activeElement)).toBe(true);
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await tick();
+    expect(document.querySelector('.graph-data')).toBeNull();
+    expect(document.activeElement).toBe(app.canvasHost);
+  });
+
   it('the Graph Data window follows undo, and edits stay with their own document', async () => {
     const g = makeGraph(app);
     const doc = app.editor.doc;

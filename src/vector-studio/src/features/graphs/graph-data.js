@@ -55,7 +55,10 @@ export class GraphDataWindow {
   show(gid) {
     const g = this.app.editor?.doc.get(gid);
     if (!isGraph(g)) return;
-    if (!this.open) this.#build();
+    if (!this.open) {
+      this.returnTo = document.activeElement;
+      this.#build();
+    }
     this.#bind(this.app.editor);
     this.#load(g);
     this.el.querySelector('input.gd-cell')?.focus();
@@ -64,7 +67,14 @@ export class GraphDataWindow {
   close() {
     if (!this.el) return;
     this.#bind(null);
+    const hadFocus = this.el.contains(document.activeElement);
     this.el.remove();
+    // Focus goes back where it was (the canvas), not to the page.
+    if (hadFocus) {
+      const back = this.returnTo?.isConnected && this.returnTo !== document.body ? this.returnTo : this.app.canvasHost;
+      back?.focus?.({ preventScroll: true });
+    }
+    this.returnTo = null;
     this.el = null;
     this.gid = null;
   }
