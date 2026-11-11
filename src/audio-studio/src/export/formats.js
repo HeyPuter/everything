@@ -236,7 +236,8 @@ export function stripExtension(name) {
 /** Replaces the extension of `name` with the format's. */
 export function withExtension(name, formatId) {
   const f = getFormat(formatId);
-  const base = stripExtension(name || 'Untitled');
+  // Trailing dots go first ("Song." is not "Song..wav"); most file systems drop them anyway.
+  const base = stripExtension(String(name || 'Untitled').replace(/\.+$/, ''));
   return `${base}.${f ? f.ext : 'wav'}`;
 }
 

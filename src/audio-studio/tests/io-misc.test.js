@@ -84,6 +84,8 @@ describe('export option logic', () => {
     // A version number at the end is part of the name, not an extension.
     expect(withExtension('Mix 1.5', 'wav')).toBe('Mix 1.5.wav');
     expect(withExtension('Song.m4a', 'wav')).toBe('Song.wav');
+    expect(withExtension('Song.', 'wav')).toBe('Song.wav');
+    expect(withExtension('Song.mp3..', 'flac')).toBe('Song.flac');
     expect(initialState(AudioFile.blank({ name: 'Mix 1.5.wav', sampleRate: 44100, channels: 1, seconds: 1 }), { mode: 'saveAs', frames: 1 }).name).toBe('Mix 1.5.wav');
     expect(sanitizeFileName(' a/b:c*?.wav ')).toBe('a_b_c__.wav');
     expect(formatForName('X.AIFF')).toBe('aiff');
