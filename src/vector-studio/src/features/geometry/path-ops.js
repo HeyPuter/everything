@@ -36,7 +36,7 @@ import { formatLength } from '../../lib/units.js';
 import { hasAppearanceStack } from '../../model/appearance.js';
 import { expandNodeAppearance } from '../../ops/expand-appearance.js';
 import { isLive } from '../../model/live.js';
-import { JOIN, strokeParams } from './stroke-params.js';
+import { JOIN, strokeParams, strokeWork, HEAVY_STROKE_WORK } from './stroke-params.js';
 
 export { strokeParams };
 
@@ -153,7 +153,14 @@ export async function outlineStroke(app, { label = 'Outline Stroke', expandFill 
   const snap = snapshot(doc, nodes);
   const strokes = nodes.map((n) => drawnStroke(app, doc, n));
   const results = await withBusy(app, label, () =>
-    Promise.all(nodes.map((n, i) => runGeom(OP.STROKE, [strokes[i].shape], strokeParams(n, strokes[i].pattern, strokes[i].shape.subpaths), { tol: 0.01 }))),
+    Promise.all(
+      nodes.map((n, i) => {
+        const params = strokeParams(n, strokes[i].pattern, strokes[i].shape.subpaths);
+        // Many dashes take long even on a short path: keep the UI responsive.
+        const worker = strokeWork(params, strokes[i].shape.subpaths) > HEAVY_STROKE_WORK || undefined;
+        return runGeom(OP.STROKE, [strokes[i].shape], params, { tol: 0.01, worker });
+      }),
+    ),
   );
   if (!unchangedSince(doc, snap)) return false;
   const ids = [];

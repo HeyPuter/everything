@@ -12,7 +12,7 @@ import { shapeBuilderPlan, splitPathAt, joinEnds } from '../src/features/geometr
 import { addMidpoints, removeAnchorsKeepingShape, fitPolygon } from '../src/features/geometry/anchors.js';
 import { recognizeShape, gridCells, cleanUpTargets, outlineStroke, divideBelow, simplifySubpaths, addAnchorPoints, strokeParams } from '../src/features/geometry/path-ops.js';
 import { geometryLeaves, nodeFromSubpaths } from '../src/features/geometry/nodes-io.js';
-import { MAX_DASHES } from '../src/features/geometry/stroke-params.js';
+import { MAX_DASHES, MAX_DASH_WORK, strokeWork } from '../src/features/geometry/stroke-params.js';
 import { makeBlend, replaceSpine } from '../src/features/artboards/blend.js';
 import { liveDef } from '../src/model/live.js';
 
@@ -419,6 +419,21 @@ describe('path commands', () => {
     expect(d1).toBeCloseTo(d2, 9);
     expect(d1 + d2).toBeCloseTo(100 / MAX_DASHES, 6);
     expect(strokeParams({ ...p, dash: [3, 2] }, null, subs).slice(6)).toEqual([3, 2]);
+    // Round caps that cover every gap of a too-dense pattern draw a solid stroke: it is outlined as one.
+    const round = { ...p, strokeWidth: 2, strokeCap: 'round' };
+    expect(strokeParams(round, null, subs).slice(6)).toEqual([]);
+    expect(strokeParams({ ...round, dash: [0.01, 0.01] }, null, subs).slice(6)).toEqual([]);
+    // Overlapping caps count for more work: a pattern that does not cover its gaps is scaled up instead.
+    const wide = { ...p, strokeWidth: 10, strokeCap: 'round', dash: [0, 2] };
+    const [, gap] = strokeParams(wide, null, subs).slice(6);
+    expect(gap).toBeCloseTo(2, 9);
+    const long = [{ anchors: [anchor(0, 0), anchor(100000, 0)], closed: false }];
+    const [, scaled] = strokeParams(wide, null, long).slice(6);
+    expect(scaled).toBeGreaterThan(2);
+    expect(strokeWork(strokeParams(wide, null, long), long)).toBeLessThanOrEqual(MAX_DASH_WORK * 1.001);
+    // An ordinary dotted line stays as drawn: 5,000 dots of 10 pt every 11 pt.
+    const dotted = [{ anchors: [anchor(0, 0), anchor(55000, 0)], closed: false }];
+    expect(strokeParams({ ...wide, dash: [0, 11] }, null, dotted).slice(6)).toEqual([1e-4, 11]);
   });
 
   it('Divide Objects Below cuts the objects under the selected path', async () => {

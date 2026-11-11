@@ -12,7 +12,7 @@ import { OP, runGeom, geomIfLoaded } from '../../geometry/engine/index.js';
 import { encode, jobSize } from '../../geometry/engine/codec.js';
 import { geomEffectsChanged } from '../../../model/geom-effects.js';
 import { paintParts } from '../../../model/geom-effects.js';
-import { JOIN, CAP, ALIGN, strokeParams } from '../../geometry/stroke-params.js';
+import { JOIN, CAP, ALIGN, strokeParams, strokeWork, HEAVY_STROKE_WORK } from '../../geometry/stroke-params.js';
 import { emptyShapeModeReason } from '../../geometry/pathfinder.js';
 
 /** Anchor count up to which a job runs synchronously while drawing. */
@@ -36,11 +36,12 @@ function hashInput(op, shapes, params, tol) {
 /**
  * Engine records for a job: an array, null when the engine failed, or
  * undefined while the result is still being computed in the background
- * (`pending()` is called then).
+ * (`pending()` is called then). `heavy` sends a job with few anchors but
+ * much work (many dashes) to the background too.
  */
-export function engineResult(op, shapes, params = [], { tol = 0.02, pending = null } = {}) {
+export function engineResult(op, shapes, params = [], { tol = 0.02, pending = null, heavy = false } = {}) {
   const inst = geomIfLoaded();
-  if (inst && jobSize(shapes) <= SYNC_LIMIT) {
+  if (inst && !heavy && jobSize(shapes) <= SYNC_LIMIT) {
     try {
       return inst.run(op, shapes, params, tol);
     } catch {
@@ -123,7 +124,8 @@ export function outlineStroke(subs, fx, info) {
   const params = strokeParams(n, null, subs);
   return byPaint(n, subs, (group, paint) => {
     if (paint) return group;
-    const r = engineResult(OP.STROKE, [{ subpaths: group, filled: Boolean(n.fill), evenodd: n.fillRule === 'evenodd' }], params, { pending: info.pending });
+    const heavy = strokeWork(params, group) > HEAVY_STROKE_WORK;
+    const r = engineResult(OP.STROKE, [{ subpaths: group, filled: Boolean(n.fill), evenodd: n.fillRule === 'evenodd' }], params, { pending: info.pending, heavy });
     return r ? recordSubpaths(r) : group;
   });
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { installCanvasStub } from './helpers.js';
@@ -298,11 +298,18 @@ describe('engine effects', () => {
     for (const s of out) expect(area([s])).toBeCloseTo(Math.PI * 25, 0);
   });
 
-  it('outlines a pattern of tiny dashes coarser instead of freezing', () => {
+  it('outlines a pattern of tiny dashes coarser, in the background, instead of freezing', async () => {
     const node = { type: 'path', stroke: blue, strokeWidth: 1, dash: [0.0001, 0.0001], fill: null };
-    const out = outlineStroke([{ anchors: line(0, 0, 100, 0), closed: false }], {}, { node, pending: () => {} });
-    expect(out.length).toBeGreaterThan(1000);
-    expect(out.length).toBeLessThanOrEqual(MAX_DASHES + 1);
+    const subs = [{ anchors: line(0, 0, 100, 0), closed: false }];
+    const pending = vi.fn();
+    // Too much work to do while drawing: the outline passes through until the background result arrives.
+    expect(outlineStroke(subs, {}, { node, pending })).toBe(subs);
+    expect(pending).toHaveBeenCalled();
+    await vi.waitFor(() => {
+      const out = outlineStroke(subs, {}, { node, pending });
+      expect(out.length).toBeGreaterThan(1000);
+      expect(out.length).toBeLessThanOrEqual(MAX_DASHES + 1);
+    });
   });
 
   it('combines group items with the pathfinder style rules', () => {
