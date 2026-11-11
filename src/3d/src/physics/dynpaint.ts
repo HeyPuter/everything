@@ -13,7 +13,7 @@ import type { Depsgraph } from '../eval/depsgraph';
 import { meshSignature } from '../eval/depsgraph';
 import { closestOnTriangle, meshTriangles } from '../eval/geomquery';
 import { vertexNormals } from '../eval/meshbuild';
-import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, caches, type FrameCache, type SimContext } from './common';
+import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, caches, type FrameCache, type SimContext, stepCount } from './common';
 import { physicsDoc } from './state';
 import { defaultPointCache, type PointCacheSettings } from './types';
 import { particleCacheKey, systemOf } from './particles';
@@ -685,7 +685,7 @@ export function surfaceState(ob: ObjectData, m: DynamicPaintModifier, sf: DPSurf
   const g = doc.scene.use_gravity ? doc.scene.gravity : [0, 0, -9.81];
   const gravity = new Vector3(g[0], g[1], g[2]);
   const brushes = brushObjects(doc, sf, ob.id);
-  const sub = Math.max(0, Math.round(sf.frame_substeps ?? 0));
+  const sub = stepCount(sf.frame_substeps ?? 0, 0, 20);
   while (cache.last < f) {
     if (cache.last > pc.frame_start && outOfTime()) break;
     const k = cache.last + 1;

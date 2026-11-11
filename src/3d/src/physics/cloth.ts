@@ -6,6 +6,7 @@ import type { DocumentData } from '../data/types';
 import type { EvalMesh } from '../eval/types';
 import { runMeshSim, meshSimSignature, simDeps, gravityOf, type MeshSimSetup } from './meshsim';
 import { physicsDoc } from './state';
+import { stepCount } from './common';
 import {
   defaultClothCollision,
   defaultClothSettings,
@@ -28,7 +29,7 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
   const s = { ...defaultClothSettings(), ...m.settings };
   const c = { ...defaultClothCollision(), ...m.collision_settings };
   const pin = groupWeights(mesh, s.vertex_group_mass);
-  const quality = Math.max(1, Math.round(s.quality));
+  const quality = stepCount(s.quality, 1, 80);
   const n = mesh.positions.length / 3;
   const group = (name: string | undefined) => (name ? groupWeights(mesh, name) : null);
   const structural = group(s.vertex_group_structural_stiffness),
@@ -69,7 +70,7 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
       goal: null,
       shapeMatch: 0,
       fieldWeight: s.effector_weights_all,
-      collision: c.use_collision ? { distance: c.distance_min, quality: Math.max(1, Math.round(c.collision_quality)) } : null,
+      collision: c.use_collision ? { distance: c.distance_min, quality: stepCount(c.collision_quality, 1, 20) } : null,
       self: c.use_self_collision ? { distance: c.self_distance_min, friction: c.self_friction } : null,
       impulseClamp: c.impulse_clamp ?? 0,
       selfImpulseClamp: c.self_impulse_clamp ?? 0,
@@ -99,7 +100,7 @@ export function softBodySetup(m: SoftBodyModifier, mesh: EvalMesh, doc: Document
       goal[i] = s.goal_min + (s.goal_max - s.goal_min) * Math.min(1, Math.max(0, w));
     }
   }
-  const quality = Math.max(1, Math.round(s.quality));
+  const quality = stepCount(s.quality, 1, 50);
   // goal weight 1 means fully pinned (goal strength max = no dynamics)
   const pin = goal ? goal.map((g) => (g >= 0.999 ? 1 : 0)) : null;
   // self collision ball size: fixed, or a factor of the edge lengths
@@ -123,7 +124,7 @@ export function softBodySetup(m: SoftBodyModifier, mesh: EvalMesh, doc: Document
     selfDist = Math.max(0.001, edge * Math.max(0.001, s.self_ball_size ?? 0.1));
   }
   // solver steps: the quality, kept within the step range when automatic
-  const steps = s.use_auto_step === false ? Math.max(1, Math.round((s.step_min ?? 10) / 2)) : quality;
+  const steps = s.use_auto_step === false ? Math.max(1, Math.round(stepCount(s.step_min, 0, 30000, 10) / 2)) : quality;
   const massW = groupWeights(mesh, s.vertex_group_mass);
   const springW = groupWeights(mesh, s.vertex_group_spring);
   return {

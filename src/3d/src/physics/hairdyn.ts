@@ -5,7 +5,7 @@ import { Matrix4, Vector3 } from 'three';
 import type { ModifierBase, ObjectData } from '../data/types';
 import type { ModifierContext } from '../eval/types';
 import type { Depsgraph } from '../eval/depsgraph';
-import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, rand01, strHash, worldAt, type FrameCache, type SimContext } from './common';
+import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, rand01, strHash, worldAt, type FrameCache, type SimContext, stepCount } from './common';
 import { collectEffectors, fieldsKey } from './fields';
 import { buildColliders, collidersKey } from './colliders';
 import { initState, stepFrame, KIND_STRUCT, KIND_BEND, type PBDParams, type PBDState, type Topology } from './pbd';
@@ -179,7 +179,7 @@ export function hairWithDynamics(ob: ObjectData, m: ModifierBase, psys: Particle
     const goal = d.pin_stiffness > 0 ? { weights: new Float32Array(nParentPts).fill(1), spring: Math.min(0.999, d.pin_stiffness), friction: 0 } : null;
     const P: PBDParams = {
       dt: MESH_SIM_FRAME_TIME,
-      substeps: Math.max(1, Math.round(d.quality)),
+      substeps: stepCount(d.quality, 1, 50),
       iterations: 4,
       gravity: gravityOf(doc, d.effector_weights_gravity * d.effector_weights_all),
       airDamping: d.air_damping,
@@ -194,7 +194,7 @@ export function hairWithDynamics(ob: ObjectData, m: ModifierBase, psys: Particle
       goal,
       shapeMatch: 0,
       fieldWeight: d.effector_weights_all,
-      collision: d.use_collision ? { distance: d.collision_distance, quality: Math.max(1, Math.round(d.collision_quality ?? 1)) } : null,
+      collision: d.use_collision ? { distance: d.collision_distance, quality: stepCount(d.collision_quality ?? 1, 1, 20) } : null,
       self: null,
       restScale: 1,
     };

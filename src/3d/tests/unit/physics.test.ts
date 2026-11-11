@@ -102,6 +102,19 @@ describe('rigid bodies', () => {
     expect(rigidBodyCache().last).toBe(100);
   });
 
+  it('keeps rigid body substeps and iterations from files within their limits', () => {
+    caches.clear();
+    const doc = emptyDocument();
+    doc.scene.rigidbody_world = { ...defaultRigidBodyWorld(1, 250), substeps_per_frame: 1e9, solver_iterations: 1e9 };
+    const box = addMesh(doc, 'Box', cube(2), [0, 0, 5]);
+    box.rigid_body = defaultRigidBody('ACTIVE');
+    const g = new Depsgraph(doc);
+    const t = performance.now();
+    evalAt(g, doc, 3);
+    expect(performance.now() - t).toBeLessThan(20000);
+    expect(g.get(box.id)!.world.elements.every(Number.isFinite)).toBe(true);
+  });
+
   it('collision shapes respect object scale', () => {
     caches.clear();
     const doc = emptyDocument();
@@ -174,6 +187,27 @@ describe('cloth', () => {
     evalAt(g, doc, 20);
     const p = g.get(ob.id)!.mesh!.positions;
     for (let i = 0; i < p.length; i++) expect(p[i]).toBeCloseTo(rest[i], 5);
+  });
+
+  it('keeps step counts from files and scripts within their field limits', () => {
+    // quality 1e9 (cloth) or a manual step size of 1e9 (soft body) used to run for hours
+    for (const [kind, set] of [
+      ['CLOTH', { quality: 1e9 }],
+      ['CLOTH', { quality: Infinity }],
+      ['SOFT_BODY', { use_auto_step: false, step_min: 1e9 }],
+    ] as const) {
+      caches.clear();
+      const doc = emptyDocument();
+      const ob = addMesh(doc, 'Sim', grid(4, 4, 2), [0, 0, 2]);
+      const mod = newModifier(kind, uid('md'), []) as ClothModifier;
+      Object.assign(mod.settings, set);
+      ob.modifiers.push(mod);
+      const g = new Depsgraph(doc);
+      const t = performance.now();
+      for (let f = 1; f <= 3; f++) evalAt(g, doc, f);
+      expect(performance.now() - t).toBeLessThan(20000);
+      expect([...g.get(ob.id)!.mesh!.positions].every(Number.isFinite)).toBe(true);
+    }
   });
 
   it('collides with a collision object', () => {

@@ -353,6 +353,15 @@ export function freeCache(key: string) {
   if (c) c.reset('');
 }
 
+/**
+ * A step or iteration count from the settings, rounded and kept within the limits of its field:
+ * files and scripts can set anything, and a count of 1e9 would hang the evaluation.
+ */
+export function stepCount(v: unknown, lo: number, hi: number, fallback = lo): number {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
+}
+
 /** Clamp to integer frame. */
 export const frameOf = (graph: { frame: number }) => Math.floor(graph.frame + 1e-6);
 

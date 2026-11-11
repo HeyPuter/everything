@@ -4,7 +4,7 @@
 // particles are classified every frame by how much liquid surrounds them: little liquid → spray
 // (falls ballistically), at the surface → foam (rides on the liquid, ages and disappears), inside →
 // bubbles (rise against gravity with drag towards the liquid's motion). Grid units throughout.
-import { rand01 } from './common';
+import { rand01, stepCount } from './common';
 
 export const SPRAY = 0,
   FOAM = 1,
@@ -330,7 +330,7 @@ export function secondaryParams(s: Record<string, unknown>, fps: number, gravity
     buoyancy: n('sndparticle_bubble_buoyancy', 0.5),
     drag: n('sndparticle_bubble_drag', 0.6),
     pushOut: s.sndparticle_boundary === 'PUSHOUT',
-    scale: Math.max(1, n('particle_scale', 1)),
+    scale: stepCount(n('particle_scale', 1), 1, 10),
     fps,
     gravity,
   };
