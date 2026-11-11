@@ -102,7 +102,10 @@ export function selectObjects(editor, what) {
   doc.walk((n) => {
     if (n.hidden || n.locked) return false;
     if (what === 'text' && n.type === 'text') out.push(n.id);
-    if (what === 'clipping' && n.type === 'group' && n.clip && n.children.length) out.push(n.children[n.children.length - 1]);
+    if (what === 'clipping' && n.type === 'group' && n.clip && n.children.length) {
+      const mask = doc.get(n.children[n.children.length - 1]);
+      if (mask && !mask.hidden && !mask.locked) out.push(mask.id);
+    }
     if (what === 'stray' && n.type === 'path' && n.anchors.length === 1) out.push(n.id);
     return true;
   });

@@ -488,3 +488,23 @@ describe('selections never take hidden or locked objects', () => {
     expect([...ed.selection]).toEqual([ids[1]]);
   });
 });
+
+describe('Select > Object > Clipping Masks', () => {
+  it('skips a locked clipping path', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const ids = [0, 1].map((i) => {
+      const p = createPath(rectangle(i * 20, 0, 50, 50), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    });
+    ed.select(ids);
+    await app.commands.run('object.clipMake');
+    await app.commands.run('select.object.clipping');
+    expect([...ed.selection]).toEqual([ids[1]]);
+    await app.commands.run('object.lock');
+    await app.commands.run('select.object.clipping');
+    expect([...ed.selection]).toEqual([]);
+  });
+});
