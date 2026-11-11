@@ -137,6 +137,21 @@ describe('home screen', () => {
     }
   });
 
+  it('adds dropped project files and opens dropped media together', async () => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    const bundles = vi.spyOn(h, 'importBundles').mockResolvedValue();
+    const zip = new File(['zip'], 'Trip.video-studio.zip', { type: 'application/zip' });
+    const clipFile = new File(['v'], 'clip.mp4', { type: 'video/mp4' });
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    drop.dataTransfer = { types: ['Files'], files: [zip, clipFile] };
+    root.querySelector('.home').dispatchEvent(drop);
+    await settle();
+    expect(bundles).toHaveBeenCalledWith([zip]);
+    expect(h.onImportFiles).toHaveBeenCalledWith([clipFile]);
+  });
+
   it('purges projects that have been in the Trash too long when it opens', async () => {
     const lib = new Library(memoryBackend());
     const old = await lib.createProject({ name: 'Old' });

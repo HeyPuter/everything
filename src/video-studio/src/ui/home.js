@@ -700,7 +700,7 @@ export class Home {
       depth = Math.max(0, depth - 1);
       if (!depth) page.classList.remove('dropping');
     });
-    page.addEventListener('drop', (e) => {
+    page.addEventListener('drop', async (e) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
       depth = 0;
@@ -708,8 +708,9 @@ export class Home {
       const files = [...e.dataTransfer.files];
       const bundles = files.filter((f) => /\.zip$/i.test(f.name));
       const media = files.filter((f) => !bundles.includes(f));
-      if (bundles.length) this.importBundles(bundles);
-      else if (media.length) this.onImportFiles(media);
+      // Both at once: the project files are added, then the media opens in a new project.
+      if (bundles.length) await this.importBundles(bundles);
+      if (media.length) this.onImportFiles(media);
     });
   }
 
