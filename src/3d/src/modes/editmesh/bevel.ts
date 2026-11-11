@@ -3,6 +3,7 @@ import { Vector3 } from 'three';
 import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { flipFace, makeNormalsConsistent } from './ops-basic';
 import { cornerPatchGeometry, profilePoints } from './bevelprofile';
+import { ensureMeshSize, meshEditCorners } from '../../mesh/limits';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
 
@@ -57,6 +58,9 @@ export function bevelVertices(m: MeshEdit, offset: number, segments = 1, profile
   const vf = m.vertexFaces();
   const nb = m.neighbors();
   const segs = Math.max(1, Math.round(segments));
+  let valence = 0;
+  for (const v of verts) valence += nb[v].length;
+  ensureMeshSize('Bevel', meshEditCorners(m) + valence * segs * 8, m.vcount + valence * segs);
   // cut vertex → the beveled vertex it was cut for (a neighbour beveled earlier shows up as its cut vertex)
   const owner = new Map<number, number>();
   for (const v of verts) {
@@ -217,6 +221,13 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
   if (opts.clamp) offset = Math.min(offset, bevelClampLimit(m, opts.offsetType === 'ABSOLUTE'));
   const sel = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
   if (!sel.size || offset <= 0) return false;
+  {
+    // strips along the edges, plus a patch of about segments² faces where three of them meet
+    const segs = Math.max(1, segments);
+    const ends = new Set<string>();
+    for (const k of sel) for (const x of k.split(':')) ends.add(x);
+    ensureMeshSize('Bevel', meshEditCorners(m) + sel.size * segs * 8 + (segs > 1 ? ends.size * segs * segs * 2 : 0), m.vcount + sel.size * segs * 2 + (segs > 1 ? ends.size * segs * segs : 0) / 2);
+  }
   const ef = m.edgeFaces();
   const faces0 = m.faces.map((f) => [...f.verts]);
   const corner = new Map<string, number>(); // `${face}:${vertex}` -> new vertex id

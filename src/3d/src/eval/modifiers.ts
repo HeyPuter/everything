@@ -2,6 +2,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { ModifierBase } from '../data/types';
 import type { EvalMesh, ModifierContext, ModifierType } from './types';
+import { ensureMeshSize } from '../mesh/limits';
 import { MeshBuilder, appendLooseEdges, appendMesh, weightsOf, groupWeights, vertexNormals } from './meshbuild';
 import { edgeTopology, polyNormal, triangulatePoly, vertexFaces } from '../mesh/mesh';
 import { armatureDeform } from './mods/skinning';
@@ -41,6 +42,8 @@ export const creaseToSharpness = (c: number) => 10 * c * c;
 const sharpnessToCrease = (s: number) => Math.sqrt(Math.max(0, Math.min(10, s)) / 10);
 
 export function catmullClark(m: EvalMesh, levels: number, simple = false, useCreases = true, opts: SubdivOptions = {}): EvalMesh {
+  // every level makes four corners of each corner
+  if (levels > 0) ensureMeshSize('Subdivision', m.indices.length * 4 ** levels, (m.indices.length * 4 ** levels) / 4);
   // creases travel through the levels as sharpness (each level uses up one unit)
   const toSharp = (a: Float32Array | undefined) => (a ? Float32Array.from(a, creaseToSharpness) : undefined);
   let mesh: EvalMesh = useCreases && !simple && levels > 0 ? { ...m, creases: toSharp(m.creases), crease_vert: toSharp(m.crease_vert) } : m;
@@ -705,6 +708,7 @@ function arrayMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMe
     count = Math.max(1, Math.floor(target / len + 1e-6) + 1);
   }
   count = Math.min(count, 1000);
+  ensureMeshSize('Array', count * m.indices.length, count * (m.positions.length / 3));
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
   const cur = new Matrix4();
   const v = new Vector3();
@@ -1034,6 +1038,7 @@ function screw(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const full = Math.abs(Math.abs(angle) - Math.PI * 2) < 1e-4 && !height && iterations === 1;
   const total = steps * iterations;
   const rings = full ? total : total + 1;
+  ensureMeshSize('Screw', (pairs.length / 2) * total * 4, (nv * rings));
   const b = new MeshBuilder();
   const v = new Vector3();
   const ids: number[][] = [];

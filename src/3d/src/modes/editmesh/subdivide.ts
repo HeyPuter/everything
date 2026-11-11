@@ -4,6 +4,7 @@
 import { Vector3 } from 'three';
 import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { V } from './geom';
+import { ensureMeshSize, meshEditCorners } from '../../mesh/limits';
 
 export interface SubdivideOptions {
   /** how a quad with two adjacent cut edges is split */
@@ -76,6 +77,10 @@ export function subdivide(m: MeshEdit, cuts: number, smoothness: number, opts: S
   const firstNew = m.vcount;
   const selEdges = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
   if (!selEdges.size || cuts < 1) return false;
+  // a fully selected face turns into (cuts + 1)² faces
+  let sel = 0;
+  for (const fi of m.selectedFaces()) sel += m.faces[fi].verts.length;
+  ensureMeshSize('Subdivide', meshEditCorners(m) + sel * (cuts + 1) ** 2 + selEdges.size * cuts * 4, m.vcount + (sel / 4) * (cuts + 1) ** 2 + selEdges.size * cuts);
   const ngon = opts.ngon !== false;
   const normals: Vector3[] = smoothness ? angleWeightedNormals(m) : [];
   const nrm = (v: number) => normals[v] ?? new Vector3();

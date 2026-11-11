@@ -10,6 +10,7 @@ import { editPoll } from './ops-basic';
 import { extrudeRegion, extrudeTypes } from './ops-topology';
 import { flipFace } from './ops-basic';
 import { V, vertexNormalsFromFaces, dissolveEdgeSet, dissolveCollinearVerts, edgeChains } from './geom';
+import { ensureMeshSize, meshEditCorners } from '../../mesh/limits';
 
 /** Move every selected vertex along the normal of its selected faces (shrink/fatten). */
 export function shrinkFatten(m: MeshEdit, value: number) {
@@ -62,6 +63,10 @@ export function dissolveOrthogonalWalls(m: MeshEdit, angle = 1e-3): number {
 
 /** Extrude the selection `steps` times, moving by `offset` (local) each time. */
 export function extrudeRepeat(m: MeshEdit, steps: number, offset: Vector3) {
+  // each step adds walls around the selection and moves it: at least its corners again
+  let sel = 0;
+  for (const fi of m.selectedFaces()) sel += m.faces[fi].verts.length;
+  ensureMeshSize('Extrude Repeat', meshEditCorners(m) + steps * Math.max(sel, m.selectedVerts().length) * 2, m.vcount + steps * m.selectedVerts().length);
   for (let i = 0; i < steps; i++) {
     if (!extrudeRegion(m)) return i > 0;
     moveSelected(m, offset);
@@ -80,6 +85,7 @@ export function screw(m: MeshEdit, steps: number, turns: number, center: Vector3
   const ends = [chain.verts[0], chain.verts[chain.verts.length - 1]].sort((a, b) => a - b);
   const advance = chain.closed ? 0 : V(m.p(ends[0])).sub(V(m.p(ends[1]))).dot(axis);
   const total = steps * turns;
+  ensureMeshSize('Screw', meshEditCorners(m) + edges.length * total * 4, m.vcount + (edges.length + 1) * total);
   // every vertex of the selected edges (a branched profile's chain doesn't reach all of them)
   const profile = [...new Set(edges.flat())];
   let prev = new Map(profile.map((v) => [v, v]));
