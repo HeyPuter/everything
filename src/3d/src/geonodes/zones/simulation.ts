@@ -164,7 +164,12 @@ geoNode(
         return outputs(hit.state);
       }
       let prev = cache.frames.get(frame - 1)?.state;
-      if (!prev && cache.last !== null && cache.last < frame) prev = cache.frames.get(cache.last)?.state;
+      if (!prev) {
+        // frames were skipped (or this one lies in a gap left by a jump): step from the latest earlier frame
+        let best = -Infinity;
+        for (const f of cache.frames.keys()) if (f < frame && f > best) best = f;
+        if (best > -Infinity) prev = cache.frames.get(best)?.state;
+      }
       let dt = 1 / (ctx.env.fps || 24);
       if (!prev) {
         cache.frames.clear();
