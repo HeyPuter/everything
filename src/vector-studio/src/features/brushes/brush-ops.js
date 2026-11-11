@@ -3,7 +3,7 @@
  * change is one undo step.
  */
 import { UserError } from '../../lib/errors.js';
-import { docBrushes, setDocBrushes, brushById, brushUsers, copyBrush, uniqueBrushName } from './brush-model.js';
+import { docBrushes, setDocBrushes, brushById, brushUsers, copyBrush, uniqueBrushName, nodeBrushIds } from './brush-model.js';
 import { expandLive } from '../../model/live.js';
 import { targetedItem, setItemAttrs } from '../paint/appearance-ops.js';
 import { stackItems } from '../../model/appearance.js';
@@ -141,6 +141,12 @@ export function deleteBrushes(doc, ids, inUse = 'remove') {
   doc.transact(ids.length > 1 ? 'Delete Brushes' : 'Delete Brush', () => {
     for (const id of ids) {
       for (const user of brushUsers(doc, id)) {
+        // Extra strokes (Appearance panel) go back to plain strokes.
+        const n = doc.get(user);
+        if (n.appearance?.some((it) => it?.type === 'stroke' && !it.base && it.brush?.id === id)) {
+          doc.update(user, { appearance: n.appearance.map((it) => (it?.type === 'stroke' && !it.base && it.brush?.id === id ? { ...it, brush: undefined, brushPressure: undefined } : it)) });
+        }
+        if (doc.get(user).brush?.id !== id) continue;
         if (inUse === 'expand') expandLive(doc, user);
         else doc.update(user, { brush: undefined, brushPressure: undefined });
       }
@@ -153,7 +159,7 @@ export function deleteBrushes(doc, ids, inUse = 'remove') {
 export function unusedBrushIds(doc) {
   const used = new Set();
   doc.walk((n) => {
-    if (n.brush?.id) used.add(n.brush.id);
+    for (const id of nodeBrushIds(n)) used.add(id);
     return true;
   });
   return docBrushes(doc).filter((b) => !used.has(b.id)).map((b) => b.id);
@@ -193,7 +199,7 @@ export function moveBrush(doc, id, toIndex) {
 export const brushClipboardHook = {
   copy(doc, ids, data) {
     const used = new Set();
-    for (const item of data.items || []) for (const n of item.nodes || []) if (n.brush?.id) used.add(n.brush.id);
+    for (const item of data.items || []) for (const n of item.nodes || []) for (const id of nodeBrushIds(n)) used.add(id);
     data.brushes = [...used].map((id) => brushById(doc, id)).filter(Boolean);
   },
   paste(doc, data) {
