@@ -371,3 +371,50 @@ test('the navigation gizmo works from the keyboard', async ({ page }) => {
   expect(await page.evaluate(async () => (await import('/src/editors/view3d/view3d.ts' as string)).activeView3D().cameraView)).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('two fingers pan and pinch-zoom the view without selecting', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  const nav = () => page.evaluate(async () => {
+    const v = (await import('/src/editors/view3d/view3d.ts' as string)).activeView3D();
+    return { d: v.nav.distance, p: v.nav.pivot.toArray() as number[] };
+  });
+  const n0 = await nav();
+  const touch = (type: string, id: number, x: number, y: number) =>
+    page.evaluate(
+      ([type, id, x, y]) => {
+        const target = type === 'pointerdown' ? (document.querySelector('.view3d') as Element) : window;
+        target.dispatchEvent(new PointerEvent(type as string, { bubbles: true, pointerId: id as number, pointerType: 'touch', clientX: x as number, clientY: y as number, button: type === 'pointermove' ? -1 : 0, buttons: type === 'pointerup' ? 0 : 1, isPrimary: id === 1 }));
+      },
+      [type, id, x, y] as const,
+    );
+  // first finger on empty space, a little drag (would start a box select), then the second finger
+  const y = c.box.y + c.box.height - 80;
+  await touch('pointerdown', 1, c.x - 60, y);
+  await touch('pointermove', 1, c.x - 50, y - 10);
+  await touch('pointerdown', 2, c.x + 60, y);
+  // spread the fingers: zoom in
+  for (let i = 1; i <= 5; i++) {
+    await touch('pointermove', 1, c.x - 50 - i * 10, y);
+    await touch('pointermove', 2, c.x + 60 + i * 10, y);
+  }
+  const n1 = await nav();
+  expect(n1.d).toBeLessThan(n0.d * 0.9);
+  // move both fingers right: pan
+  for (let i = 1; i <= 5; i++) {
+    await touch('pointermove', 1, c.x - 100 + i * 10, y);
+    await touch('pointermove', 2, c.x + 110 + i * 10, y);
+  }
+  const n2 = await nav();
+  expect(n2.p).not.toEqual(n1.p);
+  await touch('pointerup', 1, c.x - 50, y);
+  await touch('pointerup', 2, c.x + 160, y);
+  // nothing was (de)selected and no box is left over
+  expect(await page.evaluate(() => Object.values((window as any).app.doc.objects).filter((o: any) => o.select).map((o: any) => o.name))).toEqual(['Cube']); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(await page.locator('.view3d .select-box:not([hidden])').count()).toBe(0);
+  // a later single tap still selects normally (no finger left behind)
+  await touch('pointerdown', 3, c.x - 200, y);
+  await touch('pointerup', 3, c.x - 200, y);
+  expect(await page.evaluate(() => Object.values((window as any).app.doc.objects).filter((o: any) => o.select).length)).toBe(0); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expectNoErrors(errors);
+});

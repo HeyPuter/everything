@@ -683,10 +683,14 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
   private lockTimer = 0;
 
+  /** fingers on the viewport (touch screens): two of them pan and pinch-zoom the view */
+  private touches = new Map<number, { x: number; y: number }>();
+
   private onPointerDown(e: PointerEvent) {
     const t = e.target as HTMLElement;
     if (t.closest('.v3d-ui')) return;
     this.el.focus({ preventScroll: true });
+    if (e.pointerType === 'touch' && this.touchPointerDown(e)) return;
     if (app.modal) {
       const r = app.modal.onPointerDown?.(e);
       if (r) app.endModal(r);
@@ -826,6 +830,73 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     addEventListener('pointermove', move);
     addEventListener('pointerup', up);
     addEventListener('pointercancel', cancel);
+  }
+
+  /**
+   * Track a finger; the second one turns the touch into a two-finger gesture (the first finger's
+   * selection is cancelled): moving both pans, pinching zooms. Returns true when it took the event.
+   */
+  private touchPointerDown(e: PointerEvent): boolean {
+    const forget = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'touch') return;
+      this.touches.delete(ev.pointerId);
+      if (!this.touches.size) {
+        removeEventListener('pointerup', forget, true);
+        removeEventListener('pointercancel', forget, true);
+      }
+    };
+    if (!this.touches.size) {
+      addEventListener('pointerup', forget, true);
+      addEventListener('pointercancel', forget, true);
+    }
+    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.touches.size !== 2) return this.touches.size > 2;
+    e.preventDefault();
+    // a running tool (move started by the first finger, …) keeps going: the second finger does nothing
+    if (app.modal) return true;
+    const [a, b] = [...this.touches.keys()];
+    const first = a === e.pointerId ? b : a;
+    // end whatever the first finger started (box select, …) without applying it
+    const pos = this.touches.get(first)!;
+    dispatchEvent(new PointerEvent('pointercancel', { pointerId: first, pointerType: 'touch', clientX: pos.x, clientY: pos.y, bubbles: true }));
+    this.touches.set(first, pos);
+    this.boxEl.hidden = true;
+    const ids = [first, e.pointerId];
+    const at = { [first]: { ...pos }, [e.pointerId]: { x: e.clientX, y: e.clientY } } as Record<number, { x: number; y: number }>;
+    const mid = () => ({ x: (at[ids[0]].x + at[ids[1]].x) / 2, y: (at[ids[0]].y + at[ids[1]].y) / 2 });
+    const span = () => Math.max(1, Math.hypot(at[ids[0]].x - at[ids[1]].x, at[ids[0]].y - at[ids[1]].y));
+    let lastMid = mid(),
+      lastSpan = span();
+    const cameraFrame = this.cameraView && !this.lockCameraToView;
+    if (!cameraFrame) this.leaveCameraIfNeeded();
+    const move = (ev: PointerEvent) => {
+      if (!ids.includes(ev.pointerId)) return;
+      at[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      const m = mid(),
+        sp = span();
+      const r = this.el.getBoundingClientRect();
+      if (cameraFrame) {
+        this.panCameraFrame(m.x - lastMid.x, m.y - lastMid.y);
+        this.zoomCameraFrame(sp / lastSpan);
+      } else {
+        this.nav.pan(m.x - lastMid.x, m.y - lastMid.y);
+        // spreading the fingers zooms in, around the point between them
+        this.zoomBy(lastSpan / sp, { x: m.x - r.left, y: m.y - r.top });
+        this.afterNav();
+      }
+      lastMid = m;
+      lastSpan = sp;
+    };
+    const end = (ev: PointerEvent) => {
+      if (!ids.includes(ev.pointerId)) return;
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', end, true);
+      removeEventListener('pointercancel', end, true);
+    };
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', end, true);
+    addEventListener('pointercancel', end, true);
+    return true;
   }
 
   showBox(x0: number, y0: number, x1: number, y1: number, kind: 'box' | 'circle' = 'box') {
