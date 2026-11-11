@@ -217,7 +217,7 @@ describe('export dialog with several files', () => {
       expect(d.el.querySelector('.dialog-title').textContent).toBe('Export canceled');
       expect([...d.el.querySelectorAll('.export-file-name')].map((x) => x.textContent)).toEqual(['Trip.mp4']);
       expect(d.el.textContent).toContain('The audio file was canceled.');
-      expect(button(d, 'Download')).toBeTruthy();
+      expect(button(d, 'Download').getAttribute('aria-label')).toBe('Download Trip.mp4');
       d.close();
     } finally {
       exportProject.mockReset();

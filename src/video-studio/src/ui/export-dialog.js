@@ -575,9 +575,10 @@ export function openExportDialog(ctx) {
     const cloud = signedIn(ctx);
     const rows = results.map((r) => {
       const status = h('p.export-file-status', { role: 'status' });
-      const dl = h('button.btn', { type: 'button' }, icon('download', 16), 'Download');
+      // Several files each have these buttons: their spoken names say which file.
+      const dl = h('button.btn', { type: 'button', 'aria-label': `Download ${r.fileName}` }, icon('download', 16), 'Download');
       dl.addEventListener('click', () => download(r));
-      const save = cloud ? h('button.btn', { type: 'button' }, icon('cloud', 16), 'Save to Puter') : null;
+      const save = cloud ? h('button.btn', { type: 'button', 'aria-label': `Save ${r.fileName} to Puter` }, icon('cloud', 16), 'Save to Puter') : null;
       save?.addEventListener('click', () => saveWithPicker(r, status));
       const meta = r.kind === 'video' || r.kind === 'gif'
         ? `${r.width} x ${r.height}, ${clock(r.duration)}, ${formatBytes(r.blob.size)}`
