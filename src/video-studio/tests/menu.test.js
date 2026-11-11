@@ -176,3 +176,17 @@ describe('menu bar menus', () => {
     expect(document.activeElement).toBe(item);
   });
 });
+
+describe('menu item shortcuts', () => {
+  it('mark keyboard shortcuts apart from other hints, so touch screens can hide them', async () => {
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    const handle = showMenu(opener, [
+      { label: 'Undo', shortcut: 'Mod+Z', onSelect() {} },
+      { label: 'Timeline 2', hint: '00:12', onSelect() {} },
+    ]);
+    const [undo, tl] = handle.el.querySelectorAll('.menu-item');
+    expect(undo.querySelector('.menu-shortcut').classList.contains('menu-key')).toBe(true);
+    expect(tl.querySelector('.menu-shortcut').classList.contains('menu-key')).toBe(false);
+  });
+});

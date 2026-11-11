@@ -1121,6 +1121,13 @@ puter-user-menu::part(apps-panel) {
   color: inherit;
 }
 
+/* Touch screens without a keyboard: keyboard shortcuts in menus would only be clutter. */
+@media (hover: none) and (pointer: coarse) {
+  .menu-key {
+    display: none;
+  }
+}
+
 .menu-sep {
   height: 1px;
   margin: 4px 6px;

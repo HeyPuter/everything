@@ -136,4 +136,7 @@ describe('menus', () => {
     expect(heights).toEqual(['calc(100vh - 16px)', 'calc(100dvh - 16px)']);
   });
 
+  it('hide keyboard shortcuts on touch screens without a keyboard', () => {
+    expect(css('editor.css')).toMatch(/@media \(hover: none\) and \(pointer: coarse\) \{\s*\.menu-key \{\s*display: none;/);
+  });
 });
