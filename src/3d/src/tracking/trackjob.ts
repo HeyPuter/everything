@@ -204,13 +204,15 @@ export interface StepOutcome {
   failed: string[];
   /** tracks still active after the step */
   active: MovieTrackingTrack[];
+  /** the clip stopped being the current one while tracking (nothing was written) */
+  stale?: boolean;
 }
 
 /**
  * Track the given tracks one frame from clip frame `f` (forward or backward).
  * Writes markers into the tracks; failed tracks get a disabled marker on the next frame.
  */
-export async function trackStep(clip: MovieClipData, tracks: MovieTrackingTrack[], f: number, backwards: boolean): Promise<StepOutcome> {
+export async function trackStep(clip: MovieClipData, tracks: MovieTrackingTrack[], f: number, backwards: boolean, isCurrent: () => boolean = () => true): Promise<StepOutcome> {
   const src = await clipSource(clip);
   if (!src) throw new Error('The clip has no footage');
   const next = backwards ? f - 1 : f + 1;
@@ -224,6 +226,8 @@ export async function trackStep(clip: MovieClipData, tracks: MovieTrackingTrack[
     if (p) prepared.push(p);
   }
   const results = await runTracker(prepared.map((p) => p.item));
+  // the document was replaced meanwhile (undo, file load): the results belong to an old copy
+  if (!isCurrent()) return { tracked: 0, failed: [], active: [], stale: true };
   const out: StepOutcome = { tracked: 0, failed: [], active: [] };
   prepared.forEach((p, i) => {
     const r = results[i];
@@ -248,7 +252,7 @@ export async function trackStep(clip: MovieClipData, tracks: MovieTrackingTrack[
 }
 
 /** Re-run the tracker from each track's reference keyframe directly to the current frame. */
-export async function refineMarkers(clip: MovieClipData, tracks: MovieTrackingTrack[], f: number, backwards: boolean): Promise<number> {
+export async function refineMarkers(clip: MovieClipData, tracks: MovieTrackingTrack[], f: number, backwards: boolean, isCurrent: () => boolean = () => true): Promise<number> {
   const src = await clipSource(clip);
   if (!src) return 0;
   const cache = new Map<string, Gray | null>();
@@ -272,6 +276,7 @@ export async function refineMarkers(clip: MovieClipData, tracks: MovieTrackingTr
     if (p) prepared.push(p);
   }
   const results = await runTracker(prepared.map((p) => p.item));
+  if (!isCurrent()) return 0;
   let n = 0;
   prepared.forEach((p, i) => {
     if (!results[i].ok) return;

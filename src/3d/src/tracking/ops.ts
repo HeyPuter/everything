@@ -448,6 +448,8 @@ const ops: Operator[] = [
         sequence = !!p.sequence;
       void runJob('Track Markers', async (job) => {
         const startScene = app.doc.scene.frame_current;
+        // tracking belongs to this document: replacing it (undo history, file load) stops the job
+        const doc = app.doc;
         const clip0 = clipTable(app.doc)[clipId];
         const f0 = sceneToClipFrame(clip0, startScene);
         const end = backwards ? 1 : clip0.frame_duration;
@@ -457,13 +459,21 @@ const ops: Operator[] = [
         const failed = new Set<string>();
         for (;;) {
           if (job.cancelled) break;
+          if (app.doc !== doc) {
+            app.report('WARNING', 'Tracking stopped: the document changed');
+            break;
+          }
           const clip = clipTable(app.doc)[clipId];
           if (!clip) break;
           const f = sceneToClipFrame(clip, app.doc.scene.frame_current);
           if (backwards ? f <= 1 : f >= clip.frame_duration) break;
           const tracks = tobj(clip).tracks.filter((t) => t.select && !t.hide && !t.lock && enabledMarkerAt(t, f) && !(t.frames_limit > 0 && (counts.get(t.name) ?? 0) >= t.frames_limit));
           if (!tracks.length) break;
-          const out = await trackStep(clip, tracks, f, backwards);
+          const out = await trackStep(clip, tracks, f, backwards, () => app.doc === doc && clipTable(doc)[clipId] === clip);
+          if (out.stale) {
+            app.report('WARNING', 'Tracking stopped: the document changed');
+            break;
+          }
           for (const t of tracks) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
           out.failed.forEach((n) => failed.add(n));
           frames++;
@@ -532,8 +542,9 @@ const ops: Operator[] = [
     poll: hasFootage,
     exec: (ctx, p) => {
       const c = contextClip(ctx)!;
+      const doc = app.doc;
       void runJob('Refine Markers', async () => {
-        const n = await refineMarkers(c, selectedTracks(c).filter((t) => !t.lock), curFrame(c), !!p.backwards);
+        const n = await refineMarkers(c, selectedTracks(c).filter((t) => !t.lock), curFrame(c), !!p.backwards, () => app.doc === doc && clipTable(doc)[c.id] === c);
         return `Refined ${n} marker${n === 1 ? '' : 's'}`;
       });
     },

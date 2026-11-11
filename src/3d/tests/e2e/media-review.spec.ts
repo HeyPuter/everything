@@ -216,3 +216,47 @@ test('camera background: undecodable clip footage stays blank without errors', a
   }
   await expectNoErrors(errors);
 });
+
+test('clip: replacing the document while tracking stops the job instead of writing into an old copy', async ({ page }) => {
+  const errors = await videoWorkspace(page, 'Motion Tracking');
+  const r = await page.evaluate(async () => {
+    const w = window as any;
+    const app = w.app;
+    // synthetic footage: dots drifting right
+    const files: File[] = [];
+    for (let f = 0; f < 20; f++) {
+      const c = new OffscreenCanvas(160, 90);
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#222';
+      g.fillRect(0, 0, 160, 90);
+      g.fillStyle = '#fc4';
+      g.beginPath();
+      g.arc(40 + f * 1.5, 45, 5, 0, 7);
+      g.fill();
+      files.push(new File([await c.convertToBlob({ type: 'image/png' })], `f${String(f).padStart(3, '0')}.png`, { type: 'image/png' }));
+    }
+    const O = await w.imp('/src/tracking/ops.ts');
+    const T = await w.imp('/src/tracking/types.ts');
+    const { cloneShared } = await w.imp('/src/data/cow.ts');
+    const clip = await O.openClipFiles(files);
+    app.setFrame(clip.frame_start);
+    app.run('clip.add_marker', { location: [40 / 160, 0.5] }, { invoke: false });
+    // the third batch sent to the tracker: the document is replaced (like loading the file again)
+    let posts = 0;
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (this: Worker, ...a: any[]) {
+      if (++posts === 3) app.setDocument(cloneShared(app.doc), false);
+      return (post as any).apply(this, a);
+    };
+    app.run('clip.track_markers', { sequence: true }, { invoke: false });
+    const J = await w.imp('/src/tracking/jobs.ts');
+    for (let i = 0; i < 400 && J.jobState.get(); i++) await new Promise((res) => setTimeout(res, 25));
+    Worker.prototype.postMessage = post;
+    const frames = T.clipTable(app.doc)[clip.id].tracking.tracks[0].markers.map((m: any) => m.frame);
+    return { frames, posts };
+  });
+  expect(r.posts).toBeGreaterThanOrEqual(3);
+  // whatever the current document holds is gap-free (the old code skipped the frame tracked into the old copy)
+  for (let i = 1; i < r.frames.length; i++) expect(r.frames[i] - r.frames[i - 1]).toBe(1);
+  await expectNoErrors(errors);
+});
