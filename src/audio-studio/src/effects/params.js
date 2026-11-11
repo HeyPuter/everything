@@ -67,7 +67,8 @@ export function coerce(p, v) {
   const min = p.min ?? -Infinity;
   const max = p.max ?? Infinity;
   n = Math.min(max, Math.max(min, n));
-  return roundToStep(n, p.step, Number.isFinite(min) ? min : 0);
+  // Rounding to the step can leave the range when min is not a whole step (0.1 ms in 1 ms steps).
+  return Math.min(max, Math.max(min, roundToStep(n, p.step, Number.isFinite(min) ? min : 0)));
 }
 
 /** Full, valid values for a definition from partial (or stale) values. Unknown keys are dropped. */

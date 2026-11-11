@@ -99,3 +99,21 @@ describe('log-scaled value fields', () => {
     c.el.remove();
   });
 });
+
+describe('value coercion', () => {
+  it('keeps every registered parameter inside its range after rounding to its step', async () => {
+    const { EFFECTS } = await import('../src/effects/index.js');
+    const outside = [];
+    for (const d of EFFECTS.values()) {
+      for (const p of d.params) {
+        if ((p.type || (p.options ? 'choice' : 'number')) !== 'number') continue;
+        for (const v of [p.min, p.max, p.min - 1, p.max + 1]) {
+          const c = coerce(p, v);
+          if (c < p.min || c > p.max) outside.push(`${d.id}.${p.id}: ${v} -> ${c}`);
+        }
+      }
+    }
+    expect(outside).toEqual([]);
+    expect(coerce({ min: 0.1, max: 500, step: 1 }, 0.1)).toBe(0.1);
+  });
+});
