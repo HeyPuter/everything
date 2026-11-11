@@ -161,6 +161,18 @@ describe('split', () => {
     expect(r.strips!.every((k) => S.finalStart(k) >= 50)).toBe(true);
   });
 
+  it('meta strips take a selected effect once and leave the other strips alone', () => {
+    const e = ed();
+    const a = add(e, 'COLOR', 1, 1, 20);
+    const fx = add(e, 'GAUSSIAN_BLUR', 2, 1, 20);
+    fx.input_1 = a.name;
+    const other = add(e, 'COLOR', 5, 100, 10);
+    const m = S.makeMeta(e, e.strips, [a, fx])!;
+    expect(m.strips!.map((s) => s.name)).toEqual([a.name, fx.name]);
+    expect(e.strips).toContain(other);
+    expect(e.strips.length).toBe(2);
+  });
+
   it('does not split strips that do not cross the frame', () => {
     const e = ed();
     const m = add(e, 'MOVIE', 1, 1, 10);

@@ -816,9 +816,10 @@ export function gapInsert(list: Strip[], frame: number, frames: number) {
 
 export function makeMeta(ed: SequenceEditor, list: Strip[], members: Strip[]): Strip | null {
   if (!members.length) return null;
+  members = [...new Set(members)];
   // effects need their inputs inside the meta too
   const names = new Set(members.map((s) => s.name));
-  for (const e of dependentEffects(list, names)) if (list.includes(e)) members.push(e);
+  for (const e of dependentEffects(list, names)) if (list.includes(e) && !members.includes(e)) members.push(e);
   const set = new Set(members);
   for (const s of members) for (const i of effectInputs(list, s)) if (!set.has(i) && list.includes(i)) members.push(i), set.add(i);
   const channel = Math.min(...members.map((s) => s.channel));
