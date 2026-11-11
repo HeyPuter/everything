@@ -189,3 +189,30 @@ test('mask: moving the active spline to another layer keeps both layers with a v
   ]);
   await expectNoErrors(errors);
 });
+
+test('camera background: undecodable clip footage stays blank without errors', async ({ page }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(100000));
+  const errors = await openApp(page);
+  const at = await page.evaluate(async () => {
+    const w = window as any;
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const T = await import(U('/src/tracking/types.ts'));
+    const c = T.newMovieClip('MCbad', 'bad.mp4', { filepath: 'bad.mp4', movie: { mime: 'video/mp4', bytes: new Uint8Array(4096).fill(7) }, size: [640, 360], frame_duration: 50 });
+    T.clipTable(w.app.doc)[c.id] = c;
+    w.app.doc.scene.active_clip = c.id;
+    const cam = Object.values(w.app.doc.objects as Record<string, any>).find((o) => o.type === 'CAMERA');
+    const { newBackgroundImage } = await import(U('/src/tracking/camerabg.ts'));
+    const data = w.app.doc.cameras?.[cam.data] ?? cam.data;
+    Object.assign(data, { show_background_images: true, background_images: [newBackgroundImage({ source: 'MOVIE_CLIP' })] });
+    const b = document.querySelector('.view3d')!.getBoundingClientRect();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  });
+  await page.mouse.move(at.x, at.y);
+  // look through the camera: the background asks for the clip's footage
+  await page.keyboard.press('Numpad0');
+  for (let f = 2; f < 6; f++) {
+    await page.evaluate((f) => ((window as any).app.setFrame(f), (window as any).app.changed('doc')), f);
+    await page.waitForTimeout(250);
+  }
+  await expectNoErrors(errors);
+});
