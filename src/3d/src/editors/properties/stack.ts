@@ -11,7 +11,7 @@ import { uid } from '../../data/defaults';
 import { renamedIn } from '../../data/names';
 import { openMenu, type MenuItem } from '../../ui/menu';
 import { cloneShared } from '../../data/cow';
-import { gnResults } from '../../geonodes/results';
+import { gnResults, viewerState } from '../../geonodes/results';
 import { writeAttributes } from '../../geonodes/convert';
 
 type Field = [key: string, label: string, kind: 'num' | 'int' | 'bool' | 'enum' | 'object' | 'vgroup' | 'vec' | 'axes' | 'angle' | 'dist' | 'factor' | 'heading' | 'bone', extra?: unknown];
@@ -391,8 +391,15 @@ registerOperators([
       // evaluate the stack up to and including this modifier
       const keep = ob.modifiers;
       ob.modifiers = keep.slice(0, idx + 1).filter((m) => m.show_viewport);
-      app.graph.invalidate(ob.id);
-      app.graph.evaluate(doc, false);
+      // an active Geometry Nodes viewer would replace the result with what it shows
+      const viewer = { ...viewerState };
+      viewerState.objectId = viewerState.modifierId = null;
+      try {
+        app.graph.invalidate(ob.id);
+        app.graph.evaluate(doc, false);
+      } finally {
+        Object.assign(viewerState, viewer);
+      }
       const mesh = app.graph.get(ob.id)?.mesh;
       ob.modifiers = keep.filter((_, i) => i > idx);
       if (!mesh) return 'CANCELLED';

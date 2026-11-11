@@ -75,3 +75,30 @@ describe('dissolve', () => {
     expect(me.positions.length / 3).toBe(24);
   });
 });
+
+describe('applying modifiers', () => {
+  it('applies a geometry nodes modifier’s output, not the geometry its viewer shows', async () => {
+    await import('../../src/editors/properties/stack');
+    const { setup, node, link } = await import('./gnmesh-harness');
+    await import('../../src/geonodes/index');
+    const { viewerState } = await import('../../src/geonodes/results');
+    const t = setup();
+    link(t, t.gin, 'Geometry', t.out, 'Geometry');
+    const grid = node(t, 'GeometryNodeMeshGrid', { 'Vertices X': 5, 'Vertices Y': 5 });
+    const viewer = node(t, 'GeometryNodeViewer', {}, { viewer_active: true });
+    link(t, grid, 'Mesh', viewer, 'Geometry');
+    app.doc.node_groups[t.group.id] = t.group;
+    const ob = app.activeObject!;
+    app.run('object.modifier_add', { type: 'NODES' });
+    const md = ob.modifiers[0];
+    (md as unknown as { node_group: string }).node_group = t.group.id;
+    viewerState.objectId = ob.id;
+    viewerState.modifierId = md.id;
+    app.graph.evaluate(app.doc);
+    expect(app.graph.get(ob.id)!.mesh!.positions.length / 3).toBe(25);
+    const before = mesh().positions.length / 3;
+    expect(app.run('object.modifier_apply', { modifier: md.id })).toBe('FINISHED');
+    expect(mesh().positions.length / 3).toBe(before);
+    expect(viewerState.objectId).toBe(ob.id);
+  });
+});
