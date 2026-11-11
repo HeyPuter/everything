@@ -9,6 +9,7 @@ import * as T from '../model/timeline.js';
 import { allClipsDeep } from '../model/compound.js';
 import { storedTimelineTracks } from '../model/timelines.js';
 import { openDialog, confirmDialog, toast } from './dialog.js';
+import { ACCEPT_FOR } from '../media/media-types.js';
 
 /** Assets no clip refers to (directly, or through a reversed copy in use). */
 export function unusedAssets(project) {
@@ -94,7 +95,6 @@ function pickFile(accept) {
   });
 }
 
-const ACCEPT = { video: 'video/*,.mkv,.mov,.m4v,.webm', audio: 'audio/*,.mp3,.wav,.m4a,.flac,.ogg,.opus', image: 'image/*' };
 
 export function createMediaActions(ctx) {
   const { store } = ctx;
@@ -161,7 +161,7 @@ export function createMediaActions(ctx) {
     async replaceAssetFile(assetId) {
       const old = store.project.assets[assetId];
       if (!old) return null;
-      const file = await pickFile(ACCEPT[old.kind] || '');
+      const file = await pickFile(ACCEPT_FOR[old.kind] || '');
       if (!file) return null;
       let asset;
       try {

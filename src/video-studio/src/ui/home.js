@@ -16,6 +16,7 @@ import { TEMPLATES } from '../model/templates.js';
 import { TRASH_DAYS } from '../storage/library.js';
 import { exportProjectBundle, importProjectBundle, downloadBlob, BUNDLE_ACCEPT } from '../storage/bundle.js';
 import { createProjectFromTemplate } from '../storage/template-project.js';
+import { MEDIA_ACCEPT } from '../media/media-types.js';
 import { showMenu, menuButton } from './menu.js';
 import { confirmDialog, promptDialog, toast, installTooltips, openDialog } from './dialog.js';
 import { accountButton, themeMenuItems } from './topbar.js';
@@ -140,7 +141,7 @@ export class Home {
   /* Shell ---------------------------------------------------------------------- */
 
   render() {
-    this.importInput = h('input', { type: 'file', multiple: true, accept: 'video/*,audio/*,image/*', hidden: true, tabindex: '-1', 'aria-hidden': 'true' });
+    this.importInput = h('input', { type: 'file', multiple: true, accept: MEDIA_ACCEPT, hidden: true, tabindex: '-1', 'aria-hidden': 'true' });
     this.importInput.addEventListener('change', () => {
       const files = [...this.importInput.files];
       this.importInput.value = '';

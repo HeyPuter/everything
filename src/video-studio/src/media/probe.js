@@ -5,18 +5,9 @@
  */
 import { Input, BlobSource, ALL_FORMATS } from 'mediabunny';
 import { US } from '../lib/time.js';
+import { guessKind } from './media-types.js';
 
-const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
-const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|weba)$/i;
-const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|avi|ogv)$/i;
-
-export function guessKind(file) {
-  const type = file.type || '';
-  if (type.startsWith('image/') || IMAGE_EXT.test(file.name || '')) return 'image';
-  if (type.startsWith('audio/') || AUDIO_EXT.test(file.name || '')) return 'audio';
-  if (type.startsWith('video/') || VIDEO_EXT.test(file.name || '')) return 'video';
-  return null;
-}
+export { guessKind };
 
 export function extOf(name, mime = '') {
   const m = /\.([a-z0-9]{1,8})$/i.exec(name || '');
