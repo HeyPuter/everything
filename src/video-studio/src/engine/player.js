@@ -412,7 +412,11 @@ export class Player extends Emitter {
   /** held: the picture stays on one frame (a transition past the media's start or end), like a freeze frame. */
   _drive(entry, clip, sec, fps, visual, t = this.time, held = false) {
     const el = entry.el;
-    const still = clip.freeze || held;
+    // Sound of a clip longer than what is left of its file: hold at the end in silence, as the
+    // export does (play() would start an ended element over from its beginning).
+    const pastEnd = Number.isFinite(el.duration) && el.duration > 0 && sec >= el.duration - 0.002;
+    if (pastEnd) sec = Math.max(0, el.duration - 0.001);
+    const still = clip.freeze || held || pastEnd;
     if (this.playing && !still && hasCurve(clip)) {
       this._driveCurve(entry, clip, sec, t);
       return;

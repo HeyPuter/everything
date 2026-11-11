@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { Player } from '../src/engine/player.js';
 import { evaluate } from '../src/engine/scene.js';
+import { addClip } from '../src/model/timeline.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
 const players = [];
@@ -102,6 +103,25 @@ describe('preview playback through transitions', () => {
     expect(e.el.paused).toBe(true);
     expect(e.el.plays).toBe(1);
     expect(e.el.currentTime).toBeCloseTo(9.999, 3);
+  });
+
+  it('keeps the sound of a clip that runs past the end of its file quiet instead of replaying it', () => {
+    const p = fixture(); // 'aud' is 30 s long
+    const a = clip('audio', 0, 10, { in: s(25) });
+    addClip(p, a, { ripple: false });
+    const { entries, frame } = setup(p);
+    frame(s(4));
+    const e = entries.get(a.id);
+    e.el.duration = 30;
+    expect(e.el.paused).toBe(false);
+    frame(s(5.5));
+    const seeks = e.el.seeks;
+    for (const t of [6, 7, 8]) frame(s(t));
+    expect(e.el.paused).toBe(true);
+    expect(e.el.plays).toBe(1);
+    expect(e.el.currentTime).toBeCloseTo(29.999, 3);
+    // Held there, not sought again every frame.
+    expect(e.el.seeks).toBe(seeks);
   });
 });
 
