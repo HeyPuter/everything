@@ -49,4 +49,17 @@ describe('arrow keys on the preview', () => {
     expect(store.time).toBe(0);
     expect(store.selected.clip.transform.x).toBeCloseTo(1 / store.project.settings.width, 9);
   });
+
+  it('nudge a keyframed clip from where it shows, not from its base position', () => {
+    const { store } = editor.ctx;
+    store.update('keys', (p) => {
+      p.tracks.find((t) => t.clips.length).clips[0].keyframes = { x: [{ t: 0, v: 0, ease: 'linear' }, { t: 2_000_000, v: 0.3, ease: 'linear' }] };
+    });
+    store.seek(2_000_000);
+    store.select(v.id);
+    press('ArrowRight');
+    const keys = store.selected.clip.keyframes.x;
+    expect(keys[1].v).toBeCloseTo(0.3 + 1 / store.project.settings.width, 9);
+    expect(store.selected.clip.transform.x).toBe(0);
+  });
 });

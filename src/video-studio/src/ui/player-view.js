@@ -8,7 +8,7 @@ import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { timecode, US } from '../lib/time.js';
 import { RATIOS } from '../model/project.js';
-import { evaluate } from '../engine/scene.js';
+import { evaluate, keyedTransform } from '../engine/scene.js';
 import { rootClip } from '../engine/compound.js';
 import { menuButton } from './menu.js';
 import { prefs, setPref } from './prefs.js';
@@ -473,6 +473,16 @@ export function createPlayerView(ctx) {
     return null;
   }
 
+  /**
+   * The transform values an edit at the playhead changes (actions.setTransform): the keyed
+   * values while the playhead is on the clip, else the base. Drags and nudges work relative to
+   * these, so a keyframed clip moves from where it is instead of jumping to its base position.
+   */
+  function editedTransform(clip) {
+    const local = Math.round(store.time - clip.start);
+    return local >= 0 && local <= clip.duration ? keyedTransform(clip, local) : clip.transform;
+  }
+
   function toCss(b) {
     const s = store.project.settings;
     const k = cssW / s.width;
@@ -582,7 +592,7 @@ export function createPlayerView(ctx) {
       const layer = selectedLayer();
       if (!layer) return;
       player.pause();
-      const base = layer.clip.transform;
+      const base = editedTransform(layer.clip);
       pinchEdit = { id: layer.clip.id, scale: layer.scale, scaleK: layer.scale / (base.scale || 1), coalesce: `pinch:${layer.clip.id}:${Date.now()}` };
     },
     onChange: (step, total) => {
@@ -644,9 +654,8 @@ export function createPlayerView(ctx) {
     const center = { x: c.cx, y: c.cy };
     const startDist = Math.hypot(x - center.x, y - center.y) || 1;
     const startAngle = Math.atan2(y - center.y, x - center.x);
-    // The base (keyframe-free) values that the player shows include animations; edit relative to the keyed value.
-    const clip = store.selected.clip;
-    const base = clip.transform;
+    // The values the player shows include animations (and a compound around the clip); edit relative to the keyed value.
+    const base = editedTransform(store.selected.clip);
     const off = { x: start.x - base.x, y: start.y - base.y, scaleK: start.scale / (base.scale || 1), rotation: start.rotation - base.rotation };
     const coalesce = `tf:${id}:${Date.now()}`;
     const targets = snapTargets(id);
@@ -736,7 +745,7 @@ export function createPlayerView(ctx) {
     if (!d) return;
     e.preventDefault();
     e.stopPropagation();
-    const t = s.clip.transform;
+    const t = editedTransform(s.clip);
     actions.setTransform(s.clip.id, { x: t.x + (d[0] * stepPx) / set.width, y: t.y + (d[1] * stepPx) / set.height }, { coalesce: `nudge:${s.clip.id}`, label: 'Move' });
   });
 
