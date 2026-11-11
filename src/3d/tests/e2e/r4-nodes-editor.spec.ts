@@ -262,3 +262,42 @@ test('compositor: Menu Switch picks the input named by a Menu node', async ({ pa
   expect(color![0]).toBeLessThan(0.1);
   await expectNoErrors(errors);
 });
+
+test('a linked material can be looked at: dragging nodes, links and edges reports instead of failing', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const R = await import('/src/library/readonly.ts');
+    const ma = Object.values((window as unknown as { app: { doc: { materials: Record<string, { library?: string }> } } }).app.doc.materials)[0];
+    ma.library = 'lib';
+    R.lockRecord(ma);
+  });
+  const box = await editorArea(page, 'SHADER');
+  await page.keyboard.press('Home');
+  await page.waitForTimeout(400);
+  const socket = (title: string, name: string, out: boolean) =>
+    withTree<[number, number]>(
+      page,
+      `(ed, t) => { const n = t.nodes.find((x) => x.name.startsWith(${JSON.stringify(title)})); const s = [...ed.layouts.get(n.id).sockets.values()].find((p) => p.socket.name === ${JSON.stringify(name)} && p.isOutput === ${out}); const r = ed.el.getBoundingClientRect(); const [x, y] = ed.toScreen(s.x, s.y); return [r.left + x, r.top + y]; }`,
+    );
+  const drag = async (from: [number, number], to: [number, number]) => {
+    await page.mouse.move(...from);
+    await page.mouse.down();
+    await page.mouse.move(...to, { steps: 4 });
+    await page.mouse.up();
+  };
+  // pick up the Surface link, draw a new link, move a node by its header
+  const surf = await socket('Material Output', 'Surface', false);
+  await drag(surf, [surf[0] - 60, surf[1] + 80]);
+  const bsdf = await socket('Principled', 'BSDF', true);
+  await drag(bsdf, await socket('Material Output', 'Volume', false));
+  const title = (await page.locator('.nd-node .nd-title', { hasText: 'Principled' }).first().boundingBox())!;
+  await drag([title.x + 30, title.y + title.height / 2], [title.x + 90, title.y + 60]);
+  await page.mouse.move(box.x + 300, box.y + 400);
+  await page.keyboard.press('g');
+  await page.mouse.move(box.x + 340, box.y + 420, { steps: 3 });
+  await page.mouse.click(box.x + 340, box.y + 420);
+  const state = await withTree<{ links: number }>(page, '(ed, t) => ({ links: t.links.length })');
+  expect(state.links).toBe(1);
+  expect(await page.evaluate(() => (window as unknown as { app: { reports: { message: string }[] } }).app.reports.some((r) => /node tree is linked/.test(r.message)))).toBe(true);
+  await expectNoErrors(errors);
+});

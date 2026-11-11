@@ -19,6 +19,7 @@ import type { MenuCategory, MenuEntry, SocketType, TreeType } from '../types';
 import { drawSidebar } from './sidebar';
 import { drawToolbar, NODE_TOOLS, type NodeTool, type SelectMode } from './toolbar';
 import { groupIdnameFor } from '../common';
+import { isReadOnly } from '../../library/readonly';
 import { viewMenu, selectMenu, nodeMenuItems, contextMenuItems } from './menus';
 
 export interface View {
@@ -1085,6 +1086,13 @@ export class NodeEditor implements Editor {
   // -------------------------------------------------------------------------
   // pointer interaction
 
+  /** Linked (library) trees can be looked at but not edited: editing gestures report this instead. */
+  readOnlyTree(tree: NodeTreeData | null, report = true): boolean {
+    if (!tree || !isReadOnly(tree)) return false;
+    if (report) app.report('WARNING', 'The node tree is linked: make it local or add a library override to edit it');
+    return true;
+  }
+
   private onDown(e: PointerEvent) {
     if (app.modal) return;
     const target = e.target as HTMLElement;
@@ -1308,10 +1316,15 @@ export class NodeEditor implements Editor {
     } else if (!wasSelected) this.selectOnly(tree, n);
     else tree.active_node = n.id;
     app.changed('ui');
+    let refused = false;
     this.track(
       e,
       (ev, d) => {
-        if (d > 3 && !app.modal) {
+        if (d > 3 && !app.modal && !refused) {
+          if (this.readOnlyTree(tree)) {
+            refused = true;
+            return;
+          }
           if (!n.select) {
             n.select = true;
             tree.active_node = n.id;
@@ -1356,6 +1369,7 @@ export class NodeEditor implements Editor {
 
   private resizeDrag(e: PointerEvent, n: NodeData, edges: { l: boolean; r: boolean; t: boolean; b: boolean }) {
     e.preventDefault();
+    if (this.readOnlyTree(this.tree())) return;
     const lay = this.layouts.get(n.id)!;
     const w0 = lay.w,
       h0 = lay.h,
@@ -1724,7 +1738,7 @@ export class NodeEditor implements Editor {
   /** Apply a cut / mute / reroute gesture along a screen-local polyline. */
   applyGesture(mode: GestureMode, line: [number, number][]) {
     const tree = this.tree();
-    if (!tree) return 0;
+    if (!tree || this.readOnlyTree(tree)) return 0;
     const hits: { link: string; x: number; y: number }[] = [];
     for (const l of tree.links) {
       const a = this.layouts.get(l.from_node)?.sockets.get(sockKey(true, l.from_socket));
@@ -1783,6 +1797,7 @@ export class NodeEditor implements Editor {
   private linkDragStart(e: PointerEvent, tree: NodeTreeData, sock: SocketPos & { node: string }) {
     e.preventDefault();
     e.stopPropagation();
+    if (this.readOnlyTree(tree)) return;
     const [px, py] = this.toNode(e.clientX, e.clientY);
     const endOf = (node: string, socket: string, isOutput: boolean): DragEnd => {
       const p = this.layouts.get(node)?.sockets.get(sockKey(isOutput, socket));
@@ -1989,7 +2004,7 @@ export class NodeEditor implements Editor {
    */
   startGrab(ids: string[], mode: 'key' | 'tweak', label = 'Move', ev?: PointerEvent, from?: { x: number; y: number }, opts: { kind?: 'MOVE' | 'ROTATE' | 'SCALE'; onCancel?: () => void } = {}) {
     const tree = this.tree();
-    if (!tree || !ids.length) return;
+    if (!tree || !ids.length || this.readOnlyTree(tree)) return;
     const kind = opts.kind ?? 'MOVE';
     // moving a frame moves its children
     const all = new Set(ids);
