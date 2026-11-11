@@ -562,6 +562,8 @@ export class AssistantPanel {
     const mark = app.undo.mark();
     const turn = this.newTurn();
     this.turn = turn;
+    // The reply is redrawn as it streams: screen readers wait for it to finish instead of reading every redraw.
+    turn.el.setAttribute('aria-busy', 'true');
     this.setBusy(true);
     this.say('Thinking…');
     this.scroll(true);
@@ -594,6 +596,7 @@ export class AssistantPanel {
     } catch (e) {
       res = { stopped: false, error: e as Error, steps: [] };
     }
+    turn.el.removeAttribute('aria-busy');
     if (this.turn !== turn) return;
     if (turn.text) this.renderText(turn.text);
     // Everything this message changed becomes one undo step.

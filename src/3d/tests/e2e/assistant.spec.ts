@@ -247,7 +247,10 @@ test('the status line is rewritten only when what it says changes', async ({ pag
   });
   await page.locator('.as-input').fill('hi');
   await page.locator('.as-input').press('Enter');
+  // the reply is marked busy while it streams, so the conversation log is read once it is complete
+  await expect(page.locator('.as-bot')).toHaveAttribute('aria-busy', 'true');
   await expect(page.locator('.as-bot .as-text')).toContainText('word29');
+  await expect(page.locator('.as-bot')).not.toHaveAttribute('aria-busy', /.*/);
   // a live region: every write is read out again, so a streamed reply must not say "Writing…" once per piece
   const said = await page.evaluate(() => (window as unknown as { __said: string[] }).__said);
   expect(said.filter((s) => s === 'Writing…').length).toBe(1);
