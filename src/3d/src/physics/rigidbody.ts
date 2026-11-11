@@ -18,17 +18,31 @@ import { createJoint } from './rbjoints';
 type Rapier = typeof RAPIERNS;
 let RAPIER: Rapier | null = null;
 let loading: Promise<Rapier> | null = null;
+/** the last failed load (a new attempt is made once it is a few seconds old) */
+let failed: { at: number; promise: Promise<Rapier> } | null = null;
 export const rapierReady = new Set<() => void>();
+/** Called when the engine could not be loaded (e.g. offline). */
+export const rapierFailed = new Set<(e: unknown) => void>();
 
 export function loadRapier(): Promise<Rapier> {
-  if (!loading)
-    loading = import('@dimforge/rapier3d-compat').then(async (m) => {
+  if (!loading) {
+    // don't download again on every evaluation right after a failure
+    if (failed && performance.now() - failed.at < 5000) return failed.promise;
+    const p = import('@dimforge/rapier3d-compat').then(async (m) => {
       const mod = ((m as unknown as { default?: Rapier }).default ?? m) as Rapier;
       await mod.init();
       RAPIER = mod;
       for (const f of rapierReady) f();
       return mod;
     });
+    loading = p;
+    // a failed load is reported and can be tried again later (callers that only start loading need not handle it)
+    p.catch((e) => {
+      loading = null;
+      failed = { at: performance.now(), promise: p };
+      for (const f of rapierFailed) f(e);
+    });
+  }
   return loading;
 }
 

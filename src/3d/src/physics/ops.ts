@@ -149,7 +149,10 @@ function withRapier(owners: CacheOwner[], run: () => void, bake = true): 'FINISH
     return 'FINISHED';
   }
   app.report('INFO', 'Loading physics engine…');
-  void loadRapier().then(() => app.run('ptcache.bake_all', { only: owners.map((o) => o.key).join(','), bake }));
+  loadRapier().then(
+    () => app.run('ptcache.bake_all', { only: owners.map((o) => o.key).join(','), bake }),
+    () => {}, // reported by the loader
+  );
   return 'CANCELLED';
 }
 
@@ -196,7 +199,10 @@ function bakeToKeyframes(doc: DocumentData, obs: ObjectData[], start: number, en
 function bakeKeysExec(ctx: OpContext, p: Record<string, unknown>): 'FINISHED' | 'CANCELLED' {
   if (!rapierLoaded()) {
     app.report('INFO', 'Loading physics engine…');
-    void loadRapier().then(() => app.run('rigidbody.bake_to_keyframes', { ...p }));
+    loadRapier().then(
+      () => app.run('rigidbody.bake_to_keyframes', { ...p }),
+      () => {}, // reported by the loader
+    );
     return 'CANCELLED';
   }
   const obs = app.selectedObjects().filter((o) => o.rigid_body?.type === 'ACTIVE');

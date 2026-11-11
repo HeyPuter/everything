@@ -12,4 +12,4 @@ preEvaluateHooks.push((graph, doc) => {
   rigidBodyHook(graph, doc);
 });
 
-export { loadRapier, rapierReady, rapierLoaded } from './rigidbody';
+export { loadRapier, rapierReady, rapierFailed, rapierLoaded } from './rigidbody';

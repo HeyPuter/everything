@@ -158,3 +158,21 @@ test('rigid body bake to keyframes keeps quaternion keys continuous', async ({ p
   expect(flips).toEqual([200, 0]);
   await expectNoErrors(errors);
 });
+
+test('a physics engine that fails to download is reported, not thrown', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.route(/rapier/i, (r) => r.abort());
+  const reports = await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    app.run('rigidbody.object_add', {}, { invoke: false });
+    app.setFrame(20);
+    app.flush();
+    await new Promise((r) => setTimeout(r, 800));
+    app.run('ptcache.bake_all', { bake: true }, { invoke: false });
+    await new Promise((r) => setTimeout(r, 800));
+    return app.reports.filter((x: { type: string }) => x.type === 'ERROR').map((x: { message: string }) => x.message);
+  });
+  expect(reports).toHaveLength(1);
+  expect(reports[0]).toMatch(/physics engine could not be loaded/);
+  await expectNoErrors(errors.filter((e) => !/Failed to load resource/.test(e)));
+});

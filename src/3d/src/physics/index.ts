@@ -2,7 +2,7 @@
 // force fields, point caches, operators and the Physics / Particles properties tabs.
 import { app } from '../app/app';
 import { preEvaluateHooks } from '../eval/depsgraph';
-import { rapierReady, loadRapier } from './engine';
+import { rapierReady, rapierFailed, loadRapier } from './engine';
 import { simBudget, startBudget, caches } from './common';
 import { freeRigidBodyLive } from './rigidbody';
 import { particleDraw, hairRenderData } from './particles';
@@ -69,6 +69,13 @@ queueMicrotask(() => {
   if (app?.doc.scene.rigidbody_world) void loadRapier();
 });
 rapierReady.add(() => app?.changed('frame'));
+let failReported = -Infinity;
+rapierFailed.add(() => {
+  // once per failure streak (evaluations retry every few seconds)
+  if (performance.now() - failReported < 60000) return;
+  failReported = performance.now();
+  app?.report('ERROR', 'The physics engine could not be loaded: rigid bodies will not move (check the connection and reload the page)');
+});
 import './fieldadd';
 import './dynpaint';
 import './dpops';
