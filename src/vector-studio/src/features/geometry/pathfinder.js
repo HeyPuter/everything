@@ -12,8 +12,7 @@
  */
 import { OP, runGeom } from './engine/index.js';
 import { withBusy } from './busy.js';
-import { liveDef } from '../../model/live.js';
-import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, groupOf, replaceWith, insertionPoint, fillOnly, solidKey, snapshot, unchangedSince, isOpenLine } from './nodes-io.js';
+import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, groupOf, replaceWith, insertionPoint, fillOnly, solidKey, snapshot, unchangedSince, isOpenLine, expandLiveFirst } from './nodes-io.js';
 
 export const SHAPE_MODES = [
   { kind: 'unite', label: 'Unite', icon: 'pathfinder-unite', op: OP.UNITE },
@@ -168,14 +167,6 @@ export function shapesFor(doc, kind, leaves) {
   });
 }
 
-/** "the blend" for a live group labeled "<Blend>". */
-function liveLabel(node) {
-  const def = liveDef(node);
-  const raw = typeof def?.label === 'function' ? def.label(node) : def?.label;
-  const name = String(raw || '').replace(/[<>]/g, '').trim().toLowerCase();
-  return name ? `the ${name}` : 'live objects';
-}
-
 /** Run a pathfinder on the editor's selection (async: big jobs use the worker). */
 export async function runPathfinder(app, kind) {
   const editor = app.editor;
@@ -186,7 +177,7 @@ export async function runPathfinder(app, kind) {
   const leaves = operands(editor);
   if (!canRun(editor, kind)) {
     const { live } = operandInfo(editor);
-    if (live.length) app.notify(`${def.label} works on paths. Expand ${liveLabel(live[0])} first (Object > Expand).`);
+    if (live.length) app.notify(expandLiveFirst(def.label, live[0]));
     else app.notify(kind === 'unite' ? 'Select two or more paths, or a compound path.' : 'Select two or more paths.');
     return false;
   }

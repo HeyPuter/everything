@@ -18,6 +18,8 @@ import {
   snapshot,
   unchangedSince,
   isLiveContainer,
+  insideLive,
+  expandLiveFirst,
 } from './nodes-io.js';
 import { addMidpoints, removeAnchorsKeepingShape, fitPolygon } from './anchors.js';
 import { flattenPath, simplifyPolyline, anchor as mkAnchor } from '../../model/bezier.js';
@@ -56,6 +58,18 @@ function drawnStroke(app, doc, node) {
 
 function targets(editor) {
   return geometryLeaves(editor.doc, editor.topSelection());
+}
+
+/**
+ * Like targets(), but leaving out the inputs of live objects (a blend's
+ * keys, a Repeat's source): results inserted next to them would become
+ * extra inputs. With only live objects selected, says to expand them.
+ */
+function pathTargets(app, what) {
+  const live = [];
+  const nodes = geometryLeaves(app.editor.doc, app.editor.topSelection(), { intoLive: false, skippedLive: live });
+  if (!nodes.length && live.length) app.notify(expandLiveFirst(what, live[0]));
+  return { nodes, live };
 }
 
 /** Position just above (or at) a node within its parent. */
@@ -327,9 +341,9 @@ export function convertToShapes(app) {
 export async function offsetPathDialog(app) {
   const editor = app.editor;
   const doc = editor.doc;
-  const nodes = targets(editor);
+  const { nodes, live } = pathTargets(app, 'Offset Path');
   if (!nodes.length) {
-    app.notify('Select one or more paths.');
+    if (!live.length) app.notify('Select one or more paths.');
     return false;
   }
   const last = app.prefs.get('offsetPath') || { offset: 10, joins: 'miter', miter: 4 };
@@ -615,9 +629,9 @@ export function removeAnchorPoints(app) {
 export async function divideBelow(app) {
   const editor = app.editor;
   const doc = editor.doc;
-  const sel = targets(editor);
+  const { nodes: sel, live } = pathTargets(app, 'Divide Objects Below');
   if (sel.length !== 1) {
-    app.notify('Select exactly one path to divide the objects below it.');
+    if (sel.length || !live.length) app.notify('Select exactly one path to divide the objects below it.');
     return false;
   }
   const cutter = sel[0];
@@ -629,7 +643,7 @@ export async function divideBelow(app) {
     .filter((n) => !doc.isLocked(n.id) && !doc.isHidden(n.id))
     .filter((n) => {
       const b = nodeBounds(doc, n);
-      return b && cb && rectsIntersect(b, cb);
+      return b && cb && rectsIntersect(b, cb) && !insideLive(doc, n);
     });
   if (!below.length) {
     app.notify('There are no objects below the selected path.');

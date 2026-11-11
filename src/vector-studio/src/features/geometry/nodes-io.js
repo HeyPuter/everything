@@ -15,6 +15,25 @@ export function isLiveContainer(n) {
   return Boolean(def && !PLAIN_CONTENT_KINDS.has(def.key));
 }
 
+/** Whether a node is an input of a live object (inside a blend, a Repeat, ...). */
+export function insideLive(doc, n) {
+  for (let p = doc.get(n.parent); p; p = doc.get(p.parent)) if (isLiveContainer(p)) return true;
+  return false;
+}
+
+/** "the blend" for a live group labeled "<Blend>". */
+function liveLabel(node) {
+  const def = liveDef(node);
+  const raw = typeof def?.label === 'function' ? def.label(node) : def?.label;
+  const name = String(raw || '').replace(/[<>]/g, '').trim().toLowerCase();
+  return name ? `the ${name}` : 'live objects';
+}
+
+/** Message for a path operation given only live objects: "<what> works on paths. Expand the blend first (...)". */
+export function expandLiveFirst(what, live) {
+  return `${what} works on paths. Expand ${liveLabel(live)} first (Object > Expand).`;
+}
+
 /**
  * Leaves that carry geometry (paths and compound paths), back to front,
  * from the given ids. With `intoLive: false` the inputs of live groups are
