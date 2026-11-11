@@ -188,3 +188,31 @@ describe('media actions while a compound clip is open', () => {
     expect(actions.usedOutsideCompound(['vid', 'silent'])).toEqual([]);
   });
 });
+
+describe('Show on timeline', () => {
+  const lastToast = () => [...document.querySelectorAll('.toast')].at(-1)?.textContent || '';
+
+  it('selects the compound clip holding the media when no clip uses it directly', () => {
+    const p = fixture();
+    const [, b] = onMain(p, clip('video', 0, 5), clip('video', 5, 5, { assetId: 'silent' }));
+    const comp = createCompound(p, [b.id], { ripple: true, linkOverlays: true });
+    const store = new EditorStore(p);
+    createMediaActions({ store, library: null }).revealAsset('silent');
+    expect([...store.selection]).toEqual([comp.id]);
+    expect(store.time).toBe(comp.start);
+  });
+
+  it('names the timeline the media is on when it is not on the open one', async () => {
+    const { ensureTimelines, addTimeline, switchTimeline } = await import('../src/model/timelines.js');
+    const p = fixture();
+    ensureTimelines(p);
+    const other = addTimeline(p, { name: 'Vertical cut' });
+    switchTimeline(p, other);
+    onMain(p, clip('video', 0, 5, { assetId: 'silent' }));
+    switchTimeline(p, p.timelines[0].id);
+    const store = new EditorStore(p);
+    createMediaActions({ store, library: null }).revealAsset('silent');
+    expect(store.selection.size).toBe(0);
+    expect(lastToast()).toContain('Vertical cut');
+  });
+});

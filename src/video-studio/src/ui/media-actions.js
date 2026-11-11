@@ -139,9 +139,14 @@ export function createMediaActions(ctx) {
 
     /** Select every clip using an asset and jump to the first. */
     revealAsset(assetId) {
-      const clips = T.allClips(store.project).filter((c) => c.assetId === assetId).sort((x, y) => x.start - y.start);
+      const top = T.allClips(store.project);
+      let clips = top.filter((c) => c.assetId === assetId);
+      // Only inside compound clips: those are what shows on the timeline.
+      if (!clips.length) clips = top.filter((c) => c.type === 'compound' && allClipsDeep({ tracks: c.sequence.tracks }).some((x) => x.assetId === assetId));
+      clips.sort((x, y) => x.start - y.start);
       if (!clips.length) {
-        toast('This item is not on the timeline.', { kind: 'info' });
+        const other = (store.project.timelines || []).find((t) => t.id !== store.project.timelineId && Array.isArray(t.tracks) && allClipsDeep({ tracks: t.tracks }).some((x) => x.assetId === assetId));
+        toast(other ? `This item is only used on the timeline ${other.name}.` : 'This item is not on the timeline.', { kind: 'info' });
         return;
       }
       store.select(clips.map((c) => c.id));
