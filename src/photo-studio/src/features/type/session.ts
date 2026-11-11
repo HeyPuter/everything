@@ -462,7 +462,8 @@ export function selectParagraphAt(e: Editor, index: number) {
 }
 
 // Caret movement. `unit`: char, word, line (Home/End), doc, vline (up/down).
-export function move(e: Editor, dir: -1 | 1, unit: 'char' | 'word' | 'line' | 'doc' | 'vline', extend: boolean) {
+// `visual`: Left/Right arrows on horizontal text, where `dir` 1 means rightwards.
+export function move(e: Editor, dir: -1 | 1, unit: 'char' | 'word' | 'line' | 'doc' | 'vline', extend: boolean, visual = false) {
   const s = session!;
   const t = text();
   const layout = sessionLayout(e)!;
@@ -470,11 +471,20 @@ export function move(e: Editor, dir: -1 | 1, unit: 'char' | 'word' | 'line' | 'd
   let to = s.focus;
   if (!extend && a !== b && (unit === 'char' || unit === 'word')) {
     to = dir < 0 ? a : b;
+    // On screen, the end of a right-to-left selection is on its left.
+    if (visual && unit === 'char' && layout.lineIndexAt(a) === layout.lineIndexAt(b, 'up')) {
+      const xa = layout.caretRect(a).x, xb = layout.caretRect(b, 'up').x;
+      if (xa !== xb) to = (xb - xa) * dir > 0 ? b : a;
+    }
     setSelection(e, to, to);
     return;
   }
   let keepGoal = false;
-  if (unit === 'char') to = dir < 0 ? prevChar(t, s.focus) : nextChar(t, s.focus);
+  if (unit === 'char' && visual) {
+    // Left/Right move on screen, so they step the right way through right-to-left text.
+    const v = layout.moveVisual(s.focus, dir);
+    to = 'index' in v ? v.index : v.logical < 0 ? prevChar(t, s.focus) : nextChar(t, s.focus);
+  } else if (unit === 'char') to = dir < 0 ? prevChar(t, s.focus) : nextChar(t, s.focus);
   else if (unit === 'word') to = dir < 0 ? prevWord(t, s.focus) : nextWord(t, s.focus);
   else if (unit === 'doc') to = dir < 0 ? 0 : t.length;
   else if (unit === 'line') {

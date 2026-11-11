@@ -59,3 +59,44 @@ describe('bidirectional layout', () => {
     expect(l.runs[0].text).toBe('١٢');
   });
 });
+
+describe('visual caret movement', () => {
+  // Steps right (or left) from `from` until the line's end; returns the caret x positions.
+  const walk = (data: TextLayerData, from: number, dir: -1 | 1) => {
+    const l = layoutText(data, { measure: mono });
+    const xs = [l.caretRect(from).x];
+    let i = from;
+    for (let n = 0; n < 20; n++) {
+      const v = l.moveVisual(i, dir);
+      if (!('index' in v)) break;
+      i = v.index;
+      xs.push(l.caretRect(i).x);
+    }
+    return xs;
+  };
+  it('moves the caret rightwards on screen through a right-to-left paragraph', () => {
+    // Right arrow from the logical start (the right end) cannot go further right,
+    // and Left walks every caret position leftwards.
+    const data = point('אבגד', true);
+    const l = layoutText(data, { measure: mono });
+    expect(l.moveVisual(0, 1)).toEqual({ logical: -1 });
+    expect(walk(data, 0, -1)).toEqual([100, 90, 80, 70, 60]);
+    expect(walk(data, 4, 1)).toEqual([60, 70, 80, 90, 100]);
+  });
+  it('steps across a Hebrew word inside English in screen order', () => {
+    const data = point('ab אבג cd');
+    const xs = walk(data, 0, 1);
+    // Strictly increasing positions from the left end to the right end.
+    expect(xs[0]).toBe(100);
+    expect(xs.at(-1)).toBe(190);
+    for (let k = 1; k < xs.length; k++) expect(xs[k]).toBeGreaterThan(xs[k - 1]);
+    const back = walk(data, 9, -1);
+    expect(back.at(-1)).toBe(100);
+    for (let k = 1; k < back.length; k++) expect(back[k]).toBeLessThan(back[k - 1]);
+  });
+  it('leaves left-to-right lines to logical movement', () => {
+    const l = layoutText(point('abc'), { measure: mono });
+    expect(l.moveVisual(1, 1)).toEqual({ logical: 1 });
+    expect(l.moveVisual(1, -1)).toEqual({ logical: -1 });
+  });
+});

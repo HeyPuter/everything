@@ -258,7 +258,7 @@ export function handleKey(e: Editor, ev: KeyboardEvent, fromInput = true): boole
       if (along) {
         const dir = forward ? 1 : -1;
         if (mod && isMac) move(e, dir, 'line', shift);
-        else move(e, dir, alt || (mod && !isMac) ? 'word' : 'char', shift);
+        else move(e, dir, alt || (mod && !isMac) ? 'word' : 'char', shift, !vertical);
       } else {
         // Across lines; vertical columns advance to the left.
         const dir = vertical ? (ev.key === 'ArrowLeft' ? 1 : -1) : forward ? 1 : -1;
