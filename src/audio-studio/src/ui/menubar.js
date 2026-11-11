@@ -298,6 +298,8 @@ export function createMenubar(app, menus) {
     const btn = buttons[i];
     const r = btn.getBoundingClientRect();
     openIndex = i;
+    // Roving tabindex follows the open menu, so Escape and Tab leave from its button.
+    buttons.forEach((b, j) => (b.tabIndex = j === i ? 0 : -1));
     btn.setAttribute('aria-expanded', 'true');
     btn.classList.add('open');
     const items = resolveItems(app, menus[i].submenu);
