@@ -87,9 +87,11 @@ export function installPreviewEditor(app, host) {
         changesLength = true;
         sync();
       }
-      // The processed state: show the view range, stretched or shrunk by the effect.
+      // The processed state: show the view range, stretched or shrunk by the effect,
+      // at the main editor's scale (a view running past the end of the file stays blank there).
       const [vs, ve] = r.view;
-      result = { channels: out.state.channels.map((c) => c.slice(vs, Math.max(vs + 1, ve + delta))), span: ve - vs + delta };
+      const v = doc.view;
+      result = { channels: out.state.channels.map((c) => c.slice(vs, Math.max(vs + 1, ve + delta))), start: v.start - vs, span: v.end - v.start + delta };
       status.textContent = delta ? `Length ${delta > 0 ? '+' : '-'}${app.formatTime(Math.abs(delta), doc.sampleRate)}` : '';
       draw();
     } catch (err) {
@@ -122,7 +124,7 @@ export function installPreviewEditor(app, host) {
     const lh = (H * dpr - gap * (n - 1)) / n;
     const lanes = result.channels.map((_, i) => ({ top: i * (lh + gap), bottom: i * (lh + gap) + lh }));
     const color = cssVar('--wave');
-    renderer.draw({ channels: result.channels, start: 0, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: current.doc.view.amp || 1, lanes, colors: result.channels.map(() => color) });
+    renderer.draw({ channels: result.channels, start: result.start, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: current.doc.view.amp || 1, lanes, colors: result.channels.map(() => color) });
   }
 
   app.on('effect-values', (payload) => {
