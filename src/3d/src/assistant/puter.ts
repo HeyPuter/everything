@@ -1,4 +1,4 @@
-// The Puter SDK. index.html loads it with the page (deferred), so the top bar can show
+// The Puter SDK. index.html loads it with the page (unless online access is off), so the top bar can show
 // puter.js's account menu (src/ui/usermenu.ts); the rest of the app works without Puter, offline
 // included, so a load that failed is not an error. The assistant loads it again here the first
 // time it needs it, and says so (PUTER_LOADED) for the top bar.

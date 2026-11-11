@@ -440,3 +440,27 @@ test('menu entries tell assistive technology about toggles, choices and submenus
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('with online access off the page does not fetch the Puter SDK; with it on the account menu still comes', async ({ page }) => {
+  const hits: string[] = [];
+  await page.route('https://js.puter.com/**', (r) => {
+    hits.push(r.request().url());
+    return r.fulfill({ contentType: 'application/javascript', body: 'customElements.define("puter-user-menu", class extends HTMLElement {}); window.puter = { env: "web", auth: { isSignedIn: () => false } };' });
+  });
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('r5-online')) return;
+    sessionStorage.setItem('r5-online', '1');
+    localStorage.setItem('p3d.preferences.v1', JSON.stringify({ use_online_access: false }));
+  });
+  const errors = await openApp(page);
+  await page.waitForTimeout(500);
+  expect(hits).toEqual([]);
+  await expect(page.locator('.topbar > puter-user-menu')).toHaveCount(0);
+  // online again: the next start loads it and the top bar shows the account menu
+  await page.evaluate(() => localStorage.setItem('p3d.preferences.v1', JSON.stringify({ use_online_access: true })));
+  await page.reload();
+  await page.waitForFunction(() => !!(window as any).app);
+  await expect(page.locator('.topbar > puter-user-menu')).toHaveCount(1);
+  expect(hits.length).toBe(1);
+  await expectNoErrors(errors);
+});
