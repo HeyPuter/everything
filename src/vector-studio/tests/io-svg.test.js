@@ -564,6 +564,23 @@ describe('SVG export and round trip', () => {
     });
   });
 
+  it('keeps the alignment of a clipping path\'s stroke', () => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    const layer = doc.layers()[0].id;
+    const content = createPath(rectangle(0, 0, 120, 120), true, { fill: { type: 'solid', color: '#ff0000' }, stroke: null });
+    const mask = createPath(ellipse(20, 20, 80, 80), true, { fill: null, stroke: { type: 'solid', color: '#0000ff' }, strokeWidth: 10, strokeAlign: 'inside', opacity: 0.5 });
+    doc.transact('build', () => doc.insert(createGroup([content.id, mask.id], { clip: true }), layer, Infinity, [content, mask]));
+    doc.repairParents();
+    const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 120, h: 120 } });
+    const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    // An inside stroke is a double-width stroke clipped to the shape (a centered 10pt stroke would spill 5pt outside).
+    const stroke = [...parsed.getElementsByTagName('*')].find((el) => el.getAttribute('stroke') === '#0000ff');
+    expect(stroke.getAttribute('stroke-width')).toBe('20');
+    expect(stroke.parentNode.getAttribute('clip-path')).toMatch(/^url\(#c\d+\)$/);
+    // The clipping path's own opacity does not apply to its stroke (as on the canvas).
+    expect(svg).not.toContain('opacity="0.5"');
+  });
+
   it('offsets content to the exported artboard', () => {
     const doc = buildDoc();
     const svg = exportSVG(doc, { rect: { x: 100, y: 10, w: 40, h: 40 } });

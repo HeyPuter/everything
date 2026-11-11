@@ -658,7 +658,8 @@ class SVGWriter {
       // effects apply after clipping, so both need the clip on an inner group.
       const body = kids.slice(0, -1).map((k) => this.node(k, depth + 2)).join('');
       let out = body ? `${this.nl(depth + 1)}<g clip-path="url(#${cp})">${body}${this.nl(depth + 1)}</g>` : '';
-      if (stroked) out += `${this.nl(depth + 1)}${this.geometryOpen(mask)} fill="none"${this.strokeAttrs(mask)}/>`;
+      // The stroke keeps its alignment (inside/outside), like on the canvas; the clipping path's own opacity and effects don't draw.
+      if (stroked) out += this.shape({ ...mask, name: '', fill: null, opacity: 1, blendMode: 'normal', effects: [] }, depth + 1);
       if (!out) return '';
       return `${nl}<g${id}${this.commonAttrs(node)}>${out}${nl}</g>`;
     }
