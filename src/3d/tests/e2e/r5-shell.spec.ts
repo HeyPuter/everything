@@ -419,3 +419,24 @@ test('a phone-width window starts with the assistant closed, and the button stil
   await expect(page.locator('.assistant')).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('menu entries tell assistive technology about toggles, choices and submenus', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.topbar .tb-menu', { hasText: 'Window' }).click();
+  const menu = page.locator('.popup-layer > .menu').first();
+  await expect(menu).toHaveAttribute('role', 'menu');
+  // Window ▸ AI Assistant is a toggle
+  const toggle = menu.locator('.menu-item', { hasText: 'AI Assistant' });
+  await expect(toggle).toHaveAttribute('role', 'menuitemcheckbox');
+  await expect(toggle).toHaveAttribute('aria-checked', /true|false/);
+  await expect(menu.locator('.menu-sep').first()).toHaveAttribute('role', 'separator');
+  await page.keyboard.press('Escape');
+  await page.locator('.topbar .tb-menu', { hasText: 'File' }).click();
+  const sub = page.locator('.popup-layer > .menu').first().locator('.menu-item.has-sub').first();
+  await expect(sub).toHaveAttribute('aria-haspopup', 'menu');
+  await sub.hover();
+  await expect(page.locator('.popup-layer > .menu')).toHaveCount(2);
+  await expect(sub).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

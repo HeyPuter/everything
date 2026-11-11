@@ -254,7 +254,7 @@ let submenuTimer = 0;
 function renderMenu(m: OpenMenu) {
   const accel = accelOf(m.items);
   const vnodes: Child[] = m.items.map((item, i) => {
-    if (item.separator) return h('div', { class: 'menu-sep' });
+    if (item.separator) return h('div', { class: 'menu-sep', role: 'separator' });
     if (item.heading) return h('div', { class: { 'menu-heading': true, 'menu-title': !!item.title, 'col-break': !!item.columnBreak } }, item.heading);
     if (item.custom) return h('div', { class: 'menu-custom' }, item.custom());
     if (item.search)
@@ -282,7 +282,11 @@ function renderMenu(m: OpenMenu) {
       'div',
       {
         class: { 'menu-item': true, hl: i === m.index, disabled, 'has-sub': !!item.submenu, current: !!item.active, 'col-break': !!item.columnBreak },
-        role: 'menuitem',
+        // toggles and choices say whether they are on; submenus that they open a menu
+        role: item.checked !== undefined ? 'menuitemcheckbox' : item.active !== undefined ? 'menuitemradio' : 'menuitem',
+        'aria-checked': item.checked !== undefined ? String(!!item.checked) : item.active !== undefined ? String(!!item.active) : null,
+        'aria-haspopup': item.submenu ? 'menu' : null,
+        'aria-expanded': item.submenu ? String(!!m.child && m.child.owner === m.el.children[i]) : null,
         'data-tip': item.submenu ? null : itemTip(item, desc),
         'aria-disabled': disabled ? 'true' : null,
         onpointerenter: () => {
