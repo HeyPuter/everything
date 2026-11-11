@@ -809,11 +809,13 @@ function openColorPicker(anchor: HTMLElement, initial: number[], set: (v: number
               const up = () => {
                 removeEventListener('pointermove', pick);
                 removeEventListener('pointerup', up);
+                removeEventListener('pointercancel', up);
                 setWidgetDragging(false);
                 emit(true);
               };
               addEventListener('pointermove', pick);
               addEventListener('pointerup', up);
+              addEventListener('pointercancel', up);
             },
           }),
           h('div', { class: 'cp-cursor', style: circle ? { left: `${80 + Math.cos(ang) * pb * 80}px`, top: `${80 - Math.sin(ang) * pb * 80}px` } : { left: `${pa * 160}px`, top: `${(1 - pb) * 160}px` } }),
@@ -837,11 +839,13 @@ function openColorPicker(anchor: HTMLElement, initial: number[], set: (v: number
               const up = () => {
                 removeEventListener('pointermove', pick);
                 removeEventListener('pointerup', up);
+                removeEventListener('pointercancel', up);
                 setWidgetDragging(false);
                 emit(true);
               };
               addEventListener('pointermove', pick);
               addEventListener('pointerup', up);
+              addEventListener('pointercancel', up);
             },
           },
           h('div', { class: 'cp-vcursor', style: { top: `${(1 - pc) * 100}%` } }),

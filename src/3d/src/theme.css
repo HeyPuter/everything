@@ -1360,6 +1360,58 @@ input.num-field.editing {
   max-height: calc(100vh - 20px);
   overflow-y: auto;
 }
+/* colour picker: a disc or square for two components, a bar for the third */
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cp-top {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 4px 0;
+}
+.cp-wheel {
+  position: relative;
+  flex: none;
+}
+.cp-wheel canvas {
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+.cp-wheel.cp-square canvas {
+  border-radius: 3px;
+}
+.cp-cursor {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #000000;
+  pointer-events: none;
+}
+.cp-value {
+  position: relative;
+  flex: none;
+  width: 16px;
+  border-radius: 3px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.cp-vcursor {
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 3px;
+  margin-top: -2px;
+  border: 1px solid #ffffff;
+  box-shadow: 0 0 0 1px #000000;
+  pointer-events: none;
+}
 .pop-panel {
   display: flex;
   flex-direction: column;

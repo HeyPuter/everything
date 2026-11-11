@@ -195,3 +195,25 @@ test('a number drag the browser cancels (touch scrolling) puts the value back an
   expect(await x()).toBe(0);
   await expectNoErrors(errors);
 });
+
+test('the colour picker shows its value bar and cursor, and dragging the bar sets the brightness', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.properties [data-tab="WORLD"]').first().click();
+  await page.locator('.properties .color-swatch').first().click();
+  const bar = page.locator('.popover .cp-value');
+  await expect(bar).toBeVisible();
+  const b = (await bar.boundingBox())!;
+  expect(b.width).toBeGreaterThan(8);
+  expect(b.height).toBeGreaterThan(100);
+  expect(await page.locator('.popover .cp-cursor').evaluate((e) => getComputedStyle(e).position)).toBe('absolute');
+  // the picker's V field
+  const color = async () => [Number(await page.locator('.popover .num-field[data-id="cp-V"] .num-value').textContent())];
+  const before = await color();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height - 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2, b.y + 2, { steps: 4 });
+  await page.mouse.up();
+  const after = await color();
+  expect(after[0]).toBeGreaterThan(before[0]);
+  await expectNoErrors(errors);
+});
