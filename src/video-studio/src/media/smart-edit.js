@@ -125,7 +125,29 @@ export async function detectScenes(blob, from, to, { fps = 5, sensitivity = 0.5,
     }
     const dist = [];
     for (let j = 1; j < sigs.length; j++) dist.push(signatureDistance(sigs[j - 1].sig, sigs[j].sig));
-    return sceneCuts(dist, { sensitivity, minGap: Math.max(2, Math.round(fps * 0.6)) }).map((j) => Math.round(sigs[j].t * US));
+    const out = [];
+    for (const j of sceneCuts(dist, { sensitivity, minGap: Math.max(2, Math.round(fps * 0.6)) })) {
+      // The shot changed somewhere between two samples (up to 1 / fps apart):
+      // find the frame it changed on, so no frame of the next shot is left behind.
+      let best = -1;
+      let at = sigs[j].t;
+      let prev = null;
+      for await (const wrapped of sink.canvases(sigs[j - 1].t, sigs[j].t + 1e-3)) {
+        if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
+        g.drawImage(wrapped.canvas, 0, 0, SIG_W, SIG_H);
+        const sig = frameSignature(g.getImageData(0, 0, SIG_W, SIG_H).data);
+        if (prev) {
+          const d = signatureDistance(prev, sig);
+          if (d > best) {
+            best = d;
+            at = wrapped.timestamp;
+          }
+        }
+        prev = sig;
+      }
+      out.push(Math.round(at * US));
+    }
+    return out;
   } finally {
     input.dispose();
   }
