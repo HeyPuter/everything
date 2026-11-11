@@ -4,7 +4,7 @@
 import { Vector3 } from 'three';
 import { app, registerOperators } from '../../app/app';
 import { activeTools } from '../../app/prefs';
-import { editModeHooks } from './hooks';
+import { editModeHooks, followPointer } from './hooks';
 import type { View3D } from './view3d';
 import { h, type VNode } from '../../ui/h';
 import { surfaceHit, cursorToolSettings } from '../../ops/view3d';
@@ -167,6 +167,9 @@ export function measurePointer(v: View3D, e: PointerEvent): boolean {
       if (Math.hypot(mid.x - x, mid.y - y) < 7) grab = { i, end: 'c' };
     }
   });
+  // what Esc / right-click / a cancelled pointer goes back to
+  const rulersBefore = sc.rulers;
+  const activeBefore = activeRuler;
   let ruler: Ruler;
   let end: 'a' | 'b' | 'c';
   let created = false;
@@ -198,9 +201,39 @@ export function measurePointer(v: View3D, e: PointerEvent): boolean {
     moved = true;
     app.changed('doc');
   };
+  let done = false;
+  const finish = () => {
+    done = true;
+    removeEventListener('keydown', key, true);
+    removeEventListener('pointerdown', rmb, true);
+    removeEventListener('pointermove', rmb, true);
+  };
+  const cancel = () => {
+    if (done) return;
+    finish();
+    sc.rulers = rulersBefore;
+    activeRuler = activeBefore;
+    app.changed('doc');
+  };
+  const key = (ev: KeyboardEvent) => {
+    if (ev.key !== 'Escape') return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    cancel();
+  };
+  // (a second button pressed during a drag arrives as a pointer move with that button)
+  const rmb = (ev: PointerEvent) => {
+    if (ev.button !== 2 || !(ev.buttons & 2)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    cancel();
+  };
+  addEventListener('keydown', key, true);
+  addEventListener('pointerdown', rmb, true);
+  addEventListener('pointermove', rmb, true);
   const up = () => {
-    removeEventListener('pointermove', move);
-    removeEventListener('pointerup', up);
+    if (done) return;
+    finish();
     if (converted && !moved) delete ruler.c;
     if (created && !moved) {
       // a click without drag does not create a zero length ruler
@@ -209,8 +242,11 @@ export function measurePointer(v: View3D, e: PointerEvent): boolean {
     } else if (moved) app.pushUndo(created ? 'Add Ruler' : 'Move Ruler');
     app.changed('doc');
   };
-  addEventListener('pointermove', move);
-  addEventListener('pointerup', up);
+  followPointer(
+    e,
+    (ev) => !done && move(ev),
+    (_ev, cancelled) => (cancelled ? cancel() : up()),
+  );
   return true;
 }
 

@@ -432,3 +432,38 @@ test('the 3D view header folds its menus when the window gets narrow', async ({ 
   await expect(header.locator('.hdr-collapsed-menus')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('Esc and right-click cancel a Measure drag', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  await page.evaluate(async () => {
+    const { setActiveTool } = await import('/src/editors/view3d/toolbar.ts' as string);
+    setActiveTool('builtin.measure');
+  });
+  const rulers = () => page.evaluate(() => ((window as any).app.doc.scene.rulers ?? []).length); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const y = c.box.y + c.box.height - 100;
+  // Esc while dragging a new ruler
+  await page.mouse.move(c.x - 150, y);
+  await page.mouse.down();
+  await page.mouse.move(c.x - 50, y, { steps: 4 });
+  await page.keyboard.press('Escape');
+  await page.mouse.move(c.x, y, { steps: 2 });
+  await page.mouse.up();
+  expect(await rulers()).toBe(0);
+  // right-click while dragging
+  await page.mouse.move(c.x - 150, y);
+  await page.mouse.down();
+  await page.mouse.move(c.x - 50, y, { steps: 4 });
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.up({ button: 'right' });
+  await page.mouse.up();
+  expect(await rulers()).toBe(0);
+  await expect(page.locator('.menu')).toHaveCount(0);
+  // a plain drag still measures
+  await page.mouse.move(c.x - 150, y);
+  await page.mouse.down();
+  await page.mouse.move(c.x - 50, y, { steps: 4 });
+  await page.mouse.up();
+  expect(await rulers()).toBe(1);
+  await expectNoErrors(errors);
+});
