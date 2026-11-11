@@ -371,11 +371,14 @@ export class Editor extends Emitter {
    */
   #isolationContainer(leaf) {
     const doc = this.doc;
-    const parent = doc.get(leaf.parent);
+    // A subpath of a compound path: the compound path is the object that gets wrapped (only paths go inside one).
+    let obj = leaf;
+    while (doc.get(obj.parent)?.type === 'compound') obj = doc.get(obj.parent);
+    const parent = doc.get(obj.parent);
     if (!doc.tx || !parent) return parent || doc.layers().slice(-1)[0];
     const g = createGroup([]);
-    doc.insert(g, parent.id, parent.children.indexOf(leaf.id));
-    doc.move(leaf.id, g.id);
+    doc.insert(g, parent.id, parent.children.indexOf(obj.id));
+    doc.move(obj.id, g.id);
     this.isolationLeaf = leaf.id;
     this.isolation = g.id;
     this.emit('isolation');

@@ -89,3 +89,36 @@ describe('new artwork in an isolated clip group', () => {
     }
   });
 });
+
+describe('new artwork while a compound subpath is isolated', () => {
+  it('wraps the whole compound path, never puts a group inside it', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    ed.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
+    const doc = ed.doc;
+    const add = (x, size) => {
+      const p = createPath(rectangle(x, x, size, size), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    };
+    const outer = add(0, 100);
+    const inner = add(25, 50);
+    ed.select([outer, inner]);
+    await app.commands.run('object.compoundMake');
+    const [compound] = ed.selection;
+    ed.selectAnchors(outer, [0]);
+    await app.commands.run('object.isolate');
+    const ev = (x, y) => ({ x, y, sx: x, sy: y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', pressure: 0.5, native: {} });
+    app.setTool('rectangle');
+    app.tool.onPointerDown(ev(200, 200));
+    app.tool.onPointerMove(ev(220, 220));
+    app.tool.onPointerUp(ev(250, 250));
+    const [drawn] = ed.selection;
+    expect(doc.get(compound).children).toEqual([outer, inner]);
+    const wrapper = doc.get(ed.isolation);
+    expect(wrapper.type).toBe('group');
+    expect(wrapper.children).toEqual([compound, drawn]);
+    await app.commands.run('edit.undo');
+    expect(doc.get(compound).parent).toBe(ed.targetLayer().id);
+  });
+});
