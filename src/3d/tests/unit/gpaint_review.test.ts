@@ -52,3 +52,13 @@ describe('very fast strokes', () => {
     expect(dabs[dabs.length - 1].x).toBeGreaterThan(4990);
   });
 });
+
+describe('voxel remesh size', () => {
+  it('rejects zero, negative and non-finite voxel sizes with a clear message', async () => {
+    const { voxelRemesh } = await import('../../src/paint/remesh');
+    const pos = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    const tris = new Uint32Array([0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3]);
+    for (const v of [0, -1, NaN, Infinity]) expect(() => voxelRemesh(pos, tris, v)).toThrow('Voxel size must be greater than zero');
+    expect(() => voxelRemesh(pos, tris, 0.0001)).toThrow(/too small/);
+  });
+});

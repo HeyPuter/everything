@@ -45,6 +45,7 @@ export function closestPointTriangle(p: number[], a: number[], b: number[], c: n
 }
 
 export function voxelRemesh(pos: Float32Array, tris: Uint32Array, voxel: number, maxPoints = 24e6): RemeshResult {
+  if (!(voxel > 0) || !Number.isFinite(voxel)) throw new Error('Voxel size must be greater than zero');
   const h = voxel;
   let minX = Infinity,
     minY = Infinity,
