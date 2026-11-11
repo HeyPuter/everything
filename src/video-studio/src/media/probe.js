@@ -25,8 +25,77 @@ export function extOf(name, mime = '') {
   return fromMime[mime] || 'bin';
 }
 
+/** Longest side SVG pictures are drawn at when imported (sharp on a 4K frame). */
+const SVG_SIDE = 2160;
+
+export function isSvg(file) {
+  return /svg/i.test(file?.type || '') || /\.svg$/i.test(file?.name || '');
+}
+
+/**
+ * The SVG document to draw for an imported SVG picture, sized so its longest
+ * side is `side` pixels: its own width and height, else its viewBox, give the
+ * shape (300 x 150 when it has neither, as browsers do). Throws for a file
+ * that is not an SVG picture.
+ */
+export function svgForRaster(text, side = SVG_SIDE) {
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+  const root = doc.documentElement;
+  if (!root || root.localName !== 'svg' || doc.getElementsByTagName('parsererror').length) throw new Error('This SVG file is damaged.');
+  const len = (v) => {
+    const m = /^\s*(\d*\.?\d+)\s*(px)?\s*$/.exec(v || '');
+    return m ? Number(m[1]) : 0;
+  };
+  const vb = (root.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+  const [vbw, vbh] = vb.length === 4 && vb[2] > 0 && vb[3] > 0 ? [vb[2], vb[3]] : [0, 0];
+  let w = len(root.getAttribute('width'));
+  let h = len(root.getAttribute('height'));
+  if (!w || !h) {
+    if (vbw) [w, h] = w ? [w, (w * vbh) / vbw] : h ? [(h * vbw) / vbh, h] : [vbw, vbh];
+    else [w, h] = [w || 300, h || 150];
+  }
+  // Without a viewBox the drawing is in the picture's own units: keep them while it is scaled up.
+  if (!vbw) root.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const k = side / Math.max(w, h);
+  const width = Math.max(1, Math.round(w * k));
+  const height = Math.max(1, Math.round(h * k));
+  root.setAttribute('width', String(width));
+  root.setAttribute('height', String(height));
+  return { text: new XMLSerializer().serializeToString(doc), width, height };
+}
+
+/**
+ * Draw an SVG picture into a PNG file. The preview, thumbnails and export
+ * decode pictures with createImageBitmap, which can't read SVG.
+ */
+async function svgToPng(file) {
+  const { text, width, height } = svgForRaster(await file.text());
+  const url = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode().catch(() => {
+      throw new Error('This SVG file could not be drawn.');
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+    const png = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+    if (!png) throw new Error('This SVG file could not be drawn.');
+    return new File([png], `${(file.name || 'Picture').replace(/\.svg$/i, '')}.png`, { type: 'image/png', lastModified: file.lastModified });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** The file to store for an import: SVG pictures become PNG, everything else is kept as it is. */
+export async function storableFile(file) {
+  return isSvg(file) ? svgToPng(file) : file;
+}
+
 async function probeImage(file) {
-  if (typeof createImageBitmap === 'function' && !/svg/.test(file.type)) {
+  if (typeof createImageBitmap === 'function' && !isSvg(file)) {
     const bmp = await createImageBitmap(file);
     const out = { width: bmp.width, height: bmp.height };
     bmp.close?.();

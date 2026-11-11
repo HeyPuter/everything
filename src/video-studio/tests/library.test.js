@@ -7,6 +7,8 @@ import { createProject } from '../src/model/project.js';
 // Media probing needs real decoders; these tests only need its answers.
 vi.mock('../src/media/probe.js', async (importOriginal) => ({
   ...(await importOriginal()),
+  // SVG pictures are drawn into PNG files, which jsdom can't do.
+  storableFile: vi.fn(async (file) => (/\.svg$/.test(file.name) ? new File([new Uint8Array([9, 9])], file.name.replace(/svg$/, 'png'), { type: 'image/png' }) : file)),
   probe: vi.fn(async (file) => {
     if (!/\.(mp4|mp3|png)$/.test(file.name)) throw new Error(`${file.name} is not a video, audio or image file.`);
     return { kind: file.name.endsWith('.mp3') ? 'audio' : file.name.endsWith('.png') ? 'image' : 'video', duration: 2_000_000, width: 640, height: 360, fps: 30, hasAudio: true, hasVideo: true };
@@ -312,6 +314,15 @@ describe('Library media', () => {
     await lib.importFile(first);
     await lib.flushUploads();
     expect(backend.writes).toBe(writes);
+  });
+
+  it('stores an SVG picture drawn as PNG and keeps its name', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend);
+    const asset = await lib.importFile(new File(['<svg xmlns="http://www.w3.org/2000/svg"/>'], 'logo.svg', { type: 'image/svg+xml' }));
+    expect(asset).toMatchObject({ kind: 'image', name: 'logo.svg', ext: 'png' });
+    await lib.flushUploads();
+    expect((await backend.readBlob(`media/${asset.hash}.png`)).type).toBe('image/png');
   });
 
   it('rejects files that are not media', async () => {

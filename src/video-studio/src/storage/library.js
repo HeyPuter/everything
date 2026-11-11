@@ -300,13 +300,16 @@ export class Library extends Emitter {
    */
   async importFile(file, { origin = 'import' } = {}) {
     // Mediabunny is loaded on first import so the home screen starts faster.
-    const { probe, extOf } = await import('../media/probe.js');
+    const { probe, extOf, storableFile } = await import('../media/probe.js');
+    // SVG pictures are stored drawn as PNG (the name stays the one the user knows).
+    const source = file;
+    file = await storableFile(file);
     const info = await probe(file);
     const hash = await fingerprint(file);
     const asset = normalizeAsset({
       id: uid('a'),
       kind: info.kind,
-      name: file.name || `${info.kind} ${new Date().toLocaleString()}`,
+      name: source.name || `${info.kind} ${new Date().toLocaleString()}`,
       hash,
       ext: extOf(file.name, file.type),
       mime: file.type,
