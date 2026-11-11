@@ -156,6 +156,24 @@ describe('export dialog', () => {
     d.close();
   });
 
+  it('holds Export and explains when a WAV would be too long for its format', async () => {
+    const p = createProject({ name: 'Trip' });
+    p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: 7 * 3600 * US }));
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    const d = openExportDialog(ctxWith(p));
+    await flush();
+    const check = (title) => [...d.el.querySelectorAll('.export-section')].find((x) => x.querySelector('.export-section-title').textContent === title).querySelector('.export-check');
+    const exportBtn = [...d.el.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Export');
+    if (!check('Audio file').checked) check('Audio file').click();
+    expect(exportBtn.disabled).toBe(true);
+    expect(d.el.textContent).toMatch(/WAV file can hold at most about 6 hours/);
+    const format = [...d.el.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'm4a'));
+    format.value = 'm4a';
+    format.dispatchEvent(new Event('change'));
+    expect(exportBtn.disabled).toBe(false);
+    d.close();
+  });
+
   it('picks which timeline to export when the project has several', async () => {
     const { ensureTimelines, addTimeline } = await import('../src/model/timelines.js');
     const p = createProject({ name: 'Trip' });

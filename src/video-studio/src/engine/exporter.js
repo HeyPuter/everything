@@ -66,6 +66,10 @@ export const AUDIO_FORMATS = {
   flac: { label: 'FLAC', ext: 'flac', mime: 'audio/flac', codec: 'flac' },
 };
 
+/** Longest sound a WAV export holds: its header counts bytes in 32 bits (4 GB, about 6.2 h of 48 kHz stereo). */
+export const WAV_MAX_US = Math.floor(((Math.floor((0xffffffff - 36) / 4) - 1) / 48000) * 1e6);
+export const WAV_TOO_LONG = 'A WAV file can hold at most about 6 hours of sound. Choose M4A or OGG, or export a shorter part.';
+
 /** Default container for a codec (when the codec is chosen first). */
 export const CODEC_HOME = { avc: 'mp4', hevc: 'mp4', av1: 'mp4', vp9: 'webm' };
 
@@ -844,6 +848,8 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
     return { kind: 'audio', blob, release: () => sink?.discard(), fileName: `${base}.${f.ext}`, mimeType: f.mime, frames: 0, duration, elapsed };
   };
   if (!f.codec) {
+    // A longer file's sizes would overflow the header and players would cut it short.
+    if (duration > WAV_MAX_US) throw new Error(WAV_TOO_LONG);
     const totalFrames = Math.round((duration * sampleRate) / US);
     const parts = [wavHeader(totalFrames, channels, sampleRate)];
     for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report })) {

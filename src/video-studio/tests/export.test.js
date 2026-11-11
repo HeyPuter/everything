@@ -187,3 +187,19 @@ describe('encoder delay', () => {
     expect(await encoderDelay('aac', { sampleRate: 44100, numberOfChannels: 1 })).toBe(0);
   });
 });
+
+describe('long WAV exports', () => {
+  it('refuses a WAV longer than its header can count, before mixing anything', async () => {
+    const { exportProject, WAV_MAX_US, WAV_TOO_LONG } = await import('../src/engine/exporter.js');
+    const { createProject, makeClip } = await import('../src/model/project.js');
+    const p = createProject();
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: WAV_MAX_US + US }));
+    const library = { mediaBlob: vi.fn() };
+    await expect(exportProject(p, library, { audioFormat: 'wav' }, { kind: 'audio' })).rejects.toThrow(WAV_TOO_LONG);
+    expect(library.mediaBlob).not.toHaveBeenCalled();
+    // 6 h 12 min of 48 kHz 16-bit stereo still fits in 4 GB.
+    expect(WAV_MAX_US / US / 3600).toBeGreaterThan(6.2);
+    expect(44 + Math.round((WAV_MAX_US * 48000) / US) * 4).toBeLessThanOrEqual(0xffffffff + 8);
+  });
+});

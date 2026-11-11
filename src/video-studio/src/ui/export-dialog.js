@@ -13,7 +13,7 @@ import { audibleClips } from '../engine/scene.js';
 import {
   RESOLUTIONS, FRAME_RATES, BITRATE_LEVELS, VIDEO_CODECS, CONTAINERS, AUDIO_FORMATS, DEFAULT_SETTINGS,
   outputSize, videoBitrate, estimateSize, reconcile, audioCodecFor, detectCapabilities, exportProject, renderStill,
-  describeError, formatBytes, safeFileName, renderFrames,
+  describeError, formatBytes, safeFileName, renderFrames, WAV_MAX_US, WAV_TOO_LONG,
 } from '../engine/exporter.js';
 import { sliceProject, exportSpan } from '../model/slice.js';
 import { GifWriter } from '../media/gif.js';
@@ -367,6 +367,8 @@ export function openExportDialog(ctx) {
     capSection.el.hidden = !hasCaptions;
     if (!sound) audioHint.textContent = s.scope === 'all' ? 'This project has no sound yet.' : 'The part being exported has no sound.';
     else audioHint.textContent = s.video ? 'Also saves the sound as a separate file.' : 'Audio only: exports just the sound.';
+    const wavTooLong = s.audio && s.audioFormat === 'wav' && duration > WAV_MAX_US;
+    if (wavTooLong) audioHint.replaceChildren(icon('alert', 14), WAV_TOO_LONG);
     destHint.textContent = s.destination === 'puter' ? 'Saved to the Videos folder in your Puter account.' : 'Downloaded by your browser.';
     const gifW = Math.min(s.gifWidth, projW);
     const gifFrames = Math.ceil((duration / US) * s.gifFps);
@@ -376,7 +378,7 @@ export function openExportDialog(ctx) {
     const bytes = (s.video || s.audio ? estimateSize(s, duration, { projW, projH }) : 0) + gifBytes;
     const nothing = !s.video && !s.audio && !s.gif && !(s.captions && hasCaptions);
     const noVideo = s.video && caps && !caps.video.length;
-    exportBtn.disabled = duration <= 0 || nothing || noVideo || noSound;
+    exportBtn.disabled = duration <= 0 || nothing || noVideo || noSound || wavTooLong;
     scope.set(s.scope);
     footerInfo.replaceChildren(
       h('span', icon('clock', 14), `Length ${clock(duration)}`),
