@@ -493,3 +493,37 @@ describe('New Favorite', () => {
     expect(await run).toBe(null);
   });
 });
+
+describe('effect dialog tabs', () => {
+  it('follow the tabs pattern: one tab stop, arrow keys switch tabs', async () => {
+    await import('../src/effects/index.js');
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(480, 0.1))],
+    });
+    app.active = doc;
+    const def = getEffect('dynamicsProcessing');
+    expect(def.layout.tabs.length).toBe(2);
+    const done = openEffectDialog(app, def, { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    const tabs = [...dlg.querySelectorAll('[role=tab]')];
+    const pages = [...dlg.querySelectorAll('[role=tabpanel]')];
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1]);
+    expect(pages[0].getAttribute('aria-labelledby')).toBe(tabs[0].id);
+    expect(tabs[0].getAttribute('aria-controls')).toBe(pages[0].id);
+    tabs[0].focus();
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tabs[1]);
+    expect(pages.map((p) => p.hidden)).toEqual([true, false]);
+    expect(tabs.map((t) => t.tabIndex)).toEqual([-1, 0]);
+    tabs[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(document.activeElement).toBe(tabs[0]);
+    tabs[1].click();
+    expect(pages.map((p) => p.hidden)).toEqual([true, false]);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await done;
+  });
+});

@@ -311,13 +311,26 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     // Tabbed pages: each holds its sections (and the graphical editor when `editor` is set).
     const parts = [];
     const tabBtns = [];
+    const uid = `fxdlgtab${Math.random().toString(36).slice(2, 8)}`;
+    // One tab in the Tab order; arrow keys move between tabs (the ARIA tabs pattern).
+    const selectTab = (i, focus = false) => {
+      pages.forEach((pg, k) => (pg.hidden = k !== i));
+      tabBtns.forEach((b, k) => {
+        b.setAttribute('aria-selected', String(k === i));
+        b.tabIndex = k === i ? 0 : -1;
+      });
+      if (focus) tabBtns[i].focus();
+    };
     const pages = tabs.map((t, i) => {
       const c = paramControls(def, () => values, set, { ...ctlOpts, sections: t.sections || [] });
       parts.push(c);
-      const page = h('div.fx-tabpage', { role: 'tabpanel', hidden: i > 0, 'aria-label': t.label }, t.editor && editorEl ? h('div.fx-editor', editorEl) : null, c.el);
-      tabBtns.push(h('button.fx-tab', { type: 'button', role: 'tab', 'aria-selected': String(i === 0), onclick: () => {
-        pages.forEach((pg, k) => (pg.hidden = k !== i));
-        tabBtns.forEach((b, k) => b.setAttribute('aria-selected', String(k === i)));
+      const page = h('div.fx-tabpage', { role: 'tabpanel', id: `${uid}-p${i}`, 'aria-labelledby': `${uid}-t${i}`, hidden: i > 0 }, t.editor && editorEl ? h('div.fx-editor', editorEl) : null, c.el);
+      tabBtns.push(h('button.fx-tab', { type: 'button', role: 'tab', id: `${uid}-t${i}`, 'aria-controls': `${uid}-p${i}`, 'aria-selected': String(i === 0), tabindex: i === 0 ? '0' : '-1', onclick: () => selectTab(i), onkeydown: (e) => {
+        const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        e.stopPropagation();
+        selectTab((i + d + tabs.length) % tabs.length, true);
       } }, t.label));
       return page;
     });
