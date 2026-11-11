@@ -1,7 +1,8 @@
 /**
  * Edit > Edit Colors: color transforms over the selection's paints. Each
- * command maps every color (solid fills and strokes, gradient stops) of the
- * selected objects, recursing into groups, compound paths and type.
+ * command maps every color (solid fills and strokes, gradient stops,
+ * freeform gradient points and gradient mesh points) of the selected
+ * objects, recursing into groups, compound paths and type.
  * Paints that change lose their global swatch link (their color no longer
  * matches the swatch).
  */
@@ -35,7 +36,32 @@ export function mapPaint(paint, fn, info = {}) {
     delete out.swatchId;
     return out;
   }
+  if (paint.type === 'freeform' && paint.points) {
+    let changed = false;
+    const points = paint.points.map((pt, i) => {
+      const c = fn(pt.color, { ...info, paint, point: i });
+      if (!c || c.toLowerCase() === pt.color.toLowerCase()) return pt;
+      changed = true;
+      return { ...pt, color: c };
+    });
+    if (!changed) return paint;
+    const out = { ...paint, points };
+    delete out.swatchId;
+    return out;
+  }
   return paint;
+}
+
+/** Map the point colors of a gradient mesh; returns the same points when nothing changed. */
+function mapMeshPoints(node, fn) {
+  let changed = false;
+  const points = node.points.map((pt, i) => {
+    const c = fn(pt.c, { node, key: 'mesh', point: i });
+    if (!c || c.toLowerCase() === String(pt.c).toLowerCase()) return pt;
+    changed = true;
+    return { ...pt, c };
+  });
+  return changed ? points : node.points;
 }
 
 /** Paintable leaves under the given ids (groups recurse; compounds paint as a whole). */
@@ -47,7 +73,7 @@ export function colorTargets(doc, ids) {
       // A group's own fills and strokes recolor with its contents.
       if (stackPaints(n).length) out.set(n.id, n);
       for (const c of n.children) visit(doc.get(c));
-    } else if (n.type === 'path' || n.type === 'compound' || n.type === 'text') out.set(n.id, n);
+    } else if (n.type === 'path' || n.type === 'compound' || n.type === 'text' || (n.type === 'mesh' && n.points)) out.set(n.id, n);
   };
   for (const id of ids) {
     const n = doc.get(id);
@@ -65,6 +91,11 @@ export function colorPatches(nodes, fn, { fill = true, stroke = true } = {}) {
   const patches = new Map();
   for (const n of nodes) {
     const patch = {};
+    // Gradient mesh point colors recolor with the fills.
+    if (fill && n.type === 'mesh' && n.points) {
+      const points = mapMeshPoints(n, fn);
+      if (points !== n.points) patch.points = points;
+    }
     // Extra fills and strokes of an appearance stack.
     const stack = mapStackPaints(n, (p, key) => ((key === 'fill' ? fill : stroke) ? mapPaint(p, fn, { node: n, key }) : p));
     if (stack) patch.appearance = stack;
@@ -108,6 +139,7 @@ export function collectColors(nodes, { fill = true, stroke = true } = {}) {
   };
   for (const n of nodes) {
     // Type counts the paints its characters actually use.
+    if (fill && n.type === 'mesh' && n.points) for (const pt of n.points) add(pt.c);
     const sources = n.type === 'text' && n.runs ? styledRuns(n).filter((r) => r.end > r.start).map((r) => r.style) : n.type === 'group' || n.type === 'layer' ? [] : [n];
     for (const it of n.appearance || []) if (it && !it.base && (it.type === 'fill' || it.type === 'stroke') && it[it.type]) sources.push({ [it.type]: it[it.type] });
     for (const src of sources) {
@@ -116,6 +148,7 @@ export function collectColors(nodes, { fill = true, stroke = true } = {}) {
         if (!on || !p) continue;
         if (p.type === 'solid') add(p.color);
         else if (p.stops) for (const s of p.stops) add(s.color);
+        else if (p.type === 'freeform' && p.points) for (const pt of p.points) add(pt.color);
       }
     }
   }
