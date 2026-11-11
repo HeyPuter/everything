@@ -1,4 +1,5 @@
 // Grease Pencil and paint / sculpt modes: regressions found in review (real pointer input).
+import { readFileSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
 import { openApp, viewportCenter, expectNoErrors } from './helpers';
 
@@ -268,4 +269,42 @@ test.describe('touch', () => {
     for (let i = 1; i < d.pos.length / 3; i++) expect(d.pos[i * 3]).toBeGreaterThan(d.pos[i * 3 - 3]);
     await expectNoErrors(errors);
   });
+});
+
+test('saving right after a texture paint stroke keeps the stroke in the file', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'SELECT' }, { invoke: false });
+    a.run('object.delete', {}, { invoke: false });
+    a.run('mesh.primitive_uv_sphere_add', { radius: 3 }, { invoke: false });
+    a.run('object.mode_set', { mode: 'TEXTURE_PAINT' }, { invoke: false });
+    a.run('paint.add_texture_paint_slot', { name: 'Paint', width: 2048, height: 2048 }, { invoke: false });
+    a.doc.scene.tool_settings.unified_paint.color = [1, 0, 0];
+  });
+  await page.waitForTimeout(300);
+  const { x, y } = await viewportCenter(page);
+  await page.mouse.move(x - 50, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(x - 50 + i * 10, y);
+  await page.mouse.up();
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('ControlOrMeta+s');
+  const file = readFileSync(await (await download).path());
+  const red = await page.evaluate(async (bytes) => {
+    const { decodeDocument } = await import('/src/io/native.ts' as string);
+    const out = decodeDocument(new Uint8Array(bytes));
+    const doc = out.doc ?? out;
+    const img = Object.values(doc.images as Record<string, { name: string; bytes?: Uint8Array; mime: string }>).find((i) => i.name === 'Paint');
+    if (!img?.bytes?.length) return -1;
+    const bmp = await createImageBitmap(new Blob([img.bytes as Uint8Array<ArrayBuffer>], { type: img.mime }));
+    const g = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d')!;
+    g.drawImage(bmp, 0, 0);
+    const px = g.getImageData(0, 0, bmp.width, bmp.height).data;
+    let n = 0;
+    for (let i = 0; i < px.length; i += 4) if (px[i] > 200 && px[i + 1] < 80) n++;
+    return n;
+  }, Array.from(file));
+  expect(red).toBeGreaterThan(1000);
+  await expectNoErrors(errors);
 });

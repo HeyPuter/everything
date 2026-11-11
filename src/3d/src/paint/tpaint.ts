@@ -9,9 +9,11 @@ import { activeView3D } from '../editors/view3d/view3d';
 import { uid, newImage, newMaterial } from '../data/defaults';
 import type { DocumentData, ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
-import { encodeImage, imageCanvas, imageTexture, primeImage, touchImage } from '../render/images';
+import { encodeImage, imageCanvas, imageReady, imageTexture, primeImage, touchImage } from '../render/images';
 import { renderContext } from '../render/context';
 import { download } from '../io/native';
+import { fileEvents } from '../io/files';
+import { encodePngRgba } from '../io/formats/pngsync';
 import { activeBrush, type PaintBrush } from './brushes';
 import { blendColor, cachedCurveTable, falloff, linearToSrgb, sampleTable, srgbToLinear, symmetryPasses, type BlendMode } from './math';
 import { cavityValues } from './maskmath';
@@ -164,6 +166,23 @@ export function addPaintSlot(
 // persisting painted pixels
 
 let saving: Promise<void> = Promise.resolve();
+/** Images whose painted pixels are still being encoded into their bytes (count per image id). */
+const encoding = new Map<string, number>();
+
+// Save right after a stroke: store the pixels still being encoded now, or the file gets the
+// image without the last strokes
+fileEvents.beforeSave.push(() => {
+  for (const id of encoding.keys()) {
+    const img = app.doc.images[id];
+    if (!img || !imageReady(img)) continue;
+    const c = imageCanvas(img);
+    const px = c.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, c.width, c.height);
+    img.bytes = encodePngRgba(px.width, px.height, px.data, px.width * px.height > 4e6 ? 1 : 6);
+    img.mime = 'image/png';
+    img.source = 'FILE';
+    touchImage(img);
+  }
+});
 
 /**
  * Store the painted canvas in the image bytes and push the undo step. The step is pushed right
@@ -180,6 +199,7 @@ export function commitImage(img: Img, label: string | null): Promise<void> {
   encoded.catch(() => {});
   if (label) app.pushUndo(label);
   const step = label ? (app.undo.mark() as { doc?: DocumentData } | null) : null;
+  encoding.set(img.id, (encoding.get(img.id) ?? 0) + 1);
   saving = saving.then(async () => {
     let bytes: Uint8Array;
     try {
@@ -187,6 +207,10 @@ export function commitImage(img: Img, label: string | null): Promise<void> {
     } catch (e) {
       app.report('ERROR', `Could not store painted image: ${e instanceof Error ? e.message : String(e)}`);
       return;
+    } finally {
+      const n = (encoding.get(img.id) ?? 1) - 1;
+      if (n > 0) encoding.set(img.id, n);
+      else encoding.delete(img.id);
     }
     const store = (im: Img) => {
       im.bytes = bytes;
