@@ -86,6 +86,39 @@ describe('Pathfinder on documents', () => {
     expect(doc.get(g).children).toEqual([a.id, b.id]);
   });
 
+  it('treats a straight open line as having no area in Intersect, Minus Front and Minus Back', async () => {
+    const mk = () => ({
+      rect: createPath(rectangle(0, 0, 100, 100), true, { fill: solid('#ff0000') }),
+      line: createPath([anchor(-20, 50), anchor(120, 50)], false, { fill: null, stroke: solid('#000000'), strokeWidth: 1 }),
+    });
+    // [kind, line in front?, expected result]
+    const cases = [
+      ['intersect', true, 'none'],
+      ['intersect', false, 'none'],
+      ['minusBack', true, 'none'],
+      ['minusFront', false, 'none'],
+      ['minusBack', false, 'rect'],
+      ['minusFront', true, 'rect'],
+      ['unite', true, 'rect'],
+    ];
+    for (const [kind, lineFront, expected] of cases) {
+      const { rect, line } = mk();
+      const { doc, editor, app, layer } = setup(lineFront ? [rect, line] : [line, rect]);
+      editor.select([rect.id, line.id]);
+      const ok = await runPathfinder(app, kind);
+      const kids = doc.get(layer.id).children;
+      if (expected === 'none') {
+        expect(ok, kind).toBe(false);
+        expect(app.notify.mock.calls[0][0], kind).toMatch(/produced no shapes: .* path has no area\.$/);
+        expect(kids, kind).toHaveLength(2);
+      } else {
+        expect(ok, kind).toBe(true);
+        expect(kids, kind).toHaveLength(1);
+        expect(areaOf(doc.get(kids[0]).anchors), kind).toBeCloseTo(10000, 0);
+      }
+    }
+  });
+
   it('Minus Front keeps the backmost style and makes a compound path for holes', async () => {
     const a = createPath(rectangle(0, 0, 100, 100), true, { fill: solid('#ff0000') });
     const b = createPath(ellipse(25, 25, 50, 50), true, { fill: solid('#0000ff') });
