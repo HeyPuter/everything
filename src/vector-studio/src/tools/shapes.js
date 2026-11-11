@@ -97,7 +97,10 @@ class DragShapeTool extends Tool {
 
   /** Insert a new shape (and descendants) in the target layer, through the drawing plane if any. Returns the id to select. */
   place(doc, node, descendants, plane) {
-    if (plane) return plane.insert(doc, node, this.editor.targetLayer().id, descendants);
+    if (plane) {
+      const t = this.editor.drawTarget();
+      return plane.insert(doc, node, t.parentId, descendants, t.index);
+    }
     return this.editor.insertDrawn(node, descendants);
   }
 

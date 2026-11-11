@@ -399,10 +399,18 @@ export class Editor extends Emitter {
    * transaction.
    */
   drawTarget() {
-    const t = this.targetLayer();
-    // In an isolated clip group new artwork goes below the clipping path (the last child clips).
-    const base = { parentId: t.id, index: t.clip && t.children.length ? t.children.length - 1 : Infinity };
+    const base = this.newArtTarget();
     return this.drawTargetHook?.(this, base) || base;
+  }
+
+  /**
+   * Where commands put new artwork, ignoring the drawing mode: the top of
+   * the target layer, or just below the clipping path in an isolated clip
+   * group (the last child clips).
+   */
+  newArtTarget() {
+    const t = this.targetLayer();
+    return { parentId: t.id, index: t.clip && t.children.length ? t.children.length - 1 : Infinity };
   }
 
   /** Insert newly drawn artwork (and its built descendants) at the draw target. */

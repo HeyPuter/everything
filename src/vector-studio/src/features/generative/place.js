@@ -46,14 +46,14 @@ export function placementTarget(editor, contentType = 'subject') {
     }
   }
   if (!editor.canDrawInTarget()) throw new UserError('The target layer is locked or hidden.');
-  const layer = editor.targetLayer();
+  const { parentId, index } = editor.newArtTarget();
   const a = editor.artboard() || { x: 0, y: 0, w: 612, h: 792 };
   let rect = { x: a.x, y: a.y, w: a.w, h: a.h };
   if (contentType !== 'scene') {
     const s = Math.min(a.w, a.h) * 0.6;
     rect = { x: a.x + (a.w - s) / 2, y: a.y + (a.h - s) / 2, w: s, h: s };
   }
-  return { rect, mode: 'contain', parentId: layer.id, index: Infinity };
+  return { rect, mode: 'contain', parentId, index };
 }
 
 /** Picture shape (for the image model) that suits a placement target. */

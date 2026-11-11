@@ -331,10 +331,11 @@ export function registerCoreCommands(app) {
         const maxY = Math.max(...boards.map((b) => b.y + b.h)) + 200;
         const ids = [];
         e.doc.transact('Release Guides', () => {
-          for (const g of guides) {
+          const t = e.newArtTarget();
+          for (const [i, g] of guides.entries()) {
             const pts = g.axis === 'x' ? [[g.pos, minY], [g.pos, maxY]] : [[minX, g.pos], [maxX, g.pos]];
             const node = createPath(pts.map(([x, y]) => ({ x, y, ix: x, iy: y, ox: x, oy: y })), false, { fill: null, stroke: { type: 'solid', color: '#000000' }, strokeWidth: 1 });
-            e.doc.insert(node, e.targetLayer().id);
+            e.doc.insert(node, t.parentId, t.index + i);
             ids.push(node.id);
           }
           e.doc.updateRoot({ guides: [] });

@@ -214,10 +214,10 @@ function drawingPlaneFor(editor) {
       const sy = Math.round((p.y - g.oy) / g.cell) * g.cell + g.oy;
       return { x: Math.abs(sx - p.x) < t ? sx : p.x, y: Math.abs(sy - p.y) < t ? sy : p.y };
     },
-    insert(d, node, parentId, descendants = []) {
+    insert(d, node, parentId, descendants = [], index = Infinity) {
       ensureGrid(d);
       const group = createPerspectiveGroup(g, plane, offset, [node.id]);
-      d.insert(group, parentId, Infinity, [{ ...node, parent: group.id }, ...descendants]);
+      d.insert(group, parentId, index, [{ ...node, parent: group.id }, ...descendants]);
       return group.id;
     },
   };

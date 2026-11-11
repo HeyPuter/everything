@@ -49,7 +49,8 @@ export function placeLibrarySymbol(app, lib, sym, point = null) {
       const b = masterBounds(doc, def);
       p = b ? { x: c.x + def.symbolDef.reg.x - (b.x + b.w / 2), y: c.y + def.symbolDef.reg.y - (b.y + b.h / 2) } : c;
     }
-    inst = placeInstance(doc, def.id, layer.id, p.x, p.y);
+    const t = ed.drawTarget();
+    inst = placeInstance(doc, def.id, t.parentId, p.x, p.y, t.index);
     setSymbolSelection(ed, [def.id]);
   });
   ed.select([inst.id]);

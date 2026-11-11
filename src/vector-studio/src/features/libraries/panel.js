@@ -83,12 +83,12 @@ export function placeGraphic(app, data, point = null) {
   if (!ed || !data?.items?.length) return [];
   const doc = ed.doc;
   for (const [id, a] of Object.entries(data.assets || {})) if (!doc.assets.has(id)) doc.assets.set(id, a);
-  const layer = ed.targetLayer().id;
   const ids = [];
   doc.transact('Place Library Graphic', () => {
     let items = data.items;
     for (const hk of clipboardHooks) items = hk.paste?.(doc, data, items) || items;
-    for (const sub of items) ids.push(doc.importSubtree(sub, layer).id);
+    const { parentId, index } = ed.drawTarget();
+    for (const [i, sub] of items.entries()) ids.push(doc.importSubtree(sub, parentId, index + i).id);
     const b = selectionBounds(doc, ids);
     const at = point || viewCenter(ed);
     if (b) transformNodes(doc, ids, translate(at.x - (b.x + b.w / 2), at.y - (b.y + b.h / 2)));

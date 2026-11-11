@@ -99,7 +99,8 @@ export class GraphTool extends Tool {
     const remembered = this.app.prefs.get('graphOptions');
     let id;
     doc.transact(`${TYPE_LABELS[this.constructor.graphType]} Graph`, () => {
-      id = createGraph(doc, editor.targetLayer().id, b, this.constructor.graphType, { options: remembered ? { ...graphOptions(remembered), series: {} } : {} });
+      const t = editor.drawTarget();
+      id = createGraph(doc, t.parentId, b, this.constructor.graphType, { options: remembered ? { ...graphOptions(remembered), series: {} } : {}, index: t.index });
     });
     editor.select([id]);
     this.app.graphData?.show(id);

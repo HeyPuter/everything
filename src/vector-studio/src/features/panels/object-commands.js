@@ -121,7 +121,8 @@ export function createTrimMarks(editor) {
   doc.transact('Create Trim Marks', () => {
     const paths = trimMarkPaths(r);
     const g = createGroup([], { name: 'Trim Marks' });
-    doc.insert(g, layer.id);
+    const t = editor.newArtTarget();
+    doc.insert(g, t.parentId, t.index);
     for (const p of paths) doc.insert(p, g.id);
     gid = g.id;
   });
