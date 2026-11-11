@@ -66,6 +66,8 @@ export function catmullClark(m: EvalMesh, levels: number, simple = false, useCre
     }
     mesh = { ...mesh, uvs };
   }
+  // a mesh without a UV map stays without one (its empty UVs would subdivide into NaN)
+  if (mesh !== m && m.indices.length && m.uvs.length !== m.indices.length * 2) mesh = { ...mesh, uvs: new Float32Array(0) };
   return mesh;
 }
 

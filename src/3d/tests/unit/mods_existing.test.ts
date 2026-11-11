@@ -70,6 +70,14 @@ describe('Solidify options', () => {
 });
 
 describe('Weld, Mask and Triangulate options', () => {
+  it('subdivision keeps a mesh without UV map free of NaN UVs', async () => {
+    const { catmullClark } = await import('../../src/eval/modifiers');
+    const m = { ...cube(), uvs: new Float32Array(0) } as EvalMesh;
+    for (const out of [catmullClark(m, 2), catmullClark(m, 1, false, true, { uvSmooth: 'PRESERVE_BOUNDARIES' }), catmullClark(m, 1, true)]) {
+      expect(out.positions.length / 3).toBeGreaterThan(8);
+      expect(Array.from(out.uvs).some((x) => !Number.isFinite(x))).toBe(false);
+    }
+  });
   it('Weld keeps loose edges, following their merged ends', () => {
     const c = cube();
     const nv = c.positions.length / 3;
