@@ -7,7 +7,7 @@
 import { h, announce, clamp } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { US, timecode, snapToFrame } from '../../lib/time.js';
-import { valueAt, baseValue, setKey, keyIndexAt } from '../../model/keyframes.js';
+import { valueAt, baseValue, setKey, keyIndexAt, keepLastKeyValue } from '../../model/keyframes.js';
 import * as T from '../../model/timeline.js';
 import { showMenu } from '../menu.js';
 import { EASE_LABELS, easeLabel } from '../organize-actions.js';
@@ -66,6 +66,7 @@ export function deleteKey(clip, prop, t, tol = 0) {
   if (!keys) return false;
   const i = keys.findIndex((x) => Math.abs(x.t - t) <= tol);
   if (i < 0) return false;
+  keepLastKeyValue(clip, prop);
   keys.splice(i, 1);
   if (!keys.length) delete clip.keyframes[prop];
   return true;

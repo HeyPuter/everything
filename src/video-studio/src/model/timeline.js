@@ -10,7 +10,7 @@
 import { uid } from '../lib/ids.js';
 import { US } from '../lib/time.js';
 import { TRACK_KIND_FOR, makeTrack } from './project.js';
-import { splitKeyframes, shiftKeyframes, scaleKeyframes } from './keyframes.js';
+import { splitKeyframes, shiftKeyframes, scaleKeyframes, keepLastKeyValue } from './keyframes.js';
 import { beatTimes } from './audio.js';
 import { hasCurve, sourceOffset, sourceSpan, sliceCurve, meanSpeed, edgeSpeeds, localAtSource, normalizeCurve, remapKeyframes, curveTable, curveDuration } from './speed-curve.js';
 import { findRamp, rampPoints, addRampAccents, stripRampAccents } from './speed-ramps.js';
@@ -1151,7 +1151,11 @@ export function removeKeysAt(clip, t, tol = 0) {
     const left = keys.filter((k) => Math.abs(k.t - t) > tol);
     n += keys.length - left.length;
     if (left.length) clip.keyframes[prop] = left;
-    else delete clip.keyframes[prop];
+    else {
+      // The only key goes: its value stays.
+      keepLastKeyValue(clip, prop);
+      delete clip.keyframes[prop];
+    }
   }
   return n;
 }
