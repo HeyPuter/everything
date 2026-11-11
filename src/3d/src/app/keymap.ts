@@ -270,7 +270,12 @@ export function installKeyboard() {
       const b = (e.target as Element | null)?.closest?.('button');
       if (!b) return;
       if (e.detail !== 0) {
-        if (document.activeElement === b) b.blur();
+        // a focusable container (a dialog that takes the keys) keeps the focus
+        if (document.activeElement === b) {
+          const box = b.parentElement?.closest<HTMLElement>('[tabindex]');
+          if (box) box.focus({ preventScroll: true });
+          else b.blur();
+        }
         return;
       }
       // Enter / Space on a button that acts on press (menu buttons, dropdowns) and has no click
