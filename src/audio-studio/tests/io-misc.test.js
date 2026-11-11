@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseMarkerText, parseDelimited } from '../src/storage/markers-io.js';
 import { conformOptions, defaultOptions, estimateSize, withExtension, sanitizeFileName, exportMarkers, formatForName, describeSampleType, describeSettings, usesDither } from '../src/export/formats.js';
 import { id3v2Tag, parseId3v2, riffInfoChunk, parseRiffInfo, vorbisComment, parseVorbisComment, cleanMeta, readTags } from '../src/audio/meta.js';
-import { probeAudio, describeProbe } from '../src/storage/probe.js';
+import { probeAudio, probeSource, describeProbe } from '../src/storage/probe.js';
 import { WavWriter, AiffWriter } from '../src/export/pcm.js';
 import { parseAiff } from '../src/audio/aiff.js';
 import { decodeAudio, sniffSampleRate } from '../src/audio/decode.js';
@@ -150,6 +150,14 @@ describe('file probing and decoding', () => {
     const p = probeAudio(mp3, mp3.length);
     expect(p.format).toBe('MP3');
     expect(p.duration).toBeCloseTo((417 * 100 * 8) / 128000, 3);
+    // Behind 300 KB of ID3v2 cover art, past the probed head.
+    const art = 300000;
+    const tagged = new Uint8Array(10 + art + mp3.length);
+    tagged.set([0x49, 0x44, 0x33, 3, 0, 0, (art >> 21) & 0x7f, (art >> 14) & 0x7f, (art >> 7) & 0x7f, art & 0x7f]);
+    tagged.set(mp3, 10 + art);
+    const read = async (at, n) => tagged.slice(at, at + n);
+    expect(await probeSource(read, tagged.length)).toMatchObject({ format: 'MP3', sampleRate: 44100, duration: p.duration });
+    expect(await probeSource(read, mp3.length + 10 + art)).not.toHaveProperty('skip');
     const pages = muxOggOpus({ channels: 2, packets: Array.from({ length: 50 }, () => ({ data: new Uint8Array(40), samples: 960 })), totalSamples: 48000 });
     const ogg = new Uint8Array(pages.reduce((s, x) => s + x.length, 0));
     let o = 0;

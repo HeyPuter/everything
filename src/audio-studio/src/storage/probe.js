@@ -19,7 +19,9 @@ const str = (b, o, n) => {
  * @param {Uint8Array} head first bytes of the file
  * @param {number} size total file size
  * @param {Uint8Array} [tail] last bytes (Ogg and MP4 with the index at the end)
- * @returns {{ format, duration?, sampleRate?, channels?, bitDepth?, needTail? }}
+ * @returns {{ format, duration?, sampleRate?, channels?, bitDepth?, needTail?, skip? }}
+ *   `skip`: an ID3v2 tag (cover art) fills the head; probe again with the
+ *   bytes from that offset and `size - skip` (see probeSource).
  */
 export function probeAudio(head, size, tail = null) {
   const dv = new DataView(head.buffer, head.byteOffset, head.byteLength);
@@ -94,6 +96,7 @@ export function probeAudio(head, size, tail = null) {
   if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) return { format: str(head, 0, 64).includes('webm') ? 'WebM' : 'Matroska' };
   // MPEG audio (after an optional ID3v2 tag).
   const tag = id3v2Size(head);
+  if (tag && tag + 4096 > head.length && size > head.length) return { format: 'MP3', skip: tag };
   for (let i = tag; i + 4 < Math.min(head.length, tag + 8192); i++) {
     const h = parseMp3Header(head, i);
     if (!h) continue;
@@ -111,6 +114,21 @@ export function probeAudio(head, size, tail = null) {
     return { format: 'MP3', sampleRate: h.sampleRate, channels: h.channels, duration };
   }
   return { format: '' };
+}
+
+/**
+ * Probes a file through `read(offset, count)` (resolving a Uint8Array):
+ * the head, then the tail or the audio after a large ID3v2 tag when needed.
+ */
+export async function probeSource(read, size) {
+  const head = await read(0, Math.min(HEAD_BYTES, size || HEAD_BYTES));
+  let p = probeAudio(head, size);
+  if (p.needTail && size > HEAD_BYTES) p = probeAudio(head, size, await read(Math.max(0, size - TAIL_BYTES), Math.min(TAIL_BYTES, size)));
+  else if (p.skip) {
+    const rest = probeAudio(await read(p.skip, Math.min(HEAD_BYTES, size - p.skip)), size - p.skip);
+    p = rest.format === 'MP3' ? rest : { format: 'MP3' };
+  }
+  return p;
 }
 
 function mvhd(b) {

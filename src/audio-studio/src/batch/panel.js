@@ -12,7 +12,7 @@ import * as puter from '../storage/puter.js';
 import { loadFavorites } from '../effects/favorites.js';
 import { PUTER_DRAG_TYPE, resolveMediaItems } from '../panels/media-browser.js';
 import { STATUS_LABELS, addSources, removeItems, resetItems, batchSettings, plannedNames, describeBatch, runQueue, sourceSampleType } from './queue.js';
-import { probeAudio, HEAD_BYTES } from '../storage/probe.js';
+import { probeSource } from '../storage/probe.js';
 import { processItem, batchFavoriteProblem } from './process.js';
 import { exportSettingsDialog as openExportSettings, outputWriter, locationText } from './export-settings.js';
 
@@ -244,10 +244,9 @@ export function batchPanel(app) {
       if (item.source.type !== 'local' || item.probe !== undefined) continue;
       item.probe = null;
       const f = item.source.file;
-      f.slice(0, HEAD_BYTES)
-        .arrayBuffer()
-        .then((buf) => {
-          item.probe = probeAudio(new Uint8Array(buf), f.size) || null;
+      probeSource(async (at, n) => new Uint8Array(await f.slice(at, at + n).arrayBuffer()), f.size)
+        .then((p) => {
+          item.probe = p || null;
           if (item.probe?.sampleRate && items.includes(item)) renderRows();
         })
         .catch(() => {});
