@@ -4,6 +4,7 @@ import { Library } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { Editor } from '../src/ui/editor.js';
 import { fixture, clip, onMain } from './helpers.js';
+import { createCompound } from '../src/model/compound.js';
 
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
@@ -62,4 +63,25 @@ describe('arrow keys on the preview', () => {
     expect(keys[1].v).toBeCloseTo(0.3 + 1 / store.project.settings.width, 9);
     expect(store.selected.clip.transform.x).toBe(0);
   });
+
+  it('do not pick a clip on a locked base track that also holds a compound clip', () => {
+    const { store, player, playerView } = editor.ctx;
+    store.update('nest', (p) => {
+      const main = p.tracks.find((t) => t.main);
+      main.clips = [clip('video', 0, 2), clip('video', 2, 2), clip('video', 4, 2)];
+      createCompound(p, [main.clips[1].id], { ripple: true, linkOverlays: true });
+      main.locked = true;
+    });
+    store.clearSelection();
+    store.seek(500_000);
+    // A laid-out 640 x 360 preview where every clip covers the frame.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, x: 0, y: 0, width: 640, height: 360, right: 640, bottom: 360 });
+    vi.spyOn(player, 'layout').mockReturnValue({ cssW: 640, cssH: 360 });
+    vi.spyOn(player, 'boxFor').mockReturnValue({ cx: 960, cy: 540, w: 1920, h: 1080 });
+    playerView.relayout();
+    const overlay = stage.querySelector('.player-overlay');
+    overlay.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: 320, clientY: 180, bubbles: true, cancelable: true }));
+    expect(store.selectedIds).toEqual([]);
+  });
 });
+

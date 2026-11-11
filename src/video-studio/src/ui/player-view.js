@@ -10,6 +10,7 @@ import { timecode, US } from '../lib/time.js';
 import { RATIOS } from '../model/project.js';
 import { evaluate, keyedTransform } from '../engine/scene.js';
 import { rootClip } from '../engine/compound.js';
+import { findClip } from '../model/timeline.js';
 import { menuButton } from './menu.js';
 import { prefs, setPref } from './prefs.js';
 import { createPinch } from '../lib/gestures.js';
@@ -576,8 +577,9 @@ export function createPlayerView(ctx) {
       const rx = dx * Math.cos(a) - dy * Math.sin(a);
       const ry = dx * Math.sin(a) + dy * Math.cos(a);
       if (Math.abs(rx) <= Math.abs(b.w) / 2 && Math.abs(ry) <= Math.abs(b.h) / 2) {
-        const track = store.project.tracks[l.trackIndex];
-        if (track?.locked) continue;
+        // trackIndex counts the tracks compound clips add; find the clip's own track (a nested
+        // clip: its compound's).
+        if (findClip(store.project, rootClip(l.clip).id)?.track.locked) continue;
         return l;
       }
     }
