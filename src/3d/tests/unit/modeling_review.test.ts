@@ -47,6 +47,14 @@ describe('dissolve', () => {
     expect(me.positions.length / 3).toBe(4);
   });
 
+  it('dissolves every edge of a grid into one quad, keeping the corners', () => {
+    gridInEdit(5);
+    expect(app.run('mesh.dissolve_edges', { use_verts: true })).toBe('FINISHED');
+    const me = mesh();
+    expect(me.offsets.length - 1).toBe(1);
+    expect(me.positions.length / 3).toBe(4);
+  });
+
   it('dissolves selected edges without the dissolve vertices option', () => {
     gridInEdit(3);
     app.run('mesh.dissolve_edges', { use_verts: false });

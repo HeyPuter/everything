@@ -151,6 +151,9 @@ function mergeFacesAroundVertex(m: MeshEdit, v: number, faces: number[]): { vert
 /** Dissolve selected edges: merge the two faces on each edge. */
 function dissolveEdges(m: MeshEdit, useVerts: boolean) {
   const selEdges = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
+  // "Dissolve Vertices" only removes vertices the dissolve leaves between two edges (not corners
+  // that already were, like a plane's)
+  const valence0 = useVerts ? m.neighbors().map((l) => l.length) : [];
   // faces keep their slot while merging (merged-away faces become null, merged faces are appended),
   // and the edge → faces map is updated per merge instead of rebuilt (linear, not O(edges × mesh))
   const faces: (EFace | null)[] = m.faces.slice();
@@ -237,7 +240,7 @@ function dissolveEdges(m: MeshEdit, useVerts: boolean) {
     const vf = m.vertexFaces();
     const nb = m.neighbors();
     for (let v = 0; v < m.vcount; v++) {
-      if (!m.sel[v] || nb[v].length !== 2) continue;
+      if (!m.sel[v] || nb[v].length !== 2 || valence0[v] === 2) continue;
       for (const fi of vf[v]) {
         const f = m.faces[fi];
         const i = f.verts.indexOf(v);
