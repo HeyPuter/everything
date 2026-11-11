@@ -4,7 +4,8 @@
 // Left/Right scroll, +/- zoom.
 //   host.timeline() -> { rate, length, view, cursor, selection }
 //   host.setView(start, end), host.overviewPeaks(columns) -> Float32Array(min,max pairs),
-//   or an array of them (one strip per channel), or null
+//   or an array of them (one strip per channel), or null; optional host.viewMax(), the
+//   furthest frame the view can reach
 
 import { h } from '../lib/dom.js';
 import { cssVar } from '../ui/theme.js';
@@ -96,9 +97,11 @@ export class Overview {
     const move = (ev) => {
       const dx = this.#frame(ev.clientX - this.el.getBoundingClientRect().left) - this.#frame(start.x);
       const v = start.view;
+      // Edge drags stop at the timeline's ends; otherwise the view would keep
+      // its span and the opposite edge would move instead.
       if (mode === 'move') this.host.setView(v.start + dx, v.end + dx);
-      else if (mode === 'left') this.host.setView(Math.min(v.start + dx, v.end - 16), v.end);
-      else this.host.setView(v.start, Math.max(v.end + dx, v.start + 16));
+      else if (mode === 'left') this.host.setView(Math.max(0, Math.min(v.start + dx, v.end - 16)), v.end);
+      else this.host.setView(v.start, Math.min(this.host.viewMax?.() ?? Infinity, Math.max(v.end + dx, v.start + 16)));
     };
     const up = () => {
       this.el.removeEventListener('pointermove', move);

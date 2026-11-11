@@ -122,6 +122,7 @@ export class WaveformView {
       seek: (f) => this.seek(f),
       snap: (f, o) => this.snap(f, o),
       setView: (a, b) => doc.setView(a, b),
+      viewMax: () => Math.max(doc.length, doc.sampleRate),
       moveMarker: (id, start, { preview }) => this.moveMarker(id, start, preview),
       renameMarker: (id) => app.commands.run('marker.rename', { id }),
       selectMarker: (id) => this.selectMarker(id),

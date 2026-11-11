@@ -142,3 +142,30 @@ describe('waveform keyboard', () => {
     }
   });
 });
+
+describe('overview navigator edge drags', () => {
+  function drag(o, from, to) {
+    const ev = (type, x) => {
+      const e = new MouseEvent(type, { clientX: x, button: 0, bubbles: true });
+      Object.defineProperty(e, 'offsetX', { value: x });
+      Object.defineProperty(e, 'pointerId', { value: 1 });
+      return e;
+    };
+    o.el.setPointerCapture = () => {};
+    o.el.dispatchEvent(ev('pointerdown', from));
+    o.el.dispatchEvent(ev('pointermove', to));
+    o.el.dispatchEvent(ev('pointerup', to));
+  }
+
+  it('stops at the file ends instead of moving the opposite edge', async () => {
+    const { doc, view } = await makeView({ frames: 100000 });
+    const o = view.overview;
+    o.resize(1000, 20);
+    doc.setView(20000, 60000);
+    drag(o, 200, -100); // left grip far past the start
+    expect(doc.view).toMatchObject({ start: 0, end: 60000 });
+    doc.setView(20000, 60000);
+    drag(o, 600, 1300); // right grip far past the end
+    expect(doc.view).toMatchObject({ start: 20000, end: 100000 });
+  });
+});
