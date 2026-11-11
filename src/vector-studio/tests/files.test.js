@@ -97,6 +97,33 @@ describe('native format', () => {
     expect(r.doc.root.grid).toEqual({ spacing: 72, subdivisions: 8 });
   });
 
+  it('repairs malformed objects so the document can be drawn', async () => {
+    const nodes = {
+      root: { id: 'root', type: 'root', name: 'Damaged', children: ['l1'], artboards: [{ id: 'a', name: 'A', x: 0, y: 0, w: 100, h: 100 }] },
+      l1: { id: 'l1', type: 'layer', name: 'Layer 1', children: ['p1', 'p2', 'p3', 'g1', 't1'] },
+      p1: { id: 'p1', type: 'path', closed: true },
+      p2: { id: 'p2', type: 'path', anchors: 'abc', closed: true },
+      p3: { id: 'p3', type: 'path', anchors: [null, { x: 1, y: 2 }, { x: 'a', y: 2 }, { x: 5, y: 6, ix: 4, iy: 5, ox: 6, oy: 7 }], closed: false },
+      g1: { id: 'g1', type: 'group', name: 'G' },
+      t1: { id: 't1', type: 'text', text: 42, x: 1, y: 2 },
+    };
+    const r = await parseDocument(JSON.stringify({ format: 'vector-studio', version: 1, nodes }));
+    expect(r.doc.get('p1').anchors).toEqual([]);
+    expect(r.doc.get('p2').anchors).toEqual([]);
+    expect(r.doc.get('p3').anchors).toEqual([
+      { x: 1, y: 2, ix: 1, iy: 2, ox: 1, oy: 2 },
+      { x: 5, y: 6, ix: 4, iy: 5, ox: 6, oy: 7 },
+    ]);
+    expect(r.doc.get('g1').children).toEqual([]);
+    expect(r.doc.get('t1')).toMatchObject({ text: '42', transform: [1, 0, 0, 1, 0, 0] });
+    expect(r.doc.get('t1').char.fontSize).toBeGreaterThan(0);
+    // Well-formed objects are left as they are.
+    const doc = sampleDoc();
+    const again = await parseDocument(await serializeDocument(doc));
+    expect(JSON.stringify(again.doc.toJSON().nodes.root.children)).toBe(JSON.stringify(doc.root.children));
+    for (const [id, n] of doc.nodes) if (id !== 'root') expect(again.doc.get(id)).toEqual(n);
+  });
+
   it('adds a layer when a document has none', () => {
     const { data } = validateData({ format: 'vector-studio', version: 1, nodes: { root: { id: 'root', type: 'root', children: [] } } });
     expect(data.nodes.root.children).toHaveLength(1);

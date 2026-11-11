@@ -9,6 +9,7 @@
  */
 import { VDocument, FORMAT_VERSION } from '../../model/document.js';
 import { DEFAULT_SWATCHES } from '../../model/swatches.js';
+import { DEFAULT_CHAR } from '../../model/nodes.js';
 
 export { FORMAT_VERSION };
 
@@ -133,6 +134,41 @@ export function normalizeBleed(b) {
 }
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+const CONTAINERS = new Set(['root', 'layer', 'group', 'compound']);
+const isMatrix = (m) => Array.isArray(m) && m.length === 6 && m.every(finite);
+
+/**
+ * The fields drawing and hit testing rely on, patched with safe defaults
+ * where they are missing or malformed (points that are not points are
+ * dropped, missing curve handles sit on their point).
+ */
+function repairNode(node) {
+  let patch = null;
+  const set = (k, v) => ((patch ||= {})[k] = v);
+  if (CONTAINERS.has(node.type) && !Array.isArray(node.children)) set('children', []);
+  if (node.type === 'path') {
+    let changed = !Array.isArray(node.anchors);
+    const anchors = [];
+    for (const a of Array.isArray(node.anchors) ? node.anchors : []) {
+      if (!a || typeof a !== 'object' || !finite(a.x) || !finite(a.y)) {
+        changed = true;
+        continue;
+      }
+      if (finite(a.ix) && finite(a.iy) && finite(a.ox) && finite(a.oy)) anchors.push(a);
+      else {
+        changed = true;
+        anchors.push({ ...a, ix: finite(a.ix) ? a.ix : a.x, iy: finite(a.iy) ? a.iy : a.y, ox: finite(a.ox) ? a.ox : a.x, oy: finite(a.oy) ? a.oy : a.y });
+      }
+    }
+    if (changed) set('anchors', anchors);
+  }
+  if (node.type === 'text') {
+    if (typeof node.text !== 'string') set('text', node.text == null ? '' : String(node.text));
+    if (!node.char || typeof node.char !== 'object' || Array.isArray(node.char)) set('char', { ...DEFAULT_CHAR });
+    if (!isMatrix(node.transform)) set('transform', [1, 0, 0, 1, 0, 0]);
+  }
+  return patch ? { ...node, ...patch } : node;
+}
 
 /**
  * Check the structure and repair what can be repaired safely: missing
@@ -157,7 +193,8 @@ export function validateData(data) {
       repaired++;
       continue;
     }
-    fixed[id] = node.id === id ? node : { ...node, id };
+    const ok = repairNode(node);
+    fixed[id] = ok.id === id ? ok : { ...ok, id };
   }
   for (const [id, node] of Object.entries(fixed)) {
     if (!Array.isArray(node.children)) continue;
