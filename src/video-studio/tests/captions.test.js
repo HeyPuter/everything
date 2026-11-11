@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   groupWords, joinWords, wrapCaption, segmentsToWords, distributeText, speechRegions,
-  parseSubtitles, toSrt, buildCaptionClips, captionCues, splitForTranscription, lineCharsFor, CAPTION_POSITIONS,
+  parseSubtitles, subtitleText, toSrt, buildCaptionClips, captionCues, splitForTranscription, lineCharsFor, CAPTION_POSITIONS,
   mixdown,
 } from '../src/media/transcribe.js';
 import { captionsTab } from '../src/ui/panels/captions.js';
@@ -170,6 +170,21 @@ describe('subtitle files', () => {
       { start: 1, end: 3, text: 'Step one --> step two' },
       { start: 60, end: 62.5, text: 'Later' },
     ]);
+  });
+
+  it('reads subtitle files saved as UTF-16 or Windows-1252', async () => {
+    const srt = '1\r\n00:00:01,000 --> 00:00:02,000\r\nCafé déjà vu\r\n';
+    const utf16 = (le, bom) => {
+      const out = [];
+      if (bom) out.push(...(le ? [0xff, 0xfe] : [0xfe, 0xff]));
+      for (const ch of srt) out.push(...(le ? [ch.charCodeAt(0) & 255, ch.charCodeAt(0) >> 8] : [ch.charCodeAt(0) >> 8, ch.charCodeAt(0) & 255]));
+      return new Uint8Array(out);
+    };
+    const want = [{ start: 1, end: 2, text: 'Café déjà vu' }];
+    for (const bytes of [utf16(true, true), utf16(true, false), utf16(false, true), Uint8Array.from(srt, (c) => c.charCodeAt(0))]) {
+      expect(parseSubtitles(await subtitleText(new Blob([bytes])))).toEqual(want);
+    }
+    expect(parseSubtitles(await subtitleText(new Blob([`\ufeff${srt}`])))).toEqual(want);
   });
 
   it('writes SubRip that parses back', () => {

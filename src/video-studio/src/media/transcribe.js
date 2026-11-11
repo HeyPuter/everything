@@ -245,6 +245,22 @@ function cleanCueText(lines) {
     .join('\n');
 }
 
+/**
+ * Text of a subtitle file (a Blob): UTF-8, UTF-16 (Windows tools write it,
+ * usually with a byte order mark), or Windows-1252 when the bytes aren't UTF-8.
+ */
+export async function subtitleText(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const [a, b] = bytes;
+  if ((a === 0xff && b === 0xfe) || (a > 0 && b === 0)) return new TextDecoder('utf-16le').decode(bytes);
+  if ((a === 0xfe && b === 0xff) || (a === 0 && b > 0)) return new TextDecoder('utf-16be').decode(bytes);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
 /** Parse SubRip (.srt) or WebVTT (.vtt) text into [{ start, end, text }] (seconds). */
 export function parseSubtitles(text) {
   const lines = String(text || '')

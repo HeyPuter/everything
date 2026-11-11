@@ -18,7 +18,7 @@ import { showMenu } from '../menu.js';
 import { prefs, setPref } from '../prefs.js';
 import {
   LANGUAGES, CAPTION_POSITIONS, STT_RATE, groupWords, buildCaptionClips, lineCharsFor, captionCues,
-  parseSubtitles, toSrt, mixdown, transcribeMix, clipsForScope, errorMessage, wrapCaption,
+  parseSubtitles, subtitleText, toSrt, mixdown, transcribeMix, clipsForScope, errorMessage, wrapCaption,
 } from '../../media/transcribe.js';
 import { aiAvailable, synthesize, addSpeechToTimeline } from '../../media/tts.js';
 import { lyricsFromClip, songClips, LYRIC_STYLE } from '../../media/lyrics.js';
@@ -616,7 +616,7 @@ function filesPanel(ctx, opts, save) {
     if (!file) return;
     let cues;
     try {
-      cues = parseSubtitles(await file.text());
+      cues = parseSubtitles(await subtitleText(file));
     } catch {
       cues = [];
     }
