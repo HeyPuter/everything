@@ -130,11 +130,19 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
   }
 }
 
+/** A name without its file type extension (".blend", ".json", "model.glb"…); other dots ("v1.2") stay. */
+function stripFileExtension(name: string): string {
+  const lower = name.toLowerCase();
+  const known = ['.blend', '.3d.json', '.json', ...formats.flatMap((f) => f.extensions)];
+  const ext = known.find((x) => lower.endsWith(x.toLowerCase()) && lower.length > x.length) ?? (/\.blend\d+$/.exec(lower)?.[0] ?? '');
+  return ext ? name.slice(0, name.length - ext.length) : name;
+}
+
 /** Save the project (download). A copy leaves the current file name and modified state alone. */
 export function saveFile(name = app.filename, copy = false) {
   for (const f of fileEvents.beforeSave) f();
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
-  if (!name.toLowerCase().endsWith('.p3d')) name = `${name.replace(/\.[^.]+$/, '')}.p3d`;
+  if (!name.toLowerCase().endsWith('.p3d')) name = `${stripFileExtension(name)}.p3d`;
   const target = fileEvents.saveTarget;
   if (target && !copy && target.name === name) {
     // the file came from a writable folder: update it in place

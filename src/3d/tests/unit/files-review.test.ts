@@ -187,3 +187,16 @@ describe('auto save snapshots', () => {
     expect(await session.openSnapshot(after[0])).toBe(true);
   });
 });
+
+describe('save names', () => {
+  it('adds .p3d without cutting names that contain dots', async () => {
+    const { saveFile } = await import('../../src/io/files');
+    const name = (n: string) => (saveFile(n), app.filename);
+    expect(name('scene v1.2')).toBe('scene v1.2.p3d');
+    expect(name('Robot.final')).toBe('Robot.final.p3d');
+    expect(name('model.zztest')).toBe('model.p3d');
+    expect(name('old.blend')).toBe('old.p3d');
+    expect(name('legacy.3d.json')).toBe('legacy.p3d');
+    expect(name('done.P3D')).toBe('done.P3D');
+  });
+});
