@@ -93,4 +93,20 @@ describe('DXF files with extreme values', () => {
     expect(q).toHaveLength(2);
     expect([q[0].x, q[0].y, q[1].x, q[1].y].map((v) => Math.round(v * 1000) / 1000 + 0)).toEqual([10, 0, 0, -10]);
   });
+
+  it('arrayed and nested block inserts stop at the work limit with a warning', async () => {
+    const block = (name, body) => [ent('BLOCK', [[2, name], [10, 0], [20, 0]]), body, ent('ENDBLK', [])].filter(Boolean).join('\n');
+    const line = ent('LINE', [[8, '0'], [10, 0], [20, 0], [11, 1], [21, 1]]);
+    // A 30000 x 30000 array of an empty block, and blocks that each insert the next eight times, 16 levels deep.
+    const nested = Array.from({ length: 16 }, (_, i) => block(`N${i}`, Array.from({ length: 8 }, () => ent('INSERT', [[8, '0'], [2, `N${i + 1}`], [10, 0], [20, 0]])).join('\n'))).join('\n');
+    const r = await convert(
+      dxf([
+        ['BLOCKS', [block('E', ''), nested, block('N16', ent('XLINE', [[8, '0']]))].join('\n')],
+        ['ENTITIES', [line, ent('INSERT', [[8, '0'], [2, 'E'], [10, 0], [20, 0], [70, 30000], [71, 30000]]), ent('INSERT', [[8, '0'], [2, 'N0'], [10, 0], [20, 0]])].join('\n')],
+      ]),
+    );
+    expect(paths(r)).toHaveLength(1);
+    expect(r.warnings).toContain('The drawing has too much content: only part of it was imported.');
+  });
 });
+

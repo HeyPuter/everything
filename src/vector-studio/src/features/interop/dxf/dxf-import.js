@@ -21,6 +21,10 @@ import { multiply } from '../../../lib/matrix.js';
 import { uid } from '../../../lib/ids.js';
 import { readHatchPattern, patternTile } from './dxf-hatch.js';
 
+/** Most objects an import makes, and most entities it visits (block arrays and nested blocks multiply them). */
+const MAX_ENTITIES = 300000;
+const MAX_VISITS = 2000000;
+
 /** Group code / value pairs. */
 export function dxfPairs(text) {
   const lines = text.split(/\r\n|\r|\n/);
@@ -417,6 +421,9 @@ class DXFConverter {
     this.warnings = new Set();
     this.families = families || [];
     this.count = 0;
+    // Entities visited, including block contents placed by inserts (nested and arrayed ones multiply).
+    this.visits = 0;
+    this.truncated = false;
     this.patterns = [];
     this.patternCache = new Map();
   }
@@ -512,7 +519,10 @@ class DXFConverter {
   }
 
   entity(e, m, ctx, depth = 0) {
-    if (this.count > 300000) return;
+    if (this.count > MAX_ENTITIES || ++this.visits > MAX_VISITS) {
+      this.truncated = true;
+      return;
+    }
     const T = e.type;
     const n = (c, dflt = 0) => gn(e, c, dflt);
     const ext = n(230, 1) < 0 ? -1 : 1; // extrusion -Z mirrors x (common for mirrored arcs)
@@ -825,8 +835,9 @@ class DXFConverter {
     const iy = isDim ? 0 : gn(e, 20);
     const color = this.colorOf(e, ctx, L);
     const kids = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows && !this.truncated; r++) {
+      for (let c = 0; c < cols && !this.truncated; c++) {
+        if (++this.visits > MAX_VISITS) this.truncated = true;
         const cr = Math.cos(rot);
         const sr = Math.sin(rot);
         const ox = c * cs;
@@ -834,7 +845,10 @@ class DXFConverter {
         const place = [cr * sx, sr * sx, -sr * sy, cr * sy, ix + cr * ox - sr * oy, iy + sr * ox + cr * oy];
         const bm = multiply(m, multiply(place, [1, 0, 0, 1, -block.base[0], -block.base[1]]));
         const inner = { group: kids, blockColor: color, layer: layerName === '0' ? ctx.layer : layerName };
-        for (const be of block.entities) this.entity(be, bm, inner, depth + 1);
+        for (const be of block.entities) {
+          if (this.truncated) break;
+          this.entity(be, bm, inner, depth + 1);
+        }
       }
     }
     if (!kids.length) return;
@@ -953,6 +967,7 @@ export function convertDXF(data, opts = {}) {
   const order = [...data.layers.keys()];
   layers.sort((a, b) => order.indexOf(a.key.slice(4)) - order.indexOf(b.key.slice(4)));
   const warnings = [...conv.warnings];
+  if (conv.truncated) warnings.push('The drawing has too much content: only part of it was imported.');
   if (conv.skipped?.size) warnings.push(`Unsupported entities were skipped: ${[...conv.skipped].slice(0, 8).join(', ')}.`);
   // Move the drawing to the origin.
   const shim = { get: (id) => nodes.get(id) };
