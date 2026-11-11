@@ -8,6 +8,7 @@ import { num, bool, enumProp, splitRow, axisToggles, vecProp, objectProp } from 
 import { modifierTypes, newModifier } from '../../eval/modifiers';
 import type { ModifierBase, ObjectData } from '../../data/types';
 import { uid } from '../../data/defaults';
+import { renamedIn } from '../../data/names';
 import { openMenu, type MenuItem } from '../../ui/menu';
 import { cloneShared } from '../../data/cow';
 
@@ -191,7 +192,13 @@ function modifierPanel(ob: ObjectData, m: ModifierBase, i: number): Child {
       },
       h('span', { class: 'ph-arrow' }, icon(open ? 'disclosure_tri_down' : 'disclosure_tri_right')),
       icon(t?.icon ?? 'modifier'),
-      textField(`mod-name-${m.id}`, m.name, (v) => ((m.name = v), app.pushUndo('Rename Modifier'), app.changed('doc')), { className: 'mod-name' }),
+      textField(`mod-name-${m.id}`, m.name, (v) => {
+        const n = renamedIn(ob.modifiers, m, v);
+        if (n === null) return void app.changed('ui');
+        m.name = n;
+        app.pushUndo('Rename Modifier');
+        app.changed('doc');
+      }, { className: 'mod-name' }),
       t?.supportsEditMode || t?.deformOnly ? toggle('show_in_editmode', 'editmode_hlt', 'Edit Mode') : null,
       toggle('show_viewport', 'restrict_view_off', 'Realtime (show in viewport)'),
       toggle('show_render', 'restrict_render_off', 'Render'),

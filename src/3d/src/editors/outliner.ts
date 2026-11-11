@@ -42,6 +42,7 @@ import './outliner/ops_more';
 import './outliner/scenes';
 import { rowSync } from './outliner/sync';
 import { valueCell, idTypeFilterPopover, overridesFilterPopover, dataApiEditMenu } from './outliner/headers';
+import { renamedIn } from '../data/names';
 import './outliner/outliner.css';
 
 const MODE_ICON: Record<string, string> = {
@@ -1339,11 +1340,13 @@ export class Outliner implements Editor {
       else if (r.kind === 'collection' && r.collection) doc.collections[r.collection.id].name = uniqueName(doc, name, 'collections');
       else if (r.kind === 'scene') renameScene(doc, sceneById(doc, r.id) ?? doc.scene, name);
       else if (r.kind === 'modifier' && r.ob) {
-        const m = doc.objects[r.ob.id]?.modifiers.find((x) => x.id === r.id);
-        if (m) m.name = name;
+        const mods = doc.objects[r.ob.id]?.modifiers ?? [];
+        const m = mods.find((x) => x.id === r.id);
+        if (m) m.name = renamedIn(mods, m, name) ?? m.name;
       } else if (r.kind === 'constraint' && r.ob) {
-        const c = doc.objects[r.ob.id]?.constraints.find((x) => x.id === r.id);
-        if (c) c.name = name;
+        const cons = doc.objects[r.ob.id]?.constraints ?? [];
+        const c = cons.find((x) => x.id === r.id);
+        if (c) c.name = renamedIn(cons, c, name) ?? c.name;
       } else if (r.kind === 'strip' && r.path) {
         const ed = doc.scene.sequence_editor;
         const st = ed ? findStrip(ed.strips, r.path) : null;
@@ -1352,8 +1355,9 @@ export class Outliner implements Editor {
           st.name = name;
         }
       } else if (r.kind === 'vgroup' && r.ob?.data) {
-        const g = doc.meshes[r.ob.data]?.vertex_groups?.find((x) => x.name === r.label);
-        if (g) g.name = name;
+        const groups = doc.meshes[r.ob.data]?.vertex_groups ?? [];
+        const g = groups.find((x) => x.name === r.label);
+        if (g) g.name = renamedIn(groups, g, name) ?? g.name;
       } else if (r.table && r.id) {
         const t = tables[r.table];
         if (t?.[r.id])

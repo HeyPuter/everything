@@ -534,3 +534,36 @@ test('turning online access on loads the Puter SDK once and the account menu app
   expect(hits.length).toBe(2);
   await expectNoErrors(errors);
 });
+
+test('renaming modifiers and vertex groups keeps their names unique', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('object.modifier_add', { type: 'SUBSURF' }, { invoke: false });
+    a.run('object.modifier_add', { type: 'BEVEL' }, { invoke: false });
+    a.run('object.vertex_group_add', {}, { invoke: false });
+    a.run('object.vertex_group_add', {}, { invoke: false });
+  });
+  await page.locator('.properties [data-tab="MODIFIER"]').first().click();
+  const names = page.locator('.properties .mod-name input');
+  await expect(names).toHaveCount(2);
+  const second = names.nth(1);
+  const first = await names.nth(0).inputValue();
+  await second.click();
+  await second.fill(first);
+  await second.press('Enter');
+  const mods = () => page.evaluate(() => (window as any).app.activeObject.modifiers.map((m: { name: string }) => m.name));
+  expect(await mods()).toEqual([first, `${first}.001`]);
+  // the vertex group list: rename the second group to the first one's name
+  await page.locator('.properties [data-tab="DATA"]').first().click();
+  const vg = page.locator('[data-panel="me-vgroups"]');
+  if (!(await vg.locator('.uilist').isVisible())) await vg.locator('.panel-header').click();
+  await vg.locator('.ul-row').nth(1).locator('.ul-label, .ul-name').first().dblclick();
+  const input = vg.locator('.ul-rename');
+  await expect(input).toBeVisible();
+  const g0 = await page.evaluate(() => { const a = (window as any).app; return a.doc.meshes[a.activeObject.data].vertex_groups[0].name; });
+  await input.fill(g0);
+  await input.press('Enter');
+  expect(await page.evaluate(() => { const a = (window as any).app; return a.doc.meshes[a.activeObject.data].vertex_groups.map((g: { name: string }) => g.name); })).toEqual([g0, `${g0}.001`]);
+  await expectNoErrors(errors);
+});
