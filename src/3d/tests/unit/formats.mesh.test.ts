@@ -134,6 +134,17 @@ describe('STL', () => {
     expect(sizes(a, 'bin')).toEqual(sizes(b, 'ascii'));
     expect(sizes(a, 'bin').faces).toBe(166);
   });
+  it('places vertices with NaN or infinite coordinates at the origin, with a warning', () => {
+    const bytes = new Uint8Array(84 + 50);
+    const dv = new DataView(bytes.buffer);
+    dv.setUint32(80, 1, true);
+    [NaN, 0, 0, 1, 0, 0, 0, Infinity, 0].forEach((v, k) => dv.setFloat32(84 + 12 + k * 4, v, true));
+    const doc = freshDoc();
+    const res = commitScene(doc, readStl(bytes));
+    const p = doc.meshes[res.objects[0].data!].positions;
+    expect([...p].every(Number.isFinite)).toBe(true);
+    expect(res.warnings.some((w) => w.includes('2 vertices with invalid coordinates'))).toBe(true);
+  });
   it('reads Magics facet colors (bit 15 clear) and the header object color', () => {
     const bytes = new Uint8Array(84 + 2 * 50);
     bytes.set(new TextEncoder().encode('COLOR='), 10);
