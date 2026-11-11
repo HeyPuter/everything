@@ -1407,6 +1407,7 @@ dialog.gradient-editor { width: min(560px, calc(100vw - 24px)); max-width: none;
 .ge-track { position: relative; height: 16px; cursor: copy; }
 .ge-stop { position: absolute; top: 1px; width: 12px; height: 14px; margin-left: -6px; min-height: 0; padding: 0; border: 1px solid #000; border-radius: 2px; background: var(--stop); box-shadow: 0 0 0 1px #fff inset; cursor: ew-resize; }
 .ge-stop.selected { outline: 2px solid var(--accent); }
+.ge-stop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ge-stop.removing { opacity: .3; }
 .ge-mid { position: absolute; top: 4px; width: 8px; height: 8px; margin-left: -4px; transform: rotate(45deg); background: var(--surface); border: 1px solid var(--text); cursor: ew-resize; }
 .ge-stops { border: 1px solid var(--line); padding: 8px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; }
