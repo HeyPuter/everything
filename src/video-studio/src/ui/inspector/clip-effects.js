@@ -67,11 +67,12 @@ export function clipEffectsTab(view) {
   const scoped = scopedView(view);
   const list = h('div.clipfx-list', { role: 'list', 'aria-label': 'Clip effects, applied top to bottom' });
   const count = h('span.clipfx-count');
-  const picker = effectPicker((id) => actions.addClipEffect(view.id, id));
+  // The picker turns off at the limit, and Remove all hides once the list is empty: focus moves on.
+  const picker = effectPicker((id) => keepFocus(() => actions.addClipEffect(view.id, id), () => browse));
   const browse = h('button.btn.small', { type: 'button' }, icon('effects', 14), 'Browse');
   browse.addEventListener('click', () => view.ctx.assets?.show?.('effects'));
   const clearAll = h('button.icon-btn.small', { type: 'button', 'aria-label': 'Remove all clip effects', 'data-tip': 'Remove all' }, icon('trash', 14));
-  clearAll.addEventListener('click', () => actions.clearClipEffects(view.id));
+  clearAll.addEventListener('click', () => keepFocus(() => actions.clearClipEffects(view.id), () => picker, () => browse));
 
   // The list is rebuilt after each change; focus goes back to the same control of the effect.
   const control = (i, act) => () => list.children[i]?.querySelector(`[data-act="${act}"]`);

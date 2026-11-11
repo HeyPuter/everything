@@ -384,6 +384,26 @@ describe('clip effects in the editor', () => {
     expect(field('Color')).toBeTruthy();
   });
 
+  it('keeps keyboard focus when the picker fills up and after Remove all', () => {
+    env.store.select(env.v.id);
+    for (let i = 0; i < MAX_CLIP_EFFECTS - 1; i++) env.ctx.actions.addClipEffect(env.v.id, 'snow');
+    env.ctx.inspector.showTab('clipfx');
+    const sel = env.el.querySelector('.clipfx-add');
+    sel.focus();
+    sel.value = 'hearts';
+    sel.dispatchEvent(new Event('change'));
+    expect(live(env.v.id).effects).toHaveLength(MAX_CLIP_EFFECTS);
+    // The picker turns off at the limit; focus goes to Browse.
+    expect(sel.disabled).toBe(true);
+    expect(document.activeElement.textContent).toBe('Browse');
+    const all = env.el.querySelector('[aria-label="Remove all clip effects"]');
+    all.focus();
+    all.click();
+    expect('effects' in live(env.v.id)).toBe(false);
+    expect(all.hidden).toBe(true);
+    expect(document.activeElement).toBe(sel);
+  });
+
   it('shows each effect clip its own parameters and carries shared ones over', () => {
     env.store.select(env.fx.id);
     expect(field('Amount')).toBeTruthy();
