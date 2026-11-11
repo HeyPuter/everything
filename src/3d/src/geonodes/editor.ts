@@ -17,7 +17,7 @@ import { VIEWER, isActiveViewer } from './nodes/output';
 import { captureItems, captureIn, captureOut, type CaptureItem } from './nodes/geometry';
 import { itemListUI, registerItemNode, type ItemListDef, type NodeItem } from './nodes/items';
 import { gnMessages, viewerState } from './results';
-import { setModifierNameHook } from './modifier';
+import { setModifierNameHook, groupTrees } from './modifier';
 import { interfaceSocketType } from '../nodes/registry';
 import { button } from '../ui/widgets';
 import type { NodeDrawContext } from '../nodes/types';
@@ -285,17 +285,45 @@ const VIEW_DATA_TYPE: Record<string, string> = {
   ROTATION: 'QUATERNION',
 };
 
-/** Activate a viewer node (and remember which object/modifier shows it). */
+/** Group node path from `root` down to `tree`: the path the editor shows, else the first one found. */
+function groupPathTo(root: NodeTreeData, tree: NodeTreeData): string[] | null {
+  if (root === tree) return [];
+  const ed = (app.hoverArea ?? app.activeArea)?.editor;
+  if (ed instanceof GeometryNodeEditor && ed.tree() === tree && editorGroup(ed).group?.tree === root) return ed.path.map((p) => p.node);
+  const seen = new Set<NodeTreeData>();
+  const walk = (t: NodeTreeData): string[] | null => {
+    if (seen.has(t)) return null;
+    seen.add(t);
+    for (const n of t.nodes) {
+      const g = n.type === 'GeometryNodeGroup' && typeof n.props.node_tree === 'string' ? app.doc.node_groups[n.props.node_tree] : undefined;
+      if (!g) continue;
+      if (g.tree === tree) return [n.id];
+      const rest = walk(g.tree);
+      if (rest) return [n.id, ...rest];
+    }
+    return null;
+  };
+  return walk(root);
+}
+
+/** Activate a viewer node (and remember which object/modifier and group path shows it). */
 export function activateViewer(tree: NodeTreeData, viewer: NodeData | null) {
-  for (const n of tree.nodes) if (n.type === VIEWER) n.props.viewer_active = n === viewer;
   const ob = app.activeObject;
   const mod = activeNodesModifier(ob);
-  if (viewer && ob && mod) {
+  const g = mod && typeof mod.node_group === 'string' ? app.doc.node_groups[mod.node_group] : undefined;
+  // one active viewer: also turn off the viewers of the other trees the modifier uses
+  const trees = g ? groupTrees(app.doc, g.tree) : new Set<NodeTreeData>();
+  trees.add(tree);
+  for (const t of trees) for (const n of t.nodes) if (n.type === VIEWER) n.props.viewer_active = n === viewer;
+  const path = g && viewer ? groupPathTo(g.tree, tree) : null;
+  if (viewer && ob && mod && path) {
     viewerState.objectId = ob.id;
     viewerState.modifierId = mod.id;
+    viewerState.path = path;
   } else if (!viewer) {
     viewerState.objectId = null;
     viewerState.modifierId = null;
+    viewerState.path = [];
   }
 }
 

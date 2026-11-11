@@ -336,14 +336,19 @@ export class TreeEval {
   }
 
   private groupNode(node: NodeData, path: string): Record<string, Val> {
-    const gid = node.props.node_tree as string | null;
-    const g = gid ? this.env.doc.node_groups[gid] : undefined;
-    if (!g) return {};
     if (this.depth > 32) {
       this.warn(node, 'Node group nesting is too deep');
       return {};
     }
-    const sub = new TreeEval(
+    return this.groupEval(node, path)?.groupOutputs() ?? {};
+  }
+
+  /** Evaluator of the tree of a group node, as the node runs it (null without a group). */
+  groupEval(node: NodeData, path = `${this.path}/${node.id}`): TreeEval | null {
+    const gid = node.props.node_tree as string | null;
+    const g = gid ? this.env.doc.node_groups[gid] : undefined;
+    if (!g || this.depth > 32) return null;
+    return new TreeEval(
       this.env,
       g.tree,
       path,
@@ -356,7 +361,6 @@ export class TreeEval {
       this.log,
       this.depth + 1,
     );
-    return sub.groupOutputs();
   }
 
   /** Values of the tree's active Group Output, keyed by interface identifier. */

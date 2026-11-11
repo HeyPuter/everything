@@ -28,7 +28,9 @@ export const gnMessages = new Map<string, Pick<GnResult, 'warnings' | 'warningKi
 export const viewerState: {
   objectId: string | null;
   modifierId: string | null;
-} = { objectId: null, modifierId: null };
+  /** group nodes from the modifier's tree down to the tree holding the active viewer */
+  path: string[];
+} = { objectId: null, modifierId: null, path: [] };
 
 /** Listeners notified after a geometry nodes evaluation (UI refresh). */
 export const resultListeners = new Set<() => void>();

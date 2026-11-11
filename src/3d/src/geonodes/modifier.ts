@@ -2,7 +2,7 @@
 import { registerModifier } from '../eval/modifiers';
 import { preEvaluateHooks, type Depsgraph } from '../eval/depsgraph';
 import type { EvalMesh, ModifierContext } from '../eval/types';
-import type { DocumentData, ModifierBase, NodeGroupData, NodeTreeData, ObjectData, SocketValue } from '../data/types';
+import type { DocumentData, ModifierBase, NodeData, NodeGroupData, NodeTreeData, ObjectData, SocketValue } from '../data/types';
 import { interfaceSocketType, findSocket, allSockets } from '../nodes/registry';
 import { alwaysEvaluated, geoExecs, type EvalEnv, type Val } from './exec';
 import { TreeEval, pruneCache, hash, coerce, treeEvalJson, FIELD_TYPES, type NodeCache, type EvalLog } from './evaluator';
@@ -91,11 +91,23 @@ function usesTime(doc: DocumentData, m: ModifierBase): boolean {
   return false;
 }
 
+/** Tree holding the active viewer: the group's tree, or a group opened inside it (by group node path). */
+export function viewerTree(doc: DocumentData, tree: NodeTreeData, path: string[] = viewerState.path): NodeTreeData | null {
+  let t = tree;
+  for (const id of path) {
+    const n = t.nodes.find((x) => x.id === id && x.type === 'GeometryNodeGroup');
+    const g = n && typeof n.props.node_tree === 'string' ? doc.node_groups[n.props.node_tree] : undefined;
+    if (!g) return null;
+    t = g.tree;
+  }
+  return t;
+}
+
 /** Whether this modifier currently displays its tree's active viewer. */
 export function viewerActiveFor(doc: DocumentData, ob: ObjectData, m: ModifierBase): boolean {
   if (viewerState.objectId !== ob.id || viewerState.modifierId !== m.id) return false;
   const g = nodeGroupOf(doc, m);
-  return !!g?.tree.nodes.some(isActiveViewer);
+  return !!(g && viewerTree(doc, g.tree)?.nodes.some(isActiveViewer));
 }
 
 // ---------------------------------------------------------------------------
@@ -230,8 +242,16 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
   let viewer: GeometrySet | undefined;
   let viewerDomain: Domain | undefined;
   if (withViewer) {
-    const vn = tree.nodes.find(isActiveViewer);
-    if (vn) {
+    // the viewer may sit in a group opened in the editor: evaluate it as that group node runs it
+    let vev: TreeEval | null = root;
+    for (const id of viewerState.path) {
+      const gnode: NodeData | undefined = vev.tree.nodes.find((n) => n.id === id && n.type === 'GeometryNodeGroup');
+      vev = gnode ? vev.groupEval(gnode) : null;
+      if (!vev) break;
+    }
+    const vn = vev?.tree.nodes.find(isActiveViewer);
+    if (vev && vn) {
+      const root = vev;
       const socks = allSockets(vn, root.sctx).inputs;
       const gs = socks.find((s) => s.identifier === 'Geometry');
       const vs = socks.find((s) => s.identifier === 'Value');
@@ -320,7 +340,7 @@ registerModifier({
     const g = nodeGroupOf(doc, m);
     if (!g) return 'none';
     const trees = [...groupTrees(doc, g.tree)].map(treeEvalJson);
-    const viewer = viewerActiveFor(doc, ob, m) ? 'V' : '';
+    const viewer = viewerActiveFor(doc, ob, m) ? `V${viewerState.path.join('/')}` : '';
     // object/collection membership and material slots referenced by the tree
     const colls: string[] = [];
     for (const t of groupTrees(doc, g.tree))
