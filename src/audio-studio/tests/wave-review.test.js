@@ -521,3 +521,24 @@ describe('selection drag past the edge', () => {
     }
   });
 });
+
+describe('Paste while another clipboard is chosen', () => {
+  it('pastes the clip and markers of the clipboard it started with', async () => {
+    const { app, doc } = await makeView();
+    const { Channel } = await import('../src/audio/channel.js');
+    app.prefs.set('markersWithClipboard', true);
+    app.clipboardIndex = 0;
+    app.clipboard = {
+      type: 'audio',
+      sampleRate: 48000,
+      channels: [Channel.silence(100)],
+      markers: [createMarker({ start: 10, name: 'In clip' })],
+    };
+    doc.setCursor(500);
+    const run = app.commands.run('edit.paste');
+    app.clipboardIndex = 1; // empty
+    await run;
+    expect(doc.length).toBe(48100);
+    expect(doc.state.markers.map((m) => [m.name, m.start])).toEqual([['In clip', 510]]);
+  });
+});

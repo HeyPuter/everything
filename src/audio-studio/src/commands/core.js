@@ -334,11 +334,13 @@ export function installCoreCommands(app) {
       enabled: (a) => hasAudio(a) && a.clipboard?.type === 'audio',
       run: async () => {
         const doc = audio(app);
-        const clip = await conformRate(app.clipboard, doc.sampleRate);
+        // The clipboard as it was when Paste ran (another can be chosen while a clip is resampled).
+        const source = app.clipboard;
+        const clip = await conformRate(source, doc.sampleRate);
         const n = clip.channels[0]?.length ?? 0;
         const at = doc.hasSelection ? doc.selection.start : doc.cursor;
         let state = doc.hasSelection ? E.replaceRange(doc.state, doc.selection.start, doc.selection.end, clip, doc.channelMask) : E.insertClip(doc.state, at, clip, doc.channelMask);
-        if (!doc.channelMask) state = withClipMarkers(app, state, app.clipboard, at, app.clipboard.sampleRate);
+        if (!doc.channelMask) state = withClipMarkers(app, state, source, at, source.sampleRate);
         doc.apply('Paste', state, { selection: { start: at, end: at + n }, cursor: at });
       },
     },
