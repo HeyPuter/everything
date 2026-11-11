@@ -15,7 +15,7 @@ import { defaultParticleFluid, relaxFluid, type ParticleFluidSettings } from './
 import { keyedPosition, keyedPositionTimed, keyedTargetPositions, psysTargets, targetParticles } from './keyed';
 import { collectEffectors, effectorForce, fieldsKey } from './fields';
 import { buildColliders, collidersKey, segmentHit, newHit } from './colliders';
-import { MeshSampler, distributionKey, newSample, planSamples, valueAt, type Sample } from './sampling';
+import { MAX_PARTICLES, MeshSampler, distributionKey, newSample, planSamples, valueAt, type Sample } from './sampling';
 import { groupWeights } from '../eval/meshbuild';
 import { hairDynKey, hairWithDynamics } from './hairdyn';
 import { physicsDoc } from './state';
@@ -208,7 +208,7 @@ export interface EmitterResult {
 
 /** Number of particles: the count, or the grid's points for grid distributions. */
 export function particleCount(s: ParticleSettingsX, mesh: EvalMesh, psys: ParticleSystemX | undefined, seed: number): number {
-  if (s.distribution !== 'GRID' || s.emit_from === 'VERT') return Math.max(0, Math.floor(s.count));
+  if (s.distribution !== 'GRID' || s.emit_from === 'VERT') return Math.max(0, Math.min(MAX_PARTICLES, Math.floor(s.count) || 0));
   const key = `${distributionKey(s as never)}:${mesh.positions.length}:${arrayChecksum(mesh.positions)}`;
   const hit = gridCounts.get(mesh.positions);
   if (hit && hit.key === key) return hit.n;
@@ -1051,7 +1051,7 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
       let count = 0;
       for (let i = 0; i < n; i++) if (vis(i)) count++;
       // simple children: copies of every parent at fixed random offsets within the child radius
-      const nChild = s.child_type === 'SIMPLE' ? Math.max(0, Math.round(ctx.render ? (s.rendered_child_count ?? 0) : (s.child_nbr ?? 10))) : 0;
+      const nChild = s.child_type === 'SIMPLE' ? Math.max(0, Math.min(Math.floor(MAX_PARTICLES / Math.max(1, count)), Math.round(ctx.render ? (s.rendered_child_count ?? 0) : (s.child_nbr ?? 10)))) : 0;
       const childOffset = (i: number, c: number, out: Vector3) => {
         const r = (s.child_radius ?? 0.2) * Math.cbrt(rand01(seed, i, c, 100));
         const u = rand01(seed, i, c, 101) * 2 - 1,

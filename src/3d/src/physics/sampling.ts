@@ -427,6 +427,12 @@ export function planSamples(sampler: MeshSampler, s: DistributionSettings, seed:
   return out;
 }
 
+/**
+ * Most particles (or children) a system makes, as the Number field allows: files and scripts can ask
+ * for more (or a fine volume grid can produce more), which would run the page out of memory.
+ */
+export const MAX_PARTICLES = 1_000_000;
+
 /** Grid points on the surface (faces) or inside (volume) of the mesh's bounding box grid. */
 function gridSamples(sampler: MeshSampler, s: DistributionSettings, seed: number, from: 'FACE' | 'VOLUME'): Sample[] {
   const res = Math.max(1, Math.min(250, Math.round(s.grid_resolution ?? 10)));
@@ -462,6 +468,7 @@ function gridSamples(sampler: MeshSampler, s: DistributionSettings, seed: number
           sm.py = y + jy;
           sm.pz = z + jz;
           out.push(sm);
+          if (out.length >= MAX_PARTICLES) return out;
         }
     return out;
   }
@@ -515,6 +522,7 @@ function gridSamples(sampler: MeshSampler, s: DistributionSettings, seed: number
     sm.py += jy;
     sm.pz += jz;
     out.push(sm);
+    if (out.length >= MAX_PARTICLES) break;
   }
   return out;
 }

@@ -7,7 +7,7 @@
 // emitter; the paths are rebuilt from the (possibly simulated) parent strands.
 import { rand01 } from './common';
 import type { MeshSampler } from './sampling';
-import { newSample } from './sampling';
+import { MAX_PARTICLES, newSample } from './sampling';
 
 export interface ChildSettings {
   type: 'SIMPLE' | 'INTERPOLATED';
@@ -107,7 +107,8 @@ export function shapeCurve(u: number, shape: number): number {
 /** Describe the children of `parents` strands (`per` points each, object space). */
 export function describeChildren(parentPts: Float32Array, per: number, parents: number, cs: ChildSettings, seed: number, sampler: MeshSampler | null): ChildDesc {
   const per3 = per * 3;
-  const count = Math.max(0, Math.round(cs.count));
+  // children per parent, limited so the total stays within the particle limit
+  const count = Math.max(0, Math.min(Math.floor(MAX_PARTICLES / Math.max(1, parents)), Math.round(cs.count) || 0));
   const n = parents * count;
   const par = new Int32Array(n * 4).fill(-1);
   const wt = new Float32Array(n * 4);

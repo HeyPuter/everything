@@ -54,3 +54,20 @@ describe('emission sampling on dense meshes', () => {
     for (const p of vol) expect(Math.hypot(p.px, p.py, p.pz)).toBeLessThan(1);
   });
 });
+
+describe('particle limits', () => {
+  it('caps counts from files or scripts at the Number field limit instead of running out of memory', async () => {
+    const { particleCount } = await import('../../src/physics/particles');
+    const { describeChildren, childSettings } = await import('../../src/physics/children');
+    const { MAX_PARTICLES } = await import('../../src/physics/sampling');
+    const m = meshOf(icoSphere(1, 1));
+    expect(particleCount({ count: 1e9, distribution: 'JIT', emit_from: 'FACE' } as never, m, undefined, 1)).toBe(MAX_PARTICLES);
+    expect(particleCount({ count: -5, distribution: 'JIT', emit_from: 'FACE' } as never, m, undefined, 1)).toBe(0);
+    expect(particleCount({ count: NaN, distribution: 'JIT', emit_from: 'FACE' } as never, m, undefined, 1)).toBe(0);
+    // 1000 parents asking for 100000 children each would be 100 million children
+    const parents = 1000;
+    const d = describeChildren(new Float32Array(parents * 2 * 3), 2, parents, childSettings({}, 100000), 1, null);
+    expect(d.seed.length).toBeLessThanOrEqual(MAX_PARTICLES);
+    expect(d.seed.length).toBe(MAX_PARTICLES);
+  });
+});
