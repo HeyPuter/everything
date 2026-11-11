@@ -193,6 +193,7 @@ export class SessionBackupStore {
 export function installSessionBackup(app, { store, tab, now = () => Date.now() } = {}) {
   if (!store) return null;
   const written = new Map(); // session doc id -> state last backed up
+  const latest = new Map(); // session doc id -> newest manifest this tab wrote
   const mediaKeys = new WeakMap(); // channels array -> media key
   let seq = 0;
   let running = null;
@@ -254,8 +255,9 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
         if (doc.stretcher?.busy || doc.remixer?.busy) continue;
         const state = doc.state;
         try {
-          await backup(doc);
+          latest.set(doc.id, await backup(doc));
           written.set(doc.id, state);
+          await settle(doc);
         } catch (err) {
           if (!warned) {
             warned = true;
@@ -269,6 +271,34 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
     });
     return running;
   };
+
+  /**
+   * Keeps the newest backup's flags true to the session: saved since (no
+   * unsaved changes) or closed (not offered at start; it stays listed in
+   * File > Restore Session Backup).
+   */
+  const settle = async (doc) => {
+    const m = latest.get(doc.id);
+    if (!m) return;
+    const open = app.documents.includes(doc);
+    const patch = !open ? { offered: true } : !doc.dirty ? { dirty: false } : null;
+    if (!open) {
+      latest.delete(doc.id);
+      written.delete(doc.id);
+    }
+    if (!patch || Object.keys(patch).every((k) => m[k] === patch[k])) return;
+    const next = { ...m, ...patch };
+    if (open) latest.set(doc.id, next);
+    await store.writeManifest(next).catch(() => {});
+  };
+  app.on?.('doc-change', (doc, e) => {
+    if (e?.kind === 'saved' && latest.has(doc?.id)) settle(doc);
+  });
+  app.on?.('documents', () => {
+    for (const id of [...latest.keys()]) {
+      if (!app.documents.some((d) => d.id === id)) settle({ id, dirty: true });
+    }
+  });
 
   const schedule = () => {
     clearInterval(timer);
