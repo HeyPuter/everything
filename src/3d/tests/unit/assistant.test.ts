@@ -153,6 +153,19 @@ describe('reading the scene', () => {
     expect((await runTool(host, 'api_help', { topic: 'bpy.ops.mesh.nope' })).ok).toBe(false);
   });
 
+  it('looks things up without changing the scene', async () => {
+    const before = app.undo.history.length;
+    const r = await runTool(host, 'api_help', { topic: "D.objects['Cube'].location.x = 5" });
+    expect(r.ok).toBe(true);
+    // a lookup that changed something is undone, and the model is told to use run_script
+    expect(app.doc.objects[Object.keys(app.doc.objects).find((k) => app.doc.objects[k].name === 'Cube')!].location[0]).toBe(0);
+    expect(r.content).toMatch(/changed the scene.*undone.*run_script/);
+    const op = await runTool(host, 'api_help', { topic: 'bpy.ops.mesh.primitive_cube_add({location: [4, 0, 0]})' });
+    expect(op.content).toMatch(/undone/);
+    expect(objectNames()).toEqual(['Camera', 'Cube', 'Light']);
+    expect(app.undo.history.length).toBe(before);
+  });
+
   it('offers the viewport tools only with a viewport', () => {
     const names = toolSpecs(host).map((t) => t.function.name);
     expect(names).toContain('run_script');

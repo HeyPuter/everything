@@ -13,7 +13,7 @@ import { modifierTypes } from '../eval/modifiers';
 import { modifiersSignature } from '../eval/depsgraph';
 import { getNodeType, nodeTypes } from '../nodes/registry';
 import { bridge, loadPython, runPythonText } from '../scripting/python';
-import { formatValue, jsGlobals, output, runJavaScript } from '../scripting/runner';
+import { formatValue, inScript, jsGlobals, output, runJavaScript } from '../scripting/runner';
 import { Inspector } from './inspect';
 import { GUIDES, findGuide } from './guides';
 import { handlerMark, revertHandlers } from '../scripting/handlers';
@@ -380,12 +380,23 @@ function apiHelp(topic: string, app: App): string {
   // Anything else is a JavaScript expression over the scripting globals.
   const g = jsGlobals();
   let v: unknown;
+  // A lookup is read-only: an expression that changes the scene (an assignment, an operator) is undone.
+  const mark = app.undo.mark();
+  const handlersBefore = handlerMark();
+  let changed = false;
   try {
-    v = new Function(...Object.keys(g), `"use strict"; return (${t});`)(...Object.values(g));
+    v = inScript('API Help', () => new Function(...Object.keys(g), `"use strict"; return (${t});`)(...Object.values(g)));
   } catch (e) {
     throw new ToolError(`Could not evaluate ${t}: ${(e as Error).message}. Topics: ${Object.keys(GUIDES).map((k) => `"${k}"`).join(', ')}, "operators", "bpy.ops.<module>", "bpy.ops.<module>.<name>", "modifiers", "modifier <TYPE>", "constraints", "nodes <words>", "node <idname>", or an expression such as D.objects['Cube'].data.`);
+  } finally {
+    if (mark && !app.undo.isCurrent(mark)) {
+      app.revertUndo(mark);
+      changed = true;
+    }
+    revertHandlers(handlersBefore);
   }
-  if (v === null || v === undefined || typeof v !== 'object') return `${t} = ${formatValue(v)} (${v === null ? 'null' : typeof v})`;
+  const note = changed ? '\n(Evaluating this changed the scene; the change was undone. api_help only looks things up: use run_script to change the scene.)' : '';
+  if (v === null || v === undefined || typeof v !== 'object') return `${t} = ${formatValue(v)} (${v === null ? 'null' : typeof v})${note}`;
   const lines = [`${t}: ${bridge.typename(v)} ${short(formatValue(v), 300)}`];
   let names: string[] = [];
   try {
@@ -407,7 +418,7 @@ function apiHelp(topic: string, app: App): string {
   }
   if (fields.length) lines.push(`Properties:\n${fields.map((f) => `- ${f}`).join('\n')}`);
   if (methods.length) lines.push(`Methods: ${methods.join(', ')}`);
-  return lines.join('\n');
+  return lines.join('\n') + note;
 }
 
 // ---------------------------------------------------------------------------
