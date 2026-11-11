@@ -836,6 +836,12 @@ export class Screen {
   split(a: Area, dir: 'h' | 'v', ratio = 0.5): Area | null {
     this.exitMaximized();
     if (!this.areas.includes(a)) return null;
+    // both parts keep at least a header's height / a narrow column (a factor of 0 or 1 from a script)
+    const avail = (dir === 'h' ? a.rect.w : a.rect.h) - GAP;
+    if (avail > 0) {
+      const minFrac = Math.min(0.5, 26 / avail);
+      ratio = Math.max(minFrac, Math.min(1 - minFrac, Number.isFinite(ratio) ? ratio : 0.5));
+    }
     const st = cloneAreaState(a);
     this.layout = splitLayout(this.layout, a.id, dir, ratio, st);
     const area = new Area(this, st);

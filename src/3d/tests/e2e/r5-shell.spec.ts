@@ -484,3 +484,20 @@ test('the default layout at phone width keeps the Properties editor readable', a
   expect((await page.locator('.area[data-editor="PROPERTIES"]').boundingBox())!.width).toBeGreaterThan(props.width + 20);
   await expectNoErrors(errors);
 });
+
+test('splitting an area with a factor of 0 or 1 keeps both parts visible', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async () => {
+    const { shell } = await import('/src/ui/shell.ts');
+    const a = (window as any).app;
+    const v = () => shell.screen.areas.find((x: { type: string }) => x.type === 'VIEW_3D');
+    a.run('screen.area_split', { direction: 'VERTICAL', factor: 0 }, { invoke: false, area: v() });
+    a.run('screen.area_split', { direction: 'HORIZONTAL', factor: 1 }, { invoke: false, area: v() });
+    return shell.screen.areas.map((x: { rect: { w: number; h: number } }) => [x.rect.w, x.rect.h]);
+  });
+  for (const [w, h] of r) {
+    expect(w).toBeGreaterThanOrEqual(24);
+    expect(h).toBeGreaterThanOrEqual(24);
+  }
+  await expectNoErrors(errors);
+});
