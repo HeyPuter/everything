@@ -58,3 +58,21 @@ test('an IME composition is one undo step and ends the redo history', async ({ p
   await page.keyboard.press('Meta+z');
   expect(await caret(page)).toMatchObject({ text: 'ab ', anchor: 0, focus: 2 });
 });
+
+test('each paste is its own undo step', async ({ page }) => {
+  await canvasClick(page, 100, 100);
+  await page.keyboard.type('ab');
+  const paste = (text: string) =>
+    page.evaluate((text) => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      document.querySelector('.type-input')!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, text);
+  await paste('cd');
+  await paste('ef');
+  expect((await caret(page)).text).toBe('abcdef');
+  await page.keyboard.press('Meta+z');
+  expect((await caret(page)).text).toBe('abcd');
+  await page.keyboard.press('Meta+z');
+  expect((await caret(page)).text).toBe('ab');
+});

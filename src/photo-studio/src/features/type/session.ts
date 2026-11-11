@@ -398,7 +398,8 @@ export function insert(e: Editor, str: string, kind = 'type') {
   }
   const data = { ...s.data, content };
   const caret = a + clean.length;
-  install(e, data, { kind: /\s/.test(clean) ? kind + '-space' : kind });
+  // Typing groups into word-sized undo steps; every paste is a step of its own.
+  install(e, data, { kind: kind === 'paste' ? undefined : /\s/.test(clean) ? kind + '-space' : kind });
   s.anchor = s.focus = caret;
   if (style) s.caretStyle = style;
   e.overlay();
@@ -409,7 +410,7 @@ export function insertStyled(e: Editor, piece: TextContent) {
   const [a, b] = ordered(s);
   const base = deleteRange(s.data.content, a, b);
   const content = insertContent(base, a, piece);
-  install(e, { ...s.data, content }, { kind: 'paste' });
+  install(e, { ...s.data, content });
   s.anchor = s.focus = a + textLength(piece);
   e.overlay();
 }
