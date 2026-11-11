@@ -114,9 +114,11 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
       }
       await handler.import!(file);
       if (handler.handlesUndo) return;
+      // an import adds to the current file: it stays modified
       app.pushUndo(`Import ${handler.label}`);
       app.changed('doc');
       app.report('INFO', `Imported "${file.name}"`);
+      return;
     }
     app.dirty = false;
   } catch (e) {
