@@ -199,6 +199,18 @@ describe('gradient opacity in PDF export', () => {
     expect(uniform).not.toContain('/SMask');
     expect(await pdfOf(fade(1, 0), { pdfx: 'x1a' })).not.toContain('/SMask');
   });
+  it('fades a gradient stroke whose stops differ in opacity through a soft mask stroked like the path', async () => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    doc.transact('build', () => doc.insert(createPath(rectangle(10, 10, 100, 100), true, { fill: null, stroke: fade(1, 0), strokeWidth: 8 }), doc.layers()[0].id));
+    const { bytes } = await writePDF(doc, [doc.artboards[0]], { compress: false });
+    const s = latin1(bytes);
+    expect(s).toMatch(/\/SMask << \/Type \/Mask \/S \/Luminosity \/G \d+ 0 R >>/);
+    expect(s).toMatch(/\/ShadingType 2 \/ColorSpace \/DeviceGray [^]*\/C0 \[1\] \/C1 \[0\]/);
+    // The mask strokes the same path at the same width with the gray shading pattern.
+    const mask = streams(bytes).find((st) => /\/Group << \/S \/Transparency \/CS \/DeviceGray >>/.test(st.dict));
+    expect(mask.data).toMatch(/^8 w [^]*\/Pattern CS \/P\d+ SCN\n[^]*S\n$/);
+    expect(s).not.toMatch(/\/CA 0\.5/);
+  });
 });
 
 describe('editing during a PDF export', () => {

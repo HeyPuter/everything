@@ -11,8 +11,7 @@
  *   layers with opacity or blending become transparency-group form XObjects.
  * - Gradients: axial/radial shadings with stitching functions (fills paint
  *   the shading inside a clip; strokes use a shading pattern). Stop opacity
- *   that varies across a fill is a soft mask; on strokes it is approximated
- *   by the average stop opacity.
+ *   that varies across a fill or stroke is a soft mask.
  * - Freeform gradients: fills draw the blend as an image inside the shape
  *   (turned with the object); strokes and type paint with a tiling pattern
  *   holding the same image.
@@ -466,6 +465,21 @@ class PDFRenderer {
     return this.w.add(`<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G ${group} 0 R >> >>`);
   }
 
+  /**
+   * The same for a gradient stroke: the mask strokes the path (`state`
+   * sets its width, caps, joins and dashes) with the gray shading.
+   */
+  strokeMask(paint, node, state, path) {
+    const b = inflate(visualBounds(this.doc, node) || nodeBounds(this.doc, node) || { x: 0, y: 0, w: 1, h: 1 }, (node.strokeWidth || 0) * 2 + 1);
+    const res = new Resources();
+    const sh = this.shadingFor(paint, node, true);
+    const m = sh.frame || [1, 0, 0, 1, 0, 0];
+    const pat = this.w.add(`<< /Type /Pattern /PatternType 2 /Shading ${sh.id} 0 R /Matrix [${m.map((v) => this.f(v)).join(' ')}] >>`);
+    const ops = `${state}/Pattern CS /${res.name(res.pattern, 'P', pat)} SCN\n${path}S\n`;
+    const group = this.w.addStream(`/Type /XObject /Subtype /Form /BBox [${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}] /Group << /S /Transparency /CS /DeviceGray >> /Resources ${this.w.add(res.dict())} 0 R`, ops);
+    return this.w.add(`<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G ${group} 0 R >> >>`);
+  }
+
   gradientAlpha(paint) {
     const ops = paint.stops.map((s) => s.opacity ?? 1);
     return ops.reduce((a, b) => a + b, 0) / Math.max(1, ops.length);
@@ -665,10 +679,12 @@ class PDFRenderer {
     const path = this.pathOps(subpaths);
     if (!path) return;
     const op = node.opacity ?? 1;
-    // Stop opacities that vary across a gradient fill go into a soft mask instead of the constant alpha.
-    const fillMasked = (fill?.type === 'linear' || fill?.type === 'radial') && varyingAlpha(fill) && this.opts.pdfx !== 'x1a';
+    // Stop opacities that vary across a gradient go into a soft mask instead of the constant alpha.
+    const masks = (p) => (p?.type === 'linear' || p?.type === 'radial') && varyingAlpha(p) && this.opts.pdfx !== 'x1a';
+    const fillMasked = masks(fill);
+    const strokeMasked = masks(stroke);
     const fa = op * (fillMasked ? 1 : this.paintAlpha(fill));
-    const sa = op * this.paintAlpha(stroke);
+    const sa = op * (strokeMasked ? 1 : this.paintAlpha(stroke));
     let out = 'q\n';
     const gs = this.extGState(fill ? fa : 1, stroke ? sa : 1, node.blendMode, node);
     if (gs) out += `/${res.name(res.ext, 'GS', gs)} gs\n`;
@@ -694,7 +710,12 @@ class PDFRenderer {
       return `/Pattern CS /${res.name(res.pattern, 'P', pat)} SCN\n`;
     };
     const strokePath = strokeSubpaths ? this.pathOps(strokeSubpaths) : path;
-    const doStroke = (scale = 1) => (stroke ? `${this.strokeState(node, scale)}${strokeColor()}${strokePath}S\n` : '');
+    const doStroke = (scale = 1) => {
+      if (!stroke) return '';
+      const ops = `${this.strokeState(node, scale)}${strokeColor()}${strokePath}S\n`;
+      const mask = strokeMasked ? this.strokeMask(stroke, node, this.strokeState(node, scale), strokePath) : null;
+      return mask ? `q\n/${res.name(res.ext, 'GS', mask)} gs\n${ops}Q\n` : ops;
+    };
     const closedShape = subpaths.every((s) => s.closed);
     if (stroke && strokeAlign !== 'center' && closedShape) {
       out += doFill();
