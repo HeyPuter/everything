@@ -193,4 +193,28 @@ describe('Puter AI requests', () => {
     expect(r.error).toBeUndefined();
     expect(calls).toBe(1);
   });
+
+  it('keeps only the newest screenshot\'s image data in the conversation', async () => {
+    const shot = (n: number) => `data:image/jpeg;base64,${String(n).repeat(1000)}`;
+    let n = 0;
+    const replies: StreamPart[][] = [
+      [{ type: 'tool', id: 'a', name: 'capture_view', input: {} }],
+      [{ type: 'tool', id: 'b', name: 'capture_view', input: {} }],
+      [{ type: 'text', text: 'Looks right.' }],
+    ];
+    const requests: string[] = [];
+    const agent = createAgent({
+      chat: (m) => { requests.push(JSON.stringify(m)); const r = replies.shift() ?? [{ type: 'text', text: 'ok' }]; return (async function* () { yield* r; })(); },
+      tools: () => [], runTool: async () => ({ ok: true, content: 'Screenshot taken.', image: shot(++n) }), system: 'S', snapshot: () => '', model: () => 'm',
+    });
+    await agent.send('build', () => {});
+    const images = () => JSON.stringify(agent.messages).match(/"type":"image"/g)?.length ?? 0;
+    // the second screenshot went with its round; the first one's data is let go
+    expect(requests[2]).toContain(shot(2).slice(23, 60));
+    expect(requests[2]).not.toContain('1111111111');
+    expect(images()).toBe(1);
+    await agent.send('thanks', () => {});
+    expect(images()).toBe(0);
+    expect(requests[3]).toContain('[A screenshot was shown here earlier.]');
+  });
 });
