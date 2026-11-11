@@ -287,3 +287,24 @@ test('the search popup stays inside the window and keeps the highlighted result 
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('menu buttons that open on press also open from the keyboard', async ({ page }) => {
+  const errors = await openApp(page);
+  // the top bar's File menu
+  await page.locator('.topbar .tb-menu', { hasText: 'File' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.popup-layer > .menu')).toHaveCount(1);
+  await expect(page.locator('.menu .menu-item', { hasText: 'Save As' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.popup-layer > .menu')).toHaveCount(0);
+  // an enum dropdown in the Properties editor
+  await page.locator('.properties [data-tab="OBJECT"]').first().click();
+  const mode = page.locator('.properties .enum-menu', { hasText: 'XYZ Euler' }).first();
+  await mode.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.menu .menu-item', { hasText: 'Quaternion' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.popup-layer > .menu')).toHaveCount(0);
+  await expect(mode).toBeFocused();
+  await expectNoErrors(errors);
+});

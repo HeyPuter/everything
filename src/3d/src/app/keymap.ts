@@ -2,6 +2,7 @@
 import { app } from './app';
 import { prefs } from './prefs';
 import { menuKey, pieOpen, openMenu, type MenuItem } from '../ui/menu';
+import { hasHandler } from '../ui/h';
 
 export interface KeyItem {
   key: string; // e.g. 'A', 'NUMPAD_1', 'TAB'
@@ -266,9 +267,19 @@ export function installKeyboard() {
   addEventListener(
     'click',
     (e) => {
-      if (e.detail === 0) return;
       const b = (e.target as Element | null)?.closest?.('button');
-      if (b && document.activeElement === b) b.blur();
+      if (!b) return;
+      if (e.detail !== 0) {
+        if (document.activeElement === b) b.blur();
+        return;
+      }
+      // Enter / Space on a button that acts on press (menu buttons, dropdowns) and has no click
+      // action: press and release it, so it can be used from the keyboard too
+      if (b.disabled || !hasHandler(b, 'pointerdown') || hasHandler(b, 'click')) return;
+      const r = b.getBoundingClientRect();
+      const init = { bubbles: true, cancelable: true, button: 0, buttons: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerId: 1, isPrimary: true, pointerType: 'mouse' };
+      b.dispatchEvent(new PointerEvent('pointerdown', init));
+      b.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
     },
     true,
   );

@@ -103,6 +103,11 @@ function setHandler(el: HTMLElement, type: string, fn: Handler | null) {
   store[type] = fn;
 }
 
+/** Whether a vdom element currently has a handler for an event type (e.g. 'pointerdown'). */
+export function hasHandler(el: Element, type: string): boolean {
+  return !!(el as unknown as Record<symbol, Record<string, Handler | null> | undefined>)[HANDLERS]?.[type];
+}
+
 function sameNode(a: VNode, b: VNode) {
   return a.tag === b.tag && a.key === b.key;
 }
