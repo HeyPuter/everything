@@ -18,6 +18,12 @@ const sd = (a: ArrayLike<number>) => {
 const zs = (m: EvalMesh) => Float32Array.from({ length: m.positions.length / 3 }, (_, i) => m.positions[i * 3 + 2]);
 
 describe('Ocean', () => {
+  it('stays finite with damping and alignment outside the sliders (scripts, drivers)', () => {
+    for (const props of [{ damping: 25, wave_alignment: 2 }, { wave_alignment: -1 }, { damping: -3, wave_alignment: 0.5 }]) {
+      const out = run(props);
+      expect(Array.from(out.positions).every(Number.isFinite), JSON.stringify(props)).toBe(true);
+    }
+  });
   it('inverts a forward FFT', () => {
     const re = Float64Array.from([1, 2, 3, 4, 0, -1, 2, 5]),
       im = new Float64Array(8);
