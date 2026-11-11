@@ -7,7 +7,7 @@ import { icon } from '../ui/icons.js';
 import { openDialog } from '../ui/dialog.js';
 import { FORMATS, getFormat, COMMON_RATES, usesDither } from '../export/formats.js';
 import { DITHER_MODES } from '../audio/quantize.js';
-import { zipStore } from '../lib/zip.js';
+import { zipStore, zipProblem } from '../lib/zip.js';
 import { downloadBlob } from '../storage/files.js';
 import * as puter from '../storage/puter.js';
 import { uniqueName } from './queue.js';
@@ -175,7 +175,11 @@ export async function outputWriter(app, s) {
     },
     async finish(zipName) {
       if (zip.length === 1) downloadBlob(zip[0].blob, zip[0].name);
-      else if (zip.length > 1) {
+      else if (zip.length > 1 && zipProblem(zip.map((z) => ({ name: z.name, size: z.blob.size })))) {
+        // Too much for one ZIP: hand the files over one by one rather than lose them.
+        app.notify(`${zipProblem(zip.map((z) => ({ name: z.name, size: z.blob.size })))} The ${zip.length} files are downloaded separately.`);
+        for (const z of zip) downloadBlob(z.blob, z.name);
+      } else if (zip.length > 1) {
         const files = [];
         for (const z of zip) files.push({ name: z.name, data: new Uint8Array(await z.blob.arrayBuffer()) });
         downloadBlob(zipStore(files), zipName);

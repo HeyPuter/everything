@@ -5,7 +5,7 @@ import { Session } from '../src/model/session.js';
 import { buildSessionGraph, clipPlan, dbEnvelopeToGain, metronomeBar } from '../src/model/session-graph.js';
 import { serializeSession, parseSession, safeFileName, mediaFolderName } from '../src/model/session-io.js';
 import { createMarker } from '../src/model/markers.js';
-import { zipStore, unzipStore, crc32 } from '../src/lib/zip.js';
+import { zipStore, unzipStore, crc32, zipProblem } from '../src/lib/zip.js';
 
 const RATE = 1000;
 
@@ -504,6 +504,17 @@ describe('session files', () => {
     const files = unzipStore(await blob.arrayBuffer());
     expect(new TextDecoder().decode(files.get('a.txt'))).toBe('hello');
     expect([...files.get('dir/b.bin')]).toEqual([1, 2, 3]);
+  });
+
+  it('refuses archives past the 4 GB / 65,535-file limits instead of writing a corrupt one', () => {
+    const files = [{ name: 'a.bin', data: new Uint8Array(100) }, { name: 'b.bin', data: new Uint8Array(100) }];
+    // The size check matches the archive exactly: at the limit it is written, one byte less refuses.
+    const size = zipStore(files).size;
+    expect(zipProblem(files.map((f) => ({ name: f.name, size: f.data.length })))).toBe('');
+    expect(zipStore(files, { limits: { bytes: size, entries: 10 } }).size).toBe(size);
+    expect(() => zipStore(files, { limits: { bytes: size - 1, entries: 10 } })).toThrow('more than a ZIP file can hold');
+    expect(() => zipStore(files, { limits: { bytes: size, entries: 1 } })).toThrow('A ZIP file holds at most 1 files; there are 2.');
+    expect(zipProblem([{ name: 'big.wav', size: 2 ** 32 }])).toMatch(/more than 4 GB/);
   });
 });
 

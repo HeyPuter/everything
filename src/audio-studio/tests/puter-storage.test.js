@@ -2,6 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { exists, isNotFound } from '../src/storage/puter.js';
 import { outputWriter } from '../src/batch/export-settings.js';
 
+const downloads = vi.hoisted(() => []);
+vi.mock('../src/storage/files.js', async (orig) => ({
+  ...(await orig()),
+  downloadBlob: (blob, name) => downloads.push([name, blob.size]),
+}));
+
 const notFound = [
   Object.assign(new Error('Item does not exist'), { code: 'subject_does_not_exist', status: 404 }),
   { code: 'subject_does_not_exist' },
@@ -50,5 +56,31 @@ describe('Puter file checks', () => {
     p.fs.stat.mockImplementation(async () => Promise.reject({ code: 'subject_does_not_exist' }));
     expect(await out.write('Take.wav', new Blob(['x']))).toBe('Take.wav');
     expect(p.fs.write).toHaveBeenCalledTimes(1);
+  });
+
+  it('batch downloads files separately when they are too large for one ZIP', async () => {
+    downloads.length = 0;
+    const app = { notify: vi.fn() };
+    const out = await outputWriter(app, { location: 'download' });
+    // 3 GB of output reported by the Blobs' sizes (no data is read before the check).
+    for (const name of ['a.wav', 'b.wav'])
+      await out.write(name, {
+        size: 1.5 * 2 ** 30,
+        arrayBuffer: () => Promise.reject(new Error('read')),
+      });
+    await out.write('c.wav', {
+      size: 2 ** 30,
+      arrayBuffer: () => Promise.reject(new Error('read')),
+    });
+    await out.finish('Batch Process.zip');
+    expect(downloads.map((d) => d[0])).toEqual(['a.wav', 'b.wav', 'c.wav']);
+    expect(app.notify.mock.calls[0][0]).toMatch(/more than 4 GB.*downloaded separately/);
+    // Small batches still come as one ZIP.
+    downloads.length = 0;
+    const small = await outputWriter(app, { location: 'download' });
+    await small.write('a.wav', new Blob(['x']));
+    await small.write('b.wav', new Blob(['y']));
+    await small.finish('Batch Process.zip');
+    expect(downloads.map((d) => d[0])).toEqual(['Batch Process.zip']);
   });
 });
