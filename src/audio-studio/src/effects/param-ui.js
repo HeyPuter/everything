@@ -174,7 +174,16 @@ export function paramControl(p, getValues, onSet, { doc = null, range = null, sm
     const env =
       type === 'curve'
         ? curveControl({ param: p, value: getValues()[p.id], onChange: (points) => onSet(p.id, points), smooth: smoothNow })
-        : envelopeControl({ param: p, value: getValues()[p.id], onChange: (points) => onSet(p.id, points), doc, range, smooth: smoothNow });
+        : envelopeControl({
+            param: p,
+            value: getValues()[p.id],
+            onChange: (points) => onSet(p.id, points),
+            doc,
+            range,
+            smooth: smoothNow,
+            // A definition's own drawing (the spline its process applies).
+            render: p.render ? (points, n) => p.render(points, n, getValues()) : null,
+          });
     const show = (v, from) => {
       if (from !== p.id) env.setPoints(v[p.id]);
       else env.redraw();

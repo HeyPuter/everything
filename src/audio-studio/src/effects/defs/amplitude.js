@@ -641,6 +641,8 @@ function envelopeRunner(maxValue) {
 }
 
 const curveParam = choice('curve', 'Curve', ['Linear', 'Spline'], 0);
+/** The editor draws the curve the process applies (straight or the monotone spline). */
+const drawEnvelope = (points, n, v) => renderEnvelope(points, n, v.curve === 1);
 
 registerEffect({
   id: 'fadeEnvelope',
@@ -649,7 +651,16 @@ registerEffect({
   kind: null,
   about: 'Fades the selection along a drawn curve from silence to full level. Click to add points, drag them, double-click to remove one; Spline smooths the curve.',
   params: [
-    { id: 'envelope', label: 'Envelope', type: 'envelope', min: 0, max: 1, unit: '%', default: [{ t: 0, v: 0 }, { t: 1, v: 1 }] },
+    {
+      id: 'envelope',
+      label: 'Envelope',
+      type: 'envelope',
+      min: 0,
+      max: 1,
+      unit: '%',
+      default: [{ t: 0, v: 0 }, { t: 1, v: 1 }],
+      render: drawEnvelope,
+    },
     curveParam,
   ],
   presets: [
@@ -671,7 +682,16 @@ registerEffect({
   kind: null,
   about: 'Raises or lowers the level across the selection along a drawn curve, up to four times louder. Click to add points, drag them, double-click to remove one.',
   params: [
-    { id: 'envelope', label: 'Envelope', type: 'envelope', min: 0, max: 4, unit: '%', default: [{ t: 0, v: 1 }, { t: 1, v: 1 }] },
+    {
+      id: 'envelope',
+      label: 'Envelope',
+      type: 'envelope',
+      min: 0,
+      max: 4,
+      unit: '%',
+      default: [{ t: 0, v: 1 }, { t: 1, v: 1 }],
+      render: drawEnvelope,
+    },
     curveParam,
   ],
   presets: [

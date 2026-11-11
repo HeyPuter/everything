@@ -20,6 +20,8 @@
 //       min: -60, max: 24, unit: 'dB' },      // frequency curve: f in Hz, g in dB
 //     { id: 'envelope', type: 'envelope', default: [{ t: 0, v: 1 }, { t: 1, v: 1 }],
 //       min: 0, max: 4, unit: '%' },          // t: 0..1 across the range, v in [min, max]
+//                                  // optional render: (points, n, values) => Float32Array draws
+//                                  // the curve the process applies (n samples across)
 //     { id: 'curve', type: 'transfer', default: [{ x: -100, y: -100 }, { x: 0, y: 0 }],
 //       min: -100, max: 0, unit: 'dB' },      // level transfer curve: input x to output y in dBFS
 //   ],

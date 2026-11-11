@@ -305,3 +305,74 @@ describe('Chorus feedback', () => {
     expect(processorParam(def.kind, 3, spec.params, rate)).toBe(90);
   });
 });
+
+describe('Fade and Gain Envelope editors', () => {
+  it('draw the curve the process applies', async () => {
+    const { paramControl } = await import('../src/effects/param-ui.js');
+    const { renderEnvelope } = await import('../src/effects/defs/amplitude.js');
+    const W = 200;
+    const H = 112;
+    const width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    const height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    let drawn = [];
+    let recording = false;
+    const ctx = new Proxy(
+      {},
+      {
+        get: (t, k) => {
+          if (k === 'lineTo') return (x, y) => recording && drawn.push(y);
+          if (k === 'stroke') return () => (recording = false);
+          return k in t ? t[k] : () => {};
+        },
+        set: (t, k, v) => {
+          if (k === 'lineWidth' && v === 2) recording = true;
+          t[k] = v;
+          return true;
+        },
+      },
+    );
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get: () => W,
+    });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get: () => H,
+    });
+    HTMLCanvasElement.prototype.getContext = () => ctx;
+    try {
+      for (const id of ['fadeEnvelope', 'gainEnvelope']) {
+        const p = getEffect(id).params.find((q) => q.id === 'envelope');
+        for (const curve of [0, 1]) {
+          const values = {
+            envelope: [
+              { t: 0, v: 0 },
+              { t: 0.5, v: 0.25 },
+              { t: 1, v: 1 },
+            ],
+            curve,
+          };
+          const control = paramControl(
+            p,
+            () => values,
+            () => {},
+          );
+          drawn = [];
+          control.show(values, 'curve');
+          await new Promise((r) => setTimeout(r, 50));
+          const want = renderEnvelope(values.envelope, W, curve === 1);
+          expect(drawn.length).toBe(W - 1);
+          drawn.forEach((y, i) => {
+            const v = p.min + ((H - 6 - y) / (H - 12)) * (p.max - p.min);
+            expect(v).toBeCloseTo(want[i + 1], 4);
+          });
+        }
+      }
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
+      if (width) Object.defineProperty(HTMLElement.prototype, 'clientWidth', width);
+      if (height) Object.defineProperty(HTMLElement.prototype, 'clientHeight', height);
+    }
+  });
+});
