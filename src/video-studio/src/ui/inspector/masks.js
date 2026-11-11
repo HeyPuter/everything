@@ -42,7 +42,8 @@ export function maskTab(view) {
   const tiles = MASK_SHAPES.map((s) => {
     const b = h('button.mask-tile', { type: 'button', 'data-shape': s.id, 'data-tip': `Add ${s.label.toLowerCase()} mask`, 'aria-label': `Add ${s.label.toLowerCase()} mask` },
       h('span.mask-tile-icon', icon(s.icon, 20)), h('span.mask-tile-label', s.label));
-    b.addEventListener('click', () => add(s.id));
+    // The tiles turn off once the stack is full; focus then goes to the new mask.
+    b.addEventListener('click', () => keepFocus(() => add(s.id), () => listEl.lastElementChild?.querySelector('[data-act="pick"]')));
     return b;
   });
   const addGrid = h('div.mask-tiles', { role: 'group', 'aria-label': 'Add mask' }, ...tiles);

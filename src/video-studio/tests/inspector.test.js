@@ -376,6 +376,18 @@ describe('mask and chroma', () => {
     expect(selected()).toBe('ellipse');
   });
 
+  it('keeps keyboard focus when the last mask that fits is added', () => {
+    tab('Mask').click();
+    for (const id of ['star', 'polygon', 'text']) env.el.querySelector(`.mask-tile[data-shape=${id}]`).click();
+    const heart = env.el.querySelector('.mask-tile[data-shape=heart]');
+    heart.focus();
+    heart.click();
+    expect(clip(env.v1.id).masks).toHaveLength(4);
+    expect(heart.disabled).toBe(true);
+    // Focus goes to the new mask in the list.
+    expect(document.activeElement.getAttribute('aria-label')).toMatch(/^Mask 4, Heart/);
+  });
+
   it('turns chroma key on and tunes it', () => {
     tab('Chroma key').click();
     env.el.querySelector('[role=switch]').click();

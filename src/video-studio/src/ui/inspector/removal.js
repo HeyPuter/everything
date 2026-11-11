@@ -74,7 +74,9 @@ export function removeTab(view) {
     onChange: (v) => removeEdit.set({ show: v }),
   });
   const newBtn = h('button.btn.small', { type: 'button' }, icon('plus', 14), h('span', 'New painted region'));
-  newBtn.addEventListener('click', () => {
+  // The button turns off once the list is full; focus then goes to the new region.
+  newBtn.addEventListener('click', () => keepFocus(addPainted, () => listEl.lastElementChild?.querySelector('[data-act="pick"]')));
+  function addPainted() {
     let index = -1;
     setRemoval('New removal region', 'add', (r, c) => {
       r.on = true;
@@ -86,7 +88,7 @@ export function removeTab(view) {
     tools.set(removeEdit.tool);
     announce('New region. Paint on the preview.');
     render(true);
-  });
+  }
   const toolsBox = h('div.removal-tools',
     h('div.field.insp-row', h('span.field-label', 'Tool'), tools.el), toolHint, size.el, show.el, h('div.insp-tools', newBtn));
 

@@ -541,6 +541,16 @@ describe('remove panel', () => {
     expect(document.activeElement?.getAttribute('aria-label')).toMatch(/^Region 1,/);
   });
 
+  it('keeps keyboard focus when the last region that fits is added', () => {
+    const add = button('New painted region');
+    for (let i = 0; i < 7; i++) add.click();
+    add.focus();
+    add.click();
+    expect(clip().removal.regions).toHaveLength(8);
+    expect(add.disabled).toBe(true);
+    expect(document.activeElement?.getAttribute('aria-label')).toMatch(/^Region 8,/);
+  });
+
   it('offers follow motion only on video clips', () => {
     button('New painted region').click();
     expect(button('Follow motion').disabled).toBe(true);
