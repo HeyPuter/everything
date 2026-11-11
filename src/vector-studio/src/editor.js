@@ -389,7 +389,9 @@ export class Editor extends Emitter {
    * transaction.
    */
   drawTarget() {
-    const base = { parentId: this.targetLayer().id, index: Infinity };
+    const t = this.targetLayer();
+    // In an isolated clip group new artwork goes below the clipping path (the last child clips).
+    const base = { parentId: t.id, index: t.clip && t.children.length ? t.children.length - 1 : Infinity };
     return this.drawTargetHook?.(this, base) || base;
   }
 

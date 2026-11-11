@@ -55,3 +55,37 @@ describe('Paste in Front / in Back inside containers', () => {
     expect(doc.get(clip).children).toEqual([art, pasted, mask]);
   });
 });
+
+describe('new artwork in an isolated clip group', () => {
+  it('goes below the clipping path when drawn or pasted', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    ed.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
+    const doc = ed.doc;
+    const add = (x, size) => {
+      const p = createPath(rectangle(x, x, size, size), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    };
+    const art = add(0, 100);
+    const mask = add(25, 50);
+    ed.select([art, mask]);
+    await app.commands.run('object.clipMake');
+    const [clip] = ed.selection;
+    await app.commands.run('edit.copy');
+    await app.commands.run('object.isolate');
+    const ev = (x, y) => ({ x, y, sx: x, sy: y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', pressure: 0.5, native: {} });
+    app.setTool('rectangle');
+    app.tool.onPointerDown(ev(30, 30));
+    app.tool.onPointerMove(ev(45, 45));
+    app.tool.onPointerUp(ev(60, 60));
+    const [drawn] = ed.selection;
+    expect(doc.get(clip).children).toEqual([art, drawn, mask]);
+    for (const cmd of ['edit.pasteInPlace', 'edit.pasteAll']) {
+      await app.commands.run(cmd);
+      const kids = doc.get(clip).children;
+      expect(kids[kids.length - 1]).toBe(mask);
+      expect(kids).toContain([...ed.selection][0]);
+    }
+  });
+});

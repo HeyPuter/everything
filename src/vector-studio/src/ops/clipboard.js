@@ -148,8 +148,6 @@ export function paste(editor, mode = 'center') {
       parentId = node.parent;
       const parent = doc.get(parentId);
       index = parent.children.indexOf(node.id) + (mode === 'front' ? 1 : 0);
-      // In front of a clipping path stays below it, so it keeps clipping (the last child clips).
-      if (parent.clip && index === parent.children.length) index--;
     } else if (mode === 'back') index = 0;
     // Never into a locked or hidden layer (pasted artwork would be invisible or uneditable).
     if (doc.isLocked(parentId) || doc.isHidden(parentId)) {
@@ -157,6 +155,9 @@ export function paste(editor, mode = 'center') {
       index = Infinity;
     }
     if (!parentId) throw new UserError('All layers are locked or hidden.');
+    // Into a clip group (isolated, or next to its clipping path): below the clipping path, so it keeps clipping.
+    const target = doc.get(parentId);
+    if (target.clip && target.children.length && index >= target.children.length) index = target.children.length - 1;
     let items = data.items;
     for (const hk of clipboardHooks) items = hk.paste?.(doc, data, items) || items;
     const placeOnce = (dx, dy) => {
