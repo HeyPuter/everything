@@ -155,6 +155,32 @@ describe('HSL', () => {
     expect(env.el.querySelector('.hsl-swatch[aria-checked=true]').dataset.id).toBe('magenta');
   });
 
+  it('the eyedropper picks the range of a colored pixel and leaves it on a gray one', () => {
+    const canvas = document.createElement('canvas');
+    const stage = document.createElement('div');
+    stage.className = 'player-stage';
+    stage.append(canvas);
+    document.body.append(stage);
+    let rgb = [40, 80, 220];
+    const frame = () => ({ width: 4, height: 4, data: Uint8ClampedArray.from({ length: 64 }, (_, i) => (i % 4 === 3 ? 255 : rgb[i % 4])) });
+    env.ctx.player = { canvas, supported: true, probe: () => frame(), hasSource: () => true, boxFor: () => null };
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    const pickAt = () => {
+      env.el.querySelector('.hsl-picker').click();
+      canvas.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 50, clientY: 50 }));
+    };
+    const current = () => env.el.querySelector('.hsl-swatch[aria-checked=true]').dataset.id;
+    pickAt();
+    expect(current()).toBe('blue');
+    rgb = [128, 128, 128];
+    pickAt();
+    // Gray has no hue: the range stays and the user is told why.
+    expect(current()).toBe('blue');
+    expect([...document.querySelectorAll('.toast')].map((t) => t.textContent).join()).toMatch(/no color/i);
+    stage.remove();
+    document.querySelectorAll('.toasts').forEach((t) => t.remove());
+  });
+
   it('the eyedropper stops when the HSL panel goes away', () => {
     const canvas = document.createElement('canvas');
     const stage = document.createElement('div');
