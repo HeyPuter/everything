@@ -183,11 +183,26 @@ export function captureLinks(project) {
   const main = mainTrack(project);
   if (!main) return () => {};
   const before = new Map(main.clips.map((c) => [c.id, c.start]));
+  // Base clips by start, searched by halves (big projects have thousands of each).
+  const bases = [...main.clips].sort((a, b) => a.start - b.start);
+  const hostAt = (t) => {
+    let lo = 0;
+    let hi = bases.length - 1;
+    let found = null;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (bases[mid].start <= t) {
+        found = bases[mid];
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return found && t < clipEnd(found) ? found : null;
+  };
   const links = [];
   for (const t of project.tracks) {
     if (t.main || t.locked) continue;
     for (const c of t.clips) {
-      const host = main.clips.find((m) => c.start >= m.start && c.start < clipEnd(m));
+      const host = hostAt(c.start);
       // Audio only follows when it sits inside its host clip, so a music bed
       // under several clips stays put while sound effects move with the shot.
       if (host && (t.kind !== 'audio' || clipEnd(c) <= clipEnd(host) + 1000)) links.push({ clip: c, host: host.id, track: t });
@@ -195,14 +210,20 @@ export function captureLinks(project) {
   }
   return () => {
     const after = new Map(main.clips.map((c) => [c.id, c.start]));
+    const onTrack = new Map();
+    const moved = new Set();
     for (const { clip, host, track } of links) {
-      // A clip the edit moved to another track (e.g. dropped onto the base track) no longer follows.
-      if (!after.has(host) || !track.clips.includes(clip)) continue;
+      if (!after.has(host)) continue;
       const dt = after.get(host) - before.get(host);
       if (!dt) continue;
+      // A clip the edit moved to another track (e.g. dropped onto the base track) no longer follows.
+      if (!onTrack.has(track)) onTrack.set(track, new Set(track.clips));
+      if (!onTrack.get(track).has(clip)) continue;
       clip.start = Math.max(0, clip.start + dt);
-      sortTrack(track);
+      moved.add(track);
     }
+    // Each track sorted once, not once per clip that moved on it.
+    for (const track of moved) sortTrack(track);
     resolveOverlaps(project);
   };
 }
