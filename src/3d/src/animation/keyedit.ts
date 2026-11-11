@@ -325,11 +325,13 @@ export interface KeyClipboard {
   entries: ClipEntry[];
   first: number;
   last: number;
+  /** current frame when the keys were copied (Frame Relative pasting keeps the offset to it) */
+  frame: number;
 }
 
 export let keyClipboard: KeyClipboard | null = null;
 
-export function copyKeys(curves: CurveRef[]): number {
+export function copyKeys(curves: CurveRef[], frame = 0): number {
   const entries: ClipEntry[] = [];
   let first = Infinity,
     last = -Infinity;
@@ -348,7 +350,7 @@ export function copyKeys(curves: CurveRef[]): number {
     }
   }
   if (!entries.length) return 0;
-  keyClipboard = { entries, first, last };
+  keyClipboard = { entries, first, last, frame };
   return entries.reduce((a, e) => a + e.keys.length, 0);
 }
 
@@ -358,8 +360,7 @@ export type PasteMerge = 'MIX' | 'OVER_ALL' | 'OVER_RANGE';
 export function pasteKeys(curves: CurveRef[], frame: number, offset: PasteOffset = 'START', merge: PasteMerge = 'MIX', flipped = false, clip: KeyClipboard | null = keyClipboard): number {
   if (!clip) return 0;
   const targets = editable(curves);
-  const dx = offset === 'START' ? frame - clip.first : offset === 'END' ? frame - clip.last : offset === 'RELATIVE' ? frame - clip.first : 0;
-  const shift = offset === 'RELATIVE' ? 0 : dx;
+  const shift = offset === 'START' ? frame - clip.first : offset === 'END' ? frame - clip.last : offset === 'RELATIVE' ? frame - clip.frame : 0;
   let n = 0;
   const selectedTargets = targets.filter((t) => t.fc.select);
   for (const t of targets) t.fc.keyframe_points.forEach((k) => setKeySelected(k, false));

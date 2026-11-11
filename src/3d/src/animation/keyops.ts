@@ -258,7 +258,7 @@ function keyOps(p: Prefix): Operator[] {
       poll: pollKeys,
       undo: false,
       exec: (ctx) => {
-        const n = K.copyKeys(curves(ctx));
+        const n = K.copyKeys(curves(ctx), ctx.doc.scene.frame_current);
         if (!n) {
           app.report('ERROR', 'No keyframes copied to the internal clipboard');
           return 'CANCELLED';
