@@ -12,6 +12,9 @@ const __studioRegister = (() => {
   let next = 0;
   let cancelled = false;
   const pending = new Map();
+  // Calls a script may have waiting at once: a loop that calls the API without
+  // awaiting stops here instead of flooding Photo Studio with requests.
+  const MAX_PENDING = 10000;
 
   class ScriptCancelled extends Error {
     constructor() {
@@ -22,6 +25,8 @@ const __studioRegister = (() => {
   const send = (message) => port.postMessage(message);
   function call(method, ...args) {
     if (cancelled) return Promise.reject(new ScriptCancelled());
+    if (pending.size >= MAX_PENDING) throw new Error(`More than ${MAX_PENDING} API calls are waiting: use await in loops that call the studio API.`);
+    flushLogs();
     const id = ++next;
     // The call site, so an error reports the script's line rather than the runtime's.
     const site = new Error();
@@ -63,7 +68,44 @@ const __studioRegister = (() => {
       return String(v);
     }
   };
-  const log = (level) => (...args) => send({ type: 'log', level, text: args.map(show).join(' ').slice(0, 4000) });
+  // Output goes out at once up to LOG_RATE lines a second; more is held (the
+  // latest LOG_HOLD lines) until the script next waits, so a loop that keeps
+  // logging cannot flood Photo Studio or keep the watchdog from stopping it.
+  const LOG_RATE = 100;
+  const LOG_HOLD = 500;
+  let held = [];
+  let dropped = 0;
+  let flushTimer = 0;
+  let windowStart = 0;
+  let windowCount = 0;
+  function flushLogs() {
+    clearTimeout(flushTimer);
+    flushTimer = 0;
+    if (dropped) send({ type: 'log', level: 'warn', text: `(${dropped} more lines were not shown)` });
+    for (const line of held) send(line);
+    held = [];
+    dropped = 0;
+    windowStart = Date.now();
+    windowCount = 0;
+  }
+  function emit(line) {
+    const now = Date.now();
+    if (now - windowStart >= 1000) {
+      windowStart = now;
+      windowCount = 0;
+    }
+    if (!held.length && windowCount < LOG_RATE) {
+      windowCount++;
+      return send(line);
+    }
+    held.push(line);
+    if (held.length >= LOG_HOLD * 2) {
+      dropped += held.length - LOG_HOLD;
+      held = held.slice(-LOG_HOLD);
+    }
+    flushTimer ||= setTimeout(flushLogs, 50);
+  }
+  const log = (level) => (...args) => emit({ type: 'log', level, text: args.map(show).join(' ').slice(0, 4000) });
   const scriptConsole = Object.freeze({ log: log('log'), info: log('info'), debug: log('log'), warn: log('warn'), error: log('error') });
 
   const idOf = (layer) => (layer && typeof layer === 'object' ? layer.id : layer);
@@ -212,8 +254,10 @@ const __studioRegister = (() => {
     try {
       if (!main) throw new Error('The script did not load.');
       await main(studio, scriptConsole);
+      flushLogs();
       send({ type: 'done' });
     } catch (error) {
+      flushLogs();
       if (cancelled || (error && error.name === 'ScriptCancelled')) return send({ type: 'done', cancelled: true });
       send({ type: 'failed', name: (error && error.name) || 'Error', message: String((error && error.message) || error), line: lineOf(error) });
     }

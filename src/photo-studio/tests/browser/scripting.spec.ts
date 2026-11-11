@@ -19,7 +19,8 @@ await doc.addLayer({ kind: 'text', name: 'Caption', text: 'Hello', size: 20, x: 
 async function runSource(page: Page, source: string, name = 'Test') {
   return page.evaluate(
     async ({ source, name }) => {
-      const { runScript, scriptLog } = await import('/src/features/scripting/run.ts');
+      const { runScript, scriptLog, clearScriptLog } = await import('/src/features/scripting/run.ts');
+      clearScriptLog();
       const from = scriptLog.length;
       await window.photoStudio.run(async () => void (await runScript(window.photoStudio, { name, source, trusted: true })));
       return scriptLog.slice(from).map((l) => `${l.level}: ${l.text}`);
@@ -107,6 +108,15 @@ test('stops a script that hangs, reports errors with line numbers, and validates
   const hang = await runSource(page, '// @timeout 2\nwhile (true) {}', 'Hang');
   expect(Date.now() - t0).toBeLessThan(15_000);
   expect(hang.join('\n')).toContain('did not respond for 2 seconds');
+  // A loop that keeps logging, or calling the API, without awaiting is still stopped.
+  const flood = await runSource(page, '// @timeout 2\nwhile (true) console.log("again")', 'Flood');
+  expect(flood.at(-1)).toContain('did not respond for 2 seconds');
+  expect(flood.length).toBeLessThan(200);
+  const calls = await runSource(page, '// @timeout 2\nwhile (true) studio.app.info()', 'Calls');
+  expect(calls.join('\n')).toMatch(/failed at line 2: More than 10000 API calls are waiting/);
+  const swallowed = await runSource(page, '// @timeout 2\nwhile (true) try { studio.app.info() } catch {}', 'Swallowed');
+  expect(swallowed.join('\n')).toContain('did not respond for 2 seconds');
+  expect(Date.now() - t0).toBeLessThan(60_000);
   const failed = await runSource(page, 'const doc = await studio.documents.active();\n\nawait doc.addLayer({ kind: "sparkles" });', 'Bad');
   expect(failed.join('\n')).toMatch(/failed at line 3: kind must be/);
   const syntax = await runSource(page, 'let x = ;', 'Syntax');

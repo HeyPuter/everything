@@ -43,7 +43,8 @@ export function sandboxCode(source: string) {
 }
 
 // Watchdog: the worker answers pings between script statements that await;
-// a script busy for longer than its timeout without awaiting is stopped.
+// a script busy for longer than its timeout without awaiting is stopped. Only
+// answers count: a busy loop can still send output and calls without awaiting.
 const PING_MS = 1000;
 
 export class ScriptSandbox {
@@ -111,9 +112,9 @@ export class ScriptSandbox {
     if (silent > this.timeoutSeconds) this.end({ status: 'timeout', seconds: this.timeoutSeconds });
   }
   private receive(m: { type?: string; id?: number; method?: string; args?: unknown[]; level?: string; text?: string; message?: string; line?: number; cancelled?: boolean }) {
-    this.heard = performance.now();
     if (!m || typeof m !== 'object') return;
-    if (m.type === 'call' && typeof m.id === 'number' && typeof m.method === 'string') {
+    if (m.type === 'pong') this.heard = performance.now();
+    else if (m.type === 'call' && typeof m.id === 'number' && typeof m.method === 'string') {
       const { id, method } = m;
       const args = Array.isArray(m.args) ? m.args : [];
       // Calls run one at a time, in order, even when a script does not await them.
