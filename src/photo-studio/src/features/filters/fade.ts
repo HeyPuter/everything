@@ -107,12 +107,16 @@ function fadeDialog(e: Editor, label: string, render: (o: number, m: BlendMode) 
   dialog.addEventListener('input', (ev) => {
     const t = ev.target as HTMLInputElement;
     if (t.id === 'fade-opacity' || t.id === 'fade-range') {
-      const v = Math.max(0, Math.min(100, Number(t.value) || 0));
+      // A cleared field is not 0%; it keeps the opacity until edited.
+      if (t.value.trim() === '' || !Number.isFinite(Number(t.value))) return;
+      const v = Math.max(0, Math.min(100, Number(t.value)));
       opacity = v / 100;
       q<HTMLInputElement>(t.id === 'fade-opacity' ? '#fade-range' : '#fade-opacity').value = String(v);
     } else if (t.id === 'fade-mode' && isBlendMode(t.value)) mode = t.value;
     schedule();
   });
+  // Leaving the field shows the opacity in use (clamped, or kept when blank).
+  q('#fade-opacity').addEventListener('change', (ev) => ((ev.target as HTMLInputElement).value = String(Math.round(opacity * 100))));
   q('#fade-preview').addEventListener('change', () => void show());
   return new Promise<void>((resolve) => {
     const close = () => {

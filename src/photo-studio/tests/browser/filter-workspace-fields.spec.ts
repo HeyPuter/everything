@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { boot, openImage, start } from './helpers';
+import { boot, openImage, run, start } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -52,5 +52,28 @@ test('Field Blur pin value keeps the value in use for blank or out-of-range entr
   await expect(value).toHaveValue('15');
   await enter(value, '9999');
   await expect(value).toHaveValue('500');
+  await d.locator('.fd-cancel').click();
+});
+
+test('Fade and Live Filter opacity fields keep the value in use when cleared', async ({ page }) => {
+  await run(page, 'filter.apply.blur');
+  await start(page, 'edit.fade');
+  const fade = page.locator('dialog.fade-dialog[open]');
+  await expect(fade).toBeVisible();
+  await enter(fade.locator('#fade-opacity'), '40');
+  await expect(fade.locator('#fade-range')).toHaveValue('40');
+  await enter(fade.locator('#fade-opacity'), '');
+  await expect(fade.locator('#fade-opacity')).toHaveValue('40');
+  await expect(fade.locator('#fade-range')).toHaveValue('40');
+  await fade.locator('.fd-cancel').click();
+  await expect(fade).toHaveCount(0);
+
+  await run(page, 'filter.convert-live');
+  await start(page, 'filter.apply.box-blur');
+  const d = page.locator('dialog.filter-dialog[open]');
+  await expect(d).toBeVisible();
+  await enter(d.locator('#fd-opacity'), '');
+  await expect(d.locator('#fd-opacity')).toHaveValue('100');
+  await expect(d.locator('#fd-opacity-range')).toHaveValue('100');
   await d.locator('.fd-cancel').click();
 });
