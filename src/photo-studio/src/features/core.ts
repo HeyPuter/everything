@@ -800,6 +800,7 @@ async function flatten(e: Editor) {
     img.data[i + 3] = 255;
   }
   const l = newPixelLayer('Background', e.doc, gridFromImage(e.assets.tiles, img));
+  makeBackground(l);
   e.command('Flatten Image', (d) => {
     d.layers = [l];
   });

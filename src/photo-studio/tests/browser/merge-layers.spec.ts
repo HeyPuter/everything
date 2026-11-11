@@ -80,3 +80,12 @@ test('Merging into the Background keeps it the Background', async ({ page }) => 
   await run(page, 'layer.merge-down');
   expect(await layers(page)).toEqual([{ name: 'A', kind: 'pixel', visible: true, clipped: false, background: true }]);
 });
+
+test('Flatten Image leaves one opaque Background layer', async ({ page }) => {
+  await fixture(page);
+  await run(page, 'layer.flatten');
+  expect(await layers(page)).toEqual([{ name: 'Background', kind: 'pixel', visible: true, clipped: false, background: true }]);
+  // Transparency becomes white, as on a Background.
+  expect(await pixel(page, 150, 50)).toEqual([255, 255, 255, 255]);
+  await expect(page.locator('#layers .layer-row.background-layer')).toHaveCount(1);
+});
