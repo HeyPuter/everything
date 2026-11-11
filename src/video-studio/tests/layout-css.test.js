@@ -73,3 +73,34 @@ describe('phone layout', () => {
     expect(trackMin(minOf(tracks[2]), 693)).toBe(150);
   });
 });
+
+/** Hex color tokens of a theme block in tokens.css. */
+function tokens(theme) {
+  const src = css('tokens.css');
+  const sel = theme === 'dark' ? ":root[data-theme-resolved='dark']" : ":root[data-theme-resolved='light']";
+  const block = new RegExp(`${sel.replace(/[[\]]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(src)[1];
+  return Object.fromEntries([...block.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6});/gi)].map((m) => [m[1], m[2]]));
+}
+
+function contrast(a, b) {
+  const lum = (hex) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+}
+
+/** The color token a rule sets, e.g. "--text-2". */
+const colorVar = (file, sel) => /(?:^|\s)color:\s*var\((--[\w-]+)\)/.exec(rule(css(file), sel))[1];
+
+describe('text contrast', () => {
+  it('keeps undone steps and step numbers in the history panel readable in both themes', () => {
+    for (const theme of ['dark', 'light']) {
+      const t = tokens(theme);
+      for (const sel of ['.history-step.undone', '.history-num']) {
+        expect(contrast(t[colorVar('organize.css', sel)], t['--bg-elev'])).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+});

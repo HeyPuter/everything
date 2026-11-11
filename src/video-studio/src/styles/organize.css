@@ -946,7 +946,8 @@
 }
 
 .history-step.undone {
-  color: var(--text-3);
+  /* Italic marks undone steps; text-3 is under 4.5:1 on the raised panel in the dark theme. */
+  color: var(--text-2);
   font-style: italic;
 }
 
@@ -958,7 +959,7 @@
 .history-num {
   width: 22px;
   flex: none;
-  color: var(--text-3);
+  color: var(--text-2);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
