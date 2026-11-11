@@ -198,11 +198,18 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         close('escape');
         if (parentMenu) parentMenu.refocus();
         break;
-      case 'Tab':
-        e.preventDefault();
+      case 'Tab': {
+        // Close the menus and put focus back on the menu's button without
+        // preventing the key: Tab then moves on from there, as the menubar
+        // pattern asks (focus used to drop to the page).
+        let root = api;
+        while (root.parentMenu) root = root.parentMenu;
+        const back = root.anchor?.isConnected ? root.anchor : root.returnFocus;
         close('tab');
         parentMenu?.closeAll?.();
+        if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true });
         break;
+      }
       case 'Enter':
       case ' ':
         e.preventDefault();
@@ -270,6 +277,7 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
     close,
     parentMenu,
     returnFocus,
+    anchor,
     child: null,
     refocus: () => {
       const r = submenu?.row;

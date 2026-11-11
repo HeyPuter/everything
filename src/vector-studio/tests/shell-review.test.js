@@ -271,3 +271,24 @@ describe('ruler guides', () => {
     expect(ed.alignmentGuides).toBe(null);
   });
 });
+
+describe('menu bar Tab', () => {
+  it('closes the menus and leaves focus on the menu title so Tab moves on from there', async () => {
+    const { bootApp } = await import('./helpers.js');
+    const app = bootApp();
+    app.newDocument();
+    const objectBtn = [...document.querySelectorAll('.menubar-item')].find((b) => b.textContent === 'Object');
+    objectBtn.focus();
+    objectBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    const transform = document.activeElement;
+    expect(transform.closest('.menu')).not.toBe(null);
+    // Into the Transform submenu, then Tab.
+    transform.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(document.querySelectorAll('.menu').length).toBe(2);
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    (document.activeElement.closest('.menu') ? document.activeElement : document.querySelectorAll('.menu')[1]).dispatchEvent(tab);
+    expect(document.querySelectorAll('.menu').length).toBe(0);
+    expect(document.activeElement).toBe(objectBtn);
+    expect(tab.defaultPrevented).toBe(false);
+  });
+});
