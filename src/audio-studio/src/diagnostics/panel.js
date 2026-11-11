@@ -172,8 +172,10 @@ export function diagnosticsPanel(app) {
     caption.textContent = `Scanning ${selectionOnly && doc.hasSelection ? 'the selection' : doc.name}...`;
     refresh();
     try {
-      const r = await scanProblems({ effect: effectId, values, channels: doc.state.channels, rate: doc.sampleRate, start: range[0], end: range[1], signal, onProgress: setProgress });
-      result = { docId: doc.id, state: doc.state, effect: effectId, values: { ...values }, problems: r.problems, info: r.info, range };
+      // Like the effects, clicks and clipping are only looked for (and repaired) in enabled channels.
+      const mask = doc.channelMask;
+      const r = await scanProblems({ effect: effectId, values, channels: doc.state.channels, rate: doc.sampleRate, start: range[0], end: range[1], mask, signal, onProgress: setProgress });
+      result = { docId: doc.id, state: doc.state, effect: effectId, values: { ...values }, problems: r.problems, info: r.info, range, mask };
       selected = new Set();
       focusIndex = 0;
       const n = r.problems.length;
@@ -215,7 +217,7 @@ export function diagnosticsPanel(app) {
         next =
           effect === 'declicker'
             ? await repairClicks(doc.state, list, result.values, { runner, signal, onProgress: setProgress })
-            : await repairClips(doc.state, list, result.values, result.info.level, result.range, { runner, signal, onProgress: setProgress });
+            : await repairClips(doc.state, list, result.values, result.info.level, result.range, { mask: result.mask, runner, signal, onProgress: setProgress });
         const done = new Set(list.map((p) => p.id));
         remaining = result.problems.filter((p) => !done.has(p.id));
       } else if (effect === 'deleteSilence') {
