@@ -24,3 +24,17 @@ describe('confirm dialogs', () => {
     expect(await answer).toBe(false);
   });
 });
+
+describe('prompt dialogs', () => {
+  it('label their field with the visible label, which focuses it when clicked', async () => {
+    const { promptDialog } = await import('../src/ui/dialog.js');
+    const answer = promptDialog({ title: 'Rename project', label: 'Project name', value: 'Holiday' });
+    const input = document.querySelector('dialog[open] input');
+    const label = document.querySelector('dialog[open] label');
+    expect(label.htmlFor).toBe(input.id);
+    expect(input.labels[0]).toBe(label);
+    expect(document.activeElement).toBe(input);
+    document.querySelector('dialog[open] .btn:not(.primary)').click();
+    expect(await answer).toBe(null);
+  });
+});

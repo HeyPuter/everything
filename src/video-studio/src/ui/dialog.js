@@ -61,11 +61,15 @@ export function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel
   return d.result.then((v) => v === true);
 }
 
+let promptCount = 0;
+
 export function promptDialog({ title, label, value = '', confirm = 'Save', maxLength = 200 }) {
-  const input = h('input.input', { type: 'text', value, maxLength, 'aria-label': label, autofocus: true });
+  const id = `prompt-${++promptCount}`;
+  const input = h('input.input', { id, type: 'text', value, maxLength, autofocus: true });
   const ok = h('button.btn.primary', { type: 'submit' }, confirm);
   const no = h('button.btn', { type: 'button' }, 'Cancel');
-  const form = h('form.dialog-form', h('label.field-label', { for: '' }, label), input);
+  // The visible label names the field (a click on it focuses the field too).
+  const form = h('form.dialog-form', h('label.field-label', { for: id }, label), input);
   const d = openDialog({ title, body: form, actions: [no, ok], className: 'small' });
   const submit = (e) => {
     e?.preventDefault();
