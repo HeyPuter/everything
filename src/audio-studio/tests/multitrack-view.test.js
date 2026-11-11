@@ -168,6 +168,21 @@ describe('multitrack view', () => {
     expect(doc.state.tracks.map((t) => t.id)).toEqual([t1, t2, t3]);
   });
 
+  it('Tab skips clips on hidden tracks', () => {
+    const { view, doc, clip } = ctx;
+    const t2 = doc.state.tracks[1].id;
+    const hidden = S.createClip({ trackId: t2, sourceId: clip.sourceId, name: 'hidden', start: RATE * 2, length: RATE });
+    const later = S.createClip({ trackId: doc.state.tracks[2].id, sourceId: clip.sourceId, name: 'later', start: RATE * 3, length: RATE });
+    doc.apply('Add', S.addClips(doc.state, [hidden, later]));
+    doc.amendView((st) => S.updateTrack(st, t2, { hidden: true }));
+    view.syncHeaders();
+    const tab = () => view.surface.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    tab();
+    expect([...doc.selectedClips]).toEqual([clip.id]);
+    tab();
+    expect([...doc.selectedClips]).toEqual([later.id]);
+  });
+
   it('snaps to clip edges and the playhead within eight pixels', () => {
     const { view, app } = ctx;
     app.prefs.set('snap', { ruler: false, markers: true, clips: true });
