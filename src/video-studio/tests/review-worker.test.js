@@ -4,7 +4,7 @@ import { setup, publish, invite, bundleFetcher, USERS } from './review-helpers.j
 import { deploy, call, WORKER_KEY } from '../src/review/api.js';
 import { authorize } from '../src/review/auth.js';
 import { LIMITS, DAY } from '../src/review/protocol.js';
-import { LOST_CHANGE_MS } from '../worker/service.js';
+import { LOST_CHANGE_MS, MEMBER_LIST_FACTOR } from '../worker/service.js';
 
 const statusOf = (p) => p.then(() => 200, (e) => e.status ?? 'error');
 
@@ -222,6 +222,36 @@ describe('review worker: invites and members', () => {
     const fresh = await invite(env, review.id, 'viewer');
     expect((await env.as('bob')('join', { review: review.id, token: fresh })).review.role).toBe('viewer');
     expect((await env.as('alice')('members', { review: review.id })).members.length).toBe(1);
+  });
+
+  it('counts only the people still in a review against its limit', async () => {
+    const env = await setup();
+    const { review } = await publish(env);
+    const rid = review.id;
+    const kv = env.sdk.alice.kv;
+    // A review at its limit of people, made directly in the owner's KV.
+    const fill = async (removed) => {
+      for (let n = 1; n <= LIMITS.members; n++) {
+        const uuid = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+        await kv.set(`vsr:r:${rid}:mi:${n}`, uuid);
+        await kv.set(`vsr:r:${rid}:m:${uuid}`, { uuid, username: `p${n}`, role: 'viewer', joined: 1, ...(removed ? { removed: 1 } : {}) });
+      }
+      await kv.set(`vsr:r:${rid}:mseq`, LIMITS.members);
+    };
+    await fill(true);
+    // Everyone was removed again: there is room.
+    expect((await env.as('dave')('join', { review: rid, token: await invite(env, rid) })).review.role).toBe('commenter');
+    // Bob, removed earlier, can't come back past a full review with a new link.
+    await env.as('bob')('join', { review: rid, token: await invite(env, rid) });
+    await env.as('alice')('member.remove', { review: rid, uuid: USERS.bob.uuid });
+    await fill(false);
+    env.advance(1000);
+    await expect(env.as('bob')('join', { review: rid, token: await invite(env, rid) })).rejects.toThrow(/limit of people/);
+    // People already in stay in.
+    expect((await env.as('dave')('review.get', { review: rid })).review.role).toBe('commenter');
+    // The list of everyone who ever joined is capped as well, so a join never reads an endless list.
+    await kv.set(`vsr:r:${rid}:mseq`, LIMITS.members * MEMBER_LIST_FACTOR);
+    await expect(env.as('carol')('join', { review: rid, token: await invite(env, rid) })).rejects.toThrow(/limit of people/);
   });
 
   it('changes roles', async () => {

@@ -69,7 +69,7 @@ What a link does and does not protect: anyone holding a link can fetch that one 
 
 ## Limits (enforced by the worker)
 
-Comment text up to 2000 characters; 12 comments and 60 edits, deletes, resolves or reopens a minute per person per review; ranges up to 10 minutes and inside the video; 20,000 comment changes, 50 versions, 200 people and 50 invite links per review; 10 failed joins per person per 10 minutes; review videos up to 4 GB; request bodies up to 64 KB.
+Comment text up to 2000 characters; 12 comments and 60 edits, deletes, resolves or reopens a minute per person per review; ranges up to 10 minutes and inside the video; 20,000 comment changes, 50 versions, 200 people (people removed don't count; 1,000 ever joined) and 50 invite links per review; 10 failed joins per person per 10 minutes; review videos up to 4 GB; request bodies up to 64 KB.
 
 ## Needs a real Puter account to confirm
 

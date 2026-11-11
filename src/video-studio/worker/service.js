@@ -33,6 +33,9 @@ export const VIDEO_LINK_RENEW_MS = 30 * 60_000;
 /** A missing change older than this (judged by a later one) was lost, not in flight. */
 export const LOST_CHANGE_MS = 60_000;
 
+/** Everyone who ever joined a review (removed people too) stays on its member list, up to this many times its limit. */
+export const MEMBER_LIST_FACTOR = 5;
+
 const VIDEO_MIME = ['video/mp4', 'video/webm', 'video/quicktime'];
 
 export function fail(status, message) {
@@ -269,10 +272,12 @@ export class ReviewService {
     if (invite.revoked) return refuse('This invite link was turned off. Ask the owner for a new one.');
     if (invite.expires <= this.now()) return refuse('This invite link has expired. Ask the owner for a new one.');
     if (existing?.removed && invite.created <= existing.removed) fail(403, 'The owner removed you from this review. Ask them for a new link.');
-    if (!existing) {
-      const count = (await this.kv.get(`vsr:r:${rid}:mseq`)) || 0;
-      if (count >= LIMITS.members) fail(403, 'This review has reached its limit of people.');
-    }
+    // People removed from the review don't count against its limit; someone removed coming back with a new link
+    // does. Everyone who ever joined stays on the list, so the list itself is capped too.
+    const joinedEver = (await this.kv.get(`vsr:r:${rid}:mseq`)) || 0;
+    const full = () => fail(403, 'This review has reached its limit of people.');
+    if (!existing && joinedEver >= LIMITS.members * MEMBER_LIST_FACTOR) full();
+    if (joinedEver >= LIMITS.members && (await this.memberRecords(rid)).filter((m) => !m.removed).length >= LIMITS.members) full();
     const member = { uuid: user.uuid, username: user.username, role: invite.role, joined: this.now(), invite: invite.id };
     await this.kv.set(`vsr:r:${rid}:m:${user.uuid}`, member);
     if (!existing) {
