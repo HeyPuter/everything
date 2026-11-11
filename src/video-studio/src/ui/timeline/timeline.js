@@ -380,6 +380,10 @@ export function createTimeline(ctx) {
 
   function render(force = false) {
     renderQueued = false;
+    // The clip with keyboard focus, to keep focus in the timeline if its node goes.
+    const focusedNode = document.activeElement?.closest?.('.tl-clip');
+    const focusedId = focusedNode && tracksEl.contains(focusedNode) ? focusedNode.dataset.id : null;
+    const focusedAt = focusedId ? clipEls.get(focusedId)?.at : null;
     const totalH = computeRows();
     contentH = totalH;
     const dur = store.duration;
@@ -419,6 +423,7 @@ export function createTimeline(ctx) {
         if (!visible && !drag?.ids?.has(clip.id) && clip.id !== activeId) continue;
         keep.add(clip.id);
         const e = clipEl(clip, row.track);
+        e.at = { track: row.track.id, start: clip.start };
         if (e.node.parentNode !== lane) lane.append(e.node);
         const x = timeToX(clip.start);
         const w = Math.max(2, (clip.duration / US) * pps);
@@ -467,6 +472,7 @@ export function createTimeline(ctx) {
         if (!live.has(id)) clipEls.delete(id);
       }
     }
+    if (focusedId && document.activeElement !== clipEls.get(focusedId)?.node) keepFocus(focusedId, focusedAt);
     renderTransitions(t0, t1);
     const range = store.project.range;
     rangeEl.hidden = !range;
@@ -477,6 +483,30 @@ export function createTimeline(ctx) {
     ruler.setAttribute('aria-valuemax', String(Math.round(dur / US)));
     queueCanvases();
     notifyView();
+  }
+
+  /**
+   * The focused clip's node was rebuilt or its clip is gone (deleted, cut,
+   * nested, undone): focus it again, or the clip now in its place on its
+   * track, so keyboard users stay in the timeline instead of on the page.
+   */
+  function keepFocus(id, at) {
+    let target = T.findClip(store.project, id) ? id : null;
+    if (!target && at) {
+      const track = T.findTrack(store.project, at.track) || T.mainTrack(store.project);
+      const clips = track?.clips || [];
+      target = (clips.find((c) => T.clipEnd(c) > at.start) || clips.at(-1))?.id || null;
+    }
+    if (!target) {
+      tracksEl.focus({ preventScroll: true });
+      return;
+    }
+    activeId = target;
+    if (!clipEls.get(target)?.node.isConnected) render();
+    const node = clipEls.get(target)?.node;
+    if (!node?.isConnected) return;
+    node.tabIndex = 0;
+    node.focus({ preventScroll: true });
   }
 
   /** Clip name, plus the angle showing at the playhead on a multi-camera clip. */

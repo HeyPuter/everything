@@ -247,6 +247,31 @@ describe('timeline on phones', () => {
   });
 });
 
+describe('timeline keyboard focus', () => {
+  it('stays in the timeline when the focused clip is deleted or undone away', () => {
+    const p = fixture();
+    const [a, b, c] = onMain(p, clip('video', 0, 2), clip('video', 2, 2), clip('video', 4, 2));
+    const t = clip('text', 0, 1);
+    T.addClip(p, t, { ripple: false });
+    const { store, ctx, tl, node } = mountTimeline(p);
+    store.select(b.id);
+    tl.render();
+    node(b.id).focus();
+    ctx.actions.deleteSelected();
+    tl.render();
+    // The clip now in its place on the base track.
+    expect(document.activeElement).toBe(node(c.id));
+    // Deleting the only clip of a track (the track goes too) moves focus to the base track.
+    store.select(t.id);
+    tl.render();
+    node(t.id).focus();
+    ctx.actions.deleteSelected();
+    tl.render();
+    expect(document.activeElement?.dataset.id).toBe(a.id);
+    tl.dispose();
+  });
+});
+
 describe('timeline lanes', () => {
   it('are named like their track headers, renamed tracks included', () => {
     const p = fixture();
