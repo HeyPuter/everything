@@ -68,16 +68,24 @@ function create(root: HTMLElement) {
   dock.hidden = true;
   dock.append(handle, panel.el);
   root.append(dock);
+  // A narrower window (a phone turned, a window dragged smaller) gets a narrower panel, never one past its edge;
+  // widened again, the panel goes back to the width the user gave it.
+  window.addEventListener('resize', () => {
+    if (assistantOpen() && root.style.getPropertyValue('--assistant-w') !== `${clampWidth(width)}px`) setWidth(root, clampWidth(width), true, false);
+  });
 }
 
-/** Gives the dock its width; the screen's main editors give or take the room, so side editors keep their size. */
-function setWidth(root: HTMLElement, w: number, open = true) {
+/**
+ * Gives the dock its width; the screen's main editors give or take the room, so side editors keep their size
+ * (unless the window resized: then every editor scales with it, and returns to its size when the window does).
+ */
+function setWidth(root: HTMLElement, w: number, open = true, keepSides = true) {
   const screen = shell?.screen;
   const before = screen?.el.clientWidth ?? 0;
   if (dock) dock.hidden = !open;
   root.style.setProperty('--assistant-w', `${w}px`);
   root.classList.toggle('with-assistant', open);
-  if (screen && before) screen.setDock(open ? w : 0, before);
+  if (screen && before) screen.setDock(open ? w : 0, keepSides ? before : screen.el.clientWidth);
 }
 
 /** Show or hide the assistant (toggles without an argument). Opening it from a click puts the cursor in its message box. */

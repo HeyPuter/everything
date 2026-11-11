@@ -155,3 +155,27 @@ print(img.size[0], img.size[1], Math.min(...uv).toFixed(2), Math.max(...uv).toFi
   await page.screenshot({ path: test.info().outputPath('projected.png') });
   await expectNoErrors(errors);
 });
+
+test('the assistant stays inside a window narrowed to phone width', async ({ page }) => {
+  await openApp(page);
+  await expect(page.locator('.assistant')).toBeVisible();
+  for (const w of [320, 600]) {
+    await page.setViewportSize({ width: w, height: 700 });
+    await page.waitForTimeout(200);
+    const box = await page.locator('.assistant').boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(w);
+    // its buttons stay reachable
+    for (const name of ['Send', 'Close the assistant']) {
+      const b = await page.getByRole('button', { name, exact: true }).boundingBox();
+      expect(b!.x + b!.width).toBeLessThanOrEqual(w);
+    }
+    // the workspace keeps some room
+    const view = await page.locator('.screen-wrap').boundingBox();
+    expect(view!.width).toBeGreaterThan(0);
+  }
+  // widened again, it goes back to the width the user gave it
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(200);
+  expect(Math.round((await page.locator('.assistant-dock').boundingBox())!.width)).toBe(380);
+});
