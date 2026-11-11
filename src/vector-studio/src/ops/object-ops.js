@@ -9,6 +9,7 @@ import { createGroup, createCompound, createPath } from '../model/nodes.js';
 import { nodeBounds, selectionBounds, transformNodes, visualBounds } from '../model/geometry.js';
 import { reverseAnchors, signedArea } from '../model/bezier.js';
 import { translate } from '../lib/matrix.js';
+import { duplicateNodes } from './layer-ops.js';
 
 /** Selected ids grouped by parent, each list back-to-front. */
 function byParent(doc, ids) {
@@ -551,16 +552,8 @@ export function nudge(editor, dx, dy, { copy = false } = {}) {
     }
     let ids = editor.topSelection();
     if (copy) {
-      const copies = [];
-      for (const id of ids) {
-        const n = doc.get(id);
-        const parent = doc.get(n.parent);
-        const { node, descendants } = doc.cloneSubtree(id);
-        doc.insert(node, parent.id, parent.children.indexOf(id) + 1, descendants);
-        copies.push(node.id);
-      }
-      ids = copies;
-      editor.select(copies);
+      ids = duplicateNodes(doc, ids);
+      editor.select(ids);
     }
     transformNodes(doc, ids, translate(dx, dy));
     // A nudge is a move, so Transform Again repeats it (as a copy after Alt+arrow).

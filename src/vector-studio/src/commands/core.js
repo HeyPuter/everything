@@ -9,6 +9,7 @@ import { multiply, rotate, scale, shear, translate } from '../lib/matrix.js';
 import { transformNodes, transformPatches, selectionBounds, selectionFrame, frameToDoc, frameMatrix } from '../model/geometry.js';
 import { reflectAcross } from '../tools/transform-tools.js';
 import { createPath } from '../model/nodes.js';
+import { duplicateNodes } from '../ops/layer-ops.js';
 
 const hasDoc = (app) => Boolean(app.editor);
 const hasSel = (app) => Boolean(app.editor?.selection.size);
@@ -42,15 +43,7 @@ function transformAgain(app) {
 }
 
 function duplicate(editor, ids) {
-  const doc = editor.doc;
-  const out = [];
-  for (const id of ids) {
-    const n = doc.get(id);
-    const parent = doc.get(n.parent);
-    const { node, descendants } = doc.cloneSubtree(id);
-    doc.insert(node, parent.id, parent.children.indexOf(id) + 1, descendants);
-    out.push(node.id);
-  }
+  const out = duplicateNodes(editor.doc, ids);
   editor.select(out);
   return out;
 }

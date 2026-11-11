@@ -174,3 +174,37 @@ describe('Unlock All and Show All', () => {
     expect([...ed.selection]).toEqual([]);
   });
 });
+
+describe('Duplicate', () => {
+  it('puts each copy right above its original, in every container, as one undo step', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const layer = ed.targetLayer().id;
+    const ids = [0, 1, 2, 3].map((i) => {
+      const p = createPath(rectangle(i * 20, 0, 10, 10), true);
+      doc.transact('Rect', () => doc.insert(p, layer));
+      return p.id;
+    });
+    ed.select([ids[2], ids[3]]);
+    await app.commands.run('object.group');
+    const [g] = ed.selection;
+    const [a, b, c, d] = ids;
+    ed.select([a, b, d]);
+    await app.commands.run('edit.duplicate');
+    const copies = [...ed.selection];
+    expect(copies).toHaveLength(3);
+    expect(doc.get(layer).children).toEqual([a, copies[0], b, copies[1], g]);
+    expect(doc.get(g).children).toEqual([c, d, copies[2]]);
+    expect(doc.get(copies[2]).parent).toBe(g);
+    await app.commands.run('edit.undo');
+    expect(doc.get(layer).children).toEqual([a, b, g]);
+    expect(doc.get(g).children).toEqual([c, d]);
+    // Alt+arrow nudges a copy the same way.
+    ed.select([a]);
+    app.canvasHost.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true }));
+    const [copy] = ed.selection;
+    expect(doc.get(layer).children).toEqual([a, copy, b, g]);
+    expect(doc.get(copy).anchors[0].x).toBe(doc.get(a).anchors[0].x + 1);
+  });
+});
