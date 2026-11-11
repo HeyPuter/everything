@@ -31,6 +31,7 @@ describe('batch queue', () => {
     const s = batchSettings({ format: 'mp3', prefix: 'Clean ', suffix: '_v2' });
     expect(outputName('Interview.wav', s)).toBe('Clean Interview_v2.mp3');
     expect(outputName('a/b:c.wav', batchSettings({ format: 'flac' }))).toBe('a_b_c.flac');
+    expect(outputName('Take 2.1', batchSettings({ format: 'flac' }))).toBe('Take 2.1.flac');
     const items = [{ name: 'take.wav' }, { name: 'take.aif' }, { name: 'Take.mp3' }, { name: 'other.wav' }];
     expect(plannedNames(items, batchSettings({ format: 'wav' }))).toEqual(['take.wav', 'take 2.wav', 'Take 3.wav', 'other.wav']);
     const taken = new Set(['x.wav']);
