@@ -32,6 +32,7 @@ import { tracePath } from '../../render/draw.js';
 import { formatLength } from '../../lib/units.js';
 import { hasAppearanceStack } from '../../model/appearance.js';
 import { expandNodeAppearance } from '../../ops/expand-appearance.js';
+import { isLive, liveDef } from '../../model/live.js';
 
 const JOIN = { miter: 0, round: 1, bevel: 2 };
 const CAP = { butt: 0, round: 1, square: 2 };
@@ -813,20 +814,28 @@ const round4 = (v) => Math.round(v * 1e4) / 1e4;
 
 // ---- Clean Up ----
 
+/** Live kinds of groups whose children are ordinary artwork. */
+const PLAIN_CONTENT_KINDS = new Set(['groupEffects', 'appearance']);
+
 /** Ids Clean Up would delete. */
 export function cleanUpTargets(doc, { stray = true, unpainted = true, emptyText = true } = {}) {
   const out = [];
+  // Painted by something other than its own fill and stroke (an appearance stack, a brush, ...).
+  const unpaintedNode = (n) => !n.fill && !(n.stroke && n.strokeWidth > 0) && !isLive(n);
   doc.walk((n) => {
     if (n.type === 'layer') return !n.locked;
     if (n.locked) return false;
+    // The contents of live objects (a blend's spine, Objects on Path, ...) are their inputs, not artwork;
+    // a group with effects or an appearance stack still draws its contents as they are.
+    if (n.type === 'group' && isLive(n) && !PLAIN_CONTENT_KINDS.has(liveDef(n).key)) return false;
     const parent = doc.get(n.parent);
     const isMask = parent?.type === 'group' && parent.clip && parent.children[parent.children.length - 1] === n.id;
     const inCompound = parent?.type === 'compound';
     if (n.type === 'path' && !inCompound) {
       if (stray && n.anchors.length === 1) out.push(n.id);
-      else if (unpainted && !n.fill && !(n.stroke && n.strokeWidth > 0) && !isMask) out.push(n.id);
+      else if (unpainted && unpaintedNode(n) && !isMask) out.push(n.id);
     } else if (n.type === 'path' && inCompound && stray && n.anchors.length === 1) out.push(n.id);
-    else if (n.type === 'compound' && unpainted && !n.fill && !(n.stroke && n.strokeWidth > 0) && !isMask) out.push(n.id);
+    else if (n.type === 'compound' && unpainted && unpaintedNode(n) && !isMask) out.push(n.id);
     else if (n.type === 'text' && emptyText && !(n.text || '').trim()) out.push(n.id);
     return n.type !== 'compound';
   });

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { setGeomSource, runGeom, OP } from '../src/features/geometry/engine/index.js';
 import { VDocument } from '../src/model/document.js';
 import { Editor } from '../src/editor.js';
-import { createPath, createCompound } from '../src/model/nodes.js';
+import { createPath, createCompound, createGroup } from '../src/model/nodes.js';
 import { rectangle, ellipse, polygon } from '../src/model/shapes.js';
 import { flattenPath, anchor } from '../src/model/bezier.js';
 import { runPathfinder, buildResults, canRun } from '../src/features/geometry/pathfinder.js';
@@ -12,6 +12,8 @@ import { shapeBuilderPlan, splitPathAt, joinEnds } from '../src/features/geometr
 import { addMidpoints, removeAnchorsKeepingShape, fitPolygon } from '../src/features/geometry/anchors.js';
 import { recognizeShape, gridCells, cleanUpTargets, outlineStroke, divideBelow, simplifySubpaths, addAnchorPoints, strokeParams } from '../src/features/geometry/path-ops.js';
 import { geometryLeaves, nodeFromSubpaths } from '../src/features/geometry/nodes-io.js';
+import { makeBlend, replaceSpine } from '../src/features/artboards/blend.js';
+import { liveDef } from '../src/model/live.js';
 
 beforeAll(() => {
   setGeomSource(fs.readFileSync(path.resolve(__dirname, '../src/wasm/geom.wasm')));
@@ -288,6 +290,30 @@ describe('path commands', () => {
     const { doc } = setup([stray, unpainted, painted]);
     expect(cleanUpTargets(doc).sort()).toEqual([stray.id, unpainted.id].sort());
     expect(cleanUpTargets(doc, { stray: false, unpainted: true, emptyText: true })).toEqual([unpainted.id]);
+  });
+
+  it('Clean Up keeps blend spines and objects painted only by their appearance stack', () => {
+    const a = createPath(rectangle(0, 0, 10, 10), true);
+    const b = createPath(rectangle(100, 0, 10, 10), true);
+    const spine = createPath([anchor(5, 5), anchor(105, 5)], false, { stroke: solid('#000000') });
+    const stacked = createPath(rectangle(0, 50, 10, 10), true, { fill: null, stroke: null, appearance: [{ type: 'fill', fill: solid('#00ff00') }] });
+    const unpainted = createPath(rectangle(0, 80, 5, 5), true, { fill: null, stroke: null });
+    const { doc } = setup([a, b, spine, stacked, unpainted]);
+    doc.transact('blend', () => {
+      const g = makeBlend(doc, [a.id, b.id]);
+      replaceSpine(doc, g, spine.id);
+    });
+    expect(doc.get(spine.id).blendSpine).toBe(true);
+    expect(cleanUpTargets(doc)).toEqual([unpainted.id]);
+    // Inside a group that only carries an appearance, stray points are still found.
+    const stray = createPath([anchor(1, 1)], false);
+    const g = createGroup([], { appearance: [{ type: 'contents' }, { type: 'stroke', stroke: solid('#000000'), strokeWidth: 2 }] });
+    doc.transact('group', () => {
+      doc.insert(g, doc.layers()[0].id);
+      doc.insert(stray, g.id);
+    });
+    expect(liveDef(doc.get(g.id))?.key).toBe('appearance');
+    expect(cleanUpTargets(doc).sort()).toEqual([unpainted.id, stray.id].sort());
   });
 
   it('Outline Stroke turns a stroked filled path into a group of fill and stroke shapes', async () => {
