@@ -535,6 +535,26 @@ describe('AI sidebar conversation', () => {
     release(video());
   });
 
+  it('tells the model about an undo of a reply that was stopped after its changes', async () => {
+    const { chat, sent } = scripted([call('add_text', { text: 'hi' }, 'k1')]);
+    let hang = false;
+    const model = vi.fn((m, o) => (hang ? (async function* () { await new Promise(() => {}); })() : chat(m, o)));
+    const agent = createAgent({ chat: model, runTool: async () => { hang = true; return { ok: true, content: 'Done: added', changed: true }; }, describe: describeIt, approve: async () => true, settings: () => ({ approval: 'never' }) });
+    const pending = agent.send('add a title', () => {});
+    await vi.waitFor(() => expect(model).toHaveBeenCalledTimes(2));
+    // Noted while the reply runs: nothing goes between a call and the model's next request.
+    const roles = agent.messages.map((m) => m.role);
+    agent.note('(The user then undid the changes in this reply.)');
+    expect(agent.messages.map((m) => m.role)).toEqual(roles);
+    agent.stop();
+    expect((await pending).stopped).toBe(true);
+    hang = false;
+    await agent.send('now a red one', () => {});
+    const last = sent.at(-1);
+    expect(last.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool', 'assistant', 'user']);
+    expect(last[4].content).toMatch(/did not finish[\s\S]*undid the changes/);
+  });
+
   it('reports a failed request and can try again where it left off', async () => {
     const chat = vi.fn()
       .mockImplementationOnce(() => (async function* () { throw new Error('rate limit exceeded'); })())

@@ -192,6 +192,8 @@ function safeDescribe(describe, call) {
 export function createAgent({ chat, runTool, describe, approve, snapshot = () => '', settings = () => ({}) }) {
   let messages = [];
   let running = null;
+  // Notes for the model that could not go on the last reply yet (one still running, or one that did not finish).
+  let notes = [];
 
   function needsApproval(name, step) {
     if (!changesProject(name)) return false;
@@ -360,6 +362,11 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
       if (running) throw new Error('The assistant is still answering');
       // A reply that failed before it finished leaves the turn open: closed first, so turns stay in order.
       if (messages.length && messages.at(-1).role !== 'assistant') messages.push({ role: 'assistant', content: '(My previous reply did not finish.)' });
+      if (notes.length) {
+        const last = messages.at(-1);
+        last.content = [last.content, ...notes].filter(Boolean).join('\n\n');
+        notes = [];
+      }
       const content = userMessageContent(userContent(text, snapshot()), attachments);
       messages.push(attachments.length
         ? { role: 'user', content, attachments: attachments.map(({ name, kind, assetId, width, height, seconds, blocks }) => ({ name, kind, assetId, width, height, seconds, bytes: sentBytes(blocks) })) }
@@ -379,8 +386,12 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
     /** Tell the model something that happened outside the chat (the user undid a reply), with the next message. */
     note(text) {
       const last = messages.at(-1);
-      if (last?.role === 'assistant' && typeof last.content === 'string') last.content = `${last.content}\n\n${text}`;
-      else if (last?.role === 'assistant') last.content = text;
+      // A reply still running, or one stopped or failed after its tool calls, ends in a call's answer: the note waits
+      // for the next message, rather than being lost (the model went on using clips the user had undone) or breaking
+      // the order of the calls and their answers.
+      if (running || last?.role !== 'assistant' || last.tool_calls?.length) {
+        if (messages.length) notes.push(text);
+      } else last.content = typeof last.content === 'string' && last.content ? `${last.content}\n\n${text}` : text;
     },
     stop() {
       running?.stop();
@@ -389,6 +400,7 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
       running?.stop();
       running = null;
       messages = [];
+      notes = [];
     },
   };
 }
