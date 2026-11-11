@@ -74,9 +74,8 @@ export function createActions(ctx) {
     store.update(assets.length === 1 ? `Import ${assets[0].name}` : `Import ${assets.length} files`, (p) => {
       for (const a of assets) p.assets[a.id] = a;
     }, { structural: false });
-    // Several files go one after another, starting at the playhead.
-    let at = store.time;
-    if (addToTimeline) for (const a of assets) at = T.clipEnd(actions.addAsset(a, { start: at }) || { start: at, duration: 0 });
+    // Several files go one after another from the playhead, as one undo step.
+    if (addToTimeline) actions.addAssets(assets, { start: store.time });
     announce(assets.length === 1 ? `Imported ${assets[0].name}` : `Imported ${assets.length} files`);
     return assets;
   }

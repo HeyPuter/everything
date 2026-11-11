@@ -378,6 +378,19 @@ describe('keyframes', () => {
 });
 
 describe('importing files', () => {
+  it('puts several files on the timeline as one undo step', async () => {
+    const { store } = setup();
+    let n = 0;
+    const library = { importFile: async (file) => ({ id: `f${n++}`, kind: 'image', name: file.name, width: 100, height: 100 }) };
+    const ctx = { store, player: null, library };
+    ctx.actions = createActions(ctx);
+    await ctx.actions.importFiles([new File(['x'], 'a.png'), new File(['y'], 'b.png'), new File(['z'], 'c.png')], { addToTimeline: true });
+    expect(mainTrack(store.project).clips.map((c) => c.assetId)).toEqual(['f0', 'f1', 'f2']);
+    store.undo();
+    expect(mainTrack(store.project).clips).toEqual([]);
+    expect(Object.keys(store.project.assets)).toContain('f2');
+  });
+
   it('names the file in an import error that does not', async () => {
     const { store } = setup();
     const library = {

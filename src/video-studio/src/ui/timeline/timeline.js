@@ -1747,12 +1747,8 @@ export function createTimeline(ctx) {
       if (s.snapped) t = s.time;
     }
     if (e.dataTransfer.files?.length) {
-      const assets = await actions.importFiles([...e.dataTransfer.files]);
-      let at = t;
-      for (const a of assets) {
-        const c = actions.addAsset(a, { start: at });
-        if (c) at = c.start + c.duration;
-      }
+      // One after another from the drop point, as one undo step.
+      actions.addAssets(await actions.importFiles([...e.dataTransfer.files]), { start: t });
       return;
     }
     dropPayload(e.dataTransfer.getData('application/x-video-studio'), { start: t, y: p.y, clipId: e.target.closest?.('.tl-clip')?.dataset.id });

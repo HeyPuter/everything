@@ -231,6 +231,25 @@ describe('timeline drops', () => {
   });
 });
 
+describe('dropping files from the desktop', () => {
+  it('puts them on the timeline one after another as one undo step', async () => {
+    const p = fixture();
+    const { store, ctx, tl, content } = mountTimeline(p);
+    let n = 0;
+    ctx.library = { importFile: async (file) => ({ id: `f${n++}`, kind: 'image', name: file.name, width: 100, height: 100 }) };
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    Object.assign(drop, { clientX: 16, clientY: 60 });
+    drop.dataTransfer = { files: [new File(['x'], 'a.png'), new File(['y'], 'b.png')], getData: () => '' };
+    content.dispatchEvent(drop);
+    await vi.waitFor(() => expect(T.allClips(store.project)).toHaveLength(2));
+    const [a, b] = T.mainTrack(store.project).clips;
+    expect(b.start).toBe(T.clipEnd(a));
+    store.undo();
+    expect(T.allClips(store.project)).toHaveLength(0);
+    tl.dispose();
+  });
+});
+
 describe('adding several media files', () => {
   it('is one undo step even when the history is full', () => {
     const p = fixture();
