@@ -180,8 +180,13 @@ export function signature(doc: DocumentData): string {
   if (!g) return 'none';
   const groups = new Set<string>();
   const images = new Set<string>();
+  const clips = new Set<string>();
+  let defocus = false;
   const walk = (t: typeof g.tree, depth: number) => {
     for (const n of t.nodes) {
+      // movie clip nodes read the clip's tracking data; Defocus reads the scene camera
+      if (typeof n.props.clip === 'string') clips.add(n.props.clip);
+      if (n.type === 'CompositorNodeDefocus') defocus = true;
       const ng = n.props.node_tree as string | undefined;
       if (ng && !groups.has(ng) && doc.node_groups[ng] && depth < 32) {
         groups.add(ng);
@@ -201,6 +206,11 @@ export function signature(doc: DocumentData): string {
       g.tree.interface,
       [...groups].map((id) => doc.node_groups[id].tree),
       [...images],
+      [...clips].map((id) => {
+        const c = doc.movieclips?.[id];
+        return c ? [id, c.source, c.size, c.fps, c.frame_start, c.frame_offset, c.frame_duration, c.movie?.bytes.length ?? 0, c.sequence?.length ?? 0, c.tracking] : null;
+      }),
+      defocus && doc.scene.camera ? doc.cameras[doc.objects[doc.scene.camera]?.data ?? ''] ?? null : null,
       viewer?.id ?? null,
       // the Viewer Region masks the viewer image
       viewerRegion(g.tree),
