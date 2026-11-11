@@ -62,4 +62,26 @@ describe('wav', () => {
     mp3.set([0xff, 0xfb, 0x94, 0x00]); // MPEG1 layer III, 48 kHz index 1
     expect(sniffSampleRate(mp3.buffer)).toBe(48000);
   });
+  it('sniffs the rate of MP3s behind large cover art and of M4As with the movie box at the end', () => {
+    // A 2 MB ID3v2 tag (embedded artwork), then a 44.1 kHz MPEG-1 Layer III frame.
+    const tag = 2 << 20;
+    const mp3 = new Uint8Array(10 + tag + 16);
+    mp3.set([0x49, 0x44, 0x33, 3, 0, 0, (tag >> 21) & 0x7f, (tag >> 14) & 0x7f, (tag >> 7) & 0x7f, tag & 0x7f]);
+    mp3.set([0xff, 0xfb, 0x90, 0x00], 10 + tag);
+    expect(sniffSampleRate(mp3.buffer)).toBe(44100);
+    // ftyp, a 2 MB mdat, then moov holding a 44.1 kHz mp4a sample entry.
+    const box = (type, size) => {
+      const b = new Uint8Array(size);
+      new DataView(b.buffer).setUint32(0, size);
+      b.set([...type].map((c) => c.charCodeAt(0)), 4);
+      return b;
+    };
+    const moov = box('moov', 80);
+    moov.set([0x6d, 0x70, 0x34, 0x61], 20);
+    new DataView(moov.buffer).setUint16(20 + 28, 44100);
+    const parts = [box('ftyp', 24), box('mdat', 2 << 20), moov];
+    const m4a = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    parts.reduce((at, p) => (m4a.set(p, at), at + p.length), 0);
+    expect(sniffSampleRate(m4a.buffer)).toBe(44100);
+  });
 });
