@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { bootAppWithFeatures } from './helpers.js';
-import { createPath, defaultLabel } from '../src/model/nodes.js';
+import { createPath, createImage, defaultLabel } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { nodeBounds, transformNodes } from '../src/model/geometry.js';
 import { hitTest } from '../src/render/hit.js';
@@ -142,9 +142,15 @@ describe('graphs in the document', () => {
   it('a graph pasted into another document brings its column design along', async () => {
     const doc = app.editor.doc;
     const art = createPath(rectangle(0, 0, 10, 20), true, { fill: { type: 'solid', color: '#ff0000' } });
-    doc.transact('Art', () => doc.insert(art, app.editor.targetLayer().id));
+    // The design includes an image, which goes along with it.
+    doc.assets.set('design-img', { mime: 'image/png', data: 'data:image/png;base64,AAAA' });
+    const pic = createImage('design-img', 10, 5, [1, 0, 0, 1, 0, 0]);
+    doc.transact('Art', () => {
+      doc.insert(art, app.editor.targetLayer().id);
+      doc.insert(pic, app.editor.targetLayer().id);
+    });
     let design;
-    doc.transact('Design', () => (design = addDesign(doc, [art.id], 'Bar')));
+    doc.transact('Design', () => (design = addDesign(doc, [art.id, pic.id], 'Bar')));
     const g = makeGraph(app);
     doc.transact('Column', () => setSeriesOption(doc, [{ graph: doc.get(g.id), index: 0 }], 'column', { design: design.id, mode: 'repeat', unit: 1, fraction: 'scale' }));
     const designed = (d, n) => liveArtwork(d, n).items.filter((v) => v.type === 'group' && v.source === n.children[0]).length;
@@ -161,6 +167,7 @@ describe('graphs in the document', () => {
     const pasted = d2.get(app.editor.topSelection()[0]);
     expect(designed(d2, pasted)).toBe(before);
     expect(d2.root.graphDesigns.map((x) => x.name)).toEqual(['Bar', 'Bar 2']);
+    expect(d2.assets.get('design-img')).toEqual(doc.assets.get('design-img'));
     // Pasting again reuses the design; undo takes the design back with the graph.
     await app.commands.run('edit.paste');
     expect(d2.root.graphDesigns).toHaveLength(2);

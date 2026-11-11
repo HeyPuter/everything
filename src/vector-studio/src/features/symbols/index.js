@@ -99,7 +99,12 @@ function installClipboardHooks() {
     copy(doc, ids, data) {
       const nodes = data.items.flatMap((it) => it.nodes);
       const symbols = exportSymbolsFor(doc, nodes);
-      if (symbols.length) data.symbols = symbols;
+      if (!symbols.length) return;
+      data.symbols = symbols;
+      // Images in the masters travel with them, like images among the copied objects.
+      for (const sub of symbols) {
+        for (const n of sub.nodes) if (n.type === 'image' && doc.assets.has(n.asset)) data.assets = { ...data.assets, [n.asset]: doc.assets.get(n.asset) };
+      }
     },
     paste(doc, data, items) {
       if (!data.symbols?.length) return items;

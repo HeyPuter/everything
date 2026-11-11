@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { bootAppWithFeatures } from './helpers.js';
-import { createPath } from '../src/model/nodes.js';
+import { createPath, createImage } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { nodeBounds } from '../src/model/geometry.js';
 import { liveArtwork } from '../src/model/live.js';
@@ -318,6 +318,20 @@ describe('clipboard', () => {
     // Pasting again reuses the symbol now in this document.
     await app.commands.run('edit.paste');
     expect(symbolDefs(doc2)).toHaveLength(1);
+  });
+
+  it('brings the images of a symbol into the other document', async () => {
+    const doc = app.editor.doc;
+    doc.assets.set('photo-1', { mime: 'image/png', data: 'data:image/png;base64,AAAA', name: 'photo' });
+    const img = createImage('photo-1', 40, 30, [1, 0, 0, 1, 100, 100]);
+    doc.transact('Image', () => doc.insert(img, app.editor.targetLayer().id));
+    app.editor.select([img.id]);
+    await app.commands.run('symbol.new', { direct: true, name: 'Photo' });
+    await app.commands.run('edit.copy');
+    app.newDocument();
+    await app.commands.run('edit.paste');
+    expect(symbolDefs(app.editor.doc)).toHaveLength(1);
+    expect(app.editor.doc.assets.get('photo-1')).toEqual(doc.assets.get('photo-1'));
   });
 
   it('keeps the parts a dynamic instance overrides when pasted into another document', async () => {

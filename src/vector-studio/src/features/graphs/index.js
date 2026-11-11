@@ -21,7 +21,12 @@ import { clipboardHooks } from '../../ops/clipboard.js';
 const designClipboardHook = {
   copy(doc, ids, data) {
     const designs = designsFor(doc, data.items.flatMap((it) => it.nodes));
-    if (designs.length) data.graphDesigns = designs;
+    if (!designs.length) return;
+    data.graphDesigns = designs;
+    // Images in the designs travel with them.
+    for (const d of designs) {
+      for (const n of d.nodes) if (n.type === 'image' && doc.assets.has(n.asset)) data.assets = { ...data.assets, [n.asset]: doc.assets.get(n.asset) };
+    }
   },
   paste(doc, data, items) {
     if (data.graphDesigns?.length) importDesigns(doc, data.graphDesigns);
