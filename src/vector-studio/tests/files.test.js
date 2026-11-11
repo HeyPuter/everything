@@ -185,6 +185,29 @@ describe('preferences storage', () => {
     expect(saved.alignmentGuides).toBe(false);
     expect('smartGuides' in saved).toBe(false);
   });
+
+  it('falls back to defaults for damaged stored values', () => {
+    const storage = memStorage();
+    storage.setItem('vector-studio:prefs', JSON.stringify({ keyboardIncrement: '1O', recentFiles: null, openPanels: 'x', dockOpen: 'yes', theme: 5, undoLevels: null, toolbarColumns: 3, cornerRadius: 4, guideColor: 'red', lastRect: { w: 5, h: 6 } }));
+    const prefs = new Prefs(storage);
+    expect(prefs.get('keyboardIncrement')).toBe(1);
+    expect(prefs.get('recentFiles')).toEqual([]);
+    expect(prefs.get('openPanels')).toEqual([]);
+    expect(prefs.get('dockOpen')).toBe(true);
+    expect(prefs.get('theme')).toBe('system');
+    expect(prefs.get('undoLevels')).toBe(200);
+    expect(prefs.get('toolbarColumns')).toBe('auto');
+    // Valid values, and keys other modules own, are kept.
+    expect(prefs.get('cornerRadius')).toBe(4);
+    expect(prefs.get('guideColor')).toBe('red');
+    expect(prefs.get('lastRect')).toEqual({ w: 5, h: 6 });
+    for (const raw of ['null', '[1,2]', '"text"', '{"__proto__":{"polluted":1}}']) {
+      storage.setItem('vector-studio:prefs', raw);
+      const p = new Prefs(storage);
+      expect(p.get('keyboardIncrement')).toBe(1);
+      expect(p.values.polluted).toBeUndefined();
+    }
+  });
 });
 
 describe('recent files', () => {
