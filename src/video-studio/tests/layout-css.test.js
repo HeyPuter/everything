@@ -140,3 +140,12 @@ describe('menus', () => {
     expect(css('editor.css')).toMatch(/@media \(hover: none\) and \(pointer: coarse\) \{\s*\.menu-key \{\s*display: none;/);
   });
 });
+
+describe('phone title bar', () => {
+  it('gives the project name room on the narrowest phones', () => {
+    const src = css('responsive.css');
+    const block = /@media \(max-width: 359\.98px\) \{([\s\S]*?)\n\}/.exec(src)[1];
+    expect(block).toMatch(/\.topbar-right > \.share-btn \{\s*display: none;/);
+    expect(block).toMatch(/\.export-btn > span \{[^}]*clip: rect\(0 0 0 0\)/);
+  });
+});

@@ -320,6 +320,30 @@
   border-radius: 18px;
 }
 
+/*
+ * The narrowest phones (under 360px): the project name comes first. Share for review stays in
+ * the main menu and Export shows its icon only (its label stays for screen readers).
+ */
+@media (max-width: 359.98px) {
+  .editor[data-layout='phone'] .topbar-right > .share-btn {
+    display: none;
+  }
+
+  .editor[data-layout='phone'] .export-btn {
+    width: 40px;
+    padding: 0;
+    border-radius: 20px;
+  }
+
+  .editor[data-layout='phone'] .export-btn > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}
+
 .editor[data-layout='phone'] .workspace {
   padding: 0;
   /* The minimums give way on short screens (a phone held sideways), so the timeline never runs under the dock. */
