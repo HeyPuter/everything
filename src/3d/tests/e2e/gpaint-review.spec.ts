@@ -74,3 +74,17 @@ test('a sculpt stroke pressed off the mesh starts when it reaches the surface', 
   expect(await ev(page, () => (window as any).app.undo.index)).toBe(undo0 + 1); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
+
+test('the Grease Pencil brush ring hides when the pointer leaves the viewport', async ({ page }) => {
+  const errors = await openApp(page);
+  await emptyGP(page);
+  const { y, box } = await viewportCenter(page);
+  const ring = page.locator('.view3d svg circle[stroke="rgba(255, 255, 255,0.9)"]');
+  await page.mouse.move(box.x + box.width - 30, y, { steps: 4 });
+  await expect(ring).toHaveCount(1);
+  await page.mouse.move(box.x + box.width + 150, y, { steps: 4 });
+  await expect(ring).toHaveCount(0);
+  await page.mouse.move(box.x + box.width - 60, y, { steps: 4 });
+  await expect(ring).toHaveCount(1);
+  await expectNoErrors(errors);
+});
