@@ -51,3 +51,37 @@ test('painting cannot edit the mask of a locked adjustment layer', async ({ page
   expect(await page.evaluate(() => !!window.photoStudio.doc.layers.at(-1)!.maskGrid)).toBe(false);
   await expect(page.locator('#status')).toHaveText('Unlock this layer to edit its mask.');
 });
+
+test('the Art History Brush keeps locked transparency and stays on the canvas', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    // Opaque blue on the left half of the canvas only.
+    const data = new Uint8ClampedArray(100 * 120 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set([0, 0, 255, 255], i);
+    const l = newPixelLayer('Half', e.doc, gridFromImage(e.assets.tiles, { width: 100, height: 120, data }));
+    l.protection = { transparency: true, composite: false, position: false };
+    e.command('New Layer', (d) => d.layers.push(l));
+    // The brush paints from the oldest history state, which must hold the layer.
+    e.history.reset(e.doc);
+    e.selected = l.id;
+  });
+  await idle(page);
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    Object.assign(e.settings, { artArea: 200, artStyle: 'dab' });
+    e.setTool('art-history');
+  });
+  await canvasDrag(page, [[90, 60], [190, 60]]);
+  const result = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    const l = e.doc.layers.at(-1)!;
+    const alphaAt = (x: number, y: number) => readRGBA(e.assets.tiles, l.pixels!, { x, y, width: 1, height: 1 }).data[3];
+    return { right: [alphaAt(150, 60), alphaAt(190, 20), alphaAt(120, 100)], bounds: l.pixels!.bounds, history: e.history.labels.at(-1) };
+  });
+  expect(result.history).toBe('Art History Brush');
+  expect(result.right).toEqual([0, 0, 0]);
+  expect(result.bounds).toEqual({ x: 0, y: 0, width: 100, height: 120 });
+});
