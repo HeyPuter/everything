@@ -306,9 +306,54 @@ export async function packGrid(store: TileStore, grid: TileGrid): Promise<Blob> 
   keys.forEach((k, i) => raw.set(store.get(grid.tiles[k]), 4 + header.length + i * size));
   return new Blob([deflate(raw, { level: 3 })], { type: tilePackMimeType });
 }
+// A pack's header says how many tiles follow, so inflating stops there: a
+// damaged or hostile project cannot expand a small pack into gigabytes.
+async function inflatePack(z: Uint8Array): Promise<Uint8Array> {
+  const { Inflate } = await import('pako');
+  const inflator = new Inflate();
+  const parts: Uint8Array[] = [];
+  let n = 0,
+    length = -1,
+    expected = Infinity;
+  const bad = () => new Error('Invalid pixel tile pack length.');
+  const head = () => {
+    const first = parts.length === 1 ? parts[0] : concat(parts, n);
+    parts.length = 0;
+    parts.push(first);
+    return first;
+  };
+  inflator.onData = (chunk: Uint8Array) => {
+    parts.push(chunk);
+    n += chunk.length;
+    if (length < 0 && n >= 4) {
+      const b = head();
+      length = new DataView(b.buffer, b.byteOffset).getUint32(0, true);
+      if (length > 16 * 1024 * 1024) throw bad();
+    }
+    if (expected === Infinity && length >= 0 && n >= 4 + length) {
+      const b = head();
+      const header = JSON.parse(new TextDecoder().decode(b.subarray(4, 4 + length))) as { channels?: unknown; keys?: unknown };
+      if (!Array.isArray(header.keys) || (header.channels !== 1 && header.channels !== 4)) throw new Error('Invalid pixel tile pack.');
+      expected = 4 + length + header.keys.length * tileBytes(header.channels);
+    }
+    if (n > expected) throw bad();
+  };
+  inflator.push(z, true);
+  if (inflator.err || !(inflator as unknown as { ended: boolean }).ended) throw new Error('Invalid pixel tile pack.');
+  return concat(parts, n);
+}
+function concat(parts: Uint8Array[], n: number) {
+  if (parts.length === 1) return parts[0];
+  const out = new Uint8Array(n);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
 export async function unpackGrid(store: TileStore, blob: Blob): Promise<TileGrid> {
-  const { inflate } = await import('pako');
-  const raw = inflate(new Uint8Array(await blob.arrayBuffer()));
+  const raw = await inflatePack(new Uint8Array(await blob.arrayBuffer()));
   const length = new DataView(raw.buffer, raw.byteOffset).getUint32(0, true);
   const header = JSON.parse(new TextDecoder().decode(raw.subarray(4, 4 + length))) as {
     v: number;
