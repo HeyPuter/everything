@@ -186,3 +186,29 @@ test('Camera data: aperture shape, safe areas and composition guides drawn in ca
   for (const t of ['Safe Areas', 'Depth of Field', 'Viewport Display']) await expect(props.locator('.panel-header .ph-title', { hasText: new RegExp(`^${t}$`) })).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('the world is baked again after the graphics context is restored', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async (imp) => {
+    const a = (window as any).app;
+    const W = await (0, eval)(imp)('/src/nodes/shader/world.ts');
+    const { renderContext } = await (0, eval)(imp)('/src/render/context.ts');
+    const renderer = renderContext.engine.renderer;
+    const w = a.doc.worlds[a.doc.scene.world];
+    let renders = 0;
+    const orig = renderer.render.bind(renderer);
+    renderer.render = (...args: unknown[]) => (renders++, orig(...args));
+    const first = W.bakeWorld(a.doc, w)?.texture;
+    const before = renders;
+    // unchanged world: the bake is reused
+    const again = W.bakeWorld(a.doc, w)?.texture;
+    const reused = renders === before && again === first;
+    // the targets lost their pixels with the context: the next bake renders again
+    renderer.domElement.dispatchEvent(new Event('webglcontextrestored'));
+    const after = W.bakeWorld(a.doc, w)?.texture;
+    renderer.render = orig;
+    return { reused, rerendered: renders > before, fresh: !!after && after !== first };
+  }, IMPORT);
+  expect(r).toEqual({ reused: true, rerendered: true, fresh: true });
+  await expectNoErrors(errors);
+});

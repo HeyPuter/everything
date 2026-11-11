@@ -165,9 +165,29 @@ function memoKey(doc: DocumentData, w: WorldData) {
   return k;
 }
 
+/**
+ * A restored graphics context keeps three.js objects (re-uploaded on use) but not what was
+ * rendered into targets: the baked world must be rendered again.
+ */
+let restoreHooked: WebGLRenderer | null = null;
+function hookContextRestore(renderer: WebGLRenderer) {
+  if (restoreHooked === renderer) return;
+  restoreHooked = renderer;
+  renderer.domElement.addEventListener('webglcontextrestored', () => {
+    memo = null;
+    if (current) {
+      current.material.dispose();
+      current.luts.forEach((t) => t.dispose());
+      current.target.dispose();
+      current = null;
+    }
+  });
+}
+
 export function bakeWorld(doc: DocumentData, w: WorldData): WorldEval | null {
   const renderer = renderContext?.engine.renderer;
   if (!renderer) return null;
+  hookContextRestore(renderer);
   const mk = memoKey(doc, w);
   if (memo && memo.key === mk) return memo.result;
   const result = bake(renderer, doc, w);
