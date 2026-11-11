@@ -284,6 +284,18 @@ describe('M4A muxer', () => {
     late.set(moov, late.length - moov.length);
     expect(readTags(late.buffer)).toEqual(meta);
   });
+
+  it('records priming, padding and length as iTunSMPB so Apple players trim the padding', () => {
+    const packets = Array.from({ length: 74 }, () => new Uint8Array(100));
+    const parts = muxM4a({ sampleRate: 48000, channels: 2, packets, totalFrames: 72000, priming: 2112, bitrate: 128000, meta: {} });
+    const file = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+    parts.reduce((at, p) => (file.set(p, at), at + p.length), 0);
+    const text = new TextDecoder('latin1').decode(file);
+    expect(text).toContain('iTunSMPB');
+    // 2112 priming, 74 * 1024 - 2112 - 72000 = 1664 padding, 72000 frames.
+    expect(text).toContain(' 00000000 00000840 00000680 0000000000011940 00000000');
+    expect(readTags(file.buffer)).toEqual({});
+  });
 });
 
 function findBox(bytes, type) {

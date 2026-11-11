@@ -49,12 +49,24 @@ export function aacAudioSpecificConfig(sampleRate, channels) {
 
 const ILST_KEYS = { title: '\xa9nam', artist: '\xa9ART', album: '\xa9alb', year: '\xa9day', genre: '\xa9gen', comment: '\xa9cmt' };
 
-function ilst(meta) {
+/**
+ * iTunes gapless info ("iTunSMPB"): priming, padding and real length. Apple
+ * decoders trim with it rather than the edit list, which alone leaves the
+ * encoder's padding audible as silence at the end.
+ */
+function itunSmpb({ priming, padding, frames }, enc) {
+  const hex = (v, n) => Math.max(0, Math.round(v)).toString(16).toUpperCase().padStart(n, '0');
+  const text = ` 00000000 ${hex(priming, 8)} ${hex(padding, 8)} ${hex(frames, 16)}${' 00000000'.repeat(8)}`;
+  return box('----', fullBox('mean', 0, 0, ascii('com.apple.iTunes')), fullBox('name', 0, 0, ascii('iTunSMPB')), box('data', u32(1), u32(0), enc.encode(text)));
+}
+
+function ilst(meta, gapless) {
   const m = cleanMeta(meta);
   const enc = new TextEncoder();
   const items = Object.entries(ILST_KEYS)
     .filter(([id]) => m[id])
     .map(([id, key]) => box(key, box('data', u32(1), u32(0), enc.encode(m[id]))));
+  if (gapless && (gapless.priming || gapless.padding)) items.push(itunSmpb(gapless, enc));
   if (!items.length) return null;
   const hdlr = fullBox('hdlr', 0, 0, u32(0), ascii('mdir'), ascii('appl'), u32(0), u32(0), Uint8Array.of(0));
   return box('udta', fullBox('meta', 0, 0, hdlr, box('ilst', ...items)));
@@ -91,7 +103,7 @@ export function muxM4a({ sampleRate, channels, asc, packets, frameSamples = 1024
     const minf = box('minf', smhd, dinf, stbl);
     const mdia = box('mdia', mdhd, hdlr, minf);
     const trak = box('trak', tkhd, edts, mdia);
-    const udta = ilst(meta);
+    const udta = ilst(meta, { priming, padding: mediaDuration - priming - duration, frames: duration });
     return box('moov', mvhd, trak, ...(udta ? [udta] : []));
   };
   const moovSize = build(0).length;
