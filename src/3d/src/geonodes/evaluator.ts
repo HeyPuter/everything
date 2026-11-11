@@ -100,6 +100,18 @@ export function convertVal(v: Val, from: SocketType, to: SocketType): Val {
 
 const isMulti = (s: SocketDef) => !!s.multiInput;
 
+/** JSON of a group's tree and of the trees of the groups nested in it (a cached group node is stale when any of them changes). */
+function groupTreesJson(doc: EvalEnv['doc'], tree: NodeTreeData, seen = new Set<NodeTreeData>()): string {
+  if (seen.has(tree)) return '';
+  seen.add(tree);
+  let s = JSON.stringify(tree);
+  for (const n of tree.nodes) {
+    const g = n.type === 'GeometryNodeGroup' && typeof n.props.node_tree === 'string' ? doc.node_groups[n.props.node_tree] : undefined;
+    if (g) s += `|${groupTreesJson(doc, g.tree, seen)}`;
+  }
+  return s;
+}
+
 export class TreeEval {
   private outputsMemo = new Map<string, Record<string, Val>>();
   private sigMemo = new Map<string, string>();
@@ -241,7 +253,7 @@ export class TreeEval {
     for (const o of outputs) if (this.isUsed(node.id, o.identifier)) s += `|>${o.identifier}`;
     if (node.type === 'GeometryNodeGroup') {
       const g = node.props.node_tree ? this.env.doc.node_groups[node.props.node_tree as string] : undefined;
-      s += `|g${g ? hash(JSON.stringify(g.tree)) : ''}`;
+      s += `|g${g ? hash(groupTreesJson(this.env.doc, g.tree)) : ''}`;
     }
     const ex = geoExecs[node.type];
     if (ex?.sig) s += `|${ex.sig(node, this.env)}`;
