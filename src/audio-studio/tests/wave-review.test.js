@@ -356,3 +356,31 @@ describe('Move Playhead to Previous/Next', () => {
     }
   });
 });
+
+describe('locked markers', () => {
+  it('are dropped or cut when the audio under them is deleted from the end', async () => {
+    const { Channel } = await import('../src/audio/channel.js');
+    const state = {
+      sampleRate: 1000,
+      channels: [Channel.silence(1000)],
+      markers: [
+        createMarker({ start: 100 }),
+        createMarker({ start: 700 }),
+        createMarker({ start: 500, duration: 400 }),
+        createMarker({ start: 900, duration: 50 }),
+      ],
+    };
+    markerOptions.lock = true;
+    try {
+      const out = E.deleteRange(state, 600, 1000);
+      expect(out.markers.map((m) => [m.start, m.duration])).toEqual([
+        [100, 0],
+        [500, 100],
+      ]);
+      // Markers inside the file stay exactly where they were.
+      expect(E.deleteRange(state, 0, 50).markers).toBe(state.markers);
+    } finally {
+      markerOptions.lock = false;
+    }
+  });
+});

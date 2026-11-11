@@ -44,9 +44,22 @@ export function sortMarkers(markers) {
   return markers.slice().sort((a, b) => a.start - b.start || a.duration - b.duration);
 }
 
-/** Markers after removing frames [a, b): inside cues vanish, later ones shift, ranges shrink. */
-export function shiftMarkersForDelete(markers = [], a, b) {
-  if (markerOptions.lock) return markers;
+/**
+ * Markers after removing frames [a, b): inside cues vanish, later ones shift, ranges shrink.
+ * Locked markers keep their times; with the new file `length`, ones past it are dropped
+ * and ranges running past it are cut at the end.
+ */
+export function shiftMarkersForDelete(markers = [], a, b, length) {
+  if (markerOptions.lock) {
+    if (!(length >= 0)) return markers;
+    const out = [];
+    for (const m of markers) {
+      if (!m.duration) {
+        if (m.start <= length) out.push(m);
+      } else if (m.start < length) out.push(m.start + m.duration > length ? { ...m, duration: length - m.start } : m);
+    }
+    return out.length === markers.length && out.every((m, i) => m === markers[i]) ? markers : out;
+  }
   const cut = b - a;
   const out = [];
   for (const m of markers) {

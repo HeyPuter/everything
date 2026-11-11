@@ -60,7 +60,7 @@ export function deleteRange(state, start, end, mask, { smooth = 0 } = {}) {
       }
       return out.write(start - half, join);
     }),
-    markers: shiftMarkersForDelete(state.markers, start, end),
+    markers: shiftMarkersForDelete(state.markers, start, end, len - (end - start)),
   };
 }
 
