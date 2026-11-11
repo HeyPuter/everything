@@ -126,6 +126,31 @@ describe('Gradient panel', () => {
     expect(input.value).toBe('75%');
     paintState.setStop(0);
   });
+
+  it('keeps the dragged stop selected while it passes another stop', async () => {
+    const { ed, add, panel } = await paintSetup();
+    const stops = [{ offset: 0, color: '#ff0000', opacity: 1 }, { offset: 0.5, color: '#00ff00', opacity: 1 }, { offset: 1, color: '#0000ff', opacity: 1 }];
+    const id = add({ fill: { type: 'linear', angle: 0, stops } });
+    ed.select([id]);
+    const p = panel('gradient');
+    paintState.setStop(0);
+    p.update();
+    const proto = Element.prototype;
+    const had = proto.setPointerCapture;
+    proto.setPointerCapture = () => {};
+    // The bar has no layout in jsdom: its width counts as 1px, so clientX is the fraction.
+    const stop = p.slider.el.querySelectorAll('.gs-stop')[0];
+    stop.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 }));
+    stop.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 0.75, clientY: 0 }));
+    expect(ed.doc.get(id).fill.stops[1].color).toBe('#ff0000');
+    expect(p.slider.selected).toBe(1);
+    expect(p.location.input.value).toBe('75%');
+    stop.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 0.75, clientY: 0 }));
+    expect(p.slider.selected).toBe(1);
+    if (had) proto.setPointerCapture = had;
+    else delete proto.setPointerCapture;
+    paintState.setStop(0);
+  });
 });
 
 describe('Freeform gradients on the canvas', () => {

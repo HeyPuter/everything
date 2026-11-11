@@ -82,6 +82,8 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       idx = r.index;
       selected = idx;
       emit(cur, true);
+      // The stop stays selected (and its fields follow it) when it passes another stop.
+      onSelect?.(idx);
     };
     const up = () => {
       target.removeEventListener('pointermove', move);
