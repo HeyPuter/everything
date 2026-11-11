@@ -244,8 +244,14 @@ function surfacePrefs(app) {
     const el = wrap.querySelector('[role=status]');
     if (el) el.textContent = text;
   };
+  // The page is rebuilt on every visit and search: only its latest copy listens.
+  cs.disposePage?.();
   cs.status.listeners.add(onStatus);
-  app.on('midi-ports', () => wrap.isConnected && render());
+  const offPorts = app.on('midi-ports', () => wrap.isConnected && render());
+  cs.disposePage = () => {
+    cs.status.listeners.delete(onStatus);
+    offPorts();
+  };
   render();
   return wrap;
 }

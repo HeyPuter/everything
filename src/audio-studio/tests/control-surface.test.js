@@ -133,3 +133,29 @@ describe('control surface learn', () => {
     delete navigator.requestMIDIAccess;
   });
 });
+
+describe('control surface preferences page', () => {
+  it('does not pile up listeners as the page is rebuilt', async () => {
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { installControlSurface } = await import('../src/control-surface/index.js');
+    const app = new App();
+    app.syncGraph = () => {};
+    installControlSurface(app);
+    const section = app.preferenceSections.find((s) => s.category === 'controlSurface');
+    let ports = 0;
+    const on = app.on.bind(app);
+    app.on = (type, fn) => {
+      if (type !== 'midi-ports') return on(type, fn);
+      ports++;
+      const off = on(type, fn);
+      return () => {
+        ports--;
+        off();
+      };
+    };
+    for (let i = 0; i < 5; i++) section.build(app);
+    expect(app.controlSurface.status.listeners.size).toBe(1);
+    expect(ports).toBe(1);
+  });
+});
