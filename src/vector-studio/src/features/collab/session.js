@@ -245,7 +245,8 @@ export class CollabSession extends Emitter {
             this.#reject(batch, err);
             continue;
           }
-          batch.sent = false;
+          // The server may have taken the batch before the reply was lost, so it stays marked as
+          // sent: later edits go in a new batch instead of one the server would skip as a retry.
           this.setStatus('offline');
           this.backoff = Math.min(30000, (this.backoff || 1000) * 2);
           if (this.timers) {

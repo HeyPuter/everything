@@ -267,6 +267,18 @@ describe('collaboration sync', () => {
     expect(seqs).toHaveLength(1);
   });
 
+  it('an edit made right after a lost acknowledgement is not folded into the batch the server already took', async () => {
+    const { a, b, net } = await pair();
+    const L = layerOf(a.doc);
+    net.lostAck = true;
+    b.doc.transact('Add', () => b.doc.insert(rect('first'), L));
+    await b.session.sending;
+    b.doc.transact('Add', () => b.doc.insert(rect('second'), L));
+    await settle(a, b);
+    for (const doc of [a.doc, b.doc]) expect(new Set(doc.get(L).children)).toEqual(new Set(['first', 'second']));
+    expect(b.session.pending).toHaveLength(0);
+  });
+
   it('new participants load a checkpoint plus later edits', async () => {
     const { a, net, room } = await pair();
     const L = layerOf(a.doc);
