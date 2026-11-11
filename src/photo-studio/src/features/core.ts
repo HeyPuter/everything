@@ -733,7 +733,7 @@ async function mergeDown(e: Editor) {
     e.message('Show both layers before merging them.');
     return;
   }
-  await mergeLayers(e, [below, l], below.id, 'Merge Down');
+  await mergeLayers(e, [below, l], below.id, 'Merge Down', true);
 }
 async function mergeSelected(e: Editor) {
   const roots = selectedRoots(e.doc.layers, e.selectedIds);
@@ -741,7 +741,13 @@ async function mergeSelected(e: Editor) {
   const ordered = allLayers(e.doc.layers).filter((l) => roots.some((r) => r.id === l.id));
   await mergeLayers(e, ordered, ordered.at(-1)!.id, 'Merge Layers');
 }
-async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: string) {
+/** Composite `layers` (bottom first) in isolation into the layer `keepId`.
+ * `keepBlend` (Merge Down): as in Photoshop, the result keeps the lower
+ * layer's blend mode and the upper layer is composited onto the lower
+ * layer's own pixels. Its opacity is baked into the pixels, so a stack of
+ * Normal layers, or of layers in the same associative mode (Multiply,
+ * Screen...), looks exactly as before. */
+async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: string, keepBlend = false) {
   const doc = e.doc;
   // Merging rewrites the bottom layer and deletes the others.
   assertEditable(doc, layers);
@@ -753,7 +759,9 @@ async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: st
     const list = containerOf(doc.layers, l.id)!;
     return list[list.indexOf(l) - 1]?.id === layers[i - 1].id;
   };
-  const temp = { ...doc, layers: layers.map((l, i) => ({ ...l, clipped: clippedOnto(l, i) })) };
+  const bottom = layers.find((l) => l.id === keepId)!;
+  const blend = keepBlend && bottom.blend !== 'pass through' ? bottom.blend : 'normal';
+  const temp = { ...doc, layers: layers.map((l, i) => ({ ...l, clipped: clippedOnto(l, i), ...(l === bottom && blend !== 'normal' ? { blend: 'normal' as const } : {}) })) };
   const img = await compositeRGBA(e, temp);
   const grid = gridFromImage(e.assets.tiles, img);
   const ids = new Set(layers.map((l) => l.id));
@@ -765,6 +773,7 @@ async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: st
     // The result stays where the bottom layer was: in its clipping group and,
     // for the Background, at the bottom with its locks.
     if (keep.clipped) merged.clipped = true;
+    merged.blend = blend;
     if (keep.background) makeBackground(merged);
     list.splice(list.indexOf(keep), 1, merged);
     for (const id of ids) {

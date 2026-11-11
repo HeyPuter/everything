@@ -76,3 +76,32 @@ test('Merge Visible keeps hidden layers, including those inside visible groups, 
   expect(await tree(page)).toEqual(['Low (hidden)', 'Inner (hidden)', 'Merged', 'Top (hidden)']);
   expect(await pixels(page)).toEqual(before);
 });
+
+test('Merge Down keeps the blend mode of the lower layer and looks the same', async ({ page }) => {
+  await setLayers(page, [
+    { name: 'Back', color: [200, 100, 50, 255] },
+    { name: 'Lower', color: [128, 255, 64, 255], blend: 'multiply', opacity: 0.5 },
+    { name: 'Upper', color: [100, 200, 255, 255], rect: [0, 0, 4, 8], blend: 'multiply' },
+  ]);
+  const before = await pixels(page);
+  await select(page, 'Upper');
+  await run(page, 'layer.merge-down');
+  expect(await tree(page)).toEqual(['Back', 'Lower']);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[1].blend)).toBe('multiply');
+  const after = await pixels(page);
+  for (let i = 0; i < before.length; i++) expect(Math.abs(after[i] - before[i]), `byte ${i}`).toBeLessThanOrEqual(2);
+});
+
+test('Merge Down onto a translucent Normal layer looks the same', async ({ page }) => {
+  await setLayers(page, [
+    { name: 'Back', color: [200, 100, 50, 255] },
+    { name: 'Lower', color: [0, 0, 255, 255], opacity: 0.5 },
+    { name: 'Upper', color: [0, 255, 0, 255], rect: [0, 0, 4, 8], opacity: 0.6 },
+  ]);
+  const before = await pixels(page);
+  await select(page, 'Upper');
+  await run(page, 'layer.merge-down');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[1].blend)).toBe('normal');
+  const after = await pixels(page);
+  for (let i = 0; i < before.length; i++) expect(Math.abs(after[i] - before[i]), `byte ${i}`).toBeLessThanOrEqual(2);
+});
