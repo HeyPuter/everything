@@ -265,8 +265,60 @@ export function nodeTouchesRect(doc, node, r) {
   return true; // text, image: bounds overlap is enough
 }
 
-/** Leaves (and compounds) whose geometry touches a rect. */
-export function marqueeHits(doc, r, { intoCompound = false, includeLocked = false } = {}) {
+/** Does segment a-b cross a convex polygon (an endpoint inside, or an edge crossing)? */
+function segTouchesPoly(ax, ay, bx, by, poly) {
+  if (pointInPolygon(ax, ay, poly) || pointInPolygon(bx, by, poly)) return true;
+  const cross = (px, py, qx, qy, rx, ry) => (qx - px) * (ry - py) - (qy - py) * (rx - px);
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const c = poly[j];
+    const d = poly[i];
+    const d1 = cross(c.x, c.y, d.x, d.y, ax, ay);
+    const d2 = cross(c.x, c.y, d.x, d.y, bx, by);
+    const d3 = cross(ax, ay, bx, by, c.x, c.y);
+    const d4 = cross(ax, ay, bx, by, d.x, d.y);
+    if (d1 * d2 <= 0 && d3 * d4 <= 0 && (d1 !== 0 || d2 !== 0)) return true;
+  }
+  return false;
+}
+
+/**
+ * Does a node's geometry touch a convex quad (a marquee dragged in a rotated
+ * view)? `r` is the quad's bounding box.
+ */
+export function nodeTouchesQuad(doc, node, quad, r) {
+  if (!nodeTouchesRect(doc, node, r)) return false;
+  const b = nodeBounds(doc, node);
+  const corners = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
+  if (corners.every(([x, y]) => pointInPolygon(x, y, quad))) return true;
+  const c = { x: (quad[0].x + quad[2].x) / 2, y: (quad[0].y + quad[2].y) / 2 };
+  if (node.type === 'path') {
+    const pts = flattenPath(node.anchors, node.closed, 0.5);
+    for (let i = 0; i < pts.length - 1; i++) if (segTouchesPoly(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, quad)) return true;
+    if (pts.length === 1) return pointInPolygon(pts[0].x, pts[0].y, quad);
+    return Boolean(node.fill && node.closed) && hctx().isPointInPath(shapePathOf(doc, node), c.x, c.y);
+  }
+  if (node.type === 'compound') {
+    for (const id of node.children) {
+      const cn = doc.get(id);
+      if (cn && nodeTouchesQuad(doc, { ...cn, fill: null }, quad, r)) return true;
+    }
+    return Boolean(node.fill) && hctx().isPointInPath(shapePathOf(doc, node), c.x, c.y, node.fillRule || 'nonzero');
+  }
+  // Text, images: their bounds overlap the quad.
+  for (let i = 0; i < 4; i++) {
+    const [ax, ay] = corners[i];
+    const [bx, by] = corners[(i + 1) % 4];
+    if (segTouchesPoly(ax, ay, bx, by, quad)) return true;
+  }
+  return pointInPolygon(c.x, c.y, corners.map(([x, y]) => ({ x, y })));
+}
+
+/**
+ * Leaves (and compounds) whose geometry touches a rect, or with `quad` (four
+ * document points of a marquee in a rotated view, `r` being their bounds) that quad.
+ */
+export function marqueeHits(doc, r, { intoCompound = false, includeLocked = false, quad = null } = {}) {
+  const touches = quad ? (n) => nodeTouchesQuad(doc, n, quad, r) : (n) => nodeTouchesRect(doc, n, r);
   const out = [];
   const visit = (container) => {
     const isClip = container.type === 'group' && container.clip;
@@ -281,11 +333,11 @@ export function marqueeHits(doc, r, { intoCompound = false, includeLocked = fals
       if (n.type === 'compound' && intoCompound) {
         for (const c of n.children) {
           const cn = doc.get(c);
-          if (cn && nodeTouchesRect(doc, { ...cn, fill: null }, r)) out.push(cn);
+          if (cn && touches({ ...cn, fill: null })) out.push(cn);
         }
         continue;
       }
-      if (nodeTouchesRect(doc, n, r)) out.push(n);
+      if (touches(n)) out.push(n);
     }
     return isClip;
   };

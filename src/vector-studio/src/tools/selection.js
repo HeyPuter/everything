@@ -4,7 +4,7 @@
  * double-click a group or a single object to isolate it.
  */
 import { Tool, tol, fmt, constrainAngle } from './tool.js';
-import { hitTest, marqueeHits } from '../render/hit.js';
+import { hitTest, marqueeHits, pointInPolygon } from '../render/hit.js';
 import { boxHandles } from '../render/overlay.js';
 import { TransformSession } from './transform-session.js';
 import { buildSnapIndex, snapBox } from './snap.js';
@@ -310,9 +310,9 @@ export class SelectionTool extends Tool {
       return;
     }
     if (d.kind === 'marquee') {
-      const r = rectFrom(d);
-      if (r.w * editor.view.zoom > 2 || r.h * editor.view.zoom > 2) {
-        const hits = marqueeHits(editor.doc, r).filter((n) => editor.inIsolation(n.id));
+      const { r, screen, opts } = marqueeRegion(editor, d);
+      if (screen.w > 2 || screen.h > 2) {
+        const hits = marqueeHits(editor.doc, r, opts).filter((n) => editor.inIsolation(n.id));
         const targets = [...new Set(hits.map((n) => editor.selectionTarget(n.id).id))];
         // Shift-marquee toggles: unselected objects join the selection, selected ones leave it.
         editor.select(targets, d.add ? { toggle: true } : {});
@@ -415,3 +415,27 @@ export function rectFrom(d) {
   return { x: Math.min(d.x0, d.x), y: Math.min(d.y0, d.y), w: Math.abs(d.x - d.x0), h: Math.abs(d.y - d.y0) };
 }
 
+/**
+ * The document region a marquee from (x0, y0) to (x, y) covers. The marquee is
+ * drawn upright on screen, so in a rotated view it covers a turned square in
+ * the document: `quad` (four points, null in an upright view), `r` its bounds
+ * (the rect itself when upright), `inside(x, y)` a point test, and `opts` to
+ * pass to marqueeHits. `screen` is its size in CSS pixels.
+ */
+export function marqueeRegion(editor, d) {
+  const view = editor.view;
+  const a = view.toScreen(d.x0, d.y0);
+  const b = view.toScreen(d.x, d.y);
+  const screen = { w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+  if (!(view.rotation % 360)) {
+    const r = rectFrom(d);
+    return { r, quad: null, screen, opts: {}, inside: (x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h };
+  }
+  const quad = [view.toDoc(a.x, a.y), view.toDoc(b.x, a.y), view.toDoc(b.x, b.y), view.toDoc(a.x, b.y)];
+  const xs = quad.map((p) => p.x);
+  const ys = quad.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  const r = { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+  return { r, quad, screen, opts: { quad }, inside: (px, py) => pointInPolygon(px, py, quad) };
+}
