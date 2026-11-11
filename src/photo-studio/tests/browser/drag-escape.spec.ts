@@ -39,3 +39,24 @@ test('Escape while moving a guide leaves it where it was', async ({ page }) => {
   // The layer did not move either.
   expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.transform?.x ?? 0))).toEqual([0]);
 });
+
+test('Escape while dragging the Ruler tool keeps the previous measurement', async ({ page }) => {
+  await tool(page, 'Ruler Tool');
+  const line = () => page.evaluate(async () => (await import('/src/features/measure/state.ts')).rulerLine(window.photoStudio));
+  const drag = async (from: [number, number], to: [number, number], escape: boolean) => {
+    const a = await client(page, ...from),
+      b = await client(page, ...to);
+    await page.mouse.move(a[0], a[1]);
+    await page.mouse.down();
+    await page.mouse.move(b[0], b[1], { steps: 6 });
+    if (escape) await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await idle(page);
+  };
+  await drag([100, 100], [300, 100], false);
+  const first = await line();
+  expect(first).toBeTruthy();
+  await drag([100, 300], [400, 350], true);
+  expect(await line()).toEqual(first);
+  await expect(page.locator('#overlay')).not.toContainText('NaN');
+});

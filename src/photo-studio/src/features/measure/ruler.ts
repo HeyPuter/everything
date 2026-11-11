@@ -221,6 +221,13 @@ export function installRuler(e: Editor) {
       e.dock.update();
     },
     keyDown: (e, ev) => {
+      // Escape during a drag keeps the line from before it.
+      if (ev.key === 'Escape' && drag) {
+        drag = undefined;
+        e.overlay();
+        refreshReadout(e);
+        return true;
+      }
       if ((ev.key === 'Backspace' || ev.key === 'Delete') && rulerLine(e)) {
         clearRuler(e);
         e.options();
