@@ -13,6 +13,20 @@ export const paintHooks = { app: null };
 export const exportBakers = [];
 
 /**
+ * Objects on the page that exports leave out, such as a symbol's master while
+ * it is being edited (its instances already show it): functions
+ * (doc) -> iterable of ids that feature modules add.
+ */
+export const exportSkips = [];
+
+/** The ids of the objects exports leave out of `doc` (often empty). */
+export function exportSkipIds(doc) {
+  const ids = new Set();
+  for (const f of exportSkips) for (const id of f(doc) || []) ids.add(id);
+  return ids;
+}
+
+/**
  * SVG paint servers for paint types that feature modules add (pattern
  * swatches): type -> (writer, paint, node, mapped, exportSVG) -> id of a
  * definition added with writer.def(), or null. `mapped` is as for

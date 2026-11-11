@@ -7,7 +7,7 @@ import { UserError } from '../../lib/errors.js';
 import { drawArtwork, drawNode, LayerPool, imageFor } from '../../render/draw.js';
 import { selectionBounds, visualBounds, rectsIntersect, inflate } from '../../model/geometry.js';
 import { crc32 } from './zip.js';
-import { paintHooks } from './hooks.js';
+import { paintHooks, exportSkipIds } from './hooks.js';
 import { frozenDocument } from './export-view.js';
 
 const TILE = 2048;
@@ -97,6 +97,7 @@ export async function renderRegion(doc, rect, { scale = 1, background = null, an
   const total = cols * rows;
   // Tiles render between other tasks: they all draw the document as it is now, whatever is edited meanwhile.
   if (total > 1) doc = frozenDocument(doc);
+  const skip = exportSkipIds(doc);
   let done = 0;
   for (let ty = 0; ty < rows; ty++) {
     for (let tx = 0; tx < cols; tx++) {
@@ -115,7 +116,7 @@ export async function renderRegion(doc, rect, { scale = 1, background = null, an
       }
       ctx.setTransform(scale, 0, 0, scale, -rect.x * scale - px, -rect.y * scale - py);
       const viewRect = inflate({ x: rect.x + px / scale, y: rect.y + py / scale, w: tw / scale, h: th / scale }, 2 / scale);
-      const opts = { viewRect, outline: false, hairline: 1 / scale, scale, layerPool: pool, overprint, leafFilter, textHints: true };
+      const opts = { viewRect, outline: false, hairline: 1 / scale, scale, layerPool: pool, overprint, leafFilter, textHints: true, skip };
       if (ids) for (const id of ids) drawNode(ctx, doc, doc.get(id), opts);
       else drawArtwork(ctx, doc, { ...opts, layerFilter: (l) => !l.template });
       if (!antialias && !opaque) hardenAlpha(ctx, tw, th);
@@ -217,6 +218,6 @@ export function thumbnail(doc, rect, maxSize = 160) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, w, h);
   ctx.setTransform(s, 0, 0, s, -rect.x * s, -rect.y * s);
-  drawArtwork(ctx, doc, { viewRect: rect, outline: false, hairline: 1 / s, scale: s, layerPool: new LayerPool(w, h), layerFilter: (l) => !l.template });
+  drawArtwork(ctx, doc, { viewRect: rect, outline: false, hairline: 1 / s, scale: s, layerPool: new LayerPool(w, h), layerFilter: (l) => !l.template, skip: exportSkipIds(doc) });
   return canvas;
 }

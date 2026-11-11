@@ -13,7 +13,7 @@ import { liveDef, liveArtwork, virtualId } from '../../model/live.js';
 import { geomEffectsOf, effectiveSubpaths, isGeomEffectType, paintParts } from '../../model/geom-effects.js';
 // Blends are registered by the module that computes their steps.
 import '../artboards/blend-math.js';
-import { exportBakers } from './hooks.js';
+import { exportBakers, exportSkipIds } from './hooks.js';
 import { VDocument } from '../../model/document.js';
 
 export { exportBakers };
@@ -34,7 +34,8 @@ export function frozenDocument(doc) {
 
 export function exportView(doc, { keep = null, native = [] } = {}) {
   const bakers = exportBakers.filter((b) => !native.includes(b.key));
-  let any = false;
+  const skip = exportSkipIds(doc);
+  let any = skip.size > 0;
   doc.walk((n) => {
     if (any) return false;
     if (liveDef(n) || ((n.type === 'path' || n.type === 'compound') && geomEffectsOf(n)) || bakers.some((b) => b.test(n))) any = true;
@@ -66,6 +67,7 @@ export function exportView(doc, { keep = null, native = [] } = {}) {
 
   function bake(n) {
     if (!n) return n;
+    if (skip.has(n.id)) return { ...n, hidden: true };
     for (const b of bakers) if (b.test(n)) n = b.bake(n, view, extra);
     const def = liveDef(n);
     // Kinds the exporters write natively (gradient meshes) stay as they are.
