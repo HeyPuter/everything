@@ -553,7 +553,9 @@ export class AutoSaver extends Emitter {
     clearTimeout(this.timer);
     this.timer = null;
     if (this.saving) {
-      await this.saving;
+      // Several callers may be waiting (the timer, Save now, leaving): one goes next, the
+      // others wait for it too. Two writes in flight could land out of order.
+      while (this.saving) await this.saving;
       if (!this.store.dirty) return;
     }
     const revision = this.store.revision;

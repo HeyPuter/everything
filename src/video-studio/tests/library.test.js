@@ -520,6 +520,40 @@ describe('AutoSaver', () => {
     expect(saver.status).toBe('saved');
   });
 
+  it('never has two saves of the project in flight, so an older one cannot land last', async () => {
+    // Project writes wait until the test lets each one finish, in any order.
+    const pending = [];
+    const write = backend.writeJSON;
+    backend.writeJSON = (path, value) => {
+      if (!path.startsWith('projects/')) return write(path, value);
+      return new Promise((resolve) => pending.push({ name: value.name, finish: () => write(path, value).then(resolve) }));
+    };
+    const finish = async (name) => {
+      const i = pending.findIndex((w) => w.name === name);
+      expect(i).toBeGreaterThanOrEqual(0);
+      await pending.splice(i, 1)[0].finish();
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    edit('a');
+    saver.save();
+    await vi.advanceTimersByTimeAsync(0);
+    edit('b');
+    // Save now (Ctrl+S) and leaving both ask while the first save runs.
+    saver.save();
+    saver.flush();
+    await finish('a');
+    expect(pending.map((w) => w.name)).toEqual(['b']);
+    edit('c');
+    saver.save();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pending.map((w) => w.name)).toEqual(['b']);
+    await finish('b');
+    await finish('c');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(saved()).toBe('c');
+    expect(store.dirty).toBe(false);
+  });
+
   it('flush() saves right away and is a no-op when nothing changed', async () => {
     edit('now');
     await saver.flush();
