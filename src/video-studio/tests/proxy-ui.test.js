@@ -83,6 +83,32 @@ describe('proxy setting in the project details', () => {
     expect(insp.el.querySelector('.proxy-status').textContent).toBe('Proxies: 1 ready (5 B), 1 being made (0%).');
   });
 
+  it('tells screen readers about proxy progress by the quarter, not every percent', async () => {
+    const { ctx, store } = await setup({ ready: false });
+    let progress = 0;
+    const handlers = new Set();
+    ctx.proxies = {
+      status: (a) => (a.id === 'big' ? { state: 'generating', progress } : { state: 'none' }),
+      on: (type, fn) => (handlers.add(fn), () => handlers.delete(fn)),
+    };
+    const insp = createInspector(ctx);
+    cleanup.push(insp.dispose);
+    document.body.append(insp.el);
+    const live = insp.el.querySelector('.proxy-settings [role=status]');
+    const said = [live.textContent];
+    new MutationObserver(() => said.push(live.textContent)).observe(live, { childList: true, characterData: true, subtree: true });
+    for (let i = 1; i <= 100; i++) {
+      progress = i / 100;
+      handlers.forEach((fn) => fn());
+      await Promise.resolve();
+    }
+    expect(insp.el.querySelector('.proxy-status').textContent).toBe('Proxies: 1 being made (100%).');
+    expect(insp.el.querySelector('.proxy-status').getAttribute('role')).toBe(null);
+    await flush();
+    expect(said).toEqual(['Proxies: 1 being made (0%).', 'Proxies: 1 being made (25%).', 'Proxies: 1 being made (50%).', 'Proxies: 1 being made (75%).', 'Proxies: 1 being made (100%).']);
+    expect(store.project.assets.big).toBeTruthy();
+  });
+
   it('summarizes each file once', async () => {
     const { store, proxies } = await setup({ ready: false });
     expect(proxySummary(store.project, proxies)).toBe('No proxies yet.');
