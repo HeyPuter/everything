@@ -445,6 +445,26 @@ describe('Session document', () => {
     expect(doc.length).toBe(40);
     expect(doc.extent).toBeGreaterThanOrEqual(60 * RATE);
   });
+
+  it('lists the selected clips in timeline order as they change', () => {
+    const doc = new Session({ sampleRate: RATE, tracks: 1 });
+    const t = doc.state.tracks[0].id;
+    const [a, b, c] = [50, 10, 30].map((start) => S.createClip({ trackId: t, sourceId: 'x', start, length: 5 }));
+    doc.apply('Add', S.addClips(doc.state, [a, b, c]));
+    doc.selectClips([a.id, b.id]);
+    const ids = () => doc.clipSelection.map((x) => x.id);
+    expect(ids()).toEqual([b.id, a.id]);
+    doc.clipSelection.pop();
+    expect(ids()).toEqual([b.id, a.id]);
+    doc.selectClips([c.id], 'add');
+    expect(ids()).toEqual([b.id, c.id, a.id]);
+    doc.apply('Move', S.moveClips(doc.state, [a.id], -45));
+    expect(ids()).toEqual([a.id, b.id, c.id]);
+    doc.apply('Delete', S.removeClips(doc.state, [b.id]));
+    expect(ids()).toEqual([a.id, c.id]);
+    doc.selectedClips = new Set([c.id]);
+    expect(ids()).toEqual([c.id]);
+  });
 });
 
 describe('session files', () => {
