@@ -296,3 +296,28 @@ describe('popup menu focus', () => {
     expect(document.activeElement).toBe(field);
   });
 });
+
+describe('dialog initial focus', () => {
+  it('skips an initial focus target that cannot take focus', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    document.body.replaceChildren();
+    const tab = document.createElement('button');
+    tab.className = 'tab';
+    tab.disabled = true; // like page tabs hidden on a phone
+    const pick = document.createElement('select');
+    pick.className = 'pick';
+    const field = document.createElement('input');
+    const body = document.createElement('div');
+    body.append(field, pick, tab);
+    const done = openDialog({ title: 'T', body, initialFocus: ['.tab', '.pick'] });
+    expect(document.activeElement).toBe(pick);
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await done;
+    // Nothing in the selector can take focus: the usual first field.
+    pick.remove();
+    const again = openDialog({ title: 'T', body, initialFocus: '.tab' });
+    expect(document.activeElement).toBe(field);
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await again;
+  });
+});
