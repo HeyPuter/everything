@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createCompound, breakApart, composeTransform, compoundClips } from '../src/model/compound.js';
-import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength } from '../src/model/timeline.js';
+import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition } from '../src/model/timeline.js';
 import { normalizeProject, makeClip } from '../src/model/project.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
@@ -24,6 +24,25 @@ describe('compound clips', () => {
     expect(comp.sequence.tracks[1].main).toBe(true);
     expect(comp.sequence.tracks[0].clips[0].start).toBe(s(0.5));
     expect(sequenceLength(comp.sequence)).toBe(s(3));
+  });
+
+  it('drops a transition into a clip left outside, which could not be seen or removed', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    setTransition(p, a.id, 'mix', s(1));
+    const first = createCompound(p, [a.id], RIPPLE);
+    expect(first.sequence.tracks[0].clips[0].transition).toBe(null);
+    // Next to a second compound clip, it would have blended into that one's contents.
+    createCompound(p, [b.id], RIPPLE);
+    expect(evaluate(p, s(2)).some((layer) => layer.kind === 'transition')).toBe(false);
+  });
+
+  it('keeps a transition between two clips nested together', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    setTransition(p, a.id, 'mix', s(1));
+    const comp = createCompound(p, [a.id, b.id], RIPPLE);
+    expect(comp.sequence.tracks[0].clips[0].transition).toEqual({ id: 'mix', duration: s(1) });
   });
 
   it('refuses base track clips with other base track clips between them', () => {
