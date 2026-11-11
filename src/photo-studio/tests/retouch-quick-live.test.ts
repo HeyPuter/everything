@@ -34,6 +34,17 @@ describe('quick selection', () => {
     // No strokes: unchanged copy.
     expect([...qs.update([], removed, 10).data]).toEqual([...removed.data]);
   });
+  it('a stroke that misses the image leaves the selection as it was', () => {
+    const w = 64, h = 48, img = rgba8(w, h, [100, 100, 100, 255]);
+    for (let y = 0; y < h; y++) for (let x = 32; x < w; x++) img.data.set([200, 50, 50, 255], (y * w + x) * 4);
+    const qs = new QuickSelector(img);
+    const top = rasterizeRect(0, 0, w, 10, w, h);
+    for (const positive of [true, false]) {
+      const out = qs.update([{ points: [[-100, -100], [-90, -95]], positive }], top, 10);
+      expect([...out.data]).toEqual([...top.data]);
+      expect(qs.update([{ points: [[w + 50, 20]], positive }], undefined, 10).data.some((v) => v > 0)).toBe(false);
+    }
+  });
   it('is interactive on a 2000x1500 image', () => {
     const w = 2000, h = 1500, img = disk(w, h, 1000, 750, 400, [210, 120, 70], [60, 90, 140], 20);
     const t0 = performance.now();
