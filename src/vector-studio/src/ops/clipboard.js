@@ -15,13 +15,15 @@ import { deleteSelection, selectedSegment, selectedSegmentHits } from './object-
 export const clipboard = { data: null };
 
 /**
- * Feature hooks: [{ copy(doc, ids, data), paste(doc, data, items), targetLayer(doc, data, item) }].
+ * Feature hooks: [{ copy(doc, ids, data), paste(doc, data, items), targetLayer(doc, data, item), placed(doc, idMap) }].
  * copy() can add what the copied objects need to the clipboard data (e.g.
  * the brush or symbol definitions they use); paste() runs inside the Paste
  * transaction, before the objects arrive, to bring that into the target
  * document, and may return the items to insert instead (e.g. with symbol
  * references renamed). targetLayer() may name the layer an item pastes
- * into (Paste Remembers Layers); null keeps the usual target.
+ * into (Paste Remembers Layers); null keeps the usual target. placed() runs
+ * after each placement of the items with every copied id -> new id, to
+ * relink references between pasted objects (e.g. threaded text).
  */
 export const clipboardHooks = [];
 
@@ -167,14 +169,16 @@ export function paste(editor, mode = 'center') {
     for (const hk of clipboardHooks) items = hk.paste?.(doc, data, items) || items;
     const placeOnce = (dx, dy) => {
       const ids = [];
+      const idMap = new Map();
       let i = index;
       for (const item of items) {
         // Paste Remembers Layers: a hook may send the item back to the layer it came from.
         const into = mode === 'front' || mode === 'back' ? null : clipboardHooks.reduce((r, hk) => r || hk.targetLayer?.(doc, data, item) || null, null);
-        const node = into ? doc.importSubtree(item, into) : doc.importSubtree(item, parentId, i);
+        const node = into ? doc.importSubtree(item, into, Infinity, idMap) : doc.importSubtree(item, parentId, i, idMap);
         if (Number.isFinite(i)) i++;
         ids.push(node.id);
       }
+      for (const hk of clipboardHooks) hk.placed?.(doc, idMap);
       if (dx || dy) transformNodes(doc, ids, translate(dx, dy));
       pasted.push(...ids);
     };

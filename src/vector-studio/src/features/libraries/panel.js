@@ -88,7 +88,9 @@ export function placeGraphic(app, data, point = null) {
     let items = data.items;
     for (const hk of clipboardHooks) items = hk.paste?.(doc, data, items) || items;
     const { parentId, index } = ed.drawTarget();
-    for (const [i, sub] of items.entries()) ids.push(doc.importSubtree(sub, parentId, index + i).id);
+    const idMap = new Map();
+    for (const [i, sub] of items.entries()) ids.push(doc.importSubtree(sub, parentId, index + i, idMap).id);
+    for (const hk of clipboardHooks) hk.placed?.(doc, idMap);
     const b = selectionBounds(doc, ids);
     const at = point || viewCenter(ed);
     if (b) transformNodes(doc, ids, translate(at.x - (b.x + b.w / 2), at.y - (b.y + b.h / 2)));

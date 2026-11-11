@@ -790,10 +790,14 @@ export class VDocument extends Emitter {
     return { root: id, nodes };
   }
 
-  /** Re-id and insert a subtree produced by exportSubtree(). Returns the new root node. */
-  importSubtree(sub, parentId, index = Infinity) {
+  /**
+   * Re-id and insert a subtree produced by exportSubtree(). Returns the new
+   * root node. `idMap` (optional) collects old id -> new id.
+   */
+  importSubtree(sub, parentId, index = Infinity, idMap = null) {
     const map = new Map();
     for (const n of sub.nodes) map.set(n.id, uid(n.type[0]));
+    if (idMap) for (const [a, b] of map) idMap.set(a, b);
     const nodes = sub.nodes.map((n) => {
       const out = { ...n, id: map.get(n.id) };
       if (n.children) out.children = n.children.map((c) => map.get(c)).filter(Boolean);
