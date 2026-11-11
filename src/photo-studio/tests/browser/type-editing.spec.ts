@@ -112,3 +112,19 @@ test('a stalled font download does not stop text editing', async ({ page }) => {
   await page.keyboard.type('ab');
   expect((await caret(page)).text).toBe('ab');
 });
+
+test('the composition underline runs beside vertical text', async ({ page }) => {
+  await tool(page, 'Vertical Type Tool');
+  await canvasClick(page, 200, 60);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.imeSetComposition', { text: 'にほん', selectionStart: 3, selectionEnd: 3 });
+  const line = page.locator('#overlay .type-composition');
+  await expect(line).toHaveCount(1);
+  // Points of the underline: one x (a vertical line) spanning the composed column.
+  const pts = await line.evaluate((el) => (el.getAttribute('points') ?? '').trim().split(/\s+/).map((p) => p.split(',').map(Number)));
+  expect(pts.length).toBeGreaterThan(1);
+  const xs = new Set(pts.map((p) => Math.round(p[0] * 100)));
+  expect(xs.size).toBe(1);
+  expect(Math.abs(pts.at(-1)![1] - pts[0][1])).toBeGreaterThan(20);
+  await cdp.send('Input.insertText', { text: '日本' });
+});

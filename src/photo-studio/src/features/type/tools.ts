@@ -38,6 +38,7 @@ import { layerMatrix, localScale, textLayerAt, toLocal, warpLocal, warpedRect } 
 import { typeOptions, bindTypeOptions } from './options';
 import { wordAt, paragraphAt, plainText } from '../../imaging/text/model';
 import { AREA_TYPE_CURSOR, newTypePath, PATH_TYPE_CURSOR, pathTextMarkup, typePathAt } from './path-type';
+import { isIdentityWarp } from '../../imaging/text/warp';
 
 type Gesture =
   | { kind: 'select'; anchor: [number, number]; unit: 'char' | 'word' | 'paragraph' }
@@ -357,9 +358,16 @@ function overlay(e: Editor): string {
     const p1 = warpLocal(s.data, layout, r.x + r.width, r.y + r.height);
     out += `<line class="type-caret" x1="${p0[0]}" y1="${p0[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke-width="${Math.max(1.5 * k, 0.5)}"/>`;
   }
+  // The IME's composition underline: under horizontal text, beside vertical
+  // columns (on their right), following warps and paths like the selection.
   if (s.composing && s.composing.length)
-    for (const r of layout.selectionRects(s.composing.start, s.composing.start + s.composing.length))
-      out += `<line class="type-composition" x1="${r.x}" y1="${r.y + r.height}" x2="${r.x + r.width}" y2="${r.y + r.height}" stroke-width="${2 * k}"/>`;
+    for (const r of layout.selectionRects(s.composing.start, s.composing.start + s.composing.length)) {
+      const [x0, y0, x1, y1] = layout.vertical ? [r.x + r.width, r.y, r.x + r.width, r.y + r.height] : [r.x, r.y + r.height, r.x + r.width, r.y + r.height];
+      const steps = layout.map ? Math.max(8, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 4)) : isIdentityWarp(s.data.warp) ? 1 : 8;
+      const pts: [number, number][] = [];
+      for (let i = 0; i <= steps; i++) pts.push(warpLocal(s.data, layout, x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps));
+      out += `<polyline class="type-composition" points="${poly(pts)}" fill="none" stroke-width="${2 * k}"/>`;
+    }
   return out + '</g>';
 }
 
