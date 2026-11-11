@@ -93,6 +93,24 @@ describe('MeshEdit', () => {
     expect(me.indices.length).toBe(40);
   });
 
+  it('bevel keeps the corner colors of the faces it reshapes', () => {
+    const { me } = cubeEdit();
+    me.color_attributes = [{ name: 'Col', domain: 'CORNER', data: Float32Array.from({ length: 24 * 4 }, (_, i) => (i % 4 === 0 || i % 4 === 3 ? 1 : 0)) }];
+    const m = MeshEdit.from(me);
+    // one edge of the top face
+    m.sel = m.sel.map(() => 0);
+    const top = m.faces.find((f) => f.verts.every((v) => m.p(v)[2] > 0.9))!;
+    m.sel[top.verts[0]] = m.sel[top.verts[1]] = 1;
+    expect(bevelEdges(m, 0.2, 1)).toBe(true);
+    m.write(me);
+    const data = me.color_attributes[0].data;
+    expect(data.length).toBe(me.indices.length * 4);
+    let red = 0;
+    for (let c = 0; c < me.indices.length; c++) if (data[c * 4] === 1 && data[c * 4 + 1] === 0) red++;
+    // the 6 original faces keep red on all their (now 4 or 5) corners; only the new strip is white
+    expect(red).toBe(me.indices.length - 4);
+  });
+
   it('extrudes a face region with walls', () => {
     const { m } = cubeEdit();
     selectFace(m, (c) => c[2] > 0.9);

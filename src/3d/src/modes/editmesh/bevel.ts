@@ -358,7 +358,9 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
       uvs: number[] = [],
       seams: number[] = [],
       sharp: number[] = [],
-      creases: number[] = [];
+      creases: number[] = [],
+      colors: number[] = [];
+    const cattr = f.cattr ? f.cattr.map(() => [] as number[]) : null;
     for (let i = 0; i < n; i++) {
       const v = src[i];
       const own = corner.get(`${fi}:${v}`);
@@ -383,6 +385,9 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
       for (const r of rep) {
         verts.push(r);
         uvs.push(f.uvs[i * 2], f.uvs[i * 2 + 1]);
+        // corner colors and generic corner attributes follow the corner they replace
+        if (f.colors) colors.push(...f.colors.slice(i * 4, i * 4 + 4));
+        if (cattr) f.cattr!.forEach((a, k) => a && cattr[k].push(...a.slice(i * m.gattrs[k].width, (i + 1) * m.gattrs[k].width)));
         seams.push(r === rep[rep.length - 1] ? f.seams[i] : 0);
         sharp.push(r === rep[rep.length - 1] ? f.sharp[i] : 0);
         creases.push(r === rep[rep.length - 1] ? f.creases[i] : 0);
@@ -393,7 +398,8 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
     f.seams = seams;
     f.sharp = sharp;
     f.creases = creases;
-    f.colors = undefined;
+    if (f.colors) f.colors = colors;
+    if (cattr) f.cattr = f.cattr!.map((a, k) => (a ? cattr[k] : undefined));
   });
   // close junctions where the original vertex vanished: polygon through all new corners/rows there
   // (vertex use and the original faces around each vertex are looked up, not scanned per vertex)
