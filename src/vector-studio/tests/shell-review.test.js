@@ -216,3 +216,33 @@ describe('tool flyouts on phones', () => {
     }
   });
 });
+
+describe('ruler guides', () => {
+  it('dragging a guide out and releasing it off the canvas (over the panels) adds no guide', async () => {
+    const { bootApp } = await import('./helpers.js');
+    const app = bootApp();
+    const ed = app.newDocument();
+    ed.setViewOption('rulers', true);
+    app.canvasHost.getBoundingClientRect = () => ({ left: 100, top: 90, right: 1000, bottom: 800, width: 900, height: 710 });
+    const ruler = document.querySelector('.ruler-top');
+    ruler.setPointerCapture = () => {};
+    const ev = (type, x, y) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+      e.pointerId = 1;
+      ruler.dispatchEvent(e);
+    };
+    const drag = (x, y) => {
+      ev('pointerdown', 300, 80);
+      ev('pointermove', 300, 300);
+      ev('pointermove', x, y);
+      ev('pointerup', x, y);
+    };
+    drag(1200, 400);
+    expect(ed.doc.root.guides || []).toHaveLength(0);
+    drag(300, 850);
+    expect(ed.doc.root.guides || []).toHaveLength(0);
+    drag(300, 300);
+    expect(ed.doc.root.guides).toHaveLength(1);
+    expect(ed.alignmentGuides).toBe(null);
+  });
+});
