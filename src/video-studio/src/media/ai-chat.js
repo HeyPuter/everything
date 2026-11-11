@@ -39,6 +39,8 @@ export async function* aiChatStream(messages, { model, tools, maxTokens, signal 
         else if (part.type === 'reasoning') yield { type: 'reasoning' };
         // A stream says nothing of why it ended; its closing token count is how a cut-off reply shows.
         else if (part.type === 'usage') {
+          // Puter ends a reply the account's credits ran out during as if it reached the length limit.
+          if (part.metadata?.usage_limited) throw Object.assign(new Error('Your Puter account ran out of AI credits, so the reply stopped.'), { code: 'insufficient_funds' });
           if (reachedLimit(part.usage, maxTokens)) yield { type: 'cut' };
         } else if (typeof part.text === 'string' && part.text) yield { type: 'text', text: part.text };
       }

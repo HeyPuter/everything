@@ -627,6 +627,14 @@ describe('AI sidebar conversation', () => {
     expect(ended).toBe(true);
     void next;
   });
+
+  it('says the credits ran out when Puter ends a reply for that', async () => {
+    const sdk = { ai: { chat: async () => (async function* () { yield { text: 'Half' }; yield { type: 'usage', usage: { output_tokens: 3 }, metadata: { usage_limited: true } }; })() } };
+    const parts = [];
+    await expect((async () => { for await (const p of aiChatStream([], { maxTokens: 3 }, sdk)) parts.push(p); })()).rejects.toThrow(/ran out of AI credits/);
+    expect(parts).toEqual([{ type: 'text', text: 'Half' }]);
+    expect(friendlyAiError(Object.assign(new Error('Your Puter account ran out of AI credits, so the reply stopped.'), { code: 'insufficient_funds' }))).toBe('Your Puter AI allowance has run out for now.');
+  });
 });
 
 describe('AI sidebar panel', () => {
