@@ -1590,6 +1590,9 @@ export function templateMenu(open: (t: (typeof templates)[number]) => void): Men
 }
 
 /** Run a text data-block in its language; reports errors (with line numbers) to Info and the status bar. */
+/** Python texts whose run is waiting for the runtime to download. */
+const waitingRuns = new Map<string, Promise<RunResult>>();
+
 export async function runText(t: TextData): Promise<RunResult> {
   let res: RunResult;
   if (t.language === 'javascript') res = runJavaScript(t.body, t.name);
@@ -1597,12 +1600,24 @@ export async function runText(t: TextData): Promise<RunResult> {
     app.report('WARNING', `"${t.name}" is plain text; set Text ▸ Language to Python or JavaScript to run it`);
     return { ok: false, error: 'not a script' };
   } else {
-    try {
-      if (!python.ready) app.report('INFO', 'Loading Python runtime…');
-      await loadPython();
-    } catch (e) {
-      app.report('ERROR', (e as Error).message);
-      return { ok: false, error: (e as Error).message };
+    // Nothing seems to happen while the runtime downloads: pressing Run Script again must not queue another run.
+    const waiting = waitingRuns.get(t.id);
+    if (waiting) return waiting;
+    if (!python.ready) {
+      const run = (async () => {
+        try {
+          app.report('INFO', 'Loading Python runtime…');
+          await loadPython();
+        } catch (e) {
+          app.report('ERROR', (e as Error).message);
+          return { ok: false, error: (e as Error).message };
+        } finally {
+          waitingRuns.delete(t.id);
+        }
+        return runText(t);
+      })();
+      waitingRuns.set(t.id, run);
+      return run;
     }
     res = runPythonText(t.body, t.name);
   }
