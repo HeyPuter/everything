@@ -77,6 +77,8 @@ describe('groups', () => {
     expect(g).toBeTruthy();
     expect(groupMembers(p, v.id).sort()).toEqual([v.id, t.id].sort());
     expect(expandGroups(p, [t.id, a.id]).sort()).toEqual([v.id, t.id, a.id].sort());
+    // Ids of clips that are gone are left out; each member once, whatever the order.
+    expect(expandGroups(p, ['gone', a.id, t.id, a.id]).sort()).toEqual([v.id, t.id, a.id].sort());
     expect(ungroupClips(p, [t.id])).toBe(2);
     expect(groupMembers(p, v.id)).toEqual([v.id]);
   });

@@ -942,8 +942,22 @@ export function groupMembers(project, id) {
 
 /** Expand a selection so whole groups are included. */
 export function expandGroups(project, ids) {
+  // One pass over the clips (a marquee over thousands of clips runs this on every move).
+  const groupOf = new Map(); // clip id -> its group, or null (and only clips that exist)
+  const members = new Map();
+  for (const c of allClips(project)) {
+    groupOf.set(c.id, c.group || null);
+    if (!c.group) continue;
+    if (!members.has(c.group)) members.set(c.group, []);
+    members.get(c.group).push(c.id);
+  }
   const out = new Set();
-  for (const id of ids) for (const m of groupMembers(project, id)) out.add(m);
+  for (const id of ids) {
+    if (!groupOf.has(id)) continue;
+    const g = groupOf.get(id);
+    if (g) for (const m of members.get(g)) out.add(m);
+    else out.add(id);
+  }
   return [...out];
 }
 
