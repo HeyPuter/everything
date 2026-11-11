@@ -233,3 +233,35 @@ describe('voice effects in the mix', () => {
     }
   });
 });
+
+describe('limiting a loud mix', () => {
+  it('turns loud overlapping sound down instead of clipping it', async () => {
+    const sr = 48000;
+    const n = sr * 4;
+    const tone = (f) => (i) => 0.6 * Math.sin((2 * Math.PI * f * i) / sr);
+    const a = makeClip('audio', { assetId: 'a', start: 0, duration: 4 * US });
+    const b = makeClip('audio', { assetId: 'b', start: 0, duration: 4 * US });
+    const { p, openSource } = project([a], { a: synth(sr, 4, tone(440)), b: synth(sr, 4, tone(660)) });
+    p.tracks.push({ ...makeTrack('audio'), clips: [b] });
+    p.assets.b = { id: 'b', kind: 'audio', name: 'b', hasAudio: true, duration: 60 * US };
+    const { channels } = await renderAudio(p, null, { sampleRate: sr, channels: 2, openSource });
+    const out = channels[0];
+    expect(out.length).toBe(n);
+    for (const v of out) expect(Math.abs(v)).toBeLessThanOrEqual(0.9 + 1e-6);
+    // The two tones come out clean: clipping them made distortion only 26 dB down.
+    const goertzel = (f) => {
+      const c = 2 * Math.cos((2 * Math.PI * f) / sr);
+      let s1 = 0;
+      let s2 = 0;
+      for (let i = sr; i < 3 * sr; i++) {
+        const s = out[i] + c * s1 - s2;
+        s2 = s1;
+        s1 = s;
+      }
+      return s1 * s1 + s2 * s2 - c * s1 * s2;
+    };
+    const tones = goertzel(440) + goertzel(660);
+    const products = [220, 880, 1100, 1320, 1540, 1760, 1980, 2200].reduce((sum, f) => sum + goertzel(f), 0);
+    expect(10 * Math.log10(products / tones)).toBeLessThan(-40);
+  });
+});

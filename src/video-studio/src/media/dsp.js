@@ -128,6 +128,70 @@ export function resample(src, pos, step, count) {
   return new Float32Array(ex.memory.buffer, outOff, count).slice();
 }
 
+/**
+ * Look-ahead peak limiter for the final mix, streaming over chunks. The
+ * gain eases down over the look-ahead before a peak (so no sample goes over
+ * the threshold and nothing is clipped) and recovers smoothly after it;
+ * the channels share one gain so the stereo image holds. Sound that stays
+ * under the threshold passes bit for bit.
+ */
+export class PeakLimiter {
+  constructor(sampleRate, { threshold = 0.9, lookAheadMs = 5, releaseMs = 80 } = {}) {
+    this.t = threshold;
+    this.L = Math.max(1, Math.round((lookAheadMs * sampleRate) / 1000));
+    this.rel = 1 - Math.exp(-1 / ((releaseMs * sampleRate) / 1000));
+    this.g = 1;
+  }
+
+  /**
+   * Limit cur (planar channels, in place) given the start of the chunk that
+   * follows it (next, or null at the end). Chunks must come in order.
+   */
+  process(cur, next) {
+    const { t, L } = this;
+    const n = cur[0].length;
+    const nNext = next ? Math.min(L, next[0].length) : 0;
+    const over = (chs, len) => {
+      for (const ch of chs) {
+        for (let i = 0; i < len; i++) if (ch[i] > t || ch[i] < -t) return true;
+      }
+      return false;
+    };
+    // Nothing near the threshold and no gain to recover: leave the sound as it is.
+    if (this.g === 1 && !over(cur, n) && !(next && over(next, nNext))) return cur;
+    // Gain each sample may have at most: 1, or what brings its peak to the threshold.
+    let att = null;
+    for (let j = 0; j < n + nNext; j++) {
+      const chs = j < n ? cur : next;
+      const k = j < n ? j : j - n;
+      let peak = 0;
+      for (let c = 0; c < chs.length; c++) {
+        const v = Math.abs(chs[c][k]);
+        if (v > peak) peak = v;
+      }
+      if (!(peak > t)) continue;
+      const r = t / peak;
+      att ||= new Float32Array(n).fill(1);
+      // Ease down over the look-ahead so the gain is r when the peak arrives.
+      for (let i = Math.max(0, j - L); i <= Math.min(j, n - 1); i++) {
+        const v = r + ((1 - r) * (j - i)) / L;
+        if (v < att[i]) att[i] = v;
+      }
+    }
+    let g = this.g;
+    if (!att && g === 1) return cur;
+    const { rel } = this;
+    for (let i = 0; i < n; i++) {
+      g += (1 - g) * rel;
+      if (g > 1 - 1e-6) g = 1;
+      if (att && att[i] < g) g = att[i];
+      if (g !== 1) for (const ch of cur) ch[i] *= g;
+    }
+    this.g = g;
+    return cur;
+  }
+}
+
 /** Gentle limiter so summed tracks never clip harshly (mutates buf). */
 export function softClip(buf) {
   const ex = instance;

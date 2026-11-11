@@ -10,7 +10,7 @@
 import { Input, BlobSource, ALL_FORMATS, AudioBufferSink } from 'mediabunny';
 import { US } from '../lib/time.js';
 import { projectDuration } from '../model/timeline.js';
-import { loadDsp, mixRamp, resample, softClip } from '../media/dsp.js';
+import { loadDsp, mixRamp, resample, softClip, PeakLimiter } from '../media/dsp.js';
 import { audibleClips, gainAt } from './scene.js';
 import { ClipChain } from '../media/audio-fx.js';
 import { WsolaStretcher, readLinear } from '../media/stretch.js';
@@ -398,6 +398,17 @@ export async function* mixChunks(project, library, { start = 0, end, sampleRate 
       /* the decoder may already be closed */
     }
   };
+  // The limiter looks a few ms ahead: each chunk goes out once the next one is mixed.
+  const limiter = new PeakLimiter(sampleRate);
+  let held = null;
+  const release = (next) => {
+    const c = held;
+    limiter.process(c.channels, next?.channels || null);
+    for (const ch of c.channels) softClip(ch);
+    onProgress?.({ done: c.done, total });
+    held = next;
+    return c.mixed;
+  };
   try {
     for (let done = 0; done < total; ) {
       if (signal?.aborted) throw abortError();
@@ -443,11 +454,12 @@ export async function* mixChunks(project, library, { start = 0, end, sampleRate 
         const firstSec = (clip.in + st.map(Math.max(0, t1 - clip.start))) / US;
         if (win.started) win.dropBefore(Math.min(firstSec * win.rate - 4, st.stream ? st.stream.keepFrom(win) : Infinity));
       }
-      for (const ch of out) softClip(ch);
       done += frames;
-      onProgress?.({ done, total });
-      yield { time: t0, frames, sampleRate, channels: out };
+      const mixed = { time: t0, frames, sampleRate, channels: out };
+      if (!held) held = { mixed, channels: out, done };
+      else yield release({ mixed, channels: out, done });
     }
+    if (held) yield release(null);
   } finally {
     for (const st of active.values()) await closeState(st);
     active.clear();
