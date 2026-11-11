@@ -61,3 +61,36 @@ describe('PostScript programs that allocate without bound', () => {
     expect(r.nodes.size).toBe(1);
   });
 });
+
+describe('DXF files with extreme values', () => {
+  const dxf = (sections) => `${sections.map(([name, body]) => `0\nSECTION\n2\n${name}\n${body.trim()}\n0\nENDSEC`).join('\n')}\n0\nEOF\n`;
+  const ent = (type, pairs) => `0\n${type}\n${pairs.map(([c, v]) => `${c}\n${v}`).join('\n')}`;
+  const convert = async (text) => {
+    const { readDXF, convertDXF } = await import('../src/features/interop/dxf/dxf-import.js');
+    return convertDXF(readDXF(text), { unitPt: 1 });
+  };
+  const paths = (r) => [...r.nodes.values()].filter((n) => n.type === 'path');
+
+  it('arcs and ellipses whose angles are many turns apart draw at most one turn', async () => {
+    const r = await convert(
+      dxf([
+        [
+          'ENTITIES',
+          [
+            ent('ARC', [[8, '0'], [10, 0], [20, 0], [40, 10], [50, 0], [51, 1e300]]),
+            ent('ARC', [[8, '0'], [10, 0], [20, 0], [40, 10], [50, 1e300], [51, 0]]),
+            ent('ELLIPSE', [[8, '0'], [10, 0], [20, 0], [11, 10], [21, 0], [40, 0.5], [41, 0], [42, 1e20]]),
+            ent('ARC', [[8, '0'], [10, 0], [20, 0], [40, 10], [50, 0], [51, 90]]),
+          ].join('\n'),
+        ],
+      ]),
+    );
+    const list = paths(r);
+    expect(list).toHaveLength(4);
+    for (const p of list) expect(p.anchors.length).toBeLessThanOrEqual(6);
+    // An ordinary quarter arc is unchanged: from (10, 0) to (0, 10) (y flipped).
+    const q = list[3].anchors;
+    expect(q).toHaveLength(2);
+    expect([q[0].x, q[0].y, q[1].x, q[1].y].map((v) => Math.round(v * 1000) / 1000 + 0)).toEqual([10, 0, 0, -10]);
+  });
+});

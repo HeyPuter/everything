@@ -136,6 +136,19 @@ function readBlocks(pairs, sec) {
 // ---- geometry ----
 
 /** Cubic segments approximating an elliptical arc (angles in radians, direction by sign). */
+/**
+ * The end angle of an arc from a0 to a1 turning counterclockwise (or
+ * clockwise), moved to within one turn of a0: a sweep in (0, 2 pi]. Angles
+ * many turns apart (or huge) would otherwise loop for ever or produce
+ * billions of segments.
+ */
+function endAngle(a0, a1, ccw = true) {
+  const T = Math.PI * 2;
+  let d = ccw ? a1 - a0 : a0 - a1;
+  if (!(d > 0 && d <= T + 1e-6)) d = ((d % T) + T) % T || T;
+  return ccw ? a0 + d : a0 - d;
+}
+
 function arcSegments(cx, cy, rx, ry, rot, a0, a1) {
   const out = [];
   const total = a1 - a0;
@@ -533,8 +546,7 @@ class DXFConverter {
       }
       case 'ARC': {
         const a0 = (n(50) * Math.PI) / 180;
-        let a1 = (n(51) * Math.PI) / 180;
-        while (a1 <= a0) a1 += Math.PI * 2;
+        const a1 = endAngle(a0, (n(51) * Math.PI) / 180);
         const { start, segments } = arcSegments(n(10), n(20), n(40), n(40), 0, a0, a1);
         const s = new Sub(...start);
         segments.forEach((seg) => s.add(seg));
@@ -547,8 +559,7 @@ class DXFConverter {
         const rx = Math.hypot(mx, my);
         const ry = rx * n(40, 1);
         const t0 = n(41, 0);
-        let t1 = n(42, Math.PI * 2);
-        while (t1 <= t0) t1 += Math.PI * 2;
+        const t1 = endAngle(t0, n(42, Math.PI * 2));
         const full = Math.abs(t1 - t0 - Math.PI * 2) < 1e-6;
         const { start, segments } = arcSegments(n(10), n(20), rx, ry, Math.atan2(my, mx), t0, t1);
         const s = new Sub(...start);
@@ -681,7 +692,7 @@ class DXFConverter {
               a0 = -a0;
               a1 = -a1;
             }
-            while (ccw ? a1 <= a0 : a1 >= a0) a1 += ccw ? Math.PI * 2 : -Math.PI * 2;
+            a1 = endAngle(a0, a1, ccw);
             const r = arcSegments(cx, cy, rx, ry, rot, a0, a1);
             if (!s) s = new Sub(...r.start);
             r.segments.forEach((seg) => s.add(seg));
