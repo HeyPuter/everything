@@ -1659,16 +1659,16 @@ export function createTimeline(ctx) {
       const target = y !== undefined ? dropTarget(kind, y) : null;
       if (target?.row) trackId = target.row.track.id;
       const main = Boolean(target?.row?.track.main) || (!target && kind === 'video' && T.mainTrack(store.project).clips.length === 0);
-      if (target?.newTrackAt !== undefined) {
-        // A fresh track at that spot.
+      // A fresh track at that spot, made in the same undo step as the clip on it.
+      const mark = target?.newTrackAt !== undefined ? store.beginBatch() : null;
+      if (mark) {
         store.update(`Add ${a.name}`, (p) => {
           const tr = T.addTrack(p, kind, target.newTrackAt);
           trackId = tr.id;
         }, { keepEmptyTracks: true });
-        const last = store.history.undoStack.pop();
-        void last;
       }
-      actions.addAsset(a, { start: t, trackId: main ? undefined : trackId ?? (kind === 'video' ? null : undefined), main });
+      const added = actions.addAsset(a, { start: t, trackId: main ? undefined : trackId ?? (kind === 'video' ? null : undefined), main });
+      if (mark) store.endBatch(mark, added ? `Add ${a.name}` : 'Add track');
       return;
     }
     if (d.kind === 'transition') {

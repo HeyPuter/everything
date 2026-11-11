@@ -169,3 +169,23 @@ describe('timeline on phones', () => {
     tl.dispose();
   });
 });
+
+describe('timeline drops', () => {
+  it('undoes media dropped above the tracks without leaving its new track behind', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 2));
+    const { store, tl } = mountTimeline(p);
+    const before = store.project.tracks.length;
+    const steps = store.history.undoStack.length;
+    // Above the first row: a new overlay track there.
+    tl.dropPayload(JSON.stringify({ kind: 'asset', assetId: 'img' }), { start: 0, y: 2 });
+    expect(store.project.tracks.length).toBe(before + 1);
+    expect(store.project.tracks[0].clips).toHaveLength(1);
+    expect(store.history.undoStack.length).toBe(steps + 1);
+    store.undo();
+    expect(store.project.tracks.length).toBe(before);
+    store.redo();
+    expect(store.project.tracks[0].clips).toHaveLength(1);
+    tl.dispose();
+  });
+});
