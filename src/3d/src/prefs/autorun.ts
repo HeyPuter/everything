@@ -13,7 +13,12 @@ export function globMatch(pattern: string, name: string): boolean {
   return re.test(name);
 }
 
+/** Projects opened so far: a run waiting for the Python runtime is for the project open when it started. */
+let opened = 0;
+fileEvents.opened.push(() => void opened++);
+
 export async function runRegisteredTexts(): Promise<number> {
+  const project = opened;
   const texts = Object.values(app.doc.texts ?? {}).filter((t) => t.use_module && t.language !== 'text');
   if (!texts.length) return 0;
   const excluded = (prefs.autoexec_paths ?? []).find((pat) => pat.trim() && globMatch(pat.trim(), app.filename ?? ''));
@@ -28,7 +33,10 @@ export async function runRegisteredTexts(): Promise<number> {
   let n = 0;
   for (const t of texts) {
     try {
-      const r = t.language === 'python' ? (await loadPython(), runPythonText(t.body, t.name, `Run ${t.name}`)) : runJavaScript(t.body, t.name, `Run ${t.name}`);
+      if (t.language === 'python') await loadPython();
+      // Another project was opened during the ~10 MB download: these texts are not its scripts (it runs its own).
+      if (opened !== project) return n;
+      const r = t.language === 'python' ? runPythonText(t.body, t.name, `Run ${t.name}`) : runJavaScript(t.body, t.name, `Run ${t.name}`);
       if (!r.ok) {
         output.push(`${t.name}: ${r.error}`, 'ERROR');
         app.report('ERROR', `Registered script "${t.name}" failed: ${r.error}`);
