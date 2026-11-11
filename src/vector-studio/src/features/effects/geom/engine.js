@@ -156,6 +156,23 @@ export function pathfinderOnShape(subs, fx, info) {
   return [...recordSubpaths(r), ...subs.filter((s) => s.paint)];
 }
 
+/**
+ * A shape item's outlines cut to a clipping path (shapeHooks.clip): the
+ * filled area inside the clip, or undefined while the engine computes it.
+ * Open outlines are left alone.
+ */
+export function clipItem(item, clip, info = {}) {
+  const own = item.subpaths.filter((s) => !s.paint && s.anchors.length > 1);
+  if (!own.length || own.every((s) => !s.closed)) return null;
+  const shapes = [
+    { subpaths: own, filled: true, evenodd: item.fillRule === 'evenodd' },
+    { subpaths: clip, filled: true },
+  ];
+  const r = engineResult(OP.INTERSECT, shapes, [], { pending: info.pending });
+  if (r === undefined) return undefined;
+  return r ? recordSubpaths(r) : null;
+}
+
 const solidKey = (style) => (style.fill?.type === 'solid' ? `${style.fill.color.toLowerCase()}|${style.fill.opacity ?? 1}` : null);
 
 /**

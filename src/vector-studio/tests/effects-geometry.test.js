@@ -321,6 +321,24 @@ describe('engine effects', () => {
     expect(area(out)).toBeCloseTo(6300, 0);
   });
 
+  it('cuts the contents of a clipping group to its clipping path, which paints nothing', () => {
+    const a = createPath(rectangle(0, 0, 60, 60), true, { fill: blue, stroke: null });
+    const big = createPath(rectangle(50, 0, 300, 300), true, { fill: red, stroke: null });
+    const clip = createPath(rectangle(50, 0, 60, 60), true, { fill: null, stroke: null });
+    const cg = createGroup([big.id, clip.id], { clip: true });
+    const g = createGroup([a.id, cg.id], { effects: [createEffect('pathfinder', { kind: 'unite' })] });
+    const doc = docWith({ node: g, descendants: [{ ...a, parent: g.id }, { ...cg, parent: g.id }, { ...big, parent: cg.id }, { ...clip, parent: cg.id }] });
+    const { items, vdoc } = liveArtwork(doc, doc.get(g.id));
+    const kids = items[0].children.map((id) => vdoc.get(id));
+    expect(kids).toHaveLength(1);
+    // The united shape takes the clipped artwork's paint, not the unpainted clipping path's.
+    expect(kids[0].fill).toBe(red);
+    const b = pathBounds(kids[0].anchors, true);
+    expect(b.x).toBeCloseTo(0, 3);
+    expect(b.x + b.w).toBeCloseTo(110, 3);
+    expect(b.y + b.h).toBeCloseTo(60, 3);
+  });
+
   it('applies Pathfinder effects to a group as a whole', () => {
     const a = createPath(rectangle(0, 0, 60, 60), true, { fill: red, stroke: null });
     const b = createPath(rectangle(30, 30, 60, 60), true, { fill: blue, stroke: null });
