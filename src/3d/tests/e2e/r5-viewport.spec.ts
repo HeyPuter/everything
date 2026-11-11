@@ -109,3 +109,28 @@ test('Local View: select all, box select and Frame All only affect the local obj
     .toBeCloseTo(0, 3);
   await expectNoErrors(errors);
 });
+
+test('a cancelled pen/touch press in the viewport does not select later', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  const selected = () => page.evaluate(() => Object.values((window as any).app.doc.objects).filter((o: any) => o.select).map((o: any) => o.name)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(await selected()).toEqual(['Cube']);
+  // a pen press on empty space that the system cancels (palm rejection, gesture)
+  const x = c.box.x + 40,
+    y = c.box.y + c.box.height - 40;
+  await page.evaluate(
+    ([x, y]) => {
+      const el = document.querySelector('.view3d') as HTMLElement;
+      const init = { bubbles: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'pen', button: 0, buttons: 1, isPrimary: true };
+      el.dispatchEvent(new PointerEvent('pointerdown', init));
+      el.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: x + 30, clientY: y - 30 }));
+      el.dispatchEvent(new PointerEvent('pointercancel', { ...init, buttons: 0 }));
+    },
+    [x, y],
+  );
+  expect(await page.locator('.view3d .select-box:not([hidden])').count()).toBe(0);
+  // a later release (e.g. of a click elsewhere) must not finish that selection
+  await page.evaluate(([x, y]) => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x + 60, clientY: y - 60, pointerId: 1, button: 0 })), [x, y]);
+  expect(await selected()).toEqual(['Cube']);
+  await expectNoErrors(errors);
+});

@@ -776,20 +776,31 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     // click-or-drag: tweak/box select
     const start = { ...p };
     let dragging = false;
+    const stop = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      removeEventListener('pointercancel', cancel);
+    };
+    // the system took the pointer (pen palm rejection, touch gesture): drop the selection
+    const cancel = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      stop();
+      this.boxEl.hidden = true;
+    };
     const move = (ev: PointerEvent) => {
+      // other fingers / pens do not drive this selection
+      if (ev.pointerId !== e.pointerId) return;
       const q = this.local(ev);
       if (!dragging && Math.hypot(q.x - start.x, q.y - start.y) > prefs.drag_threshold_mouse) {
         dragging = true;
         if (tool === 'builtin.select_lasso' || drag === 'SELECT_LASSO') {
-          removeEventListener('pointermove', move);
-          removeEventListener('pointerup', up);
+          stop();
           lassoDrag(this, e, modeFromEvent(ev));
           return;
         }
         if (tool === 'builtin.select' || drag === 'TWEAK') {
           // tweak: select under cursor then move
-          removeEventListener('pointermove', move);
-          removeEventListener('pointerup', up);
+          stop();
           // dragging an object that is already selected moves the whole selection
           const under = app.doc.mode === 'OBJECT' ? this.pick(start.x, start.y, 8)?.id : null;
           if (!(under && app.doc.objects[under]?.select)) selectPick(this, start.x, start.y, { extend: false, deselectAll: true, toggle: false });
@@ -801,8 +812,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       if (dragging) this.showBox(start.x, start.y, q.x, q.y, 'box');
     };
     const up = (ev: PointerEvent) => {
-      removeEventListener('pointermove', move);
-      removeEventListener('pointerup', up);
+      if (ev.pointerId !== e.pointerId) return;
+      stop();
       const q = this.local(ev);
       this.boxEl.hidden = true;
       const mode = modeFromEvent(ev);
@@ -811,6 +822,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     };
     addEventListener('pointermove', move);
     addEventListener('pointerup', up);
+    addEventListener('pointercancel', cancel);
   }
 
   showBox(x0: number, y0: number, x1: number, y1: number, kind: 'box' | 'circle' = 'box') {
