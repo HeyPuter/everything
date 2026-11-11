@@ -246,4 +246,9 @@ describe('glTF import (fixture)', () => {
       expect(readGltf(bytes).nodes).toEqual([]);
     }
   });
+
+  it('reports a truncated GLB file', () => {
+    const glb = fixture('ref_scene.glb');
+    for (const f of [0.1, 0.5, 0.99]) expect(() => readGltf(glb.slice(0, Math.floor(glb.length * f)))).toThrow('The GLB file is truncated');
+  });
 });
