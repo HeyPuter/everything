@@ -557,6 +557,34 @@ describe('samples', () => {
     expect(fc.keyframe_points.length).toBe(9);
     expect(fc.sampled_points).toBeUndefined();
   });
+
+  it('turns many samples into keys with the same result as keying them one by one', () => {
+    // a sound envelope of a few minutes; inserting key by key took minutes for this many
+    const sp = Array.from({ length: 3000 }, (_, i) => [i + 1, Math.sin(i / 3) * 2] as [number, number]);
+    const fc = curve([0]);
+    fc.keyframe_points = [];
+    fc.sampled_points = sp;
+    const t = performance.now();
+    expect(T.samplesToKeys(fc)).toBe(true);
+    expect(performance.now() - t).toBeLessThan(10000);
+    const ref = curve([0]);
+    ref.keyframe_points = [];
+    for (const [f, v] of sp.slice(0, 60)) insertKeyframe(ref, f, v);
+    expect(fc.keyframe_points.length).toBe(3000);
+    for (const f of [1, 7.5, 30, 44.25]) expect(evaluateFCurve(fc, f)).toBeCloseTo(evaluateFCurve(ref, f), 4);
+    expect(fc.keyframe_points.some((k) => k.select_control_point)).toBe(false);
+  });
+
+  it('bakes a long range at once like keying each frame', () => {
+    const fc = curve([0, 5, 0], [1, 1500, 3000]);
+    const ref = curve([0, 5, 0], [1, 1500, 3000]);
+    select(fc, [0, 1, 2]);
+    expect(T.bakeKeys(refs(fc))).toBe(2997);
+    const orig = { ...ref, keyframe_points: ref.keyframe_points.map(K.cloneKey) };
+    for (let f = 2; f < 40; f++) if (f !== 1500) insertKeyframe(ref, f, evaluateFCurve(orig, f));
+    for (const f of [2, 10, 20.5, 37]) expect(evaluateFCurve(fc, f)).toBeCloseTo(evaluateFCurve(ref, f), 3);
+    expect(fc.keyframe_points.every((k) => k.select_control_point)).toBe(true);
+  });
 });
 
 describe('proportional key editing', () => {
