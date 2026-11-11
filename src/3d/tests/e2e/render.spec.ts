@@ -246,3 +246,22 @@ test('the world is baked again when a node group nested two levels deep changes,
   expect(r).toEqual({ moveRendered: false, valueRendered: true });
   await expectNoErrors(errors);
 });
+
+test('Frame All in an Image Editor squeezed below its margin keeps a usable zoom', async ({ page }) => {
+  const errors = await rendering(page);
+  await renderStill(page, {});
+  const zoom = await page.evaluate(async (imp) => {
+    const { shell } = await (0, eval)(imp)('/src/ui/shell.ts');
+    const ed = shell.screen.areas.find((a: any) => a.type === 'IMAGE_EDITOR').editor;
+    const real = ed.viewSize.bind(ed);
+    ed.viewSize = () => ({ ...real(), w: 12, h: 8 });
+    ed.frameAll(false);
+    const z = ed.zoom;
+    ed.viewSize = real;
+    ed.frameAll(false);
+    return [z, ed.zoom];
+  }, IMPORT);
+  expect(Number.isFinite(zoom[0]) && zoom[0] > 0).toBe(true);
+  expect(Number.isFinite(zoom[1]) && zoom[1] > 0).toBe(true);
+  await expectNoErrors(errors);
+});
