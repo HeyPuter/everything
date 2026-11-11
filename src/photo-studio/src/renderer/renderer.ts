@@ -35,7 +35,7 @@ import type { StrokeRaster } from "../engine/vector";
 import type { Rect } from "../model/document";
 import { floatCoverage } from '../model/coverage';
 import { inverseMaskMatrix, pixelMaskMatrix } from '../model/pixel-mask';
-import { TILE, gridDocBounds, parseKey, tileKey, type TileGrid } from '../model/tiles';
+import { TILE, gridDocBounds, intersectRect, parseKey, tileKey, type TileGrid } from '../model/tiles';
 import { packLut, type CompiledLut } from './lut-shaders';
 import { SpatialPasses, type SpatialFilter } from './spatial-pass';
 import type { AdjustmentSpec, Transform } from '../model/document';
@@ -804,9 +804,18 @@ export class Renderer {
   private pixelSource(l: Layer, grid: TileGrid, assets: Assets, id = l.id) {
     const b = grid.bounds;
     if (!b) return undefined;
-    const ext = alignedExtent(b);
-    if (ext.width > this.backend.maxSize || ext.height > this.backend.maxSize)
-      throw new Error(`This GPU supports layers up to ${this.backend.maxSize} pixels per side.`);
+    let ext = alignedExtent(b);
+    const max = this.backend.maxSize;
+    // A layer larger than a texture (a big layer scaled up, say) uploads only
+    // the tiles over the canvas; its other pixels are kept, just not drawn.
+    if ((ext.width > max || ext.height > max) && this.document) {
+      const canvas = alignedExtent({ x: -grid.x, y: -grid.y, width: this.document.width, height: this.document.height });
+      const shown = intersectRect(ext, canvas);
+      if (!shown) return undefined;
+      ext = shown;
+    }
+    if (ext.width > max || ext.height > max)
+      throw new Error(`This GPU supports layers up to ${max} pixels per side.`);
     const key = JSON.stringify([ext, this.floating]);
     let entry = this.sources.get(id);
     if (!entry || entry.key !== key || entry.assets !== assets || !entry.tiles) {
