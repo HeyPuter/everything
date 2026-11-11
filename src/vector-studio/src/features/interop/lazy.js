@@ -54,9 +54,11 @@ function families() {
 
 const stem = (name) => String(name || 'Untitled').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
 
+/** A user-facing error; `what` names the file (null when the caller's message already does). */
 function friendly(err, what) {
   if (err instanceof UserError) return err;
   if (err instanceof PDFError) return new UserError(err.message);
+  if (!what) return new UserError(err?.message || 'The file could not be read.');
   return new UserError(`${what} could not be read. ${err?.message || ''}`.trim());
 }
 
@@ -300,7 +302,8 @@ export async function openForeign(app, bytes, { name, format }) {
     }
     if (format === 'raster') return await openRaster(bytes, docName);
   } catch (err) {
-    throw friendly(err, `"${name}"`);
+    // File > Open reports '"name" could not be imported.' before this message.
+    throw friendly(err, null);
   }
   return null;
 }

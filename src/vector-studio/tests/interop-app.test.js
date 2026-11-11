@@ -116,6 +116,14 @@ describe('opening files', () => {
     expect(await app.files.service.openBytes(new TextEncoder().encode('%PDF-1.4 garbage'), { name: 'broken.pdf' })).toBe(null);
     expect(calls[0].title).toBe('Could Not Open');
   });
+
+  it('names the file once in the reason a file cannot be opened', async () => {
+    const calls = [];
+    app.dialogs.alert = async (o) => calls.push(o);
+    // A TIFF header that ends before its first directory.
+    expect(await app.files.service.openBytes(new Uint8Array([0x49, 0x49, 42, 0, 8, 0, 0, 0, 32, 0]), { name: 'scan.tif' })).toBe(null);
+    expect(calls[0].message).toBe('"scan.tif" could not be imported. The TIFF file is damaged or incomplete.');
+  });
 });
 
 describe('placing files', () => {
