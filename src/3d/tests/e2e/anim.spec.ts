@@ -521,3 +521,38 @@ test('timeline range fields keep start at or before end', async ({ page }) => {
   expect((await range()).slice(2)).toEqual([40, 40]);
   await expectNoErrors(errors);
 });
+
+test('graph editor: a modifier frame range stays ordered and its blends fit inside', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'GRAPH');
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/ui/shell.ts');
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const fc = app.doc.actions[app.activeObject.animation_data.action].fcurves[0];
+    fc.modifiers.push({ type: 'NOISE', strength: 1, use_restricted_range: true, frame_start: 1, frame_end: 40 });
+    const ed = shell.screen.areas.find((a: { type: string }) => a.type === 'GRAPH').editor;
+    ed.showSidebar = true;
+    ed.sidebarTab = 'modifiers';
+    ed.refresh();
+    app.changed('doc');
+  });
+  const typeInto = async (suffix: string, text: string) => {
+    await area(page, 'GRAPH').locator(`[data-id$="-${suffix}"]`).first().dblclick();
+    const input = page.locator('input.editing');
+    await expect(input).toBeVisible();
+    await input.fill(text);
+    await input.press('Enter');
+    await expect(input).toHaveCount(0);
+  };
+  const mod = () => page.evaluate(() => { const a = (window as any).app; const m = a.doc.actions[a.activeObject.animation_data.action].fcurves[0].modifiers[0]; return [m.frame_start, m.frame_end, m.blend_in ?? 0, m.blend_out ?? 0]; }); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await typeInto('bi', '30');
+  await typeInto('bo', '30');
+  expect(await mod()).toEqual([1, 40, 30, 9]);
+  await typeInto('rs', '35');
+  expect(await mod()).toEqual([35, 40, 5, 0]);
+  await typeInto('rs', '60');
+  expect((await mod()).slice(0, 2)).toEqual([60, 60]);
+  await typeInto('re', '10');
+  expect((await mod()).slice(0, 2)).toEqual([10, 10]);
+  await expectNoErrors(errors);
+});

@@ -428,6 +428,16 @@ export function elasticOffset(k: Pick<Keyframe, 'easing' | 'amplitude' | 'period
   return 0.5 * scale(u * d) * a * Math.pow(2, -10 * u) * Math.sin((u * d - s) * w) + c;
 }
 
+/** Length of a modifier's restricted frame range. */
+export const modifierRangeLength = (m: FModifier) => Math.max(0, (m.frame_end ?? 0) - (m.frame_start ?? 0));
+
+/** Shrink a modifier's blend in/out so together they fit in its restricted frame range. */
+export function fitModifierBlends(m: FModifier) {
+  const len = modifierRangeLength(m);
+  if ((m.blend_in ?? 0) > len) m.blend_in = len;
+  if ((m.blend_in ?? 0) + (m.blend_out ?? 0) > len) m.blend_out = len - (m.blend_in ?? 0);
+}
+
 /** How strongly a modifier applies at a frame (influence and restricted frame range with blending). */
 export function modifierWeight(m: FModifier, frame: number): number {
   let w = m.use_influence ? Math.max(0, Math.min(1, m.influence ?? 1)) : 1;

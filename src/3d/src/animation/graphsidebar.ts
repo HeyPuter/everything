@@ -6,7 +6,7 @@ import { openMenu } from '../ui/menu';
 import { numberField, enumMenu, checkbox, colorSwatch, textField, panel, button } from '../ui/widgets';
 import type { FCurve, FModifier, Keyframe } from '../data/types';
 import { channelLabel } from '../data/rna';
-import { calcHandles, sortKeyframes, alignHandle, ELASTIC_DEFAULTS } from '../anim/fcurve';
+import { calcHandles, sortKeyframes, alignHandle, ELASTIC_DEFAULTS, fitModifierBlends, modifierRangeLength } from '../anim/fcurve';
 import { finalizeCurve } from './keyedit';
 import { curveColor } from './theme';
 import { INTERPOLATION_ITEMS, HANDLE_ITEMS, EASING_ITEMS } from './menus';
@@ -366,10 +366,11 @@ function modifierPanel(list: FModifier[], m: FModifier, i: number, prefix: strin
     ),
     m.use_restricted_range
       ? [
-          row('Start', numberField({ id: `${prefix}-${i}-rs`, value: m.frame_start ?? 0, step: 1, set: (v, f) => ((m.frame_start = v), set('Change Frame Range', f)) })),
-          row('End', numberField({ id: `${prefix}-${i}-re`, value: m.frame_end ?? 0, step: 1, set: (v, f) => ((m.frame_end = v), set('Change Frame Range', f)) })),
-          row('Blend In', numberField({ id: `${prefix}-${i}-bi`, value: m.blend_in ?? 0, min: 0, step: 1, set: (v, f) => ((m.blend_in = v), set('Change Frame Range', f)) })),
-          row('Out', numberField({ id: `${prefix}-${i}-bo`, value: m.blend_out ?? 0, min: 0, step: 1, set: (v, f) => ((m.blend_out = v), set('Change Frame Range', f)) })),
+          // the range stays ordered and the blends fit inside it (as in Blender)
+          row('Start', numberField({ id: `${prefix}-${i}-rs`, value: m.frame_start ?? 0, step: 1, set: (v, f) => ((m.frame_start = v), (m.frame_end = Math.max(v, m.frame_end ?? v)), fitModifierBlends(m), set('Change Frame Range', f)) })),
+          row('End', numberField({ id: `${prefix}-${i}-re`, value: m.frame_end ?? 0, step: 1, set: (v, f) => ((m.frame_end = v), (m.frame_start = Math.min(v, m.frame_start ?? v)), fitModifierBlends(m), set('Change Frame Range', f)) })),
+          row('Blend In', numberField({ id: `${prefix}-${i}-bi`, value: m.blend_in ?? 0, min: 0, max: modifierRangeLength(m) - (m.blend_out ?? 0), step: 1, set: (v, f) => ((m.blend_in = Math.max(0, Math.min(v, modifierRangeLength(m) - (m.blend_out ?? 0)))), set('Change Frame Range', f)) })),
+          row('Out', numberField({ id: `${prefix}-${i}-bo`, value: m.blend_out ?? 0, min: 0, max: modifierRangeLength(m) - (m.blend_in ?? 0), step: 1, set: (v, f) => ((m.blend_out = Math.max(0, Math.min(v, modifierRangeLength(m) - (m.blend_in ?? 0)))), set('Change Frame Range', f)) })),
         ]
       : null,
     row(
