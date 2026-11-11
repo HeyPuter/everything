@@ -262,6 +262,11 @@ puter-user-menu::part(apps-panel) {
   color: var(--accent-strong);
 }
 
+/* The workspace overflow button is hidden on tablets and phones (workspaces are desktop only). */
+.toolbar .icon-btn[hidden] {
+  display: none;
+}
+
 .command-search-wrap {
   position: relative;
   display: flex;

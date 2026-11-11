@@ -228,3 +228,22 @@ describe('shortcuts while typing', () => {
     spy.mockRestore();
   });
 });
+
+describe('workspace overflow button', () => {
+  it('is hidden outside the desktop layout', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    Object.defineProperty(window, 'innerWidth', { value: 820, configurable: true });
+    createShell(app, root);
+    await new Promise((r) => requestAnimationFrame(r));
+    const more = root.querySelector('[aria-label="All workspaces"]');
+    expect(more.hidden).toBe(true);
+    // .icon-btn sets display, which would override the hidden attribute (jsdom does not cascade it).
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/shell.css`, 'utf8');
+    expect(css).toMatch(/\.toolbar \.icon-btn\[hidden\] \{\s*display: none;/);
+    Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
+  });
+});
