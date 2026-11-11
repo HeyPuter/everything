@@ -121,3 +121,40 @@ test('dynamic paint image sequence bake writes images', async ({ page }) => {
   await expect(page.locator('[data-op="dpaint.bake"]').first()).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('rigid body bake to keyframes keeps quaternion keys continuous', async ({ page }) => {
+  const errors = await openApp(page);
+  const flips = await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { loadRapier } = await import('/src/physics/engine.ts');
+    await loadRapier();
+    const { defaultRigidBody, defaultRigidBodyWorld } = await import('/src/physics/types.ts');
+    const { newObject, newMeshData } = await import('/src/data/defaults.ts');
+    const { plane } = await import('/src/mesh/primitives.ts');
+    const doc = app.doc;
+    doc.scene.rigidbody_world = defaultRigidBodyWorld(1, 250);
+    const me = newMeshData('G', plane(40));
+    doc.meshes[me.id] = me;
+    const g = newObject('Ground', 'MESH', me.id);
+    g.rotation_euler = [0.5, 0, 0];
+    g.rigid_body = defaultRigidBody('PASSIVE');
+    doc.objects[g.id] = g;
+    doc.object_order.push(g.id);
+    doc.collections[doc.scene.collection].objects.push(g.id);
+    // a ball rolling down a slope turns far enough for decomposed quaternions to change sign
+    const ball = app.activeObject;
+    ball.location = [0, 5, 6];
+    ball.rotation_mode = 'QUATERNION';
+    ball.rigid_body = { ...defaultRigidBody('ACTIVE'), collision_shape: 'SPHERE', friction: 1 };
+    app.run('object.select_all', { action: 'DESELECT' }, { invoke: false });
+    ball.select = true;
+    app.run('rigidbody.bake_to_keyframes', { frame_start: 1, frame_end: 200, step: 1 }, { invoke: false });
+    const act = doc.actions[ball.animation_data.action];
+    const q = [0, 1, 2, 3].map((i) => act.fcurves.find((f: any) => f.data_path === 'rotation_quaternion' && f.array_index === i).keyframe_points.map((k: any) => k.co[1])); // eslint-disable-line @typescript-eslint/no-explicit-any
+    let n = 0;
+    for (let f = 1; f < q[0].length; f++) if (q[0][f] * q[0][f - 1] + q[1][f] * q[1][f - 1] + q[2][f] * q[2][f - 1] + q[3][f] * q[3][f - 1] < 0) n++;
+    return [q[0].length, n];
+  });
+  expect(flips).toEqual([200, 0]);
+  await expectNoErrors(errors);
+});

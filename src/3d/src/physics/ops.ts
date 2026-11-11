@@ -178,7 +178,12 @@ function bakeToKeyframes(doc: DocumentData, obs: ObjectData[], start: number, en
       let local = world.clone();
       const parent = ob.parent ? doc.objects[ob.parent] : undefined;
       if (parent) local = new Matrix4().multiplyMatrices(objectWorldAt(doc, parent, f), toMatrix4(ob.matrix_parent_inverse)).invert().multiply(world);
+      const prevQ = scratch.rotation_quaternion;
       applyMatrixToObject(scratch, local);
+      // quaternions stay on the side of the previous key (q and -q are the same rotation, but keys
+      // that flip sign interpolate the long way round)
+      const q = scratch.rotation_quaternion;
+      if (q[0] * prevQ[0] + q[1] * prevQ[1] + q[2] * prevQ[2] + q[3] * prevQ[3] < 0) scratch.rotation_quaternion = q.map((x) => -x) as typeof q;
       const loc = scratch.location;
       const rot = rpath === 'rotation_quaternion' ? scratch.rotation_quaternion : rpath === 'rotation_axis_angle' ? scratch.rotation_axis_angle : scratch.rotation_euler;
       for (let i = 0; i < 3; i++) insertKeyframe(ensureFCurve(act, 'location', i, slot), f, loc[i]);
