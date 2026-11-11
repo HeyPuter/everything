@@ -211,9 +211,12 @@ export class Editor {
     if (!force && s.closeHandler) {
       if (!(await s.closeHandler())) return false;
     } else if (!force && s.dirty) {
-      const { formDialog } = await import('./ui/dialog');
-      if (!(await formDialog(`Close “${s.doc.name}”?`, [], 'Close without saving', 'Unsaved changes will be lost.'))) return false;
+      const { saveChangesDialog } = await import('./ui/dialog');
+      const choice = await saveChangesDialog(`Save changes to “${s.doc.name}” before closing?`, 'Your changes will be lost if you don’t save them.');
+      if (choice === 'cancel' || (choice === 'save' && !(await this.saveBeforeClose(s)))) return false;
     }
+    // Another request (a second click on the close button) closed it meanwhile.
+    if (!this.sessions.includes(s)) return true;
     if (s === this.session) {
       this.transform.cancel();
       this.modal?.cancel();
@@ -231,6 +234,44 @@ export class Editor {
     this.fit();
     this.update();
     return true;
+  }
+  /** Save a document that is about to close; resolves whether it was saved.
+   * A first save asks where in a Puter picker that never answers when it is
+   * dismissed, so anything else done in the workspace meanwhile gives up on
+   * closing (the document stays open). */
+  private async saveBeforeClose(s: DocumentSession) {
+    const save = findCommand('file.save');
+    if (!save) return false;
+    if (s !== this.session) await this.switchSession(s);
+    this.transform.apply();
+    this.modal?.apply();
+    let failed = false;
+    const task = async () => {
+      try {
+        await save.run(this);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    };
+    let saved!: (value: boolean) => void;
+    const answer = new Promise<boolean>((resolve) => (saved = resolve));
+    const hook = (x: DocumentSession) => x === s && saved(true);
+    const other = () => saved(false);
+    this.saveHooks.push(hook);
+    try {
+      if (this.busy) await task().catch((error) => this.message(error instanceof Error ? error.message : String(error)));
+      else await this.run(task);
+      if (failed || !this.sessions.includes(s)) return false;
+      if (!s.dirty) return true;
+      document.addEventListener('pointerdown', other, true);
+      document.addEventListener('keydown', other, true);
+      return (await answer) && !s.dirty;
+    } finally {
+      this.saveHooks.splice(this.saveHooks.indexOf(hook), 1);
+      document.removeEventListener('pointerdown', other, true);
+      document.removeEventListener('keydown', other, true);
+    }
   }
   /** Session for a newly opened document: reuse an untouched empty workspace. */
   sessionForOpen() {

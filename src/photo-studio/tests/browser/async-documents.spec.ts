@@ -12,7 +12,6 @@ test.beforeEach(async ({ page }) => {
 async function twoDocuments(page: Page) {
   await openImage(page, 64, 48, '#ff0000', 'first.png');
   await openImage(page, 80, 60, '#0000ff', 'second.png');
-  await page.evaluate(() => window.photoStudio.command('Edit', (d) => void (d.name = 'second.png')));
   await page.evaluate(() => window.photoStudio.command('Edit', (d) => void (d.guides = [{ orientation: 'horizontal', position: 10 }])));
   await idle(page);
   expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(2);
@@ -61,4 +60,74 @@ test('a feature whose code cannot be loaded is reported in plain words', async (
   await page.evaluate(() => window.photoStudio.run(async () => void (await import(/* @vite-ignore */ `/src/features/missing-${Date.now()}.ts`))));
   await expect(page.locator('#status')).toHaveText(/could not be loaded/);
   await expect(page.locator('#status')).not.toHaveText(/https?:|\.ts/);
+});
+
+/** Puter stand-ins: writes are recorded; the save picker answers when told to. */
+async function stubPuter(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as { puter: Record<string, unknown>; written: string[]; answerPicker?: (path: string | null) => void };
+    w.written = [];
+    const item = (path: string) => ({ path, name: path.split('/').pop()!, read: async () => new Blob() });
+    w.puter.fs = { write: async (path: string) => (w.written.push(path), item(path)) };
+    // A dismissed Puter picker never settles.
+    w.puter.ui = { showSaveFilePicker: () => new Promise((resolve) => (w.answerPicker = (path) => path && (w.written.push(path), resolve(item(path))))) };
+  });
+}
+const names = (page: Page) => page.evaluate(() => window.photoStudio.sessions.map((s) => s.doc.name));
+
+test('closing an unsaved document offers Save, which saves before closing', async ({ page }) => {
+  await twoDocuments(page);
+  await stubPuter(page);
+  await page.evaluate(() => (window.photoStudio.session.storage.path = '/user/Documents/second.photo'));
+  await page.locator('.document-tab.focused .tab-close').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Don’t Save' })).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => names(page)).toEqual(['first']);
+  expect(await page.evaluate(() => (window as unknown as { written: string[] }).written)).toEqual(['/user/Documents/second.photo']);
+});
+
+test('a first save before closing waits for the save picker, and a dismissed picker keeps the document', async ({ page }) => {
+  await twoDocuments(page);
+  await stubPuter(page);
+  const close = async () => {
+    await page.locator('.document-tab.focused .tab-close').click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => typeof (window as unknown as { answerPicker?: unknown }).answerPicker)).toBe('function');
+  };
+  // The picker is dismissed (it never answers) and the user goes on working:
+  // the document stays open, and a later save does not close it.
+  await close();
+  expect(await names(page)).toEqual(['first', 'second']);
+  await page.mouse.click(700, 400);
+  await page.evaluate(() => (window as unknown as { answerPicker: (p: string) => void }).answerPicker('/user/Documents/later.photo'));
+  await idle(page);
+  expect(await names(page)).toEqual(['first', 'second']);
+  // Another document closed the same way: the picker answers, the document is saved and closes.
+  await page.locator('.document-tab', { hasText: 'first' }).click();
+  await page.evaluate(() => window.photoStudio.command('Edit', (d) => void (d.guides = [{ orientation: 'vertical', position: 3 }])));
+  await page.evaluate(() => delete (window as unknown as { answerPicker?: unknown }).answerPicker);
+  await close();
+  await page.evaluate(() => (window as unknown as { answerPicker: (p: string) => void }).answerPicker('/user/Documents/first.photo'));
+  await expect.poll(() => names(page)).toEqual(['second']);
+  expect(await page.evaluate(() => (window as unknown as { written: string[] }).written)).toEqual(['/user/Documents/later.photo', '/user/Documents/first.photo']);
+});
+
+test('Cancel keeps an unsaved document open and Don’t Save closes it', async ({ page }) => {
+  await twoDocuments(page);
+  const dialog = page.getByRole('dialog');
+  await page.locator('.document-tab.focused .tab-close').click();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await names(page)).toEqual(['first', 'second']);
+  await page.locator('.document-tab.focused .tab-close').click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  expect(await names(page)).toEqual(['first', 'second']);
+  await page.locator('.document-tab.focused .tab-close').click();
+  await dialog.getByRole('button', { name: 'Don’t Save' }).click();
+  await expect.poll(() => names(page)).toEqual(['first']);
 });
