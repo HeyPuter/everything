@@ -75,7 +75,12 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
   if (!p?.ai?.chat) throw new Error('The assistant needs Puter, which is not available right now. Check your connection and reload.');
   const options: Record<string, unknown> = { stream: true };
   if (opts.model) options.model = opts.model;
-  if (opts.tools?.length) options.tools = opts.tools;
+  if (opts.tools?.length) {
+    options.tools = opts.tools;
+    // Puter lets the model call one tool per reply unless asked: independent
+    // reads (the scene, an object, a material) would each cost a round trip.
+    options.parallelToolCalls = true;
+  }
   if (opts.maxTokens) options.max_tokens = opts.maxTokens;
   let res: unknown;
   try {
