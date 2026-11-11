@@ -70,6 +70,21 @@ describe('Solidify options', () => {
 });
 
 describe('Weld, Mask and Triangulate options', () => {
+  it('generate modifiers carry loose edges', () => {
+    const c = cube();
+    const nv = c.positions.length / 3;
+    const m = { ...c, positions: Float32Array.from([...c.positions, 3, 0, 0, 4, 0, 1]), looseEdges: new Uint32Array([0, nv, nv, nv + 1]) } as EvalMesh;
+    const count = (out: EvalMesh) => (out.looseEdges?.length ?? 0) / 2;
+    const valid = (out: EvalMesh) => Array.from(out.looseEdges ?? []).every((v) => v < out.positions.length / 3);
+    for (const [type, props, n] of [['ARRAY', { count: 3 }, 6], ['MIRROR', {}, 4], ['SUBSURF', { levels: 2 }, 2], ['TRIANGULATE', {}, 2], ['SOLIDIFY', {}, 4]] as const) {
+      const out = run(type, m, props);
+      expect(count(out), type).toBe(n);
+      expect(valid(out), type).toBe(true);
+    }
+    // the loose edges stay attached: the subdivided cube's original vertex 0 is still their end
+    const sub = run('SUBSURF', m, { levels: 1 });
+    expect(Array.from(sub.looseEdges!)).toEqual([0, nv, nv, nv + 1]);
+  });
   it('subdivision keeps a mesh without UV map free of NaN UVs', async () => {
     const { catmullClark } = await import('../../src/eval/modifiers');
     const m = { ...cube(), uvs: new Float32Array(0) } as EvalMesh;

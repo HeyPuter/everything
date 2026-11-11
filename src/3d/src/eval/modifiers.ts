@@ -2,7 +2,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { ModifierBase } from '../data/types';
 import type { EvalMesh, ModifierContext, ModifierType } from './types';
-import { MeshBuilder, appendMesh, weightsOf, groupWeights, vertexNormals } from './meshbuild';
+import { MeshBuilder, appendLooseEdges, appendMesh, weightsOf, groupWeights, vertexNormals } from './meshbuild';
 import { edgeTopology, polyNormal, triangulatePoly, vertexFaces } from '../mesh/mesh';
 import { armatureDeform } from './mods/skinning';
 import { proceduralTexture } from './textures';
@@ -316,6 +316,8 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, bounda
       b.addFace([m.indices[c], ebase + eNext, fbase + f, ebase + ePrev], uv, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, { seams: seam, sharp, creases, colors });
     }
   }
+  // loose edges keep their (original, first-numbered) vertices
+  appendLooseEdges(b, m);
   const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
   if (vsharp && vsharp.some((x) => x > 1)) {
     // original vertices keep what is left of their sharpness; new vertices are smooth
@@ -514,6 +516,7 @@ function removeDegenerate(m: EvalMesh): EvalMesh {
     if (verts.length > 1 && verts[0] === verts[verts.length - 1]) verts.pop();
     if (new Set(verts).size >= 3) b.addFace(verts, uvs, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
   }
+  appendLooseEdges(b, m);
   return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
 }
 
@@ -994,6 +997,7 @@ function triangulateMeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
       src.push(...cs);
     }
   }
+  appendLooseEdges(b, m);
   const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
   // Keep Normals: the triangles keep the custom normals of the corners they come from
   if (bool(mod, 'keep_custom_normals') && m.custom_normals && src.length === out.indices.length) {
