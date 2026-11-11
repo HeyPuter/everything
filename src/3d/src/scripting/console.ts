@@ -399,6 +399,10 @@ export class PythonConsole implements Editor {
         await loadPython();
       } catch {
         this.busy = false;
+        // Lines typed while it loaded are not run: each would download the runtime again and fail the same way.
+        const dropped = this.queue.length;
+        this.queue = [];
+        if (dropped) output.push(`${dropped} more line${dropped === 1 ? '' : 's'} typed while it loaded ${dropped === 1 ? 'was' : 'were'} not run.`, 'INFO');
         output.push('Switch the console to JavaScript (header) to keep working offline.', 'INFO');
         this.updatePrompt();
         return;
