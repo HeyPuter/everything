@@ -107,6 +107,9 @@ export class Autosaver {
       const rev = doc.revision;
       try {
         const data = await serializeDocument(doc);
+        // Saved or closed while the copy was being encoded: a copy written now would outlive the
+        // discard and be offered for recovery later.
+        if (!doc.dirty || !this.app.editors.includes(editor)) continue;
         const f = editor.file;
         await store.put(this.recoveryId(editor), {
           name: editor.name,

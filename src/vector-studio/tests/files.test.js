@@ -308,6 +308,21 @@ describe('recovery bookkeeping', () => {
     expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/"Damaged" could not be recovered: the recovery copy is damaged/), expect.objectContaining({ error: true }));
   });
 
+  it('does not leave a recovery copy behind when the document is saved while it is being written', async () => {
+    const store = new RecoveryStore([memoryBackend()]);
+    const prefs = new Prefs(memStorage());
+    const doc = sampleDoc();
+    const editor = { doc, name: 'Logo', file: null };
+    const app = { prefs, editors: [editor] };
+    const saver = new Autosaver(app, { store, session: 'me' });
+    const flushing = saver.flush();
+    // Saved (and its copy discarded) while the copy is still being encoded.
+    doc.markSaved();
+    await saver.discard(editor);
+    await flushing;
+    expect(await store.list()).toEqual([]);
+  });
+
   it('skips copies owned by sessions that are still running', () => {
     const entries = [{ id: 'a', session: 'live' }, { id: 'b', session: 'dead' }, { id: 'c' }, { id: 'd', session: 'me' }];
     expect(recoverableEntries(entries, new Set(['live']), 'me').map((e) => e.id)).toEqual(['b', 'c']);
