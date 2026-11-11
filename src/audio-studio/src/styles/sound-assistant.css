@@ -87,6 +87,8 @@
   flex-direction: column;
   min-height: 0;
   height: 100%;
+  /* A short panel (phones) scrolls as a whole so the tasks keep some room. */
+  overflow-y: auto;
 }
 
 .sa-head {
@@ -139,7 +141,7 @@
 
 .sa-scroll {
   flex: 1;
-  min-height: 0;
+  min-height: 96px;
   overflow: auto;
 }
 
