@@ -161,6 +161,20 @@ describe('Amplitude Statistics', () => {
     expect(row(statsRows(result, 1, { ref: 'sine' }), 'Peak Amplitude')).toBe('-6.02 dB');
   });
 
+  it('measures a range shorter than the RMS window as one window', () => {
+    // 100 samples at 0.5: no whole 50 ms window, so the windowed stats are empty.
+    const ch = { min: 0.5, max: 0.5, sum: 50, sq: 0.25 * 100, clipped: 0, bits: 32, rmsMin: Infinity, rmsMax: 0, rmsSum: 0, rmsCount: 0, frames: 100 };
+    const result = { channels: [ch], loudness: { truePeak: [0.5], integrated: -Infinity, range: 0, maxMomentary: -Infinity, maxShortTerm: -Infinity } };
+    const row = (label) => statsRows(result, 1).find((r) => r[0] === label)[1][0];
+    for (const label of ['Minimum RMS Amplitude', 'Maximum RMS Amplitude', 'Average RMS Amplitude', 'Total RMS Amplitude']) expect(row(label), label).toBe('-6.02 dB');
+    expect(row('Dynamic Range')).toBe('0.00 dB');
+    // Silence keeps its minus-infinity levels.
+    const silent = { ...ch, min: 0, max: 0, sum: 0, sq: 0 };
+    const rows = statsRows({ ...result, channels: [silent] }, 1);
+    expect(rows.find((r) => r[0] === 'Average RMS Amplitude')[1][0]).toBe('-∞ dB');
+    expect(rows.find((r) => r[0] === 'Dynamic Range')[1][0]).toBe('∞ dB');
+  });
+
   it('has General, RMS Histogram and RMS Settings tabs', () => {
     const app = makeApp();
     app.addDocument(audioDoc());

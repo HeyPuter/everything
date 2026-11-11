@@ -50,6 +50,9 @@ export function statsRows(result, channelCount, settings = RMS_DEFAULTS) {
   const frames = (c) => Math.max(1, c.frames);
   const off = rmsOffset(settings);
   const rmsDb = (g) => fmtDb(gainToDb(g) + off);
+  // A range shorter than the RMS window is measured as one window.
+  const total = (c) => Math.sqrt(c.sq / frames(c));
+  const win = (c) => (c.rmsCount ? null : c.frames ? total(c) : 0);
   return [
     ['Peak Amplitude', per((c) => `${fmtDb(gainToDb(Math.max(Math.abs(c.min), Math.abs(c.max))))} dB`)],
     ['True Peak Amplitude', per((c, i) => `${fmtDb(gainToDb(L.truePeak[i]))} dBTP`)],
@@ -57,11 +60,11 @@ export function statsRows(result, channelCount, settings = RMS_DEFAULTS) {
     ['DC Offset', per((c) => `${((c.sum / frames(c)) * 100).toFixed(3)} %`)],
     ['Minimum Sample Value', per((c) => (c.frames ? c.min.toFixed(5) : '0'))],
     ['Maximum Sample Value', per((c) => (c.frames ? c.max.toFixed(5) : '0'))],
-    ['Minimum RMS Amplitude', per((c) => `${rmsDb(c.rmsCount ? c.rmsMin : 0)} dB`)],
-    ['Maximum RMS Amplitude', per((c) => `${rmsDb(c.rmsMax)} dB`)],
-    ['Average RMS Amplitude', per((c) => `${rmsDb(c.rmsCount ? c.rmsSum / c.rmsCount : 0)} dB`)],
-    ['Total RMS Amplitude', per((c) => `${rmsDb(Math.sqrt(c.sq / frames(c)))} dB`)],
-    ['Dynamic Range', per((c) => (c.rmsCount && c.rmsMin > 0 ? `${(gainToDb(c.rmsMax) - gainToDb(c.rmsMin)).toFixed(2)} dB` : '∞ dB'))],
+    ['Minimum RMS Amplitude', per((c) => `${rmsDb(win(c) ?? c.rmsMin)} dB`)],
+    ['Maximum RMS Amplitude', per((c) => `${rmsDb(win(c) ?? c.rmsMax)} dB`)],
+    ['Average RMS Amplitude', per((c) => `${rmsDb(win(c) ?? c.rmsSum / c.rmsCount)} dB`)],
+    ['Total RMS Amplitude', per((c) => `${rmsDb(total(c))} dB`)],
+    ['Dynamic Range', per((c) => (c.rmsCount && c.rmsMin > 0 ? `${(gainToDb(c.rmsMax) - gainToDb(c.rmsMin)).toFixed(2)} dB` : win(c) > 0 ? '0.00 dB' : '∞ dB'))],
     ['Measured Bit Depth', per((c) => (c.bits === 0 ? 'Silent' : c.bits === 32 ? '32 (float)' : String(c.bits)))],
     ['Integrated Loudness', `${fmtDb(L.integrated)} LUFS`],
     ['Loudness Range', `${L.range.toFixed(2)} LU`],
