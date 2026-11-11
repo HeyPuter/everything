@@ -219,3 +219,38 @@ test('a document is not closed under a running task', async ({ page }) => {
   expect(await names(page)).toEqual(['first', 'second']);
 });
 
+test('Ask when opening asks about each of several files opened together', async ({ page }) => {
+  await page.evaluate(() => {
+    localStorage.setItem('photo-studio-color-settings', JSON.stringify({ rgb: 'builtin:display-p3', askMissing: true }));
+  });
+  await page.reload();
+  await boot(page);
+  const png = async (fill: string) =>
+    Buffer.from(
+      await page.evaluate(async (fill) => {
+        const c = new OffscreenCanvas(30, 20);
+        const g = c.getContext('2d')!;
+        g.fillStyle = fill;
+        g.fillRect(0, 0, 30, 20);
+        return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+      }, fill),
+    );
+  await page.locator('#file-input').setInputFiles([
+    { name: 'one.png', mimeType: 'image/png', buffer: await png('#f00') },
+    { name: 'two.png', mimeType: 'image/png', buffer: await png('#00f') },
+  ]);
+  const dialog = page.getByRole('dialog');
+  for (const name of ['one', 'two']) {
+    await expect(dialog).toContainText(`“${name}” does not have an embedded RGB profile`);
+    await dialog.getByRole('combobox').selectOption('working');
+    await dialog.getByRole('button', { name: 'OK' }).click();
+  }
+  await expect(dialog).toBeHidden();
+  await idle(page);
+  await expect
+    .poll(() => page.evaluate(() => window.photoStudio.sessions.map((s) => [s.doc.name, !!s.doc.iccProfile, s.history.labels.at(-1)])))
+    .toEqual([
+      ['one', true, 'Assign Profile'],
+      ['two', true, 'Assign Profile'],
+    ]);
+});

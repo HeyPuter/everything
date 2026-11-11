@@ -223,6 +223,15 @@ export async function applyOpenPolicy(e: Editor, s: DocumentSession = e.session)
   handled.add(s);
   if (!s.fileName || s.history.canUndo || s !== e.session) return;
   if ((s.doc.bitsPerChannel ?? 8) > 8) return;
+  // Several files opened together are asked about one after another, and
+  // each answer applies to its own document.
+  const ask = asking.then(() => askOpenPolicy(e, s));
+  asking = ask.catch(() => {});
+  return ask;
+}
+let asking = Promise.resolve();
+async function askOpenPolicy(e: Editor, s: DocumentSession) {
+  if (!e.sessions.includes(s)) return;
   const st = colorSettings();
   const state = profileMismatch(s.doc);
   if (state === 'match') return;
@@ -234,15 +243,22 @@ export async function applyOpenPolicy(e: Editor, s: DocumentSession = e.session)
       ], 'OK', `“${s.doc.name}” has an embedded profile that does not match the working RGB space.`);
       action = v?.action ?? 'preserve';
     }
-    if (action === 'convert')
+    if (!e.sessions.includes(s)) return;
+    if (action === 'convert') {
+      // The conversion reads the shown document.
+      if (e.session !== s) await e.switchSession(s);
       // Not run as a command: report a refused conversion (another document
       // became current meanwhile) instead of leaving it unhandled.
       await convertDocumentProfile(e, st.rgb, st.intent, st.bpc, 'Convert to Working RGB').catch((error) => e.message(error instanceof Error ? error.message : String(error)));
-    else if (action === 'off' || action === 'discard')
-      e.command('Discard Profile', (d) => {
-        delete d.iccProfile;
-        d.iccUntaggedProfile = true;
-      });
+    } else if (action === 'off' || action === 'discard')
+      e.command(
+        'Discard Profile',
+        (d) => {
+          delete d.iccProfile;
+          d.iccUntaggedProfile = true;
+        },
+        { session: s },
+      );
     return;
   }
   // Missing profile.
@@ -250,11 +266,15 @@ export async function applyOpenPolicy(e: Editor, s: DocumentSession = e.session)
   const v = await formDialog('Missing Profile', [
     { name: 'action', label: 'What would you like to do?', value: 'leave', type: 'select', options: [['leave', "Leave as is (don't color manage)"], ['working', `Assign working RGB: ${profileName(st.rgb)}`]] },
   ], 'OK', `“${s.doc.name}” does not have an embedded RGB profile.`);
-  if (v?.action === 'working') {
-    e.command('Assign Profile', (d) => {
-      d.iccProfile = profileBase64(st.rgb);
-      delete d.iccUntaggedProfile;
-    });
-    e.message(`Assigned ${profileName(st.rgb)}.`);
+  if (v?.action === 'working' && e.sessions.includes(s)) {
+    e.command(
+      'Assign Profile',
+      (d) => {
+        d.iccProfile = profileBase64(st.rgb);
+        delete d.iccUntaggedProfile;
+      },
+      { session: s },
+    );
+    e.message(`Assigned ${profileName(st.rgb)} to “${s.doc.name}”.`);
   }
 }
