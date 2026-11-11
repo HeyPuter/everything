@@ -100,11 +100,28 @@ export function convertVal(v: Val, from: SocketType, to: SocketType): Val {
 
 const isMulti = (s: SocketDef) => !!s.multiInput;
 
+/** Node fields that only affect how the editor draws a node, not what it computes. */
+const UI_ONLY = new Set(['location', 'width', 'select', 'hide', 'color', 'use_custom_color', 'parent', 'hidden_sockets', 'open_panels', 'hide_options', 'viewer_shortcut', 'show_preview']);
+
+/** JSON of what in a tree affects evaluation (moving, selecting or collapsing nodes and panning the editor leave it unchanged). */
+export function treeEvalJson(tree: NodeTreeData): string {
+  return JSON.stringify({
+    ...tree,
+    view: undefined,
+    active_node: undefined,
+    nodes: tree.nodes.map((n) => {
+      const o: Record<string, unknown> = {};
+      for (const k in n) if (!UI_ONLY.has(k)) o[k] = n[k as keyof NodeData];
+      return o;
+    }),
+  });
+}
+
 /** JSON of a group's tree and of the trees of the groups nested in it (a cached group node is stale when any of them changes). */
 function groupTreesJson(doc: EvalEnv['doc'], tree: NodeTreeData, seen = new Set<NodeTreeData>()): string {
   if (seen.has(tree)) return '';
   seen.add(tree);
-  let s = JSON.stringify(tree);
+  let s = treeEvalJson(tree);
   for (const n of tree.nodes) {
     const g = n.type === 'GeometryNodeGroup' && typeof n.props.node_tree === 'string' ? doc.node_groups[n.props.node_tree] : undefined;
     if (g) s += `|${groupTreesJson(doc, g.tree, seen)}`;

@@ -5,7 +5,7 @@ import type { EvalMesh, ModifierContext } from '../eval/types';
 import type { DocumentData, ModifierBase, NodeGroupData, NodeTreeData, ObjectData, SocketValue } from '../data/types';
 import { interfaceSocketType, findSocket, allSockets } from '../nodes/registry';
 import { alwaysEvaluated, geoExecs, type EvalEnv, type Val } from './exec';
-import { TreeEval, pruneCache, hash, coerce, FIELD_TYPES, type NodeCache, type EvalLog } from './evaluator';
+import { TreeEval, pruneCache, hash, coerce, treeEvalJson, FIELD_TYPES, type NodeCache, type EvalLog } from './evaluator';
 import { GeometrySet, identity, adaptDomain, dataComps, type Component } from './geometry';
 import { evalMeshToGeometry, geometryToEvalMesh, curveDataToCurves, materialSlots } from './convert';
 import { curveObjectModifierInput } from './curves/curvedata';
@@ -315,7 +315,7 @@ registerModifier({
   signature: (m, { doc, ob }) => {
     const g = nodeGroupOf(doc, m);
     if (!g) return 'none';
-    const trees = [...groupTrees(doc, g.tree)].map((t) => JSON.stringify(t));
+    const trees = [...groupTrees(doc, g.tree)].map(treeEvalJson);
     const viewer = viewerActiveFor(doc, ob, m) ? 'V' : '';
     // object/collection membership and material slots referenced by the tree
     const colls: string[] = [];

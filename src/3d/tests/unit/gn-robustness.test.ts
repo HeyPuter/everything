@@ -186,3 +186,24 @@ describe('modifier inputs', () => {
     expect([m.Socket_2, m.Socket_3, m.Socket_4, m.Socket_5, m.Socket_6]).toEqual([1, 0, [1, 2, 3, 1], null, [0.5, 0.25, 0]]);
   });
 });
+
+describe('modifier signature', () => {
+  it('ignores moving, selecting and collapsing nodes and panning the editor', async () => {
+    const { modifierTypes } = await import('../../src/eval/modifiers');
+    const t = setup();
+    const grid = node(t, 'GeometryNodeMeshGrid');
+    link(t, grid, 'Mesh', t.out, 'Geometry');
+    const ob = { id: 'ob', name: 'Ob', modifiers: [], material_slots: [] } as never;
+    const m = { id: 'md', name: 'GN', type: 'NODES', node_group: t.group.id } as unknown as ModifierBase;
+    const sig = () => modifierTypes.NODES.signature!(m, { doc: t.doc, ob, graph: null as never, frame: 1 });
+    const before = sig();
+    grid.location = [120, -40];
+    grid.select = true;
+    grid.hide = true;
+    t.tree.view = { x: 10, y: 20, zoom: 2 };
+    t.tree.active_node = grid.id;
+    expect(sig()).toBe(before);
+    grid.inputs['Vertices X'] = 7;
+    expect(sig()).not.toBe(before);
+  });
+});
