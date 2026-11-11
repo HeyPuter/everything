@@ -399,6 +399,82 @@ describe('recovery bookkeeping', () => {
     expect(await store.list()).toEqual([]);
   });
 
+  it('keeps the last edits made before the page closes even when the storage write never finishes', async () => {
+    const b = memoryBackend();
+    // The page closes: writes it starts never land.
+    let closing = false;
+    const store = new RecoveryStore([{ ...b, writeBlob: (...args) => (closing ? new Promise(() => {}) : b.writeBlob(...args)) }]);
+    const prefs = new Prefs(memStorage());
+    const doc = sampleDoc();
+    const editor = { doc, name: 'Logo', file: null };
+    const saver = new Autosaver({ prefs, editors: [editor] }, { store, session: 'closed' });
+    // The regular copy and the one kept at close can carry the same time.
+    const now = vi.spyOn(Date, 'now').mockReturnValue(5000);
+    await saver.flush();
+    const id = editor.recoveryId;
+    doc.transact('Add', () => doc.insert(createPath(rectangle(100, 10, 20, 20), true), doc.layers()[0].id));
+    closing = true;
+    saver.flush({ hiding: true });
+    const key = `vs-recovery-unwritten:${id}`;
+    expect(localStorage.getItem(key)).toContain('"revision":2');
+    // Next start: the kept copy is written back, offered, and forgotten.
+    const store2 = new RecoveryStore([b]);
+    const app = { prefs, editors: [], notify: vi.fn(), renderTabs: vi.fn(), addDocument: vi.fn((d, { file }) => ({ doc: d, file })) };
+    const next = new Autosaver(app, { store: store2, session: 'me' });
+    next.liveSessions = async () => new Set();
+    dialogHooks.open = async () => 'recover';
+    try {
+      const [opened] = await next.offerRecovery();
+      expect(opened.doc.nodes.size).toBe(doc.nodes.size);
+    } finally {
+      dialogHooks.open = null;
+      now.mockRestore();
+    }
+    expect(localStorage.getItem(key)).toBe(null);
+    expect((await store2.list()).map((e) => e.revision)).toEqual([2]);
+  });
+
+  it('never lets a kept copy replace a newer stored one, and forgets kept copies once written or discarded', async () => {
+    const store = new RecoveryStore([memoryBackend()]);
+    const prefs = new Prefs(memStorage());
+    const doc = sampleDoc();
+    const editor = { doc, name: 'Logo', file: null };
+    const editors = [editor];
+    const saver = new Autosaver({ prefs, editors }, { store, session: 'old' });
+    // Hidden, then the write lands: the kept copy is no longer needed.
+    await saver.flush({ hiding: true });
+    const key = `vs-recovery-unwritten:${editor.recoveryId}`;
+    expect(localStorage.getItem(key)).toBe(null);
+    // Kept, then discarded (saved or closed without saving).
+    doc.transact('Add', () => doc.insert(createPath(rectangle(100, 10, 20, 20), true), doc.layers()[0].id));
+    const busy = saver.flush({ hiding: true });
+    expect(localStorage.getItem(key)).not.toBe(null);
+    await busy;
+    doc.transact('Add', () => doc.insert(createPath(rectangle(130, 10, 20, 20), true), doc.layers()[0].id));
+    const flushing = saver.flush({ hiding: true });
+    editors.length = 0;
+    await saver.discard(editor);
+    await flushing;
+    expect(localStorage.getItem(key)).toBe(null);
+    // A kept copy older than the stored one is dropped, not written back.
+    await store.put('r9', { name: 'New', data: await serializeDocument(sampleDoc()), revision: 7, session: 'old', saved: 2000 });
+    localStorage.setItem('vs-recovery-unwritten:r9', `${JSON.stringify({ id: 'r9', name: 'Old', file: null, revision: 5, session: 'old', saved: 1000 })}\n{}`);
+    // A copy kept by a tab that is still running is left to that tab.
+    localStorage.setItem('vs-recovery-unwritten:r8', `${JSON.stringify({ id: 'r8', name: 'Live', file: null, revision: 1, session: 'live', saved: 3000 })}\n{}`);
+    const next = new Autosaver({ prefs, editors: [] }, { store, session: 'me' });
+    next.liveSessions = async () => new Set(['live']);
+    dialogHooks.open = async () => null;
+    try {
+      await next.offerRecovery();
+    } finally {
+      dialogHooks.open = null;
+    }
+    expect((await store.list()).map((e) => `${e.id}:${e.name}`)).toEqual(['r9:New']);
+    expect(localStorage.getItem('vs-recovery-unwritten:r9')).toBe(null);
+    expect(localStorage.getItem('vs-recovery-unwritten:r8')).not.toBe(null);
+    localStorage.removeItem('vs-recovery-unwritten:r8');
+  });
+
   it('skips copies owned by sessions that are still running', () => {
     const entries = [{ id: 'a', session: 'live' }, { id: 'b', session: 'dead' }, { id: 'c' }, { id: 'd', session: 'me' }];
     expect(recoverableEntries(entries, new Set(['live']), 'me').map((e) => e.id)).toEqual(['b', 'c']);
