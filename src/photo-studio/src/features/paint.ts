@@ -205,7 +205,9 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         target: paint,
         selection: sel,
         seed: (Math.random() * 2 ** 31) | 0,
-        ...(patternPreviewOn(e) ? { wrap: { width: e.doc.width, height: e.doc.height }, clip: { x: 0, y: 0, width: e.doc.width, height: e.doc.height } } : {}),
+        // Paint stops at the canvas edge: strokes never store hidden pixels beyond it.
+        clip: canvasRect(e.doc),
+        ...(patternPreviewOn(e) ? { wrap: { width: e.doc.width, height: e.doc.height } } : {}),
       });
       // Shift-click continues with a straight line from the previous stroke.
       const prev = lastPoint.get(id);
