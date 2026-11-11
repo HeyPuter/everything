@@ -97,7 +97,7 @@ export function adjustTab(ctx) {
       preview: setupPreview(ctx, {}, previews),
       onAdd: () => actions.addAdjustment(),
       drag: { kind: 'adjust' },
-      addLabel: 'Add color layer',
+      addLabel: 'Add custom color layer',
     });
     return h('div',
       h('p.asset-hint', 'A color layer grades every clip below it. Fine-tune it in Details. To grade a single clip, select it and open Color in Details.'),

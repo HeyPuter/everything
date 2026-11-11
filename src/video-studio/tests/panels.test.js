@@ -117,6 +117,15 @@ describe('tab layout', () => {
     tab.dispose();
   });
 
+  it('keeps badge and sub text out of the tile text, so the name contains all of it', () => {
+    const t = tile({ label: 'Lower third', badge: 'Anim', sub: '3 layers', addLabel: 'Add Lower third template' });
+    // The only text in the button is the label, which its name contains (label in name).
+    expect(t.textContent).toBe('Lower third');
+    expect(t.getAttribute('aria-label')).toContain(t.textContent);
+    expect(t.querySelector('.tile-badge').dataset.text).toBe('Anim');
+    expect(t.querySelector('.tile-sub').dataset.text).toBe('3 layers');
+  });
+
   it('collapses groups, remembers it per device, and reopens for a selected child', () => {
     const layout = tabLayout({ title: 'Demo', categories, render: () => document.createTextNode('') });
     const head = layout.el.querySelector('.asset-cat-group');
@@ -284,7 +293,7 @@ describe('media tab', () => {
     media.emit('missing');
     await flush();
     await new Promise((r) => setTimeout(r, 120));
-    expect(vidTile().querySelector('.tile-sub.missing')?.textContent).toBe('File missing');
+    expect(vidTile().querySelector('.tile-sub.missing')?.dataset.text).toBe('File missing');
     expect(vidTile().getAttribute('aria-label')).toContain('file missing');
   });
 

@@ -16,7 +16,7 @@ import {
 } from '../../model/bins.js';
 import { BACKDROPS, BACKDROP_GROUPS, drawBackdrop } from '../../media/backdrops.js';
 import { MEDIA_ACCEPT } from '../../media/media-types.js';
-import { tabLayout, tileGrid, tile, emptyState } from './common.js';
+import { tabLayout, tileGrid, tile, tileNote, emptyState } from './common.js';
 import { generatePanel } from './generate.js';
 import { renderTimelines, timelinesSignature } from './timelines.js';
 import { showMenu, menuButton } from '../menu.js';
@@ -532,7 +532,7 @@ export function mediaTab(ctx) {
     const el = asRow
       ? h('button.media-row.folder-row', { type: 'button', draggable: 'true', 'aria-label': label }, h('span.media-row-thumb.folder', icon('folder', 18)), h('span.media-row-text', h('span.media-row-name', b.name), h('span.media-row-facts', { 'aria-hidden': 'true' }, facts)))
       : h('button.tile.folder-tile', { type: 'button', draggable: 'true', 'aria-label': label },
-        h('span.tile-preview.folder-preview', icon('folder', 34), h('span.tile-badge', { 'aria-hidden': 'true' }, String(count))),
+        h('span.tile-preview.folder-preview', icon('folder', 34), tileNote('badge', count)),
         h('span.tile-label', b.name));
     el.addEventListener('click', () => open(b.id));
     el.addEventListener('contextmenu', (e) => {

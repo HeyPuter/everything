@@ -518,6 +518,11 @@ puter-user-menu::part(apps-panel) {
   margin-top: -4px;
 }
 
+.tile-sub::before,
+.tile-badge::before {
+  content: attr(data-text);
+}
+
 .tile-sub.missing,
 .media-row-used.missing {
   color: var(--danger);

@@ -203,6 +203,16 @@ export function favoriteButton(tab, id, label, { className = '' } = {}) {
 }
 
 /**
+ * A badge or sub line on a tile (a duration, "Added", "3 layers"). Its text
+ * is drawn by CSS from data-text: the tile's name already says it, and as
+ * text in the button it would sit in the middle of the visible label that
+ * the name has to contain (WCAG 2.5.3, label in name).
+ */
+export function tileNote(kind, text) {
+  return h(`span.tile-${kind}`, { 'aria-hidden': 'true', 'data-text': String(text) });
+}
+
+/**
  * One asset tile: a preview area plus a label. onAdd runs on click, Enter
  * and the + button; drag data lets it drop onto the timeline.
  *
@@ -220,9 +230,9 @@ export function tile({ label, preview, onAdd, onSelect, drag, badge, sub, active
     'aria-pressed': active || onSelect ? String(Boolean(active || selected)) : null,
     draggable: drag ? 'true' : null,
   },
-  h('span.tile-preview', preview, badge ? h('span.tile-badge', { 'aria-hidden': 'true' }, badge) : null, add),
+  h('span.tile-preview', preview, badge ? tileNote('badge', badge) : null, add),
   h('span.tile-label', label),
-  sub ? h('span.tile-sub', { 'aria-hidden': 'true' }, sub) : null,
+  sub ? tileNote('sub', sub) : null,
   );
   btn.addEventListener('click', (e) => {
     e.preventDefault();

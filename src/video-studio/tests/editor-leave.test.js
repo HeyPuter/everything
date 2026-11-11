@@ -196,7 +196,7 @@ describe('opening the editor', () => {
     expect(editor.media.missing.has('hv')).toBe(true);
     root.querySelector('[data-cat="project"]')?.click();
     await settle(50);
-    expect(root.querySelector('.tile-sub.missing')?.textContent).toBe('File missing');
+    expect(root.querySelector('.tile-sub.missing')?.dataset.text).toBe('File missing');
   });
 });
 
