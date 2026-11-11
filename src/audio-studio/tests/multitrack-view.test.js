@@ -351,6 +351,31 @@ describe('automation writing', () => {
     expect(S.findTrack(doc.state, id).volume).toBe(0);
   });
 
+  it('keeps every touch of a control during one playback in Touch mode', () => {
+    const { app, doc } = setup();
+    const id = doc.state.tracks[0].id;
+    doc.apply('Mode', S.updateTrack(doc.state, id, { mode: 'touch' }));
+    let pos = 0;
+    Object.defineProperty(app.engine, 'playing', { get: () => true, configurable: true });
+    Object.defineProperty(app, 'playhead', { get: () => pos, configurable: true });
+    const c = doc.controls;
+    pos = 1000;
+    c.set(id, 'volume', -3, 'input');
+    pos = 5000;
+    c.set(id, 'volume', -6, 'change');
+    pos = 20000;
+    c.set(id, 'volume', -12, 'input');
+    pos = 25000;
+    c.set(id, 'volume', -15, 'change');
+    c.commit(40000);
+    delete app.engine.playing;
+    const lane = S.findTrack(doc.state, id).automation.volume;
+    expect(lane[0]).toEqual({ t: 1000, v: -3 });
+    expect(lane).toContainEqual({ t: 5000, v: -6 });
+    expect(lane).toContainEqual({ t: 20000, v: -12 });
+    expect(lane[lane.length - 1]).toEqual({ t: 25000, v: -15 });
+  });
+
   it('sets a keyframe at the playhead when stopped with automation', () => {
     const { doc } = setup();
     const id = doc.state.tracks[0].id;
