@@ -149,3 +149,28 @@ describe('Ungroup', () => {
     expect([...ed.selection]).toEqual([ids[2]]);
   });
 });
+
+describe('Unlock All and Show All', () => {
+  it('select only what can be selected afterwards', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const ids = [0, 1].map((i) => {
+      const p = createPath(rectangle(i * 20, 0, 10, 10), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    });
+    // Both hidden and locked, plus one only locked.
+    doc.transact('Flags', () => {
+      doc.update(ids[0], { hidden: true, locked: true });
+      doc.update(ids[1], { locked: true });
+    });
+    await app.commands.run('object.unlockAll');
+    expect(doc.get(ids[0]).locked).toBe(false);
+    expect([...ed.selection]).toEqual([ids[1]]);
+    doc.transact('Flags', () => doc.update(ids[0], { locked: true }));
+    await app.commands.run('object.showAll');
+    expect(doc.get(ids[0]).hidden).toBe(false);
+    expect([...ed.selection]).toEqual([]);
+  });
+});

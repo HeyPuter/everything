@@ -269,7 +269,8 @@ export function unlockAll(editor) {
       }
       return true;
     });
-    editor.select(out);
+    // What is still hidden is unlocked but not selected.
+    editor.select(out.filter((id) => !doc.isHidden(id)));
   });
 }
 
@@ -316,7 +317,8 @@ export function showAll(editor) {
       }
       return true;
     });
-    editor.select(out);
+    // What is still locked is shown but not selected.
+    editor.select(out.filter((id) => !doc.isLocked(id)));
   });
 }
 
