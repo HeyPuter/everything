@@ -133,7 +133,7 @@ export function createActions(ctx) {
      * (or opts.start), in the given order, as a single undo step.
      */
     addAssets(assets, opts = {}) {
-      const before = store.history.undoStack.length;
+      const mark = store.beginBatch();
       const added = [];
       let start = opts.start ?? at();
       for (const a of assets) {
@@ -142,12 +142,9 @@ export function createActions(ctx) {
         added.push(clip);
         start = T.clipEnd(clip);
       }
-      // Fold the per-asset steps into the first one, so one undo removes them all.
-      if (store.history.undoStack.length > before + 1) {
-        const first = store.history.undoStack[before];
-        store.history.undoStack.splice(before);
-        store.history.undoStack.push({ ...first, label: `Add ${added.length} clips` });
-      }
+      // Fold the per-asset steps into one, so one undo removes them all (found by
+      // identity, so it also works when a full history drops its oldest steps).
+      if (added.length > 1) store.endBatch(mark, `Add ${added.length} clips`);
       if (added.length > 1) {
         store.select(added.map((c) => c.id));
         announce(`Added ${added.length} clips`);

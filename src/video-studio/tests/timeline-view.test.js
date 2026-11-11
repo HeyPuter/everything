@@ -189,3 +189,17 @@ describe('timeline drops', () => {
     tl.dispose();
   });
 });
+
+describe('adding several media files', () => {
+  it('is one undo step even when the history is full', () => {
+    const p = fixture();
+    const { store, ctx, tl } = mountTimeline(p);
+    for (let i = 0; i < store.history.limit + 5; i++) store.update('Rename', (pp) => void (pp.name = `n${i}`), { structural: false });
+    ctx.actions.addAssets([p.assets.vid, p.assets.silent, p.assets.img]);
+    expect(T.allClips(store.project)).toHaveLength(3);
+    expect(store.history.undoLabel).toBe('Add 3 clips');
+    store.undo();
+    expect(T.allClips(store.project)).toHaveLength(0);
+    tl.dispose();
+  });
+});
