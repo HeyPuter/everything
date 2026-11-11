@@ -132,7 +132,16 @@ export function tabLayout({
   refresh();
 
   const offFav = favorites ? onFavoritesChange((e) => {
-    if (e.tab === favorites && cat === 'favorites') refresh();
+    if (e.tab !== favorites || cat !== 'favorites') return;
+    // An item taken out of the list had focus: focus moves to the same control of the item
+    // that takes its place (or the one before it), else to the Favorites category.
+    const had = content.contains(document.activeElement) ? document.activeElement : null;
+    const kind = had?.classList.contains('fav-btn') ? '.fav-btn' : '.tile';
+    const at = had ? [...content.querySelectorAll(kind)].indexOf(had) : -1;
+    refresh();
+    if (!had || had.isConnected) return;
+    const list = content.querySelectorAll(kind);
+    (list[Math.min(at, list.length - 1)] || catButtons.get('favorites'))?.focus();
   }) : null;
 
   return {
