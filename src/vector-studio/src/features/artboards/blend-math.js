@@ -128,6 +128,20 @@ export function matchAnchors(a, closedA, b, closedB) {
   return [A, B];
 }
 
+// Matched anchor lists per pair of anchor arrays (nodes are immutable): every step between two
+// keys interpolates the same pair, so the matching (O(n^2) for closed paths) runs once per pair.
+const matchCache = new WeakMap();
+
+function matchedPair(a, b) {
+  let byB = matchCache.get(a.anchors);
+  if (!byB) matchCache.set(a.anchors, (byB = new WeakMap()));
+  const key = `${a.closed ? 1 : 0}${b.closed ? 1 : 0}`;
+  let hit = byB.get(b.anchors);
+  if (!hit) byB.set(b.anchors, (hit = {}));
+  if (!hit[key]) hit[key] = matchAnchors(a.anchors, a.closed, b.anchors, b.closed);
+  return hit[key];
+}
+
 export function lerpAnchors(A, B, t) {
   return A.map((p, i) => {
     const q = B[i];
@@ -287,7 +301,7 @@ function transformedCopy(doc, node, m, extra, style) {
  */
 export function interpolateNode(doc, a, b, t, extra, copts = {}) {
   if (a.type === 'path' && b.type === 'path' && a.anchors.length && b.anchors.length) {
-    const [A, B] = matchAnchors(a.anchors, a.closed, b.anchors, b.closed);
+    const [A, B] = matchedPair(a, b);
     return { ...a, ...lerpStyle(a, b, t, copts), id: `blend~${++vid}`, anchors: lerpAnchors(A, B, t), closed: t < 0.5 ? a.closed : b.closed, shape: undefined };
   }
   if ((a.type === 'compound' || a.type === 'group') && a.type === b.type && a.children.length === b.children.length && a.children.length) {
