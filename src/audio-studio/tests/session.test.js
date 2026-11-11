@@ -275,6 +275,10 @@ describe('crossfades and playback plan', () => {
       const want = naive(st);
       for (const [id, parts] of want) expect(plan.get(id).parts).toEqual(parts);
       expect(clipPlan(st)).toBe(plan);
+      // An edit on one track: the other tracks reuse their plans, the edited one is planned again.
+      const moved = S.moveClips(st, [st.clips[rnd(40)].id], rnd(400) - 200, rnd(3) - 1);
+      const next = clipPlan(moved);
+      for (const [id, parts] of naive(moved)) expect(next.get(id).parts).toEqual(parts);
     }
   });
 });
