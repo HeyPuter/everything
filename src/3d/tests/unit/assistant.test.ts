@@ -109,6 +109,18 @@ describe('reading the scene', () => {
     expect(s).toMatch(/- "Light" LIGHT \(POINT/);
   });
 
+  it('keeps the snapshot short in a scene with many collections', async () => {
+    await script(`for (let c = 0; c < 400; c++) { const col = D.collections.new('Group ' + c); C.scene.collection.children.link(col); }`);
+    const s = sceneSnapshot(host);
+    // every message carries the snapshot: the collection tree used to be listed whole
+    expect(s.length).toBeLessThan(6000);
+    expect(s).toContain('- "Group 0": 0 objects');
+    expect(s).toMatch(/… and 3\d\d more collections; use get_scene/);
+    const scene = await runTool(host, 'get_scene', {});
+    expect(scene.content).toContain('- "Group 298": 0 objects');
+    expect(scene.content).toMatch(/… and 10\d more collections/);
+  });
+
   it('describes an object, a material and the scene', async () => {
     await script(`const m = D.materials.new('Steel'); const b = m.node_tree.nodes.get('Principled BSDF'); b.inputs['Metallic'].default_value = 1; D.objects.Cube.data.materials.append(m); D.objects.Cube.modifiers.new('Sub', 'SUBSURF').levels = 2;`);
     const ob = await runTool(host, 'get_object', { name: 'Cube' });
