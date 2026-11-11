@@ -567,3 +567,17 @@ test('renaming modifiers and vertex groups keeps their names unique', async ({ p
   expect(await page.evaluate(() => { const a = (window as any).app; return a.doc.meshes[a.activeObject.data].vertex_groups.map((g: { name: string }) => g.name); })).toEqual([g0, `${g0}.001`]);
   await expectNoErrors(errors);
 });
+
+test('uncaught errors are reported once in the status bar and still reach the console', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    for (let i = 0; i < 20; i++) setTimeout(() => { throw new Error('r5 boom'); }, 0);
+    void Promise.reject(new Error('r5 rejected'));
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).app.reports.filter((r: { type: string; message: string }) => r.type === 'ERROR' && /r5 (boom|rejected)/.test(r.message)).length)).toBe(2);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (window as any).app.reports.filter((r: { message: string }) => /r5 boom/.test(r.message)).length)).toBe(1);
+  // Playwright (and the console) still see every uncaught error
+  expect(errors.filter((e) => /r5 boom/.test(e)).length).toBe(20);
+  expect(errors.some((e) => /r5 rejected/.test(e))).toBe(true);
+});

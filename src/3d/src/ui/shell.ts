@@ -5,6 +5,7 @@ import { openMenu, promptText, type MenuItem } from './menu';
 import { app, registerOperators } from '../app/app';
 import { Screen, areaOfElement, defaultWorkspaces, workspaceTemplates, type Workspace, type LayoutNode } from './screen';
 import { sanitizeLayout } from './layout';
+import { installErrorReports } from '../app/errors';
 import { uiState, prefs, savePrefs } from '../app/prefs';
 import { projectUiState } from '../io/files';
 import { appMenu, fileMenu, editMenu, renderMenu, windowMenu, helpMenu, fileNewTemplates } from './topbar';
@@ -64,6 +65,8 @@ export class Shell {
   mods = { shift: false, ctrl: false, alt: false };
 
   constructor(root: HTMLElement) {
+    // uncaught errors show up in the status bar / Info log too (still logged to the console)
+    installErrorReports();
     this.el = root;
     root.classList.add('shell');
     this.top = document.createElement('header');
