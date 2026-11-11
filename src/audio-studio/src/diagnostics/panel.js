@@ -25,7 +25,7 @@ export const DIAGNOSTICS = [
 
 const fmtLevel = (p) => {
   if (p.kind === 'click') return `${p.level.toFixed(1)}x`;
-  return Number.isFinite(p.level) ? `${p.level.toFixed(1)} dB` : '-inf dB';
+  return Number.isFinite(p.level) ? `${p.level.toFixed(1)} dB` : '-∞ dB';
 };
 
 export function diagnosticsPanel(app) {

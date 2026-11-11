@@ -90,6 +90,8 @@ describe('detection', () => {
     expect(Math.abs(sil.problems[0].end - RATE)).toBeLessThan(RATE * 0.02);
     expect(sil.problems.at(-1).end).toBe(n);
     expect(sil.problems[0].level).toBeLessThan(-90);
+    // Digital silence reads as -Infinity, not the -200 dB detection floor.
+    expect(sil.problems[0].level).toBe(-Infinity);
     const aud = await scanProblems({ effect: 'markAudio', values: vals('markAudio', { padding: 0 }), channels: chans, rate: RATE, start: 0, end: n });
     expect(aud.problems).toHaveLength(2);
     expect(Math.abs(aud.problems[1].start - 3 * RATE)).toBeLessThan(RATE * 0.02);

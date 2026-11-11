@@ -22,6 +22,7 @@ import { addMarkers } from '../effects/apply.js';
 const BLOCK = 1 << 19;
 const CONTEXT = 4096;
 const HOLD = 2;
+const HOLD_FLOOR_DB = -200;
 
 let factory = typeof Worker !== 'undefined' ? () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }) : null;
 
@@ -236,7 +237,7 @@ export function holdDb(peak) {
   for (let i = 0; i < n; i++) {
     let m = 0;
     for (let k = Math.max(0, i - HOLD); k <= Math.min(n - 1, i + HOLD); k++) if (peak[k] > m) m = peak[k];
-    db[i] = 20 * Math.log10(Math.max(m, 1e-10));
+    db[i] = Math.max(HOLD_FLOOR_DB, 20 * Math.log10(m));
   }
   return db;
 }
@@ -244,7 +245,8 @@ export function holdDb(peak) {
 function maxDb(db, a, b, win) {
   let m = -Infinity;
   for (let i = Math.floor(a / win); i < Math.min(db.length, Math.ceil(b / win)); i++) if (db[i] > m) m = db[i];
-  return m;
+  // holdDb floors digital silence at -200 dB; report it as -Infinity.
+  return m <= HOLD_FLOOR_DB ? -Infinity : m;
 }
 
 // ----------------------------------------------------------------- actions
