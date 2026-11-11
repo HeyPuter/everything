@@ -33,7 +33,9 @@ import { migrateGuides } from './guides';
 // Tile grids are stored as one packed asset each; the saved JSON names the pack
 // in place of the live tile map.
 type PackedRef = { pack: string };
-const maxLayers = 1000;
+// Projects the app can make must reopen: Duplicate Layer, Paste and opening
+// long animations as layers are not capped, so this only bounds damaged files.
+const maxLayers = 10000;
 /** Data kept beside a document's history that its saved project includes
  * (review comments), by the session's asset store; given the document being
  * saved, so documents made from it (embedded contents) do not take it along. */
@@ -428,13 +430,16 @@ export async function deserialize(
   let offset = 12 + length;
   const packs = new Map<string, Blob>();
   try {
-    // Up to two image/mask assets per supported layer, plus three document
-    // assets and three per embedded object.
-    // Altered video frames are one tile pack each.
-    // Audio clips add at most one file each.
+    // At most ten assets per layer (tile packs of its pixels, mask, Live
+    // Filter source and mask; its image, mask, pixel mask, Pin Warp source,
+    // footage and pattern files), one pack per channel and pattern, three
+    // document assets and three per embedded object. Altered video frames
+    // are one tile pack each; audio clips add at most one file each.
+    const layers = allLayers(document.layers).length;
     const altered = allLayers(document.layers).reduce((n, l) => n + Object.keys(l.video?.altered ?? {}).length, 0);
     const audio = document.timeline ? allAudioClips(document.timeline).length : 0;
-    if (!Array.isArray(data.assets) || data.assets.length > maxLayers * 3 + 64 + Object.keys(document.embeds ?? {}).length * 3 + altered + audio)
+    const packed = (document.channels?.length ?? 0) + (document.patterns?.length ?? 0);
+    if (!Array.isArray(data.assets) || data.assets.length > layers * 10 + packed + 64 + Object.keys(document.embeds ?? {}).length * 3 + altered + audio)
       throw new Error("Invalid asset table.");
     const assetIds = new Set<string>();
     for (const a of data.assets) {
