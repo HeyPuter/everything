@@ -357,9 +357,9 @@ async function flattenSettings(app, doc, ids, name) {
   return opts;
 }
 
-async function outlinesFor(app, doc, ids, wanted) {
+async function outlinesFor(app, doc, ids, wanted, { images = false } = {}) {
   if (!wanted || !app.textOutlines) return null;
-  const map = await collectTextOutlines(app, doc, ids || doc.root.children);
+  const map = await collectTextOutlines(app, doc, ids || doc.root.children, { images });
   return map.size ? map : null;
 }
 
@@ -374,7 +374,7 @@ export async function renderExport(app, key, editor, region, options = {}) {
   const { rect, ids } = exportRegion(editor, region.rects ? { rect: region.rects[0] } : region);
   if (!rect || !(rect.w > 0) || !(rect.h > 0)) throw new UserError('There is nothing to export.');
   if (key === 'eps') {
-    const outlines = await outlinesFor(app, doc, ids, options.textOutlines !== false);
+    const outlines = await outlinesFor(app, doc, ids, options.textOutlines !== false, { images: true });
     const flatten = await flattenSettings(app, doc, ids, options.flattener);
     const { text, warnings } = await writeEPS(doc, { rect, ids, level: options.level, colorMode: options.colorMode, outlines, title: options.title, flatten });
     if (warnings.length) app.notify?.([...new Set(warnings)].join(' '), { timeout: 6000 });

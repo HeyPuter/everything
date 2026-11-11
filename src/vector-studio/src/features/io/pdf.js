@@ -774,8 +774,15 @@ class PDFRenderer {
 
   text(ctx, node) {
     const runs = this.opts.outlines?.get(node.id);
-    if (runs?.length) {
+    if (runs?.length || runs?.images?.length) {
       for (const r of runs) this.paintGeometry(ctx, { ...node, fill: r.fill, stroke: r.stroke, strokeWidth: r.strokeWidth }, r.subpaths, { fill: r.fill, stroke: r.strokeWidth > 0 ? r.stroke : null });
+      // Characters the font has no outlines for, as the canvas draws them.
+      for (const im of runs.images || []) {
+        const id = this.pixelsXObject(im);
+        const gs = this.extGState(node.opacity ?? 1, 1, node.blendMode, node);
+        const m = [im.m[0], im.m[1], -im.m[2], -im.m[3], im.m[4] + im.m[2], im.m[5] + im.m[3]];
+        ctx.ops.push(`q\n${gs ? `/${ctx.res.name(ctx.res.ext, 'GS', gs)} gs\n` : ''}${m.map((v) => this.f(v)).join(' ')} cm\n/${ctx.res.name(ctx.res.xobject, 'Im', id)} Do\nQ\n`);
+      }
       return;
     }
     if (this.opts.outlinesWanted) this.warnings.add('Text was written with a standard font because outlines are not available.');

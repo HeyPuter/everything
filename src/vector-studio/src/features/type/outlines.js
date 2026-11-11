@@ -10,7 +10,7 @@
  */
 import { UserError } from '../../lib/errors.js';
 import { otFontIfReady } from './fonts.js';
-import { layoutText, glyphPlacements, riseOf, decorationRects } from '../../model/text-layout.js';
+import { layoutText, glyphPlacements, riseOf, decorationRects, cssFont, drawsAsSegments } from '../../model/text-layout.js';
 import { createPath, createCompound, createGroup, DEFAULT_STYLE } from '../../model/nodes.js';
 import { multiply } from '../../lib/matrix.js';
 import { nodeBounds, gradientEnds } from '../../model/geometry.js';
@@ -157,12 +157,18 @@ function glyphOutlines(node, lay, fonts) {
   const base = node.transform || [1, 0, 0, 1, 0, 0];
   const out = [];
   const missing = new Map(); // character -> font family
+  const stand = []; // [{ g, entry }] for characters the font lacks
   for (const g of glyphPlacements(lay)) {
     const st = g.style;
     const font = fonts.get(`${st.fontFamily}|${st.fontWeight}|${st.fontStyle}`);
+    // A character the font lacks: how the canvas draws it (a system font stands in), for exports to place instead.
+    let fallback = null;
     if (g.glyph == null && g.ch) {
       const miss = missingIn(font, g.ch);
-      if (miss.length) missing.set([...g.ch].length > 1 ? g.ch : miss[0], st.fontFamily);
+      if (miss.length) {
+        missing.set([...g.ch].length > 1 ? g.ch : miss[0], st.fontFamily);
+        fallback = { ch: g.ch, font: cssFont(st, g.size), size: g.size, seg: g.m, m: multiply(base, g.m) };
+      }
     }
     let gm = multiply(base, g.m);
     if (st.fontStyle === 'italic') {
@@ -175,8 +181,10 @@ function glyphOutlines(node, lay, fonts) {
     const glyph = g.glyph != null && g.glyph >= 0 ? font.glyphs.get(g.glyph) : null;
     const path = glyph ? glyph.getPath(0, 0, g.size) : font.getPath(g.ch, 0, 0, g.size, { kerning: false, features: {}, hinting: false });
     const contours = commandsToContours(path.commands, gm);
-    if (contours.length) out.push({ index: g.i, fill: st.fill ?? null, stroke: st.stroke ?? null, strokeWidth: st.strokeWidth ?? 0, contours });
+    if (contours.length || fallback) out.push({ index: g.i, fill: st.fill ?? null, stroke: st.stroke ?? null, strokeWidth: st.strokeWidth ?? 0, contours, ...(fallback ? { fallback } : {}) });
+    if (fallback && !g.extra) stand.push({ g, entry: out[out.length - 1] });
   }
+  if (stand.length > 1 && drawsAsSegments(lay)) joinFallbackRuns(lay, stand);
   // Underline and strikethrough bars, drawn per line segment of a style like the canvas does.
   if (lay.kind !== 'path' && !lay.vertical) {
     for (const line of lay.lines) {
@@ -207,6 +215,37 @@ function glyphOutlines(node, lay, fonts) {
   return out;
 }
 
+/**
+ * Stand-in characters next to each other (same line and style, only spaces
+ * between) become one run drawn with one fillText, as the canvas draws
+ * them: right-to-left scripts keep their order and Arabic its joining.
+ */
+function joinFallbackRuns(lay, stand) {
+  const { chars, text } = lay;
+  let li = 0;
+  let run = null;
+  for (const f of stand) {
+    const g = f.g;
+    while (li < lay.lines.length - 1 && g.i >= lay.lines[li].contentEnd) li++;
+    const line = lay.lines[li];
+    const prev = run?.last.g;
+    let join = Boolean(run) && run.line === line && g.style === run.first.g.style && g.size === run.first.g.size;
+    for (let k = prev ? prev.i + 1 : 0; join && k <= g.i; k++) {
+      if (chars.manual?.[k] && k > run.first.g.i) join = false;
+      else if (k < g.i && chars.disp[k] && (text[k] !== ' ' || line.justified)) join = false;
+    }
+    if (join) {
+      run.last = f;
+      f.entry.fallback = { merged: true };
+      const st = run.first.g.style;
+      const first = run.first.entry.fallback;
+      first.ch = chars.disp.slice(run.first.g.i, g.i + 1).join('');
+      const track = ((st.tracking || 0) / 1000) * st.fontSize;
+      if (track) first.letterSpacing = track / ((st.horizontalScale ?? 100) / 100);
+    } else run = { first: f, last: f, line };
+  }
+}
+
 /** Node subtree (group of glyph paths/compounds) for a text node's outlines. */
 export async function outlineNodes(node) {
   const glyphs = await textToPathData(node);
@@ -217,6 +256,7 @@ export async function outlineNodes(node) {
   const bounds = nodeBounds(null, node);
   const span = (p) => (isGradient(p) && p.x1 === undefined && bounds ? gradientEnds(p, bounds) : p);
   for (const g of glyphs) {
+    if (!g.contours.length) continue;
     const style = {
       ...DEFAULT_STYLE,
       fill: span(g.fill),

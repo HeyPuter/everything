@@ -9,9 +9,9 @@
  * - Arrowheads from `drawHooks.arrowheadOutlines(node)` when present, else by
  *   recording the Path2D calls `drawHooks.arrowheads(node)` makes.
  */
-import { drawHooks } from '../../render/draw.js';
+import { drawHooks, paintStyle } from '../../render/draw.js';
 import { parsePathData, arcToCubics } from './svg-path.js';
-import { apply } from '../../lib/matrix.js';
+import { apply, multiply } from '../../lib/matrix.js';
 import { paintHooks } from './hooks.js';
 
 export function normalizeSubpaths(r, depth = 0) {
@@ -35,11 +35,17 @@ export function normalizeSubpaths(r, depth = 0) {
  * the same paint are merged so the output stays compact. Older or simpler
  * results (plain contours or path data) use the node's own paint.
  */
-export function normalizeTextOutlines(r, node) {
+export function normalizeTextOutlines(r, node, { fallback = false } = {}) {
   if (Array.isArray(r) && r.some((g) => g && Array.isArray(g.contours))) {
     const runs = [];
+    const stand = [];
     let key = null;
     for (const g of r) {
+      // A character the font has no glyph for: its outline is the font's empty-glyph box.
+      if (fallback && g?.fallback) {
+        if (!g.fallback.merged) stand.push({ ...g.fallback, fill: g.fill ?? null, stroke: g.stroke ?? null, strokeWidth: g.strokeWidth ?? 0 });
+        continue;
+      }
       if (!g || !Array.isArray(g.contours) || !g.contours.length) continue;
       const k = JSON.stringify([g.fill ?? null, g.stroke ?? null, g.strokeWidth ?? 0]);
       if (k !== key) {
@@ -48,7 +54,9 @@ export function normalizeTextOutlines(r, node) {
       }
       runs[runs.length - 1].subpaths.push(...g.contours.filter((c) => c?.anchors?.length > 1).map((c) => ({ anchors: c.anchors, closed: c.closed !== false })));
     }
-    return runs.filter((x) => x.subpaths.length);
+    const out = runs.filter((x) => x.subpaths.length);
+    if (stand.length) out.fallback = stand;
+    return out;
   }
   const subs = normalizeSubpaths(r);
   if (!subs.length) return [];
@@ -62,32 +70,133 @@ export function outlineSubpaths(runs) {
   return (runs || []).flatMap((r) => r.subpaths);
 }
 
-/** Outline runs of a text node, or null when the type module cannot provide them. */
-export async function textOutlines(app, doc, node) {
+/**
+ * Outline runs of a text node, or null when the type module cannot provide
+ * them. With `images`, characters the font has no glyphs for are left out of
+ * the outlines and drawn as the canvas draws them (in the system font that
+ * stands in) into `runs.images`: [{ m, width, height, data, url }], where m
+ * maps the image's unit square (y down) to document space.
+ */
+export async function textOutlines(app, doc, node, { images = false } = {}) {
   if (!app?.textOutlines) return null;
   try {
     const r = await app.textOutlines(node, { doc });
-    const runs = normalizeTextOutlines(r, node);
-    return runs.length ? runs : null;
+    const runs = normalizeTextOutlines(r, node, { fallback: images });
+    if (runs.fallback) {
+      runs.images = [];
+      for (const g of runs.fallback) {
+        const img = await glyphImage(doc, node, g, Math.max(300, doc.root?.rasterResolution || 0));
+        if (img) runs.images.push(img);
+      }
+    }
+    return runs.length || runs.fallback ? runs : null;
   } catch {
     return null;
   }
 }
 
-/** Precompute outlines for every visible text node under the given roots: Map id -> runs. */
-export async function collectTextOutlines(app, doc, rootIds) {
+/** Largest side of a stand-in glyph image, in pixels. */
+const GLYPH_IMAGE_MAX = 2048;
+
+/** A character drawn with the canvas's font fallback at `ppi`: { m, width, height, data, url } or null. */
+async function glyphImage(doc, node, g, ppi) {
+  const m = g.m;
+  const k = (ppi / 72) * (Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1);
+  let canvas;
+  try {
+    canvas = typeof document !== 'undefined' ? document.createElement('canvas') : new OffscreenCanvas(1, 1);
+  } catch {
+    return null;
+  }
+  let ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const spacing = g.letterSpacing && 'letterSpacing' in ctx ? `${g.letterSpacing}px` : null;
+  ctx.font = g.font;
+  if (spacing) ctx.letterSpacing = spacing;
+  const tm = ctx.measureText(g.ch);
+  // The ink box in glyph space (baseline at y 0), with a little room for anti-aliasing and strokes.
+  const pad = g.size * 0.05 + (g.strokeWidth || 0) + 2 / k;
+  const has = Number.isFinite(tm.actualBoundingBoxAscent) && tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent > 0;
+  const x0 = (has ? -tm.actualBoundingBoxLeft : 0) - pad;
+  const x1 = (has ? tm.actualBoundingBoxRight : tm.width || g.size) + pad;
+  const y0 = (has ? -tm.actualBoundingBoxAscent : -g.size) - pad;
+  const y1 = (has ? tm.actualBoundingBoxDescent : g.size * 0.3) + pad;
+  if (!(x1 > x0 && y1 > y0)) return null;
+  const s = Math.min(k, GLYPH_IMAGE_MAX / Math.max(x1 - x0, y1 - y0));
+  const width = Math.max(1, Math.ceil((x1 - x0) * s));
+  const height = Math.max(1, Math.ceil((y1 - y0) * s));
+  canvas.width = width;
+  canvas.height = height;
+  ctx = canvas.getContext('2d');
+  ctx.setTransform(s, 0, 0, s, -x0 * s, -y0 * s);
+  ctx.font = g.font;
+  if (spacing) ctx.letterSpacing = spacing;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  const fill = paintStyle(ctx, doc, node, g.fill, g.seg);
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fillText(g.ch, 0, 0);
+  }
+  const stroke = g.strokeWidth > 0 ? paintStyle(ctx, doc, node, g.stroke, g.seg) : null;
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = g.strokeWidth;
+    ctx.lineJoin = node.strokeJoin || 'miter';
+    ctx.strokeText(g.ch, 0, 0);
+  }
+  if (!fill && !stroke) return null;
+  const data = ctx.getImageData(0, 0, width, height)?.data;
+  if (!data || data.length !== width * height * 4) return null;
+  let url = null;
+  try {
+    url = canvas.toDataURL ? canvas.toDataURL('image/png') : await blobURL(await canvas.convertToBlob({ type: 'image/png' }));
+  } catch {
+    url = null;
+  }
+  return { m: multiply(m, [(x1 - x0), 0, 0, (y1 - y0), x0, y0]), width, height, data, url };
+}
+
+function blobURL(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+function graphemes(str) {
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) return Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(str), (x) => x.segment);
+  return Array.from(str);
+}
+
+/**
+ * Precompute outlines for every visible text node under the given roots:
+ * Map id -> runs. With `images` (exports that convert text to outlines),
+ * characters the fonts lack are placed as images (see textOutlines) and the
+ * user is told which ones.
+ */
+export async function collectTextOutlines(app, doc, rootIds, { images = false } = {}) {
   const out = new Map();
   if (!app?.textOutlines) return out;
+  const missing = new Set();
   const visit = async (id) => {
     const n = doc.get(id);
     if (!n || n.hidden) return;
     if (n.type === 'text') {
-      const s = await textOutlines(app, doc, n);
+      const s = await textOutlines(app, doc, n, { images });
       if (s) out.set(n.id, s);
+      for (const g of s?.fallback || []) for (const c of graphemes(g.ch)) if (c.trim()) missing.add(c);
     }
     for (const c of n.children || []) await visit(c);
   };
   for (const id of rootIds) await visit(id);
+  if (missing.size) {
+    const chars = [...missing];
+    const list = chars.slice(0, 8).join(' ') + (chars.length > 8 ? ' …' : '');
+    app.notify?.(`Some characters have no outlines in their font and were placed as images: ${list}. Choose a font that includes them to keep them as vector shapes.`, { timeout: 8000 });
+  }
   return out;
 }
 

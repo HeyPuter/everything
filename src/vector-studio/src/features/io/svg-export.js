@@ -507,11 +507,17 @@ class SVGWriter {
 
   text(node, depth) {
     const runs = this.o.textMode === 'outlines' ? this.o.outlines?.get(node.id) : null;
-    if (runs?.length) {
+    if (runs?.length || runs?.images?.length) {
       const nl = this.nl(depth);
       const id = this.nameId(node.name);
       const paths = runs.map((r) => `<path d="${this.d(r.subpaths)}"${this.fillAttrs(node, r.fill)}${this.strokeAttrs({ ...node, stroke: r.stroke, strokeWidth: r.strokeWidth })}`);
-      if (paths.length === 1) return `${nl}${paths[0]}${id}${this.commonAttrs(node)}/>`;
+      // Characters the font has no outlines for, as the canvas draws them.
+      for (const im of runs.images || []) {
+        if (!im.url) continue;
+        this.needsXlink = true;
+        paths.push(`<image width="1" height="1"${this.matrixAttr(im.m)} preserveAspectRatio="none" xlink:href="${escapeXml(im.url)}"`);
+      }
+      if (paths.length === 1 && runs.length) return `${nl}${paths[0]}${id}${this.commonAttrs(node)}/>`;
       return `${nl}<g${id}${this.commonAttrs(node)}>${paths.map((p) => `${this.nl(depth + 1)}${p}/>`).join('')}${nl}</g>`;
     }
     // Room for glyphs that come out wider in another viewer's font.

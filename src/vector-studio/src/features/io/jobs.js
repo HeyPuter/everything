@@ -63,7 +63,7 @@ export function artworkBounds(doc) {
 export async function outlinesFor(app, editor, ids, wanted) {
   if (!wanted || !app.textOutlines) return null;
   const roots = ids || editor.doc.root.children;
-  const map = await collectTextOutlines(app, editor.doc, roots);
+  const map = await collectTextOutlines(app, editor.doc, roots, { images: true });
   return map.size ? map : null;
 }
 

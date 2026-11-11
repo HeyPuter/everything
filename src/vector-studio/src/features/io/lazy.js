@@ -60,7 +60,7 @@ export async function svg(app, editor, opts = {}) {
   let o = opts;
   if (opts.textMode === 'outlines' && !opts.outlines) {
     o = syncOutlines(app, editor, opts);
-    if (!o.outlines?.size) o = { ...opts, outlines: await collectTextOutlines(app, editor.doc, editor.doc.root.children) };
+    if (!o.outlines?.size) o = { ...opts, outlines: await collectTextOutlines(app, editor.doc, editor.doc.root.children, { images: true }) };
   }
   return editorSVG(editor, o);
 }
@@ -83,7 +83,7 @@ export async function pdf(app, editor, opts = {}) {
     rects = idx.map((i) => doc.artboards[i]).filter(Boolean);
   }
   const wantOutlines = opts.textOutlines !== false && Boolean(app.textOutlines);
-  const outlines = wantOutlines ? await collectTextOutlines(app, doc, ids || doc.root.children) : null;
+  const outlines = wantOutlines ? await collectTextOutlines(app, doc, ids || doc.root.children, { images: true }) : null;
   const { bytes } = await writePDF(doc, rects, { bleed: opts.bleed || 0, ids, outlines, outlinesWanted: wantOutlines, title: opts.title || doc.name, background: opts.background });
   return bytes;
 }
