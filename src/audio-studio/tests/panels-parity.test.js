@@ -412,3 +412,24 @@ describe('Markers to Batch Process', () => {
     expect(doc.state.channels[0].length).toBe(4000);
   });
 });
+
+describe('Files panel focus', () => {
+  it('keeps keyboard focus on the same file when the list re-renders', () => {
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const a = audioDoc(1);
+    const b = audioDoc(2);
+    b.name = 'b.wav';
+    app.addDocument(a);
+    app.addDocument(b);
+    const panel = create(app, 'files');
+    document.body.replaceChildren(panel.el);
+    const row = (d) => panel.el.querySelector(`tr[data-id="${d.id}"]`);
+    row(a).focus();
+    expect(document.activeElement).toBe(row(a));
+    // Playback starting or stopping re-renders every row.
+    app.emit('transport', 'playing');
+    expect(document.activeElement).toBe(row(a));
+    expect(document.activeElement.isConnected).toBe(true);
+  });
+});
