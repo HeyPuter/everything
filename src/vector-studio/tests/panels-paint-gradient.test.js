@@ -245,3 +245,26 @@ describe('Stroke panel menu', () => {
     expect(menuItem(p, 'Show Options')).toBeTruthy();
   });
 });
+
+describe('Stroke panel dash fields', () => {
+  it('keeps dashes and gaps at least 0.01 pt so they show as typed and cannot freeze Outline Stroke', async () => {
+    const { panel, add, ed, doc } = await paintSetup();
+    const id = add({ fill: null, stroke: solid('#000000'), strokeWidth: 1, dash: [4, 2] });
+    ed.select([id]);
+    const p = panel('stroke');
+    const [dash, gap] = p.dashInputs;
+    dash.value = '0.0001';
+    dash.dispatchEvent(new Event('change'));
+    expect(doc.get(id).dash).toEqual([0.01, 2]);
+    p.update();
+    expect(dash.value).toBe('0.01 pt');
+    // Re-committing the shown values keeps the dash (it used to show "0 pt" and turn into a zero-length dash).
+    gap.value = '0.0001';
+    gap.dispatchEvent(new Event('change'));
+    expect(doc.get(id).dash).toEqual([0.01, 0.01]);
+    // Zero stays zero: a dotted line.
+    dash.value = '0';
+    dash.dispatchEvent(new Event('change'));
+    expect(doc.get(id).dash).toEqual([0, 0.01]);
+  });
+});
