@@ -211,7 +211,8 @@ export function instanceOnPoints(
   });
   const attrs: AttrMap = new Map();
   for (const [name, a] of pointAttrs) {
-    if (a.domain !== 'POINT' || name === 'radius' || name === 'position') continue;
+    // point attributes (instance attributes when instancing on instances) carry over
+    if ((a.domain !== 'POINT' && a.domain !== 'INSTANCE') || name === 'radius' || name === 'position') continue;
     const comps = dataComps(a.type);
     const d = allocData(a.type, keep.length);
     keep.forEach((s, i) => {

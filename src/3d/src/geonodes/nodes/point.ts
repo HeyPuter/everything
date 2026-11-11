@@ -4,6 +4,7 @@ import { evalOn } from './common';
 import { GeometrySet, type InstanceReference, type Component } from '../geometry';
 import { distributePoisson, distributeRandom, buildDistributed, instanceOnPoints } from '../ops/points';
 import { pointsToVertices } from '../ops/meshops';
+import { joinInstances } from '../ops/join';
 import { attributeField, idField } from '../inputs';
 import { ConstField } from '../field';
 
@@ -147,23 +148,9 @@ gn(
       }
       if (!out.length) return { Instances: GeometrySet.empty() };
       if (out.length === 1) return { Instances: out[0] };
-      // several point sources: merge their instances
-      const all = out.map((g) => g.instances!);
-      const total = all.reduce((s, c) => s + c.count, 0);
-      const T = new Float32Array(total * 16),
-        R = new Int32Array(total);
-      let o = 0;
-      for (const c of all) {
-        T.set(c.transforms, o * 16);
-        R.set(c.refIndex, o);
-        o += c.count;
-      }
-      const merged = all[0].copy();
-      merged.transforms = T;
-      merged.refIndex = R;
-      merged.attrs = new Map();
+      // several point sources: merge their instances (and the attributes they carry)
       return {
-        Instances: new GeometrySet(undefined, undefined, undefined, merged),
+        Instances: new GeometrySet(undefined, undefined, undefined, joinInstances(out.map((g) => g.instances!))),
       };
     },
     implicit: { 'Instance Index': idField },

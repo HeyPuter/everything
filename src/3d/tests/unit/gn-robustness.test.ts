@@ -172,6 +172,35 @@ describe('Convex Hull', () => {
 });
 
 describe('instances', () => {
+  it('Instance on Points keeps point attributes of several components and of source instances', () => {
+    const t = setup();
+    const line = node(t, 'GeometryNodeMeshLine', { Count: 3 });
+    const st = node(t, 'GeometryNodeStoreNamedAttribute', { Name: 'foo' }, { data_type: 'FLOAT', domain: 'POINT' });
+    link(t, line, 'Mesh', st, 'Geometry');
+    link(t, node(t, 'GeometryNodeInputIndex'), 'Index', st, 'Value');
+    const pts = node(t, 'GeometryNodeMeshToPoints');
+    link(t, st, 'Geometry', pts, 'Mesh');
+    const join = node(t, 'GeometryNodeJoinGeometry');
+    link(t, st, 'Geometry', join, 'Geometry');
+    link(t, pts, 'Points', join, 'Geometry');
+    const iop = node(t, 'GeometryNodeInstanceOnPoints');
+    link(t, join, 'Geometry', iop, 'Points');
+    link(t, node(t, 'GeometryNodeMeshCube'), 'Mesh', iop, 'Instance');
+    expect(attr(run(t, iop, 'Instances').geometry, 'foo', 'INSTANCE')).toEqual([0, 1, 2, 0, 1, 2]);
+    // instancing again on those instances
+    const t2 = setup();
+    const first = node(t2, 'GeometryNodeInstanceOnPoints');
+    link(t2, node(t2, 'GeometryNodeMeshLine', { Count: 3 }), 'Mesh', first, 'Points');
+    link(t2, node(t2, 'GeometryNodeMeshCube'), 'Mesh', first, 'Instance');
+    const st2 = node(t2, 'GeometryNodeStoreNamedAttribute', { Name: 'foo' }, { data_type: 'FLOAT', domain: 'INSTANCE' });
+    link(t2, first, 'Instances', st2, 'Geometry');
+    link(t2, node(t2, 'GeometryNodeInputIndex'), 'Index', st2, 'Value');
+    const second = node(t2, 'GeometryNodeInstanceOnPoints');
+    link(t2, st2, 'Geometry', second, 'Points');
+    link(t2, node(t2, 'GeometryNodeMeshCube'), 'Mesh', second, 'Instance');
+    expect(attr(run(t2, second, 'Instances').geometry, 'foo', 'INSTANCE')).toEqual([0, 1, 2]);
+  });
+
   it('Instance on Points keeps the transform of a picked instance', () => {
     const t = setup();
     // two instances of a cube, the second one moved up by 5
