@@ -432,7 +432,8 @@ export async function applyRack(app) {
     );
     if (doc.state !== before) return false;
     doc.apply('Effects Rack', smoothBoundaries(before, state, start, end, editSmoothFrames(app, before.sampleRate), doc.channelMask));
-    setRack(app, doc, { ...rack, slots: fitSlots([]) });
+    // Empty the rack as it is now: settings changed during the render stay.
+    setRack(app, doc, { ...rackFor(doc), slots: fitSlots([]) });
     announce('Effects Rack applied');
     app.setStatus('Effects Rack applied');
     return true;
