@@ -8,6 +8,7 @@ import {
   importLibraryFile,
   searchItems,
   uniqueName,
+  usableItem,
   validIndex,
   type Library,
   type LibraryItem,
@@ -154,6 +155,36 @@ describe('library model', () => {
     expect(partial.skipped).toBe(1);
     await expect(importLibraryFile('{"format":"other"}', sha256Hex)).rejects.toThrow(/not a library file/);
     await expect(importLibraryFile('nope', sha256Hex)).rejects.toThrow(/not a library file/);
+  });
+
+  it('leaves out items whose content is not base64 or whose settings are damaged', async () => {
+    const item = (id: string, type: LibraryItem['type'], data: Record<string, unknown>): LibraryItem => ({ id, type, name: id, created: T0, modified: T0, data });
+    const gradient = { kind: 'solid', colorStops: [{ location: 0, color: 'foreground' }, { location: 1, color: [255, 0, 0] }], opacityStops: [{ location: 0, opacity: 1 }] };
+    const good = [
+      color('red', 'Red', '#ff0000'),
+      item('gradient', 'gradient', { gradient }),
+      item('style', 'layer-style', { style: { enabled: true, dropShadow: [{ enabled: true, distance: 5 }], bevel: { enabled: true } } }),
+      item('brush', 'brush', { preset: { name: 'Soft', tip: { hardness: 0, dynamics: { scatter: 1 } } } }),
+      item('char', 'character-style', { def: { id: '', name: 'Bold', style: { weight: 700 } } }),
+      item('para', 'paragraph-style', { def: { id: '', name: 'Body', paragraph: {}, char: {} } }),
+    ];
+    const bad = [
+      item('gradient-stops', 'gradient', { gradient: { kind: 'solid', colorStops: 'x', opacityStops: [] } }),
+      item('gradient-none', 'gradient', {}),
+      item('style-list', 'layer-style', { style: { dropShadow: 'nope' } }),
+      item('style-single', 'layer-style', { style: { bevel: [1] } }),
+      item('brush-empty', 'brush', { preset: {} }),
+      item('char-number', 'character-style', { def: 5 }),
+      item('para-missing', 'paragraph-style', { def: { name: 'x', paragraph: {} } }),
+    ];
+    for (const i of good) expect(usableItem(i), i.id).toBe(true);
+    for (const i of bad) expect(usableItem(i), i.id).toBe(false);
+    const h = 'a'.repeat(64);
+    const pattern: LibraryItem = { id: 'p', type: 'pattern', name: 'Dots', created: T0, modified: T0, data: { width: 2, height: 2 }, assets: { content: h } };
+    const file = { format: 'photo-studio-library', version: 1, exported: T0, library: lib('L', 'Kit', [...good, ...bad, pattern]), assets: { [h]: { type: 'image/png', data: '%%% not base64' } } };
+    const got = await importLibraryFile(JSON.stringify(file), sha256Hex);
+    expect(got.library.items.map((i) => i.name)).toEqual(good.map((i) => i.name));
+    expect(got.skipped).toBe(bad.length + 1);
   });
 });
 

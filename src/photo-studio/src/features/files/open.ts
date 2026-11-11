@@ -2,7 +2,7 @@ import type { Editor } from '../../editor';
 import { deserialize } from '../../model/serialization';
 import { escapeXML } from '../../model/assets';
 import { formDialog, information } from '../../ui/dialog';
-import { assertSize, layer, type Layer, type PhotoDocument } from '../../model/document';
+import { assertSize, layer, MAX_LAYERS, type Layer, type PhotoDocument } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
 import { encodeIccProfile } from '../../model/psd-resources';
@@ -13,10 +13,11 @@ import { decodeIco, pickIcoEntry } from '../../imaging/codecs/ico';
 import { sniffImageFormat, type ImageFormat } from '../../imaging/codecs/sniff';
 import { applyOrientation } from '../../imaging/codecs/orientation';
 import { readPngDpi, readPngIcc } from '../../imaging/codecs/png-chunks';
-import { readJpegDensity, readJpegIcc } from '../../imaging/codecs/jpeg-markers';
+import { readJpegDensity, readJpegIcc, readJpegInfo } from '../../imaging/codecs/jpeg-markers';
+import { checkSize } from '../../imaging/codecs/bytes';
 import { decodePng16, rgba16To8 } from './png';
 import { decodeApng, isApng } from '../../imaging/codecs/apng';
-import { framesFromLayers } from '../../model/animation';
+import { framesFromLayers, maxFrames } from '../../model/animation';
 import { noteRecent, type RecentSource } from './recent';
 import { emitAppEvent, openedFiles } from '../../app/app-events';
 
@@ -30,6 +31,7 @@ const browserTypes: Record<string, string> = {
   bmp: 'image/bmp',
   svg: 'image/svg+xml',
 };
+const projectMagic = [...'PHOTO001'].map((c) => c.charCodeAt(0));
 const formatMime: Partial<Record<ImageFormat, string>> = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', heic: 'image/heic', svg: 'image/svg+xml' };
 
 export type DecodedLayer = { name: string; image: RGBA8 };
@@ -67,11 +69,16 @@ async function choosePages(kind: string, count: number, choice: PageChoice | und
   const v = await formDialog(`Open ${kind}s`, [{ name: 'pages', label: `This file has ${count} ${kind}s`, type: 'select', value: animated ? 'animation' : 'first', options }], 'Open');
   return v ? (v.pages as 'first' | 'layers' | 'animation') : null;
 }
+const framesLeftOut = (n: number) => `Only the first ${n} frames were opened: the rest need more memory than one file may use.`;
 /** Frames of an animated file as layers (and optionally an animation). */
-function animatedFrames(out: DecodedFile, frames: { rgba: RGBA8; delayMs: number }[], pick: 'layers' | 'animation', plays: number) {
+function animatedFrames(out: DecodedFile, all: { rgba: RGBA8; delayMs: number }[], pick: 'layers' | 'animation', plays: number): string | undefined {
+  // A project holds up to this many frames (or layers); more could be saved but not reopened.
+  const most = pick === 'animation' ? maxFrames : MAX_LAYERS;
+  const frames = all.slice(0, most);
   out.layers = frames.slice(1).map((f, i) => ({ name: `Frame ${i + 2}`, image: f.rgba }));
   if (pick === 'animation') out.animation = { delays: frames.map((f) => f.delayMs), plays };
   else out.layers.forEach((l, i) => (l.name += ` (${frames[i + 1].delayMs} ms)`));
+  if (all.length > most) return `Only the first ${most} of ${all.length} frames were opened: a ${pick === 'animation' ? 'frame animation' : 'document'} holds up to ${most} ${pick === 'animation' ? 'frames' : 'layers'}.`;
 }
 
 function orient<T extends Uint16Array | Float32Array>(data: T, w: number, h: number, o: number | undefined): T {
@@ -89,6 +96,10 @@ function orient<T extends Uint16Array | Float32Array>(data: T, w: number, h: num
   return out;
 }
 
+// Documents hold at most 8192 pixels per side and 24 megapixels; larger files
+// are refused from their headers rather than after decoding every pixel.
+const documentLimits = { maxSide: 8192, maxPixels: 24_000_000 };
+
 async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOptions): Promise<DecodedFile> {
   const format = sniffImageFormat(bytes);
   if (format === 'ico' || format === 'cur') {
@@ -98,7 +109,7 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
     const image = best.rgba ?? (await decodeBrowserImage(new Blob([best.png!.slice()], { type: 'image/png' })));
     return { image, notice: res.entries.length > 1 ? `Opened the ${best.width}×${best.height} image of ${res.entries.length}.` : undefined };
   }
-  const d = decodeImage(bytes);
+  const d = decodeImage(bytes, { limits: documentLimits, firstOnly: opts.pages === 'first' });
   if (!d) throw new Error('Unsupported image format.');
   assertSize(d.width, d.height);
   const notes = d.notes.filter((n) => !/first was opened/.test(n));
@@ -108,17 +119,21 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
   if (d.tiffPages && d.tiffPages.length > 1) {
     const pick = await choosePages('page', d.tiffPages.length, opts.pages);
     if (!pick) throw new CancelOpen();
-    if (pick === 'layers')
-      out.layers = d.tiffPages.slice(1).map((p, i) => ({ name: `Page ${i + 2}`, image: applyOrientation(p.rgba8, p.orientation) }));
-    else notes.push(`The file has ${d.tiffPages.length} pages; the first was opened.`);
+    if (pick === 'layers') {
+      out.layers = d.tiffPages.slice(1, MAX_LAYERS).map((p, i) => ({ name: `Page ${i + 2}`, image: applyOrientation(p.rgba8, p.orientation) }));
+      if (d.tiffPages.length > MAX_LAYERS) notes.push(`Only the first ${MAX_LAYERS} of ${d.tiffPages.length} pages were opened: a document holds up to ${MAX_LAYERS} layers.`);
+    } else notes.push(`The file has ${d.tiffPages.length} pages; the first was opened.`);
   }
   if (d.gifFrames && d.gifFrames.length > 1) {
     const pick = await choosePages('frame', d.gifFrames.length, opts.pages, true);
     if (!pick) throw new CancelOpen();
     // GIF stores extra repeats; no looping extension means one play.
     const plays = d.gifLoopCount === undefined ? 1 : d.gifLoopCount === 0 ? 0 : Math.min(65535, d.gifLoopCount + 1);
-    if (pick !== 'first') animatedFrames(out, d.gifFrames, pick, plays);
-    else notes.push(`Animated GIF with ${d.gifFrames.length} frames; the first was opened.`);
+    if (pick !== 'first') {
+      const capped = animatedFrames(out, d.gifFrames, pick, plays);
+      if (capped) notes.push(capped);
+      else if (d.gifTruncated) notes.push(framesLeftOut(d.gifFrames.length));
+    } else notes.push(`Animated GIF with ${d.gifFrames.length} frames; the first was opened.`);
   }
   if (notes.length) out.notice = notes.join(' ');
   return out;
@@ -142,7 +157,7 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
   if (png && isApng(bytes)) {
     let anim: ReturnType<typeof decodeApng> | undefined;
     try {
-      anim = decodeApng(bytes);
+      anim = decodeApng(bytes, { maxFrames: opts.pages === 'first' ? 1 : undefined });
     } catch {
       anim = undefined; // Unsupported variants open as their default image.
     }
@@ -151,8 +166,9 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
       const pick = await choosePages('frame', anim.frames.length, opts.pages, true);
       if (!pick) throw new CancelOpen();
       const out: DecodedFile = { image: anim.frames[0].rgba };
-      if (pick !== 'first') animatedFrames(out, anim.frames, pick, anim.plays);
-      else out.notice = `Animated PNG with ${anim.frames.length} frames; the first was opened.`;
+      if (pick !== 'first') {
+        out.notice = animatedFrames(out, anim.frames, pick, anim.plays) ?? (anim.truncated ? framesLeftOut(anim.frames.length) : undefined);
+      } else out.notice = `Animated PNG with ${anim.frames.length} frames; the first was opened.`;
       return out;
     }
   }
@@ -179,6 +195,7 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
       // Unconverted samples: tag the document only when the profile is usable.
       return { image: { width: deep.width, height: deep.height, data: rgba16To8(deep.data16) }, deep: { data: deep.data16, depth: 16 }, icc: keep ? icc : undefined, dpi, notice: icc && !keep ? 'The embedded color profile is not an RGB matrix profile and was not applied.' : undefined };
   }
+  checkBrowserImage(bytes);
   const blob = new Blob([bytes.slice()], { type: png ? 'image/png' : 'image/jpeg' });
   void name;
   // createImageBitmap applies EXIF orientation itself ('from-image'), so the
@@ -187,6 +204,37 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
 }
 
 class CancelOpen extends Error {}
+
+/** Pixel size from the header of a PNG, GIF, JPEG or WebP file (undefined when
+ * the header is not found), so oversized images are refused before the
+ * browser decodes them. */
+export function browserImageSize(b: Uint8Array): { width: number; height: number } | undefined {
+  const format = sniffImageFormat(b);
+  const be32 = (o: number) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
+  const le24 = (o: number) => b[o] | (b[o + 1] << 8) | (b[o + 2] << 16);
+  const tag = (o: number) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
+  if (format === 'png' && b.length >= 24 && tag(12) === 'IHDR') return { width: be32(16), height: be32(20) };
+  if (format === 'gif') return { width: b[6] | (b[7] << 8), height: b[8] | (b[9] << 8) };
+  if (format === 'jpeg')
+    try {
+      const info = readJpegInfo(b);
+      return { width: info.width, height: info.height };
+    } catch {
+      return undefined;
+    }
+  if (format === 'webp' && b.length >= 30) {
+    const chunk = tag(12);
+    if (chunk === 'VP8X') return { width: le24(24) + 1, height: le24(27) + 1 };
+    if (chunk === 'VP8 ') return { width: (b[26] | (b[27] << 8)) & 0x3fff, height: (b[28] | (b[29] << 8)) & 0x3fff };
+    if (chunk === 'VP8L') return { width: (le24(21) & 0x3fff) + 1, height: ((le24(22) >> 6) & 0x3fff) + 1 };
+  }
+  return undefined;
+}
+/** Refuse a PNG, GIF, JPEG or WebP file beyond the document limits from its header. */
+export function checkBrowserImage(bytes: Uint8Array) {
+  const size = browserImageSize(bytes);
+  if (size) checkSize(size.width, size.height, documentLimits);
+}
 
 /** Decode a browser-supported image into straight 8-bit RGBA. With `raw`, the
  * samples stay in the file's own color space (for ICC-tagged documents). */
@@ -220,6 +268,7 @@ export async function decodeFile(blob: Blob, name: string, opts: DecodeOptions =
   if (!Object.values(browserTypes).includes(blob.type) && blob.type !== 'image/heic')
     throw new Error('Open a PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF, ICO, TGA, Netpbm, SVG, PSD, PSB or .photo file.');
   if (blob.type === 'image/svg+xml') return { image: await rasterizeSvg(blob) };
+  checkBrowserImage(head);
   return { image: await decodeBrowserImage(blob) };
 }
 
@@ -234,12 +283,16 @@ const resolution = (dpi: number): PhotoDocument['resolution'] => ({
 
 export type OpenOptions = DecodeOptions & { source?: RecentSource };
 
+// Copies made by inMemoryFile, which need no second copy.
+const copies = new WeakSet<Blob>();
 /** Copy a file picked from disk into memory. Chromium reads slices of a
  * disk-backed File lazily from disk, so they fail with NotReadableError once
  * the file changes there; the document's assets are slices of what was opened. */
 export async function inMemoryFile(blob: Blob): Promise<Blob> {
-  if (!(blob instanceof File)) return blob;
-  return new File([await blob.arrayBuffer()], blob.name, { type: blob.type, lastModified: blob.lastModified });
+  if (!(blob instanceof File) || copies.has(blob)) return blob;
+  const copy = new File([await blob.arrayBuffer()], blob.name, { type: blob.type, lastModified: blob.lastModified });
+  copies.add(copy);
+  return copy;
 }
 
 /** Open a file as a new document tab, or place it into the current document. */
@@ -247,7 +300,13 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   e.transform.apply();
   blob = await inMemoryFile(blob);
   const lower = name.toLowerCase();
-  const isPsd = /\.ps[db]$/.test(lower);
+  // The contents decide, so a PSD or project saved with another extension
+  // still opens; the extension decides only for files no codec recognizes.
+  const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const format = sniffImageFormat(head);
+  const project = projectMagic.every((v, i) => head[i] === v);
+  const isPsd = format === 'psd' || format === 'psb' || (format === 'unknown' && !project && /\.ps[db]$/.test(lower));
+  const isProject = project || (format === 'unknown' && lower.endsWith('.photo'));
   const source: RecentSource = opts.source ?? { kind: 'local', blob };
   if (place && e.hasDocument) {
     // Placed files become embedded objects: browser images draw directly,
@@ -256,8 +315,10 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     await placeEmbedded(e, blob, name);
     return true;
   }
-  if (lower.endsWith('.photo') || isPsd) {
-    const loaded = isPsd ? await (await import('../../model/psd')).openPsd(blob, name, e.engine) : await deserialize(blob);
+  if (isProject || isPsd) {
+    // The document is named after the file without its extension.
+    const psdName = /\.ps[db]$/i.test(name) ? name : name.replace(/\.[^.]+$/, '');
+    const loaded = isPsd ? await (await import('../../model/psd')).openPsd(blob, psdName, e.engine) : await deserialize(blob);
     const s = e.sessionForOpen();
     await e.renderer?.settle();
     s.assets.clear();
@@ -265,7 +326,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     s.history.reset(loaded.document);
     s.hasDocument = true;
     s.storage.reset();
-    if (source.kind === 'puter' && lower.endsWith('.photo')) s.storage.path = source.path;
+    if (source.kind === 'puter' && isProject && lower.endsWith('.photo')) s.storage.path = source.path;
     s.saved = s.doc;
     s.fileName = name;
     e.selected = s.doc.layers.at(-1)?.id ?? '';
@@ -326,6 +387,24 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   void emitAppEvent('open-document', s);
   return true;
 }
+/** Open (or place) several files in turn. A file that cannot be opened does
+ * not stop the others; with more than one file, the failures are reported
+ * together, each with its name. */
+export async function openFiles(e: Editor, files: { blob: Blob; name: string }[], place = false, opts: OpenOptions = {}) {
+  if (files.length === 1) {
+    await openFile(e, files[0].blob, files[0].name, place, opts);
+    return;
+  }
+  const failed: string[] = [];
+  for (const f of files)
+    try {
+      await openFile(e, f.blob, f.name, place, opts);
+    } catch (error) {
+      if (!(error instanceof Error) || error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError) console.error(error);
+      failed.push(`${f.name} could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  if (failed.length) throw new Error(failed.join(' '));
+}
 export { insertAboveSelection } from '../layers/insert';
 async function rasterizeSvg(blob: Blob): Promise<RGBA8> {
   const url = URL.createObjectURL(blob);
@@ -333,8 +412,13 @@ async function rasterizeSvg(blob: Blob): Promise<RGBA8> {
     const img = new Image();
     img.src = url;
     await img.decode();
-    const w = Math.min(8192, img.naturalWidth || 1024),
-      h = Math.min(8192, img.naturalHeight || 1024);
+    // Larger drawings are scaled down to the document limits, keeping
+    // their proportions.
+    const nw = img.naturalWidth || 1024,
+      nh = img.naturalHeight || 1024;
+    const k = Math.min(1, documentLimits.maxSide / nw, documentLimits.maxSide / nh, Math.sqrt(documentLimits.maxPixels / (nw * nh)));
+    const w = Math.max(1, Math.floor(nw * k)),
+      h = Math.max(1, Math.floor(nh * k));
     const canvas = new OffscreenCanvas(w, h);
     const c = canvas.getContext('2d')!;
     c.drawImage(img, 0, 0, w, h);

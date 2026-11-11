@@ -103,11 +103,14 @@ export function handleTrack(cls: string, handles: { cls: string; label: string; 
   return { el: track, place };
 }
 
-function numberBox(label: string, value: number, min: number, max: number, step: number, onChange: (v: number) => void) {
+/** Numeric field; `onChange` stores the value and must rewrite the field
+ * with the value in use (clamped or kept when the entry is blank). */
+function numberBox(label: string, value: number, min: number, max: number, step: number, onChange: (v: number) => void, sync: () => void) {
   const i = h('input', { type: 'number', min: String(min), max: String(max), step: String(step), value: String(value), 'aria-label': label, title: label });
   i.addEventListener('change', () => {
-    const v = Number(i.value);
+    const v = i.value.trim() === '' ? NaN : Number(i.value);
     if (Number.isFinite(v)) onChange(Math.min(max, Math.max(min, v)));
+    else sync();
   });
   return i;
 }
@@ -175,9 +178,9 @@ export function levelsEditor(body: HTMLElement, host: AdjustHost<'levels'>) {
   );
   body.append(input.el);
   inputs = {
-    b: numberBox('Input black', c.inBlack, 0, 253, 1, (v) => ((c.inBlack = Math.min(Math.round(v), c.inWhite - 2)), input.place(), sync(), host.change(true))),
-    g: numberBox('Gamma', c.gamma, 0.01, 9.99, 0.01, (v) => ((c.gamma = Math.round(v * 100) / 100), input.place(), sync(), host.change(true))),
-    w: numberBox('Input white', c.inWhite, 2, 255, 1, (v) => ((c.inWhite = Math.max(Math.round(v), c.inBlack + 2)), input.place(), sync(), host.change(true))),
+    b: numberBox('Input black', c.inBlack, 0, 253, 1, (v) => ((c.inBlack = Math.min(Math.round(v), c.inWhite - 2)), input.place(), sync(), host.change(true)), () => sync()),
+    g: numberBox('Gamma', c.gamma, 0.01, 9.99, 0.01, (v) => ((c.gamma = Math.round(v * 100) / 100), input.place(), sync(), host.change(true)), () => sync()),
+    w: numberBox('Input white', c.inWhite, 2, 255, 1, (v) => ((c.inWhite = Math.max(Math.round(v), c.inBlack + 2)), input.place(), sync(), host.change(true)), () => sync()),
   };
   sync();
   const nums = h('div', { class: 'adj-level-nums' });
@@ -203,8 +206,8 @@ export function levelsEditor(body: HTMLElement, host: AdjustHost<'levels'>) {
   );
   body.append(output.el);
   outs = {
-    b: numberBox('Output black', c.outBlack, 0, 255, 1, (v) => ((c.outBlack = Math.round(v)), output.place(), host.change(true))),
-    w: numberBox('Output white', c.outWhite, 0, 255, 1, (v) => ((c.outWhite = Math.round(v)), output.place(), host.change(true))),
+    b: numberBox('Output black', c.outBlack, 0, 255, 1, (v) => ((c.outBlack = Math.round(v)), output.place(), syncOut(), host.change(true)), () => syncOut()),
+    w: numberBox('Output white', c.outWhite, 0, 255, 1, (v) => ((c.outWhite = Math.round(v)), output.place(), syncOut(), host.change(true)), () => syncOut()),
   };
   const onums = h('div', { class: 'adj-level-nums two' });
   onums.append(outs.b, outs.w);

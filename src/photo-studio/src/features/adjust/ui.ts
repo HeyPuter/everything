@@ -62,7 +62,8 @@ export function slider(o: SliderOptions) {
   range.addEventListener('input', () => o.onInput(fromRange(), false));
   range.addEventListener('change', () => o.onInput(fromRange(), true));
   num.addEventListener('change', () => {
-    const v = Number(num.value);
+    // A cleared field is not zero: it goes back to the value in use.
+    const v = num.value.trim() === '' ? NaN : Number(num.value);
     if (!Number.isFinite(v)) {
       num.value = String(fromPos(range.value));
       return;

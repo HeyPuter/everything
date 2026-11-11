@@ -13,9 +13,10 @@ import { psdOriginalMimeType } from './psd-original';
 import { isVectorPattern } from './vector-pattern';
 import { packGrid, tilePackMimeType, unpackGrid, type TileGrid } from './tiles';
 import { validDocumentPatterns, validLayerFill } from './fill-layer';
+import { validLayerStyle } from './layer-style';
 import { validateAnnotations } from './annotations';
 import { validateComments } from '../collab/comments';
-import { validateAnimation } from './animation';
+import { packAnimation, unpackAnimation, validateAnimation, type FrameAnimation } from './animation';
 import { validateTimeline } from './video-timeline';
 import { validateVideoLayer } from './video-layer';
 import { allAudioClips } from './audio-timeline';
@@ -33,7 +34,9 @@ import { migrateGuides } from './guides';
 // Tile grids are stored as one packed asset each; the saved JSON names the pack
 // in place of the live tile map.
 type PackedRef = { pack: string };
-const maxLayers = 1000;
+// Projects the app can make must reopen: Duplicate Layer, Paste and opening
+// long animations as layers are not capped, so this only bounds damaged files.
+const maxLayers = 10000;
 /** Data kept beside a document's history that its saved project includes
  * (review comments), by the session's asset store; given the document being
  * saved, so documents made from it (embedded contents) do not take it along. */
@@ -74,6 +77,7 @@ export async function serialize(
   // Layers turned into pixels by any edit no longer draw embedded contents.
   for (const l of allLayers(doc.layers)) if (l.embed && l.kind !== 'image') delete l.embed;
   doc.embeds = usedEmbeds(doc);
+  if (doc.animation) doc.animation = packAnimation(doc.animation) as FrameAnimation;
   for (const l of allLayers(doc.layers)) if (l.embed && !doc.embeds?.[l.embed.contents]) delete l.embed;
   const blobOf = (id: string) => packs.get(id) ?? assets.blob(id);
   const ids = [
@@ -261,9 +265,9 @@ export function validateDocument(value: unknown): PhotoDocument {
         throw new Error('Invalid adjustment layer.');
       if ((l.clipped !== undefined && typeof l.clipped !== 'boolean') ||
         (l.fillOpacity !== undefined && !(Number.isFinite(l.fillOpacity) && l.fillOpacity >= 0 && l.fillOpacity <= 1)) ||
-        (l.style !== undefined && (!l.style || typeof l.style !== 'object')) ||
         (l.fill !== undefined && (l.kind !== 'solid' || !validLayerFill(l.fill))))
         throw new Error('Invalid layer options.');
+      if (l.style !== undefined && !validLayerStyle(l.style)) throw new Error('Invalid layer style.');
       validateBlending(l.blending);
       if (l.psdId !== undefined && (!Number.isInteger(l.psdId) || l.psdId < 0 || l.psdId > 0xffffffff))
         throw new Error('Invalid PSD layer identifier.');
@@ -415,6 +419,8 @@ export async function deserialize(
     assets: { id: string; size: number; type: string }[];
     sidecars?: Record<string, unknown>;
   };
+  const read = data.document as { animation?: unknown } | null;
+  if (read && typeof read === 'object' && read.animation !== undefined) read.animation = unpackAnimation(read.animation);
   const document = validateDocument(data.document),
     assets = into ?? new Assets();
   if (data.sidecars && typeof data.sidecars === 'object')
@@ -428,13 +434,16 @@ export async function deserialize(
   let offset = 12 + length;
   const packs = new Map<string, Blob>();
   try {
-    // Up to two image/mask assets per supported layer, plus three document
-    // assets and three per embedded object.
-    // Altered video frames are one tile pack each.
-    // Audio clips add at most one file each.
+    // At most ten assets per layer (tile packs of its pixels, mask, Live
+    // Filter source and mask; its image, mask, pixel mask, Pin Warp source,
+    // footage and pattern files), one pack per channel and pattern, three
+    // document assets and three per embedded object. Altered video frames
+    // are one tile pack each; audio clips add at most one file each.
+    const layers = allLayers(document.layers).length;
     const altered = allLayers(document.layers).reduce((n, l) => n + Object.keys(l.video?.altered ?? {}).length, 0);
     const audio = document.timeline ? allAudioClips(document.timeline).length : 0;
-    if (!Array.isArray(data.assets) || data.assets.length > maxLayers * 3 + 64 + Object.keys(document.embeds ?? {}).length * 3 + altered + audio)
+    const packed = (document.channels?.length ?? 0) + (document.patterns?.length ?? 0);
+    if (!Array.isArray(data.assets) || data.assets.length > layers * 10 + packed + 64 + Object.keys(document.embeds ?? {}).length * 3 + altered + audio)
       throw new Error("Invalid asset table.");
     const assetIds = new Set<string>();
     for (const a of data.assets) {

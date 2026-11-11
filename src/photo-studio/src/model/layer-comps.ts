@@ -1,4 +1,5 @@
 import { isDocumentId } from './ids';
+import { validLayerStyle } from './layer-style';
 import { allLayers, blends, type Blend, type Layer, type PhotoDocument } from './document';
 
 // A layer comp records, per layer, the visibility, position and appearance
@@ -162,7 +163,7 @@ export function validateLayerComps(comps: unknown, lastComp: unknown) {
         !unit(s.opacity) ||
         !unit(s.fillOpacity) ||
         (s.blend !== undefined && !(blends.includes(s.blend) || s.blend === 'pass through')) ||
-        (s.style !== undefined && s.style !== null && (typeof s.style !== 'object' || Array.isArray(s.style)))
+        (s.style !== undefined && s.style !== null && !validLayerStyle(s.style))
       )
         throw bad();
   }

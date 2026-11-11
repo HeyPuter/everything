@@ -118,6 +118,7 @@ export function replaceSwatches(e: Editor, colors: string[]) {
   saveSwatches();
   e.dock.update();
 }
+const swatchMarkup = new WeakMap<HTMLElement, string>();
 const swatchesPanel: Panel = {
   id: 'swatches',
   title: 'Swatches',
@@ -143,7 +144,12 @@ const swatchesPanel: Panel = {
     });
   },
   update: (e, el) => {
-    el.innerHTML = `<div class="swatch-grid" role="list">${swatches.map((c, i) => `<button role="listitem" data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${'⌘'}-click: background, Alt-click: delete" aria-label="Swatch ${c}"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
+    const html = `<div class="swatch-grid" role="list">${swatches.map((c, i) => `<button role="listitem" data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${'⌘'}-click: background, Alt-click: delete" aria-label="Swatch ${c}"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
+    // Updates run after every edit; rebuilding unchanged buttons would cost
+    // time and take the keyboard focus off the swatch just chosen.
+    if (swatchMarkup.get(el) === html) return;
+    swatchMarkup.set(el, html);
+    el.innerHTML = html;
     void e;
   },
   // Library and harmony commands come from the color feature (features/color/swatches.ts).

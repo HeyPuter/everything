@@ -52,6 +52,13 @@ export function proofState(s: DocumentSession): ProofState {
     st = { setup: workingCmykSetup(), on: false, gamut: false };
     states.set(s, st);
   }
+  // Working CMYK and the working plates follow Edit > Color Settings, so a
+  // document opened before a change does not keep proofing the old profile.
+  const k = st.setup.kind;
+  if (k === 'cmyk' || k === 'plate') {
+    const w = colorSettings();
+    if (st.setup.ref !== w.cmyk || st.setup.intent !== w.intent || st.setup.bpc !== w.bpc) st.setup = { ...st.setup, ref: w.cmyk, intent: w.intent, bpc: w.bpc };
+  }
   return st;
 }
 export const PLATE_LABELS: Record<Plate | 'cmy', string> = {
@@ -289,7 +296,8 @@ export function toggleGamut(e: Editor) {
 
 export async function customProofDialog(e: Editor) {
   const st = proofState(e.session);
-  const base = st.setup.kind === 'custom' ? st.setup : (lastCustom ?? workingCmykSetup());
+  // A copy: loading a profile must not change the proof until OK is chosen.
+  let base: ProofSetup = { ...(st.setup.kind === 'custom' ? st.setup : (lastCustom ?? workingCmykSetup())) };
   for (;;) {
     const choices = profileChoices('any');
     const v = await formDialog('Customize Proof Condition', [
@@ -301,8 +309,14 @@ export async function customProofDialog(e: Editor) {
     ], 'OK', 'Proof colors preview how the document reproduces on another device. Paper color implies black ink.');
     if (!v) return;
     if (v.ref === 'load') {
-      const got = await pickIccFile();
-      if (got) base.ref = got.ref;
+      // The dialog comes back with the choices made so far.
+      base = { ...base, intent: v.intent as Intent, bpc: v.bpc === 'yes', paper: v.paper === 'yes', ink: v.ink === 'yes' };
+      try {
+        const got = await pickIccFile();
+        if (got) base.ref = got.ref;
+      } catch (error) {
+        e.message(error instanceof Error ? error.message : String(error));
+      }
       continue;
     }
     const setup: ProofSetup = { kind: 'custom', ref: v.ref, intent: v.intent as Intent, bpc: v.bpc === 'yes', paper: v.paper === 'yes', ink: v.ink === 'yes' || v.paper === 'yes' };

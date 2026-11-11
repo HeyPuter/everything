@@ -18,6 +18,30 @@ function field(f: Field) {
     return `<input type="hidden" name="${f.name}" value="no"><input name="${f.name}" type="checkbox" value="yes" ${f.value === 'yes' || f.value === 1 ? 'checked' : ''}>`;
   return `<input name="${f.name}" type="${f.type ?? 'text'}" value="${escapeXML(String(f.value))}" ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''} ${f.step !== undefined ? `step="${f.step}"` : f.type === 'number' ? 'step="any"' : ''} ${f.type === 'color' ? '' : 'required'}>`;
 }
+/** Settle a dialog's promise exactly once: by its own controls, Escape, the
+ * element closing, or another dialog taking the element over (the earlier
+ * question then counts as cancelled). */
+function settleOnce<T>(dialog: HTMLDialogElement, content: Element, resolve: (value: T) => void, cancelled: T) {
+  let done = false;
+  const replaced = new MutationObserver(() => {
+    if (content.parentElement !== dialog) finish(cancelled);
+  });
+  // A close event queued by the previous dialog arrives after this one opened.
+  const closed = () => {
+    if (!dialog.open) finish(cancelled);
+  };
+  const finish = (value: T) => {
+    if (done) return;
+    done = true;
+    replaced.disconnect();
+    dialog.removeEventListener('close', closed);
+    resolve(value);
+  };
+  replaced.observe(dialog, { childList: true });
+  dialog.addEventListener('close', closed);
+  dialog.oncancel = () => finish(cancelled);
+  return finish;
+}
 export function formDialog(
   title: string,
   fields: Field[],
@@ -29,19 +53,19 @@ export function formDialog(
     // A blank line in the message starts a new paragraph.
     const paragraphs = message ? message.split(/\n\s*\n/).map((m) => `<p>${escapeXML(m.trim())}</p>`).join('') : '';
     dialog.innerHTML = `<form method="dialog"><h2>${escapeXML(title)}</h2>${paragraphs}${fields.map((f) => `<label class="dialog-field ${f.type === 'checkbox' ? 'checkbox-field' : ''}">${escapeXML(f.label)}${field(f)}</label>`).join('')}<div class="dialog-actions"><button type="button" id="cancel-dialog">Cancel</button><button type="submit" class="primary">${escapeXML(submit)}</button></div></form>`;
-    const close = () => {
+    const form = dialog.querySelector('form')!;
+    const finish = settleOnce<Record<string, string> | null>(dialog, form, resolve, null);
+    dialog.querySelector('#cancel-dialog')!.addEventListener('click', () => {
+      finish(null);
       dialog.close();
-      resolve(null);
-    };
-    dialog.querySelector('#cancel-dialog')!.addEventListener('click', close);
-    dialog.oncancel = () => resolve(null);
-    dialog.querySelector('form')!.onsubmit = (e) => {
+    });
+    form.onsubmit = (e) => {
       e.preventDefault();
       // Later entries win, so a checked box overrides its hidden "no".
       const values: Record<string, string> = {};
       for (const [k, v] of new FormData(e.currentTarget as HTMLFormElement).entries()) values[k] = String(v);
+      finish(values);
       dialog.close();
-      resolve(values);
     };
     dialog.showModal();
   });
@@ -50,4 +74,28 @@ export function information(title: string, html: string) {
   const d = document.querySelector<HTMLDialogElement>('#dialog')!;
   d.innerHTML = `<form method="dialog"><h2>${escapeXML(title)}</h2>${html}<div class="dialog-actions"><button class="primary">Done</button></div></form>`;
   d.showModal();
+}
+/** Ask whether to save changes before closing: Save (the default button),
+ * Don't Save, or Cancel (also Escape). */
+export function saveChangesDialog(title: string, message: string): Promise<'save' | 'discard' | 'cancel'> {
+  const dialog = document.querySelector<HTMLDialogElement>('#dialog')!;
+  return new Promise((resolve) => {
+    dialog.innerHTML = `<form method="dialog"><h2>${escapeXML(title)}</h2><p>${escapeXML(message)}</p><div class="dialog-actions"><button type="button" data-choice="discard" class="dialog-discard">Don’t Save</button><button type="button" data-choice="cancel">Cancel</button><button type="submit" class="primary" data-choice="save">Save</button></div></form>`;
+    const form = dialog.querySelector('form')!;
+    const finish = settleOnce<'save' | 'discard' | 'cancel'>(dialog, form, resolve, 'cancel');
+    form.querySelectorAll<HTMLButtonElement>('[data-choice]').forEach((b) =>
+      b.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        finish(b.dataset.choice as 'save' | 'discard' | 'cancel');
+        dialog.close();
+      }),
+    );
+    form.onsubmit = (ev) => {
+      ev.preventDefault();
+      finish('save');
+      dialog.close();
+    };
+    dialog.showModal();
+    form.querySelector<HTMLButtonElement>('[data-choice="save"]')!.focus();
+  });
 }

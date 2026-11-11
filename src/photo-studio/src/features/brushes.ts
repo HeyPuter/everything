@@ -2,6 +2,7 @@ import type { Editor } from '../editor';
 import { registerCommand, registerPanel, type Panel } from '../app/registry';
 import { brushFor, brushPresets, type BrushSettings } from './paint';
 import { escapeXML } from '../model/assets';
+import { blends, type Blend } from '../model/document';
 import type { Mask8 } from '../imaging/types';
 import { formDialog } from '../ui/dialog';
 import { selectionBounds, selectionGrid } from '../model/selection';
@@ -32,6 +33,38 @@ const toB64 = (d: Uint8Array) => btoa(String.fromCharCode(...d));
 const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 function sampleOf(p: StoredPreset): Mask8 | undefined {
   return p.sample ? { width: p.sample.width, height: p.sample.height, data: fromB64(p.sample.data) } : undefined;
+}
+// Presets also come from files and libraries made elsewhere: settings are
+// kept to the ranges the Brush Settings panel offers (a spacing of zero or a
+// huge dab count would never finish a stroke), and a damaged sampled tip is
+// left out.
+const TIP_RANGES: Record<string, [number, number]> = { size: [1, 5000], hardness: [0, 1], spacing: [0.01, 10], roundness: [0.01, 1], angle: [-360, 360], opacity: [0, 1], flow: [0, 1], smoothing: [0, 1] };
+const DYNAMICS_RANGES: Record<string, [number, number]> = { sizeJitter: [0, 1], minimumDiameter: [0, 1], angleJitter: [0, 1], roundnessJitter: [0, 1], scatter: [0, 10], count: [1, 16], opacityJitter: [0, 1], flowJitter: [0, 1] };
+const clampTo = (v: unknown, [lo, hi]: [number, number]) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : undefined);
+function cleanTip(tip: unknown): Partial<BrushSettings> {
+  const out: Record<string, unknown> = {};
+  if (!tip || typeof tip !== 'object') return out;
+  for (const [k, v] of Object.entries(tip)) {
+    if (TIP_RANGES[k]) out[k] = clampTo(v, TIP_RANGES[k]);
+    else if (k === 'airbrush') out[k] = v === true;
+    else if (k === 'mode' && (blends.includes(v as Blend) || v === 'behind' || v === 'clear')) out[k] = v;
+    else if (k === 'dynamics' && v && typeof v === 'object')
+      out[k] = Object.fromEntries(
+        Object.entries(v).flatMap(([d, x]): [string, unknown][] => (DYNAMICS_RANGES[d] ? (clampTo(x, DYNAMICS_RANGES[d]) === undefined ? [] : [[d, clampTo(x, DYNAMICS_RANGES[d])]]) : /^pressure(Size|Opacity|Flow)$/.test(d) ? [[d, x === true]] : [])),
+      );
+  }
+  for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+  return out as Partial<BrushSettings>;
+}
+function cleanSample(p: StoredPreset): Mask8 | undefined {
+  const s = p.sample;
+  if (!s || !Number.isInteger(s.width) || !Number.isInteger(s.height) || s.width < 1 || s.height < 1 || s.width > 1024 || s.height > 1024) return undefined;
+  try {
+    const m = sampleOf(p)!;
+    return m.data.length === s.width * s.height ? m : undefined;
+  } catch {
+    return undefined;
+  }
 }
 function allPresets(): StoredPreset[] {
   return [...brushPresets.map((p) => ({ name: p.name, tip: p.tip })), ...user];
@@ -100,7 +133,8 @@ export function currentBrushPreset(e: Editor, name: string): StoredPreset {
 /** Make a preset the active painting tool's brush (Brushes panel, Libraries). */
 export function applyBrushPreset(e: Editor, p: StoredPreset) {
   const s = activeBrush(e);
-  Object.assign(s, { roundness: 1, angle: 0, spacing: 0.1, airbrush: false, ...p.tip, dynamics: { ...(p.tip.dynamics ?? {}) }, sample: sampleOf(p) });
+  const tip = cleanTip(p?.tip);
+  Object.assign(s, { roundness: 1, angle: 0, spacing: 0.1, airbrush: false, ...tip, dynamics: { ...(tip.dynamics ?? {}) }, sample: cleanSample(p) });
   e.options();
   e.dock.update();
 }

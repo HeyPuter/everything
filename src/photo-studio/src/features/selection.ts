@@ -116,14 +116,16 @@ export function selectionOp(e: Editor, p: Pick<CanvasPointer, 'shift' | 'alt'>):
   return (e.settings.selectionOp as SelectionOp) ?? 'replace';
 }
 /** Commit a new selection shape (canvas-sized mask) combined with the current one. */
-export function commitSelectionMask(e: Editor, mask: Mask8 | TileGrid | null, op: SelectionOp, label: string) {
-  const store = e.assets.tiles;
-  const doc = e.doc;
+/** Combine a mask with the selection as one undo step, in the active document
+ * or in `session` (a selection computed while the user switched documents). */
+export function commitSelectionMask(e: Editor, mask: Mask8 | TileGrid | null, op: SelectionOp, label: string, session = e.session) {
+  const store = session.assets.tiles;
+  const doc = session.doc;
   const shape = mask && 'data' in mask ? maskGrid(store, mask) : mask;
   const current = selectionGrid(doc, store);
   const next = shape ? combineSelection(store, doc, current, shape, op) : op === 'replace' ? null : current;
-  e.session.lastSelection = current;
-  e.command(label, (d) => applySelection(d, next));
+  session.lastSelection = current;
+  e.command(label, (d) => applySelection(d, next), { session });
 }
 export function optionsFor(e: Editor, extra = '') {
   const op = (e.settings.selectionOp as SelectionOp) ?? 'replace';
@@ -152,17 +154,31 @@ let drag: Drag | undefined;
 let polygon: { points: [number, number][]; op: SelectionOp } | undefined;
 let hoverPoint: [number, number] | undefined;
 
-function marqueeRect(d: Drag, p: CanvasPointer) {
-  let [x0, y0] = d.start;
+export type MarqueeStyle = { style?: unknown; width?: unknown; height?: unknown };
+/** The rectangle a marquee drag from `start` to the pointer selects; the
+ * preview and the committed selection both use it. Fixed Ratio keeps the
+ * corner at `start` and grows with the longer side of the drag; Fixed Size
+ * places the rectangle at the pointer. */
+export function marqueeRect(start: [number, number], p: Pick<CanvasPointer, 'x' | 'y' | 'shift' | 'alt'>, op: SelectionOp, fixed: MarqueeStyle = {}) {
+  const fw = Math.max(1, Number(fixed.width) || 1),
+    fh = Math.max(1, Number(fixed.height) || 1);
+  // Alt draws from the center (it means subtract when the drag started with it).
+  const center = p.alt && op !== 'subtract';
+  if (fixed.style === 'size') return center ? { x: p.x - fw / 2, y: p.y - fh / 2, width: fw, height: fh } : { x: p.x, y: p.y, width: fw, height: fh };
+  let [x0, y0] = start;
   let w = p.x - x0,
     h = p.y - y0;
-  // Shift after starting constrains to a square/circle; Alt draws from the center.
-  if (p.shift && d.op !== 'add') {
+  if (fixed.style === 'ratio') {
+    const s = Math.max(Math.abs(w) / fw, Math.abs(h) / fh);
+    w = Math.sign(w || 1) * s * fw;
+    h = Math.sign(h || 1) * s * fh;
+  } else if (p.shift && op !== 'add') {
+    // Shift after starting constrains to a square/circle.
     const s = Math.max(Math.abs(w), Math.abs(h));
     w = Math.sign(w || 1) * s;
     h = Math.sign(h || 1) * s;
   }
-  if (p.alt && d.op !== 'subtract') {
+  if (center) {
     x0 -= w;
     y0 -= h;
     w *= 2;
@@ -170,6 +186,7 @@ function marqueeRect(d: Drag, p: CanvasPointer) {
   }
   return { x: Math.min(x0, x0 + w), y: Math.min(y0, y0 + h), width: Math.abs(w), height: Math.abs(h) };
 }
+const marqueeStyle = (e: Editor): MarqueeStyle => ({ style: e.settings.marqueeStyle, width: e.settings.marqueeW, height: e.settings.marqueeH });
 export function finishShape(e: Editor, op: SelectionOp, mask: Mask8 | null, label: string) {
   const feather = Number(e.settings.selectionFeather ?? 0);
   commitSelectionMask(e, mask && feather ? featherMask(mask, feather) : mask, op, label);
@@ -208,10 +225,8 @@ function marqueeTool(id: string, label: string, icon: string, shape: 'rect' | 'e
       const d = drag;
       drag = undefined;
       if (!d) return;
-      let r = marqueeRect(d, p);
-      const style = e.settings.marqueeStyle;
-      if (style === 'size') r = { x: d.start[0], y: d.start[1], width: Number(e.settings.marqueeW ?? 1), height: Number(e.settings.marqueeH ?? 1) };
-      else if (style === 'ratio') r.height = (r.width * Number(e.settings.marqueeH ?? 1)) / Number(e.settings.marqueeW ?? 1);
+      // A click places a fixed-size rectangle; otherwise it deselects.
+      const r = marqueeRect(d.start, p, d.op, marqueeStyle(e));
       if (r.width < 1 && r.height < 1) {
         // A click without dragging deselects (except when adding).
         if (d.op === 'replace') commitSelectionMask(e, null, 'replace', 'Deselect');
@@ -227,7 +242,7 @@ function marqueeTool(id: string, label: string, icon: string, shape: 'rect' | 'e
     overlay: (e) => {
       if (!drag) return '';
       const last = (drag as Drag & { last?: CanvasPointer }).last;
-      const r = last ? marqueeRect(drag, last) : { x: drag.start[0], y: drag.start[1], width: 0, height: 0 };
+      const r = marqueeRect(drag.start, last ?? { x: drag.start[0], y: drag.start[1], shift: false, alt: false }, drag.op, marqueeStyle(e));
       const z = e.zoom;
       const shapeSvg = shape === 'ellipse' ? `<ellipse cx="${r.x + r.width / 2}" cy="${r.y + r.height / 2}" rx="${r.width / 2}" ry="${r.height / 2}"` : `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}"`;
       return `<g class="marching" stroke-width="${1 / z}">${shapeSvg} class="ants-white"/>${shapeSvg} class="ants-black" stroke-dasharray="${4 / z} ${4 / z}"/></g>`;

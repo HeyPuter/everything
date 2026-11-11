@@ -83,6 +83,19 @@ export function installCollab(e: Editor) {
     },
   );
   e.closeHooks.push((s) => dropLocalComments(s));
+  // A comment being placed, and the open thread, belong to the document they
+  // were made in: switching documents puts them away.
+  let shown = e.session;
+  e.onUpdate((ed) => {
+    if (ed.session === shown) return;
+    shown = ed.session;
+    if (!view.draft && !view.dragging && !view.selected) return;
+    view.draft = view.dragging = null;
+    view.selected = '';
+    // Update hooks run after the panels and overlay were drawn.
+    ed.overlay();
+    ed.dock.update();
+  });
   // Opening an invitation or review link (Photo Studio was opened with one,
   // or one was pasted into the address bar).
   const fromLink = () => {

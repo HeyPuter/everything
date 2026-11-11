@@ -6,7 +6,7 @@ import type { Editor } from '../../editor';
 import { findCommand } from '../../app/registry';
 import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
-import type { GeneratedInfo } from '../../model/document';
+import { insertLayerAt, type GeneratedInfo } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
 import { relativeTime } from '../../persistence/versions';
@@ -94,7 +94,7 @@ export async function placeGeneration(e: Editor, x: GenerationEntry) {
   e.command('Place Generated Image', (d) => {
     const insert = (layers: typeof d.layers): boolean => {
       const i = layers.findIndex((y) => y.id === anchor);
-      if (i >= 0) return (layers.splice(i + 1, 0, l), true);
+      if (i >= 0) return (insertLayerAt(layers, i + 1, l), true);
       return layers.some((y) => insert(y.children));
     };
     if (!anchor || !insert(d.layers)) d.layers.push(l);

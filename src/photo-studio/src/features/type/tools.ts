@@ -19,6 +19,7 @@ import {
   insert,
   insideSession,
   move,
+  moveBy,
   ordered,
   selectParagraphAt,
   selectWordAt,
@@ -33,15 +34,16 @@ import {
   undoEdit,
   updateData,
 } from './session';
-import { layerMatrix, localScale, replaceLayer, textLayerAt, toLocal, warpLocal, warpedRect } from './text-utils';
+import { layerMatrix, localScale, textLayerAt, toLocal, warpLocal, warpedRect } from './text-utils';
 import { typeOptions, bindTypeOptions } from './options';
 import { wordAt, paragraphAt, plainText } from '../../imaging/text/model';
 import { AREA_TYPE_CURSOR, newTypePath, PATH_TYPE_CURSOR, pathTextMarkup, typePathAt } from './path-type';
+import { isIdentityWarp } from '../../imaging/text/warp';
 
 type Gesture =
   | { kind: 'select'; anchor: [number, number]; unit: 'char' | 'word' | 'paragraph' }
-  | { kind: 'box'; handle: string; start: [number, number]; data: TextLayerData; snap: boolean }
-  | { kind: 'move'; start: [number, number] }
+  | { kind: 'box'; handle: string; start: [number, number]; data: TextLayerData; snap: boolean; id: string }
+  | { kind: 'move'; start: [number, number]; id: string }
   | { kind: 'create'; start: [number, number]; current: [number, number] };
 let gesture: Gesture | undefined;
 const clicks = { count: 0, time: 0, x: 0, y: 0 };
@@ -81,11 +83,11 @@ async function pointerDown(e: Editor, p: CanvasPointer, vertical: boolean, mask:
   if (session) {
     const h = handleAt(e, p);
     if (h) {
-      gesture = { kind: 'box', handle: h, start: toLocal(sessionLayer()!, p.x, p.y), data: session.data, snap: true };
+      gesture = { kind: 'box', handle: h, start: toLocal(sessionLayer()!, p.x, p.y), data: session.data, snap: true, id: crypto.randomUUID() };
       return;
     }
     if (p.mod && !session.mask) {
-      gesture = { kind: 'move', start: [p.x, p.y] };
+      gesture = { kind: 'move', start: [p.x, p.y], id: crypto.randomUUID() };
       return;
     }
     if (insideSession(e, p.x, p.y)) {
@@ -165,8 +167,7 @@ function pointerMove(e: Editor, p: CanvasPointer) {
     const dx = p.x - g.start[0],
       dy = p.y - g.start[1];
     g.start = [p.x, p.y];
-    s.draft = replaceLayer(s.draft, s.layerId, (l) => ({ ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } }));
-    updateData(e, (d) => d, 'move');
+    moveBy(e, dx, dy, `move:${g.id}`);
     return;
   }
   if (g.kind === 'box') {
@@ -195,7 +196,8 @@ function pointerMove(e: Editor, p: CanvasPointer) {
       if (g.handle.startsWith('n')) y -= min - height;
       height = min;
     }
-    updateData(e, (d) => ({ ...d, origin: { x, y }, box: { width, height } }), 'box');
+    // Each drag is one undo step.
+    updateData(e, (d) => ({ ...d, origin: { x, y }, box: { width, height } }), `box:${g.id}`);
   }
 }
 
@@ -258,7 +260,7 @@ export function handleKey(e: Editor, ev: KeyboardEvent, fromInput = true): boole
       if (along) {
         const dir = forward ? 1 : -1;
         if (mod && isMac) move(e, dir, 'line', shift);
-        else move(e, dir, alt || (mod && !isMac) ? 'word' : 'char', shift);
+        else move(e, dir, alt || (mod && !isMac) ? 'word' : 'char', shift, !vertical);
       } else {
         // Across lines; vertical columns advance to the left.
         const dir = vertical ? (ev.key === 'ArrowLeft' ? 1 : -1) : forward ? 1 : -1;
@@ -357,9 +359,16 @@ function overlay(e: Editor): string {
     const p1 = warpLocal(s.data, layout, r.x + r.width, r.y + r.height);
     out += `<line class="type-caret" x1="${p0[0]}" y1="${p0[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke-width="${Math.max(1.5 * k, 0.5)}"/>`;
   }
+  // The IME's composition underline: under horizontal text, beside vertical
+  // columns (on their right), following warps and paths like the selection.
   if (s.composing && s.composing.length)
-    for (const r of layout.selectionRects(s.composing.start, s.composing.start + s.composing.length))
-      out += `<line class="type-composition" x1="${r.x}" y1="${r.y + r.height}" x2="${r.x + r.width}" y2="${r.y + r.height}" stroke-width="${2 * k}"/>`;
+    for (const r of layout.selectionRects(s.composing.start, s.composing.start + s.composing.length)) {
+      const [x0, y0, x1, y1] = layout.vertical ? [r.x + r.width, r.y, r.x + r.width, r.y + r.height] : [r.x, r.y + r.height, r.x + r.width, r.y + r.height];
+      const steps = layout.map ? Math.max(8, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 4)) : isIdentityWarp(s.data.warp) ? 1 : 8;
+      const pts: [number, number][] = [];
+      for (let i = 0; i <= steps; i++) pts.push(warpLocal(s.data, layout, x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps));
+      out += `<polyline class="type-composition" points="${poly(pts)}" fill="none" stroke-width="${2 * k}"/>`;
+    }
   return out + '</g>';
 }
 
@@ -386,7 +395,7 @@ export function installTypeTools(e: Editor) {
     bindOptions: (ctx) => bindTypeOptions(ctx),
     deactivate: (e) => {
       gesture = undefined;
-      if (session) void commit(e);
+      if (session) return commit(e);
     },
     pointerDown: (e, p) => pointerDown(e, p, vertical, mask),
     pointerMove: (e, p) => pointerMove(e, p),

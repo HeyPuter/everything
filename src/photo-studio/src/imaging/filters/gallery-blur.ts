@@ -1,8 +1,8 @@
 // Blur Gallery: Field Blur (blur amounts at pins, interpolated), Path Blur
 // (motion along drawn paths) and Spin Blur (rotation inside an ellipse).
-import type { NormPath, Pin, Progress, RGBA8 } from '../types';
+import { rgba8, type NormPath, type Pin, type Progress } from '../types';
 import { variableBlur } from './blur';
-import { bool, clamp, copyImage, defineOp, linearFilterRGBA, num, point, px, sample, tick, type Plane } from './common';
+import { bool, channelPlane, clamp, copyImage, defineOp, isOpaque, linearFilterRGBA, num, point, premulPlane, px, sample, tick, type Plane } from './common';
 
 const smoothstep = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 
@@ -217,31 +217,61 @@ export const spinBlur = defineOp({
     const arc = spinArc(w, h, cx, cy, rx, ry, rot, angle, num(p, 'feather') / 100);
     const cr = Math.cos(rot), sr = Math.sin(rot);
     // Rotation happens in the ellipse's normalized frame, so points travel
-    // along concentric ellipses (a wheel seen at an angle).
-    const filter = (pl: Plane, dst: Plane, ww: number, hh: number, pr?: Progress) => {
-      for (let y = 0; y < hh; y++) {
-        tick(pr, y, hh);
-        for (let x = 0; x < ww; x++) {
-          const i = y * ww + x, a = arc[i];
-          const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
-          const u = (dx * cr + dy * sr) / rx, v = (-dx * sr + dy * cr) / ry;
-          const r = Math.hypot(u * rx, v * ry);
-          const n = Math.min(128, Math.ceil(a * r));
-          if (n < 1) {
-            dst[i] = pl[i];
-            continue;
-          }
-          let acc = 0;
-          for (let k = 0; k <= n; k++) {
-            const phi = a * (k / n - 0.5), co = Math.cos(phi), si = Math.sin(phi);
-            const uu = (u * co - v * si) * rx, vv = (u * si + v * co) * ry;
-            acc += sample(pl, ww, hh, cx + uu * cr - vv * sr - 0.5, cy + uu * sr + vv * cr - 0.5);
-          }
-          dst[i] = acc / (n + 1);
+    // along concentric ellipses (a wheel seen at an angle). The arc through a
+    // pixel is the same for every channel, so it is traced once and alpha and
+    // the premultiplied colors are sampled together (the same arithmetic as
+    // filtering each plane on its own, at a fraction of the cost).
+    const n = w * h, opaque = isOpaque(src);
+    const planes = opaque ? [0, 1, 2].map((ch) => channelPlane(src, ch)) : [channelPlane(src, 3), ...[0, 1, 2].map((ch) => premulPlane(src, ch))];
+    const P = planes.length;
+    const outs = planes.map(() => new Float32Array(n));
+    const acc = new Float64Array(P);
+    for (let y = 0; y < h; y++) {
+      tick(progress, y, h);
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x, a = arc[i];
+        const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+        const u = (dx * cr + dy * sr) / rx, v = (-dx * sr + dy * cr) / ry;
+        const r = Math.hypot(u * rx, v * ry);
+        const steps = Math.min(128, Math.ceil(a * r));
+        if (steps < 1) {
+          for (let q = 0; q < P; q++) outs[q][i] = planes[q][i];
+          continue;
         }
+        acc.fill(0);
+        for (let k = 0; k <= steps; k++) {
+          const phi = a * (k / steps - 0.5), co = Math.cos(phi), si = Math.sin(phi);
+          const uu = (u * co - v * si) * rx, vv = (u * si + v * co) * ry;
+          // Clamped bilinear sample, as `sample` does for one plane.
+          let sx = cx + uu * cr - vv * sr - 0.5, sy = cy + uu * sr + vv * cr - 0.5;
+          if (sx < 0) sx = 0; else if (sx > w - 1) sx = w - 1;
+          if (sy < 0) sy = 0; else if (sy > h - 1) sy = h - 1;
+          const x0 = sx | 0, y0 = sy | 0;
+          const x1 = x0 + 1 < w ? x0 + 1 : x0, y1 = y0 + 1 < h ? y0 + 1 : y0;
+          const fx = sx - x0, fy = sy - y0;
+          const i00 = y0 * w + x0, i10 = y0 * w + x1, i01 = y1 * w + x0, i11 = y1 * w + x1;
+          for (let q = 0; q < P; q++) {
+            const pl = planes[q];
+            const p00 = pl[i00], p10 = pl[i10], p01 = pl[i01], p11 = pl[i11];
+            const top = p00 + (p10 - p00) * fx;
+            acc[q] += top + (p01 + (p11 - p01) * fx - top) * fy;
+          }
+        }
+        for (let q = 0; q < P; q++) outs[q][i] = acc[q] / (steps + 1);
       }
-      return dst;
-    };
-    return linearFilterRGBA(src, filter, progress) as RGBA8;
+    }
+    // Back to straight color, as linearFilterRGBA does.
+    const out = rgba8(w, h), o = out.data, d = src.data;
+    for (let i = 0, j = 0; i < n; i++, j += 4) {
+      if (opaque) {
+        o[j] = outs[0][i]; o[j + 1] = outs[1][i]; o[j + 2] = outs[2][i]; o[j + 3] = 255;
+        continue;
+      }
+      const al = outs[0][i];
+      o[j + 3] = al;
+      for (let c = 0; c < 3; c++) o[j + c] = al > 1e-3 ? Math.fround((outs[c + 1][i] * 255) / al) : d[j + c];
+    }
+    progress?.report?.(1);
+    return out;
   },
 });

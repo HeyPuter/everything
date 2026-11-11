@@ -11,6 +11,7 @@
 // where it renders nothing and the desktop has its own launcher, the account
 // button stays.
 import type { Editor } from '../editor';
+import { signedOut } from '../persistence/puter';
 
 export const USER_MENU_TAG = 'puter-user-menu';
 
@@ -33,6 +34,7 @@ export function installUserMenu(e: Editor) {
   menu.addEventListener('signout', () => {
     // Every open document forgets its cloud file: it belonged to that account.
     for (const session of e.sessions) session.storage.reset();
+    signedOut();
     e.message('Signed out');
   });
   account.hidden = true;

@@ -58,6 +58,9 @@ export class QuickSelector {
       if (s.positive) anyPos = true;
       else anyNeg = true;
     }
+    // Strokes that miss the image (painted on the pasteboard) seed nothing.
+    anyPos &&= pos.includes(1);
+    anyNeg &&= neg.includes(1);
     const prev = existing ?? mask8(W, H);
     if (!anyPos && !anyNeg) return { width: W, height: H, data: new Uint8Array(prev.data) };
     // Existing selection at graph resolution (point-sampled at cell centers).

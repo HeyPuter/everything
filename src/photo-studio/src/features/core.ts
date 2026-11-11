@@ -11,10 +11,11 @@ import { escapeXML } from '../model/assets';
 import { formatShortcut, isMac } from '../app/shortcuts';
 import { appIcon } from '../app/shell';
 import { compositeRGBA, hexRgb, layerRGBA, nextLayerName, pixelTarget, rasterizeLayer, commitTarget } from './pixels';
-import { assertEditable, selectedRoots, groupLayers } from '../model/layers';
+import { assertEditable, selectedRoots, groupLayers, mergeVisibleStack } from '../model/layers';
 import { hasMask } from '../model/masks';
 import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
+import { makeBackground } from '../model/housekeeping';
 import type { RGBA8 } from '../imaging/types';
 import { layerLock } from '../model/locks';
 import { fillWithPattern } from './effects/commands';
@@ -319,8 +320,8 @@ async function pickFiles(e: Editor, place: boolean) {
   input.onchange = () => {
     const files = Array.from(input.files ?? []);
     void e.run(async () => {
-      const { openFile } = await import('./files/open');
-      for (const f of files) await openFile(e, f, f.name, place);
+      const { openFiles } = await import('./files/open');
+      await openFiles(e, files.map((blob) => ({ blob, name: blob.name })), place);
     });
   };
   input.click();
@@ -727,7 +728,12 @@ async function mergeDown(e: Editor) {
     e.message('The layer below cannot receive merged pixels.');
     return;
   }
-  await mergeLayers(e, [below, l], below.id, 'Merge Down');
+  // Merging composites what is shown: a hidden layer would vanish from the result.
+  if (!below.visible || !l.visible) {
+    e.message('Show both layers before merging them.');
+    return;
+  }
+  await mergeLayers(e, [below, l], below.id, 'Merge Down', true);
 }
 async function mergeSelected(e: Editor) {
   const roots = selectedRoots(e.doc.layers, e.selectedIds);
@@ -735,9 +741,27 @@ async function mergeSelected(e: Editor) {
   const ordered = allLayers(e.doc.layers).filter((l) => roots.some((r) => r.id === l.id));
   await mergeLayers(e, ordered, ordered.at(-1)!.id, 'Merge Layers');
 }
-async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: string) {
+/** Composite `layers` (bottom first) in isolation into the layer `keepId`.
+ * `keepBlend` (Merge Down): as in Photoshop, the result keeps the lower
+ * layer's blend mode and the upper layer is composited onto the lower
+ * layer's own pixels. Its opacity is baked into the pixels, so a stack of
+ * Normal layers, or of layers in the same associative mode (Multiply,
+ * Screen...), looks exactly as before. */
+async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: string, keepBlend = false) {
   const doc = e.doc;
-  const temp = { ...doc, layers: layers.map((l) => ({ ...l, clipped: false })) };
+  // Merging rewrites the bottom layer and deletes the others.
+  assertEditable(doc, layers);
+  if (layerLock(doc.layers, keepId, 'pixels')) throw new Error('Unlock the selected layers and their groups first.');
+  // A clipped layer keeps its clipping when its base is merged with it
+  // (the layer directly below it in the same stack); the bottom one draws alone.
+  const clippedOnto = (l: Layer, i: number) => {
+    if (!i || !l.clipped) return false;
+    const list = containerOf(doc.layers, l.id)!;
+    return list[list.indexOf(l) - 1]?.id === layers[i - 1].id;
+  };
+  const bottom = layers.find((l) => l.id === keepId)!;
+  const blend = keepBlend && bottom.blend !== 'pass through' ? bottom.blend : 'normal';
+  const temp = { ...doc, layers: layers.map((l, i) => ({ ...l, clipped: clippedOnto(l, i), ...(l === bottom && blend !== 'normal' ? { blend: 'normal' as const } : {}) })) };
   const img = await compositeRGBA(e, temp);
   const grid = gridFromImage(e.assets.tiles, img);
   const ids = new Set(layers.map((l) => l.id));
@@ -746,6 +770,11 @@ async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: st
     const list = containerOf(d.layers, keepId)!;
     const merged = newPixelLayer(keep.name, d, grid);
     merged.id = keep.id;
+    // The result stays where the bottom layer was: in its clipping group and,
+    // for the Background, at the bottom with its locks.
+    if (keep.clipped) merged.clipped = true;
+    merged.blend = blend;
+    if (keep.background) makeBackground(merged);
     list.splice(list.indexOf(keep), 1, merged);
     for (const id of ids) {
       if (id === keepId) continue;
@@ -765,8 +794,7 @@ async function mergeVisible(e: Editor, stamp: boolean) {
     return;
   }
   e.command('Merge Visible', (d) => {
-    const hidden = d.layers.filter((x) => !x.visible);
-    d.layers = [...hidden, l];
+    d.layers = mergeVisibleStack(d.layers, l);
   });
   e.selected = l.id;
   e.update();
@@ -780,6 +808,7 @@ async function flatten(e: Editor) {
     img.data[i + 3] = 255;
   }
   const l = newPixelLayer('Background', e.doc, gridFromImage(e.assets.tiles, img));
+  makeBackground(l);
   e.command('Flatten Image', (d) => {
     d.layers = [l];
   });

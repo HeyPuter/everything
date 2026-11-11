@@ -136,7 +136,7 @@ kbd { font-family: inherit; color: var(--muted); font-size: 11px; }
 .hint { color: var(--muted); font-size: 11px; }
 svg.icon { flex: none; display: block; }
 
-#app { height: 100dvh; display: grid; grid-template-rows: 30px 36px minmax(0, 1fr) 22px; }
+#app { height: 100dvh; display: grid; grid-template-rows: 30px 36px minmax(0, 1fr) 22px; grid-template-columns: minmax(0, 1fr); }
 .no-document .optionsbar #tool-options > * { opacity: 0.55; pointer-events: none; }
 
 /* Top bar and menus */
@@ -164,6 +164,17 @@ svg.icon { flex: none; display: block; }
 .submenu .menu-item:not(:hover):not(:focus) kbd { color: var(--muted); }
 .has-submenu.open > .submenu { display: block; }
 .top-actions { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+/* Narrow windows: the menu bar scrolls sideways instead of widening the
+   workspace past the screen; menus open as fixed sheets across the window
+   and submenus drop below their item, so neither leaves the screen. */
+@media (max-width: 760px) {
+  .topbar { min-width: 0; }
+  .menubar { flex: 0 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .menubar::-webkit-scrollbar { display: none; }
+  .menubar-entry > .menu-pop { position: fixed; top: 28px; left: 4px; right: 4px; min-width: 0; max-height: calc(100dvh - 36px); overflow-y: auto; }
+  .submenu { top: calc(100% - 2px); left: 14px; right: 4px; min-width: 0; z-index: 51; }
+  .top-actions { flex: none; }
+}
 .export-button { border-color: var(--input-line); }
 .save-button span { font-size: 11px; }
 .account { width: 26px; }
@@ -1407,6 +1418,7 @@ dialog.gradient-editor { width: min(560px, calc(100vw - 24px)); max-width: none;
 .ge-track { position: relative; height: 16px; cursor: copy; }
 .ge-stop { position: absolute; top: 1px; width: 12px; height: 14px; margin-left: -6px; min-height: 0; padding: 0; border: 1px solid #000; border-radius: 2px; background: var(--stop); box-shadow: 0 0 0 1px #fff inset; cursor: ew-resize; }
 .ge-stop.selected { outline: 2px solid var(--accent); }
+.ge-stop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ge-stop.removing { opacity: .3; }
 .ge-mid { position: absolute; top: 4px; width: 8px; height: 8px; margin-left: -4px; transform: rotate(45deg); background: var(--surface); border: 1px solid var(--text); cursor: ew-resize; }
 .ge-stops { border: 1px solid var(--line); padding: 8px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; }
@@ -2350,3 +2362,5 @@ html.feature-loading .statusbar::after { content: ''; position: absolute; left: 
 @keyframes feature-loading { from { background-position: -40% 0; } to { background-position: 140% 0; } }
 .panel-loading { min-height: 48px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 12%, transparent), transparent) 0 0 / 40% 100% no-repeat; animation: feature-loading 0.9s linear infinite; }
 @media (prefers-reduced-motion: reduce) { html.feature-loading .statusbar::after, .panel-loading { animation: none; } }
+.panel-load-error { display: grid; gap: 8px; justify-items: start; padding: 12px 10px; color: var(--muted); }
+.panel-load-error p { margin: 0; line-height: 1.4; }

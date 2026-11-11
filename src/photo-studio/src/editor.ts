@@ -15,7 +15,7 @@ import { commands, findCommand, overlays, tools, type Tool } from './app/registr
 import { brushSizeStep, eventShortcut, platformShortcut } from './app/shortcuts';
 import { watchOptionTips } from './app/option-tips';
 import { svg } from './app/icons';
-import { startIdleWork } from './app/lazy';
+import { loadError, startIdleWork } from './app/lazy';
 import { emitActivity } from './app/activity';
 import { rulerTicks, rulerUnitScale } from './ui/rulers';
 import { DocumentView, WindowManager } from './app/views';
@@ -99,7 +99,17 @@ export class Editor {
     return this.activeView.session;
   }
   set session(s: DocumentSession) {
-    this.setActiveView(this.viewsOf(s).at(-1) ?? this.addView(s));
+    const v = this.viewsOf(s).at(-1) ?? this.addView(s);
+    // A task that opens or creates a document switches to it: the tool ends
+    // its work in the document it was used in, as for a tab switch (work that
+    // takes time keeps to that document itself).
+    const leaving = !!this.transform && !!this.activeView && s !== this.activeView.session && this.sessions.includes(this.activeView.session);
+    if (leaving) {
+      this.transform.apply();
+      void this.activeTool?.deactivate?.(this, 'document');
+    }
+    this.setActiveView(v);
+    if (leaving) this.activeTool?.activate?.(this);
   }
   /** Windows of a document, least recently used first. */
   viewsOf(s: DocumentSession) {
@@ -119,15 +129,34 @@ export class Editor {
     this.activeView = v;
     if (changed && this.windows?.multi) this.windows.layout();
   }
-  /** Make a window active: it receives input and hosts the live canvas. */
+  /** Make a window active: it receives input and hosts the live canvas. The
+   * tool first finishes its work in the document it was used in (committing
+   * text, applying waiting strokes). */
   async activateView(v: DocumentView) {
     if (v === this.activeView || !this.views.includes(v)) return;
+    const turn = ++this.switches;
     this.transform.apply();
-    this.activeTool?.deactivate?.(this);
+    const free = !this.busy;
+    await this.activeTool?.deactivate?.(this, 'document');
+    // Work the tool started as a task of its own.
+    if (free && this.busy) await this.idle;
+    // A later choice (another tab clicked meanwhile) wins.
+    if (turn !== this.switches || v === this.activeView || !this.views.includes(v)) return;
     this.setActiveView(v);
     this.activeTool?.activate?.(this);
     this.view();
     this.update();
+  }
+  private switches = 0;
+  // A window chosen while a task was running; it is shown when the task ends.
+  private pendingView?: DocumentView;
+  /** Show a window the user chose (a tab, a window, the keyboard). While a
+   * task runs the switch waits for it, so the task's edits stay in the
+   * document it started in. */
+  async showView(v: DocumentView) {
+    if (!this.busy) return this.activateView(v);
+    this.pendingView = v;
+    this.message(`“${v.session.doc.name}” is shown when the current task finishes.`);
   }
   /** Close one window; the last window of a document closes the document. */
   async closeView(v: DocumentView) {
@@ -211,9 +240,12 @@ export class Editor {
     if (!force && s.closeHandler) {
       if (!(await s.closeHandler())) return false;
     } else if (!force && s.dirty) {
-      const { formDialog } = await import('./ui/dialog');
-      if (!(await formDialog(`Close “${s.doc.name}”?`, [], 'Close without saving', 'Unsaved changes will be lost.'))) return false;
+      const { saveChangesDialog } = await import('./ui/dialog');
+      const choice = await saveChangesDialog(`Save changes to “${s.doc.name}” before closing?`, 'Your changes will be lost if you don’t save them.');
+      if (choice === 'cancel' || (choice === 'save' && !(await this.saveBeforeClose(s)))) return false;
     }
+    // Another request (a second click on the close button) closed it meanwhile.
+    if (!this.sessions.includes(s)) return true;
     if (s === this.session) {
       this.transform.cancel();
       this.modal?.cancel();
@@ -231,6 +263,44 @@ export class Editor {
     this.fit();
     this.update();
     return true;
+  }
+  /** Save a document that is about to close; resolves whether it was saved.
+   * A first save asks where in a Puter picker that never answers when it is
+   * dismissed, so anything else done in the workspace meanwhile gives up on
+   * closing (the document stays open). */
+  private async saveBeforeClose(s: DocumentSession) {
+    const save = findCommand('file.save');
+    if (!save) return false;
+    if (s !== this.session) await this.switchSession(s);
+    this.transform.apply();
+    this.modal?.apply();
+    let failed = false;
+    const task = async () => {
+      try {
+        await save.run(this);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    };
+    let saved!: (value: boolean) => void;
+    const answer = new Promise<boolean>((resolve) => (saved = resolve));
+    const hook = (x: DocumentSession) => x === s && saved(true);
+    const other = () => saved(false);
+    this.saveHooks.push(hook);
+    try {
+      if (this.busy) await task().catch((error) => this.message(error instanceof Error ? error.message : String(error)));
+      else await this.run(task);
+      if (failed || !this.sessions.includes(s)) return false;
+      if (!s.dirty) return true;
+      document.addEventListener('pointerdown', other, true);
+      document.addEventListener('keydown', other, true);
+      return (await answer) && !s.dirty;
+    } finally {
+      this.saveHooks.splice(this.saveHooks.indexOf(hook), 1);
+      document.removeEventListener('pointerdown', other, true);
+      document.removeEventListener('keydown', other, true);
+    }
   }
   /** Session for a newly opened document: reuse an untouched empty workspace. */
   sessionForOpen() {
@@ -349,27 +419,38 @@ export class Editor {
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => (toast.hidden = true), 5500);
   }
+  // Resolves when the running task ends (or releases the editor).
+  idle: Promise<void> = Promise.resolve();
+  private settle?: () => void;
   async run(task: () => Promise<void>) {
     if (this.busy) return;
     this.busy = true;
+    const idle = (this.idle = new Promise((resolve) => (this.settle = resolve)));
     this.root.setAttribute('aria-busy', 'true');
     try {
       await task();
-    } catch (error) {
+    } catch (thrown) {
+      // Code a task imports itself (not through `lazy`) can fail to load too.
+      const error = loadError(thrown);
       // Messages for the user are plain Errors; anything else is a bug and
       // keeps its stack in the console.
       if (error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError || error instanceof SyntaxError) console.error(error);
       this.message(error instanceof Error ? error.message : String(error));
     } finally {
-      this.busy = false;
-      this.root.removeAttribute('aria-busy');
+      // Unless the task released the editor and another one runs now.
+      if (this.idle === idle) this.release();
     }
   }
   /** Let the user work while a task waits on something that may never answer
    * (a Puter picker that was dismissed); later steps run through `run` again. */
   release() {
+    if (!this.busy) return;
     this.busy = false;
     this.root.removeAttribute('aria-busy');
+    this.settle?.();
+    const v = this.pendingView;
+    this.pendingView = undefined;
+    if (v && v !== this.activeView && this.views.includes(v)) void this.activateView(v);
   }
   /** Run a registered command by ID (menus, shortcuts, buttons, actions). */
   async runCommand(id: string, arg?: unknown) {
@@ -403,7 +484,20 @@ export class Editor {
   lastCommand?: string;
   // The Actions panel installs a recorder while recording.
   recorder?: (id: string, arg?: unknown) => void;
-  command(label: string, edit: (doc: PhotoDocument) => void, opts: { coalesce?: boolean } = {}) {
+  /** One undo step in the active document, or in `opts.session`: work that
+   * finishes after the user switched documents still edits its own. */
+  command(label: string, edit: (doc: PhotoDocument) => void, opts: { coalesce?: boolean; session?: DocumentSession } = {}) {
+    const s = opts.session;
+    if (s && s !== this.session) {
+      if (!this.sessions.includes(s)) return;
+      s.selections.set(s.doc, [...s.selectedIds]);
+      const before = s.doc;
+      s.history.execute(label, edit, opts.coalesce);
+      if (s.doc !== before) s.hasDocument = true;
+      // Its tab shows the unsaved change.
+      this.windows.renderTabs();
+      return;
+    }
     this.transform.apply();
     this.modal?.apply();
     this.session.selections.set(this.doc, [...this.selectedIds]);
@@ -505,8 +599,28 @@ export class Editor {
     if (this.transform.active)
       html = `<span class="transform-label">Free Transform</span><label class="transform-setting"><input id="transform-proportions" type="checkbox" ${this.transform.shared || this.transform.proportional ? 'checked' : ''} ${this.transform.shared ? 'disabled' : ''}>Proportions</label><label class="transform-setting"><input id="transform-snap" type="checkbox" ${this.transform.snapping ? 'checked' : ''}>Snap</label><button data-command="edit.transform-cancel" class="icon-button" title="Cancel transform (Escape)" aria-label="Cancel">${svg('ban', 16)}</button><button data-command="edit.transform-commit" class="icon-button transform-apply" title="Commit transform (Enter)" aria-label="Apply">${svg('check', 16)}</button>`;
     else html = tool?.options?.(this) ?? '';
+    // The bar is rebuilt after every edit; a control that had the keyboard
+    // focus (often the one Tab just moved to) gets it back, with its caret.
+    const focused = document.activeElement as HTMLInputElement | null;
+    const keep = focused && el.contains(focused) && focused.id ? { id: focused.id, start: caret(focused, 'selectionStart'), end: caret(focused, 'selectionEnd') } : this.optionsTab ? { id: this.optionsTab.id, start: null, end: null } : undefined;
     el.innerHTML = html;
     if (!this.transform.active) tool?.bindOptions?.({ e: this, el });
+    if (keep) {
+      const again = el.querySelector<HTMLInputElement>(`#${CSS.escape(keep.id)}`);
+      again?.focus({ preventScroll: true });
+      if (again && keep.start !== null && keep.end !== null && caret(again, 'selectionStart') !== null) again.setSelectionRange(keep.start, keep.end);
+      // A change committed by Tab rebuilds the bar while the browser moves the
+      // focus to a control that no longer exists; finish the move here.
+      const tab = this.optionsTab;
+      if (tab?.id === keep.id)
+        setTimeout(() => {
+          const now = document.activeElement;
+          if (now && now !== document.body && now.isConnected && now !== again) return;
+          const list = [...el.querySelectorAll<HTMLElement>('input,select,button,textarea,[tabindex]')].filter((x) => x.tabIndex >= 0 && !(x as HTMLInputElement).disabled && x.offsetParent !== null);
+          const at = list.findIndex((x) => x.id === keep.id);
+          list[at + (tab.back ? -1 : 1)]?.focus({ preventScroll: true });
+        });
+    }
     this.el('#viewport').dataset.tool = this.tool;
     this.el('#viewport').style.cursor = this.cursorFor ? this.cursorFor(tool) : (tool?.cursor?.(this) ?? '');
   }
@@ -516,7 +630,7 @@ export class Editor {
     if (!tools.has(id)) return;
     if (this.transform.dragging && !this.transform.active) this.transform.cancel();
     if (id !== this.tool) this.transform.apply();
-    this.activeTool?.deactivate?.(this);
+    void this.activeTool?.deactivate?.(this, 'tool');
     this.tool = id;
     this.toolbar?.select(id);
     this.activeTool?.activate?.(this);
@@ -708,19 +822,31 @@ export class Editor {
   // ----- Input -----
   private bind() {
     watchOptionTips(this.el('#tool-options'));
+    this.el('#tool-options').addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key !== 'Tab') return;
+        const id = (e.target as HTMLElement).id;
+        this.optionsTab = id ? { id, back: e.shiftKey } : undefined;
+        setTimeout(() => (this.optionsTab = undefined));
+      },
+      true,
+    );
     this.root.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
       const close = target.closest<HTMLElement>('[data-close-view]');
       if (close) {
         const v = this.views.find((x) => x.id === close.dataset.closeView);
-        if (v) void this.closeView(v);
+        // Closing waits for the task, which may be working on that document.
+        if (v && this.busy) this.message(`“${v.session.doc.name}” can be closed when the current task finishes.`);
+        else if (v) void this.closeView(v);
         e.stopPropagation();
         return;
       }
       const tab = target.closest<HTMLElement>('[data-view]');
       if (tab) {
         const v = this.views.find((x) => x.id === tab.dataset.view);
-        if (v) void this.activateView(v);
+        if (v) void this.showView(v);
         return;
       }
       if (this.busy) return;
@@ -729,6 +855,21 @@ export class Editor {
         void this.runCommand(cmd.dataset.command!, cmd.dataset.arg);
         return;
       }
+    });
+    // Document tabs from the keyboard: arrows (Home, End) move to another
+    // document's tab and show it, Enter or Space shows the focused one. The keys
+    // stay here, so arrows never also nudge a layer.
+    this.root.addEventListener('keydown', (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLElement>('.document-tab[data-view]');
+      if (!tab || (e.target as HTMLElement).closest('.tab-close') || e.metaKey || e.ctrlKey || e.altKey || !['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter', ' '].includes(e.key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const tabs = [...tab.parentElement!.querySelectorAll<HTMLElement>('.document-tab[data-view]')];
+      const at = tabs.indexOf(tab);
+      const next = e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs.at(-1)! : e.key === 'ArrowLeft' ? tabs[(at - 1 + tabs.length) % tabs.length] : e.key === 'ArrowRight' ? tabs[(at + 1) % tabs.length] : tab;
+      const v = this.views.find((x) => x.id === next.dataset.view);
+      if (!v) return;
+      void this.showView(v).then(() => this.root.querySelector<HTMLElement>(`.document-tab[data-view="${CSS.escape(v.id)}"]`)?.focus({ preventScroll: true }));
     });
     this.root.addEventListener('change', (e) => {
       const t = e.target as HTMLInputElement;
@@ -742,8 +883,8 @@ export class Editor {
       const files = Array.from(input.files ?? []);
       input.value = '';
       void this.run(async () => {
-        const { openFile } = await import('./features/files/open');
-        for (const file of files) await openFile(this, file, file.name);
+        const { openFiles } = await import('./features/files/open');
+        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })));
       });
     };
     const viewport = this.el('#viewport');
@@ -764,8 +905,8 @@ export class Editor {
       // Dropping onto the canvas places files into the open document.
       const place = this.hasDocument && !!(e.target as HTMLElement).closest('#viewport');
       void this.run(async () => {
-        const { openFile } = await import('./features/files/open');
-        for (const f of files) await openFile(this, f, f.name, place);
+        const { openFiles } = await import('./features/files/open');
+        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })), place);
       });
     });
     viewport.addEventListener('contextmenu', (e) => {
@@ -802,6 +943,8 @@ export class Editor {
     this.preferences.theme = theme as Preferences['theme'];
     this.preferencesChanged();
   }
+  // The options-bar control Tab is leaving (see options()).
+  private optionsTab?: { id: string; back: boolean };
   private keyDown(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
     // puter.js's user menu takes its own keys (they arrive from the element).
@@ -817,8 +960,9 @@ export class Editor {
     const typing = !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
     if (target.closest('dialog')) return;
     const shortcut = eventShortcut(e);
-    // Modified shortcuts work while typing in numeric fields; bare keys never do.
-    if (typing && (!shortcut.startsWith('Mod+') || target.closest('textarea,[contenteditable="true"]'))) return;
+    // Modified shortcuts work while typing in numeric fields; bare keys never do,
+    // and the field keeps the keys that edit its own text (select all, copy, cut, paste).
+    if (typing && (!shortcut.startsWith('Mod+') || /^Mod\+[ACVX]$/.test(shortcut) || target.closest('textarea,[contenteditable="true"]'))) return;
     if (this.busy) return;
     if (this.activeTool?.keyDown?.(this, e)) {
       e.preventDefault();
@@ -828,6 +972,13 @@ export class Editor {
       e.preventDefault();
       if (e.key === 'Escape') this.transform.cancel();
       else this.transform.apply();
+      return;
+    }
+    // While a tool gesture is in progress (the button is still down) shortcuts
+    // wait: undoing, switching tools or closing the document under a stroke
+    // would leave the stroke without its end.
+    if (this.toolBusy) {
+      if (shortcut.startsWith('Mod+')) e.preventDefault();
       return;
     }
     if (this.tool === 'move' && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.startsWith('Arrow')) {
@@ -882,6 +1033,15 @@ export class Editor {
   }
   // The last number key, for two-digit opacity values.
   private digit?: { n: number; at: number };
+}
+
+/** A text field's caret position, or null where there is none (number fields, buttons). */
+function caret(el: HTMLInputElement, which: 'selectionStart' | 'selectionEnd'): number | null {
+  try {
+    return typeof el[which] === 'number' ? el[which] : null;
+  } catch {
+    return null;
+  }
 }
 
 // Markup last written by setMarkup, per element. Most updates redraw rulers

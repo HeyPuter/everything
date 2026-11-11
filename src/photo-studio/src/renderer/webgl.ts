@@ -32,15 +32,19 @@ export class WebGLBackend implements Backend {
     this.maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
     this.program = this.createProgram(glFragment);
     this.framebuffer = gl.createFramebuffer()!;
-    canvas.addEventListener('webglcontextlost', (e) => {
-      e.preventDefault();
-      canvas.dispatchEvent(
-        new CustomEvent('renderer-lost', {
-          detail: 'Graphics context lost. Save your project and reload.',
-        }),
-      );
-    });
+    this.lost = new Promise((resolve) =>
+      canvas.addEventListener(
+        'webglcontextlost',
+        (e) => {
+          // Allows the browser to restore the context (webglcontextrestored).
+          e.preventDefault();
+          resolve();
+        },
+        { once: true },
+      ),
+    );
   }
+  readonly lost: Promise<void>;
   private createProgram(fragment: string) {
     const gl = this.gl;
     const shader = (type: number, source: string) => {

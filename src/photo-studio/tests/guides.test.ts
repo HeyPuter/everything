@@ -114,6 +114,15 @@ describe('canvas and artboard guides', () => {
       { orientation: 'vertical', position: 110 },
     ]);
   });
+
+  it('counts whole columns and refuses gutters and margins that do not fit', () => {
+    // 2.5 columns used to lay out three uneven ones.
+    expect(layoutGuides(200, 100, 2.4, 0, 0, 0)).toEqual([{ orientation: 'vertical', position: 100 }]);
+    // Gutters wider than the area used to scatter guides out of order and off the canvas.
+    expect(() => layoutGuides(100, 100, 4, 0, 40, 0)).toThrow(/do not fit/);
+    expect(() => layoutGuides(100, 100, 0, 2, 0, 60)).toThrow(/do not fit/);
+    expect(() => layoutGuides(100, 100, 2, 0, 0, 50)).toThrow(/do not fit/);
+  });
 });
 
 describe('actual size zoom', () => {

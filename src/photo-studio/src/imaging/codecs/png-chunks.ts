@@ -1,7 +1,16 @@
 // PNG chunk surgery (PNG specification, ISO/IEC 15948 / W3C PNG 3rd ed.):
 // browsers encode PNG pixels but drop color profiles and resolution, so
 // exports re-insert iCCP, sRGB, pHYs and text chunks into the encoded file.
-import { deflate, inflate } from 'pako';
+import { deflate } from 'pako';
+import { inflateLimited } from './inflate';
+
+// Compressed profiles and text are capped: Deflate can expand a thousandfold.
+const maxInflatedChunk = 16 * 1024 * 1024;
+const inflateChunk = (z: Uint8Array) => {
+  const out = inflateLimited(z, maxInflatedChunk + 1);
+  if (!out || out.length > maxInflatedChunk) throw new CodecError('Compressed PNG chunk is damaged or too large.');
+  return out;
+};
 import { ByteWriter, CodecError, asciiAt, crc32, latin1Bytes, latin1String } from './bytes';
 
 export const PNG_SIGNATURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -118,7 +127,7 @@ export function readPngIcc(png: Uint8Array): { name: string; profile: Uint8Array
   const z = c.data.indexOf(0);
   if (z < 1 || c.data[z + 1] !== 0) return undefined;
   try {
-    return { name: latin1String(c.data.subarray(0, z)), profile: inflate(c.data.subarray(z + 2)) };
+    return { name: latin1String(c.data.subarray(0, z)), profile: inflateChunk(c.data.subarray(z + 2)) };
   } catch {
     return undefined; // corrupt zlib stream
   }
@@ -186,14 +195,14 @@ export function readPngText(png: Uint8Array): Record<string, string> {
     const key = latin1String(d.subarray(0, z));
     try {
       if (c.type === 'tEXt') out[key] = latin1String(d.subarray(z + 1));
-      else if (c.type === 'zTXt') out[key] = latin1String(inflate(d.subarray(z + 2)));
+      else if (c.type === 'zTXt') out[key] = latin1String(inflateChunk(d.subarray(z + 2)));
       else {
         const compressed = d[z + 1] === 1;
         const l = d.indexOf(0, z + 3);
         const t = d.indexOf(0, l + 1);
         if (l < 0 || t < 0) continue;
         const body = d.subarray(t + 1);
-        out[key] = new TextDecoder().decode(compressed ? inflate(body) : body);
+        out[key] = new TextDecoder().decode(compressed ? inflateChunk(body) : body);
       }
     } catch {
       // Skip a corrupt compressed text chunk rather than failing the read.

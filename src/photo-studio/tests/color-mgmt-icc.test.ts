@@ -95,6 +95,31 @@ describe('built-in matrix/TRC profiles', { timeout: 120000 }, () => {
     const gray = parseIcc(serializeIcc(builtinProfile('gray-dot-gain-20')));
     expect(toXYZ(gray, [0.5])[1]).toBeCloseTo(0.3, 3);
   });
+
+  it('keeps profile names outside the Basic Multilingual Plane in v4 profiles', () => {
+    // The mluc record counted UTF-16 units but wrote one per code point, so
+    // the name was cut short and read back as untitled.
+    for (const name of ['Café RGB', 'プロファイル', 'Proof 🎨 v2']) expect(parseIcc(serializeIcc({ ...builtinProfile('srgb'), name }, { version: 4 })).name).toBe(name);
+  });
+
+  it('reads damaged profile names without looping over bogus record counts', () => {
+    // An embedded profile with a valid matrix/TRC but a description claiming
+    // two billion records once froze the editor when the document was read.
+    const bytes = serializeIcc(builtinProfile('srgb'), { version: 4 }).slice();
+    const view = new DataView(bytes.buffer);
+    let desc = -1;
+    for (let i = 0; i < view.getUint32(128); i++)
+      if (String.fromCharCode(...bytes.subarray(132 + i * 12, 136 + i * 12)) === 'desc') desc = view.getUint32(136 + i * 12);
+    view.setUint32(desc + 8, 0x7fffffff);
+    bytes.set([0x78, 0x78], desc + 16); // Not English, so every record is searched.
+    expect(readRgbProfile(bytes).matrix).toHaveLength(9);
+    const p = parseIcc(bytes);
+    expect(p.colorSpace).toBe('RGB');
+    expect(p.name).toBe(builtinProfile('srgb').name);
+    // A record pointing past the tag or a length beyond it gives no name.
+    view.setUint32(desc + 16 + 4, 0xfffffff0);
+    expect(parseIcc(bytes).name).toBe('Untitled profile');
+  });
 });
 
 describe('LUT-based profiles', { timeout: 120000 }, () => {

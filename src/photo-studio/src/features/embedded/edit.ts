@@ -7,7 +7,6 @@ import type { Editor } from '../../editor';
 import type { DocumentSession } from '../../app/session';
 import { findLayer, type Layer } from '../../model/document';
 import { contentsOf, instancesOf, type EmbeddedContents } from '../../model/embedded';
-import { escapeXML } from '../../model/assets';
 import { isMac } from '../../app/shortcuts';
 import { contentsFromDocument, openContents, plainContents, setContents } from './contents';
 import { detach, owners } from './owners';
@@ -100,9 +99,10 @@ export async function saveContents(e: Editor, s: DocumentSession) {
 async function closeContents(e: Editor, s: DocumentSession): Promise<boolean> {
   const o = owners.get(s);
   if (!s.dirty) return true;
-  const choice = await threeWay(
-    `Save changes to “${escapeXML(o?.name ?? s.doc.name)}”?`,
-    o && e.sessions.includes(o.parent) ? `Saving updates the embedded object in ${escapeXML(o.parent.doc.name)}.` : 'Unsaved changes will be lost.',
+  const { saveChangesDialog } = await import('../../ui/dialog');
+  const choice = await saveChangesDialog(
+    `Save changes to “${o?.name ?? s.doc.name}”?`,
+    o && e.sessions.includes(o.parent) ? `Saving updates the embedded object in ${o.parent.doc.name}.` : 'Unsaved changes will be lost.',
   );
   if (choice === 'cancel') return false;
   if (choice === 'save') {
@@ -111,26 +111,4 @@ async function closeContents(e: Editor, s: DocumentSession): Promise<boolean> {
     return !s.dirty;
   }
   return true;
-}
-function threeWay(title: string, message: string): Promise<'save' | 'discard' | 'cancel'> {
-  const dialog = document.querySelector<HTMLDialogElement>('#dialog')!;
-  return new Promise((resolve) => {
-    dialog.innerHTML = `<form method="dialog"><h2>${title}</h2><p>${message}</p><div class="dialog-actions"><button type="button" data-choice="discard" class="dialog-discard">Don’t Save</button><button type="button" data-choice="cancel">Cancel</button><button type="submit" class="primary" data-choice="save">Save</button></div></form>`;
-    let done = false;
-    const finish = (v: 'save' | 'discard' | 'cancel') => {
-      if (done) return;
-      done = true;
-      dialog.close();
-      resolve(v);
-    };
-    dialog.querySelectorAll<HTMLButtonElement>('[data-choice]').forEach((b) =>
-      b.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        finish(b.dataset.choice as 'save' | 'discard' | 'cancel');
-      }),
-    );
-    dialog.oncancel = () => finish('cancel');
-    dialog.showModal();
-    dialog.querySelector<HTMLButtonElement>('[data-choice="save"]')?.focus();
-  });
 }

@@ -107,8 +107,17 @@ export class Toolbar {
       const current = extra.find((t) => t.id === active);
       html += `<div class="tool-separator" role="separator"></div><button class="tool-slot extra-tools-slot has-flyout" data-slot="${EXTRA_SLOT}" data-tool="${current?.id ?? ''}" aria-haspopup="menu" aria-label="Extra tools${current ? `: ${escapeXML(current.label)}` : ''}" title="Extra tools${current ? ` — ${escapeXML(current.label)}` : ''}" aria-pressed="${!!current}">${svg(current?.icon ?? 'ellipsis')}</button>`;
     }
-    this.el.querySelector('.tool-slots')!.innerHTML = html;
+    const slots = this.el.querySelector<HTMLElement>('.tool-slots')!;
+    // The toolbar redraws after every edit: keep unchanged markup, and the
+    // keyboard focus on the slot that had it.
+    if (this.markup === html) return;
+    this.markup = html;
+    const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-slot]');
+    const slot = focused && slots.contains(focused) ? focused.dataset.slot : undefined;
+    slots.innerHTML = html;
+    if (slot) slots.querySelector<HTMLElement>(`[data-slot="${CSS.escape(slot)}"]`)?.focus({ preventScroll: true });
   }
+  private markup = '';
   private openFlyout(group: string, anchor: HTMLElement) {
     this.closeFlyout();
     const list = groupTools(group);

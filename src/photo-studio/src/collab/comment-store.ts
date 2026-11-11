@@ -62,8 +62,10 @@ export class LocalComments implements CommentStore {
   }
   remove(thread: string, message?: string) {
     // Local comments are removed outright; nobody else holds them.
-    if (!message) return this.update((list) => list.filter((t) => t.id !== thread));
-    this.thread(thread, (t) => ({ ...t, messages: t.messages.filter((m) => m.id !== message) }));
+    // Removing the last message removes the comment (no empty pin is left).
+    const t = this.list.find((x) => x.id === thread);
+    if (!message || (t && t.messages.every((m) => m.id === message))) return this.update((list) => list.filter((x) => x.id !== thread));
+    this.thread(thread, (x) => ({ ...x, messages: x.messages.filter((m) => m.id !== message) }));
   }
   resolve(thread: string, resolved: boolean) {
     this.thread(thread, (t) => ({ ...t, resolved: resolved ? { by: this.me(), at: Date.now() } : null }));

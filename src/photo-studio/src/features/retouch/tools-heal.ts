@@ -2,6 +2,7 @@
 // and Remove. Brush tools collect the stroke, then heal it in the worker in one
 // step so the result is seamless and undoable as one edit.
 import type { Editor } from '../../editor';
+import type { DocumentSession } from '../../app/session';
 import type { Tool } from '../../app/registry';
 import type { CanvasPointer } from '../../app/pointer';
 import { brushFor, cursor } from '../paint';
@@ -90,10 +91,10 @@ function collectingTool(base: Omit<Tool, 'pointerDown' | 'pointerMove' | 'pointe
     ...base,
     cursor: () => 'none',
     hover: (e, p) => cursor(e, base.id, p),
-    deactivate: (e) => {
+    deactivate: (e, reason) => {
       e.screenOverlayContent = '';
       e.screenOverlay();
-      base.deactivate?.(e);
+      return base.deactivate?.(e, reason);
     },
     pointerDown: async (e, p) => {
       const s: Collected = { points: [[p.x, p.y]], ready: false, done: false };
@@ -179,8 +180,16 @@ const spotHealingTool = collectingTool(
 // ----- Remove tool -----
 const REMOVE = 'remove-tool';
 const remove: { s?: Collected } = {};
-let removePending: { points: Pt[]; size: number }[] = [];
-let removeTarget: PixelsTarget | undefined;
+// Strokes painted with "Remove after each stroke" off wait for Apply in the
+// document they were painted in; another document shown meanwhile has its own.
+type RemovePending = { strokes: { points: Pt[]; size: number }[]; target: PixelsTarget };
+const removePending = new WeakMap<DocumentSession, RemovePending>();
+const pendingRemove = (e: Editor) => removePending.get(e.session);
+function dropPendingRemove(e: Editor) {
+  removePending.delete(e.session);
+  e.options();
+  e.overlay();
+}
 async function removeStrokes(e: Editor, strokes: { points: Pt[]; size: number }[], target: PixelsTarget) {
   const W = e.doc.width,
     H = e.doc.height;
@@ -206,13 +215,9 @@ async function removeStrokes(e: Editor, strokes: { points: Pt[]; size: number }[
   if (result) writeResult(e, target, R, before, result, 'Remove Tool', { sampleAll, weight });
 }
 async function applyPendingRemove(e: Editor) {
-  const strokes = removePending,
-    target = removeTarget;
-  removePending = [];
-  removeTarget = undefined;
-  e.options();
-  e.overlay();
-  if (strokes.length && target) await removeStrokes(e, strokes, target);
+  const pending = pendingRemove(e);
+  dropPendingRemove(e);
+  if (pending?.strokes.length) await removeStrokes(e, pending.strokes, pending.target);
 }
 const removeTool = collectingTool(
   {
@@ -223,44 +228,40 @@ const removeTool = collectingTool(
     group: 'heal',
     options: (e) =>
       `${sizeField(REMOVE)}${checkbox('remove-all', 'Sample All Layers', !!e.settings.removeSampleAll)}${checkbox('remove-each', 'Remove after each stroke', e.settings.removeEach !== false)}${
-        removePending.length ? `<button id="remove-apply" class="primary" title="Remove the painted areas (Enter)">Apply</button><button id="remove-cancel" title="Discard the painted strokes (Escape)">Cancel</button>` : ''
+        pendingRemove(e) ? `<button id="remove-apply" class="primary" title="Remove the painted areas (Enter)">Apply</button><button id="remove-cancel" title="Discard the painted strokes (Escape)">Cancel</button>` : ''
       }`,
     bindOptions: ({ e, el }) => {
       bindSize(el, REMOVE);
       bindCheck(e, el, 'remove-all', 'removeSampleAll');
       bindCheck(e, el, 'remove-each', 'removeEach');
       el.querySelector('#remove-apply')?.addEventListener('click', () => void e.run(() => applyPendingRemove(e)));
-      el.querySelector('#remove-cancel')?.addEventListener('click', () => {
-        removePending = [];
-        e.options();
-        e.overlay();
-      });
+      el.querySelector('#remove-cancel')?.addEventListener('click', () => dropPendingRemove(e));
     },
-    deactivate: (e) => {
-      if (removePending.length) void e.run(() => applyPendingRemove(e));
+    // Choosing another tool applies the strokes; showing another document
+    // leaves them waiting in theirs.
+    deactivate: (e, reason) => {
+      if (reason !== 'document' && pendingRemove(e)) return e.run(() => applyPendingRemove(e));
     },
     keyDown: (e, ev) => {
-      if (removePending.length && ev.key === 'Enter') {
+      if (pendingRemove(e) && ev.key === 'Enter') {
         void e.run(() => applyPendingRemove(e));
         return true;
       }
-      if (removePending.length && ev.key === 'Escape') {
-        removePending = [];
-        e.options();
-        e.overlay();
+      if (pendingRemove(e) && ev.key === 'Escape') {
+        dropPendingRemove(e);
         return true;
       }
       return sizeKeys(e, REMOVE, ev);
     },
-    overlay: () => removePending.map((s) => strokeSvg(s.points, s.size, 'retouch-stroke remove')).join('') + (remove.s ? strokeSvg(remove.s.points, brushFor(REMOVE).size, 'retouch-stroke remove') : ''),
+    overlay: (e) => (pendingRemove(e)?.strokes ?? []).map((s) => strokeSvg(s.points, s.size, 'retouch-stroke remove')).join('') + (remove.s ? strokeSvg(remove.s.points, brushFor(REMOVE).size, 'retouch-stroke remove') : ''),
   },
   'The Remove tool',
   async (e, s) => {
     const stroke = { points: s.points, size: brushFor(REMOVE).size };
     if (e.settings.removeEach === false) {
-      if (removeTarget && removeTarget.layer.id !== s.target!.layer.id) removePending = [];
-      removePending.push(stroke);
-      removeTarget = s.target;
+      const pending = pendingRemove(e);
+      if (pending && pending.target.layer.id === s.target!.layer.id) pending.strokes.push(stroke);
+      else removePending.set(e.session, { strokes: [stroke], target: s.target! });
       e.options();
       return;
     }

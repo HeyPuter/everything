@@ -117,7 +117,7 @@ export class Dock {
         return;
       }
       const close = target.closest<HTMLElement>('[data-drawer-close]');
-      if (close) this.toggleDrawer(undefined);
+      if (close) this.closeDrawer();
     });
     el.addEventListener('dblclick', (ev) => {
       const bar = (ev.target as HTMLElement).closest<HTMLElement>('.panel-tabs');
@@ -129,6 +129,15 @@ export class Dock {
       this.changed();
     });
     el.addEventListener('keydown', (ev) => {
+      // Escape closes an icon panel's drawer and returns to its strip button
+      // (fields inside it keep Escape for themselves).
+      const inDrawer = (ev.target as HTMLElement).closest('.dock-drawer');
+      if (ev.key === 'Escape' && this.drawer && (inDrawer || (ev.target as HTMLElement).closest(`[data-strip-panel="${CSS.escape(this.drawer)}"]`)) && !(ev.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.closeDrawer();
+        return;
+      }
       const icon = (ev.target as HTMLElement).closest<HTMLElement>('[data-strip-panel]');
       if (icon && ['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(ev.key)) {
         const icons = [...this.el.querySelectorAll<HTMLElement>('[data-strip-panel]')];
@@ -383,6 +392,12 @@ export class Dock {
     this.drawer = id;
     this.render();
   }
+  /** Close the open drawer; the focus goes back to its strip button. */
+  private closeDrawer() {
+    const id = this.drawer;
+    this.toggleDrawer(undefined);
+    if (id) this.el.querySelector<HTMLElement>(`[data-strip-panel="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+  }
   private body(p: Panel) {
     let el = this.mounted.get(p.id);
     if (!el) {
@@ -399,6 +414,9 @@ export class Dock {
   }
   render() {
     this.bottom.render();
+    // Rebuilding replaces the tab, strip and menu buttons: a keyboard user's
+    // focus moves to the same control afterwards instead of the page.
+    const refocus = this.focusKey();
     const column = this.el.querySelector<HTMLElement>('.dock-column')!;
     this.el.classList.toggle('dock-locked', this.locked);
     const draggable = this.locked ? 'false' : 'true';
@@ -447,6 +465,14 @@ export class Dock {
       drawer.append(body);
       open.update?.(this.e, body);
     }
+    if (refocus) this.el.querySelector<HTMLElement>(refocus)?.focus({ preventScroll: true });
+  }
+  /** Selector of the dock control that has the focus, to restore it after a rebuild. */
+  private focusKey() {
+    const f = document.activeElement as HTMLElement | null;
+    if (!f || !this.el.contains(f) || f.closest('.panel-body')) return undefined;
+    const attr = ['data-panel-tab', 'data-strip-panel', 'data-panel-menu'].find((a) => f.hasAttribute(a));
+    return attr ? `[${attr}="${CSS.escape(f.getAttribute(attr)!)}"]` : undefined;
   }
   /** Refresh visible panels after an edit. */
   update() {

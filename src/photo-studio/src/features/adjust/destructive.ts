@@ -48,7 +48,7 @@ export function registerDestructiveCommands(e: Editor) {
       enabled: canAdjust,
       run: async (ed, arg) =>
         kind === 'invert'
-          ? void applyToLayer(ed, 'Invert', (src) => adjustInWorker(src, { kind: 'invert', params: {} }))
+          ? await applyToLayer(ed, 'Invert', (src) => adjustInWorker(src, { kind: 'invert', params: {} }))
           : (await dialogs()).adjustmentDialog(ed, kind, arg && typeof arg === 'object' ? (arg as never) : undefined),
       prefetch: kind === 'invert' ? undefined : dialogs.prefetch,
     });

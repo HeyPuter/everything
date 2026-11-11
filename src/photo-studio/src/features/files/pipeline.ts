@@ -6,7 +6,7 @@ import { decodeIccProfile } from '../../model/psd-resources';
 import { download, preferredFileName } from '../../persistence/puter';
 import { emitAppEvent } from '../../app/app-events';
 import { documentProfile, floatTo16 } from './color';
-import { defaultSettings, encodeExport, exportFileName, formatInfo, prepareExport, type ExportContext, type ExportSettings, type SourceImage } from './encode';
+import { defaultSettings, encodeExport, exportBaseName, exportFileName, formatInfo, prepareExport, type ExportContext, type ExportSettings, type SourceImage } from './encode';
 import { exportSvg } from './svg-export';
 import { encodeGif, type GifEncodeFrame, type GifEncodeOptions } from '../../imaging/codecs/gif';
 
@@ -85,7 +85,7 @@ export function bytesBlob(bytes: Uint8Array, mime: string) {
 export async function quickExport(e: Editor, format: ExportSettings['format'] = e.preferences.quickExportFormat) {
   const s = { ...loadSettings(), format };
   const out = await encodeDocument(e, s);
-  const name = preferredFileName(exportFileName(e.doc.name, format));
+  const name = preferredFileName(exportFileName(exportBaseName(e.doc), format));
   const { withProvenance } = await import('../provenance/export');
   out.bytes = await withProvenance(e.session, out.bytes, name, e.preferences.provenanceAttach, { prompts: e.preferences.provenancePrompts, width: out.width, height: out.height });
   const blob = bytesBlob(out.bytes, out.mime);

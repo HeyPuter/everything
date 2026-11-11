@@ -26,10 +26,13 @@ import { INTENT_LABELS } from './proof';
 const LOAD = 'load';
 const intentOptions = () => INTENTS.map((i) => [i, INTENT_LABELS[i]] as [string, string]);
 
-/** Show a form whose selects may contain "Load…"; loading re-opens the form. */
+/** Show a form whose selects may contain "Load…"; loading re-opens the form
+ * with the values chosen so far (and the loaded profile in its field). */
 async function formWithLoad(title: string, build: () => Parameters<typeof formDialog>, onLoad: (field: string, ref: string) => void, live?: (form: HTMLFormElement) => void) {
+  let kept: Record<string, string> | undefined;
   for (;;) {
     const args = build();
+    if (kept) args[1] = args[1].map((f) => (f.name in kept! && kept![f.name] !== LOAD ? { ...f, value: kept![f.name] } : f));
     const pending = formDialog(...args);
     const form = document.querySelector<HTMLFormElement>('#dialog form');
     if (form && live) live(form);
@@ -37,9 +40,13 @@ async function formWithLoad(title: string, build: () => Parameters<typeof formDi
     if (!v) return null;
     const field = Object.keys(v).find((k) => v[k] === LOAD);
     if (!field) return v;
+    kept = v;
     try {
       const got = await pickIccFile();
-      if (got) onLoad(field, got.ref);
+      if (got) {
+        onLoad(field, got.ref);
+        delete kept[field];
+      }
     } catch (error) {
       document.querySelector<HTMLElement>('#status')!.textContent = error instanceof Error ? error.message : String(error);
     }
@@ -66,7 +73,7 @@ export async function colorSettingsDialog(e: Editor) {
         { name: 'gamutOpacity', label: 'Gamut warning opacity (%)', value: draft.gamutOpacity, type: 'number', min: 0, max: 100, step: 1 },
       ],
       'OK',
-      'Working spaces are used by Image > Mode conversions, new proofs and the color picker. Settings are saved in this browser.',
+      'Working spaces are used by Image > Mode conversions, the Working CMYK proof and the color picker. Settings are saved in this browser.',
     ],
     (field, ref) => ((draft as Record<string, unknown>)[field] = ref),
   );
@@ -216,6 +223,15 @@ export async function applyOpenPolicy(e: Editor, s: DocumentSession = e.session)
   handled.add(s);
   if (!s.fileName || s.history.canUndo || s !== e.session) return;
   if ((s.doc.bitsPerChannel ?? 8) > 8) return;
+  // Several files opened together are asked about one after another, and
+  // each answer applies to its own document.
+  const ask = asking.then(() => askOpenPolicy(e, s));
+  asking = ask.catch(() => {});
+  return ask;
+}
+let asking = Promise.resolve();
+async function askOpenPolicy(e: Editor, s: DocumentSession) {
+  if (!e.sessions.includes(s)) return;
   const st = colorSettings();
   const state = profileMismatch(s.doc);
   if (state === 'match') return;
@@ -227,12 +243,22 @@ export async function applyOpenPolicy(e: Editor, s: DocumentSession = e.session)
       ], 'OK', `“${s.doc.name}” has an embedded profile that does not match the working RGB space.`);
       action = v?.action ?? 'preserve';
     }
-    if (action === 'convert') await convertDocumentProfile(e, st.rgb, st.intent, st.bpc, 'Convert to Working RGB');
-    else if (action === 'off' || action === 'discard')
-      e.command('Discard Profile', (d) => {
-        delete d.iccProfile;
-        d.iccUntaggedProfile = true;
-      });
+    if (!e.sessions.includes(s)) return;
+    if (action === 'convert') {
+      // The conversion reads the shown document.
+      if (e.session !== s) await e.switchSession(s);
+      // Not run as a command: report a refused conversion (another document
+      // became current meanwhile) instead of leaving it unhandled.
+      await convertDocumentProfile(e, st.rgb, st.intent, st.bpc, 'Convert to Working RGB').catch((error) => e.message(error instanceof Error ? error.message : String(error)));
+    } else if (action === 'off' || action === 'discard')
+      e.command(
+        'Discard Profile',
+        (d) => {
+          delete d.iccProfile;
+          d.iccUntaggedProfile = true;
+        },
+        { session: s },
+      );
     return;
   }
   // Missing profile.
@@ -240,11 +266,15 @@ export async function applyOpenPolicy(e: Editor, s: DocumentSession = e.session)
   const v = await formDialog('Missing Profile', [
     { name: 'action', label: 'What would you like to do?', value: 'leave', type: 'select', options: [['leave', "Leave as is (don't color manage)"], ['working', `Assign working RGB: ${profileName(st.rgb)}`]] },
   ], 'OK', `“${s.doc.name}” does not have an embedded RGB profile.`);
-  if (v?.action === 'working') {
-    e.command('Assign Profile', (d) => {
-      d.iccProfile = profileBase64(st.rgb);
-      delete d.iccUntaggedProfile;
-    });
-    e.message(`Assigned ${profileName(st.rgb)}.`);
+  if (v?.action === 'working' && e.sessions.includes(s)) {
+    e.command(
+      'Assign Profile',
+      (d) => {
+        d.iccProfile = profileBase64(st.rgb);
+        delete d.iccUntaggedProfile;
+      },
+      { session: s },
+    );
+    e.message(`Assigned ${profileName(st.rgb)} to “${s.doc.name}”.`);
   }
 }

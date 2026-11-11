@@ -5,6 +5,7 @@
 import type { Editor } from '../../editor';
 import type { DocumentSession } from '../../app/session';
 import { escapeXML } from '../../model/assets';
+import { onSignOut } from '../../persistence/puter';
 import { projectExtras } from '../../model/serialization';
 import { LocalComments, type CommentStore } from '../../collab/comment-store';
 import { filterThreads, isRegion, validateComments, type CommentAuthor, type CommentFilter, type CommentThread } from '../../collab/comments';
@@ -24,19 +25,20 @@ export const sharedOf = (s: DocumentSession) => shared.get(s);
 
 const local = new WeakMap<DocumentSession, LocalComments>();
 let puterName = '';
+onSignOut(() => (puterName = ''));
 /** The name local comments are signed with: the Puter account when signed in. */
 export function localAuthor(): CommentAuthor {
-  if (!puterName) {
-    const p = (globalThis as { puter?: { auth?: { isSignedIn?: () => boolean; getUser?: () => Promise<{ username?: string }> } } }).puter;
-    try {
-      if (p?.auth?.isSignedIn?.())
-        void p.auth.getUser?.().then(
-          (u) => (puterName = u?.username ?? ''),
-          () => {},
-        );
-    } catch {
-      /* Optional. */
-    }
+  const p = (globalThis as { puter?: { auth?: { isSignedIn?: () => boolean; getUser?: () => Promise<{ username?: string }> } } }).puter;
+  try {
+    // Signed out (here or in another app): the account's name no longer applies.
+    if (!p?.auth?.isSignedIn?.()) puterName = '';
+    else if (!puterName)
+      void p.auth.getUser?.().then(
+        (u) => (puterName = p.auth?.isSignedIn?.() ? (u?.username ?? '') : ''),
+        () => {},
+      );
+  } catch {
+    /* Optional. */
   }
   let name = puterName;
   if (!name)

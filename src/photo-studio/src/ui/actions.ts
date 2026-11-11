@@ -4,6 +4,7 @@ import { hasMask } from '../model/masks';
 import type { Editor } from '../editor';
 import { assertEditable, groupLayers, reorderLayers, selectedRoots } from '../model/layers';
 import { placeDuplicateArtboards } from '../model/artboard';
+import { releaseBackground } from '../model/housekeeping';
 import { Renderer } from '../renderer/renderer';
 import {
   allLayers,
@@ -11,6 +12,7 @@ import {
   cropDocument,
   defaultFilters,
   layer,
+  MAX_LAYERS,
   newDocument,
   resizeDocument,
   type Layer,
@@ -19,7 +21,7 @@ import { deserialize, serialize } from '../model/serialization';
 import { Assets, escapeXML } from '../model/assets';
 import { readRGBA } from '../model/tiles';
 import { PsdPreviewEditError, readOriginalPsd, saveOriginalPsd } from '../model/psd-original';
-import { download, puter, canSignOut } from '../persistence/puter';
+import { download, puter, canSignOut, signedOut } from '../persistence/puter';
 import { formDialog, information } from './dialog';
 export async function importFile(e: Editor, blob: Blob, name: string) {
   e.transform.apply();
@@ -100,6 +102,8 @@ function cloneLayer(l: Layer): Layer {
     delete item.psdId;
   }
   copy.name += ' copy';
+  // A document has one Background; its copy is an ordinary layer.
+  if (copy.background) releaseBackground(copy);
   return copy;
 }
 export async function performAction(e: Editor, action: string): Promise<void> {
@@ -316,6 +320,7 @@ export async function performAction(e: Editor, action: string): Promise<void> {
           if (v) {
             p.auth.signOut();
             e.storage.reset();
+            signedOut();
             e.message('Signed out');
           }
         } else information('Puter account', `<p>Signed in as ${escapeXML(user.username)}</p>`);
@@ -405,8 +410,8 @@ export async function performAction(e: Editor, action: string): Promise<void> {
       const roots = e.selectedLayers;
       if (!roots.length) break;
       assertEditable(e.doc, roots);
-      if (allLayers(e.doc.layers).length + allLayers(roots).length > 200)
-        throw new Error('A document can contain up to 200 layers.');
+      if (allLayers(e.doc.layers).length + allLayers(roots).length > MAX_LAYERS)
+        throw new Error(`A document can contain up to ${MAX_LAYERS} layers.`);
       const copies = roots.map(cloneLayer);
       e.command('Duplicate layers', (d) => {
         roots.forEach((l, i) => {

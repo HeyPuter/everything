@@ -6,7 +6,8 @@ import { artStrokes, artStyles, type ArtStyle } from '../../engine/art-history';
 import { StrokeSession } from '../../engine/paint';
 import { escapeXML } from '../../model/assets';
 import { findLayer } from '../../model/document';
-import { selectionGrid } from '../../model/selection';
+import { canvasRect, selectionGrid } from '../../model/selection';
+import { layerLock } from '../../model/locks';
 import { TILE, tileKey, type TileGrid } from '../../model/tiles';
 import { bindBrushOptions, brushFor, cursor } from '../paint';
 import { commitTarget, pixelTarget, previewTarget, type PixelTarget } from '../pixels';
@@ -146,7 +147,7 @@ export function artHistoryTool(): Tool {
           kind: 'color',
           rgb: [0, 0, 0],
           mode: s.mode,
-          preserveAlpha: false,
+          preserveAlpha: layerLock(e.doc.layers, target.layer.id, 'transparency'),
           source: (_x, _y, out) => {
             out[0] = d.color[0];
             out[1] = d.color[1];
@@ -156,6 +157,7 @@ export function artHistoryTool(): Tool {
           },
         },
         selection: selectionGrid(e.doc, e.assets.tiles),
+        clip: canvasRect(e.doc),
         seed: d.seed,
       });
       feed(e, d);

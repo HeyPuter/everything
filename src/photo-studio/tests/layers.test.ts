@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { layer, newDocument, allLayers } from '../src/model/document';
 import {
   groupLayers,
+  mergeVisibleStack,
   moveLayers,
   reorderLayers,
   selectedRoots,
@@ -15,6 +16,7 @@ import {
 } from '../src/model/transform';
 import { History } from '../src/history/history';
 import { validateDocument } from '../src/model/serialization';
+import { makeBackground } from '../src/model/housekeeping';
 
 function fixture() {
   const doc = newDocument(400, 300);
@@ -71,6 +73,24 @@ describe('layer organization', () => {
     reorderLayers(doc, ids, false);
     expect(doc.layers).toEqual([a, b, c]);
   });
+  it('keeps the Background layer at the bottom of the stack', () => {
+    const { doc, a, b } = fixture();
+    makeBackground(a);
+    const names = () => doc.layers.map((l) => l.name);
+    // Lowering a layer stops above the Background; the Background does not rise.
+    reorderLayers(doc, new Set([b.id]), false);
+    expect(names()).toEqual(['A', 'B', 'C']);
+    reorderLayers(doc, new Set([a.id]), true);
+    expect(names()).toEqual(['A', 'B', 'C']);
+    reorderLayers(doc, new Set([a.id, b.id]), true);
+    expect(names()).toEqual(['A', 'C', 'B']);
+    // Dragging below it, dragging it, or grouping it is refused.
+    expect(() => moveLayers(doc, new Set([b.id]), a.id, 'below')).toThrow('Background');
+    expect(() => moveLayers(doc, new Set([a.id]), b.id, 'above')).toThrow('Background');
+    expect(() => groupLayers(doc, new Set([a.id, b.id]))).toThrow('Background');
+    moveLayers(doc, new Set([b.id]), a.id, 'above');
+    expect(names()).toEqual(['A', 'B', 'C']);
+  });
   it('rejects nesting that would make a saved project unreadable', () => {
     const { doc, a } = fixture();
     let parent = layer('group', 'Nested', 400, 300);
@@ -85,6 +105,20 @@ describe('layer organization', () => {
       history.execute('Too deep', (d) => moveLayers(d, new Set([a.id]), parent.id, 'inside')),
     ).toThrow();
     expect(history.document).toBe(doc);
+  });
+});
+describe('Merge Visible', () => {
+  it('keeps hidden layers, also inside visible groups, below or above the merged layer', () => {
+    const named = (kind: 'pixel' | 'group', name: string, visible = true) => Object.assign(layer(kind, name, 10, 10), { visible });
+    const g = named('group', 'G');
+    g.children = [named('pixel', 'Inner', false), named('pixel', 'B'), named('pixel', 'InnerTop', false)];
+    const hiddenGroup = named('group', 'HiddenGroup', false);
+    hiddenGroup.children = [named('pixel', 'Child')];
+    const merged = named('pixel', 'Merged');
+    const out = mergeVisibleStack([named('pixel', 'Low', false), named('pixel', 'A'), g, hiddenGroup], merged);
+    expect(out.map((l) => l.name)).toEqual(['Low', 'Inner', 'Merged', 'InnerTop', 'HiddenGroup']);
+    expect(out[4].children.map((l) => l.name)).toEqual(['Child']);
+    expect(mergeVisibleStack([named('pixel', 'H', false)], merged).map((l) => l.name)).toEqual(['H', 'Merged']);
   });
 });
 describe('shared transforms', () => {

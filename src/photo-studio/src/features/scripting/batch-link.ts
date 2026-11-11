@@ -24,7 +24,7 @@ export function createBatchLink(e: Editor): Promise<void> {
   dialog.innerHTML = `<form method="dialog">
     <h2>Create Batch Link</h2>
     <p class="muted">A link that opens Photo Studio ready to run an action on the photos you drop into it, and saves the results as a ZIP. Bookmark it, or share it: it holds the action's steps, not your files.</p>
-    <label class="dialog-field">Action<select name="action" title="The recorded action the link runs">${actions.map(({ set, action }) => `<option value="${action.id}">${escapeXML(`${set.name} › ${action.name}`)}</option>`).join('')}</select></label>
+    <label class="dialog-field">Action<select name="action" title="The recorded action the link runs">${actions.map(({ set, action }) => `<option value="${escapeXML(action.id)}">${escapeXML(`${set.name} › ${action.name}`)}</option>`).join('')}</select></label>
     <p class="batch-link-steps muted" aria-live="polite"></p>
     <div class="processor-row"><label class="dialog-field">Format<select name="format" title="File type of the results">${(['jpeg', 'png', 'webp', 'tiff'] as const).map((f) => `<option value="${f}">${formatInfo[f].label}</option>`).join('')}</select></label>
     <label class="dialog-field">Quality<input type="number" name="quality" min="1" max="100" value="85" title="JPEG and WebP quality"></label></div>

@@ -285,14 +285,16 @@ class ContextScaleSession extends WarpSession<Snap> {
     this.on(el, 'cs-w', size('width'));
     this.on(el, 'cs-h', size('height'));
     const amount = (v: string, commit: boolean) => {
-      const n = Math.max(0, Math.min(100, Math.round(Number(v))));
-      if (!Number.isFinite(n)) return;
-      if (commit) this.push();
-      this.s.amount = n;
+      // A cleared or invalid entry keeps the value in use (and shows it again).
+      const typed = Math.max(0, Math.min(100, Math.round(v.trim() === '' ? NaN : Number(v))));
+      const n = Number.isFinite(typed) ? typed : this.s.amount;
       for (const id of ['cs-amount', 'cs-amount-range']) {
         const f = el.querySelector<HTMLInputElement>(`#${id}`);
         if (f && f.value !== String(n)) f.value = String(n);
       }
+      if (n !== typed) return;
+      if (commit) this.push();
+      this.s.amount = n;
       this.refresh(commit);
     };
     this.on(el, 'cs-amount-range', (v) => amount(v, false), 'input');

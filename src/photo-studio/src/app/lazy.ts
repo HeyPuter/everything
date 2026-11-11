@@ -30,6 +30,17 @@ function track<T>(p: Promise<T>): Promise<T> {
   return p;
 }
 
+// How browsers word a failed import(): Chromium, Firefox, Safari, and Vite's
+// stylesheet preloading.
+const IMPORT_FAILED = /dynamically imported module|Importing a module script failed|Unable to preload CSS/i;
+/** A failed module load as a message for the user. Without a connection, or
+ * after a new deployment replaced the files of the running version, the
+ * browser's own message is only a URL. Other errors pass through. */
+export function loadError(error: unknown): unknown {
+  if (!(error instanceof Error) || !IMPORT_FAILED.test(error.message)) return error;
+  return new Error('This part of Photo Studio could not be loaded. Check the connection and try again, or reload the page if Photo Studio has been updated.', { cause: error });
+}
+
 /** A memoized module loader: `lazy(() => import('./dialog'))`. */
 export function lazy<T>(load: () => Promise<T>): Lazy<T> {
   let promise: Promise<T> | undefined;
@@ -37,7 +48,12 @@ export function lazy<T>(load: () => Promise<T>): Lazy<T> {
   let shown = false;
   const get = (() => {
     if (!promise) {
-      const p = load().then((m) => (get.loaded = m));
+      const p = load().then(
+        (m) => (get.loaded = m),
+        (error) => {
+          throw loadError(error);
+        },
+      );
       // A failed load (offline, new deployment) is retried on the next use.
       p.catch(() => {
         promise = undefined;
@@ -157,7 +173,7 @@ export function lazyTool(meta: Pick<Tool, 'id' | 'label' | 'key' | 'icon' | 'gro
       if (t) t.activate?.(e);
       else replay(e);
     },
-    deactivate: (e) => impl()?.deactivate?.(e),
+    deactivate: (e, reason) => impl()?.deactivate?.(e, reason),
     pointerDown: later('pointerDown'),
     pointerMove: later('pointerMove'),
     pointerUp: later('pointerUp'),
@@ -172,7 +188,7 @@ export function lazyTool(meta: Pick<Tool, 'id' | 'label' | 'key' | 'icon' | 'gro
 /** A panel whose body lives in a lazily loaded module; it loads the first
  * time the panel is shown. */
 export function lazyPanel(meta: Omit<Panel, 'mount' | 'update'>, load: Lazy<Pick<Panel, 'mount' | 'update' | 'menu'>>): Panel {
-  return {
+  const panel: Panel = {
     ...meta,
     menu: meta.menu ?? (load.loaded?.menu ? (e) => load.loaded!.menu!(e) : undefined),
     mount: (e, el) => {
@@ -185,9 +201,29 @@ export function lazyPanel(meta: Omit<Panel, 'mount' | 'update'>, load: Lazy<Pick
           m.mount(e, el);
           if (el.isConnected) m.update?.(e, el);
         },
-        (error) => e.message(error instanceof Error ? error.message : String(error)),
+        (error) => {
+          // The dock mounts a panel once: offer to load it again here.
+          el.classList.remove('panel-loading');
+          const text = error instanceof Error ? error.message : String(error);
+          const box = document.createElement('div');
+          box.className = 'panel-load-error';
+          box.setAttribute('role', 'alert');
+          const p = document.createElement('p');
+          p.textContent = text;
+          const retry = document.createElement('button');
+          retry.type = 'button';
+          retry.textContent = 'Try Again';
+          retry.addEventListener('click', () => {
+            el.replaceChildren();
+            panel.mount(e, el);
+          });
+          box.append(p, retry);
+          el.replaceChildren(box);
+          e.message(text);
+        },
       );
     },
     update: (e, el) => load.loaded?.update?.(e, el),
   };
+  return panel;
 }

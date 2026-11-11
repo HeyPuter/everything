@@ -21,7 +21,7 @@ import type { DitherKind, ForcedColors, PaletteKind } from '../../color/indexed'
 import type { BitmapMethod, HalftoneShape } from '../../color/bitmap';
 import { cmykMap, duotoneMap, grayMap, labMap, mapHex, nearestPaletteHex, type PixelMap } from './convert';
 import { colorSettings, docGrayProfile, docProfile, ensureProfile, storedRef } from './profiles';
-import { flatComposite, flattenTo, mapDocument, reportText, requireEightBit } from './docops';
+import { assertSameDocument, flatComposite, flattenTo, mapDocument, reportText, requireEightBit } from './docops';
 import { pickColor } from './picker';
 import { displayLut, proofState, resetDisplay } from './proof';
 import { convertToMultichannel, leaveMultichannel } from './multichannel';
@@ -97,6 +97,7 @@ export async function convertToMode(e: Editor, target: ColorMode) {
     case 'cmyk': {
       e.message('Preparing the CMYK profile…');
       const cmyk = await ensureProfile(s.cmyk);
+      assertSameDocument(e, doc);
       if (cmyk.colorSpace !== 'CMYK') return done('The working CMYK profile is not a CMYK profile; check Edit > Color Settings.');
       const map = then(bake, cmykMap(dp, cmyk, s.intent, s.bpc))!;
       const r = await mapDocument(e, 'Convert to CMYK Color', map, 'constrain', (d) => {
@@ -158,6 +159,7 @@ async function indexedDialog(e: Editor, bake: PixelMap | null) {
     seed: 1,
   };
   let img = await flatComposite(e);
+  assertSameDocument(e, doc);
   if (bake) img = bake(img);
   const res = toIndexed(img, opts);
   const rgba = indexedToRGBA(res);
@@ -260,6 +262,7 @@ async function bitmapDialog(e: Editor) {
     shape: v.shape as HalftoneShape,
   };
   const img = await flatComposite(e);
+  assertSameDocument(e, doc);
   const res = convertMode(img, 'rgb', 'bitmap', { docProfile: docProfile(doc), grayProfile: docGrayProfile(doc), bitmap: opts });
   if (res.mode !== 'bitmap') return;
   const data = new Uint8ClampedArray(res.width * res.height * 4);

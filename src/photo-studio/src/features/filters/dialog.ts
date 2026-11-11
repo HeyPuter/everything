@@ -222,12 +222,16 @@ export async function filterDialog(e: Editor, opId: string, opts: DialogOptions 
       const t = ev.target as HTMLInputElement;
       if (t.id === 'fd-mode') blending = { ...blending!, blend: t.value as Blend };
       else if (t.id === 'fd-opacity' || t.id === 'fd-opacity-range') {
-        const v = Math.max(0, Math.min(100, Number(t.value) || 0));
+        // A cleared field is not 0%; it keeps the opacity until edited.
+        if (t.value.trim() === '' || !Number.isFinite(Number(t.value))) return;
+        const v = Math.max(0, Math.min(100, Number(t.value)));
         blending = { ...blending!, opacity: v / 100 };
         ui.blending.querySelector<HTMLInputElement>(t.id === 'fd-opacity' ? '#fd-opacity-range' : '#fd-opacity')!.value = String(v);
       } else return;
       update();
     });
+    // Leaving the field shows the opacity in use (clamped, or kept when blank).
+    ui.blending.querySelector('#fd-opacity')!.addEventListener('change', (ev) => ((ev.target as HTMLInputElement).value = String(Math.round(blending!.opacity * 100))));
   }
 
   const initialParams = { ...params },

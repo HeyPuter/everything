@@ -5,6 +5,7 @@
 // or devices merge instead of overwriting each other), validation, search and
 // the single-file export format. Binary content (pattern tiles, graphics,
 // thumbnails) lives in content-addressed assets named by their SHA-256.
+import { validGradient, validLayerStyle } from '../../model/layer-style';
 
 export const ITEM_TYPES = ['color', 'gradient', 'pattern', 'character-style', 'paragraph-style', 'layer-style', 'brush', 'graphic'] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
@@ -247,6 +248,35 @@ export function validItem(v: unknown): v is LibraryItem {
     (i.type !== 'color' || (typeof i.data.hex === 'string' && /^#[0-9a-f]{6}$/i.test(i.data.hex)))
   );
 }
+// The settings an item carries are used as they are (a gradient becomes the
+// current gradient, a layer style is applied to layers), and library files
+// come from other people: an item whose settings do not have the shape its
+// type needs is damaged and is never used.
+const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+function usableBrush(p: unknown) {
+  if (!obj(p) || !obj(p.tip) || (p.tip.dynamics !== undefined && !obj(p.tip.dynamics))) return false;
+  const s = p.sample;
+  return s === undefined || (obj(s) && Number.isInteger(s.width) && Number.isInteger(s.height) && (s.width as number) > 0 && (s.height as number) > 0 && (s.width as number) <= 1024 && (s.height as number) <= 1024 && typeof s.data === 'string');
+}
+/** Whether an item's settings can be used (see above). */
+export function usableItem(item: LibraryItem): boolean {
+  const d = item.data;
+  switch (item.type) {
+    case 'gradient':
+      return validGradient(d.gradient);
+    case 'layer-style':
+      return validLayerStyle(d.style);
+    case 'brush':
+      return usableBrush(d.preset);
+    case 'character-style':
+      return obj(d.def) && obj(d.def.style);
+    case 'paragraph-style':
+      return obj(d.def) && obj(d.def.paragraph) && obj(d.def.char);
+    default:
+      return true;
+  }
+}
+
 export function validLibrary(v: unknown): v is Library {
   if (!v || typeof v !== 'object') return false;
   const l = v as Library;
@@ -312,14 +342,20 @@ export async function importLibraryFile(text: string, hash: (bytes: Uint8Array) 
   const assets = new Map<string, Blob>();
   for (const [h, a] of Object.entries(v.assets ?? {})) {
     if (!isHash(h) || !a || typeof a.data !== 'string' || typeof a.type !== 'string') continue;
-    const bytes = fromBase64(a.data);
+    let bytes: Uint8Array;
+    try {
+      bytes = fromBase64(a.data);
+    } catch {
+      // Damaged content: the items using it are left out below.
+      continue;
+    }
     if ((await hash(bytes)) === h) assets.set(h, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: a.type }));
   }
   const at = now.toISOString();
   let skipped = 0;
   const items = v.library.items.filter((i) => {
-    // Items whose content did not arrive intact are left out.
-    const ok = Object.values(i.assets ?? {}).every((h) => assets.has(h));
+    // Items whose content did not arrive intact, or whose settings are damaged, are left out.
+    const ok = Object.values(i.assets ?? {}).every((h) => assets.has(h)) && usableItem(i);
     if (!ok) skipped++;
     return ok;
   });

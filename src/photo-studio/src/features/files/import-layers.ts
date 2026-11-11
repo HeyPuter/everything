@@ -4,12 +4,13 @@
 // project can hold (tiles, images, masks, embedded objects, patterns) comes
 // along; layers get new IDs so the same file can be imported twice.
 import type { Editor } from '../../editor';
-import { allLayers, findLayer, layer as newLayer, type Layer, type PhotoDocument } from '../../model/document';
+import { allLayers, findLayer, layer as newLayer, MAX_LAYERS, type Layer, type PhotoDocument } from '../../model/document';
 import type { Assets } from '../../model/assets';
 import { deserialize, serialize } from '../../model/serialization';
 import { setDocumentResolution } from '../../model/text-layer';
 import { pickLocalFiles } from '../embedded/convert';
 import { pickCloudFiles } from './cloud';
+import { inMemoryFile } from './open';
 
 export const importAccept = '.psd,.psb,.photo';
 
@@ -36,6 +37,20 @@ export function importGroup(source: PhotoDocument, name: string): { group: Layer
   const group = newLayer('group', name, source.width, source.height);
   group.children = layers;
   return { group, notes };
+}
+
+// The project reader (and Group Layers) let a layer sit at most 11 groups deep.
+const MAX_LEVEL = 11;
+/** How many levels below `layers` their deepest layer sits (0: no groups with content). */
+const nesting = (layers: Layer[]): number => Math.max(0, ...layers.map((l) => (l.children.length ? 1 + nesting(l.children) : 0)));
+/** The nesting level of a layer (0: top level). */
+function levelOf(layers: Layer[], id: string, level = 0): number {
+  for (const l of layers) {
+    if (l.id === id) return level;
+    const inner = levelOf(l.children, id, level + 1);
+    if (inner >= 0) return inner;
+  }
+  return -1;
 }
 
 /** Load a PSD/PSB or .photo file with its assets added to `into`. */
@@ -79,6 +94,9 @@ export async function importLayersFrom(e: Editor, blob: Blob, name: string) {
   }
   e.transform.apply();
   e.message(`Reading ${name}…`);
+  // The imported assets are slices of the file: copy one picked from disk so
+  // they stay readable when it changes there.
+  blob = await inMemoryFile(blob);
   const { document: source, notice } = await loadLayersInto(e, blob, name, e.assets);
   if (!source.layers.length) {
     e.message(`${name} has no layers.`);
@@ -98,7 +116,15 @@ export async function importLayersFrom(e: Editor, blob: Blob, name: string) {
     embeds[next.id] = next;
     if (next.id !== id) for (const l of allLayers(group.children)) if (l.embed?.contents === id) l.embed.contents = next.id;
   }
-  const anchor = e.selected;
+  // Projects hold up to MAX_LAYERS layers, none more than MAX_LEVEL groups
+  // deep; an import that would go past that could be saved but not
+  // reopened. Too deep inside the selected layer's group, the new group goes
+  // to the top level instead.
+  if (allLayers(e.doc.layers).length + allLayers([group]).length > MAX_LAYERS)
+    return void e.message(`${name} has too many layers to import here: a document holds up to ${MAX_LAYERS} layers.`);
+  const reach = 1 + nesting(group.children);
+  if (reach > MAX_LEVEL) return void e.message(`The groups in ${name} are nested too deeply to import as a group: groups can be nested up to 12 levels.`);
+  const anchor = e.selected && levelOf(e.doc.layers, e.selected) + reach <= MAX_LEVEL ? e.selected : '';
   e.command('Import Layers', (d) => {
     // Content the layers refer to by ID: patterns, embedded objects and
     // character and paragraph styles.

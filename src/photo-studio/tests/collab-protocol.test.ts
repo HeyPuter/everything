@@ -127,4 +127,12 @@ describe('comment model', () => {
     expect(changes).toBe(7);
     expect(store.version).toBe(7);
   });
+
+  it('removes a local comment whose last message is removed, instead of keeping an empty pin', () => {
+    const store = new LocalComments([], () => alice);
+    const t = store.add({ x: 5, y: 6 }, 'Only message');
+    const other = store.add({ x: 9, y: 9 }, 'Another');
+    store.remove(t.id, store.threads()[0].messages[0].id);
+    expect(store.threads().map((x) => x.id)).toEqual([other.id]);
+  });
 });

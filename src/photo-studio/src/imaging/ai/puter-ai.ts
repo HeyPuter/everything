@@ -118,7 +118,10 @@ async function pngDataUri(img: RGBA8) {
 // Decode Puter's result into pixels, at the requested size or (without one)
 // at the size the provider returned.
 async function decodeResult(res: PuterImage, w?: number, h?: number): Promise<RGBA8> {
-  const src = 'src' in res ? res.src : String(res);
+  // A reply without an image (an error object, an empty answer) is not a
+  // connection problem: say so instead of failing on it below.
+  const src = typeof res === 'string' ? res : res && typeof res === 'object' && 'src' in res && typeof res.src === 'string' ? res.src : '';
+  if (!src) throw new AIError('decode', 'The AI service returned no image.', true);
   let source: CanvasImageSource;
   try {
     // Fetching avoids a tainted canvas for cross-origin URLs; data URIs fetch too.

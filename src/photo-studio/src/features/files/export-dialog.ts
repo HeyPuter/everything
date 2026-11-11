@@ -3,7 +3,7 @@
 import type { PhotoDocument } from '../../model/document';
 import type { Editor } from '../../editor';
 import { download } from '../../persistence/puter';
-import { canEncodeAvif, exportFileName, formatInfo, outputSize, type ExportFormat, type ExportSettings, type SourceImage } from './encode';
+import { canEncodeAvif, exportBaseName, exportFileName, formatInfo, outputSize, type ExportFormat, type ExportSettings, type SourceImage } from './encode';
 import { rgba16To8 } from './png';
 import { bytesBlob, documentSource, encodeDocument, formatBytes, isDeep, loadSettings, mustConvert, saveSettings } from './pipeline';
 import { cloudSaveAs } from './cloud';
@@ -257,7 +257,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
       try {
         const out = await encode();
         saveSettings(s);
-        const name = exportFileName(doc.info?.title?.trim() || doc.name, s.format);
+        const name = exportFileName(exportBaseName(doc), s.format);
         // The export is noted in the document's provenance record either way.
         const { withProvenance } = await import('../provenance/export');
         const [w, h] = outputSize(baseW, baseH, s);

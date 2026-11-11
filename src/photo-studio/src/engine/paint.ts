@@ -24,6 +24,9 @@ export type BrushTip = {
   angle: number;
   // Optional sampled tip; coverage is scaled to the dab size and rotated.
   sample?: Mask8;
+  // Pencil: pixels inside the tip are painted fully and the rest not at all
+  // (no anti-aliasing); the pixel under the center is always painted.
+  aliased?: boolean;
 };
 export type BrushDynamics = {
   pressureSize?: boolean;
@@ -146,10 +149,13 @@ export class StrokeSession {
     const step = () => Math.max(0.5, tip.spacing * this.sizeAt(this.last!.pressure));
     let travelled = 0;
     while (this.distance + (length - travelled) >= step()) {
-      const need = step() - this.distance;
+      // With pressure dropping the spacing shrinks, so a dab can already be
+      // due (even when the pen rests in place): place it at once, never
+      // before the segment start.
+      const need = Math.max(0, step() - this.distance);
       travelled += need;
       this.distance = 0;
-      const t = travelled / length;
+      const t = length > 0 ? travelled / length : 1;
       const p = from.pressure + (pressure - from.pressure) * t;
       dirty = unionRect(dirty, this.dab(from.x + dx * t, from.y + dy * t, p));
       this.last = { x: from.x + dx * t, y: from.y + dy * t, pressure: p };
@@ -283,7 +289,10 @@ export class StrokeSession {
             const u = dx * cos + dy * sin,
               v = (-dx * sin + dy * cos) / roundness;
             let alpha: number;
-            if (sample) {
+            if (tip.aliased && !sample) {
+              if (u * u + v * v > radius * radius && (x !== Math.floor(cx) || y !== Math.floor(cy))) continue;
+              alpha = 1;
+            } else if (sample) {
               const sxp = Math.floor((u / size + 0.5) * sample.width),
                 syp = Math.floor((v / size + 0.5) * sample.height);
               if (sxp < 0 || syp < 0 || sxp >= sample.width || syp >= sample.height) continue;

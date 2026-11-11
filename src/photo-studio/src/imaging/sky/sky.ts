@@ -151,19 +151,22 @@ export function placeSky(sky: RGBA8, width: number, height: number, p: SkyPlacem
     sd = sky.data;
   for (let y = 0; y < height; y++) {
     let v = (y - oy) / s;
-    v = Math.max(0, Math.min(sky.height - 1.001, v));
-    const iy = Math.floor(v),
-      fy = v - iy;
+    v = Math.max(0, Math.min(sky.height - 1, v));
+    // Neighbors repeat the last row and column (also for 1-pixel skies).
+    const iy = Math.min(Math.floor(v), Math.max(0, sky.height - 2)),
+      fy = v - iy,
+      iy1 = Math.min(iy + 1, sky.height - 1);
     for (let x = 0; x < width; x++) {
       let u = (x - ox) / s;
       if (p.flip) u = sky.width - 1 - u;
-      u = Math.max(0, Math.min(sky.width - 1.001, u));
-      const ix = Math.floor(u),
-        fx = u - ix;
+      u = Math.max(0, Math.min(sky.width - 1, u));
+      const ix = Math.min(Math.floor(u), Math.max(0, sky.width - 2)),
+        fx = u - ix,
+        ix1 = Math.min(ix + 1, sky.width - 1);
       const i00 = (iy * sky.width + ix) * 4,
-        i10 = i00 + 4,
-        i01 = i00 + sky.width * 4,
-        i11 = i01 + 4;
+        i10 = (iy * sky.width + ix1) * 4,
+        i01 = (iy1 * sky.width + ix) * 4,
+        i11 = (iy1 * sky.width + ix1) * 4;
       const o = (y * width + x) * 4;
       for (let c = 0; c < 3; c++) d[o + c] = (sd[i00 + c] * (1 - fx) + sd[i10 + c] * fx) * (1 - fy) + (sd[i01 + c] * (1 - fx) + sd[i11 + c] * fx) * fy;
       d[o + 3] = 255;

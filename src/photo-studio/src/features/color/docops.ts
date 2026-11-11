@@ -48,6 +48,12 @@ function srgbHexMapper(map: PixelMap, prof: Profile): (hex: string) => string {
   };
 }
 
+/** Stop an operation whose document is no longer the one shown (the user
+ * switched documents or it changed while the operation waited). */
+export function assertSameDocument(e: Editor, doc: PhotoDocument) {
+  if (e.doc !== doc) throw new Error('The document changed while the conversion was prepared; nothing was converted. Try again.');
+}
+
 /** Apply `map` to the document's colors as one undo step; `mutate` adds the
  * document-level changes (mode, profile) to the same step. */
 export async function mapDocument(e: Editor, label: string, map: PixelMap, scope: MapScope, mutate: (d: PhotoDocument) => void): Promise<MapReport> {
@@ -97,6 +103,9 @@ export async function mapDocument(e: Editor, label: string, map: PixelMap, scope
   }
   const srgbHex = srgbHexMapper(map, prof);
   const srgbRgb = (c: readonly number[]) => hexRgb(srgbHex(rgbHexString(c)));
+  // Decoding above can take a while; the step must land in the document it
+  // was computed for, not one the user switched to meanwhile.
+  assertSameDocument(e, doc);
   let layers = 0;
   e.command(label, (d) => {
     for (const l of allLayers(d.layers)) {

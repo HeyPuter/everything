@@ -183,6 +183,11 @@ describe('export pipeline', () => {
     expect(outputSize(1000, 500, { sizeMode: 'width', scale: 100, width: 300, height: 0 })).toEqual([300, 150]);
     expect(outputSize(1000, 500, { sizeMode: 'height', scale: 100, width: 0, height: 100 })).toEqual([200, 100]);
     expect(outputSize(3, 3, { sizeMode: 'percent', scale: 1, width: 0, height: 0 })).toEqual([1, 1]);
+    // Sizes past the 8192-pixel limit shrink in proportion rather than per side.
+    expect(outputSize(4000, 3000, { sizeMode: 'percent', scale: 300, width: 0, height: 0 })).toEqual([8192, 6144]);
+    expect(outputSize(1000, 3000, { sizeMode: 'width', scale: 100, width: 8000, height: 0 })).toEqual([2731, 8192]);
+    expect(outputSize(3000, 1000, { sizeMode: 'height', scale: 100, width: 0, height: 5000 })).toEqual([8192, 2731]);
+    expect(outputSize(1000, 500, { sizeMode: 'exact', scale: 100, width: 9000, height: 300 })).toEqual([8192, 300]);
     expect(fitSize(4000, 3000, 1024, 1024)).toEqual([1024, 768]);
     expect(fitSize(100, 50, 1024, 1024)).toEqual([100, 50]);
     expect(fitSize(100, 50, 1024, 1024, true)).toEqual([1024, 512]);

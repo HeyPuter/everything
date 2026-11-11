@@ -317,6 +317,8 @@ export function newDocument(
     selection: null,
   };
 }
+/** Most layers (groups included) a document can hold, as in Photoshop. */
+export const MAX_LAYERS = 8000;
 export function assertSize(w: number, h: number) {
   if (
     !Number.isInteger(w) ||
@@ -344,6 +346,14 @@ export function containerOf(layers: Layer[], id: string): Layer[] | undefined {
     const found = containerOf(l.children, id);
     if (found) return found;
   }
+}
+/** Insert `l` into the stack `list` at `index` (0 is the bottom). A layer
+ * inserted below a clipped layer, i.e. between a clipping group's base (or one
+ * of its clipped layers) and the clipped layers above, joins the group as in
+ * Photoshop; left unclipped it would become their base and break the group. */
+export function insertLayerAt(list: Layer[], index: number, l: Layer) {
+  if (list[index]?.clipped) l.clipped = true;
+  list.splice(index, 0, l);
 }
 export function allLayers(layers: Layer[]): Layer[] {
   return layers.flatMap((l) => [l, ...allLayers(l.children)]);

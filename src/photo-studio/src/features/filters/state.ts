@@ -2,7 +2,7 @@
 // layers), kept apart from the filter implementations that load on demand.
 import type { Editor } from '../../editor';
 import type { Layer, LiveFilter } from '../../model/document';
-import type { TileGrid } from '../../model/tiles';
+import { gridDocBounds, unionRect, type TileGrid } from '../../model/tiles';
 import type { IRect, ParamValues } from '../../imaging/types';
 import type { PixelTarget } from '../pixels';
 
@@ -19,4 +19,12 @@ export function canFade(e: Editor) {
 }
 export function fadeLabel() {
   return filterState.fade ? `Fade ${filterState.fade.label}…` : 'Fade…';
+}
+
+/** Region a Live Filter stack renders: the canvas and all of the layer's
+ * source, so content outside the canvas is filtered too and shows filtered
+ * when the layer is moved into view. */
+export function liveRect(doc: { width: number; height: number }, source: TileGrid): IRect {
+  const canvas = { x: 0, y: 0, width: doc.width, height: doc.height };
+  return unionRect(canvas, gridDocBounds(source)) ?? canvas;
 }

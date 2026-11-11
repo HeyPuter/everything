@@ -127,3 +127,20 @@ test('background layer, isolation, hidden layers and find', async ({ page }) => 
   await page.keyboard.press('ControlOrMeta+Alt+Shift+F');
   await expect(page.locator('.layer-filter-text')).toBeFocused();
 });
+
+test('a duplicate of the Background is an ordinary layer', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { makeBackground } = await import('/src/model/housekeeping.ts');
+    e.command('Make Background', (d) => makeBackground(d.layers[0]));
+    e.selected = e.doc.layers[0].id;
+  });
+  await idle(page);
+  await run(page, 'layer.duplicate');
+  const layers = await page.evaluate(() => window.photoStudio.doc.layers.map((l) => ({ background: !!l.background, position: !!l.protection?.position, transparency: !!l.protection?.transparency })));
+  expect(layers).toEqual([
+    { background: true, position: true, transparency: true },
+    { background: false, position: false, transparency: false },
+  ]);
+  await expect(page.locator('#layers .layer-row.background-layer')).toHaveCount(1);
+});

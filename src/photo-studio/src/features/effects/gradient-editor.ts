@@ -50,7 +50,7 @@ export function gradientEditor(e: Editor, initial: Gradient): Promise<Gradient |
               .map((s, i) => {
                 const fill = kind === 'color' ? stopColorHex((s as { color: StopColor }).color) : `hsl(0 0% ${Math.round((s as { opacity: number }).opacity * 100)}%)`;
                 const on = selected?.kind === kind && selected.index === i;
-                return `<button type="button" class="ge-stop ${kind} ${on ? 'selected' : ''}" data-stop="${kind}:${i}" style="left:${s.location * 100}%;--stop:${fill}" aria-label="${kind === 'color' ? 'Color' : 'Opacity'} stop at ${Math.round(s.location * 100)}%"></button>`;
+                return `<button type="button" class="ge-stop ${kind} ${on ? 'selected' : ''}" data-stop="${kind}:${i}" style="left:${s.location * 100}%;--stop:${fill}" aria-pressed="${on}" aria-label="${kind === 'color' ? 'Color' : 'Opacity'} stop at ${Math.round(s.location * 100)}%" title="Arrow keys move the stop; Delete removes it"></button>`;
               })
               .join('')
           : '';
@@ -81,8 +81,11 @@ ${labels.map((c, i) => `<div class="ge-range"><span>${c}</span><input type="rang
     const update = () => {
       if (g.kind === 'solid') lastSolid = g;
       const name = dialog.querySelector<HTMLInputElement>('[data-name]')?.value;
+      // Rendering replaces the stop buttons; keyboard focus follows the selected stop.
+      const stopFocused = !!document.activeElement?.closest('[data-stop]') && dialog.contains(document.activeElement);
       render();
       if (name !== undefined) dialog.querySelector<HTMLInputElement>('[data-name]')!.value = name;
+      if (stopFocused && selected) dialog.querySelector<HTMLElement>(`[data-stop="${selected.kind}:${selected.index}"]`)?.focus();
     };
     dialog.addEventListener('submit', (ev) => {
       ev.preventDefault();
@@ -96,6 +99,16 @@ ${labels.map((c, i) => `<div class="ge-range"><span>${c}</span><input type="rang
     dialog.addEventListener('click', (ev) => {
       const t = ev.target as HTMLElement;
       if (t.closest('[data-cancel]')) return finish(null);
+      // Enter or Space on a stop selects it (pointer presses select on pointerdown).
+      const stopEl = t.closest<HTMLElement>('[data-stop]');
+      if (stopEl && g.kind === 'solid') {
+        const [kind, i] = stopEl.dataset.stop!.split(':');
+        if (selected?.kind !== kind || selected.index !== Number(i)) {
+          selected = { kind: kind as StopKind, index: Number(i) };
+          update();
+        }
+        return;
+      }
       const preset = t.closest<HTMLElement>('[data-preset]')?.dataset.preset;
       if (preset) {
         const [fi, gi] = preset.split(':').map(Number);
@@ -167,6 +180,28 @@ ${labels.map((c, i) => `<div class="ge-range"><span>${c}</span><input type="rang
         stop?.style.setProperty('--stop', t.value);
       }
     });
+    // Stops from the keyboard: arrows move the focused stop (Shift: 10%), Delete removes it.
+    dialog.addEventListener('keydown', (ev) => {
+      const stopEl = (ev.target as HTMLElement).closest<HTMLElement>('[data-stop]');
+      if (!stopEl || g.kind !== 'solid') return;
+      const [kind, i] = stopEl.dataset.stop!.split(':') as [StopKind, string];
+      const index = Number(i);
+      const list = kind === 'color' ? solid().colorStops : solid().opacityStops;
+      if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'Home' || ev.key === 'End') {
+        ev.preventDefault();
+        const step = (ev.shiftKey ? 0.1 : 0.01) * (ev.key === 'ArrowLeft' ? -1 : 1);
+        const to = ev.key === 'Home' ? 0 : ev.key === 'End' ? 1 : Math.round((list[index].location + step) * 1000) / 1000;
+        const moved = moveStop(solid(), kind, index, to);
+        g = moved.gradient;
+        selected = { kind, index: moved.index };
+        update();
+      } else if ((ev.key === 'Delete' || ev.key === 'Backspace') && list.length > 2) {
+        ev.preventDefault();
+        g = deleteStop(solid(), kind, index);
+        selected = { kind, index: Math.max(0, index - 1) };
+        update();
+      }
+    });
     // Stops: click a track to add, drag to move, drag away to delete.
     dialog.addEventListener('pointerdown', (ev) => {
       const t = ev.target as HTMLElement;
@@ -218,7 +253,8 @@ ${labels.map((c, i) => `<div class="ge-range"><span>${c}</span><input type="rang
       const up = (p: PointerEvent) => {
         removeEventListener('pointermove', move);
         removeEventListener('pointerup', up);
-        if (selected && Math.abs(p.clientY - startY) > 40) {
+        // A gradient keeps at least two stops of each kind; dropping one of them does nothing.
+        if (selected && Math.abs(p.clientY - startY) > 40 && (kind === 'color' ? solid().colorStops : solid().opacityStops).length > 2) {
           g = deleteStop(solid(), kind, selected.index);
           selected = { kind, index: Math.max(0, selected.index - 1) };
           update();

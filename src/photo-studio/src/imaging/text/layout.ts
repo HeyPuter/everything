@@ -110,6 +110,11 @@ export type TextLayout = {
   lineIndexAt(index: number, affinity?: 'up' | 'down'): number;
   // Up/Down arrow: index on the neighbouring line nearest `pos` (x, or y vertical).
   moveLine(index: number, dir: -1 | 1, pos?: number): number;
+  // Left/Right arrow on a horizontal line with right-to-left text: the caret
+  // stop next to `index` on screen (`dir` 1 = right). At the line's visual
+  // end, or on a plain left-to-right line, `logical` gives the reading
+  // direction to step in instead.
+  moveVisual(index: number, dir: -1 | 1): { index: number } | { logical: -1 | 1 };
   // Path text: lines, carets and hit testing are in straight coordinates;
   // `map` takes them to local space and `unmap` back. `runs`, `decorations`
   // and `bounds` are already in local space.
@@ -821,7 +826,7 @@ function memoMeasure(m: Measure): Measure {
   };
 }
 
-type LayoutCore = Omit<TextLayout, 'caretRect' | 'hitTest' | 'selectionRects' | 'lineIndexAt' | 'moveLine'>;
+type LayoutCore = Omit<TextLayout, 'caretRect' | 'hitTest' | 'selectionRects' | 'lineIndexAt' | 'moveLine' | 'moveVisual'>;
 function makeLayout(core: LayoutCore): TextLayout {
   const { lines, vertical } = core;
   const lineIndexAt = (index: number, affinity: 'up' | 'down' = 'down') => {
@@ -908,5 +913,27 @@ function makeLayout(core: LayoutCore): TextLayout {
     if (target >= lines.length) return lines[lines.length - 1].end;
     return indexInLine(lines[target], at);
   };
-  return { ...core, caretRect, hitTest, selectionRects, lineIndexAt, moveLine };
+  const moveVisual = (index: number, dir: -1 | 1): { index: number } | { logical: -1 | 1 } => {
+    const l = lines[lineIndexAt(index)];
+    if (vertical || !l?.boxes) return { logical: dir };
+    const at = posOf(l, index);
+    // Nearest stop in the arrow's direction; of stops drawn at the same place
+    // (a direction boundary), the one nearest in reading order.
+    let best = -1, bestD = Infinity, bestL = Infinity;
+    for (let k = 0; k < l.stops.length; k++) {
+      const d = (l.stopPos[k] - at) * dir;
+      if (d < 0.01) continue;
+      const near = Math.abs(l.stops[k] - index);
+      if (d < bestD - 0.01 || (Math.abs(d - bestD) <= 0.01 && near < bestL)) {
+        best = k;
+        bestD = d;
+        bestL = near;
+      }
+    }
+    if (best >= 0) return { index: l.stops[best] };
+    // Past the line's visual end: on to the next or previous line in reading order.
+    const rtl = l.stopPos[l.stopPos.length - 1] < l.stopPos[0];
+    return { logical: (rtl ? -dir : dir) as -1 | 1 };
+  };
+  return { ...core, caretRect, hitTest, selectionRects, lineIndexAt, moveLine, moveVisual };
 }

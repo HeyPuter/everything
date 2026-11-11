@@ -30,6 +30,21 @@ export function puter(): Puter {
     throw new Error('Puter is unavailable. Check your connection, or save a local project.');
   return window.puter;
 }
+// What features keep about the signed-in account (the comment author, the
+// libraries' sync state) is dropped when the account signs out.
+const signOutListeners = new Set<() => void>();
+export function onSignOut(fn: () => void) {
+  signOutListeners.add(fn);
+}
+/** Called by the account controls after signing out. */
+export function signedOut() {
+  for (const fn of signOutListeners)
+    try {
+      fn();
+    } catch {
+      /* One feature does not stop the others. */
+    }
+}
 export function canSignOut(env: string) {
   return env !== 'app';
 }

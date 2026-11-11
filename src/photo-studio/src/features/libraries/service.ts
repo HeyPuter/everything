@@ -3,6 +3,7 @@
 // scheduling and change notices between tabs (BroadcastChannel, with a
 // storage event as the fallback).
 import { sha256Hex } from '../../model/provenance';
+import { onSignOut } from '../../persistence/puter';
 import { MemoryLocalStore, IndexedDbLibraryStore, LibraryRepository, PuterLibraryCloud, type CloudLibraryStore, type SyncStatus } from './storage';
 import { emptyIndex, findItem, newId, uniqueName, type Library, type LibraryIndex, type LibraryItem, type LibraryOp } from './model';
 
@@ -40,9 +41,12 @@ class LibraryService {
   constructor() {
     const local = typeof indexedDB !== 'undefined' ? new IndexedDbLibraryStore() : new MemoryLocalStore();
     this.repo = new LibraryRepository(local, cloud, undefined, () => this.emit());
+    onSignOut(() => this.emit());
   }
   get status(): SyncStatus {
-    return this.repo.status;
+    const s = this.repo.status;
+    // After signing out the last sync's state no longer applies.
+    return s.state === 'local' || cloud() ? s : { state: 'local', message: 'Saved in this browser', at: s.at };
   }
   subscribe(fn: Listener) {
     this.listeners.add(fn);

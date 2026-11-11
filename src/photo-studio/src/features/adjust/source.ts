@@ -22,7 +22,8 @@ export function documentBelow(doc: PhotoDocument, id: string): PhotoDocument {
   return { ...doc, layers: walk(doc.layers), selection: null };
 }
 
-export type SourceImage = { image: RGBA8; hist: Histograms; selection?: Mask8 };
+// `x`, `y`: document position of the image's top-left pixel (default 0, 0).
+export type SourceImage = { image: RGBA8; hist: Histograms; selection?: Mask8; x?: number; y?: number };
 const cache = new Map<string, Promise<SourceImage>>();
 /** Composite beneath an adjustment layer, memoized on the document content. */
 export function belowSource(e: Editor, id: string): Promise<SourceImage> {

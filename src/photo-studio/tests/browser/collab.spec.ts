@@ -186,3 +186,27 @@ test('the Comment tool puts the cursor in the new comment, even when the panel w
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
   await expect(page.locator('.comment-thread')).toHaveCount(1);
 });
+
+test('a comment being placed stays with its document when another document is shown', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 320, 240, '#808080', 'first.png');
+  await openImage(page, 320, 240, '#408080', 'second.png');
+  await tool(page, 'Comment Tool');
+  await canvasClick(page, 100, 80);
+  const draft = page.getByRole('textbox', { name: 'New comment' });
+  await expect(draft).toBeFocused();
+  await page.keyboard.type('About the second image');
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await e.switchSession(e.sessions.find((s) => s.doc.name.startsWith('first'))!);
+  });
+  // The first document shows neither the draft nor its pin, so nothing can be posted to it by mistake.
+  await expect(draft).toHaveCount(0);
+  await expect(page.locator('#overlay .comment-pin')).toHaveCount(0);
+  const counts = await page.evaluate(async () => {
+    const { commentsOf } = await import('/src/features/collab/state.ts');
+    const e = window.photoStudio;
+    return e.sessions.map((s) => commentsOf(e, s).threads().length);
+  });
+  expect(counts).toEqual([0, 0]);
+});

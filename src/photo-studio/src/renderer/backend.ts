@@ -10,6 +10,9 @@ export const UNIFORM_FLOATS = 96;
 export interface Backend {
   readonly name: string;
   readonly maxSize: number;
+  // Settles when the context or device is lost (not when disposed); the
+  // renderer then re-creates the backend.
+  readonly lost?: Promise<void>;
   texture(width: number, height: number, source?: ImageBitmap | Uint8Array): Texture;
   floatTexture(width: number, height: number, source?: Float32Array): Texture;
   coverageTexture(width:number,height:number,source:Float32Array):Texture;

@@ -86,6 +86,8 @@ export function pickIccFile(): Promise<{ ref: string; profile: Profile } | null>
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.icc,.icm,application/vnd.iccprofile';
+    // A dismissed picker returns to the dialog that asked for it.
+    input.oncancel = () => resolve(null);
     input.onchange = async () => {
       const f = input.files?.[0];
       if (!f) return resolve(null);

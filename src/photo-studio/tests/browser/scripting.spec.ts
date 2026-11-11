@@ -19,7 +19,8 @@ await doc.addLayer({ kind: 'text', name: 'Caption', text: 'Hello', size: 20, x: 
 async function runSource(page: Page, source: string, name = 'Test') {
   return page.evaluate(
     async ({ source, name }) => {
-      const { runScript, scriptLog } = await import('/src/features/scripting/run.ts');
+      const { runScript, scriptLog, clearScriptLog } = await import('/src/features/scripting/run.ts');
+      clearScriptLog();
       const from = scriptLog.length;
       await window.photoStudio.run(async () => void (await runScript(window.photoStudio, { name, source, trusted: true })));
       return scriptLog.slice(from).map((l) => `${l.level}: ${l.text}`);
@@ -107,6 +108,15 @@ test('stops a script that hangs, reports errors with line numbers, and validates
   const hang = await runSource(page, '// @timeout 2\nwhile (true) {}', 'Hang');
   expect(Date.now() - t0).toBeLessThan(15_000);
   expect(hang.join('\n')).toContain('did not respond for 2 seconds');
+  // A loop that keeps logging, or calling the API, without awaiting is still stopped.
+  const flood = await runSource(page, '// @timeout 2\nwhile (true) console.log("again")', 'Flood');
+  expect(flood.at(-1)).toContain('did not respond for 2 seconds');
+  expect(flood.length).toBeLessThan(200);
+  const calls = await runSource(page, '// @timeout 2\nwhile (true) studio.app.info()', 'Calls');
+  expect(calls.join('\n')).toMatch(/failed at line 2: More than 10000 API calls are waiting/);
+  const swallowed = await runSource(page, '// @timeout 2\nwhile (true) try { studio.app.info() } catch {}', 'Swallowed');
+  expect(swallowed.join('\n')).toContain('did not respond for 2 seconds');
+  expect(Date.now() - t0).toBeLessThan(60_000);
   const failed = await runSource(page, 'const doc = await studio.documents.active();\n\nawait doc.addLayer({ kind: "sparkles" });', 'Bad');
   expect(failed.join('\n')).toMatch(/failed at line 3: kind must be/);
   const syntax = await runSource(page, 'let x = ;', 'Syntax');
@@ -162,4 +172,17 @@ test('runs a script when a new document is created (Script Events Manager)', asy
   await openImage(page, 40, 30, '#ff00ff', 'other.png');
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name))).toEqual(['Background']);
+});
+
+test('runs a script from its row in the Scripts panel even when it is not listed in File → Scripts', async ({ page }) => {
+  await page.evaluate(async () => {
+    const store = await import('/src/features/scripting/store.ts');
+    const r = store.newScriptRecord(`// @name Unlisted Script\nconst doc = await studio.documents.active();\nawait doc.addLayer({ name: 'From unlisted', fill: '#00ff00', rect: { x: 0, y: 0, width: 8, height: 8 } });`, 'Unlisted', { trusted: true, enabled: false });
+    await store.saveScript(r);
+    window.photoStudio.dock.show('scripts');
+  });
+  const row = page.locator('.script-row', { hasText: 'Unlisted Script' });
+  await expect(row.getByRole('checkbox')).not.toBeChecked();
+  await row.getByRole('button', { name: 'Run Unlisted Script' }).click();
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name))).toContain('From unlisted');
 });

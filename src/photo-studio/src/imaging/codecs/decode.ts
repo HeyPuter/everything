@@ -2,7 +2,7 @@
 // decodes natively (PNG, JPEG, WebP, AVIF, HEIC, SVG) and PSD/PSB return null
 // so callers fall back to createImageBitmap or the PSD module.
 import type { RGBA8 } from '../types';
-import { CodecError } from './bytes';
+import { CodecError, type SizeLimits } from './bytes';
 import { decodeBmp } from './bmp';
 import { decodeGif, type GifFrame } from './gif';
 import { decodeIco, pickIcoEntry } from './ico';
@@ -29,17 +29,28 @@ export type DecodedImage = {
   gifFrames?: GifFrame[];
   // NETSCAPE2.0 repeat count of an animated GIF (see GifDecodeResult.loopCount).
   gifLoopCount?: number;
+  // Later GIF frames were left out because they exceed the memory budget.
+  gifTruncated?: boolean;
   // Things the user may want to know (CMYK converted, editor layers ignored, ...).
   notes: string[];
 };
 
-export function decodeImage(bytes: Uint8Array, opts: { decodePng?: (png: Uint8Array) => RGBA8 } = {}): DecodedImage | null {
+export type DecodeImageOptions = {
+  decodePng?: (png: Uint8Array) => RGBA8;
+  // Refuse images beyond these sizes from their headers, before decoding.
+  limits?: SizeLimits;
+  // Decode only the first page or frame of multi-page and animated files.
+  firstOnly?: boolean;
+};
+
+export function decodeImage(bytes: Uint8Array, opts: DecodeImageOptions = {}): DecodedImage | null {
   const format = sniffImageFormat(bytes);
+  const { limits, firstOnly } = opts;
   const base = (rgba8: RGBA8): DecodedImage => ({ format, width: rgba8.width, height: rgba8.height, rgba8, notes: [] });
   switch (format) {
     case 'tiff':
     case 'bigtiff': {
-      const res = decodeTiff(bytes);
+      const res = decodeTiff(bytes, { limits, firstPageOnly: firstOnly });
       const p = res.pages[0];
       const out = base(p.rgba8);
       if (p.data16) out.data16 = p.data16;
@@ -58,17 +69,18 @@ export function decodeImage(bytes: Uint8Array, opts: { decodePng?: (png: Uint8Ar
       return out;
     }
     case 'gif': {
-      const res = decodeGif(bytes);
+      const res = decodeGif(bytes, { limits, maxFrames: firstOnly ? 1 : undefined });
       const out = base(res.frames[0].rgba);
       if (res.frames.length > 1) {
         out.gifFrames = res.frames;
         out.gifLoopCount = res.loopCount;
+        if (res.truncated) out.gifTruncated = true;
         out.notes.push(`Animated GIF with ${res.frames.length} frames; the first was opened.`);
       }
       return out;
     }
     case 'bmp': {
-      const res = decodeBmp(bytes);
+      const res = decodeBmp(bytes, limits);
       const out = base(res.rgba8);
       if (res.dpi) out.dpi = res.dpi;
       if (res.icc) out.icc = res.icc;
@@ -85,9 +97,9 @@ export function decodeImage(bytes: Uint8Array, opts: { decodePng?: (png: Uint8Ar
       return out;
     }
     case 'tga':
-      return base(decodeTga(bytes).rgba8);
+      return base(decodeTga(bytes, limits).rgba8);
     case 'pnm': {
-      const res = decodeNetpbm(bytes);
+      const res = decodeNetpbm(bytes, limits);
       const out = base(res.rgba8);
       if (res.data16) out.data16 = res.data16;
       return out;

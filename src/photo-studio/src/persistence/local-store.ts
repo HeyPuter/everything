@@ -51,6 +51,14 @@ const request = <T>(r: IDBRequest<T>) =>
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error ?? new Error('Browser storage failed.'));
   });
+/** Settles when a transaction has been committed. A write request succeeds
+ * before that: running out of space, for one, aborts the transaction later. */
+const committed = (tx: IDBTransaction) =>
+  new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error('Browser storage failed.'));
+    tx.onabort = () => reject(tx.error ?? new Error('Browser storage failed.'));
+  });
 
 /** IndexedDB backend: one object store per StoreName, keyed out of line.
  * Features with their own records can open a separate database. */
@@ -78,22 +86,25 @@ export class IndexedDbStore<S extends string = StoreName> implements LocalStore<
   async get<T>(store: S, key: string) {
     return (await request((await this.tx(store, 'readonly')).get(key))) as T | undefined;
   }
+  /** Run one write and wait until it is stored. */
+  private async write(store: S, op: (s: IDBObjectStore) => IDBRequest) {
+    const tx = (await this.open()).transaction(store, 'readwrite');
+    const done = committed(tx);
+    op(tx.objectStore(store));
+    await done;
+  }
   async put<T>(store: S, key: string, value: T) {
-    await request((await this.tx(store, 'readwrite')).put(value, key));
+    await this.write(store, (s) => s.put(value, key));
   }
   async delete(store: S, key: string) {
-    await request((await this.tx(store, 'readwrite')).delete(key));
+    await this.write(store, (s) => s.delete(key));
   }
   async all<T>(store: S) {
     return (await request((await this.tx(store, 'readonly')).getAll())) as T[];
   }
   async putAll(writes: { store: S; key: string; value: unknown }[]) {
     const tx = (await this.open()).transaction([...new Set(writes.map((w) => w.store))], 'readwrite');
-    const done = new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error('Browser storage failed.'));
-      tx.onabort = () => reject(tx.error ?? new Error('Browser storage failed.'));
-    });
+    const done = committed(tx);
     for (const w of writes) tx.objectStore(w.store).put(w.value, w.key);
     await done;
   }

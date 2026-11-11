@@ -60,6 +60,23 @@ export function resolveMenu(e: Editor, items: MenuItem[], id?: string, custom?: 
   while (out.length && out.at(-1)!.kind === 'separator') out.pop();
   return out;
 }
+/** Open `item`'s submenu (when it has one) and close its siblings' submenus. */
+function toggleSubmenus(item: HTMLElement) {
+  const parent = item.parentElement!;
+  for (const sibling of parent.querySelectorAll<HTMLElement>(':scope > .has-submenu')) {
+    const expanded = sibling === item;
+    sibling.setAttribute('aria-expanded', String(expanded));
+    sibling.classList.toggle('open', expanded);
+    // Keep a long submenu inside the window: shift it up when it would overflow.
+    const sub = expanded ? sibling.querySelector<HTMLElement>(':scope > .submenu') : null;
+    if (sub) {
+      sub.style.top = '';
+      const r = sub.getBoundingClientRect();
+      const over = r.bottom - (window.innerHeight - 4);
+      if (over > 0) sub.style.top = `${-5 - Math.min(over, r.top - 4)}px`;
+    }
+  }
+}
 function safe<T>(f: () => T, fallback: T) {
   try {
     return f();
@@ -131,20 +148,7 @@ export class MenuBar {
     });
   }
   private toggleSubmenus(item: HTMLElement) {
-    const parent = item.parentElement!;
-    for (const sibling of parent.querySelectorAll<HTMLElement>(':scope > .has-submenu')) {
-      const expanded = sibling === item;
-      sibling.setAttribute('aria-expanded', String(expanded));
-      sibling.classList.toggle('open', expanded);
-      // Keep a long submenu inside the window: shift it up when it would overflow.
-      const sub = expanded ? sibling.querySelector<HTMLElement>(':scope > .submenu') : null;
-      if (sub) {
-        sub.style.top = '';
-        const r = sub.getBoundingClientRect();
-        const over = r.bottom - (window.innerHeight - 4);
-        if (over > 0) sub.style.top = `${-5 - Math.min(over, r.top - 4)}px`;
-      }
-    }
+    toggleSubmenus(item);
   }
   private activate(item: HTMLElement) {
     if (item.getAttribute('aria-disabled') === 'true') return;
@@ -272,17 +276,50 @@ export function showContextMenu(e: Editor, x: number, y: number, items: MenuItem
     if (!item) return;
     item.focus({ preventScroll: true });
     if (item.dataset.command) findCommand(item.dataset.command)?.prefetch?.();
-    for (const sibling of item.parentElement!.querySelectorAll<HTMLElement>(':scope > .has-submenu'))
-      sibling.classList.toggle('open', sibling === item);
+    toggleSubmenus(item);
   });
+  const activate = (item: HTMLElement) => {
+    if (item.classList.contains('has-submenu') || item.getAttribute('aria-disabled') === 'true') return;
+    close();
+    // Give focus back before the command runs, so a dialog it opens returns focus there.
+    opener?.focus({ preventScroll: true });
+    void e.runCommand(item.dataset.command!);
+  };
   pop.addEventListener('click', (ev) => {
     const item = (ev.target as HTMLElement).closest<HTMLElement>('.menu-item');
-    if (!item || item.classList.contains('has-submenu') || item.getAttribute('aria-disabled') === 'true') return;
-    close();
-    void e.runCommand(item.dataset.command!);
+    if (item) activate(item);
   });
+  // The menu takes the keyboard while it is open: arrows move between items
+  // (and in and out of submenus), Enter or Space runs one, Escape and Tab close
+  // it. Keys never reach the workspace, where arrows would nudge layers.
   pop.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') close();
+    ev.stopPropagation();
+    const item = (ev.target as HTMLElement).closest<HTMLElement>('.menu-item');
+    if (ev.key === 'Escape' || ev.key === 'Tab') {
+      close();
+      opener?.focus({ preventScroll: true });
+      if (ev.key === 'Escape') ev.preventDefault();
+      return;
+    }
+    if (!item) return;
+    const siblings = [...item.parentElement!.querySelectorAll<HTMLElement>(':scope > .menu-item')];
+    const at = siblings.indexOf(item);
+    if (ev.key === 'ArrowDown') siblings[(at + 1) % siblings.length].focus();
+    else if (ev.key === 'ArrowUp') siblings[(at - 1 + siblings.length) % siblings.length].focus();
+    else if (ev.key === 'Home') siblings[0].focus();
+    else if (ev.key === 'End') siblings[siblings.length - 1].focus();
+    else if ((ev.key === 'ArrowRight' || ev.key === 'Enter' || ev.key === ' ') && item.classList.contains('has-submenu')) {
+      toggleSubmenus(item);
+      item.querySelector<HTMLElement>(':scope > .submenu > .menu-item')?.focus();
+    } else if (ev.key === 'ArrowLeft' && item.parentElement!.classList.contains('submenu')) {
+      const owner = item.parentElement!.parentElement as HTMLElement;
+      owner.classList.remove('open');
+      owner.setAttribute('aria-expanded', 'false');
+      owner.focus();
+    } else if (ev.key === 'Enter' || ev.key === ' ') activate(item);
+    else return;
+    ev.preventDefault();
   });
+  const opener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
   pop.querySelector<HTMLElement>('.menu-item')?.focus();
 }

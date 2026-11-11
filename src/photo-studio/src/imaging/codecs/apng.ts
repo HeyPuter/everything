@@ -3,9 +3,10 @@
 // frame has an fcTL control chunk, the first frame's pixels are the IDAT
 // default image and later frames are fdAT chunks (a sequence number followed
 // by zlib data, exactly like IDAT).
-import { deflate, inflate } from 'pako';
+import { deflate } from 'pako';
+import { inflateLimited } from './inflate';
 import { checkCancelled, type Progress, type RGBA8 } from '../types';
-import { CodecError, rethrowAsCodecError } from './bytes';
+import { CodecError, frameBudgetBytes, rethrowAsCodecError } from './bytes';
 import { buildPng, readPngChunks, type NewChunk } from './png-chunks';
 
 export type ApngEncodeFrame = { rgba: RGBA8; delayMs: number };
@@ -147,7 +148,8 @@ export type ApngFrame = {
   dispose: 0 | 1 | 2;
   blend: 0 | 1;
 };
-export type ApngDecodeResult = { width: number; height: number; plays: number; frames: ApngFrame[] };
+// `truncated`: frames were left out because they exceed the memory budget.
+export type ApngDecodeResult = { width: number; height: number; plays: number; frames: ApngFrame[]; truncated?: boolean };
 
 /** True when a PNG file carries an animation control chunk before its image data. */
 export function isApng(bytes: Uint8Array) {
@@ -163,14 +165,14 @@ export function isApng(bytes: Uint8Array) {
 }
 
 /** Decode every frame of an APNG (8-bit, non-interlaced; all color types). */
-export function decodeApng(bytes: Uint8Array, opts: { maxFrames?: number } = {}): ApngDecodeResult {
+export function decodeApng(bytes: Uint8Array, opts: { maxFrames?: number; maxBytes?: number } = {}): ApngDecodeResult {
   try {
-    return decodeApngImpl(bytes, opts.maxFrames ?? Infinity);
+    return decodeApngImpl(bytes, opts.maxFrames ?? Infinity, opts.maxBytes ?? frameBudgetBytes);
   } catch (e) {
     rethrowAsCodecError(e, 'APNG');
   }
 }
-function decodeApngImpl(bytes: Uint8Array, maxFrames: number): ApngDecodeResult {
+function decodeApngImpl(bytes: Uint8Array, maxFrames: number, maxBytes: number): ApngDecodeResult {
   const chunks = readPngChunks(bytes);
   const ihdr = chunks.find((c) => c.type === 'IHDR')?.data;
   const actl = chunks.find((c) => c.type === 'acTL')?.data;
@@ -187,6 +189,9 @@ function decodeApngImpl(bytes: Uint8Array, maxFrames: number): ApngDecodeResult 
   const plte = chunks.find((c) => c.type === 'PLTE')?.data;
   const trns = chunks.find((c) => c.type === 'tRNS')?.data;
   if (colorType === 3 && !plte) throw new CodecError('Indexed PNG without a palette.');
+  // tRNS for gray and RGB images names one transparent color (16-bit fields).
+  const key =
+    trns && colorType === 2 && trns.length >= 6 ? [dv(trns).getUint16(0), dv(trns).getUint16(2), dv(trns).getUint16(4)] : trns && colorType === 0 && trns.length >= 2 ? [dv(trns).getUint16(0)] : undefined;
   const plays = dv(actl).getUint32(4);
 
   type Pending = { ctl: Uint8Array; data: Uint8Array[] };
@@ -203,7 +208,12 @@ function decodeApngImpl(bytes: Uint8Array, maxFrames: number): ApngDecodeResult 
   const canvas = new Uint8ClampedArray(width * height * 4);
   const frames: ApngFrame[] = [];
   let prevDispose: { rect: Rect; dispose: number; saved?: Uint8ClampedArray } | undefined;
+  let truncated = false;
   for (const p of pending.slice(0, maxFrames)) {
+    if (frames.length && (frames.length + 1) * canvas.length > maxBytes) {
+      truncated = true;
+      break;
+    }
     const d = dv(p.ctl);
     if (p.ctl.length < 26) throw new CodecError('Damaged frame control chunk.');
     const rect = { width: d.getUint32(4), height: d.getUint32(8), x: d.getUint32(12), y: d.getUint32(16) };
@@ -225,31 +235,45 @@ function decodeApngImpl(bytes: Uint8Array, maxFrames: number): ApngDecodeResult 
       z.set(a, o);
       o += a.length;
     }
-    const raw = inflate(z);
     const stride = rect.width * channels;
-    if (raw.length < (stride + 1) * rect.height) throw new CodecError('Frame data is too short.');
+    const raw = inflateLimited(z, (stride + 1) * rect.height);
+    if (!raw || raw.length < (stride + 1) * rect.height) throw new CodecError('Frame data is too short.');
     unfilter(raw, stride, rect.height, channels);
     for (let y = 0; y < rect.height; y++) {
       const row = raw.subarray(y * (stride + 1) + 1);
       for (let x = 0; x < rect.width; x++) {
         let r: number, g: number, b: number, a: number;
         const s = x * channels;
-        if (colorType === 6) [r, g, b, a] = [row[s], row[s + 1], row[s + 2], row[s + 3]];
-        else if (colorType === 2) {
-          [r, g, b] = [row[s], row[s + 1], row[s + 2]];
-          a = trns && trns.length >= 6 && dv(trns).getUint16(0) === r && dv(trns).getUint16(2) === g && dv(trns).getUint16(4) === b ? 0 : 255;
+        if (colorType === 6) {
+          r = row[s];
+          g = row[s + 1];
+          b = row[s + 2];
+          a = row[s + 3];
+        } else if (colorType === 2) {
+          r = row[s];
+          g = row[s + 1];
+          b = row[s + 2];
+          a = key && key[0] === r && key[1] === g && key[2] === b ? 0 : 255;
         } else if (colorType === 3) {
           const i = row[s];
-          [r, g, b] = [plte![i * 3] ?? 0, plte![i * 3 + 1] ?? 0, plte![i * 3 + 2] ?? 0];
+          r = plte![i * 3] ?? 0;
+          g = plte![i * 3 + 1] ?? 0;
+          b = plte![i * 3 + 2] ?? 0;
           a = trns && i < trns.length ? trns[i] : 255;
-        } else if (colorType === 4) [r, g, b, a] = [row[s], row[s], row[s], row[s + 1]];
-        else {
+        } else if (colorType === 4) {
           r = g = b = row[s];
-          a = trns && trns.length >= 2 && dv(trns).getUint16(0) === r ? 0 : 255;
+          a = row[s + 1];
+        } else {
+          r = g = b = row[s];
+          a = key && key[0] === r ? 0 : 255;
         }
         const q = ((rect.y + y) * width + rect.x + x) * 4;
-        if (blend === 0 || a === 255) canvas.set([r, g, b, a], q);
-        else if (a) {
+        if (blend === 0 || a === 255) {
+          canvas[q] = r;
+          canvas[q + 1] = g;
+          canvas[q + 2] = b;
+          canvas[q + 3] = a;
+        } else if (a) {
           // Source-over in straight alpha.
           const da = canvas[q + 3] / 255,
             sa = a / 255,
@@ -265,7 +289,7 @@ function decodeApngImpl(bytes: Uint8Array, maxFrames: number): ApngDecodeResult 
     prevDispose = { rect, dispose: dispose === 2 && frames.length === 1 ? 1 : dispose, saved };
   }
   if (!frames.length) throw new CodecError('The animated PNG contains no frames.');
-  return { width, height, plays, frames };
+  return { width, height, plays, frames, ...(truncated ? { truncated } : {}) };
 }
 
 function unfilter(raw: Uint8Array, stride: number, rows: number, bpp: number) {

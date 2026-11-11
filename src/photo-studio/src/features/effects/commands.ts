@@ -302,8 +302,15 @@ export async function fillWithPattern(e: Editor, opacity: number, preserve: bool
     return;
   }
   const src = readRGBA(e.assets.tiles, target.grid, b);
-  const alpha = src.data.filter((_, i) => i % 4 === 3);
-  compositeRGBA8(src, img, 'normal', opacity, cover);
-  if (preserve || layerLock(doc.layers, target.layer.id, 'transparency')) for (let i = 0; i < alpha.length; i++) src.data[i * 4 + 3] = alpha[i];
+  if (preserve || layerLock(doc.layers, target.layer.id, 'transparency')) {
+    // Preserving transparency mixes the pattern into each pixel's color by
+    // the pattern's coverage and keeps the alpha (as Fill with a color does).
+    const d = src.data, p = img.data;
+    for (let i = 0; i < d.length / 4; i++) {
+      const k = opacity * (p[i * 4 + 3] / 255) * (cover ? cover.data[i] / 255 : 1);
+      if (!k) continue;
+      for (let c = 0; c < 3; c++) d[i * 4 + c] += (p[i * 4 + c] - d[i * 4 + c]) * k;
+    }
+  } else compositeRGBA8(src, img, 'normal', opacity, cover);
   commitTarget(e, target, writeRect(e.assets.tiles, target.grid, b.x, b.y, src), 'Fill');
 }

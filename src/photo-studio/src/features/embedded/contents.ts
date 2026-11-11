@@ -3,7 +3,7 @@
 // original bytes. Every change produces new immutable assets and a new
 // contents entry, applied to all instances in one history step.
 import type { Editor } from '../../editor';
-import { containerOf, layer, newDocument, type Layer, type PhotoDocument, type Transform } from '../../model/document';
+import { containerOf, insertLayerAt, layer, newDocument, type Layer, type PhotoDocument, type Transform } from '../../model/document';
 import { Assets } from '../../model/assets';
 import { deserialize, serialize } from '../../model/serialization';
 import { instancesOf, projectMimeType, sourceMimeType, type EmbeddedContents, type StackMode } from '../../model/embedded';
@@ -12,7 +12,7 @@ import { gridFromImage } from '../../model/tiles';
 import { readRgbProfile } from '../../color/profile';
 import { sniffImageFormat } from '../../imaging/codecs/sniff';
 import { convertToSrgb, documentProfile, floatTo16 } from '../files/color';
-import { decodeBrowserImage, decodeFile } from '../files/open';
+import { checkBrowserImage, decodeBrowserImage, decodeFile, inMemoryFile } from '../files/open';
 import { addRGBA, addSamples, documentSamples, layerSamples, type Samples } from './render';
 import { computeStack } from './stack-client';
 import { rescaleFrame, rescaleTransform } from './frame-math';
@@ -67,6 +67,9 @@ export async function contentsFromDocument(e: Editor, parent: PhotoDocument, int
 /** Contents from a file: projects and PSD files keep their layers, browser
  * images are drawn directly and other formats are decoded once. */
 export async function contentsFromFile(e: Editor, parent: PhotoDocument, into: Assets, file: Blob, name: string): Promise<EmbeddedContents> {
+  // The contents keep the file's bytes: a file picked from disk is copied,
+  // so they stay readable when it changes there (as linked files do).
+  file = await inMemoryFile(file);
   const lower = name.toLowerCase();
   const title = baseName(name);
   if (lower.endsWith('.photo')) {
@@ -90,6 +93,7 @@ export async function contentsFromFile(e: Editor, parent: PhotoDocument, into: A
   const head = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
   const mime = browserImages[sniffImageFormat(head)];
   if (mime) {
+    checkBrowserImage(head);
     const id = await into.add(new Blob([file], { type: mime }));
     const { width, height } = into.dimensions(id);
     return { id: crypto.randomUUID(), name: title, width, height, composite: id, source: id, sourceName: name, colorSpace: 'srgb' };
@@ -198,7 +202,7 @@ export function insertInstance(e: Editor, l: Layer, c: EmbeddedContents, label: 
     d.embeds = { ...d.embeds, [c.id]: c };
     const list = (anchor && containerOf(d.layers, anchor)) || d.layers;
     const i = list.findIndex((x) => x.id === anchor);
-    list.splice(i < 0 ? list.length : i + 1, 0, l);
+    insertLayerAt(list, i < 0 ? list.length : i + 1, l);
   });
   e.selected = l.id;
   e.update();

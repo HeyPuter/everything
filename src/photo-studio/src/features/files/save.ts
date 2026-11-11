@@ -65,6 +65,12 @@ export async function downloadProject(e: Editor) {
   const name = projectName(s.fileName?.replace(/\.[^.]+$/, '') || doc.name);
   const blob = await serialize(doc, s.assets);
   download(blob, name);
+  // An embedded object's contents tab is saved by updating its parent; a
+  // download is only a copy, so closing the tab still offers that save.
+  if (s.saveHandler) {
+    e.message(`Downloaded a copy as ${name}. Save to update the embedded object.`);
+    return;
+  }
   s.saved = doc;
   for (const hook of e.saveHooks) hook(s, blob);
   e.update();
@@ -77,7 +83,16 @@ export function openFromCloud(e: Editor) {
   void pickCloudFiles(true)
     .then((items) =>
       e.run(async () => {
-        for (const item of items) await openFile(e, await item.read(), item.name, false, { source: { kind: 'puter', path: item.path } });
+        // One file that cannot be read or opened does not stop the others.
+        const failed: string[] = [];
+        for (const item of items)
+          try {
+            await openFile(e, await item.read(), item.name, false, { source: { kind: 'puter', path: item.path } });
+          } catch (error) {
+            if (items.length === 1) throw error;
+            failed.push(`${item.name} could not be opened: ${errorText(error)}`);
+          }
+        if (failed.length) throw new Error(failed.join(' '));
       }),
     )
     .catch((error) => e.message(errorText(error)));

@@ -86,19 +86,27 @@ function tileEmpty(d: TileData, fill = 0) {
   return true;
 }
 // Coverage lives in the alpha byte for RGBA tiles and the only byte for masks.
+// Each row is scanned from both ends and stops at the first covered pixel, so
+// opaque tiles cost two reads per row instead of a full scan.
 function tileContentBounds(d: TileData, channels: 1 | 4): IRect | null {
   let x0 = TILE,
     y0 = TILE,
     x1 = -1,
     y1 = -1;
+  const a = channels - 1;
   for (let y = 0; y < TILE; y++) {
-    let row = y * TILE * channels + channels - 1;
-    for (let x = 0; x < TILE; x++, row += channels)
-      if (d[row]) {
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        y1 = y;
+    const row = y * TILE * channels + a;
+    let first = 0;
+    while (first < TILE && !d[row + first * channels]) first++;
+    if (first === TILE) continue;
+    if (first < x0) x0 = first;
+    if (y < y0) y0 = y;
+    y1 = y;
+    // Only pixels right of the widest row so far can extend the bounds.
+    for (let x = TILE - 1; x > x1 && x >= first; x--)
+      if (d[row + x * channels]) {
+        x1 = x;
+        break;
       }
   }
   return x1 < 0 ? null : { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
@@ -180,7 +188,9 @@ export function readMask(store: TileStore, grid: TileGrid, rect: IRect): Mask8 {
 }
 
 /** Return a new grid with a document-space rectangle replaced by `src`.
- * Touched tiles are copied (never mutated) and empty tiles are dropped. */
+ * Touched tiles are copied (never mutated) and empty tiles are dropped.
+ * Tiles the write leaves as they were stay shared, so rewriting a whole
+ * layer to change a few pixels costs memory only for the tiles that change. */
 export function writeRect(
   store: TileStore,
   grid: TileGrid,
@@ -203,12 +213,13 @@ export function writeRect(
     for (let tx = tx0; tx <= tx1; tx++) {
       const key = tileKey(tx, ty),
         old = grid.tiles[key];
-      const d = old ? new Uint8ClampedArray(store.get(old)) : new Uint8ClampedArray(tileBytes(c));
-      if (!old && c === 1 && grid.fill) d.fill(grid.fill);
       const sx0 = Math.max(lx, tx * TILE),
         sy0 = Math.max(ly, ty * TILE),
         sx1 = Math.min(lx + width, (tx + 1) * TILE),
         sy1 = Math.min(ly + height, (ty + 1) * TILE);
+      if (writesNothing(src.data, width, lx, ly, sx0, sy0, sx1, sy1, c, tx, ty, old ? store.get(old) : undefined, c === 1 ? (grid.fill ?? 0) : 0)) continue;
+      const d = old ? new Uint8ClampedArray(store.get(old)) : new Uint8ClampedArray(tileBytes(c));
+      if (!old && c === 1 && grid.fill) d.fill(grid.fill);
       for (let yy = sy0; yy < sy1; yy++) {
         const from = ((yy - ly) * width + (sx0 - lx)) * c;
         d.set(src.data.subarray(from, from + (sx1 - sx0) * c) as ArrayLike<number>, ((yy - ty * TILE) * TILE + (sx0 - tx * TILE)) * c);
@@ -219,6 +230,47 @@ export function writeRect(
     }
   if (boundsDirty) next.bounds = computeBounds(store, next);
   return next;
+}
+
+// True when writing the source span into a tile would not change it: the
+// tile holds the same values, or it is absent and the values are its fill.
+// Byte data is compared four bytes at a time when both sides are aligned.
+const words = (a: ArrayLike<number>) =>
+  (a instanceof Uint8Array || a instanceof Uint8ClampedArray) && a.byteOffset % 4 === 0
+    ? new Uint32Array(a.buffer, a.byteOffset, a.byteLength >> 2)
+    : undefined;
+function writesNothing(
+  data: ArrayLike<number>,
+  width: number,
+  lx: number,
+  ly: number,
+  sx0: number,
+  sy0: number,
+  sx1: number,
+  sy1: number,
+  c: number,
+  tx: number,
+  ty: number,
+  tile: TileData | undefined,
+  fill: number,
+) {
+  const span = (sx1 - sx0) * c;
+  const wide = c === 4 && (!tile || tile.byteOffset % 4 === 0) ? words(data) : undefined;
+  const tileWords = wide && tile ? new Uint32Array(tile.buffer, tile.byteOffset, tile.byteLength >> 2) : undefined;
+  for (let yy = sy0; yy < sy1; yy++) {
+    const from = ((yy - ly) * width + (sx0 - lx)) * c;
+    const to = ((yy - ty * TILE) * TILE + (sx0 - tx * TILE)) * c;
+    if (wide) {
+      const f = from >> 2, n = span >> 2;
+      if (tileWords) {
+        const t = to >> 2;
+        for (let k = 0; k < n; k++) if (wide[f + k] !== tileWords[t + k]) return false;
+      } else for (let k = 0; k < n; k++) if (wide[f + k] !== 0) return false;
+    } else if (tile) {
+      for (let k = 0; k < span; k++) if (data[from + k] !== tile[to + k]) return false;
+    } else for (let k = 0; k < span; k++) if (data[from + k] !== fill) return false;
+  }
+  return true;
 }
 
 /** Build a grid (aligned with the document tile grid) from a buffer placed at a document position. */
@@ -254,9 +306,54 @@ export async function packGrid(store: TileStore, grid: TileGrid): Promise<Blob> 
   keys.forEach((k, i) => raw.set(store.get(grid.tiles[k]), 4 + header.length + i * size));
   return new Blob([deflate(raw, { level: 3 })], { type: tilePackMimeType });
 }
+// A pack's header says how many tiles follow, so inflating stops there: a
+// damaged or hostile project cannot expand a small pack into gigabytes.
+async function inflatePack(z: Uint8Array): Promise<Uint8Array> {
+  const { Inflate } = await import('pako');
+  const inflator = new Inflate();
+  const parts: Uint8Array[] = [];
+  let n = 0,
+    length = -1,
+    expected = Infinity;
+  const bad = () => new Error('Invalid pixel tile pack length.');
+  const head = () => {
+    const first = parts.length === 1 ? parts[0] : concat(parts, n);
+    parts.length = 0;
+    parts.push(first);
+    return first;
+  };
+  inflator.onData = (chunk: Uint8Array) => {
+    parts.push(chunk);
+    n += chunk.length;
+    if (length < 0 && n >= 4) {
+      const b = head();
+      length = new DataView(b.buffer, b.byteOffset).getUint32(0, true);
+      if (length > 16 * 1024 * 1024) throw bad();
+    }
+    if (expected === Infinity && length >= 0 && n >= 4 + length) {
+      const b = head();
+      const header = JSON.parse(new TextDecoder().decode(b.subarray(4, 4 + length))) as { channels?: unknown; keys?: unknown };
+      if (!Array.isArray(header.keys) || (header.channels !== 1 && header.channels !== 4)) throw new Error('Invalid pixel tile pack.');
+      expected = 4 + length + header.keys.length * tileBytes(header.channels);
+    }
+    if (n > expected) throw bad();
+  };
+  inflator.push(z, true);
+  if (inflator.err || !(inflator as unknown as { ended: boolean }).ended) throw new Error('Invalid pixel tile pack.');
+  return concat(parts, n);
+}
+function concat(parts: Uint8Array[], n: number) {
+  if (parts.length === 1) return parts[0];
+  const out = new Uint8Array(n);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
 export async function unpackGrid(store: TileStore, blob: Blob): Promise<TileGrid> {
-  const { inflate } = await import('pako');
-  const raw = inflate(new Uint8Array(await blob.arrayBuffer()));
+  const raw = await inflatePack(new Uint8Array(await blob.arrayBuffer()));
   const length = new DataView(raw.buffer, raw.byteOffset).getUint32(0, true);
   const header = JSON.parse(new TextDecoder().decode(raw.subarray(4, 4 + length))) as {
     v: number;

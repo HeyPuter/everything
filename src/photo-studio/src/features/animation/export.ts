@@ -20,6 +20,7 @@ import { modal, fieldChecked, fieldValue } from '../files/ui';
 import { animationOf, selectedFrames } from './state';
 import { stop } from './playback';
 import { timelineOf } from './video-state';
+import { progressHud } from '../filters/hud';
 
 export type AnimationFormat = 'gif' | 'png' | 'webp';
 const prefsKey = 'photo-studio-animation-export';
@@ -40,6 +41,30 @@ function savePrefs(p: Prefs) {
   }
 }
 
+/** Thrown by a progress step once the export was cancelled. */
+class ExportCancelled extends Error {}
+type Progress = { step(done: number, total: number): void };
+/** Run an export under a progress bar with Cancel (also Escape). Each step
+ * of the work reports progress and stops a cancelled export, which then
+ * writes nothing. */
+async function cancellable(e: Editor, label: string, work: (progress: Progress) => Promise<void>) {
+  let cancelled = false;
+  const hud = progressHud(e, `${label}…`, () => (cancelled = true));
+  try {
+    await work({
+      step(done, total) {
+        if (cancelled) throw new ExportCancelled();
+        hud.set(total ? done / total : 0);
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof ExportCancelled)) throw error;
+    e.message(`${label} cancelled.`);
+  } finally {
+    hud.close();
+  }
+}
+
 let webpSupport: Promise<boolean> | undefined;
 /** True when the browser's canvas encoder writes WebP (not a PNG fallback). */
 export function canEncodeWebp() {
@@ -55,7 +80,7 @@ export function canEncodeWebp() {
 
 /** Render frames at the output size as 8-bit RGBA (sRGB when the export
  * settings convert), one at a time through the compositor. */
-export async function renderFrames(e: Editor, indices: number[], settings: ExportSettings, label = 'frame'): Promise<RGBA8[]> {
+export async function renderFrames(e: Editor, indices: number[], settings: ExportSettings, label = 'frame', progress?: Progress): Promise<RGBA8[]> {
   const doc = e.doc;
   const s = effectiveSettings(doc, settings);
   const ctx = exportContext(doc);
@@ -63,6 +88,7 @@ export async function renderFrames(e: Editor, indices: number[], settings: Expor
   // Identical frames (for example video samples) render once.
   const done = new Map<number, RGBA8>();
   for (const [k, i] of indices.entries()) {
+    progress?.step(k, indices.length);
     let img = done.get(i);
     if (!img) {
       e.message(`Rendering ${label} ${k + 1} of ${indices.length}…`);
@@ -137,33 +163,37 @@ export async function exportAnimation(e: Editor, preset?: AnimationFormat) {
   result.close();
   savePrefs(next);
   const settings: ExportSettings = { ...loadSettings(), format: next.format === 'gif' ? 'gif' : 'png', depth: 8, sizeMode: 'percent', scale: next.scale, canvasWidth: 0, canvasHeight: 0, transparency: next.transparency };
-  const images = await renderFrames(e, indices, settings);
-  const delays = indices.map((i) => anim.frames[i].delay);
-  e.message(`Encoding ${images.length} frames…`);
-  let bytes: Uint8Array, mime: string, ext: string;
-  if (next.format === 'gif') {
-    bytes = await encodeGifOffThread(images.map((rgba, k) => ({ rgba, delayMs: delays[k] })), { colors: next.colors, dither: next.dither, loop: gifLoop(plays), palette: next.palette });
-    [mime, ext] = ['image/gif', 'gif'];
-  } else if (next.format === 'png') {
-    bytes = encodeApng(images.map((rgba, k) => ({ rgba, delayMs: delays[k] })), { plays });
-    [mime, ext] = ['image/png', 'png'];
-  } else {
-    const { width, height } = images[0];
-    const canvas = new OffscreenCanvas(width, height);
-    const g = canvas.getContext('2d')!;
-    const stills: Uint8Array[] = [];
-    for (const img of images) {
-      g.clearRect(0, 0, width, height);
-      g.putImageData(new ImageData(img.data as Uint8ClampedArray<ArrayBuffer>, width, height), 0, 0);
-      stills.push(new Uint8Array(await (await canvas.convertToBlob({ type: 'image/webp', quality: next.quality / 100 })).arrayBuffer()));
+  await cancellable(e, 'Exporting the animation', async (progress) => {
+    const images = await renderFrames(e, indices, settings, 'frame', progress);
+    const delays = indices.map((i) => anim.frames[i].delay);
+    e.message(`Encoding ${images.length} frames…`);
+    let bytes: Uint8Array, mime: string, ext: string;
+    if (next.format === 'gif') {
+      bytes = await encodeGifOffThread(images.map((rgba, k) => ({ rgba, delayMs: delays[k] })), { colors: next.colors, dither: next.dither, loop: gifLoop(plays), palette: next.palette });
+      [mime, ext] = ['image/gif', 'gif'];
+    } else if (next.format === 'png') {
+      bytes = encodeApng(images.map((rgba, k) => ({ rgba, delayMs: delays[k] })), { plays });
+      [mime, ext] = ['image/png', 'png'];
+    } else {
+      const { width, height } = images[0];
+      const canvas = new OffscreenCanvas(width, height);
+      const g = canvas.getContext('2d')!;
+      const stills: Uint8Array[] = [];
+      for (const [k, img] of images.entries()) {
+        progress.step(k, images.length);
+        g.clearRect(0, 0, width, height);
+        g.putImageData(new ImageData(img.data as Uint8ClampedArray<ArrayBuffer>, width, height), 0, 0);
+        stills.push(new Uint8Array(await (await canvas.convertToBlob({ type: 'image/webp', quality: next.quality / 100 })).arrayBuffer()));
+      }
+      // Every frame covers the canvas and replaces it, so transparent areas
+      // never show the previous frame.
+      bytes = muxAnimatedWebp(stills.map((webp, k) => ({ webp, width, height, delayMs: delays[k], blend: false })), { width, height, plays });
+      [mime, ext] = ['image/webp', 'webp'];
     }
-    // Every frame covers the canvas and replaces it, so transparent areas
-    // never show the previous frame.
-    bytes = muxAnimatedWebp(stills.map((webp, k) => ({ webp, width, height, delayMs: delays[k], blend: false })), { width, height, plays });
-    [mime, ext] = ['image/webp', 'webp'];
-  }
-  download(bytesBlob(bytes, mime), `${doc.name}.${ext}`);
-  e.message(`Animation exported: ${images.length} frames, ${formatBytes(bytes.length)}`);
+    progress.step(1, 1);
+    download(bytesBlob(bytes, mime), `${doc.name}.${ext}`);
+    e.message(`Animation exported: ${images.length} frames, ${formatBytes(bytes.length)}`);
+  });
 }
 
 // ----- Video -----
@@ -276,35 +306,39 @@ export async function renderVideo(e: Editor) {
   const range: [number, number] = tl ? (fieldValue(f, 'range') === 'work' ? [ws, we] : [0, tl.duration]) : [0, 0];
   result.close();
   savePrefs(next);
-  const seq = tl ? await timeSequence(e, doc, range, next.fps) : frameSequence(doc, anim!, next.fps, plays);
-  if (next.output === 'png') return renderSequence(e, doc, seq, next);
-  // The sound of the rendered range (as long as the frames last).
-  const audioMod = sound && (next.output === 'wav' || next.audio) ? await import('./audio-export') : undefined;
-  const mix = audioMod && tl ? await audioMod.mixDocument(e, doc, range[0] / tl.fps, next.output === 'wav' ? (range[1] - range[0]) / tl.fps : seq.seconds) : undefined;
-  if (next.output === 'wav') {
-    const wav = audioMod!.wavBlob(mix!);
-    download(wav, `${doc.name}.wav`);
-    e.message(`Audio rendered: ${(mix![0].length / audioMod!.outputRate).toFixed(2)} s, ${formatBytes(wav.size)}`);
-    return;
-  }
-  const settings: ExportSettings = { ...loadSettings(), format: 'png', depth: 8, sizeMode: 'percent', scale: next.scale, canvasWidth: 0, canvasHeight: 0, transparency: false, matte: next.background };
-  // 4:2:0 video needs even dimensions; frames are padded by repeating the last row/column.
-  const render = renderer(e, doc, seq, settings, 'video frame');
-  const first = evenSize(await render(0));
-  const { width, height } = first;
-  const codec = videoCodecs.find((c) => c.id === next.codec) ?? videoCodecs[0];
-  const bitrate = Math.round(width * height * next.fps * (qualityBits[next.videoQuality] ?? 0.2));
-  const frame = async (k: number) => (k === 0 ? first : evenSize(await render(k)));
-  let blob: Blob;
-  // Sound needs an audio encoder too; without one the recording fallback carries it.
-  const opus = mix ? await audioMod!.canEncodeOpus() : true;
-  if (opus && (await webCodecsSupport(codec, width, height, bitrate, next.fps))) {
-    const audio = mix ? await audioMod!.encodeOpus(e, mix) : undefined;
-    blob = await encodeWithWebCodecs(e, seq.count, frame, width, height, codec, bitrate, next.fps, audio);
-  } else if (typeof MediaRecorder !== 'undefined') blob = await recordWithMediaRecorder(e, seq.count, frame, width, height, codec, bitrate, next.fps, mix);
-  else throw new Error('This browser cannot encode video.');
-  download(blob, `${doc.name}.webm`);
-  e.message(`Video rendered: ${seq.count} frames at ${fpsLabel(next.fps)}${mix ? ' with sound' : ''}, ${formatBytes(blob.size)}`);
+  await cancellable(e, next.output === 'png' ? 'Rendering the image sequence' : next.output === 'wav' ? 'Rendering the audio' : 'Rendering the video', async (progress) => {
+    const seq = tl ? await timeSequence(e, doc, range, next.fps) : frameSequence(doc, anim!, next.fps, plays);
+    if (next.output === 'png') return renderSequence(e, doc, seq, next, progress);
+    // The sound of the rendered range (as long as the frames last).
+    const audioMod = sound && (next.output === 'wav' || next.audio) ? await import('./audio-export') : undefined;
+    const mix = audioMod && tl ? await audioMod.mixDocument(e, doc, range[0] / tl.fps, next.output === 'wav' ? (range[1] - range[0]) / tl.fps : seq.seconds) : undefined;
+    if (next.output === 'wav') {
+      const wav = audioMod!.wavBlob(mix!);
+      progress.step(1, 1);
+      download(wav, `${doc.name}.wav`);
+      e.message(`Audio rendered: ${(mix![0].length / audioMod!.outputRate).toFixed(2)} s, ${formatBytes(wav.size)}`);
+      return;
+    }
+    const settings: ExportSettings = { ...loadSettings(), format: 'png', depth: 8, sizeMode: 'percent', scale: next.scale, canvasWidth: 0, canvasHeight: 0, transparency: false, matte: next.background };
+    // 4:2:0 video needs even dimensions; frames are padded by repeating the last row/column.
+    const render = renderer(e, doc, seq, settings, 'video frame');
+    const first = evenSize(await render(0));
+    const { width, height } = first;
+    const codec = videoCodecs.find((c) => c.id === next.codec) ?? videoCodecs[0];
+    const bitrate = Math.round(width * height * next.fps * (qualityBits[next.videoQuality] ?? 0.2));
+    const frame = async (k: number) => (k === 0 ? first : evenSize(await render(k)));
+    let blob: Blob;
+    // Sound needs an audio encoder too; without one the recording fallback carries it.
+    const opus = mix ? await audioMod!.canEncodeOpus() : true;
+    if (opus && (await webCodecsSupport(codec, width, height, bitrate, next.fps))) {
+      const audio = mix ? await audioMod!.encodeOpus(e, mix) : undefined;
+      blob = await encodeWithWebCodecs(e, seq.count, frame, width, height, codec, bitrate, next.fps, audio, progress);
+    } else if (typeof MediaRecorder !== 'undefined') blob = await recordWithMediaRecorder(e, seq.count, frame, width, height, codec, bitrate, next.fps, mix, progress);
+    else throw new Error('This browser cannot encode video.');
+    progress.step(1, 1);
+    download(blob, `${doc.name}.webm`);
+    e.message(`Video rendered: ${seq.count} frames at ${fpsLabel(next.fps)}${mix ? ' with sound' : ''}, ${formatBytes(blob.size)}`);
+  });
 }
 
 /** A frame renderer for a sequence: renders frame k at the export settings,
@@ -326,7 +360,7 @@ function renderer(e: Editor, doc: PhotoDocument, seq: Sequence, settings: Export
 }
 
 /** Numbered PNG files in a ZIP, one per output frame. */
-async function renderSequence(e: Editor, doc: PhotoDocument, seq: Sequence, prefs: Prefs) {
+async function renderSequence(e: Editor, doc: PhotoDocument, seq: Sequence, prefs: Prefs, progress: Progress) {
   const settings: ExportSettings = { ...loadSettings(), format: 'png', depth: 8, sizeMode: 'percent', scale: prefs.scale, canvasWidth: 0, canvasHeight: 0, transparency: prefs.transparency, ...(prefs.transparency ? {} : { matte: '#ffffff' }) };
   const s = effectiveSettings(doc, settings);
   const ctx = exportContext(doc);
@@ -336,6 +370,7 @@ async function renderSequence(e: Editor, doc: PhotoDocument, seq: Sequence, pref
   let last: { key: number; bytes: Uint8Array } | undefined;
   let total = 0;
   for (let k = 0; k < seq.count; k++) {
+    progress.step(k, seq.count);
     const key = seq.key(k);
     if (last?.key !== key) {
       if (k % 5 === 0) e.message(`Rendering image ${k + 1} of ${seq.count}…`);
@@ -347,6 +382,7 @@ async function renderSequence(e: Editor, doc: PhotoDocument, seq: Sequence, pref
     entries.push({ name: `${stem}_${String(k + 1).padStart(digits, '0')}.png`, data: last.bytes });
   }
   const zip = zipStore(entries);
+  progress.step(1, 1);
   download(bytesBlob(zip, 'application/zip'), `${stem} frames.zip`);
   e.message(`Image sequence rendered: ${seq.count} PNG files at ${fpsLabel(prefs.fps)}, ${formatBytes(zip.length)}`);
 }
@@ -365,7 +401,7 @@ function evenSize(img: RGBA8): RGBA8 {
 }
 
 /** Encode frames as they render (only one frame is held at a time). */
-async function encodeWithWebCodecs(e: Editor, count: number, frameAt: (k: number) => Promise<RGBA8>, width: number, height: number, codec: VideoCodec, bitrate: number, fps: number, audio?: WebmAudio): Promise<Blob> {
+async function encodeWithWebCodecs(e: Editor, count: number, frameAt: (k: number) => Promise<RGBA8>, width: number, height: number, codec: VideoCodec, bitrate: number, fps: number, audio: WebmAudio | undefined, progress: Progress): Promise<Blob> {
   const chunks: WebmFrame[] = [];
   let failure: unknown;
   const encoder = new VideoEncoder({
@@ -378,18 +414,23 @@ async function encodeWithWebCodecs(e: Editor, count: number, frameAt: (k: number
   });
   encoder.configure({ codec: codec.webcodecs, width, height, bitrate, framerate: fps, latencyMode: 'quality' });
   const step = 1e6 / fps;
-  for (let k = 0; k < count; k++) {
-    if (failure) break;
-    if (k % 10 === 0) e.message(`Encoding video frame ${k + 1} of ${count}…`);
-    const img = await frameAt(k);
-    const frame = new VideoFrame(img.data, { format: 'RGBA', codedWidth: width, codedHeight: height, timestamp: Math.round(k * step), duration: Math.round(step) });
-    // A key frame every two seconds keeps the file seekable.
-    encoder.encode(frame, { keyFrame: k % Math.max(1, Math.round(fps * 2)) === 0 });
-    frame.close();
-    while (encoder.encodeQueueSize > 6) await new Promise((r) => setTimeout(r, 5));
+  try {
+    for (let k = 0; k < count; k++) {
+      if (failure) break;
+      progress.step(k, count);
+      if (k % 10 === 0) e.message(`Encoding video frame ${k + 1} of ${count}…`);
+      const img = await frameAt(k);
+      const frame = new VideoFrame(img.data, { format: 'RGBA', codedWidth: width, codedHeight: height, timestamp: Math.round(k * step), duration: Math.round(step) });
+      // A key frame every two seconds keeps the file seekable.
+      encoder.encode(frame, { keyFrame: k % Math.max(1, Math.round(fps * 2)) === 0 });
+      frame.close();
+      while (encoder.encodeQueueSize > 6) await new Promise((r) => setTimeout(r, 5));
+    }
+    await encoder.flush();
+  } finally {
+    // Also when cancelled: the encoder's resources are released.
+    if (encoder.state !== 'closed') encoder.close();
   }
-  await encoder.flush();
-  encoder.close();
   if (failure) throw failure instanceof Error ? failure : new Error(String(failure));
   chunks.sort((a, b) => a.timestampMs - b.timestampMs);
   const bytes = muxWebm(chunks, { width, height, codec: codec.matroska, frameRate: fps, durationMs: (count * 1000) / fps, ...(audio?.frames.length ? { audio } : {}) });
@@ -397,7 +438,7 @@ async function encodeWithWebCodecs(e: Editor, count: number, frameAt: (k: number
 }
 
 /** Real-time fallback: draw each frame into a canvas stream while recording. */
-async function recordWithMediaRecorder(e: Editor, count: number, frameAt: (k: number) => Promise<RGBA8>, width: number, height: number, codec: VideoCodec, bitrate: number, fps: number, mix?: Float32Array[]): Promise<Blob> {
+async function recordWithMediaRecorder(e: Editor, count: number, frameAt: (k: number) => Promise<RGBA8>, width: number, height: number, codec: VideoCodec, bitrate: number, fps: number, mix: Float32Array[] | undefined, progress: Progress): Promise<Blob> {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -417,6 +458,7 @@ async function recordWithMediaRecorder(e: Editor, count: number, frameAt: (k: nu
   recorder.start();
   try {
     for (let k = 0; k < count; k++) {
+      progress.step(k, count);
       if (k % 10 === 0) e.message(`Recording video frame ${k + 1} of ${count}…`);
       const img = await frameAt(k);
       g.putImageData(new ImageData(img.data as Uint8ClampedArray<ArrayBuffer>, width, height), 0, 0);

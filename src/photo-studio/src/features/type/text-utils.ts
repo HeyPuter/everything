@@ -2,7 +2,7 @@
 // hit testing, placement and rasterization of text coverage.
 
 import type { Editor } from '../../editor';
-import { allLayers, findLayer, localPoint, type Layer, type PhotoDocument, type Rect } from '../../model/document';
+import { allLayers, findLayer, insertLayerAt, localPoint, type Layer, type PhotoDocument, type Rect } from '../../model/document';
 import { layerLock } from '../../model/locks';
 import { applyAffine, documentPpi, invertAffine, legacyTextData, placeTextRect, textMatrix, textScale, type Affine } from '../../model/text-layer';
 import { layoutText, type TextLayout } from '../../imaging/text/layout';
@@ -172,7 +172,7 @@ export function insertLayer(doc: PhotoDocument, l: Layer, anchor?: string): Phot
       if (i >= 0) {
         done = true;
         const out = layers.slice();
-        out.splice(i + 1, 0, l);
+        insertLayerAt(out, i + 1, l);
         return out;
       }
       return layers.map((x) => {

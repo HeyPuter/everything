@@ -3,6 +3,7 @@ import {
   containerOf,
   findLayer,
   layer,
+  MAX_LAYERS,
   type Layer,
   type PhotoDocument,
 } from './document';
@@ -26,13 +27,16 @@ export function assertEditable(doc: PhotoDocument, roots: Layer[], operation: Lo
 }
 function assertTree(layers: Layer[], depth = 0, inFrame = false) {
   if (depth > 12) throw new Error('Groups can be nested up to 12 levels.');
-  if (allLayers(layers).length > 200) throw new Error('A document can contain up to 200 layers.');
+  if (depth === 0 && allLayers(layers).length > MAX_LAYERS) throw new Error(`A document can contain up to ${MAX_LAYERS} layers.`);
   for (const l of layers) {
     if (l.artboard && depth > 0) throw new Error('Artboards stay at the top level of the layer stack.');
     if (l.frame && inFrame) throw new Error('Frames cannot contain other frames.');
     assertTree(l.children, depth + 1, inFrame || !!l.frame);
   }
 }
+// The Background layer stays at the bottom of the stack until it is
+// converted (Layer → New → Layer from Background).
+const BACKGROUND_STAYS = 'The Background layer stays at the bottom. Convert it with Layer from Background first.';
 export type DropPosition = 'above' | 'below' | 'inside';
 export function moveLayers(
   doc: PhotoDocument,
@@ -51,6 +55,7 @@ export function moveLayers(
     throw new Error('Unlock the destination group or layer first.');
   if (position === 'inside' && target?.kind !== 'group')
     throw new Error('Only groups can contain layers.');
+  if (roots.some((l) => l.background) || (target?.background && position === 'below')) throw new Error(BACKGROUND_STAYS);
   for (const l of roots) {
     const list = containerOf(doc.layers, l.id)!;
     list.splice(list.indexOf(l), 1);
@@ -72,6 +77,7 @@ export function groupLayers(doc: PhotoDocument, ids: ReadonlySet<string>): strin
   const roots = selectedRoots(doc.layers, ids);
   if (!roots.length) return;
   assertEditable(doc, roots);
+  if (roots.some((l) => l.background)) throw new Error(BACKGROUND_STAYS);
   const list = containerOf(doc.layers, roots[0].id)!;
   if (roots.some((l) => containerOf(doc.layers, l.id) !== list))
     throw new Error('Move the selected layers into the same group before grouping them.');
@@ -94,8 +100,26 @@ export function reorderLayers(doc: PhotoDocument, ids: ReadonlySet<string>, up: 
     if (up) indices.reverse();
     for (const i of indices) {
       const j = i + (up ? 1 : -1);
-      if (selected.has(list[i].id) && list[j] && !selected.has(list[j].id) && !list[j].locked)
+      if (selected.has(list[i].id) && list[j] && !selected.has(list[j].id) && !list[j].locked && !list[i].background && !list[j].background)
         [list[i], list[j]] = [list[j], list[i]];
     }
   }
+}
+/** The layer stack after Merge Visible: `merged` replaces the visible layers.
+ * Hidden layers survive, also those inside visible groups (which are merged
+ * away), and stay below or above the merged layer as they were stacked
+ * relative to the topmost visible layer. */
+export function mergeVisibleStack(layers: Layer[], merged: Layer): Layer[] {
+  const hidden: Layer[] = [];
+  let below = -1;
+  const walk = (list: Layer[]) => {
+    for (const l of list) {
+      if (!l.visible) hidden.push(l);
+      else if (l.kind === 'group') walk(l.children);
+      else below = hidden.length;
+    }
+  };
+  walk(layers);
+  if (below < 0) below = hidden.length;
+  return [...hidden.slice(0, below), merged, ...hidden.slice(below)];
 }

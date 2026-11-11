@@ -41,9 +41,11 @@ import { curlQuotes } from '../../imaging/text/quotes';
 import { prefetchGlyphMaps, protectGlyphs } from './glyph-guard';
 import type { TextLayout } from '../../imaging/text/layout';
 import { commitSelectionMask } from '../selection';
-import { editable, insertLayer, layoutOf, localBounds, localScale, ppiOf, replaceLayer, textCoverage, toDoc, toLocal, unwarpLocal } from './text-utils';
+import { editable, forgetLayout, insertLayer, layoutOf, localBounds, localScale, ppiOf, replaceLayer, textCoverage, toDoc, toLocal, unwarpLocal } from './text-utils';
 
-type Snapshot = { data: TextLayerData; anchor: number; focus: number };
+// `place`: the layer's placement, which Mod-dragging the text changes.
+type Snapshot = { data: TextLayerData; anchor: number; focus: number; place: Placement };
+type Placement = Pick<Layer, 'transform' | 'textFrame'>;
 export type Session = {
   layerId: string;
   mask: boolean;
@@ -52,6 +54,7 @@ export type Session = {
   before: PhotoDocument;
   draft: PhotoDocument;
   original: string;
+  originalPlace: string;
   data: TextLayerData;
   anchor: number;
   focus: number;
@@ -60,7 +63,8 @@ export type Session = {
   undo: Snapshot[];
   redo: Snapshot[];
   lastKind?: string;
-  composing?: { start: number; length: number };
+  // IME composition in progress; `before` is the state it is undone to.
+  composing?: { start: number; length: number; before: Snapshot };
 };
 export let session: Session | undefined;
 // Unnarrowed accessor for code that awaits between checks.
@@ -135,14 +139,25 @@ export function insideSession(e: Editor, x: number, y: number, slop = 6): boolea
 
 // ------------------------------------------------------------ lifecycle
 
-function install(e: Editor, data: TextLayerData, opts: { kind?: string; snapshot?: boolean; keepGoal?: boolean } = {}) {
-  const s = session!;
-  if (opts.snapshot !== false && (opts.kind === undefined || opts.kind !== s.lastKind)) {
-    s.undo.push({ data: s.data, anchor: s.anchor, focus: s.focus });
+function placement(s: Session): Placement {
+  const l = findLayer(s.draft.layers, s.layerId);
+  return { transform: l?.transform ?? { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, textFrame: l?.textFrame };
+}
+const snapshot = (s: Session): Snapshot => ({ data: s.data, anchor: s.anchor, focus: s.focus, place: placement(s) });
+// Records an undo step unless this edit continues the previous one of the same kind.
+function remember(s: Session, kind?: string) {
+  if (kind === undefined || kind !== s.lastKind) {
+    s.undo.push(snapshot(s));
     if (s.undo.length > 200) s.undo.shift();
     s.redo = [];
   }
-  s.lastKind = opts.kind;
+  s.lastKind = kind;
+}
+
+function install(e: Editor, data: TextLayerData, opts: { kind?: string; snapshot?: boolean; keepGoal?: boolean } = {}) {
+  const s = session!;
+  if (opts.snapshot !== false) remember(s, opts.kind);
+  else s.lastKind = opts.kind;
   s.data = data;
   if (!opts.keepGoal) s.goal = undefined;
   render(e);
@@ -188,6 +203,22 @@ function scheduleUpdate(e: Editor) {
   }, 300);
 }
 
+// Editing waits for the text's fonts, but not for a stalled download: after
+// a moment the caret follows a fallback face, and the text is measured
+// again once the font arrives.
+const FONT_WAIT_MS = 3000;
+async function fontsReady(e: Editor, data: TextLayerData): Promise<void> {
+  const ready = prepareFonts(data);
+  let timer = 0;
+  const late = await Promise.race([ready.then(() => false), new Promise<boolean>((r) => (timer = window.setTimeout(() => r(true), FONT_WAIT_MS)))]);
+  clearTimeout(timer);
+  if (late)
+    void ready.then(() => {
+      forgetLayout();
+      if (session) render(e);
+    });
+}
+
 export type StartNew = { x: number; y: number; box?: Rect; vertical: boolean; mask: boolean; path?: TypePath };
 // Starting is asynchronous (fonts load first); overlapping requests, such
 // as a double-click that also reaches the layer list, start only once.
@@ -224,7 +255,7 @@ async function beginNew(e: Editor, opt: StartNew) {
       data.box = { width: Math.max(1, Math.max(...xs) - data.origin.x), height: Math.max(1, Math.max(...ys) - data.origin.y) };
     }
   }
-  await prepareFonts(data);
+  await fontsReady(e, data);
   const l = newLayer('text', 'Text', 1, 1);
   l.textData = data;
   l.color = e.color;
@@ -241,7 +272,7 @@ async function beginNew(e: Editor, opt: StartNew) {
   const draft = insertLayer(before, l, e.selected || undefined);
   if (e.preferences.missingGlyphProtection) prefetchGlyphMaps();
   session = {
-    layerId: l.id, mask: opt.mask, isNew: true, autoName: true, before, draft, original: '', data,
+    layerId: l.id, mask: opt.mask, isNew: true, autoName: true, before, draft, original: '', originalPlace: '', data,
     anchor: 0, focus: 0, undo: [], redo: [],
   };
   if (!opt.mask) e.selectLayers([l.id]);
@@ -269,16 +300,17 @@ async function beginEdit(e: Editor, id: string, at?: { x: number; y: number } | 
   }
   const ppi = ppiOf(e);
   const l = editable(l0, ppi);
-  await prepareFonts(l.textData);
+  await fontsReady(e, l.textData);
   const before = e.doc;
   // Legacy layers get engine data in place (their placement is unchanged).
   const draft = replaceLayer(before, id, () => l);
   if (e.preferences.missingGlyphProtection) prefetchGlyphMaps();
   const autoName = l0.name === textLayerName(l.textData.content) || l0.name === 'Text' || l0.name === (l0.text.replace(/\s+/g, ' ').trim() || 'Text');
   session = {
-    layerId: id, mask: false, isNew: false, autoName, before, draft, original: JSON.stringify(l0.textData ?? null), data: l.textData,
+    layerId: id, mask: false, isNew: false, autoName, before, draft, original: JSON.stringify(l0.textData ?? null), originalPlace: '', data: l.textData,
     anchor: 0, focus: 0, undo: [], redo: [],
   };
+  session.originalPlace = JSON.stringify(placement(session));
   const len = textLength(l.textData.content);
   if (at === 'all') session.focus = len;
   else if (at === 'end' || !at) session.anchor = session.focus = len;
@@ -316,8 +348,11 @@ export async function commit(e: Editor) {
     if (empty) return;
     const l = findLayer(s.draft.layers, s.layerId);
     if (!l) return;
+    // The selection goes to this document even if another one is shown
+    // before the text has rendered.
+    const owner = e.session;
     const cov = await textCoverage({ ...l, textData: s.data }, s.before);
-    commitSelectionMask(e, cov, 'replace', 'Type Mask');
+    commitSelectionMask(e, cov, 'replace', 'Type Mask', owner);
     notify();
     return;
   }
@@ -335,7 +370,8 @@ export async function commit(e: Editor) {
     notify();
     return;
   }
-  if (!s.isNew && JSON.stringify(s.data) === s.original) {
+  // Unchanged text that was not moved either needs no history step.
+  if (!s.isNew && JSON.stringify(s.data) === s.original && JSON.stringify(placement(s)) === s.originalPlace) {
     e.update();
     notify();
     return;
@@ -397,7 +433,8 @@ export function insert(e: Editor, str: string, kind = 'type') {
   }
   const data = { ...s.data, content };
   const caret = a + clean.length;
-  install(e, data, { kind: /\s/.test(clean) ? kind + '-space' : kind });
+  // Typing groups into word-sized undo steps; every paste is a step of its own.
+  install(e, data, { kind: kind === 'paste' ? undefined : /\s/.test(clean) ? kind + '-space' : kind });
   s.anchor = s.focus = caret;
   if (style) s.caretStyle = style;
   e.overlay();
@@ -408,7 +445,7 @@ export function insertStyled(e: Editor, piece: TextContent) {
   const [a, b] = ordered(s);
   const base = deleteRange(s.data.content, a, b);
   const content = insertContent(base, a, piece);
-  install(e, { ...s.data, content }, { kind: 'paste' });
+  install(e, { ...s.data, content });
   s.anchor = s.focus = a + textLength(piece);
   e.overlay();
 }
@@ -439,11 +476,20 @@ export function undoEdit(e: Editor, redo = false) {
     to = redo ? s.undo : s.redo;
   const snap = from.pop();
   if (!snap) return;
-  to.push({ data: s.data, anchor: s.anchor, focus: s.focus });
+  to.push(snapshot(s));
+  s.draft = replaceLayer(s.draft, s.layerId, (l) => ({ ...l, ...snap.place }));
   s.data = snap.data;
   s.anchor = snap.anchor;
   s.focus = snap.focus;
   s.lastKind = undefined;
+  render(e);
+}
+
+// Mod-drag: moves the layer being edited (one undo step per drag).
+export function moveBy(e: Editor, dx: number, dy: number, kind: string) {
+  const s = session!;
+  remember(s, kind);
+  s.draft = replaceLayer(s.draft, s.layerId, (l) => ({ ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } }));
   render(e);
 }
 
@@ -462,7 +508,8 @@ export function selectParagraphAt(e: Editor, index: number) {
 }
 
 // Caret movement. `unit`: char, word, line (Home/End), doc, vline (up/down).
-export function move(e: Editor, dir: -1 | 1, unit: 'char' | 'word' | 'line' | 'doc' | 'vline', extend: boolean) {
+// `visual`: Left/Right arrows on horizontal text, where `dir` 1 means rightwards.
+export function move(e: Editor, dir: -1 | 1, unit: 'char' | 'word' | 'line' | 'doc' | 'vline', extend: boolean, visual = false) {
   const s = session!;
   const t = text();
   const layout = sessionLayout(e)!;
@@ -470,11 +517,20 @@ export function move(e: Editor, dir: -1 | 1, unit: 'char' | 'word' | 'line' | 'd
   let to = s.focus;
   if (!extend && a !== b && (unit === 'char' || unit === 'word')) {
     to = dir < 0 ? a : b;
+    // On screen, the end of a right-to-left selection is on its left.
+    if (visual && unit === 'char' && layout.lineIndexAt(a) === layout.lineIndexAt(b, 'up')) {
+      const xa = layout.caretRect(a).x, xb = layout.caretRect(b, 'up').x;
+      if (xa !== xb) to = (xb - xa) * dir > 0 ? b : a;
+    }
     setSelection(e, to, to);
     return;
   }
   let keepGoal = false;
-  if (unit === 'char') to = dir < 0 ? prevChar(t, s.focus) : nextChar(t, s.focus);
+  if (unit === 'char' && visual) {
+    // Left/Right move on screen, so they step the right way through right-to-left text.
+    const v = layout.moveVisual(s.focus, dir);
+    to = 'index' in v ? v.index : v.logical < 0 ? prevChar(t, s.focus) : nextChar(t, s.focus);
+  } else if (unit === 'char') to = dir < 0 ? prevChar(t, s.focus) : nextChar(t, s.focus);
   else if (unit === 'word') to = dir < 0 ? prevWord(t, s.focus) : nextWord(t, s.focus);
   else if (unit === 'doc') to = dir < 0 ? 0 : t.length;
   else if (unit === 'line') {
@@ -550,7 +606,7 @@ export async function applyChar(e: Editor, patch: Partial<CharStyle>) {
   if (s) {
     if (patch.family || patch.weight || patch.italic !== undefined) {
       const probe = { ...charStyleAt(s.data.content, s.focus), ...patch };
-      await prepareFonts({ ...s.data, content: fromPlainText('x', probe) });
+      await fontsReady(e, { ...s.data, content: fromPlainText('x', probe) });
       if (session !== s) return;
     }
     const [a, b] = ordered(s);
@@ -707,10 +763,17 @@ function inputElement(e: Editor): HTMLTextAreaElement {
     } else insert(e, v);
   });
   el.addEventListener('compositionstart', () => {
-    if (!session) return;
-    const [a, b] = ordered(session);
-    if (a !== b) removeRange(e, a, b);
-    session.composing = { start: session.focus, length: 0 };
+    const s = session;
+    if (!s) return;
+    const before = snapshot(s);
+    // Composing over a selection replaces it; the whole replacement is one undo step.
+    const [a, b] = ordered(s);
+    if (a !== b) {
+      s.data = { ...s.data, content: deleteRange(s.data.content, a, b) };
+      s.anchor = s.focus = a;
+      render(e);
+    }
+    s.composing = { start: s.focus, length: 0, before };
   });
   el.addEventListener('compositionupdate', (ev) => {
     const s = session;
@@ -726,11 +789,15 @@ function inputElement(e: Editor): HTMLTextAreaElement {
     const s = session;
     if (!s?.composing) return;
     const data = (ev as CompositionEvent).data ?? '';
-    const { start, length } = s.composing;
+    const { start, length, before } = s.composing;
     s.composing = undefined;
-    // Record the composed text as one undoable insertion.
-    const before = { ...s.data, content: replaceRange(s.data.content, start, start + length, '') };
-    s.undo.push({ data: before, anchor: start, focus: start });
+    // Record the composed text as one undoable insertion (a new edit, so redo ends).
+    if (data || before.anchor !== before.focus) {
+      s.undo.push(before);
+      if (s.undo.length > 200) s.undo.shift();
+      s.redo = [];
+    }
+    s.lastKind = undefined;
     s.data = { ...s.data, content: replaceRange(s.data.content, start, start + length, data, s.caretStyle) };
     s.anchor = s.focus = start + data.length;
     el.value = '';

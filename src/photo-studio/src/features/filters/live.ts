@@ -5,12 +5,13 @@
 import type { Editor } from '../../editor';
 import { findLayer, type Layer, type LiveFilter } from '../../model/document';
 import { syncPixelTransform } from '../../model/pixel-layer';
-import { canvasRect, selectionBounds, selectionGrid } from '../../model/selection';
+import { selectionBounds, selectionGrid } from '../../model/selection';
 import type { TileGrid } from '../../model/tiles';
 import { rasterizeLayer, hexRgb } from '../pixels';
 import { filterOp, isStackOp, normalizeFor } from './catalog';
 import { Lane, isCancel, registerSource, releaseSource } from './client';
 import { isLiveLayer, toMode } from './apply';
+import { liveRect } from './state';
 import { gridPayload, mergeTiles } from './tilepack';
 import { progressHud } from './hud';
 
@@ -20,7 +21,7 @@ let keys = 0;
 /** Render `filters` over the layer's source; returns the cached result grid. */
 export async function renderLive(e: Editor, l: Layer & { liveSource: TileGrid }, filters: LiveFilter[], mask: TileGrid | undefined, label: string): Promise<TileGrid | undefined> {
   const store = e.assets.tiles;
-  const rect = canvasRect(e.doc);
+  const rect = liveRect(e.doc, l.liveSource);
   const key = `live${++keys}`;
   registerSource({ type: 'load', key, rect, image: gridPayload(store, l.liveSource, rect), mask: mask ? gridPayload(store, mask, rect) : undefined });
   const hud = progressHud(e, `${label}…`, () => lane.cancel());

@@ -5,7 +5,7 @@
 // above the current layer, and the prompt is kept with the layer.
 import type { Editor } from '../../editor';
 import { escapeXML } from '../../model/assets';
-import { findLayer, type GeneratedInfo, type Layer } from '../../model/document';
+import { findLayer, insertLayerAt, type GeneratedInfo, type Layer } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { applySelection, canvasRect, selectionBounds, selectionGrid } from '../../model/selection';
 import { emptyGrid, gridDocBounds, gridFromImage, readMask, readRGBA, writeRect } from '../../model/tiles';
@@ -236,7 +236,7 @@ function insertAbove(e: Editor, l: Layer, anchor: string | undefined, label: str
     const find = (layers: Layer[]): boolean => {
       const i = layers.findIndex((x) => x.id === anchor);
       if (i >= 0) {
-        layers.splice(i + 1, 0, l);
+        insertLayerAt(layers, i + 1, l);
         return true;
       }
       return layers.some((x) => find(x.children));

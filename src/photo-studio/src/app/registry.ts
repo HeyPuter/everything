@@ -52,7 +52,10 @@ export interface Tool {
   options?: (e: Editor) => string;
   bindOptions?: (ctx: ToolOptionsContext) => void;
   activate?: (e: Editor) => void;
-  deactivate?: (e: Editor) => void;
+  // Ends the tool's work in the active document, because another tool is
+  // chosen or another document is shown; a promise when finishing takes time
+  // (switching documents waits for it).
+  deactivate?: (e: Editor, reason?: 'tool' | 'document') => void | Promise<void>;
   pointerDown?: (e: Editor, p: CanvasPointer) => void | Promise<void>;
   pointerMove?: (e: Editor, p: CanvasPointer) => void;
   pointerUp?: (e: Editor, p: CanvasPointer) => void | Promise<void>;
