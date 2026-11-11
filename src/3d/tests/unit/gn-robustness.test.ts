@@ -2,6 +2,7 @@
 // Geometry nodes: evaluation cache invalidation and edge cases of individual nodes.
 import { describe, it, expect } from 'vitest';
 import { setup, node, link, run, env, attr, positions, type T } from './gnmesh-harness';
+import '../../src/volume/geonodes';
 import type { NodeData } from '../../src/data/types';
 import { addNode, connect, ctxOf } from '../../src/nodes/tree';
 import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/types';
@@ -172,6 +173,25 @@ describe('Convex Hull', () => {
 });
 
 describe('instances', () => {
+  it('Realize Instances keeps nested instances below the depth and volumes', () => {
+    const t = setup();
+    const inner = node(t, 'GeometryNodeInstanceOnPoints');
+    link(t, node(t, 'GeometryNodeMeshLine', { Count: 2 }), 'Mesh', inner, 'Points');
+    link(t, node(t, 'GeometryNodeMeshCube'), 'Mesh', inner, 'Instance');
+    const outer = node(t, 'GeometryNodeInstanceOnPoints');
+    link(t, node(t, 'GeometryNodeMeshLine', { Count: 3, Offset: [0, 5, 0] }), 'Mesh', outer, 'Points');
+    link(t, inner, 'Instances', outer, 'Instance');
+    const join = node(t, 'GeometryNodeJoinGeometry');
+    link(t, outer, 'Instances', join, 'Geometry');
+    link(t, node(t, 'GeometryNodeVolumeCube', { 'Resolution X': 4, 'Resolution Y': 4, 'Resolution Z': 4 }), 'Volume', join, 'Geometry');
+    const re = node(t, 'GeometryNodeRealizeInstances', { 'Realize All': false, Depth: 0 });
+    link(t, join, 'Geometry', re, 'Geometry');
+    const g = run(t, re).geometry;
+    // the outer level is realized: its references were the 2 inner instances
+    expect(g.instances?.count).toBe(6);
+    expect(g.volume?.grids.length).toBe(1);
+  });
+
   it('Instance on Points keeps point attributes of several components and of source instances', () => {
     const t = setup();
     const line = node(t, 'GeometryNodeMeshLine', { Count: 3 });
