@@ -191,3 +191,28 @@ describe('status bar view rotation', () => {
     expect(sel.querySelector('option.custom')).toBe(null);
   });
 });
+
+describe('tool flyouts on phones', () => {
+  it('open above the tool row instead of over it', async () => {
+    const { bootApp } = await import('./helpers.js');
+    const app = bootApp();
+    app.newDocument();
+    const mm = window.matchMedia;
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    try {
+      window.matchMedia = (q) => ({ matches: q.includes('max-width: 760px'), addEventListener() {}, removeEventListener() {} });
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return this.classList?.contains('tool-flyout') ? 150 : 0; } });
+      const btn = [...document.querySelectorAll('.toolbar .tool-btn')].find((b) => b._ids?.length > 1);
+      const vh = window.innerHeight;
+      btn.getBoundingClientRect = () => ({ left: 160, right: 200, top: vh - 50, bottom: vh - 10, width: 40, height: 40 });
+      btn.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      const fly = document.querySelector('.tool-flyout');
+      expect(parseFloat(fly.style.top)).toBe(vh - 50 - 150 - 4);
+      expect(parseFloat(fly.style.left)).toBe(160);
+      fly.remove();
+    } finally {
+      window.matchMedia = mm;
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', desc);
+    }
+  });
+});
