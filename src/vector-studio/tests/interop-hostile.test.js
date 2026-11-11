@@ -1,7 +1,7 @@
 // Hostile and malformed input for the importers: each case must finish quickly with a
 // clear result or message, without exhausting memory or hanging.
 import { describe, it, expect } from 'vitest';
-import { onePage, leaves, enc } from './interop-helpers.js';
+import { onePage, leaves, enc, buildPDF } from './interop-helpers.js';
 import { pdfToDocument } from '../src/features/interop/pdf/import.js';
 import { decodeCCITT } from '../src/features/interop/codec/ccitt.js';
 import { inflate } from '../src/features/interop/codec/zlib.js';
@@ -247,5 +247,20 @@ describe('PDF content that multiplies itself', () => {
   it('graphics state saves nested past the limit still restore in pairs', async () => {
     const doc = await open(onePage(`${'q '.repeat(1500)} 1 0 0 rg 0 0 5 5 re f ${'Q '.repeat(1500)} 10 10 5 5 re f`));
     expect(leaves(doc).map((n) => n.fill.color)).toEqual(['#ff0000', '#000000']);
+  });
+});
+
+describe('PDF structure', () => {
+  it('a page tree deeper than the call stack opens', async () => {
+    const N = 20000;
+    const objs = ['<< /Type /Catalog /Pages 2 0 R >>'];
+    for (let i = 0; i < N; i++) objs.push(`<< /Type /Pages /Kids [${i + 3} 0 R] /Count 2 /MediaBox [0 0 50 40] >>`);
+    objs.push(`<< /Type /Page /Contents ${N + 3} 0 R >>`, { dict: '<< >>', stream: '0 0 10 10 re f' });
+    // A second page beside the deep branch keeps its place after it.
+    objs[1] = `<< /Type /Pages /Kids [3 0 R ${N + 4} 0 R] /Count 2 /MediaBox [0 0 50 40] >>`;
+    objs.push('<< /Type /Page /MediaBox [0 0 70 40] >>');
+    const doc = await open(buildPDF(objs));
+    expect(doc.artboards.map((a) => a.w)).toEqual([50, 70]);
+    expect(leaves(doc)).toHaveLength(1);
   });
 });
