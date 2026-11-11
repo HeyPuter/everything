@@ -93,6 +93,17 @@ describe('clip remix model', () => {
     ]);
   });
 
+  it('splits a remixed clip at the session start without placing a piece before 0', () => {
+    const c = { ...remixClip(clip(), { target: 900, xfade: 20 }, segs, 'k'), start: 0, offset: 295, length: 400 };
+    const parts = splitRemix(c, () => 'q', 1200);
+    expect(parts.map((p) => [p.start, p.offset, p.length])).toEqual([
+      [0, 395, 15],
+      [0, 195, 315],
+      [295, 690, 105],
+    ]);
+    expect(parts.every((p) => p.start >= 0 && p.offset >= 0)).toBe(true);
+  });
+
   it('copies remix settings in createClip, saves them and keeps the original audio', () => {
     const doc = new Session({ name: 'S.asesx', sampleRate: 1000, tracks: 1 });
     const orig = doc.addSource({ name: 'song.wav', channels: [Channel.fromSamples(new Float32Array(1200))] });

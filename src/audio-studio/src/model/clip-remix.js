@@ -197,9 +197,10 @@ export function splitRemix(clip, makeId, sourceLength = Infinity) {
   };
   return out.map((s, i) => {
     // Overlap the neighbours by half the crossfade on each side of the cut, where there is audio.
-    const left = s.first ? 0 : Math.min(half, s.from);
-    const right = s.last ? 0 : Math.max(0, Math.min(half, sourceLength - (s.from + s.len)));
     const t0 = s.pos - lo;
+    // (not before the session start, when the clip begins at 0 with a short first piece)
+    const left = s.first ? 0 : Math.max(0, Math.min(half, s.from, clip.start + t0));
+    const right = s.last ? 0 : Math.max(0, Math.min(half, sourceLength - (s.from + s.len)));
     const length = s.len + left + right;
     return {
       ...clip,
