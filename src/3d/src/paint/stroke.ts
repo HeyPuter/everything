@@ -306,6 +306,9 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     if (method === 'ANCHORED') v.drawSvg();
   };
   const move = (ev: PointerEvent) => {
+    // the release was lost (the window lost focus mid-stroke): end the stroke here instead of
+    // painting with the button up (and holding on to the keyboard)
+    if (ev.buttons === 0 && ev.pointerType !== 'touch') return up();
     const q = v.local(ev);
     cursorState.x = q.x;
     cursorState.y = q.y;

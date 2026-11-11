@@ -178,3 +178,24 @@ test('shortcuts wait while a brush stroke runs', async ({ page }) => {
   await expect.poll(async () => (await sculptState(page)).mode).toBe('EDIT');
   await expectNoErrors(errors);
 });
+
+test('a stroke whose release was lost ends at the next move without the button', async ({ page }) => {
+  const errors = await openApp(page);
+  await sculptSphere(page);
+  const { x, y } = await viewportCenter(page);
+  const cdp = await page.context().newCDPSession(page);
+  const mouse = (type: string, px: number, buttons: number) =>
+    cdp.send('Input.dispatchMouseEvent', { type: type as 'mouseMoved', x: px, y, button: buttons || type !== 'mouseMoved' ? 'left' : 'none', buttons, clickCount: type === 'mouseMoved' ? 0 : 1 });
+  await mouse('mouseMoved', x - 80, 0);
+  await mouse('mousePressed', x - 80, 1);
+  for (let i = 1; i <= 5; i++) await mouse('mouseMoved', x - 80 + i * 10, 1);
+  await page.waitForTimeout(50);
+  // the button went up outside the page: the moves arrive without it
+  await mouse('mouseMoved', x - 20, 0);
+  const s1 = await sculptState(page);
+  expect(s1.top).toBe('Draw');
+  for (let i = 7; i <= 12; i++) await mouse('mouseMoved', x - 80 + i * 10, 0);
+  await page.waitForTimeout(50);
+  expect((await sculptState(page)).sum).toBe(s1.sum);
+  await expectNoErrors(errors);
+});
