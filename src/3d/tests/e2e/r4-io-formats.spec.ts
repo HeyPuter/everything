@@ -130,6 +130,27 @@ test('companion files picked for one model are not reused for another model with
   await expectNoErrors(errors);
 });
 
+test('a model dropped together with its material library uses it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['mtllib mat.mtl\no Dropped\nusemtl Mat\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n'], 'a.obj'));
+    dt.items.add(new File(['newmtl Mat\nKd 1 0 0\n'], 'mat.mtl'));
+    const canvas = document.querySelector('.view3d') as HTMLElement;
+    canvas.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    canvas.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+  const dlg = page.locator('.io-dialog');
+  await expect(dlg).toHaveCount(1);
+  await dlg.locator('button', { hasText: /^Import$/ }).click();
+  await expect.poll(() => objectNames(page)).toContain('Dropped');
+  // the library was not asked for again, and was not "imported" on its own
+  await expect(dlg).toHaveCount(0);
+  const reports = await page.evaluate(() => (window as any).app.reports.map((r: any) => `${r.type} ${r.message}`)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(reports.filter((r: string) => r.startsWith('ERROR') || /not provided|not found/.test(r))).toEqual([]);
+  await expectNoErrors(errors);
+});
+
 test('Collection ▸ Exporters: add an exporter, edit it and export the collection', async ({ page }) => {
   const errors = await openApp(page);
   await page.locator('.rail-tab[data-tab="COLLECTION"]').click();

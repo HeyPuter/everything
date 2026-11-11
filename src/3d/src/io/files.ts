@@ -12,7 +12,8 @@ export interface FormatHandler {
   label: string;
   /** file extensions, e.g. ['.glb', '.gltf'] */
   extensions: string[];
-  import?: (file: File) => Promise<void>;
+  /** `companions`: other files given along with it (e.g. dropped together) it may need */
+  import?: (file: File, companions?: File[]) => Promise<void>;
   /** Optional: replace the whole document (File ▸ Open). Without it Open falls back to `import`. */
   open?: (file: File) => Promise<void>;
   export?: (opts: { selectedOnly: boolean }) => Promise<{ bytes: Uint8Array | string; mime: string; ext: string }>;
@@ -83,7 +84,13 @@ function status(s: string) {
   statusFn(s);
 }
 
-export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
+/** Whether some format (or the project / legacy readers) opens this file by its name. */
+export function isReadableFile(name: string) {
+  const n = name.toLowerCase();
+  return n.endsWith('.p3d') || n.endsWith('.json') || formats.some((f) => f.import && f.extensions.some((x) => n.endsWith(x)));
+}
+
+export async function openFile(file: File, mode: 'open' | 'import' = 'open', companions: File[] = []) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const name = file.name.toLowerCase();
   try {
@@ -115,7 +122,7 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
         app.dirty = false;
         return;
       }
-      await handler.import!(file);
+      await handler.import!(file, companions);
       if (handler.handlesUndo) return;
       // an import adds to the current file: it stays modified
       app.pushUndo(`Import ${handler.label}`);

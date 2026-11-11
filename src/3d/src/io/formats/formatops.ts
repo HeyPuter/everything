@@ -278,7 +278,7 @@ function importExec(def: FormatDef, p: Record<string, unknown>): OpResult {
 }
 
 /** Store picked files, ask for companions and options, then run the operator with paths. */
-async function importInteractive(def: FormatDef, opId: string, files: File[], props: Record<string, unknown>) {
+async function importInteractive(def: FormatDef, opId: string, files: File[], props: Record<string, unknown>, companions: File[] = []) {
   const intro = files.length === 1 ? files[0].name : `${files.length} files`;
   const values = await optionsDialog(def.importOpLabel ?? `Import ${def.label}`, `${def.id}:import`, def.importOptions ?? [], 'Import', intro, propsToOptions(def.importOptions ?? [], { ...optionsToProps(def.importOptions ?? [], dialogStart(def.importOptions ?? [], `${def.id}:import`)), ...stripDefaults(def.importOptions ?? [], props) }));
   // every import gets its own folder: companions of another model with the same names never mix in
@@ -292,6 +292,8 @@ async function importInteractive(def: FormatDef, opId: string, files: File[], pr
     given.set(f.name.toLowerCase(), bytes);
     all.push(bytes);
   }
+  // files that came along (dropped together) are only used when the model asks for them
+  for (const c of companions) given.set(c.name.toLowerCase(), new Uint8Array(await c.arrayBuffer()));
   for (const [i, f] of files.entries()) {
     const bytes = all[i];
     names.push(f.name);
@@ -472,7 +474,7 @@ export function defineFormat(def: FormatDef) {
     importOp: importOps[0],
     exportOp: exportOps[0],
     // drag and drop / File Browser: the picked file goes through the options dialog
-    import: def.importData ? (file: File) => importInteractive(def, importOps[0], [file], {}) : undefined,
+    import: def.importData ? (file: File, companions?: File[]) => importInteractive(def, importOps[0], [file], {}, companions) : undefined,
     handlesUndo: true,
   });
 }
