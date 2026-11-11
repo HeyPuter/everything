@@ -169,3 +169,25 @@ describe('layers panel rename', () => {
     expect(panel.tree.querySelector('.lr-rename')).toBe(null);
   });
 });
+
+describe('status bar view rotation', () => {
+  it('shows an angle set with the Rotate View tool instead of going blank', async () => {
+    const { bootApp } = await import('./helpers.js');
+    const app = bootApp();
+    const ed = app.newDocument();
+    const sel = app.statusbar.el.querySelector('.status-select.rot');
+    ed.view.rotateView(37);
+    app.statusbar.refresh();
+    expect(sel.value).toBe('37');
+    expect(sel.selectedOptions[0].textContent).toBe('37°');
+    ed.view.rotateView(-20);
+    app.statusbar.refresh();
+    expect(sel.selectedOptions[0].textContent).toBe('-20°');
+    // Back on a preset, the extra entry goes away.
+    ed.view.rotateView(-15);
+    app.statusbar.refresh();
+    expect(sel.value).toBe('345');
+    expect(sel.selectedOptions[0].textContent).toBe('-15°');
+    expect(sel.querySelector('option.custom')).toBe(null);
+  });
+});

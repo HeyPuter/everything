@@ -102,7 +102,16 @@ export function createStatusbar(app) {
     el.classList.toggle('no-doc', !ed);
     if (!ed) return;
     if (document.activeElement !== zoomInput) zoomInput.value = `${Number((ed.view.zoom * 100).toFixed(2))}%`;
-    rotInput.value = String(Math.round(ed.view.rotation) % 360);
+    // An angle from the Rotate View tool that is not a preset gets its own entry (the select went blank).
+    const rot = String(Math.round(ed.view.rotation) % 360);
+    let custom = rotInput.querySelector('option.custom');
+    if ([...rotInput.options].some((o) => o.value === rot && o !== custom)) custom?.remove();
+    else {
+      if (!custom) rotInput.prepend((custom = h('option.custom')));
+      custom.value = rot;
+      custom.textContent = `${Number(rot) > 180 ? Number(rot) - 360 : rot}°`;
+    }
+    rotInput.value = rot;
     const boards = ed.doc.artboards;
     if (boardSel.options.length !== boards.length || boardSel._names !== boards.map((b) => b.name).join('|')) {
       boardSel._names = boards.map((b) => b.name).join('|');
