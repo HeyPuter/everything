@@ -122,3 +122,28 @@ describe('new artwork while a compound subpath is isolated', () => {
     expect(doc.get(compound).parent).toBe(ed.targetLayer().id);
   });
 });
+
+describe('copying part of a compound path', () => {
+  it('pastes a subpath with the compound path paint (subpaths carry none of their own)', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const { createCompound } = await import('../src/model/nodes.js');
+    // As imported from SVG: unpainted subpaths inside a painted compound path.
+    const outer = createPath(rectangle(0, 0, 100, 100), true, { fill: null, stroke: null });
+    const inner = createPath(rectangle(25, 25, 50, 50), true, { fill: null, stroke: null });
+    const red = { type: 'solid', color: '#ff0000' };
+    const compound = createCompound([outer.id, inner.id], { fill: red, stroke: null });
+    doc.transact('Setup', () => doc.insert(compound, ed.targetLayer().id, Infinity, [{ ...outer, parent: compound.id }, { ...inner, parent: compound.id }]));
+    // The whole subpath, then just one of its segments.
+    for (const anchors of [[0, 1, 2, 3], [0, 1]]) {
+      ed.selectAnchors(inner.id, anchors);
+      await app.commands.run('edit.copy');
+      await app.commands.run('edit.pasteInPlace');
+      const [pasted] = ed.selectedNodes();
+      expect(pasted.parent).toBe(ed.targetLayer().id);
+      expect(pasted.fill).toEqual(red);
+    }
+    expect(doc.get(inner.id).fill).toBe(null);
+  });
+});

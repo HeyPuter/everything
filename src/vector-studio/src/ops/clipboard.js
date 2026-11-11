@@ -8,7 +8,7 @@
 import { UserError } from '../lib/errors.js';
 import { selectionBounds, transformNodes, unionRect } from '../model/geometry.js';
 import { pathBounds, segmentCount } from '../model/bezier.js';
-import { createPath } from '../model/nodes.js';
+import { createPath, pickStyle } from '../model/nodes.js';
 import { translate } from '../lib/matrix.js';
 import { deleteSelection, selectedSegment, selectedSegmentHits } from './object-ops.js';
 
@@ -83,7 +83,10 @@ export function copy(editor, { cut = false } = {}) {
   const whole = [];
   let bounds = null;
   for (const id of ids) {
-    const n = doc.get(id);
+    let n = doc.get(id);
+    // A subpath of a compound path is painted by the compound: its copy takes that paint.
+    const holder = doc.get(n.parent);
+    if (holder?.type === 'compound') n = { ...n, ...pickStyle(holder) };
     if (parts.has(id)) {
       for (const run of segmentRuns(n, parts.get(id))) {
         const piece = { ...n, id: createPath([], false).id, anchors: run.anchors, closed: run.closed, shape: undefined };
@@ -93,7 +96,9 @@ export function copy(editor, { cut = false } = {}) {
     } else if (editor.anchors.get(id)?.size === 0) {
       // A path the marquee touched without selecting any of it.
     } else {
-      items.push(doc.exportSubtree(id));
+      const item = doc.exportSubtree(id);
+      item.nodes[0] = n;
+      items.push(item);
       whole.push(id);
     }
   }
