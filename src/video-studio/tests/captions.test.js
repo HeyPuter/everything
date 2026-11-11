@@ -9,7 +9,7 @@ import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { setPref } from '../src/ui/prefs.js';
 import { fixture, clip, onMain, s } from './helpers.js';
-import { createProject } from '../src/model/project.js';
+import { createProject, makeClip } from '../src/model/project.js';
 import { TEXT_PRESETS } from '../src/model/catalog.js';
 
 const W = (text, start, end) => ({ text, start, end });
@@ -239,6 +239,14 @@ describe('buildCaptionClips', () => {
     p.tracks.unshift({ id: 't1', kind: 'text', locked: false, hidden: false, muted: false, clips });
     expect(captionCues(p)).toEqual([{ start: 0, end: 1, text: 'x' }, { start: 1, end: 2, text: 'y' }]);
   });
+  it('reads captions inside compound clips, where the compound shows them', () => {
+    const p = createProject();
+    const inner = buildCaptionClips([{ start: 0, end: 1, text: 'cut off' }, { start: 1, end: 2, text: 'one' }, { start: 2, end: 4, text: 'two' }]);
+    const comp = makeClip('compound', { start: 10 * 1e6, in: 1e6, duration: 2.5 * 1e6, sequence: { tracks: [{ id: 'n1', kind: 'text', locked: false, hidden: false, muted: false, clips: inner }] } });
+    p.tracks.unshift({ id: 't1', kind: 'video', locked: false, hidden: false, muted: false, clips: [comp] });
+    expect(captionCues(p)).toEqual([{ start: 10, end: 11, text: 'one' }, { start: 11, end: 12.5, text: 'two' }]);
+  });
+
   it('leaves captions that are turned off or on a hidden track out of the cues', () => {
     const p = createProject();
     const [a, b, c] = buildCaptionClips([{ start: 0, end: 1, text: 'shown' }, { start: 1, end: 2, text: 'off' }, { start: 2, end: 3, text: 'hidden' }]);

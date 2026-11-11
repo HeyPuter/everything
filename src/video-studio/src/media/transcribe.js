@@ -13,6 +13,7 @@ import { TEXT_PRESETS } from '../model/catalog.js';
 import { MIN_CLIP, clipEnd } from '../model/timeline.js';
 import { sourceMapper, sourceSpan, localAtSource } from '../model/speed-curve.js';
 import { audibleClips, gainAt } from '../engine/scene.js';
+import { expandProject } from '../engine/compound.js';
 import { encodeWav } from './wav.js';
 
 export const LANGUAGES = [
@@ -366,18 +367,25 @@ export function buildCaptionClips(cues, { presetId = 'subtitle', position = 'bot
 /** Whether a clip is a caption that shows in the video (not turned off, not on a hidden track). */
 export const shownCaption = (track, clip) => clip.type === 'text' && Boolean(clip.caption) && !clip.disabled && !track.hidden;
 
+/**
+ * The caption clips that show in a project, in time order. Captions inside
+ * compound clips are placed (and cut) where the compound shows them.
+ */
+export function shownCaptions(project) {
+  const out = [];
+  for (const t of expandProject(project).tracks) for (const c of t.clips) if (shownCaption(t, c)) out.push(c);
+  return out.sort((a, b) => a.start - b.start);
+}
+
 /** Cues (seconds) for the caption clips that show in a project, in time order. */
 export function captionCues(project) {
   const out = [];
   // An export slice (model/slice.js) keeps captions that cross its edges whole; cut them there.
   const stop = project.end ?? Infinity;
-  for (const t of project.tracks) {
-    for (const c of t.clips) {
-      if (!shownCaption(t, c)) continue;
-      const start = Math.max(0, c.start);
-      const end = Math.min(clipEnd(c), stop);
-      if (end > start) out.push({ start: start / US, end: end / US, text: c.text });
-    }
+  for (const c of shownCaptions(project)) {
+    const start = Math.max(0, c.start);
+    const end = Math.min(clipEnd(c), stop);
+    if (end > start) out.push({ start: start / US, end: end / US, text: c.text });
   }
   return out.sort((a, b) => a.start - b.start);
 }
