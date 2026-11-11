@@ -14,6 +14,7 @@ import { createTeleprompter } from './teleprompter.js';
 import {
   recordingSupported, listMicrophones, openMicrophone, stopStream, micErrorMessage, LevelMeter, VoiceRecorder, extForMime,
 } from '../media/voiceover.js';
+import { nextTakeNumber } from '../media/capture.js';
 import '../styles/audio.css';
 
 let open = null;
@@ -264,7 +265,7 @@ export function openVoiceoverDialog(ctx) {
       return;
     }
     status.textContent = 'Adding recording...';
-    const n = Object.values(store.project.assets).filter((a) => /^Voiceover \d+/.test(a.name)).length + 1;
+    const n = nextTakeNumber(store.project.assets, 'Voiceover');
     const file = new File([blob], `Voiceover ${n}.${extForMime(blob.type)}`, { type: blob.type });
     try {
       const [asset] = await actions.importFiles([file]);

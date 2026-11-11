@@ -152,3 +152,14 @@ describe('recorders when the device goes away', () => {
     expect(interrupted).not.toHaveBeenCalled();
   });
 });
+
+describe('take names', () => {
+  it('numbers the next take after the highest one, so a deleted take is not named twice', async () => {
+    const { nextTakeNumber } = await import('../src/media/capture.js');
+    const assets = { a: { name: 'Voiceover 2.webm' }, b: { name: 'Voiceover 10.webm' }, c: { name: 'Camera recording 3.webm' }, d: { name: 'Voiceover notes.mp3' } };
+    expect(nextTakeNumber(assets, 'Voiceover')).toBe(11);
+    expect(nextTakeNumber(assets, 'Camera recording')).toBe(4);
+    expect(nextTakeNumber(assets, 'Screen recording')).toBe(1);
+    expect(nextTakeNumber({ a: { name: 'Voiceover 2' } }, 'Voiceover')).toBe(3);
+  });
+});

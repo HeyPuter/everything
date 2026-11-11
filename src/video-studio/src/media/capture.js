@@ -28,6 +28,20 @@ export function videoRecorderMime(isSupported) {
   return VIDEO_MIME_CANDIDATES.find((m) => test(m)) || '';
 }
 
+/**
+ * The number for the next take named "<base> N": one more than the highest
+ * already in the media, so a deleted take never makes two of the same name.
+ */
+export function nextTakeNumber(assets, base) {
+  const re = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} (\\d+)\\b`);
+  let n = 0;
+  for (const a of Object.values(assets || {})) {
+    const m = re.exec(a?.name || '');
+    if (m) n = Math.max(n, Number(m[1]));
+  }
+  return n + 1;
+}
+
 export function extForVideoMime(mime) {
   return String(mime || '').includes('mp4') ? 'mp4' : 'webm';
 }
