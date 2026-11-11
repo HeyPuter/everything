@@ -74,6 +74,7 @@ export function hslTab(view, state = {}) {
         announce(`${range().label} selected`);
       },
       onCancel: done,
+      alive: () => picker.isConnected,
     });
   });
 

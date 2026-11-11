@@ -152,6 +152,32 @@ describe('HSL', () => {
     key(group, 'ArrowLeft');
     expect(env.el.querySelector('.hsl-swatch[aria-checked=true]').dataset.id).toBe('magenta');
   });
+
+  it('the eyedropper stops when the HSL panel goes away', () => {
+    const canvas = document.createElement('canvas');
+    const stage = document.createElement('div');
+    stage.className = 'player-stage';
+    stage.append(canvas);
+    document.body.append(stage);
+    env.ctx.player = { canvas };
+    env.el.querySelector('.hsl-picker').click();
+    expect(stage.classList.contains('eyedropper-active')).toBe(true);
+    // Another clip selected: the next click on the player is an ordinary click.
+    env.store.select(env.v2.id);
+    expect(stage.classList.contains('eyedropper-active')).toBe(false);
+    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 });
+    canvas.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(false);
+    // Another tab of the same clip: the same.
+    tab('HSL').click();
+    env.el.querySelector('.hsl-picker').click();
+    tab('Basic').click();
+    const again = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 });
+    canvas.dispatchEvent(again);
+    expect(again.defaultPrevented).toBe(false);
+    expect(stage.classList.contains('eyedropper-active')).toBe(false);
+    stage.remove();
+  });
 });
 
 describe('Curves', () => {
