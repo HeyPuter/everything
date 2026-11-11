@@ -151,6 +151,28 @@ describe('text details', () => {
     expect(clip().marks).toEqual([1]);
   });
 
+  it('a style preset or word-art look replaces a keyed color in one undo step', () => {
+    env.store.seek(2 * US);
+    button('Add keyframe for color').click();
+    env.store.seek(4 * US);
+    const hex = field('Color').querySelector('.hex-input');
+    hex.value = '#ff0000';
+    hex.dispatchEvent(new Event('change'));
+    expect(clip().keyframes[COLOR_KEYS[0]]).toHaveLength(2);
+    const steps = env.store.history.undoStack.length;
+    const preset = [...env.el.querySelectorAll('.preset-grid [role=radio]')].find((b) => b.getAttribute('title') !== 'None');
+    preset.click();
+    // The preset's color shows: no keys left to override it.
+    for (const k of COLOR_KEYS) expect(clip().keyframes[k]).toBeUndefined();
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+    env.store.undo();
+    expect(clip().keyframes[COLOR_KEYS[0]]).toHaveLength(2);
+    tab('Word art').click();
+    env.el.querySelectorAll('.effect-grid [role=radio]')[1].click();
+    for (const k of COLOR_KEYS) expect(clip().keyframes[k]).toBeUndefined();
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+  });
+
   it('a keyed text color does not change with the playhead off the clip', () => {
     env.store.seek(2 * US);
     button('Add keyframe for color').click();

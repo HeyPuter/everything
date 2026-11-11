@@ -120,6 +120,16 @@ export function hasColorKeys(clip) {
   return Boolean(clip?.keyframes?.[COLOR_KEYS[0]]?.length);
 }
 
+/**
+ * Remove the text color keyframes (a style preset or word-art look sets its
+ * own fill, which keys would hide). Returns true when there were any.
+ */
+export function dropColorKeys(clip) {
+  if (!hasColorKeys(clip)) return false;
+  for (const k of COLOR_KEYS) delete clip.keyframes[k];
+  return true;
+}
+
 /** Keyed text color at clip-local time, or null when the color is not keyed. */
 export function textColorAt(clip, local) {
   if (!hasColorKeys(clip)) return null;

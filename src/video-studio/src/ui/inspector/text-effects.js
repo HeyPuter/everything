@@ -6,6 +6,7 @@
 import { h, announce } from '../../lib/dom.js';
 import { TEXT_EFFECTS, applyTextEffect } from '../../model/text-presets.js';
 import { choiceGrid } from './common.js';
+import { dropColorKeys } from '../../model/text-style.js';
 import { lookCanvas } from '../text-thumbs.js';
 
 export function effectThumb(effect, w = 104, hh = 104) {
@@ -20,11 +21,14 @@ export function effectsTab(view) {
     value: view.clip.style.effect || null,
     onPick: (id) => {
       const fx = TEXT_EFFECTS.find((e) => e.id === id) || null;
+      // A look sets its own fill; keyed colors would hide it, so they go (as with Reset).
+      let unkeyed = false;
       view.edit(fx ? `${fx.label} effect` : 'Remove effect', (c) => {
         c.style = applyTextEffect(c.style, fx);
         delete c.preset;
+        unkeyed = dropColorKeys(c);
       });
-      announce(fx ? `${fx.label} effect applied` : 'Effect removed');
+      announce(`${fx ? `${fx.label} effect applied` : 'Effect removed'}${unkeyed ? '. Color keyframes removed' : ''}`);
     },
   });
   view.bind(() => view.clip && grid.set(view.clip.style.effect || null));
