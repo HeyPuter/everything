@@ -555,7 +555,9 @@ export class Renderer {
       throw error;
     }
   }
-  private async vectorSource(l: Layer, doc: PhotoDocument, assets: Assets) {
+  // `clipped`: the layer draws inside a clipping group, whose pass needs the
+  // shape's color in the texture instead of in the uniforms.
+  private async vectorSource(l: Layer, doc: PhotoDocument, assets: Assets, clipped = false) {
     const vector = l.vector!,
       matrix = vectorMatrix(l),
       stroke = vector.stroke,
@@ -610,7 +612,7 @@ export class Renderer {
       : vectorDocumentRgb(l, doc).map(component);
     const ink = stroke && vectorColorRgb(stroke.color, doc).map(component);
     const paintMatrix = patternFill || gradientFill ? vectorPaintMatrix(l) : undefined;
-    const paintKey = patternFill || gradientFill
+    const plainKey = patternFill || gradientFill
       ? JSON.stringify([
           patternFill ?? gradientFill,
           paintMatrix,
@@ -621,6 +623,9 @@ export class Renderer {
       : stroke
         ? JSON.stringify([rgb, ink, stroke.opacity])
         : "";
+    // A solid color is baked into the texture only for clipped layers.
+    const solid = !patternFill && !gradientFill && (!stroke || !stroke.fillEnabled);
+    const paintKey = clipped && solid ? JSON.stringify(["clipped", plainKey, rgb, ink]) : plainKey;
     const reuse = old?.key === key && old.assets === assets;
     if (reuse && old.paintKey === paintKey) return old;
     const raster: FloatVectorRaster | StrokeRaster = reuse
@@ -706,6 +711,14 @@ export class Renderer {
         );
         for (let c = 0; c < 3; c++) pixels[i * 4 + c] = component(rgba[c]);
         pixels[i * 4 + 3] = coverage[i] = raster.coverage[i] * rgba[3];
+      }
+    }
+    if (clipped && !pixels) {
+      const color = constantRgb ?? rgb!;
+      pixels = new Float32Array(coverage.length * 4);
+      for (let i = 0; i < coverage.length; i++) {
+        pixels.set(color, i * 4);
+        pixels[i * 4 + 3] = coverage[i];
       }
     }
     const texture = pixels
@@ -1167,7 +1180,7 @@ export class Renderer {
       if (l.kind === 'pixel' && !pixel) return [back, next];
       const vector =
         l.kind === "vector"
-          ? await this.vectorSource(l, doc, assets)
+          ? await this.vectorSource(l, doc, assets, clipped)
           : undefined;
       const source = pixel
         ? pixel.texture
