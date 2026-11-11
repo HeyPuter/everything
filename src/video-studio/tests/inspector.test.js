@@ -482,9 +482,13 @@ describe('audio and speed', () => {
     env.store.select(env.v1.id);
     tab('Speed').click();
     const r = env.el.querySelector('.speed-field input[type=range]');
+    const layout = () => JSON.stringify(env.store.project.tracks.map((t) => t.clips.map((c) => [c.id, c.start, c.duration])));
+    const start = layout();
     drag(r, [speedToPos(0.7), speedToPos(0.5), speedToPos(0.7), speedToPos(1)]);
     expect(clip(env.v1.id).speed).toBe(1);
     expect(clip(env.v1.id).duration).toBe(5 * US);
+    // Nothing the slower steps moved is left behind.
+    expect(layout()).toBe(start);
     // A slower clip keeps all its footage (the clips after it make room).
     drag(r, [speedToPos(0.5)]);
     expect(clip(env.v1.id).duration).toBe(10 * US);

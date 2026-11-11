@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
-import { mainTrack, findClip, allClips, deleteClips } from '../src/model/timeline.js';
+import { mainTrack, findClip, allClips, deleteClips, addClip } from '../src/model/timeline.js';
 import { TEXT_PRESETS } from '../src/model/catalog.js';
 import { fixture, clip, onMain, spans, kinds, trackOf, s } from './helpers.js';
 import { createCompound } from '../src/model/compound.js';
@@ -374,6 +374,76 @@ describe('keyframes', () => {
     actions.toggleKeyframe(main().clips[0].id, 'x');
     expect(main().clips[0].keyframes).toEqual({});
     expect(toasts().join()).toMatch(/Move the playhead over the clip/);
+  });
+});
+
+describe('speed drags', () => {
+  const layout = (p) => JSON.stringify(p.tracks.map((t) => [t.kind, t.main, t.clips.map((c) => [c.id, c.start, c.duration, c.speed, c.in])]));
+
+  it('leave the timeline as the final speed alone would, after dipping slower and back', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 2), clip('video', 6, 2));
+    store.setToggle('ripple', false);
+    const t = clip('text', 2.5, 1);
+    addClip(store.project, t, { ripple: false });
+    const [a] = main().clips;
+    const before = layout(store.project);
+    const span = a.duration * a.speed;
+    // 1x -> 0.5x (the clips after it move later to make room) -> 1x.
+    for (const v of [0.8, 0.5, 0.7, 1]) actions.setSpeed(a.id, v, { span });
+    store.seal();
+    expect(layout(store.project)).toBe(before);
+    expect(store.history.undoStack).toHaveLength(1);
+    // Ending slower: exactly one slowing from the start.
+    for (const v of [0.5, 0.25, 0.5]) actions.setSpeed(a.id, v, { span });
+    store.seal();
+    expect(spans(main())).toEqual([[0, 4], [4, 2], [8, 2]]);
+    store.undo();
+    expect(layout(store.project)).toBe(before);
+  });
+
+  it('bring back an overlay that moved to a free track mid-drag', () => {
+    const { store, actions } = setup(clip('video', 0, 10));
+    const o = clip('video', 0, 2);
+    const n = clip('video', 2, 2, { assetId: 'silent' });
+    addClip(store.project, o, { ripple: false });
+    addClip(store.project, n, { ripple: false, trackId: trackOf(store.project, o.id).id });
+    const before = layout(store.project);
+    const span = o.duration;
+    actions.setSpeed(o.id, 0.5, { span });
+    expect(trackOf(store.project, o.id)).not.toBe(trackOf(store.project, n.id));
+    actions.setSpeed(o.id, 1, { span });
+    store.seal();
+    expect(layout(store.project)).toBe(before);
+    expect(trackOf(store.project, o.id)).toBe(trackOf(store.project, n.id));
+  });
+
+  it('keep one run through a pause in the drag', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 2));
+    store.setToggle('ripple', false);
+    const [a] = main().clips;
+    const before = layout(store.project);
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    actions.setSpeed(a.id, 0.5, { span: s(2) });
+    now += 5000; // the pointer rests
+    actions.setSpeed(a.id, 1, { span: s(2) });
+    store.seal();
+    clock.mockRestore();
+    expect(layout(store.project)).toBe(before);
+  });
+
+  it('of a speed curve start from the clip as it was too', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 2));
+    store.setToggle('ripple', false);
+    const [a] = main().clips;
+    const before = layout(store.project);
+    const pts = (v) => [{ t: 0, v }, { t: 1, v }];
+    actions.setSpeedCurve(a.id, pts(0.5), { key: 'speed-curve', span: s(2) });
+    actions.setSpeedCurve(a.id, pts(1), { key: 'speed-curve', span: s(2) });
+    store.seal();
+    const after = JSON.parse(layout(store.project));
+    expect(after[0][2].slice(1).map((c) => c.slice(0, 2))).toEqual(JSON.parse(before)[0][2].slice(1).map((c) => c.slice(0, 2)));
+    expect(main().clips[1].start).toBe(s(2));
   });
 });
 

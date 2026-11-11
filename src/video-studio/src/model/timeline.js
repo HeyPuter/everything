@@ -673,6 +673,8 @@ export function makeRoom(project, track, clip, opts) {
   const next = track.clips[i + 1];
   const over = next ? clipEnd(clip) - next.start : 0;
   if (over <= 1) return;
+  // Said to the caller (a drag starts its next step over, see EditorStore.update).
+  opts.onMakeRoom?.();
   if (track.main) {
     for (const c of track.clips.slice(i + 1)) c.start += over;
     return;

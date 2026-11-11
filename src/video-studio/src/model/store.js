@@ -171,11 +171,17 @@ export class EditorStore extends Emitter {
   /**
    * Apply an edit. fn(project) mutates the project; return false to cancel
    * (nothing is recorded). opts.coalesce merges consecutive edits with the
-   * same key (slider drags) into one undo step.
+   * same key (slider drags) into one undo step. With opts.fromRunStart an
+   * edit of the run starts again from the project as it was before the run
+   * when an earlier edit of the run moved other clips (fn calls its second
+   * argument to say so): a speed drag that made room for a slower clip and
+   * comes back leaves nothing behind. Such a run lasts until seal() or
+   * another edit, however long the pointer rests.
    */
   update(label, fn, opts = {}) {
     const now = performance.now();
-    const merge = opts.coalesce && this._coalesce && this._coalesce.key === opts.coalesce && now - this._coalesce.at < 1200;
+    const sameRun = opts.coalesce && this._coalesce && this._coalesce.key === opts.coalesce;
+    const merge = sameRun && (opts.fromRunStart || now - this._coalesce.at < 1200);
     const before = merge ? null : structuredClone(this.project);
     // A merged step records no snapshot, but still needs one to roll back to (JSON is the cheap
     // copy). Copying a very big project on every step of a drag would slow the drag down, so
@@ -189,9 +195,14 @@ export class EditorStore extends Emitter {
     const cancel = () => {
       if (before || rollback) restoreInto(this.project, before || JSON.parse(rollback));
     };
+    // The run's undo step holds the project from before the run.
+    // (Only then: copying a big project on every step would slow the drag down.)
+    const start = merge && opts.fromRunStart && this._coalesce.movedOthers ? this.history.undoStack.at(-1)?.snapshot : null;
+    let movedOthers = false;
     let result;
     try {
-      result = fn(this.project);
+      if (start) restoreInto(this.project, structuredClone(start));
+      result = fn(this.project, () => (movedOthers = true));
     } catch (err) {
       cancel();
       throw err;
@@ -209,6 +220,7 @@ export class EditorStore extends Emitter {
     }
     if (before) this.history.push(before, label);
     this._coalesce = !opts.coalesce ? null : merge ? Object.assign(this._coalesce, { at: now }) : { key: opts.coalesce, at: now };
+    if (this._coalesce) this._coalesce.movedOthers = movedOthers;
     this.project.modified = Date.now();
     this.revision++;
     // Drop selected ids that no longer exist.

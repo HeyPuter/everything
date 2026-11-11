@@ -636,7 +636,8 @@ export function createActions(ctx) {
 
     /** span: the source length to keep (a drag keeps the one it began with). */
     setSpeed(id, speed, { span } = {}) {
-      store.update('Change speed', (p) => T.setSpeed(p, id, speed, { ...store.opts, ...(span !== undefined ? { span } : {}) }), { coalesce: `speed:${id}` });
+      // A drag (span given) applies each speed to the clip as it was when the drag began.
+      store.update('Change speed', (p, moved) => T.setSpeed(p, id, speed, { ...store.opts, ...(span !== undefined ? { span } : {}), onMakeRoom: moved }), { coalesce: `speed:${id}`, fromRunStart: span !== undefined });
     },
 
     /**
@@ -644,7 +645,7 @@ export function createActions(ctx) {
      * drag into one undo step; span keeps the source length the drag began with.
      */
     setSpeedCurve(id, points, { label = 'Speed curve', key = null, span, dropRamp = false } = {}) {
-      return store.update(label, (p) => T.setSpeedCurve(p, id, points, { ...store.opts, ...(span !== undefined ? { span } : {}), dropRamp }), key ? { coalesce: `${key}:${id}` } : {});
+      return store.update(label, (p, moved) => T.setSpeedCurve(p, id, points, { ...store.opts, ...(span !== undefined ? { span } : {}), dropRamp, onMakeRoom: moved }), key ? { coalesce: `${key}:${id}`, fromRunStart: span !== undefined } : {});
     },
 
     /** Move the selected clips by whole frames (negative: earlier), as one undo step per run of presses. */
