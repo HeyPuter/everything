@@ -29,6 +29,9 @@ vi.mock('mediabunny', () => {
       async *canvases(sec) {
         for (let i = frameAt(sec); i < N; i++) yield canvas(i);
       }
+      async *canvasesAtTimestamps(times) {
+        for (const t of times) yield canvas(frameAt(t));
+      }
     },
     VideoSampleSink: class {
       async *samples(sec) {
@@ -68,4 +71,29 @@ describe('frames from files with millisecond timestamps', () => {
     fs.dispose();
     expect(got).toEqual(Array.from({ length: N }, (_, i) => i));
   });
+
+  it('reads the same frames for tracking, flicker and color analysis', async () => {
+    // Analysis canvases: a 2x2 frame whose pixels hold the frame number.
+    globalThis.OffscreenCanvas = class {
+      getContext() {
+        let f = 0;
+        return { drawImage: (c) => (f = c.frame), getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4).fill(f) }) };
+      }
+    };
+    try {
+      const { grayFrames } = await import('../src/media/tracker.js');
+      const { rgbaFrames } = await import('../src/media/frame-sampler.js');
+      const times = Array.from({ length: N }, (_, i) => Math.round((i * 1e6) / FPS));
+      const want = times.map((_, i) => i);
+      const gray = [];
+      for await (const { frame } of grayFrames(new Blob(), times, { tw: 2, th: 2 })) gray.push(Math.round(frame[0] * 255));
+      expect(gray).toEqual(want);
+      const rgba = [];
+      for await (const { data } of rgbaFrames(new Blob(), times, { width: 2, height: 2 })) rgba.push(data[0]);
+      expect(rgba).toEqual(want);
+    } finally {
+      delete globalThis.OffscreenCanvas;
+    }
+  });
 });
+

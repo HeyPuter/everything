@@ -4,7 +4,7 @@
  * recordings of the same sound. The math is pure (tested directly); the
  * decoders use Mediabunny and run in the browser.
  */
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 
 // ---- Silences -----------------------------------------------------------------
 
@@ -114,7 +114,7 @@ export async function detectScenes(blob, from, to, { fps = 5, sensitivity = 0.5,
     for (let t = a; t < b; t += 1 / fps) times.push(t);
     const sigs = [];
     let i = 0;
-    for await (const wrapped of sink.canvasesAtTimestamps(times)) {
+    for await (const wrapped of sink.canvasesAtTimestamps(times.map((t) => t + FRAME_SLACK))) {
       if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
       if (wrapped) {
         g.drawImage(wrapped.canvas, 0, 0, SIG_W, SIG_H);

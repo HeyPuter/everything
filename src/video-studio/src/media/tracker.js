@@ -5,7 +5,7 @@
  * object can change a little as it moves. Frames are grayscale Float32
  * images of a fixed size.
  */
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 
 /** Grayscale copy of an RGBA image. */
 export function toGray(rgba, w, h) {
@@ -151,7 +151,8 @@ export async function* grayFrames(blob, times, { tw = 256, th = 144, signal } = 
     const cv = new OffscreenCanvas(tw, th);
     const g = cv.getContext('2d', { willReadFrequently: true });
     let i = 0;
-    for await (const wrapped of sink.canvasesAtTimestamps(times.map((t) => t / US))) {
+    // The frame shown at each time, as the preview and export pick it (see FRAME_SLACK).
+    for await (const wrapped of sink.canvasesAtTimestamps(times.map((t) => t / US + FRAME_SLACK))) {
       if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
       if (wrapped) {
         g.drawImage(wrapped.canvas, 0, 0, tw, th);

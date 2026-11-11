@@ -4,7 +4,7 @@
  * path over time, and turn it into position keyframes that keep the subject
  * in a frame of a different shape.
  */
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 
 export const RF_W = 48;
 export const RF_H = 27;
@@ -123,7 +123,7 @@ export async function attentionPath(blob, from, to, { fps = 2, signal, onProgres
     const out = [];
     let prev = null;
     let i = 0;
-    for await (const wrapped of sink.canvasesAtTimestamps(times)) {
+    for await (const wrapped of sink.canvasesAtTimestamps(times.map((t) => t + FRAME_SLACK))) {
       if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
       if (wrapped) {
         g.drawImage(wrapped.canvas, 0, 0, RF_W, RF_H);

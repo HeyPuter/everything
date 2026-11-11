@@ -6,7 +6,7 @@
  */
 import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { US, timecode } from '../lib/time.js';
+import { US, FRAME_SLACK, timecode } from '../lib/time.js';
 import * as T from '../model/timeline.js';
 import { valueAt } from '../model/keyframes.js';
 import { clipLayer } from '../engine/scene.js';
@@ -101,7 +101,7 @@ export async function openTrackingDialog(ctx, targetId = ctx.store.selected?.cli
     try {
       const track = await input.getPrimaryVideoTrack();
       const sink = new CanvasSink(track, { width: TW * 3, height: TH * 3, fit: 'fill', poolSize: 1 });
-      const w = await sink.getCanvas(T.sourceTimeAt(src.clip, t0) / US);
+      const w = await sink.getCanvas(T.sourceTimeAt(src.clip, t0) / US + FRAME_SLACK);
       if (w) canvas.getContext('2d')?.drawImage(w.canvas, 0, 0, canvas.width, canvas.height);
     } finally {
       input.dispose();
