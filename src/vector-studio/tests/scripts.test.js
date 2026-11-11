@@ -76,6 +76,18 @@ describe('scripts', () => {
     expect(await done).toEqual({ __vs: 'done', value: 'D2' });
   });
 
+  it('fills in curve handles for points given as { x, y }', async () => {
+    const { app, doc, a } = await setup();
+    const { api } = scriptAPI(app, app.editor, 'Test');
+    const id = api.create({ type: 'path', closed: true, anchors: [{ x: 0, y: 0 }, { x: 10, y: 0, ox: 12, oy: 3 }, null, { x: 5, y: 'no' }] });
+    expect(doc.get(id).anchors).toEqual([
+      { x: 0, y: 0, ix: 0, iy: 0, ox: 0, oy: 0 },
+      { x: 10, y: 0, ix: 10, iy: 0, ox: 12, oy: 3 },
+    ]);
+    api.update(a.id, { anchors: [{ x: 1, y: 2 }, { x: 3, y: 4 }] });
+    expect(doc.get(a.id).anchors[1]).toEqual({ x: 3, y: 4, ix: 3, iy: 4, ox: 3, oy: 4 });
+  });
+
   it('lists built-in scripts in File > Scripts', async () => {
     const { app } = await setup();
     const items = app.menuSources.get('scripts')(app);

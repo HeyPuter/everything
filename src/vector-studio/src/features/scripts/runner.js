@@ -122,11 +122,19 @@ const plain = (n) => (n ? JSON.parse(JSON.stringify(n)) : null);
 /** Object properties a script may change (structure stays with create/remove). */
 const LOCKED_KEYS = new Set(['id', 'type', 'parent', 'children']);
 
+/** Script anchors as path points: { x, y } is enough; missing curve handles sit on the point. */
+function toAnchors(list) {
+  const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  return (Array.isArray(list) ? list : [])
+    .filter((a) => a && typeof a === 'object' && Number.isFinite(a.x) && Number.isFinite(a.y))
+    .map((a) => ({ ...a, ix: num(a.ix, a.x), iy: num(a.iy, a.y), ox: num(a.ox, a.x), oy: num(a.oy, a.y) }));
+}
+
 /** Build a node from script JSON. */
 function nodeFromJSON(data) {
   const t = data?.type;
   const { id, parent, children, ...rest } = data || {};
-  if (t === 'path') return createPath(Array.isArray(rest.anchors) ? rest.anchors : [], Boolean(rest.closed), rest);
+  if (t === 'path') return createPath(toAnchors(rest.anchors), Boolean(rest.closed), { ...rest, anchors: toAnchors(rest.anchors) });
   if (t === 'text') return createText(String(rest.text ?? ''), Number(rest.x) || 0, Number(rest.y) || 0, { ...rest, char: { ...DEFAULT_CHAR, ...rest.char }, para: { ...NEW_PARA, ...rest.para } });
   if (t === 'group') return createGroup([], rest);
   throw new Error(`Scripts can create path, text and group objects, not "${t}".`);
@@ -219,6 +227,7 @@ export function scriptAPI(app, editor, name) {
     update: (id, patch) => {
       check(id);
       const clean = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => !LOCKED_KEYS.has(k)));
+      if ('anchors' in clean) clean.anchors = toAnchors(clean.anchors);
       mutate(() => doc.update(id, clean));
       return true;
     },
