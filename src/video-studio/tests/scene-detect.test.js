@@ -50,4 +50,18 @@ describe('scene detection in a video', () => {
     expect(await detectScenes(new Blob(), 0, 6 * US, { fps: 5 })).toEqual(want);
     expect(await detectScenes(new Blob(), 0.5 * US, 6 * US, { fps: 2 })).toEqual(want);
   });
+
+  it('splits on the first timeline frame that shows the new shot, also with millisecond timestamps', async () => {
+    const { sceneSplitTimes } = await import('../src/ui/smart-actions.js');
+    const { makeClip } = await import('../src/model/project.js');
+    const clip = makeClip('video', { assetId: 'v', start: 0, duration: 6 * US });
+    const want = CUTS.map((c) => Math.round((c / FPS) * US));
+    // An MP4 stamps frames at their exact time, a WebM rounds them to milliseconds.
+    expect(sceneSplitTimes(clip, want, FPS)).toEqual(want);
+    expect(sceneSplitTimes(clip, CUTS.map((c) => Math.round((c / FPS) * 1000) * 1000), FPS)).toEqual(want);
+    // A clip that starts later in its source and later on the timeline.
+    const later = makeClip('video', { assetId: 'v', start: 10 * US, in: 0.5 * US, duration: 5 * US });
+    expect(sceneSplitTimes(later, [Math.round((31 / FPS) * 1000) * 1000], FPS)).toEqual([10 * US + Math.round((16 / FPS) * US)]);
+  });
 });
+

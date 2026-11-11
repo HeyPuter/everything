@@ -6,7 +6,7 @@
  */
 import { h, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 import * as T from '../model/timeline.js';
 import { openDialog, toast } from './dialog.js';
 import { prefs, setPref } from './prefs.js';
@@ -26,6 +26,20 @@ import { frameLumas, fillGaps, flickerCorrections, flickerKeys, frameGrid, wobbl
 import { extractClipAudio } from '../media/extract-audio.js';
 import { DEFAULT_ADJUST } from '../model/project.js';
 import { adjustProp } from '../model/color.js';
+
+/**
+ * Timeline times (µs) to split a clip at for shot changes at source times
+ * cuts (µs): the first frame of a timeline at fps that shows the new shot,
+ * frames being looked up with FRAME_SLACK as the preview and export do (a
+ * WebM stamps a frame up to half a millisecond after its time). Splits too
+ * close to the clip's ends are left out.
+ */
+export function sceneSplitTimes(clip, cuts, fps) {
+  const frame = US / fps;
+  return cuts
+    .map((src) => Math.round(Math.ceil((clip.start + localAtSource(clip, src - FRAME_SLACK * US - clip.in)) / frame - 1e-6) * frame))
+    .filter((t) => t - clip.start >= T.MIN_CLIP && T.clipEnd(clip) - t >= T.MIN_CLIP);
+}
 
 /** A small modal with a progress bar and Cancel; returns { set, close, signal }. */
 export function progressDialog(title, text) {
@@ -145,7 +159,7 @@ export function createSmartActions(ctx) {
         const fps = to - from > 600 * US ? 2 : 5;
         const cuts = await detectScenes(blob, from, to, { fps, sensitivity, signal: p.signal, onProgress: (x) => p.set(x) });
         p.close();
-        const times = cuts.map((src) => clip.start + Math.round(localAtSource(clip, src - from))).filter((t) => t - clip.start >= T.MIN_CLIP && T.clipEnd(clip) - t >= T.MIN_CLIP);
+        const times = sceneSplitTimes(clip, cuts, store.fps || store.project.settings.fps || 30);
         if (!times.length) {
           toast('No scene changes were found in this clip.', { kind: 'info' });
           return;
