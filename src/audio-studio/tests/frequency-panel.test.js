@@ -25,6 +25,26 @@ beforeAll(() => {
 
 afterEach(() => vi.useRealTimers());
 
+/** A 2D context that records path points with the dash pattern in use (held traces are dashed). */
+function recordingContext(points) {
+  let dash = '';
+  return new Proxy(
+    {},
+    {
+      get(t, k) {
+        if (k === 'setLineDash') return (d) => (dash = d.join(','));
+        if (k === 'lineTo' || k === 'moveTo') return (x, y) => points.push({ dash, x, y });
+        if (k in t) return t[k];
+        return () => ({ addColorStop() {} });
+      },
+      set(t, k, v) {
+        t[k] = v;
+        return true;
+      },
+    },
+  );
+}
+
 function setup() {
   localStorage.clear();
   const app = new App();
@@ -82,24 +102,8 @@ describe('Frequency Analysis panel', () => {
 
 describe('Frequency Analysis holds', () => {
   it('draws held traces at their own frequencies after switching sample rate', async () => {
-    // A 2D context that records the path points of each stroke style (held traces are dashed).
-    let dash = '';
     const points = [];
-    const ctx = new Proxy(
-      {},
-      {
-        get(t, k) {
-          if (k === 'setLineDash') return (d) => (dash = d.join(','));
-          if (k === 'lineTo' || k === 'moveTo') return (x, y) => points.push({ dash, x, y });
-          if (k in t) return t[k];
-          return () => ({ addColorStop() {} });
-        },
-        set(t, k, v) {
-          t[k] = v;
-          return true;
-        },
-      },
-    );
+    const ctx = recordingContext(points);
     HTMLCanvasElement.prototype.getContext = () => ctx;
     // Every spectrum peaks in bin 85 of 4096: 996 Hz at 48 kHz, 498 Hz at 24 kHz.
     poolCall.mockImplementation(async (msg) => {
@@ -151,6 +155,44 @@ describe('Frequency Analysis holds', () => {
       const lower = points.filter((p) => p.dash === '4,3').slice(held.length);
       expect(Math.abs(peakX(lower) - xOf(498, 24000))).toBeLessThan(2);
       expect(Math.max(...lower.map((p) => p.x))).toBeLessThan(xOf(12000, 24000) + 2);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = () => null;
+    }
+  });
+});
+
+describe('Frequency Analysis channels', () => {
+  it('shows Mid as the spectrum of (L + R) / 2', async () => {
+    HTMLCanvasElement.prototype.getContext = () => recordingContext([]);
+    // Silence analyses to -150 dB, anything else to a -10 dB peak.
+    poolCall.mockImplementation(async (msg) => {
+      const loud = msg.samples.some((v) => v !== 0);
+      const a = new Float32Array(msg.size / 2 + 1).fill(-150);
+      if (loud) a[85] = -10;
+      return a;
+    });
+    try {
+      localStorage.clear();
+      const app = new App();
+      installCore(app);
+      installAnalysis(app);
+      app.prefs.set('frequencyAnalysis', { channel: 'mid' });
+      const panel = app.panels.get('frequency').create(app);
+      const plot = panel.el.querySelector('.freq-plot');
+      Object.defineProperty(plot, 'clientWidth', { value: 642 });
+      Object.defineProperty(plot, 'clientHeight', { value: 300 });
+      // Left and right exactly out of phase: the mid signal is silent.
+      const x = Float32Array.from({ length: RATE }, (_, i) => 0.5 * Math.sin(i / 3));
+      const doc = new AudioFile({
+        name: 'a.wav',
+        sampleRate: RATE,
+        channels: [Channel.fromSamples(x), Channel.fromSamples(x.map((v) => -v))],
+      });
+      app.addDocument(doc);
+      doc.setSelection(0, RATE);
+      panel.show();
+      await new Promise((r) => setTimeout(r, 300));
+      expect(panel.el.querySelector('.analysis-readout').textContent).toMatch(/at -150\.0 dB$/);
     } finally {
       HTMLCanvasElement.prototype.getContext = () => null;
     }

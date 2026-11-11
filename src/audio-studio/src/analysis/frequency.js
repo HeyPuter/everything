@@ -51,6 +51,13 @@ export function spectrumBars(db, rate, fft, toHz, count) {
   return out;
 }
 
+/** (L + R) / 2 sample by sample. */
+function midOf(L, R) {
+  const out = new Float32Array(L.length);
+  for (let i = 0; i < L.length; i++) out[i] = (L[i] + R[i]) * 0.5;
+  return out;
+}
+
 export function frequencyPanel(app) {
   const prefs = () => ({ ...DEFAULTS, ...(app.prefs.get('frequencyAnalysis') || {}) });
   const setPref = (patch) => {
@@ -115,22 +122,24 @@ export function frequencyPanel(app) {
   // Live: spectra of the latest output block, smoothed in power.
   const tap = masterTap(app, (m) => {
     if (!visible || !d) return;
-    const { fft, window } = prefs();
+    const { fft, window, channel } = prefs();
     const a = analyzer(fft, window);
     if (!a) return;
     const n = Math.min(fft, m.L.length);
     const frame = (x) => a.frame(x.subarray(x.length - n));
     const L = frame(m.L);
     const R = frame(m.R);
+    const M = channel === 'mid' ? a.frame(midOf(m.L.subarray(m.L.length - n), m.R.subarray(m.R.length - n))) : null;
     if (live && live.fft === fft) {
-      for (const [prev, next] of [[live.L, L], [live.R, R]]) {
+      for (const [prev, next] of [[live.L, L], [live.R, R], [live.M, M]]) {
+        if (!prev || !next) continue;
         for (let k = 0; k < next.length; k++) {
           // Fast attack, slower release.
           next[k] = next[k] > prev[k] ? next[k] : prev[k] * 0.6 + next[k] * 0.4;
         }
       }
     }
-    live = { L, R, rate: m.rate, fft };
+    live = { L, R, M, rate: m.rate, fft };
     schedule();
   });
 
@@ -149,7 +158,7 @@ export function frequencyPanel(app) {
       schedule();
       return;
     }
-    const { fft, window } = prefs();
+    const { fft, window, channel } = prefs();
     const sel = scanRange || doc.selection;
     const hasSel = sel.end - sel.start >= fft;
     let positions;
@@ -160,16 +169,19 @@ export function frequencyPanel(app) {
     } else positions = [Math.round(doc.cursor - fft / 2)];
     const channels = doc.state.channels;
     try {
+      const blocks = channels.slice(0, 2).map((ch) => {
+        const samples = new Float32Array(positions.length * fft);
+        positions.forEach((p, i) => ch.read(p, samples, i * fft, fft));
+        return samples;
+      });
+      // Mid is the spectrum of (L + R) / 2, so out-of-phase content cancels.
+      if (channel === 'mid' && blocks.length > 1) blocks.push(midOf(blocks[0], blocks[1]));
       const results = await Promise.all(
-        channels.slice(0, 2).map((ch) => {
-          const samples = new Float32Array(positions.length * fft);
-          positions.forEach((p, i) => ch.read(p, samples, i * fft, fft));
-          return analysisPool().call({ op: 'average', size: fft, window, hop: fft, frames: positions.length, samples }, [samples.buffer]);
-        }),
+        blocks.map((samples) => analysisPool().call({ op: 'average', size: fft, window, hop: fft, frames: positions.length, samples }, [samples.buffer])),
       );
       if (my !== gen) return;
       const label = scanRange ? (scanRange.start === 0 && scanRange.end === doc.length ? 'Whole file' : 'Scanned selection') : hasSel ? 'Selection' : 'Playhead';
-      still = { L: results[0], R: results[1] || results[0], rate: doc.sampleRate, fft, label };
+      still = { L: results[0], R: results[1] || results[0], M: results[2] || null, rate: doc.sampleRate, fft, label };
       schedule();
     } catch (err) {
       console.warn('[frequency]', err);
@@ -189,6 +201,8 @@ export function frequencyPanel(app) {
     if (channel === 'left') return [['L', data.L]];
     if (channel === 'right') return [['R', data.R]];
     if (channel === 'mid') {
+      if (data.M || data.L === data.R) return [['M', data.M || data.L]];
+      // Until the mid spectrum arrives: the mean power of the two channels.
       const M = data.L.map((v, k) => 10 * Math.log10((Math.pow(10, v / 10) + Math.pow(10, data.R[k] / 10)) / 2));
       return [['M', M]];
     }
