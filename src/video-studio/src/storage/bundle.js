@@ -118,6 +118,15 @@ export async function exportProjectBundle(library, project, { onProgress } = {})
 export async function importProjectBundle(library, file, { onProgress } = {}) {
   const entries = await readZip(file);
   const byName = new Map(entries.map((e) => [e.name, e]));
+  // Unpacked (Safari does that to downloads) and zipped again as a folder: read inside the folder.
+  if (!byName.has('project.json')) {
+    const inner = entries.filter((e) => /^[^/]+\/project\.json$/.test(e.name) && !e.name.startsWith('__MACOSX/'));
+    if (inner.length === 1) {
+      const prefix = inner[0].name.slice(0, -'project.json'.length);
+      byName.clear();
+      for (const e of entries) if (e.name.startsWith(prefix)) byName.set(e.name.slice(prefix.length), e);
+    }
+  }
   const manifestEntry = byName.get('manifest.json');
   let manifest = null;
   if (manifestEntry) {

@@ -132,6 +132,23 @@ describe('project files', () => {
     expect(other.backend.files.has(`media/${real}.mp4`)).toBe(true);
   });
 
+  it('opens a project file that was unpacked and zipped again as a folder', async () => {
+    // Safari unpacks downloaded ZIP files; zipping the folder again (Finder's Compress) puts
+    // everything in a folder and adds __MACOSX entries.
+    const { blob } = await exportProjectBundle(lib, project.id);
+    const entries = await readZip(blob);
+    const rezipped = await zipBlobs([
+      ...(await Promise.all(entries.map(async (e) => ({ name: `Trip day 1.video-studio/${e.name}`, data: await e.blob() })))),
+      { name: '__MACOSX/Trip day 1.video-studio/._project.json', data: 'resource fork' },
+    ]);
+    const other = new Library(memoryBackend());
+    const { project: copy, missing } = await importProjectBundle(other, rezipped);
+    expect(missing).toEqual([]);
+    expect(copy.name).toBe('Trip / day 1');
+    expect(await bytesOf(await other.mediaBlob(copy.assets[video.id]))).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(await text(await other.coverBlob(copy.id))).toBe('jpeg');
+  });
+
   it('rejects archives that are not project files', async () => {
     const lib2 = new Library(memoryBackend());
     await expect(importProjectBundle(lib2, await zipBlobs([{ name: 'readme.txt', data: 'hi' }]))).rejects.toThrow(/project\.json is missing/);
