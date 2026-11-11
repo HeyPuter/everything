@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Geo Studio — local map layers, markers, and GeoJSON. ArcGIS-inspired, no live GIS services." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Geo Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand">
+        <img src="icon-128.png" width="28" height="28" alt="" />
+        <h1>Geo Studio</h1>
+      </header>
+      <main class="layout">
+        <aside class="panel">
+          <label>Lat <input id="lat" type="number" step="0.0001" value="37.7749" /></label>
+          <label>Lng <input id="lng" type="number" step="0.0001" value="-122.4194" /></label>
+          <label>Name <input id="name" type="text" value="Marker" /></label>
+          <button class="btn" id="add" type="button">Add marker</button>
+          <button class="btn secondary" id="layer" type="button">New layer</button>
+          <button class="btn" id="export" type="button">Export GeoJSON</button>
+          <ul id="layers"></ul>
+        </aside>
+        <section class="map-wrap">
+          <canvas id="map" width="900" height="520" aria-label="Map canvas"></canvas>
+          <p id="status" role="status"></p>
+        </section>
+      </main>
+      <details class="help">
+        <summary>DOCUMENTED vs LIVE</summary>
+        <p>
+          ArcGIS (DOCUMENTED) ships enterprise basemaps, geoprocessing, and LIVE feature services.
+          This v0 keeps layers/markers/GeoJSON fully offline in-browser — no tile API keys and no
+          fabricated LIVE access.
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
