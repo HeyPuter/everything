@@ -234,19 +234,45 @@ function faceList(me: MeshData) {
   return out;
 }
 
-export function edgeLoop(me: MeshData, a: number, b: number): [number, number][] {
+interface LoopTopology {
+  offsets: Uint32Array;
+  faces: number[][];
+  /** faces around each edge (vertex pair key) */
+  ef: Map<string, number[]>;
+  /** edge neighbours of each vertex (built on first use) */
+  vedges?: Map<number, number[]>;
+}
+const loopTopologyCache = new WeakMap<Uint32Array, LoopTopology>();
+
+/** Face/edge adjacency for loop and ring walks, cached per (immutable) index array so that
+ *  walking many loops (Multi Select Loops, loop cut previews) doesn't rebuild it every time. */
+function loopTopology(me: MeshData): LoopTopology {
+  const cached = loopTopologyCache.get(me.indices);
+  if (cached && cached.offsets === me.offsets) return cached;
   const faces = faceList(me);
   const ef = new Map<string, number[]>();
   faces.forEach((f, fi) => f.forEach((v, i) => {
     const k = edgeKey(v, f[(i + 1) % f.length]);
     (ef.get(k) ?? ef.set(k, []).get(k)!).push(fi);
   }));
-  const vedges = new Map<number, number[]>();
-  for (const k of ef.keys()) {
-    const [x, y] = k.split(':').map(Number);
-    (vedges.get(x) ?? vedges.set(x, []).get(x)!).push(y);
-    (vedges.get(y) ?? vedges.set(y, []).get(y)!).push(x);
+  const t: LoopTopology = { offsets: me.offsets, faces, ef };
+  loopTopologyCache.set(me.indices, t);
+  return t;
+}
+
+export function edgeLoop(me: MeshData, a: number, b: number): [number, number][] {
+  const t = loopTopology(me);
+  const ef = t.ef;
+  if (!t.vedges) {
+    const vedges = new Map<number, number[]>();
+    for (const k of ef.keys()) {
+      const [x, y] = k.split(':').map(Number);
+      (vedges.get(x) ?? vedges.set(x, []).get(x)!).push(y);
+      (vedges.get(y) ?? vedges.set(y, []).get(y)!).push(x);
+    }
+    t.vedges = vedges;
   }
+  const vedges = t.vedges;
   const out: [number, number][] = [[a, b]];
   const seen = new Set([edgeKey(a, b)]);
   const boundary = (ef.get(edgeKey(a, b))?.length ?? 0) === 1;
@@ -280,12 +306,7 @@ export function edgeLoop(me: MeshData, a: number, b: number): [number, number][]
 }
 
 export function edgeRing(me: MeshData, a: number, b: number): [number, number][] {
-  const faces = faceList(me);
-  const ef = new Map<string, number[]>();
-  faces.forEach((f, fi) => f.forEach((v, i) => {
-    const k = edgeKey(v, f[(i + 1) % f.length]);
-    (ef.get(k) ?? ef.set(k, []).get(k)!).push(fi);
-  }));
+  const { faces, ef } = loopTopology(me);
   const out: [number, number][] = [[a, b]];
   const seen = new Set([edgeKey(a, b)]);
   const walk = (ea: number, eb: number, fromFace: number) => {

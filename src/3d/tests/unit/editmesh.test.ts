@@ -217,6 +217,17 @@ describe('MeshEdit', () => {
     expect(new Set(loop.map(([a, b]) => edgeKey(a, b))).size).toBe(4);
   });
 
+  it('walks loops and rings on the current topology after it changes', () => {
+    const me = newMeshData('Grid', prim.grid(4, 4));
+    const i = 2 * 5 + 1;
+    expect(edgeLoop(me, i, i + 1).length).toBe(4);
+    expect(edgeRing(me, i, i + 1).length).toBe(5);
+    // the same mesh with a wider grid (new arrays) gives the new loop, not a cached one
+    Object.assign(me, prim.grid(6, 4));
+    expect(edgeLoop(me, 2 * 7 + 1, 2 * 7 + 2).length).toBe(6);
+    expect(edgeRing(me, 2 * 7 + 1, 2 * 7 + 2).length).toBe(5);
+  });
+
   it('bisects a cube along a plane', () => {
     const { m } = cubeEdit();
     m.sel = m.sel.map(() => 1);
