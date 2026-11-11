@@ -1715,6 +1715,9 @@ export function createTimeline(ctx) {
   let pointerFocus = false;
   tracksEl.addEventListener('focus', (e) => {
     if (e.target !== tracksEl) return;
+    // Shift+Tab from a clip lands here on the way out: leave it here, or focus could never leave.
+    // (A click on empty track space still moves focus to a clip.)
+    if (!pointerFocus && e.relatedTarget && tracksEl.contains(e.relatedTarget)) return;
     const sel = store.selectedIds[0];
     const first = sel || T.mainTrack(store.project)?.clips[0]?.id || T.allClips(store.project)[0]?.id;
     if (!first) return;

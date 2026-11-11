@@ -126,7 +126,7 @@ describe('timeline focus', () => {
     focus.mockRestore();
     await new Promise((r) => setTimeout(r));
     // Keyboard focus (no pointer involved) scrolls to the clip it lands on.
-    document.body.focus();
+    document.activeElement.blur(); // focus comes from outside the timeline
     tracks.focus();
     expect(document.activeElement).toBe(node(a.id));
     expect(scroller.scrollLeft).toBe(0);
@@ -355,5 +355,19 @@ describe('adding several media files', () => {
     store.undo();
     expect(T.allClips(store.project)).toHaveLength(0);
     tl.dispose();
+  });
+});
+
+describe('timeline keyboard focus with Shift+Tab', () => {
+  it('lets Shift+Tab leave a clip instead of sending focus back into the timeline', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const { tracks, node } = mountTimeline(p);
+    // Tabbing in moves focus to a clip.
+    tracks.focus();
+    expect(document.activeElement).toBe(node(a.id));
+    // Shift+Tab from the clip reaches the tracks group first: it stays there, so the next one leaves.
+    tracks.focus();
+    expect(document.activeElement).toBe(tracks);
   });
 });
