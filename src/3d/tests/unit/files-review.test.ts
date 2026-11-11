@@ -200,3 +200,23 @@ describe('save names', () => {
     expect(name('done.P3D')).toBe('done.P3D');
   });
 });
+
+describe('user asset libraries', () => {
+  it('reports a library that could not be stored', async () => {
+    const { installFakeIndexedDb } = await import('./support/fakeidb');
+    const idb = installFakeIndexedDb();
+    const lib = await import('../../src/assets/library');
+    lib.resetLibrariesForTests();
+    const id = await lib.createLibrary('Shelf');
+    idb.fail.put = true;
+    await lib.saveLibrary(id, true);
+    expect(app.reports.at(-1)?.type).toBe('ERROR');
+    expect(app.reports.at(-1)?.message).toContain('"Shelf" could not be stored');
+    // saving the library opened as a file fails visibly too
+    await expect(lib.writeLibraryBytes(id, encodeDocument(startupDocument()))).rejects.toBeTruthy();
+    idb.fail.put = false;
+    const n = app.reports.length;
+    await lib.saveLibrary(id, true);
+    expect(app.reports.length).toBe(n);
+  });
+});

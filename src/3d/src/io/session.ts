@@ -63,7 +63,9 @@ const del = (store: string, key: string) => idb(store, 'readwrite', (s) => void 
 
 /** Small persistent key/value store for UI state (bookmarks, recent folders). */
 export const kvGet = <T>(key: string) => get<T>(KV, `ui:${key}`);
-export const kvSet = (key: string, value: unknown) => put(KV, `ui:${key}`, value);
+/** Rejects when the value could not be stored (storage full or blocked); a no-op without IndexedDB. */
+export const kvSet = (key: string, value: unknown): Promise<unknown> =>
+  typeof indexedDB === 'undefined' ? Promise.resolve(undefined) : idb(KV, 'readwrite', (s) => void s.put(value, `ui:${key}`));
 
 // ---------------------------------------------------------------------------
 // recent files

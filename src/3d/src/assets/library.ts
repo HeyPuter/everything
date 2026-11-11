@@ -155,7 +155,10 @@ export function saveLibrary(id: string, immediate = false): Promise<void> {
   clearTimeout(pendingSaves.get(id));
   const write = () => {
     pendingSaves.delete(id);
-    return kvSet(libKey(id), encodeDocument(st.doc!)).then(() => undefined, () => undefined);
+    return kvSet(libKey(id), encodeDocument(st.doc!)).then(
+      () => undefined,
+      (e) => app.report('ERROR', `The asset library "${entries.find((x) => x.id === id)?.name ?? id}" could not be stored: ${e instanceof Error ? e.message : String(e)}`),
+    );
   };
   if (immediate) return write();
   return new Promise((res) => pendingSaves.set(id, setTimeout(() => void write().then(res), 250)));
@@ -207,7 +210,7 @@ export async function deleteLibrary(id: string) {
   entries.splice(i, 1);
   loaded.delete(id);
   saveIndex();
-  await kvSet(libKey(id), null);
+  await kvSet(libKey(id), null).catch(() => {});
   notifyLibraries();
   return true;
 }
