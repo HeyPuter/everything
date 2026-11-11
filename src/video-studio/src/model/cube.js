@@ -32,6 +32,12 @@ export function parseCube(text) {
   const lines = text.split(/\r\n|\n|\r/);
   for (let li = 0; li < lines.length; li++) {
     let line = lines[li];
+    // A quoted title may hold a #; the rest of the line can still be a comment.
+    const quoted = /^\s*TITLE\s+"([^"]*)"/i.exec(line);
+    if (quoted) {
+      title = quoted[1].slice(0, 120);
+      continue;
+    }
     const hash = line.indexOf('#');
     if (hash >= 0) line = line.slice(0, hash);
     line = line.trim();
