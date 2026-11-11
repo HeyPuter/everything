@@ -30,6 +30,7 @@ const browserTypes: Record<string, string> = {
   bmp: 'image/bmp',
   svg: 'image/svg+xml',
 };
+const projectMagic = [...'PHOTO001'].map((c) => c.charCodeAt(0));
 const formatMime: Partial<Record<ImageFormat, string>> = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', heic: 'image/heic', svg: 'image/svg+xml' };
 
 export type DecodedLayer = { name: string; image: RGBA8 };
@@ -256,7 +257,13 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   e.transform.apply();
   blob = await inMemoryFile(blob);
   const lower = name.toLowerCase();
-  const isPsd = /\.ps[db]$/.test(lower);
+  // The contents decide, so a PSD or project saved with another extension
+  // still opens; the extension decides only for files no codec recognizes.
+  const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const format = sniffImageFormat(head);
+  const project = projectMagic.every((v, i) => head[i] === v);
+  const isPsd = format === 'psd' || format === 'psb' || (format === 'unknown' && !project && /\.ps[db]$/.test(lower));
+  const isProject = project || (format === 'unknown' && lower.endsWith('.photo'));
   const source: RecentSource = opts.source ?? { kind: 'local', blob };
   if (place && e.hasDocument) {
     // Placed files become embedded objects: browser images draw directly,
@@ -265,8 +272,10 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     await placeEmbedded(e, blob, name);
     return true;
   }
-  if (lower.endsWith('.photo') || isPsd) {
-    const loaded = isPsd ? await (await import('../../model/psd')).openPsd(blob, name, e.engine) : await deserialize(blob);
+  if (isProject || isPsd) {
+    // The document is named after the file without its extension.
+    const psdName = /\.ps[db]$/i.test(name) ? name : name.replace(/\.[^.]+$/, '');
+    const loaded = isPsd ? await (await import('../../model/psd')).openPsd(blob, psdName, e.engine) : await deserialize(blob);
     const s = e.sessionForOpen();
     await e.renderer?.settle();
     s.assets.clear();
@@ -274,7 +283,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     s.history.reset(loaded.document);
     s.hasDocument = true;
     s.storage.reset();
-    if (source.kind === 'puter' && lower.endsWith('.photo')) s.storage.path = source.path;
+    if (source.kind === 'puter' && isProject && lower.endsWith('.photo')) s.storage.path = source.path;
     s.saved = s.doc;
     s.fileName = name;
     e.selected = s.doc.layers.at(-1)?.id ?? '';
