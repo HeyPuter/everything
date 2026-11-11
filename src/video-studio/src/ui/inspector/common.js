@@ -456,8 +456,8 @@ export function keepFocus(fn, ...finders) {
  */
 export function restoreFocus(el, ...finders) {
   const a = document.activeElement;
-  if (!el || el === document.body || (a && a !== document.body)) return;
   const usable = (x) => x?.isConnected && !x.disabled && !x.closest('[hidden]');
+  if (!el || el === document.body || (a && a !== document.body && usable(a))) return;
   const to = usable(el) ? el : finders.map((f) => f()).find(usable);
   to?.focus();
 }

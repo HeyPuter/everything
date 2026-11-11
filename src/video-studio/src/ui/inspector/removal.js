@@ -12,7 +12,7 @@ import {
   REMOVAL_DEFAULT, REGION_TYPES, MAX_REGIONS, defaultRegion, addRegion, removeRegion, regionProp, regionHasShape, clearRegionKeys, REGION_KEYED,
 } from '../../model/removal.js';
 import { segmented, sliderField, switchField } from '../controls.js';
-import { slider, propSection, createScope, note, toggle, keepFocus } from './common.js';
+import { slider, propSection, createScope, note, toggle, keepFocus, restoreFocus } from './common.js';
 import { removeEdit, REMOVE_TOOLS } from '../remove-edit-state.js';
 import { followRegion } from '../removal-track.js';
 import { toast } from '../dialog.js';
@@ -173,7 +173,10 @@ export function removeTab(view) {
       tracking = { ac, index: i };
       progressBar.style.width = '0%';
       trackStatus.textContent = 'Following the object...';
+      // Follow motion turns off while it runs: focus goes to Stop.
+      const keyboard = document.activeElement === follow;
       syncTrack();
+      if (keyboard) stop.focus();
       try {
         const n = await followRegion(view.ctx, view.id, i, { signal: ac.signal, onProgress: (p) => (progressBar.style.width = `${Math.round(p * 100)}%`) });
         trackStatus.textContent = n ? 'The region now follows the object. Adjust its position at any frame to fix the path.' : '';
@@ -183,7 +186,11 @@ export function removeTab(view) {
         if (err?.name !== 'AbortError') toast(err?.message || 'Tracking failed.', { kind: 'error' });
       } finally {
         tracking = null;
+        // New keys may have rebuilt these settings: refresh whichever are on show.
         if (follow.isConnected) syncTrack();
+        else if (root.isConnected) sub.update();
+        // Stop hides again (and new keys rebuild these settings): focus goes to Follow motion.
+        restoreFocus(follow, () => settingsHost.querySelector('.removal-follow button'));
       }
     });
     stop.addEventListener('click', () => tracking?.ac.abort());
