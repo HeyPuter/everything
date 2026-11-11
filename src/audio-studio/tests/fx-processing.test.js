@@ -191,3 +191,25 @@ describe('Noise Reduction (process) on 5.1 files', () => {
     });
   });
 });
+
+describe('Doppler Shifter on 5.1 files', () => {
+  it('hears the centre and LFE from the middle and the surrounds from their sides', async () => {
+    const rate = 48000;
+    const n = rate / 2;
+    const x = sine(n, 700, rate, 0.3);
+    const def = getEffect('dopplerShifter');
+    const values = { ...defaults(def), path: 1, radius: 3, velocity: 6, distanceVolume: false };
+    const six = await def.process({
+      channels: Array.from({ length: 6 }, () => x.slice()),
+      rate,
+      values,
+    });
+    const [mono] = await def.process({ channels: [x.slice()], rate, values });
+    const same = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
+    expect(same(six[2], mono)).toBe(true);
+    expect(same(six[3], mono)).toBe(true);
+    expect(same(six[4], six[0])).toBe(true);
+    expect(same(six[5], six[1])).toBe(true);
+    expect(same(six[0], six[1])).toBe(false);
+  });
+});

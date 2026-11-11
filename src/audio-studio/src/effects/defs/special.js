@@ -243,6 +243,13 @@ registerEffect({
   ],
 });
 
+/** Listening position of channel c for the Doppler Shifter: -1 left, 0 centre, 1 right (5.1: L R C LFE Ls Rs). */
+function dopplerEar(c, count) {
+  if (count === 1) return 0;
+  if (count === 6) return [-1, 1, 0, 0, -1, 1][c];
+  return c === 0 ? -1 : c === 1 ? 1 : 0;
+}
+
 registerEffect({
   id: 'dopplerShifter',
   name: 'Doppler Shifter',
@@ -279,7 +286,7 @@ registerEffect({
     try {
       for (let c = 0; c < channels.length; c++) {
         checkAbort(signal);
-        const ear = channels.length === 1 ? 0 : c === 0 ? -1 : 1;
+        const ear = dopplerEar(c, channels.length);
         const src = dsp.copyIn(channels[c]);
         const dst = dsp.floats(len);
         dsp.x.special_doppler(src.ptr, len, rate, ear, p.ptr, params.length, dst.ptr);
