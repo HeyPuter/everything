@@ -567,13 +567,26 @@ export function rippleDeleteTime(state, a, b, { trackIds = null, ids = null } = 
 /** Removes clips and closes the gaps they leave on their tracks. */
 export function rippleDeleteClips(state, ids) {
   const set = new Set(ids);
-  const gone = state.clips.filter((c) => set.has(c.id)).sort((x, y) => y.start - x.start);
+  const gone = state.clips.filter((c) => set.has(c.id)).sort((x, y) => x.start - y.start);
   if (!gone.length) return state;
-  let clips = state.clips.filter((c) => !set.has(c.id));
+  // The time each track loses: the removed clips merged, so overlapping ones close their gap once.
+  const cuts = new Map();
   for (const g of gone) {
-    // Only material that starts at or after the removed clip's end moves.
-    clips = clips.map((c) => (c.trackId === g.trackId && c.start >= clipEnd(g) && !c.locked ? { ...c, start: c.start - g.length } : c));
+    const list = cuts.get(g.trackId) || [];
+    const last = list[list.length - 1];
+    if (last && g.start <= last[1]) last[1] = Math.max(last[1], clipEnd(g));
+    else list.push([g.start, clipEnd(g)]);
+    cuts.set(g.trackId, list);
   }
+  const clips = state.clips
+    .filter((c) => !set.has(c.id))
+    .map((c) => {
+      if (c.locked || !cuts.has(c.trackId)) return c;
+      // Only material that starts at or after a removed range's end moves.
+      let shift = 0;
+      for (const [a, b] of cuts.get(c.trackId)) if (c.start >= b) shift += b - a;
+      return shift ? { ...c, start: c.start - shift } : c;
+    });
   return { ...state, clips };
 }
 
