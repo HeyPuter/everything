@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { lazy, lazyPanel, lazyRun, lazyTool, startIdleWork, whenIdle } from '../src/app/lazy';
+import { lazy, lazyPanel, lazyRun, lazyTool, loadError, startIdleWork, whenIdle } from '../src/app/lazy';
 import type { Editor } from '../src/editor';
 import type { CanvasPointer } from '../src/app/pointer';
 import type { Tool } from '../src/app/registry';
@@ -26,6 +26,27 @@ describe('lazy modules', () => {
     await expect(mod()).rejects.toThrow('offline');
     fail = false;
     expect(await mod()).toEqual({ ok: true });
+  });
+
+  it('explains a module that could not be fetched instead of showing its URL', async () => {
+    let fail = true;
+    const mod = lazy(async () => {
+      if (fail) throw new TypeError('Failed to fetch dynamically imported module: https://example.com/assets/dialog-3f2a.js');
+      return { ok: true };
+    });
+    const error = await mod().catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(TypeError);
+    expect((error as Error).message).toMatch(/could not be loaded.*reload the page/);
+    expect((error as Error).message).not.toContain('https://');
+    expect((error as Error).cause).toBeInstanceOf(TypeError);
+    fail = false;
+    expect(await mod()).toEqual({ ok: true });
+    // Firefox and Safari word it differently; errors of the module itself pass through.
+    expect((loadError(new TypeError('error loading dynamically imported module: x.js')) as Error).message).toMatch(/could not be loaded/);
+    expect((loadError(new TypeError('Importing a module script failed.')) as Error).message).toMatch(/could not be loaded/);
+    const own = new RangeError('bad size');
+    expect(loadError(own)).toBe(own);
   });
 
   it('prefetches without surfacing errors', async () => {
