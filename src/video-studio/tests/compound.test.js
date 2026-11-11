@@ -138,6 +138,24 @@ describe('rendering compound clips', () => {
     expect(gainAt(list[0].clip, s(1))).toBe(0);
   });
 
+  it('keeps full mid-clip levels when the compound window cuts before the out fade', () => {
+    const p = fixture();
+    const [v] = onMain(p, clip('video', 0, 10, {
+      fadeOut: s(2),
+      animOut: { id: 'fade-out', duration: s(2) },
+      volume: 1,
+    }));
+    const midGain = gainAt(v, s(2.5));
+    const midOpacity = evaluate(p, s(2.5))[0].opacity;
+    const comp = createCompound(p, [v.id], RIPPLE);
+    // First half of the nested clip — out fade/anim lived only in the last 2s.
+    comp.duration = s(5);
+    p.modified++;
+    const layers = evaluate(p, s(2.5));
+    expect(layers[0].opacity).toBeCloseTo(midOpacity, 6);
+    expect(gainAt(audibleClips(p)[0].clip, s(2.5))).toBeCloseTo(midGain, 6);
+  });
+
   it('caches the expansion until the project changes', () => {
     const p = fixture();
     const [a] = onMain(p, clip('video', 0, 4));
