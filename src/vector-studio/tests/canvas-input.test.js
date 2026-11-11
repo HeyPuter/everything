@@ -66,3 +66,49 @@ describe('temporary tools released mid-drag', () => {
     expect(app.input.currentTool().id).toBe('rectangle');
   });
 });
+
+describe('double-click detection', () => {
+  let app;
+  let doubles;
+  beforeAll(() => {
+    app = bootApp();
+    app.newDocument();
+  });
+  beforeEach(() => {
+    app.input.setTempTool(null);
+    app.input.spaceDown = false;
+    app.editor.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
+    app.setTool('selection');
+    doubles = 0;
+    app.input.currentTool().onDoubleClick = () => doubles++;
+  });
+  const at = (x, y, t) => ptr(x, y, { timeStamp: t });
+
+  it('takes two quick clicks in place as a double-click', () => {
+    const t = (clock += 1000);
+    app.input.down(at(100, 100, t));
+    app.input.up(at(101, 100, t + 80));
+    app.input.down(at(101, 101, t + 200));
+    app.input.up(at(101, 101, t + 260));
+    expect(doubles).toBe(1);
+  });
+
+  it('does not take a drag followed by a quick press back at its start as a double-click', () => {
+    const t = (clock += 1000);
+    app.input.down(at(100, 100, t));
+    app.input.move(at(200, 180, t + 50));
+    app.input.up(at(200, 180, t + 100));
+    app.input.down(at(100, 100, t + 250));
+    app.input.up(at(100, 100, t + 300));
+    expect(doubles).toBe(0);
+    // A drag that comes back to where it started is still a drag.
+    const u = (clock += 1000);
+    app.input.down(at(100, 100, u));
+    app.input.move(at(200, 180, u + 50));
+    app.input.move(at(100, 100, u + 100));
+    app.input.up(at(100, 100, u + 150));
+    app.input.down(at(100, 100, u + 250));
+    app.input.up(at(100, 100, u + 300));
+    expect(doubles).toBe(0);
+  });
+});

@@ -193,6 +193,8 @@ export class CanvasInput {
     const tool = this.currentTool();
     if (this.active && this.active.id === e.pointerId) {
       this.active.last = e;
+      // A press that turned into a drag is not the first click of a double-click.
+      if (this.lastClick.t && Math.hypot(ev.sx - this.lastClick.x, ev.sy - this.lastClick.y) >= 6) this.lastClick.t = 0;
       this.active.tool.onPointerMove(ev);
     } else if (!this.active && tool && e.pointerType !== 'touch') tool.onHover(ev);
   }
