@@ -817,8 +817,9 @@ export class Editor {
     const typing = !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
     if (target.closest('dialog')) return;
     const shortcut = eventShortcut(e);
-    // Modified shortcuts work while typing in numeric fields; bare keys never do.
-    if (typing && (!shortcut.startsWith('Mod+') || target.closest('textarea,[contenteditable="true"]'))) return;
+    // Modified shortcuts work while typing in numeric fields; bare keys never do,
+    // and the field keeps the keys that edit its own text (select all, copy, cut, paste).
+    if (typing && (!shortcut.startsWith('Mod+') || /^Mod\+[ACVX]$/.test(shortcut) || target.closest('textarea,[contenteditable="true"]'))) return;
     if (this.busy) return;
     if (this.activeTool?.keyDown?.(this, e)) {
       e.preventDefault();

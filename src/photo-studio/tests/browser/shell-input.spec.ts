@@ -228,3 +228,15 @@ test.describe('on a phone', () => {
     }
   });
 });
+
+test('Select All in an options field selects its text, not the document', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.setTool('brush'));
+  await idle(page);
+  const field = page.locator('#brush-size');
+  await field.focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('42');
+  await expect(field).toHaveValue('42');
+  expect(await page.evaluate(() => window.photoStudio.doc.selection ?? null)).toBeNull();
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
+});
