@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 (globalThis as unknown as { requestAnimationFrame: (f: () => void) => number }).requestAnimationFrame = (f) => setTimeout(f, 0) as unknown as number;
 
 import { Vector3 } from 'three';
-import { App, setApp, app } from '../../src/app/app';
+import { App, setApp, app, operators } from '../../src/app/app';
 import { startupDocument, newObject } from '../../src/data/defaults';
 import type { ObjectData } from '../../src/data/types';
 import { addObjectToScene } from '../../src/ops/object';
@@ -197,5 +197,41 @@ describe('framing with broken coordinates', () => {
     const b = worldBounds([cube.id, e.id]);
     expect([...b.min.toArray(), ...b.max.toArray()].every(Number.isFinite)).toBe(true);
     expect(b.max.toArray()).toEqual([1, 1, 1]);
+  });
+});
+
+// transform operators poll for a 3D view: call their exec directly
+function execOp(op: string, props: Record<string, unknown>) {
+  const r = operators.get(op)!.exec!(app.context(null), props);
+  app.graph.evaluate(app.doc, false);
+  return r;
+}
+
+describe('transforms with a zero scale', () => {
+  const cubeOf = () => Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+  it('scales an axis to zero keeping the rotation', () => {
+    const cube = cubeOf();
+    cube.rotation_euler = [0, 0, 0.5];
+    cube.scale = [1, 2, 3];
+    select(cube);
+    execOp('transform.resize', { value: [1, 1, 0], orient_type: 'LOCAL', constraint_axis: [false, false, true] });
+    expect(cube.scale.map((x) => +x.toFixed(5) + 0)).toEqual([1, 2, 0]);
+    expect(cube.rotation_euler.map((x) => +x.toFixed(5) + 0)).toEqual([0, 0, 0.5]);
+    execOp('transform.resize', { value: [0, 0, 0] });
+    expect(cube.scale.map((x) => +x.toFixed(5) + 0)).toEqual([0, 0, 0]);
+    expect(cube.rotation_euler.map((x) => +x.toFixed(5) + 0)).toEqual([0, 0, 0.5]);
+  });
+
+  it('rotates and moves an object scaled to zero', () => {
+    const cube = cubeOf();
+    cube.scale = [0, 0, 0];
+    cube.location = [1, 0, 0];
+    select(cube);
+    execOp('transform.rotate', { value: Math.PI / 2, orient_axis: 'Z', orient_type: 'GLOBAL' });
+    expect(cube.scale).toEqual([0, 0, 0]);
+    expect(cube.rotation_euler.map((x) => +x.toFixed(5) + 0)).toEqual([0, 0, +(Math.PI / 2).toFixed(5)]);
+    execOp('transform.translate', { value: [0, 0, 2] });
+    expect(cube.location.map((x) => +x.toFixed(5) + 0)).toEqual([1, 0, 2]);
+    expect(cube.scale).toEqual([0, 0, 0]);
   });
 });

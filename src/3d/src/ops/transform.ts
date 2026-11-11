@@ -11,7 +11,7 @@ import { app, onAppReady, operators, registerOperator, registerOperators, type M
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { prefs } from '../app/prefs';
 import type { ObjectData } from '../data/types';
-import { applyMatrixToObject, toMatrix4, localMatrix } from '../eval/transform';
+import { applyMatrixToObject, toMatrix4, localMatrix, rotationQuaternion, setRotationFromQuaternion } from '../eval/transform';
 import { autoKeyObjects } from '../anim/keyframes';
 import { renderContext } from '../render/context';
 import { findSnapTarget, snapIndicator, type SnapElement } from './snap';
@@ -91,8 +91,12 @@ function objectElement(ob: ObjectData, ids: Set<string>, weight: number, distanc
   const parentMat = parentEv ? parentEv.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)) : new Matrix4();
   const parentInv = parentMat.clone().invert();
   // constraints offset: compare evaluated world with world basis (pre-constraint)
+  // (an object scaled to zero has no inverse: no offset then)
   const basisWorld = app.graph.get(ob.id)?.worldBasis.clone() ?? w0.clone();
-  const constraintFix = basisWorld.clone().multiply(w0.clone().invert());
+  const constraintFix = isDegenerate(w0) ? new Matrix4() : basisWorld.clone().multiply(w0.clone().invert());
+  // the object's own rotation, kept when the new matrix has a zero scale and cannot tell it
+  const q0 = rotationQuaternion(ob.rotation_mode, ob.rotation_euler, ob.rotation_quaternion, ob.rotation_axis_angle);
+  const parentRot = robustRotation(parentMat, new Quaternion());
   const ts = app.doc.scene.tool_settings;
   // Affect Only Origins: the object data is counter-transformed so the geometry stays in place
   const originOnly = !!ts.use_transform_data_origin && dataUsers(ob) === 1 ? originCompensator(ob) : null;
@@ -117,7 +121,18 @@ function objectElement(ob: ObjectData, ids: Set<string>, weight: number, distanc
       const unconstrained = constraintFix.clone().multiply(target);
       const local = parentInv.clone().multiply(unconstrained);
       Object.assign(ob, cloneBefore(before));
-      applyMatrixToObject(ob, local);
+      if (isDegenerate(local)) {
+        // a zero scale (before or after): the rotation follows the transform's own turn
+        const turn = robustRotation(m, new Quaternion());
+        const ref = parentRot.clone().invert().multiply(turn).multiply(parentRot).multiply(q0);
+        const lp = new Vector3(),
+          lq = new Quaternion(),
+          ls = new Vector3();
+        robustDecompose(local, ref, lp, lq, ls);
+        ob.location = [lp.x - ob.delta_location[0], lp.y - ob.delta_location[1], lp.z - ob.delta_location[2]];
+        ob.scale = [ls.x / (ob.delta_scale[0] || 1), ls.y / (ob.delta_scale[1] || 1), ls.z / (ob.delta_scale[2] || 1)];
+        setRotationFromQuaternion(ob, lq);
+      } else applyMatrixToObject(ob, local);
       // respect transform locks
       for (let i = 0; i < 3; i++) {
         if (ob.lock_location[i]) ob.location[i] = before.location[i];
@@ -143,6 +158,64 @@ function objectElement(ob: ObjectData, ids: Set<string>, weight: number, distanc
       for (const ch of children) Object.assign(ch.c, cloneBefore(ch.before));
     },
   };
+}
+
+const DEGENERATE = 1e-12;
+
+/** A matrix with an axis scaled to (nearly) zero cannot be inverted or decomposed as usual. */
+function isDegenerate(m: Matrix4) {
+  const e = m.elements;
+  for (let c = 0; c < 3; c++) if (e[c * 4] ** 2 + e[c * 4 + 1] ** 2 + e[c * 4 + 2] ** 2 < DEGENERATE) return true;
+  return false;
+}
+
+/**
+ * Decompose a matrix whose axes may be scaled to zero: the zero axes get a 0 scale and their
+ * direction from the others (or from `ref`, the rotation to keep when nothing tells it).
+ */
+function robustDecompose(m: Matrix4, ref: Quaternion, p: Vector3, q: Quaternion, s: Vector3) {
+  if (!isDegenerate(m)) {
+    m.decompose(p, q, s);
+    return;
+  }
+  const e = m.elements;
+  p.set(e[12], e[13], e[14]);
+  const cols = [0, 1, 2].map((c) => new Vector3(e[c * 4], e[c * 4 + 1], e[c * 4 + 2]));
+  const len = cols.map((c) => c.length());
+  const ok = len.map((l) => l * l >= DEGENERATE);
+  const refAxes = [0, 1, 2].map((i) => new Vector3(i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0).applyQuaternion(ref));
+  const axes = cols.map((c, i) => (ok[i] ? c.clone().normalize() : null));
+  const valid = ok.filter(Boolean).length;
+  if (valid === 2) {
+    const i = ok.indexOf(false);
+    axes[i] = new Vector3().crossVectors(axes[(i + 1) % 3]!, axes[(i + 2) % 3]!).normalize();
+  } else {
+    // one axis known (or none): the others come from the reference rotation, made orthogonal to it
+    const k = ok.indexOf(true);
+    for (let i = 0; i < 3; i++) if (!axes[i]) axes[i] = refAxes[i].clone();
+    if (k >= 0) {
+      const a = axes[k]!;
+      const i = (k + 1) % 3,
+        j = (k + 2) % 3;
+      axes[i]!.addScaledVector(a, -axes[i]!.dot(a));
+      if (axes[i]!.lengthSq() < 1e-12) axes[i] = new Vector3().crossVectors(axes[j]!, a);
+      axes[i]!.normalize();
+      axes[j] = new Vector3().crossVectors(a, axes[i]!).normalize();
+    }
+  }
+  const basis = new Matrix4().makeBasis(axes[0]!, axes[1]!, axes[2]!);
+  // a mirrored set of axes keeps its handedness in a negative scale
+  const flip = basis.determinant() < 0 ? -1 : 1;
+  if (flip < 0) basis.makeBasis(axes[0]!.clone().negate(), axes[1]!, axes[2]!);
+  q.setFromRotationMatrix(basis);
+  s.set(ok[0] ? len[0] * flip : 0, ok[1] ? len[1] : 0, ok[2] ? len[2] : 0);
+}
+
+/** Rotation part of a matrix that may have zero-scaled axes. */
+function robustRotation(m: Matrix4, ref: Quaternion): Quaternion {
+  const q = new Quaternion();
+  robustDecompose(m, ref, new Vector3(), q, new Vector3());
+  return q;
 }
 
 const objectProvider: TProvider = {
