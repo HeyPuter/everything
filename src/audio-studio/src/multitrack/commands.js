@@ -457,7 +457,7 @@ async function pasteClips(app, doc, clip) {
       track = audio()[base];
     }
     const c = S.createClip({ trackId: track.id, sourceId, name: baseName(file.name), start: at, length: channels[0].length });
-    state = S.addClips(state, [c]);
+    state = S.addClipsOnTop(state, [c]);
     ids.push(c.id);
   } else {
     for (const [id, src] of clip.pool) if (src && !doc.pool.has(id)) doc.pool.set(id, src);
@@ -465,15 +465,18 @@ async function pasteClips(app, doc, clip) {
       app.notify('Clips copied from a session at another sample rate cannot be pasted here.', { error: true });
       return;
     }
+    const pasted = [];
     for (const c of clip.clips) {
       while (!audio()[base + c.trackOffset]) {
         const made = newTrack(state, {});
         state = made.state;
       }
       const n = S.createClip({ ...c, id: undefined, trackId: audio()[base + c.trackOffset].id, start: at + c.start });
-      state = S.addClips(state, [n]);
+      pasted.push(n);
       ids.push(n.id);
     }
+    // Pasted clips come to the front, like clips placed by a move.
+    state = S.addClipsOnTop(state, pasted);
   }
   doc.apply('Paste', state, { clips: ids });
 }

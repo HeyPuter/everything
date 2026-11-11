@@ -158,6 +158,19 @@ describe('clip edits', () => {
     expect(inn.fadeOut).toEqual({ length: 40, curve: 2 });
   });
 
+  it('adds clips on top of the clips there, keeping their own order', () => {
+    let s = base(1);
+    const t0 = s.tracks[0].id;
+    const a = S.createClip({ trackId: t0, sourceId: 'x', start: 0, length: 100, z: 4 });
+    s = S.addClips(s, [a]);
+    const b = S.createClip({ trackId: t0, sourceId: 'x', start: 10, length: 20, z: 2 });
+    const c = S.createClip({ trackId: t0, sourceId: 'x', start: 20, length: 20, z: 3 });
+    const r = S.addClipsOnTop(s, [b, c]);
+    expect(S.findClip(r, b.id).z).toBe(5);
+    expect(S.findClip(r, c.id).z).toBe(6);
+    expect(S.addClipsOnTop(s, [])).toBe(s);
+  });
+
   it('ripple deleting overlapping clips closes the time they cover only once', () => {
     let s = base(1);
     const t0 = s.tracks[0].id;

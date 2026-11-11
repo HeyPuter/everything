@@ -138,6 +138,32 @@ describe('ducking follows clip edits', () => {
   });
 });
 
+describe('punch-in over a clip', () => {
+  it('plays the take over a clip that was moved before (the take comes to the front)', async () => {
+    const { clipPlan } = await import('../src/model/session-graph.js');
+    const app = fakeApp();
+    const rec = new SessionRecorder(app);
+    const doc = new Session({ name: 'Punch.asesx', sampleRate: RATE, tracks: 2 });
+    app.active = doc;
+    const track = doc.state.tracks[0];
+    const src = doc.addSource({ name: 'bed.wav', channels: [Channel.fromSamples(new Float32Array(RATE * 2).fill(0.1))] });
+    const bed = S.createClip({ trackId: track.id, sourceId: src, name: 'bed', start: 0, length: RATE * 2 });
+    doc.apply('Insert', S.addClips(doc.state, [bed]));
+    // Nudged once: moved clips come to the front (z 1).
+    doc.apply('Nudge', S.moveClips(doc.state, [bed.id], 100));
+    doc.apply('Arm', S.updateTrack(doc.state, track.id, { arm: true }));
+    doc.setSelection(RATE / 2, RATE / 2 + 4096);
+    await rec.start(doc);
+    app.engine.emit('record-data', [new Float32Array(RATE / 2 + 8192).fill(0.5)]);
+    app.stop();
+    await new Promise((r) => setTimeout(r, 300));
+    const take = doc.state.clips.find((c) => c.id !== bed.id);
+    expect(take.start).toBe(RATE / 2);
+    expect(take.length).toBe(4096);
+    expect(clipPlan(doc.state).get(take.id).parts).toEqual([[RATE / 2, RATE / 2 + 4096]]);
+  });
+});
+
 describe('clip audio type', () => {
   it('announces a clip’s Sound Assistant type when Tab selects it', async () => {
     const { assignType } = await import('../src/sound-assistant/ops.js');

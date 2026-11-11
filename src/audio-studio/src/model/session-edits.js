@@ -309,6 +309,17 @@ export function addClips(state, clips) {
   return { ...state, clips: [...state.clips, ...clips] };
 }
 
+/**
+ * Adds clips in front of the clips already there (keeping their order among
+ * themselves), so audio just recorded, pasted or inserted over other clips is heard.
+ */
+export function addClipsOnTop(state, clips) {
+  if (!clips.length) return state;
+  const top = Math.max(0, ...state.clips.map((c) => c.z)) + 1;
+  const low = Math.min(...clips.map((c) => c.z || 0));
+  return addClips(state, clips.map((c) => ({ ...c, z: top + (c.z || 0) - low })));
+}
+
 export function removeClips(state, ids) {
   const gone = new Set(ids);
   const clips = state.clips.filter((c) => !gone.has(c.id));

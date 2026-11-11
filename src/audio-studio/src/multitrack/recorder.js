@@ -150,7 +150,8 @@ export class SessionRecorder {
         // Only the newest of stacked takes plays; the others stay to pick from.
         clips.push(S.createClip({ trackId, sourceId, name: file.name.replace(/\.wav$/, ''), start: p.at, length: p.length, mute: i < pieces.length - 1 }));
       }
-      state = S.addClips(state, clips);
+      // Takes play over the clips they were recorded over (a punch-in replaces what is there).
+      state = S.addClipsOnTop(state, clips);
       ids.push(clips[clips.length - 1].id);
     }
     if (app.active !== doc) app.activate(doc);
