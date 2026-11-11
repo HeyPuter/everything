@@ -163,7 +163,8 @@ export class SequencerRender {
     const o = this.o;
     if (m.input_mask_type === 'STRIP') {
       const src = m.input_mask_strip ? findStrip(this.all, m.input_mask_strip) : null;
-      if (!src || src === owner || this.masking.has(src)) return null;
+      // the owner shows up inside its own mask (an effect of it as the mask): unmasked there
+      if (!src || src === owner || this.masking.has(src) || this.masking.has(owner)) return null;
       this.masking.add(owner);
       try {
         return await this.renderStrip(src, frame);

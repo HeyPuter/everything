@@ -144,3 +144,27 @@ test('clip editor: footage the browser cannot open is reported once, not reopene
   });
   expect(err).toBeTruthy();
 });
+
+test('sequencer: a mask modifier using an effect of its own strip renders (no endless recursion)', async ({ page }) => {
+  const errors = await videoWorkspace(page);
+  const warnings: string[] = [];
+  page.on('console', (m) => m.type() === 'warning' && /strip failed/.test(m.text()) && warnings.push(m.text()));
+  await page.evaluate(async () => {
+    const w = window as any;
+    const app = w.app;
+    app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 1, length: 20 }, { invoke: false });
+    const ed = app.doc.scene.sequence_editor;
+    const color = ed.strips[0];
+    app.run('sequencer.effect_strip_add', { type: 'GAUSSIAN_BLUR', frame_start: 1, channel: 2, length: 20 }, { invoke: false });
+    const blur = ed.strips.find((s: any) => s.type === 'GAUSSIAN_BLUR');
+    ed.active_strip = color.name;
+    app.run('sequencer.strip_modifier_add', { type: 'MASK' });
+    Object.assign(color.modifiers[0], { input_mask_type: 'STRIP', input_mask_strip: blur.name });
+    app.setFrame(5);
+    app.changed('doc');
+    // let the preview render the frame
+    await new Promise((r) => setTimeout(r, 1500));
+  });
+  expect(warnings).toEqual([]);
+  await expectNoErrors(errors);
+});
