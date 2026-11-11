@@ -28,6 +28,26 @@ function encodeWithProgress(doc, options, range, label) {
   return withProgress(label, (onProgress, signal) => encodeDoc(doc, options, { ...range, onProgress, signal }), { detail: label });
 }
 
+/**
+ * Uploads to Puter behind a progress dialog. An upload cannot be stopped, so
+ * Cancel only hides the dialog: a failure is still thrown (withProgress would
+ * report it as a cancel), and the caller never marks an unsaved file saved.
+ */
+async function upload(label, path, blob) {
+  let failure = null;
+  const item = await withProgress(
+    label,
+    () =>
+      puter.writeFile(path, blob).catch((err) => {
+        failure = err;
+        throw err;
+      }),
+    { delay: 600, detail: 'Uploading to Puter' },
+  );
+  if (failure) throw failure;
+  return item;
+}
+
 /** File > Save: in place when the document has a Puter file in a writable format, else Save As. */
 export async function saveDocument(app, doc, { saveAs = false, copy = false } = {}) {
   if (!doc) return false;
@@ -39,7 +59,7 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
     const state = doc.state;
     const blob = await encodeWithProgress(doc, options, {}, `Saving ${doc.name}`);
     if (!blob) return false;
-    await withProgress(`Saving ${doc.name}`, () => puter.writeFile(path, blob), { delay: 600, detail: 'Uploading to Puter' });
+    await upload(`Saving ${doc.name}`, path, blob);
     // Only mark saved if nothing changed while encoding.
     if (doc.state === state) doc.markSaved();
     app.setStatus(`Saved ${doc.name}`);
@@ -86,7 +106,7 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
     }
     let item = null;
     if (path) {
-      item = await withProgress(label, () => puter.writeFile(path, blob), { delay: 600, detail: 'Uploading to Puter' });
+      item = await upload(label, path, blob);
       rememberRecent(app, { name: r.fileName, path });
     } else downloadBlob(blob, r.fileName);
     if (mode === 'saveAs') {
