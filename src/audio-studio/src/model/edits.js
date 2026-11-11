@@ -134,11 +134,18 @@ export function silenceRange(state, start, end, mask) {
   };
 }
 
-/** Maps clip channels onto `count` destination channels (mono spreads, extra channels drop). */
-export function conformChannels(clip, count) {
+/**
+ * Maps clip channels onto `count` destination channels: mono spreads, extra
+ * channels drop, and destination channels a multichannel clip does not have
+ * (the centre and surrounds of a 5.1 file under a stereo clip) are silent.
+ * With `reuse`, those channels take the clip's last channel instead (pasting
+ * into channels the user picked).
+ */
+export function conformChannels(clip, count, { reuse = false } = {}) {
   const src = clip.channels;
   if (!src.length) return Array.from({ length: count }, () => Channel.empty());
-  return Array.from({ length: count }, (_, i) => src[Math.min(i, src.length - 1)]);
+  if (src.length === 1 || reuse) return Array.from({ length: count }, (_, i) => src[Math.min(i, src.length - 1)]);
+  return Array.from({ length: count }, (_, i) => src[i] ?? Channel.silence(src[0].length));
 }
 
 /**
@@ -149,7 +156,7 @@ export function conformChannels(clip, count) {
 export function insertClip(state, at, clip, mask) {
   const len = lengthOf(state);
   at = Math.max(0, Math.min(len, Math.round(at)));
-  const channels = conformChannels(clip, state.channels.length);
+  const channels = conformChannels(clip, state.channels.length, { reuse: !isAll(state, mask) });
   const n = channels[0]?.length ?? 0;
   if (!n) return state;
   if (!isAll(state, mask)) {

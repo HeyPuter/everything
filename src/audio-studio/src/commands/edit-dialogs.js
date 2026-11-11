@@ -31,15 +31,20 @@ export const PASTE_TYPES = [
 
 export const MIX_PASTE_DEFAULTS = { type: 'overlap', copied: 100, existing: 100, invert: false, crossfade: false, crossfadeMs: 50, loop: false, loops: 3 };
 
-/** Source channels conformed to `count` channels (mono spreads, more channels average down). */
-function conformTo(source, count) {
+/**
+ * Source channels conformed to `count` channels (mono spreads, more channels
+ * average down). Channels a multichannel source does not have (the centre and
+ * surrounds of a 5.1 file under a stereo paste) are null, or with `reuse`
+ * (pasting into channels the user picked) take the source's last channel.
+ */
+function conformTo(source, count, reuse = false) {
   if (source.length === count) return source;
   if (count === 1) {
     const out = new Float32Array(source[0].length);
     for (const c of source) for (let i = 0; i < out.length; i++) out[i] += c[i] / source.length;
     return [out];
   }
-  return Array.from({ length: count }, (_, i) => source[Math.min(i, source.length - 1)]);
+  return Array.from({ length: count }, (_, i) => source[i] ?? (reuse || source.length === 1 ? source[source.length - 1] : null));
 }
 
 /**
@@ -52,7 +57,7 @@ function conformTo(source, count) {
  */
 export function mixPasteState(state, at, source, o = {}) {
   const nch = state.channels.length;
-  const src = conformTo(source, nch);
+  const src = conformTo(source, nch, Boolean(o.mask && !o.mask.every(Boolean)));
   const unit = src[0]?.length || 0;
   const loops = Math.max(1, Math.min(1000, Math.round(o.loops || 1)));
   const n = unit * loops;
@@ -64,7 +69,7 @@ export function mixPasteState(state, at, source, o = {}) {
   const env = (k) => (fade ? Math.min(1, (k + 0.5) / fade, (n - k - 0.5) / fade) : 1);
   const pasted = src.map((c) => {
     const out = new Float32Array(n);
-    for (let k = 0; k < n; k++) out[k] = c[k % unit] * gc;
+    if (c) for (let k = 0; k < n; k++) out[k] = c[k % unit] * gc;
     return out;
   });
   const type = o.type || 'overlap';
@@ -79,7 +84,8 @@ export function mixPasteState(state, at, source, o = {}) {
   return {
     ...s,
     channels: s.channels.map((c, i) => {
-      if (o.mask && !o.mask[i]) return c;
+      // Channels the pasted audio does not have stay as they are (Insert fills them with silence).
+      if ((o.mask && !o.mask[i]) || !src[i]) return c;
       const ex = c.toArray(at, at + n);
       const p = pasted[i];
       for (let k = 0; k < n; k++) {

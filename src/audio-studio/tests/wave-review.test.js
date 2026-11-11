@@ -224,3 +224,52 @@ describe('Convert Sample Type with surround files', () => {
     expect(r[0]).toBeCloseTo(2 + Math.SQRT1_2 * (3 + 5));
   });
 });
+
+describe('pasting stereo into a 5.1 file', () => {
+  const six = async () => {
+    const { Channel } = await import('../src/audio/channel.js');
+    const ch = (v) => Channel.fromSamples(new Float32Array(4).fill(v));
+    return { sampleRate: 1000, channels: [1, 2, 3, 4, 5, 6].map((v) => ch(v / 10)), markers: [] };
+  };
+  const stereo = async () => {
+    const { Channel } = await import('../src/audio/channel.js');
+    return {
+      channels: [
+        Channel.fromSamples(Float32Array.of(-1, -1)),
+        Channel.fromSamples(Float32Array.of(-2, -2)),
+      ],
+    };
+  };
+  const at = (s, c) => Array.from(s.channels[c].toArray());
+
+  it('puts the clip on the front pair and silence in the other channels', async () => {
+    const out = E.insertClip(await six(), 1, await stereo());
+    expect(at(out, 0)).toEqual([0.1, -1, -1, 0.1, 0.1, 0.1].map(Math.fround));
+    expect(at(out, 1)).toEqual([0.2, -2, -2, 0.2, 0.2, 0.2].map(Math.fround));
+    for (const c of [2, 3, 4, 5]) expect(at(out, c).slice(1, 3)).toEqual([0, 0]);
+    // Into channels the user picked, the clip's last channel still fills the rest.
+    const picked = E.insertClip(await six(), 1, await stereo(), [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+    ]);
+    expect(at(picked, 2)).toEqual([0.3, -2, -2, 0.3].map(Math.fround));
+  });
+
+  it('mixes only into the front pair with Mix Paste', async () => {
+    const { mixPasteState } = await import('../src/commands/edit-dialogs.js');
+    const state = await six();
+    const out = mixPasteState(state, 1, [Float32Array.of(1, 1), Float32Array.of(1, 1)], {
+      type: 'overwrite',
+    });
+    expect(at(out, 0)).toEqual([0.1, 1, 1, 0.1].map(Math.fround));
+    for (const c of [2, 3, 4, 5]) expect(out.channels[c]).toBe(state.channels[c]);
+    const ins = mixPasteState(state, 1, [Float32Array.of(1, 1), Float32Array.of(1, 1)], {
+      type: 'insert',
+    });
+    expect(at(ins, 3)).toEqual([0.4, 0, 0, 0.4, 0.4, 0.4].map(Math.fround));
+  });
+});
