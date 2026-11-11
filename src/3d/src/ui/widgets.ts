@@ -339,6 +339,7 @@ function startDrag(e: PointerEvent, o: NumberOpts) {
   const up = (ev: PointerEvent) => {
     removeEventListener('pointermove', move, true);
     removeEventListener('pointerup', up, true);
+    removeEventListener('pointercancel', cancel, true);
     removeEventListener('keydown', key, true);
     if (document.pointerLockElement) document.exitPointerLock();
     setWidgetDragging(false);
@@ -361,24 +362,30 @@ function startDrag(e: PointerEvent, o: NumberOpts) {
     // Alt held: copy the result to the other selected items
     if (ev.altKey) buttonHooks.altEdit(o.id);
   };
+  // Esc, or the browser taking the touch over (pointercancel, e.g. to scroll), puts the values back
+  const cancel = () => {
+    removeEventListener('pointermove', move, true);
+    removeEventListener('pointerup', up, true);
+    removeEventListener('pointercancel', cancel, true);
+    removeEventListener('keydown', key, true);
+    if (document.pointerLockElement) document.exitPointerLock();
+    setWidgetDragging(false);
+    if (multi) {
+      for (const [id, s0] of multi.starts) writeBinding(id, s0);
+      finishMulti();
+    }
+    o.set(start, false);
+    app.changed('doc');
+  };
   const key = (ev: KeyboardEvent) => {
     if (ev.key === 'Escape') {
       ev.stopPropagation();
-      removeEventListener('pointermove', move, true);
-      removeEventListener('pointerup', up, true);
-      removeEventListener('keydown', key, true);
-      if (document.pointerLockElement) document.exitPointerLock();
-      setWidgetDragging(false);
-      if (multi) {
-        for (const [id, s0] of multi.starts) writeBinding(id, s0);
-        finishMulti();
-      }
-      o.set(start, false);
-      app.changed('doc');
+      cancel();
     }
   };
   addEventListener('pointermove', move, true);
   addEventListener('pointerup', up, true);
+  addEventListener('pointercancel', cancel, true);
   addEventListener('keydown', key, true);
 }
 

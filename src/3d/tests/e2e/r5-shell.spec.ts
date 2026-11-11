@@ -175,3 +175,23 @@ test('Enter confirms an operator dialog and Esc closes it', async ({ page }) => 
   expect(await count()).toBe(n0 + 1);
   await expectNoErrors(errors);
 });
+
+test('a number drag the browser cancels (touch scrolling) puts the value back and stops following the pointer', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.properties [data-tab="OBJECT"]').first().click();
+  const field = page.locator('.properties .num-field[data-id$=".location.0"]').first();
+  const b = (await field.boundingBox())!;
+  const x = () => page.evaluate(() => (window as any).app.activeObject.location[0]);
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(b.x + b.width / 2 + i * 10, b.y + b.height / 2);
+  expect(await x()).not.toBe(0);
+  await page.evaluate(() => dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1 })));
+  expect(await x()).toBe(0);
+  // later pointer movement no longer edits the field
+  for (let i = 1; i <= 5; i++) await page.mouse.move(b.x + b.width / 2 - i * 10, b.y + b.height / 2 + 40);
+  expect(await x()).toBe(0);
+  await page.mouse.up();
+  expect(await x()).toBe(0);
+  await expectNoErrors(errors);
+});
