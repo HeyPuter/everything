@@ -57,7 +57,19 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
     pct(range);
     emit(Number(range.value), false);
   });
-  range.addEventListener('change', () => emit(Number(range.value), true));
+  // Keys held on the slider (each press fires change) also make one undo step, ended on key up.
+  let keyRun = false;
+  range.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) keyRun = true;
+  });
+  const endKeyRun = () => {
+    if (!keyRun) return;
+    keyRun = false;
+    emit(last, true);
+  };
+  range.addEventListener('keyup', endKeyRun);
+  range.addEventListener('blur', endKeyRun);
+  range.addEventListener('change', () => emit(Number(range.value), !keyRun));
   // The slider's current range (it can change), or the wider limits from setLimits().
   const limit = (v) => Math.min(Number(range.dataset.hardMax ?? range.max), Math.max(Number(range.dataset.hardMin ?? range.min), v));
   const show = (v) => {

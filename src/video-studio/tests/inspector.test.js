@@ -736,6 +736,25 @@ describe('number boxes', () => {
     expect(clip(env.v1.id).transform.rotation).toBe(0);
   });
 
+  it('holding an arrow key on a slider is one undo step', () => {
+    env.store.select(env.v1.id);
+    const input = range('Rotate');
+    input.focus();
+    const steps = env.store.history.undoStack.length;
+    for (let i = 1; i <= 4; i++) {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: i > 1, bubbles: true }));
+      input.value = String(i);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    expect(clip(env.v1.id).transform.rotation).toBe(4);
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+    env.store.undo();
+    expect(clip(env.v1.id).transform.rotation).toBe(0);
+    expect(input.value).toBe('0');
+  });
+
   it('shows the stored value when the clip limits what was typed', () => {
     env.store.select(env.aud.id);
     const num = typeEnter('Volume', 100);
