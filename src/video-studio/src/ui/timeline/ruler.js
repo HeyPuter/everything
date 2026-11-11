@@ -18,7 +18,7 @@ export function tickInterval(pps, fps, minPx = 72) {
   return { major: 3600 * US, frames: false, minorDiv: 6 };
 }
 
-export function drawRuler(canvas, { scrollLeft, width, pps, pad, fps, colors, markers = [], range = null }) {
+export function drawRuler(canvas, { scrollLeft, width, pps, pad, fps, colors, markers = [], range = null, startLabelX = 3 }) {
   const dpr = globalThis.devicePixelRatio || 1;
   const h = canvas.clientHeight || 24;
   if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(h * dpr)) {
@@ -64,7 +64,8 @@ export function drawRuler(canvas, { scrollLeft, width, pps, pad, fps, colors, ma
     g.stroke();
     if (isMajor) {
       g.fillStyle = colors.text;
-      g.fillText(rulerLabel(Math.round(t), fps, frames), x + 3, 4);
+      // The first label starts clear of the playhead handle, which rests on time 0.
+      g.fillText(rulerLabel(Math.round(t), fps, frames), x + (t === 0 ? startLabelX : 3), 4);
     }
   }
   for (const m of markers) {

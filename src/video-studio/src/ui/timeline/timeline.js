@@ -655,6 +655,17 @@ export function createTimeline(ctx) {
     ruler.setAttribute('aria-valuetext', timecode(t, store.fps));
   }
 
+  // How far the playhead handle reaches right of the playhead line (measured once per resize).
+  let capRight = null;
+  function capReach() {
+    if (capRight === null) {
+      const cap = playhead.querySelector('.tl-playhead-cap');
+      const w = cap.offsetWidth;
+      capRight = w ? w + (parseFloat(getComputedStyle(cap).marginLeft) || 0) : 7;
+    }
+    return capRight;
+  }
+
   function drawRulerNow() {
     const width = scroller.clientWidth - headerWidth();
     rulerCanvas.style.transform = `translateX(${scroller.scrollLeft}px)`;
@@ -666,6 +677,7 @@ export function createTimeline(ctx) {
       fps: store.fps,
       markers: store.project.markers,
       range: store.project.range || null,
+      startLabelX: capReach() + 3,
       colors: {
         major: cssVar(el, '--ruler', '#888'),
         minor: cssVar(el, '--border-strong', '#444'),
@@ -1907,6 +1919,7 @@ export function createTimeline(ctx) {
   }
 
   const ro = new ResizeObserver(() => {
+    capRight = null;
     if (centered && updateLead()) {
       render(true);
       centerOn(store.time);

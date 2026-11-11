@@ -5,6 +5,7 @@ import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { createTimeline } from '../src/ui/timeline/timeline.js';
 import * as T from '../src/model/timeline.js';
+import { drawRuler } from '../src/ui/timeline/ruler.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
 function mountTimeline(p) {
@@ -290,6 +291,19 @@ describe('timeline keyboard focus', () => {
     tl.render();
     expect(document.activeElement?.dataset.id).toBe(a.id);
     tl.dispose();
+  });
+});
+
+describe('the ruler', () => {
+  it('starts the first time label clear of the playhead handle resting on 0', () => {
+    const texts = [];
+    const g = new Proxy({ fillText: (t, x) => texts.push([t, x]), measureText: () => ({ width: 10 }) }, { get: (o, k) => o[k] ?? (() => {}), set: () => true });
+    const canvas = { clientHeight: 26, width: 0, height: 0, style: {}, getContext: () => g };
+    const colors = { major: '#888', minor: '#444', text: '#888', marker: '#f5b83d' };
+    drawRuler(canvas, { scrollLeft: 0, width: 400, pps: 100, pad: 16, fps: 30, colors, startLabelX: 10 });
+    expect(texts[0]).toEqual(['00:00', 16 + 0.5 + 10]);
+    // The others sit just after their tick, as before.
+    expect(texts[1][1]).toBe(16 + 100 + 0.5 + 3);
   });
 });
 
