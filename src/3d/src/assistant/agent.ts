@@ -139,13 +139,20 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
   const size = (m: ChatMessage, i: number) => (typeof m.content === 'string' ? m.content.length : Array.isArray(m.content) ? ((m.content[0] as { text?: string })?.text?.length ?? 0) + (weights.get(i) ?? 0) : 0) + ('tool_calls' in m ? JSON.stringify(m.tool_calls ?? '').length : 0);
   let total = out.reduce((n, m, i) => n + size(m, i), 0);
   let start = 0;
-  while (total > budget) {
+  // Old turns go in steps of a quarter of the budget, not one at a time as the
+  // conversation grows: where it starts then stays put for several requests,
+  // which read it from the prompt cache instead of paying to write it all again.
+  const step = budget / 4;
+  const excess = total > budget ? Math.ceil((total - budget) / step) * step : 0;
+  let dropped = 0;
+  while (dropped < excess) {
     let next = -1;
     for (let i = start + 1; i < out.length; i++) if (isTurn(transcript[i])) { next = i; break; }
     if (next < 0 || next > lastUser) break;
-    for (let i = start; i < next; i++) total -= size(out[i], i);
+    for (let i = start; i < next; i++) dropped += size(out[i], i);
     start = next;
   }
+  total -= dropped;
   let newest = out.length;
   while (newest > lastUser + 1 && (out[newest - 1].role === 'tool' || isUser(transcript[newest - 1]))) newest--;
   for (let i = lastUser + 1; i < newest && total > budget; i++) {

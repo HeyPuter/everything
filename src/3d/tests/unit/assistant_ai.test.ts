@@ -90,4 +90,19 @@ describe('Puter AI requests', () => {
     expect(lone.test(String(tool.content))).toBe(false);
     expect(String(tool.content)).toContain('a�\n[…cut');
   });
+
+  it('drops old turns in steps, so a long conversation keeps one start across requests', () => {
+    const t: ChatMessage[] = [];
+    for (let i = 0; i < 40; i++) t.push({ role: 'user', content: `question ${i} `.padEnd(100, '.') }, { role: 'assistant', content: `answer ${i} `.padEnd(100, '.') });
+    t.push({ role: 'user', content: 'build it' });
+    const starts = new Set<string>();
+    for (let round = 0; round < 10; round++) {
+      t.push({ role: 'assistant', content: null, tool_calls: [{ id: `c${round}`, type: 'function', function: { name: 'get_scene', arguments: '{}' } }] }, { role: 'tool', tool_call_id: `c${round}`, content: 'x'.repeat(100) });
+      const req = requestMessages(t, 'S', { budget: 4000 });
+      expect(req.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0)).toBeLessThan(4600);
+      starts.add(String(req[1].content));
+    }
+    // Dropping the oldest turn on every round changed where the request starts, and so every round rewrote the prompt cache.
+    expect(starts.size).toBeLessThanOrEqual(3);
+  });
 });
