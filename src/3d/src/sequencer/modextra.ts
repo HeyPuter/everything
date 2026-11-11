@@ -240,7 +240,7 @@ export function pitchedBuffer(ctx: BaseAudioContext, buf: AudioBuffer, ratio: nu
 }
 
 /** Echo: the signal plus a delayed, fed-back copy mixed in. Returns the node to continue from. */
-export function echoNode(ctx: BaseAudioContext, input: AudioNode, m: StripModifier): AudioNode {
+export function echoNode(ctx: BaseAudioContext, input: AudioNode, m: StripModifier, nodes: AudioNode[] = []): AudioNode {
   const delay = ctx.createDelay(5);
   delay.delayTime.value = Math.max(0.001, Math.min(5, m.delay ?? 0.25));
   const fb = ctx.createGain();
@@ -250,6 +250,7 @@ export function echoNode(ctx: BaseAudioContext, input: AudioNode, m: StripModifi
   const dry = ctx.createGain();
   dry.gain.value = 1 - wet.gain.value;
   const out = ctx.createGain();
+  nodes.push(delay, fb, wet, dry, out);
   input.connect(dry);
   input.connect(delay);
   delay.connect(fb);
