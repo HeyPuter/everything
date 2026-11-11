@@ -213,6 +213,32 @@ describe('Curves', () => {
 describe('Wheels', () => {
   beforeEach(() => tab('Wheels').click());
 
+  it('a double-click centers a wheel in one undo step', () => {
+    const [shadows] = env.el.querySelectorAll('.wheel-disk');
+    key(shadows, 'ArrowRight', { shiftKey: true });
+    shadows.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight' }));
+    expect(clip(env.v1.id).grade.wheels.shadows).toEqual({ x: 0.05, y: 0, l: 0 });
+    const steps = env.store.history.undoStack.length;
+    // jsdom has no layout: the wheel is 0 px, so any click lands on its edge.
+    const ptr = (type, detail) => shadows.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, detail, clientX: 1, clientY: -1 }));
+    ptr('pointerdown', 1);
+    ptr('pointerup', 1);
+    expect(clip(env.v1.id).grade.wheels.shadows.y).toBe(1);
+    ptr('pointerdown', 2);
+    ptr('pointerup', 2);
+    shadows.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    expect(clip(env.v1.id).grade.wheels.shadows).toEqual({ x: 0, y: 0, l: 0 });
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+    env.store.undo();
+    expect(clip(env.v1.id).grade.wheels.shadows).toEqual({ x: 0.05, y: 0, l: 0 });
+    // A single click still moves the puck as its own step.
+    ptr('pointerdown', 1);
+    ptr('pointerup', 1);
+    expect(clip(env.v1.id).grade.wheels.shadows.y).toBe(1);
+    env.store.undo();
+    expect(clip(env.v1.id).grade.wheels.shadows).toEqual({ x: 0.05, y: 0, l: 0 });
+  });
+
   it('nudges a wheel with the keyboard and resets it', () => {
     const [shadows] = env.el.querySelectorAll('.wheel-disk');
     key(shadows, 'ArrowRight', { shiftKey: true });
