@@ -104,8 +104,11 @@ export function markersPanel(app) {
 
   const commit = (m, field, value) => {
     const d = doc();
-    const next = editMarkerField(m, field, value, d.length);
-    if (JSON.stringify(next) === JSON.stringify(m)) return;
+    // Onto the marker as it is now: it may have been moved (on the ruler) while its cell was edited.
+    const current = d?.state.markers.find((x) => x.id === m.id);
+    if (!current) return;
+    const next = editMarkerField(current, field, value, d.length);
+    if (JSON.stringify(next) === JSON.stringify(current)) return;
     d.apply('Edit Marker', { ...d.state, markers: sortMarkers(d.state.markers.map((x) => (x.id === m.id ? next : x))) });
   };
 

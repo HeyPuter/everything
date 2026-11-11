@@ -592,3 +592,22 @@ describe('snap to zero crossings', () => {
     expect(view.snap(1004, { force: true })).toBe(1000);
   });
 });
+
+describe('Markers panel inline edits', () => {
+  it('keep a move made while the cell was being edited', async () => {
+    const { app, doc, view } = await makeView();
+    const { markersPanel } = await import('../src/panels/markers.js');
+    const m = createMarker({ start: 1000, name: 'Old' });
+    doc.apply('Markers', { ...doc.state, markers: [m] });
+    const panel = markersPanel(app);
+    document.body.append(panel.el);
+    const row = panel.el.querySelector(`tr[data-id="${m.id}"]`);
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const input = panel.el.querySelector('input.cell-edit');
+    input.value = 'New';
+    view.moveMarker(m.id, 5000, false); // dragged on the ruler meanwhile
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(doc.state.markers.map((x) => [x.name, x.start])).toEqual([['New', 5000]]);
+  });
+});
