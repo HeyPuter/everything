@@ -5,6 +5,7 @@ import { US } from '../src/lib/time.js';
 import { createProject, makeTrack, makeClip } from '../src/model/project.js';
 import { loadDsp, dspReady } from '../src/media/dsp.js';
 import { mixChunks, renderAudio, wavHeader, encodeWav, pcm16, mixClipInto } from '../src/engine/audio-mix.js';
+import { integratedLoudness, clipLoudness } from '../src/media/audio-analysis.js';
 
 /** Synthetic decoded source: fn(i) gives sample i, delivered in blocks of 1000 frames. */
 function synth(rate, seconds, fn, nch = 1) {
@@ -181,5 +182,22 @@ describe('WAV encoding', () => {
     const blob = encodeWav([new Float32Array(10), new Float32Array(10)], 44100);
     expect(blob.size).toBe(44 + 40);
     expect(blob.type).toBe('audio/wav');
+  });
+});
+
+describe('loudness normalization', () => {
+  it('brings a normalized mono clip to its target in the stereo mix', async () => {
+    const sr = 48000;
+    const amp = 0.1;
+    const tone = (i) => amp * Math.sin((2 * Math.PI * 997 * i) / sr);
+    const n = sr * 3;
+    const mono = Float32Array.from({ length: n }, (_, i) => tone(i));
+    for (const [nch, measured] of [[1, clipLoudness([mono], sr)], [2, clipLoudness([mono, mono], sr)]]) {
+      const clip = makeClip('audio', { assetId: 'a', start: 0, duration: 3 * US });
+      clip.audioFx = { normalize: { on: true, target: -14, loudness: measured } };
+      const { p, openSource } = project([clip], { a: synth(sr, 3, (i) => tone(i), nch) });
+      const out = await renderAudio(p, null, { sampleRate: sr, channels: 2, openSource });
+      expect(integratedLoudness(out.channels, sr), `${nch} channel source`).toBeCloseTo(-14, 0);
+    }
   });
 });

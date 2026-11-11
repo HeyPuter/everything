@@ -139,7 +139,7 @@ export function normalizeSection(view) {
   const measure = h('button.btn.small', { type: 'button' }, icon('audioLines', 14), measureLabel);
   const measureLoudness = async () => {
     const { kit, snd } = await clipSound(view);
-    const lufs = kit.integratedLoudness(snd.channels, snd.sampleRate);
+    const lufs = kit.clipLoudness(snd.channels, snd.sampleRate);
     if (lufs === null) throw new Error('This clip is silent, so there is nothing to normalize.');
     return Math.round(lufs * 10) / 10;
   };
