@@ -120,3 +120,71 @@ describe('vertical alignment with text wrap', () => {
     expect(bottom.overflow).toBe(false);
   });
 });
+
+describe('Auto Size when the font loads late', () => {
+  // The stand-in font's fit, as text-layout measures before a face has loaded (the test canvas measures every font alike).
+  function fittedWithStandIn(id, extra) {
+    const node = doc.get(id);
+    const stale = { ...node, height: node.height + extra };
+    doc.nodes.set(id, stale);
+    const rec = doc.undoStack[doc.undoStack.length - 1];
+    if (rec.after.get(id) === node) rec.after.set(id, stale);
+    return stale;
+  }
+
+  it('refits the frame without a new undo step, keeping Undo, Redo and the saved state right', async () => {
+    const { fontEvents } = await import('../src/features/type/fonts.js');
+    const t = frame(0, 0, STORY, { width: 200, areaOptions: { autoSize: true } });
+    doc.transact('Fit', () => doc.update(t.id, { text: `${STORY} more` }));
+    const right = doc.get(t.id).height;
+    doc.markSaved();
+    const steps = doc.undoStack.length;
+    // A font is applied while it is still loading: the frame is fitted with the stand-in measurements.
+    doc.transact('Font', () => doc.update(t.id, { char: { ...doc.get(t.id).char, fontFamily: 'Late Font' } }));
+    fittedWithStandIn(t.id, 33);
+    expect(doc.dirty).toBe(true);
+    fontEvents.emit('loaded');
+    expect(doc.get(t.id).height).toBeCloseTo(right, 2);
+    expect(doc.undoStack.length).toBe(steps + 1);
+    expect(doc.undoLabel).toBe('Font');
+    expect(doc.dirty).toBe(true);
+    doc.undo();
+    expect(doc.get(t.id).char.fontFamily).toBe(CHAR.fontFamily);
+    expect(doc.get(t.id).height).toBeCloseTo(right, 2);
+    expect(doc.dirty).toBe(false);
+    doc.redo();
+    expect(doc.get(t.id).char.fontFamily).toBe('Late Font');
+    expect(doc.get(t.id).height).toBeCloseTo(right, 2);
+    expect(doc.dirty).toBe(true);
+  });
+
+  it('refits a saved document without marking it unsaved', async () => {
+    const { fontEvents } = await import('../src/features/type/fonts.js');
+    const t = frame(0, 0, STORY, { width: 200, areaOptions: { autoSize: true } });
+    doc.transact('Fit', () => doc.update(t.id, { text: `${STORY} more` }));
+    const right = doc.get(t.id).height;
+    fittedWithStandIn(t.id, 30);
+    doc.markSaved();
+    fontEvents.emit('loaded');
+    expect(doc.get(t.id).height).toBeCloseTo(right, 2);
+    expect(doc.dirty).toBe(false);
+    doc.undo();
+    doc.redo();
+    expect(doc.get(t.id).height).toBeCloseTo(right, 2);
+    expect(doc.dirty).toBe(false);
+  });
+
+  it('waits for an open transaction to end before refitting', async () => {
+    const { fontEvents } = await import('../src/features/type/fonts.js');
+    const t = frame(0, 0, STORY, { width: 200, areaOptions: { autoSize: true } });
+    doc.transact('Fit', () => doc.update(t.id, { text: `${STORY} more` }));
+    const right = doc.get(t.id).height;
+    fittedWithStandIn(t.id, 20);
+    const tx = doc.begin('Drag');
+    fontEvents.emit('loaded');
+    fontEvents.emit('loaded');
+    expect(doc.get(t.id).height).toBeCloseTo(right + 20, 2);
+    tx.commit();
+    expect(doc.get(t.id).height).toBeCloseTo(right, 2);
+  });
+});

@@ -603,6 +603,39 @@ export class VDocument extends Emitter {
     return ids;
   }
 
+  /**
+   * Replace nodes with recomputed derived data (an auto-sized frame's height
+   * measured again once its font has loaded): `changes` maps ids to their
+   * corrected node. No undo step is added: every history step that would
+   * bring back the exact node replaced brings back the corrected one, so
+   * Undo and Redo keep the correction. A saved document stays saved.
+   */
+  amendDerived(changes) {
+    if (this.tx) throw new Error(`Transaction "${this.tx.label}" is still open`);
+    const ids = new Set();
+    for (const [id, next] of changes) {
+      const prev = this.nodes.get(id);
+      if (!prev || !next || prev === next) continue;
+      this.nodes.set(id, next);
+      ids.add(id);
+      for (const rec of [...this.undoStack, ...this.redoStack]) {
+        if (rec.before.get(id) === prev) rec.before.set(id, next);
+        if (rec.after.get(id) === prev) rec.after.set(id, next);
+      }
+    }
+    if (!ids.size) return ids;
+    // Caches keyed on the revision see the change; the steps that lead to this state keep leading to it.
+    const old = this.revision;
+    this.revision = this.#nextRevision();
+    if (this.savedRevision === old) this.savedRevision = this.revision;
+    for (const rec of [...this.undoStack, ...this.redoStack]) {
+      if (rec.rev === old) rec.rev = this.revision;
+      if (rec.prevRev === old) rec.prevRev = this.revision;
+    }
+    this.emit('change', { ids, structural: false, commit: true });
+    return ids;
+  }
+
   // ---- history browsing (History panel) ----
 
   /** The undo history, oldest first: { steps: [{ label, time }], index } where `index` steps are applied. */
