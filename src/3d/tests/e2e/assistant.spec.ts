@@ -255,3 +255,19 @@ test('the status line is rewritten only when what it says changes', async ({ pag
   const said = await page.evaluate(() => (window as unknown as { __said: string[] }).__said);
   expect(said.filter((s) => s === 'Writing…').length).toBe(1);
 });
+
+test('with online access turned off the assistant says so and reaches nothing', async ({ page }) => {
+  await openApp(page);
+  await page.evaluate(async () => {
+    (await import('/src/app/prefs.ts' as string)).prefs.use_online_access = false;
+  });
+  const asked: string[] = [];
+  page.on('request', (r) => {
+    if (/puter\.com/.test(r.url())) asked.push(r.url());
+  });
+  await page.locator('.as-input').fill('hello');
+  await page.locator('.as-input').press('Enter');
+  await expect(page.locator('.as-notice')).toContainText('online access is turned off');
+  expect(asked).toEqual([]);
+  await expect(page.locator('.as-input')).toHaveValue('hello');
+});

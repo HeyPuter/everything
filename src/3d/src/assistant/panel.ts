@@ -4,6 +4,7 @@
 // Parametric's assistant panel.
 
 import { app } from '../app/app';
+import { prefs } from '../app/prefs';
 import { clearScriptFiles } from '../scripting/files';
 import { iconEl } from '../ui/icons';
 import { type Agent, type ExchangeResult, type Step, createAgent } from './agent';
@@ -335,6 +336,11 @@ export class AssistantPanel {
   /** Whether Puter AI can be used; otherwise explains why in the conversation. */
   private async ready(): Promise<boolean> {
     if (this.chat || devChat()) return true;
+    // Turned off, nothing is fetched (not even Puter's SDK), and "check your connection" would be wrong.
+    if (!prefs.use_online_access) {
+      this.notice('The assistant works online, but online access is turned off (Preferences ▸ System ▸ Network).');
+      return false;
+    }
     this.say('Connecting to Puter…');
     const sdk = await loadPuter();
     this.say('');
