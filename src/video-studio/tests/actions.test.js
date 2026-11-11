@@ -377,6 +377,21 @@ describe('keyframes', () => {
   });
 });
 
+describe('nudging', () => {
+  it('records no undo step when nothing can move', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 2));
+    // With ripple a base clip stays in its slot.
+    store.select(main().clips[0].id);
+    expect(actions.nudgeSelected(1)).toBe(false);
+    expect(store.history.canUndo()).toBe(false);
+    // Without ripple it moves (into the gap after it) and that is a step.
+    store.setToggle('ripple', false);
+    store.select(main().clips[1].id);
+    expect(actions.nudgeSelected(1)).toBe(true);
+    expect(store.history.undoLabel).toBe('Nudge clip');
+  });
+});
+
 describe('importing files', () => {
   it('puts several files on the timeline as one undo step', async () => {
     const { store } = setup();

@@ -385,6 +385,24 @@ export function moveClip(project, id, target, opts = {}) {
 }
 
 /**
+ * Nudge a clip (and opts.with) by d µs on its own track. False when nothing
+ * moved (a base clip with ripple on stays in its slot), so no undo step is made.
+ */
+export function nudgeClips(project, id, d, opts = {}) {
+  const f = findClip(project, id);
+  if (!f) return false;
+  const ids = [id, ...(opts.with || [])];
+  const where = () => {
+    const at = new Map();
+    for (const t of project.tracks) t.clips.forEach((c, i) => at.set(c.id, `${t.id}:${i}:${c.start}`));
+    return ids.map((x) => at.get(x)).join('|');
+  };
+  const before = where();
+  if (!moveClip(project, id, { start: Math.max(0, f.clip.start + d), trackId: f.track.id }, opts)) return false;
+  return where() !== before;
+}
+
+/**
  * True when the base track would hold overlapping clips after a move without
  * ripple: extra (a clip about to go onto it) or any clip of others already on it.
  */

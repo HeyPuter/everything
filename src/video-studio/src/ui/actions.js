@@ -653,7 +653,7 @@ export function createActions(ctx) {
       const lead = ids.map((id) => T.findClip(store.project, id)).find(Boolean);
       if (!lead) return false;
       const d = Math.round((frames * US) / store.fps);
-      return store.update('Nudge clip', (p) => T.moveClip(p, lead.clip.id, { start: Math.max(0, lead.clip.start + d), trackId: lead.track.id }, { ...store.opts, with: ids }), { coalesce: `nudge:${ids.join(',')}` });
+      return store.update('Nudge clip', (p) => T.nudgeClips(p, lead.clip.id, d, { ...store.opts, with: ids }), { coalesce: `nudge:${ids.join(',')}` });
     },
 
     /** Velocity ramp (curve plus accent) in one undo step; null removes it. */

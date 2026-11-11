@@ -1670,7 +1670,7 @@ export function createTimeline(ctx) {
       e.preventDefault();
       e.stopPropagation();
       const d = (e.key === 'ArrowRight' ? 1 : -1) * fr * (e.shiftKey ? 10 : 1);
-      store.update('Nudge clip', (p) => T.moveClip(p, id, { start: Math.max(0, f.clip.start + d), trackId: f.track.id }, { ...store.opts, with: store.selectedIds }), { coalesce: `nudge:${id}` });
+      store.update('Nudge clip', (p) => T.nudgeClips(p, id, d, { ...store.opts, with: store.selectedIds }), { coalesce: `nudge:${id}` });
       return;
     }
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
