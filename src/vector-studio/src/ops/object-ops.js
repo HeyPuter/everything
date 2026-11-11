@@ -228,9 +228,12 @@ export function arrange(editor, how) {
   if (!ids.length) return;
   const labels = { front: 'Bring to Front', forward: 'Bring Forward', backward: 'Send Backward', back: 'Send to Back' };
   doc.transact(labels[how], () => {
-    for (const [parentId, list] of byParent(doc, ids)) {
+    for (let [parentId, list] of byParent(doc, ids)) {
       const parent = doc.get(parentId);
-      const children = parent.children.slice();
+      // In a clip group the clipping path (the last child) stays last, so it keeps clipping.
+      const mask = parent.clip && parent.children.length ? parent.children[parent.children.length - 1] : null;
+      const children = mask ? parent.children.slice(0, -1) : parent.children.slice();
+      if (mask) list = list.filter((id) => id !== mask);
       const sel = new Set(list);
       let next;
       if (how === 'front') next = [...children.filter((c) => !sel.has(c)), ...list];
@@ -247,6 +250,7 @@ export function arrange(editor, how) {
           if (sel.has(next[i]) && !sel.has(next[i - 1])) [next[i], next[i - 1]] = [next[i - 1], next[i]];
         }
       }
+      if (mask) children.push(mask), next.push(mask);
       // Already in place (Bring to Front on the frontmost object): no undo step, document stays saved.
       if (next.some((c, i) => c !== children[i])) doc.update(parentId, { children: next });
     }

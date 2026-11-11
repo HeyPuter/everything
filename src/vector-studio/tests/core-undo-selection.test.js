@@ -258,3 +258,31 @@ describe('object commands with a compound subpath direct-selected', () => {
     expect(doc.get(made).children.every((id) => doc.get(id).type === 'path')).toBe(true);
   });
 });
+
+describe('Arrange inside a clip group', () => {
+  it('keeps the clipping path on top, so it keeps clipping', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const ids = [0, 1, 2].map((i) => {
+      const p = createPath(rectangle(i * 5, 0, 50, 50), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    });
+    const [a, b, mask] = ids;
+    ed.select(ids);
+    await app.commands.run('object.clipMake');
+    const [clip] = ed.selection;
+    ed.selectAnchors(a, [0, 1, 2, 3]);
+    await app.commands.run('object.bringToFront');
+    expect(doc.get(clip).children).toEqual([b, a, mask]);
+    await app.commands.run('object.bringForward');
+    expect(doc.get(clip).children).toEqual([b, a, mask]);
+    ed.selectAnchors(mask, [0, 1, 2, 3]);
+    await app.commands.run('object.sendToBack');
+    expect(doc.get(clip).children).toEqual([b, a, mask]);
+    ed.selectAnchors(a, [0, 1, 2, 3]);
+    await app.commands.run('object.sendToBack');
+    expect(doc.get(clip).children).toEqual([a, b, mask]);
+  });
+});
