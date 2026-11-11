@@ -123,7 +123,7 @@ export function sessionPropertySection(app, doc) {
         h('h3.prop-heading', t.type === 'master' ? 'Master Track' : t.type === 'bus' ? 'Bus Track' : 'Track'),
         row('Name', name, nameId),
         row('Color', color, colorId),
-        text('Channels', t.channels === 1 ? 'Mono' : 'Stereo'),
+        text('Channels', t.channels === 1 ? 'Mono' : t.channels === 6 ? '5.1' : 'Stereo'),
         text('Volume', formatGain(doc.controls ? doc.controls.value(t, 'volume') : t.volume)),
         t.type !== 'master' ? text('Pan', String(Math.round(doc.controls ? doc.controls.value(t, 'pan') : t.pan))) : null,
         row('Output', out, outId),

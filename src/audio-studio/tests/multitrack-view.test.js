@@ -354,6 +354,11 @@ describe('session properties', () => {
     doc.apply('Stretch', S.updateClips(doc.state, [clip.id], { stretch: { mode: 'rendered', ratio: 1.25, semitones: -3, formants: false, sourceId: clip.sourceId } }));
     const stretched = sessionPropertySection(app, doc);
     expect([...stretched.querySelectorAll('.prop-row')].find((r) => r.textContent.startsWith('Stretch')).textContent).toBe('StretchRendered, 125% -3 st');
+    const channels = (e) => [...e.querySelectorAll('.prop-row')].find((r) => r.textContent.startsWith('Channels')).textContent;
+    expect(channels(el)).toBe('ChannelsStereo');
+    doc.apply('Surround', S.updateTrack(doc.state, doc.state.tracks[1].id, { channels: 6 }));
+    doc.selectTrack(doc.state.tracks[1].id);
+    expect(channels(sessionPropertySection(app, doc))).toBe('Channels5.1');
     const name = el.querySelector('input[aria-label="Track name"]');
     name.value = 'Lead';
     name.dispatchEvent(new Event('change'));
