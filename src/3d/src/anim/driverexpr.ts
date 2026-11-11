@@ -178,6 +178,8 @@ const MATH_FUNCS: Record<string, (...a: Value[]) => Value> = {
   isfinite: n1((x) => +Number.isFinite(x), 'isfinite'),
   factorial: n1((x) => {
     if (x < 0 || !Number.isInteger(x)) throw err('ValueError', 'factorial() only accepts non-negative integers');
+    // 171! and above overflow; don't loop (and freeze) for huge arguments
+    if (x > 170) return Infinity;
     let r = 1;
     for (let i = 2; i <= x; i++) r *= i;
     return r;
