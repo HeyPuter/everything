@@ -265,3 +265,36 @@ test('Frame All in an Image Editor squeezed below its margin keeps a usable zoom
   expect(Number.isFinite(zoom[1]) && zoom[1] > 0).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('a WebM animation render cancelled before its first frame releases the video encoder', async ({ page }) => {
+  const errors = await rendering(page);
+  const r = await page.evaluate(async (imp) => {
+    const w = window as any;
+    if (!w.VideoEncoder) return 'no-webcodecs';
+    let made = 0,
+      closed = 0;
+    const VE = w.VideoEncoder;
+    w.VideoEncoder = class extends VE {
+      constructor(init: unknown) {
+        super(init);
+        made++;
+      }
+      close() {
+        closed++;
+        super.close();
+      }
+    };
+    const a = w.app;
+    Object.assign(a.doc.scene.render, { resolution_percentage: 10, raster_samples: 2, file_format: 'WEBM' });
+    a.doc.scene.frame_start = 1;
+    a.doc.scene.frame_end = 3;
+    const J = await (0, eval)(imp)('/src/render/final/job.ts');
+    const done = J.startRender({ animation: true, viewport: null });
+    J.cancelRender();
+    await done;
+    w.VideoEncoder = VE;
+    return { made, closed };
+  }, IMPORT);
+  if (r !== 'no-webcodecs' && (r as { made: number }).made) expect(r).toEqual({ made: 1, closed: 1 });
+  await expectNoErrors(errors);
+});
