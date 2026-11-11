@@ -102,3 +102,21 @@ describe('File > Revert', () => {
     expect(doc.dirty).toBe(false);
   });
 });
+
+describe('marker navigation', () => {
+  it('reaches markers one frame from the playhead', async () => {
+    const { app, doc } = await makeView();
+    doc.apply('Markers', {
+      ...doc.state,
+      markers: [createMarker({ start: 999 }), createMarker({ start: 1001 })],
+    });
+    doc.setCursor(1000);
+    await app.commands.run('marker.previous');
+    expect(doc.cursor).toBe(999);
+    doc.setCursor(1000);
+    await app.commands.run('marker.next');
+    expect(doc.cursor).toBe(1001);
+    await app.commands.run('marker.next');
+    expect(doc.cursor).toBe(48000);
+  });
+});

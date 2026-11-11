@@ -544,7 +544,7 @@ export function installCoreCommands(app) {
       enabled: hasAudio,
       run: () => {
         const doc = audio(app);
-        const at = app.playhead - 1;
+        const at = app.playhead;
         const prev = doc.state.markers.flatMap((m) => [m.start, m.start + m.duration]).filter((f) => f < at).sort((a, b) => b - a)[0] ?? 0;
         app.currentView?.()?.seek(prev);
       },
@@ -556,7 +556,7 @@ export function installCoreCommands(app) {
       enabled: hasAudio,
       run: () => {
         const doc = audio(app);
-        const at = app.playhead + 1;
+        const at = app.playhead;
         const next = doc.state.markers.flatMap((m) => [m.start, m.start + m.duration]).filter((f) => f > at).sort((a, b) => a - b)[0] ?? doc.length;
         app.currentView?.()?.seek(next);
       },
