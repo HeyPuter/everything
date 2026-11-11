@@ -146,15 +146,24 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveRecovery(bytes: Uint8Array, name: string) {
-  const db = await openDb();
-  await new Promise<void>((res, rej) => {
+/** Run one transaction; a full disk (QuotaExceededError) aborts it without an error event. */
+function write(db: IDBDatabase, fn: (s: IDBObjectStore) => void): Promise<void> {
+  return new Promise<void>((res, rej) => {
     const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put({ bytes, name, time: Date.now() }, 'autosave');
+    fn(tx.objectStore(STORE));
     tx.oncomplete = () => res();
     tx.onerror = () => rej(tx.error);
+    tx.onabort = () => rej(tx.error ?? new DOMException('The auto save was aborted', 'AbortError'));
   });
-  db.close();
+}
+
+export async function saveRecovery(bytes: Uint8Array, name: string) {
+  const db = await openDb();
+  try {
+    await write(db, (s) => s.put({ bytes, name, time: Date.now() }, 'autosave'));
+  } finally {
+    db.close();
+  }
 }
 
 export async function loadRecovery(): Promise<{ bytes: Uint8Array; name: string; time: number } | null> {
@@ -176,12 +185,7 @@ export async function loadRecovery(): Promise<{ bytes: Uint8Array; name: string;
 export async function clearRecovery() {
   try {
     const db = await openDb();
-    await new Promise<void>((res) => {
-      const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).delete('autosave');
-      tx.oncomplete = () => res();
-    });
-    db.close();
+    await write(db, (s) => s.delete('autosave')).finally(() => db.close());
   } catch {
     // ignore
   }

@@ -46,3 +46,21 @@ describe('openFile', () => {
     expect(app.dirty).toBe(false);
   });
 });
+
+describe('auto save storage', () => {
+  it('reports a full disk instead of waiting forever', async () => {
+    const { installFakeIndexedDb } = await import('./support/fakeidb');
+    const idb = installFakeIndexedDb();
+    const { saveRecovery, loadRecovery, clearRecovery } = await import('../../src/io/native');
+    await saveRecovery(new Uint8Array([1, 2]), 'a.p3d');
+    expect((await loadRecovery())?.name).toBe('a.p3d');
+    idb.fail.put = true;
+    const settled = await Promise.race([saveRecovery(new Uint8Array([3]), 'b.p3d').then(() => 'saved', (e: Error) => e.name), new Promise((r) => setTimeout(() => r('hung'), 500))]);
+    expect(settled).toBe('QuotaExceededError');
+    expect(await Promise.race([clearRecovery().then(() => 'done'), new Promise((r) => setTimeout(() => r('hung'), 500))])).toBe('done');
+    expect(idb.open).toBe(0);
+    // the previous auto save is still there
+    idb.fail.put = false;
+    expect((await loadRecovery())?.name).toBe('a.p3d');
+  });
+});
