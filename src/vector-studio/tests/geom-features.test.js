@@ -63,6 +63,28 @@ describe('Pathfinder on documents', () => {
     expect(doc.get(layer.id).children).toEqual([a.id, b.id]);
   });
 
+  it('does not combine the keys of a selected blend, which would break it', async () => {
+    const a = createPath(rectangle(0, 0, 10, 10), true, { fill: solid('#ff0000') });
+    const b = createPath(rectangle(100, 0, 10, 10), true, { fill: solid('#0000ff') });
+    const { doc, editor, app, layer } = setup([a, b]);
+    let g;
+    doc.transact('blend', () => {
+      g = makeBlend(doc, [a.id, b.id]);
+    });
+    editor.select([g]);
+    expect(canRun(editor, 'unite')).toBe(false);
+    expect(await runPathfinder(app, 'unite')).toBe(false);
+    expect(app.notify).toHaveBeenCalledWith('Unite works on paths. Expand the blend first (Object > Expand).');
+    expect(doc.get(g).children).toEqual([a.id, b.id]);
+    // With other paths selected too, the blend is left alone.
+    const c = createPath(rectangle(0, 50, 10, 10), true, { fill: solid('#00ff00') });
+    const d = createPath(rectangle(5, 55, 10, 10), true, { fill: solid('#00ff00') });
+    doc.transact('more', () => [c, d].forEach((n) => doc.insert(n, layer.id)));
+    editor.select([g, c.id, d.id]);
+    expect(await runPathfinder(app, 'unite')).toBe(true);
+    expect(doc.get(g).children).toEqual([a.id, b.id]);
+  });
+
   it('Minus Front keeps the backmost style and makes a compound path for holes', async () => {
     const a = createPath(rectangle(0, 0, 100, 100), true, { fill: solid('#ff0000') });
     const b = createPath(ellipse(25, 25, 50, 50), true, { fill: solid('#0000ff') });

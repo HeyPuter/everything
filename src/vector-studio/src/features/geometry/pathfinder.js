@@ -12,6 +12,7 @@
  */
 import { OP, runGeom } from './engine/index.js';
 import { withBusy } from './busy.js';
+import { liveDef } from '../../model/live.js';
 import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, groupOf, replaceWith, insertionPoint, fillOnly, solidKey, snapshot, unchangedSince, isOpenLine } from './nodes-io.js';
 
 export const SHAPE_MODES = [
@@ -84,14 +85,25 @@ function docVersion(doc) {
 }
 const operandCache = new WeakMap();
 
-/** Path/compound leaves of the selection, back to front (cached until the document or selection changes). */
+/**
+ * Path/compound leaves of the selection, back to front (cached until the
+ * document or selection changes). The inputs of live groups (a blend's
+ * keys, a Repeat's source, ...) are not operands: combining them would
+ * leave a broken live object behind.
+ */
 export function operands(editor) {
+  return operandInfo(editor).leaves;
+}
+
+function operandInfo(editor) {
   const sig = `${docVersion(editor.doc)}|${[...editor.selection].join(',')}`;
   const hit = operandCache.get(editor);
-  if (hit && hit.sig === sig) return hit.leaves;
-  const leaves = geometryLeaves(editor.doc, editor.topSelection());
-  operandCache.set(editor, { sig, leaves });
-  return leaves;
+  if (hit && hit.sig === sig) return hit;
+  const live = [];
+  const leaves = geometryLeaves(editor.doc, editor.topSelection(), { intoLive: false, skippedLive: live });
+  const info = { sig, leaves, live };
+  operandCache.set(editor, info);
+  return info;
 }
 
 /** Whether a pathfinder can run on the selection. */
@@ -156,6 +168,14 @@ export function shapesFor(doc, kind, leaves) {
   });
 }
 
+/** "the blend" for a live group labeled "<Blend>". */
+function liveLabel(node) {
+  const def = liveDef(node);
+  const raw = typeof def?.label === 'function' ? def.label(node) : def?.label;
+  const name = String(raw || '').replace(/[<>]/g, '').trim().toLowerCase();
+  return name ? `the ${name}` : 'live objects';
+}
+
 /** Run a pathfinder on the editor's selection (async: big jobs use the worker). */
 export async function runPathfinder(app, kind) {
   const editor = app.editor;
@@ -165,7 +185,9 @@ export async function runPathfinder(app, kind) {
   const doc = editor.doc;
   const leaves = operands(editor);
   if (!canRun(editor, kind)) {
-    app.notify(kind === 'unite' ? 'Select two or more paths, or a compound path.' : 'Select two or more paths.');
+    const { live } = operandInfo(editor);
+    if (live.length) app.notify(`${def.label} works on paths. Expand ${liveLabel(live[0])} first (Object > Expand).`);
+    else app.notify(kind === 'unite' ? 'Select two or more paths, or a compound path.' : 'Select two or more paths.');
     return false;
   }
   app.lastPathfinder = kind;
