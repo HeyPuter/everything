@@ -222,7 +222,7 @@ export function mediaBrowserPanel(app) {
     }
     const usable = (p) => p && ((local.isLocalPath(p) && rootOf(p) && access.get(rootOf(p).id) === 'granted') || (!local.isLocalPath(p) && home && p.startsWith(home)));
     if (!usable(dir)) {
-      if (home) dir = await puter.appDir().then(async (d) => ((await puter.exists(d)) ? d : home));
+      if (home) dir = await puter.appDir().then(async (d) => ((await puter.exists(d).catch(() => false)) ? d : home));
       else {
         const r = deviceRoots.find((x) => access.get(x.id) === 'granted');
         dir = r ? local.rootPath(r.id) : null;
