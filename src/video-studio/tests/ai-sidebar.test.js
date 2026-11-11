@@ -745,7 +745,41 @@ describe('AI sidebar panel', () => {
     panel.el.querySelector('.ai-undo').click();
     expect(main().clips).toHaveLength(2);
     expect(panel.el.querySelector('.ai-foot-summary').textContent).toBe('1 change undone');
-    expect(panel.messages.at(-1).content).toMatch(/undid the changes in this reply/);
+    expect(panel.messages.at(-1).content).toMatch(/undid the changes you made for "add a fox shot"/);
+  });
+
+  it('names the request whose changes were undone, even while a later reply runs', async () => {
+    const sent = [];
+    let release;
+    const replies = [
+      () => [call('set_speed', { clips: ['first'], speed: 2 })],
+      () => [{ type: 'text', text: 'Faster.' }],
+      () => new Promise((r) => (release = () => r([{ type: 'text', text: 'Here is an idea.' }]))),
+      () => [{ type: 'text', text: 'Ok.' }],
+    ];
+    const chat = (messages) => {
+      sent.push(structuredClone(messages));
+      const next = replies.shift();
+      return (async function* () {
+        for (const part of await next()) yield part;
+      })();
+    };
+    const { panel, main } = mount([], { chat });
+    panel.open();
+    panel.send('speed it up');
+    await vi.waitFor(() => expect(panel.el.querySelector('.ai-undo')).toBeTruthy());
+    panel.send('suggest a title');
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    // Undo on the first reply while the second is still being written.
+    panel.el.querySelector('.ai-undo').click();
+    expect(main().clips[0].speed).toBe(1);
+    release();
+    await vi.waitFor(() => expect(panel.busy).toBe(false));
+    panel.send('thanks');
+    await vi.waitFor(() => expect(sent).toHaveLength(4));
+    const told = sent[3].filter((m) => m.role === 'assistant').map((m) => m.content).join('\n');
+    expect(told).toMatch(/undid the changes you made for "speed it up"/);
+    expect(told).not.toMatch(/in this reply/);
   });
 
   it('keeps Undo off once something else was done after the reply', async () => {
