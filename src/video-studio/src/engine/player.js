@@ -9,8 +9,8 @@ import { MediaPool } from './media-pool.js';
 import { AudioGraph } from './audio-graph.js';
 import { TextCache } from './text.js';
 import { FrameSource } from './frame-source.js';
-import { evaluate, audibleClips, gainAt, upcomingVideoClips } from './scene.js';
-import { sourceTimeAt } from '../model/timeline.js';
+import { evaluate, audibleClips, gainAt, upcomingVideoStarts } from './scene.js';
+import { sourceTimeAt, clipEnd } from '../model/timeline.js';
 import { hasCurve, speedAt } from '../model/speed-curve.js';
 import { framePosition, needsBetween, FRAME_SNAP } from '../model/slow-motion.js';
 import { ensureLuts, onLutLoaded } from './luts.js';
@@ -19,6 +19,16 @@ import { proxyMode, previewSource } from '../model/proxy.js';
 
 /** Suffix of the pool and decoder ids of proxy files (one per asset). */
 const PROXY_ID = '~proxy';
+
+/**
+ * Whether clip b plays on from where clip a leaves its file, so the element
+ * playing a can simply play into b (a clip split in two, nothing cut out).
+ */
+function continuesInto(a, b) {
+  if (a.assetId !== b.assetId || a.freeze || b.freeze || a.transition || hasCurve(a) || hasCurve(b)) return false;
+  if ((a.speed || 1) !== (b.speed || 1) || (a.keepPitch !== false) !== (b.keepPitch !== false)) return false;
+  return Math.abs(b.start - clipEnd(a)) <= 2000 && Math.abs(sourceTimeAt(a, clipEnd(a)) - b.in) <= 40_000;
+}
 
 export class Player extends Emitter {
   /** proxies: optional ProxyManager; ready proxies stand in for heavy media in the preview. */
@@ -415,9 +425,13 @@ export class Player extends Emitter {
     for (const [id, entry] of map) if (entry.gain && !heard.has(id)) entry.gain.gain.value = 0;
     // Warm up clips about to start so the first frame is ready.
     if (this.playing) {
-      for (const c of upcomingVideoClips(project, t, 1.5 * US)) {
-        if (map.has(c.id) || !project.assets[c.assetId]) continue;
-        const sec = c.in / US;
+      for (const { clip: c, prev, from, sourceTime } of upcomingVideoStarts(project, t, 1.5 * US)) {
+        // Only clips still to come (not one that has just been shown, still listed for its transition).
+        if (from <= t || map.has(c.id) || !project.assets[c.assetId]) continue;
+        // The element playing the clip before carries on into it (a split): no second element.
+        if (prev && map.has(prev.id) && continuesInto(prev, c)) continue;
+        // Ready on the first frame it shows, a transition's lead-in included.
+        const sec = sourceTime / US;
         const entry = pool.claim(c, this.previewAsset(project.assets[c.assetId]), 'video', sec);
         if (!entry.el.paused) entry.el.pause();
         if (Math.abs(entry.el.currentTime - sec) > 0.05) pool.seek(entry, sec);

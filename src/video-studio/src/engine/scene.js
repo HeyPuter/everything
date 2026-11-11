@@ -355,6 +355,16 @@ export function binaryClipAt(clips, t) {
 
 /** Video clips whose frames may be needed in [t, t + ahead] (for preloading). */
 export function upcomingVideoClips(project, t, ahead) {
+  return upcomingVideoStarts(project, t, ahead).map((u) => u.clip);
+}
+
+/**
+ * The same clips as upcomingVideoClips, each as { clip, prev, from, sourceTime }:
+ * prev the clip before it on its track (or null), from the timeline time it
+ * is first drawn at and sourceTime the source time (us) shown then, a
+ * transition's lead-in included.
+ */
+export function upcomingVideoStarts(project, t, ahead) {
   project = expandProject(project);
   const out = [];
   for (const track of project.tracks) {
@@ -364,9 +374,13 @@ export function upcomingVideoClips(project, t, ahead) {
       const c = clips[i];
       if (c.type !== 'video') continue;
       const pad = c.transition ? c.transition.duration : 0;
-      const prev = clips[i - 1];
+      const prev = clips[i - 1] || null;
       const lead = prev?.transition ? prev.transition.duration : 0;
-      if (c.start - lead <= t + ahead && clipEnd(c) + pad > t) out.push(c);
+      if (c.start - lead <= t + ahead && clipEnd(c) + pad > t) {
+        // A transition into it starts drawing it half the transition before its start (see evaluate).
+        const into = prev?.transition && Math.abs(c.start - clipEnd(prev)) <= 2000 ? clipEnd(prev) - prev.transition.duration / 2 : c.start;
+        out.push({ clip: c, prev, from: into, sourceTime: sourceTimeForTransition(c, into, project.assets[c.assetId]).time });
+      }
     }
   }
   return out;

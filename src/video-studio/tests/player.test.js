@@ -265,3 +265,28 @@ describe('jumping while playing', () => {
     }
   });
 });
+
+describe('warming up the next clip', () => {
+  it('lets the element playing a split clip play on into its second half', () => {
+    const p = fixture();
+    const [, b] = onMain(p, clip('video', 0, 5), clip('video', 5, 5, { in: s(5) }));
+    const { entries, frame } = setup(p);
+    for (const t of [3.6, 4.2, 4.9]) frame(s(t));
+    // No second element sought to the second half and left waiting.
+    expect(entries.has(b.id)).toBe(false);
+  });
+
+  it('readies the next clip at the first frame its transition shows', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 5, { transition: { id: 'mix', duration: s(2) } }), clip('video', 5, 5, { in: s(3) }));
+    const { entries, frame } = setup(p);
+    frame(s(3));
+    // The transition starts drawing b at 4 s, one second before its start: 2 s into the file.
+    expect(entries.get(b.id).el.currentTime).toBeCloseTo(2, 5);
+    expect(entries.get(b.id).el.paused).toBe(true);
+    for (const t of [4.2, 5.5, 6.5]) frame(s(t));
+    // Once a has left the screen it is not sought back to its start to be readied again.
+    expect(entries.get(a.id).el.currentTime).toBeCloseTo(5.5, 5);
+  });
+});
+
