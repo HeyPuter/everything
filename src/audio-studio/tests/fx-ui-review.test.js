@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { envelopeControl, plot } from '../src/effects/editors.js';
 import { paramControls } from '../src/effects/param-ui.js';
 import { coerce } from '../src/effects/params.js';
@@ -311,5 +313,24 @@ describe('effect dialog preview', () => {
     expect(play.getAttribute('aria-label')).toBe('Preview');
     [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
     await done;
+  });
+});
+
+describe('effect view layouts', () => {
+  it('stack the Center Channel Extractor and Automatic Pitch Correction columns on narrow screens', () => {
+    const css = readFileSync(resolve(__dirname, '../src/styles/effects-content.css'), 'utf8');
+    for (const name of ['cce-split', 'apc-split']) {
+      const wide = css.indexOf(`.fx-split.${name} {`);
+      expect(wide).toBeGreaterThan(-1);
+      // A later narrow-screen rule (same specificity) takes the view down to one column.
+      const narrow = css
+        .slice(wide)
+        .match(
+          new RegExp(
+            `@media \\(max-width: 720px\\) \\{[^@]*\\.fx-split\\.${name}[^{]*\\{\\s*grid-template-columns: minmax\\(0, 1fr\\);`,
+          ),
+        );
+      expect(narrow, name).not.toBe(null);
+    }
   });
 });
