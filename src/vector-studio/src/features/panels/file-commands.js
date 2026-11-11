@@ -281,8 +281,13 @@ async function versionHistoryDialog(app) {
     app.addDocument(doc);
   });
   action(delBtn, async () => {
-    await versions.remove(list.find((x) => x.id === selected)?.key || key, selected);
-    list = list.filter((v) => v.id !== selected);
+    const v = list.find((x) => x.id === selected);
+    if (!v) return;
+    // A deleted version cannot be brought back.
+    const ok = await app.dialogs.confirm({ title: 'Delete Version', message: `Delete the version saved ${new Date(v.time).toLocaleString()}? This cannot be undone.`, okLabel: 'Delete', danger: true });
+    if (!ok) return;
+    await versions.remove(v.key || key, v.id);
+    list = list.filter((x) => x.id !== v.id);
     selected = list[0]?.id || null;
   });
   action(saveBtn, async () => {

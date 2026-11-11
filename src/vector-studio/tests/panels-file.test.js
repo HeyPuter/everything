@@ -116,6 +116,32 @@ describe('Version history', () => {
     await done;
   });
 
+  it('asks before deleting a version', async () => {
+    const { app, ed, doc } = await setup();
+    await app.versions.add(versionKey(ed), doc);
+    const done = app.commands.run('file.versionHistory');
+    const dlg = await openDialogEl();
+    const del = [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Delete');
+    const confirmEl = async () => {
+      for (let i = 0; i < 50 && document.querySelectorAll('dialog[open]').length < 2; i++) await new Promise((r) => setTimeout(r, 10));
+      return [...document.querySelectorAll('dialog[open]')].at(-1);
+    };
+    del.click();
+    let c = await confirmEl();
+    expect(c.textContent).toContain('This cannot be undone.');
+    [...c.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click();
+    for (let i = 0; i < 20 && del.disabled; i++) await tick();
+    expect((await app.versions.list(versionKey(ed))).length).toBe(1);
+    expect(dlg.querySelectorAll('.vh-row').length).toBe(1);
+    del.click();
+    c = await confirmEl();
+    [...c.querySelectorAll('button')].find((b) => b.textContent === 'Delete').click();
+    for (let i = 0; i < 50 && dlg.querySelectorAll('.vh-row').length; i++) await tick();
+    expect(await app.versions.list(versionKey(ed))).toEqual([]);
+    dlg.querySelector('.dialog-close').click();
+    await done;
+  });
+
   it('reports a version that can no longer be read instead of failing silently', async () => {
     const { app, ed, doc } = await setup();
     const entry = await app.versions.add(versionKey(ed), doc);
