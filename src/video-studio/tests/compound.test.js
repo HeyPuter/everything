@@ -332,6 +332,17 @@ describe('closing a compound clip whose contents got longer or empty', () => {
     store.closeCompound();
     expect(spansOf(store)).toEqual([[0, 5], [5, 3], [8, 5]]);
   });
+
+  it('goes away when everything inside was deleted', () => {
+    const { store, title, comp } = setup({});
+    store.update('Delete', (pp) => deleteClips(pp, allClips(pp).map((c) => c.id), store.opts) > 0);
+    store.closeCompound();
+    expect(findClip(store.project, comp.id)).toBeNull();
+    expect(spansOf(store)).toEqual([[0, 5], [5, 5]]);
+    expect(findClip(store.project, title.id).clip.start).toBe(s(6));
+    store.undo();
+    expect(findClip(store.project, comp.id)).not.toBeNull();
+  });
 });
 
 const noOverlapsIn = (p) => p.tracks.every((t) => t.clips.every((c, i) => !i || c.start >= t.clips[i - 1].start + t.clips[i - 1].duration - 1));

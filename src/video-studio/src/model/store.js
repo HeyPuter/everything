@@ -113,6 +113,12 @@ export class EditorStore extends Emitter {
         adoptProjectFields(p, inner);
         const len = sequenceLength(cc.sequence);
         const f = findClip(p, frame.id);
+        if (!len) {
+          // Everything inside was deleted: the clip goes too (not a 1-frame leftover).
+          f.track.clips.splice(f.index, 1);
+          ripple();
+          return;
+        }
         cc.in = Math.min(cc.in, Math.max(0, len - MIN_CLIP));
         cc.duration = Math.max(MIN_CLIP, toEnd ? len - cc.in : Math.min(cc.duration, len - cc.in));
         ripple();
