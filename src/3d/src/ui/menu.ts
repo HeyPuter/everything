@@ -362,6 +362,11 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
   }
   renderMenu(m);
   stack.push(m);
+  // columns wider than the window (a phone) fall back to one scrolling list
+  if (cols && el.getBoundingClientRect().width > innerWidth - 8) {
+    el.classList.remove('menu-cols');
+    el.style.columnCount = '';
+  }
   // position within viewport
   const rect = el.getBoundingClientRect();
   let left = x,
@@ -686,8 +691,6 @@ export function openSearch(entries: () => SearchEntry[], x = innerWidth / 2 - 20
   el.className = 'menu search-popup';
   ensureLayer().append(el);
   stack.push({ el, items: [], index: 0 });
-  el.style.left = `${Math.max(4, Math.min(innerWidth - 420, x))}px`;
-  el.style.top = `${Math.max(4, y)}px`;
   let query = initial,
     hl = 0;
   const all = entries();
@@ -746,6 +749,9 @@ export function openSearch(entries: () => SearchEntry[], x = innerWidth / 2 - 20
     draw();
   };
   draw();
+  // keep the whole popup on screen (it is narrower than 420px in a narrow window)
+  el.style.left = `${Math.max(4, Math.min(innerWidth - el.offsetWidth - 4, x))}px`;
+  el.style.top = `${Math.max(4, y)}px`;
   const input = el.querySelector('input') as HTMLInputElement | null;
   input?.focus();
   if (input && initial) input.setSelectionRange(initial.length, initial.length);

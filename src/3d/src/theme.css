@@ -1211,8 +1211,8 @@ input.num-field.editing {
 }
 .menu {
   position: fixed;
-  min-width: 180px;
-  max-width: 420px;
+  min-width: min(180px, calc(100vw - 8px));
+  max-width: min(420px, calc(100vw - 8px));
   max-height: calc(100vh - 20px);
   overflow-y: auto;
   background: var(--w-menu-back);
@@ -1322,6 +1322,7 @@ input.num-field.editing {
 }
 .search-popup {
   width: 420px;
+  max-width: calc(100vw - 8px);
 }
 .search-field,
 .prompt-input {
@@ -1355,6 +1356,7 @@ input.num-field.editing {
   border-radius: 6px;
   padding: 6px 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  max-width: calc(100vw - 8px);
   max-height: calc(100vh - 20px);
   overflow-y: auto;
 }
