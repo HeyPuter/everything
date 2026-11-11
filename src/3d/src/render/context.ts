@@ -1,5 +1,5 @@
 // Shared rendering context (single GL context, scene sync, environments).
-import { Color, DataTexture, RGBAFormat, FloatType, EquirectangularReflectionMapping, type Texture, Scene, Mesh, SphereGeometry, MeshBasicMaterial, BackSide, LinearSRGBColorSpace } from 'three';
+import { Color, DataTexture, RGBAFormat, FloatType, EquirectangularReflectionMapping, type Texture, type WebGLRenderTarget, Scene, Mesh, SphereGeometry, MeshBasicMaterial, BackSide, LinearSRGBColorSpace } from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { RenderEngine } from './engine';
 import { SceneSync } from './scene';
@@ -13,6 +13,10 @@ export class RenderContext {
   private studioEnv: Texture | null = null;
   private worldEnvKey = '';
   private worldEnv: Texture | null = null;
+  /** the PMREM target holding worldEnv (disposing only its texture leaks the target) */
+  private worldEnvTarget: WebGLRenderTarget | null = null;
+  /** the sky gradient made here for worldBackground (an image texture is owned by the image cache) */
+  private skyTexture: DataTexture | null = null;
   worldBackground: Texture | Color | null = null;
 
   constructor(
@@ -52,11 +56,15 @@ export class RenderContext {
     const ev = evaluateWorld(world);
     const key = ev.kind === 'color' ? `c${ev.color.join(',')}` : ev.key;
     if (key === this.worldEnvKey && this.worldEnv) return this.worldEnv;
-    this.worldEnv?.dispose();
+    if (this.worldEnvTarget) this.worldEnvTarget.dispose();
+    else this.worldEnv?.dispose();
+    this.skyTexture?.dispose();
+    this.skyTexture = null;
     this.worldEnvKey = key;
     if (ev.kind === 'texture') {
       ev.texture.mapping = EquirectangularReflectionMapping;
-      this.worldEnv = this.engine.pmrem.fromEquirectangular(ev.texture).texture;
+      this.worldEnvTarget = this.engine.pmrem.fromEquirectangular(ev.texture);
+      this.worldEnv = this.worldEnvTarget.texture;
       this.worldBackground = ev.texture;
     } else if (ev.kind === 'sky') {
       const w = 64,
@@ -82,13 +90,19 @@ export class RenderContext {
       tex.colorSpace = LinearSRGBColorSpace;
       tex.mapping = EquirectangularReflectionMapping;
       tex.needsUpdate = true;
-      this.worldEnv = this.engine.pmrem.fromEquirectangular(tex).texture;
-      this.worldBackground = tex;
+      this.worldEnvTarget = this.engine.pmrem.fromEquirectangular(tex);
+      this.worldEnv = this.worldEnvTarget.texture;
+      this.worldBackground = this.skyTexture = tex;
     } else {
       const s = new Scene();
       const c = new Color(ev.color[0], ev.color[1], ev.color[2]);
-      s.add(new Mesh(new SphereGeometry(10, 16, 8), new MeshBasicMaterial({ color: c, side: BackSide })));
-      this.worldEnv = this.engine.pmrem.fromScene(s, 0).texture;
+      const geo = new SphereGeometry(10, 16, 8),
+        mat = new MeshBasicMaterial({ color: c, side: BackSide });
+      s.add(new Mesh(geo, mat));
+      this.worldEnvTarget = this.engine.pmrem.fromScene(s, 0);
+      this.worldEnv = this.worldEnvTarget.texture;
+      geo.dispose();
+      mat.dispose();
       this.worldBackground = c;
     }
     return this.worldEnv;
