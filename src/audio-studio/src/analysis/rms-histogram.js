@@ -10,12 +10,15 @@ export function accumulateRmsHistogram(hist, x, win) {
   for (let i = 0; i + win <= x.length; i += win) {
     let s = 0;
     for (let j = i; j < i + win; j++) s += x[j] * x[j];
-    const rms = Math.sqrt(s / win);
-    const db = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
-    const bin = Math.max(0, Math.min(HIST_BINS - 1, Math.round(db - HIST_FLOOR)));
-    hist[bin]++;
+    hist[rmsBin(Math.sqrt(s / win))]++;
   }
   return hist;
+}
+
+/** The histogram bin of an RMS level (linear). */
+export function rmsBin(rms) {
+  const db = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+  return Math.max(0, Math.min(HIST_BINS - 1, Math.round(db - HIST_FLOOR)));
 }
 
 /** The level (dB) a histogram bin stands for. */

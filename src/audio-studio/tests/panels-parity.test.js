@@ -168,6 +168,9 @@ describe('Amplitude Statistics', () => {
     const row = (label) => statsRows(result, 1).find((r) => r[0] === label)[1][0];
     for (const label of ['Minimum RMS Amplitude', 'Maximum RMS Amplitude', 'Average RMS Amplitude', 'Total RMS Amplitude']) expect(row(label), label).toBe('-6.02 dB');
     expect(row('Dynamic Range')).toBe('0.00 dB');
+    // The RMS histogram shows that one window too.
+    const { series } = histogramSeries(result, 1);
+    expect(series[0][-HIST_FLOOR - 6]).toBe(100);
     // Silence keeps its minus-infinity levels.
     const silent = { ...ch, min: 0, max: 0, sum: 0, sq: 0 };
     const rows = statsRows({ ...result, channels: [silent] }, 1);

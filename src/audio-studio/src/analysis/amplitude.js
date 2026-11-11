@@ -11,7 +11,7 @@ import { cssVar, CANVAS_FONT } from '../ui/theme.js';
 import { subTabs } from '../panels/subtabs.js';
 import { analysisPool } from './pool.js';
 import { fmtDb, gainToDb, fitCanvas } from './common.js';
-import { HIST_BINS, binDb } from './rms-histogram.js';
+import { HIST_BINS, binDb, rmsBin } from './rms-histogram.js';
 
 /** RMS settings: window width in ms and the 0 dB reference (full-scale square or sine wave). */
 export const RMS_DEFAULTS = { windowMs: 50, ref: 'square' };
@@ -75,7 +75,14 @@ export function statsRows(result, channelCount, settings = RMS_DEFAULTS) {
 
 /** Percent of windows per bin, per channel, trimmed to the bins in use (with a little margin). */
 export function histogramSeries(result, channelCount) {
-  const hists = result.channels.slice(0, channelCount).map((c) => c.hist || new Uint32Array(HIST_BINS));
+  const hists = result.channels.slice(0, channelCount).map((c) => {
+    const hst = c.hist || new Uint32Array(HIST_BINS);
+    if (c.rmsCount || !c.frames) return hst;
+    // A range shorter than the RMS window counts as one window (as in statsRows).
+    const one = new Uint32Array(HIST_BINS);
+    one[rmsBin(Math.sqrt(c.sq / c.frames))] = 1;
+    return one;
+  });
   let lo = HIST_BINS;
   let hi = -1;
   for (const hst of hists) {
