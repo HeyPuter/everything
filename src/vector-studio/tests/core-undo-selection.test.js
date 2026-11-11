@@ -83,3 +83,25 @@ describe('selection after undo and redo of object commands', () => {
     expect(await roundTrip('edit.clear')).toEqual([]);
   });
 });
+
+describe('Next Object Above and Below', () => {
+  it('skip hidden and locked objects instead of selecting them', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const ids = [0, 1, 2, 3].map((i) => {
+      const p = createPath(rectangle(i * 20, 0, 10, 10), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    });
+    doc.transact('Hide', () => doc.update(ids[1], { hidden: true }));
+    doc.transact('Lock', () => doc.update(ids[2], { locked: true }));
+    ed.select([ids[0]]);
+    await app.commands.run('select.nextAbove');
+    expect([...ed.selection]).toEqual([ids[3]]);
+    await app.commands.run('select.nextAbove');
+    expect([...ed.selection]).toEqual([ids[3]]);
+    await app.commands.run('select.nextBelow');
+    expect([...ed.selection]).toEqual([ids[0]]);
+  });
+});

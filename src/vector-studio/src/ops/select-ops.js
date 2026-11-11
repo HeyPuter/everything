@@ -104,7 +104,7 @@ export function selectObjects(editor, what) {
   editor.select(out);
 }
 
-/** Next object above/below the current one in stacking order (within its parent). */
+/** Next object above/below the current one in stacking order (within its parent), skipping hidden and locked ones. */
 export function selectNext(editor, dir) {
   const { doc } = editor;
   const sel = editor.topSelection();
@@ -112,9 +112,14 @@ export function selectNext(editor, dir) {
   const id = dir > 0 ? sel[sel.length - 1] : sel[0];
   const n = doc.get(id);
   const parent = doc.get(n.parent);
-  const i = parent.children.indexOf(id) + dir;
-  const next = parent.children[i];
-  if (next && !doc.get(next)?.locked) editor.select([next]);
+  const kids = parent.children;
+  for (let i = kids.indexOf(id) + dir; i >= 0 && i < kids.length; i += dir) {
+    const next = doc.get(kids[i]);
+    if (next && !next.hidden && !next.locked) {
+      editor.select([next.id]);
+      return;
+    }
+  }
 }
 
 /** Remember and restore selections (Select > Reselect). */
