@@ -206,6 +206,14 @@ export function registerTypeCommands(app) {
   wrap('edit.paste', (s) => s.clipboardPaste());
   wrap('select.all', (s) => s.selectAll());
   wrap('edit.clear', (s) => s.deleteRange(...s.range()));
+  // Undo and Redo from the menu (and Ctrl+Y) restore the caret like Cmd+Z while typing; they stay disabled with nothing to undo.
+  for (const [id, redo] of [
+    ['edit.undo', false],
+    ['edit.redo', true],
+  ]) {
+    const orig = c.get(id);
+    if (orig) c.register({ ...orig, run: (a, args) => (session(a) ? session(a).undo(redo) : orig.run(a, args)) });
+  }
 
   app.fontMenuItems = () => {
     const cur = currentCharStyle(app);

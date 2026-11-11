@@ -105,4 +105,18 @@ describe('type editing session', () => {
     expect(app.typeSession?.id).toBe(c);
     Object.assign(lastFind, { includeLocked: false, current: null });
   });
+
+  it('Edit > Undo and Redo from the menu put the caret where the text changed, like Cmd+Z while typing', async () => {
+    const id = add('Hello world');
+    const s = edit(id, 5);
+    s.insert('XYZ');
+    expect(doc.get(id).text).toBe('HelloXYZ world');
+    await app.commands.run('edit.undo');
+    expect(doc.get(id).text).toBe('Hello world');
+    expect(app.typeSession).toBe(s);
+    expect(s.range()).toEqual([5, 5]);
+    await app.commands.run('edit.redo');
+    expect(doc.get(id).text).toBe('HelloXYZ world');
+    expect(s.range()).toEqual([5, 8]);
+  });
 });
