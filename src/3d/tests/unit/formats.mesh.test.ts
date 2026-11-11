@@ -174,6 +174,23 @@ describe('PLY', () => {
   });
 });
 
+describe('PLY (malformed files)', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const head = (format: string, n: number | string, list = 'uchar') => `ply\nformat ${format} 1.0\nelement vertex ${n}\nproperty float x\nproperty float y\nproperty float z\nelement face 1\nproperty list ${list} int vertex_indices\nend_header\n`;
+  it('reports a truncated ASCII file instead of filling memory with empty vertices', () => {
+    expect(() => readPly(enc(`${head('ascii', 2_000_000_000)}0 0 0\n`))).toThrow('truncated');
+    expect(() => readPly(enc(`${head('ascii', 3)}0 0 0\n1 0 0\n0 1 0\n999999999 0 1\n`))).toThrow('truncated');
+    // complete files still read
+    expect(readPly(enc(`${head('ascii', 3)}0 0 0\n1 0 0\n0 1 0\n3 0 1 2\n`)).meshes[0].faceSizes).toEqual(new Uint32Array([3]));
+  });
+  it('reports a truncated binary file', () => {
+    const bytes = new Uint8Array([...enc(head('binary_little_endian', 10)), 0, 0, 0, 0, 1]);
+    expect(() => readPly(bytes)).toThrow('The PLY file is truncated');
+    const tri = new Uint8Array([...enc(head('binary_little_endian', 3, 'uint')), ...new Uint8Array(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer), 255, 255, 255, 15]);
+    expect(() => readPly(tri)).toThrow('The PLY file is truncated');
+  });
+});
+
 describe('export options', () => {
   it('applies the modifier stack only when requested, and exports selected objects only', () => {
     const doc = freshDoc();

@@ -102,29 +102,38 @@ export function readPly(bytes: Uint8Array, opts: PlyReadOptions = {}): IRScene {
     for (const el of elements) {
       const cols: Record<string, number[] | number[][]> = {};
       for (const pr of el.props) cols[pr.name] = [];
-      for (let i = 0; i < el.count; i++)
+      for (let i = 0; i < el.count && el.props.length; i++) {
         for (const pr of el.props) {
           if (pr.list) {
             const n = parseInt(toks[p++], 10);
+            if (n > toks.length - p) throw new Error('The PLY file is truncated');
             const arr: number[] = [];
             for (let k = 0; k < n; k++) arr.push(Number(toks[p++]));
             (cols[pr.name] as number[][]).push(arr);
           } else (cols[pr.name] as number[]).push(Number(toks[p++]));
         }
+        // a declared count larger than the data must not fill memory with empty values
+        if (p > toks.length) throw new Error('The PLY file is truncated');
+      }
       data[el.name] = cols;
     }
   } else {
     const le = format === 'binary_little_endian';
     const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     let o = headerEnd;
+    const fits = (n: number) => {
+      if (o + n > bytes.length) throw new Error('The PLY file is truncated');
+    };
     for (const el of elements) {
       const cols: Record<string, number[] | number[][]> = {};
       for (const pr of el.props) cols[pr.name] = [];
-      for (let i = 0; i < el.count; i++)
+      for (let i = 0; i < el.count && el.props.length; i++)
         for (const pr of el.props) {
           if (pr.list) {
+            fits(TYPE_SIZE[pr.list]);
             const n = readValue(dv, o, pr.list, le);
             o += TYPE_SIZE[pr.list];
+            fits(n * TYPE_SIZE[pr.type]);
             const arr: number[] = new Array(n);
             for (let k = 0; k < n; k++) {
               arr[k] = readValue(dv, o, pr.type, le);
@@ -132,6 +141,7 @@ export function readPly(bytes: Uint8Array, opts: PlyReadOptions = {}): IRScene {
             }
             (cols[pr.name] as number[][]).push(arr);
           } else {
+            fits(TYPE_SIZE[pr.type]);
             (cols[pr.name] as number[]).push(readValue(dv, o, pr.type, le));
             o += TYPE_SIZE[pr.type];
           }
