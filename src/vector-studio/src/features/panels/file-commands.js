@@ -21,6 +21,8 @@ import { renderThumbnail } from '../files/thumbnail.js';
 import { familyInfo } from '../type/fonts.js';
 
 export const VERSION_LIMIT = 20;
+/** Shared documents are "saved" whenever the server has every edit: they keep a version at most this often. */
+export const SHARED_VERSION_MS = 10 * 60 * 1000;
 
 let fallbackStore = null;
 /** The app-private storage backend. */
@@ -491,9 +493,14 @@ export function registerFileCommands(app) {
 
   // Keep a version every time a document is saved (once per document, however many windows show it).
   const watched = new WeakSet();
+  const kept = new WeakMap(); // doc -> { key, time, changed }: the last version kept automatically
   const keep = async (ed) => {
     const doc = ed.doc;
     const key = versionKey(ed);
+    const last = kept.get(doc);
+    // Saving again without changes keeps no duplicate; shared documents keep one now and then.
+    if (last?.key === key && (!last.changed || (ed.file?.kind === 'shared' && Date.now() - last.time < SHARED_VERSION_MS))) return;
+    kept.set(doc, { key, time: Date.now(), changed: false });
     // A file from before documents had an identity now has one: it takes its versions along.
     if (doc.legacyVersionKey) {
       await app.versions.adopt(doc.legacyVersionKey, key);
@@ -505,6 +512,13 @@ export function registerFileCommands(app) {
     if (!ed || watched.has(ed.doc)) return;
     const doc = ed.doc;
     watched.add(doc);
+    const changed = () => {
+      const last = kept.get(doc);
+      if (last) last.changed = true;
+    };
+    // Once per committed change (every edit, undo or remote change ends with one), not per object.
+    doc.on('change', (e) => e.commit && changed());
+    doc.on('comments', changed);
     doc.on('saved', () => {
       const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
       // The window that saved is the active one; its file is the one written.

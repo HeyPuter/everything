@@ -3,7 +3,7 @@ import { createPath, createText, createImage } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { bootAppWithFeatures } from './helpers.js';
 import { memoryBackend } from '../src/features/files/backends.js';
-import { TemplateStore, VersionStore, versionKey, legacyKeyFor, restoreDocumentContent, cleanInfo, splitList, fontsUsed, packageEntries } from '../src/features/panels/file-commands.js';
+import { TemplateStore, VersionStore, versionKey, legacyKeyFor, SHARED_VERSION_MS, restoreDocumentContent, cleanInfo, splitList, fontsUsed, packageEntries } from '../src/features/panels/file-commands.js';
 import { systemInfo, systemInfoText } from '../src/features/panels/help-commands.js';
 import { serializeDocument } from '../src/features/files/format.js';
 import { hashKey } from '../src/features/files/recent.js';
@@ -245,6 +245,41 @@ describe('Version history of downloaded documents', () => {
     ed.doc.markSaved();
     await versionsSettle();
     expect((await app.versions.list(versionKey(ed))).length).toBe(1);
+  });
+
+  it('keeps no duplicate version when nothing changed, and shared documents only now and then', async () => {
+    const { app, ed, doc, add } = await setup();
+    const count = async () => (await app.versions.list(versionKey(ed))).length;
+    doc.markSaved();
+    await versionsSettle();
+    doc.markSaved();
+    await versionsSettle();
+    expect(await count()).toBe(1);
+    add(createPath(rectangle(0, 0, 10, 10), true));
+    doc.markSaved();
+    await versionsSettle();
+    expect(await count()).toBe(2);
+    // A shared document counts as saved each time the server has every edit (every few seconds).
+    const shared = app.newDocument({ name: 'Team' });
+    shared.file = { kind: 'shared', name: 'Team', server: 'https://x.puter.work', room: 'r1' };
+    const sharedCount = async () => (await app.versions.list(versionKey(shared))).length;
+    const layer = shared.targetLayer().id;
+    for (let i = 0; i < 3; i++) {
+      shared.doc.transact('Add', () => shared.doc.insert(createPath(rectangle(i, 0, 10, 10), true), layer));
+      shared.doc.markSaved();
+      await versionsSettle();
+    }
+    expect(await sharedCount()).toBe(1);
+    const now = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(now + SHARED_VERSION_MS + 1000);
+    try {
+      shared.doc.transact('Add', () => shared.doc.insert(createPath(rectangle(50, 0, 10, 10), true), layer));
+      shared.doc.markSaved();
+      await versionsSettle();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await sharedCount()).toBe(2);
   });
 
   it('templates and versions do not pass on the identity of the document they came from', async () => {
