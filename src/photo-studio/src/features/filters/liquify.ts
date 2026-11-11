@@ -416,6 +416,7 @@ class LiquifyWorkspace {
     if (this.history.length > 8) this.history.shift();
   }
   private undo() {
+    this.endReconstruct();
     const h = this.history.pop();
     if (!h) return;
     this.field.dx.set(h.dx);
@@ -474,7 +475,10 @@ class LiquifyWorkspace {
         this.zoomAt(this.zoom * (ev.altKey ? 0.5 : 2), p.sx, p.sy);
         return;
       }
-      if (tool !== 'hand') this.snapshot();
+      if (tool !== 'hand') {
+        this.endReconstruct();
+        this.snapshot();
+      }
       stroke = { x: p.x, y: p.y, tool, sx: ev.clientX, sy: ev.clientY, ox: this.ox, oy: this.oy, pressure: pressureOf(ev), timer: 0 };
       if (tool !== 'hand') {
         this.dab(stroke.tool, p.x, p.y, 0, 0, stroke.pressure);
@@ -602,8 +606,16 @@ class LiquifyWorkspace {
     }
   }
   private reconstructBase?: { dx: Float32Array; dy: Float32Array };
+  /** Keep the reconstruction being previewed (its OK): later edits build on
+   * it, so the Amount slider can no longer rewind them. */
+  private endReconstruct() {
+    if (!this.reconstructBase) return;
+    this.reconstructBase = undefined;
+    this.dialog.querySelector<HTMLElement>('.lq-reconstruct')!.hidden = true;
+  }
   private action(act: string) {
     const box = this.dialog.querySelector<HTMLElement>('.lq-reconstruct')!;
+    if (!act.startsWith('reconstruct-') && !act.startsWith('zoom') && act !== 'fit') this.endReconstruct();
     switch (act) {
       case 'reconstruct':
         this.snapshot();
@@ -612,8 +624,7 @@ class LiquifyWorkspace {
         this.previewReconstruct(Number(this.dialog.querySelector<HTMLInputElement>('#lq-amount')!.value) / 100);
         break;
       case 'reconstruct-ok':
-        box.hidden = true;
-        this.reconstructBase = undefined;
+        this.endReconstruct();
         break;
       case 'reconstruct-cancel':
         if (this.reconstructBase) {
