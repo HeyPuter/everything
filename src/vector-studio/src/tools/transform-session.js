@@ -7,6 +7,7 @@
  * the Rotate / Reflect / Scale / Shear tools and Free Transform.
  */
 import { collectOriginals, transformFromOriginals } from '../model/geometry.js';
+import { duplicateNodes } from '../ops/layer-ops.js';
 
 /**
  * Above this many nodes a drag previews the transform as a bitmap and
@@ -108,17 +109,8 @@ function isIdentityish(m) {
  * transaction and select the copies. Returns the new ids.
  */
 export function duplicateInPlace(editor, ids) {
-  const doc = editor.doc;
-  const out = [];
-  for (const id of ids) {
-    const node = doc.get(id);
-    if (!node) continue;
-    const parent = doc.get(node.parent);
-    const index = parent.children.indexOf(id) + 1;
-    const { node: copy, descendants } = doc.cloneSubtree(id);
-    doc.insert(copy, parent.id, index, descendants);
-    out.push(copy.id);
-  }
+  // One pass per container: inserting each copy at its index is quadratic with thousands of objects.
+  const out = duplicateNodes(editor.doc, ids);
   editor.select(out);
   return out;
 }
