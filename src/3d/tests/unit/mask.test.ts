@@ -118,3 +118,27 @@ describe('removing mask points', () => {
     expect(layer.shape_keys).toEqual([]);
   });
 });
+
+describe('mask shape keys across topology edits', () => {
+  it('keeps the animation when points or splines are added', () => {
+    const layer = newLayer('L');
+    layer.splines.push(G.squareSpline(0.5, 0.5, 0.1));
+    G.insertShapeKey(layer, 1);
+    for (const p of layer.splines[0].points) p.co = [p.co[0] + 0.2, p.co[1]];
+    G.insertShapeKey(layer, 20);
+    // frame 1 is current: the points show their frame-1 positions
+    G.applyData(layer, G.keyedData(layer, 1)!);
+    const before = G.keyedPoints(layer);
+    G.insertPoint(layer.splines[0], 0, 0.5);
+    layer.splines.push(G.circleSpline(0.2, 0.8, 0.05));
+    G.remapShapeKeys(layer, before);
+    expect(layer.shape_keys.map((k) => k.data.length)).toEqual([9 * 7, 9 * 7]);
+    // the square still slides right; the inserted point slides with its neighbours
+    const at20 = G.layerAt(layer, 20).splines;
+    expect(at20[0].points[0].co[0]).toBeCloseTo(0.6, 6);
+    expect(at20[0].points[1].co[0]).toBeCloseTo(0.7, 6);
+    expect(at20[0].points[1].co[1]).toBeCloseTo(0.4, 6);
+    // the new spline stays where it was added
+    expect(at20[1].points[0].co[0]).toBeCloseTo(0.25, 6);
+  });
+});

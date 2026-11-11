@@ -3,7 +3,7 @@
 // shape key feather reset / re-key tools.
 import { app, registerOperators, type OpContext } from '../app/app';
 import { activeLayer, newPoint, type MaskData, type MaskLayer, type MaskPoint } from './types';
-import { insertPoint, layerData, recalcHandles } from './geom';
+import { insertPoint, keyedPoints, layerData, recalcHandles, remapShapeKeys } from './geom';
 import { allPoints, aspectOf, deselectAll, hitSegment, hostMask, m2s, s2m, selectedPoints, updateHandles } from './clipmask';
 import { maskEditor } from './maskops';
 
@@ -289,8 +289,12 @@ function selectExec(_ctx: OpContext, p: Record<string, unknown>) {
 
 function addVertexExec(p: Record<string, unknown>) {
   const ed = maskEditor()!;
+  const layer = activeLayer(mask());
+  const before = layer ? keyedPoints(layer) : [];
   const pt = addVertexAt(mask(), p.location as V, aspectOf(ed));
   if (!pt) return 'CANCELLED';
+  // the layer's animation gets the new point
+  if (layer) remapShapeKeys(layer, before);
   refresh();
   return 'FINISHED';
 }

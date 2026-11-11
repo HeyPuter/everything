@@ -5,7 +5,7 @@ import { openPie } from '../ui/menu';
 import { uid } from '../data/defaults';
 import type { MaskData, MaskHandleType, MaskLayer, MaskPoint, MaskSpline } from './types';
 import { maskTable, newMask, newLayer, activeLayer } from './types';
-import { recalcHandles, switchDirection, makeConsistent, circleSpline, squareSpline, insertShapeKey, keyedData, applyData, removePoints } from './geom';
+import { recalcHandles, switchDirection, makeConsistent, circleSpline, squareSpline, insertShapeKey, keyedData, applyData, removePoints, keyedPoints, remapShapeKeys } from './geom';
 import { hostMask, selectedPoints, allPoints, deselectAll, aspectOf, m2s, s2m, selectWhere, updateHandles, type MaskHost } from './clipmask';
 import { currentClipEditor } from '../tracking/editor';
 import { activeTrack, markerAt, sceneToClipFrame } from '../tracking/types';
@@ -384,13 +384,14 @@ const ops: Operator[] = [
     exec: () => {
       const m = curMask();
       const layer = activeLayer(m)!;
+      const before = keyedPoints(layer);
       deselectAll(m);
       for (const s of clipboard!) {
         const c = structuredClone(s);
         for (const p of c.points) p.select = true;
         layer.splines.push(c);
       }
-      layer.shape_keys = [];
+      remapShapeKeys(layer, before);
       layer.active_spline = layer.splines.length - 1;
       done();
     },
@@ -403,13 +404,14 @@ const ops: Operator[] = [
     exec: () => {
       const m = curMask();
       const sel = selectedSplines(m);
+      const before = new Map(m.layers.map((l) => [l, keyedPoints(l)]));
       deselectAll(m);
       for (const { layer, spline } of sel) {
         const c = structuredClone(spline);
         for (const p of c.points) p.select = true;
         layer.splines.push(c);
-        layer.shape_keys = [];
       }
+      for (const [l, pts] of before) remapShapeKeys(l, pts);
       done();
     },
   },
@@ -474,16 +476,16 @@ const ops: Operator[] = [
         target = m.layers.length - 1;
       }
       const dest = m.layers[target];
+      const before = new Map(m.layers.map((l) => [l, keyedPoints(l)]));
       let n = 0;
       for (const { layer, spline } of selectedSplines(m)) {
         if (layer === dest) continue;
         layer.splines.splice(layer.splines.indexOf(spline), 1);
-        layer.shape_keys = [];
         dest.splines.push(spline);
         n++;
       }
       if (!n) return 'CANCELLED';
-      dest.shape_keys = [];
+      for (const [l, pts] of before) remapShapeKeys(l, pts);
       m.active_layer_index = target;
       done();
     },
@@ -631,11 +633,12 @@ function addPrimitive(make: (x: number, y: number, r: number, aspect: number) =>
   const layer = activeLayer(m)!;
   const [x, y] = p.location as V;
   const sp = make(x, y, (p.size as number) / 2, aspectOf(ed));
+  const before = keyedPoints(layer);
   deselectAll(m);
   for (const q of sp.points) q.select = true;
   layer.splines.push(sp);
   layer.active_spline = layer.splines.length - 1;
-  layer.shape_keys = [];
+  remapShapeKeys(layer, before);
   done();
 }
 
