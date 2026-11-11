@@ -41,7 +41,7 @@ import { curlQuotes } from '../../imaging/text/quotes';
 import { prefetchGlyphMaps, protectGlyphs } from './glyph-guard';
 import type { TextLayout } from '../../imaging/text/layout';
 import { commitSelectionMask } from '../selection';
-import { editable, insertLayer, layoutOf, localBounds, localScale, ppiOf, replaceLayer, textCoverage, toDoc, toLocal, unwarpLocal } from './text-utils';
+import { editable, forgetLayout, insertLayer, layoutOf, localBounds, localScale, ppiOf, replaceLayer, textCoverage, toDoc, toLocal, unwarpLocal } from './text-utils';
 
 // `place`: the layer's placement, which Mod-dragging the text changes.
 type Snapshot = { data: TextLayerData; anchor: number; focus: number; place: Placement };
@@ -203,6 +203,22 @@ function scheduleUpdate(e: Editor) {
   }, 300);
 }
 
+// Editing waits for the text's fonts, but not for a stalled download: after
+// a moment the caret follows a fallback face, and the text is measured
+// again once the font arrives.
+const FONT_WAIT_MS = 3000;
+async function fontsReady(e: Editor, data: TextLayerData): Promise<void> {
+  const ready = prepareFonts(data);
+  let timer = 0;
+  const late = await Promise.race([ready.then(() => false), new Promise<boolean>((r) => (timer = window.setTimeout(() => r(true), FONT_WAIT_MS)))]);
+  clearTimeout(timer);
+  if (late)
+    void ready.then(() => {
+      forgetLayout();
+      if (session) render(e);
+    });
+}
+
 export type StartNew = { x: number; y: number; box?: Rect; vertical: boolean; mask: boolean; path?: TypePath };
 // Starting is asynchronous (fonts load first); overlapping requests, such
 // as a double-click that also reaches the layer list, start only once.
@@ -239,7 +255,7 @@ async function beginNew(e: Editor, opt: StartNew) {
       data.box = { width: Math.max(1, Math.max(...xs) - data.origin.x), height: Math.max(1, Math.max(...ys) - data.origin.y) };
     }
   }
-  await prepareFonts(data);
+  await fontsReady(e, data);
   const l = newLayer('text', 'Text', 1, 1);
   l.textData = data;
   l.color = e.color;
@@ -284,7 +300,7 @@ async function beginEdit(e: Editor, id: string, at?: { x: number; y: number } | 
   }
   const ppi = ppiOf(e);
   const l = editable(l0, ppi);
-  await prepareFonts(l.textData);
+  await fontsReady(e, l.textData);
   const before = e.doc;
   // Legacy layers get engine data in place (their placement is unchanged).
   const draft = replaceLayer(before, id, () => l);
@@ -587,7 +603,7 @@ export async function applyChar(e: Editor, patch: Partial<CharStyle>) {
   if (s) {
     if (patch.family || patch.weight || patch.italic !== undefined) {
       const probe = { ...charStyleAt(s.data.content, s.focus), ...patch };
-      await prepareFonts({ ...s.data, content: fromPlainText('x', probe) });
+      await fontsReady(e, { ...s.data, content: fromPlainText('x', probe) });
       if (session !== s) return;
     }
     const [a, b] = ordered(s);

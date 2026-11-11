@@ -97,3 +97,18 @@ test('moving text with Mod-drag while editing is undoable and kept on commit', a
   expect(await place()).toEqual([x0 + 60, y0 + 50]);
   expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(['Type Tool', 'Edit Type Layer']);
 });
+
+test('a stalled font download does not stop text editing', async ({ page }) => {
+  // Font files never arrive; new text uses a bundled family that has not loaded yet.
+  await page.route('**/*.woff2', () => {});
+  await page.evaluate(() => {
+    const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+    const d = m.typeDefaults(window.photoStudio);
+    d.style = { ...d.style, family: 'Crimson Pro' };
+  });
+  const [cx, cy] = await page.evaluate(() => window.photoStudio.clientPoint(100, 100));
+  await page.mouse.click(cx, cy);
+  await page.waitForFunction(() => !!(window as unknown as { photoStudioType: { session?: unknown } }).photoStudioType.session, null, { timeout: 20_000 });
+  await page.keyboard.type('ab');
+  expect((await caret(page)).text).toBe('ab');
+});
