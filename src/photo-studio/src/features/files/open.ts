@@ -373,8 +373,13 @@ async function rasterizeSvg(blob: Blob): Promise<RGBA8> {
     const img = new Image();
     img.src = url;
     await img.decode();
-    const w = Math.min(8192, img.naturalWidth || 1024),
-      h = Math.min(8192, img.naturalHeight || 1024);
+    // Larger drawings are scaled down to the document limits, keeping
+    // their proportions.
+    const nw = img.naturalWidth || 1024,
+      nh = img.naturalHeight || 1024;
+    const k = Math.min(1, documentLimits.maxSide / nw, documentLimits.maxSide / nh, Math.sqrt(documentLimits.maxPixels / (nw * nh)));
+    const w = Math.max(1, Math.floor(nw * k)),
+      h = Math.max(1, Math.floor(nh * k));
     const canvas = new OffscreenCanvas(w, h);
     const c = canvas.getContext('2d')!;
     c.drawImage(img, 0, 0, w, h);

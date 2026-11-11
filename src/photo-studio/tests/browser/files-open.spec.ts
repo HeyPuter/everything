@@ -53,3 +53,17 @@ test('PSD files and projects open by their contents whatever their extension', a
   await idle(page);
   await expect(page.locator('#status')).toHaveText('Opened renamed.psd');
 });
+
+test('a large SVG opens scaled to fit the document limits without distortion', async ({ page }) => {
+  await boot(page);
+  const svg = (w: number, h: number) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w / 2}" height="${h}" fill="#f00"/><rect x="${w / 2}" width="${w / 2}" height="${h}" fill="#00f"/></svg>`);
+  await page.locator('#file-input').setInputFiles({ name: 'poster.svg', mimeType: 'image/svg+xml', buffer: svg(20000, 10000) });
+  await expect.poll(() => fileNames(page)).toEqual(['poster.svg']);
+  await idle(page);
+  // 24 megapixels at 2:1.
+  expect(await page.evaluate(() => [window.photoStudio.doc.width, window.photoStudio.doc.height])).toEqual([6928, 3464]);
+  await page.locator('#file-input').setInputFiles({ name: 'banner.svg', mimeType: 'image/svg+xml', buffer: svg(16000, 2000) });
+  await expect.poll(() => fileNames(page)).toHaveLength(2);
+  await idle(page);
+  expect(await page.evaluate(() => [window.photoStudio.doc.width, window.photoStudio.doc.height])).toEqual([8192, 1024]);
+});
