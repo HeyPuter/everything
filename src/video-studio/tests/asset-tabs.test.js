@@ -57,6 +57,18 @@ describe('assets panel tab row', () => {
   const tabs = () => [...panel.el.querySelectorAll('.asset-tabs .tab')];
   const more = () => panel.el.querySelector('.asset-tabs-more');
 
+  it('heads the panel with the open tab, so group headings follow in order', () => {
+    const level = (el) => Number(el.tagName[1]);
+    const h2 = panel.el.querySelector('h2');
+    expect(h2.textContent).toBe('Media');
+    panel.show('stickers');
+    expect(h2.textContent).toBe('Graphics');
+    const heads = [...panel.el.querySelectorAll('h1, h2, h3, h4, h5, h6')];
+    expect(heads[0]).toBe(h2);
+    for (let i = 1; i < heads.length; i++) expect(level(heads[i]) - level(heads[i - 1])).toBeLessThanOrEqual(1);
+    expect(heads.length).toBeGreaterThan(1);
+  });
+
   it('has every category as a tab with an icon over its label', () => {
     expect(tabs().map((t) => t.textContent)).toEqual(ASSET_TABS.map((t) => t.label));
     for (const t of tabs()) expect(t.querySelector('svg + .tab-label, .icon + .tab-label')).toBeTruthy();

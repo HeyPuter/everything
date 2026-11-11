@@ -58,7 +58,10 @@ export function createAssetsPanel(ctx) {
     bar.buttons.find((b) => b.id === `tab-${t.id}`)?.focus();
   } })), { label: 'More categories', align: 'end' });
   const tabsBar = h('div.asset-tabs-bar', scroller, more);
-  const el = h('section.panel.assets-panel', { 'aria-label': 'Media and assets' }, tabsBar, body);
+  // The open tab's name as the panel's heading (for screen readers), so the tabs'
+  // own group headings (h3) follow an h2 as in the Player and Details panels.
+  const heading = h('h2.sr-only.assets-heading');
+  const el = h('section.panel.assets-panel', { 'aria-label': 'Media and assets' }, heading, tabsBar, body);
 
   /**
    * Show every tab at their natural width when they fit; else tighter
@@ -108,6 +111,7 @@ export function createAssetsPanel(ctx) {
     // A tab picked from More takes a place in the row.
     if (bar.buttons.find((b) => b.id === `tab-${id}`)?.hidden) fit();
     body.setAttribute('aria-labelledby', `tab-${id}`);
+    heading.textContent = ASSET_TABS.find((t) => t.id === id).label;
     tab.shown?.();
   }
   show(current);
