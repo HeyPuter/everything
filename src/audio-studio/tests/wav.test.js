@@ -47,6 +47,12 @@ describe('wav', () => {
     expect(Array.from(r.channels[0])).toEqual([0.5, -0.25, 0]);
     expect(r.bitDepth).toBe(24);
   });
+  it('reads BW64 files like RF64', async () => {
+    const blob = encodeWav({ sampleRate: 48000, channels: [Float32Array.of(0.5, -0.5)], bitDepth: 16, dither: false });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    bytes.set([0x42, 0x57, 0x36, 0x34]); // "BW64"
+    expect(Array.from(parseWav(bytes.buffer).channels[0])).toEqual([0.5, -0.5]);
+  });
   it('rejects non-WAV data', () => {
     expect(() => parseWav(new ArrayBuffer(64))).toThrow();
   });

@@ -17,7 +17,8 @@ export function isWav(buffer) {
   if (buffer.byteLength < 12) return false;
   const dv = new DataView(buffer);
   const riff = ascii(dv, 0, 4);
-  return (riff === 'RIFF' || riff === 'RF64') && ascii(dv, 8, 4) === 'WAVE';
+  // BW64 (ITU-R BS.2088, broadcast/ADM files) is laid out like RF64.
+  return (riff === 'RIFF' || riff === 'RF64' || riff === 'BW64') && ascii(dv, 8, 4) === 'WAVE';
 }
 
 /** @returns {{ sampleRate, channels: Float32Array[], bitDepth, float, markers: object[] }} */

@@ -26,7 +26,7 @@ const str = (b, o, n) => {
 export function probeAudio(head, size, tail = null) {
   const dv = new DataView(head.buffer, head.byteOffset, head.byteLength);
   const id = str(head, 0, 4);
-  if ((id === 'RIFF' || id === 'RF64') && str(head, 8, 4) === 'WAVE') {
+  if ((id === 'RIFF' || id === 'RF64' || id === 'BW64') && str(head, 8, 4) === 'WAVE') {
     let o = 12;
     let fmt = null;
     let ds64 = null;
