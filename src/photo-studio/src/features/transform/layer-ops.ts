@@ -3,7 +3,7 @@
 import type { Editor } from '../../editor';
 import { allLayers, findLayer, mapDocumentGeometry, type Layer, type PhotoDocument } from '../../model/document';
 import { assertEditable } from '../../model/layers';
-import { setLayerPixels, setLivePixels, setPixelResampleMethod } from '../../model/pixel-layer';
+import { carryMask, setLayerPixels, setLivePixels, setPixelResampleMethod } from '../../model/pixel-layer';
 import { transformVideo } from '../../model/video-layer';
 import { emptyGrid, gridDocBounds, gridFromImage, readMask, readRGBA, TILE, writeRect, parseKey, type TileGrid, type TileStore } from '../../model/tiles';
 import { applySelection, selectionGrid } from '../../model/selection';
@@ -358,7 +358,7 @@ export async function transformAgain(e: Editor) {
   const affine = isAffine(t.matrix);
   const params = affine ? paramsFromAffine(t.matrix, { x: 0, y: 0, width: 1, height: 1 }, { x: 0, y: 0 }) : undefined;
   const similar = !!params && !t.unitMesh && Math.abs(params.skewX) < 1e-6 && Math.abs(Math.abs(params.sx) - Math.abs(params.sy)) < 1e-6 && params.sy > 0;
-  const updates = new Map<string, { pixels?: TileGrid; video?: boolean; toPixel?: boolean; transform?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } }>();
+  const updates = new Map<string, { pixels?: TileGrid; mask?: TileGrid; vectorMask?: boolean; video?: boolean; toPixel?: boolean; transform?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } }>();
   const skipped: string[] = [];
   const warpedVideo: string[] = [];
   for (const l of allLayers(roots).filter((l) => l.kind !== 'group')) {
@@ -392,8 +392,18 @@ export async function transformAgain(e: Editor) {
     const quad = mapQuad(t.matrix, frame);
     // A mesh is replayed relative to the frame of the source rectangle.
     const mesh = t.unitMesh ? meshFromUnit(t.unitMesh, rect, quad) : undefined;
-    const r = renderFrame(src, rect, quad, mesh, { method, exact: true, doc: e.doc });
-    updates.set(l.id, { pixels: r ? gridFromImage(store, r.image, r.rect.x, r.rect.y) : emptyGrid(4), video: !!l.video });
+    const render = (img: RGBA8) => renderFrame(img, rect!, quad, mesh, { method, exact: true, doc: e.doc });
+    const r = render(src);
+    // A linked layer mask (and vector mask) follows the pixels, as in the
+    // transform being repeated.
+    const mask =
+      l.maskGrid && !l.maskUnlinked
+        ? carryMask(store, l.maskGrid, rect, (img) => {
+            const out = render(img);
+            return out && { image: out.image, x: out.rect.x, y: out.rect.y };
+          })
+        : undefined;
+    updates.set(l.id, { pixels: r ? gridFromImage(store, r.image, r.rect.x, r.rect.y) : emptyGrid(4), mask, vectorMask: !!l.vectorMask && !l.vectorMask.unlinked && !mesh, video: !!l.video });
   }
   if (warpedVideo.length) e.message(`Video layers cannot be warped (skipped: ${warpedVideo.join(', ')}); rasterize them first.`);
   if (!updates.size) {
@@ -410,6 +420,15 @@ export async function transformAgain(e: Editor) {
       if (u.video && l.video) l.video = transformVideo(l.video, t.matrix);
       if (u.pixels) setLayerPixels(l, u.pixels, d);
       else if (u.transform) moveTransform(l, t.matrix);
+      if (u.mask) l.maskGrid = u.mask;
+      if (u.vectorMask && l.vectorMask) {
+        const mask = structuredClone(l.vectorMask.mask);
+        mapMaskPoints(mask, (x, y) => {
+          const q = applyMat3(t.matrix, x, y);
+          return [q.x, q.y];
+        });
+        l.vectorMask = { ...l.vectorMask, mask };
+      }
     }
   });
   if (skipped.length) e.message(`Skipped type and shape layers: ${skipped.join(', ')}.`);
