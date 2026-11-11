@@ -227,14 +227,14 @@ export class Library extends Emitter {
   /** Delete every project in the Trash for good. Returns the ids removed. */
   async emptyTrash() {
     const ids = (await this.listTrash()).map((p) => p.id);
-    for (const id of ids) await this.deleteProject(id);
+    await this._deleteProjects(ids);
     return ids;
   }
 
   /** Delete projects that have been in the Trash longer than maxAge (default 30 days). */
   async purgeTrash({ now = Date.now(), maxAge = TRASH_DAYS * DAY } = {}) {
     const old = (await this.listTrash()).filter((p) => now - p.deletedAt >= maxAge).map((p) => p.id);
-    for (const id of old) await this.deleteProject(id);
+    await this._deleteProjects(old);
     return old;
   }
 
@@ -254,9 +254,60 @@ export class Library extends Emitter {
 
   /** Delete a project for good (its media stays: other projects may use it). */
   async deleteProject(id) {
-    await this.backend.remove(`projects/${id}.json`);
-    await this.backend.remove(`covers/${id}.jpg`).catch(() => {});
-    await this._updateIndex((list) => list.filter((p) => p.id !== id));
+    await this._deleteProjects([id]);
+  }
+
+  async _deleteProjects(ids) {
+    const gone = [];
+    for (const id of ids) {
+      // What it used, to let go of cached copies afterwards.
+      if (this.cache) gone.push(await this.openProject(id).catch(() => null));
+      await this.backend.remove(`projects/${id}.json`);
+      await this.backend.remove(`covers/${id}.jpg`).catch(() => {});
+      await this._updateIndex((list) => list.filter((p) => p.id !== id));
+    }
+    if (gone.some(Boolean)) this.cacheCleanup = this._dropCached(gone.filter(Boolean)).catch(() => {});
+  }
+
+  /**
+   * Remove the cached copies (this browser's copies of cloud media) of media
+   * that projects deleted for good used and no other project uses. When any
+   * other project can't be read, nothing is removed.
+   */
+  async _dropCached(projects) {
+    const paths = new Set();
+    for (const p of projects) for (const a of Object.values(p.assets || {})) if (a.hash) paths.add(this.mediaPath(a));
+    if (!paths.size) return;
+    for (const e of await this._readIndex()) {
+      const p = await this.openProject(e.id);
+      for (const a of Object.values(p.assets)) paths.delete(this.mediaPath(a));
+    }
+    for (const path of paths) await this.cache.remove(path).catch(() => {});
+  }
+
+  /** Media files cached in this browser: { files, bytes } (zero without a cache). */
+  async cacheUsage() {
+    if (!this.cache) return { files: 0, bytes: 0 };
+    const files = (await this.cache.list('media')).filter((f) => !f.isDir);
+    return { files: files.length, bytes: files.reduce((n, f) => n + (f.size || 0), 0) };
+  }
+
+  /**
+   * Delete this browser's copies of cloud media (they are read from the
+   * cloud again when needed). Files the open project holds right now stay.
+   * Returns how many were deleted.
+   */
+  async clearCache() {
+    if (!this.cache) return 0;
+    let n = 0;
+    for (const f of await this.cache.list('media')) {
+      if (f.isDir) continue;
+      const hash = f.name.replace(/\.[^.]*$/, '');
+      if (this.blobs.has(hash) || this.reads.has(hash) || this.uploads.has(hash)) continue;
+      await this.cache.remove(`media/${f.name}`).catch(() => {});
+      n++;
+    }
+    return n;
   }
 
   async saveCover(id, blob) {

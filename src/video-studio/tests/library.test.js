@@ -459,6 +459,59 @@ describe('Library media', () => {
   });
 });
 
+describe('Library media cache', () => {
+  async function setup() {
+    const cache = memoryBackend();
+    const lib = new Library(memoryBackend(), { cache });
+    const add = async (p, name, bytes) => {
+      const a = await lib.addMediaBlob({ kind: 'image', name, ext: 'png', mime: 'image/png', width: 2, height: 2 }, new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+      p.assets[a.id] = a;
+      return a;
+    };
+    const a = createProject({ name: 'A' });
+    const b = createProject({ name: 'B' });
+    const onlyA = await add(a, 'only-a.png', [1]);
+    const shared = await add(a, 'shared.png', [2]);
+    b.assets[shared.id] = { ...shared };
+    await lib.saveProject(a);
+    await lib.saveProject(b);
+    lib.releaseMedia();
+    return { lib, cache, a, b, onlyA, shared };
+  }
+  const cached = (cache) => [...cache.files.keys()].filter((k) => k.startsWith('media/')).sort();
+
+  it('drops cached copies of media only a project deleted for good used', async () => {
+    const { lib, cache, a, onlyA, shared } = await setup();
+    expect(cached(cache)).toEqual([lib.mediaPath(onlyA), lib.mediaPath(shared)].sort());
+    await lib.trashProject(a.id);
+    await lib.emptyTrash();
+    await lib.cacheCleanup;
+    expect(cached(cache)).toEqual([lib.mediaPath(shared)]);
+    // The media itself stays in storage.
+    expect(lib.backend.files.has(lib.mediaPath(onlyA))).toBe(true);
+  });
+
+  it('keeps cached copies when another project could not be read', async () => {
+    const { lib, cache, a, b } = await setup();
+    lib.backend.files.set(`projects/${b.id}.json`, '{"oops');
+    const before = cached(cache);
+    await lib.trashProject(a.id);
+    await lib.deleteProject(a.id);
+    await lib.cacheCleanup;
+    expect(cached(cache)).toEqual(before);
+  });
+
+  it('reports and clears the cache, keeping files the open project has in memory', async () => {
+    const { lib, cache, onlyA, shared } = await setup();
+    expect(await lib.cacheUsage()).toMatchObject({ files: 2 });
+    await lib.mediaBlob(shared);
+    expect(await lib.clearCache()).toBe(1);
+    expect(cached(cache)).toEqual([lib.mediaPath(shared)]);
+    // Read again from storage when needed.
+    expect(await lib.mediaBlob(onlyA)).toBeTruthy();
+  });
+});
+
 describe('Library LUTs', () => {
   const cube = (title) => new File([`TITLE "${title}"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n${title.length % 2} 1 1\n`], `${title}.cube`);
 

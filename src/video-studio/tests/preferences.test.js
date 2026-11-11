@@ -99,3 +99,24 @@ describe('theme in two tabs', () => {
     setTheme('dark');
   });
 });
+
+describe('media copies in preferences', () => {
+  it('shows the cloud media copies on this device and deletes them', async () => {
+    const { ctx } = setup();
+    const { Library } = await import('../src/storage/library.js');
+    const { memoryBackend } = await import('../src/storage/backends.js');
+    const cache = memoryBackend({ 'media/h1.mp4': new Blob(['a']), 'media/h2.mp4': new Blob(['b']) });
+    ctx.library = new Library(memoryBackend(), { cache });
+    const d = openPreferences(ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    const row = [...document.querySelectorAll('.pref-row')].find((r) => r.textContent.includes('Media copies'));
+    expect(row.querySelector('.cache-usage').textContent).toMatch(/^2 files/);
+    row.querySelector('button').click();
+    await new Promise((r) => setTimeout(r, 0));
+    [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Delete').click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect([...cache.files.keys()]).toEqual([]);
+    expect(row.querySelector('.cache-usage').textContent).toBe('No media copies on this device.');
+    d.close();
+  });
+});
