@@ -502,9 +502,13 @@ describe('FileService', () => {
     expect(await svc.openPath('/u/a.vstudio')).toBe(ed);
     expect(app.editors).toHaveLength(1);
     await recent.add({ kind: 'puter', path: '/u/gone.vstudio', name: 'gone.vstudio' });
+    // The home screen listing it is redrawn without it.
+    app.home = { hidden: false };
+    app.renderHome = vi.fn();
     expect(await svc.openPath('/u/gone.vstudio')).toBe(null);
     expect(app.dialogs.alert).toHaveBeenCalled();
     expect(recent.list().some((e) => e.name === 'gone.vstudio')).toBe(false);
+    expect(app.renderHome).toHaveBeenCalledWith(app.home);
   });
 
   it('explains when SVG import is unavailable and uses it when present', async () => {

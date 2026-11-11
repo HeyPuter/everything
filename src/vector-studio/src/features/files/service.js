@@ -540,6 +540,7 @@ export class FileService {
       if (info.kind === 'missing') {
         await this.app.dialogs.alert({ title: 'File Not Found', message: `"${name}" could not be found. It may have been moved, renamed or deleted.` });
         await this.recent?.remove({ kind: 'puter', path });
+        this.#refreshHome();
       } else await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${name}" could not be opened. ${info.message}` });
       return null;
     }
@@ -653,6 +654,7 @@ export class FileService {
       if (!handle) {
         await this.recent?.remove(entry);
         await this.app.dialogs.alert({ title: 'File Not Available', message: `"${entry.name}" can no longer be opened from here. Use Open to choose it again.` });
+        this.#refreshHome();
         return null;
       }
       const existing = this.findOpen({ kind: 'local', handleId: entry.handleId });
@@ -669,11 +671,17 @@ export class FileService {
         if (isMissing(err)) {
           await this.recent?.remove(entry);
           await this.app.dialogs.alert({ title: 'File Not Found', message: `"${entry.name}" could not be found. It may have been moved or deleted.` });
+          this.#refreshHome();
         } else await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${entry.name}" could not be opened. ${errorText(err)}` });
         return null;
       }
     }
     return null;
+  }
+
+  /** Redraw the home screen (Recent, Your files) after a listed file turned out to be gone. */
+  #refreshHome() {
+    if (this.app.home && !this.app.home.hidden) this.app.renderHome?.(this.app.home);
   }
 
   // ---- revert ----
