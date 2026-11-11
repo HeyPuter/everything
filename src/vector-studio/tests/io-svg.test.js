@@ -590,6 +590,39 @@ describe('effects in SVG export', () => {
     expect(back.effects).toEqual([{ type: 'innerGlow', mode: 'normal', opacity: 1, blur: 8, color: '#003366', source: 'edge' }]);
   });
 
+  it('keeps effects on scaled images and turned type in document units', async () => {
+    const { createImage, createText } = await import('../src/model/nodes.js');
+    const doc = VDocument.create({ width: 120, height: 120 });
+    const layer = doc.layers()[0].id;
+    const shadow = { type: 'dropShadow', x: 6, y: 6, blur: 4, color: '#000000', opacity: 0.75 };
+    doc.assets.set('a1', { data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEBgIApD5fRAAAAABJRU5ErkJggg==', width: 2, height: 2 });
+    doc.transact('add', () => {
+      doc.insert(createImage('a1', 2, 2, [30, 0, 0, 30, 20, 20], { name: 'Photo', effects: [shadow] }), layer);
+      doc.insert(createText('Rot', 0, 0, { transform: [0, 1, -1, 0, 50, 20], effects: [shadow] }), layer);
+    });
+    const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 120, h: 120 } });
+    const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    // The filter sits on a group outside the element's transform, so the 6pt offset is not scaled 30x or turned.
+    for (const tag of ['image', 'text']) {
+      const el = parsed.getElementsByTagName(tag)[0];
+      expect(el.getAttribute('filter')).toBeNull();
+      const wrap = el.parentNode;
+      expect(wrap.localName).toBe('g');
+      expect(wrap.getAttribute('transform')).toBeNull();
+      const f = parsed.getElementById(wrap.getAttribute('filter').slice(5, -1));
+      expect(f.getAttribute('filterUnits')).toBe('userSpaceOnUse');
+      expect(f.querySelector('feOffset').getAttribute('dx')).toBe('6');
+    }
+    expect(parsed.getElementsByTagName('image')[0].getAttribute('id')).toBe('Photo');
+    // The filter region covers the shadow (the image spans 20..80).
+    const region = parsed.getElementById(parsed.getElementsByTagName('image')[0].parentNode.getAttribute('filter').slice(5, -1));
+    expect(Number(region.getAttribute('x')) + Number(region.getAttribute('width'))).toBeGreaterThan(80 + 6);
+    // And the effects read back unchanged.
+    const back = svgToDocument(svg).leaves();
+    expect(back.find((n) => n.type === 'image').effects).toEqual([shadow]);
+    expect(back.find((n) => n.type === 'text').effects).toEqual([shadow]);
+  });
+
   it('imports a white mask with a black cut-out as a clipping path with a hole', () => {
     const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
       <mask id="m"><rect width="100" height="100" fill="#fff"/><circle cx="50" cy="50" r="20" fill="#000"/></mask>

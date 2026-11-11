@@ -400,6 +400,8 @@ class Importer {
             break;
           }
         }
+        // The export's wrapper that keeps one element's effects out of its transform: the effects belong to the element.
+        if (ids.length === 1 && el.hasAttribute('data-effects')) break;
         if (ids.length) {
           const g = createGroup(ids, { name: this.nameOf(el) });
           ids = [this.add(g)];

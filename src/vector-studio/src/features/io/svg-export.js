@@ -192,14 +192,14 @@ class SVGWriter {
   }
 
   /** opacity, blend mode and filter attributes. */
-  commonAttrs(node, { filterUnits = 'user' } = {}) {
+  commonAttrs(node, { filterUnits = 'user', pad = 0 } = {}) {
     let out = '';
     if ((node.opacity ?? 1) < 1) out += ` opacity="${this.n(node.opacity)}"`;
     const blend = BLEND_CSS[node.blendMode];
     // Isolate Blending keeps the group's blending inside it, like the canvas renderer.
     const css = [blend ? `mix-blend-mode:${blend}` : '', node.isolate && node.type === 'group' ? 'isolation:isolate' : ''].filter(Boolean).join(';');
     if (css) out += ` style="${css}"`;
-    const fx = this.filterDef(node, filterUnits);
+    const fx = this.filterDef(node, filterUnits, pad);
     if (fx) out += ` filter="url(#${fx})"`;
     for (const hook of svgExportHooks.attrs) out += hook(node, this) || '';
     return out;
@@ -209,9 +209,10 @@ class SVGWriter {
    * Live effects as one SVG filter, in the renderer's order: content effects
    * (Gaussian Blur, Feather, Inner Glow) in stacking order, then Drop Shadow
    * and Outer Glow behind the final content. Canvas shadow blur b equals a
-   * Gaussian with standard deviation b / 2.
+   * Gaussian with standard deviation b / 2. `pad` widens the filter region
+   * (for type, whose glyphs may come out wider in another viewer's font).
    */
-  filterDef(node, units) {
+  filterDef(node, units, pad = 0) {
     const effects = (node.effects || []).filter((e) => e && !e.hidden && ['dropShadow', 'blur', 'outerGlow', 'innerGlow', 'feather'].includes(e.type));
     if (!effects.length) return null;
     const nl = this.nl(2);
@@ -293,7 +294,7 @@ class SVGWriter {
     let region;
     if (units === 'user') {
       const vb = visualBounds(this.doc, node) || nodeBounds(this.doc, node) || { x: 0, y: 0, w: 0, h: 0 };
-      const r = inflate(vb, reach + 2);
+      const r = inflate(vb, reach + 2 + pad);
       const p = this.map(r.x, r.y);
       region = ` filterUnits="userSpaceOnUse" x="${this.n(p.x)}" y="${this.n(p.y)}" width="${this.n(r.w)}" height="${this.n(r.h)}"`;
     } else region = ' x="-50%" y="-50%" width="200%" height="200%"';
@@ -346,7 +347,22 @@ class SVGWriter {
     const sid = this.symbolDef(node.symbol);
     if (!sid) return '';
     this.needsXlink = true;
-    return `${this.nl(depth)}<use xlink:href="#${sid}"${this.nameId(node.name)}${this.matrixAttr(node.transform)}${this.commonAttrs(node)}/>`;
+    return this.withEffects(node, depth, (d, attrs) => `${this.nl(d)}<use xlink:href="#${sid}"${this.nameId(node.name)}${this.matrixAttr(node.transform)}${attrs}/>`);
+  }
+
+  /**
+   * An element with its own transform (image, type, symbol instance): live
+   * effects go on a wrapping group in export space, since a filter on the
+   * element itself works in its scaled or rotated coordinates (the shadow
+   * offset, the blur and the filter region would scale and turn with it,
+   * unlike on the canvas). `write(depth, attrs)` writes the element with
+   * the given opacity/blend attributes.
+   */
+  withEffects(node, depth, write, pad = 0) {
+    if (!this.filterDef(node, 'user', pad)) return write(depth, this.commonAttrs(node));
+    const body = write(depth + 1, '');
+    // data-effects tells the importer that the effects belong to the element, not to a group.
+    return body ? `${this.nl(depth)}<g data-effects=""${this.commonAttrs(node, { pad })}>${body}${this.nl(depth)}</g>` : '';
   }
 
   symbolDef(symbolId) {
@@ -490,14 +506,24 @@ class SVGWriter {
   }
 
   text(node, depth) {
-    const nl = this.nl(depth);
-    const id = this.nameId(node.name);
     const runs = this.o.textMode === 'outlines' ? this.o.outlines?.get(node.id) : null;
     if (runs?.length) {
+      const nl = this.nl(depth);
+      const id = this.nameId(node.name);
       const paths = runs.map((r) => `<path d="${this.d(r.subpaths)}"${this.fillAttrs(node, r.fill)}${this.strokeAttrs({ ...node, stroke: r.stroke, strokeWidth: r.strokeWidth })}`);
       if (paths.length === 1) return `${nl}${paths[0]}${id}${this.commonAttrs(node)}/>`;
       return `${nl}<g${id}${this.commonAttrs(node)}>${paths.map((p) => `${this.nl(depth + 1)}${p}/>`).join('')}${nl}</g>`;
     }
+    // Room for glyphs that come out wider in another viewer's font.
+    const vb = visualBounds(this.doc, node);
+    const pad = vb ? Math.max(vb.w, vb.h) * 0.1 : 0;
+    return this.withEffects(node, depth, (d, attrs) => this.liveText(node, d, attrs), pad);
+  }
+
+  /** Live type as <text>; `attrs` are its opacity, blend and filter attributes. */
+  liveText(node, depth, attrs) {
+    const nl = this.nl(depth);
+    const id = this.nameId(node.name);
     const { mode, items } = textPieces(node);
     if (!items.length) return '';
     const tf = this.matrixAttr(node.transform);
@@ -510,7 +536,7 @@ class SVGWriter {
       const l = langOf(st);
       return l && l !== baseLang ? ` xml:lang="${escapeXml(l)}"` : '';
     };
-    const common = `${this.commonAttrs(node, { filterUnits: 'box' })}${baseLang ? ` xml:lang="${escapeXml(baseLang)}"` : ''}`;
+    const common = `${attrs}${baseLang ? ` xml:lang="${escapeXml(baseLang)}"` : ''}`;
     const barRect = (x, y, w, h, paint, fill, space) => `${d1}<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${this.fillAttrs(node, paint || fill, space)}/>`;
     if (mode === 'segments') {
       // Unscaled pieces share ONE <text> as <tspan>s positioned from the
@@ -569,7 +595,7 @@ class SVGWriter {
     if (!asset?.data) return '';
     this.needsXlink = true;
     const tf = this.matrixAttr(node.transform);
-    return `${this.nl(depth)}<image${this.nameId(node.name)} width="${this.n(node.width)}" height="${this.n(node.height)}"${tf} preserveAspectRatio="none" xlink:href="${escapeXml(asset.data)}"${this.commonAttrs(node, { filterUnits: 'box' })}/>`;
+    return this.withEffects(node, depth, (d, attrs) => `${this.nl(d)}<image${this.nameId(node.name)} width="${this.n(node.width)}" height="${this.n(node.height)}"${tf} preserveAspectRatio="none" xlink:href="${escapeXml(asset.data)}"${attrs}/>`);
   }
 
   clipDef(mask) {
