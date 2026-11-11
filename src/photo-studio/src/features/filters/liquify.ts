@@ -420,8 +420,8 @@ class LiquifyWorkspace {
     if (!h) return;
     this.field.dx.set(h.dx);
     this.field.dy.set(h.dy);
-    if (h.freeze && this.freeze) this.freeze.data.set(h.freeze);
-    else if (!h.freeze) this.freeze = undefined;
+    // The step may have removed the mask (Mask None), so restore it as a whole.
+    this.freeze = h.freeze && { width: this.src.width, height: this.src.height, data: h.freeze };
     this.redraw();
   }
   // ----- Input -----
