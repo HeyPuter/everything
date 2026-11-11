@@ -16,6 +16,10 @@ import {
   wordAt,
   prevWordIndex,
   nextWordIndex,
+  nextCharIndex,
+  prevCharIndex,
+  backspaceIndex,
+  isCaretStop,
   MIXED,
 } from '../src/model/text-runs.js';
 
@@ -145,5 +149,38 @@ describe('case conversion and words', () => {
     expect(prevWordIndex(t, 11)).toBe(7);
     expect(nextWordIndex(t, 0)).toBe(5);
     expect(nextWordIndex(t, 5)).toBe(6);
+  });
+});
+
+describe('user-perceived characters', () => {
+  const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
+  it('steps over emoji, flags and letters with marks as one character', () => {
+    expect(nextCharIndex('a\u{1F600}b', 1)).toBe(3);
+    expect(prevCharIndex('a\u{1F600}b', 3)).toBe(1);
+    expect(nextCharIndex(`x${family}y`, 1)).toBe(9);
+    expect(prevCharIndex(`x${family}y`, 9)).toBe(1);
+    expect(nextCharIndex('x\u{1F1EB}\u{1F1F7}y', 1)).toBe(5);
+    expect(nextCharIndex('cafe\u0301!', 3)).toBe(5);
+    expect(prevCharIndex('cafe\u0301!', 5)).toBe(3);
+    expect(nextCharIndex('ab', 2)).toBe(2);
+    expect(prevCharIndex('ab', 0)).toBe(0);
+    expect(isCaretStop('a\u{1F600}b', 2)).toBe(false);
+    expect(isCaretStop('a\u{1F600}b', 3)).toBe(true);
+  });
+
+  it('Backspace removes a whole emoji but only the last mark of a letter', () => {
+    expect(backspaceIndex(`x${family}y`, 9)).toBe(1);
+    expect(backspaceIndex('x\u{1F44D}\u{1F3FD}y', 5)).toBe(1);
+    expect(backspaceIndex('x\u{1F1EB}\u{1F1F7}y', 5)).toBe(1);
+    expect(backspaceIndex('cafe\u0301', 5)).toBe(4);
+    expect(backspaceIndex('ab', 2)).toBe(1);
+  });
+
+  it('word navigation keeps combining marks in words and emoji whole', () => {
+    expect(wordAt('cafe\u0301 noir', 1)).toEqual([0, 5]);
+    expect(wordAt('\u0928\u092E\u0938\u094D\u0924\u0947 x', 0)).toEqual([0, 6]);
+    expect(nextWordIndex('cafe\u0301 noir', 0)).toBe(5);
+    expect(prevWordIndex('a \u{1F600}', 4)).toBe(2);
+    expect(nextWordIndex('\u{1F600} a', 0)).toBe(2);
   });
 });

@@ -16,7 +16,7 @@
  * canvas (tests, workers) it measures with registered opentype.js fonts,
  * and falls back to an approximation.
  */
-import { styledRuns, paragraphRanges, paraAt, baseStyle } from './text-runs.js';
+import { styledRuns, paragraphRanges, paraAt, baseStyle, clusterAt } from './text-runs.js';
 import { flattenPath, pathBounds } from './bezier.js';
 import { hyphenationOf, hyphenPoints } from './hyphenate.js';
 import { kinsokuAllows, hangsOut, applyMojikumi, isCJKChar } from './cjk.js';
@@ -2274,6 +2274,15 @@ export function indexInLine(lay, li, u) {
     if (d < bestD) {
       bestD = d;
       best = i;
+    }
+  }
+  // Never inside an emoji or between a letter and its marks: the nearer edge of that character.
+  if (lay.text && best > l.start && best < last) {
+    const [a, b] = clusterAt(lay.text, best);
+    if (a < best) {
+      const ia = Math.max(a, l.start);
+      const ib = Math.min(b, last);
+      best = Math.abs(l.xs[ib - l.start] - u) < Math.abs(l.xs[ia - l.start] - u) ? ib : ia;
     }
   }
   return best;

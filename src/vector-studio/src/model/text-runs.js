@@ -442,7 +442,7 @@ export function changeCase(text, mode) {
 export function wordAt(text, i) {
   const s = String(text ?? '');
   if (!s.length) return [0, 0];
-  const isWord = (c) => c !== undefined && /[\p{L}\p{N}_'\u2019-]/u.test(c);
+  const isWord = (c) => c !== undefined && /[\p{L}\p{M}\p{N}_'\u2019-]/u.test(c);
   let a = Math.max(0, Math.min(s.length, i));
   if (!isWord(s[a]) && isWord(s[a - 1])) a--;
   if (!isWord(s[a])) {
@@ -464,8 +464,8 @@ export function prevWordIndex(text, i) {
   const s = String(text ?? '');
   let k = Math.max(0, i);
   while (k > 0 && /\s/.test(s[k - 1])) k--;
-  const isWord = (c) => /[\p{L}\p{N}_'\u2019]/u.test(c);
-  if (k > 0 && !isWord(s[k - 1])) return k - 1;
+  const isWord = (c) => /[\p{L}\p{M}\p{N}_'\u2019]/u.test(c);
+  if (k > 0 && !isWord(s[k - 1])) return prevCharIndex(s, k);
   while (k > 0 && isWord(s[k - 1])) k--;
   return k;
 }
@@ -475,8 +475,64 @@ export function nextWordIndex(text, i) {
   const s = String(text ?? '');
   let k = Math.min(s.length, i);
   while (k < s.length && /\s/.test(s[k])) k++;
-  const isWord = (c) => /[\p{L}\p{N}_'\u2019]/u.test(c);
-  if (k < s.length && !isWord(s[k])) return k + 1;
+  const isWord = (c) => /[\p{L}\p{M}\p{N}_'\u2019]/u.test(c);
+  if (k < s.length && !isWord(s[k])) return nextCharIndex(s, k);
   while (k < s.length && isWord(s[k])) k++;
   return k;
+}
+
+// ---- user-perceived characters (grapheme clusters) ----
+
+const graphemes = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+
+/** [start, end) of the user-perceived character (emoji sequence, base letter plus marks...) containing index i. */
+export function clusterAt(text, i) {
+  const s = String(text ?? '');
+  if (i < 0 || i >= s.length) return [i, i];
+  if (graphemes) {
+    const seg = graphemes.segment(s).containing(i);
+    return [seg.index, seg.index + seg.segment.length];
+  }
+  // No Intl.Segmenter: keep surrogate pairs together.
+  const c = s.charCodeAt(i);
+  if (c >= 0xdc00 && c <= 0xdfff && i > 0 && /[\ud800-\udbff]/.test(s[i - 1])) return [i - 1, i + 1];
+  if (c >= 0xd800 && c <= 0xdbff && /[\udc00-\udfff]/.test(s[i + 1] || '')) return [i, i + 2];
+  return [i, i + 1];
+}
+
+/** Caret index one character after i (Right Arrow, Delete): never inside an emoji or a letter with its marks. */
+export function nextCharIndex(text, i) {
+  const s = String(text ?? '');
+  if (i >= s.length) return s.length;
+  return Math.max(i + 1, clusterAt(s, Math.max(0, i))[1]);
+}
+
+/** Caret index one character before i (Left Arrow). */
+export function prevCharIndex(text, i) {
+  const s = String(text ?? '');
+  if (i <= 0) return 0;
+  return Math.min(i - 1, clusterAt(s, Math.min(i, s.length) - 1)[0]);
+}
+
+/** Whether a caret may sit at index i (a boundary between user-perceived characters). */
+export function isCaretStop(text, i) {
+  const s = String(text ?? '');
+  return i <= 0 || i >= s.length || clusterAt(s, i)[0] === i;
+}
+
+const EMOJI_PART = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u200d\u20e3\ufe0f]/u;
+
+/**
+ * Start of what Backspace removes before index i: a whole emoji sequence
+ * (flags, skin tones, ZWJ families, keycaps), otherwise one code point, so
+ * a mistyped accent or vowel sign comes off on its own (as in the browser's
+ * own text fields).
+ */
+export function backspaceIndex(text, i) {
+  const s = String(text ?? '');
+  if (i <= 0) return 0;
+  const [a] = clusterAt(s, Math.min(i, s.length) - 1);
+  if (a < i - 1 && EMOJI_PART.test(s.slice(a, i))) return a;
+  const c = s.charCodeAt(i - 1);
+  return c >= 0xdc00 && c <= 0xdfff && i > 1 && /[\ud800-\udbff]/.test(s[i - 2]) ? i - 2 : i - 1;
 }

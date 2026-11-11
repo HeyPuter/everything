@@ -13,7 +13,7 @@ import { h } from '../../lib/dom.js';
 import { typedQuote } from '../files/type-setup.js';
 import { IS_MAC, eventKey } from '../../commands/registry.js';
 import { editLayout, caretPosition, hitTestText, selectionPolygons, lineIndexOf, indexInLine } from '../../model/text-layout.js';
-import { replaceRange, overridesAt, wordAt, prevWordIndex, nextWordIndex, paragraphRanges, paragraphIndexAt } from '../../model/text-runs.js';
+import { replaceRange, overridesAt, wordAt, prevWordIndex, nextWordIndex, paragraphRanges, paragraphIndexAt, nextCharIndex, prevCharIndex, backspaceIndex } from '../../model/text-runs.js';
 import { apply, invert, multiply } from '../../lib/matrix.js';
 import { layerColor } from '../../render/overlay.js';
 import { tracePath } from '../../render/draw.js';
@@ -251,11 +251,8 @@ export class TextSession {
     let from = a - 1;
     if (unit === 'word') from = prevWordIndex(n.text, a);
     else if (unit === 'line') from = this.#lineStart(a);
-    else {
-      // Keep surrogate pairs together.
-      const code = n.text.charCodeAt(a - 1);
-      if (code >= 0xdc00 && code <= 0xdfff && a > 1) from = a - 2;
-    }
+    // Whole emoji (surrogate pairs, flags, ZWJ sequences); a combining mark on its own.
+    else from = backspaceIndex(n.text, a);
     this.deleteRange(Math.min(from, a - 1), a);
   }
 
@@ -266,10 +263,7 @@ export class TextSession {
     if (!n || a >= n.text.length) return;
     let to = a + 1;
     if (unit === 'word') to = nextWordIndex(n.text, a);
-    else {
-      const code = n.text.charCodeAt(a);
-      if (code >= 0xd800 && code <= 0xdbff) to = a + 2;
-    }
+    else to = nextCharIndex(n.text, a);
     this.deleteRange(a, Math.max(to, a + 1));
   }
 
@@ -595,7 +589,7 @@ export class TextSession {
         const right = nav === 'ArrowRight';
         if (!shift && a !== b && !mod) this.move(right ? b : a, false);
         else if (mod) this.move(right ? nextWordIndex(n.text, this.caret) : prevWordIndex(n.text, this.caret), shift);
-        else this.move(this.caret + (right ? 1 : -1), shift);
+        else this.move(right ? nextCharIndex(n.text, this.caret) : prevCharIndex(n.text, this.caret), shift);
         return true;
       }
       case 'ArrowUp':
