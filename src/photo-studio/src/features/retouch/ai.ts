@@ -3,7 +3,7 @@
 // Generate in these dialogs; results arrive as new, masked layers.
 import type { Editor } from '../../editor';
 import { escapeXML } from '../../model/assets';
-import { allLayers, type PhotoDocument } from '../../model/document';
+import { allLayers, insertLayerAt, type PhotoDocument } from '../../model/document';
 import { isVectorGradient } from '../../model/vector-gradient';
 import { isVectorPattern } from '../../model/vector-pattern';
 import { multiplyMaskMatrix } from '../../model/pixel-mask';
@@ -238,7 +238,7 @@ function insertLayer(e: Editor, l: ReturnType<typeof newPixelLayer>, label: stri
     const find = (layers: typeof d.layers): boolean => {
       const i = layers.findIndex((x) => x.id === anchor);
       if (i >= 0) {
-        layers.splice(i + 1, 0, l);
+        insertLayerAt(layers, i + 1, l);
         return true;
       }
       return layers.some((x) => find(x.children));

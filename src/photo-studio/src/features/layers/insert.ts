@@ -1,14 +1,15 @@
 import type { Editor } from '../../editor';
-import type { Layer } from '../../model/document';
+import { insertLayerAt, type Layer } from '../../model/document';
 
-/** Add a layer above the selected layer (or at the top) as one undo step and select it. */
+/** Add a layer above the selected layer (or at the top) as one undo step and
+ * select it. Inside a clipping group the layer joins the group. */
 export function insertAboveSelection(e: Editor, l: Layer, label: string) {
   const anchor = e.selected;
   e.command(label, (d) => {
     const find = (layers: Layer[]): boolean => {
       const i = layers.findIndex((x) => x.id === anchor);
       if (i >= 0) {
-        layers.splice(i + 1, 0, l);
+        insertLayerAt(layers, i + 1, l);
         return true;
       }
       return layers.some((x) => find(x.children));

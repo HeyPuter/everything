@@ -3,7 +3,7 @@
 import type { Editor } from '../../editor';
 import { registerCommand, type Panel } from '../../app/registry';
 import { ADJUSTMENT_KINDS, ADJUSTMENT_LABELS, defaultAdjustment, type Adjustment, type AdjustmentKind } from '../../imaging/adjust';
-import { allLayers, findLayer, layer, type Layer } from '../../model/document';
+import { allLayers, findLayer, insertLayerAt, layer, type Layer } from '../../model/document';
 import { allMask } from '../../model/tiles';
 import { selectionGrid } from '../../model/selection';
 import { escapeXML } from '../../model/assets';
@@ -20,13 +20,14 @@ export function addAdjustmentLayer(e: Editor, kind: AdjustmentKind, adjustment: 
   const sel = selectionGrid(doc, e.assets.tiles);
   l.maskGrid = sel ?? allMask(255);
   const anchor = e.selected;
-  // Inside a clipping group the new layer joins the group.
+  // Inside a clipping group (above its base or one of its clipped layers) the
+  // new layer joins the group.
   if (findLayer(doc.layers, anchor)?.clipped) l.clipped = true;
   e.command(`New ${ADJUSTMENT_LABELS[kind]} Layer`, (d) => {
     const insert = (layers: Layer[]): boolean => {
       const i = layers.findIndex((x) => x.id === anchor);
       if (i >= 0) {
-        layers.splice(i + 1, 0, l);
+        insertLayerAt(layers, i + 1, l);
         return true;
       }
       return layers.some((x) => insert(x.children));

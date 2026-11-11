@@ -4,7 +4,7 @@
 // selections (alpha channels). Detection runs once in a worker; the minimum
 // size filters the found objects instantly.
 import type { Editor } from '../../editor';
-import { findLayer, layer as newLayer, type Layer, type PhotoDocument } from '../../model/document';
+import { findLayer, insertLayerAt, layer as newLayer, type Layer, type PhotoDocument } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { emptyGrid, gridFromImage, readMask, writeRect, type TileGrid } from '../../model/tiles';
 import type { DetectedObject } from '../../imaging/segment/objects';
@@ -111,7 +111,7 @@ export function applyObjects(e: Editor, objects: DetectedObject[], output: Outpu
     const insert = (layers: Layer[]): boolean => {
       const i = layers.findIndex((x) => x.id === anchor);
       if (i >= 0) {
-        layers.splice(i + 1, 0, group);
+        insertLayerAt(layers, i + 1, group);
         return true;
       }
       return layers.some((x) => insert(x.children));

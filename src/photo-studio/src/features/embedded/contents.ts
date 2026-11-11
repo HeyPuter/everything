@@ -3,7 +3,7 @@
 // original bytes. Every change produces new immutable assets and a new
 // contents entry, applied to all instances in one history step.
 import type { Editor } from '../../editor';
-import { containerOf, layer, newDocument, type Layer, type PhotoDocument, type Transform } from '../../model/document';
+import { containerOf, insertLayerAt, layer, newDocument, type Layer, type PhotoDocument, type Transform } from '../../model/document';
 import { Assets } from '../../model/assets';
 import { deserialize, serialize } from '../../model/serialization';
 import { instancesOf, projectMimeType, sourceMimeType, type EmbeddedContents, type StackMode } from '../../model/embedded';
@@ -202,7 +202,7 @@ export function insertInstance(e: Editor, l: Layer, c: EmbeddedContents, label: 
     d.embeds = { ...d.embeds, [c.id]: c };
     const list = (anchor && containerOf(d.layers, anchor)) || d.layers;
     const i = list.findIndex((x) => x.id === anchor);
-    list.splice(i < 0 ? list.length : i + 1, 0, l);
+    insertLayerAt(list, i < 0 ? list.length : i + 1, l);
   });
   e.selected = l.id;
   e.update();

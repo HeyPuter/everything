@@ -3,7 +3,7 @@
 // footage replacement and interpretation, clip edits at the playhead,
 // keyframes, transitions and timeline settings.
 import type { Editor } from '../../editor';
-import { allLayers, assertSize, findLayer, type Layer, type PhotoDocument } from '../../model/document';
+import { allLayers, assertSize, findLayer, insertLayerAt, type Layer, type PhotoDocument } from '../../model/document';
 import { hasArtboards } from '../../model/artboard';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { formDialog } from '../../ui/dialog';
@@ -94,7 +94,7 @@ function insertLayer(d: PhotoDocument, l: Layer, anchor: string) {
   const find = (layers: Layer[]): boolean => {
     const i = layers.findIndex((x) => x.id === anchor);
     if (i >= 0) {
-      layers.splice(i + 1, 0, l);
+      insertLayerAt(layers, i + 1, l);
       return true;
     }
     return layers.some((x) => !x.artboard && find(x.children));
