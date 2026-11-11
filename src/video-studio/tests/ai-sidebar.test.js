@@ -890,4 +890,22 @@ describe('AI sidebar panel', () => {
     expect(user.content[2].type).toBe('image');
     expect(panel.el.querySelector('.ai-user-files')).toBeTruthy();
   });
+
+  it('takes back a message of only files when none of them could be added', async () => {
+    const readFile = vi.fn(async (file) => ({ name: file.name, kind: 'image', size: file.size, blocks: [] }));
+    const { panel, ctx, chat } = mount([[{ type: 'text', text: 'Nice photo.' }]], { readFile });
+    ctx.library.importFile = vi.fn(async () => {
+      throw new Error('IMG_0001.heic could not be read.');
+    });
+    panel.open();
+    panel.attach([new File(['img'], 'IMG_0001.heic', { type: 'image/heic' })]);
+    panel.send();
+    await vi.waitFor(() => expect(ctx.library.importFile).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(chat).not.toHaveBeenCalled();
+    // No message that went nowhere is left in the chat.
+    expect(panel.el.querySelector('.ai-msg.ai-user')).toBe(null);
+    expect(panel.el.querySelector('.ai-empty')).toBeTruthy();
+    expect([...document.querySelectorAll('.toast')].some((t) => /could not be read/.test(t.textContent))).toBe(true);
+  });
 });

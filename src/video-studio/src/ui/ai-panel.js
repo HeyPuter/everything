@@ -710,16 +710,25 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
         input.value = '';
         autoGrow();
       }
-      userBubble(message, items);
+      const bubble = userBubble(message, items);
       sending = true;
       syncSend();
       try {
         files = await importAttachments(items, reads);
       } finally {
         sending = false;
+        syncSend();
       }
       if (destroyed || agent.busy) return;
-      if (!message && !files.length) return;
+      if (!message && !files.length) {
+        // Only files, and none could be added (each said why): nothing goes out, so the message is taken back.
+        removeKeepingFocus(bubble);
+        if (!log.querySelector('.ai-msg')) {
+          log.append(empty);
+          renderEmpty();
+        }
+        return;
+      }
     } else {
       if (text == null) {
         input.value = '';
