@@ -59,6 +59,27 @@ void main() {
   color = texture(uLut, vec2(t, 0.5));
 }`;
 
+/**
+ * Tile bytes (`cols` rows of `bins` values) narrowed to at most `max` texels
+ * per row: each texel keeps the loudest of `k` neighbouring bins, so texel j
+ * covers bins [j * k, j * k + k). Returns { bytes, width }.
+ */
+export function fitBins(bytes, bins, cols, max) {
+  if (!(max > 0) || bins <= max) return { bytes, width: bins };
+  const k = Math.ceil(bins / max);
+  const width = Math.ceil(bins / k);
+  const out = new Uint8Array(width * cols);
+  for (let c = 0; c < cols; c++) {
+    const src = c * bins;
+    const dst = c * width;
+    for (let b = 0; b < bins; b++) {
+      const j = dst + Math.floor(b / k);
+      if (bytes[src + b] > out[j]) out[j] = bytes[src + b];
+    }
+  }
+  return { bytes: out, width };
+}
+
 function compile(gl, type, src) {
   const s = gl.createShader(type);
   gl.shaderSource(s, src);
@@ -114,6 +135,7 @@ export class SpectrogramRenderer {
     gl.bindVertexArray(null);
     this.lut = gl.createTexture();
     this.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    this.widths = new WeakMap(); // texture -> texels per row, when bins were combined
   }
 
   resize(width, height, dpr) {
@@ -142,10 +164,13 @@ export class SpectrogramRenderer {
   createTile(bytes, bins, cols) {
     if (!this.available) return null;
     const gl = this.gl;
+    // Wider than the GPU allows (8192-point FFTs on 4096-texel GPUs): keep the loudest of neighbouring bins.
+    const fit = fitBins(bytes, bins, cols, this.maxTexture);
     const tex = gl.createTexture();
+    this.widths.set(tex, fit.width);
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, bins, cols, 0, gl.RED, gl.UNSIGNED_BYTE, bytes);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, fit.width, cols, 0, gl.RED, gl.UNSIGNED_BYTE, fit.bytes);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -202,7 +227,7 @@ export class SpectrogramRenderer {
         const xb = (t.x1 - frame.start) / frame.fpp;
         if (xb < 0 || xa > frame.width) continue;
         gl.bindTexture(gl.TEXTURE_2D, t.tex);
-        gl.uniform1f(this.u.uBins, t.bins);
+        gl.uniform1f(this.u.uBins, this.widths.get(t.tex) ?? t.bins);
         gl.uniform2f(this.u.uX, (xa / frame.width) * 2 - 1, (xb / frame.width) * 2 - 1);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       }
