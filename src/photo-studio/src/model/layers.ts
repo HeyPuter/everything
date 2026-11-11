@@ -33,6 +33,9 @@ function assertTree(layers: Layer[], depth = 0, inFrame = false) {
     assertTree(l.children, depth + 1, inFrame || !!l.frame);
   }
 }
+// The Background layer stays at the bottom of the stack until it is
+// converted (Layer → New → Layer from Background).
+const BACKGROUND_STAYS = 'The Background layer stays at the bottom. Convert it with Layer from Background first.';
 export type DropPosition = 'above' | 'below' | 'inside';
 export function moveLayers(
   doc: PhotoDocument,
@@ -51,6 +54,7 @@ export function moveLayers(
     throw new Error('Unlock the destination group or layer first.');
   if (position === 'inside' && target?.kind !== 'group')
     throw new Error('Only groups can contain layers.');
+  if (roots.some((l) => l.background) || (target?.background && position === 'below')) throw new Error(BACKGROUND_STAYS);
   for (const l of roots) {
     const list = containerOf(doc.layers, l.id)!;
     list.splice(list.indexOf(l), 1);
@@ -72,6 +76,7 @@ export function groupLayers(doc: PhotoDocument, ids: ReadonlySet<string>): strin
   const roots = selectedRoots(doc.layers, ids);
   if (!roots.length) return;
   assertEditable(doc, roots);
+  if (roots.some((l) => l.background)) throw new Error(BACKGROUND_STAYS);
   const list = containerOf(doc.layers, roots[0].id)!;
   if (roots.some((l) => containerOf(doc.layers, l.id) !== list))
     throw new Error('Move the selected layers into the same group before grouping them.');
@@ -94,7 +99,7 @@ export function reorderLayers(doc: PhotoDocument, ids: ReadonlySet<string>, up: 
     if (up) indices.reverse();
     for (const i of indices) {
       const j = i + (up ? 1 : -1);
-      if (selected.has(list[i].id) && list[j] && !selected.has(list[j].id) && !list[j].locked)
+      if (selected.has(list[i].id) && list[j] && !selected.has(list[j].id) && !list[j].locked && !list[i].background && !list[j].background)
         [list[i], list[j]] = [list[j], list[i]];
     }
   }
