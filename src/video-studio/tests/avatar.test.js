@@ -315,6 +315,10 @@ describe('avatar panel', () => {
     expect(tab.el.textContent).toMatch(/Sign in for spoken scripts/);
     const add = tab.el.querySelector('.avatar-add');
     expect(add.disabled).toBe(true);
+    // The reason sits next to the button and describes it.
+    const hint = tab.el.querySelector(`#${add.getAttribute('aria-describedby')}`);
+    expect(hint.closest('.avatar-actions')).toBe(add.closest('.avatar-actions'));
+    expect(hint.textContent).toMatch(/Sign in to Puter to speak a script/);
     [...tab.el.querySelectorAll('[role=radio]')].find((b) => b.textContent === 'Audio clip').click();
     expect(tab.el.querySelector('#avatar-clip').value).toBe(voice.id);
     expect(add.disabled).toBe(false);
@@ -331,9 +335,13 @@ describe('avatar panel', () => {
     const tab = avatarsTab(ctx);
     document.body.append(tab.el);
     [...tab.el.querySelectorAll('[role=radio]')].find((b) => b.textContent === 'Script').click();
+    const hint = tab.el.querySelector('#avatar-add-hint');
+    expect(tab.el.querySelector('.avatar-add').disabled).toBe(true);
+    expect(hint.textContent).toBe('Write a script under Voice first.');
     const text = tab.el.querySelector('#avatar-script');
     text.value = 'Welcome to the show';
     text.dispatchEvent(new Event('input'));
+    expect(hint.textContent).toMatch(/added at the playhead/);
     tab.el.querySelector('.avatar-add').click();
     await vi.waitFor(() => expect(allClips(store.project).some((x) => x.type === 'avatar')).toBe(true));
     expect(ctx.avatarServices.synthesize).toHaveBeenCalledWith('Welcome to the show', expect.any(String));

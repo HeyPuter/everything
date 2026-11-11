@@ -90,7 +90,9 @@ export function avatarsTab(ctx) {
   const sourceBody = h('div.avatar-source');
   const addBtn = h('button.btn.primary.avatar-add', { type: 'button' }, icon('plus', 16), 'Add avatar');
   const status = h('p.tts-status', { role: 'status' });
-  const where = h('p.field-hint');
+  // Next to the button: why it is off, else where the avatar goes.
+  const where = h('p#avatar-add-hint.field-hint');
+  addBtn.setAttribute('aria-describedby', 'avatar-add-hint');
 
   function renderClips() {
     const list = voiceChoices(store.project);
@@ -118,13 +120,23 @@ export function avatarsTab(ctx) {
   }
 
   const ready = () => (source === 'clip' ? Boolean(clipSel.value) : aiAvailable(ctx) && Boolean(script.value.trim()));
+  /** Why the avatar cannot be added yet ('' when it can). */
+  const blocker = () => {
+    if (source === 'clip') return clipSel.value ? '' : 'Add an audio clip to the timeline first, or take the voice from a script.';
+    if (!aiAvailable(ctx)) return 'Sign in to Puter to speak a script, or take the voice from an audio clip.';
+    return script.value.trim() ? '' : 'Write a script under Voice first.';
+  };
+  const paintWhere = () => {
+    const why = busy ? '' : blocker();
+    where.textContent = why || (source === 'clip' ? '' : `The avatar and its voice are added at the playhead (${clock(store.time)}).`);
+  };
   function update() {
     count.textContent = `${script.value.length} / ${AVATAR_SCRIPT_MAX}`;
     addBtn.disabled = busy || !ready();
     listenBtn.disabled = busy || !script.value.trim();
     const name = avatarCharacter(look.character).label;
     addBtn.replaceChildren(icon('plus', 16), `Add ${name}`);
-    where.textContent = source === 'clip' ? '' : `The avatar and its voice are added at the playhead (${clock(store.time)}).`;
+    paintWhere();
   }
   script.addEventListener('input', update);
   clipSel.addEventListener('change', update);
@@ -194,9 +206,7 @@ export function avatarsTab(ctx) {
   const offs = [store.on('change', () => {
     if (source === 'clip') renderClips();
     update();
-  }), store.on('time', () => {
-    if (source !== 'clip') where.textContent = `The avatar and its voice are added at the playhead (${clock(store.time)}).`;
-  })];
+  }), store.on('time', paintWhere)];
   return {
     el: layout.el,
     shown() {
