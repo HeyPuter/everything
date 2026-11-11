@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { boot, canvasClick, openImage, tool } from './helpers';
+import { boot, canvasClick, canvasDrag, idle, openImage, tool } from './helpers';
 
 // On-canvas text editing with the Horizontal Type tool.
 test.beforeEach(async ({ page }) => {
@@ -75,4 +75,25 @@ test('each paste is its own undo step', async ({ page }) => {
   expect((await caret(page)).text).toBe('abcd');
   await page.keyboard.press('Meta+z');
   expect((await caret(page)).text).toBe('ab');
+});
+
+test('moving text with Mod-drag while editing is undoable and kept on commit', async ({ page }) => {
+  await canvasClick(page, 100, 100);
+  await page.keyboard.type('Move');
+  await page.keyboard.press('Escape');
+  await idle(page);
+  const place = () => page.evaluate(() => [Math.round(window.photoStudio.layer!.transform.x), Math.round(window.photoStudio.layer!.transform.y)]);
+  const [x0, y0] = await place();
+  // Edit the text again, then drag it by (60, 50) without changing it.
+  await canvasClick(page, x0 + 8, y0 + 12);
+  await canvasDrag(page, [[x0 + 8, y0 + 12], [x0 + 68, y0 + 62]], 6, ['ControlOrMeta']);
+  expect(await place()).toEqual([x0 + 60, y0 + 50]);
+  await page.keyboard.press('Meta+z');
+  expect(await place()).toEqual([x0, y0]);
+  await page.keyboard.press('Meta+Shift+z');
+  expect(await place()).toEqual([x0 + 60, y0 + 50]);
+  await page.keyboard.press('Escape');
+  await idle(page);
+  expect(await place()).toEqual([x0 + 60, y0 + 50]);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(['Type Tool', 'Edit Type Layer']);
 });

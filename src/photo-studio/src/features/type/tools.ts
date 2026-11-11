@@ -19,6 +19,7 @@ import {
   insert,
   insideSession,
   move,
+  moveBy,
   ordered,
   selectParagraphAt,
   selectWordAt,
@@ -33,7 +34,7 @@ import {
   undoEdit,
   updateData,
 } from './session';
-import { layerMatrix, localScale, replaceLayer, textLayerAt, toLocal, warpLocal, warpedRect } from './text-utils';
+import { layerMatrix, localScale, textLayerAt, toLocal, warpLocal, warpedRect } from './text-utils';
 import { typeOptions, bindTypeOptions } from './options';
 import { wordAt, paragraphAt, plainText } from '../../imaging/text/model';
 import { AREA_TYPE_CURSOR, newTypePath, PATH_TYPE_CURSOR, pathTextMarkup, typePathAt } from './path-type';
@@ -41,7 +42,7 @@ import { AREA_TYPE_CURSOR, newTypePath, PATH_TYPE_CURSOR, pathTextMarkup, typePa
 type Gesture =
   | { kind: 'select'; anchor: [number, number]; unit: 'char' | 'word' | 'paragraph' }
   | { kind: 'box'; handle: string; start: [number, number]; data: TextLayerData; snap: boolean }
-  | { kind: 'move'; start: [number, number] }
+  | { kind: 'move'; start: [number, number]; id: string }
   | { kind: 'create'; start: [number, number]; current: [number, number] };
 let gesture: Gesture | undefined;
 const clicks = { count: 0, time: 0, x: 0, y: 0 };
@@ -85,7 +86,7 @@ async function pointerDown(e: Editor, p: CanvasPointer, vertical: boolean, mask:
       return;
     }
     if (p.mod && !session.mask) {
-      gesture = { kind: 'move', start: [p.x, p.y] };
+      gesture = { kind: 'move', start: [p.x, p.y], id: crypto.randomUUID() };
       return;
     }
     if (insideSession(e, p.x, p.y)) {
@@ -165,8 +166,7 @@ function pointerMove(e: Editor, p: CanvasPointer) {
     const dx = p.x - g.start[0],
       dy = p.y - g.start[1];
     g.start = [p.x, p.y];
-    s.draft = replaceLayer(s.draft, s.layerId, (l) => ({ ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } }));
-    updateData(e, (d) => d, 'move');
+    moveBy(e, dx, dy, `move:${g.id}`);
     return;
   }
   if (g.kind === 'box') {

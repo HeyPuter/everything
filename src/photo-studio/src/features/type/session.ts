@@ -43,7 +43,9 @@ import type { TextLayout } from '../../imaging/text/layout';
 import { commitSelectionMask } from '../selection';
 import { editable, insertLayer, layoutOf, localBounds, localScale, ppiOf, replaceLayer, textCoverage, toDoc, toLocal, unwarpLocal } from './text-utils';
 
-type Snapshot = { data: TextLayerData; anchor: number; focus: number };
+// `place`: the layer's placement, which Mod-dragging the text changes.
+type Snapshot = { data: TextLayerData; anchor: number; focus: number; place: Placement };
+type Placement = Pick<Layer, 'transform' | 'textFrame'>;
 export type Session = {
   layerId: string;
   mask: boolean;
@@ -52,6 +54,7 @@ export type Session = {
   before: PhotoDocument;
   draft: PhotoDocument;
   original: string;
+  originalPlace: string;
   data: TextLayerData;
   anchor: number;
   focus: number;
@@ -136,14 +139,25 @@ export function insideSession(e: Editor, x: number, y: number, slop = 6): boolea
 
 // ------------------------------------------------------------ lifecycle
 
-function install(e: Editor, data: TextLayerData, opts: { kind?: string; snapshot?: boolean; keepGoal?: boolean } = {}) {
-  const s = session!;
-  if (opts.snapshot !== false && (opts.kind === undefined || opts.kind !== s.lastKind)) {
-    s.undo.push({ data: s.data, anchor: s.anchor, focus: s.focus });
+function placement(s: Session): Placement {
+  const l = findLayer(s.draft.layers, s.layerId);
+  return { transform: l?.transform ?? { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, textFrame: l?.textFrame };
+}
+const snapshot = (s: Session): Snapshot => ({ data: s.data, anchor: s.anchor, focus: s.focus, place: placement(s) });
+// Records an undo step unless this edit continues the previous one of the same kind.
+function remember(s: Session, kind?: string) {
+  if (kind === undefined || kind !== s.lastKind) {
+    s.undo.push(snapshot(s));
     if (s.undo.length > 200) s.undo.shift();
     s.redo = [];
   }
-  s.lastKind = opts.kind;
+  s.lastKind = kind;
+}
+
+function install(e: Editor, data: TextLayerData, opts: { kind?: string; snapshot?: boolean; keepGoal?: boolean } = {}) {
+  const s = session!;
+  if (opts.snapshot !== false) remember(s, opts.kind);
+  else s.lastKind = opts.kind;
   s.data = data;
   if (!opts.keepGoal) s.goal = undefined;
   render(e);
@@ -242,7 +256,7 @@ async function beginNew(e: Editor, opt: StartNew) {
   const draft = insertLayer(before, l, e.selected || undefined);
   if (e.preferences.missingGlyphProtection) prefetchGlyphMaps();
   session = {
-    layerId: l.id, mask: opt.mask, isNew: true, autoName: true, before, draft, original: '', data,
+    layerId: l.id, mask: opt.mask, isNew: true, autoName: true, before, draft, original: '', originalPlace: '', data,
     anchor: 0, focus: 0, undo: [], redo: [],
   };
   if (!opt.mask) e.selectLayers([l.id]);
@@ -277,9 +291,10 @@ async function beginEdit(e: Editor, id: string, at?: { x: number; y: number } | 
   if (e.preferences.missingGlyphProtection) prefetchGlyphMaps();
   const autoName = l0.name === textLayerName(l.textData.content) || l0.name === 'Text' || l0.name === (l0.text.replace(/\s+/g, ' ').trim() || 'Text');
   session = {
-    layerId: id, mask: false, isNew: false, autoName, before, draft, original: JSON.stringify(l0.textData ?? null), data: l.textData,
+    layerId: id, mask: false, isNew: false, autoName, before, draft, original: JSON.stringify(l0.textData ?? null), originalPlace: '', data: l.textData,
     anchor: 0, focus: 0, undo: [], redo: [],
   };
+  session.originalPlace = JSON.stringify(placement(session));
   const len = textLength(l.textData.content);
   if (at === 'all') session.focus = len;
   else if (at === 'end' || !at) session.anchor = session.focus = len;
@@ -336,7 +351,8 @@ export async function commit(e: Editor) {
     notify();
     return;
   }
-  if (!s.isNew && JSON.stringify(s.data) === s.original) {
+  // Unchanged text that was not moved either needs no history step.
+  if (!s.isNew && JSON.stringify(s.data) === s.original && JSON.stringify(placement(s)) === s.originalPlace) {
     e.update();
     notify();
     return;
@@ -441,11 +457,20 @@ export function undoEdit(e: Editor, redo = false) {
     to = redo ? s.undo : s.redo;
   const snap = from.pop();
   if (!snap) return;
-  to.push({ data: s.data, anchor: s.anchor, focus: s.focus });
+  to.push(snapshot(s));
+  s.draft = replaceLayer(s.draft, s.layerId, (l) => ({ ...l, ...snap.place }));
   s.data = snap.data;
   s.anchor = snap.anchor;
   s.focus = snap.focus;
   s.lastKind = undefined;
+  render(e);
+}
+
+// Mod-drag: moves the layer being edited (one undo step per drag).
+export function moveBy(e: Editor, dx: number, dy: number, kind: string) {
+  const s = session!;
+  remember(s, kind);
+  s.draft = replaceLayer(s.draft, s.layerId, (l) => ({ ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } }));
   render(e);
 }
 
@@ -721,7 +746,7 @@ function inputElement(e: Editor): HTMLTextAreaElement {
   el.addEventListener('compositionstart', () => {
     const s = session;
     if (!s) return;
-    const before = { data: s.data, anchor: s.anchor, focus: s.focus };
+    const before = snapshot(s);
     // Composing over a selection replaces it; the whole replacement is one undo step.
     const [a, b] = ordered(s);
     if (a !== b) {
