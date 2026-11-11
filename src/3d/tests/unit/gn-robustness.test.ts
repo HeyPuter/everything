@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 // Geometry nodes: evaluation cache invalidation and edge cases of individual nodes.
 import { describe, it, expect } from 'vitest';
-import { setup, node, link, run, env } from './gnmesh-harness';
+import { setup, node, link, run, env, attr, type T } from './gnmesh-harness';
+import type { NodeData } from '../../src/data/types';
 import { addNode, connect, ctxOf } from '../../src/nodes/tree';
 import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/types';
 import { evaluateGroup, modifierDeps } from '../../src/geonodes/modifier';
@@ -85,5 +86,49 @@ describe('evaluation cache', () => {
     link(t, info, 'Geometry', t.out, 'Geometry');
     const m = { id: 'md', name: 'GN', type: 'NODES', node_group: t.group.id } as unknown as ModifierBase;
     expect(modifierDeps(t.doc, m)).toEqual(['obX']);
+  });
+});
+
+describe('large geometry', () => {
+  // more elements than a spread call (`Math.max(...values)`) can take as arguments
+  const bigGrid = (t: T) => node(t, 'GeometryNodeMeshGrid', { 'Vertices X': 400, 'Vertices Y': 400, 'Size X': 2, 'Size Y': 2 });
+  const store = (t: T, geo: NodeData, value: NodeData, socket: string, name: string, type = 'FLOAT') => {
+    const st = node(t, 'GeometryNodeStoreNamedAttribute', { Name: name }, { data_type: type, domain: 'POINT' });
+    link(t, geo, 'Mesh', st, 'Geometry');
+    link(t, value, socket, st, 'Value');
+    return st;
+  };
+
+  it('Field Min & Max', () => {
+    const t = setup();
+    const g = bigGrid(t);
+    const sep = node(t, 'ShaderNodeSeparateXYZ');
+    link(t, node(t, 'GeometryNodeInputPosition'), 'Position', sep, 'Vector');
+    const mm = node(t, 'GeometryNodeFieldMinAndMax');
+    link(t, sep, 'X', mm, 'Value');
+    const r = run(t, store(t, g, mm, 'Max', 'max'));
+    expect([...r.log.warnings.values()].flat()).toEqual([]);
+    expect(attr(r.geometry, 'max')[0]).toBeCloseTo(1);
+  });
+
+  it('Geometry Proximity to points', () => {
+    const t = setup();
+    const g = bigGrid(t);
+    const prox = node(t, 'GeometryNodeProximity', {}, { target_element: 'POINTS' });
+    link(t, g, 'Mesh', prox, 'Target');
+    const r = run(t, store(t, g, prox, 'Distance', 'dist'));
+    expect([...r.log.warnings.values()].flat()).toEqual([]);
+    expect(attr(r.geometry, 'dist').every((d) => d === 0)).toBe(true);
+  });
+
+  it('Points to Curves', () => {
+    const t = setup();
+    const p = node(t, 'GeometryNodeMeshToPoints');
+    link(t, bigGrid(t), 'Mesh', p, 'Mesh');
+    const pc = node(t, 'GeometryNodePointsToCurves');
+    link(t, p, 'Points', pc, 'Points');
+    const r = run(t, pc, 'Curves');
+    expect([...r.log.warnings.values()].flat()).toEqual([]);
+    expect(r.geometry.curves!.pointCount).toBe(160000);
   });
 });

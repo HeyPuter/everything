@@ -238,7 +238,7 @@ export function unwrapMesh(m: MeshComponent, faceSel: Uint8Array | null, seam: U
     } catch {
       done = false;
     }
-    if (!done) islands.push(...projectGroups(m, chart, uv));
+    if (!done) for (const isl of projectGroups(m, chart, uv)) islands.push(isl);
   }
   // islands keep the winding of their faces when flipping is not allowed
   if (opts.noFlip)
@@ -347,7 +347,7 @@ export function packIslands(uv: Float32Array, stride: number, islands: number[][
     }
     return true;
   };
-  const maxDim = Math.max(...boxes.map((b) => Math.max(b.w / W, b.h / H)), 1e-12);
+  const maxDim = boxes.reduce((m, b) => Math.max(m, b.w / W, b.h / H), 1e-12);
   let lo = 0,
     hi = 1 / maxDim;
   if (fit(hi)) lo = hi;
