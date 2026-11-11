@@ -75,3 +75,27 @@ describe('mesh size ceiling', () => {
     expect(app.run('mesh.screw', { steps: 12, turns: 1, center: [0, 0, 0], axis: [0, 0, 1] }, { invoke: false })).toBe('FINISHED');
   });
 });
+
+describe('undo history memory', () => {
+  it('drops the oldest steps when their arrays exceed the memory limit', async () => {
+    const { UndoStack } = await import('../../src/app/undo');
+    const u = new UndoStack();
+    u.memoryLimit = 10 * 2 ** 20;
+    const doc = startupDocument();
+    const me = Object.values(doc.meshes)[0];
+    u.reset(doc);
+    for (let i = 0; i < 20; i++) {
+      me.positions = new Float32Array(2 ** 20 / 4).fill(i); // 1 MB of new data per step
+      u.push(doc, `step ${i}`);
+    }
+    expect(u.history.length).toBeLessThanOrEqual(11);
+    expect(u.history.length).toBeGreaterThanOrEqual(9);
+    expect(u.topLabel).toBe('step 19');
+    // undo still works over what is kept, and the step count limit still applies without big arrays
+    expect(u.undo()).not.toBeNull();
+    const v = new UndoStack();
+    v.reset(doc);
+    for (let i = 0; i < 70; i++) v.push(doc, `s${i}`);
+    expect(v.history.length).toBe(65);
+  });
+});
