@@ -171,7 +171,8 @@ function writeText(b: Bytes, text: string, v4: boolean, kind: 'desc' | 'cprt') {
     b.sig('enUS');
     b.u32(text.length * 2);
     b.u32(28);
-    for (const ch of text) b.u16(ch.charCodeAt(0));
+    // UTF-16 code units, so characters outside the BMP keep both halves.
+    for (let i = 0; i < text.length; i++) b.u16(text.charCodeAt(i));
   } else if (kind === 'desc') {
     b.sig('desc');
     b.u32(0);

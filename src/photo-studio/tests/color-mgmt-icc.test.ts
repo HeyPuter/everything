@@ -96,6 +96,12 @@ describe('built-in matrix/TRC profiles', { timeout: 120000 }, () => {
     expect(toXYZ(gray, [0.5])[1]).toBeCloseTo(0.3, 3);
   });
 
+  it('keeps profile names outside the Basic Multilingual Plane in v4 profiles', () => {
+    // The mluc record counted UTF-16 units but wrote one per code point, so
+    // the name was cut short and read back as untitled.
+    for (const name of ['Café RGB', 'プロファイル', 'Proof 🎨 v2']) expect(parseIcc(serializeIcc({ ...builtinProfile('srgb'), name }, { version: 4 })).name).toBe(name);
+  });
+
   it('reads damaged profile names without looping over bogus record counts', () => {
     // An embedded profile with a valid matrix/TRC but a description claiming
     // two billion records once froze the editor when the document was read.
