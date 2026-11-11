@@ -63,3 +63,42 @@ describe('marker dragging', () => {
     expect(byId(range.id).start).toBe(47000);
   });
 });
+
+describe('File > Revert', () => {
+  async function revert(app) {
+    const p = app.commands.run('file.revert');
+    await new Promise((r) => setTimeout(r, 0));
+    document.querySelector('.dialog .btn.danger').click();
+    await p;
+  }
+
+  it('returns to the saved audio after the history was cleared', async () => {
+    const { app, doc } = await makeView();
+    doc.apply('Gain', E.gainRange(doc.state, 0, 100, 0.5));
+    doc.markSaved();
+    const saved = doc.state;
+    doc.apply('Gain', E.gainRange(doc.state, 0, 100, 0.5));
+    doc.history.clear();
+    await revert(app);
+    expect(doc.state).toBe(saved);
+    expect(doc.dirty).toBe(false);
+  });
+
+  it('returns to the saved audio, not the opened one, after a marker change kept out of the undo history', async () => {
+    const { app, doc } = await makeView();
+    doc.apply('Gain', E.gainRange(doc.state, 0, 100, 0.5));
+    doc.markSaved();
+    const saved = doc.state;
+    markerOptions.undo = false;
+    try {
+      doc.apply('Add Marker', { ...doc.state, markers: [createMarker({ start: 5 })] });
+      expect(doc.dirty).toBe(true);
+      await revert(app);
+    } finally {
+      markerOptions.undo = true;
+    }
+    expect(doc.state.channels[0]).toBe(saved.channels[0]);
+    expect(doc.state.markers).toEqual([]);
+    expect(doc.dirty).toBe(false);
+  });
+});

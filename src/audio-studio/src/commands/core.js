@@ -252,7 +252,11 @@ export function installCoreCommands(app) {
         const doc = app.active;
         if (!(await confirmDialog({ title: 'Revert', message: `Discard all changes to "${doc.name}" since it was last saved?`, confirm: 'Revert', danger: true }))) return;
         const i = doc.history.entries.findIndex((e) => e.state === doc.savedState);
-        doc.history.goTo(i >= 0 ? i : 0);
+        if (i >= 0) doc.history.goTo(i);
+        // The saved state can be gone from the history (cleared, trimmed, or
+        // rewritten by marker changes kept out of it): restore it as a new step.
+        else if (doc.savedState && doc.apply) doc.apply('Revert', doc.savedState);
+        else doc.history.goTo(0);
       },
     },
     {
