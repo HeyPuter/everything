@@ -191,7 +191,8 @@ void main() {
 registerExec('CompositorNodeBilateralblur', (x) => {
   const r = x.input('Image');
   if (!r.domain) return x.out('Image', r);
-  const radius = Math.max(0, Math.round(x.num('Size')));
+  // the gather loop is (2r+1)² per pixel: large sizes would hang the GPU (128 as in Blender's old Iterations range)
+  const radius = Math.min(128, Math.max(0, Math.round(x.num('Size'))));
   if (!radius) return x.out('Image', r);
   const t = x.alloc(r.domain);
   const det = x.input('Determinator');
