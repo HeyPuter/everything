@@ -233,3 +233,28 @@ test('cancelled pen drags of the circle select tool and the navigation gizmo sto
   expect(await rot()).toEqual(r0);
   await expectNoErrors(errors);
 });
+
+test('a cancelled pen drag on the move gizmo cancels the move', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.evaluate(async () => {
+    const { setActiveTool } = await import('/src/editors/view3d/toolbar.ts' as string);
+    setActiveTool('builtin.move');
+    (window as any).app.changed('ui'); // eslint-disable-line @typescript-eslint/no-explicit-any
+  });
+  const arrow = page.locator('.view3d [data-gizmo="move:0"]').first();
+  await expect(arrow).toBeAttached();
+  const b = (await arrow.boundingBox())!;
+  await page.evaluate(
+    ([x, y]) => {
+      const el = document.querySelector('.view3d [data-gizmo="move:0"]') as Element;
+      const init = { bubbles: true, clientX: x, clientY: y, pointerId: 11, pointerType: 'pen', button: 0, buttons: 1, isPrimary: true };
+      el.dispatchEvent(new PointerEvent('pointerdown', init));
+      window.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: x + 80 }));
+      window.dispatchEvent(new PointerEvent('pointercancel', { ...init, clientX: x + 80, buttons: 0 }));
+    },
+    [b.x + b.width / 2, b.y + b.height / 2],
+  );
+  expect(await page.evaluate(() => ({ modal: !!(window as any).app.modal, loc: (window as any).app.activeObject.location }))).toEqual({ modal: false, loc: [0, 0, 0] }); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expectNoErrors(errors);
+});
