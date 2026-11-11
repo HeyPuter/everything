@@ -8,6 +8,8 @@ import { nextUntitled, ensureExtension, suggestFileName, uniqueName, fileKind, b
 import { RecentFiles, entryKey } from '../src/features/files/recent.js';
 import { RecoveryStore, recoverableEntries } from '../src/features/files/recovery.js';
 import { memoryBackend } from '../src/features/files/backends.js';
+import { Autosaver } from '../src/features/files/autosave.js';
+import { dialogHooks } from '../src/ui/dialogs/dialog.js';
 import { parsePresetForm, withOrientation, orientationOf, pushPreset, presetKey, sizeLabel } from '../src/features/files/presets.js';
 import { documentSetupPatch } from '../src/features/files/document-setup.js';
 import { documentStats } from '../src/features/files/document-info.js';
@@ -250,6 +252,33 @@ describe('recovery bookkeeping', () => {
     list = await store.list();
     expect(list[0].backend).toBe(cloud);
     expect([...local.files.keys()].some((k) => k.endsWith('r1.vstudio'))).toBe(false);
+  });
+
+  it('keeps a recovery copy that could not be read right now, and drops a damaged one', async () => {
+    const b = memoryBackend();
+    const store = new RecoveryStore([b]);
+    await store.put('ok', { name: 'Fine', data: await serializeDocument(sampleDoc()), session: 'dead', saved: 3 });
+    await store.put('net', { name: 'Offline', data: await serializeDocument(sampleDoc()), session: 'dead', saved: 2 });
+    await store.put('bad', { name: 'Damaged', data: new Uint8Array([1, 2, 3]), session: 'dead', saved: 1 });
+    const readBlob = b.readBlob;
+    b.readBlob = async (path) => {
+      if (path.includes('net.vstudio')) throw new Error('Failed to fetch');
+      return readBlob(path);
+    };
+    const prefs = new Prefs(memStorage());
+    const app = { prefs, editors: [], notify: vi.fn(), renderTabs: vi.fn(), addDocument: vi.fn((doc, { file }) => ({ doc, file })) };
+    const saver = new Autosaver(app, { store, session: 'me' });
+    saver.liveSessions = async () => new Set();
+    dialogHooks.open = async () => 'recover';
+    try {
+      const opened = await saver.offerRecovery();
+      expect(opened.map((e) => e.file.name)).toEqual(['Fine [Recovered]']);
+    } finally {
+      dialogHooks.open = null;
+    }
+    expect((await store.list()).map((e) => e.id)).toEqual(['ok', 'net']);
+    expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/"Offline" could not be recovered right now/), expect.objectContaining({ error: true }));
+    expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/"Damaged" could not be recovered: the recovery copy is damaged/), expect.objectContaining({ error: true }));
   });
 
   it('skips copies owned by sessions that are still running', () => {

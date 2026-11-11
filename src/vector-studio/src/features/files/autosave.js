@@ -190,23 +190,41 @@ export class Autosaver {
     });
     if (!choice) return [];
     const opened = [];
+    const kept = [];
+    const damaged = [];
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       if (choice === 'recover' && checks[i].checked) {
-        const ed = await this.recover(e);
+        let ed = null;
+        try {
+          ed = await this.recover(e);
+        } catch {
+          // The copy could not be read right now (offline): keep it to offer again next time.
+          kept.push(e.name || 'Untitled');
+          continue;
+        }
         if (ed) opened.push(ed);
-        else await store.remove(e.id);
+        else {
+          damaged.push(e.name || 'Untitled');
+          await store.remove(e.id);
+        }
       } else await store.remove(e.id);
     }
     if (opened.length) this.app.notify(`Recovered ${opened.length} document${opened.length === 1 ? '' : 's'}. Save to keep the changes.`);
+    if (damaged.length) this.app.notify(`${damaged.map((n) => `"${n}"`).join(', ')} could not be recovered: the recovery copy is damaged.`, { error: true, timeout: 8000 });
+    if (kept.length) this.app.notify(`${kept.map((n) => `"${n}"`).join(', ')} could not be recovered right now. Check your connection; Vector Studio will offer ${kept.length === 1 ? 'it' : 'them'} again next time it starts.`, { error: true, timeout: 8000 });
     return opened;
   }
 
+  /**
+   * Open a recovery copy. Resolves the editor, or null when the copy is gone
+   * or damaged; throws when it could not be read right now.
+   */
   async recover(entry) {
     const store = this.store;
+    const blob = await store.read(entry);
+    if (!blob) return null;
     try {
-      const blob = await store.read(entry);
-      if (!blob) return null;
       const { doc } = await parseDocument(blob);
       // Recovered work is unsaved until the user saves it.
       doc.savedRevision = -1;
