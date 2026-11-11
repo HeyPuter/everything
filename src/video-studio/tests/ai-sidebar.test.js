@@ -497,7 +497,10 @@ describe('AI sidebar conversation', () => {
     const agent = createAgent({ chat, runTool: runner.run, describe: describeIt, approve: async () => true, settings: () => ({ approval: 'never' }) });
     const pending = agent.send('go', () => {});
     await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    // The request was given the signal Stop aborts, so Puter stops writing (and charging for) the reply.
+    expect(chat.mock.calls[0][1].signal.aborted).toBe(false);
     agent.stop();
+    expect(chat.mock.calls[0][1].signal.aborted).toBe(true);
     const out = await pending;
     expect(out.stopped).toBe(true);
     expect(out.steps.map((st) => st.status)).toEqual(['skipped', 'skipped']);
@@ -608,6 +611,21 @@ describe('AI sidebar conversation', () => {
     expect(seen.options.provider).toBeUndefined();
     // Nor are their messages reshaped: Claude's cache marks and tool-result shape are for Claude only.
     expect(seen.messages).toBe(t);
+  });
+
+  it('ends the stream and Puter\'s request when the assistant is stopped', async () => {
+    const ctl = new AbortController();
+    let options = null;
+    let ended = false;
+    const sdk = { ai: { chat: async (_m, o) => { options = o; return { [Symbol.asyncIterator]() { return this; }, next: () => new Promise(() => {}), return: async () => { ended = true; return { done: true }; } }; } } };
+    const it = aiChatStream([{ role: 'user', content: 'hi' }], { signal: ctl.signal }, sdk)[Symbol.asyncIterator]();
+    const next = it.next();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(options.signal).toBe(ctl.signal);
+    ctl.abort();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ended).toBe(true);
+    void next;
   });
 });
 

@@ -4,10 +4,11 @@
  * Yields { type: 'text', text }, { type: 'tool', id, name, input } (a
  * function the model calls) and last { type: 'cut' } when the reply was cut
  * off at maxTokens. A reply the SDK hands back whole, rather than streamed,
- * is yielded in the same pieces. A failure throws an Error whose message is
+ * is yielded in the same pieces. `signal` aborts the request and ends the
+ * stream. A failure throws an Error whose message is
  * the service's own, as far as it gives one.
  */
-export async function* aiChatStream(messages, { model, tools, maxTokens } = {}, sdk = globalThis.puter) {
+export async function* aiChatStream(messages, { model, tools, maxTokens, signal } = {}, sdk = globalThis.puter) {
   if (!sdk?.ai?.chat) throw new Error('AI is not available here');
   const options = { stream: true, ...(model ? { model } : {}), ...(tools?.length ? { tools } : {}), ...(maxTokens ? { max_tokens: maxTokens } : {}) };
   // Puter serves a request from the healthiest route for the model: after anyone's recent failure on Anthropic's,
@@ -17,6 +18,8 @@ export async function* aiChatStream(messages, { model, tools, maxTokens } = {}, 
   if (claude) options.provider = 'claude';
   // Unasked, Puter lets the model call one tool a reply: "trim it, add a title and captions" took a round trip each.
   if (tools?.length) options.parallelToolCalls = true;
+  // Stop aborts the request, so Puter stops writing (and charging for) the reply.
+  if (signal) options.signal = signal;
   let res;
   try {
     res = await sdk.ai.chat(claude ? withCacheBreakpoints(messages) : messages, options);
@@ -24,6 +27,10 @@ export async function* aiChatStream(messages, { model, tools, maxTokens } = {}, 
     throw aiError(e);
   }
   if (res && typeof res[Symbol.asyncIterator] === 'function') {
+    // The stream is also ended directly: a generator's return() waits for the part it is waiting on.
+    const end = () => Promise.resolve(res.return?.()).catch(() => {});
+    if (signal?.aborted) end();
+    else signal?.addEventListener('abort', end, { once: true });
     try {
       for await (const part of res) {
         if (!part) continue;
@@ -37,6 +44,8 @@ export async function* aiChatStream(messages, { model, tools, maxTokens } = {}, 
       }
     } catch (e) {
       throw aiError(e);
+    } finally {
+      signal?.removeEventListener('abort', end);
     }
     return;
   }

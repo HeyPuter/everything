@@ -172,7 +172,7 @@ function safeDescribe(describe, call) {
 }
 
 /**
- * An assistant for one project. chat(messages, { model, tools, maxTokens }) is
+ * An assistant for one project. chat(messages, { model, tools, maxTokens, signal }) is
  * an async iterable of { type: 'text', text }, { type: 'tool', id, name, input }
  * and { type: 'cut' } (media/ai-chat.js). runTool(name, args, control) ->
  * { ok, content, changed, entry, target }, or a promise of it
@@ -232,7 +232,7 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
         let text = '';
         let cut = false;
         const calls = [];
-        const iterable = chat(requestMessages(transcript), { model: AI_MODEL, tools: toolSpecs(), maxTokens: MAX_OUTPUT_TOKENS });
+        const iterable = chat(requestMessages(transcript), { model: AI_MODEL, tools: toolSpecs(), maxTokens: MAX_OUTPUT_TOKENS, signal: abort.signal });
         const iter = iterable[Symbol.asyncIterator]();
         for (;;) {
           const next = await Promise.race([iter.next(), stopSignal]);
