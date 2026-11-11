@@ -232,7 +232,7 @@ export function createTimeline(ctx) {
   }
 
   function headerWidth() {
-    return headers.offsetWidth || 92;
+    return headers.offsetWidth || 98;
   }
 
   // ---- Layout -----------------------------------------------------------
