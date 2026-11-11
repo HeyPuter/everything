@@ -5,7 +5,8 @@ import opentype from 'opentype.js';
 import { createText } from '../src/model/nodes.js';
 import { registerMeasureFont, layoutText, glyphPlacements } from '../src/model/text-layout.js';
 import { registerOutlineFont } from '../src/features/type/fonts.js';
-import { textToPathData, commandsToContours, outlineNodes } from '../src/features/type/outlines.js';
+import { textToPathData, commandsToContours, outlineNodes, createOutlines } from '../src/features/type/outlines.js';
+import { bootAppWithFeatures } from './helpers.js';
 import { areaToPointPatch } from '../src/features/type/commands.js';
 import { findMatches } from '../src/features/type/find.js';
 import { fillPlaceholder } from '../src/features/type/lorem.js';
@@ -142,5 +143,35 @@ describe('type commands helpers', () => {
     expect(t.length).toBeGreaterThan(20);
     expect(layoutText({ ...n, text: t }).overflow).toBe(false);
     expect(layoutText({ ...n, text: `${t} more words here to overflow the box` }).overflow).toBe(true);
+  });
+
+  it('reports characters the font has no glyphs for instead of outlining them as boxes', async () => {
+    const style = { char: { fontFamily: 'Inter', fontWeight: 400, fontStyle: 'normal', fontSize: 40 } };
+    const glyphs = await textToPathData(createText('a\u{1F600}b \u05E9', 0, 0, style));
+    expect(glyphs.missing).toEqual([
+      { ch: '\u{1F600}', family: 'Inter' },
+      { ch: '\u05E9', family: 'Inter' },
+    ]);
+    expect((await textToPathData(createText('ab c', 0, 0, style))).missing).toEqual([]);
+
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const doc = app.editor.doc;
+    const ok = createText('Hello', 0, 0, style);
+    const bad = createText('Hi \u{1F600}', 0, 100, style);
+    doc.transact('Add', () => {
+      doc.insert(ok, app.editor.targetLayer().id);
+      doc.insert(bad, app.editor.targetLayer().id);
+    });
+    const notes = [];
+    app.notify = (msg) => notes.push(msg);
+    app.editor.select([ok.id, bad.id]);
+    await createOutlines(app);
+    expect(doc.has(ok.id)).toBe(false);
+    expect(doc.get(bad.id).text).toBe('Hi \u{1F600}');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('\u{1F600}');
+    expect(notes[0]).toContain('Inter');
+    expect(app.editor.selection.has(bad.id)).toBe(true);
   });
 });

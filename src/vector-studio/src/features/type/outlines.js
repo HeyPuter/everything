@@ -141,12 +141,29 @@ export function textToPathDataSync(node) {
   return glyphOutlines(node, lay, fonts);
 }
 
+/** Characters (no default-ignorable ones such as joiners and variation selectors) a font has no glyph for. */
+function missingIn(font, str) {
+  const out = [];
+  for (const c of str) if (!/\p{Default_Ignorable_Code_Point}|\p{M}|\s/u.test(c) && !font.charToGlyphIndex(c)) out.push(c);
+  return out;
+}
+
+/**
+ * Glyph outlines of a laid-out text. The list's `missing` property holds the
+ * characters the fonts have no glyphs for: the canvas shows those in a
+ * fallback font, but their outlines would be the font's empty-glyph box.
+ */
 function glyphOutlines(node, lay, fonts) {
   const base = node.transform || [1, 0, 0, 1, 0, 0];
   const out = [];
+  const missing = new Map(); // character -> font family
   for (const g of glyphPlacements(lay)) {
     const st = g.style;
     const font = fonts.get(`${st.fontFamily}|${st.fontWeight}|${st.fontStyle}`);
+    if (g.glyph == null && g.ch) {
+      const miss = missingIn(font, g.ch);
+      if (miss.length) missing.set([...g.ch].length > 1 ? g.ch : miss[0], st.fontFamily);
+    }
     let gm = multiply(base, g.m);
     if (st.fontStyle === 'italic') {
       const info = familyInfo(st.fontFamily);
@@ -154,6 +171,7 @@ function glyphOutlines(node, lay, fonts) {
       if (face && face.style !== 'italic') gm = multiply(gm, ITALIC_SKEW);
     }
     // Shaped glyphs (OpenType substitutions) come from their glyph index; others from the character.
+    if (g.glyph == null && /^\s+$/.test(g.ch)) continue; // spaces have no ink (and a font without them would draw boxes)
     const glyph = g.glyph != null && g.glyph >= 0 ? font.glyphs.get(g.glyph) : null;
     const path = glyph ? glyph.getPath(0, 0, g.size) : font.getPath(g.ch, 0, 0, g.size, { kerning: false, features: {}, hinting: false });
     const contours = commandsToContours(path.commands, gm);
@@ -185,6 +203,7 @@ function glyphOutlines(node, lay, fonts) {
       }
     }
   }
+  out.missing = [...missing].map(([ch, family]) => ({ ch, family }));
   return out;
 }
 
@@ -227,7 +246,7 @@ export async function outlineNodes(node) {
     }
   }
   group.children = children;
-  return { group, descendants };
+  return { group, descendants, missing: glyphs.missing || [] };
 }
 
 /** Text nodes under the selection (selected text, and text inside selected groups). */
@@ -250,8 +269,19 @@ export async function createOutlines(app) {
   if (editor.textEdit) app.tool?.endEditing?.({ select: true });
   const nodes = selectedTextNodes(editor);
   if (!nodes.length) return;
-  const built = [];
+  let built = [];
   for (const n of nodes) built.push({ n, ...(await outlineNodes(n)) });
+  // Type with characters its font lacks stays live: outlined, they would turn into empty-glyph boxes.
+  const kept = built.filter((b) => b.missing.length);
+  if (kept.length) {
+    const chars = [...new Set(kept.flatMap((b) => b.missing.map((m) => m.ch)))];
+    const list = chars.slice(0, 8).join(' ') + (chars.length > 8 ? ' …' : '');
+    const fonts = [...new Set(kept.flatMap((b) => b.missing.map((m) => `“${m.family}”`)))].join(', ');
+    const what = kept.length === built.length ? (kept.length === 1 ? 'The type was' : 'The type objects were') : `${kept.length} of ${built.length} type objects were`;
+    app.notify(`${what} not outlined: ${fonts} ${fonts.includes(',') ? 'have' : 'has'} no glyphs for ${list}. Choose a font that includes these characters.`, { error: true, timeout: 8000 });
+    built = built.filter((b) => !b.missing.length);
+    if (!built.length) return;
+  }
   const { doc } = editor;
   const ids = [];
   doc.transact('Create Outlines', () => {
@@ -267,6 +297,6 @@ export async function createOutlines(app) {
       doc.remove(cur.id);
       ids.push(group.id);
     }
-    editor.select(ids);
+    editor.select([...ids, ...kept.map((b) => b.n.id)]);
   });
 }
