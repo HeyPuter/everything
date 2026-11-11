@@ -533,12 +533,15 @@ function separateOverlaps(tracks) {
   }
 }
 
-/** Transitions need a touching next clip and fit within both clips (as timeline.maxTransition). */
+/**
+ * Transitions need a touching next clip and fit within both clips, and none
+ * go into or out of a compound clip (as timeline.maxTransition).
+ */
 function fitTransitions(track) {
   track.clips.forEach((c, i) => {
     if (!c.transition) return;
     const next = track.clips[i + 1];
-    const max = next && Math.abs(next.start - (c.start + c.duration)) <= 2000 ? Math.min(c.duration, next.duration, 5 * US) : 0;
+    const max = next && c.type !== 'compound' && next.type !== 'compound' && Math.abs(next.start - (c.start + c.duration)) <= 2000 ? Math.min(c.duration, next.duration, 5 * US) : 0;
     if (max < 100_000) c.transition = null;
     else c.transition.duration = Math.min(c.transition.duration, max);
   });
