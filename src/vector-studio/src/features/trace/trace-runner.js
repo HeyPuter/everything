@@ -19,10 +19,16 @@ let pixelSource = null;
 export function setPixelSource(fn) {
   pixelSource = fn;
   cache.clear();
+  sizes = new WeakMap();
+  lastDecoded = null;
 }
 
 const cache = new Map();
 const CACHE_LIMIT = 6;
+/** Natural sizes of assets (asset record -> { width, height }). */
+let sizes = new WeakMap();
+/** The image decoded to learn an asset's size, kept for the pixel read that follows. */
+let lastDecoded = null;
 
 function remember(key, value) {
   cache.delete(key);
@@ -68,10 +74,37 @@ export function resample(src, w, h) {
   return { width: w, height: h, data: out };
 }
 
-/** Natural pixel size of an asset: { width, height } or null. */
+function decodeError(asset) {
+  return new Error(asset.external ? 'The linked image could not be loaded. Embed it and try again.' : 'The image could not be decoded.');
+}
+
+/**
+ * Natural pixel size of an asset: { width, height }. Learning it does not
+ * read the pixels, so tracing a large photo keeps only the pixels it traces.
+ */
 export async function assetSize(doc, assetId) {
-  const full = await assetPixels(doc, assetId, null);
-  return full ? { width: full.width, height: full.height } : null;
+  const asset = doc.assets.get(assetId);
+  if (!asset) throw new Error('The image data is missing.');
+  const known = sizes.get(asset);
+  if (known) return known;
+  let size;
+  if (pixelSource) {
+    const src = await pixelSource(doc, assetId);
+    if (!src) throw new Error('The image could not be read.');
+    size = { width: src.width, height: src.height };
+  } else {
+    let img;
+    try {
+      img = await decodeAsset(asset);
+    } catch {
+      throw decodeError(asset);
+    }
+    if (!img) throw new Error('Images cannot be read here.');
+    size = { width: img.naturalWidth || img.width, height: img.naturalHeight || img.height };
+    lastDecoded = { asset, img };
+  }
+  sizes.set(asset, size);
+  return size;
 }
 
 /**
@@ -82,6 +115,8 @@ export async function assetSize(doc, assetId) {
 export async function assetPixels(doc, assetId, size) {
   const asset = doc.assets.get(assetId);
   if (!asset) throw new Error('The image data is missing.');
+  const decoded = lastDecoded?.asset === asset ? lastDecoded.img : null;
+  lastDecoded = null;
   const key = `${assetId}:${size ? `${size.w}x${size.h}` : 'full'}`;
   if (cache.has(key)) return remember(key, cache.get(key));
   if (pixelSource) {
@@ -90,15 +125,18 @@ export async function assetPixels(doc, assetId, size) {
     const px = size ? resample(src, size.w, size.h) : src;
     return remember(key, { ...px, naturalWidth: src.width, naturalHeight: src.height });
   }
-  let img;
-  try {
-    img = await decodeAsset(asset);
-  } catch {
-    throw new Error(asset.external ? 'The linked image could not be loaded. Embed it and try again.' : 'The image could not be decoded.');
+  let img = decoded;
+  if (!img) {
+    try {
+      img = await decodeAsset(asset);
+    } catch {
+      throw decodeError(asset);
+    }
   }
   if (!img) throw new Error('Images cannot be read here.');
   const nw = img.naturalWidth || img.width;
   const nh = img.naturalHeight || img.height;
+  sizes.set(asset, { width: nw, height: nh });
   const w = size ? size.w : nw;
   const h = size ? size.h : nh;
   const canvas = document.createElement('canvas');
@@ -119,9 +157,9 @@ export async function assetPixels(doc, assetId, size) {
 
 /** Pixels at the working resolution for `detail`, plus the scale from natural pixels. */
 export async function tracePixels(doc, assetId, detail) {
-  const full = await assetPixels(doc, assetId, null);
+  const full = await assetSize(doc, assetId);
   const g = gridSize(full.width, full.height, detail);
-  const px = g.w === full.width && g.h === full.height ? full : await assetPixels(doc, assetId, { w: g.w, h: g.h });
+  const px = await assetPixels(doc, assetId, g.w === full.width && g.h === full.height ? null : { w: g.w, h: g.h });
   return { image: { width: px.width, height: px.height, data: px.data }, scale: g.w / full.width, natural: { width: full.width, height: full.height } };
 }
 

@@ -351,3 +351,45 @@ describe('presets', () => {
     expect(gridSize(800, 600, 3).w).toBe(1700);
   });
 });
+
+describe('reading pixels to trace', () => {
+  it('reads a large image only at the working resolution', async () => {
+    const { tracePixels, setPixelSource } = await import('../src/features/trace/trace-runner.js');
+    setPixelSource(null);
+    const reads = [];
+    const OrigImage = globalThis.Image;
+    const origGetContext = HTMLCanvasElement.prototype.getContext;
+    globalThis.Image = class {
+      naturalWidth = 6000;
+      naturalHeight = 4000;
+      decode() {
+        return Promise.resolve();
+      }
+    };
+    HTMLCanvasElement.prototype.getContext = function () {
+      return {
+        drawImage() {},
+        getImageData: (x, y, w, h) => {
+          reads.push([w, h]);
+          return { data: new Uint8ClampedArray(w * h * 4) };
+        },
+      };
+    };
+    try {
+      const doc = { assets: new Map([['big', { mime: 'image/png', data: 'data:image/png;base64,' }]]) };
+      const { image, scale, natural } = await tracePixels(doc, 'big', 2);
+      expect(natural).toEqual({ width: 6000, height: 4000 });
+      expect([image.width, image.height]).toEqual([1200, 800]);
+      expect(scale).toBeCloseTo(0.2);
+      // The full 24-megapixel image is never read (or kept in the pixel cache).
+      expect(reads).toEqual([[1200, 800]]);
+      // Another detail level reuses the known size and reads only its own grid.
+      await tracePixels(doc, 'big', 3);
+      expect(reads).toEqual([[1200, 800], [1700, 1133]]);
+    } finally {
+      globalThis.Image = OrigImage;
+      HTMLCanvasElement.prototype.getContext = origGetContext;
+      setPixelSource(null);
+    }
+  });
+});
