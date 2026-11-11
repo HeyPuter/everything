@@ -10,6 +10,7 @@ import { registerOutlineFont } from '../src/features/type/fonts.js';
 import { loadShapingFont, fontAlternates } from '../src/features/type/shaping.js';
 import { applyCharStyle } from '../src/features/type/type-ops.js';
 import { exportSVG } from '../src/features/io/svg-export.js';
+import { glyphSvg } from '../src/features/type/glyphs-panel.js';
 
 let inter;
 let montserrat;
@@ -142,6 +143,16 @@ describe('Glyphs panel', () => {
     expect(one.classList.contains('has-alts')).toBe(true);
     p.paint(one);
     expect(one.querySelector('path').getAttribute('d').length).toBeGreaterThan(10);
+  });
+
+  it('draws every glyph with valid path data at every zoom', () => {
+    // Composite glyphs such as Ǟ have coordinates a hair off whole numbers, which opentype.js's toPathData turned into NaN.
+    const bad = [];
+    for (const size of [24, 32, 40, 52, 68]) {
+      for (let i = 0; i < inter.numGlyphs; i++) if (glyphSvg(inter, i, size).includes('NaN')) bad.push(`${i}@${size}`);
+    }
+    expect(bad).toEqual([]);
+    expect(glyphSvg(inter, inter.charToGlyphIndex('Ǟ'), 40)).toMatch(/^<svg[^>]*><path d="M[\d.]+ [\d.]+L[-\dLMQCZ. ]+" fill/);
   });
 
   it('inserts a glyph at the insertion point and remembers it', async () => {
