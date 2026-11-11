@@ -239,6 +239,44 @@ describe('crossfades and playback plan', () => {
     expect(off.get(a.id).parts).toEqual([[0, 80]]);
     expect(off.get(b.id).parts).toEqual([[80, 180]]);
   });
+
+  it('plans many overlapping clips like a clip-by-clip comparison, and reuses the plan', () => {
+    // The plan as every clip against every other clip on its track.
+    const naive = (st) => {
+      const order = S.frontOrder(st);
+      const zones = new Map(S.activeCrossfades(st).flatMap((x) => [[`${x.out}|${x.in}`, [x.start, x.end]], [`${x.in}|${x.out}`, [x.start, x.end]]]));
+      const out = new Map();
+      for (const c of st.clips) {
+        if (c.mute) continue;
+        let parts = [[c.start, S.clipEnd(c)]];
+        const cut = (x, y) => (parts = parts.flatMap(([p, q]) => (y <= p || x >= q ? [[p, q]] : [[p, Math.min(x, q)], [Math.max(y, p), q]].filter(([u, v]) => v > u))));
+        for (const o of st.clips) {
+          if (o === c || o.mute || o.trackId !== c.trackId || order.get(o.id) < order.get(c.id)) continue;
+          if (o.start >= S.clipEnd(c) || S.clipEnd(o) <= c.start) continue;
+          const zone = zones.get(`${c.id}|${o.id}`);
+          if (!zone) cut(o.start, S.clipEnd(o));
+          else {
+            if (zone[0] > o.start) cut(o.start, zone[0]);
+            if (zone[1] < S.clipEnd(o)) cut(zone[1], S.clipEnd(o));
+          }
+        }
+        out.set(c.id, parts);
+      }
+      return out;
+    };
+    let seed = 7;
+    const rnd = (n) => ((seed = (seed * 1103515245 + 12345) % 2147483648) % n);
+    for (let round = 0; round < 20; round++) {
+      let st = base(3);
+      const clips = [];
+      for (let i = 0; i < 40; i++) clips.push(S.createClip({ trackId: st.tracks[rnd(3)].id, sourceId: 'x', start: rnd(2000), length: 1 + rnd(round % 4 ? 300 : 1500), z: rnd(3), mute: rnd(10) === 0 }));
+      st = { ...S.addClips(st, clips), autoCrossfade: round % 2 === 0 };
+      const plan = clipPlan(st);
+      const want = naive(st);
+      for (const [id, parts] of want) expect(plan.get(id).parts).toEqual(parts);
+      expect(clipPlan(st)).toBe(plan);
+    }
+  });
 });
 
 describe('session graph', () => {

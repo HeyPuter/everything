@@ -79,11 +79,23 @@ function subtract(a, b, cuts) {
   return parts.filter(([p, q]) => q > p);
 }
 
+const plans = new WeakMap();
+
 /**
  * Audible intervals of each clip plus its effective fades. Returns
- * Map(clipId -> { parts: [[start, end)], fadeIn, fadeOut }).
+ * Map(clipId -> { parts: [[start, end)], fadeIn, fadeOut }) (shared: do not modify).
+ * Cached per clip list, so redraws and graph rebuilds that leave the clips alone reuse it.
  */
 export function clipPlan(state) {
+  const auto = state.autoCrossfade !== false;
+  const hit = plans.get(state.clips);
+  if (hit && hit.auto === auto) return hit.plan;
+  const plan = computeClipPlan(state);
+  plans.set(state.clips, { auto, plan });
+  return plan;
+}
+
+function computeClipPlan(state) {
   const plan = new Map();
   const xf = activeCrossfades(state);
   const pairs = new Map(); // "a|b" -> [start, end) shared by a crossfading pair
@@ -107,12 +119,26 @@ export function clipPlan(state) {
     if (!byTrack.has(c.trackId)) byTrack.set(c.trackId, []);
     byTrack.get(c.trackId).push(c);
   }
-  for (const clips of byTrack.values()) {
-    for (const c of clips) {
+  for (const list of byTrack.values()) {
+    // Clips in start order: only those starting less than the longest clip before a clip's start can reach it.
+    const clips = list.slice().sort((a, b) => a.start - b.start);
+    const z = clips.map((c) => order.get(c.id));
+    let maxLen = 0;
+    for (const c of clips) maxLen = Math.max(maxLen, c.length);
+    for (let i = 0; i < clips.length; i++) {
+      const c = clips[i];
+      const end = clipEnd(c);
       const cuts = [];
-      for (const o of clips) {
-        if (o === c || order.get(o.id) < order.get(c.id)) continue;
-        if (o.start >= clipEnd(c) || clipEnd(o) <= c.start) continue;
+      let lo = 0;
+      let hi = clips.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (clips[mid].start <= c.start - maxLen) lo = mid + 1;
+        else hi = mid;
+      }
+      for (let j = lo; j < clips.length && clips[j].start < end; j++) {
+        const o = clips[j];
+        if (j === i || z[j] < z[i] || clipEnd(o) <= c.start) continue;
         // A crossfade overlap stays audible on both clips; otherwise the front clip hides this one.
         const zone = pairs.get(`${c.id}|${o.id}`);
         if (zone) cuts.push(...subtract(o.start, clipEnd(o), [zone]));
