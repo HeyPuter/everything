@@ -321,3 +321,32 @@ describe('dialog initial focus', () => {
     await again;
   });
 });
+
+describe('Space on focused controls', () => {
+  it('toggles a focused checkbox or radio instead of starting playback', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const { CommandRegistry } = await import('../src/commands/registry.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    const ran = [];
+    const spy = vi.spyOn(CommandRegistry.prototype, 'run').mockImplementation((id) => ran.push(id));
+    const space = (target) => {
+      const e = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true });
+      target.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    for (const type of ['checkbox', 'radio']) {
+      const input = document.createElement('input');
+      input.type = type;
+      root.append(input);
+      expect(space(input)).toBe(false);
+    }
+    expect(ran).toEqual([]);
+    // Elsewhere Space still plays.
+    expect(space(document.body)).toBe(true);
+    expect(ran).toEqual(['transport.toggle']);
+    spy.mockRestore();
+  });
+});

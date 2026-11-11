@@ -157,7 +157,7 @@ export function createShell(app, root) {
     if (!id) return;
     // Plain keys (Space, letters) should still activate focused buttons and menus.
     const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
-    if (plain && (e.key === ' ' || e.key === 'Enter') && t instanceof HTMLElement && t.closest('button, [role=menuitem], [role=tab], [role=option], a, summary')) return;
+    if (plain && (e.key === ' ' || e.key === 'Enter') && t instanceof HTMLElement && t.closest('button, input[type=checkbox], input[type=radio], [role=menuitem], [role=menuitemcheckbox], [role=tab], [role=option], [role=checkbox], [role=switch], [role=radio], a, summary')) return;
     // Navigation keys stay with focused widgets that move with them (lists, tabs, sliders).
     const nav = /^(Delete|Backspace|Home|End|PageUp|PageDown|Arrow(Up|Down|Left|Right))$/.test(e.key);
     if (plain && nav && t instanceof HTMLElement && t.closest(NAV_WIDGETS)) return;
