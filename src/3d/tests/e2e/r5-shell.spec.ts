@@ -501,3 +501,36 @@ test('splitting an area with a factor of 0 or 1 keeps both parts visible', async
   }
   await expectNoErrors(errors);
 });
+
+test('turning online access on loads the Puter SDK once and the account menu appears without a restart', async ({ page }) => {
+  const hits: string[] = [];
+  const SDK = 'customElements.define("puter-user-menu", class extends HTMLElement {}); window.puter = { env: "web", auth: { isSignedIn: () => false } };';
+  await page.route('https://js.puter.com/**', async (r) => {
+    hits.push(r.request().url());
+    await new Promise((res) => setTimeout(res, 1500));
+    return r.fulfill({ contentType: 'application/javascript', body: SDK });
+  });
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('r5-online2')) return;
+    sessionStorage.setItem('r5-online2', '1');
+    localStorage.setItem('p3d.preferences.v1', JSON.stringify({ use_online_access: false }));
+  });
+  const errors = await openApp(page);
+  expect(hits).toEqual([]);
+  await page.evaluate(async () => {
+    const { setPref } = await import('/src/prefs/store.ts');
+    setPref('use_online_access', true);
+    // another pref change while it loads: still one fetch
+    setPref('use_online_access', true);
+  });
+  await expect(page.locator('.topbar > puter-user-menu')).toHaveCount(1, { timeout: 10000 });
+  expect(hits.length).toBe(1);
+  // at startup (online) the assistant waits for the page's own copy instead of fetching another
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.evaluate(async () => {
+    const { loadPuter } = await import('/src/assistant/puter.ts');
+    await loadPuter();
+  });
+  expect(hits.length).toBe(2);
+  await expectNoErrors(errors);
+});
