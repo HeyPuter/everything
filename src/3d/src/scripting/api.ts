@@ -2710,17 +2710,19 @@ export class SceneStruct extends Struct {
     return this.__sc.frame_current;
   }
   set frame_current(v: number) {
-    this.__sc.frame_current = Math.round(Number(v));
+    this.__sc.frame_current = Math.round(frameNumber(v, 'Scene.frame_current'));
     touched('frame');
   }
   frame_set(frame: number, subframe = 0) {
+    frame = frameNumber(frame, 'Scene.frame_set(): frame');
+    subframe = frameNumber(subframe, 'Scene.frame_set(): subframe');
     if (!this.__active) {
-      this.__sc.frame_current = Math.round(Number(frame));
-      this.__sc.frame_subframe = Number(subframe);
+      this.__sc.frame_current = Math.round(frame);
+      this.__sc.frame_subframe = subframe;
       touched('frame');
       return;
     }
-    app.setFrame(Number(frame), Number(subframe));
+    app.setFrame(frame, subframe);
     scriptState.mutated = true;
     ensureEvaluated();
   }
@@ -2746,6 +2748,12 @@ export class SceneStruct extends Struct {
   override repr() {
     return this.__path;
   }
+}
+/** A frame given by a script: a number (or bool), never NaN, which would leave the timeline and every animation at NaN. */
+function frameNumber(v: unknown, what: string): number {
+  if (typeof v === 'boolean') return Number(v);
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw pyError('TypeError', `${what} expected a number, not ${v === null || v === undefined ? 'None' : typeof v === 'number' ? v : typeof v}`);
+  return v;
 }
 /** Scene behaviour supplied by the scenes module (unique renaming, object sets of inactive scenes). */
 export const sceneHooks: {

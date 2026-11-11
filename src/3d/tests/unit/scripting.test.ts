@@ -211,6 +211,21 @@ describe('context and scene', () => {
     expect(sc.camera.name).toBe('Camera');
     expect(B.context.collection.name).toBe('Collection');
   });
+
+  it('refuses a frame that is not a number instead of setting NaN', () => {
+    const sc = B.context.scene;
+    sc.frame_set(12);
+    expect(() => (sc.frame_current = 'a')).toThrow(/TypeError/);
+    expect(() => sc.frame_set(NaN)).toThrow(/TypeError/);
+    expect(() => sc.frame_set(undefined)).toThrow(/TypeError/);
+    expect(() => sc.frame_set(5, 'x')).toThrow(/TypeError/);
+    expect(app.doc.scene.frame_current).toBe(12);
+    expect(app.doc.scene.frame_subframe).toBe(0);
+    sc.frame_current = 7.6;
+    expect(app.doc.scene.frame_current).toBe(8);
+    sc.frame_current = true;
+    expect(app.doc.scene.frame_current).toBe(1);
+  });
 });
 
 describe('bpy.ops', () => {
