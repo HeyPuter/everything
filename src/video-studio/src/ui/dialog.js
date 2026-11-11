@@ -90,7 +90,7 @@ export function promptDialog({ title, label, value = '', confirm = 'Save', maxLe
 /* Toasts */
 let toastHost = null;
 
-export function toast(message, { kind = 'info', action, duration = 3800 } = {}) {
+export function toast(message, { kind = 'info', action, duration = kind === 'error' ? 8000 : 3800 } = {}) {
   if (!toastHost?.isConnected) {
     toastHost ||= h('div.toasts', { role: 'region', 'aria-label': 'Notifications' });
     document.body.append(toastHost);
@@ -110,9 +110,17 @@ export function toast(message, { kind = 'info', action, duration = 3800 } = {}) 
   });
   toastHost.append(t);
   if (kind !== 'error') announce(message);
-  const arm = () => (timer = setTimeout(remove, duration));
+  // It stays while the pointer is on it or its button has keyboard focus (so Undo or Reload can be reached).
+  const arm = () => {
+    clearTimeout(timer);
+    if (!t.matches(':hover') && !t.contains(document.activeElement)) timer = setTimeout(remove, duration);
+  };
   t.addEventListener('pointerenter', () => clearTimeout(timer));
   t.addEventListener('pointerleave', arm);
+  t.addEventListener('focusin', () => clearTimeout(timer));
+  t.addEventListener('focusout', (e) => {
+    if (!t.contains(e.relatedTarget)) arm();
+  });
   arm();
   return { remove };
 }

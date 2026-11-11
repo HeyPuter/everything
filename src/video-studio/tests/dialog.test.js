@@ -38,3 +38,31 @@ describe('prompt dialogs', () => {
     expect(await answer).toBe(null);
   });
 });
+
+describe('toasts', () => {
+  it('stay while their button has keyboard focus, and errors stay longer', async () => {
+    const { vi } = await import('vitest');
+    const { toast } = await import('../src/ui/dialog.js');
+    vi.useFakeTimers();
+    try {
+      const onClick = vi.fn();
+      toast('Clip deleted', { action: { label: 'Undo', onClick } });
+      const t = document.querySelector('.toast:last-child');
+      const btn = t.querySelector('.toast-action');
+      btn.focus();
+      vi.advanceTimersByTime(20000);
+      expect(t.isConnected).toBe(true);
+      btn.blur();
+      vi.advanceTimersByTime(3800 + 200);
+      expect(t.isConnected).toBe(false);
+      toast("Couldn't save", { kind: 'error' });
+      const err = document.querySelector('.toast:last-child');
+      vi.advanceTimersByTime(5000);
+      expect(err.isConnected).toBe(true);
+      vi.advanceTimersByTime(3000 + 200);
+      expect(err.isConnected).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
