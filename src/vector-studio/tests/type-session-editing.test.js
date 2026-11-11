@@ -74,4 +74,15 @@ describe('type editing session', () => {
     app.setTool('selection');
     expect(doc.tx).toBeNull();
   });
+
+  it('Ctrl+Backspace and Ctrl+Delete delete a word on Windows and Linux (the line on a Mac is Command)', async () => {
+    const { IS_MAC } = await import('../src/commands/registry.js');
+    expect(IS_MAC).toBe(false);
+    const id = add('one two three');
+    const s = edit(id, 7);
+    key(s, 'Backspace', { ctrlKey: true });
+    expect(doc.get(id).text).toBe('one  three');
+    key(s, 'Delete', { ctrlKey: true });
+    expect(doc.get(id).text).toBe('one ');
+  });
 });

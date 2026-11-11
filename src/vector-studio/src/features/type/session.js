@@ -263,6 +263,7 @@ export class TextSession {
     if (!n || a >= n.text.length) return;
     let to = a + 1;
     if (unit === 'word') to = nextWordIndex(n.text, a);
+    else if (unit === 'line') to = this.#lineEnd(a);
     else to = nextCharIndex(n.text, a);
     this.deleteRange(a, Math.max(to, a + 1));
   }
@@ -619,11 +620,12 @@ export class TextSession {
       case 'PageDown':
         this.move(n.text.length, shift);
         return true;
+      // Option (Mac) or Ctrl (Windows, Linux) deletes a word; Command (Mac) to the start or end of the line.
       case 'Backspace':
-        this.deleteBackward(alt ? 'word' : mod ? 'line' : 'char');
+        this.deleteBackward(alt || (mod && !IS_MAC) ? 'word' : mod ? 'line' : 'char');
         return true;
       case 'Delete':
-        this.deleteForward(alt || mod ? 'word' : 'char');
+        this.deleteForward(alt || (mod && !IS_MAC) ? 'word' : mod ? 'line' : 'char');
         return true;
       case 'Enter':
         if (e.code === 'NumpadEnter') {
