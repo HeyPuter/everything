@@ -133,8 +133,11 @@ export class Movie {
     this.info.catch(() => {});
   }
 
-  /** Exact frame at `time` seconds (serialised seeks, cached as bitmaps of the given width). */
-  frame(time: number, width = 0): Promise<ImageBitmap | null> {
+  /**
+   * Exact frame at `time` seconds (serialised seeks, cached as bitmaps of the given width). With
+   * `keep` false a decoded frame is not cached (the caller closes it unless `isCached` says so).
+   */
+  frame(time: number, width = 0, keep = true): Promise<ImageBitmap | null> {
     const key = `${time.toFixed(4)}@${width}`;
     const hit = this.cache.get(key);
     if (hit) {
@@ -168,7 +171,7 @@ export class Movie {
       const w = width > 0 ? Math.min(width, v.videoWidth) : v.videoWidth;
       const h = Math.max(1, Math.round((w * v.videoHeight) / Math.max(1, v.videoWidth)));
       const bmp = await createImageBitmap(v, { resizeWidth: w, resizeHeight: h, resizeQuality: 'medium', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-      this.store(key, bmp, w * h);
+      if (keep) this.store(key, bmp, w * h);
       return bmp;
     });
     this.queue = job.catch(() => null);
@@ -189,6 +192,12 @@ export class Movie {
 
   get cachedFrames() {
     return this.cache.size;
+  }
+
+  /** Whether a bitmap returned by `frame` belongs to the cache (and must not be closed). */
+  isCached(bmp: ImageBitmap) {
+    for (const v of this.cache.values()) if (v.bmp === bmp) return true;
+    return false;
   }
 
   clearCache() {

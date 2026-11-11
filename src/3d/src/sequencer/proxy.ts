@@ -134,10 +134,12 @@ export async function buildProxies(strips: Strip[]): Promise<number> {
       const quality = Math.max(0.05, Math.min(1, (s.proxy?.quality ?? 50) / 100));
       for (let f = 0; f < n; f++) {
         if (me.cancelled) break;
-        const bmp = await movie.frame((f + 0.5) / Math.max(1, fps), width);
+        // decoded only for the JPEG: kept out of the movie's frame cache (the preview's frames stay)
+        const bmp = await movie.frame((f + 0.5) / Math.max(1, fps), width, false);
         if (bmp) {
           g.clearRect(0, 0, canvas.width, canvas.height);
           g.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+          if (!movie.isCached(bmp)) bmp.close();
           set.frames[f] = await canvas.convertToBlob({ type: 'image/jpeg', quality });
         }
         me.done++;

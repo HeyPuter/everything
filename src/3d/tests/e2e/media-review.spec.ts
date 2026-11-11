@@ -286,3 +286,45 @@ test('sequencer: pasting an effect whose input was deleted skips it with a warni
   expect(r.report).toMatch(/inputs no longer exist/);
   await expectNoErrors(errors);
 });
+
+test('sequencer: building proxies leaves the preview frame cache alone', async ({ page }) => {
+  const errors = await videoWorkspace(page);
+  const r = await page.evaluate(async () => {
+    const w = window as any;
+    const app = w.app;
+    const W = await w.imp('/src/render/final/webm.ts');
+    const add = await w.imp('/src/sequencer/add.ts');
+    const media = await w.imp('/src/sequencer/media.ts');
+    const P = await w.imp('/src/sequencer/proxy.ts');
+    // a 24-frame 640×360 movie made with the app's own encoder
+    const writer = await W.createVideoWriter(640, 360, 24, 60);
+    const c = document.createElement('canvas');
+    c.width = 640;
+    c.height = 360;
+    const g = c.getContext('2d')!;
+    for (let i = 0; i < 24; i++) {
+      g.fillStyle = `hsl(${i * 15},70%,40%)`;
+      g.fillRect(0, 0, 640, 360);
+      await writer.addFrame(c, i);
+    }
+    const blob = await writer.finish();
+    const [m] = await add.addMovie(new File([blob], 'clip.webm', { type: 'video/webm' }), 1, 1);
+    app.doc.scene.sequence_editor.use_cache_final = false;
+    app.changed('doc');
+    for (let f = 1; f <= 6; f++) {
+      app.setFrame(f);
+      app.changed('doc');
+      await new Promise((res) => setTimeout(res, 200));
+    }
+    const before = media.movieCacheStats().frames;
+    m.use_proxy = true;
+    m.proxy = { build_25: false, build_50: false, build_75: false, build_100: true, quality: 50, use_overwrite: false };
+    await P.buildProxies([m]);
+    return { before, after: media.movieCacheStats().frames, built: P.builtSizes(m) };
+  });
+  expect(r.built).toEqual([100]);
+  expect(r.before).toBeGreaterThan(0);
+  // the frames decoded for the proxies are not cached (they used to push the preview's frames out)
+  expect(r.after).toBe(r.before);
+  await expectNoErrors(errors);
+});
