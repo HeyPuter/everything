@@ -61,8 +61,17 @@ const notedListeners: ((entry: Entry) => void)[] = [];
 export function onRecentNoted(f: (entry: Entry) => void) {
   notedListeners.push(f);
 }
+/** Delete what browser storage keeps for an entry leaving the list. */
+function forget(x: Entry) {
+  if (x.source.kind === 'stored') void localStore().delete('blobs', `recent:${x.source.key}`).catch(() => undefined);
+  const k = thumbKey(x.source);
+  if (k) void localStore().delete('thumbs', k).catch(() => undefined);
+}
 export function noteRecent(e: Editor, name: string, source: RecentSource) {
   const list = load().filter((x) => !same(x.source, source) && !(source.kind !== 'puter' && x.source.kind !== 'puter' && x.name === name));
+  // An entry replaced by a file of the same name takes its stored copy along;
+  // the reopened entry itself keeps its copy and thumbnail.
+  for (const x of load()) if (!list.includes(x) && !same(x.source, source)) forget(x);
   const entry: Entry = { name, source, time: Date.now() };
   list.unshift(entry);
   entries = list;
@@ -81,16 +90,16 @@ async function keepLocal(e: Editor, entry: Entry, blob: Blob) {
   }
   // The in-memory entry keeps its blob; storage takes over after a reload.
   entry.source = { kind: 'stored', key };
+  // Replaced while the copy was being written.
+  if (!load().includes(entry)) return forget(entry);
   persist();
   pruneStored();
 }
 function pruneStored() {
   const stored = load().filter((x) => x.source.kind === 'stored');
   for (const old of stored.slice(STORE_MAX_FILES)) {
-    const key = (old.source as { key: string }).key;
     entries = load().filter((x) => x !== old);
-    void localStore().delete('blobs', `recent:${key}`);
-    void localStore().delete('thumbs', `stored:${key}`);
+    forget(old);
   }
   persist();
 }
@@ -101,11 +110,7 @@ export async function storedBlob(key: string): Promise<Blob> {
   return blob;
 }
 export function clearRecent(e: Editor) {
-  for (const x of load()) {
-    if (x.source.kind === 'stored') void localStore().delete('blobs', `recent:${x.source.key}`);
-    const k = thumbKey(x.source);
-    if (k) void localStore().delete('thumbs', k);
-  }
+  for (const x of load()) forget(x);
   entries = [];
   persist();
   syncRecentCommands(e);
@@ -125,7 +130,7 @@ export function syncRecentCommands(e: Editor) {
   // Preferences → File Handling → Recent file list contains.
   let list = load();
   if (list.length > e.preferences.recentCount) {
-    for (const x of list.slice(e.preferences.recentCount)) if (x.source.kind === 'stored') void localStore().delete('blobs', `recent:${x.source.key}`);
+    for (const x of list.slice(e.preferences.recentCount)) forget(x);
     list = entries = list.slice(0, e.preferences.recentCount);
   }
   persist();
