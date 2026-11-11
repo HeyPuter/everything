@@ -114,7 +114,8 @@ describe('RGB spaces and proof filters', () => {
   });
 
   it('builds exact filters for RGB device proofs', () => {
-    expect(rgbProofBody('srgb')).toContain('identity');
+    // An identity matrix: "identity" is not a feColorMatrix type, and browsers log an error for it.
+    expect(rgbProofBody('srgb')).toBe('<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0"/>');
     const mac = rgbProofBody('mac18');
     expect(mac).toContain('tableValues');
     expect(mac).toContain('feColorMatrix');
@@ -133,6 +134,7 @@ describe('RGB spaces and proof filters', () => {
     expect(ed.viewOptions.proofColors).toBe(true);
     expect(document.querySelector('#vs-proof-mac18 feComponentTransfer')).toBeTruthy();
     for (const k of Object.keys(PROOFS)) expect(proofFilterMarkup(`t-${k}`, k)).toContain(`id="t-${k}"`);
+    for (const k of Object.keys(PROOFS)) for (const [, type] of proofFilterMarkup(`t-${k}`, k).matchAll(/<feColorMatrix type="([^"]*)"/g)) expect(['matrix', 'saturate', 'hueRotate', 'luminanceToAlpha']).toContain(type);
     expect(proofBody(app, 'cmyk')).toContain('feColorMatrix');
   });
 
