@@ -60,7 +60,8 @@ async function previewDialog(app, { title, body, read, compute, previewBox, opts
   const originals = new Map(nodes.map((n) => [n.id, n]));
   const tx = doc.begin(title);
   const restore = () => {
-    for (const n of originals.values()) doc.update(n.id, { fill: n.fill, stroke: n.stroke, ...(n.type === 'text' ? { runs: n.runs } : {}) });
+    // Extra fills and strokes too: a preview that maps nothing leaves them as they were.
+    for (const n of originals.values()) doc.update(n.id, { fill: n.fill, stroke: n.stroke, appearance: n.appearance, ...(n.type === 'text' ? { runs: n.runs } : {}) });
   };
   const preview = () => {
     restore();
