@@ -171,11 +171,12 @@ describe('clips with a speed curve', () => {
     expect(T.sourceTimeAt(c, c.start + c.duration)).toBeCloseTo(s(5), -1);
   });
 
-  it('without ripple the curve is limited by the next clip', () => {
+  it('without ripple the curve keeps its footage, moving the next clip later', () => {
     const p = fixture();
-    const [c] = onMain(p, clip('video', 0, 4), clip('video', 4, 2));
+    const [c, d] = onMain(p, clip('video', 0, 4), clip('video', 4, 2));
     T.setSpeedCurve(p, c.id, pts([[0, 0.25], [1, 0.25]]), {});
-    expect(c.duration).toBe(s(4));
+    expect(c.duration).toBe(s(16));
+    expect(d.start).toBe(s(16));
   });
 
   it('ripples the base track and moves linked overlays', () => {

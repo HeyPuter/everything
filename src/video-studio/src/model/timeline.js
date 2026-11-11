@@ -614,9 +614,9 @@ export function pasteClips(project, clips, t, opts = {}) {
 }
 
 /**
- * Play a clip at a constant speed. opts.span overrides the source length to
- * keep (a drag keeps the one it began with, so a neighbor that cut the clip
- * short mid-drag doesn't shorten it for good).
+ * Play a clip at a constant speed, keeping the footage it plays (see makeRoom).
+ * opts.span overrides the source length to keep (a drag keeps the one it
+ * began with, so rounding never adds up).
  */
 export function setSpeed(project, id, speed, opts = {}) {
   const found = findClip(project, id);
@@ -625,7 +625,7 @@ export function setSpeed(project, id, speed, opts = {}) {
   const s = Math.min(100, Math.max(0.1, speed));
   const curved = hasCurve(clip);
   const span = opts.span ?? (curved ? sourceSpan(clip) : clip.duration * clip.speed);
-  const duration = fitDuration(track, clip, Math.max(MIN_CLIP, Math.round(span / s)), opts);
+  const duration = Math.max(MIN_CLIP, Math.round(span / s));
   const before = { ...clip };
   // Constant speed replaces a velocity ramp, accents included.
   if (clip.speedRamp) stripRampAccents(clip);
@@ -635,23 +635,38 @@ export function setSpeed(project, id, speed, opts = {}) {
     delete clip.speedCurve;
     clip.speed = s;
     clip.duration = duration;
+    makeRoom(project, track, clip, opts);
   });
   clampTransition(project, clip);
   return true;
 }
 
-/** Without the ripple a faster/slower clip must still fit before its neighbor. */
-function fitDuration(track, clip, duration, opts) {
-  if (opts.ripple && track.main) return duration;
+/**
+ * A clip that got longer (slower) keeps all its footage. Where it would now
+ * run into the next clip on its track: with ripple the base track closes up
+ * by itself; on the base track without ripple the clips after it move later
+ * by the overlap (as a freeze frame makes room); an overlay clip moves to a
+ * free track of its kind (as when it is dropped on an occupied spot).
+ */
+function makeRoom(project, track, clip, opts) {
+  if (opts.ripple && track.main) return;
   sortTrack(track);
-  const next = track.clips[track.clips.indexOf(clip) + 1];
-  return next ? Math.min(duration, next.start - clip.start) : duration;
+  const i = track.clips.indexOf(clip);
+  const next = track.clips[i + 1];
+  const over = next ? clipEnd(clip) - next.start : 0;
+  if (over <= 1) return;
+  if (track.main) {
+    for (const c of track.clips.slice(i + 1)) c.start += over;
+    return;
+  }
+  track.clips.splice(i, 1);
+  insertSorted(trackWithRoom(project, track.kind, clip.start, clipEnd(clip), new Set([clip.id])), clip);
 }
 
 /**
  * Give a timed clip a speed curve (points, see model/speed-curve.js), or
  * back to constant 1x with null. The clip keeps the footage it plays, so
- * its timeline length changes (limited by the next clip without ripple).
+ * its timeline length changes (see makeRoom for a clip that runs into the next).
  * opts.span overrides the source length to keep (a drag keeps the one it
  * started with so rounding never accumulates). Keyframes stay on the same
  * moments of the footage. opts.dropRamp takes away a velocity ramp marker
@@ -667,13 +682,14 @@ export function setSpeedCurve(project, id, points, opts = {}) {
   // A different curve preset replaces a velocity ramp; edits keep it (shown as edited).
   if (opts.dropRamp && clip.speedRamp) stripRampAccents(clip);
   const span = opts.span ?? sourceSpan(clip);
-  const duration = fitDuration(track, clip, Math.max(MIN_CLIP, Math.round(curveDuration(pts, span))), opts);
+  const duration = Math.max(MIN_CLIP, Math.round(curveDuration(pts, span)));
   const before = { ...clip };
   withRipple(project, opts, () => {
     clip.speedCurve = pts;
     clip.speed = meanSpeed(pts);
     clip.duration = duration;
     if (clip.keyframes) clip.keyframes = remapKeyframes(clip.keyframes, (t) => localAtSource(clip, sourceOffset(before, t)), duration);
+    makeRoom(project, track, clip, opts);
   });
   clampTransition(project, clip);
   return true;

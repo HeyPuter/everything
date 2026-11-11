@@ -256,16 +256,41 @@ describe('setSpeed', () => {
     expect(c.keyframes.x.map((k) => k.t)).toEqual([s(2), s(8)]);
   });
 
-  it('ripples base clips with ripple but stops at the neighbor without it', () => {
+  it('ripples base clips with ripple, and without it moves the clips after it by the overlap', () => {
     const p = fixture();
-    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const [a, b, c] = onMain(p, clip('video', 0, 2), clip('video', 2, 2), clip('video', 10, 2));
     setSpeed(p, a.id, 0.5, RIPPLE);
-    expect(spans(mainTrack(p))).toEqual([[0, 4], [4, 2]]);
-    setSpeed(p, b.id, 0.25, FREE);
-    expect(b.duration).toBe(s(8));
-    setSpeed(p, a.id, 0.1, FREE); // would be 20 s, but B starts at 4 s
-    expect(a.duration).toBe(s(4));
+    expect(spans(mainTrack(p))).toEqual([[0, 4], [4, 2], [6, 2]]);
+    setSpeed(p, b.id, 0.25, FREE); // 8 s long: runs 2 s into C, which moves along
+    expect(spans(mainTrack(p))).toEqual([[0, 4], [4, 8], [12, 2]]);
+    setSpeed(p, a.id, 0.1, FREE); // 20 s: every clip after it moves 16 s later
+    expect(a.duration).toBe(s(20));
     expect(a.speed).toBe(0.1);
+    expect([b.start, c.start]).toEqual([s(20), s(28)]);
+    expect(noOverlaps(p)).toBe(true);
+  });
+
+  it('never loses footage when a clip is slowed down next to another and back', () => {
+    const p = fixture();
+    // An overlay with a neighbor right after it on its track.
+    const o = clip('video', 0, 2);
+    const n = clip('video', 2, 2, { assetId: 'silent' });
+    addClip(p, o, FREE);
+    addClip(p, n, { ...FREE, trackId: trackOf(p, o.id).id });
+    expect(trackOf(p, n.id)).toBe(trackOf(p, o.id));
+    setSpeed(p, o.id, 0.5, RIPPLE);
+    expect(o.duration).toBe(s(4));
+    // It moved to a free track rather than cutting into its neighbor, which stays put.
+    expect(trackOf(p, o.id)).not.toBe(trackOf(p, n.id));
+    expect(n.start).toBe(s(2));
+    setSpeed(p, o.id, 1, RIPPLE);
+    expect(o.duration).toBe(s(2));
+    expect(noOverlaps(p)).toBe(true);
+    // On the base track without ripple the same: all of the footage comes back.
+    const [a] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    setSpeed(p, a.id, 0.5, FREE);
+    setSpeed(p, a.id, 1, FREE);
+    expect(a.duration).toBe(s(2));
   });
 
   it('clamps speed to 0.1x..100x and ignores clips without a source', () => {
