@@ -880,8 +880,9 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
 
   function newChat() {
     chatSeq++;
-    if (agent.busy) stop();
-    agent.reset();
+    // A reply still running stops as part of the new chat (what it was making is kept, and said so).
+    if (pendingApproval) answer(false);
+    agent.reset('new-chat');
     current = null;
     pendingApproval = null;
     undos.clear();
@@ -1027,7 +1028,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
     dispose() {
       destroyed = true;
       runner.close();
-      agent.reset();
+      agent.reset('leave');
       offs.forEach((f) => f?.());
       globalThis.removeEventListener?.('resize', onResize);
       sheet.dispose();

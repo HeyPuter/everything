@@ -218,9 +218,11 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
     const abort = new AbortController();
     const run = {
       stopped: false,
-      stop() {
+      reason: null,
+      stop(reason = 'stop') {
         if (!this.stopped) {
           this.stopped = true;
+          this.reason = reason;
           stopResolve(STOP);
           abort.abort();
         }
@@ -304,6 +306,8 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
               emit({ type: 'step', step: { ...step } });
               const control = {
                 stopped: () => run.stopped,
+                // Why: 'stop' (Stop pressed), 'new-chat' (the chat was cleared) or 'leave'.
+                reason: () => run.reason,
                 signal: abort.signal,
                 note: (note) => {
                   step.note = note || null;
@@ -396,8 +400,9 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
     stop() {
       running?.stop();
     },
-    reset() {
-      running?.stop();
+    /** Start over (reason: 'new-chat', or 'leave' when the editor goes); a reply still running stops. */
+    reset(reason = 'new-chat') {
+      running?.stop(reason);
       running = null;
       messages = [];
       notes = [];

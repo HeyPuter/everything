@@ -884,6 +884,22 @@ describe('AI sidebar panel', () => {
     expect(told).not.toMatch(/in this reply/);
   });
 
+  it('says a video finished after New chat came from the cleared chat, not that it was stopped', async () => {
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    let finish;
+    const generateVideo = vi.fn(() => new Promise((r) => (finish = () => r(video()))));
+    const { panel } = mount([[call('generate_video', { prompt: 'A fox' })]], { services: { generateVideo, picture: vi.fn(), frame: vi.fn() } });
+    panel.settings.approval = 'never';
+    panel.open();
+    panel.send('make a fox');
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    panel.newChat();
+    finish();
+    const toasts = () => [...document.querySelectorAll('.toast-text')].map((t) => t.textContent);
+    await vi.waitFor(() => expect(toasts().join()).toMatch(/has finished/));
+    expect(toasts()).toContain('The video still being made when you started a new chat has finished. It is in your media.');
+  });
+
   it('keeps Undo off once something else was done after the reply', async () => {
     const { panel, store, ctx } = mount([[call('set_speed', { clips: ['first'], speed: 2 })], [{ type: 'text', text: 'Faster.' }]]);
     panel.open();

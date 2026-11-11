@@ -345,13 +345,14 @@ export function createAiToolRunner(ctx, services = {}) {
   }
 
   /** Made but stopped: the asset goes into the media library only, said so. */
-  function keepMade(asset, what) {
+  function keepMade(asset, what, control) {
     if (closed) {
       keepLeft(asset, what);
       return { skipped: true };
     }
     actions.registerAsset(asset);
-    toast(`The ${what} you stopped has finished. It is in your media.`, { kind: 'success', duration: 6000 });
+    const when = control?.reason?.() === 'new-chat' ? 'still being made when you started a new chat' : 'you stopped';
+    toast(`The ${what} ${when} has finished. It is in your media.`, { kind: 'success', duration: 6000 });
     return { skipped: true };
   }
 
@@ -372,9 +373,9 @@ export function createAiToolRunner(ctx, services = {}) {
   }
 
   // Made after a Stop: imported and kept in the media library, said so.
-  async function keepFile(file, origin, what) {
+  async function keepFile(file, origin, what, control) {
     try {
-      keepMade(await importMade(file, origin), what);
+      keepMade(await importMade(file, origin), what, control);
     } catch {
       /* nothing to keep */
     }
@@ -390,11 +391,11 @@ export function createAiToolRunner(ctx, services = {}) {
     const len = fitSeconds(model, seconds ?? DEFAULT_SECONDS);
     const made = await generating(control, `Generating ${len ? `${len}s of ` : ''}video with ${model.label}`,
       () => svc.generateVideo({ prompt, model: model.id, seconds: len, aspect: shape, firstFrame, lastFrame, sound, negativePrompt: avoid, testMode: svc.testMode() }),
-      (r) => keepFile(new File([r.blob], videoFileName(prompt, r.blob.type), { type: r.blob.type || 'video/mp4' }), 'ai-video', 'video'));
+      (r) => keepFile(new File([r.blob], videoFileName(prompt, r.blob.type), { type: r.blob.type || 'video/mp4' }), 'ai-video', 'video', control));
     if (!made) return { skipped: true };
     control?.note?.('Adding the video to the project…');
     const asset = await importMade(new File([made.blob], videoFileName(prompt, made.blob.type), { type: made.blob.type || 'video/mp4' }), 'ai-video');
-    if (control?.stopped?.()) return keepMade(asset, 'video');
+    if (control?.stopped?.()) return keepMade(asset, 'video', control);
     const { entry, value } = oneStep(label, asset, () => put(asset), at);
     const clip = value?.clip || null;
     if (clip) store.select(clip.id);
@@ -509,10 +510,10 @@ export function createAiToolRunner(ctx, services = {}) {
       const aspect = IMAGE_ASPECTS.some((x) => x.id === a.aspect) ? a.aspect : aspectForSize(s.width, s.height).id;
       const style = IMAGE_STYLES.some((x) => x.id === a.style) ? a.style : 'none';
       const made = await generating(control, 'Generating the picture', () => svc.generateImage(prompt, { aspect, style, model: svc.imageModel(), testMode: svc.testMode() }),
-        (r) => keepFile(new File([r.blob], imageFileName(prompt), { type: r.blob.type || 'image/png' }), 'ai-image', 'picture'));
+        (r) => keepFile(new File([r.blob], imageFileName(prompt), { type: r.blob.type || 'image/png' }), 'ai-image', 'picture', control));
       if (!made) return { skipped: true };
       const asset = await importMade(new File([made.blob], imageFileName(prompt, (made.blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')), { type: made.blob.type || 'image/png' }), 'ai-image');
-      if (control?.stopped?.()) return keepMade(asset, 'picture');
+      if (control?.stopped?.()) return keepMade(asset, 'picture', control);
       const duration = imageLength(a.duration);
       const { entry, value } = oneStep('Generate picture', asset, () => place(asset, { place: a.place, start: a.start, duration }), at);
       if (value.clip) store.select(value.clip.id);
@@ -531,10 +532,10 @@ export function createAiToolRunner(ctx, services = {}) {
       }
       const base = got.clip ? got.clip.name || store.project.assets[got.clip.assetId]?.name : 'Picture';
       const edited = (r) => new File([r.blob], imageFileName(`${String(base || 'Picture').replace(/\.[a-z0-9]{2,5}$/i, '')} edited`), { type: r.blob.type || 'image/png' });
-      const made = await generating(control, 'Editing the picture', () => svc.editPicture(got.picture, instruction, { model: svc.imageModel(), testMode: svc.testMode() }), (r) => keepFile(edited(r), 'ai-image', 'picture'));
+      const made = await generating(control, 'Editing the picture', () => svc.editPicture(got.picture, instruction, { model: svc.imageModel(), testMode: svc.testMode() }), (r) => keepFile(edited(r), 'ai-image', 'picture', control));
       if (!made) return { skipped: true };
       const asset = await importMade(edited(made), 'ai-image');
-      if (control?.stopped?.()) return keepMade(asset, 'picture');
+      if (control?.stopped?.()) return keepMade(asset, 'picture', control);
       const inPlace = got.clip?.type === 'image' && a.replace !== false;
       const sourceClip = got.clip;
       const { entry, value } = oneStep('Edit picture', asset, () => {
@@ -552,10 +553,10 @@ export function createAiToolRunner(ctx, services = {}) {
       const text = str(a.text, 3000);
       if (!text) return fail('give the words to speak in text');
       const voice = TTS_VOICES.some((v) => v.id === a.voice) ? a.voice : TTS_VOICES[0].id;
-      const blob = await generating(control, 'Recording the voice', () => svc.synthesize(text, voice, { testMode: svc.testMode() }), (b) => keepFile(speechFile(b, text), 'tts', 'voiceover'));
+      const blob = await generating(control, 'Recording the voice', () => svc.synthesize(text, voice, { testMode: svc.testMode() }), (b) => keepFile(speechFile(b, text), 'tts', 'voiceover', control));
       if (!blob) return { skipped: true };
       const asset = await importMade(speechFile(blob, text), 'tts');
-      if (control?.stopped?.()) return keepMade(asset, 'voiceover');
+      if (control?.stopped?.()) return keepMade(asset, 'voiceover', control);
       const { entry, value } = oneStep('Add voiceover', asset, () => place(asset, { start: a.start }), at);
       return ok(`added the voiceover (media ${asset.id}) ${value.words}.`, { changed: true, entry, target: value.clip ? { ids: [value.clip.id], time: value.clip.start } : null });
     },
