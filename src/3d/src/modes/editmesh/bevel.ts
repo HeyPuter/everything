@@ -228,8 +228,21 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
     for (const k of sel) for (const x of k.split(':')) ends.add(x);
     ensureMeshSize('Bevel', meshEditCorners(m) + sel.size * segs * 8 + (segs > 1 ? ends.size * segs * segs * 2 : 0), m.vcount + sel.size * segs * 2 + (segs > 1 ? ends.size * segs * segs : 0) / 2);
   }
-  const ef = m.edgeFaces();
-  const faces0 = m.faces.map((f) => [...f.verts]);
+  // only faces around the beveled edges' vertices change: the edge map and the original corner
+  // lists are built for those (whole-mesh string-keyed maps cost ~1 s on a 200k-vertex mesh)
+  const touched = new Set<number>();
+  for (const k of sel) k.split(':').forEach((x) => touched.add(Number(x)));
+  const faces0: number[][] = []; // sparse: touched faces only
+  const ef = new Map<string, [number, number][]>();
+  m.faces.forEach((f, fi) => {
+    if (!f.verts.some((v) => touched.has(v))) return;
+    faces0[fi] = [...f.verts];
+    const n = f.verts.length;
+    for (let i = 0; i < n; i++) {
+      const k = edgeKey(f.verts[i], f.verts[(i + 1) % n]);
+      (ef.get(k) ?? ef.set(k, []).get(k)!).push([fi, i]);
+    }
+  });
   const corner = new Map<string, number>(); // `${face}:${vertex}` -> new vertex id
   // a corner that slides along an unbeveled edge is shared by the faces on both sides of that edge
   const along = new Map<string, number>(); // `${vertex}>${neighbour}` -> new vertex id
@@ -336,11 +349,10 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
   }
   // rewrite faces: adjacent faces use their new corners; other faces around a beveled vertex
   // replace it with the new corners of the faces across their two edges at that vertex
-  const touched = new Set<number>();
-  for (const k of sel) k.split(':').forEach((x) => touched.add(Number(x)));
   const otherFace = (fi: number, a: number, b: number) => (ef.get(edgeKey(a, b)) ?? []).map(([g]) => g).find((g) => g !== fi);
   m.faces.forEach((f, fi) => {
     const src = faces0[fi];
+    if (!src) return; // away from the bevel: unchanged
     const n = src.length;
     const verts: number[] = [],
       uvs: number[] = [],
