@@ -134,6 +134,19 @@ describe('STL', () => {
     expect(sizes(a, 'bin')).toEqual(sizes(b, 'ascii'));
     expect(sizes(a, 'bin').faces).toBe(166);
   });
+  it('reads Magics facet colors (bit 15 clear) and the header object color', () => {
+    const bytes = new Uint8Array(84 + 2 * 50);
+    bytes.set(new TextEncoder().encode('COLOR='), 10);
+    bytes.set([255, 0, 0, 255], 16);
+    const dv = new DataView(bytes.buffer);
+    dv.setUint32(80, 2, true);
+    for (let t = 0; t < 2; t++) [0, 0, 0, 1, 0, 0, 0, 1, 0].forEach((v, k) => dv.setFloat32(84 + t * 50 + 12 + k * 4, v + t, true));
+    dv.setUint16(84 + 48, 31 << 10, true); // own color: blue
+    dv.setUint16(84 + 50 + 48, 0x8000, true); // object color
+    const col = readStl(bytes).meshes[0].colors![0].data;
+    expect([...col.slice(0, 4)]).toEqual([0, 0, 1, 1]);
+    expect([...col.slice(12, 16)]).toEqual([1, 0, 0, 1]);
+  });
 });
 
 describe('PLY', () => {

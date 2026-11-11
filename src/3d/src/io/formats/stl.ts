@@ -35,17 +35,19 @@ export function readStl(bytes: Uint8Array, opts: StlReadOptions = {}): IRScene {
     const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const n = dv.getUint32(80, true);
     if (84 + n * 50 > bytes.length) throw new Error('The STL file is truncated');
-    // "COLOR=" header (VisCAM/SolidView) marks per-facet colors in the attribute bytes
+    // Materialise Magics: "COLOR=" + RGBA bytes in the header is the object color; a facet whose
+    // attribute bit 15 is clear has its own 5-bit color (red in the low bits)
     const header = new TextDecoder('latin1').decode(bytes.subarray(0, 80));
-    const colorHeader = header.indexOf('COLOR=') >= 0;
+    const at = header.indexOf('COLOR=');
+    const colorHeader = at >= 0 && at + 9 < 80;
+    const base = colorHeader ? [bytes[at + 6] / 255, bytes[at + 7] / 255, bytes[at + 8] / 255] : [1, 1, 1];
+    colored = colorHeader;
     for (let i = 0; i < n; i++) {
       const o = 84 + i * 50;
       for (let k = 0; k < 9; k++) tri.push(dv.getFloat32(o + 12 + k * 4, true));
       const attr = dv.getUint16(o + 48, true);
-      if (colorHeader && attr & 0x8000) {
-        colored = true;
-        colors.push((attr & 31) / 31, ((attr >> 5) & 31) / 31, ((attr >> 10) & 31) / 31);
-      } else colors.push(1, 1, 1);
+      if (colorHeader && !(attr & 0x8000)) colors.push((attr & 31) / 31, ((attr >> 5) & 31) / 31, ((attr >> 10) & 31) / 31);
+      else colors.push(base[0], base[1], base[2]);
     }
   } else {
     const text = new TextDecoder().decode(bytes);
