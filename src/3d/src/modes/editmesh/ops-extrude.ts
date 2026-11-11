@@ -80,7 +80,8 @@ export function screw(m: MeshEdit, steps: number, turns: number, center: Vector3
   const ends = [chain.verts[0], chain.verts[chain.verts.length - 1]].sort((a, b) => a - b);
   const advance = chain.closed ? 0 : V(m.p(ends[0])).sub(V(m.p(ends[1]))).dot(axis);
   const total = steps * turns;
-  const profile = chain.verts;
+  // every vertex of the selected edges (a branched profile's chain doesn't reach all of them)
+  const profile = [...new Set(edges.flat())];
   let prev = new Map(profile.map((v) => [v, v]));
   for (let s = 1; s <= total; s++) {
     const q = new Quaternion().setFromAxisAngle(axis, (Math.PI * 2 * s) / steps);

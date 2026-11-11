@@ -98,6 +98,22 @@ describe('extrude variants', () => {
     expect(m.vcount).toBe(12);
     expect(m.faces.length).toBe(4);
   });
+
+  it('screws a branched edge profile without broken faces', () => {
+    // a T: 0-1-2 with 3 branching off 1
+    const m = fromPrim(prim.plane());
+    m.faces = [];
+    m.pos = [1, 0, 0, 1.5, 0, 0, 2, 0, 0, 1.5, 0, 0.5];
+    m.sel = [1, 1, 1, 1];
+    m.hide = [0, 0, 0, 0];
+    m.looseEdges = [[0, 1], [1, 2], [1, 3]];
+    expect(screw(m, 4, 1, new Vector3(), new Vector3(0, 0, 1))).toBe(true);
+    expect(m.faces.length).toBe(12);
+    for (const f of m.faces) {
+      expect(f.verts.every((v) => Number.isInteger(v) && v >= 0 && v < m.vcount)).toBe(true);
+      expect(new Set(f.verts).size).toBe(4);
+    }
+  });
 });
 
 describe('clean up', () => {
