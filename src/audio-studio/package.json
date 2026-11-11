@@ -4,6 +4,7 @@
   "description": "Audio Studio: a waveform and multitrack audio editor on Puter. Record, edit, restore, mix and master audio in the browser, stored in your own cloud.",
   "type": "module",
   "private": true,
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=22.12"
   },
