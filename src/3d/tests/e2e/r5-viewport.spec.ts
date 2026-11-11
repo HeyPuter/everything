@@ -337,3 +337,37 @@ test('snapping finds the vertex, edge midpoint and face centre under the pointer
   expect((r[3] as number[])[1]).toBeCloseTo(1, 2);
   await expectNoErrors(errors);
 });
+
+test('the navigation gizmo works from the keyboard', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  const nav = () => page.evaluate(async () => {
+    const v = (await import('/src/editors/view3d/view3d.ts' as string)).activeView3D();
+    return { view: v.nav.view, d: +v.nav.distance.toFixed(3), px: +v.nav.pivot.x.toFixed(3), playing: !!(window as any).app.playing }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  });
+  const front = page.locator('.view3d .nav-gizmo [aria-label="Front view"]');
+  await expect(front).toHaveAttribute('role', 'button');
+  await front.focus();
+  await page.keyboard.press('Enter');
+  expect((await nav()).view).toBe('FRONT');
+  // the redrawn gizmo keeps the focus: Space again looks from the back
+  expect(await page.evaluate(() => (document.activeElement as Element)?.getAttribute('aria-label'))).toBe('Front view');
+  await page.keyboard.press(' ');
+  const back = await nav();
+  expect(back.view).toBe('BACK');
+  expect(back.playing).toBe(false);
+  const zoom = page.locator('.view3d .nav-btn[aria-label="Zoom"]');
+  await zoom.focus();
+  await page.keyboard.press('Enter');
+  expect((await nav()).d).toBeLessThan(back.d);
+  const pan = page.locator('.view3d .nav-btn[aria-label="Move"]');
+  await pan.focus();
+  const before = await nav();
+  await page.keyboard.press('ArrowLeft');
+  expect((await nav()).px).not.toBe(before.px);
+  // the camera button toggles once per Enter
+  await page.locator('.view3d .nav-btn[aria-label="Toggle the camera view"]').focus();
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(async () => (await import('/src/editors/view3d/view3d.ts' as string)).activeView3D().cameraView)).toBe(true);
+  await expectNoErrors(errors);
+});

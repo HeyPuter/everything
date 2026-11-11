@@ -101,3 +101,11 @@
 .sh-world-row > .icon-btn.on {
   background: var(--c-accent, #4772b3);
 }
+/* Navigation gizmo: keyboard focus on an axis bubble */
+.nav-gizmo .ng-axis:focus {
+  outline: none;
+}
+.nav-gizmo .ng-axis:focus-visible circle {
+  stroke: var(--accent, #4772b3);
+  stroke-width: 2.5;
+}
