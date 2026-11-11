@@ -311,3 +311,41 @@ describe('Transcript in the Captions tab', () => {
     tab.dispose?.();
   });
 });
+
+describe('Translate captions', () => {
+  afterEach(() => {
+    delete globalThis.puter;
+    document.body.replaceChildren();
+  });
+
+  it('stops translating when the dialog is canceled or closed', async () => {
+    for (const how of ['cancel', 'escape', 'x', 'backdrop']) {
+      document.body.replaceChildren();
+      let reply = null;
+      globalThis.puter = { ai: { chat: () => new Promise((r) => (reply = r)) } };
+      const p = createProject();
+      p.tracks.unshift({ id: 'tc', kind: 'text', locked: false, hidden: false, muted: false, clips: buildCaptionClips([{ start: 0, end: 1, text: 'Hello' }]) });
+      const store = new EditorStore(p);
+      const ctx = { store, player: null, library: { backend: { kind: 'puter' } }, account: {} };
+      ctx.actions = createActions(ctx);
+      const tab = captionsTab(ctx);
+      document.body.append(tab.el);
+      [...tab.el.querySelectorAll('.asset-cat')].find((b) => b.textContent === 'Captions').click();
+      [...tab.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'AI').click();
+      [...document.querySelectorAll('.menu [role^=menuitem]')].find((b) => b.textContent.includes('Translate')).click();
+      const d = document.querySelector('dialog');
+      [...d.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Translate').click();
+      await vi.waitFor(() => expect(reply).toBeTypeOf('function'));
+      if (how === 'cancel') [...d.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Cancel').click();
+      else if (how === 'escape') d.dispatchEvent(new Event('cancel', { cancelable: true }));
+      else if (how === 'x') d.querySelector('.dialog-close').click();
+      else d.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      expect(d.isConnected).toBe(false);
+      reply('["Hola"]');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(store.project.tracks.flatMap((t) => t.clips).map((c) => c.text)).toEqual(['Hello']);
+      expect(store.history.canUndo(), how).toBe(false);
+      tab.dispose?.();
+    }
+  });
+});
