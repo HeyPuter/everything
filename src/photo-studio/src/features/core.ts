@@ -15,6 +15,7 @@ import { assertEditable, selectedRoots, groupLayers } from '../model/layers';
 import { hasMask } from '../model/masks';
 import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
+import { makeBackground } from '../model/housekeeping';
 import type { RGBA8 } from '../imaging/types';
 import { layerLock } from '../model/locks';
 import { fillWithPattern } from './effects/commands';
@@ -727,6 +728,11 @@ async function mergeDown(e: Editor) {
     e.message('The layer below cannot receive merged pixels.');
     return;
   }
+  // Merging composites what is shown: a hidden layer would vanish from the result.
+  if (!below.visible || !l.visible) {
+    e.message('Show both layers before merging them.');
+    return;
+  }
   await mergeLayers(e, [below, l], below.id, 'Merge Down');
 }
 async function mergeSelected(e: Editor) {
@@ -737,7 +743,17 @@ async function mergeSelected(e: Editor) {
 }
 async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: string) {
   const doc = e.doc;
-  const temp = { ...doc, layers: layers.map((l) => ({ ...l, clipped: false })) };
+  // Merging rewrites the bottom layer and deletes the others.
+  assertEditable(doc, layers);
+  if (layerLock(doc.layers, keepId, 'pixels')) throw new Error('Unlock the selected layers and their groups first.');
+  // A clipped layer keeps its clipping when its base is merged with it
+  // (the layer directly below it in the same stack); the bottom one draws alone.
+  const clippedOnto = (l: Layer, i: number) => {
+    if (!i || !l.clipped) return false;
+    const list = containerOf(doc.layers, l.id)!;
+    return list[list.indexOf(l) - 1]?.id === layers[i - 1].id;
+  };
+  const temp = { ...doc, layers: layers.map((l, i) => ({ ...l, clipped: clippedOnto(l, i) })) };
   const img = await compositeRGBA(e, temp);
   const grid = gridFromImage(e.assets.tiles, img);
   const ids = new Set(layers.map((l) => l.id));
@@ -746,6 +762,10 @@ async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: st
     const list = containerOf(d.layers, keepId)!;
     const merged = newPixelLayer(keep.name, d, grid);
     merged.id = keep.id;
+    // The result stays where the bottom layer was: in its clipping group and,
+    // for the Background, at the bottom with its locks.
+    if (keep.clipped) merged.clipped = true;
+    if (keep.background) makeBackground(merged);
     list.splice(list.indexOf(keep), 1, merged);
     for (const id of ids) {
       if (id === keepId) continue;
