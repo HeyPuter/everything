@@ -5,7 +5,7 @@ import { openPie } from '../ui/menu';
 import { uid } from '../data/defaults';
 import type { MaskData, MaskHandleType, MaskLayer, MaskPoint, MaskSpline } from './types';
 import { maskTable, newMask, newLayer, activeLayer } from './types';
-import { recalcHandles, switchDirection, makeConsistent, circleSpline, squareSpline, insertShapeKey, keyedData, applyData } from './geom';
+import { recalcHandles, switchDirection, makeConsistent, circleSpline, squareSpline, insertShapeKey, keyedData, applyData, removePoints } from './geom';
 import { hostMask, selectedPoints, allPoints, deselectAll, aspectOf, m2s, s2m, selectWhere, updateHandles, type MaskHost } from './clipmask';
 import { currentClipEditor } from '../tracking/editor';
 import { activeTrack, markerAt, sceneToClipFrame } from '../tracking/types';
@@ -270,12 +270,11 @@ const ops: Operator[] = [
     poll: anySel,
     exec: () => {
       const m = curMask();
+      // only visible, selectable layers (points selected before their layer was hidden stay)
       for (const layer of m.layers) {
-        for (const sp of layer.splines) sp.points = sp.points.filter((p) => !p.select || p.hide);
-        layer.splines = layer.splines.filter((s) => s.points.length > 0);
+        if (layer.hide || layer.hide_select) continue;
+        if (!removePoints(layer, (p) => p.select && !p.hide)) continue;
         if (layer.active_spline >= layer.splines.length) layer.active_spline = layer.splines.length - 1;
-        // keys no longer match the points
-        layer.shape_keys = [];
       }
       done();
     },

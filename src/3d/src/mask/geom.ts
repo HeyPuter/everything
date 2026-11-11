@@ -277,6 +277,25 @@ export function applyData(layer: MaskLayer, data: number[]) {
     }
 }
 
+/**
+ * Remove the points matching `drop` from a layer (splines left empty go too); its shape keys keep
+ * animating the remaining points. Returns the number of points removed.
+ */
+export function removePoints(layer: MaskLayer, drop: (p: MaskPoint) => boolean): number {
+  const n = pointCount(layer) * PER_POINT;
+  const keep: boolean[] = [];
+  for (const sp of layer.splines) for (const p of sp.points) keep.push(!drop(p));
+  const removed = keep.filter((k) => !k).length;
+  if (!removed) return 0;
+  for (const sp of layer.splines) sp.points = sp.points.filter((p) => !drop(p));
+  layer.splines = layer.splines.filter((sp) => sp.points.length > 0);
+  layer.shape_keys = layer.shape_keys
+    .filter((k) => k.data.length === n)
+    .map((k) => ({ ...k, data: k.data.filter((_, j) => keep[Math.floor(j / PER_POINT)]) }));
+  if (!pointCount(layer)) layer.shape_keys = [];
+  return removed;
+}
+
 /** Store the current point positions as a key at `frame` (replacing a key there). */
 export function insertShapeKey(layer: MaskLayer, frame: number): MaskShapeKey {
   const data = layerData(layer);

@@ -93,3 +93,28 @@ describe('mask parenting', () => {
     closeTo(at5, [sq.points[0].co[0] + 0.1, sq.points[0].co[1] - 0.05]);
   });
 });
+
+describe('removing mask points', () => {
+  it('keeps the shape keys animating the remaining points', () => {
+    const layer = newLayer('L');
+    layer.splines.push(G.squareSpline(0.5, 0.5, 0.1), G.circleSpline(0.2, 0.2, 0.05));
+    G.insertShapeKey(layer, 1);
+    for (const sp of layer.splines) for (const p of sp.points) p.co = [p.co[0] + 0.1, p.co[1]];
+    G.insertShapeKey(layer, 10);
+    for (const sp of layer.splines) for (const p of sp.points) p.select = false;
+    layer.splines[0].points[2].select = true;
+    // the whole circle goes as well
+    for (const p of layer.splines[1].points) p.select = true;
+    expect(G.removePoints(layer, (p) => !!p.select)).toBe(5);
+    expect(layer.splines.length).toBe(1);
+    expect(layer.splines[0].points.length).toBe(3);
+    expect(layer.shape_keys.map((k) => k.data.length)).toEqual([21, 21]);
+    // the third remaining point is the old fourth one: frame 1 shows it where it was keyed
+    const at1 = G.layerAt(layer, 1);
+    expect(at1.splines[0].points[2].co[0]).toBeCloseTo(0.4, 6);
+    expect(G.layerAt(layer, 10).splines[0].points[2].co[0]).toBeCloseTo(0.5, 6);
+    expect(G.removePoints(layer, () => false)).toBe(0);
+    expect(G.removePoints(layer, () => true)).toBe(3);
+    expect(layer.shape_keys).toEqual([]);
+  });
+});
