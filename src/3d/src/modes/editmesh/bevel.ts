@@ -373,15 +373,21 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
     f.colors = undefined;
   });
   // close junctions where the original vertex vanished: polygon through all new corners/rows there
+  // (vertex use and the original faces around each vertex are looked up, not scanned per vertex)
+  const used = new Uint8Array(m.vcount);
+  for (const f of m.faces) for (const u of f.verts) used[u] = 1;
+  for (const f of added) for (const u of f.verts) used[u] = 1;
+  const faces0Of = new Map<number, number[]>();
+  faces0.forEach((verts, fi) => {
+    for (const u of new Set(verts)) if (touched.has(u)) (faces0Of.get(u) ?? faces0Of.set(u, []).get(u)!).push(fi);
+  });
   for (const v of touched) {
-    const stillUsed = m.faces.some((f) => f.verts.includes(v)) || added.some((f) => f.verts.includes(v));
-    if (stillUsed) continue;
+    if (used[v]) continue;
     const ids = new Set<number>();
-    faces0.forEach((verts, fi) => {
-      if (!verts.includes(v)) return;
+    for (const fi of faces0Of.get(v) ?? []) {
       const c = corner.get(`${fi}:${v}`);
       if (c !== undefined) ids.add(c);
-    });
+    }
     for (const rows of junction.get(v) ?? []) rows.forEach((r) => ids.add(r));
     const rows = junction.get(v) ?? [];
     // rows that are one shared profile leave no gap to close
@@ -389,10 +395,10 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
     if (ids.size >= 3 && rows.length >= 2 && distinct >= 2) {
       const ring = orderAround(m, v, [...ids]);
       const corners = new Set<number>();
-      faces0.forEach((verts, fi) => {
-        const c = verts.includes(v) ? corner.get(`${fi}:${v}`) : undefined;
+      for (const fi of faces0Of.get(v) ?? []) {
+        const c = corner.get(`${fi}:${v}`);
         if (c !== undefined) corners.add(c);
-      });
+      }
       const patch = segs >= 2 && rows.length === 3 && ring.length === 3 * segs && corners.size === 3 ? cornerPatch(m, v, ring, corners, segs, profile) : null;
       if (patch) added.push(...patch);
       else {
