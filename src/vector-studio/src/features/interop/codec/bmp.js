@@ -3,6 +3,7 @@
  * previews): 1/4/8-bit palettes, 16/24/32-bit color with bit fields and
  * alpha, RLE4/RLE8 compression, top-down and bottom-up rows.
  */
+import { imageSizeOk } from './limits.js';
 
 export function isBMP(b) {
   return b.length > 26 && b[0] === 0x42 && b[1] === 0x4d;
@@ -46,7 +47,8 @@ export function decodeDIB(bytes, p = 0, pixelOffset = -1) {
   }
   const topDown = height < 0;
   height = Math.abs(height);
-  if (!width || !height || width > 30000 || height > 30000) throw new Error('The bitmap size is not valid.');
+  if (!width || !height || width < 0) throw new Error('The bitmap size is not valid.');
+  if (!imageSizeOk(width, height)) throw new Error(`The bitmap is too large to import (${width} x ${height} pixels).`);
   const palEntry = hsize === 12 ? 3 : 4;
   const palCount = bpp <= 8 ? colors || 1 << bpp : 0;
   let palStart = p + hsize;

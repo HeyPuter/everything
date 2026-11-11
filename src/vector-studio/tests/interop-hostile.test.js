@@ -131,3 +131,51 @@ describe('DXF files with extreme values', () => {
   });
 });
 
+
+describe('Raster files with extreme sizes', () => {
+  /** A little-endian TIFF with the given IFD entries ([tag, type, value]) and pixel data. */
+  function tiff(tags, data = new Uint8Array(16)) {
+    const n = tags.length;
+    const dataOff = 8 + 2 + n * 12 + 4;
+    const b = new Uint8Array(dataOff + data.length);
+    const dv = new DataView(b.buffer);
+    b.set([0x49, 0x49, 42, 0]);
+    dv.setUint32(4, 8, true);
+    dv.setUint16(8, n, true);
+    [...tags].sort((x, y) => x[0] - y[0]).forEach(([tag, type, val], i) => {
+      const o = 10 + i * 12;
+      dv.setUint16(o, tag, true);
+      dv.setUint16(o + 2, type, true);
+      dv.setUint32(o + 4, 1, true);
+      const v = val === 'DATA' ? dataOff : val;
+      if (type === 3) dv.setUint16(o + 8, v, true);
+      else dv.setUint32(o + 8, v, true);
+    });
+    b.set(data, dataOff);
+    return b;
+  }
+  const rgb = (w, h, spp = 3) => [[256, 4, w], [257, 4, h], [258, 3, 8], [259, 3, 1], [262, 3, 2], [273, 4, 'DATA'], [277, 3, spp], [278, 4, h], [279, 4, 16]];
+
+  it('refuse sizes that would exhaust memory, with a message that says so', async () => {
+    const { decodeRaster } = await import('../src/features/interop/codec/raster.js');
+    expect(() => decodeRaster(tiff(rgb(65535, 65535)))).toThrow('The TIFF image is too large to import (65535 x 65535 pixels).');
+    expect(() => decodeRaster(tiff(rgb(100, 100, 65535)))).toThrow('The TIFF image has an invalid number of channels.');
+    const bmp = new Uint8Array(70);
+    const dv = new DataView(bmp.buffer);
+    bmp.set([0x42, 0x4d]);
+    dv.setUint32(10, 54, true);
+    dv.setUint32(14, 40, true);
+    dv.setInt32(18, 30000, true);
+    dv.setInt32(22, 30000, true);
+    dv.setUint16(26, 1, true);
+    dv.setUint16(28, 24, true);
+    expect(() => decodeRaster(bmp)).toThrow('The bitmap is too large to import (30000 x 30000 pixels).');
+    // A 2 x 2 image still decodes.
+    expect(decodeRaster(tiff(rgb(2, 2), new Uint8Array(12).fill(200)))).toMatchObject({ width: 2, height: 2 });
+  });
+
+  it('a truncated file is reported as damaged', async () => {
+    const { decodeRaster } = await import('../src/features/interop/codec/raster.js');
+    expect(() => decodeRaster(new Uint8Array([0x49, 0x49, 42, 0, 8, 0, 0, 0, 32, 0]))).toThrow('The TIFF file is damaged or incomplete.');
+  });
+});
