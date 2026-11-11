@@ -106,10 +106,20 @@ export function applyReframePlan(c, plan) {
  */
 export async function findSilences(ctx, o, { signal, onProgress } = {}) {
   const rate = 8000;
-  const mix = await mixdown(structuredClone(ctx.store.project), ctx.library, { scope: o.scope, sampleRate: rate, signal, onProgress });
+  const project = structuredClone(ctx.store.project);
+  const mix = await mixdown(project, ctx.library, { scope: o.scope, sampleRate: rate, signal, onProgress });
   // The mix is peak-normalized, which is fine for a relative threshold.
   const hop = 0.02;
-  return silentRanges(levelEnvelope(mix, rate, hop), hop, o).map((r) => ({ start: Math.round(r.start * US), end: Math.round(r.end * US) }));
+  const levels = levelEnvelope(mix, rate, hop);
+  // Where no clip with sound plays (photos, titles, muted clips) the picture is
+  // the point, not a pause in the sound: those stretches are never cut.
+  const spans = clipsForScope(project, o.scope).map(({ clip }) => [clip.start / US, T.clipEnd(clip) / US]).sort((a, b) => a[0] - b[0]);
+  for (let i = 0, k = 0, reach = -Infinity; i < levels.length; i++) {
+    const t = (i + 0.5) * hop;
+    while (k < spans.length && spans[k][0] <= t) reach = Math.max(reach, spans[k++][1]);
+    if (t >= reach) levels[i] = Infinity;
+  }
+  return silentRanges(levels, hop, o).map((r) => ({ start: Math.round(r.start * US), end: Math.round(r.end * US) }));
 }
 
 export function createSmartActions(ctx) {

@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { silentRanges, frameSignature, signatureDistance, sceneCuts, syncEnvelope, bestLag, SIG_W, SIG_H } from '../src/media/smart-edit.js';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
-import { fixture, clip, onMain } from './helpers.js';
+import { fixture, clip, onMain, s } from './helpers.js';
+import { mixdown } from '../src/media/transcribe.js';
+import { findSilences } from '../src/ui/smart-actions.js';
 
 // Listening to the sound never finishes on its own here; it ends when aborted.
 const listening = { signal: null };
@@ -22,6 +24,23 @@ describe('silence detection', () => {
     expect(r.length).toBe(1);
     expect(r[0].start).toBeCloseTo(1.1);
     expect(r[0].end).toBeCloseTo(1.9);
+  });
+});
+
+describe('finding silences', () => {
+  it('keeps photos and other stretches with no sound at all', async () => {
+    // Speech 0-4 s, a quiet tail 4-5 s, a photo 5-10 s (nothing to hear), speech 10-15 s.
+    const rate = 8000;
+    const mix = new Float32Array(15 * rate);
+    for (let i = 0; i < mix.length; i++) {
+      const t = i / rate;
+      if (t < 4 || t >= 10) mix[i] = 0.5 * Math.sin(i * 0.3);
+    }
+    mixdown.mockImplementationOnce(async () => mix);
+    const p = fixture();
+    onMain(p, clip('video', 0, 5), clip('image', 5, 5), clip('video', 10, 5, { in: s(5) }));
+    const ranges = await findSilences({ store: new EditorStore(p), library: {} }, { scope: 'main', thresholdDb: -38, minSilence: 0.6, pad: 0.12 });
+    expect(ranges.map((r) => [r.start / 1e6, r.end / 1e6].map((x) => Math.round(x * 100) / 100))).toEqual([[4.12, 4.88]]);
   });
 });
 
