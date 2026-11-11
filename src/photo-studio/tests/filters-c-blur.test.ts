@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { filtersA } from '../src/imaging/filters/index-a';
 import { filterMargin } from '../src/features/filters/catalog';
 import { flattenPath, kernelConvolve, shapeKernel } from '../src/imaging/filters/shape-blur';
+import { linearFilterRGBA, sample, type Plane } from '../src/imaging/filters/common';
 import { fieldSigma, pathSegments, spinArc } from '../src/imaging/filters/gallery-blur';
 import { convertChannels, hsbToRgb, hslToRgb, rgbToHsb, rgbToHsl } from '../src/imaging/filters/channels-hsb';
 import { builtinShapes } from '../src/model/shape-library';
@@ -120,6 +121,48 @@ describe('field, path and spin blur', () => {
     expect(arc[10 * 20 + 10]).toBe(1);
     expect(arc[10 * 20 + 16]).toBeGreaterThan(0); // in the feather band
     expect(arc[0]).toBe(0);
+  });
+
+  it('spin blur matches filtering each channel plane on its own', () => {
+    // Reference: the arc traced separately for alpha and each premultiplied color.
+    const reference = (src: RGBA8, cxf: number, cyf: number, rxp: number, ryp: number, rotDeg: number, angleDeg: number, feather: number) => {
+      const { width: w, height: h } = src, m = Math.min(w, h);
+      const cx = cxf * w, cy = cyf * h, rx = Math.max(0.5, (rxp / 100) * m), ry = Math.max(0.5, (ryp / 100) * m);
+      const rot = (rotDeg * Math.PI) / 180, cr = Math.cos(rot), sr = Math.sin(rot);
+      const arc = spinArc(w, h, cx, cy, rx, ry, rot, (angleDeg * Math.PI) / 180, feather / 100);
+      return linearFilterRGBA(src, (pl: Plane, dst: Plane, ww: number, hh: number) => {
+        for (let y = 0; y < hh; y++)
+          for (let x = 0; x < ww; x++) {
+            const i = y * ww + x, a = arc[i];
+            const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+            const u = (dx * cr + dy * sr) / rx, v = (-dx * sr + dy * cr) / ry;
+            const n = Math.min(128, Math.ceil(a * Math.hypot(u * rx, v * ry)));
+            if (n < 1) {
+              dst[i] = pl[i];
+              continue;
+            }
+            let acc = 0;
+            for (let k = 0; k <= n; k++) {
+              const phi = a * (k / n - 0.5), co = Math.cos(phi), si = Math.sin(phi);
+              const uu = (u * co - v * si) * rx, vv = (u * si + v * co) * ry;
+              acc += sample(pl, ww, hh, cx + uu * cr - vv * sr - 0.5, cy + uu * sr + vv * cr - 0.5);
+            }
+            dst[i] = acc / (n + 1);
+          }
+        return dst;
+      });
+    };
+    const transparent = noise(37, 29, 4);
+    for (let j = 3; j < transparent.data.length; j += 4) transparent.data[j] = (j * 37) % 256;
+    for (const src of [noise(37, 29, 3), transparent, noise(1, 1, 5)])
+      for (const [cx, cy, rx, ry, rot, angle, feather] of [
+        [0.5, 0.5, 35, 35, 0, 15, 20],
+        [0.2, 0.8, 120, 40, 33, 270, 100],
+        [0.5, 0.5, 200, 200, 0, 360, 0],
+      ]) {
+        const out = run('spin-blur', src, { center: { x: cx, y: cy }, radiusX: rx, radiusY: ry, rotation: rot, angle, feather });
+        expect(Array.from(out.data)).toEqual(Array.from(reference(src, cx, cy, rx, ry, rot, angle, feather).data));
+      }
   });
 
   it('respects the selection', () => {
