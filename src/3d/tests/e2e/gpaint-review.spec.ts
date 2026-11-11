@@ -199,3 +199,42 @@ test('a stroke whose release was lost ends at the next move without the button',
   expect((await sculptState(page)).sum).toBe(s1.sum);
   await expectNoErrors(errors);
 });
+
+test('a long Draw stroke places each sample once (Surface placement)', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'SELECT' }, { invoke: false });
+    a.run('object.delete', {}, { invoke: false });
+    a.run('mesh.primitive_uv_sphere_add', { radius: 3 }, { invoke: false });
+    a.run('object.grease_pencil_add', { type: 'EMPTY' }, { invoke: false });
+    a.run('object.mode_set', { mode: 'PAINT_GREASE_PENCIL' }, { invoke: false });
+    a.doc.scene.tool_settings.gpencil_stroke_placement_view3d = 'SURFACE';
+  });
+  await page.waitForTimeout(100);
+  // count the surface raycasts made while drawing
+  await page.evaluate(async () => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { activeView3D } = await import('/src/editors/view3d/view3d.ts' as string);
+    const { Placement } = await import('/src/greasepencil/placement.ts' as string);
+    const gp = a.doc.grease_pencils[a.activeObject.data];
+    const proto = Object.getPrototypeOf(new Placement(activeView3D(), a.activeObject, gp, null).ray);
+    const cast = proto.intersectObjects;
+    (window as any).__rays = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
+    proto.intersectObjects = function (...args: unknown[]) {
+      (window as any).__rays++; // eslint-disable-line @typescript-eslint/no-explicit-any
+      return cast.apply(this, args);
+    };
+  });
+  const { x, y } = await viewportCenter(page);
+  await page.mouse.move(x - 150, y - 60);
+  await page.mouse.down();
+  for (let i = 1; i <= 80; i++) await page.mouse.move(x - 150 + i * 4, y - 60 + (i % 2) * 6);
+  await page.mouse.up();
+  const n = await gpPoints(page);
+  expect(n).toBeGreaterThan(40);
+  const rays = await ev(page, () => (window as any).__rays as number); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(rays).toBeGreaterThan(0);
+  expect(rays).toBeLessThan(n * 3);
+  await expectNoErrors(errors);
+});

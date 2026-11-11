@@ -56,8 +56,25 @@ export class Placement {
     if (Math.abs(this.planeNormal.dot(viewDir)) < 0.05) this.planeNormal = viewDir.clone().negate();
   }
 
+  /**
+   * Projected pixels: a live stroke re-places all its samples on every update, and Surface / Stroke
+   * placement cost a raycast / a scan of the drawing per sample.
+   */
+  private memo = new Map<string, Vector3 | null>();
+
   /** World position for a viewport pixel. */
   project(x: number, y: number): Vector3 | null {
+    const key = `${x},${y}`;
+    let p = this.memo.get(key);
+    if (p === undefined) {
+      if (this.memo.size > 100000) this.memo.clear();
+      p = this.place(x, y);
+      this.memo.set(key, p);
+    }
+    return p ? p.clone() : null;
+  }
+
+  private place(x: number, y: number): Vector3 | null {
     const { origin, dir } = this.v.ray(x, y);
     if (this.mode === 'SURFACE') {
       const hit = this.surface(origin, dir);
