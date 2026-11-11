@@ -144,3 +144,44 @@ test('Text Editor Live Edit runs the script again after edits', async ({ page })
   await expect.poll(() => page.evaluate(() => (window as any).__live ?? 0), { timeout: 4000 }).toBeGreaterThan(0);
   await expectNoErrors(errors);
 });
+
+test('Text Editor: typing in a long text redraws only the line it changes', async ({ page }) => {
+  const errors = await openApp(page);
+  const te = await scripting(page, 'TEXT');
+  await run(page, 'text.new');
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const t = Object.values(a.doc.texts as Record<string, { body: string }>)[0];
+    t.body = Array.from({ length: 3000 }, (_, i) => `x${i} = ${i}  # line ${i}`).join('\n');
+    a.changed('doc');
+  });
+  const rows = te.locator('.te-highlight .te-line');
+  await expect(rows).toHaveCount(3000);
+  await expect(te.locator('.te-ln')).toHaveCount(3000);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__added = 0;
+    const ob = new MutationObserver((records) => {
+      for (const r of records) w.__added += r.addedNodes.length;
+    });
+    for (const sel of ['.te-highlight', '.te-gutter']) ob.observe(document.querySelector(`.area[data-editor="TEXT"] ${sel}`)!, { childList: true });
+  });
+  const ta = te.locator('.te-input');
+  await ta.focus();
+  await ta.evaluate((t: HTMLTextAreaElement) => t.setSelectionRange(t.value.indexOf('x1500'), t.value.indexOf('x1500')));
+  await page.keyboard.type('ab');
+  await expect(rows.nth(1500)).toHaveText('abx1500 = 1500  # line 1500');
+  await page.keyboard.press('Enter');
+  await expect(rows).toHaveCount(3001);
+  await expect(te.locator('.te-ln')).toHaveCount(3001);
+  await expect(te.locator('.te-ln').last()).toHaveText('3001');
+  await expect(rows.nth(1501)).toHaveText(/x1500 = 1500/);
+  // rows used to be rebuilt in full on every keystroke (6000 elements a key here)
+  expect(await page.evaluate(() => (window as any).__added)).toBeLessThan(20);
+  // undo puts the rows back as the text is
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(rows).toHaveCount(3000);
+  const shown = () => te.locator('.te-highlight').evaluate((el) => [...el.children].map((r) => r.textContent).join('\n'));
+  expect(await shown()).toBe(await ta.inputValue());
+  await expectNoErrors(errors);
+});

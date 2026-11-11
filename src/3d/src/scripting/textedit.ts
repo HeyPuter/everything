@@ -112,6 +112,10 @@ export class TextEditor implements Editor {
   private gutter: HTMLElement;
   private content: HTMLElement;
   private pre: HTMLElement;
+  /** The rows of the highlight layer and the gutter as last drawn. */
+  private rowHtml: string[] = [];
+  private gutterHtml: string[] = [];
+  private curGutter: Element | null = null;
   private curLine: HTMLElement;
   private ta: HTMLTextAreaElement;
   private empty: HTMLElement;
@@ -604,10 +608,35 @@ export class TextEditor implements Editor {
       this.renderSidebar();
       return;
     }
-    const lines = highlightLines(this.ta.value, langOf(t), this.syntax);
-    this.pre.innerHTML = lines.map((l, i) => `<div class="te-line${i + 1 === this.errorLine ? ' err' : ''}">${l || ' '}</div>`).join('');
+    const rows = highlightLines(this.ta.value, langOf(t), this.syntax).map((l, i) => `<div class="te-line${i + 1 === this.errorLine ? ' err' : ''}">${l || ' '}</div>`);
+    this.patchRows(this.pre, this.rowHtml, rows);
+    this.rowHtml = rows;
     this.layout();
     this.renderSidebar();
+  }
+
+  /**
+   * Replaces only the rows that changed (typing changes a line or two): rebuilding every row
+   * on each keystroke made typing in a long text lag by a second.
+   */
+  private patchRows(el: HTMLElement, before: string[], after: string[]) {
+    if (el.children.length !== before.length) {
+      el.innerHTML = after.join('');
+      return;
+    }
+    let start = 0;
+    const n = Math.min(before.length, after.length);
+    while (start < n && before[start] === after[start]) start++;
+    let endB = before.length,
+      endA = after.length;
+    while (endB > start && endA > start && before[endB - 1] === after[endA - 1]) endB--, endA--;
+    if (start === endB && start === endA) return;
+    for (let i = endB - 1; i >= start; i--) el.children[i].remove();
+    const html = after.slice(start, endA).join('');
+    if (!html) return;
+    const next = el.children[start];
+    if (next) next.insertAdjacentHTML('beforebegin', html);
+    else el.insertAdjacentHTML('beforeend', html);
   }
 
   private layout() {
@@ -633,13 +662,17 @@ export class TextEditor implements Editor {
       const rows = this.pre.children;
       const digits = Math.max(2, String(lines.length).length);
       this.gutter.style.width = `${digits * this.charWidth + 16}px`;
-      let html = '';
+      const nums: string[] = [];
       for (let i = 0; i < lines.length; i++) {
         const hgt = this.wordWrap ? (rows[i] as HTMLElement | undefined)?.offsetHeight ?? lh : lh;
-        html += `<div class="te-ln${i + 1 === this.errorLine ? ' err' : ''}" style="height:${hgt}px">${i + 1}</div>`;
+        nums.push(`<div class="te-ln${i + 1 === this.errorLine ? ' err' : ''}" style="height:${hgt}px">${i + 1}</div>`);
       }
-      this.gutter.innerHTML = html;
-    } else this.gutter.innerHTML = '';
+      this.patchRows(this.gutter, this.gutterHtml, nums);
+      this.gutterHtml = nums;
+    } else {
+      this.gutter.innerHTML = '';
+      this.gutterHtml = [];
+    }
     this.updateCaret();
   }
 
@@ -661,8 +694,12 @@ export class TextEditor implements Editor {
       this.curLine.style.top = `${row.offsetTop}px`;
       this.curLine.style.height = `${row.offsetHeight}px`;
     }
-    this.gutter.querySelectorAll('.te-ln.cur').forEach((e) => e.classList.remove('cur'));
-    (this.gutter.children[line] as HTMLElement | undefined)?.classList.add('cur');
+    const cur = this.gutter.children[line];
+    if (cur !== this.curGutter) {
+      this.curGutter?.classList.remove('cur');
+      this.curGutter = cur ?? null;
+    }
+    cur?.classList.add('cur');
     this.renderFooter(line, col);
   }
 
