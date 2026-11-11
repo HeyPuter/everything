@@ -30,7 +30,7 @@ export function selectPick(v: View3D, x: number, y: number, o: PickOptions) {
     if (o.deselectAll && !o.extend) {
       let changed = false;
       for (const ob of Object.values(doc.objects))
-        if (ob.select) {
+        if (ob.select && (!v.localView || v.localView.has(ob.id))) {
           ob.select = false;
           changed = true;
         }
@@ -50,7 +50,7 @@ export function selectPick(v: View3D, x: number, y: number, o: PickOptions) {
       doc.scene.active_object = id;
     }
   } else {
-    for (const other of Object.values(doc.objects)) other.select = false;
+    for (const other of Object.values(doc.objects)) if (!v.localView || v.localView.has(other.id)) other.select = false;
     ob.select = true;
     doc.scene.active_object = id;
   }
@@ -69,7 +69,8 @@ export function selectObjects(v: View3D, x0: number, y0: number, x1: number, y1:
   const ids = v.idsInRect(x0, y0, x1, y1);
   const inside = new Set(ids.keys());
   for (const ob of Object.values(doc.objects)) {
-    if (!app.isSelectable(ob.id)) continue;
+    // objects outside Local View keep their selection
+    if (!app.isSelectable(ob.id) || (v.localView && !v.localView.has(ob.id))) continue;
     const isIn = inside.has(ob.id);
     if (mode === 'SET') ob.select = isIn;
     else if (mode === 'ADD') ob.select = ob.select || isIn;

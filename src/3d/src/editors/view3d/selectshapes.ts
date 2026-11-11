@@ -38,7 +38,8 @@ export function selectInRegion(v: View3D, r: SelectRegion, mode: SelectMode, lab
   const inside = new Set(v.idsInRect(x0, y0, x1, y1, (x, y) => inSelectRegion(r, x, y)).keys());
   const doc = app.doc;
   for (const ob of Object.values(doc.objects)) {
-    if (!app.isSelectable(ob.id)) continue;
+    // objects outside Local View keep their selection
+    if (!app.isSelectable(ob.id) || (v.localView && !v.localView.has(ob.id))) continue;
     const isIn = inside.has(ob.id);
     if (mode === 'SET') ob.select = isIn;
     else if (mode === 'ADD') ob.select = ob.select || isIn;

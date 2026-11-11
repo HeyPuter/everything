@@ -71,3 +71,41 @@ test('rebuilt and deleted object geometry is freed on the GPU', async ({ page })
   expect(r.deleted).toBeLessThan(5);
   await expectNoErrors(errors);
 });
+
+test('Local View: select all, box select and Frame All only affect the local objects', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('mesh.primitive_cube_add', { location: [20, 0, 0] });
+    const far = a.activeObject;
+    far.name = 'Far';
+    // Far stays selected while the view goes local on the Cube
+    for (const o of Object.values(a.doc.objects) as any[]) o.select = o.name === 'Cube'; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.doc.scene.active_object = Object.values(a.doc.objects).find((o: any) => o.name === 'Cube')!.id; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.flush();
+    a.run('view3d.localview');
+    far.select = true;
+    a.changed('select');
+    a.flush();
+  });
+  const selected = () => page.evaluate(() => Object.values((window as any).app.doc.objects).filter((o: any) => o.select).map((o: any) => o.name).sort()); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Alt+A deselects only what Local View shows
+  await page.mouse.move(c.x, c.y);
+  await page.keyboard.press('Alt+A');
+  expect(await selected()).toEqual(['Far']);
+  await page.keyboard.press('A');
+  expect(await selected()).toEqual(['Cube', 'Far']);
+  // a box drag over empty space deselects the local objects only
+  await page.mouse.move(c.box.x + 20, c.box.y + c.box.height - 60);
+  await page.mouse.down();
+  await page.mouse.move(c.box.x + 60, c.box.y + c.box.height - 30, { steps: 4 });
+  await page.mouse.up();
+  expect(await selected()).toEqual(['Far']);
+  // Home frames the Cube, not the far object
+  await page.evaluate(() => (window as any).app.run('view3d.view_all')); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expect
+    .poll(() => page.evaluate(async () => (await import('/src/editors/view3d/view3d.ts' as string)).activeView3D().nav.pivot.x), { timeout: 5000 })
+    .toBeCloseTo(0, 3);
+  await expectNoErrors(errors);
+});

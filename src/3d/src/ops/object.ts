@@ -591,7 +591,9 @@ registerOperators([
     props: [{ id: 'action', label: 'Action', type: 'enum', default: 'TOGGLE', items: [['TOGGLE', 'Toggle'], ['SELECT', 'Select'], ['DESELECT', 'Deselect'], ['INVERT', 'Invert']] }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
-      const obs = Object.values(ctx.doc.objects).filter((o) => app.isSelectable(o.id));
+      // in a Local View only the objects shown there are affected
+      const local = ctx.area?.type === 'VIEW_3D' ? activeView3D()?.localView : null;
+      const obs = Object.values(ctx.doc.objects).filter((o) => app.isSelectable(o.id) && (!local || local.has(o.id)));
       let action = p.action as string;
       if (action === 'TOGGLE') action = obs.some((o) => o.select) ? 'DESELECT' : 'SELECT';
       for (const o of obs) o.select = action === 'SELECT' ? true : action === 'DESELECT' ? false : !o.select;

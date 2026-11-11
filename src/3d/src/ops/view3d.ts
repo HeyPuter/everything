@@ -56,7 +56,8 @@ registerOperators([
     exec: (ctx, p) => {
       const v = activeView3D()!;
       if (p.center) ctx.doc.scene.cursor.location = [0, 0, 0];
-      const ids = [...app.graph.objects.values()].filter((e) => e.visible).map((e) => e.id);
+      // in Local View only the objects shown there count
+      const ids = [...app.graph.objects.values()].filter((e) => e.visible && (!v.localView || v.localView.has(e.id))).map((e) => e.id);
       const box = worldBounds(ids);
       if (box.isEmpty()) box.set(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
       for (const view of p.use_all_regions ? quadViews(v) : [v]) {
