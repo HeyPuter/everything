@@ -289,3 +289,35 @@ describe('overview scale for short files', () => {
     expect(endX()).toBe(zoomedOut);
   });
 });
+
+describe('undo across a sample rate conversion', () => {
+  it('keeps the view and playhead at the same times', async () => {
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { Channel } = await import('../src/audio/channel.js');
+    const doc = new AudioFile({
+      name: 'c.wav',
+      sampleRate: 48000,
+      channels: [Channel.silence(480000)],
+    });
+    doc.setView(96000, 144000); // 2 s to 3 s
+    doc.setCursor(120000);
+    // Convert to 96 kHz the way the command does: the view and playhead are scaled with it.
+    doc.view = { ...doc.view, start: 192000, end: 288000 };
+    doc.apply(
+      'Convert Sample Type',
+      { ...doc.state, sampleRate: 96000, channels: [Channel.silence(960000)] },
+      { cursor: 240000 },
+    );
+    expect(doc.view).toMatchObject({ start: 192000, end: 288000 });
+    doc.history.undo();
+    expect(doc.view).toMatchObject({ start: 96000, end: 144000 });
+    expect(doc.cursor).toBe(120000);
+    doc.history.redo();
+    expect(doc.view).toMatchObject({ start: 192000, end: 288000 });
+    expect(doc.cursor).toBe(240000);
+    // Interpret Sample Rate keeps the frames, so undoing it leaves the view alone.
+    doc.apply('Interpret Sample Rate', { ...doc.state, sampleRate: 44100 });
+    doc.history.undo();
+    expect(doc.view).toMatchObject({ start: 192000, end: 288000 });
+  });
+});
