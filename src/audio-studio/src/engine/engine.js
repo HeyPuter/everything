@@ -36,6 +36,9 @@ export function cleanMap(map) {
   });
 }
 
+const wholeFrame = (f) => Math.max(0, Math.round(Number(f) || 0));
+const wholeLoop = (loop) => (loop ? { ...loop, start: wholeFrame(loop.start), end: wholeFrame(loop.end) } : null);
+
 export class Engine extends Emitter {
   constructor() {
     super();
@@ -272,6 +275,9 @@ export class Engine extends Emitter {
    * graph); `loop` = { start, end } repeats that range.
    */
   async play({ from = 0, to = null, loop = null } = {}) {
+    from = wholeFrame(from);
+    if (to != null) to = wholeFrame(to);
+    loop = wholeLoop(loop);
     await this.ensure(this.graph.rate || this.rate);
     this.range = { from, to, loop };
     this.lastPos = { frame: from, time: this.ctx.currentTime };
@@ -291,6 +297,7 @@ export class Engine extends Emitter {
   }
 
   setLoop(loop) {
+    loop = wholeLoop(loop);
     this.range.loop = loop;
     this.node?.port.postMessage({ type: 'loop', loop });
     if (this.playing) this.#feed();
@@ -307,6 +314,9 @@ export class Engine extends Emitter {
 
   /** Moves the playhead while playing (seamless jump). */
   seek(frame) {
+    // The mixer reads chunks by whole frame index: a fractional playhead (for
+    // example the interpolated `position`) would read undefined samples as NaN.
+    frame = wholeFrame(frame);
     this.lastPos = { frame, time: this.ctx?.currentTime ?? 0 };
     if (!this.node) return;
     this.#feed(frame);
