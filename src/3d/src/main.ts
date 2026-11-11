@@ -122,9 +122,11 @@ void loadFonts(() => {
 const startRevision = app.revision;
 // `?factory-startup` skips session recovery
 const factoryStartup = new URLSearchParams(location.search).has('factory-startup');
+// (startup work such as the font loading re-evaluates without being an edit: edits leave undo steps)
+const untouched = () => app.revision === startRevision || !app.undo.canUndo;
 const recovered = (factoryStartup ? Promise.resolve(null) : loadRecovery())
   .then((rec) => {
-    if (!rec || app.revision !== startRevision) return;
+    if (!rec || !untouched()) return;
     try {
       const { doc, extra } = decodeDocument(rec.bytes);
       const mode = doc.mode;
