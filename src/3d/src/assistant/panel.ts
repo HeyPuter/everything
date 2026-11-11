@@ -7,7 +7,7 @@ import { app } from '../app/app';
 import { prefs } from '../app/prefs';
 import { clearScriptFiles } from '../scripting/files';
 import { iconEl } from '../ui/icons';
-import { type Agent, type ExchangeResult, type Step, createAgent } from './agent';
+import { type Agent, type ExchangeResult, MAX_RETRIES, type Step, createAgent } from './agent';
 import { type ChatFn, puterChat } from './ai';
 import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize, offerImages } from './attach';
 import { readAttachment } from './attachments';
@@ -597,6 +597,8 @@ export class AssistantPanel {
           this.say(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
         } else if (e.type === 'round') {
           this.say('Thinking…');
+        } else if (e.type === 'retry') {
+          this.say(`The AI service did not answer. Trying again (${e.attempt} of ${MAX_RETRIES})…`);
         }
       });
     } catch (e) {

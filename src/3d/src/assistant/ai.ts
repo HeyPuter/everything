@@ -53,6 +53,26 @@ export function aiError(e: unknown): Error {
   return Object.assign(new Error(message), { code: (inner && typeof inner === 'object' && inner.code) || (o && typeof o === 'object' ? o.code : undefined) });
 }
 
+/**
+ * Whether a failed request is worth sending again unchanged: the service was
+ * busy, rate limited, timed out or the connection dropped. Only these are
+ * retried; anything else (no funds, a refused request, a prompt too long)
+ * would fail the same way again.
+ */
+export function isTransientError(e: unknown): boolean {
+  const err = e as { name?: string; code?: unknown; message?: unknown } | null;
+  if (!err || err.name === 'AbortError') return false;
+  const code = String(err.code ?? '');
+  if (['upstream_provider_unavailable', 'upstream_failed', 'upstream_timeout', 'upstream_rate_limited', 'network_error', 'request_timeout'].includes(code)) return true;
+  if (['upstream_bad_request', 'upstream_credits_exhausted', 'upstream_auth_failed', 'permission_denied', 'insufficient_funds', 'auth_canceled', 'auth_required', 'puter_unavailable', 'online_access_off'].includes(code)) return false;
+  const text = String(err.message ?? '').toLowerCase();
+  if (/insufficient|credit|funds|balance|too long|context|invalid|not supported|unsupported/.test(text)) return false;
+  // Status codes stand alone: a token count such as 5000 is not a 500.
+  if (/\b(408|429|500|502|503|504|529)\b/.test(text)) return true;
+  return ['overloaded', 'rate limit', 'too many requests', 'service unavailable', 'provider unavailable', 'all ai providers failed', 'bad gateway', 'gateway timeout', 'internal server error',
+    'timeout', 'timed out', 'failed to fetch', 'network', 'connection', 'socket hang up', 'econnreset', 'did not answer'].some((k) => text.includes(k));
+}
+
 /** A tool call's arguments, which may come as JSON text; unreadable text is marked, not taken for no arguments. */
 function toolInput(input: unknown): Record<string, unknown> {
   if (typeof input !== 'string') return (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
@@ -159,9 +179,9 @@ export function withCacheBreakpoints(messages: ChatMessage[]): unknown[] {
 
 /** puter.ai.chat, streamed. A reply the SDK hands back whole is yielded in the same pieces. */
 export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}): AsyncIterable<StreamPart> {
-  if (!prefs.use_online_access) throw new Error('The assistant works online, but online access is turned off (Preferences ▸ System ▸ Network).');
+  if (!prefs.use_online_access) throw Object.assign(new Error('The assistant works online, but online access is turned off (Preferences ▸ System ▸ Network).'), { code: 'online_access_off' });
   const p = (globalThis as unknown as { puter?: PuterAI }).puter;
-  if (!p?.ai?.chat) throw new Error('The assistant needs Puter, which is not available right now. Check your connection and reload.');
+  if (!p?.ai?.chat) throw Object.assign(new Error('The assistant needs Puter, which is not available right now. Check your connection and reload.'), { code: 'puter_unavailable' });
   const options: Record<string, unknown> = { stream: true };
   if (opts.model) options.model = opts.model;
   // Puter starts a request on the healthiest route that serves the model: after

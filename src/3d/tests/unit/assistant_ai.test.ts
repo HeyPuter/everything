@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { puterChat, withCacheBreakpoints, type ChatMessage } from '../../src/assistant/ai';
+import { aiError, isTransientError, puterChat, withCacheBreakpoints, type ChatMessage, type StreamPart } from '../../src/assistant/ai';
 import { createAgent, requestMessages } from '../../src/assistant/agent';
 
 type G = { puter?: unknown };
@@ -150,5 +150,47 @@ describe('Puter AI requests', () => {
     expect(parts).toEqual([{ type: 'text', text: 'I will build the ' }]);
     expect(err?.message).toMatch(/ran out of AI credits/);
     expect(err?.code).toBe('insufficient_funds');
+  });
+
+  it('sends a request again when the service was busy, but not for other failures', async () => {
+    const busy = aiError({ success: false, error: { code: 'upstream_provider_unavailable', message: 'AI provider unavailable' } });
+    let calls = 0;
+    const replies: (Error | StreamPart[])[] = [busy, busy, [{ type: 'text', text: 'Hello.' }]];
+    const events: string[] = [];
+    const agent = createAgent({
+      chat: () => { calls++; const r = replies.shift()!; return (async function* () { if (r instanceof Error) throw r; yield* r; })(); },
+      tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => '', model: () => 'm', retryDelay: () => 0,
+    });
+    const res = await agent.send('hi', (e) => events.push(e.type === 'retry' ? `retry ${e.attempt}` : e.type));
+    expect(res.error).toBeUndefined();
+    expect(calls).toBe(3);
+    expect(events).toEqual(['retry 1', 'retry 2', 'text']);
+    // gives up after three retries
+    replies.push(busy, busy, busy, busy, [{ type: 'text', text: 'never' }]);
+    calls = 0;
+    expect((await agent.send('again', () => {})).error).toBe(busy);
+    expect(calls).toBe(4);
+    // not for account, local or aborted failures
+    for (const e of [aiError({ error: { code: 'insufficient_funds', message: 'Insufficient funds' } }), Object.assign(new Error('x'), { name: 'AbortError' })]) expect(isTransientError(e)).toBe(false);
+    delete (globalThis as G).puter;
+    for (const fail of [puterChat([{ role: 'user', content: 'hi' }])]) {
+      const err = await (async () => { try { for await (const _ of fail) { /* drain */ } } catch (e) { return e; } })();
+      expect(isTransientError(err)).toBe(false);
+    }
+    expect(isTransientError(aiError({ error: { code: 'upstream_rate_limited', message: 'slow down' } }))).toBe(true);
+    expect(isTransientError(Object.assign(new Error('Network request failed.'), { code: 'network_error' }))).toBe(true);
+  });
+
+  it('stops waiting to retry when the user presses Stop', async () => {
+    let calls = 0;
+    const agent = createAgent({
+      chat: () => { calls++; return (async function* (): AsyncGenerator<StreamPart> { throw aiError({ error: { code: 'upstream_timeout', message: 'timed out' } }); })(); },
+      tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => '', model: () => 'm', retryDelay: () => 60000,
+    });
+    const res = agent.send('hi', (e) => { if (e.type === 'retry') agent.stop(); });
+    const r = await res;
+    expect(r.stopped).toBe(true);
+    expect(r.error).toBeUndefined();
+    expect(calls).toBe(1);
   });
 });
