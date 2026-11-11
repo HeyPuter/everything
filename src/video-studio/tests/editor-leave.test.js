@@ -69,6 +69,17 @@ describe('leaving the editor', () => {
     expect((await library.openProject(p.id)).assets.a_new?.name).toBe('late.png');
   });
 
+  it('frees the editor once when leaving and the next screen both dispose it', async () => {
+    const { onExit } = await open();
+    const media = vi.spyOn(editor.media, 'dispose');
+    const proxies = vi.spyOn(editor.proxies, 'dispose');
+    const player = vi.spyOn(editor.ctx.player, 'dispose');
+    onExit.mockImplementation(() => editor.dispose());
+    await editor.exit();
+    expect(onExit).toHaveBeenCalled();
+    expect([media.mock.calls.length, proxies.mock.calls.length, player.mock.calls.length]).toEqual([1, 1, 1]);
+  });
+
   it('stays open after a failed save when the user chooses to stay, and keeps retrying', async () => {
     const { backend, library, onExit, p } = await open();
     rename('Unsaved name');

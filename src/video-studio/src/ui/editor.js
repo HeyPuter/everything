@@ -570,6 +570,8 @@ export class Editor {
   }
 
   dispose() {
+    // Leaving disposes the editor, and the next screen disposes the view it replaces: once is enough.
+    if (this._disposed) return;
     this._disposed = true;
     this._fitObserver?.disconnect();
     this._offTheme?.();
