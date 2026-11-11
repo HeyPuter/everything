@@ -444,3 +444,21 @@ describe('Surround Reverb on 5.1 files', () => {
     });
   });
 });
+
+describe('Compressor attack times', () => {
+  it('reach and show their 0.1 ms minimum', async () => {
+    const { coerce, formatValue, fromPosition } = await import('../src/effects/params.js');
+    for (const [id, pid] of [
+      ['singleBandCompressor', 'attack'],
+      ['dynamics', 'attack'],
+      ['multibandCompressor', 'band1Attack'],
+      ['tubeCompressor', 'attack'],
+    ]) {
+      const p = getEffect(id).params.find((q) => q.id === pid);
+      expect(formatValue(p, coerce(p, 0.1)), id).toBe('0.1 ms');
+      expect(coerce(p, 0.5), id).toBe(0.5);
+      expect(fromPosition(p, 0), id).toBe(0.1);
+      expect(formatValue(p, 250), id).toBe('250.0 ms');
+    }
+  });
+});
