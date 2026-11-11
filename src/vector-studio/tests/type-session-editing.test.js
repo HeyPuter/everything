@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { bootAppWithFeatures } from './helpers.js';
 import { createText } from '../src/model/nodes.js';
 
@@ -174,5 +174,27 @@ describe('type editing session', () => {
     doc.undo();
     expect(doc.get(id).text).toBe('');
     app.prefs.set('typePlaceholder', true);
+  });
+
+  it('cancelling a character options preview takes back previews made seconds apart', async () => {
+    const { charPreview } = await import('../src/features/type/char-options.js');
+    const id = add('Hello');
+    edit(id).setSelection(0, 5);
+    const steps = doc.undoStack.length;
+    let now = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const pv = charPreview(app, 'Underline Options');
+      pv.preview({ underline: true });
+      now += 3000;
+      pv.preview({ underline: true, underlineStyle: { weight: 4 } });
+      now += 3000;
+      pv.preview({ underline: true, underlineStyle: { weight: 6 } });
+      pv.cancel();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(doc.undoStack.length).toBe(steps);
+    expect(doc.get(id).runs).toBeUndefined();
   });
 });

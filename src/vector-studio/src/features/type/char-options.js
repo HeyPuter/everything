@@ -79,7 +79,8 @@ export function charPreview(app, label) {
       if (!applied) return;
       if (caret) s.setPending(pending0);
       else if (doc && doc.undoStack[doc.undoStack.length - 1] !== top0) {
-        doc.undo();
+        // Previews more than a moment apart are separate steps: take back every one.
+        while (doc.canUndo && doc.undoStack[doc.undoStack.length - 1]?.coalesce === key) doc.undo();
         session(app)?.changed();
       }
       typeDefaults(app).char = defaults0;
