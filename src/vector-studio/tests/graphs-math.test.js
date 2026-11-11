@@ -14,6 +14,8 @@ import {
   trimCells,
   valueScale,
   graphOptions,
+  dataNotes,
+  dataNotesText,
 } from '../src/features/graphs/graph-math.js';
 
 const DATA = [
@@ -88,6 +90,16 @@ describe('scales', () => {
     expect(valueScale([1, 2], opt)).toEqual({ min: 10, max: 50, divisions: 4, step: 10 });
     expect(formatValue(2.5, '$', 'k')).toBe('$2.5k');
     expect(formatValue(1 / 3)).toBe('0.33');
+  });
+});
+
+describe('data notes', () => {
+  it('counts cells left out of the graph: text among the values and negative pie values', () => {
+    const cells = [['', 'A', 'B'], ['Q1', '-5', 'abc'], ['Q2', '3', '-1']];
+    expect(dataNotes(cells, 'column')).toEqual({ text: 1, negative: 0 });
+    expect(dataNotes(cells, 'pie')).toEqual({ text: 1, negative: 2 });
+    expect(dataNotesText(dataNotes(cells, 'pie'))).toBe('Left out: 1 cell is not a number; 2 negative values (pie graphs show positive values only).');
+    expect(dataNotesText(dataNotes(DATA, 'column'))).toBe('');
   });
 });
 

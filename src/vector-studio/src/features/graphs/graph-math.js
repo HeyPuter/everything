@@ -154,6 +154,30 @@ export function parseGraphData(cellsIn, type = 'column') {
   return { categories, series, headerRow, headerCol };
 }
 
+/**
+ * What a graph leaves out of its data, for telling the user: { text } cells in
+ * the value area that are not numbers, and { negative } values of a pie graph
+ * (pies show positive values only).
+ */
+export function dataNotes(cellsIn, type = 'column') {
+  const cells = trimCells(cellsIn || []);
+  const d = parseGraphData(cells, type);
+  let text = 0;
+  for (const r of cells.slice(d.headerRow ? 1 : 0)) {
+    for (let j = d.headerCol ? 1 : 0; j < r.length; j++) if (isText(r[j])) text++;
+  }
+  const negative = type === 'pie' ? d.series.reduce((n, s) => n + s.values.filter((v) => v < 0).length, 0) : 0;
+  return { text, negative };
+}
+
+/** A sentence about what dataNotes() found, or ''. */
+export function dataNotesText({ text, negative }) {
+  const parts = [];
+  if (text) parts.push(`${text} cell${text === 1 ? ' is' : 's are'} not a number`);
+  if (negative) parts.push(`${negative} negative value${negative === 1 ? '' : 's'} (pie graphs show positive values only)`);
+  return parts.length ? `Left out: ${parts.join('; ')}.` : '';
+}
+
 /** Swap rows and columns. */
 export function transposeCells(cells) {
   const t = trimCells(cells);

@@ -213,14 +213,19 @@ describe('graphs in the document', () => {
     cell(1, 1).dispatchEvent(new Event('input'));
     app.graphData.apply();
     expect(doc.get(g.id).live.data[1][1]).toBe('9');
+    expect(win.querySelector('.gd-status').textContent).toBe('Applied.');
     // Undo takes the graph back to 3: the window shows that, so a later Apply does not redo it.
     doc.undo();
     expect(cell(1, 1).value).toBe('3');
     cell(2, 1).value = '7';
     cell(2, 1).dispatchEvent(new Event('input'));
+    cell(2, 2).value = 'n/a';
+    cell(2, 2).dispatchEvent(new Event('input'));
     app.graphData.apply();
     expect(doc.get(g.id).live.data[1][1]).toBe('3');
     expect(doc.get(g.id).live.data[2][1]).toBe('7');
+    // A cell the graph cannot use is reported, not dropped silently.
+    expect(win.querySelector('.gd-status').textContent).toBe('Applied. Left out: 1 cell is not a number.');
     // Unapplied edits are kept through other changes to the document.
     cell(3, 1).value = '1';
     cell(3, 1).dispatchEvent(new Event('input'));

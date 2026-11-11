@@ -8,7 +8,7 @@
  */
 import { h } from '../../lib/dom.js';
 import { icon } from '../../ui/icons.js';
-import { trimCells, parseDelimited, transposeCells, switchXY, TYPE_LABELS } from './graph-math.js';
+import { trimCells, parseDelimited, transposeCells, switchXY, dataNotes, dataNotesText, TYPE_LABELS } from './graph-math.js';
 import { selectedGraphs, updateGraph } from './graph-ops.js';
 import { isGraph } from './graph-live.js';
 
@@ -303,7 +303,7 @@ export class GraphDataWindow {
     this.original = data.map((r) => r.slice());
     this.source = ed.doc.get(g.id).live.data;
     this.dirty = false;
-    this.#setStatus('Applied.');
+    this.#setStatus(`Applied. ${dataNotesText(dataNotes(data, g.live.type))}`.trim());
     return true;
   }
 
