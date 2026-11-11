@@ -945,6 +945,8 @@ export function promptText(title: string, value: string, done: (v: string) => vo
       oninput: (e: Event) => (current = (e.target as HTMLInputElement).value),
       onkeydown: (e: KeyboardEvent) => {
         e.stopPropagation();
+        // Enter / Esc that confirm or cancel an input method's composition are not for the prompt
+        if (e.isComposing) return;
         if (e.key === 'Enter') finish(true);
         else if (e.key === 'Escape') finish(false);
       },

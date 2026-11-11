@@ -756,6 +756,7 @@ export class Outliner implements Editor {
                   onpointerdown: (e: PointerEvent) => e.stopPropagation(),
                   onkeydown: (e: KeyboardEvent) => {
                     e.stopPropagation();
+                    if (e.isComposing) return;
                     if (e.key === 'Enter') this.rename(r, (e.target as HTMLInputElement).value);
                     if (e.key === 'Escape') {
                       this.renaming = null;

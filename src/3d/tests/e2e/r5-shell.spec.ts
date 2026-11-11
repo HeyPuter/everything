@@ -32,3 +32,46 @@ test('a phone-width window keeps the editor type menu and the search popup on sc
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+/** The keys an input method sends while composing text (Enter picks a candidate, Esc drops it). */
+const composingKey = (page: Page, selector: string, key: string) =>
+  page.evaluate(
+    ([sel, k]) => document.querySelector(sel)!.dispatchEvent(new KeyboardEvent('keydown', { key: k, isComposing: true, bubbles: true, cancelable: true })),
+    [selector, key] as const,
+  );
+
+test('Enter and Esc that end an input method composition leave rename fields open', async ({ page }) => {
+  const errors = await openApp(page);
+  const v = (await page.locator('.area[data-editor="VIEW_3D"]').first().boundingBox())!;
+  await page.mouse.move(v.x + v.width / 2, v.y + v.height / 2);
+  // F2 in the 3D view: the rename prompt
+  await page.keyboard.press('F2');
+  const prompt = page.locator('.prompt-popup .prompt-input');
+  await expect(prompt).toBeFocused();
+  await prompt.fill('箱');
+  await composingKey(page, '.prompt-popup .prompt-input', 'Enter');
+  await composingKey(page, '.prompt-popup .prompt-input', 'Escape');
+  await expect(prompt).toBeVisible();
+  await prompt.press('Enter');
+  expect(await page.evaluate(() => (window as any).app.activeObject.name)).toBe('箱');
+  // the outliner's rename field
+  await page.locator('.outliner .ol-row .ol-name', { hasText: /^箱$/ }).dblclick();
+  const ol = page.locator('.outliner .ol-rename');
+  await expect(ol).toBeVisible();
+  await ol.fill('立方体');
+  await composingKey(page, '.outliner .ol-rename', 'Enter');
+  await composingKey(page, '.outliner .ol-rename', 'Escape');
+  await expect(ol).toBeVisible();
+  await ol.press('Enter');
+  expect(await page.evaluate(() => (window as any).app.activeObject.name)).toBe('立方体');
+  // a number field being typed into
+  const field = page.locator('.properties .num-field[data-id]').first();
+  await field.click();
+  const input = page.locator('.properties input.num-field.editing');
+  await expect(input).toBeFocused();
+  await composingKey(page, '.properties input.num-field.editing', 'Escape');
+  await expect(input).toBeVisible();
+  await input.press('Escape');
+  await expect(input).toHaveCount(0);
+  await expectNoErrors(errors);
+});

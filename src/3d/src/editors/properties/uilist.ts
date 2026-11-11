@@ -221,6 +221,7 @@ export function uiList(
                     }),
                   onkeydown: (e: KeyboardEvent) => {
                     e.stopPropagation();
+                    if (e.isComposing) return;
                     if (e.key === 'Enter') {
                       renaming.delete(id);
                       opts.rename!(i, (e.target as HTMLInputElement).value);
@@ -295,7 +296,7 @@ export function uiList(
               oninput: (e: Event) => ((f.text = (e.target as HTMLInputElement).value), redraw()),
               onkeydown: (e: KeyboardEvent) => {
                 e.stopPropagation();
-                if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur();
+                if (!e.isComposing && (e.key === 'Enter' || e.key === 'Escape')) (e.target as HTMLInputElement).blur();
               },
             }),
           ),

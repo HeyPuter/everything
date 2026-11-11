@@ -38,7 +38,7 @@ export function valueCell(r: Row): Child {
         spellcheck: 'false',
         onkeydown: (e: KeyboardEvent) => {
           e.stopPropagation();
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          if (e.key === 'Enter' && !e.isComposing) (e.target as HTMLInputElement).blur();
         },
         onchange: (e: Event) => commit((e.target as HTMLInputElement).value),
       });

@@ -146,6 +146,7 @@ export function numberField(o: NumberOpts): VNode {
       oninput: (e: Event) => editing.set(o.id, (e.target as HTMLInputElement).value),
       onkeydown: (e: KeyboardEvent) => {
         e.stopPropagation();
+        if (e.isComposing) return;
         if (e.key === 'Enter') {
           commitText(o, (e.target as HTMLInputElement).value);
           // Alt+Enter: also set the value on the other selected items
@@ -571,7 +572,7 @@ export function textField(id: string, value: string, set: (v: string) => void, o
       onchange: opts.live ? null : (e: Event) => set((e.target as HTMLInputElement).value),
       onkeydown: (e: KeyboardEvent) => {
         e.stopPropagation();
-        if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur();
+        if (!e.isComposing && (e.key === 'Enter' || e.key === 'Escape')) (e.target as HTMLInputElement).blur();
       },
     }),
   );
