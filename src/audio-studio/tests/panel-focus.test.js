@@ -43,3 +43,25 @@ describe('Tracks panel', () => {
     expect(document.activeElement).toBe(row());
   });
 });
+
+describe('Events panel', () => {
+  it('keeps focus on the focused event when new events arrive or all are selected', async () => {
+    const { EventLog } = await import('../src/lib/event-log.js');
+    const { eventsPanel } = await import('../src/panels/events.js');
+    const log = new EventLog();
+    log.add({ type: 'info', name: 'A', message: 'one' });
+    log.add({ type: 'warning', name: 'B', message: 'two' });
+    const panel = eventsPanel({ eventLog: log });
+    document.body.replaceChildren(panel.el);
+    panel.show();
+    const first = () => panel.el.querySelector('tr[data-id]');
+    first().click();
+    const id = first().dataset.id;
+    expect(document.activeElement.dataset.id).toBe(id);
+    log.add({ type: 'error', name: 'C', message: 'three' });
+    expect(document.activeElement.dataset.id).toBe(id);
+    first().dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(panel.el.querySelectorAll('tr[aria-selected="true"]')).toHaveLength(3);
+    expect(document.activeElement.dataset.id).toBe(id);
+  });
+});
