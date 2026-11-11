@@ -424,3 +424,22 @@ describe('transforms keep negative scale values', () => {
     expect(r4(cube.rotation_euler)).toEqual([0, 0, 0]);
   });
 });
+
+describe('orthographic clipping', () => {
+  it('keeps the view centre inside the clipping range when zoomed far out', async () => {
+    const { NavCamera } = await import('../../src/render/navcam');
+    const nav = new NavCamera();
+    nav.resize(800, 600);
+    nav.ortho = true;
+    nav.clipEnd = 1000;
+    for (const d of [5, 400, 1500, 50000]) {
+      nav.distance = d;
+      nav.update();
+      const z = nav.project(nav.pivot.clone()).z;
+      expect(Math.abs(z), `distance ${d}`).toBeLessThan(1);
+      // and something clipEnd / 3 in front of / behind the centre too
+      expect(Math.abs(nav.project(nav.pivot.clone().addScaledVector(nav.forward, 300)).z)).toBeLessThan(1);
+      expect(Math.abs(nav.project(nav.pivot.clone().addScaledVector(nav.forward, -300)).z)).toBeLessThan(1);
+    }
+  });
+});

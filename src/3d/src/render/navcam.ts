@@ -96,8 +96,10 @@ export class NavCamera {
     this.orthoCam.right = halfH * this.aspect;
     this.orthoCam.top = halfH;
     this.orthoCam.bottom = -halfH;
-    this.orthoCam.near = -this.clipEnd / 2;
-    this.orthoCam.far = this.clipEnd / 2;
+    // the clipping range is centred on the view centre, so zooming out (a larger distance) never
+    // clips away what is being looked at
+    this.orthoCam.near = this.distance - this.clipEnd / 2;
+    this.orthoCam.far = this.distance + this.clipEnd / 2;
     this.orthoCam.position.copy(this.pivot).addScaledVector(this.forward, -this.distance);
     this.orthoCam.updateProjectionMatrix();
     this.orthoCam.updateMatrixWorld(true);
