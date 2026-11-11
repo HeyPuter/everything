@@ -414,3 +414,36 @@ describe('text raster cache', () => {
     }
   });
 });
+
+describe('very large text rasters', () => {
+  /** A 2D context whose text widths follow the font size (half an em per letter). */
+  const sizedContext = () => {
+    const ctx = mockContext();
+    return new Proxy(ctx, {
+      get(target, prop) {
+        if (prop === 'measureText') return (str) => ({ width: [...String(str)].length * parseFloat(/([\d.]+)px/.exec(target.font)[1]) * 0.5 });
+        return target[prop];
+      },
+    });
+  };
+
+  it('keeps the text its full size and uncut when the raster would be too big', async () => {
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(sizedContext);
+    try {
+      // A fresh module, so its measuring context is one of these.
+      vi.resetModules();
+      const { rasterizeText } = await import('../src/engine/text.js');
+      // A long ticker line: about 6000 project px wide, drawn at 2x (a scaled-up title in an export).
+      const clip = textClip({ text: 'Breaking news '.repeat(10), style: { ...DEFAULT_TEXT_STYLE, size: 85, boxWidth: 0 } });
+      const small = rasterizeText(clip, 1, 0.5);
+      const big = rasterizeText(clip, 1, 2);
+      expect(small.projW).toBeGreaterThan(5000);
+      expect(big.width).toBeLessThanOrEqual(8192);
+      // Same box in project pixels (so the same place and size on screen) at either raster scale.
+      expect(big.projW).toBeCloseTo(small.projW, -1);
+      expect(big.projH).toBeCloseTo(small.projH, -1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

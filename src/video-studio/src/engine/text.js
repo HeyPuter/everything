@@ -30,6 +30,9 @@ export function fontString(style, size) {
   return `${style.italic ? 'italic ' : ''}${style.bold ? '700' : '400'} ${size}px ${css}`;
 }
 
+/** Largest text raster side, in pixels. */
+const MAX_RASTER = 8192;
+
 function makeCanvas(w, h) {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
   const c = document.createElement('canvas');
@@ -209,9 +212,11 @@ function layoutText(clip, scale, opts = {}) {
   if (hasBubble(style.bubble)) bub = bubbleGeometry(style.bubble, contentW, contentH, size, (style.bubbleStrokeWidth || 0) * scale);
   const padX = Math.ceil(Math.max(deco, bgPad + 1, bub ? Math.max(bub.reach.l, bub.reach.r) + 1 : 0));
   const padY = Math.ceil(Math.max(deco, bgPad + 1, bub ? Math.max(bub.reach.t, bub.reach.b) + 1 : 0));
-  const w = Math.min(8192, Math.ceil(contentW + padX * 2));
-  const h = Math.min(8192, Math.ceil(contentH + padY * 2));
-  return { style, size, font, spacing, scale, lineH, runs, totals, contentW, contentH, padX, padY, bgPad, w, h, color: opts.color || style.color };
+  const fullW = Math.ceil(contentW + padX * 2);
+  const fullH = Math.ceil(contentH + padY * 2);
+  const w = Math.min(MAX_RASTER, fullW);
+  const h = Math.min(MAX_RASTER, fullH);
+  return { style, size, font, spacing, scale, lineH, runs, totals, contentW, contentH, padX, padY, bgPad, w, h, fullW, fullH, color: opts.color || style.color };
 }
 
 /** Run each visible run with ctx transformed so (x, y) is where its text starts. */
@@ -401,7 +406,15 @@ function drawText(ctx, L) {
  *  extra: { anim: [{ id, phase, p }], color }  per-frame animation state
  */
 export function rasterizeText(clip, reveal, scale, measureOnly = false, extra = {}) {
-  const L = layoutText(clip, scale, { reveal, anim: extra.anim, color: extra.color });
+  const opts = { reveal, anim: extra.anim, color: extra.color };
+  let L = layoutText(clip, scale, opts);
+  // Too big for one raster (a long line drawn large): draw it smaller rather than cut it off,
+  // so it keeps its size and place on screen (the compositor stretches it to its box).
+  const over = Math.max(L.fullW, L.fullH) / MAX_RASTER;
+  if (over > 1) {
+    scale = (scale / over) * 0.995;
+    L = layoutText(clip, scale, opts);
+  }
   if (measureOnly) return { width: L.w, height: L.h, projW: L.w / scale, projH: L.h / scale };
   const canvas = makeCanvas(L.w, L.h);
   const ctx = canvas.getContext('2d');
