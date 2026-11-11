@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Play Minesweeper free in your browser. Classic beginner, intermediate, and expert boards with flags, chords, first-click safety, and best times."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <link rel="apple-touch-icon" href="icon-128.png" />
+    <meta name="theme-color" content="#1a3a32" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d1a16" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Minesweeper" />
+    <meta property="og:title" content="Minesweeper — classic boards in your browser" />
+    <meta
+      property="og:description"
+      content="Beginner 9×9, Intermediate 16×16, Expert 16×30. Flags, chords, flood fill, and best times."
+    />
+    <title>Minesweeper</title>
+    <script>
+      (function () {
+        var theme;
+        try {
+          theme = (JSON.parse(localStorage.getItem('minesweeper.settings.v1')) || {}).theme;
+        } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <noscript>
+      <p class="noscript-note">
+        Minesweeper runs entirely in your browser and needs JavaScript. Enable it to play.
+      </p>
+    </noscript>
+
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <img src="icon-128.png" alt="" width="28" height="28" />
+          </span>
+          <h1 class="brand-name">Minesweeper</h1>
+        </div>
+        <div class="segmented" role="group" aria-label="Colour theme">
+          <button type="button" data-theme="light" aria-pressed="false" title="Light theme">Light</button>
+          <button type="button" data-theme="dark" aria-pressed="false" title="Dark theme">Dark</button>
+          <button type="button" data-theme="system" aria-pressed="false" title="Match system">System</button>
+        </div>
+      </header>
+
+      <main class="shell">
+        <section class="hud" aria-label="Game status">
+          <div class="meter" title="Mines remaining">
+            <span class="meter-label">Mines</span>
+            <span id="mine-count" class="meter-value" aria-live="polite">010</span>
+          </div>
+
+          <button type="button" id="reset" class="face" aria-label="New game" title="New game (R)">
+            <span id="face-glyph" class="face-glyph" aria-hidden="true">🙂</span>
+          </button>
+
+          <div class="meter" title="Elapsed time">
+            <span class="meter-label">Time</span>
+            <span id="timer" class="meter-value" aria-live="off">000</span>
+          </div>
+        </section>
+
+        <section class="difficulty" aria-label="Difficulty">
+          <div class="segmented difficulty-picks" role="group" aria-label="Board size">
+            <button type="button" data-difficulty="beginner" aria-pressed="true">Beginner</button>
+            <button type="button" data-difficulty="intermediate" aria-pressed="false">Intermediate</button>
+            <button type="button" data-difficulty="expert" aria-pressed="false">Expert</button>
+          </div>
+        </section>
+
+        <section class="board-wrap">
+          <div id="board" class="board" aria-label="Minesweeper board"></div>
+        </section>
+
+        <p id="status-line" class="status-line" role="status" aria-live="polite"></p>
+
+        <section class="bests" aria-label="Best times">
+          <h2>Best times</h2>
+          <ul id="best-times" class="best-list">
+            <li data-best="beginner"><span>Beginner</span><strong>—</strong></li>
+            <li data-best="intermediate"><span>Intermediate</span><strong>—</strong></li>
+            <li data-best="expert"><span>Expert</span><strong>—</strong></li>
+          </ul>
+        </section>
+
+        <details class="help">
+          <summary>How to play</summary>
+          <ul>
+            <li>Left-click (or Enter / Space) reveals a cell. The first click is always safe.</li>
+            <li>Right-click, long-press, Shift+Enter, or <kbd>F</kbd> plants a flag.</li>
+            <li>Middle-click, both buttons, or <kbd>C</kbd> chords a numbered cell when its flags match.</li>
+            <li>Clear every non-mine cell to win. The face button starts a new game (<kbd>R</kbd>).</li>
+          </ul>
+        </details>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
