@@ -246,4 +246,28 @@ describe('shortcuts dialog keyboard focus', () => {
     expect(keyLabels('Mod+K adds, Alt+arrows nudge, Mod+Shift+Z')).toBe(`${shortcutLabel('Mod+K')} adds, Alt+arrows nudge, ${shortcutLabel('Mod+Shift+Z')}`);
   });
 
+  it('keeps focus on the shortcut after recording, removing or resetting one', () => {
+    const { commands } = setup();
+    openShortcutsDialog(commands);
+    const add = row('Play or pause').querySelector('.kbd-chip.add');
+    add.focus();
+    add.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F8', code: 'F8', bubbles: true }));
+    expect(commands.get('play').keys).toEqual(['Space', 'F8']);
+    // The list was rebuilt: focus is on the new key, not the page.
+    expect(document.activeElement.textContent).toBe('F8');
+    expect(row('Play or pause').contains(document.activeElement)).toBe(true);
+    row('Play or pause').querySelectorAll('.kbd-remove')[1].click();
+    expect(commands.get('play').keys).toEqual(['Space']);
+    expect(document.activeElement).toBe(row('Play or pause').querySelector('.kbd-chip.add'));
+    row('Play or pause').querySelector('.kbd-remove').click();
+    row('Play or pause').querySelector('[aria-label^="Reset"]').click();
+    expect(commands.get('play').keys).toEqual(['Space']);
+    expect(document.activeElement.textContent).toBe(shortcutLabel('Space'));
+    // Escape while recording cancels and keeps focus on the chip.
+    const chip = row('Play or pause').querySelector('.kbd-chip');
+    chip.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    expect(document.activeElement).toBe(row('Play or pause').querySelector('.kbd-chip'));
+  });
 });

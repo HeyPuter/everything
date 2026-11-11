@@ -180,6 +180,7 @@ export function openShortcutsDialog(commands) {
         stopRecording();
         status.textContent = '';
         renderList();
+        refocus(cmd.id, index);
         return;
       }
       const spec = specFromEvent(e);
@@ -188,6 +189,7 @@ export function openShortcutsDialog(commands) {
       if (RESERVED_KEYS.includes(spec)) {
         status.textContent = `${shortcutLabel(spec)} is reserved by the browser or the editor.`;
         renderList();
+        refocus(cmd.id, index);
         return;
       }
       const clash = commands.conflicts(spec, cmd.id);
@@ -195,6 +197,7 @@ export function openShortcutsDialog(commands) {
         const ok = await confirmDialog({ title: 'Shortcut in use', message: `${shortcutLabel(spec)} is used by "${clash.map((c) => c.label).join('", "')}". Use it for "${cmd.label}" instead?`, confirm: 'Reassign' });
         if (!ok) {
           renderList();
+          refocus(cmd.id, index);
           return;
         }
         for (const c of clash) commands.setKeys(c.id, c.keys.filter((k) => k !== spec));
@@ -220,6 +223,7 @@ export function openShortcutsDialog(commands) {
       remove.addEventListener('click', () => {
         commands.setKeys(cmd.id, cmd.keys.filter((x) => x !== k));
         renderAll();
+        refocus(cmd.id, i);
       });
       return h('span.kbd-pair', chip, remove);
     });
@@ -229,9 +233,10 @@ export function openShortcutsDialog(commands) {
     reset?.addEventListener('click', () => {
       commands.setKeys(cmd.id, null);
       renderAll();
+      refocus(cmd.id, 0);
     });
     const clash = conflictIds.has(cmd.id) ? h('span.shortcut-clash', { 'data-tip': 'Shares a key with another command' }, icon('warning', 12), 'Conflict') : null;
-    return h(`div.shortcut-row${clash ? '.has-conflict' : ''}`, h('span.shortcut-label', cmd.label, commands.isCustom(cmd.id) ? h('span.shortcut-custom', 'Custom') : null, clash), h('span.shortcut-keys', chips, add, reset));
+    return h(`div.shortcut-row${clash ? '.has-conflict' : ''}`, { 'data-cmd': cmd.id }, h('span.shortcut-label', cmd.label, commands.isCustom(cmd.id) ? h('span.shortcut-custom', 'Custom') : null, clash), h('span.shortcut-keys', chips, add, reset));
   };
 
   const renderList = () => {
@@ -251,6 +256,17 @@ export function openShortcutsDialog(commands) {
     const n = list.querySelectorAll('.shortcut-row').length;
     count.textContent = !query.trim() ? '' : n ? `${n} command${n === 1 ? '' : 's'}` : 'No commands match';
   });
+  /**
+   * The list was rebuilt under the keyboard: focus the command's key chip at index (its Add
+   * button past the last one) instead of leaving focus on the page.
+   */
+  const refocus = (id, index) => {
+    const r = [...list.querySelectorAll('.shortcut-row')].find((x) => x.dataset.cmd === id);
+    if (!r) return;
+    const chips = [...r.querySelectorAll('.kbd-chip')];
+    chips[Math.max(0, Math.min(index, chips.length - 1))]?.focus();
+  };
+
   // Every edit can add or clear a conflict, so the whole view follows.
   function renderAll() {
     renderLayout();
