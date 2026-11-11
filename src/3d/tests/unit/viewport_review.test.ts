@@ -62,3 +62,62 @@ describe('snap selection with parent and child selected', () => {
     expect(round(worldPos(c))).toEqual([3, 0, 0]);
   });
 });
+
+describe('apply a negative scale', () => {
+  // per (face, vertex) key → value, independent of the corner order
+  function cornerMap(me: { offsets: Uint32Array; indices: Uint32Array }, data: ArrayLike<number>, stride: number) {
+    const out = new Map<string, number[]>();
+    for (let f = 0; f < me.offsets.length - 1; f++)
+      for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) out.set(`${f}:${me.indices[c]}`, Array.from({ length: stride }, (_, k) => +Number(data[c * stride + k]).toFixed(4)));
+    return out;
+  }
+  // per edge (vertex pair) → value of the edge flag stored on the corner that starts it
+  function edgeMap(me: { offsets: Uint32Array; indices: Uint32Array }, data: ArrayLike<number>) {
+    const out = new Map<string, number>();
+    for (let f = 0; f < me.offsets.length - 1; f++) {
+      const s = me.offsets[f],
+        e = me.offsets[f + 1];
+      for (let c = s; c < e; c++) {
+        const a = me.indices[c],
+          b = me.indices[c + 1 < e ? c + 1 : s];
+        const k = a < b ? `${a}-${b}` : `${b}-${a}`;
+        out.set(k, Math.max(out.get(k) ?? 0, data[c]));
+      }
+    }
+    return out;
+  }
+
+  it('keeps seams, extra UV maps and corner colors on their edges and corners', () => {
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    const me = app.doc.meshes[cube.data!];
+    const nc = me.indices.length;
+    me.seams = new Uint32Array(nc);
+    me.seams[0] = 1;
+    me.seams[5] = 1;
+    me.bevel_weight_edge = new Float32Array(nc);
+    me.bevel_weight_edge[2] = 0.5;
+    me.uv_layers_extra = [{ name: 'UV2', data: Float32Array.from({ length: nc * 2 }, (_, i) => i / 10) }];
+    me.color_attributes = [{ name: 'Col', domain: 'CORNER', data: Float32Array.from({ length: nc * 4 }, (_, i) => i / 100) }];
+    const seams0 = edgeMap(me, me.seams);
+    const bevel0 = edgeMap(me, me.bevel_weight_edge);
+    const uv0 = cornerMap(me, me.uvs, 2);
+    const uv20 = cornerMap(me, me.uv_layers_extra[0].data, 2);
+    const col0 = cornerMap(me, me.color_attributes[0].data, 4);
+    cube.scale = [-1, 1, 1];
+    select(cube);
+    run('object.transform_apply', { location: false, rotation: false, scale: true });
+    const m2 = app.doc.meshes[cube.data!];
+    expect(edgeMap(m2, m2.seams!)).toEqual(seams0);
+    expect(edgeMap(m2, m2.bevel_weight_edge!)).toEqual(bevel0);
+    expect(cornerMap(m2, m2.uvs, 2)).toEqual(uv0);
+    expect(cornerMap(m2, m2.uv_layers_extra![0].data, 2)).toEqual(uv20);
+    expect(cornerMap(m2, m2.color_attributes[0].data, 4)).toEqual(col0);
+    // faces still point outwards
+    for (let f = 0; f < m2.offsets.length - 1; f++) {
+      const c = m2.offsets[f];
+      const center = [0, 0, 0];
+      for (let k = m2.offsets[f]; k < m2.offsets[f + 1]; k++) for (let j = 0; j < 3; j++) center[j] += m2.positions[m2.indices[k] * 3 + j];
+      expect(center[0] * m2.normals[c * 3] + center[1] * m2.normals[c * 3 + 1] + center[2] * m2.normals[c * 3 + 2]).toBeGreaterThan(0);
+    }
+  });
+});

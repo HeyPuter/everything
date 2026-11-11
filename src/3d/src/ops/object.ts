@@ -8,7 +8,7 @@ import * as prim from '../mesh/primitives';
 import { monkey } from '../mesh/monkey';
 import { applyMatrixToObject, localMatrix, toMatrix4, fromMatrix4, setRotationFromQuaternion } from '../eval/transform';
 import { cloneShared } from '../data/cow';
-import { bounds, buildMesh, toPolys } from '../mesh/mesh';
+import { bounds, buildMesh, edgeTopology, toPolys } from '../mesh/mesh';
 import { startTransform } from './transform';
 import { uiState, prefs } from '../app/prefs';
 import { activeView3D } from '../editors/view3d/view3d';
@@ -324,15 +324,65 @@ function transformMeshData(me: MeshData, m: Matrix4) {
     }
     return { ...k, data: d };
   });
-  if (m.determinant() < 0) {
-    // flip winding to keep normals outward
-    const polys = toPolys(me).map((f) => {
-      const n = f.verts.length;
-      const order = Array.from({ length: n }, (_, i) => (n - i) % n);
-      return { ...f, verts: order.map((i) => f.verts[i]), uvs: f.uvs ? order.flatMap((i) => [f.uvs![i * 2], f.uvs![i * 2 + 1]]) : undefined };
-    });
-    Object.assign(me, buildMesh(me.positions, polys));
+  // flip winding to keep normals outward
+  if (m.determinant() < 0) reverseWinding(me);
+}
+
+/** Reverse the corner order of every face, carrying all corner and edge data along. */
+function reverseWinding(me: MeshData) {
+  const nf = me.offsets.length - 1,
+    nc = me.indices.length;
+  // new corner → old corner it takes its vertex (and corner data) from / old corner whose edge it now starts
+  const cmap = new Uint32Array(nc),
+    emap = new Uint32Array(nc);
+  for (let f = 0; f < nf; f++) {
+    const s = me.offsets[f],
+      n = me.offsets[f + 1] - s;
+    for (let i = 0; i < n; i++) {
+      cmap[s + i] = s + ((n - i) % n);
+      emap[s + i] = s + ((2 * n - i - 1) % n);
+    }
   }
+  function perm<A extends Float32Array | Uint32Array | Int32Array | Uint8Array>(a: A, map: Uint32Array): A {
+    const k = Math.round(a.length / nc);
+    if (!k || a.length !== k * nc) return a;
+    const out = new (a.constructor as new (n: number) => A)(a.length);
+    for (let c = 0; c < nc; c++) for (let j = 0; j < k; j++) out[c * k + j] = a[map[c] * k + j];
+    return out;
+  }
+  const oldTopo = edgeTopology(me);
+  me.indices = perm(me.indices, cmap);
+  me.uvs = perm(me.uvs, cmap);
+  if (me.custom_normals) me.custom_normals = perm(me.custom_normals, cmap);
+  if (me.uv_select) me.uv_select = perm(me.uv_select, cmap);
+  if (me.uv_pin) me.uv_pin = perm(me.uv_pin, cmap);
+  if (me.uv_layers_extra) me.uv_layers_extra = me.uv_layers_extra.map((l) => ({ ...l, data: perm(l.data, cmap) }));
+  me.color_attributes = me.color_attributes.map((a) => (a.domain === 'CORNER' ? { ...a, data: perm(a.data, cmap) } : a));
+  for (const key of ['seams', 'sharp', 'creases', 'bevel_weight_edge'] as const) if (me[key]) (me as unknown as Record<string, unknown>)[key] = perm(me[key]!, emap);
+  if (me.attributes?.some((a) => a.domain === 'CORNER' || a.domain === 'EDGE')) {
+    // edges are the same vertex pairs, but their order follows the corners
+    const newTopo = edgeTopology(me);
+    const loose = me.loose_edges ?? new Uint32Array(0);
+    const nv = me.positions.length / 3;
+    const pairKey = (a: number, b: number) => (a < b ? a * nv + b : b * nv + a);
+    const newIndex = new Map<number, number>();
+    for (let e = 0; e < newTopo.count; e++) newIndex.set(pairKey(newTopo.verts[e * 2], newTopo.verts[e * 2 + 1]), e);
+    me.attributes = me.attributes.map((a) => {
+      if (a.domain === 'CORNER') return { ...a, data: perm(a.data, cmap) };
+      if (a.domain !== 'EDGE') return a;
+      const ne = oldTopo.count + loose.length / 2;
+      const k = Math.round(a.data.length / Math.max(1, ne));
+      if (!k || a.data.length !== k * ne) return a;
+      const out = new (a.data.constructor as new (n: number) => typeof a.data)(a.data.length);
+      for (let e = 0; e < ne; e++) {
+        const j = e < oldTopo.count ? newIndex.get(pairKey(oldTopo.verts[e * 2], oldTopo.verts[e * 2 + 1])) ?? e : newTopo.count + (e - oldTopo.count);
+        for (let x = 0; x < k; x++) out[j * k + x] = a.data[e * k + x];
+      }
+      return { ...a, data: out };
+    });
+  }
+  // flat corner normals of the reversed faces
+  me.normals = buildMesh(me.positions, toPolys(me)).normals;
 }
 
 // ---------------------------------------------------------------------------
