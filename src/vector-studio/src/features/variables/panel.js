@@ -338,7 +338,7 @@ export class VariablesPanel extends Panel {
   }
 
   importData() {
-    const input = h('input', { type: 'file', accept: '.csv,text/csv', hidden: true });
+    const input = h('input', { type: 'file', accept: '.csv,.tsv,.txt,text/csv,text/tab-separated-values', hidden: true });
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
       input.remove();

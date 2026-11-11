@@ -3,7 +3,7 @@ import { VDocument } from '../src/model/document.js';
 import { createText, createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { replaceIn } from '../src/features/type/type-ops.js';
-import { addVariable, bind, captureDataSet, applyDataSet, importCSV, toCSV, parseCSV, removeVariables, boundTo, variablesOf, dataSetsOf } from '../src/features/variables/model.js';
+import { addVariable, bind, captureDataSet, applyDataSet, importCSV, toCSV, parseCSV, detectDelimiter, removeVariables, boundTo, variablesOf, dataSetsOf } from '../src/features/variables/model.js';
 import { bootAppWithFeatures } from './helpers.js';
 
 const setText = (doc, node, text) => replaceIn(doc, node, 0, node.text.length, text, 'Apply');
@@ -67,6 +67,33 @@ describe('variables', () => {
     doc.transact('remove', () => removeVariables(doc, [title.id]));
     expect(doc.get(t.id).bindings).toBeUndefined();
     expect(Object.keys(dataSetsOf(doc)[0].values)).toEqual([badge.id]);
+  });
+
+  it('reads semicolon- and tab-separated files, and refuses columns that would overwrite each other', () => {
+    expect(detectDelimiter('Name;Price\nA;1,5\n')).toBe(';');
+    expect(detectDelimiter('Name\tPrice\nA\t1\n')).toBe('\t');
+    expect(detectDelimiter('"a;b",c\n')).toBe(',');
+    expect(detectDelimiter('Title\nx\n')).toBe(',');
+    expect(parseCSV('sep=;\r\nName;Price\r\nA;"1,5"\r\n')).toEqual([['Name', 'Price'], ['A', '1,5']]);
+    const { doc } = setup();
+    doc.transact('import', () => importCSV(doc, 'Title;#Badge\nSpring, 2027;yes\n'));
+    expect(variablesOf(doc).map((v) => [v.name, v.type])).toEqual([['Title', 'text'], ['Badge', 'visibility']]);
+    expect(Object.values(dataSetsOf(doc)[0].values)).toEqual(['Spring, 2027', true]);
+    doc.transact('import', () => importCSV(doc, 'Title\tCity\nA\tB\n'));
+    expect(variablesOf(doc).map((v) => v.name)).toEqual(['Title', 'Badge', 'City']);
+    // Trailing delimiters (empty, unnamed columns) are ignored.
+    doc.transact('import', () => importCSV(doc, 'Title,City,,\nC,D,,\n'));
+    expect(variablesOf(doc)).toHaveLength(3);
+    const sets = dataSetsOf(doc).length;
+    const vars = variablesOf(doc).length;
+    const refuse = (text, msg) => {
+      expect(() => doc.transact('import', () => importCSV(doc, text))).toThrow(msg);
+      expect(dataSetsOf(doc)).toHaveLength(sets);
+      expect(variablesOf(doc)).toHaveLength(vars);
+    };
+    refuse('Name,Name\n1,2\n', /"Name" appears twice/);
+    refuse('First Name,First_Name\n1,2\n', /both become the variable "First_Name"/);
+    refuse('Title,,City\nA,x,B\n', /Column 2 has values but no name/);
   });
 
   it('registers the Variables panel', async () => {
