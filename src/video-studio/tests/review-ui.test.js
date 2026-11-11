@@ -196,6 +196,19 @@ describe('share for review (owner flow)', () => {
     expect(r2.review.versions[1]).toMatchObject({ range: { in: s(1), out: s(4) }, duration: s(3) });
   });
 
+  it('removes the saved copy when the review server refuses the new version', async () => {
+    const env = await setup();
+    const p = projectWithClips();
+    const deps = { exportProject: fakeExport(), detectCapabilities: caps };
+    const reviewFiles = () => [...env.world.storage.tables.get('files').keys()].filter((k) => k.includes('/reviews/'));
+    const r1 = await shareForReview({ puter: env.sdk.alice, project: p, library: null, title: 'Launch film', deps });
+    expect(reviewFiles()).toHaveLength(1);
+    // The review is full: every further share is refused, and each left a whole 720p copy in the owner's files.
+    await env.sdk.alice.kv.set(`vsr:r:${r1.review.id}:vseq`, 50);
+    await expect(shareForReview({ puter: env.sdk.alice, project: p, library: null, title: 'Launch film', deps })).rejects.toMatchObject({ status: 409 });
+    expect(reviewFiles()).toHaveLength(1);
+  });
+
   it('publishes nothing when cancelled while the copy is being saved, and removes the saved copy', async () => {
     const env = await setup();
     const p = projectWithClips();
