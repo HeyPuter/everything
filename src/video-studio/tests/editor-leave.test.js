@@ -231,4 +231,20 @@ describe('a failed save where the status has no room', () => {
     expect(status.textContent).toBe("Couldn't save. Retrying...");
     expect(errorToasts()).toEqual([]);
   });
+
+  it('says when saving failed because the storage is full', async () => {
+    await open();
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    const status = root.querySelector('.save-status');
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function w() {
+      return this === status ? 240 : 0;
+    });
+    editor.saver.emit('status', { status: 'error', error: new DOMException('The quota has been exceeded.', 'QuotaExceededError') });
+    expect(status.textContent).toBe("Storage is full. Free up space to save.");
+    // Phones: the note says it too.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
+    editor.saver.emit('status', { status: 'saved', at: Date.now() });
+    editor.saver.emit('status', { status: 'error', error: Object.assign(new Error('Storage capacity exceeded'), { code: 'storage_limit_reached' }) });
+    expect(errorToasts()).toEqual(["Couldn't save your changes: your storage is full. Free up space to keep saving."]);
+  });
 });

@@ -247,11 +247,14 @@ export function createTopbar(ctx) {
   );
 
   const fmt = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const setStatus = ({ status: s, at }) => {
+  // A full browser storage (QuotaExceededError) or Puter storage won't take the save however often it is retried.
+  const storageFull = (err) => err?.name === 'QuotaExceededError' || /storage_limit|quota|not enough (storage|space)|storage (is )?full|capacity/i.test(`${err?.code || ''} ${err?.message || ''}`);
+  const setStatus = ({ status: s, at, error }) => {
+    const full = s === 'error' && storageFull(error);
     const local = ctx.library.backend.kind === 'local';
     status.classList.toggle('error', s === 'error');
     if (s === 'saving') statusText = status.textContent = 'Saving...';
-    else if (s === 'error') statusText = status.textContent = "Couldn't save. Retrying...";
+    else if (s === 'error') statusText = status.textContent = full ? 'Storage is full. Free up space to save.' : "Couldn't save. Retrying...";
     else if (s === 'pending') statusText = status.textContent = 'Unsaved changes';
     else {
       const where = local ? 'Saved in this browser' : 'Auto saved';
@@ -260,7 +263,7 @@ export function createTopbar(ctx) {
     }
     fitStatus();
     // Where the status has no room (phones, narrow tablets), a failed save still has to be seen.
-    if (s === 'error' && !errorNote && status.clientWidth < 40) errorNote = toast("Couldn't save your changes. Retrying...", { kind: 'error', duration: 8000 });
+    if (s === 'error' && !errorNote && status.clientWidth < 40) errorNote = toast(full ? "Couldn't save your changes: your storage is full. Free up space to keep saving." : "Couldn't save your changes. Retrying...", { kind: 'error', duration: 8000 });
     else if (s === 'saved' && errorNote) {
       errorNote.remove();
       errorNote = null;
