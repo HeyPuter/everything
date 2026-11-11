@@ -71,6 +71,12 @@ export class SceneSync {
   ids = new Map<string, number>();
   idToObject: string[] = [];
   private nextId = 0;
+  /**
+   * Users of the GPU geometries built here (meshGeometry & co cache them per evaluated mesh, and
+   * linked duplicates share one): a geometry is disposed when its last user lets go of it, else
+   * every rebuild (modifier edit, animated deformation, deleted object) would leak its buffers.
+   */
+  private geoUsers = new Map<BufferGeometry, number>();
 
   constructor(private app: App) {
     this.scene.matrixWorldAutoUpdate = false;
@@ -119,9 +125,49 @@ export class SceneSync {
     this.scene.updateMatrixWorld(true);
   }
 
+  private useGeometry(g: BufferGeometry) {
+    this.geoUsers.set(g, (this.geoUsers.get(g) ?? 0) + 1);
+  }
+
+  private releaseGeometry(g: BufferGeometry | undefined) {
+    if (!g) return;
+    const n = (this.geoUsers.get(g) ?? 1) - 1;
+    if (n > 0) this.geoUsers.set(g, n);
+    else {
+      this.geoUsers.delete(g);
+      g.dispose();
+    }
+  }
+
+  /** Point an object at a (cached, possibly shared) geometry, releasing the one it used before. */
+  private setGeometry(o: Mesh | LineSegments | Points, g: BufferGeometry) {
+    if (o.geometry === g) return;
+    this.useGeometry(g);
+    this.releaseGeometry(o.geometry);
+    o.geometry = g;
+  }
+
+  private disposeInstances(g: Group | undefined) {
+    if (!g) return;
+    for (const c of g.children) {
+      const im = c as InstancedMesh;
+      this.releaseGeometry(im.geometry);
+      im.dispose();
+    }
+  }
+
   private disposeObject(so: SyncedObject) {
+    this.releaseGeometry(so.mesh?.geometry);
+    this.releaseGeometry(so.wire?.geometry);
+    this.releaseGeometry(so.points?.geometry);
+    this.disposeInstances(so.instances);
     so.helper?.geometry.dispose();
     so.helperFill?.geometry.dispose();
+    if (so.bones) disposeBones(so.bones);
+    if (so.imagePlane) {
+      so.imagePlane.geometry.dispose();
+      (so.imagePlane.material as Material).dispose();
+    }
     if (so.ground) this.scene.remove(so.ground);
     so.ground?.geometry.dispose();
     so.light?.dispose();
@@ -135,27 +181,32 @@ export class SceneSync {
         so.geomVersion = ev.geomVersion;
         const info = meshGeometry(ev.mesh);
         if (!so.mesh) {
+          this.useGeometry(info.geometry);
           so.mesh = new Mesh(info.geometry);
           so.mesh.matrixAutoUpdate = false;
           so.mesh.userData.id = ev.id;
           so.root.add(so.mesh);
-        } else so.mesh.geometry = info.geometry;
+        } else this.setGeometry(so.mesh, info.geometry);
         so.mesh.userData.triFace = info.triFace;
         const wg = wireGeometry(ev.mesh);
         if (!so.wire) {
+          this.useGeometry(wg);
           so.wire = new LineSegments(wg, new LineBasicMaterial({ color: 0x000000 }));
           so.wire.matrixAutoUpdate = false;
           so.root.add(so.wire);
-        } else so.wire.geometry = wg;
+        } else this.setGeometry(so.wire, wg);
         // loose points (point clouds / vertices without faces)
         const loose = ev.mesh.indices.length === 0 && !ev.mesh.curves?.length && ev.mesh.positions.length > 0;
         if (loose) {
+          const pg = pointGeometry(ev.mesh);
           if (!so.points) {
-            so.points = new Points(pointGeometry(ev.mesh), new PointsMaterial({ color: 0x000000, size: 3, sizeAttenuation: false }));
+            this.useGeometry(pg);
+            so.points = new Points(pg, new PointsMaterial({ color: 0x000000, size: 3, sizeAttenuation: false }));
             so.root.add(so.points);
-          } else so.points.geometry = pointGeometry(ev.mesh);
+          } else this.setGeometry(so.points, pg);
         } else if (so.points) {
           so.root.remove(so.points);
+          this.releaseGeometry(so.points.geometry);
           so.points = undefined;
         }
         this.syncInstances(doc, ev, so);
@@ -164,7 +215,19 @@ export class SceneSync {
       so.mesh!.receiveShadow = true;
     } else if (so.mesh) {
       so.root.remove(so.mesh);
-      if (so.wire) so.root.remove(so.wire);
+      this.releaseGeometry(so.mesh.geometry);
+      if (so.wire) {
+        so.root.remove(so.wire);
+        this.releaseGeometry(so.wire.geometry);
+      }
+      if (so.points) {
+        so.root.remove(so.points);
+        this.releaseGeometry(so.points.geometry);
+        so.points = undefined;
+      }
+      this.disposeInstances(so.instances);
+      if (so.instances) so.root.remove(so.instances);
+      so.instances = undefined;
       so.mesh = undefined;
       so.wire = undefined;
       so.geomVersion = -1;
@@ -194,14 +257,7 @@ export class SceneSync {
       }
       if (so.bones) {
         so.root.remove(so.bones);
-        // geometries / materials are built per rebuild: free them
-        const geos = new Set<{ dispose(): void }>();
-        so.bones.traverse((c) => {
-          const o = c as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
-          if (o.geometry) geos.add(o.geometry);
-          o.material?.dispose();
-        });
-        geos.forEach((g) => g.dispose());
+        disposeBones(so.bones);
         so.bones = undefined;
       }
       if (so.imagePlane) {
@@ -411,6 +467,7 @@ export class SceneSync {
   private syncInstances(doc: DocumentData, ev: EvalObject, so: SyncedObject) {
     if (so.instances) {
       so.root.remove(so.instances);
+      this.disposeInstances(so.instances);
       so.instances = undefined;
     }
     const inst = ev.mesh?.instances;
@@ -439,6 +496,7 @@ export class SceneSync {
       b.mats.push(new Matrix4().fromArray(it.matrix));
     }
     for (const b of batches.values()) {
+      this.useGeometry(b.geo);
       const im = new InstancedMesh(b.geo, undefined as unknown as Material, b.mats.length);
       b.mats.forEach((m, i) => im.setMatrixAt(i, m));
       im.instanceMatrix.needsUpdate = true;
@@ -452,6 +510,17 @@ export class SceneSync {
     so.root.add(g);
     void doc;
   }
+}
+
+/** Bone display geometries / materials are built per rebuild: free them. */
+function disposeBones(bones: Group) {
+  const geos = new Set<{ dispose(): void }>();
+  bones.traverse((c) => {
+    const o = c as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
+    if (o.geometry) geos.add(o.geometry);
+    o.material?.dispose();
+  });
+  geos.forEach((g) => g.dispose());
 }
 
 export function worldPosition(m: Matrix4) {
