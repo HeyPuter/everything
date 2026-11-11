@@ -134,7 +134,7 @@ export async function mixPasteDialog(app, { doc, conformRate }) {
   const board = h(
     'select.select',
     { 'aria-label': 'Clipboard', disabled: !boards.length },
-    boards.length ? boards.map(({ c, i }) => h('option', { value: i, selected: i === app.clipboardIndex }, `Clipboard ${i + 1}: ${fmtSeconds(c.channels[0].length, c.sampleRate)}, ${c.channels.length === 1 ? 'mono' : 'stereo'}`)) : h('option', 'All clipboards are empty'),
+    boards.length ? boards.map(({ c, i }) => h('option', { value: i, selected: i === app.clipboardIndex }, `Clipboard ${i + 1}: ${fmtSeconds(c.channels[0].length, c.sampleRate)}, ${layoutName(c.channels.length).toLowerCase()}`)) : h('option', 'All clipboards are empty'),
   );
   const fileName = h('input.input', { type: 'text', readOnly: true, placeholder: 'No file chosen', 'aria-label': 'File to paste' });
   let file = null;

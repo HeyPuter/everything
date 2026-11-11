@@ -542,3 +542,34 @@ describe('Paste while another clipboard is chosen', () => {
     expect(doc.state.markers.map((m) => [m.name, m.start])).toEqual([['In clip', 510]]);
   });
 });
+
+describe('Mix Paste clipboard list', () => {
+  it('names each clipboard by its own length and channel layout', async () => {
+    const { app, doc } = await makeView();
+    const { Channel } = await import('../src/audio/channel.js');
+    const { mixPasteDialog } = await import('../src/commands/edit-dialogs.js');
+    const clip = (rate, n, ch) => ({
+      type: 'audio',
+      sampleRate: rate,
+      channels: Array.from({ length: ch }, () => Channel.silence(n)),
+    });
+    app.clipboards = [
+      clip(44100, 44100, 1),
+      null,
+      clip(48000, 96000, 6),
+      clip(96000, 48000, 2),
+      null,
+    ];
+    const p = mixPasteDialog(app, { doc, conformRate: async (c) => c });
+    const options = [
+      ...document.querySelectorAll('.dialog select[aria-label="Clipboard"] option'),
+    ].map((o) => o.textContent);
+    expect(options).toEqual([
+      'Clipboard 1: 1.000 s, mono',
+      'Clipboard 3: 2.000 s, 5.1',
+      'Clipboard 4: 0.500 s, stereo',
+    ]);
+    document.querySelector('.dialog .dialog-head .icon-btn').click();
+    await p;
+  });
+});
