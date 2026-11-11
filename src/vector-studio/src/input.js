@@ -220,12 +220,14 @@ export class CanvasInput {
     if (this.pan) {
       this.pan = null;
       this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
+      this.#applyPendingTempTool();
       return;
     }
     if (this.active && this.active.id === e.pointerId) {
       const { tool } = this.active;
       this.active = null;
       tool.onPointerUp(this.toEvent(e));
+      this.#applyPendingTempTool();
     }
   }
 
@@ -240,6 +242,7 @@ export class CanvasInput {
     }
     this.pan = null;
     if (this.pointers.size < 2) this.gesture = null;
+    this.#applyPendingTempTool();
   }
 
   leave() {
@@ -332,9 +335,22 @@ export class CanvasInput {
     this.app.showContextMenu(e.clientX, e.clientY);
   }
 
+  #applyPendingTempTool() {
+    const p = this.pendingTempTool;
+    if (!p || this.active || this.pan) return;
+    this.pendingTempTool = null;
+    this.setTempTool(p.tool);
+  }
+
   /** Space / Cmd temporary tools (called from the app's key handlers). */
   setTempTool(tool) {
-    if (this.active) return;
+    // Mid-drag the tool in use keeps the pointer: Space or Command pressed or
+    // released during a drag takes effect when the button comes up.
+    if (this.active || this.pan) {
+      this.pendingTempTool = { tool };
+      return;
+    }
+    this.pendingTempTool = null;
     if (this.tempTool === tool) return;
     this.tempTool?.deactivate?.();
     this.tempTool = tool;
