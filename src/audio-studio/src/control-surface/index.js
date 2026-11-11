@@ -52,13 +52,26 @@ export function installControlSurface(app) {
     } catch {
       return setStatus('MIDI access was not allowed.');
     }
-    access.onstatechange = () => app.emit('midi-ports');
-    input = [...access.inputs.values()].find((p) => p.id === s.input) || (s.input ? null : [...access.inputs.values()][0]) || null;
-    output = [...access.outputs.values()].find((p) => p.id === s.output) || null;
+    watchPorts();
+    input = pickInput(s);
+    output = pickOutput(s);
     if (!input) return setStatus('No MIDI input connected.');
     input.onmidimessage = (e) => onMessage(e.data);
     setStatus(`Listening to ${input.name}`);
     scheduleFeedback();
+  }
+
+  const live = (ports) => [...ports.values()].filter((p) => p.state !== 'disconnected');
+  const pickInput = (s) => live(access.inputs).find((p) => p.id === s.input) || (s.input ? null : live(access.inputs)[0]) || null;
+  const pickOutput = (s) => live(access.outputs).find((p) => p.id === s.output) || null;
+
+  // Devices plugged in or out: refresh the port lists and reconnect when the chosen ports change.
+  function watchPorts() {
+    access.onstatechange = () => {
+      app.emit('midi-ports');
+      const s = settings();
+      if (s.enabled && (pickInput(s) !== input || pickOutput(s) !== output)) connect();
+    };
   }
 
   function disconnect() {
@@ -162,7 +175,7 @@ export function installControlSurface(app) {
       if (!midiSupported()) return false;
       try {
         access = access || (await navigator.requestMIDIAccess({ sysex: false }));
-        access.onstatechange = () => app.emit('midi-ports');
+        watchPorts();
         return true;
       } catch {
         return false;

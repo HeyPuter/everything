@@ -47,3 +47,60 @@ describe('control surface protocol', () => {
     expect(learnAction(decodeMidi([0xb0, 99, 127]), map)).toBe(null);
   });
 });
+
+describe('control surface ports', () => {
+  const fakeMidi = () => {
+    const inputs = new Map();
+    const access = { inputs, outputs: new Map(), onstatechange: null };
+    const plug = (id, name) => {
+      const port = { id, name, state: 'connected', onmidimessage: null };
+      inputs.set(id, port);
+      access.onstatechange?.({ port });
+      return port;
+    };
+    const unplug = (id) => {
+      const port = inputs.get(id);
+      port.state = 'disconnected';
+      inputs.delete(id);
+      access.onstatechange?.({ port });
+    };
+    return { access, plug, unplug };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  async function setup(midi) {
+    localStorage.clear();
+    Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => midi.access, configurable: true });
+    const { App } = await import('../src/app.js');
+    const { installControlSurface } = await import('../src/control-surface/index.js');
+    const app = new App();
+    app.syncGraph = () => {};
+    const ran = [];
+    app.commands.register({ id: 'transport.play', label: 'Play', run: () => ran.push('play') });
+    installControlSurface(app);
+    return { app, ran };
+  }
+
+  it('connects a controller plugged in after the surface was turned on', async () => {
+    const midi = fakeMidi();
+    const { app, ran } = await setup(midi);
+    app.prefs.set('controlSurface', { enabled: true, input: '', output: '', protocol: 'mcu', mappings: {} });
+    await tick();
+    expect(app.controlSurface.status.text).toBe('No MIDI input connected.');
+    const port = midi.plug('a', 'Desk');
+    await tick();
+    expect(app.controlSurface.status.text).toBe('Listening to Desk');
+    port.onmidimessage({ data: [0x90, 94, 127] });
+    expect(ran).toEqual(['play']);
+    // Unplugged, then back again.
+    midi.unplug('a');
+    await tick();
+    expect(app.controlSurface.status.text).toBe('No MIDI input connected.');
+    const again = midi.plug('a', 'Desk');
+    await tick();
+    expect(app.controlSurface.status.text).toBe('Listening to Desk');
+    again.onmidimessage({ data: [0x90, 94, 127] });
+    expect(ran).toEqual(['play', 'play']);
+    delete navigator.requestMIDIAccess;
+  });
+});
