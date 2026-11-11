@@ -18,6 +18,10 @@ import { FFT } from './audio-fx.js';
 export const LIP_RATE = 50;
 /** Longest voice analyzed (seconds); the mouth rests after that. */
 export const LIP_MAX_SECONDS = 20 * 60;
+/** The loud part of a voice (dBFS over 20 ms) is above this; quieter is room noise. */
+const SPEECH_DB = -50;
+/** A voice's loud and quiet moments differ by more than this (dB); noise and hum hold steady. */
+const STEADY_DB = 3;
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smooth = (x, a, b) => clamp01((x - a) / (b - a));
@@ -95,13 +99,16 @@ export function analyzeVoice(mono, sr, { rate = LIP_RATE } = {}) {
   const peak = percentile(db, 0.95);
   const quiet = percentile(db, 0.1);
   const floor = Math.max(peak - 40, Math.min(peak - 18, quiet + 6));
+  // Room noise, hum or a steady tone is not a voice: measured against itself it read as loud all through, and the
+  // mouth hung open over a silent recording. A voice reaches above SPEECH_DB and rises and falls.
+  const speaks = peak > SPEECH_DB && peak - quiet > STEADY_DB;
   const open = new Float32Array(frames);
   const wide = new Float32Array(frames);
   const round = new Float32Array(frames);
   const fric = new Float32Array(frames);
   const loud = new Float32Array(frames);
   for (let f = 0; f < frames; f++) {
-    const l = peak > -100 ? smooth(db[f], floor, peak) : 0;
+    const l = speaks ? smooth(db[f], floor, peak) : 0;
     loud[f] = l;
     const voiced = l > 0.06 ? 1 : 0;
     const fr = voiced * smooth(highR[f], 0.32, 0.7);
