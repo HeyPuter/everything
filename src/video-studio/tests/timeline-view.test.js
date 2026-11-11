@@ -6,6 +6,7 @@ import { createActions } from '../src/ui/actions.js';
 import { createTimeline } from '../src/ui/timeline/timeline.js';
 import * as T from '../src/model/timeline.js';
 import { drawRuler } from '../src/ui/timeline/ruler.js';
+import { createCompound } from '../src/model/compound.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
 function mountTimeline(p) {
@@ -105,6 +106,31 @@ describe('timeline drags', () => {
     scroller.dispatchEvent(new Event('scroll'));
     pointer(tracks, 'pointerup', x0 - pps);
     expect(T.findClip(store.project, a.id).clip.duration).toBe(s(0.5));
+    tl.dispose();
+  });
+});
+
+describe('opening compound clips', () => {
+  it('opens a compound clip on a double-click, though the press captured the pointer to the lanes', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const { store, tl, tracks, node, pointer } = mountTimeline(p);
+    store.update('Compound', (proj) => Boolean(createCompound(proj, [a.id], { ripple: true })));
+    tl.render();
+    const c = store.project.tracks.flatMap((t) => t.clips).find((x) => x.type === 'compound');
+    // A real mouse press captures the pointer, so the clicks and the dblclick land on the lanes.
+    for (let i = 0; i < 2; i++) {
+      pointer(node(c.id), 'pointerdown', 20);
+      pointer(tracks, 'pointerup', 20);
+    }
+    tracks.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    expect(store.nest.length).toBe(1);
+    store.closeCompound();
+    // A double-click that started on the empty lanes opens nothing.
+    pointer(tracks, 'pointerdown', 3000, 300);
+    pointer(tracks, 'pointerup', 3000, 300);
+    tracks.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    expect(store.nest.length).toBe(0);
     tl.dispose();
   });
 });

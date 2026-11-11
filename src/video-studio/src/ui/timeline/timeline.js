@@ -69,6 +69,9 @@ export function createTimeline(ctx) {
   let contentH = 0; // laid-out height of the tracks area, kept so the playhead never forces a layout
   let canvasQueued = false;
   let activeId = null; // roving focus clip
+  // The clip the last mouse press landed on: the press captures the pointer to
+  // the lanes, so the click and dblclick that follow are aimed at them, not the clip.
+  let pressedId = null;
   const clipEls = new Map();
   // Multi-camera clips on screen: their label names the angle at the playhead.
   let multicams = [];
@@ -889,6 +892,7 @@ export function createTimeline(ctx) {
     const clipNode = e.target.closest('.tl-clip');
     const p = contentPoint(e);
     if (e.button === 2) return; // context menu handles it
+    pressedId = clipNode?.dataset.id ?? null;
     if (!clipNode) {
       // Empty area: seek and start a marquee. Focus stays where the view is.
       // (The browser focuses the lanes again on the mousedown that follows.)
@@ -1662,8 +1666,8 @@ export function createTimeline(ctx) {
   }
 
   tracksEl.addEventListener('dblclick', (e) => {
-    const node = e.target.closest('.tl-clip');
-    const c = node && T.findClip(store.project, node.dataset.id)?.clip;
+    const id = e.target.closest('.tl-clip')?.dataset.id ?? (e.target === tracksEl ? pressedId : null);
+    const c = id && T.findClip(store.project, id)?.clip;
     if (c?.type === 'compound') actions.openCompound(c.id);
   });
 
