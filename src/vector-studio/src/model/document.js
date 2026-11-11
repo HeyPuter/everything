@@ -21,6 +21,19 @@ import { createLayer, isContainer } from './nodes.js';
 import { DEFAULT_SWATCHES } from './swatches.js';
 
 export const FORMAT_VERSION = 1;
+
+/**
+ * Live objects that refer to their own children by id (an interlace's zone
+ * orders, the path of Objects on Path) register fn(node, idMap) -> node here,
+ * so copies made with fresh ids (paste, duplicate) refer to the copied children.
+ */
+export const idRefHooks = [];
+
+function remapRefs(node, idMap) {
+  let out = node;
+  for (const fn of idRefHooks) out = fn(out, idMap) || out;
+  return out;
+}
 const HISTORY_LIMIT = 200;
 
 const { get: mapGet, values: mapValues, entries: mapEntries, forEach: mapForEach } = Map.prototype;
@@ -814,7 +827,8 @@ export class VDocument extends Emitter {
       return out;
     };
     const node = copy(src, src.parent);
-    return { node, descendants };
+    if (!idRefHooks.length) return { node, descendants };
+    return { node: remapRefs(node, idMap), descendants: descendants.map((n) => remapRefs(n, idMap)) };
   }
 
   /** Serializable subtree for the clipboard: { root, nodes: [...] } with original ids. */
@@ -835,7 +849,7 @@ export class VDocument extends Emitter {
       const out = { ...n, id: map.get(n.id) };
       if (n.children) out.children = n.children.map((c) => map.get(c)).filter(Boolean);
       if (n.parent && map.has(n.parent)) out.parent = map.get(n.parent);
-      return out;
+      return remapRefs(out, map);
     });
     const root = nodes[0];
     return this.insert(root, parentId, index, nodes.slice(1));

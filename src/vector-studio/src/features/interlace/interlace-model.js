@@ -12,6 +12,7 @@
  * freehand loop.
  */
 import { registerLive, virtualId } from '../../model/live.js';
+import { idRefHooks } from '../../model/document.js';
 import { createGroup, DEFAULT_STYLE } from '../../model/nodes.js';
 import { nodeBounds, rectsIntersect } from '../../model/geometry.js';
 import { flattenPath, transformAnchors, pathBounds } from '../../model/bezier.js';
@@ -20,6 +21,9 @@ import { transformedCopy } from '../repeat/virtual.js';
 import { pointInPolys, windingNumber } from '../regions/planar.js';
 
 export const isInterlace = (n) => n?.type === 'group' && n.live?.kind === 'interlace';
+
+// Copies (paste, duplicate) keep their zones: the orders name the copied children.
+idRefHooks.push((n, map) => (isInterlace(n) && n.live.zones?.length ? { ...n, live: { ...n.live, zones: n.live.zones.map((z) => ({ ...z, order: z.order.map((id) => map.get(id) || id) })) } } : n));
 
 const IDENTITY = [1, 0, 0, 1, 0, 0];
 

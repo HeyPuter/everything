@@ -129,6 +129,36 @@ describe('interlace', () => {
     expect(app.toolId).toBe('interlace');
   });
 
+  it('copies keep their zones: paste, paste into another document, duplicate and Alt-drag', async () => {
+    await app.commands.run('interlace.make');
+    const gid = app.editor.topSelection()[0];
+    const tool = app.tool;
+    tool.onPointerDown(ev(app, top.x, top.y));
+    await tool.onPointerUp(ev(app, top.x, top.y));
+    tool.onKeyDown({ key: 'Escape' });
+    const crossing = (d, id) => {
+      const g = d.get(id);
+      expect(g.live.zones).toHaveLength(1);
+      expect(g.live.zones[0].order.every((c) => g.children.includes(c))).toBe(true);
+      // Inside the zone the copied red ring (the group's first child) is in front.
+      expect(orderAt(g, top.x, top.y)).toEqual([g.children[1], g.children[0]]);
+      expect(liveArtwork(d, g).items).toHaveLength(3);
+    };
+    app.editor.select([gid]);
+    await app.commands.run('edit.copy');
+    await app.commands.run('edit.pasteInPlace');
+    crossing(doc, app.editor.topSelection()[0]);
+    app.editor.select([gid]);
+    await app.commands.run('edit.duplicate');
+    crossing(doc, app.editor.topSelection()[0]);
+    const { node, descendants } = doc.cloneSubtree(gid);
+    doc.transact('Copy', () => doc.insert(node, doc.layers()[0].id, Infinity, descendants));
+    crossing(doc, node.id);
+    app.newDocument();
+    await app.commands.run('edit.pasteInPlace');
+    crossing(app.editor.doc, app.editor.topSelection()[0]);
+  });
+
   it('a dragged loop makes a freehand zone', async () => {
     await app.commands.run('interlace.make');
     const gid = app.editor.topSelection()[0];

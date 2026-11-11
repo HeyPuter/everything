@@ -3,12 +3,13 @@ import { bootAppWithFeatures } from './helpers.js';
 import { createPath } from '../src/model/nodes.js';
 import { rectangle, ellipse } from '../src/model/shapes.js';
 import { anchor } from '../src/model/bezier.js';
-import { nodeBounds } from '../src/model/geometry.js';
+import { nodeBounds, transformNodes } from '../src/model/geometry.js';
 import { liveArtwork } from '../src/model/live.js';
 import { radialGeometry, gridLayout } from '../src/features/repeat/repeat-model.js';
 import { repeatHandles } from '../src/features/repeat/repeat-widgets.js';
 import { repeatValues, applyRepeatValues } from '../src/features/repeat/repeat-ui.js';
-import { onPathSampler, onPathPositions } from '../src/features/repeat/on-path.js';
+import { onPathSampler, onPathPositions, attachToPath } from '../src/features/repeat/on-path.js';
+import { translate } from '../src/lib/matrix.js';
 import { PropertiesPanel } from '../src/ui/panels/properties.js';
 
 function ev(app, x, y, extra = {}) {
@@ -227,5 +228,35 @@ describe('objects on path', () => {
     expect(doc.get(gid)).toBeTruthy();
     await app.commands.run('objectsOnPath.expand');
     expect(doc.get(gid)).toBeUndefined();
+  });
+
+  it('a pasted or duplicated objects-on-path group follows its own copy of the path', async () => {
+    const path = addPath(app, [[100, 300], [400, 300]]);
+    const a = addRect(app, 10, 10, 20, 20);
+    const b = addRect(app, 50, 10, 20, 20);
+    const doc = app.editor.doc;
+    let gid;
+    doc.transact('Attach', () => (gid = attachToPath(doc, [path.id, a.id, b.id], path.id)));
+    const placed = (d, id) => {
+      const g = d.get(id);
+      expect(g.children).toContain(g.live.path);
+      const { items, vdoc } = liveArtwork(d, g);
+      return items.map((n) => Math.round(nodeBounds(vdoc, n).x));
+    };
+    const before = placed(doc, gid);
+    app.editor.select([gid]);
+    await app.commands.run('edit.copy');
+    await app.commands.run('edit.pasteInPlace');
+    const pasted = app.editor.topSelection()[0];
+    expect(placed(doc, pasted)).toEqual(before);
+    // Moving the original's path leaves the copy where it is.
+    doc.transact('Move', () => transformNodes(doc, [path.id], translate(0, 100)));
+    expect(placed(doc, pasted)).toEqual(before);
+    app.editor.select([pasted]);
+    await app.commands.run('edit.duplicate');
+    expect(placed(doc, app.editor.topSelection()[0])).toEqual(before);
+    app.newDocument();
+    await app.commands.run('edit.pasteInPlace');
+    expect(placed(app.editor.doc, app.editor.topSelection()[0])).toEqual(before);
   });
 });

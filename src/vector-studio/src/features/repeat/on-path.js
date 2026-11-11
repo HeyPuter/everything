@@ -21,10 +21,14 @@ import { pathSampler } from '../../model/path-sampler.js';
 import { pathLength } from '../../model/bezier.js';
 import { multiply, translate, rotate, scaleFactor } from '../../lib/matrix.js';
 import { transformedCopy } from './virtual.js';
+import { idRefHooks } from '../../model/document.js';
 
 export const ON_PATH_DEFAULTS = Object.freeze({ spacing: 'even', distance: 36, align: 'center', rotate: true, angle: 0, offset: 0, reverse: false });
 
 export const isOnPath = (n) => n?.type === 'group' && n.live?.kind === 'onPath';
+
+// Copies (paste, duplicate) follow their own copy of the path.
+idRefHooks.push((n, map) => (isOnPath(n) && map.has(n.live.path) ? { ...n, live: { ...n.live, path: map.get(n.live.path) } } : n));
 
 const samplerCache = new WeakMap();
 
