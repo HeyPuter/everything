@@ -133,3 +133,48 @@ test('Ctrl+Z right after a texture paint stroke undoes that stroke', async ({ pa
   await expect.poll(red).toBeGreaterThan(1000);
   await expectNoErrors(errors);
 });
+
+async function sculptSphere(page: Page) {
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'SELECT' }, { invoke: false });
+    a.run('object.delete', {}, { invoke: false });
+    a.run('mesh.primitive_uv_sphere_add', { radius: 3 }, { invoke: false });
+    a.run('object.mode_set', { mode: 'SCULPT' }, { invoke: false });
+    a.run('wm.tool_set_by_id', { name: 'brush_draw' }, { invoke: false });
+  });
+  await page.waitForTimeout(100);
+}
+
+const sculptState = (page: Page) =>
+  ev(page, () => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const me = a.doc.meshes[a.activeObject.data];
+    return { mode: a.doc.mode as string, top: a.undo.topLabel as string, sum: (Array.from(me.positions) as number[]).reduce((s, v) => s + Math.abs(v), 0) };
+  });
+
+test('shortcuts wait while a brush stroke runs', async ({ page }) => {
+  const errors = await openApp(page);
+  await sculptSphere(page);
+  const s0 = await sculptState(page);
+  const { x, y } = await viewportCenter(page);
+  await page.mouse.move(x - 80, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(x - 80 + i * 10, y);
+  // undo and a mode switch in the middle of the stroke are ignored
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press('Tab');
+  for (let i = 6; i <= 12; i++) await page.mouse.move(x - 80 + i * 10, y);
+  await page.mouse.up();
+  const s1 = await sculptState(page);
+  expect(s1.mode).toBe('SCULPT');
+  expect(s1.top).toBe('Draw');
+  expect(Math.abs(s1.sum - s0.sum)).toBeGreaterThan(1e-3);
+  // one undo step for the stroke
+  await page.keyboard.press('ControlOrMeta+z');
+  expect((await sculptState(page)).sum).toBeCloseTo(s0.sum, 3);
+  // and shortcuts work again once it is over
+  await page.keyboard.press('Tab');
+  await expect.poll(async () => (await sculptState(page)).mode).toBe('EDIT');
+  await expectNoErrors(errors);
+});

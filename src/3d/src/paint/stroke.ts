@@ -3,6 +3,7 @@
 // anchored / dragged dab), with optional stabilizing (lazy mouse).
 import { h, type VNode } from '../ui/h';
 import { tabletPressure } from '../app/prefs';
+import { keyInputHooks } from '../app/keymap';
 import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { renderContext } from '../render/context';
@@ -79,6 +80,8 @@ export interface StrokeView {
 }
 
 let active: { handler: StrokeHandler; view: StrokeView } | null = null;
+
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'OS']);
 
 /** A recorded stroke point in viewport pixels (top-left origin). */
 export interface StrokePoint {
@@ -311,15 +314,24 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     else pending.push(ev);
     if (!raf) raf = requestAnimationFrame(process);
   };
+  // the stroke owns the keyboard (ahead of the shortcuts): Esc cancels it, other shortcuts
+  // (undo, mode switches, tools) would act on a document the stroke is still writing to
+  const keyHook = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') key(ev);
+    return !MODIFIER_KEYS.has(ev.key);
+  };
+  const removeKeyHook = () => {
+    const i = keyInputHooks.indexOf(keyHook);
+    if (i >= 0) keyInputHooks.splice(i, 1);
+  };
   const key = (ev: KeyboardEvent) => {
-    if (ev.key !== 'Escape') return;
     ev.preventDefault();
     ev.stopPropagation();
     // cancel: drop everything this stroke did
     removeEventListener('pointermove', move, true);
     removeEventListener('pointerup', up, true);
     removeEventListener('pointercancel', up, true);
-    removeEventListener('keydown', key, true);
+    removeKeyHook();
     if (raf) cancelAnimationFrame(raf);
     if (airTimer) clearInterval(airTimer);
     lineState.a = lineState.b = null;
@@ -334,7 +346,7 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     removeEventListener('pointermove', move, true);
     removeEventListener('pointerup', up, true);
     removeEventListener('pointercancel', up, true);
-    removeEventListener('keydown', key, true);
+    removeKeyHook();
     if (raf) cancelAnimationFrame(raf);
     if (airTimer) clearInterval(airTimer);
     process();
@@ -373,5 +385,5 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
   addEventListener('pointermove', move, true);
   addEventListener('pointerup', up, true);
   addEventListener('pointercancel', up, true);
-  addEventListener('keydown', key, true);
+  keyInputHooks.unshift(keyHook);
 }
