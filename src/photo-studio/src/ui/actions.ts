@@ -20,7 +20,7 @@ import { deserialize, serialize } from '../model/serialization';
 import { Assets, escapeXML } from '../model/assets';
 import { readRGBA } from '../model/tiles';
 import { PsdPreviewEditError, readOriginalPsd, saveOriginalPsd } from '../model/psd-original';
-import { download, puter, canSignOut } from '../persistence/puter';
+import { download, puter, canSignOut, signedOut } from '../persistence/puter';
 import { formDialog, information } from './dialog';
 export async function importFile(e: Editor, blob: Blob, name: string) {
   e.transform.apply();
@@ -319,6 +319,7 @@ export async function performAction(e: Editor, action: string): Promise<void> {
           if (v) {
             p.auth.signOut();
             e.storage.reset();
+            signedOut();
             e.message('Signed out');
           }
         } else information('Puter account', `<p>Signed in as ${escapeXML(user.username)}</p>`);
