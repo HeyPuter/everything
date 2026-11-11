@@ -22,6 +22,23 @@ describe('wav', () => {
       ]);
     });
   }
+  it('opens the audio of a file whose cue list or labels are cut off or damaged', async () => {
+    const blob = encodeWav({ sampleRate: 8000, channels: [tone(64)], bitDepth: 16, dither: false, markers: [{ start: 10, name: 'A' }, { start: 20, name: 'B' }] });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    // A download cut off inside the cue chunk that follows the audio.
+    const cut = parseWav(bytes.slice(0, 44 + 128 + 46).buffer);
+    expect(cut.channels[0].length).toBe(64);
+    expect(cut.markers.length).toBe(1);
+    // A cue count larger than the chunk and a label whose size runs past the file.
+    const bad = bytes.slice();
+    const dv = new DataView(bad.buffer);
+    dv.setUint32(44 + 128 + 8, 1000, true);
+    const labl = bad.findIndex((_, i) => String.fromCharCode(...bad.subarray(i, i + 4)) === 'labl');
+    dv.setUint32(labl + 4, 4000, true);
+    const r = parseWav(bad.buffer);
+    expect(r.channels[0].length).toBe(64);
+    expect(r.markers.map((m) => m.start)).toEqual([10, 20]);
+  });
   it('rejects non-WAV data', () => {
     expect(() => parseWav(new ArrayBuffer(64))).toThrow();
   });

@@ -38,7 +38,7 @@ export function parseWav(buffer) {
     const id = ascii(dv, o, 4);
     let size = dv.getUint32(o + 4, true);
     const body = o + 8;
-    if (id === 'ds64') ds64Data = Number(dv.getBigUint64(body + 8, true));
+    if (id === 'ds64' && body + 16 <= buffer.byteLength) ds64Data = Number(dv.getBigUint64(body + 8, true));
     if (id === 'fmt ') {
       let format = dv.getUint16(body, true);
       const channels = dv.getUint16(body + 2, true);
@@ -51,10 +51,12 @@ export function parseWav(buffer) {
       dataSize = size === 0xffffffff && ds64Data != null ? ds64Data : size;
       if (dataOffset + dataSize > buffer.byteLength) dataSize = buffer.byteLength - dataOffset;
       size = dataSize;
-    } else if (id === 'cue ') {
+    } else if (id === 'cue ' && body + 4 <= buffer.byteLength) {
+      // A damaged or truncated cue list never blocks opening the audio: read
+      // only the points that lie inside both the chunk and the file.
+      const end = Math.min(body + size, buffer.byteLength);
       const n = dv.getUint32(body, true);
-      for (let i = 0; i < n; i++) {
-        const p = body + 4 + i * 24;
+      for (let i = 0, p = body + 4; i < n && p + 24 <= end; i++, p += 24) {
         cues.set(dv.getUint32(p, true), dv.getUint32(p + 20, true));
       }
     } else if (id === 'LIST' && body + 4 <= buffer.byteLength && ascii(dv, body, 4) === 'INFO') {
@@ -68,14 +70,16 @@ export function parseWav(buffer) {
       meta = { ...(id === 'bext' ? parseBext(bytes) : parseCart(bytes)), ...meta };
     } else if (id === 'LIST' && body + 4 <= buffer.byteLength && ascii(dv, body, 4) === 'adtl') {
       let q = body + 4;
-      while (q + 8 <= body + size) {
+      const end = Math.min(body + size, buffer.byteLength);
+      while (q + 12 <= end) {
         const sid = ascii(dv, q, 4);
         const ssize = dv.getUint32(q + 4, true);
         const cueId = dv.getUint32(q + 8, true);
+        if (q + 8 + ssize > end) break;
         if (sid === 'labl' || sid === 'note') {
           const text = new TextDecoder().decode(new Uint8Array(buffer, q + 12, Math.max(0, ssize - 4))).replace(/\0+$/, '');
           (sid === 'labl' ? labels : notes).set(cueId, text);
-        } else if (sid === 'ltxt') {
+        } else if (sid === 'ltxt' && ssize >= 8) {
           lengths.set(cueId, dv.getUint32(q + 12, true));
         }
         q += 8 + ssize + (ssize & 1);
