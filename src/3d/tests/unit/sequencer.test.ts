@@ -147,6 +147,20 @@ describe('split', () => {
     expect([S.finalStart(rx), S.finalEnd(rx)]).toEqual([51, 101]);
   });
 
+  it('splits a meta strip with several children into distinctly named halves', () => {
+    const e = ed();
+    const a = add(e, 'COLOR', 1, 1, 100);
+    const b = add(e, 'COLOR', 2, 1, 100);
+    const c = add(e, 'COLOR', 3, 80, 40);
+    const m = S.makeMeta(e, e.strips, [a, b, c])!;
+    const [r] = S.splitStrips(e, e.strips, [m], 50, 'SOFT');
+    expect(m.strips!.length).toBe(2);
+    expect(r.strips!.length).toBe(3);
+    const names = S.allStrips(e.strips).map((s) => s.name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(r.strips!.every((k) => S.finalStart(k) >= 50)).toBe(true);
+  });
+
   it('does not split strips that do not cross the frame', () => {
     const e = ed();
     const m = add(e, 'MOVIE', 1, 1, 10);

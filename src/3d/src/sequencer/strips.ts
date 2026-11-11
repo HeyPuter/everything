@@ -655,9 +655,8 @@ export function cloneStrip(s: Strip, name: string): Strip {
  * hard split cuts the content (animation offsets). Effects whose inputs are split are split too and
  * re-linked to the right halves. Returns the new right-hand strips.
  */
-export function splitStrips(ed: { strips: Strip[] }, list: Strip[], targets: Strip[], frame: number, type: 'SOFT' | 'HARD'): Strip[] {
+export function splitStrips(ed: { strips: Strip[] }, list: Strip[], targets: Strip[], frame: number, type: 'SOFT' | 'HARD', taken: Set<string> = new Set(allStrips(ed.strips).map((s) => s.name))): Strip[] {
   frame = Math.round(frame);
-  const taken = new Set(allStrips(ed.strips).map((s) => s.name));
   const renamed = new Map<string, string>();
   const out: Strip[] = [];
   const cut = targets.filter((s) => !inputCount(s.type) && finalStart(s) < frame && finalEnd(s) > frame);
@@ -683,17 +682,20 @@ export function splitStrips(ed: { strips: Strip[] }, list: Strip[], targets: Str
     }
     if (r.strips) {
       // meta: children are split as well
-      const kids = r.strips;
+      // (split together with one shared name set, so the right halves get distinct names)
+      const kids = [...r.strips];
       r.strips = [];
       const leftKids: Strip[] = [];
+      const crossing: Strip[] = [];
       for (const k of kids) {
         if (finalEnd(k) <= frame) leftKids.push(k);
         else if (finalStart(k) >= frame) r.strips.push(k);
         else {
           leftKids.push(k);
-          r.strips.push(...splitStrips(ed, kids, [k], frame, type));
+          crossing.push(k);
         }
       }
+      if (crossing.length) r.strips.push(...splitStrips(ed, kids, crossing, frame, type, taken));
       s.strips = leftKids;
       // children of the right copy that were cloned need unique names
       for (const k of r.strips)
