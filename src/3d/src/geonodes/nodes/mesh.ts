@@ -29,7 +29,17 @@ function prim(ctx: ExecContext, mesh: MeshComponent) {
 }
 
 gn('GeometryNodeMeshCube', 'geometry', {
-  exec: (ctx) => prim(ctx, cubeMesh(ctx.vector('Size'), ctx.int('Vertices X'), ctx.int('Vertices Y'), ctx.int('Vertices Z'), UV_DEFAULT)),
+  exec: (ctx) => {
+    const vx = ctx.int('Vertices X'),
+      vy = ctx.int('Vertices Y'),
+      vz = ctx.int('Vertices Z');
+    // as in Blender: nothing (with a note) rather than a clamped cube
+    if (!(vx >= 1 && vy >= 1 && vz >= 1)) {
+      ctx.warn('Vertices must be at least 1', 'INFO');
+      return { Mesh: GeometrySet.empty(), 'UV Map': new ConstField('VECTOR', [0, 0, 0]) };
+    }
+    return prim(ctx, cubeMesh(ctx.vector('Size'), vx, vy, vz, UV_DEFAULT));
+  },
 });
 
 gn('GeometryNodeMeshGrid', 'geometry', {
@@ -66,8 +76,17 @@ gn('GeometryNodeMeshIcoSphere', 'geometry', {
 
 function coneLike(ctx: ExecContext, rTop: number, rBottom: number, zTop: number, zBottom: number) {
   const verts = ctx.int('Vertices');
-  if (verts < 3) {
-    ctx.warn('Vertices must be at least 3');
+  const fill = sprop(ctx.node, 'fill_type') as FillType;
+  // as in Blender: nothing (with a note) for counts out of range rather than clamped counts
+  const problem = !(verts >= 3)
+    ? 'Vertices must be at least 3'
+    : !(ctx.int('Side Segments') >= 1)
+      ? 'Side Segments must be at least 1'
+      : fill !== 'NONE' && !(ctx.int('Fill Segments') >= 1)
+        ? 'Fill Segments must be at least 1'
+        : null;
+  if (problem) {
+    ctx.warn(problem, 'INFO');
     return {
       Mesh: GeometrySet.empty(),
       Top: false,
@@ -76,7 +95,7 @@ function coneLike(ctx: ExecContext, rTop: number, rBottom: number, zTop: number,
       'UV Map': new ConstField('VECTOR', [0, 0, 0]),
     };
   }
-  const r = coneMesh(verts, ctx.int('Side Segments'), ctx.int('Fill Segments'), rTop, rBottom, zTop, zBottom, sprop(ctx.node, 'fill_type') as FillType, UV_DEFAULT);
+  const r = coneMesh(verts, ctx.int('Side Segments'), ctx.int('Fill Segments'), rTop, rBottom, zTop, zBottom, fill, UV_DEFAULT);
   const u = uvOut(ctx, r.mesh);
   const out: Record<string, unknown> = { 'UV Map': u.uv };
   for (const [k, data] of [

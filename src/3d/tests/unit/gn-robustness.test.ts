@@ -298,6 +298,28 @@ describe('modifier signature', () => {
 });
 
 describe('mesh primitives', () => {
+  it('gives no mesh and a note for counts out of range, as Blender does', () => {
+    const check = (type: string, inputs: Record<string, number>, props: Record<string, string>, message: string | null) => {
+      const t = setup();
+      const r = run(t, node(t, type, inputs, props), 'Mesh');
+      const msgs = [...r.log.warnings.values()].flat();
+      if (message) {
+        expect(r.geometry.mesh).toBeUndefined();
+        expect(msgs).toEqual([message]);
+        expect([...(r.log.kinds?.values() ?? [])]).toEqual(['INFO']);
+      } else {
+        expect(r.geometry.mesh!.vertCount).toBeGreaterThan(0);
+        expect(msgs).toEqual([]);
+      }
+    };
+    check('GeometryNodeMeshCube', { 'Vertices X': 0 }, {}, 'Vertices must be at least 1');
+    check('GeometryNodeMeshCylinder', { 'Side Segments': 0 }, {}, 'Side Segments must be at least 1');
+    check('GeometryNodeMeshCone', { 'Fill Segments': 0 }, { fill_type: 'NGON' }, 'Fill Segments must be at least 1');
+    // without a fill the fill segments are not used
+    check('GeometryNodeMeshCone', { 'Fill Segments': 0 }, { fill_type: 'NONE' }, null);
+    check('GeometryNodeMeshCylinder', { Vertices: 2 }, {}, 'Vertices must be at least 3');
+  });
+
   it('Mesh Line by resolution spaces points by exactly the resolution', () => {
     const t = setup();
     const line = node(t, 'GeometryNodeMeshLine', { 'Start Location': [0, 0, 0], Offset: [1, 0, 0], Resolution: 0.3 }, { mode: 'END_POINTS', count_mode: 'RESOLUTION' });
