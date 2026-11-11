@@ -758,7 +758,6 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     const paint = this.paintMode();
     const mask = this.maskEditing();
     patch(this.ui, [
-      ...info,
       paint
         ? h('div', { key: 'ie-toolhdr', class: 'hdr-row ie-toolhdr' }, toolHeaderSettings('TEXTURE_PAINT'))
         : mask
@@ -770,6 +769,8 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
               ? h('div', { key: 'ie-annhdr', class: 'hdr-row ie-toolhdr ie-samplehdr' }, h('span', { class: 'ie-tool-name' }, icon('annotate'), 'Annotate'), h('span', { class: 'ie-tool-label' }, 'D + drag draws with any tool; Ctrl erases'))
               : this.sampleToolHeader()
             : null,
+      // the info line sits below the tool settings header (after it, for the CSS sibling rules)
+      ...info,
       paint && this.showToolbar ? this.paintToolbar() : null,
       mask && this.showToolbar ? imageMaskToolbar(this) : null,
       !paint && !mask && this.showToolbar && !this.host.close ? this.viewToolbar() : null,

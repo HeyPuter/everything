@@ -60,6 +60,12 @@ test('Render Result: empty state, metadata burn-in, sidebar tabs and passes', as
   expect(res.passes).toEqual(expect.arrayContaining(['Combined', 'Depth', 'Position', 'IndexOB']));
   expect(res.metadata).toEqual(expect.arrayContaining(['Frame', 'Camera', 'Scene', 'Note']));
   expect(res.overlay).toBe(true);
+  // the info line is not hidden under the tool settings header, nor under the toolbar
+  const meta = (await page.locator('.ie-meta').first().boundingBox())!;
+  const hdr = (await page.locator('.ie-ui > .ie-toolhdr').first().boundingBox())!;
+  const bar = (await page.locator('.ie-ui > .ie-toolbar').first().boundingBox())!;
+  expect(meta.y).toBeGreaterThanOrEqual(hdr.y + hdr.height - 1);
+  expect(bar.y).toBeGreaterThanOrEqual(meta.y + meta.height);
   const tabs = page.locator('.ie-sidebar .sb-tab');
   await expect(tabs).toHaveText(['Tool', 'Image', 'View', 'Scopes', 'Metadata']);
   await tabs.filter({ hasText: 'Metadata' }).click();

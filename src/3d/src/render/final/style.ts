@@ -14,6 +14,8 @@ const css = /* css */ `
 .ie-ui > .ie-toolhdr { pointer-events: auto; position: absolute; top: 0; left: 0; right: 0; height: 28px; padding: 0 6px; gap: 6px; background: rgba(37, 38, 39, 0.92); border-bottom: 1px solid #1f2021; overflow: hidden; }
 .ie-ui > .ie-toolbar { pointer-events: auto; top: 34px; }
 .ie-ui > .ie-toolhdr ~ .ie-sidebar { top: 28px; }
+.ie-ui > .ie-toolhdr ~ .ie-meta { top: 28px; }
+.ie-ui > .ie-toolhdr ~ .ie-meta ~ .ie-toolbar { top: 54px; }
 .ie-header > .enum-menu.ie-mode { min-width: 80px; margin-left: 0; margin-right: 4px; }
 .scope-box { display: flex; flex-direction: column; gap: 4px; }
 .scope-svg { display: block; height: 110px; border-radius: 3px; }
