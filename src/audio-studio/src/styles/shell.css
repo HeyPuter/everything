@@ -115,16 +115,17 @@ puter-user-menu::part(avatar) {
 puter-user-menu::part(sign-in) {
   height: 22px;
   padding: 0 10px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-fill);
   border-radius: var(--radius);
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-text);
   font-size: 12px;
   white-space: nowrap;
 }
 
 puter-user-menu::part(sign-in):hover {
-  background: var(--accent-strong);
+  border-color: var(--accent-fill-hover);
+  background: var(--accent-fill-hover);
 }
 
 puter-user-menu::part(menu),
