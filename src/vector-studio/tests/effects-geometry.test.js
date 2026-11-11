@@ -329,6 +329,16 @@ describe('engine effects', () => {
     expect(pathfinderCombine(items.slice(0, 1), { kind: 'intersect' })).toEqual(items.slice(0, 1));
   });
 
+  it('gives nothing for Intersect or Minus Back with a straight line that has to contain the result', () => {
+    const sq = { style: { fill: red, stroke: null }, subpaths: [{ anchors: rectangle(0, 0, 100, 100), closed: true }] };
+    const ln = { style: { fill: null, stroke: blue, strokeWidth: 1 }, subpaths: [{ anchors: line(-20, 50, 120, 50), closed: false }] };
+    expect(pathfinderCombine([sq, ln], { kind: 'intersect' })).toEqual([]);
+    expect(pathfinderCombine([sq, ln], { kind: 'minusBack' })).toEqual([]);
+    expect(pathfinderCombine([ln, sq], { kind: 'minusFront' })).toEqual([]);
+    // The line cut away from the square leaves the square.
+    expect(area(pathfinderCombine([ln, sq], { kind: 'minusBack' })[0].subpaths)).toBeCloseTo(10000, 0);
+  });
+
   it('runs on a single compound path as separate shapes', () => {
     const subs = [{ anchors: rectangle(0, 0, 60, 60), closed: true }, { anchors: rectangle(30, 30, 60, 60), closed: true }];
     const out = pathfinderOnShape(subs, { kind: 'unite' }, { pending: () => {} });

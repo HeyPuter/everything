@@ -13,6 +13,7 @@ import { encode, jobSize } from '../../geometry/engine/codec.js';
 import { geomEffectsChanged } from '../../../model/geom-effects.js';
 import { paintParts } from '../../../model/geom-effects.js';
 import { JOIN, CAP, ALIGN, strokeParams } from '../../geometry/stroke-params.js';
+import { emptyShapeModeReason } from '../../geometry/pathfinder.js';
 
 /** Anchor count up to which a job runs synchronously while drawing. */
 export const SYNC_LIMIT = 4000;
@@ -202,6 +203,8 @@ export function pathfinderCombine(items, fx, info) {
   if (!shapes.length) return items;
   const unite = def.kind === 'unite' || def.kind === 'divide' || def.kind === 'outline';
   if (shapes.length < 2 && !(unite && shapes[0].subpaths.length > 1)) return items;
+  // The engine leaves out operands with no area (a straight line), so it would ignore one that empties the result.
+  if (def.mode && emptyShapeModeReason(def.kind, shapes)) return [];
   const records = engineResult(def.op, shapes, [], { pending: info?.pending });
   if (records === undefined) return null;
   if (!records) return items;
