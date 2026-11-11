@@ -7,7 +7,7 @@
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { openCutoutRefine } from '../cutout-refine.js';
-import { slider, toggle, propSection } from './common.js';
+import { slider, toggle, propSection, keepFocus } from './common.js';
 import { CUTOUT_DEFAULT } from '../../model/cutout.js';
 import { canvasSection } from './video-extras.js';
 import { ready, segmenterState, segmenterError, onSegmenterChange } from '../../media/segmenter.js';
@@ -65,10 +65,11 @@ export function cutoutTab(view) {
   refine.addEventListener('click', () => openCutoutRefine(view.ctx, view.id));
   const fixes = h('span.asset-hint.cutout-fixes');
   const clearFixes = h('button.btn.small.ghost', { type: 'button' }, 'Clear fixes');
-  clearFixes.addEventListener('click', () => {
+  // The button hides once there are no fixes; focus goes to the brush.
+  clearFixes.addEventListener('click', () => keepFocus(() => {
     setCutout('Clear cutout fixes', 'strokes', (k) => delete k.strokes, true);
     announce('Cutout fixes cleared');
-  });
+  }, () => refine));
   const refineRow = h('div.cutout-refine', refine, fixes, clearFixes);
   const status = modelStatusLine();
   const tip = h('p.asset-hint', 'Works best with people in clear view. Raise Edge position to trim halos; lower it to keep loose hair. Turn on Canvas below to put a color, a gradient or a blurred copy of the shot behind them.');

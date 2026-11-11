@@ -185,11 +185,12 @@ export function removeTab(view) {
       }
     });
     stop.addEventListener('click', () => tracking?.ac.abort());
-    still.addEventListener('click', () => {
+    // The button hides once the region has no keys; focus goes to Follow motion or the region.
+    still.addEventListener('click', () => keepFocus(() => {
       view.edit('Keep removal region still', (c) => clearRegionKeys(c, i));
       trackStatus.textContent = '';
       announce('Region keeps still');
-    });
+    }, () => settingsHost.querySelector('.removal-follow button'), control(i, 'pick')));
     sub.bind(syncTrack);
     syncTrack();
     rows.push(

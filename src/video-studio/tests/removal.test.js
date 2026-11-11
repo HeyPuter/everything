@@ -529,6 +529,18 @@ describe('remove panel', () => {
     expect(document.activeElement?.textContent.trim()).toBe('New painted region');
   });
 
+  it('keeps keyboard focus after keeping a moving region still', () => {
+    button('New painted region').click();
+    env.el.querySelector('[aria-label="Add keyframe for Position X"]').click();
+    const still = button('Keep still');
+    expect(still.hidden).toBe(false);
+    still.focus();
+    still.click();
+    expect(clip().keyframes['remove0.x']).toBeUndefined();
+    // Follow motion is off on a picture, so focus goes to the region.
+    expect(document.activeElement?.getAttribute('aria-label')).toMatch(/^Region 1,/);
+  });
+
   it('offers follow motion only on video clips', () => {
     button('New painted region').click();
     expect(button('Follow motion').disabled).toBe(true);

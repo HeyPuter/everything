@@ -237,4 +237,22 @@ describe('cutout panel', () => {
     expect(sel.textContent).toBe('Cutout');
     insp.el.remove();
   });
+
+  it('keeps keyboard focus after clearing the brush fixes', () => {
+    const ctx = { store: env.store };
+    ctx.actions = createActions(ctx);
+    const insp = createInspector(ctx);
+    document.body.append(insp.el);
+    env.store.update('Fix', (p) => {
+      T.findClip(p, env.store.selected.clip.id).clip.cutout = { ...CUTOUT_DEFAULT, strokes: [{ keep: true, size: 0.05, pts: [[0.5, 0.5]] }] };
+    }, { structural: false });
+    insp.showVideoSub('cutout');
+    const clear = [...insp.el.querySelectorAll('button')].find((b) => b.textContent === 'Clear fixes');
+    clear.focus();
+    clear.click();
+    expect(clip().cutout.strokes).toBeUndefined();
+    expect(clear.hidden).toBe(true);
+    expect(document.activeElement.textContent).toBe('Refine with brush...');
+    insp.el.remove();
+  });
 });

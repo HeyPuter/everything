@@ -430,14 +430,15 @@ export function choiceGrid({ label, items, value, onPick, className = '' }) {
 
 /**
  * Run fn (an edit that may rebuild the control that has focus), then, if
- * focus was lost (to the page, or onto a control that is now disabled),
+ * focus was lost (to the page, or onto a control that is now disabled or hidden),
  * focus the first of finders() that gives a usable element. Keeps the next
  * Space from playing the timeline instead of pressing a button.
  */
 export function keepFocus(fn, ...finders) {
   fn();
   const a = document.activeElement;
-  if (a && a !== document.body && a.isConnected && !a.disabled) return;
+  // A control hidden under focus loses it too (browsers move focus to the page).
+  if (a && a !== document.body && a.isConnected && !a.disabled && !a.closest('[hidden]')) return;
   for (const find of finders) {
     const el = find();
     if (el?.isConnected && !el.disabled && !el.closest('[hidden]')) {
