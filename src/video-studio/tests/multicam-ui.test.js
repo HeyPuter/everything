@@ -65,6 +65,15 @@ describe('multi-camera editing', () => {
     expect(mc().cuts.length).toBe(2);
   });
 
+  it('leaves the cuts alone on a locked track', () => {
+    const { store, ctx } = setup();
+    store.update('Lock track', (p) => void (mainTrack(p).locked = true), { structural: false });
+    store.seek(s(2));
+    expect(ctx.commands.handleKey(key(2))).toBe(true);
+    expect(ctx.actions.setMulticamAudio('follow')).toBe(false);
+    expect(mc()).toEqual({ cuts: [{ t: 0, angle: 0 }], audio: 0 });
+  });
+
   it('deletes a cut from the list and sets the sound source', () => {
     const { el, store, ctx } = setup();
     store.seek(s(3));
