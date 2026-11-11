@@ -30,10 +30,20 @@ export function createHistoryPanel(ctx) {
   const el = h('aside.history-panel', { hidden: true, 'aria-label': 'History' }, h('div.history-head', icon('clock', 14), h('span', 'History'), h('span.spacer'), close), list);
   close.addEventListener('click', () => toggle(false));
   el.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      toggle(false);
+      return;
+    }
+    // Up and down move between steps (not the playhead); Enter or Space goes to one.
+    const btns = [...list.querySelectorAll('.history-step')];
+    const i = btns.indexOf(document.activeElement);
+    const next = i < 0 ? undefined : { ArrowUp: i - 1, ArrowDown: i + 1, Home: 0, End: btns.length - 1 }[e.key];
+    if (next === undefined) return;
     e.preventDefault();
     e.stopPropagation();
-    toggle(false);
+    btns[Math.max(0, Math.min(btns.length - 1, next))].focus();
   });
   // Where focus goes back to when the panel closes.
   let opener = null;
