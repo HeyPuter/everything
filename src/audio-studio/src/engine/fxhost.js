@@ -18,10 +18,6 @@ const READOUT_MAX = 64;
 /**
  * A parameter value as handed to the processor, kept inside limits that depend
  * on the sample rate or on other parameters (`p`, the slot's values).
- * Multiband Compressor (kind 33): a low or mid crossover at the processor's
- * ceiling (0.45 x rate / 1.21, / 1.1) trips a rounding error in its crossover
- * ordering that aborts the WASM module (at 44.1 kHz a low crossover from
- * 16.4 kHz up), so those two stay just below it.
  * Chorus (kind 70): the feedback returns the sum of the voices, which can be
  * louder than the input (up to sqrt(voices) when they all sit in the middle),
  * so a high feedback grows without bound (to Infinity); it is kept below the
@@ -29,9 +25,6 @@ const READOUT_MAX = 64;
  */
 export function processorParam(kind, index, p, rate) {
   const value = p[index];
-  if (kind === 33 && index < 2) {
-    return Math.min(value, (rate * 0.45 * 0.999) / (index === 0 ? 1.21 : 1.1));
-  }
   if (kind === 70 && index === 3) {
     const gain = chorusLoopGain({ voices: p[0], depth: p[5], width: p[7], binaural: p[12] >= 0.5 });
     return Math.min(value, 95 / gain);

@@ -68,3 +68,24 @@ describe('DeNoise and DeReverb processing focus', () => {
     });
   }
 });
+
+describe('Multiband Compressor crossovers', () => {
+  it('takes crossovers at and beyond the ceiling at every sample rate', () => {
+    for (const rate of [8000, 11025, 22050, 44100, 48000, 88200, 176400, 192000]) {
+      for (const p of [
+        [20000, 20000, 20000],
+        [1e6, 0, 0],
+        [16500, 18000, 19500],
+      ]) {
+        const x = instance();
+        const h = x.fx_new(33, rate, 2);
+        p.forEach((v, i) => x.fx_set(h, i, v));
+        x.fx_reset(h);
+        const buf = x.mem_alloc(256 * 4);
+        new Float32Array(x.memory.buffer, buf, 256).fill(0.1);
+        x.fx_process(h, buf, 128);
+        expect(new Float32Array(x.memory.buffer, buf, 256).every(Number.isFinite)).toBe(true);
+      }
+    }
+  });
+});
