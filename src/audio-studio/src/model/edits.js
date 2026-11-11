@@ -143,7 +143,8 @@ export function conformChannels(clip, count) {
 
 /**
  * Inserts `clip` at `at`. With a partial mask, the clip overwrites the masked
- * channels starting at `at` (lengths stay equal) instead of inserting.
+ * channels starting at `at` (lengths stay equal) instead of inserting; a clip
+ * running past the end grows the file, with silence in the other channels.
  */
 export function insertClip(state, at, clip, mask) {
   const len = lengthOf(state);
@@ -152,10 +153,10 @@ export function insertClip(state, at, clip, mask) {
   const n = channels[0]?.length ?? 0;
   if (!n) return state;
   if (!isAll(state, mask)) {
-    const end = Math.min(len, at + n);
+    const grown = at + n > len ? insertSilence(state, len, at + n - len) : state;
     return {
-      ...state,
-      channels: state.channels.map((c, i) => (mask[i] ? c.splice(at, end, channels[i].slice(0, end - at)) : c)),
+      ...grown,
+      channels: grown.channels.map((c, i) => (mask[i] ? c.splice(at, at + n, channels[i]) : c)),
     };
   }
   return {

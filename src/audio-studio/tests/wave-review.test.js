@@ -169,3 +169,19 @@ describe('overview navigator edge drags', () => {
     expect(doc.view).toMatchObject({ start: 20000, end: 100000 });
   });
 });
+
+describe('pasting into some channels', () => {
+  it('grows the file instead of cutting off a clip that runs past the end', async () => {
+    const { Channel } = await import('../src/audio/channel.js');
+    const ch = (a) => Channel.fromSamples(Float32Array.from(a));
+    const state = { sampleRate: 1000, channels: [ch([1, 2, 3, 4]), ch([5, 6, 7, 8])], markers: [] };
+    const clip = { channels: [ch([-1, -2, -3])] };
+    const out = E.insertClip(state, 3, clip, [false, true]);
+    expect(Array.from(out.channels[0].toArray())).toEqual([1, 2, 3, 4, 0, 0]);
+    expect(Array.from(out.channels[1].toArray())).toEqual([5, 6, 7, -1, -2, -3]);
+    // Inside the file the clip still overwrites without changing the length.
+    const mid = E.insertClip(state, 1, clip, [true, false]);
+    expect(Array.from(mid.channels[0].toArray())).toEqual([1, -1, -2, -3]);
+    expect(Array.from(mid.channels[1].toArray())).toEqual([5, 6, 7, 8]);
+  });
+});
