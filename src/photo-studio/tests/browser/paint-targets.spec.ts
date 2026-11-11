@@ -85,3 +85,25 @@ test('the Art History Brush keeps locked transparency and stays on the canvas', 
   expect(result.right).toEqual([0, 0, 0]);
   expect(result.bounds).toEqual({ x: 0, y: 0, width: 100, height: 120 });
 });
+
+test('the Pencil paints hard, aliased pixels', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const l = newPixelLayer('Pencil', e.doc);
+    e.command('New Layer', (d) => d.layers.push(l));
+    e.selected = l.id;
+    const { brushFor } = await import('/src/features/paint.ts');
+    Object.assign(brushFor('pencil'), { size: 5, smoothing: 0 });
+  });
+  await idle(page);
+  await tool(page, 'Pencil Tool');
+  await canvasDrag(page, [[20.3, 30.7], [140.6, 70.2]]);
+  const alpha = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    const data = readRGBA(e.assets.tiles, e.doc.layers.at(-1)!.pixels!, { x: 0, y: 0, width: 200, height: 120 }).data;
+    return [...new Set(data.filter((_, i) => i % 4 === 3))].sort((a, b) => a - b);
+  });
+  expect(alpha).toEqual([0, 255]);
+});

@@ -198,7 +198,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
       a.session = new StrokeSession(e.assets.tiles, target.grid, {
         // The mixer brush carries paint in its tip; dabs one pixel apart keep
         // the dragged paint continuous instead of stepping in bands.
-        tip: { ...s, hardness: id === 'pencil' ? 1 : s.hardness, size: s.size, spacing: id === 'mixer-brush' ? Math.min(s.spacing, 1 / Math.max(1, s.size)) : s.spacing },
+        tip: { ...s, hardness: id === 'pencil' ? 1 : s.hardness, aliased: id === 'pencil', size: s.size, spacing: id === 'mixer-brush' ? Math.min(s.spacing, 1 / Math.max(1, s.size)) : s.spacing },
         dynamics: s.dynamics,
         opacity: s.opacity,
         flow: id === 'pencil' ? 1 : s.flow,

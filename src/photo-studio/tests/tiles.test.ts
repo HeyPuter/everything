@@ -161,6 +161,19 @@ describe('brush strokes', () => {
     s.cancel();
     expect(store.size).toBe(count);
   });
+  it('paints aliased tips with fully covered or untouched pixels only', () => {
+    const store = new TileStore();
+    const s = new StrokeSession(store, emptyGrid(4), { tip: { ...tip, size: 3, aliased: true }, opacity: 1, flow: 1, target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' } });
+    s.addPoint(10.5, 10.5);
+    s.addPoint(30.2, 17.9);
+    const g = s.commit();
+    const alpha = readRGBA(store, g, { x: 0, y: 0, width: 40, height: 30 }).data.filter((_, i) => i % 4 === 3);
+    expect(alpha.every((a) => a === 0 || a === 255)).toBe(true);
+    // A 3 px tip at a pixel center covers that pixel's 3x3 neighborhood.
+    expect([g.bounds!.x, g.bounds!.y]).toEqual([9, 9]);
+    expect(alpha[10 * 40 + 9]).toBe(255);
+    expect(alpha[10 * 40 + 8]).toBe(0);
+  });
   it('paints masks towards a value', () => {
     const store = new TileStore();
     const s = new StrokeSession(store, allMask(255), { tip, opacity: 1, flow: 1, target: { kind: 'mask', value: 0 } });

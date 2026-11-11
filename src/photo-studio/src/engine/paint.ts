@@ -24,6 +24,9 @@ export type BrushTip = {
   angle: number;
   // Optional sampled tip; coverage is scaled to the dab size and rotated.
   sample?: Mask8;
+  // Pencil: pixels inside the tip are painted fully and the rest not at all
+  // (no anti-aliasing); the pixel under the center is always painted.
+  aliased?: boolean;
 };
 export type BrushDynamics = {
   pressureSize?: boolean;
@@ -283,7 +286,10 @@ export class StrokeSession {
             const u = dx * cos + dy * sin,
               v = (-dx * sin + dy * cos) / roundness;
             let alpha: number;
-            if (sample) {
+            if (tip.aliased && !sample) {
+              if (u * u + v * v > radius * radius && (x !== Math.floor(cx) || y !== Math.floor(cy))) continue;
+              alpha = 1;
+            } else if (sample) {
               const sxp = Math.floor((u / size + 0.5) * sample.width),
                 syp = Math.floor((v / size + 0.5) * sample.height);
               if (sxp < 0 || syp < 0 || sxp >= sample.width || syp >= sample.height) continue;
