@@ -9,6 +9,7 @@ import { runCompositor, pickViewer, type RunResult } from './run';
 import { compositingActive, compositingGroup } from './data';
 import { imageKey, setImageDecodedCallback } from './eval/cache';
 import type { LayerSource } from './eval/evaluator';
+import { viewerRegion } from './viewregion';
 
 export const VIEWER_IMAGE = '__viewer_node__';
 
@@ -200,6 +201,8 @@ export function signature(doc: DocumentData): string {
       [...groups].map((id) => doc.node_groups[id].tree),
       [...images],
       viewer?.id ?? null,
+      // the Viewer Region masks the viewer image
+      viewerRegion(g.tree),
       [r.resolution_x, r.resolution_y, r.resolution_percentage, r.use_compositing, r.use_pass_z, r.use_pass_normal, r.use_pass_mist, r.view_transform, r.exposure, r.gamma, r.fps, r.fps_base],
       doc.scene.use_nodes,
       doc.scene.frame_current,
