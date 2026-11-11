@@ -722,14 +722,17 @@ export class WaveformView {
   }
 
   moveMarker(id, start, preview) {
+    // Markers stay inside the file: a drag past the end stops with the marker (or range) at the end.
+    const dur = this.doc.state.markers.find((m) => m.id === id)?.duration || 0;
+    start = Math.max(0, Math.min(Math.round(start), this.doc.length - dur));
     if (preview) {
-      this.markerPreview = { id, start: Math.round(start) };
+      this.markerPreview = { id, start };
       this.invalidate('ruler');
       this.invalidate('overlay');
       return;
     }
     this.markerPreview = null;
-    const markers = this.doc.state.markers.map((m) => (m.id === id ? { ...m, start: Math.round(start) } : m));
+    const markers = this.doc.state.markers.map((m) => (m.id === id ? { ...m, start } : m));
     this.doc.apply('Move Marker', { ...this.doc.state, markers: sortMarkers(markers) });
   }
 
