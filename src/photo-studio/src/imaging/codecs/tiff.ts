@@ -1,7 +1,8 @@
 // TIFF reader and writer written from the TIFF 6.0 specification (Aldus 1992),
 // the TIFF Technical Notes (Deflate, predictor 3 floating point,
 // 16/24-bit floats) and the BigTIFF proposal (64-bit offsets, version 43).
-import { deflate, inflate, inflateRaw } from 'pako';
+import { deflate } from 'pako';
+import { inflateLimited } from './inflate';
 import { checkCancelled, type Progress, type RGBA8 } from '../types';
 import { ByteWriter, CodecError, checkSize, frameBudgetBytes, rethrowAsCodecError, latin1String, type SizeLimits } from './bytes';
 import { lzwDecode, lzwEncode } from './lzw';
@@ -265,7 +266,7 @@ function decompress(compression: number, src: Uint8Array, expected: number): Uin
     }
     case 8:
     case 32946:
-      out = zlibInflate(src);
+      out = zlibInflate(src, expected);
       break;
     default:
       throw new CodecError(`TIFF ${COMPRESSION_NAMES[compression] ?? `compression ${compression}`} is not supported.`);
@@ -276,17 +277,18 @@ function decompress(compression: number, src: Uint8Array, expected: number): Uin
   return padded;
 }
 
-// zlib stream (compression 8), falling back to a raw Deflate stream.
-function zlibInflate(src: Uint8Array): Uint8Array {
+// zlib stream (compression 8), falling back to a raw Deflate stream. Only
+// the bytes the strip or tile needs are inflated.
+function zlibInflate(src: Uint8Array, expected: number): Uint8Array {
   let out: Uint8Array | undefined;
   try {
-    out = inflate(src);
+    out = inflateLimited(src, expected);
   } catch {
     out = undefined;
   }
   if (!out) {
     try {
-      out = inflateRaw(src);
+      out = inflateLimited(src, expected, { raw: true });
     } catch {
       out = undefined;
     }

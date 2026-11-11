@@ -3,7 +3,8 @@
 // frame has an fcTL control chunk, the first frame's pixels are the IDAT
 // default image and later frames are fdAT chunks (a sequence number followed
 // by zlib data, exactly like IDAT).
-import { deflate, inflate } from 'pako';
+import { deflate } from 'pako';
+import { inflateLimited } from './inflate';
 import { checkCancelled, type Progress, type RGBA8 } from '../types';
 import { CodecError, frameBudgetBytes, rethrowAsCodecError } from './bytes';
 import { buildPng, readPngChunks, type NewChunk } from './png-chunks';
@@ -231,9 +232,9 @@ function decodeApngImpl(bytes: Uint8Array, maxFrames: number, maxBytes: number):
       z.set(a, o);
       o += a.length;
     }
-    const raw = inflate(z);
     const stride = rect.width * channels;
-    if (raw.length < (stride + 1) * rect.height) throw new CodecError('Frame data is too short.');
+    const raw = inflateLimited(z, (stride + 1) * rect.height);
+    if (!raw || raw.length < (stride + 1) * rect.height) throw new CodecError('Frame data is too short.');
     unfilter(raw, stride, rect.height, channels);
     for (let y = 0; y < rect.height; y++) {
       const row = raw.subarray(y * (stride + 1) + 1);

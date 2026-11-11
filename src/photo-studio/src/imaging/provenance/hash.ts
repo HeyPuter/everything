@@ -11,7 +11,7 @@
 // - tiff-samples-v1: width, height and channel count (u32 LE) followed by the
 //   decoded samples of the first page (16-bit or float data when present,
 //   otherwise 8-bit RGBA).
-import { inflate } from 'pako';
+import { inflateLimited } from '../codecs/inflate';
 import { CodecError, concatBytes } from '../codecs/bytes';
 import { readPngChunks } from '../codecs/png-chunks';
 import { decodeTiff } from '../codecs/tiff';
@@ -46,8 +46,8 @@ function pngData(png: Uint8Array): { method: string; data: Uint8Array } {
   if (!channels) throw new CodecError('Unsupported PNG color type.');
   const bpp = Math.max(1, (channels * depth) >> 3),
     row = Math.ceil((width * channels * depth) / 8);
-  const raw = inflate(idat);
-  if (raw.length < height * (row + 1)) throw new CodecError('PNG image data is truncated.');
+  const raw = inflateLimited(idat, height * (row + 1));
+  if (!raw || raw.length < height * (row + 1)) throw new CodecError('PNG image data is truncated.');
   const extra = color === 3 ? chunks.filter((c) => c.type === 'PLTE' || c.type === 'tRNS').map((c) => c.data) : [];
   const out = new Uint8Array(height * row);
   for (let y = 0; y < height; y++) {

@@ -1,7 +1,8 @@
 // PNG writer for 8- and 16-bit images and a 16-bit reader, from the PNG
 // specification (ISO/IEC 15948, W3C PNG 3rd edition). Browsers decode PNG to
 // 8 bits per channel, so 16-bit files are read here to keep their precision.
-import { deflate, inflate } from 'pako';
+import { deflate } from 'pako';
+import { inflateLimited } from '../../imaging/codecs/inflate';
 import { buildPng, readPngChunks, type NewChunk } from '../../imaging/codecs/png-chunks';
 
 export type PngImage = {
@@ -119,7 +120,18 @@ export function decodePng16(png: Uint8Array): Png16 | null {
     z.set(c.data, o);
     o += c.data.length;
   }
-  const raw = inflate(z);
+  const passes = interlaced
+    ? [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]]
+    : [[0, 0, 1, 1]];
+  // Inflate only the rows the image needs: Deflate can expand a thousandfold.
+  let expected = 0;
+  for (const [x0, y0, dx, dy] of passes) {
+    const pw = Math.ceil((width - x0) / dx),
+      ph = Math.ceil((height - y0) / dy);
+    if (pw > 0 && ph > 0) expected += (pw * channels * 2 + 1) * ph;
+  }
+  const raw = inflateLimited(z, expected);
+  if (!raw) throw new Error('The PNG image data is damaged.');
   // tRNS for gray/RGB names one fully transparent 16-bit color.
   const trns = chunks.find((c) => c.type === 'tRNS')?.data;
   const key = trns && (colorType === 0 ? trns.length >= 2 : colorType === 2 ? trns.length >= 6 : false)
@@ -129,9 +141,6 @@ export function decodePng16(png: Uint8Array): Png16 | null {
   const bpp = channels * 2;
   let pos = 0;
   // Adam7 passes (x0, y0, dx, dy); a non-interlaced image is one full pass.
-  const passes = interlaced
-    ? [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]]
-    : [[0, 0, 1, 1]];
   for (const [x0, y0, dx, dy] of passes) {
     const pw = Math.ceil((width - x0) / dx),
       ph = Math.ceil((height - y0) / dy);
