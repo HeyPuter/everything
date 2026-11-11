@@ -309,3 +309,26 @@ describe('relocating a library', () => {
     expect(target.objects[lid].location).toEqual([0, 0, 7]);
   });
 });
+
+describe('linked node trees', () => {
+  it('can have their nodes selected but not edited', async () => {
+    const { lockRecord } = await import('../../src/library/readonly');
+    const { newMaterial } = await import('../../src/data/defaults');
+    const ma = newMaterial('Linked');
+    for (const n of ma.tree.nodes) n.select = false;
+    ma.tree.active_node = null;
+    lockRecord(ma);
+    const n = ma.tree.nodes[0];
+    // selection state
+    n.select = true;
+    ma.tree.active_node = n.id;
+    expect(n.select).toBe(true);
+    expect(ma.tree.active_node).toBe(n.id);
+    // data
+    expect(() => (n.location = [5, 5])).toThrow(/read only/);
+    expect(() => (n.name = 'Other')).toThrow(/read only/);
+    expect(() => ma.tree.links.push({ id: 'l', from_node: 'a', from_socket: 'b', to_node: 'c', to_socket: 'd' })).toThrow();
+    expect(() => (ma.tree.links = [])).toThrow(/read only/);
+    expect(isReadOnly(ma.tree)).toBe(true);
+  });
+});

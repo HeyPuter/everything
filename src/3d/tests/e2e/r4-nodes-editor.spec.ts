@@ -268,6 +268,8 @@ test('a linked material can be looked at: dragging nodes, links and edges report
   await page.evaluate(async () => {
     const R = await import('/src/library/readonly.ts');
     const ma = Object.values((window as unknown as { app: { doc: { materials: Record<string, { library?: string }> } } }).app.doc.materials)[0];
+    // saved selection flags are locked like the rest of the data unless selection stays writable
+    for (const n of (ma as unknown as { tree: { nodes: { select: boolean }[] } }).tree.nodes) n.select = false;
     ma.library = 'lib';
     R.lockRecord(ma);
   });
@@ -296,8 +298,14 @@ test('a linked material can be looked at: dragging nodes, links and edges report
   await page.keyboard.press('g');
   await page.mouse.move(box.x + 340, box.y + 420, { steps: 3 });
   await page.mouse.click(box.x + 340, box.y + 420);
-  const state = await withTree<{ links: number }>(page, '(ed, t) => ({ links: t.links.length })');
+  // selecting is allowed: a box around everything selects all nodes
+  await page.mouse.move(box.x + 70, box.y + 90);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20, { steps: 4 });
+  await page.mouse.up();
+  const state = await withTree<{ links: number; selected: number; nodes: number }>(page, '(ed, t) => ({ links: t.links.length, selected: t.nodes.filter((n) => n.select).length, nodes: t.nodes.length })');
   expect(state.links).toBe(1);
+  expect(state.selected).toBe(state.nodes);
   expect(await page.evaluate(() => (window as unknown as { app: { reports: { message: string }[] } }).app.reports.some((r) => /node tree is linked/.test(r.message)))).toBe(true);
   await expectNoErrors(errors);
 });
