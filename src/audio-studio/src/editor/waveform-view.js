@@ -823,6 +823,7 @@ export class WaveformView {
         const [a, b] = [...pointers.values()];
         pinch = { dist: Math.abs(a.x - b.x) || 1, mid: (a.x + b.x) / 2, view: { ...this.doc.view } };
         if (drag?.started) this.doc.setSelection(drag.prev.start, drag.prev.end, { channels: drag.prev.channels });
+        clearTimeout(drag?.edgeTimer);
         drag = null;
         return;
       }
@@ -906,7 +907,7 @@ export class WaveformView {
       clearTimeout(longPress);
       drag.started = true;
       this.#dragTo(drag, x);
-      this.#edgeScroll(x);
+      this.#edgeScroll(drag, x);
     });
 
     const finish = (e, cancelled) => {
@@ -914,6 +915,7 @@ export class WaveformView {
       if (pointers.size < 2) pinch = null;
       clearTimeout(longPress);
       if (!drag) return;
+      clearTimeout(drag.edgeTimer);
       if (drag.layer) {
         drag.layer.pointer(e, cancelled ? 'cancel' : 'up');
         drag = null;
@@ -993,11 +995,25 @@ export class WaveformView {
     if (!this.app.engine.playing) this.doc.setCursor(Math.min(drag.anchor, f), { silent: true });
   }
 
-  #edgeScroll(x) {
-    const v = this.doc.view;
-    const span = v.end - v.start;
-    if (x < 0) this.doc.setView(v.start - span * 0.02, v.end - span * 0.02);
-    else if (x > this.width) this.doc.setView(v.start + span * 0.02, v.end + span * 0.02);
+  /**
+   * While a selection drag is held past the left or right edge, the view keeps
+   * scrolling (faster the further out the pointer is) and the selection follows,
+   * even when the pointer stops moving.
+   */
+  #edgeScroll(drag, x) {
+    drag.edgeX = x;
+    if (drag.edgeTimer) return;
+    const tick = () => {
+      drag.edgeTimer = 0;
+      const over = drag.edgeX < 0 ? drag.edgeX : drag.edgeX > this.width ? drag.edgeX - this.width : 0;
+      if (!over) return;
+      const v = this.doc.view;
+      const shift = (v.end - v.start) * 0.02 * Math.sign(over) * Math.min(2, Math.max(0.25, Math.abs(over) / 40));
+      this.doc.setView(v.start + shift, v.end + shift);
+      this.#dragTo(drag, drag.edgeX);
+      drag.edgeTimer = setTimeout(tick, 16);
+    };
+    tick();
   }
 
   #bindKeys() {

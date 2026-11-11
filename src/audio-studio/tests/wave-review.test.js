@@ -492,3 +492,32 @@ describe('Markers panel during playback', () => {
     }
   });
 });
+
+describe('selection drag past the edge', () => {
+  it('keeps scrolling and extending the selection while the pointer is held there', async () => {
+    vi.useFakeTimers();
+    try {
+      const { doc, view } = await makeView({ frames: 48000 * 60 });
+      doc.setView(0, 48000 * 5);
+      const s = view.surface;
+      s.setPointerCapture = () => {};
+      const ev = (type, x) =>
+        new MouseEvent(type, { clientX: x, clientY: 100, button: 0, bubbles: true });
+      const withId = (e) => Object.defineProperty(e, 'pointerId', { value: 1 });
+      s.dispatchEvent(withId(ev('pointerdown', 100)));
+      s.dispatchEvent(withId(ev('pointermove', 200)));
+      s.dispatchEvent(withId(ev('pointermove', 440))); // 40 px past the right edge
+      const first = doc.view.start;
+      expect(first).toBeGreaterThan(0);
+      vi.advanceTimersByTime(160);
+      expect(doc.view.start).toBeGreaterThan(first);
+      expect(doc.selection.end).toBeGreaterThan(doc.view.end - 1);
+      s.dispatchEvent(withId(ev('pointerup', 440)));
+      const stopped = doc.view.start;
+      vi.advanceTimersByTime(160);
+      expect(doc.view.start).toBe(stopped);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
