@@ -50,7 +50,7 @@ import { rasterEffects } from '../../render/effects.js';
 import { renderRegion } from './raster.js';
 import { multiply } from '../../lib/matrix.js';
 import { renderSubpaths, isElliptical, radialFrame } from './geometry-helpers.js';
-import { exportView } from './export-view.js';
+import { exportView, frozenDocument } from './export-view.js';
 import { exportWriters } from './hooks.js';
 import { layoutContent } from './print-layout.js';
 import { securityHandler, encryptStream, newDocumentId } from './pdf-crypto.js';
@@ -1375,8 +1375,9 @@ async function decodePixels(asset) {
  * Returns { bytes: Uint8Array, warnings: string[] }.
  */
 export async function writePDF(source, pages, opts = {}) {
-  // Freeform fills are drawn natively (as images inside their shapes).
-  const doc = exportView(source, { native: ['freeform'] });
+  // Freeform fills are drawn natively (as images inside their shapes). Pages are written
+  // between other tasks: they all show the document as it was when the export started.
+  const doc = exportView(frozenDocument(source), { native: ['freeform'] });
   const w = new PDFWriter({ compress: opts.compress !== false, version: opts.version || '1.7' });
   w.id = newDocumentId();
   let encrypt = null;

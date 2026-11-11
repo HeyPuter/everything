@@ -201,6 +201,27 @@ describe('gradient opacity in PDF export', () => {
   });
 });
 
+describe('editing during a PDF export', () => {
+  it('writes the document as it was when the export started', async () => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    const layer = doc.layers()[0].id;
+    const red = { type: 'solid', color: '#ff0000' };
+    let second;
+    doc.transact('build', () => {
+      doc.insert(createPath(rectangle(10, 10, 40, 40), true, { fill: red, stroke: null }), layer);
+      const group = doc.insert(createGroup([]), layer);
+      second = doc.insert(createPath(rectangle(60, 60, 40, 40), true, { fill: red, stroke: null }), group.id);
+    });
+    // The writer yields between objects; an edit made meanwhile must not reach the file halfway through.
+    const pending = writePDF(doc, [doc.artboards[0]], { compress: false });
+    doc.transact('recolor', () => doc.update(second.id, { fill: { type: 'solid', color: '#0000ff' } }));
+    const s = latin1((await pending).bytes);
+    expect(s).toContain('1 0 0 rg');
+    expect(s).not.toContain('0 0 1 rg');
+    expect(doc.get(second.id).fill.color).toBe('#0000ff');
+  });
+});
+
 describe('document bleed in PDF export', () => {
   it('uses the document bleed per side with Use Document Bleed Settings', async () => {
     const doc = sampleDoc();

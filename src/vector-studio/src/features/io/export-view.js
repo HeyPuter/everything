@@ -14,8 +14,23 @@ import { geomEffectsOf, effectiveSubpaths, isGeomEffectType, paintParts } from '
 // Blends are registered by the module that computes their steps.
 import '../artboards/blend-math.js';
 import { exportBakers } from './hooks.js';
+import { VDocument } from '../../model/document.js';
 
 export { exportBakers };
+
+/**
+ * The document as it is now, for exporters that yield while they work
+ * (raster tiles, PDF pages): edits made meanwhile do not reach the file
+ * halfway through. Nodes are immutable, so this copies only the node map.
+ * Views and other read-only sources are returned as they are.
+ */
+export function frozenDocument(doc) {
+  if (!(doc instanceof VDocument)) return doc;
+  const copy = new VDocument();
+  for (const [id, n] of doc.nodes) copy.nodes.set(id, n);
+  copy.assets = doc.assets;
+  return copy;
+}
 
 export function exportView(doc, { keep = null, native = [] } = {}) {
   const bakers = exportBakers.filter((b) => !native.includes(b.key));

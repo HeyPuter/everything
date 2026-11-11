@@ -8,6 +8,7 @@ import { drawArtwork, drawNode, LayerPool, imageFor } from '../../render/draw.js
 import { selectionBounds, visualBounds, rectsIntersect, inflate } from '../../model/geometry.js';
 import { crc32 } from './zip.js';
 import { paintHooks } from './hooks.js';
+import { frozenDocument } from './export-view.js';
 
 const TILE = 2048;
 const MAX_SIDE = 16384;
@@ -94,6 +95,8 @@ export async function renderRegion(doc, rect, { scale = 1, background = null, an
   const cols = Math.ceil(w / TILE);
   const rows = Math.ceil(h / TILE);
   const total = cols * rows;
+  // Tiles render between other tasks: they all draw the document as it is now, whatever is edited meanwhile.
+  if (total > 1) doc = frozenDocument(doc);
   let done = 0;
   for (let ty = 0; ty < rows; ty++) {
     for (let tx = 0; tx < cols; tx++) {
