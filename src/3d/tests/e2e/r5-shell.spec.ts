@@ -153,3 +153,25 @@ test('tabbing through the keymap editor does not rebind keys to Tab', async ({ p
   await expect(key).toHaveValue('Shift J');
   await expectNoErrors(errors);
 });
+
+test('Enter confirms an operator dialog and Esc closes it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.rail-tab[data-tab="DATA"]').first().click();
+  const attrs = page.locator('[data-panel="me-attributes"]');
+  if (!(await attrs.locator('.ul-side').isVisible())) await attrs.locator('.panel-header').click();
+  const count = () => page.evaluate(() => { const a = (window as any).app; return (a.doc.meshes[a.activeObject.data].attributes ?? []).length; });
+  const n0 = await count();
+  const dlg = page.locator('.op-dialog[data-op-dialog="geometry.attribute_add"]');
+  await attrs.locator('.ul-side .icon-btn[data-tip="Add"]').click();
+  await expect(dlg).toBeVisible();
+  await expect(dlg).toHaveAttribute('role', 'dialog');
+  await page.keyboard.press('Escape');
+  await expect(dlg).toHaveCount(0);
+  expect(await count()).toBe(n0);
+  await attrs.locator('.ul-side .icon-btn[data-tip="Add"]').click();
+  await expect(dlg).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(dlg).toHaveCount(0);
+  expect(await count()).toBe(n0 + 1);
+  await expectNoErrors(errors);
+});
