@@ -94,6 +94,9 @@ export class VDocument extends Emitter {
     this.undoStack = [];
     this.redoStack = [];
     this.tx = null;
+    // An id for the current content: every commit, coalesced edit and remote
+    // change gets a fresh one, and undo/redo return to the step's ids, so the
+    // same number never stands for two different states (dirty, autosave).
     this.revision = 0;
     this.savedRevision = 0;
     /** Optional { get(), set(value) } so undo can restore the editor selection. */
@@ -395,6 +398,7 @@ export class VDocument extends Emitter {
       for (const id of last.before.keys()) last.after.set(id, this.nodes.get(id));
       last.selectionAfter = this.selection ? this.selection.get() : null;
       last.time = Date.now();
+      last.rev = this.revision = this.#nextRevision();
       this.emit('transaction', { label: tx.label, before: tx.before, after });
       this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
       this.emit('history');
@@ -409,11 +413,13 @@ export class VDocument extends Emitter {
       selectionAfter: this.selection ? this.selection.get() : null,
       structural: tx.structural,
       time: Date.now(),
+      prevRev: this.revision,
+      rev: this.#nextRevision(),
     };
     this.undoStack.push(record);
     while (this.undoStack.length > (this.historyLimit || HISTORY_LIMIT)) this.undoStack.shift();
     this.redoStack.length = 0;
-    this.revision++;
+    this.revision = record.rev;
     this.emit('transaction', { label: tx.label, before: tx.before, after });
     this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
     this.emit('history');
@@ -428,6 +434,14 @@ export class VDocument extends Emitter {
     }
     if (this.selection && tx.selectionBefore != null) this.selection.set(tx.selectionBefore);
     this.emit('change', { ids: tx.changed, structural: true, commit: true });
+  }
+
+  #lastRevision = 0;
+
+  /** A revision number no state of this document has had (code may also set `revision` directly). */
+  #nextRevision() {
+    this.#lastRevision = Math.max(this.#lastRevision, this.revision, this.savedRevision) + 1;
+    return this.#lastRevision;
   }
 
   get canUndo() {
@@ -451,7 +465,7 @@ export class VDocument extends Emitter {
     const rec = this.undoStack.pop();
     const prev = this.#restore(rec.before);
     this.redoStack.push(rec);
-    this.revision--;
+    this.revision = rec.prevRev ?? this.revision - 1;
     this.emit('transaction', { label: rec.label, before: prev, after: rec.before, undo: true });
     if (this.selection && rec.selectionBefore != null) this.selection.set(rec.selectionBefore);
     this.emit('change', { ids: new Set(rec.before.keys()), structural: true, commit: true, undo: true });
@@ -464,7 +478,7 @@ export class VDocument extends Emitter {
     const rec = this.redoStack.pop();
     const prev = this.#restore(rec.after);
     this.undoStack.push(rec);
-    this.revision++;
+    this.revision = rec.rev ?? this.revision + 1;
     this.emit('transaction', { label: rec.label, before: prev, after: rec.after, redo: true });
     if (this.selection && rec.selectionAfter != null) this.selection.set(rec.selectionAfter);
     this.emit('change', { ids: new Set(rec.after.keys()), structural: true, commit: true, undo: true });
@@ -504,7 +518,7 @@ export class VDocument extends Emitter {
     if (!ids.size) return ids;
     // Caches keyed on the revision see the change; a saved document stays saved.
     const clean = this.revision === this.savedRevision;
-    this.revision++;
+    this.revision = this.#nextRevision();
     if (clean) this.savedRevision = this.revision;
     this.emit('change', { ids, structural: true, commit: true, remote: true });
     return ids;

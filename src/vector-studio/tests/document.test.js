@@ -66,6 +66,46 @@ describe('VDocument', () => {
     expect(doc.get(rect.id).opacity).toBe(1);
   });
 
+  it('stays dirty after undoing past the save and making a different change', () => {
+    const { doc, layer } = docWithRect();
+    doc.markSaved();
+    const saved = doc.revision;
+    doc.undo();
+    expect(doc.dirty).toBe(true);
+    doc.transact('Other', () => doc.insert(createPath(rectangle(5, 5, 10, 10), true), layer.id));
+    // Same history depth as the saved state, different content.
+    expect(doc.dirty).toBe(true);
+    expect(doc.revision).not.toBe(saved);
+    doc.undo();
+    doc.redo();
+    expect(doc.dirty).toBe(true);
+  });
+
+  it('gives a coalesced change a new revision (autosave and caches see it)', () => {
+    const { doc, rect } = docWithRect();
+    doc.transact('Opacity', () => doc.update(rect.id, { opacity: 0.5 }), { coalesce: 'op' });
+    const first = doc.revision;
+    doc.transact('Opacity', () => doc.update(rect.id, { opacity: 0.4 }), { coalesce: 'op' });
+    expect(doc.undoStack).toHaveLength(2);
+    expect(doc.revision).not.toBe(first);
+    doc.undo();
+    doc.redo();
+    expect(doc.get(rect.id).opacity).toBe(0.4);
+    expect(doc.revision).not.toBe(first);
+  });
+
+  it('is clean again after undoing and redoing back to the saved state', () => {
+    const { doc, rect } = docWithRect();
+    doc.transact('Name', () => doc.update(rect.id, { name: 'A' }));
+    doc.markSaved();
+    doc.undo();
+    doc.undo();
+    expect(doc.dirty).toBe(true);
+    doc.redo();
+    doc.redo();
+    expect(doc.dirty).toBe(false);
+  });
+
   it('moves nodes between parents and refuses cycles', () => {
     const { doc, layer, rect } = docWithRect();
     const g = createGroup([]);
