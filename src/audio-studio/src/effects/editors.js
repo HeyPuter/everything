@@ -476,18 +476,25 @@ export function envelopeControl({ param, value, onChange, smooth = () => false, 
     return `calc(${((1 - fr) * 100).toFixed(3)}% + ${(12 * fr - 6).toFixed(2)}px)`;
   };
   const emit = () => onChange?.(points);
+  const place = (btn, pt, i) => {
+    btn.setAttribute('aria-label', `Point ${i + 1} of ${points.length}`);
+    btn.setAttribute('aria-valuenow', String(pt.v));
+    btn.setAttribute('aria-valuetext', pointText ? pointText(pt) : `${xLabel(pt.t)}, ${fmt(pt.v)}`);
+    btn.title = pointText ? pointText(pt) : `${xLabel(pt.t)}: ${fmt(pt.v)}`;
+    btn.style.left = `${pt.t * 100}%`;
+    btn.style.top = topFor(pt.v);
+  };
   const layout = () => {
+    // The same number of points keeps the handles in place, so a handle being
+    // dragged keeps its pointer capture (rebuilding it would end the drag).
+    if (view.layer.children.length === points.length) {
+      points.forEach((pt, i) => place(view.layer.children[i], pt, i));
+      return;
+    }
     view.layer.replaceChildren(
       ...points.map((pt, i) => {
-        const btn = h('button.fx-handle.fx-point', {
-          type: 'button',
-          role: 'slider',
-          'aria-label': `Point ${i + 1} of ${points.length}`,
-          'aria-valuenow': String(pt.v),
-          'aria-valuetext': pointText ? pointText(pt) : `${xLabel(pt.t)}, ${fmt(pt.v)}`,
-          title: pointText ? pointText(pt) : `${xLabel(pt.t)}: ${fmt(pt.v)}`,
-          style: { left: `${pt.t * 100}%`, top: topFor(pt.v) },
-        });
+        const btn = h('button.fx-handle.fx-point', { type: 'button', role: 'slider' });
+        place(btn, pt, i);
         draggable(btn, view.el, (fx, fy) => {
           const H = view.el.clientHeight;
           const v = min + ((H - 6 - fy * H) / (H - 12)) * (max - min);
