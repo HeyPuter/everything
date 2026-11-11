@@ -13,6 +13,7 @@ import { psdOriginalMimeType } from './psd-original';
 import { isVectorPattern } from './vector-pattern';
 import { packGrid, tilePackMimeType, unpackGrid, type TileGrid } from './tiles';
 import { validDocumentPatterns, validLayerFill } from './fill-layer';
+import { validLayerStyle } from './layer-style';
 import { validateAnnotations } from './annotations';
 import { validateComments } from '../collab/comments';
 import { validateAnimation } from './animation';
@@ -263,9 +264,9 @@ export function validateDocument(value: unknown): PhotoDocument {
         throw new Error('Invalid adjustment layer.');
       if ((l.clipped !== undefined && typeof l.clipped !== 'boolean') ||
         (l.fillOpacity !== undefined && !(Number.isFinite(l.fillOpacity) && l.fillOpacity >= 0 && l.fillOpacity <= 1)) ||
-        (l.style !== undefined && (!l.style || typeof l.style !== 'object')) ||
         (l.fill !== undefined && (l.kind !== 'solid' || !validLayerFill(l.fill))))
         throw new Error('Invalid layer options.');
+      if (l.style !== undefined && !validLayerStyle(l.style)) throw new Error('Invalid layer style.');
       validateBlending(l.blending);
       if (l.psdId !== undefined && (!Number.isInteger(l.psdId) || l.psdId < 0 || l.psdId > 0xffffffff))
         throw new Error('Invalid PSD layer identifier.');

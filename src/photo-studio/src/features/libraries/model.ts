@@ -5,6 +5,7 @@
 // or devices merge instead of overwriting each other), validation, search and
 // the single-file export format. Binary content (pattern tiles, graphics,
 // thumbnails) lives in content-addressed assets named by their SHA-256.
+import { validGradient, validLayerStyle } from '../../model/layer-style';
 
 export const ITEM_TYPES = ['color', 'gradient', 'pattern', 'character-style', 'paragraph-style', 'layer-style', 'brush', 'graphic'] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
@@ -252,30 +253,6 @@ export function validItem(v: unknown): v is LibraryItem {
 // come from other people: an item whose settings do not have the shape its
 // type needs is damaged and is never used.
 const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const fin = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
-const triple = (v: unknown) => Array.isArray(v) && v.length === 3 && v.every(fin);
-function usableGradient(g: unknown) {
-  if (!obj(g)) return false;
-  if (g.kind === 'noise') return fin(g.roughness) && ['rgb', 'hsb', 'lab'].includes(g.model as string) && triple(g.min) && triple(g.max) && fin(g.seed);
-  const stop = (x: unknown): x is Record<string, unknown> => obj(x) && fin(x.location) && (x.midpoint === undefined || fin(x.midpoint));
-  return (
-    g.kind === 'solid' &&
-    Array.isArray(g.colorStops) && g.colorStops.length > 0 && g.colorStops.length <= 256 &&
-    g.colorStops.every((x) => stop(x) && (x.color === 'foreground' || x.color === 'background' || triple(x.color))) &&
-    Array.isArray(g.opacityStops) && g.opacityStops.length <= 256 &&
-    g.opacityStops.every((x) => stop(x) && fin(x.opacity)) &&
-    (g.smoothness === undefined || fin(g.smoothness))
-  );
-}
-const STYLE_LISTS = ['dropShadow', 'innerShadow', 'colorOverlay', 'gradientOverlay', 'stroke'];
-const STYLE_SINGLES = ['outerGlow', 'innerGlow', 'bevel', 'satin', 'patternOverlay'];
-function usableLayerStyle(v: unknown) {
-  if (!obj(v)) return false;
-  for (const [k, x] of Object.entries(v)) {
-    if (k === 'enabled' ? typeof x !== 'boolean' : ['scale', 'globalAngle', 'globalAltitude'].includes(k) ? !fin(x) : STYLE_LISTS.includes(k) ? !(Array.isArray(x) && x.length <= 10 && x.every(obj)) : STYLE_SINGLES.includes(k) ? !obj(x) : true) return false;
-  }
-  return true;
-}
 function usableBrush(p: unknown) {
   if (!obj(p) || !obj(p.tip) || (p.tip.dynamics !== undefined && !obj(p.tip.dynamics))) return false;
   const s = p.sample;
@@ -286,9 +263,9 @@ export function usableItem(item: LibraryItem): boolean {
   const d = item.data;
   switch (item.type) {
     case 'gradient':
-      return usableGradient(d.gradient);
+      return validGradient(d.gradient);
     case 'layer-style':
-      return usableLayerStyle(d.style);
+      return validLayerStyle(d.style);
     case 'brush':
       return usableBrush(d.preset);
     case 'character-style':

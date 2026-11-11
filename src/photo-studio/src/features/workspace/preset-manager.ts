@@ -5,6 +5,7 @@ import { escapeXML } from '../../model/assets';
 import { download } from '../../persistence/puter';
 import { gridFromImage } from '../../model/tiles';
 import { documentPatternPixels, type DocumentPattern } from '../../model/fill-layer';
+import { validGradient, validLayerStyle } from '../../model/layer-style';
 import { gradientToCss } from '../../imaging/gradient/edit';
 import { gradientPresets } from '../../imaging/gradient/presets';
 import type { Gradient } from '../../imaging/gradient/gradient';
@@ -51,8 +52,6 @@ const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const imgThumb = (src: string, cls = '') => `<img class="pm-thumb ${cls}" src="${src}" alt="">`;
 const gradientThumb = (e: Editor, g: Gradient) => `<span class="pm-thumb pm-gradient" style="background:${gradientToCss(g, colors(e))}, var(--fx-checker)"></span>`;
 const shapeThumb = (d: string) => `<svg class="pm-thumb pm-shape" viewBox="-4 -4 108 108" aria-hidden="true"><path d="${escapeXML(d)}" fill="currentColor" fill-rule="evenodd"/></svg>`;
-const validGradient = (g: unknown) =>
-  isObject(g) && (g.kind === 'noise' || (g.kind === 'solid' && Array.isArray(g.colorStops) && g.colorStops.length > 0 && Array.isArray(g.opacityStops)));
 
 const brushes: PresetKind<BrushPresetData> = {
   id: 'brushes',
@@ -106,7 +105,7 @@ const styles: PresetKind<StylePreset> = {
   },
   entry: (_e, s) => ({ name: s.name, thumb: `<img class="pm-thumb" alt="" data-style-thumb="u:${escapeXML(s.id)}">` }),
   rename: (s, name) => ({ ...s, name }),
-  valid: (v) => named(v) && isObject((v as StylePreset).style),
+  valid: (v) => named(v) && validLayerStyle((v as StylePreset).style),
   fromFile: (_e, v) => ({ ...(v as StylePreset), id: `user-${crypto.randomUUID()}` }),
   afterRender: (_e, el) => {
     const all = new Map<string, StylePreset>([...stylePresets.map((s) => [`b:${s.id}`, s] as const), ...loadUserStyles().map((s) => [`u:${s.id}`, s] as const)]);

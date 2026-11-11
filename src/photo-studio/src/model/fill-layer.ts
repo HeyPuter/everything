@@ -1,4 +1,5 @@
 import { isDocumentId } from './ids';
+import { validGradient } from './layer-style';
 import type { IRect, RGBA8 } from '../imaging/types';
 import type { Gradient } from '../imaging/gradient/gradient';
 import { renderGradientInto } from '../imaging/gradient/gradient';
@@ -25,10 +26,7 @@ export function validLayerFill(f: unknown): f is LayerFill {
   if (!f || typeof f !== 'object') return false;
   const fill = f as LayerFill;
   if (fill.type === 'gradient') {
-    const g = fill.gradient as Gradient | undefined;
-    const okGradient = !!g && typeof g === 'object' &&
-      (g.kind === 'solid' ? Array.isArray(g.colorStops) && Array.isArray(g.opacityStops) && g.colorStops.length > 0 : g.kind === 'noise');
-    return okGradient && ['linear', 'radial', 'angle', 'reflected', 'diamond'].includes(fill.style) && finite(fill.angle) && finite(fill.scale) && fill.scale > 0;
+    return validGradient(fill.gradient) && ['linear', 'radial', 'angle', 'reflected', 'diamond'].includes(fill.style) && finite(fill.angle) && finite(fill.scale) && fill.scale > 0;
   }
   if (fill.type === 'pattern') return typeof fill.patternId === 'string' && finite(fill.scale) && fill.scale > 0;
   return false;

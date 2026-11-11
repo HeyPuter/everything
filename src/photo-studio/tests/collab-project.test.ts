@@ -228,7 +228,7 @@ describe('merges of a kind change with a content edit', () => {
     const text = { ...layer('text', 'Title', 200, 80), textData: textLayer('Hello') };
     const live = { kind: 'rect' as const, x: 10, y: 10, width: 100, height: 50, radii: [0, 0, 0, 0] as [number, number, number, number] };
     const vector = shapeLayer(doc, 'Shape', { paths: [closedPath(liveKnots(live))] }, red, undefined, live);
-    const fill = { ...layer('solid', 'Gradient', 600, 400), fill: { type: 'gradient', gradient: { kind: 'solid', colorStops: [{ color: { r: 0, g: 0, b: 0 }, location: 0, midpoint: 50 }], opacityStops: [] }, style: 'linear', angle: 90, scale: 1 } } as unknown as Layer;
+    const fill = { ...layer('solid', 'Gradient', 600, 400), fill: { type: 'gradient', gradient: { kind: 'solid', colorStops: [{ color: [0, 0, 0], location: 0, midpoint: 50 }], opacityStops: [] }, style: 'linear', angle: 90, scale: 1 } } as unknown as Layer;
     const adjustment = { ...layer('adjustment', 'Levels', 600, 400), adjustment: { kind: 'levels', params: { gamma: 1 } } } as unknown as Layer;
     return { text, vector, fill, adjustment };
   };

@@ -2,6 +2,7 @@ import type { LayerStyle } from '../../imaging/effects/types';
 import type { RGBA8 } from '../../imaging/types';
 import { renderThumb } from './style-client';
 import { stylePresets, type StylePreset } from '../../imaging/effects/presets';
+import { validLayerStyle } from '../../model/layer-style';
 
 // Swatches of layer styles, rendered off the main thread and cached.
 const cache = new Map<string, string>();
@@ -48,7 +49,7 @@ const key = 'photo-studio-styles';
 export function loadUserStyles(): StylePreset[] {
   try {
     const v = JSON.parse(localStorage.getItem(key) ?? '[]');
-    if (Array.isArray(v)) return v.filter((s) => s && typeof s.id === 'string' && typeof s.name === 'string' && s.style && typeof s.style === 'object');
+    if (Array.isArray(v)) return v.filter((s) => s && typeof s.id === 'string' && typeof s.name === 'string' && validLayerStyle(s.style));
   } catch {
     /* Optional. */
   }

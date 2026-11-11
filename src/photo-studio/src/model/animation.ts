@@ -11,6 +11,7 @@
 // layer in one frame adds to that frame's offset, and switching frames
 // translates each layer by the difference between the two offsets.
 import { isDocumentId } from './ids';
+import { validLayerStyle } from './layer-style';
 import { allLayers, blends, type Blend, type Layer, type PhotoDocument } from './document';
 import { commitPixelTranslation, pixelTransformKind } from './pixel-layer';
 
@@ -474,7 +475,7 @@ export function validateAnimation(value: unknown) {
         !s || typeof s.visible !== 'boolean' || !finite(s.dx) || !finite(s.dy) || !finite(s.opacity) || s.opacity < 0 || s.opacity > 1 ||
         (s.fillOpacity !== undefined && (!finite(s.fillOpacity) || s.fillOpacity < 0 || s.fillOpacity > 1)) ||
         !(blends.includes(s.blend) || s.blend === 'pass through') ||
-        (s.style !== undefined && (!s.style || typeof s.style !== 'object' || Array.isArray(s.style)))
+        (s.style !== undefined && !validLayerStyle(s.style))
       )
         throw bad();
   }

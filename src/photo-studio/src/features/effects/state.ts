@@ -7,6 +7,7 @@ import { patternPresets } from '../../imaging/pattern/presets';
 import type { Pattern } from '../../imaging/pattern/pattern';
 import { documentPatternPixels } from '../../model/fill-layer';
 import { hexRgb } from '../pixels';
+import { validGradient } from '../../model/layer-style';
 
 // Shared state of the gradient and pattern features: the current gradient
 // (Gradient tool, gradient fills, Gradients panel), tool options and the
@@ -38,7 +39,7 @@ const userKey = 'photo-studio-gradients';
 export function loadUserGradients(): Gradient[] {
   try {
     const v = JSON.parse(localStorage.getItem(userKey) ?? '[]');
-    if (Array.isArray(v)) return v.filter((g) => g && (g.kind === 'solid' || g.kind === 'noise'));
+    if (Array.isArray(v)) return v.filter(validGradient);
   } catch {
     /* Optional. */
   }
