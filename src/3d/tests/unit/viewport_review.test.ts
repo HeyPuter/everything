@@ -165,3 +165,20 @@ describe('apply transforms to a parent and its child', () => {
     expect(round(worldPos(g))).toEqual(g0);
   });
 });
+
+describe('apply rotation with custom normals', () => {
+  it('turns the custom normals with the geometry', () => {
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    const me = app.doc.meshes[cube.data!];
+    const nc = me.indices.length;
+    // every corner normal points +X
+    me.custom_normals = Float32Array.from({ length: nc * 3 }, (_, i) => (i % 3 === 0 ? 1 : 0));
+    cube.rotation_euler = [0, 0, Math.PI / 2];
+    cube.scale = [1, 1, 1];
+    select(cube);
+    run('object.transform_apply', { location: false, rotation: true, scale: false });
+    const cn = app.doc.meshes[cube.data!].custom_normals!;
+    // +X turned 90° around Z is +Y
+    expect([cn[0], cn[1], cn[2]].map((x) => +x.toFixed(4) + 0)).toEqual([0, 1, 0]);
+  });
+});

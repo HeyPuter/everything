@@ -1,6 +1,6 @@
 // Object-mode operators.
 import { circlePoints } from '../surface/nurbs';
-import { Matrix4, Vector3, Quaternion, Euler } from 'three';
+import { Matrix3, Matrix4, Vector3, Quaternion, Euler } from 'three';
 import { app, registerOperators, type OpContext, type PropDef } from '../app/app';
 import type { DocumentData, ObjectData, MeshData, Mode, ObjectType, ID, Spline } from '../data/types';
 import { newObject, newMeshData, newLight, newCamera, newCurve, newArmature, newLattice, newCollection, uid, IDENTITY, newMaterial } from '../data/defaults';
@@ -324,6 +324,18 @@ function transformMeshData(me: MeshData, m: Matrix4) {
     }
     return { ...k, data: d };
   });
+  if (me.custom_normals) {
+    // custom normals are in object space: they turn with the geometry
+    const nm = new Matrix3().getNormalMatrix(m);
+    const cn = new Float32Array(me.custom_normals);
+    for (let i = 0; i + 2 < cn.length; i += 3) {
+      v.set(cn[i], cn[i + 1], cn[i + 2]).applyMatrix3(nm).normalize();
+      cn[i] = v.x;
+      cn[i + 1] = v.y;
+      cn[i + 2] = v.z;
+    }
+    me.custom_normals = cn;
+  }
   // flip winding to keep normals outward
   if (m.determinant() < 0) reverseWinding(me);
 }
