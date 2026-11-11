@@ -105,3 +105,25 @@ describe('Next Object Above and Below', () => {
     expect([...ed.selection]).toEqual([ids[0]]);
   });
 });
+
+describe('Arrange', () => {
+  it('adds no undo step and keeps the document saved when nothing moves', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const ids = [0, 1].map((i) => {
+      const p = createPath(rectangle(i * 20, 0, 10, 10), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    });
+    doc.markSaved();
+    ed.select([ids[1]]);
+    await app.commands.run('object.bringToFront');
+    await app.commands.run('object.bringForward');
+    expect(doc.undoLabel).toBe('Rect');
+    expect(doc.dirty).toBe(false);
+    await app.commands.run('object.sendToBack');
+    expect(doc.undoLabel).toBe('Send to Back');
+    expect(doc.get(ed.targetLayer().id).children).toEqual([ids[1], ids[0]]);
+  });
+});

@@ -229,7 +229,8 @@ export function arrange(editor, how) {
           if (sel.has(next[i]) && !sel.has(next[i - 1])) [next[i], next[i - 1]] = [next[i - 1], next[i]];
         }
       }
-      doc.update(parentId, { children: next });
+      // Already in place (Bring to Front on the frontmost object): no undo step, document stays saved.
+      if (next.some((c, i) => c !== children[i])) doc.update(parentId, { children: next });
     }
   });
 }
