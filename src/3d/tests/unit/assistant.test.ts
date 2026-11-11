@@ -10,7 +10,7 @@ import '../../src/ops/object';
 import '../../src/eval/modifiers_extra';
 import '../../src/nodes/shader/defs';
 import { output } from '../../src/scripting/runner';
-import { runTool, toolSpecs, type AssistantHost } from '../../src/assistant/tools';
+import { changesScene, runTool, toolSpecs, type AssistantHost } from '../../src/assistant/tools';
 import { createAgent } from '../../src/assistant/agent';
 import type { ChatFn, StreamPart } from '../../src/assistant/ai';
 import { SYSTEM_PROMPT, sceneSnapshot } from '../../src/assistant/prompt';
@@ -160,6 +160,26 @@ describe('the conversation', () => {
     };
     return { chat, requests };
   }
+
+  it('does not run the rest of a reply\'s changes after one of them failed', async () => {
+    const { chat, requests } = scripted([
+      [
+        { type: 'tool', id: 'a', name: 'run_script', input: { description: 'Add the base', code: "bpy.ops.mesh.primitive_cube_add(); C.object.name = 'Base'; D.objects.Nope.name = 'x';" } },
+        { type: 'tool', id: 'b', name: 'get_scene', input: {} },
+        { type: 'tool', id: 'c', name: 'run_script', input: { description: 'Put a ball on the base', code: "bpy.ops.mesh.primitive_uv_sphere_add({location: [0, 0, D.objects.Base.dimensions.z]}); C.object.name = 'Ball';" } },
+        { type: 'tool', id: 'd', name: 'run_script', input: { description: 'Try a size', code: "print(1)", dry_run: true } },
+      ],
+      [{ type: 'text', text: 'Fixing it.' }],
+    ]);
+    const agent = createAgent({ chat, tools: () => toolSpecs(host), runTool: (n, a) => runTool(host, n, a), system: 'S', snapshot: () => '', model: () => 'test', changes: changesScene });
+    const res = await agent.send('build', () => {});
+    // the ball was written for a base the rollback removed: it is not run; reads and dry runs still are
+    expect(res.steps.map((s) => s.status)).toEqual(['error', 'done', 'skipped', 'done']);
+    expect(objectNames()).toEqual(['Camera', 'Cube', 'Light']);
+    const results = (requests[1] as { role: string; tool_call_id?: string; content: string }[]).filter((m) => m.role === 'tool');
+    expect(results.map((m) => m.tool_call_id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(results[2].content).toMatch(/^Not run: run_script earlier in this reply failed/);
+  });
 
   it('runs the tools the model calls and answers, as one undo step', async () => {
     const { chat, requests } = scripted([

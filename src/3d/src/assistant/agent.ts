@@ -54,6 +54,8 @@ export interface AgentOptions {
   system: string;
   snapshot: () => string;
   model: () => string;
+  /** Whether a call changes the scene: after one fails, the reply's later changes are not run. */
+  changes?: (name: string, args: Record<string, unknown>) => boolean;
 }
 
 const STOP = Symbol('stop');
@@ -222,9 +224,12 @@ export function createAgent(o: AgentOptions) {
           return { stopped: false, cut: wasCut, steps };
         }
         const images: string[] = [];
+        /** A change in this reply that failed (and was rolled back): the later ones were written expecting it to work. */
+        let failed: string | null = null;
         for (const call of calls) {
           const step: Step = { id: call.id, name: call.name, args: call.input, status: 'running' };
           steps.push(step);
+          const changes = !!o.changes?.(call.name, call.input);
           let content: string;
           if (run.stopped) {
             step.status = 'skipped';
@@ -233,6 +238,10 @@ export function createAgent(o: AgentOptions) {
             step.status = 'error';
             step.summary = 'The reply hit its length limit while writing this step.';
             content = `Error: not run. Your reply reached the output limit while writing this call, so its arguments were cut off. Split the work into smaller calls.`;
+          } else if (failed && changes) {
+            step.status = 'skipped';
+            step.summary = 'Not run: an earlier change in this reply failed.';
+            content = `Not run: ${failed} earlier in this reply failed and was rolled back, and this change may depend on it. Check the scene, then call this again if it still applies.`;
           } else if (call.input.__unreadable != null) {
             step.status = 'error';
             step.summary = 'The arguments could not be read.';
@@ -251,6 +260,7 @@ export function createAgent(o: AgentOptions) {
               content = result.content;
             }
           }
+          if (changes && step.status === 'error') failed ??= call.name;
           emit({ type: 'step', step: { ...step } });
           messages.push({ role: 'tool', tool_call_id: call.id, content });
         }

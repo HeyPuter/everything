@@ -14,7 +14,7 @@ import { viewportUI } from './capture';
 import { renderMarkdown } from './markdown';
 import { SYSTEM_PROMPT, sceneSnapshot } from './prompt';
 import { inPuterDesktop, isSignedIn, loadPuter, signIn } from './puter';
-import { type AssistantHost, runTool, toolSpecs } from './tools';
+import { type AssistantHost, changesScene, runTool, toolSpecs } from './tools';
 
 export const ASSISTANT_MODELS: { id: string; label: string; title: string }[] = [
   { id: 'claude-fable-5-1', label: 'Fable 5.1', title: 'Claude Fable 5.1: the most capable' },
@@ -182,6 +182,7 @@ export class AssistantPanel {
       system: SYSTEM_PROMPT,
       snapshot: () => sceneSnapshot(this.host),
       model: () => this.model,
+      changes: changesScene,
     });
 
     const modelSel = el('select', { class: 'as-model', 'aria-label': 'AI model', title: 'AI model' });

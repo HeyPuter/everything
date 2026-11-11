@@ -504,6 +504,9 @@ function viewOptions(a: Obj): ViewOptions {
   return { view: view as CaptureView, shading: shading as CaptureShading | undefined, frame };
 }
 
+/** Whether a call changes the scene (a dry run is undone, and the other tools only read or look). */
+export const changesScene = (name: string, args: Obj) => name === 'run_script' && args.dry_run !== true;
+
 /** Schemas for the model; the viewport tools only when there is a viewport. */
 export function toolSpecs(host: AssistantHost): ToolSpec[] {
   return TOOLS.filter((t) => !t.ui || host.ui).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
