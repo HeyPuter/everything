@@ -216,6 +216,18 @@ describe('channels & overlap', () => {
     expect(S.finalStart(b)).toBe(15);
   });
 
+  it('overwrite splits get unique names when the same strip is split again', () => {
+    const e = ed();
+    add(e, 'COLOR', 1, 1, 100, 'A');
+    const x = add(e, 'COLOR', 1, 40, 10, 'X');
+    S.resolveOverlap(e.strips, [x], 'OVERWRITE');
+    const y = add(e, 'COLOR', 1, 10, 10, 'Y');
+    S.resolveOverlap(e.strips, [y], 'OVERWRITE');
+    const names = e.strips.map((s) => s.name);
+    expect(names.length).toBe(5);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
   it('snaps to the closest target within the threshold', () => {
     expect(S.snapOffset([10, 20], [12, 30], 3)).toBe(2);
     expect(S.snapOffset([10, 20], [26], 3)).toBe(null);

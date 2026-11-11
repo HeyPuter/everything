@@ -311,12 +311,12 @@ const ops: Operator[] = [
         redoOp: 'sequencer.duplicate_move',
         onCancel: () => {
           // cancelling the move keeps the copies in place, resolving overlap
-          S.resolveOverlap(list, copies, toolSettings().overlap_mode);
+          S.resolveOverlap(list, copies, toolSettings().overlap_mode, seqEditor());
           afterEdit();
           app.pushUndo('Duplicate Strips');
         },
       })) {
-        S.resolveOverlap(list, copies, toolSettings().overlap_mode);
+        S.resolveOverlap(list, copies, toolSettings().overlap_mode, seqEditor());
         afterEdit();
         return 'FINISHED';
       }
@@ -328,7 +328,7 @@ const ops: Operator[] = [
       const copies = duplicate(list, list.filter((s) => s.select));
       const v = (p.value as number[]) ?? [0, 0];
       if (v[0] || v[1]) slideBy(Math.round(v[0]), Math.round(v[1]));
-      else S.resolveOverlap(list, copies, toolSettings().overlap_mode);
+      else S.resolveOverlap(list, copies, toolSettings().overlap_mode, seqEditor());
       done();
     },
   },
@@ -340,7 +340,7 @@ const ops: Operator[] = [
     invoke: () => {
       const list = seqList();
       duplicate(list, list.filter((s) => s.select));
-      S.resolveOverlap(list, list.filter((s) => s.select), toolSettings().overlap_mode);
+      S.resolveOverlap(list, list.filter((s) => s.select), toolSettings().overlap_mode, seqEditor());
       afterEdit();
       return startPreviewTransform(hoverSeq()!, 'TRANSLATE', app.pointer.x, app.pointer.y) ? 'RUNNING_MODAL' : 'FINISHED';
     },
@@ -396,7 +396,7 @@ const ops: Operator[] = [
       const list = seqList();
       const moved = list.filter((s) => s.select && !isLocked(s) && !S.inputCount(s.type));
       for (const s of moved) S.translateStrip(s, (p.frame as number) - S.finalStart(s));
-      S.resolveOverlap(list, moved, toolSettings().overlap_mode);
+      S.resolveOverlap(list, moved, toolSettings().overlap_mode, seqEditor());
       done();
     },
   },
@@ -409,7 +409,7 @@ const ops: Operator[] = [
       const list = seqList();
       const sel = list.filter((s) => s.select && !isLocked(s) && !S.isStill(s));
       for (const s of sel) s.frame_offset_start = s.frame_offset_end = 0;
-      S.resolveOverlap(list, sel, toolSettings().overlap_mode);
+      S.resolveOverlap(list, sel, toolSettings().overlap_mode, seqEditor());
       done();
     },
   },
@@ -566,7 +566,7 @@ const ops: Operator[] = [
       const copies = duplicate(list, clipboard!.strips);
       if (!p.keep_offset) for (const s of copies) S.translateStrip(s, c.doc.scene.frame_current - clipboard!.frame);
       S.updateEffectRanges(list);
-      S.resolveOverlap(list, copies, toolSettings().overlap_mode);
+      S.resolveOverlap(list, copies, toolSettings().overlap_mode, seqEditor());
       done();
     },
   },

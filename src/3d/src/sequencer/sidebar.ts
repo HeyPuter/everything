@@ -361,11 +361,11 @@ function timePanel(s: Strip): Child {
   return panel('seq-time', 'Time', () => [
     frameField(`seq-ch-${oid(s)}`, 'Channel', s.channel, (v) => {
       s.channel = Math.max(1, Math.min(128, v));
-      resolveOverlap(seqList(), [s], toolSettings().overlap_mode);
+      resolveOverlap(seqList(), [s], toolSettings().overlap_mode, seqEditor());
     }),
     frameField(`seq-start-${oid(s)}`, 'Start', finalStart(s), (v) => {
       translateStrip(s, v - finalStart(s));
-      resolveOverlap(seqList(), [s], toolSettings().overlap_mode);
+      resolveOverlap(seqList(), [s], toolSettings().overlap_mode, seqEditor());
     }, effectRange || s.lock),
     frameField(`seq-dur-${oid(s)}`, 'Duration', finalDuration(s), (v) => setRightHandle(s, finalStart(s) + Math.max(1, v)), effectRange || s.lock),
     frameField(`seq-end-${oid(s)}`, 'End', finalEnd(s), (v) => setRightHandle(s, v), effectRange || s.lock),

@@ -571,10 +571,11 @@ export function freeChannel(list: Strip[], start: number, end: number, from = 1,
  * OVERWRITE trims/removes the strips underneath, EXPAND pushes later strips to the right.
  * Returns strips removed from the list (OVERWRITE).
  */
-export function resolveOverlap(list: Strip[], moved: Strip[], mode: SequencerToolSettings['overlap_mode']): Strip[] {
+export function resolveOverlap(list: Strip[], moved: Strip[], mode: SequencerToolSettings['overlap_mode'], root: { strips: Strip[] } = { strips: list }): Strip[] {
   const set = new Set(moved);
   const removed: Strip[] = [];
   if (mode === 'OVERWRITE') {
+    let taken: Set<string> | null = null;
     for (const m of moved) {
       const a = finalStart(m),
         b = finalEnd(m);
@@ -588,7 +589,10 @@ export function resolveOverlap(list: Strip[], moved: Strip[], mode: SequencerToo
           removed.push(o);
         } else if (oa < a && ob > b) {
           // split around the overwriting strip
-          const right = cloneStrip(o, o.name + '.R');
+          taken ??= new Set(allStrips(root.strips).map((x) => x.name));
+          const name = uniqueName(root, o.name, taken);
+          taken.add(name);
+          const right = cloneStrip(o, name);
           setRightHandle(o, a);
           setLeftHandle(right, b);
           list.push(right);
