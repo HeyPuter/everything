@@ -146,12 +146,15 @@ export function bindCanvas(e: Editor) {
       viewport.classList.add('space-pan');
     }
   });
+  const releaseSpace = () => {
+    spaceHeld = false;
+    viewport.classList.remove('space-pan');
+  };
   document.addEventListener('keyup', (event) => {
-    if (event.code === 'Space') {
-      spaceHeld = false;
-      viewport.classList.remove('space-pan');
-    }
+    if (event.code === 'Space') releaseSpace();
   });
+  // Space released in another window never sends its keyup here.
+  window.addEventListener('blur', releaseSpace);
   viewport.addEventListener('pointerdown', (event) => {
     if (event.defaultPrevented || e.busy || !e.renderer) return;
     if ((event.target as HTMLElement).closest('button,input,.canvas-ui')) return;

@@ -139,3 +139,22 @@ test('Ctrl+wheel zooms a mouse notch in steps and a trackpad pinch smoothly', as
   // Line-based wheels (3 lines per notch) zoom like a pixel notch, not 30× slower.
   expect(await wheel({ deltaY: -3, deltaMode: 1, altKey: true })).toBeGreaterThan(1.05);
 });
+
+test('Space released while the window is in the background does not leave the canvas panning', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.setTool('brush'));
+  await page.locator('#viewport').focus();
+  await page.keyboard.down('Space');
+  await expect(page.locator('#viewport')).toHaveClass(/space-pan/);
+  // The keyup goes to the other window (Cmd+Tab while holding Space).
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await expect(page.locator('#viewport')).not.toHaveClass(/space-pan/);
+  const box = (await page.locator('#viewport').boundingBox())!;
+  const pan = await page.evaluate(() => ({ ...window.photoStudio.pan }));
+  await page.mouse.move(box.x + box.width / 2 - 30, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 30, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.pan)).toEqual(pan);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(['Brush Tool']);
+});
