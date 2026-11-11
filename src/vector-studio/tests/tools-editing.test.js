@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { bootApp } from './helpers.js';
-import { createPath, createGroup } from '../src/model/nodes.js';
+import { createPath, createGroup, createImage } from '../src/model/nodes.js';
+import { pixelSampler } from '../src/tools/navigation.js';
 import { rectangle } from '../src/model/shapes.js';
 import { nodeBounds } from '../src/model/geometry.js';
 import { boxHandles } from '../src/render/overlay.js';
@@ -213,6 +214,64 @@ describe('tool options from the Tools panel', () => {
     expect(n.fill.color).toBe('#00ff00');
     expect(n.strokeWidth).not.toBe(7);
     expect(n.opacity ?? 1).toBe(1);
+  });
+
+  describe('Eyedropper color picking and feedback', () => {
+    const hintText = () => document.querySelector('.status-hint').textContent;
+    let colorAt;
+    beforeEach(() => {
+      colorAt = pixelSampler.colorAt;
+    });
+    afterEach(() => {
+      pixelSampler.colorAt = colorAt;
+    });
+
+    it('picks the color under the pointer on a placed image', () => {
+      const doc = app.editor.doc;
+      const img = createImage('asset-1', 40, 40, [1, 0, 0, 1, 100, 100]);
+      doc.transact('Add', () => doc.insert(img, app.editor.targetLayer().id));
+      const dst = addRect(0, 0, 10, 10);
+      app.editor.select([dst]);
+      app.setTool('eyedropper');
+      pixelSampler.colorAt = () => '#12ab34';
+      app.tool.onPointerDown(ev(app, 120, 120));
+      expect(doc.get(dst).fill).toEqual({ type: 'solid', color: '#12ab34' });
+      expect(app.editor.style.fill).toEqual({ type: 'solid', color: '#12ab34' });
+      expect(hintText()).toContain('Picked #12AB34 as the fill of 1 object');
+    });
+
+    it('Shift+Click picks only the color, into the stroke when it is in front', () => {
+      const src = addRect(0, 0, 10, 10);
+      const dst = addRect(50, 0, 10, 10);
+      const doc = app.editor.doc;
+      doc.transact('Style', () => doc.update(src, { opacity: 0.5 }));
+      app.editor.select([dst]);
+      app.editor.focusPaint = 'stroke';
+      app.setTool('eyedropper');
+      pixelSampler.colorAt = () => '#e59999';
+      app.tool.onPointerDown(ev(app, 5, 5, { shift: true }));
+      const n = doc.get(dst);
+      expect(n.stroke).toEqual({ type: 'solid', color: '#e59999' });
+      expect(n.fill.color).toBe('#cc3333');
+      expect(n.opacity ?? 1).toBe(1);
+    });
+
+    it('says so when there is nothing to pick up or nothing selected', () => {
+      const src = addRect(0, 0, 10, 10);
+      app.editor.select([]);
+      app.setTool('eyedropper');
+      app.tool.onPointerDown(ev(app, 500, 500));
+      expect(hintText()).toContain('Nothing to pick up here');
+      app.tool.onPointerDown(ev(app, 5, 5));
+      expect(hintText()).toContain('Select other objects first');
+      expect(app.editor.style.fill.color).toBe('#cc3333');
+      // A color picked off empty-looking canvas (locked art, say) becomes the fill for new objects.
+      pixelSampler.colorAt = () => '#0000ff';
+      app.tool.onPointerDown(ev(app, 500, 500));
+      expect(app.editor.style.fill.color).toBe('#0000ff');
+      expect(hintText()).toContain('for new objects');
+      expect(app.editor.doc.get(src).fill.color).toBe('#cc3333');
+    });
   });
 
   it('Smooth Tool Options keep the fidelity', async () => {

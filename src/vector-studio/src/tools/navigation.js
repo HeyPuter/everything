@@ -8,6 +8,8 @@ import { STYLE_KEYS } from '../model/nodes.js';
 import { stripRunKeys, styleAt, CHAR_KEYS } from '../model/text-runs.js';
 import { layoutText, hitTestText, caretPosition } from '../model/text-layout.js';
 import { apply, invert } from '../lib/matrix.js';
+import { drawArtwork } from '../render/draw.js';
+import { rgbToHex } from '../lib/color.js';
 
 export class HandTool extends Tool {
   static id = 'hand';
@@ -187,28 +189,102 @@ function eyedropperKeys(app) {
  */
 export const eyedropperHooks = [];
 
+/**
+ * The color the artwork shows at a document point, as a hex string, or null
+ * where nothing is painted. Renders the point on its own, so the grid, guides,
+ * selection and Outline mode never tint the result; see-through artwork is
+ * read as it looks on white paper.
+ */
+export const pixelSampler = {
+  canvas: null,
+  colorAt(editor, x, y) {
+    try {
+      const c = (this.canvas ||= document.createElement('canvas'));
+      c.width = 1;
+      c.height = 1;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      const { view } = editor;
+      const k = view.zoom * (view.dpr || 1);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.setTransform(k, 0, 0, k, 0.5 - x * k, 0.5 - y * k);
+      drawArtwork(ctx, editor.doc, { viewRect: { x: x - 2 / k, y: y - 2 / k, w: 4 / k, h: 4 / k }, outline: false, hairline: 1 / view.zoom, scale: k });
+      const d = ctx.getImageData(0, 0, 1, 1).data;
+      if (!d[3]) return null;
+      const a = d[3] / 255;
+      const over = (v) => v * a + 255 * (1 - a);
+      return rgbToHex({ r: over(d[0]), g: over(d[1]), b: over(d[2]) });
+    } catch {
+      // A canvas tainted by a cross-origin image cannot be read back.
+      return null;
+    }
+  },
+};
+
+const plural = (n) => `${n} object${n === 1 ? '' : 's'}`;
+
 export class EyedropperTool extends Tool {
   static id = 'eyedropper';
   static label = 'Eyedropper Tool';
   static shortcut = 'I';
   static icon = 'tool-eyedropper';
-  static hint = 'Click an object to copy its appearance to the selection | Option+Click to apply the current appearance to an object';
+  static hint = 'Click an object to copy its appearance to the selection | Shift+Click to pick only the color under the pointer | Option+Click to apply the current appearance to an object';
 
   activate() {
     this.setCursor('var(--cursor-eyedropper)');
     this.status();
   }
 
+  /** Say what the click did, keeping the tool's hint after it. */
+  #report(text) {
+    this.status(`${text} | ${this.constructor.hint}`);
+  }
+
+  /**
+   * Pick the color shown under the pointer into the active fill or stroke,
+   * and give it to the selection. Returns false where nothing is painted.
+   */
+  #pickColor(e) {
+    const editor = this.editor;
+    const color = pixelSampler.colorAt(editor, e.x, e.y);
+    if (!color) return false;
+    const key = editor.focusPaint === 'stroke' ? 'stroke' : 'fill';
+    const patch = { [key]: { type: 'solid', color } };
+    editor.setStyle(patch);
+    if (key === 'fill' && eyedropperHooks.some((hk) => hk.apply?.(editor, patch, null))) {
+      this.#report(`Picked ${color.toUpperCase()} for the selected mesh points`);
+      return true;
+    }
+    const targets = editor.selectedNodes().filter((n) => n.type !== 'image');
+    if (targets.length) {
+      editor.doc.transact('Eyedropper', () => {
+        for (const t of targets) applyStyleDeep(editor.doc, t, patch);
+      });
+      this.#report(`Picked ${color.toUpperCase()} as the ${key} of ${plural(targets.length)}`);
+    } else this.#report(`Picked ${color.toUpperCase()} as the ${key} for new objects. Select objects first to recolor them`);
+    return true;
+  }
+
   onPointerDown(e) {
     const editor = this.editor;
     const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { intoCompound: false });
-    if (!hit) return;
     const doc = editor.doc;
     if (e.alt) {
+      if (!hit) {
+        this.#report('Nothing here to apply the appearance to');
+        return;
+      }
       // Apply the current appearance to the clicked object.
       const patch = {};
       for (const k of eyedropperKeys(this.app)) if (editor.style[k] !== undefined || k === 'appearance') patch[k] = editor.style[k];
       doc.transact('Eyedropper', () => applyStyleDeep(doc, hit, patch));
+      this.#report('Applied the current appearance to the object');
+      return;
+    }
+    // Shift, a placed image, and anything the pointer cannot pick as an object
+    // (locked art, say) give the color that shows under the pointer.
+    if (e.shift || !hit || hit.type === 'image') {
+      if (!this.#pickColor(e)) this.#report(hit ? 'Could not read a color here' : 'Nothing to pick up here. Click an object or an image');
       return;
     }
     const groups = eyedropperGroups(this.app);
@@ -231,12 +307,19 @@ export class EyedropperTool extends Tool {
       if (p) Object.assign(patch, p);
     }
     editor.setStyle(patch);
-    if (eyedropperHooks.some((hk) => hk.apply?.(editor, patch, hit))) return;
+    if (eyedropperHooks.some((hk) => hk.apply?.(editor, patch, hit))) {
+      this.#report('Picked the color for the selected mesh points');
+      return;
+    }
     const targets = editor.selectedNodes().filter((n) => n.id !== hit.id);
-    if (!targets.length) return;
+    if (!targets.length) {
+      this.#report('Picked up the appearance for new objects. Select other objects first to restyle them');
+      return;
+    }
     doc.transact('Eyedropper', () => {
       for (const t of targets) applyStyleDeep(doc, t, patch);
     });
+    this.#report(`Copied the appearance to ${plural(targets.length)}`);
   }
 
   async openOptions() {
