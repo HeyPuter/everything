@@ -64,7 +64,7 @@ export function createActions(ctx) {
     const assets = [];
     for (const file of list) {
       try {
-        const asset = await ctx.library.importFile(file, origin ? { origin } : undefined);
+        const asset = await ctx.library.importFile(file, { ...(origin ? { origin } : {}), onNote: (text) => toast(text, { kind: 'info', duration: 8000 }) });
         // Into the media bin folder being viewed (see model/bins.js).
         if (folder && store.project.bins?.some((b) => b.id === folder)) asset.folder = folder;
         assets.push(asset);

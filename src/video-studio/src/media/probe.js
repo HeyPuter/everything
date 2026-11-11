@@ -5,9 +5,9 @@
  */
 import { Input, BlobSource, ALL_FORMATS } from 'mediabunny';
 import { US } from '../lib/time.js';
-import { guessKind } from './media-types.js';
+import { guessKind, mediaMime } from './media-types.js';
 
-export { guessKind };
+export { guessKind, mediaMime };
 
 export function extOf(name, mime = '') {
   const m = /\.([a-z0-9]{1,8})$/i.exec(name || '');
@@ -173,7 +173,8 @@ export async function probe(file) {
       return { kind: 'video', ...(await probeWithElement(file, 'video')), decodable: false };
     }
     const realKind = video ? 'video' : 'audio';
-    return { kind: realKind, width, height, duration: Math.round(duration * US), fps, hasAudio: Boolean(audio) && canAudio, hasVideo: Boolean(video), decodable: true };
+    // soundUnsupported: a video whose sound this browser can't decode (AC-3 in camera files): it imports silent.
+    return { kind: realKind, width, height, duration: Math.round(duration * US), fps, hasAudio: Boolean(audio) && canAudio, hasVideo: Boolean(video), decodable: true, ...(video && audio && !canAudio ? { soundUnsupported: true } : {}) };
   } catch (err) {
     if (err?.message === 'This file type is not supported by your browser.') throw err;
     return { kind, ...(await probeWithElement(file, kind)), decodable: false };

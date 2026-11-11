@@ -320,9 +320,9 @@ export class Library extends Emitter {
    * Import a local File: probe it, start storing it, and return the asset at
    * once so it can be used while the upload continues.
    */
-  async importFile(file, { origin = 'import' } = {}) {
+  async importFile(file, { origin = 'import', onNote } = {}) {
     // Mediabunny is loaded on first import so the home screen starts faster.
-    const { probe, extOf, storableFile } = await import('../media/probe.js');
+    const { probe, extOf, storableFile, mediaMime } = await import('../media/probe.js');
     // SVG pictures are stored drawn as PNG (the name stays the one the user knows).
     const source = file;
     file = await storableFile(file);
@@ -334,7 +334,7 @@ export class Library extends Emitter {
       name: source.name || `${info.kind} ${new Date().toLocaleString()}`,
       hash,
       ext: extOf(file.name, file.type),
-      mime: file.type,
+      mime: mediaMime(file),
       size: file.size,
       duration: info.duration,
       width: info.width,
@@ -345,6 +345,7 @@ export class Library extends Emitter {
       added: Date.now(),
       origin,
     });
+    if (info.soundUnsupported) onNote?.(`${source.name || 'This video'}: its sound can't be played in this browser, so it was added without sound.`);
     this.blobs.set(hash, file);
     this._store(asset, file);
     return asset;

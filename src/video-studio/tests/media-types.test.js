@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MEDIA_ACCEPT, ACCEPT_FOR } from '../src/media/media-types.js';
+import { MEDIA_ACCEPT, ACCEPT_FOR, guessKind, mediaMime } from '../src/media/media-types.js';
 import { Library } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { Home } from '../src/ui/home.js';
@@ -20,5 +20,19 @@ describe('media file pickers', () => {
     expect(ACCEPT_FOR.video.split(',')).toEqual(expect.arrayContaining(['video/*', '.mkv']));
     expect(ACCEPT_FOR.audio.split(',')).toEqual(expect.arrayContaining(['audio/*', '.flac']));
     expect(ACCEPT_FOR.image).toBe('image/*');
+  });
+});
+
+describe('camera and phone video files', () => {
+  it('imports AVCHD and transport stream files whatever type the system gives them', () => {
+    const mts = new File(['x'], 'CLIP0001.MTS', { type: 'model/vnd.mts' });
+    expect(guessKind(mts)).toBe('video');
+    expect(mediaMime(mts)).toBe('video/mp2t');
+    expect(guessKind(new File(['x'], 'a.m2ts'))).toBe('video');
+    expect(mediaMime(new File(['x'], 'a.m2ts'))).toBe('video/mp2t');
+    expect(guessKind(new File(['x'], 'phone.3gp'))).toBe('video');
+    expect(mediaMime(new File(['x'], 'phone.3gp'))).toBe('video/3gpp');
+    expect(mediaMime(new File(['x'], 'clip.mp4', { type: 'video/mp4' }))).toBe('video/mp4');
+    expect(MEDIA_ACCEPT.split(',')).toEqual(expect.arrayContaining(['.mts', '.m2ts', '.ts', '.3gp']));
   });
 });

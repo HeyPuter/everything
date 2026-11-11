@@ -10,6 +10,7 @@ vi.mock('../src/media/probe.js', async (importOriginal) => ({
   // SVG pictures are drawn into PNG files, which jsdom can't do.
   storableFile: vi.fn(async (file) => (/\.svg$/.test(file.name) ? new File([new Uint8Array([9, 9])], file.name.replace(/svg$/, 'png'), { type: 'image/png' }) : file)),
   probe: vi.fn(async (file) => {
+    if (/\.mts$/.test(file.name)) return { kind: 'video', duration: 2_000_000, width: 640, height: 360, fps: 30, hasAudio: false, hasVideo: true, soundUnsupported: true };
     if (!/\.(mp4|mp3|png)$/.test(file.name)) throw new Error(`${file.name} is not a video, audio or image file.`);
     return { kind: file.name.endsWith('.mp3') ? 'audio' : file.name.endsWith('.png') ? 'image' : 'video', duration: 2_000_000, width: 640, height: 360, fps: 30, hasAudio: true, hasVideo: true };
   }),
@@ -350,6 +351,14 @@ describe('Library media', () => {
     expect(asset).toMatchObject({ kind: 'image', name: 'logo.svg', ext: 'png' });
     await lib.flushUploads();
     expect((await backend.readBlob(`media/${asset.hash}.png`)).type).toBe('image/png');
+  });
+
+  it('says when a video comes in without sound because its sound can\'t be decoded here', async () => {
+    const lib = new Library(memoryBackend());
+    const notes = [];
+    const asset = await lib.importFile(new File([new Uint8Array([5])], 'CLIP0001.mts', { type: 'model/vnd.mts' }), { onNote: (t) => notes.push(t) });
+    expect(asset).toMatchObject({ kind: 'video', hasAudio: false, ext: 'mts', mime: 'video/mp2t' });
+    expect(notes).toEqual(["CLIP0001.mts: its sound can't be played in this browser, so it was added without sound."]);
   });
 
   it('rejects files that are not media', async () => {

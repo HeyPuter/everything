@@ -40,6 +40,15 @@ describe('proxy rules', () => {
     expect(canProxy(normalizeAsset({ id: 'm', kind: 'audio', hash: 'x' }))).toBe(false);
   });
 
+  it('always wants a proxy for transport streams, which the preview can\'t play directly', () => {
+    const mts = vid('t', { ext: 'mts', width: 1920, height: 1080, size: 5e6 });
+    expect(heavyReason(mts)).toBe('format');
+    expect(wantsProxy(mts, 'auto')).toBe(true);
+    expect(wantsProxy(vid('t', { ext: 'm2ts', width: 320, height: 240, size: 1e5 }), 'on')).toBe(true);
+    expect(wantsProxy(mts, 'off')).toBe(false);
+    expect(heavyReason(vid('a', { ext: '3gp', width: 1920, height: 1080, size: 5e6 }))).toBeNull();
+  });
+
   it('calls 4K, very high bitrate and high frame rate media heavy', () => {
     expect(bitrateOf(vid('a', { size: 10e6, duration: s(8) }))).toBe(10e6);
     expect(heavyReason(vid('a'))).toBe('4k');
