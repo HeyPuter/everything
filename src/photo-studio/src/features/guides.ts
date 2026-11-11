@@ -278,10 +278,12 @@ async function newGuide(e: Editor) {
 /** Guides for columns and rows with gutters and margins inside a w × h area. */
 export function layoutGuides(width: number, height: number, columns: number, rows: number, gutter: number, margin: number): Guide[] {
   const guides: Guide[] = [];
-  const lay = (n: number, size: number, orientation: Guide['orientation']) => {
-    if (n <= 0) return;
-    if (margin) guides.push({ orientation, position: margin }, { orientation, position: size - margin });
+  const lay = (count: number, size: number, orientation: Guide['orientation']) => {
+    const n = Math.round(count);
+    if (!(n > 0)) return;
     const cell = (size - 2 * margin - gutter * (n - 1)) / n;
+    if (!(cell >= 1)) throw new Error(`The ${orientation === 'vertical' ? 'columns, gutters and margins do not fit in the width' : 'rows, gutters and margins do not fit in the height'} (${size} px).`);
+    if (margin) guides.push({ orientation, position: margin }, { orientation, position: size - margin });
     for (let i = 1; i < n; i++) {
       const at = margin + i * cell + (i - 1) * gutter;
       guides.push({ orientation, position: Math.round(at) });
