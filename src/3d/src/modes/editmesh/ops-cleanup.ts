@@ -126,8 +126,12 @@ export function dissolveLimited(m: MeshEdit, o: LimitedDissolveOptions): boolean
     }
     parent[rb] = ra;
     sum[ra].add(sum[rb]);
-    const list = [...(regionEdges.get(ra) ?? []), ...(regionEdges.get(rb) ?? [])];
+    // edges already taken are dropped from the outline (keeping them made each merge O(region))
+    const list: number[] = [];
+    for (const j of regionEdges.get(ra) ?? []) if (!taken[j]) list.push(j);
+    for (const j of regionEdges.get(rb) ?? []) if (!taken[j]) list.push(j);
     regionEdges.set(ra, list);
+    regionEdges.delete(rb);
     // the merged face's outline edges get a fresh angle
     for (const j of list) {
       if (taken[j]) continue;
