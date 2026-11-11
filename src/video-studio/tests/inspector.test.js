@@ -8,6 +8,7 @@ import { speedToPos, posToSpeed } from '../src/ui/inspector/speed.js';
 import * as T from '../src/model/timeline.js';
 import { US } from '../src/lib/time.js';
 import { closeMenus } from '../src/ui/menu.js';
+import { maskEdit } from '../src/ui/mask-edit-state.js';
 
 // jsdom has no canvas; previews fall back to blank tiles.
 HTMLCanvasElement.prototype.getContext = () => null;
@@ -351,6 +352,28 @@ describe('mask and chroma', () => {
     shape.dispatchEvent(new Event('change'));
     expect(clip(env.v1.id).masks[2]).toMatchObject({ type: 'heart', mode: 'add' });
     expect(clip(env.v1.id).masks[2].text).toBeUndefined();
+  });
+
+  it('the selected mask stays selected when another mask moves or is deleted', () => {
+    tab('Mask').click();
+    for (const id of ['ellipse', 'rectangle', 'star']) env.el.querySelector(`.mask-tile[data-shape=${id}]`).click();
+    const selected = () => clip(env.v1.id).masks[maskEdit.index].type;
+    env.el.querySelector('[aria-label^="Mask 2,"]').click();
+    expect(selected()).toBe('rectangle');
+    // The mask above moves below it.
+    env.el.querySelector('[aria-label="Move down mask 1"]').click();
+    expect(clip(env.v1.id).masks.map((m) => m.type)).toEqual(['rectangle', 'ellipse', 'star']);
+    expect(selected()).toBe('rectangle');
+    expect(env.el.querySelector('.mask-settings .section-title').textContent).toBe('Mask 1: Rectangle');
+    // The mask below moves above it.
+    env.el.querySelector('[aria-label="Move up mask 3"]').click();
+    expect(clip(env.v1.id).masks.map((m) => m.type)).toEqual(['rectangle', 'star', 'ellipse']);
+    expect(selected()).toBe('rectangle');
+    // Another mask is deleted.
+    env.el.querySelector('[aria-label^="Mask 3,"]').click();
+    env.el.querySelector('[aria-label="Delete mask 1"]').click();
+    expect(clip(env.v1.id).masks.map((m) => m.type)).toEqual(['star', 'ellipse']);
+    expect(selected()).toBe('ellipse');
   });
 
   it('turns chroma key on and tunes it', () => {
