@@ -55,13 +55,27 @@ export class Prefs extends Emitter {
   set(key, value) {
     if (this.values[key] === value) return;
     this.values[key] = value;
-    this.save();
+    this.save(key);
     this.emit('change', { key, value });
   }
 
-  save() {
+  /**
+   * Write the preferences; with `key`, only that one changes in storage, so
+   * what another window saved since this one loaded is kept, not reverted.
+   */
+  save(key = null) {
     try {
-      this.storage?.setItem(KEY, JSON.stringify(this.values));
+      let out = this.values;
+      if (key != null) {
+        let stored = null;
+        try {
+          stored = JSON.parse(this.storage?.getItem(KEY) || 'null');
+        } catch {
+          // Unreadable: write this window's values.
+        }
+        if (stored && typeof stored === 'object' && !Array.isArray(stored)) out = { ...stored, [key]: this.values[key] };
+      }
+      this.storage?.setItem(KEY, JSON.stringify(out));
     } catch {
       // Quota or privacy mode: preferences just will not persist.
     }

@@ -186,6 +186,21 @@ describe('preferences storage', () => {
     expect('smartGuides' in saved).toBe(false);
   });
 
+  it('keeps what another window saved when this one changes a different preference', () => {
+    const storage = memStorage();
+    const first = new Prefs(storage);
+    const second = new Prefs(storage);
+    first.set('theme', 'dark');
+    second.set('dockTab', 'layers');
+    const saved = JSON.parse(storage.getItem('vector-studio:prefs'));
+    expect(saved.theme).toBe('dark');
+    expect(saved.dockTab).toBe('layers');
+    expect(new Prefs(storage).get('theme')).toBe('dark');
+    // The same preference: the latest change wins.
+    second.set('theme', 'light');
+    expect(new Prefs(storage).get('theme')).toBe('light');
+  });
+
   it('falls back to defaults for damaged stored values', () => {
     const storage = memStorage();
     storage.setItem('vector-studio:prefs', JSON.stringify({ keyboardIncrement: '1O', recentFiles: null, openPanels: 'x', dockOpen: 'yes', theme: 5, undoLevels: null, toolbarColumns: 3, cornerRadius: 4, guideColor: 'red', lastRect: { w: 5, h: 6 } }));
