@@ -531,7 +531,7 @@ export function average(editor, axis = 'both') {
         if (!sel.has(i)) return a;
         const dx = axis === 'v' ? 0 : ax - a.x;
         const dy = axis === 'h' ? 0 : ay - a.y;
-        return { x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy };
+        return { ...a, x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy };
       });
       doc.update(n.id, { anchors, shape: undefined });
     }
@@ -559,7 +559,8 @@ export function nudge(editor, dx, dy, { copy = false } = {}) {
       for (const [id, set] of partial) {
         const n = doc.get(id);
         doc.update(id, {
-          anchors: n.anchors.map((a, i) => (set.has(i) ? { x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy } : a)),
+          // Moved anchors keep their other properties (a live corner, ...).
+          anchors: n.anchors.map((a, i) => (set.has(i) ? { ...a, x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy } : a)),
           shape: undefined,
         });
       }

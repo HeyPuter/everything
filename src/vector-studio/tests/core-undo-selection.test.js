@@ -314,3 +314,21 @@ describe('Select All with sublayers', () => {
     expect(doc.get(sub).parent).toBe(layer);
   });
 });
+
+describe('moving anchors from the keyboard', () => {
+  it('keeps a live corner on a nudged or averaged anchor', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const anchors = rectangle(0, 0, 100, 100).map((a, i) => (i === 1 ? { ...a, corner: { r: 10, type: 'round' } } : a));
+    const p = createPath(anchors, true);
+    doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+    ed.selectAnchors(p.id, [1]);
+    app.canvasHost.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(doc.get(p.id).anchors[1]).toMatchObject({ x: 101, corner: { r: 10, type: 'round' } });
+    ed.selectAnchors(p.id, [1, 2]);
+    const { average } = await import('../src/ops/object-ops.js');
+    average(ed, 'v');
+    expect(doc.get(p.id).anchors[1].corner).toEqual({ r: 10, type: 'round' });
+  });
+});
