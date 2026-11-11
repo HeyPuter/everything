@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { network, joinClient, shareNew, settle, rect, alice, bob, cam } from './collab-helpers.js';
+import { network, joinClient, shareNew, settle, rect, content, alice, bob, cam } from './collab-helpers.js';
 import { DocService } from '../worker/service.js';
 import { authenticate } from '../worker/auth.js';
 import { hash, keyPair, sign, shareLink, parseShareLink, workerURL } from '../src/features/collab/protocol.js';
 import { tokenClaims } from '../src/features/collab/auth.js';
-import { listOps, applyListOps, validateBatch } from '../src/features/collab/ops.js';
+import { listOps, applyListOps, validateBatch, safeBatch } from '../src/features/collab/ops.js';
 
 const fails = async (p, status) => {
   const err = await p.then(
@@ -109,6 +109,52 @@ describe('collaboration worker access', () => {
     expect(() => validateBatch({ id: 'x', nodes: [{ id: 'bad id!', del: true }] })).toThrow();
     expect(() => validateBatch({ id: 'x', nodes: [{ id: 'a', put: { type: 'path' }, del: true }] })).toThrow();
     expect(validateBatch({ id: 'x', nodes: [{ id: 'a', set: { name: 'n' }, kids: [['+', 'b', null, null]] }] })).toBeTruthy();
+  });
+
+  it('refuses document settings that would break everyone\'s copy', async () => {
+    const net = network();
+    const { room, client: a } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    const b = await joinClient(net, bob, room, { invite: token });
+    const bad = [
+      { id: 'root', set: { type: 'group' } },
+      { id: 'root', set: { artboards: 'junk' } },
+      { id: 'root', set: { artboards: [] } },
+      { id: 'root', set: { artboards: [{ x: 0, y: 0, w: 0, h: 10 }] } },
+      { id: 'root', set: { grid: null } },
+      { id: 'root', set: { parent: 'l1' } },
+      { id: 'root', unset: ['swatches'] },
+      { id: 'root', put: { type: 'root', children: [] } },
+      { id: 'p', put: { ...rect('p'), type: 'root' } },
+    ];
+    let n = 0;
+    for (const op of bad) await fails(net.service.call(bob, { op: 'commit', room, batch: { id: `bad${n++}`, nodes: [op] } }), 400);
+    // Ordinary document settings still go through.
+    const ok = await net.service.call(bob, { op: 'commit', room, batch: { id: 'ok', nodes: [{ id: 'root', set: { units: 'mm', artboards: [{ id: 'a1', name: 'A', x: 0, y: 0, w: 50, h: 50 }] } }] } });
+    expect(ok.seq).toBe(1);
+    await settle(a, b);
+    expect(a.doc.root.units).toBe('mm');
+    expect(content(a.doc)).toEqual(content(b.doc));
+  });
+
+  it('clients leave out harmful changes an older server let through, all alike', async () => {
+    const net = network();
+    const { room, client: a } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    const b = await joinClient(net, bob, room, { invite: token });
+    // An older server stored this without checking it.
+    const seq = await net.puter.kv.incr(`vs:${room}:seq`);
+    const batch = { id: 'old', nodes: [{ id: 'root', set: { artboards: 'junk', units: 'in' } }, { id: 'root', set: { name: 'Renamed' } }, { id: 'p', put: { ...rect('p'), parent: a.doc.layers()[0].id } }] };
+    await net.puter.kv.set(`vs:${room}:log:${seq}`, { seq, batch, by: { uuid: bob.uuid, username: 'bob' }, time: Date.now() });
+    expect(safeBatch(batch).nodes.map((op) => op.id)).toEqual(['root', 'p']);
+    await settle(a, b);
+    expect(Array.isArray(a.doc.root.artboards)).toBe(true);
+    expect(a.doc.root.name).toBe('Renamed');
+    expect(a.doc.has('p')).toBe(true);
+    expect(content(a.doc)).toEqual(content(b.doc));
+    // A newcomer gets the same document from the server.
+    const c = await joinClient(net, alice, room);
+    expect(content(c.doc)).toEqual(content(a.doc));
   });
 
   it('presence returns the roster with a ticket signed by the room key', async () => {

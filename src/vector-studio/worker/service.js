@@ -20,7 +20,7 @@
  * authorship is checked here, whatever the client shows.
  */
 import { ID, INVITE_ROLES, SESSION_TTL, canComment, canEdit, canManage, hash, keyPair, sign } from '../src/features/collab/protocol.js';
-import { applyBatch, editsContent, stateFromJSON, stateToJSON, validateBatch } from '../src/features/collab/ops.js';
+import { applyBatch, editsContent, safeBatch, stateFromJSON, stateToJSON, validateBatch } from '../src/features/collab/ops.js';
 import { checkCommentOps } from '../src/features/collab/comments.js';
 
 const DAY = 86_400_000;
@@ -258,7 +258,7 @@ export class DocService {
       for (const r of records) {
         // Another request may have brought this copy forward meanwhile.
         if (r.seq <= entry.seq) continue;
-        if (r.batch) applyBatch(entry.state, r.batch);
+        if (r.batch) applyBatch(entry.state, safeBatch(r.batch));
         entry.seq = r.seq;
       }
     }

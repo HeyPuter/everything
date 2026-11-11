@@ -21,7 +21,7 @@
  */
 import { Emitter } from '../../lib/emitter.js';
 import { uid } from '../../lib/ids.js';
-import { Overlay, applyBatch, applyNodeOps, diffNodes, same, stateFromJSON, stateToJSON } from './ops.js';
+import { Overlay, applyBatch, applyNodeOps, diffNodes, safeBatch, same, stateFromJSON, stateToJSON } from './ops.js';
 import { applyCommentOps } from './comments.js';
 import { canComment, canEdit, colorFor, keyPair } from './protocol.js';
 import { PeerMesh } from './peers.js';
@@ -339,7 +339,8 @@ export class CollabSession extends Emitter {
     this.seq = record.seq;
     if (record.skipped || !record.batch) return;
     const mine = this.pending.find((b) => b.id === record.batch.id);
-    const changed = applyBatch(this.base, record.batch);
+    // Changes that would break the document (let through by an older server) are left out.
+    const changed = applyBatch(this.base, safeBatch(record.batch));
     for (const id of changed) this.dirtyIds.add(id);
     if (record.batch.comments?.length) {
       this.commentsDirty = true;
