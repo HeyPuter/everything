@@ -41,12 +41,26 @@ export function registerContentEffect(type, fn, opts = {}) {
   RASTER_EFFECTS.add(type);
 }
 
+/**
+ * How far (document units) the built-in effects read past what they cover:
+ * a shadow drawn on screen comes from artwork its offset away, and blurs and
+ * glows reach three sigma (canvas shadowBlur b is a sigma of b / 2).
+ */
+function builtinReach(e) {
+  const n = (v, d = 0) => (Number.isFinite(v) ? Math.abs(v) : d);
+  if (e.type === 'dropShadow') return Math.hypot(n(e.x), n(e.y)) + n(e.blur) * 1.5;
+  if (e.type === 'blur' || e.type === 'feather') return n(e.radius) * 3;
+  if (e.type === 'outerGlow' || e.type === 'innerGlow') return n(e.blur, 5) * 3;
+  return 0;
+}
+
 /** Device-pixel margin to keep around a layer for these effects (at least `min`, at most `max`). */
 export function effectsMargin(effects, scale, min = 96, max = 1536) {
   let d = min;
   for (const e of effects || []) {
     const f = contentMargins.get(e.type);
-    if (f) d = Math.max(d, (f(e) || 0) * scale + 8);
+    const reach = f ? f(e) || 0 : builtinReach(e);
+    if (reach) d = Math.max(d, reach * scale + 8);
   }
   return Math.min(max, d);
 }
