@@ -162,16 +162,16 @@ export function gradientMapEditor(body: HTMLElement, host: AdjustHost<'gradient-
   });
   colorIn.addEventListener('change', () => host.change(true));
   locIn.addEventListener('change', () => {
-    const v = Number(locIn.value);
-    if (!Number.isFinite(v)) return;
+    const v = locIn.value.trim() === '' ? NaN : Number(locIn.value);
+    if (!Number.isFinite(v)) return draw();
     g.stops[selected].location = clamp01(v / 100);
     resort();
     draw();
     host.change(true);
   });
   midIn.addEventListener('change', () => {
-    const v = Number(midIn.value);
-    if (!Number.isFinite(v)) return;
+    const v = midIn.value.trim() === '' ? NaN : Number(midIn.value);
+    if (!Number.isFinite(v)) return draw();
     g.stops[selected].midpoint = Math.min(0.99, Math.max(0.01, v / 100));
     draw();
     host.change(true);

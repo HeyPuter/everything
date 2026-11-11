@@ -303,9 +303,11 @@ export function curvesEditor(body: HTMLElement, host: AdjustHost<'curves'>) {
   });
   const edit = () => {
     if (selected < 0) return;
-    const x = Number(inBox.value),
-      y = Number(outBox.value);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const num = (box: HTMLInputElement) => (box.value.trim() === '' ? NaN : Number(box.value));
+    const x = num(inBox),
+      y = num(outBox);
+    // Blank or invalid entries show the point's values again.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return draw();
     movePoint(selected, x, y);
     draw();
     host.change(true);
