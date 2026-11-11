@@ -149,16 +149,16 @@ export function createCommands(ctx) {
     { id: 'renameTimeline', label: 'Rename timeline', group: 'File', keys: [], run: () => ctx.timelines?.rename() },
     { id: 'prevTimeline', label: 'Previous timeline', group: 'File', keys: [], run: () => stepTimeline(-1), enabled: () => (ctx.timelines?.list().length || 0) > 1 },
     { id: 'nextTimeline', label: 'Next timeline', group: 'File', keys: [], run: () => stepTimeline(1), enabled: () => (ctx.timelines?.list().length || 0) > 1 },
-    { id: 'export', label: 'Export', group: 'File', keys: ['Mod+E'], run: () => ctx.openExport?.() },
+    { id: 'export', label: 'Export', group: 'File', keys: ['Mod+E'], run: () => ctx.openExport?.(), typing: 'fields' },
     { id: 'scriptToVideo', label: 'Script to video', group: 'File', keys: [], run: () => ctx.openScriptVideo?.() },
     { id: 'shareReview', label: 'Share for review', group: 'File', keys: [], run: () => ctx.openShareReview?.() },
     { id: 'reviewComments', label: 'Show review comments', group: 'File', keys: [], run: () => ctx.review?.toggle() },
-    { id: 'save', label: 'Save now', group: 'File', keys: ['Mod+S'], run: () => ctx.saveNow?.() },
+    { id: 'save', label: 'Save now', group: 'File', keys: ['Mod+S'], run: () => ctx.saveNow?.(), typing: 'anywhere' },
 
-    { id: 'preferences', label: 'Preferences', group: 'File', keys: ['Mod+Comma'], run: () => ctx.openPreferences?.() },
+    { id: 'preferences', label: 'Preferences', group: 'File', keys: ['Mod+Comma'], run: () => ctx.openPreferences?.(), typing: 'fields' },
 
     // Help
-    { id: 'shortcuts', label: 'Keyboard shortcuts', group: 'Help', keys: ['Mod+Slash'], run: () => ctx.openShortcuts?.() },
+    { id: 'shortcuts', label: 'Keyboard shortcuts', group: 'Help', keys: ['Mod+Slash'], run: () => ctx.openShortcuts?.(), typing: 'fields' },
   ];
 
   // Each command's own keys, then the chosen keyboard layout (its defaultKeys), then the user's rebinding on top.
@@ -239,10 +239,17 @@ export function createCommands(ctx) {
     keyFor(id) {
       return byId.get(id)?.keys?.[0] || '';
     },
-    /** Dispatch a keydown; returns true when handled. */
-    handleKey(e) {
+    /**
+     * Dispatch a keydown; returns true when handled. where 'field' (typing in a text field) or
+     * 'dialog' (a dialog is open) only runs the few commands marked to work there, and only
+     * from a key with the command modifier, so typed characters stay with the field.
+     */
+    handleKey(e, { where } = {}) {
       for (const c of list) {
+        if (where === 'field' && !c.typing) continue;
+        if (where === 'dialog' && c.typing !== 'anywhere') continue;
         for (const k of c.keys) {
+          if (where && !/^(Mod|Ctrl)\+/.test(k)) continue;
           if (matchShortcut(e, k)) {
             if (c.enabled && !c.enabled()) return true;
             c.run();
