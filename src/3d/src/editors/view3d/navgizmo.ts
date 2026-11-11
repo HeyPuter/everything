@@ -6,6 +6,7 @@ import { app } from '../../app/app';
 import { prefs } from '../../app/prefs';
 import type { View3D } from './view3d';
 import type { ViewName } from '../../render/navcam';
+import { followPointer } from './hooks';
 
 const AX = [
   { v: new Vector3(1, 0, 0), label: 'X', color: '#fc364b', view: 'RIGHT' as ViewName },
@@ -49,10 +50,8 @@ export function navGizmo(v: View3D): Child {
       v.nav.orbit(dx * 0.01, dy * 0.01);
       v.afterNav();
     };
-    const up = () => {
-      removeEventListener('pointermove', move);
-      removeEventListener('pointerup', up);
-      if (!moved && axis >= 0) {
+    followPointer(e, move, (_ev, cancelled) => {
+      if (!moved && axis >= 0 && !cancelled) {
         // clicking the axis that already faces the viewer flips to the opposite view
         const a = AX[axis];
         const cur = v.nav.view;
@@ -61,9 +60,7 @@ export function navGizmo(v: View3D): Child {
         else v.nav.setAxisView(a.view);
         v.afterNav();
       }
-    };
-    addEventListener('pointermove', move);
-    addEventListener('pointerup', up);
+    });
   };
   return h(
     'div',

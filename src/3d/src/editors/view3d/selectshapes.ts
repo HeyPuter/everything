@@ -3,7 +3,7 @@
 import { app, registerOperators } from '../../app/app';
 import { uiState, activeTools } from '../../app/prefs';
 import { addKeys } from '../../app/keymap';
-import { editModeHooks, type SelectRegion } from './hooks';
+import { editModeHooks, followPointer, type SelectRegion } from './hooks';
 import type { View3D } from './view3d';
 import { activeView3D } from './view3d';
 
@@ -99,14 +99,10 @@ export function lassoDrag(v: View3D, e: PointerEvent, mode: SelectMode) {
     if (Math.hypot(p.x - last.x, p.y - last.y) > 2) pts.push(p);
     drawLasso(v, pts);
   };
-  const up = () => {
-    removeEventListener('pointermove', move);
-    removeEventListener('pointerup', up);
+  followPointer(e, move, (_ev, cancelled) => {
     drawLasso(v, null);
-    if (pts.length >= 3) selectInRegion(v, { kind: 'lasso', pts }, mode, 'Lasso Select');
-  };
-  addEventListener('pointermove', move);
-  addEventListener('pointerup', up);
+    if (pts.length >= 3 && !cancelled) selectInRegion(v, { kind: 'lasso', pts }, mode, 'Lasso Select');
+  });
 }
 
 /** Circle painting: every step selects (or deselects) what is under the brush. */
@@ -120,14 +116,11 @@ export function circlePaint(v: View3D, e: PointerEvent, mode: SelectMode) {
     first = false;
   };
   step(e);
-  const move = (ev: PointerEvent) => step(ev);
-  const up = (ev: PointerEvent) => {
-    removeEventListener('pointermove', move);
-    removeEventListener('pointerup', up);
-    drawCircle(v, local(v, ev), r);
-  };
-  addEventListener('pointermove', move);
-  addEventListener('pointerup', up);
+  followPointer(
+    e,
+    (ev) => step(ev),
+    (ev, cancelled) => drawCircle(v, cancelled ? null : local(v, ev), r),
+  );
 }
 
 /** Circle cursor while hovering with the circle tool. */

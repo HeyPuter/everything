@@ -199,3 +199,37 @@ test('View Camera in a new empty scene does not borrow another scene camera', as
   expect(r).toEqual({ res: 'CANCELLED', camera: null });
   await expectNoErrors(errors);
 });
+
+test('cancelled pen drags of the circle select tool and the navigation gizmo stop following the pointer', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  const pen = (sel: string, x: number, y: number) =>
+    page.evaluate(
+      ([sel, x, y]) => {
+        const el = document.querySelector(sel as string) as Element;
+        const init = { bubbles: true, clientX: x as number, clientY: y as number, pointerId: 9, pointerType: 'pen', button: 0, buttons: 1, isPrimary: true };
+        el.dispatchEvent(new PointerEvent('pointerdown', init));
+        window.dispatchEvent(new PointerEvent('pointercancel', { ...init, buttons: 0 }));
+      },
+      [sel, x, y] as const,
+    );
+  // circle select: a cancelled stroke does not keep selecting under the mouse afterwards
+  await page.evaluate(async () => {
+    const { setActiveTool } = await import('/src/editors/view3d/toolbar.ts' as string);
+    setActiveTool('builtin.select_circle');
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    for (const o of Object.values(a.doc.objects) as any[]) o.select = false; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.changed('select');
+  });
+  await pen('.view3d', c.box.x + 30, c.box.y + c.box.height - 30);
+  await page.mouse.move(c.x, c.y, { steps: 5 });
+  expect(await page.evaluate(() => Object.values((window as any).app.doc.objects).filter((o: any) => o.select).length)).toBe(0); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // navigation gizmo: the view does not turn with later mouse motion
+  const g = (await page.locator('.view3d .nav-gizmo').first().boundingBox())!;
+  const rot = () => page.evaluate(async () => (await import('/src/editors/view3d/view3d.ts' as string)).activeView3D().nav.rot.toArray().map((x: number) => +x.toFixed(5)));
+  const r0 = await rot();
+  await pen('.view3d .nav-gizmo', g.x + g.width / 2 + 5, g.y + g.height / 2 + 5);
+  await page.mouse.move(c.x - 100, c.y + 50, { steps: 5 });
+  expect(await rot()).toEqual(r0);
+  await expectNoErrors(errors);
+});

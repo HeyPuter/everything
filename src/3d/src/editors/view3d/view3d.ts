@@ -20,7 +20,7 @@ import { transformGizmo, gizmoPointerDown } from './gizmo';
 import { openMenu } from '../../ui/menu';
 import { objectContextMenu } from './menus';
 import { lastOpPanel } from '../../ui/redo';
-import { editModeHooks, viewportExtensions, viewportUIHooks } from './hooks';
+import { editModeHooks, followPointer, viewportExtensions, viewportUIHooks } from './hooks';
 import { circlePaint, lassoDrag, modeFromEvent } from './selectshapes';
 import { applyMatrixToObject } from '../../eval/transform';
 import { altMiddle, snapViewToAxis } from './navextra';
@@ -754,17 +754,14 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (tool === 'builtin.cursor') {
       // click places the cursor, dragging moves it along the surfaces under the mouse
       placeCursor(this, p.x, p.y);
-      const mv = (ev: PointerEvent) => {
-        const q = this.local(ev);
-        placeCursor(this, q.x, q.y);
-      };
-      const upFn = () => {
-        removeEventListener('pointermove', mv);
-        removeEventListener('pointerup', upFn);
-        app.pushUndo('Set 3D Cursor');
-      };
-      addEventListener('pointermove', mv);
-      addEventListener('pointerup', upFn);
+      followPointer(
+        e,
+        (ev) => {
+          const q = this.local(ev);
+          placeCursor(this, q.x, q.y);
+        },
+        () => app.pushUndo('Set 3D Cursor'),
+      );
       return;
     }
     // the transform tools' Drag setting: what dragging away from the gizmo does
@@ -837,19 +834,17 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     // in camera view, panning and zooming move the camera frame instead of leaving the camera
     if (this.cameraView && !this.lockCameraToView && (kind === 'pan' || kind === 'zoom' || (kind === 'orbit' && (e.shiftKey || e.ctrlKey)))) {
       const zoom = kind === 'zoom' || (kind === 'orbit' && e.ctrlKey && !e.shiftKey);
-      const mv = (ev: PointerEvent) => {
-        const dx = ev.clientX - last.x,
-          dy = ev.clientY - last.y;
-        last = { x: ev.clientX, y: ev.clientY };
-        if (zoom) this.zoomCameraFrame(Math.exp(-dy * 0.01));
-        else this.panCameraFrame(dx, dy);
-      };
-      const upFn = () => {
-        removeEventListener('pointermove', mv);
-        removeEventListener('pointerup', upFn);
-      };
-      addEventListener('pointermove', mv);
-      addEventListener('pointerup', upFn);
+      followPointer(
+        e,
+        (ev) => {
+          const dx = ev.clientX - last.x,
+            dy = ev.clientY - last.y;
+          last = { x: ev.clientX, y: ev.clientY };
+          if (zoom) this.zoomCameraFrame(Math.exp(-dy * 0.01));
+          else this.panCameraFrame(dx, dy);
+        },
+        () => {},
+      );
       return;
     }
     this.leaveCameraIfNeeded();
