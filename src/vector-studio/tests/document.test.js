@@ -165,6 +165,138 @@ describe('VDocument bulk edits', () => {
     expect(doc.get(layer.id).children).toHaveLength(16000);
   });
 
+  it('moves and removes thousands of nodes without copying the children lists each time', () => {
+    const doc = VDocument.create();
+    const layer = doc.layers()[0];
+    const ids = [];
+    doc.transact('Many', () => {
+      for (let i = 0; i < 5000; i++) ids.push(doc.insert(createPath(rectangle(i, 0, 1, 1), true), layer.id).id);
+    });
+    const g = createGroup([]);
+    // A list is copied when a transaction first changes it, then edited in place
+    // while nobody reads it (copying it on every call is quadratic).
+    const { slice, filter } = Array.prototype;
+    let copies = 0;
+    Array.prototype.slice = function (...a) {
+      if (this.length >= 1000) copies++;
+      return slice.apply(this, a);
+    };
+    Array.prototype.filter = function (...a) {
+      if (this.length >= 1000) copies++;
+      return filter.apply(this, a);
+    };
+    try {
+      doc.transact('Group', () => {
+        doc.insert(g, layer.id);
+        for (const id of ids) doc.move(id, g.id);
+      });
+      doc.transact('Ungroup', () => {
+        let at = doc.get(layer.id).children.indexOf(g.id);
+        for (const id of ids) doc.move(id, layer.id, at++);
+        doc.remove(g.id);
+      });
+      doc.transact('Delete', () => ids.forEach((id) => doc.remove(id)));
+    } finally {
+      Object.assign(Array.prototype, { slice, filter });
+    }
+    expect(copies).toBeLessThan(10);
+    expect(doc.get(layer.id).children).toHaveLength(0);
+    doc.undo();
+    expect(doc.get(layer.id).children).toEqual(ids);
+    doc.undo();
+    expect(doc.get(layer.id).children).toEqual([g.id]);
+    expect(doc.get(g.id).children).toEqual(ids);
+    expect(doc.get(ids[5]).parent).toBe(g.id);
+    doc.undo();
+    expect(doc.get(layer.id).children).toEqual(ids);
+    expect(doc.has(g.id)).toBe(false);
+    doc.redo();
+    doc.redo();
+    doc.redo();
+    expect(doc.get(layer.id).children).toHaveLength(0);
+  });
+
+  it('gives a container a new node object each time a move or removal changes its children', () => {
+    const doc = VDocument.create();
+    const layer = doc.layers()[0];
+    const a = createPath(rectangle(0, 0, 1, 1), true);
+    const b = createPath(rectangle(0, 0, 1, 1), true);
+    const g = createGroup([]);
+    doc.transact('Setup', () => [a, b, g].forEach((n) => doc.insert(n, layer.id)));
+    const seen = [];
+    const tx = doc.begin('Live');
+    doc.move(a.id, g.id);
+    seen.push(doc.get(g.id), doc.get(layer.id));
+    doc.move(b.id, g.id);
+    seen.push(doc.get(g.id), doc.get(layer.id));
+    doc.remove(a.id);
+    seen.push(doc.get(g.id));
+    tx.commit();
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(doc.get(g.id).children).toEqual([b.id]);
+    doc.undo();
+    expect(doc.get(g.id).children).toEqual([]);
+    expect(doc.get(layer.id).children).toEqual([a.id, b.id, g.id]);
+  });
+
+  it('gives callers node objects whose children lists never change under them, within one transaction', () => {
+    const doc = VDocument.create();
+    const layer = doc.layers()[0].id;
+    const g = createGroup([]);
+    const h = createGroup([]);
+    const kids = () => Array.from({ length: 6 }, (_, i) => createPath(rectangle(i, 0, 1, 1), true));
+    const tx = doc.begin('Live');
+    doc.insert(g, layer);
+    doc.insert(h, layer);
+    for (const k of kids()) doc.insert(k, g.id);
+    // Removing every child while iterating the list a node object holds.
+    const fetched = doc.get(g.id);
+    const list = fetched.children;
+    const before = list.slice();
+    for (const c of fetched.children) doc.remove(c);
+    expect(doc.get(g.id).children).toEqual([]);
+    expect(list).toEqual(before);
+    // Moving every child to another container while iterating.
+    for (const k of kids()) doc.insert(k, g.id);
+    for (const c of doc.get(g.id).children) doc.move(c, h.id);
+    expect(doc.get(g.id).children).toEqual([]);
+    expect(doc.get(h.id).children).toHaveLength(6);
+    // Inserting into the container being iterated visits only what was there (and ends).
+    let visited = 0;
+    for (const c of doc.get(h.id).children) {
+      visited++;
+      doc.insert(createPath(rectangle(0, 0, 1, 1), true), h.id, doc.get(h.id).children.indexOf(c));
+    }
+    expect(visited).toBe(6);
+    expect(doc.get(h.id).children).toHaveLength(12);
+    // The same right after inserting into it (bulk inserts edit the list in place until it is read).
+    const k = createGroup([]);
+    doc.insert(k, layer);
+    for (let i = 0; i < 3; i++) doc.insert(createPath(rectangle(i, 0, 1, 1), true), k.id);
+    let seen = 0;
+    for (const c of doc.get(k.id).children) {
+      if (++seen > 50) break;
+      doc.insert(createPath(rectangle(0, 0, 1, 1), true), k.id, doc.get(k.id).children.indexOf(c) + 1);
+    }
+    expect(seen).toBe(3);
+    expect(doc.get(k.id).children).toHaveLength(6);
+    // A node object fetched mid-transaction is a snapshot.
+    const snap = doc.get(h.id);
+    const snapKids = snap.children.slice();
+    doc.remove(snapKids[0]);
+    doc.move(snapKids[1], g.id);
+    doc.insert(createPath(rectangle(0, 0, 1, 1), true), h.id);
+    expect(snap.children).toEqual(snapKids);
+    // Nodes found by going through the whole map are snapshots too.
+    const viaValues = [...doc.nodes.values()].find((n) => n.id === h.id);
+    const viaValuesKids = viaValues.children.slice();
+    doc.insert(createPath(rectangle(0, 0, 1, 1), true), h.id);
+    expect(viaValues.children).toEqual(viaValuesKids);
+    tx.commit();
+    doc.undo();
+    expect(doc.has(g.id)).toBe(false);
+  });
+
   it('never mutates the undo snapshot of a container', () => {
     const doc = VDocument.create();
     const layer = doc.layers()[0];
