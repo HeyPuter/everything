@@ -3,6 +3,7 @@ import {
   containerOf,
   findLayer,
   layer,
+  MAX_LAYERS,
   type Layer,
   type PhotoDocument,
 } from './document';
@@ -26,7 +27,7 @@ export function assertEditable(doc: PhotoDocument, roots: Layer[], operation: Lo
 }
 function assertTree(layers: Layer[], depth = 0, inFrame = false) {
   if (depth > 12) throw new Error('Groups can be nested up to 12 levels.');
-  if (allLayers(layers).length > 200) throw new Error('A document can contain up to 200 layers.');
+  if (depth === 0 && allLayers(layers).length > MAX_LAYERS) throw new Error(`A document can contain up to ${MAX_LAYERS} layers.`);
   for (const l of layers) {
     if (l.artboard && depth > 0) throw new Error('Artboards stay at the top level of the layer stack.');
     if (l.frame && inFrame) throw new Error('Frames cannot contain other frames.');

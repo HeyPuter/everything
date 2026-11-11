@@ -317,6 +317,8 @@ export function newDocument(
     selection: null,
   };
 }
+/** Most layers (groups included) a document can hold, as in Photoshop. */
+export const MAX_LAYERS = 8000;
 export function assertSize(w: number, h: number) {
   if (
     !Number.isInteger(w) ||

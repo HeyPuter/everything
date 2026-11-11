@@ -23,6 +23,7 @@ import {
   allLayers,
   blends,
   layer,
+  MAX_LAYERS,
   newDocument,
   type Layer,
   type PhotoDocument,
@@ -245,7 +246,7 @@ export async function openPsd(blob: Blob, name: string, engine?: ImageEngine) {
   const check = (items: PsdLayer[], depth = 0) => {
     if (depth > 12) throw new Error("Too many nested PSD groups.");
     for (const item of items) {
-      if (++count > 200) throw new Error("PSD exceeds 200 layers.");
+      if (++count > MAX_LAYERS) throw new Error(`PSD exceeds ${MAX_LAYERS} layers.`);
       if (item.imageData)
         assertSize(item.imageData.width, item.imageData.height);
       if (item.children) check(item.children, depth + 1);
