@@ -11,7 +11,7 @@ import { openShareDialog, appBase } from '../src/ui/review/share-dialog.js';
 import { shareForReview, reviewSettings, reviewSource, reviewFilePath, REVIEW_PRESET } from '../src/review/share.js';
 import { ReviewSession } from '../src/review/session.js';
 import { parseReviewHash } from '../src/review/protocol.js';
-import { WORKER_KEY } from '../src/review/api.js';
+import { WORKER_KEY, call as callWorker } from '../src/review/api.js';
 import axe from 'axe-core';
 
 /** Serious and critical axe violations (layout-dependent rules off in jsdom). */
@@ -262,6 +262,30 @@ describe('share dialog', () => {
     await until(() => again.el.querySelector('[aria-label="People"] .rv-row.empty'));
     await expect(env.as('bob')('sync', { review: link.review, since: 0 })).rejects.toMatchObject({ status: 403 });
     again.close();
+  });
+
+  it('shows the role a person has after a role change fails', async () => {
+    const env = await setup();
+    const store = new EditorStore(projectWithClips());
+    const pub = await publish(env, { projectId: store.project.id });
+    await env.as('bob')('join', { review: pub.review.id, token: await invite(env, pub.review.id) });
+    let refuse = false;
+    const call = (p, server, input) => (refuse && input.op === 'member.role' ? Promise.reject(new Error('Try again.')) : callWorker(p, server, input));
+    const ctx = { store, library: { backend: { kind: 'puter' } }, puter: env.sdk.alice, account: {} };
+    const dlg = openShareDialog(ctx, { deps: { call } });
+    const people = await until(() => [...dlg.el.querySelectorAll('[aria-label="People"] .rv-row')].find((r) => r.textContent.includes('bob')));
+    const sel = people.querySelector('select');
+    sel.value = 'viewer';
+    sel.dispatchEvent(new Event('change'));
+    await until(() => env.world.calls.some((c) => c.op === 'member.role'));
+    await new Promise((r) => setTimeout(r, 20));
+    refuse = true;
+    sel.value = 'commenter';
+    sel.dispatchEvent(new Event('change'));
+    await until(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('Try again.')));
+    expect((await env.as('alice')('members', { review: pub.review.id })).members[0].role).toBe('viewer');
+    expect(sel.value).toBe('viewer');
+    dlg.close();
   });
 
   it('asks to sign in when Puter is not available', () => {
