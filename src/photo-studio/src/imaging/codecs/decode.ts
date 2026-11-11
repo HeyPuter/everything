@@ -29,6 +29,8 @@ export type DecodedImage = {
   gifFrames?: GifFrame[];
   // NETSCAPE2.0 repeat count of an animated GIF (see GifDecodeResult.loopCount).
   gifLoopCount?: number;
+  // Later GIF frames were left out because they exceed the memory budget.
+  gifTruncated?: boolean;
   // Things the user may want to know (CMYK converted, editor layers ignored, ...).
   notes: string[];
 };
@@ -72,6 +74,7 @@ export function decodeImage(bytes: Uint8Array, opts: DecodeImageOptions = {}): D
       if (res.frames.length > 1) {
         out.gifFrames = res.frames;
         out.gifLoopCount = res.loopCount;
+        if (res.truncated) out.gifTruncated = true;
         out.notes.push(`Animated GIF with ${res.frames.length} frames; the first was opened.`);
       }
       return out;

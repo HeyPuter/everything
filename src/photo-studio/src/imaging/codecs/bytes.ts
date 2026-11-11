@@ -26,6 +26,11 @@ export function checkSize(width: number, height: number, limits: SizeLimits | un
     throw new CodecError(`This image is ${width} × ${height} pixels, beyond the ${maxSide < Infinity ? `${maxSide} pixel per side` : ''}${maxSide < Infinity && maxPixels < Infinity ? ' or ' : ''}${maxPixels < Infinity ? `${Math.round(maxPixels / 1e6)} megapixel` : ''} limit.`);
 }
 
+// Animated and multi-page files keep a full canvas per frame or page; past
+// this many decoded bytes (400 megapixels, as Import Video Frames allows) the
+// remaining frames are left out rather than exhausting memory.
+export const frameBudgetBytes = 1_600_000_000;
+
 let crcTable: Uint32Array | undefined;
 // CRC-32 (ISO 3309 / ITU-T V.42), as used by PNG and zlib.
 export function crc32(bytes: Uint8Array, start = 0, end = bytes.length, seed = 0): number {

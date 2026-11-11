@@ -3,7 +3,7 @@
 // 16/24-bit floats) and the BigTIFF proposal (64-bit offsets, version 43).
 import { deflate, inflate, inflateRaw } from 'pako';
 import { checkCancelled, type Progress, type RGBA8 } from '../types';
-import { ByteWriter, CodecError, checkSize, rethrowAsCodecError, latin1String, type SizeLimits } from './bytes';
+import { ByteWriter, CodecError, checkSize, frameBudgetBytes, rethrowAsCodecError, latin1String, type SizeLimits } from './bytes';
 import { lzwDecode, lzwEncode } from './lzw';
 
 export type TiffSampleFormat = 'uint' | 'int' | 'float';
@@ -64,6 +64,8 @@ export type TiffDecodeOptions = {
   progress?: Progress;
   // Pages beyond these sizes are refused before their pixels are decoded.
   limits?: SizeLimits;
+  // Later pages are left out once the decoded pages exceed this many bytes.
+  maxBytes?: number;
 };
 
 const TYPE_SIZE = [0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8, 4, 0, 0, 8, 8, 8];
@@ -188,11 +190,19 @@ function decodeTiffImpl(bytes: Uint8Array, opts: TiffDecodeOptions = {}): TiffDe
   const pages: TiffPage[] = [];
   const warnings: string[] = [];
   const seen = new Set<number>();
+  const maxBytes = opts.maxBytes ?? frameBudgetBytes;
+  let total = 0;
   while (ifdAt && ifdAt < bytes.length && !seen.has(ifdAt)) {
     seen.add(ifdAt);
     const { entries, next } = readIfd(r, ifdAt);
     try {
-      pages.push(decodePage(r, entries, opts.progress, opts.limits));
+      const page = decodePage(r, entries, opts.progress, opts.limits);
+      total += page.rgba8.data.length + (page.data16?.byteLength ?? 0) + (page.dataF32?.byteLength ?? 0);
+      if (pages.length && total > maxBytes) {
+        warnings.push(`Pages ${pages.length + warnings.length + 1} and later were not opened: they need more memory than one file may use.`);
+        break;
+      }
+      pages.push(page);
     } catch (err) {
       if (!pages.length || (err as Error).name === 'CancelledError') throw err;
       warnings.push(`Page ${pages.length + warnings.length + 1}: ${(err as Error).message}`);

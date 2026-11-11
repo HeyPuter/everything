@@ -67,6 +67,7 @@ async function choosePages(kind: string, count: number, choice: PageChoice | und
   const v = await formDialog(`Open ${kind}s`, [{ name: 'pages', label: `This file has ${count} ${kind}s`, type: 'select', value: animated ? 'animation' : 'first', options }], 'Open');
   return v ? (v.pages as 'first' | 'layers' | 'animation') : null;
 }
+const framesLeftOut = (n: number) => `Only the first ${n} frames were opened: the rest need more memory than one file may use.`;
 /** Frames of an animated file as layers (and optionally an animation). */
 function animatedFrames(out: DecodedFile, frames: { rgba: RGBA8; delayMs: number }[], pick: 'layers' | 'animation', plays: number) {
   out.layers = frames.slice(1).map((f, i) => ({ name: `Frame ${i + 2}`, image: f.rgba }));
@@ -121,8 +122,10 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
     if (!pick) throw new CancelOpen();
     // GIF stores extra repeats; no looping extension means one play.
     const plays = d.gifLoopCount === undefined ? 1 : d.gifLoopCount === 0 ? 0 : Math.min(65535, d.gifLoopCount + 1);
-    if (pick !== 'first') animatedFrames(out, d.gifFrames, pick, plays);
-    else notes.push(`Animated GIF with ${d.gifFrames.length} frames; the first was opened.`);
+    if (pick !== 'first') {
+      animatedFrames(out, d.gifFrames, pick, plays);
+      if (d.gifTruncated) notes.push(framesLeftOut(d.gifFrames.length));
+    } else notes.push(`Animated GIF with ${d.gifFrames.length} frames; the first was opened.`);
   }
   if (notes.length) out.notice = notes.join(' ');
   return out;
@@ -146,7 +149,7 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
   if (png && isApng(bytes)) {
     let anim: ReturnType<typeof decodeApng> | undefined;
     try {
-      anim = decodeApng(bytes);
+      anim = decodeApng(bytes, { maxFrames: opts.pages === 'first' ? 1 : undefined });
     } catch {
       anim = undefined; // Unsupported variants open as their default image.
     }
@@ -155,8 +158,10 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
       const pick = await choosePages('frame', anim.frames.length, opts.pages, true);
       if (!pick) throw new CancelOpen();
       const out: DecodedFile = { image: anim.frames[0].rgba };
-      if (pick !== 'first') animatedFrames(out, anim.frames, pick, anim.plays);
-      else out.notice = `Animated PNG with ${anim.frames.length} frames; the first was opened.`;
+      if (pick !== 'first') {
+        animatedFrames(out, anim.frames, pick, anim.plays);
+        if (anim.truncated) out.notice = framesLeftOut(anim.frames.length);
+      } else out.notice = `Animated PNG with ${anim.frames.length} frames; the first was opened.`;
       return out;
     }
   }

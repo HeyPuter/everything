@@ -5,7 +5,7 @@
 // by zlib data, exactly like IDAT).
 import { deflate, inflate } from 'pako';
 import { checkCancelled, type Progress, type RGBA8 } from '../types';
-import { CodecError, rethrowAsCodecError } from './bytes';
+import { CodecError, frameBudgetBytes, rethrowAsCodecError } from './bytes';
 import { buildPng, readPngChunks, type NewChunk } from './png-chunks';
 
 export type ApngEncodeFrame = { rgba: RGBA8; delayMs: number };
@@ -147,7 +147,8 @@ export type ApngFrame = {
   dispose: 0 | 1 | 2;
   blend: 0 | 1;
 };
-export type ApngDecodeResult = { width: number; height: number; plays: number; frames: ApngFrame[] };
+// `truncated`: frames were left out because they exceed the memory budget.
+export type ApngDecodeResult = { width: number; height: number; plays: number; frames: ApngFrame[]; truncated?: boolean };
 
 /** True when a PNG file carries an animation control chunk before its image data. */
 export function isApng(bytes: Uint8Array) {
@@ -163,14 +164,14 @@ export function isApng(bytes: Uint8Array) {
 }
 
 /** Decode every frame of an APNG (8-bit, non-interlaced; all color types). */
-export function decodeApng(bytes: Uint8Array, opts: { maxFrames?: number } = {}): ApngDecodeResult {
+export function decodeApng(bytes: Uint8Array, opts: { maxFrames?: number; maxBytes?: number } = {}): ApngDecodeResult {
   try {
-    return decodeApngImpl(bytes, opts.maxFrames ?? Infinity);
+    return decodeApngImpl(bytes, opts.maxFrames ?? Infinity, opts.maxBytes ?? frameBudgetBytes);
   } catch (e) {
     rethrowAsCodecError(e, 'APNG');
   }
 }
-function decodeApngImpl(bytes: Uint8Array, maxFrames: number): ApngDecodeResult {
+function decodeApngImpl(bytes: Uint8Array, maxFrames: number, maxBytes: number): ApngDecodeResult {
   const chunks = readPngChunks(bytes);
   const ihdr = chunks.find((c) => c.type === 'IHDR')?.data;
   const actl = chunks.find((c) => c.type === 'acTL')?.data;
@@ -203,7 +204,12 @@ function decodeApngImpl(bytes: Uint8Array, maxFrames: number): ApngDecodeResult 
   const canvas = new Uint8ClampedArray(width * height * 4);
   const frames: ApngFrame[] = [];
   let prevDispose: { rect: Rect; dispose: number; saved?: Uint8ClampedArray } | undefined;
+  let truncated = false;
   for (const p of pending.slice(0, maxFrames)) {
+    if (frames.length && (frames.length + 1) * canvas.length > maxBytes) {
+      truncated = true;
+      break;
+    }
     const d = dv(p.ctl);
     if (p.ctl.length < 26) throw new CodecError('Damaged frame control chunk.');
     const rect = { width: d.getUint32(4), height: d.getUint32(8), x: d.getUint32(12), y: d.getUint32(16) };
@@ -265,7 +271,7 @@ function decodeApngImpl(bytes: Uint8Array, maxFrames: number): ApngDecodeResult 
     prevDispose = { rect, dispose: dispose === 2 && frames.length === 1 ? 1 : dispose, saved };
   }
   if (!frames.length) throw new CodecError('The animated PNG contains no frames.');
-  return { width, height, plays, frames };
+  return { width, height, plays, frames, ...(truncated ? { truncated } : {}) };
 }
 
 function unfilter(raw: Uint8Array, stride: number, rows: number, bpp: number) {
