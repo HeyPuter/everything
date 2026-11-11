@@ -965,7 +965,14 @@ registerOperators([
       const doc = ctx.doc;
       const users = new Map<string, number>();
       for (const o of Object.values(doc.objects)) if (o.data) users.set(o.data, (users.get(o.data) ?? 0) + 1);
-      for (const ob of app.selectedObjects()) {
+      // parents first; the new world matrices of applied objects replace the evaluated ones for their children
+      const depth = (o: ObjectData) => {
+        let d = 0;
+        for (let p = o.parent; p && d < 1000; p = doc.objects[p]?.parent ?? null) d++;
+        return d;
+      };
+      const applied = new Map<string, Matrix4>();
+      for (const ob of app.selectedObjects().sort((a, b) => depth(a) - depth(b))) {
         if (ob.data && (users.get(ob.data) ?? 0) > 1) {
           app.report('WARNING', `Cannot apply to a multi user: Object "${ob.name}", ${ob.type === 'MESH' ? 'Mesh' : 'Data'} "${(doc.meshes[ob.data] ?? doc.curves[ob.data])?.name ?? ob.data}", aborting`);
           return 'CANCELLED';
@@ -1000,9 +1007,11 @@ registerOperators([
         }
         if (p.scale) ob.scale = [1, 1, 1];
         const newWorld = (() => {
-          const parent = ob.parent ? app.graph.get(ob.parent)?.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)) : new Matrix4();
-          return (parent ?? new Matrix4()).multiply(localMatrix(ob));
+          const parentWorld = ob.parent ? applied.get(ob.parent) ?? app.graph.get(ob.parent)?.world : undefined;
+          const parent = parentWorld ? parentWorld.clone().multiply(toMatrix4(ob.matrix_parent_inverse)) : new Matrix4();
+          return parent.multiply(localMatrix(ob));
         })();
+        applied.set(ob.id, newWorld);
         children.forEach((c, i) => {
           c.matrix_parent_inverse = fromMatrix4(newWorld.clone().invert().multiply(childWorld[i]).multiply(localMatrix(c).invert()));
         });

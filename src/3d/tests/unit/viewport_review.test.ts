@@ -121,3 +121,47 @@ describe('apply a negative scale', () => {
     }
   });
 });
+
+describe('apply transforms to a parent and its child', () => {
+  it('keeps the child geometry in place whatever the selection order', () => {
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    const p = newObject('P', 'EMPTY', null);
+    addObjectToScene(app.doc, p, { location: [5, 0, 0] });
+    p.scale = [2, 2, 2];
+    cube.parent = p.id;
+    cube.location = [1, 0, 0];
+    cube.scale = [1, 3, 1];
+    app.graph.evaluate(app.doc, false);
+    const worldVerts = () => {
+      const ev = app.graph.get(cube.id)!;
+      const P = app.doc.meshes[cube.data!].positions;
+      const out: number[] = [];
+      for (let i = 0; i < P.length; i += 3) out.push(...new Vector3(P[i], P[i + 1], P[i + 2]).applyMatrix4(ev.world).toArray().map((x) => +x.toFixed(4) + 0));
+      return out;
+    };
+    const before = worldVerts();
+    // the child comes first in the object order
+    expect(app.doc.object_order.indexOf(cube.id)).toBeLessThan(app.doc.object_order.indexOf(p.id));
+    select(cube, p);
+    run('object.transform_apply', { location: true, rotation: true, scale: true });
+    expect(worldVerts()).toEqual(before);
+  });
+
+  it('keeps a grandchild in place when the whole chain is applied', () => {
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    const p = newObject('P', 'EMPTY', null);
+    addObjectToScene(app.doc, p, { location: [5, 0, 0] });
+    p.scale = [2, 2, 2];
+    cube.parent = p.id;
+    cube.location = [1, 0, 0];
+    const g = newObject('G', 'EMPTY', null);
+    addObjectToScene(app.doc, g, { location: [0, 0, 0] });
+    g.parent = cube.id;
+    g.location = [0, 1, 0];
+    app.graph.evaluate(app.doc, false);
+    const g0 = round(worldPos(g));
+    select(p, cube);
+    run('object.transform_apply', { location: true, rotation: true, scale: true });
+    expect(round(worldPos(g))).toEqual(g0);
+  });
+});
