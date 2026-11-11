@@ -239,13 +239,27 @@ describe('text speech', () => {
     });
     tab('Speech').click();
     expect(env.el.querySelector('.speech-quote').textContent).toBe('Hello world');
-    button('Add as audio clip').click();
+    const add = button('Add as audio clip');
+    add.focus();
+    add.click();
+    // The button is disabled while the speech is made; browsers then move focus to the page.
+    expect(add.disabled).toBe(true);
+    // Browsers move focus off a disabled control.
+    {
+      const b = document.activeElement;
+      b.disabled = false;
+      b.blur();
+      b.disabled = true;
+    }
     await vi.waitFor(() => expect(T.allClips(env.store.project).some((c) => c.type === 'audio')).toBe(true));
     const audio = T.allClips(env.store.project).find((c) => c.type === 'audio');
     expect(audio.start).toBe(1 * US);
     await vi.waitFor(() => expect(clip().duration).toBe(2.5 * US));
     expect(globalThis.puter.ai.txt2speech).toHaveBeenCalledWith('Hello world', expect.any(Object));
     expect(env.store.selected.clip.id).toBe(env.text.id);
+    // Focus is back on the button.
+    await vi.waitFor(() => expect(document.activeElement.textContent).toBe('Add as audio clip'));
+    expect(document.activeElement.closest('.text-speech')).toBeTruthy();
     fetchSpy.mockRestore();
   });
 });

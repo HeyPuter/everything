@@ -13,7 +13,7 @@ import { clipLabel } from '../../model/timeline.js';
 import { lutFailed } from '../../engine/luts.js';
 import { sliderField, segmented } from '../controls.js';
 import { ready } from '../../media/segmenter.js';
-import { slider, row, uidFor, note, propSection } from './common.js';
+import { slider, row, uidFor, note, propSection, restoreFocus } from './common.js';
 import { gradeSection, editGrade } from './color-common.js';
 import { autoAdjust, chooseLutFiles, applyLut, savePreset, matchColor } from '../color-tools.js';
 import { promptDialog, toast } from '../dialog.js';
@@ -160,6 +160,7 @@ function matchSection(view) {
     } finally {
       go.disabled = false;
       go.removeAttribute('aria-busy');
+      restoreFocus(go);
     }
   });
   render();

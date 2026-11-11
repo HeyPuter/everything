@@ -448,6 +448,20 @@ export function keepFocus(fn, ...finders) {
   }
 }
 
+/**
+ * After async work that disabled the control with focus (browsers then move
+ * focus to the page), put focus back on it, unless the user moved on. When
+ * the panel was rebuilt meanwhile, the first of finders() that gives a
+ * usable element takes it instead.
+ */
+export function restoreFocus(el, ...finders) {
+  const a = document.activeElement;
+  if (!el || el === document.body || (a && a !== document.body)) return;
+  const usable = (x) => x?.isConnected && !x.disabled && !x.closest('[hidden]');
+  const to = usable(el) ? el : finders.map((f) => f()).find(usable);
+  to?.focus();
+}
+
 /** Seconds with one decimal, for labels. */
 export const secs = (us) => `${(us / US).toFixed(1)}s`;
 

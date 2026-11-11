@@ -14,7 +14,7 @@ import { segmented } from '../controls.js';
 import { toast } from '../dialog.js';
 import { prefs, setPref } from '../prefs.js';
 import { emptyState } from '../panels/common.js';
-import { propSection, toggle } from './common.js';
+import { propSection, toggle, restoreFocus } from './common.js';
 
 function signInHint(ctx) {
   const btn = ctx.account?.onSignIn ? h('button.btn.primary', { type: 'button', onclick: () => ctx.account.onSignIn() }, icon('cloud', 16), 'Sign in to Puter') : null;
@@ -60,6 +60,7 @@ export function speechTab(view) {
   };
 
   async function run(label, fn) {
+    const had = document.activeElement;
     busy = true;
     update();
     status.replaceChildren(h('span.spinner'), label);
@@ -71,6 +72,9 @@ export function speechTab(view) {
     }
     busy = false;
     update();
+    // Adding speech selects the new clip and then the text again, which rebuilds this panel.
+    const name = had?.textContent;
+    restoreFocus(had, () => [...document.querySelectorAll('.text-speech .tts-actions button')].find((b) => b.textContent === name));
   }
 
   const stopPreview = () => {
