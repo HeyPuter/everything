@@ -468,6 +468,11 @@ puter-user-menu::part(apps-panel) {
   overflow: hidden;
 }
 
+/* View > Status Bar > Show Status Bar turned off. */
+.statusbar[hidden] {
+  display: none;
+}
+
 .status-info {
   display: flex;
   gap: 0;

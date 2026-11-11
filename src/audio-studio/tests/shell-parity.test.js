@@ -230,7 +230,7 @@ describe('shortcuts while typing', () => {
 });
 
 describe('toolbar and panel buttons', () => {
-  it('hides the workspace button outside the desktop layout and sizes panel menus for touch', async () => {
+  it('hides the workspace button outside the desktop layout, honours a hidden status bar and sizes panel menus for touch', async () => {
     const app = await makeApp();
     const { createShell } = await import('../src/ui/shell.js');
     const root = document.createElement('div');
@@ -244,6 +244,8 @@ describe('toolbar and panel buttons', () => {
     const fs = await import('node:fs');
     const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/shell.css`, 'utf8');
     expect(css).toMatch(/\.toolbar \.icon-btn\[hidden\] \{\s*display: none;/);
+    // View > Status Bar hides the bar with the hidden attribute, which .statusbar's display overrides.
+    expect(css).toMatch(/\.statusbar\[hidden\] \{\s*display: none;/);
     // Panel menu buttons take taps over a larger transparent area on coarse pointers.
     expect(css).toMatch(/@media \(pointer: coarse\) \{\s*\.panel-menu-btn \{\s*position: relative;\s*\}\s*\.panel-menu-btn::before \{\s*content: '';\s*position: absolute;\s*inset: -9px -8px -9px -6px;/);
     Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
