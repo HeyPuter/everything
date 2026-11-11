@@ -180,7 +180,7 @@ export function paste(editor, mode = 'center') {
       placeOnce(0, 0);
       if (b) transformNodes(doc, pasted, translate(c.x - (b.x + b.w / 2), c.y - (b.y + b.h / 2)));
     } else placeOnce(0, 0);
+    editor.select(pasted);
   });
-  editor.select(pasted);
   return true;
 }

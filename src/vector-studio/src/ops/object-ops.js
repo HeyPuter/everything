@@ -168,7 +168,6 @@ export function group(editor) {
   const { doc } = editor;
   const ids = editor.topSelection();
   if (!ids.length) return;
-  let gid;
   doc.transact('Group', () => {
     // The group goes where the topmost selected object was.
     const top = doc.get(ids[ids.length - 1]);
@@ -176,10 +175,10 @@ export function group(editor) {
     const index = parent.children.indexOf(top.id) + 1;
     const g = createGroup([]);
     doc.insert(g, parent.id, index);
-    gid = g.id;
     for (const id of ids) doc.move(id, g.id);
+    // Selected inside the transaction so Redo selects the group again.
+    editor.select([g.id]);
   });
-  editor.select([gid]);
 }
 
 export function ungroup(editor) {
@@ -200,8 +199,8 @@ export function ungroup(editor) {
       }
       doc.remove(id);
     }
+    editor.select([...released, ...editor.topSelection().filter((id) => doc.has(id))]);
   });
-  editor.select([...released, ...editor.topSelection().filter((id) => doc.has(id))]);
 }
 
 /** Arrange within each parent: 'front' | 'forward' | 'backward' | 'back'. */
@@ -248,8 +247,10 @@ export function lockSelection(editor) {
   const { doc } = editor;
   const ids = editor.topSelection();
   if (!ids.length) return;
-  doc.transact('Lock', () => ids.forEach((id) => doc.update(id, { locked: true })));
-  editor.clearSelection();
+  doc.transact('Lock', () => {
+    ids.forEach((id) => doc.update(id, { locked: true }));
+    editor.clearSelection();
+  });
 }
 
 /** Unlock everything below the layer level and select what was unlocked. */
@@ -265,8 +266,8 @@ export function unlockAll(editor) {
       }
       return true;
     });
+    editor.select(out);
   });
-  editor.select(out);
 }
 
 /**
@@ -294,8 +295,10 @@ export function hideSelection(editor) {
   const { doc } = editor;
   const ids = editor.topSelection();
   if (!ids.length) return;
-  doc.transact('Hide', () => ids.forEach((id) => doc.update(id, { hidden: true })));
-  editor.clearSelection();
+  doc.transact('Hide', () => {
+    ids.forEach((id) => doc.update(id, { hidden: true }));
+    editor.clearSelection();
+  });
 }
 
 export function showAll(editor) {
@@ -310,8 +313,8 @@ export function showAll(editor) {
       }
       return true;
     });
+    editor.select(out);
   });
-  editor.select(out);
 }
 
 /** Make Clipping Mask: the topmost selected object clips the others. */
@@ -321,19 +324,17 @@ export function makeClipMask(editor) {
   if (ids.length < 2) throw new UserError('Select at least two objects: the topmost one becomes the clipping path.');
   const mask = doc.get(ids[ids.length - 1]);
   if (!['path', 'compound', 'text', 'group'].includes(mask.type)) throw new UserError('The clipping path must be a path, compound path, group or text.');
-  let gid;
   doc.transact('Make Clipping Mask', () => {
     const top = doc.get(ids[ids.length - 1]);
     const parent = doc.get(top.parent);
     const index = parent.children.indexOf(top.id) + 1;
     const g = createGroup([], { clip: true });
     doc.insert(g, parent.id, index);
-    gid = g.id;
     for (const id of ids) doc.move(id, g.id);
     // The clipping path loses its paint: it only defines the clip.
     if (mask.type === 'path' || mask.type === 'compound') doc.update(mask.id, { fill: null, stroke: null });
+    editor.select([g.id]);
   });
-  editor.select([gid]);
 }
 
 export function releaseClipMask(editor) {
@@ -366,7 +367,6 @@ export function makeCompound(editor) {
   for (const id of editor.topSelection()) collect(doc.get(id));
   if (paths.length < 1) return;
   const topPaint = doc.get(editor.topSelection()[editor.topSelection().length - 1]);
-  let cid;
   doc.transact('Make Compound Path', () => {
     const style = { ...pickPaint(paths[0]) };
     if (topPaint && (topPaint.type === 'path' || topPaint.type === 'compound')) Object.assign(style, pickPaint(topPaint));
@@ -375,7 +375,6 @@ export function makeCompound(editor) {
     const index = parent.children.indexOf(top.id) + 1;
     const c = createCompound([], style, { fillRule: 'nonzero' });
     doc.insert(c, parent.id, index);
-    cid = c.id;
     // Compound paths reverse inner subpaths so holes appear under the non-zero rule.
     const outerSign = Math.sign(signedArea(paths.reduce((a, b) => (Math.abs(signedArea(b.anchors)) > Math.abs(signedArea(a.anchors)) ? b : a)).anchors)) || 1;
     for (const p of paths) {
@@ -388,8 +387,8 @@ export function makeCompound(editor) {
     }
     // Groups (nested ones too) and compound paths the paths came from go once emptied.
     removeEmptyContainers(doc, new Set(paths.map((p) => p.parent)), editor.isolation);
+    editor.select([c.id]);
   });
-  editor.select([cid]);
 }
 
 function contains(a, b) {
@@ -420,8 +419,8 @@ export function releaseCompound(editor) {
       }
       doc.remove(id);
     }
+    editor.select(out);
   });
-  editor.select(out);
 }
 
 /**

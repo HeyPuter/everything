@@ -342,8 +342,8 @@ export function registerCoreCommands(app) {
             ids.push(node.id);
           }
           e.doc.updateRoot({ guides: [] });
+          e.select(ids);
         });
-        e.select(ids);
       },
     },
     { id: 'object.lockOthers', label: 'Lock Others', shortcut: 'Alt+Shift+Mod+2', enabled: hasSel, run: () => O.lockOrHideOthers(ed(), 'locked') },
