@@ -83,4 +83,37 @@ describe('engine transport', () => {
     Object.assign(engine, { ctx: null, node: null });
     app.prefs.set('loop', false);
   });
+
+  it('offline renders keep the chunks every playing clip of a shared source still reads', async () => {
+    const { dropBehind } = await import('../src/engine/offline-worker.js');
+    const { CHUNK } = await import('../src/engine/mixcore.js');
+    const store = new ChunkStore();
+    for (let i = 0; i < 6; i++) store.put('loop', i, [new Float32Array(CHUNK)]);
+    store.put('gone', 0, [new Float32Array(CHUNK)]);
+    const clip = (id, source, start, offset, length) => ({
+      id,
+      source,
+      channels: 1,
+      start,
+      offset,
+      length,
+      gain: 1,
+    });
+    // Two clips of one source: the first ended long ago, the second plays from its start.
+    const graph = {
+      tracks: [
+        {
+          id: 't',
+          clips: [
+            clip('a', 'loop', 0, 0, CHUNK * 6),
+            clip('b', 'loop', CHUNK * 10, 0, CHUNK * 6),
+            clip('c', 'gone', 0, 0, CHUNK),
+          ],
+        },
+      ],
+    };
+    dropBehind({ store }, graph, CHUNK * 10 + 100);
+    expect([...store.sources.get('loop').keys()]).toEqual([0, 1]);
+    expect(store.sources.get('gone').size).toBe(0);
+  });
 });
