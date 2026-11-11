@@ -91,8 +91,10 @@ export class Editor extends Emitter {
     doc.selection = {
       get: () => ({ ids: [...this.selection], anchors: [...this.anchors].map(([k, v]) => [k, [...v]]) }),
       set: (s) => {
-        this.selection = new SelectionSet(s.ids.filter((id) => doc.has(id)));
-        this.anchors = new Map(s.anchors.filter(([k]) => doc.has(k)).map(([k, v]) => [k, new Set(v)]));
+        // Undo and Redo bring a selection back only where it can still be selected (not hidden or locked since).
+        const ok = (id) => doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id);
+        this.selection = new SelectionSet(s.ids.filter(ok));
+        this.anchors = new Map(s.anchors.filter(([k]) => ok(k)).map(([k, v]) => [k, new Set(v)]));
         this.emit('selection');
       },
     };

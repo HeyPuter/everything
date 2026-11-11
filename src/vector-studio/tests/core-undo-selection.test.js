@@ -430,3 +430,25 @@ describe('Exit Isolation Mode', () => {
     expect([...ed.selection]).toEqual([]);
   });
 });
+
+describe('Undo and Redo selections', () => {
+  it('never bring back a selection of objects locked or hidden since', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const p = createPath(rectangle(0, 0, 10, 10), true);
+    doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+    ed.select([p.id]);
+    // The Layers panel's lock button deselects only after its transaction.
+    app.dock.openPanel('layers', { focus: false });
+    app.dock.panels.get('layers').toggle(doc.get(p.id), 'locked', false);
+    expect(ed.selection.size).toBe(0);
+    await app.commands.run('edit.undo');
+    expect([...ed.selection]).toEqual([p.id]);
+    await app.commands.run('edit.redo');
+    expect(doc.get(p.id).locked).toBe(true);
+    expect(ed.selection.size).toBe(0);
+    app.canvasHost.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(doc.get(p.id).anchors[0].x).toBe(0);
+  });
+});
