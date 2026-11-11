@@ -78,7 +78,7 @@ pub fn bin_hz(k: usize, n: usize, rate: f32) -> f32 {
 }
 
 /// Per-bin weight for a "processing focus" choice:
-/// 0 all frequencies, 1 low, 2 mid, 3 high.
+/// 0 all frequencies, 1 low, 2 mid, 3 high, 4 low and high.
 pub fn focus_weight(mode: u32, f: f32) -> f32 {
     let lf = (f.max(10.0) / 1000.0).log2(); // octaves from 1 kHz
     match mode {

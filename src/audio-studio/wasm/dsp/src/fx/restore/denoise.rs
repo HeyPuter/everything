@@ -3,7 +3,7 @@
 //! priori SNR), which keeps residual noise smooth instead of "musical".
 //!
 //! Params: 0 amount % (sets the deepest reduction, 100% = 40 dB),
-//! 1 processing focus (0 all, 1 low, 2 mid, 3 high), 2 output gain dB,
+//! 1 processing focus (0 all, 1 low, 2 mid, 3 high, 4 low and high), 2 output gain dB,
 //! 3 output noise only (0/1: what the reduction removes, to audition it).
 
 use super::spectral::{fmax, bin_hz, focus_weight, power, power_scale, MinStats};
@@ -58,7 +58,7 @@ impl Effect for DeNoise {
     fn set_param(&mut self, idx: u32, v: f32) {
         match idx {
             0 => self.amount = v.clamp(0.0, 100.0),
-            1 => self.focus = v.round().clamp(0.0, 3.0) as u32,
+            1 => self.focus = v.round().clamp(0.0, 4.0) as u32,
             2 => self.gain.target = db_to_gain(v.clamp(-40.0, 40.0)),
             3 => {
                 self.noise_only = v >= 0.5;
