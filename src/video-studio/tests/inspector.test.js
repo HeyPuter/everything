@@ -716,6 +716,26 @@ describe('number boxes', () => {
     expect(clip(env.v1.id).opacity).toBe(0);
   });
 
+  it('holding an arrow key in a number box is one undo step', () => {
+    env.store.select(env.v1.id);
+    const num = field('Rotate').querySelector('.num-input');
+    num.focus();
+    const steps = env.store.history.undoStack.length;
+    for (let i = 0; i < 5; i++) num.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', repeat: i > 0, bubbles: true }));
+    num.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowUp', bubbles: true }));
+    expect(clip(env.v1.id).transform.rotation).toBe(5);
+    expect(num.value).toBe('5');
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+    // Separate presses are separate steps.
+    arrow(num, 'ArrowDown');
+    num.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', bubbles: true }));
+    expect(env.store.history.undoStack.length).toBe(steps + 2);
+    env.store.undo();
+    expect(clip(env.v1.id).transform.rotation).toBe(5);
+    env.store.undo();
+    expect(clip(env.v1.id).transform.rotation).toBe(0);
+  });
+
   it('shows the stored value when the clip limits what was typed', () => {
     env.store.select(env.aud.id);
     const num = typeEnter('Volume', 100);

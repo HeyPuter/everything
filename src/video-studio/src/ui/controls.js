@@ -69,11 +69,20 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
    * Commit a value from the number box, then show what was stored. A value
    * that changes nothing (Enter again, an arrow at the end of the range) is no edit.
    */
-  const commit = (v) => {
-    if (!unchanged?.(v)) emit(v, true);
+  const commit = (v, final = true) => {
+    const change = !unchanged?.(v);
+    if (change) emit(v, final);
     const stored = read?.();
     if (Number.isFinite(stored)) last = stored;
     show(last);
+    return change;
+  };
+  // Arrow keys held down step the value as one edit (one undo step), ended on key up or blur.
+  let stepping = false;
+  const endSteps = () => {
+    if (!stepping) return;
+    stepping = false;
+    onInput?.(last, true);
   };
   const commitNum = () => {
     const raw = parseNumber(num.value);
@@ -91,9 +100,13 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const delta = (e.key === 'ArrowUp' ? 1 : -1) * Number(step) * (e.shiftKey ? 10 : 1);
-      commit(limit(Number((last + delta).toFixed(Math.max(dec, 6)))));
+      if (commit(limit(Number((last + delta).toFixed(Math.max(dec, 6)))), false)) stepping = true;
     }
   });
+  num.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') endSteps();
+  });
+  num.addEventListener('blur', endSteps);
   let kf = null;
   let kfBtn = null;
   if (keyframe) {
