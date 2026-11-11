@@ -64,3 +64,20 @@ describe('auto save storage', () => {
     expect((await loadRecovery())?.name).toBe('a.p3d');
   });
 });
+
+describe('recent files', () => {
+  it('forgets the stored copy when a file becomes too large to keep', async () => {
+    const { installFakeIndexedDb } = await import('./support/fakeidb');
+    installFakeIndexedDb();
+    const session = await import('../../src/io/session');
+    await session.sessionReady;
+    await session.recordRecent('big.p3d', new Uint8Array([1, 2, 3]));
+    expect(await session.recentBytes('big.p3d')).toEqual(new Uint8Array([1, 2, 3]));
+    let huge: Uint8Array | null = new Uint8Array(96 * 1024 * 1024 + 1);
+    await session.recordRecent('big.p3d', huge);
+    huge = null;
+    // Revert / Open Recent would otherwise load the old, smaller save
+    expect(await session.recentBytes('big.p3d')).toBeNull();
+    expect(session.recentFiles().some((e) => e.name === 'big.p3d')).toBe(false);
+  });
+});

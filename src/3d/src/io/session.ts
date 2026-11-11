@@ -82,7 +82,15 @@ export function recentFiles(): readonly RecentEntry[] {
 }
 
 export async function recordRecent(name: string, bytes: Uint8Array) {
-  if (bytes.length > MAX_STORED_BYTES) return;
+  if (bytes.length > MAX_STORED_BYTES) {
+    // too large to keep: an older copy of the file must not come back through Open Recent / Revert
+    if (!recent.some((e) => e.name === name)) return;
+    recent = recent.filter((e) => e.name !== name);
+    notify();
+    await del(FILES, fileKey(name));
+    await put(KV, 'recent', recent);
+    return;
+  }
   const bumped = bumpRecent(recent, { name, time: Date.now(), size: bytes.length });
   const dropped = [...bumped.dropped];
   // keep the stored total within budget (the newest file always stays)
