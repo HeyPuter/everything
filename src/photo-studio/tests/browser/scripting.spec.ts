@@ -173,3 +173,16 @@ test('runs a script when a new document is created (Script Events Manager)', asy
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name))).toEqual(['Background']);
 });
+
+test('runs a script from its row in the Scripts panel even when it is not listed in File → Scripts', async ({ page }) => {
+  await page.evaluate(async () => {
+    const store = await import('/src/features/scripting/store.ts');
+    const r = store.newScriptRecord(`// @name Unlisted Script\nconst doc = await studio.documents.active();\nawait doc.addLayer({ name: 'From unlisted', fill: '#00ff00', rect: { x: 0, y: 0, width: 8, height: 8 } });`, 'Unlisted', { trusted: true, enabled: false });
+    await store.saveScript(r);
+    window.photoStudio.dock.show('scripts');
+  });
+  const row = page.locator('.script-row', { hasText: 'Unlisted Script' });
+  await expect(row.getByRole('checkbox')).not.toBeChecked();
+  await row.getByRole('button', { name: 'Run Unlisted Script' }).click();
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name))).toContain('From unlisted');
+});

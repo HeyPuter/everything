@@ -18,7 +18,8 @@ export function mount(e: Editor, el: HTMLElement) {
     if (!row) return;
     const id = row.dataset.script!;
     scriptSelection.id = id;
-    if (t.closest('[data-run]')) void e.runCommand(`script.run.${id}`);
+    // Run Script works for every installed script; File → Scripts lists only those turned on.
+    if (t.closest('[data-run]')) void e.runCommand('scripts.run-selected');
     else if (t.closest('[data-edit]')) openScriptEditor(e, id);
     update(e, el);
   });
