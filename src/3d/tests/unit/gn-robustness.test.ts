@@ -164,6 +164,15 @@ describe('Convex Hull', () => {
     expect(convexHull(cone.positions).vertCount).toBe(25);
   });
 
+  it('drops points lying on straight hull edges', () => {
+    // a box's corners plus points along its edges (in an order that puts them on the hull first)
+    const pts: number[] = [];
+    for (let i = 1; i < 4; i++) pts.push(i / 4, 0, 0, 0, i / 4, 1, 1, 1, i / 4);
+    for (let c = 0; c < 8; c++) pts.push(c & 1, (c >> 1) & 1, (c >> 2) & 1);
+    const h = convexHull(new Float32Array(pts));
+    expect(counts(h)).toEqual([8, 12, 6]);
+  });
+
   it('builds a closed hull of a dense sphere', { timeout: 60000 }, () => {
     // all points are on the hull (took tens of seconds when every new point was tested against every face)
     const h = convexHull(uvSphereMesh(200, 120, 1, null).positions);

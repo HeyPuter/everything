@@ -286,9 +286,10 @@ function mergeCoplanar(points: Float32Array, tris: { v: [number, number, number]
     }
     return v;
   };
+  const polys: number[][] = [];
   for (const g of groups.values()) {
     if (g.length === 1) {
-      b.face(tris[g[0]].v.map(vid));
+      polys.push([...tris[g[0]].v]);
       continue;
     }
     // boundary edges of the group form one loop
@@ -312,8 +313,31 @@ function mergeCoplanar(points: Float32Array, tris: { v: [number, number, number]
       cur = next.get(cur)!;
       if (cur === start || cur === undefined) break;
     }
-    if (loop.length >= 3 && loop.length === next.size) b.face(loop.map(vid));
-    else for (const t of g) b.face(tris[t].v.map(vid));
+    if (loop.length >= 3 && loop.length === next.size) polys.push(loop);
+    else for (const t of g) polys.push([...tris[t].v]);
+  }
+  // points in the middle of a straight hull edge: in the two faces on either side of the edge and
+  // collinear with their neighbors in both; dropping them leaves the corners only
+  const uses = new Map<number, number>();
+  for (const p of polys) for (const v of p) uses.set(v, (uses.get(v) ?? 0) + 1);
+  const straight = (a: number, p: number, c: number) => {
+    const ux = points[a * 3] - points[p * 3],
+      uy = points[a * 3 + 1] - points[p * 3 + 1],
+      uz = points[a * 3 + 2] - points[p * 3 + 2];
+    const wx = points[c * 3] - points[p * 3],
+      wy = points[c * 3 + 1] - points[p * 3 + 1],
+      wz = points[c * 3 + 2] - points[p * 3 + 2];
+    const cr = Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx);
+    return ux * wx + uy * wy + uz * wz < 0 && cr <= 1e-5 * Math.hypot(ux, uy, uz) * Math.hypot(wx, wy, wz);
+  };
+  const keep = new Set<number>();
+  for (const p of polys)
+    p.forEach((v, k) => {
+      if (uses.get(v) !== 2 || p.length <= 3 || !straight(p[(k + p.length - 1) % p.length], v, p[(k + 1) % p.length])) keep.add(v);
+    });
+  for (const p of polys) {
+    const loop = p.filter((v) => keep.has(v));
+    b.face((loop.length >= 3 ? loop : p).map(vid));
   }
   return b.build({ flat: true });
 }
