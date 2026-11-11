@@ -454,3 +454,29 @@ describe('Markers panel focus', () => {
     expect(document.activeElement).toBe(row('m3'));
   });
 });
+
+describe('Playlist panel focus', () => {
+  it('keeps focus in the list when entries are removed or playback changes', async () => {
+    const { playlistPanel, setPlaylist } = await import('../src/panels/playlist.js');
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const d = audioDoc(2);
+    app.addDocument(d);
+    const markers = ['m1', 'm2', 'm3'].map((id, i) => ({ id, name: id, start: i * 500, duration: 200, type: 'cue', description: '' }));
+    d.apply('Add Markers', { ...d.state, markers });
+    setPlaylist(d, markers.map((m) => ({ id: `e-${m.id}`, markerId: m.id, loops: 1 })));
+    const panel = playlistPanel(app);
+    document.body.replaceChildren(panel.el);
+    panel.render();
+    const row = (id) => panel.el.querySelector(`tr[data-id="${id}"]`);
+    row('e-m1').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.activeElement).toBe(row('e-m1'));
+    // A re-render (e.g. the player moving on) keeps focus on the same entry.
+    panel.render();
+    expect(document.activeElement).toBe(row('e-m1'));
+    // Delete removes it and focus moves to the entry now selected in its place.
+    row('e-m1').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+    expect(panel.el.querySelectorAll('tr[data-id]')).toHaveLength(2);
+    expect(document.activeElement).toBe(row('e-m2'));
+  });
+});
