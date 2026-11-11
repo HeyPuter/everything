@@ -167,7 +167,8 @@ export const splineParameterField = (which: 'Factor' | 'Length' | 'Index') =>
         for (const l of L) total += l;
         let acc = 0;
         for (let k = 0; k < c.curveCount; k++) {
-          out[k] = total ? acc / total : 0;
+          // curves all of zero length: spread by index over 0..1 (as Blender does)
+          out[k] = total ? acc / total : c.curveCount > 1 ? k / (c.curveCount - 1) : 0;
           acc += L[k];
         }
       } else for (let k = 0; k < c.curveCount; k++) out[k] = k;
@@ -179,7 +180,11 @@ export const splineParameterField = (which: 'Factor' | 'Length' | 'Index') =>
       for (let i = c.curveOffsets[k]; i < c.curveOffsets[k + 1]; i++) {
         if (which === 'Index') out[i] = i - c.curveOffsets[k];
         else if (which === 'Length') out[i] = segment[i];
-        else out[i] = total[k] ? segment[i] / total[k] : 0;
+        else {
+          const s = c.curveOffsets[k],
+            n = c.curveOffsets[k + 1] - s;
+          out[i] = total[k] ? segment[i] / total[k] : n > 1 ? (i - s) / (n - 1) : 0;
+        }
       }
     return full(out);
   });

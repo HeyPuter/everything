@@ -233,3 +233,17 @@ describe('mesh primitives', () => {
     expect(positions(run(t, line, 'Mesh').geometry).map((p) => p[0])).toEqual([0, 0.3, 0.6, 0.9]);
   });
 });
+
+describe('curve fields', () => {
+  it('Spline Parameter factor of a zero-length curve runs from 0 to 1 by point index', () => {
+    const t = setup();
+    const line = node(t, 'GeometryNodeMeshLine', { Count: 4, Offset: [0, 0, 0] });
+    const curve = node(t, 'GeometryNodeMeshToCurve');
+    link(t, line, 'Mesh', curve, 'Mesh');
+    const st = node(t, 'GeometryNodeStoreNamedAttribute', { Name: 'f' }, { data_type: 'FLOAT', domain: 'POINT' });
+    link(t, curve, 'Curve', st, 'Geometry');
+    link(t, node(t, 'GeometryNodeSplineParameter'), 'Factor', st, 'Value');
+    const f = attr(run(t, st).geometry, 'f');
+    expect(f.map((x) => Math.round(x * 1000) / 1000)).toEqual([0, 0.333, 0.667, 1]);
+  });
+});
