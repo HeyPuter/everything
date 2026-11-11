@@ -89,6 +89,20 @@ describe('preview playback through transitions', () => {
     expect(e.el.currentTime).toBeCloseTo(9.999, 3);
     expect(e.gain.gain.value).toBe(0);
   });
+
+  it('holds the last frame of a clip that runs past the end of its media instead of replaying it', () => {
+    const p = fixture(); // 'vid' is 10 s long; the clip asks for 12 s of it (a shorter file replaced it)
+    const [a] = onMain(p, clip('video', 0, 12));
+    const { entries, frame } = setup(p);
+    frame(s(9.9));
+    expect(entries.get(a.id).el.paused).toBe(false);
+    for (const t of [10.1, 10.5, 11, 11.5]) frame(s(t));
+    const e = entries.get(a.id);
+    // Playing on at the media's end would start the element over from its first frame.
+    expect(e.el.paused).toBe(true);
+    expect(e.el.plays).toBe(1);
+    expect(e.el.currentTime).toBeCloseTo(9.999, 3);
+  });
 });
 
 describe('pausing', () => {

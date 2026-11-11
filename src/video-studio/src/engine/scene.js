@@ -184,7 +184,8 @@ export function clipLayer(project, clip, t, trackIndex) {
     if (clip.type === 'video') {
       const { time, held } = sourceTimeForTransition(clip, t, asset);
       layer.sourceTime = time;
-      // In a transition before the media's start or past its end: the picture holds still.
+      // Before the media's start or past its end (in a transition, or a clip longer than what is
+      // left of its media): the picture holds still.
       if (held) layer.held = true;
     }
     // Slower than 1x with smooth slow motion on: draw in-between frames (engine/slow-motion.js).
@@ -249,7 +250,7 @@ function withParent(layer, parent, t, project) {
 
 /**
  * Source time that may run past the clip edges during a transition, clamped
- * to the media: { time, held }, held when the clamp stops it outside the clip.
+ * to the media: { time, held }, held when the clamp stops it.
  */
 function sourceTimeForTransition(clip, t, asset) {
   if (clip.freeze) return { time: clip.in, held: false };
@@ -257,7 +258,7 @@ function sourceTimeForTransition(clip, t, asset) {
   const raw = clip.in + sourceOffset(clip, t - clip.start);
   const max = asset?.duration ? asset.duration - 1000 : Infinity;
   const time = Math.max(0, Math.min(raw, max));
-  return { time, held: time !== raw && (t < clip.start || t >= clipEnd(clip)) };
+  return { time, held: time !== raw };
 }
 
 /**
