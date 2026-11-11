@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { VDocument } from '../src/model/document.js';
 import { createText, createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
@@ -94,6 +94,45 @@ describe('variables', () => {
     refuse('Name,Name\n1,2\n', /"Name" appears twice/);
     refuse('First Name,First_Name\n1,2\n', /both become the variable "First_Name"/);
     refuse('Title,,City\nA,x,B\n', /Column 2 has values but no name/);
+  });
+
+  it('Export Each Data Set leaves the artwork and its undo history as they were', async () => {
+    const app = await bootAppWithFeatures();
+    const ed = app.newDocument({ name: 'Cards' });
+    const doc = ed.doc;
+    const layer = ed.targetLayer().id;
+    const t = createText('Hello', 10, 10);
+    doc.transact('add', () => doc.insert(t, layer));
+    doc.transact('vars', () => {
+      const name = addVariable(doc, 'text', 'Name');
+      bind(doc, t.id, 'text', name.id);
+      importCSV(doc, 'Name\nAda\nGrace\n');
+    });
+    const undoDepth = doc.undoStack.length;
+    const before = doc.nodes.get(t.id);
+    const panel = app.dock.panels.get('variables');
+    app.dialogs.form = async () => ({ format: 'svg', zip: false });
+    const blobs = [];
+    const orig = URL.createObjectURL;
+    URL.createObjectURL = (b) => {
+      blobs.push(b);
+      return 'blob:x';
+    };
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      await panel.exportEach();
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      click.mockRestore();
+      URL.createObjectURL = orig;
+    }
+    const texts = await Promise.all(blobs.map((b) => b.text()));
+    expect(texts.some((x) => x.includes('Ada'))).toBe(true);
+    expect(texts.some((x) => x.includes('Grace'))).toBe(true);
+    expect(doc.nodes.get(t.id)).toBe(before);
+    expect(doc.get(t.id).text).toBe('Hello');
+    expect(doc.undoStack.length).toBe(undoDepth);
+    expect(doc.root.dataSet ?? null).toBe(null);
   });
 
   it('registers the Variables panel', async () => {
