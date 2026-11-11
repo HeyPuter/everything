@@ -633,3 +633,25 @@ test('motion paths sample negative frames exactly and keep the current subframe'
   expect(r.frame).toEqual([3, 0.5]);
   await expectNoErrors(errors);
 });
+
+test('a narrow animation editor keeps room for its keys next to the channel list', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'DOPESHEET');
+  const widths = () =>
+    page.evaluate(() => {
+      const ed = document.querySelector('.area[data-editor="DOPESHEET"]')!;
+      return { ch: ed.querySelector('.anim-ch')!.getBoundingClientRect().width, main: ed.querySelector('.anim-main')!.getBoundingClientRect().width };
+    });
+  expect((await widths()).ch).toBe(200);
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/ui/shell.ts');
+    shell.screen.toggleMaximize(shell.screen.areas.find((a: { type: string }) => a.type === 'DOPESHEET'), false);
+  });
+  await page.setViewportSize({ width: 340, height: 640 });
+  // the assistant panel takes the whole width of a phone
+  const closeAssistant = page.locator('button[aria-label="Close the assistant"]');
+  if (await closeAssistant.isVisible()) await closeAssistant.click();
+  await expect.poll(async () => (await widths()).ch).toBeLessThanOrEqual(340 * 0.45);
+  expect((await widths()).main).toBeGreaterThan(150);
+  await expectNoErrors(errors);
+});
