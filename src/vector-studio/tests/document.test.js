@@ -132,6 +132,29 @@ describe('VDocument', () => {
     expect(copy.layers()).toHaveLength(1);
   });
 
+  it('loads a damaged tree with shared children or cycles, keeping each object once', () => {
+    const anchor = { x: 0, y: 0, ix: 0, iy: 0, ox: 0, oy: 0 };
+    const doc = VDocument.fromJSON({
+      nodes: {
+        root: { id: 'root', type: 'root', children: ['L'], artboards: [] },
+        L: { id: 'L', type: 'layer', children: ['g1', 'p', 'p'] },
+        g1: { id: 'g1', type: 'group', children: ['g2'] },
+        // g2 holds its own ancestor (a cycle) and the layer's path (shared).
+        g2: { id: 'g2', type: 'group', children: ['g1', 'p', 'root'] },
+        p: { id: 'p', type: 'path', anchors: [anchor], closed: false },
+      },
+    });
+    expect(doc.get('L').children).toEqual(['g1', 'p']);
+    expect(doc.get('g2').children).toEqual([]);
+    expect(doc.get('p').parent).toBe('L');
+    expect(doc.get('g2').parent).toBe('g1');
+    expect(doc.leaves().map((n) => n.id)).toEqual(['p']);
+    // Deleting the group leaves no dangling reference to the path.
+    doc.transact('Delete', () => doc.remove('g1'));
+    expect(doc.get('L').children).toEqual(['p']);
+    expect(doc.has('p')).toBe(true);
+  });
+
   it('clones subtrees with fresh ids', () => {
     const { doc, rect } = docWithRect();
     const { node } = doc.cloneSubtree(rect.id);

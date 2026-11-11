@@ -242,15 +242,26 @@ export class VDocument extends Emitter {
     return out;
   }
 
-  /** Recompute parent pointers from the children lists (after load). */
+  /**
+   * Recompute parent pointers from the children lists (after load). A node
+   * listed by more than one container (a damaged file: shared children or a
+   * cycle) stays with the first and is dropped from the others' lists, so
+   * the tree draws each object once and loading never recurses forever.
+   */
   repairParents() {
-    const visit = (id, parent) => {
-      const node = this.nodes.get(id);
-      if (!node) return;
-      if (node.parent !== parent) this.nodes.set(id, { ...node, parent });
-      if (node.children) for (const c of node.children) visit(c, id);
-    };
-    visit('root', null);
+    const claimed = new Set(['root']);
+    const stack = [['root', null]];
+    while (stack.length) {
+      const [id, parent] = stack.pop();
+      let node = this.nodes.get(id);
+      if (!node) continue;
+      if (node.parent !== parent) this.nodes.set(id, (node = { ...node, parent }));
+      if (!node.children) continue;
+      const kids = [];
+      for (const c of node.children) if (!claimed.has(c)) claimed.add(c), kids.push(c);
+      if (kids.length !== node.children.length) this.nodes.set(id, { ...node, children: kids });
+      for (let i = kids.length - 1; i >= 0; i--) stack.push([kids[i], id]);
+    }
   }
 
   get root() {
