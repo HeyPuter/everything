@@ -12,6 +12,8 @@
 //   params: [                      // order = WASM parameter index
 //     { id: 'gain', label: 'Gain', min: -24, max: 24, step: 0.1, default: 0, unit: 'dB',
 //       scale: 'linear' | 'log', type: 'number' | 'bool' | 'choice', options: [{ value, label }],
+//       sig: 4,                     // optional: kept and shown to 4 significant digits instead of
+//                                  // the step's decimals (a Q of 0.7071; the step still moves it)
 //       section: 'Band 1',          // optional grouping label for dialogs
 //       hidden: true },             // optional: driven by a custom editor, not a plain control
 //     // Data params hold JSON-able structures instead of numbers. They keep their

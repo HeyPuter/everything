@@ -67,6 +67,9 @@ export function coerce(p, v) {
   const min = p.min ?? -Infinity;
   const max = p.max ?? Infinity;
   n = Math.min(max, Math.max(min, n));
+  // `sig`: kept to that many significant digits instead of snapping to the step
+  // (a Q of 0.7071); the step still sets how far keys and drags move it.
+  if (p.sig) return Math.min(max, Math.max(min, Number(n.toPrecision(p.sig))));
   // Rounding to the step can leave the range when min is not a whole step (0.1 ms in 1 ms steps).
   return Math.min(max, Math.max(min, roundToStep(n, p.step, Number.isFinite(min) ? min : 0)));
 }
@@ -130,7 +133,8 @@ export function formatValue(p, v) {
   }
   if (unit === 'ms' && Math.abs(v) >= 1000 && !p.keepUnit) return `${(v / 1000).toFixed(2)} s`;
   if (unit === ':1') return `${v.toFixed(d)}:1`;
-  const text = isLog(p) && !p.step ? String(Number(v.toPrecision(3))) : v.toFixed(d);
+  const sig = p.sig || (isLog(p) && !p.step ? 3 : 0);
+  const text = sig ? String(Number(v.toPrecision(sig))) : v.toFixed(d);
   return unit ? `${text} ${unit}` : text;
 }
 

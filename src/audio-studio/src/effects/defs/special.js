@@ -79,7 +79,12 @@ registerEffect({
     bool('filter', 'Post Filter', false, { section: 'Post Filter' }),
     choice('filterType', 'Filter Type', ['Low Pass', 'High Pass', 'Band Pass'], 0, { section: 'Post Filter' }),
     hz('filterFreq', 'Frequency', 20, 20000, 8000, { section: 'Post Filter' }),
-    num('filterQ', 'Q', 0.1, 10, 0.707, '', { step: 0.01, scale: 'log', section: 'Post Filter' }),
+    num('filterQ', 'Q', 0.1, 10, 0.707, '', {
+      step: 0.01,
+      sig: 4,
+      scale: 'log',
+      section: 'Post Filter',
+    }),
     pct('mix', 'Mix', 100),
     db('output', 'Output Gain', -24, 12, 0),
     drawnParam('posCurve', 'Positive Drawn Curve'),

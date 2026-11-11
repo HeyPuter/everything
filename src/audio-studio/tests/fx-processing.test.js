@@ -462,3 +462,18 @@ describe('Compressor attack times', () => {
     }
   });
 });
+
+describe('Q values', () => {
+  it('keep and show a Q of 0.7071 or 0.707 without padding other values', async () => {
+    const { coerce, formatValue, normalizeValues } = await import('../src/effects/params.js');
+    const eq = getEffect('parametricEq');
+    const ls = eq.params.find((p) => p.id === 'lsQ');
+    expect(normalizeValues(eq, {}).lsQ).toBe(0.7071);
+    expect(formatValue(ls, ls.default)).toBe('0.7071');
+    expect(formatValue(ls, coerce(ls, 1))).toBe('1');
+    expect(formatValue(ls, coerce(ls, 2.5))).toBe('2.5');
+    expect(coerce(ls, 0.123456)).toBe(0.1235);
+    const dist = getEffect('distortion').params.find((p) => p.id === 'filterQ');
+    expect(formatValue(dist, coerce(dist, dist.default))).toBe('0.707');
+  });
+});
