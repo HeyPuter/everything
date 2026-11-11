@@ -289,3 +289,19 @@ describe('show hidden objects with several scenes', () => {
     activateScene(app.doc, first.id!);
   });
 });
+
+describe('copy and paste objects', () => {
+  it('pastes its own copy of metaball data (not the original data)', async () => {
+    await import('../../src/metaball/ops');
+    run('object.metaball_add', {});
+    const pc = app.activeObject!;
+    expect(pc.type).toBe('META');
+    select(pc);
+    run('view3d.copybuffer');
+    run('view3d.pastebuffer');
+    const pasted = app.activeObject!;
+    expect(pasted.id).not.toBe(pc.id);
+    expect(pasted.data).not.toBe(pc.data);
+    expect(app.doc.metaballs[pasted.data!]).toBeTruthy();
+  });
+});

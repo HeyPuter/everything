@@ -12,9 +12,9 @@ import { setActiveTool } from '../editors/view3d/toolbar';
 import { relativeAxisView } from '../editors/view3d/navextra';
 import { cloneShared } from '../data/cow';
 import { uid } from '../data/defaults';
-import { uniqueName, activeCollection } from './object';
+import { uniqueName, activeCollection, DATA_TABLES } from './object';
 import { sceneObjects } from '../scenes/scenes';
-import type { ObjectData } from '../data/types';
+import type { DocumentData, ObjectData } from '../data/types';
 
 const v3d = () => !!activeView3D();
 /** the view may be turned (not one of Quad View's fixed views) */
@@ -599,7 +599,8 @@ registerOperators([
       const data: Record<string, unknown> = {};
       for (const ob of sel) {
         if (!ob.data) continue;
-        for (const t of ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices'] as const) if ((ctx.doc[t] as Record<string, unknown>)[ob.data]) data[ob.data] = { table: t, value: cloneShared((ctx.doc[t] as Record<string, unknown>)[ob.data]) };
+        // every object data type gets its own copy (metaballs, hair curves, volumes, … included)
+        for (const t of copyTables()) if ((ctx.doc[t] as Record<string, unknown> | undefined)?.[ob.data]) data[ob.data] = { table: t, value: cloneShared((ctx.doc[t] as Record<string, unknown>)[ob.data]) };
       }
       clipboard = { objects: sel.map((o) => ({ ob: cloneShared(o), world: app.graph.get(o.id)!.world.toArray() })), data };
       app.report('INFO', `Copied ${sel.length} selected object(s)`);
@@ -637,6 +638,9 @@ registerOperators([
     },
   },
 ]);
+
+/** Tables of object data (read lazily: ./object imports this module too). */
+const copyTables = () => [...new Set<keyof DocumentData>([...Object.values(DATA_TABLES), 'grease_pencils'])];
 
 let clipboard: { objects: { ob: ObjectData; world: number[] }[]; data: Record<string, unknown> } | null = null;
 
