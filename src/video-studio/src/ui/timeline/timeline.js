@@ -530,6 +530,7 @@ export function createTimeline(ctx) {
         keep.add(id);
         if (!chip) {
           chip = h('button.tl-transition', { type: 'button' }, icon('transition', 12));
+          chip.addEventListener('pointerdown', (e) => chipDown(e, id));
           chip.addEventListener('click', (e) => {
             e.stopPropagation();
             const clip = T.findClip(store.project, id)?.clip;
@@ -564,6 +565,48 @@ export function createTimeline(ctx) {
         trChips.delete(id);
       }
     }
+  }
+
+  /**
+   * The transition chip sits on the trim grips of the clips either side of
+   * its cut. A click is the chip's; a drag trims the edge on the side it
+   * started (the right clip's start, or the left clip's end), as the grip would.
+   */
+  function chipDown(e, aId) {
+    if (e.button !== 0 || tool === 'split' || drag || touchDrag) return;
+    const a = T.findClip(store.project, aId);
+    const b = a && T.nextAdjacent(store.project, aId);
+    if (!b) return;
+    const p0 = contentPoint(e);
+    const left = p0.x < timeToX(T.clipEnd(a.clip));
+    const id = left ? aId : b.id;
+    const f = T.findClip(store.project, id);
+    // On touch only the selected clip's grips trim (see touchDown).
+    if (f.track.locked || (e.pointerType === 'touch' && !store.selection.has(id))) return;
+    const chip = e.currentTarget;
+    try {
+      chip.setPointerCapture(e.pointerId);
+    } catch {
+      /* the pointer already ended */
+    }
+    const off = () => {
+      chip.removeEventListener('pointermove', move);
+      chip.removeEventListener('pointerup', off);
+      chip.removeEventListener('pointercancel', off);
+    };
+    const move = (ev) => {
+      if (ev.pointerId !== e.pointerId || Math.abs(contentPoint(ev).x - p0.x) < 3) return;
+      off();
+      if (!store.selection.has(id)) store.select(e.altKey ? [id] : T.groupMembers(store.project, id));
+      activeId = id;
+      if (e.pointerType === 'touch') holdTouch(e.pointerId);
+      else tracksEl.setPointerCapture(e.pointerId);
+      startTrim(e, id, left ? 'end' : 'start', p0);
+      drag.move(ev);
+    };
+    chip.addEventListener('pointermove', move);
+    chip.addEventListener('pointerup', off);
+    chip.addEventListener('pointercancel', off);
   }
 
   function placePlayhead() {

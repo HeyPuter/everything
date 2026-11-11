@@ -152,6 +152,58 @@ describe('timeline rendering', () => {
   });
 });
 
+describe('transition chips', () => {
+  it('trim the edge under them when dragged', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const { store, tl, tracks, pointer } = mountTimeline(p);
+    store.setToggle('snap', false);
+    store.setToggle('ripple', false);
+    const pps = tl.pps;
+    const chip = () => tl.el.querySelector('.tl-transition');
+    const cut = 16 + 2 * pps;
+    // Just left of the cut: the first clip's end grip, under the chip.
+    pointer(chip(), 'pointerdown', cut - 2);
+    pointer(chip(), 'pointermove', cut - 2 - pps / 2);
+    pointer(tracks, 'pointerup', cut - 2 - pps / 2);
+    expect(T.findClip(store.project, a.id).clip.duration).toBe(s(1.5));
+    expect(store.selectedIds).toEqual([a.id]);
+    expect(T.findClip(store.project, b.id).clip.start).toBe(s(2));
+    expect(T.findClip(store.project, a.id).clip.transition).toBe(null);
+    tl.dispose();
+  });
+
+  it('let a click through to the transition', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const { store, tl, pointer } = mountTimeline(p);
+    const chip = tl.el.querySelector('.tl-transition');
+    const x = 16 + 2 * tl.pps + 1;
+    pointer(chip, 'pointerdown', x);
+    pointer(chip, 'pointerup', x);
+    chip.click();
+    expect(T.findClip(store.project, a.id).clip.transition?.id).toBe('mix');
+    expect(T.findClip(store.project, a.id).clip.duration).toBe(s(2));
+    tl.dispose();
+  });
+
+  it('trim the next clip\'s start when dragged from the right of the cut', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2, { in: s(1) }));
+    const { store, tl, tracks, pointer } = mountTimeline(p);
+    store.setToggle('snap', false);
+    store.setToggle('ripple', false);
+    const pps = tl.pps;
+    const cut = 16 + 2 * pps;
+    pointer(tl.el.querySelector('.tl-transition'), 'pointerdown', cut + 2);
+    pointer(tl.el.querySelector('.tl-transition'), 'pointermove', cut + 2 + pps / 2);
+    pointer(tracks, 'pointerup', cut + 2 + pps / 2);
+    expect(T.findClip(store.project, b.id).clip.start).toBe(s(2.5));
+    expect(T.findClip(store.project, a.id).clip.duration).toBe(s(2));
+    tl.dispose();
+  });
+});
+
 describe('timeline with big selections', () => {
   it('keeps only the clips in view in the page when many are selected, and still drags them all', () => {
     const p = fixture();
