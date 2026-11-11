@@ -401,3 +401,46 @@ describe('Favorites panel', () => {
     panel.el.remove();
   });
 });
+
+describe('Multiband Compressor crossovers', () => {
+  it('stay in order, as the processor keeps them', async () => {
+    await import('../src/effects/index.js');
+    await import('../src/effects/views/index.js');
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(480, 0.1))],
+    });
+    app.active = doc;
+    let latest = null;
+    const done = openEffectDialog(app, getEffect('multibandCompressor'), {
+      doc,
+      mode: 'edit',
+      values: {},
+      onChange: (v) => (latest = v),
+    });
+    const dlg = document.querySelector('.fx-dialog');
+    const low = dlg.querySelector('[aria-label="Low crossover"]');
+    for (let i = 0; i < 40; i++)
+      low.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }),
+      );
+    expect(latest.xover1).toBeLessThan(latest.xover2);
+    const high = dlg.querySelector('[aria-label="High crossover"]');
+    for (let i = 0; i < 40; i++)
+      high.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true, bubbles: true }),
+      );
+    expect(latest.xover3).toBeGreaterThan(latest.xover2);
+    // Typing a crossover past its neighbour stops at the neighbour too.
+    const midHot = [...dlg.querySelectorAll('.fx-mb-xovers .hot')][1];
+    midHot.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const input = dlg.querySelector('.fx-mb-xovers .hot-edit');
+    input.value = '50';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(latest.xover2).toBeGreaterThan(latest.xover1);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await done;
+  });
+});

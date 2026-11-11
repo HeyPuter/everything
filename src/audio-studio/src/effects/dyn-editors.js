@@ -21,7 +21,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 // ------------------------------------------------------------ helpers
 
 /** Hot-text value for a param: { el, show(values) }. */
-export function paramHot(ctx, id, { label } = {}) {
+export function paramHot(ctx, id, { label, set = (v) => ctx.set(id, v) } = {}) {
   const p = ctx.def.params.find((q) => q.id === id);
   const editText = (v) => {
     const [n, u] = formatParts(p, v);
@@ -38,8 +38,11 @@ export function paramHot(ctx, id, { label } = {}) {
     parts: (v) => formatParts(p, v),
     editText,
     parse: (s) => parseValue(p, s),
-    onInput: (v) => ctx.set(id, v),
-    onChange: (v) => ctx.set(id, v),
+    onInput: set,
+    onChange: (v) => {
+      set(v);
+      hot.setValue(ctx.values[id]); // a value the setter limited shows as set
+    },
     defaultValue: p.default,
   });
   return { el: hot, show: (values) => hot.setValue(values[id]) };
@@ -285,14 +288,21 @@ export function multibandEditor() {
         }
       }
     });
+    // Crossovers keep their order, 10 % apart, as the processor does.
+    const setXover = (k, f) => {
+      const v = ctx.values;
+      const lo = k > 1 ? v[`xover${k - 1}`] * 1.1 : FREQ_MIN;
+      const hi = k < 3 ? v[`xover${k + 1}`] / 1.1 : FREQ_MAX;
+      ctx.set(`xover${k}`, clamp(f, lo, Math.max(lo, hi)));
+    };
     const handles = [1, 2, 3].map((k) => {
       const btn = h('button.fx-handle.fx-xover', { type: 'button', role: 'slider', 'aria-label': ['Low crossover', 'Mid crossover', 'High crossover'][k - 1] });
-      freqDrag(btn, view.el, (f, steps) => ctx.set(`xover${k}`, f ?? ctx.values[`xover${k}`] * Math.pow(2, steps / 12)));
+      freqDrag(btn, view.el, (f, steps) => setXover(k, f ?? ctx.values[`xover${k}`] * Math.pow(2, steps / 12)));
       view.layer.append(btn);
       return btn;
     });
     const xoverRow = h('div.fx-mb-xovers', h('span.fx-label', 'Crossover:'), ...[1, 2, 3].flatMap((k) => {
-      const hot = paramHot(ctx, `xover${k}`);
+      const hot = paramHot(ctx, `xover${k}`, { set: (f) => setXover(k, f) });
       ctx.subscribe(hot.show);
       return [h('span.fx-label', `${['Low', 'Mid', 'High'][k - 1]}:`), hot.el];
     }));
