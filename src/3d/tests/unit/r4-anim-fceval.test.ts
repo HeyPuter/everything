@@ -32,3 +32,13 @@ describe('F-Curve evaluation matches the reference', () => {
     });
   }
 });
+
+describe('Cycles with Repeat with Offset', () => {
+  it('stays finite when the cycle has no length (keys on one frame)', () => {
+    const fc: FCurve = { data_path: 'location', array_index: 0, keyframe_points: [], extrapolation: 'CONSTANT', modifiers: [] };
+    // duplicated keys that were not moved (Auto-Merge off) share a frame
+    fc.keyframe_points.push({ ...insertKeyframe(fc, 5, 0) }, { ...fc.keyframe_points[0], co: [5, 2] });
+    fc.modifiers.push({ type: 'CYCLES', mode_before: 'REPEAT_OFFSET', mode_after: 'REPEAT_OFFSET' });
+    for (const f of [0, 5, 10]) expect(Number.isFinite(evaluateFCurve(fc, f))).toBe(true);
+  });
+});

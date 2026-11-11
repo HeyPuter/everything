@@ -567,6 +567,7 @@ function cycleOffset(fc: FCurve, m: FModifier, f: number) {
   const a = k[0].co[0],
     b = k[k.length - 1].co[0],
     len = b - a;
+  if (len <= 0) return 0;
   const dv = k[k.length - 1].co[1] - k[0].co[1];
   const c = Math.floor((f - a) / len);
   if ((c < 0 && m.mode_before === 'REPEAT_OFFSET') || (c > 0 && f > b && m.mode_after === 'REPEAT_OFFSET')) return c * dv;
