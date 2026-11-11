@@ -303,7 +303,7 @@ export function beautifyFill(m: MeshEdit, angleLimit: number, only?: Set<number>
         b = A.verts[(ia + 1) % 3],
         c = A.verts[(ia + 2) % 3];
       const d = B.verts.find((v) => v !== a && v !== b)!;
-      if (edgeKey(c, d) !== k && m.edgeFaces().has(edgeKey(c, d))) continue;
+      if (edgeKey(c, d) !== k && ef.has(edgeKey(c, d))) continue;
       const nA = V(m.faceNormal(A)),
         nB = V(m.faceNormal(B));
       if (nA.angleTo(nB) > angleLimit) continue;
