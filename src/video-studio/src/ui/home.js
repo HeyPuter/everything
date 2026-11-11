@@ -431,7 +431,18 @@ export class Home {
     el.replaceChildren(h('img', { src: url, alt: '', loading: 'lazy', decoding: 'async' }));
   }
 
+  /**
+   * A project open in another tab saves over whatever is done to it here (a
+   * rename, the Trash, even Delete forever brings it back): say so instead.
+   */
+  async openElsewhere(p, what) {
+    if (!(await this.library.isProjectOpen(p.id))) return false;
+    toast(`${p.name} is open in another tab or window. Close it there to ${what}.`, { kind: 'error' });
+    return true;
+  }
+
   async rename(p) {
+    if (await this.openElsewhere(p, 'rename it')) return;
     const name = await promptDialog({ title: 'Rename project', label: 'Project name', value: p.name, confirm: 'Rename' });
     if (!name || name === p.name) return;
     try {
@@ -454,6 +465,7 @@ export class Home {
   }
 
   async remove(p) {
+    if (await this.openElsewhere(p, 'move it to the Trash')) return;
     try {
       await this.library.trashProject(p.id);
       await this.refreshLists();
@@ -551,6 +563,7 @@ export class Home {
   }
 
   async deleteForever(p) {
+    if (await this.openElsewhere(p, 'delete it')) return;
     const ok = await confirmDialog({ title: 'Delete forever?', message: `${p.name} will be deleted permanently. This can't be undone.`, confirm: 'Delete forever', danger: true });
     if (!ok) return;
     try {

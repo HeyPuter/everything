@@ -111,6 +111,32 @@ describe('home screen', () => {
     expect(root.textContent).toContain('The Trash is empty.');
   });
 
+  it('does not trash, delete or rename a project that is open in another tab', async () => {
+    const lib = new Library(memoryBackend());
+    const p = await lib.createProject({ name: 'Busy' });
+    vi.stubGlobal('navigator', { ...navigator, locks: { query: async () => ({ held: [{ name: `video-studio:project:${p.id}` }], pending: [] }) } });
+    try {
+      const h = mount(lib);
+      await settle();
+      await h.remove({ id: p.id, name: 'Busy' });
+      expect(titles()).toEqual(['Busy']);
+      expect([...document.querySelectorAll('.toast')].at(-1).textContent).toContain('Busy is open in another tab');
+      vi.spyOn(lib, 'renameProject');
+      const renaming = h.rename({ id: p.id, name: 'Busy' });
+      await settle();
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      await renaming;
+      expect(lib.renameProject).not.toHaveBeenCalled();
+      // Trashed in a tab that had it closed, then opened again elsewhere from a stale page: Delete forever waits too.
+      await lib.trashProject(p.id);
+      await h.deleteForever({ id: p.id, name: 'Busy' });
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      expect(lib.backend.files.has(`projects/${p.id}.json`)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('purges projects that have been in the Trash too long when it opens', async () => {
     const lib = new Library(memoryBackend());
     const old = await lib.createProject({ name: 'Old' });

@@ -296,6 +296,18 @@ export class Library extends Emitter {
     };
   }
 
+  /** True when a tab or window of this browser has the project open in the editor (see claimProject). */
+  async isProjectOpen(id) {
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+    if (!locks?.query) return false;
+    try {
+      const { held = [] } = await locks.query();
+      return held.some((l) => l.name === `video-studio:project:${id}`);
+    } catch {
+      return false;
+    }
+  }
+
   mediaPath(asset) {
     return `media/${asset.hash}.${asset.ext}`;
   }
