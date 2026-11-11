@@ -34,3 +34,20 @@ test('brush strokes stop at the canvas edge', async ({ page }) => {
   expect(result.bounds!.y).toBeGreaterThanOrEqual(0);
   expect(result.keys).toEqual(['0,0']);
 });
+
+test('painting cannot edit the mask of a locked adjustment layer', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { layer } = await import('/src/model/document.ts');
+    const l = layer('adjustment', 'Invert', e.doc.width, e.doc.height);
+    l.adjustment = { kind: 'invert', params: {} };
+    l.locked = true;
+    e.command('Add adjustment', (d) => d.layers.push(l));
+    e.selected = l.id;
+  });
+  await idle(page);
+  await tool(page, 'Brush Tool');
+  await canvasDrag(page, [[50, 60], [120, 60]]);
+  expect(await page.evaluate(() => !!window.photoStudio.doc.layers.at(-1)!.maskGrid)).toBe(false);
+  await expect(page.locator('#status')).toHaveText('Unlock this layer to edit its mask.');
+});

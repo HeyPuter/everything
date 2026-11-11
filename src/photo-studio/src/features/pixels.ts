@@ -118,6 +118,10 @@ export async function pixelTarget(e: Editor, opts: { allowMask?: boolean; create
   if (l && l.kind === 'adjustment' && opts.allowMask !== false) {
     // Painting on an adjustment layer edits its mask (an imported mask is
     // converted first rather than replaced).
+    if (layerLock(e.doc.layers, l.id, 'all')) {
+      e.message('Unlock this layer to edit its mask.');
+      return;
+    }
     if (!l.maskGrid) {
       const grid = (await legacyMaskToGrid(e, l)) ?? allMask(255);
       e.command('Add layer mask', (d) => {
