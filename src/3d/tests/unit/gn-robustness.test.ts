@@ -6,6 +6,8 @@ import type { NodeData } from '../../src/data/types';
 import { addNode, connect, ctxOf } from '../../src/nodes/tree';
 import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/types';
 import { evaluateGroup, modifierDeps } from '../../src/geonodes/modifier';
+import { convexHull } from '../../src/geonodes/ops/hull';
+import { coneMesh, cubeMesh, uvSphereMesh } from '../../src/geonodes/ops/primitives';
 import { GeometrySet, identity } from '../../src/geonodes/geometry';
 
 /** A group with one geometry input and one geometry output. */
@@ -130,5 +132,23 @@ describe('large geometry', () => {
     const r = run(t, pc, 'Curves');
     expect([...r.log.warnings.values()].flat()).toEqual([]);
     expect(r.geometry.curves!.pointCount).toBe(160000);
+  });
+});
+
+describe('Convex Hull', () => {
+  const counts = (m: { vertCount: number; edgeCount: number; faceCount: number }) => [m.vertCount, m.edgeCount, m.faceCount];
+
+  it('keeps only the corners of points lying on edges and faces of the hull', () => {
+    expect(counts(convexHull(cubeMesh([1, 2, 3], 4, 4, 4, null).positions))).toEqual([8, 12, 6]);
+    // side segment rings lie on the cone's straight sides: ring + apex
+    const cone = coneMesh(24, 3, 2, 0, 1, 1, -1, 'TRIANGLE_FAN', null).mesh;
+    expect(convexHull(cone.positions).vertCount).toBe(25);
+  });
+
+  it('builds a closed hull of a dense sphere', { timeout: 60000 }, () => {
+    // all points are on the hull (took tens of seconds when every new point was tested against every face)
+    const h = convexHull(uvSphereMesh(200, 120, 1, null).positions);
+    expect(h.vertCount).toBe(23802);
+    expect(h.vertCount - h.edgeCount + h.faceCount).toBe(2);
   });
 });

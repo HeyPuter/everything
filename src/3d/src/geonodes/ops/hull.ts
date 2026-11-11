@@ -83,51 +83,109 @@ export function convexHull(points: Float32Array): MeshComponent {
     n: V3;
     d: number;
     alive: boolean;
+    /** points outside this face that are not yet on the hull */
+    outside: number[];
   }
   const faces: Face[] = [];
+  // directed edge (a → b) → face owning it, for walking from a face to its neighbors
+  const N = n + 1;
+  const edgeFace = new Map<number, number>();
   const mk = (a: number, b: number, c: number): Face => {
     const nn = cross(sub(p(b), p(a)), sub(p(c), p(a)));
     const l = Math.hypot(...nn) || 1;
     const nu: V3 = [nn[0] / l, nn[1] / l, nn[2] / l];
-    return { v: [a, b, c], n: nu, d: dot(nu, p(a)), alive: true };
+    return { v: [a, b, c], n: nu, d: dot(nu, p(a)), alive: true, outside: [] };
   };
+  const add = (f: Face) => {
+    const id = faces.length;
+    faces.push(f);
+    for (let k = 0; k < 3; k++) edgeFace.set(f.v[k] * N + f.v[(k + 1) % 3], id);
+    return id;
+  };
+  const dist = (f: Face, i: number) => f.n[0] * points[i * 3] + f.n[1] * points[i * 3 + 1] + f.n[2] * points[i * 3 + 2] - f.d;
   const centroid: V3 = [0, 0, 0];
   for (const i of [i0, i1, i2, i3]) for (let k = 0; k < 3; k++) centroid[k] += points[i * 3 + k] / 4;
   const addOriented = (a: number, b: number, c: number) => {
     let f = mk(a, b, c);
     if (dot(f.n, centroid) - f.d > 0) f = mk(a, c, b);
-    faces.push(f);
+    add(f);
   };
   addOriented(i0, i1, i2);
   addOriented(i0, i1, i3);
   addOriented(i0, i2, i3);
   addOriented(i1, i2, i3);
+  /** give each point to the first of `ids` it is outside of (points inside all of them are dropped) */
+  const assign = (pts: Iterable<number>, ids: number[]) => {
+    for (const i of pts)
+      for (const id of ids)
+        if (dist(faces[id], i) > eps) {
+          faces[id].outside.push(i);
+          break;
+        }
+  };
   const done = new Set([i0, i1, i2, i3]);
-  for (const i of uniq) {
-    if (done.has(i)) continue;
+  assign(
+    uniq.filter((i) => !done.has(i)),
+    [0, 1, 2, 3],
+  );
+  // quickhull: repeatedly add the point farthest outside a face; only the points of the removed
+  // faces need a new face (a point outside the grown hull sees one of the faces just made)
+  const pending = [0, 1, 2, 3];
+  while (pending.length) {
+    const fid = pending.pop()!;
+    const f0 = faces[fid];
+    if (!f0.alive || !f0.outside.length) continue;
+    let i = f0.outside[0],
+      best = -Infinity;
+    for (const j of f0.outside) {
+      const d = dist(f0, j);
+      if (d > best) {
+        best = d;
+        i = j;
+      }
+    }
     const q = p(i);
-    const visible: Face[] = [];
-    for (const f of faces) if (f.alive && dot(f.n, q) - f.d > eps) visible.push(f);
-    if (!visible.length) continue;
+    // visible faces: connected region around the face the point belongs to
+    const visible: number[] = [fid];
+    const seen = new Set<number>([fid]);
+    for (let s = 0; s < visible.length; s++) {
+      const f = faces[visible[s]];
+      for (let k = 0; k < 3; k++) {
+        const nb = edgeFace.get(f.v[(k + 1) % 3] * N + f.v[k]);
+        if (nb === undefined || seen.has(nb)) continue;
+        seen.add(nb);
+        if (dot(faces[nb].n, q) - faces[nb].d > eps) visible.push(nb);
+      }
+    }
     // horizon: directed edges of visible faces whose reverse is not visible
-    const edges = new Map<string, [number, number]>();
-    for (const f of visible) {
+    const horizon: [number, number][] = [];
+    const orphans: number[] = [];
+    for (const id of visible) {
+      const f = faces[id];
       f.alive = false;
+      for (const j of f.outside) if (j !== i) orphans.push(j);
+      f.outside = [];
+    }
+    const isVisible = new Set(visible);
+    for (const id of visible) {
+      const f = faces[id];
       for (let k = 0; k < 3; k++) {
         const a = f.v[k],
           b = f.v[(k + 1) % 3];
-        const rev = `${b},${a}`;
-        if (edges.has(rev)) edges.delete(rev);
-        else edges.set(`${a},${b}`, [a, b]);
+        const nb = edgeFace.get(b * N + a);
+        if (nb === undefined || !isVisible.has(nb)) horizon.push([a, b]);
       }
     }
-    for (const [a, b] of edges.values()) faces.push(mk(a, b, i));
-    // compact occasionally
-    if (faces.length > 4096 && faces.filter((f) => f.alive).length < faces.length / 2) {
-      const alive = faces.filter((f) => f.alive);
-      faces.length = 0;
-      faces.push(...alive);
+    for (const id of visible) {
+      const f = faces[id];
+      for (let k = 0; k < 3; k++) {
+        const key = f.v[k] * N + f.v[(k + 1) % 3];
+        if (edgeFace.get(key) === id) edgeFace.delete(key);
+      }
     }
+    const made = horizon.map(([a, b]) => add(mk(a, b, i)));
+    assign(orphans, made);
+    for (const id of made) if (faces[id].outside.length) pending.push(id);
   }
   const tris = faces.filter((f) => f.alive);
   return mergeCoplanar(
