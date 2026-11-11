@@ -30,6 +30,11 @@ export function fontString(style, size) {
   return `${style.italic ? 'italic ' : ''}${style.bold ? '700' : '400'} ${size}px ${css}`;
 }
 
+/** Letters a typewriter reveal shows (line breaks do not count), Infinity for all. */
+function revealedChars(text, reveal) {
+  return reveal < 1 ? Math.floor([...text.replace(/\n/g, '')].length * reveal) : Infinity;
+}
+
 /** Largest text raster side, in pixels. */
 const MAX_RASTER = 8192;
 
@@ -120,8 +125,7 @@ function layoutText(clip, scale, opts = {}) {
   // Highlighted words (model/text-marks.js) are drawn glyph by glyph in the highlight color.
   const marks = clip.marks?.length ? new Set(clip.marks) : null;
   const perGlyph = Boolean(anim) || arc !== 0 || Boolean(marks);
-  let revealCount = Infinity;
-  if (reveal < 1) revealCount = Math.floor([...text.replace(/\n/g, '')].length * reveal);
+  const revealCount = revealedChars(text, reveal);
 
   let runs;
   let totals = null;
@@ -503,7 +507,7 @@ export class TextCache {
     let base = null;
     if (clip.type === 'text') {
       this._ensureFont(clip.style);
-      const reveal = layer.reveal < 1 ? Math.floor(layer.reveal * [...clip.text].length) : -1;
+      const reveal = layer.reveal < 1 ? revealedChars(applyCase(clip.text, caseOf(clip.style)), layer.reveal) : -1;
       base = `${clip.text}|${JSON.stringify(clip.style)}|${reveal}|${bucket}|${this.fontEpoch}|${fontsVersion()}|${layer.textColor || ''}|${clip.marks?.join(',') || ''}`;
       const anim = layer.textAnim?.length ? animKey(layer.textAnim, e?.base === base ? e.totals : null) : '';
       sig = `${base}|${anim}`;

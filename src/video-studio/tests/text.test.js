@@ -415,6 +415,27 @@ describe('text raster cache', () => {
   });
 });
 
+describe('typewriter reveal', () => {
+  it('redraws a title on more lines each time another letter shows', () => {
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => mockContext());
+    try {
+      const cache = new TextCache();
+      const clip = textClip({ text: 'ab\ncd' });
+      const at = (reveal) => cache.get({ kind: 'text', clip, scale: 1, reveal }, 1).version;
+      // Four letters: one more shows at each quarter.
+      const versions = [0.2, 0.25, 0.45, 0.5, 0.7, 0.75, 0.95].map(at);
+      expect(versions[1]).not.toBe(versions[0]);
+      expect(versions[2]).toBe(versions[1]);
+      expect(versions[3]).not.toBe(versions[2]);
+      expect(versions[4]).toBe(versions[3]);
+      expect(versions[5]).not.toBe(versions[4]);
+      expect(versions[6]).toBe(versions[5]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe('very large text rasters', () => {
   /** A 2D context whose text widths follow the font size (half an em per letter). */
   const sizedContext = () => {
