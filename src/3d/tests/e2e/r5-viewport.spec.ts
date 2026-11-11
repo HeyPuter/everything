@@ -258,3 +258,55 @@ test('a cancelled pen drag on the move gizmo cancels the move', async ({ page })
   expect(await page.evaluate(() => ({ modal: !!(window as any).app.modal, loc: (window as any).app.activeObject.location }))).toEqual({ modal: false, loc: [0, 0, 0] }); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
+
+test('geometry still shown by linked duplicates survives delete, undo, redo and scene switches', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  const bad = await page.evaluate(async () => {
+    const { renderContext } = await import('/src/render/context.ts' as string);
+    const sw = await import('/src/scenes/switch.ts' as string);
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const ctx = renderContext;
+    const draw = () => {
+      a.changed('doc');
+      a.flush();
+      ctx.engine.drawAll();
+    };
+    const inUse = () => {
+      const out = new Set<any>(); // eslint-disable-line @typescript-eslint/no-explicit-any
+      for (const so of ctx.sync.objects.values()) for (const g of [so.mesh?.geometry, so.wire?.geometry]) if (g && so.root.visible) out.add(g);
+      return out;
+    };
+    const disposed = new Set<any>(); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const problems: string[] = [];
+    const step = (label: string, fn: () => void) => {
+      const before = inUse();
+      for (const g of before) g.addEventListener('dispose', () => disposed.add(g));
+      fn();
+      draw();
+      for (const g of inUse()) if (disposed.has(g)) problems.push(label);
+      counts.push(`${label}:${Object.values(a.doc.objects).filter((o: any) => o.type === 'MESH').length}`); // eslint-disable-line @typescript-eslint/no-explicit-any
+    };
+    const counts: string[] = [];
+    // linked duplicates of the cube (one mesh data-block)
+    step('duplicate', () => a.run('object.duplicate_move_linked', {}, { invoke: false }));
+    const cubes = () => Object.values(a.doc.objects).filter((o: any) => o.type === 'MESH'); // eslint-disable-line @typescript-eslint/no-explicit-any
+    step('delete one', () => {
+      for (const o of Object.values(a.doc.objects) as any[]) o.select = o === cubes()[1]; // eslint-disable-line @typescript-eslint/no-explicit-any
+      a.run('object.delete', { confirm: false }, { invoke: false });
+    });
+    step('undo', () => a.run('ed.undo'));
+    step('redo', () => a.run('ed.redo'));
+    step('undo again', () => a.run('ed.undo'));
+    const first = a.doc.scene.id;
+    step('new linked scene', () => a.run('scene.new', { type: 'LINK_COPY' }));
+    const second = a.doc.scene.id;
+    step('switch back', () => sw.switchScene(first));
+    step('switch again', () => sw.switchScene(second));
+    step('delete scene', () => a.run('scene.delete'));
+    return { problems, counts };
+  });
+  expect(bad.problems).toEqual([]);
+  expect(bad.counts).toEqual(['duplicate:2', 'delete one:1', 'undo:2', 'redo:1', 'undo again:2', 'new linked scene:2', 'switch back:2', 'switch again:2', 'delete scene:2']);
+  await expectNoErrors(errors);
+});
