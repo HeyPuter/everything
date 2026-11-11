@@ -116,9 +116,9 @@ function activePaths(editor) {
   return [...out.values()].filter((p) => p && !editor.doc.isLocked(p.id));
 }
 
-/** New anchors with the given indices moved by (dx, dy), handles included. */
+/** New anchors with the given indices moved by (dx, dy), handles included (other properties, such as a live corner, kept). */
 export function moveAnchorSet(anchors, indices, dx, dy) {
-  return anchors.map((a, i) => (indices.has(i) ? { x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy } : a));
+  return anchors.map((a, i) => (indices.has(i) ? { ...a, x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy } : a));
 }
 
 export class DirectSelectionTool extends Tool {
