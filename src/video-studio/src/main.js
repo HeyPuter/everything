@@ -117,11 +117,8 @@ async function openProject(id, files) {
   if (files?.length) {
     const { ctx } = view;
     const assets = await ctx.actions.importFiles(files);
-    let first = true;
-    for (const a of assets) {
-      ctx.actions.addAsset(a, { start: ctx.store.duration, adoptRatio: first });
-      first = false;
-    }
+    // One after another, as one undo step (the first picture or video sets the project's shape).
+    ctx.actions.addAssets(assets, { start: ctx.store.duration });
     ctx.store.seek(0);
   }
 }
