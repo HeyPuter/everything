@@ -274,3 +274,42 @@ describe('Preview Editor', () => {
     host.remove();
   });
 });
+
+describe('effect dialog preview', () => {
+  it('keeps previewing through the effect when the loop button is toggled', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(4800, 0.1))],
+    });
+    app.active = doc;
+    let playing = false;
+    app.play = () => {
+      playing = true;
+      app.emit('transport', 'playing');
+    };
+    app.stop = () => {
+      if (!playing) return;
+      playing = false;
+      app.emit('transport', 'stopped');
+    };
+    const done = openEffectDialog(app, getEffect('amplify'), { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    const play = dlg.querySelector('.fx-play');
+    play.click();
+    expect(playing).toBe(true);
+    expect(app.previewFx?.[0]?.key).toBe('preview:amplify');
+    dlg.querySelector('.fx-loop').click();
+    // Playback restarted with the new loop setting, still through the effect.
+    expect(playing).toBe(true);
+    expect(app.previewFx?.[0]?.key).toBe('preview:amplify');
+    expect(play.getAttribute('aria-label')).toBe('Stop preview');
+    play.click();
+    expect(playing).toBe(false);
+    expect(app.previewFx).toBe(null);
+    expect(play.getAttribute('aria-label')).toBe('Preview');
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await done;
+  });
+});

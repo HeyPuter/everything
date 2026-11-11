@@ -123,6 +123,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   const routable = mode === 'apply' && Boolean(routing) && channelCount === 2;
   let route = routable ? recallRoute(def.id) || defaultRoute(doc.channelMask) : null;
   let previewing = false;
+  let restarting = false;
   const realtime = isRealtime(def);
   const groups = linkGroups(def);
   const subscribers = new Set();
@@ -346,7 +347,10 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     loopBtn.setAttribute('aria-pressed', String(on));
     app.prefs.set('fxPreviewLoop', on);
     if (previewing) {
+      // Restart with the new loop setting; the stop in between does not end the preview.
+      restarting = true;
       app.stop();
+      restarting = false;
       startPlayback();
     }
   } }, icon('transport-loop', 15));
@@ -384,7 +388,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     if (!meterRaf) meterRaf = requestAnimationFrame(meterLoop);
   }
   const onTransport = (s) => {
-    if (s === 'stopped' && previewing) {
+    if (s === 'stopped' && previewing && !restarting) {
       setPreviewing(false);
       pushPreview();
       meters.set([0, 0], [0, 0]);
