@@ -7,7 +7,7 @@ import { escapeXML } from '../../model/assets';
 import { gridDocBounds, intersectRect, parseKey, readMask, readRGBA, TILE, unionRect } from '../../model/tiles';
 import type { IRect } from '../../imaging/types';
 import { PsdPreviewEditError, saveOriginalPsd } from '../../model/psd-original';
-import { Renderer } from '../../renderer/renderer';
+import { createOffscreenRenderer } from '../offscreen-renderer';
 import { download } from '../../persistence/puter';
 import { information } from '../../ui/dialog';
 import { askChoice } from '../preferences/warnings';
@@ -61,7 +61,7 @@ export async function exportPsd(e: Editor) {
     composite = choice === 'yes';
   }
   const { savePsd } = await import('../../model/psd');
-  const renderer = await Renderer.create(document.createElement('canvas'), e.engine);
+  const renderer = await createOffscreenRenderer(e.engine);
   const depth = doc.bitsPerChannel ?? 8;
   try {
     const blob = await savePsd(

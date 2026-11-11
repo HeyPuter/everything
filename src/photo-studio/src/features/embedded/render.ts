@@ -5,7 +5,8 @@
 import type { Editor } from '../../editor';
 import { layer, type Layer, type PhotoDocument } from '../../model/document';
 import type { Assets } from '../../model/assets';
-import { Renderer } from '../../renderer/renderer';
+import type { Renderer } from '../../renderer/renderer';
+import { createOffscreenRenderer } from '../offscreen-renderer';
 import type { RGBA8 } from '../../imaging/types';
 import { toRGBA8 } from '../pixels';
 import { encodePng } from '../files/png';
@@ -20,8 +21,10 @@ export async function withRenderer<T>(e: Editor, task: (r: Renderer) => Promise<
   users++;
   clearTimeout(timer);
   try {
-    shared ??= Renderer.create(document.createElement('canvas'), e.engine);
-    return await task(await shared);
+    const created = (shared ??= createOffscreenRenderer(e.engine));
+    // A failed creation is not kept, so the next use tries again.
+    created.catch(() => shared === created && (shared = undefined));
+    return await task(await created);
   } finally {
     if (--users === 0)
       timer = window.setTimeout(() => {

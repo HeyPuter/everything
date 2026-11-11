@@ -8,7 +8,8 @@ import { gridDocBounds, readRGBA } from '../../model/tiles';
 import { outputName, variablesOf, type DataSet } from '../../model/variables';
 import type { PhotoDocument } from '../../model/document';
 import { serialize } from '../../model/serialization';
-import { Renderer } from '../../renderer/renderer';
+import type { Renderer } from '../../renderer/renderer';
+import { createOffscreenRenderer } from '../offscreen-renderer';
 import { download } from '../../persistence/puter';
 import { bytesBlob, documentSource, effectiveSettings, encodeOffThread, exportContext, formatBytes, loadSettings } from '../files/pipeline';
 import { uniqueName, zipStore, type ZipEntry } from '../files/zip';
@@ -105,7 +106,7 @@ async function runExport(e: Editor, doc: PhotoDocument, sets: (readonly [number,
       } else if (o.format === 'photo') {
         bytes = new Uint8Array(await (await serialize(page, e.assets)).arrayBuffer());
       } else {
-        renderer ??= await Renderer.create(document.createElement('canvas'), e.engine);
+        renderer ??= await createOffscreenRenderer(e.engine);
         bytes = await psdBytes(e, page, renderer);
       }
       entries.push({ name: uniqueName(`${page.name}.${ext}`, used), data: bytes });

@@ -115,3 +115,19 @@ test('a changed contents tab offers to save when closed, and a distortion stays 
   await run(page, 'layer.embed-reset');
   expect(await page.evaluate(() => ({ frame: !!window.photoStudio.layer!.embed?.frame, t: window.photoStudio.layer!.transform }))).toMatchObject({ frame: false, t: { width: 80, height: 60, rotation: 0 } });
 });
+
+test('a GPU adapter request that never answers does not leave the editor busy', async ({ page }) => {
+  await boot(page);
+  await loadFixture(page);
+  // The visible canvas already has its compositor; the private one for the
+  // embedded object asks for a new adapter, which hangs on some machines.
+  await page.evaluate(() => {
+    if (navigator.gpu) navigator.gpu.requestAdapter = () => new Promise(() => {});
+  });
+  await page.evaluate(() => void window.photoStudio.runCommand('layer.embed-convert'));
+  await page.waitForFunction(() => !window.photoStudio.busy, null, { timeout: 30_000 });
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.kind))).toEqual(['solid', 'image']);
+  expect(await compositePixel(page, 70, 60)).toEqual([0, 0, 255, 255]);
+  expect(await compositePixel(page, 25, 35)).toEqual([255, 0, 0, 255]);
+});
