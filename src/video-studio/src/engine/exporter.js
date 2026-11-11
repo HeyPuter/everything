@@ -598,6 +598,33 @@ async function measureDelay(codec, sampleRate, numberOfChannels) {
 
 const LARGE_OUTPUT = 400 * 1024 * 1024;
 const liveFiles = new Set(); // temp export files still referenced by a result
+const FILE_LOCK = 'video-studio-export:';
+
+/**
+ * Hold a Web Lock named after a temp export file while this tab may still
+ * read it; resolves to a function that lets it go. Other tabs (and later
+ * sessions) only delete files whose lock is free.
+ */
+async function holdFile(name) {
+  if (!navigator.locks?.request) return () => {};
+  let release = null;
+  await new Promise((held) => {
+    navigator.locks.request(FILE_LOCK + name, () => new Promise((r) => {
+      release = r;
+      held();
+    })).catch(() => held());
+  });
+  return () => release?.();
+}
+
+/** Whether a temp export file is a leftover no open tab still uses. */
+async function abandoned(name) {
+  if (liveFiles.has(name)) return false;
+  if (navigator.locks?.request) return navigator.locks.request(FILE_LOCK + name, { ifAvailable: true }, (lock) => Boolean(lock)).catch(() => false);
+  // Without Web Locks, only files from a day ago and more (the name carries the time).
+  const made = Number(/^export-(\d+)-/.exec(name)?.[1]);
+  return !Number.isFinite(made) || Date.now() - made > 24 * 3600 * 1000;
+}
 
 /**
  * Where encoded bytes go: memory for normal sizes, a temporary file in the
@@ -606,13 +633,16 @@ const liveFiles = new Set(); // temp export files still referenced by a result
 async function openTarget(estimated, force) {
   const wantFile = force === 'file' || (force !== 'memory' && estimated > LARGE_OUTPUT);
   if (wantFile && navigator.storage?.getDirectory) {
+    let name = null;
+    let unlock = () => {};
     try {
       const root = await navigator.storage.getDirectory();
       const dir = await root.getDirectoryHandle('video-studio-exports', { create: true });
-      // Leftovers from earlier sessions.
-      for await (const old of dir.keys()) if (!liveFiles.has(old)) await dir.removeEntry(old).catch(() => {});
-      const name = `export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.bin`;
+      // Leftovers from earlier sessions; files another tab is still using stay.
+      for await (const old of dir.keys()) if (await abandoned(old)) await dir.removeEntry(old).catch(() => {});
+      name = `export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.bin`;
       liveFiles.add(name);
+      unlock = await holdFile(name);
       const handle = await dir.getFileHandle(name, { create: true });
       if (handle.createWritable) {
         const writable = await handle.createWritable();
@@ -627,11 +657,16 @@ async function openTarget(estimated, force) {
             await writable.abort?.().catch(() => {});
             await dir.removeEntry(name).catch(() => {});
             liveFiles.delete(name);
+            unlock();
           },
         };
       }
     } catch {
       /* fall back to memory */
+    }
+    if (name) {
+      liveFiles.delete(name);
+      unlock();
     }
   }
   const target = new BufferTarget();
