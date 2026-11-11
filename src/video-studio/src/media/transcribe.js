@@ -204,13 +204,23 @@ export function speechRegions(samples, sampleRate, { minPause = 0.3, minLength =
 
 // ---- Subtitle files ---------------------------------------------------------
 
-const TIME = /(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/;
+// Some SubRip writers leave out the milliseconds ("00:00:01 --> 00:00:03").
+const TIME = /(?:(\d+):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?/;
 
 function parseTime(s) {
   const m = TIME.exec(s);
   if (!m) return null;
-  const [, hh, mm, ss, frac] = m;
+  const [, hh, mm, ss, frac = '0'] = m;
   return Number(hh || 0) * 3600 + Number(mm) * 60 + Number(ss) + Number(frac.padEnd(3, '0')) / 1000;
+}
+
+/** { start, end } (seconds) of a cue timing line, or null when the line isn't one. */
+function parseTiming(line) {
+  if (!line.includes('-->')) return null;
+  const [a, b] = line.split('-->');
+  const start = parseTime(a);
+  const end = parseTime(b);
+  return start === null || end === null ? null : { start, end };
 }
 
 // Tags in cues: SubRip and WebVTT formatting, HTML left over from converted files
@@ -237,22 +247,35 @@ function cleanCueText(lines) {
 
 /** Parse SubRip (.srt) or WebVTT (.vtt) text into [{ start, end, text }] (seconds). */
 export function parseSubtitles(text) {
-  const blocks = String(text || '')
+  const lines = String(text || '')
     .replace(/^﻿/, '')
     .replace(/\r\n?/g, '\n')
-    .split(/\n[ \t]*\n/);
+    .split('\n');
   const cues = [];
-  for (const block of blocks) {
-    const lines = block.split('\n');
-    const i = lines.findIndex((l) => l.includes('-->'));
-    if (i < 0) continue;
-    const [a, b] = lines[i].split('-->');
-    const start = parseTime(a);
-    const end = parseTime(b);
-    if (start === null || end === null || end <= start) continue;
-    const body = cleanCueText(lines.slice(i + 1));
-    if (body) cues.push({ start, end, text: body });
+  let cur = null; // { start, end, lines } of the cue being read
+  const close = () => {
+    if (cur && cur.end > cur.start) {
+      const body = cleanCueText(cur.lines);
+      if (body) cues.push({ start: cur.start, end: cur.end, text: body });
+    }
+    cur = null;
+  };
+  for (const line of lines) {
+    if (!line.trim()) {
+      // A blank line ends a cue; outside one it separates headers, notes and styles.
+      close();
+      continue;
+    }
+    const timing = parseTiming(line);
+    if (timing) {
+      // A timing line inside a cue: the file left out the blank line, and the
+      // line before it is the next cue's number, not text.
+      if (cur && /^\d+$/.test(cur.lines.at(-1)?.trim() || '')) cur.lines.pop();
+      close();
+      cur = { ...timing, lines: [] };
+    } else if (cur) cur.lines.push(line);
   }
+  close();
   return cues.sort((x, y) => x.start - y.start);
 }
 

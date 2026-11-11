@@ -155,6 +155,23 @@ describe('subtitle files', () => {
     expect(parseSubtitles('1\n00:00:02,000 --> 00:00:01,000\nbackwards\n\n2\nno timing\n\n3\n00:00:01,000 --> 00:00:02,000\n\n')).toEqual([]);
   });
 
+  it('reads cues when the file leaves out the blank lines between them', () => {
+    const srt = '1\n00:00:01,000 --> 00:00:02,000\nHello\n2\n00:00:03,000 --> 00:00:04,000\nWorld\nagain\n3\n00:00:05,000 --> 00:00:06,000\nEnd';
+    expect(parseSubtitles(srt)).toEqual([
+      { start: 1, end: 2, text: 'Hello' },
+      { start: 3, end: 4, text: 'World\nagain' },
+      { start: 5, end: 6, text: 'End' },
+    ]);
+  });
+
+  it('reads times without milliseconds and keeps arrows in the text', () => {
+    const srt = '1\n00:00:01 --> 00:00:03\nStep one --> step two\n\n2\n00:01:00 --> 00:01:02,5\nLater\n';
+    expect(parseSubtitles(srt)).toEqual([
+      { start: 1, end: 3, text: 'Step one --> step two' },
+      { start: 60, end: 62.5, text: 'Later' },
+    ]);
+  });
+
   it('writes SubRip that parses back', () => {
     const cues = [{ start: 0, end: 1.234, text: 'First' }, { start: 3661.5, end: 3662, text: 'Second\nline' }, { start: 4000, end: 4001, text: '  ' }];
     const srt = toSrt(cues);
