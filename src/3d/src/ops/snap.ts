@@ -60,6 +60,13 @@ export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, eleme
   const consider = (d: number, point: Vector3, kind: SnapElement) => {
     if (d <= SNAP_PX && (!best || d < best.d)) best = { d, hit: { point, kind } };
   };
+  /** whether a distance would win (checked before building its point: big meshes have many elements) */
+  const wins = (d: number) => d <= SNAP_PX && (!best || d < best.d);
+  // world → viewport pixels, one matrix per object (no allocation per vertex)
+  const cam = v.camera;
+  const viewProj = new Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+  const W = v.width,
+    H = v.height;
   const wantV = elements.includes('VERTEX'),
     wantE = elements.includes('EDGE'),
     wantM = elements.includes('EDGE_MIDPOINT'),
@@ -71,41 +78,59 @@ export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, eleme
       const P = c.mesh.positions,
         O = c.mesh.offsets,
         I = c.mesh.indices;
+      const m = new Matrix4().multiplyMatrices(viewProj, c.world).elements;
       for (let f = 0; f < O.length - 1; f++) {
-        const ctr = new Vector3();
+        let cx = 0,
+          cy = 0,
+          cz = 0;
         let skip = false;
         for (let k = O[f]; k < O[f + 1]; k++) {
           if (c.skip?.[I[k]]) skip = true;
-          ctr.x += P[I[k] * 3];
-          ctr.y += P[I[k] * 3 + 1];
-          ctr.z += P[I[k] * 3 + 2];
+          cx += P[I[k] * 3];
+          cy += P[I[k] * 3 + 1];
+          cz += P[I[k] * 3 + 2];
         }
         if (skip) continue;
-        ctr.multiplyScalar(1 / Math.max(1, O[f + 1] - O[f])).applyMatrix4(c.world);
-        const s = v.project(ctr);
-        if (s.z > 1 || s.z < -1) continue;
-        consider(Math.hypot(s.x - mouse.x, s.y - mouse.y), ctr, 'FACE_CENTER');
+        const inv = 1 / Math.max(1, O[f + 1] - O[f]);
+        cx *= inv;
+        cy *= inv;
+        cz *= inv;
+        const iw = 1 / (m[3] * cx + m[7] * cy + m[11] * cz + m[15]);
+        const z = (m[2] * cx + m[6] * cy + m[10] * cz + m[14]) * iw;
+        if (!(z <= 1 && z >= -1)) continue;
+        const x = ((m[0] * cx + m[4] * cy + m[8] * cz + m[12]) * iw * 0.5 + 0.5) * W,
+          y = (-(m[1] * cx + m[5] * cy + m[9] * cz + m[13]) * iw * 0.5 + 0.5) * H;
+        const d = Math.hypot(x - mouse.x, y - mouse.y);
+        if (wins(d)) consider(d, new Vector3(cx, cy, cz).applyMatrix4(c.world), 'FACE_CENTER');
       }
     }
   }
   if (wantV || wantE || wantM || wantP) {
-    const p = new Vector3();
     for (const c of cands) {
       const P = c.mesh.positions,
         n = P.length / 3;
+      const m = new Matrix4().multiplyMatrices(viewProj, c.world).elements;
       // project every vertex once
       const sx = new Float32Array(n),
         sy = new Float32Array(n),
         ok = new Uint8Array(n);
       for (let i = 0; i < n; i++) {
         if (c.skip?.[i]) continue;
-        p.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(c.world);
-        const s = v.project(p);
-        if (s.z > 1 || s.z < -1) continue;
-        sx[i] = s.x;
-        sy[i] = s.y;
+        const px = P[i * 3],
+          py = P[i * 3 + 1],
+          pz = P[i * 3 + 2];
+        const iw = 1 / (m[3] * px + m[7] * py + m[11] * pz + m[15]);
+        const z = (m[2] * px + m[6] * py + m[10] * pz + m[14]) * iw;
+        if (!(z <= 1 && z >= -1)) continue;
+        const x = ((m[0] * px + m[4] * py + m[8] * pz + m[12]) * iw * 0.5 + 0.5) * W,
+          y = (-(m[1] * px + m[5] * py + m[9] * pz + m[13]) * iw * 0.5 + 0.5) * H;
+        sx[i] = x;
+        sy[i] = y;
         ok[i] = 1;
-        if (wantV) consider(Math.hypot(s.x - mouse.x, s.y - mouse.y), p.clone(), 'VERTEX');
+        if (wantV) {
+          const d = Math.hypot(x - mouse.x, y - mouse.y);
+          if (wins(d)) consider(d, new Vector3(px, py, pz).applyMatrix4(c.world), 'VERTEX');
+        }
       }
       if (!wantE && !wantM && !wantP) continue;
       const O = c.mesh.offsets,
@@ -119,6 +144,12 @@ export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, eleme
             ay = sy[a],
             bx = sx[b],
             by = sy[b];
+          // the edge's distance on screen first: most edges are far from the pointer
+          const ex = bx - ax,
+            ey = by - ay,
+            el2 = ex * ex + ey * ey || 1;
+          const et = Math.max(0, Math.min(1, ((mouse.x - ax) * ex + (mouse.y - ay) * ey) / el2));
+          if (Math.hypot(ax + ex * et - mouse.x, ay + ey * et - mouse.y) > SNAP_PX + 0.5) continue;
           const wa = new Vector3(P[a * 3], P[a * 3 + 1], P[a * 3 + 2]).applyMatrix4(c.world),
             wb = new Vector3(P[b * 3], P[b * 3 + 1], P[b * 3 + 2]).applyMatrix4(c.world);
           if (wantM) consider(Math.hypot((ax + bx) / 2 - mouse.x, (ay + by) / 2 - mouse.y) - 0.5, wa.clone().lerp(wb, 0.5), 'EDGE_MIDPOINT');

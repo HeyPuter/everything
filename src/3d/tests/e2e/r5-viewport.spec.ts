@@ -310,3 +310,30 @@ test('geometry still shown by linked duplicates survives delete, undo, redo and 
   expect(bad.counts).toEqual(['duplicate:2', 'delete one:1', 'undo:2', 'redo:1', 'undo again:2', 'new linked scene:2', 'switch back:2', 'switch again:2', 'delete scene:2']);
   await expectNoErrors(errors);
 });
+
+test('snapping finds the vertex, edge midpoint and face centre under the pointer', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async () => {
+    const { activeView3D } = await import('/src/editors/view3d/view3d.ts' as string);
+    const { findSnapTarget } = await import('/src/ops/snap.ts' as string);
+    const { Vector3 } = await import('/node_modules/.vite/deps/three.js' as string);
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'DESELECT' });
+    a.flush();
+    const v = activeView3D();
+    v.nav.update();
+    const near = (p: number[], els: string[]) => {
+      const s = v.project(new Vector3(...p));
+      const h = findSnapTarget(v, { x: s.x + 3, y: s.y - 2 }, els);
+      return h ? [h.kind, ...h.point.toArray().map((x: number) => +x.toFixed(4) + 0)] : null;
+    };
+    // the default cube spans -1..1
+    return [near([1, -1, 1], ['VERTEX']), near([1, -1, 0], ['EDGE_MIDPOINT']), near([0, -1, 0], ['FACE_CENTER']), near([1, -1, 0.5], ['EDGE'])];
+  });
+  expect(r[0]).toEqual(['VERTEX', 1, -1, 1]);
+  expect(r[1]).toEqual(['EDGE_MIDPOINT', 1, -1, 0]);
+  expect(r[2]).toEqual(['FACE_CENTER', 0, -1, 0]);
+  expect(r[3]?.[0]).toBe('EDGE');
+  expect((r[3] as number[])[1]).toBeCloseTo(1, 2);
+  await expectNoErrors(errors);
+});
