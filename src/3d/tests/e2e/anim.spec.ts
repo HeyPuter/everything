@@ -556,3 +556,29 @@ test('graph editor: a modifier frame range stays ordered and its blends fit insi
   expect((await mod()).slice(0, 2)).toEqual([10, 10]);
   await expectNoErrors(errors);
 });
+
+test('NLA: split strips do not share their modifiers', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'NLA');
+  await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { pushDown } = await import('/src/animation/actionops.ts');
+    const strip = pushDown(app.doc, app.activeObject);
+    strip.select = true;
+    strip.modifiers = [{ type: 'NOISE', strength: 1 }];
+    app.setFrame(Math.round((strip.frame_start + strip.frame_end) / 2));
+    app.pushUndo('nla setup');
+    app.changed('doc');
+  });
+  await page.waitForTimeout(200);
+  const box = (await area(page, 'NLA').locator('.anim-main canvas').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('y');
+  const r = await page.evaluate(() => {
+    const strips = (window as any).app.activeObject.animation_data.nla_tracks[0].strips; // eslint-disable-line @typescript-eslint/no-explicit-any
+    strips[1].modifiers[0].strength = 5;
+    return [strips.length, strips[0].modifiers[0].strength];
+  });
+  expect(r).toEqual([2, 1]);
+  await expectNoErrors(errors);
+});
