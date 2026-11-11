@@ -228,6 +228,18 @@ export const CONVERT_PRESETS = [
 export function convertChannelData(channels, count, { left = 0.5, right = 0.5 } = {}) {
   if (channels.length === count) return channels;
   const n = channels[0]?.length || 0;
+  if (count === 2 && channels.length > 2) {
+    // Surround down to stereo: 5.1 (L R C LFE Ls Rs) folds centre and surrounds in at -3 dB,
+    // leaving out the LFE; other layouts keep their front pair.
+    if (channels.length !== 6) return channels.slice(0, 2);
+    const [L, R, C, , Ls, Rs] = channels;
+    const out = [new Float32Array(n), new Float32Array(n)];
+    for (let i = 0; i < n; i++) {
+      out[0][i] = L[i] + Math.SQRT1_2 * (C[i] + Ls[i]);
+      out[1][i] = R[i] + Math.SQRT1_2 * (C[i] + Rs[i]);
+    }
+    return out;
+  }
   if (count === 1) {
     // Down to mono: left and right weighted by the mix levels.
     const out = new Float32Array(n);
@@ -286,7 +298,8 @@ export function convertState(state, target, resample) {
   return { ...state, sampleRate: rate, channels: data.map((c) => Channel.fromSamples(c)), markers, bitDepth: bits };
 }
 
-const describe = (rate, ch, bits) => `${rate} Hz, ${ch === 1 ? 'Mono' : 'Stereo'}, ${bits === 32 ? '32-bit Float' : `${bits}-bit`}`;
+const layoutName = (ch) => (ch === 1 ? 'Mono' : ch === 2 ? 'Stereo' : ch === 6 ? '5.1' : `${ch} Channels`);
+const describe = (rate, ch, bits) => `${rate} Hz, ${layoutName(ch)}, ${bits === 32 ? '32-bit Float' : `${bits}-bit`}`;
 
 export async function convertSampleTypeDialog(app, doc) {
   const userPresets = () => (Array.isArray(app.prefs.get('convertPresets')) ? app.prefs.get('convertPresets') : []);
@@ -297,8 +310,9 @@ export async function convertSampleTypeDialog(app, doc) {
   const listId = `rates-${Math.random().toString(36).slice(2)}`;
   const rate = h('input.input.num.dlg-rate', { type: 'number', min: 1000, max: 384000, step: 1, value: doc.sampleRate, list: listId, 'aria-label': 'Sample rate (Hz)' });
   const rates = h('datalist', { id: listId }, COMMON_RATES.map((r) => h('option', { value: r })));
-  const channels = h('select.select', { 'aria-label': 'Channels' }, h('option', { value: '1' }, 'Mono'), h('option', { value: '2' }, 'Stereo'));
-  channels.value = String(Math.min(2, doc.channelCount));
+  // A surround file keeps its channels unless the conversion asks for mono or stereo.
+  const channels = h('select.select', { 'aria-label': 'Channels' }, h('option', { value: '1' }, 'Mono'), h('option', { value: '2' }, 'Stereo'), doc.channelCount > 2 ? h('option', { value: String(doc.channelCount) }, layoutName(doc.channelCount)) : null);
+  channels.value = String(doc.channelCount);
   const left = h('input.input.num', { type: 'number', min: 0, max: 200, step: 1, 'aria-label': 'Left mix (percent)' });
   const right = h('input.input.num', { type: 'number', min: 0, max: 200, step: 1, 'aria-label': 'Right mix (percent)' });
   const mixNote = h('p.dlg-note');
@@ -344,7 +358,7 @@ export async function convertSampleTypeDialog(app, doc) {
   const current = () => ({ rate: Math.round(Number(rate.value)), channels: Number(channels.value), bits: Number(bits.value) });
   const matches = (p) => {
     const c = current();
-    return (p.rate ?? doc.sampleRate) === c.rate && (p.channels ?? Math.min(2, doc.channelCount)) === c.channels && (p.bits ?? srcBits) === c.bits;
+    return (p.rate ?? doc.sampleRate) === c.rate && (p.channels ?? doc.channelCount) === c.channels && (p.bits ?? srcBits) === c.bits;
   };
   const syncPresets = () => {
     const list = all();
@@ -364,7 +378,7 @@ export async function convertSampleTypeDialog(app, doc) {
     const p = all()[Number(presetSel.value)];
     if (!p) return;
     rate.value = p.rate ?? doc.sampleRate;
-    channels.value = String(p.channels ?? Math.min(2, doc.channelCount));
+    channels.value = String(p.channels ?? doc.channelCount);
     bits.value = String(p.bits ?? srcBits);
     if (p.dither) dither.value = p.dither;
     if (p.quality != null) quality.value = qualityNum.value = p.quality;

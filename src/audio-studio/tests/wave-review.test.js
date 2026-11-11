@@ -202,3 +202,25 @@ describe('time ruler at sample-level zoom', () => {
     expect(rulerLabel(1.5, 1)).toBe('1.5');
   });
 });
+
+describe('Convert Sample Type with surround files', () => {
+  it('keeps every channel of a 5.1 file unless asked for mono or stereo', async () => {
+    const { app, doc } = await makeView({ frames: 100, channels: 6 });
+    const { convertSampleTypeDialog } = await import('../src/commands/edit-dialogs.js');
+    const p = convertSampleTypeDialog(app, doc);
+    const dlg = document.querySelector('.dialog');
+    expect(dlg.querySelector('select[aria-label="Channels"]').value).toBe('6');
+    expect(dlg.textContent).toContain('5.1');
+    dlg.querySelector('.btn.primary').click();
+    const state = await p;
+    expect(state.channels.length).toBe(6);
+  });
+
+  it('folds a 5.1 file down to stereo with the centre and surrounds', async () => {
+    const { convertChannelData } = await import('../src/commands/edit-dialogs.js');
+    const one = (v) => Float32Array.of(v);
+    const [l, r] = convertChannelData([one(1), one(2), one(3), one(100), one(4), one(5)], 2);
+    expect(l[0]).toBeCloseTo(1 + Math.SQRT1_2 * (3 + 4));
+    expect(r[0]).toBeCloseTo(2 + Math.SQRT1_2 * (3 + 5));
+  });
+});
