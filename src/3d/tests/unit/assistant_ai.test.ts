@@ -132,4 +132,23 @@ describe('Puter AI requests', () => {
     expect(signal.aborted).toBe(true);
     expect(ended).toBe(true);
   });
+
+  it('says when the account ran out of credits instead of passing a cut-off reply as finished', async () => {
+    // The usage line Puter's driver ends such a stream with (AIChatStream.end with metadata.usage_limited).
+    stubPuter((async function* () {
+      yield { type: 'text', text: 'I will build the ' };
+      yield { type: 'usage', usage: { output_tokens: 9 }, stopReason: 'max_tokens', finish_reason: 'length', metadata: { usage_limited: true } };
+    })());
+    const parts: unknown[] = [];
+    const err = await (async () => {
+      try {
+        for await (const p of puterChat([{ role: 'user', content: 'hi' }], { maxTokens: 16000 })) parts.push(p);
+      } catch (e) {
+        return e as Error & { code?: string };
+      }
+    })();
+    expect(parts).toEqual([{ type: 'text', text: 'I will build the ' }]);
+    expect(err?.message).toMatch(/ran out of AI credits/);
+    expect(err?.code).toBe('insufficient_funds');
+  });
 });

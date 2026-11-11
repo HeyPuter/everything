@@ -195,7 +195,14 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
         if (!part) continue;
         if (part.type === 'error' || (part.success === false && part.error)) throw aiError(part.error ?? part);
         if (part.type === 'tool_use') yield { type: 'tool', id: String(part.id ?? newCallId()), name: String(part.name ?? ''), input: toolInput(part.input) };
-        else if (part.type === 'usage') { if (reachedLimit(part.usage as never, opts.maxTokens)) yield { type: 'cut' }; }
+        else if (part.type === 'usage') {
+          // Puter ends a reply the account's credits ran out during like one that reached the length limit,
+          // marked metadata.usage_limited (ChatCompletionDriver ranOutOfFunds); the reply did not finish.
+          if ((part.metadata as { usage_limited?: boolean } | undefined)?.usage_limited) {
+            throw Object.assign(new Error('Your Puter account ran out of AI credits, so the reply stopped.'), { code: 'insufficient_funds' });
+          }
+          if (reachedLimit(part.usage as never, opts.maxTokens)) yield { type: 'cut' };
+        }
         else if (part.type !== 'reasoning' && typeof part.text === 'string' && part.text) yield { type: 'text', text: part.text };
       }
     } catch (e) {
