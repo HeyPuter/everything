@@ -31,14 +31,42 @@ export function sniffImageType(bytes) {
   return null;
 }
 
-// Decoded to something drawImage takes, with its size. Null when the bytes do not decode, undefined where there is
+// A picture's size, read without decoding its pixels (an <img> decodes only when drawn), or null.
+async function imageSize(blob) {
+  if (typeof Image !== 'function' || !globalThis.URL?.createObjectURL) return null;
+  const url = URL.createObjectURL(blob);
+  try {
+    return await new Promise((resolve) => {
+      const node = new Image();
+      const timer = setTimeout(() => resolve(null), DECODE_MS);
+      node.onload = () => {
+        clearTimeout(timer);
+        resolve(node.naturalWidth > 0 && node.naturalHeight > 0 ? { width: node.naturalWidth, height: node.naturalHeight } : null);
+      };
+      node.onerror = () => {
+        clearTimeout(timer);
+        resolve(null);
+      };
+      node.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Decoded to something drawImage takes, with the picture's own size. A picture larger than maxEdge is decoded at
+// that size (with the browser's best scaling, as drawing it smaller did): a 50 megapixel photo decoded whole took
+// 200 MB at once only to be drawn 1568 pixels wide. Null when the bytes do not decode, undefined where there is
 // nothing to decode them with.
-async function decode(blob) {
+async function decode(blob, maxEdge) {
   const bitmaps = typeof createImageBitmap === 'function';
   if (bitmaps) {
+    const size = await imageSize(blob);
+    const scale = size ? Math.min(1, maxEdge / Math.max(size.width, size.height)) : 1;
+    const resize = scale < 1 ? { resizeWidth: Math.max(1, Math.round(size.width * scale)), resizeHeight: Math.max(1, Math.round(size.height * scale)), resizeQuality: 'high' } : {};
     try {
-      const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
-      return { img: bmp, width: bmp.width, height: bmp.height, release: () => bmp.close?.() };
+      const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image', ...resize });
+      return { img: bmp, width: scale < 1 ? size.width : bmp.width, height: scale < 1 ? size.height : bmp.height, release: () => bmp.close?.() };
     } catch {
       /* the <img> next */
     }
@@ -94,7 +122,7 @@ async function drawn(canvas, img, w, h, type, quality) {
  * be decoded.
  */
 export async function fitImageForVision(blob, mediaType) {
-  const decoded = await decode(blob);
+  const decoded = await decode(blob, VISION_MAX_EDGE);
   if (decoded === undefined) return VISION_TYPES.has(mediaType) && blob.size <= VISION_MAX_BYTES ? { blob, mediaType, thumb: null } : null;
   if (!decoded) return null;
   const { width, height } = decoded;
