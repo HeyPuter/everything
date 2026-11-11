@@ -112,11 +112,29 @@ export class TypeTool extends Tool {
     const ed = s.editor;
     const n = ed.doc.get(s.id);
     if (!removed && n && !n.text.length && n.kind !== 'area' && n.kind !== 'path') {
-      ed.doc.transact('Clear', () => ed.doc.remove(n.id));
+      if (!this.#takeBackCreation(s, ed.doc)) ed.doc.transact('Clear', () => ed.doc.remove(n.id));
       ed.clearSelection();
     } else if (n && select) ed.select([n.id]);
     else if (!select) ed.clearSelection();
     this.overlay();
+  }
+
+  /**
+   * New point type that ends up empty leaves no trace: when nothing but its
+   * own edits happened since this session created it, those steps and the
+   * creation are taken back instead of recording a deletion (which Undo
+   * would turn back into an invisible empty object).
+   */
+  #takeBackCreation(s, doc) {
+    const rec = s.createdRecord;
+    if (!rec || doc.tx || doc.redoStack.length) return false;
+    const k = doc.undoStack.lastIndexOf(rec);
+    if (k < 0) return false;
+    for (let i = k + 1; i < doc.undoStack.length; i++) for (const id of doc.undoStack[i].before.keys()) if (id !== s.id) return false;
+    while (doc.undoStack.length > k) doc.undo();
+    doc.redoStack.length = 0;
+    doc.emit('history');
+    return true;
   }
 
   exitToSelection() {
@@ -154,9 +172,11 @@ export class TypeTool extends Tool {
         editor.doc.remove(old.id);
       } else editor.insertDrawn(n);
     });
+    const record = editor.doc.undoStack[editor.doc.undoStack.length - 1];
     const s = this.editText(n.id, null);
     if (s) {
       s.created = true;
+      s.createdRecord = record;
       s.setSelection(0, text.length);
     }
   }

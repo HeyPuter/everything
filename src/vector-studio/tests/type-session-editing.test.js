@@ -119,4 +119,60 @@ describe('type editing session', () => {
     expect(doc.get(id).text).toBe('HelloXYZ world');
     expect(s.range()).toEqual([5, 8]);
   });
+
+  it('new point type that ends up empty leaves no object and no undo steps behind', () => {
+    const ev = (x, y) => {
+      const p = app.editor.view.toScreen(x, y);
+      return { x, y, sx: p.x, sy: p.y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', native: {} };
+    };
+    const texts = () => [...doc.nodes.values()].filter((n) => n.type === 'text');
+    const keep = add('keep');
+    const steps = doc.undoStack.length;
+    app.setTool('type');
+    for (const placeholder of [false, true]) {
+      app.prefs.set('typePlaceholder', placeholder);
+      app.tool.onPointerDown(ev(300, 300));
+      app.tool.onPointerUp(ev(300, 300));
+      const s = app.typeSession;
+      expect(texts()).toHaveLength(2);
+      // With placeholder text: delete it, type and delete again.
+      if (placeholder) {
+        key(s, 'Backspace');
+        s.insert('ab');
+        key(s, 'Backspace');
+        key(s, 'Backspace');
+      }
+      key(s, 'Escape');
+      expect(texts().map((n) => n.id)).toEqual([keep]);
+      expect(doc.undoStack.length).toBe(steps);
+      expect(doc.canRedo).toBe(false);
+      app.setTool('type');
+    }
+    // Undo still takes back what came before.
+    doc.undo();
+    expect(texts()).toHaveLength(0);
+  });
+
+  it('empty type is still deleted as an undoable step after other changes', () => {
+    const ev = (x, y) => {
+      const p = app.editor.view.toScreen(x, y);
+      return { x, y, sx: p.x, sy: p.y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', native: {} };
+    };
+    const other = add('other');
+    app.prefs.set('typePlaceholder', false);
+    app.setTool('type');
+    app.tool.onPointerDown(ev(300, 300));
+    app.tool.onPointerUp(ev(300, 300));
+    const s = app.typeSession;
+    const id = s.id;
+    s.insert('x');
+    doc.transact('Edit other', () => doc.update(other, { text: 'changed' }));
+    s.deleteBackward();
+    key(s, 'Escape');
+    expect(doc.has(id)).toBe(false);
+    expect(doc.get(other).text).toBe('changed');
+    doc.undo();
+    expect(doc.get(id).text).toBe('');
+    app.prefs.set('typePlaceholder', true);
+  });
 });
