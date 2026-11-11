@@ -73,6 +73,8 @@ export function createAssistantRunner(ctx, deps = {}) {
     const f = T.findClip(store.project, id);
     return f ? JSON.stringify(T.clipLabel(store.project, f.clip)) : 'the clip';
   };
+  /** The timeline being edited, and the compound clips opened in it. */
+  const openedAt = () => [store.project.timelineId, ...(store.nest || []).map((f) => f.id)].join('/');
   const clipsLabel = (ids) => (ids.length === 1 ? name(ids[0]) : plural(ids.length, 'clip'));
 
   /** Edit each clip of ids with fn(clip) in one store step; returns how many changed. */
@@ -364,12 +366,18 @@ export function createAssistantRunner(ctx, deps = {}) {
             // the same step after only when nothing was done or undone meanwhile.
             fold();
             const kept = entry;
+            const at = openedAt();
             try {
               r = await r;
             } finally {
               if (!kept || store.history.undoStack.at(-1) !== kept) mark = store.beginBatch();
             }
             if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
+            // What was found belongs to the timeline it was found on: silences cut from another one cut its clips.
+            if (openedAt() !== at) {
+              results.push(fail(v.name, 'another timeline was opened while it was being worked out, so nothing was changed'));
+              break;
+            }
             if (typeof r === 'function') r = r();
           }
           results.push(r);
