@@ -266,3 +266,24 @@ test('a pie menu opened at the window edge moves in, and directions still count 
   expect(await shading()).toBe('SOLID');
   await expectNoErrors(errors);
 });
+
+test('the search popup stays inside the window and keeps the highlighted result in view', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+  const errors = await openApp(page);
+  const v = (await page.locator('.area[data-editor="VIEW_3D"]').first().boundingBox())!;
+  await page.mouse.move(v.x + v.width / 2, v.y + v.height / 2);
+  await page.keyboard.press('F3');
+  await expect(page.locator('.search-popup input')).toBeFocused();
+  await page.keyboard.type('e');
+  await expect(page.locator('.search-popup .menu-item')).toHaveCount(40);
+  const box = (await page.locator('.search-popup').boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(600);
+  for (let i = 0; i < 39; i++) await page.keyboard.press('ArrowDown');
+  const hl = (await page.locator('.search-popup .menu-item.hl').boundingBox())!;
+  expect(hl.y).toBeGreaterThanOrEqual(box.y);
+  expect(hl.y + hl.height).toBeLessThanOrEqual(box.y + box.height + 1);
+  // the query field stays reachable at the top
+  await expect(page.locator('.search-popup input')).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

@@ -1323,6 +1323,15 @@ input.num-field.editing {
 .search-popup {
   width: 420px;
   max-width: calc(100vw - 8px);
+  padding-top: 0;
+}
+/* the query stays at the top while the results scroll */
+.search-popup .search-field {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-top: 0;
+  box-shadow: 0 0 0 6px var(--w-menu-back);
 }
 .search-field,
 .prompt-input {

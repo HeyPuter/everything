@@ -764,11 +764,15 @@ export function openSearch(entries: () => SearchEntry[], x = innerWidth / 2 - 20
     } else return;
     e.preventDefault();
     draw();
+    el.querySelector('.menu-item.hl')?.scrollIntoView({ block: 'nearest' });
   };
   draw();
   // keep the whole popup on screen (it is narrower than 420px in a narrow window)
   el.style.left = `${Math.max(4, Math.min(innerWidth - el.offsetWidth - 4, x))}px`;
-  el.style.top = `${Math.max(4, y)}px`;
+  // a short window moves it up; a long result list scrolls inside the window
+  const top = Math.max(4, Math.min(y, innerHeight - 240));
+  el.style.top = `${top}px`;
+  el.style.maxHeight = `${innerHeight - top - 4}px`;
   const input = el.querySelector('input') as HTMLInputElement | null;
   input?.focus();
   if (input && initial) input.setSelectionRange(initial.length, initial.length);
@@ -873,6 +877,7 @@ export function menuKey(e: KeyboardEvent): boolean {
     const next = e.key === 'ArrowDown' ? actionable[(pos + 1) % actionable.length] : actionable[(pos - 1 + actionable.length) % actionable.length];
     m.index = next;
     renderMenu(m);
+    m.el.children[next]?.scrollIntoView({ block: 'nearest' });
     return true;
   }
   if (e.key === 'ArrowRight' && m.items[m.index]?.submenu) {
