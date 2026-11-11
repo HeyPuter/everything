@@ -316,9 +316,14 @@ function flattenInstances(inst: InstancesComponent, parent: ArrayLike<number> | 
     const ref = inst.references[inst.refIndex[i]];
     if (!ref) continue;
     const local = T.subarray(i * 16, i * 16 + 16);
-    const m = parent ? mulMat(parent, local) : Float64Array.from(local);
+    const m = parent ? mulMat(parent, local) : local;
+    const matrix = (): number[] => {
+      const a = new Array<number>(16);
+      for (let k = 0; k < 16; k++) a[k] = m[k];
+      return a;
+    };
     if (ref.type === 'OBJECT' && !ref.geometry.instances) {
-      out.push({ objectId: ref.objectId, matrix: Array.from(m) });
+      out.push({ objectId: ref.objectId, matrix: matrix() });
       continue;
     }
     const g = ref.geometry;
@@ -328,9 +333,9 @@ function flattenInstances(inst: InstancesComponent, parent: ArrayLike<number> | 
         em = meshToEvalMesh(g.mesh, opts);
         refMeshCache.set(g, em);
       }
-      out.push({ mesh: em, matrix: Array.from(m) });
+      out.push({ mesh: em, matrix: matrix() });
     }
-    if (g.instances) flattenInstances(g.instances, m, out, opts, depth + 1);
+    if (g.instances) flattenInstances(g.instances, parent ? m : Float64Array.from(local), out, opts, depth + 1);
   }
 }
 

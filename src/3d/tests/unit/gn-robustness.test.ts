@@ -182,6 +182,25 @@ describe('Convex Hull', () => {
 });
 
 describe('instances', () => {
+  it('hands nested instances to the viewport with their composed transforms', async () => {
+    const { geometryToEvalMesh } = await import('../../src/geonodes/convert');
+    const t = setup();
+    const inner = node(t, 'GeometryNodeInstanceOnPoints');
+    link(t, node(t, 'GeometryNodeMeshLine', { Count: 2, Offset: [0, 0, 1] }), 'Mesh', inner, 'Points');
+    link(t, node(t, 'GeometryNodeMeshCube'), 'Mesh', inner, 'Instance');
+    const outer = node(t, 'GeometryNodeInstanceOnPoints', { Scale: [2, 2, 2] });
+    link(t, node(t, 'GeometryNodeMeshLine', { Count: 2, Offset: [5, 0, 0] }), 'Mesh', outer, 'Points');
+    link(t, inner, 'Instances', outer, 'Instance');
+    const list = geometryToEvalMesh(run(t, outer, 'Instances').geometry).instances!;
+    expect(list.map((it) => [it.matrix[0], it.matrix[12], it.matrix[14]])).toEqual([
+      [2, 0, 0],
+      [2, 0, 2],
+      [2, 5, 0],
+      [2, 5, 2],
+    ]);
+    expect(list.every((it) => Array.isArray(it.matrix) && it.matrix.length === 16)).toBe(true);
+  });
+
   it('Realize Instances keeps nested instances below the depth and volumes', () => {
     const t = setup();
     const inner = node(t, 'GeometryNodeInstanceOnPoints');
