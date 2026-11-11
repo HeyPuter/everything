@@ -43,9 +43,10 @@ function fixedTables() {
 class Truncated extends Error {}
 
 class Inflater {
-  constructor(src, pos = 0) {
+  constructor(src, pos = 0, limit = Infinity) {
     this.src = src;
     this.pos = pos;
+    this.limit = limit;
     this.bit = 0;
     this.nbits = 0;
     this.out = new Uint8Array(Math.max(1024, src.length * 4));
@@ -87,8 +88,11 @@ class Inflater {
 
   grow(n) {
     if (this.len + n <= this.out.length) return;
+    // Output past the limit (a decompression bomb) ends the data like a truncated stream.
+    if (this.len + n > this.limit) throw new Truncated();
     let size = this.out.length * 2;
     while (size < this.len + n) size *= 2;
+    size = Math.min(size, this.limit);
     const next = new Uint8Array(size);
     next.set(this.out.subarray(0, this.len));
     this.out = next;
@@ -177,22 +181,22 @@ class Inflater {
   }
 }
 
-/** Decode raw DEFLATE data. */
-export function inflateRaw(bytes) {
-  return new Inflater(bytes).run();
+/** Decode raw DEFLATE data, keeping at most `limit` bytes of output. */
+export function inflateRaw(bytes, limit = Infinity) {
+  return new Inflater(bytes, 0, limit).run();
 }
 
 /**
  * Decode a zlib stream (header optional: raw DEFLATE data is accepted too,
- * as some writers omit it).
+ * as some writers omit it), keeping at most `limit` bytes of output.
  */
-export function inflate(bytes) {
+export function inflate(bytes, limit = Infinity) {
   if (bytes.length >= 2) {
     const cmf = bytes[0];
     const flg = bytes[1];
-    if ((cmf & 0x0f) === 8 && ((cmf << 8) | flg) % 31 === 0) return new Inflater(bytes, flg & 0x20 ? 6 : 2).run();
+    if ((cmf & 0x0f) === 8 && ((cmf << 8) | flg) % 31 === 0) return new Inflater(bytes, flg & 0x20 ? 6 : 2, limit).run();
   }
-  return inflateRaw(bytes);
+  return inflateRaw(bytes, limit);
 }
 
 /** Decode a gzip member. */

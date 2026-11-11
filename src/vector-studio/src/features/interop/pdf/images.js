@@ -101,7 +101,7 @@ function jpxCodec(decode) {
  * or { image: name } for data left encoded (JPEG) and unsupported codecs.
  */
 function samplesOf(stream, ctx) {
-  const r = decodeStream(stream);
+  const r = decodeStream(stream, { limit: ctx.limit });
   if (!r.image || r.image === 'DCTDecode') return r.image ? { image: r.image, bytes: r.bytes } : { bytes: r.bytes };
   const codec = codecs.get(r.image);
   if (!codec) return { image: r.image };
@@ -123,6 +123,25 @@ export function inlineImageDict(dict) {
     out.set(ABBREV[k] || k, v);
   }
   return out;
+}
+
+/**
+ * The most bytes an image's filters need to produce: its samples, a
+ * predictor byte per row and some slack (a cap against decompression bombs).
+ */
+function sampleLimit(xref, dict, resources, width, height) {
+  let comps = 4;
+  if (dict.get('ImageMask') === true) comps = 1;
+  else if (dict.get('ColorSpace')) {
+    try {
+      comps = parseColorSpace(xref, dict.get('ColorSpace'), resources).n || 4;
+    } catch {
+      comps = 4;
+    }
+  }
+  const bpc = Math.min(32, Math.max(1, dict.num('BitsPerComponent', 8) || 8));
+  const bytes = (Math.ceil((width * comps * bpc) / 8) + 1) * height;
+  return bytes + Math.floor(bytes / 16) + 65536;
 }
 
 /** Bits to sample values (0..2^bpc-1) for `count` samples per row. */
@@ -190,7 +209,7 @@ function softMaskGray(xref, smask) {
   const w = d.num('Width', 0);
   const h = d.num('Height', 0);
   if (!imageSizeOk(w, h)) return null;
-  const r = samplesOf(smask, { width: w, height: h });
+  const r = samplesOf(smask, { width: w, height: h, limit: sampleLimit(xref, d, null, w, h) });
   if (r.image) return null;
   const bpc = r.bpc || d.num('BitsPerComponent', 8) || 8;
   const s = readSamples(r.bytes, w, h, r.comps || 1, bpc).filter((_, i) => !r.comps || i % r.comps === 0);
@@ -221,7 +240,7 @@ export function decodeImage(xref, stream, resources, { fillRGB = [0, 0, 0] } = {
   const st = stream instanceof PDFStream ? stream : new PDFStream(dict, stream.raw);
   const missing = missingCodecs(st);
   if (missing.length) return { kind: 'deferred', width, height, codecs: missing };
-  const r = samplesOf(st, { width, height });
+  const r = samplesOf(st, { width, height, limit: sampleLimit(xref, dict, resources, width, height) });
   const imageMask = dict.get('ImageMask') === true;
   if (r.image === 'DCTDecode' && !imageMask) {
     const smask = dict.get('SMask');
@@ -334,9 +353,10 @@ export function decodeImage(xref, stream, resources, { fillRGB = [0, 0, 0] } = {
       for (let k = 0; k < n && inside; k++) inside = samples[p + k] >= mask[2 * k] && samples[p + k] <= mask[2 * k + 1];
       if (inside) out[i * 4 + 3] = 0;
     }
-  } else if (mask instanceof PDFStream) {
+  } else if (mask instanceof PDFStream && imageSizeOk(mask.dict.num('Width', 0), mask.dict.num('Height', 0))) {
     try {
-      const mr = samplesOf(mask, { width: mask.dict.num('Width', 0), height: mask.dict.num('Height', 0) });
+      const [mw, mh] = [mask.dict.num('Width', 0), mask.dict.num('Height', 0)];
+      const mr = samplesOf(mask, { width: mw, height: mh, limit: sampleLimit(xref, mask.dict, null, mw, mh) });
       if (!mr.image) {
         const { w, h, a } = stencilAlpha(mask.dict, mr.bytes, mr.width ? { w: mr.width, h: mr.height } : null);
         const al = resample(a, w, h, width, height);

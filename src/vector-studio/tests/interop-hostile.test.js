@@ -4,6 +4,10 @@ import { describe, it, expect } from 'vitest';
 import { onePage, leaves, enc } from './interop-helpers.js';
 import { pdfToDocument } from '../src/features/interop/pdf/import.js';
 import { decodeCCITT } from '../src/features/interop/codec/ccitt.js';
+import { inflate } from '../src/features/interop/codec/zlib.js';
+import { decodeStream, lzw } from '../src/features/interop/pdf/filters.js';
+import { PDFStream, PDFDict, Name } from '../src/features/interop/pdf/primitives.js';
+import { deflateSync } from 'node:zlib';
 
 const open = (bytes) => pdfToDocument(bytes, { families: ['Inter'] });
 
@@ -177,5 +181,38 @@ describe('Raster files with extreme sizes', () => {
   it('a truncated file is reported as damaged', async () => {
     const { decodeRaster } = await import('../src/features/interop/codec/raster.js');
     expect(() => decodeRaster(new Uint8Array([0x49, 0x49, 42, 0, 8, 0, 0, 0, 32, 0]))).toThrow('The TIFF file is damaged or incomplete.');
+  });
+});
+
+describe('PDF decompression bombs', () => {
+  const zeros = deflateSync(Buffer.alloc(8 << 20));
+  const stream = (filter, raw) => {
+    const d = new PDFDict(null);
+    d.set('Filter', Name.get(filter));
+    return new PDFStream(d, new Uint8Array(raw));
+  };
+
+  it('each filter stops at the output limit', () => {
+    expect(inflate(new Uint8Array(zeros)).length).toBe(8 << 20);
+    expect(inflate(new Uint8Array(zeros), 100000).length).toBeLessThanOrEqual(100000);
+    expect(decodeStream(stream('FlateDecode', zeros), { limit: 100000 }).bytes.length).toBeLessThanOrEqual(100000);
+    // RunLength: 2000 runs of 128 bytes.
+    const rl = new Uint8Array(4000).map((_, i) => (i % 2 ? 7 : 0x81));
+    expect(decodeStream(stream('RunLengthDecode', rl)).bytes.length).toBe(256000);
+    expect(decodeStream(stream('RunLengthDecode', rl), { limit: 1000 }).bytes.length).toBeLessThanOrEqual(1000);
+    const zeroCodes = lzw(new Uint8Array(4000), 1);
+    expect(lzw(new Uint8Array(4000), 1, 500).length).toBeLessThanOrEqual(500);
+    expect(zeroCodes.length).toBeGreaterThan(500);
+  });
+
+  it('an image keeps only the samples it needs from a bomb', async () => {
+    const doc = await open(
+      onePage('q 10 0 0 10 0 0 cm /I Do Q', {
+        resources: '<< /XObject << /I 5 0 R >> >>',
+        extra: [{ dict: '<< /Type /XObject /Subtype /Image /Width 10 /Height 10 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode >>', stream: new Uint8Array(zeros) }],
+      }),
+    );
+    expect(leaves(doc).map((n) => n.type)).toEqual(['image']);
+    expect(doc.assets.size).toBe(1);
   });
 });
