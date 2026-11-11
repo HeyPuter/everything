@@ -19,6 +19,7 @@ import {
 } from '../src/effects/favorites.js';
 import { generateNoiseCommand, NOISE_DEF } from '../src/effects/generate-ui.js';
 import { savePreset, userPresets } from '../src/effects/presets.js';
+import { levelMeter } from '../src/effects/meters-ui.js';
 
 const pointer = (type, x, y) =>
   new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
@@ -525,5 +526,28 @@ describe('effect dialog tabs', () => {
     expect(pages.map((p) => p.hidden)).toEqual([true, false]);
     [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
     await done;
+  });
+});
+
+describe('effect dialog meters', () => {
+  it('return to rest when the readings stop', () => {
+    vi.useFakeTimers();
+    try {
+      const gr = levelMeter({ label: 'Reduction', kind: 'gr', min: -24 });
+      const gate = levelMeter({ label: 'Open', kind: 'gate' });
+      for (let i = 0; i < 5; i++) {
+        gr.set(-8);
+        gate.set(1);
+        vi.advanceTimersByTime(66);
+      }
+      expect(gr.el.querySelector('.fx-lm-value').textContent).toBe('-8.0');
+      expect(gate.el.getAttribute('aria-valuenow')).toBe('1');
+      // Playback stopped: no more readings.
+      vi.advanceTimersByTime(1000);
+      expect(gr.el.querySelector('.fx-lm-value').textContent).toBe('0.0');
+      expect(gate.el.getAttribute('aria-valuenow')).toBe('0');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
