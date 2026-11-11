@@ -95,6 +95,7 @@ export class Movie {
   /** last time a caller asked for this movie (getMovie) */
   lastUsed = performance.now();
   error: string | null = null;
+  private disposed = false;
 
   constructor(bytes: Uint8Array, mime: string) {
     this.url = URL.createObjectURL(blobOf(bytes, mime));
@@ -142,6 +143,8 @@ export class Movie {
       const again = this.cache.get(key);
       if (again) return again.bmp;
       const info = await this.info;
+      // released (its strip was deleted): no element to seek any more
+      if (this.disposed) return null;
       const v = this.video;
       if (!v.paused) v.pause();
       const t = Math.max(0, Math.min(time, Math.max(0, info.duration - 1e-3)));
@@ -213,6 +216,7 @@ export class Movie {
 
   /** Free the frame cache, the element's decoder and the object URL (the movie is unusable after). */
   dispose() {
+    this.disposed = true;
     this.clearCache();
     const v = this.video;
     v.pause();
