@@ -183,6 +183,24 @@ describe('multitrack view', () => {
     expect([...doc.selectedClips]).toEqual([later.id]);
   });
 
+  it('drags a clip down past a hidden track onto the row under the pointer', () => {
+    const { view, doc, clip, app } = ctx;
+    app.prefs.set('snapping', false);
+    doc.apply('Add Track', S.addTrack(doc.state, S.createTrack({ name: 'Track 4' })));
+    const [, t2, t3] = doc.state.tracks.map((t) => t.id);
+    doc.amendView((st) => S.updateTrack(st, t2, { hidden: true }));
+    view.syncHeaders();
+    view.surface.setPointerCapture = () => {};
+    const pointer = (type, x, y) => view.surface.dispatchEvent(Object.assign(new Event(type, { bubbles: true }), { clientX: x, clientY: y, button: 0, pointerId: 1, pointerType: 'mouse' }));
+    const r = view.clipRects().find((q) => q.clip.id === clip.id);
+    const target = view.rowOf(t3);
+    pointer('pointerdown', 200, r.y + 60);
+    pointer('pointermove', 210, r.y + 60);
+    pointer('pointermove', 200, target.top + 60);
+    pointer('pointerup', 200, target.top + 60);
+    expect(S.findClip(doc.state, clip.id)).toMatchObject({ trackId: t3, start: clip.start });
+  });
+
   it('snaps to clip edges and the playhead within eight pixels', () => {
     const { view, app } = ctx;
     app.prefs.set('snap', { ruler: false, markers: true, clips: true });

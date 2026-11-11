@@ -344,25 +344,27 @@ export function audioTracks(state) {
 }
 
 /**
- * Moves clips by `dt` frames and `dTrack` audio-track positions. Locked clips
- * stay. The move is clamped so no clip starts before 0 or leaves the audio tracks.
+ * Moves clips by `dt` frames and `dTrack` positions among the shown (not
+ * hidden) audio tracks. Locked clips stay, and clips on hidden tracks only move
+ * in time. The move is clamped so no clip starts before 0 or leaves the shown audio tracks.
  */
 export function moveClips(state, ids, dt, dTrack = 0, { copy = false } = {}) {
   const set = new Set(ids);
   const moving = state.clips.filter((c) => set.has(c.id) && !c.locked);
   if (!moving.length || (!dt && !dTrack && !copy)) return state;
-  const audio = audioTracks(state);
+  // Clips never land on hidden tracks, where they could not be seen.
+  const audio = audioTracks(state).filter((t) => !t.hidden);
   const index = new Map(audio.map((t, i) => [t.id, i]));
   const minStart = Math.min(...moving.map((c) => c.start));
   dt = Math.max(-minStart, Math.round(dt));
-  const idx = moving.map((c) => index.get(c.trackId) ?? 0);
-  dTrack = Math.max(-Math.min(...idx), Math.min(audio.length - 1 - Math.max(...idx), dTrack));
+  const idx = moving.filter((c) => index.has(c.trackId)).map((c) => index.get(c.trackId));
+  dTrack = idx.length ? Math.max(-Math.min(...idx), Math.min(audio.length - 1 - Math.max(...idx), dTrack)) : 0;
   // Moved and copied clips come to the front, as the clip you just placed should.
   const z = Math.max(0, ...state.clips.map((c) => c.z)) + 1;
   const moved = new Map();
   for (const c of moving) {
-    const ti = (index.get(c.trackId) ?? 0) + dTrack;
-    moved.set(c.id, { start: c.start + dt, trackId: audio[ti]?.id ?? c.trackId, z });
+    const i = index.get(c.trackId);
+    moved.set(c.id, { start: c.start + dt, trackId: i === undefined ? c.trackId : audio[i + dTrack].id, z });
   }
   if (copy) {
     // Copies keep their group relations among themselves.

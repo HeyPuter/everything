@@ -1543,8 +1543,9 @@ export class MultitrackView {
     this.drag = { ...base, kind: 'move', ids, lead: c, rowIndex: this.#audioIndex(hit.row.id), copy: false };
   }
 
+  /** Position among the shown audio tracks (clip moves skip hidden tracks). */
   #audioIndex(trackId) {
-    return S.audioTracks(this.doc.state).findIndex((t) => t.id === trackId);
+    return S.audioTracks(this.doc.state).filter((t) => !t.hidden).findIndex((t) => t.id === trackId);
   }
 
   #dragMove(e, x, y) {

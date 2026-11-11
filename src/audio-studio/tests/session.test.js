@@ -75,6 +75,23 @@ describe('clip edits', () => {
     expect(S.findClip(s, c.id).trackId).toBe(s.tracks[2].id);
   });
 
+  it('moves clips across shown tracks only, skipping hidden ones', () => {
+    let [s, c] = withClip(base(4), { start: 50 });
+    const [t0, t1, t2, t3] = s.tracks.map((t) => t.id);
+    s = S.updateTrack(s, t1, { hidden: true });
+    s = S.updateTrack(s, t3, { hidden: true });
+    const h = S.createClip({ trackId: t1, sourceId: 'src', start: 300, length: 100 });
+    s = S.addClips(s, [h]);
+    // Down one row lands on Track 3 (Track 2 is hidden); further down is clamped there.
+    expect(S.findClip(S.moveClips(s, [c.id], 0, 1), c.id).trackId).toBe(t2);
+    expect(S.findClip(S.moveClips(s, [c.id], 0, 3), c.id).trackId).toBe(t2);
+    // A selected clip on a hidden track only moves in time.
+    const both = S.moveClips(s, [c.id, h.id], 10, 1);
+    expect([S.findClip(both, c.id).trackId, S.findClip(both, h.id).trackId, S.findClip(both, h.id).start]).toEqual([t2, t1, 310]);
+    expect(S.findClip(S.moveClips(s, [h.id], 0, 1), h.id).trackId).toBe(t1);
+    expect(S.findClip(s, c.id).trackId).toBe(t0);
+  });
+
   it('copies clips with Alt-drag semantics and leaves locked clips in place', () => {
     let [s, c] = withClip(base(2), { start: 10 });
     const copied = S.moveClips(s, [c.id], 200, 0, { copy: true });
