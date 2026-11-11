@@ -141,22 +141,32 @@ export function parseIcc(bytes: Uint8Array): Profile {
     if (t.length < 20 || sig(t.offset) !== 'XYZ ') fail(`Invalid ICC ${name} tag.`);
     return [0, 1, 2].map((i) => view.getInt32(t.offset + 8 + i * 4) / 65536) as Vec3;
   };
+  // Names are read defensively: counts and lengths in a damaged tag must
+  // neither run past it nor loop over billions of records.
+  const MAX_TEXT = 1024;
+  const latin1 = (from: number, to: number) => {
+    let s = '';
+    for (let i = from; i < Math.min(to, from + MAX_TEXT); i++) s += String.fromCharCode(bytes[i]);
+    return s;
+  };
   const text = (name: string): string | undefined => {
     const t = tags.get(name);
     if (!t) return undefined;
     const type = typeAt(name),
       o = t.offset;
     if (type === 'desc') {
+      if (t.length < 12) return undefined;
       const n = view.getUint32(o + 8);
       if (12 + n > t.length) return undefined;
-      return String.fromCharCode(...bytes.subarray(o + 12, o + 12 + n)).replace(/\0+$/, '');
+      return latin1(o + 12, o + 12 + n).replace(/\0[\s\S]*$/, '');
     }
-    if (type === 'text')
-      return String.fromCharCode(...bytes.subarray(o + 8, o + t.length)).replace(/\0[\s\S]*$/, '');
+    if (type === 'text') return latin1(o + 8, o + t.length).replace(/\0[\s\S]*$/, '');
     if (type === 'mluc') {
-      const records = view.getUint32(o + 8),
-        recSize = view.getUint32(o + 12);
-      if (!records || recSize < 12) return undefined;
+      if (t.length < 16) return undefined;
+      const recSize = view.getUint32(o + 12);
+      if (recSize < 12) return undefined;
+      const records = Math.min(view.getUint32(o + 8), Math.floor((t.length - 16) / recSize));
+      if (records < 1) return undefined;
       // Prefer English, otherwise the first record.
       let pick = 0;
       for (let i = 0; i < records; i++) if (sig(o + 16 + i * recSize).startsWith('en')) { pick = i; break; }
@@ -165,8 +175,8 @@ export function parseIcc(bytes: Uint8Array): Profile {
         off = view.getUint32(r + 8);
       if (off + len > t.length) return undefined;
       let s = '';
-      for (let i = 0; i < len; i += 2) s += String.fromCharCode(view.getUint16(o + off + i));
-      return s.replace(/\0+$/, '');
+      for (let i = 0; i + 1 < Math.min(len, MAX_TEXT * 2); i += 2) s += String.fromCharCode(view.getUint16(o + off + i));
+      return s.replace(/\0[\s\S]*$/, '');
     }
     return undefined;
   };
