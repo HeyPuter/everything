@@ -30,10 +30,41 @@ const defaults = (): ActionSet[] => [
 function step(command: string, arg?: unknown): ActionStep {
   return { command, arg, enabled: true, dialog: false };
 }
+// Action sets come from stored settings and from files people share, so they
+// are rebuilt from checked fields: identifiers end up in panel markup and are
+// split on ':' there.
+const safeId = (v: unknown) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(v);
+const name = (v: unknown, fallback: string) => (typeof v === 'string' && v.trim() ? v.slice(0, 200) : fallback);
+function readStep(v: unknown): ActionStep | undefined {
+  const s = v as Partial<ActionStep> | null;
+  if (!s || typeof s !== 'object' || typeof s.command !== 'string' || !s.command || s.command.length > 200) return undefined;
+  return { command: s.command, ...(s.arg !== undefined ? { arg: s.arg } : {}), enabled: s.enabled !== false, dialog: s.dialog === true };
+}
+/** Well-formed action sets from stored or imported data; `fresh` gives every
+ * set and action a new identifier (an imported file is a copy). */
+export function readActionSets(value: unknown, fresh: boolean): ActionSet[] {
+  if (!Array.isArray(value)) return [];
+  const id = (v: unknown) => (!fresh && safeId(v) ? (v as string) : crypto.randomUUID());
+  return value
+    .filter((v): v is Partial<ActionSet> => !!v && typeof v === 'object')
+    .map((v) => ({
+      id: id(v.id),
+      name: name(v.name, 'Set'),
+      ...(typeof v.open === 'boolean' ? { open: v.open } : {}),
+      actions: (Array.isArray(v.actions) ? (v.actions as unknown[]) : [])
+        .filter((a): a is Partial<Action> => !!a && typeof a === 'object')
+        .map((a) => ({
+          id: id(a.id),
+          name: name(a.name, 'Action'),
+          steps: (Array.isArray(a.steps) ? (a.steps as unknown[]) : []).map(readStep).filter((x): x is ActionStep => !!x),
+          ...(typeof a.key === 'string' ? { key: a.key.slice(0, 40) } : {}),
+        })),
+    }));
+}
 function load(): ActionSet[] {
   try {
     const v = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
-    if (Array.isArray(v)) return v;
+    if (Array.isArray(v)) return readActionSets(v, false);
   } catch {
     /* Optional. */
   }
@@ -171,15 +202,15 @@ const actionsPanel: Panel = {
   update: (e, el) => {
     const html = sets
       .map(
-        (s) => `<div class="action-set"><div class="action-row set ${selected.set === s.id && !selected.action ? 'selected' : ''}" data-action-row="${s.id}::"><button class="group-disclosure" data-set-toggle="${s.id}" aria-label="${s.open ? 'Collapse' : 'Expand'} ${escapeXML(s.name)}">${svg(s.open ? 'chevron-down' : 'chevron-right', 13)}</button>${svg('folder', 14)}<span>${escapeXML(s.name)}</span></div>${
+        (s) => `<div class="action-set"><div class="action-row set ${selected.set === s.id && !selected.action ? 'selected' : ''}" data-action-row="${escapeXML(s.id)}::"><button class="group-disclosure" data-set-toggle="${escapeXML(s.id)}" aria-label="${s.open ? 'Collapse' : 'Expand'} ${escapeXML(s.name)}">${svg(s.open ? 'chevron-down' : 'chevron-right', 13)}</button>${svg('folder', 14)}<span>${escapeXML(s.name)}</span></div>${
           s.open
             ? s.actions
                 .map(
-                  (a) => `<div class="action-row action ${selected.action === a.id && selected.step === undefined ? 'selected' : ''} ${recording === a ? 'recording' : ''}" data-action-row="${s.id}:${a.id}:"><span class="indent"></span>${svg('play', 12)}<span>${escapeXML(a.name)}</span><small>${a.steps.length}</small></div>${
+                  (a) => `<div class="action-row action ${selected.action === a.id && selected.step === undefined ? 'selected' : ''} ${recording === a ? 'recording' : ''}" data-action-row="${escapeXML(s.id)}:${escapeXML(a.id)}:"><span class="indent"></span>${svg('play', 12)}<span>${escapeXML(a.name)}</span><small>${a.steps.length}</small></div>${
                     selected.action === a.id
                       ? a.steps
                           .map(
-                            (st, i) => `<div class="action-row step ${selected.step === i ? 'selected' : ''}" data-action-row="${s.id}:${a.id}:${i}"><button class="step-check" data-step-toggle="${a.id}:${i}:enabled" aria-label="${st.enabled ? 'Disable' : 'Enable'} step" aria-pressed="${st.enabled}">${st.enabled ? '✓' : ''}</button><button class="step-dialog" data-step-toggle="${a.id}:${i}:dialog" aria-label="Toggle dialog" aria-pressed="${st.dialog}" title="Show dialog during playback">${st.dialog ? svg('ellipsis', 12) : ''}</button><span>${escapeXML(label(st.command))}</span></div>`,
+                            (st, i) => `<div class="action-row step ${selected.step === i ? 'selected' : ''}" data-action-row="${escapeXML(s.id)}:${escapeXML(a.id)}:${i}"><button class="step-check" data-step-toggle="${escapeXML(a.id)}:${i}:enabled" aria-label="${st.enabled ? 'Disable' : 'Enable'} step" aria-pressed="${st.enabled}">${st.enabled ? '✓' : ''}</button><button class="step-dialog" data-step-toggle="${escapeXML(a.id)}:${i}:dialog" aria-label="Toggle dialog" aria-pressed="${st.dialog}" title="Show dialog during playback">${st.dialog ? svg('ellipsis', 12) : ''}</button><span>${escapeXML(label(st.command))}</span></div>`,
                           )
                           .join('')
                       : ''
@@ -319,8 +350,10 @@ export function installActions(e: Editor) {
           try {
             const data = JSON.parse(await input.files![0].text());
             if (data?.format !== 'photo-studio-actions' || !Array.isArray(data.sets)) throw new Error('Not an actions file.');
-            for (const s of data.sets) sets.push({ ...s, id: crypto.randomUUID() });
+            const loaded = readActionSets(data.sets, true);
+            sets.push(...loaded);
             save();
+            e.message(`Loaded ${loaded.length} action set${loaded.length === 1 ? '' : 's'}.`);
             e.dock.update();
           } catch (error) {
             e.message(String(error instanceof Error ? error.message : error));

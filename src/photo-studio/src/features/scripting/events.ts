@@ -18,8 +18,8 @@ export function scriptEventsManager(e: Editor): Promise<void> {
   const targetName = (r: EventRule) => (r.kind === 'script' ? findScript(r.target)?.name : allActions().find((a) => a.action.id === r.target)?.action.name) ?? 'Missing';
   const options = (kind: 'script' | 'action') =>
     kind === 'script'
-      ? listScripts().map((s) => `<option value="${s.id}">${escapeXML(s.name)}</option>`).join('')
-      : allActions().map(({ set, action }) => `<option value="${action.id}">${escapeXML(`${set.name} › ${action.name}`)}</option>`).join('');
+      ? listScripts().map((s) => `<option value="${escapeXML(s.id)}">${escapeXML(s.name)}</option>`).join('')
+      : allActions().map(({ set, action }) => `<option value="${escapeXML(action.id)}">${escapeXML(`${set.name} › ${action.name}`)}</option>`).join('');
   dialog.innerHTML = `<form method="dialog">
     <h2>Script Events Manager</h2>
     <label class="dialog-field checkbox-field" title="Turn every rule below on or off at once">Run scripts and actions on events<input type="checkbox" name="enabled"></label>
