@@ -41,6 +41,11 @@ export class Dock extends Emitter {
 
   setLayout(tree) {
     this.tree = normalize(structuredClone(tree), this.registry) || { t: 'group', tabs: [], a: null };
+    // The editor cannot be closed, so a layout without it is damaged: give it a frame.
+    if (this.registry.has('editor') && !this.groupOf('editor')) {
+      const editor = { t: 'group', tabs: ['editor'], a: 'editor' };
+      this.tree = this.tree.t === 'group' && !this.tree.tabs.length ? editor : { t: 'row', c: [editor, this.tree], s: [3, 1] };
+    }
     this.maximized = null;
     this.render();
     this.emit('change');
@@ -494,15 +499,16 @@ function findParent(node, target) {
 /** Drops unknown panels and empty frames, merges single-child splits, fixes weights. */
 export function normalize(node, registry) {
   if (!node) return null;
+  if (typeof node !== 'object') return null;
   if (node.t === 'group') {
-    node.tabs = (node.tabs || []).filter((id, i, arr) => registry.has(id) && arr.indexOf(id) === i);
+    node.tabs = (Array.isArray(node.tabs) ? node.tabs : []).filter((id, i, arr) => registry.has(id) && arr.indexOf(id) === i);
     if (!node.tabs.length) return null;
     if (!node.tabs.includes(node.a)) node.a = node.tabs[0];
     return node;
   }
   const kids = [];
   const weights = [];
-  (node.c || []).forEach((c, i) => {
+  (Array.isArray(node.c) ? node.c : []).forEach((c, i) => {
     const n = normalize(c, registry);
     if (!n) return;
     const w = node.s?.[i] ?? 1;

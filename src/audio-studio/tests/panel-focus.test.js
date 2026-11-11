@@ -36,7 +36,9 @@ describe('Tracks panel', () => {
     const row = () => panel.el.querySelector(`.track-row[data-id="${id}"]`);
     row().click();
     expect(document.activeElement).toBe(row());
-    row().dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    row().dispatchEvent(
+      new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+    );
     expect(doc.state.tracks[1].hidden).toBe(true);
     await new Promise((r) => requestAnimationFrame(r));
     expect(row().classList.contains('hidden-track')).toBe(true);
@@ -60,7 +62,9 @@ describe('Events panel', () => {
     expect(document.activeElement.dataset.id).toBe(id);
     log.add({ type: 'error', name: 'C', message: 'three' });
     expect(document.activeElement.dataset.id).toBe(id);
-    first().dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }));
+    first().dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }),
+    );
     expect(panel.el.querySelectorAll('tr[aria-selected="true"]')).toHaveLength(3);
     expect(document.activeElement.dataset.id).toBe(id);
   });

@@ -351,10 +351,12 @@ export class App extends Emitter {
     if (this.layoutMode === 'phone') return PHONE();
     if (this.layoutMode === 'tablet') return TABLET();
     const name = this.prefs.get('workspace');
-    const saved = this.prefs.get('layouts')[name];
-    if (saved) return saved;
+    // A layout tree from storage; damaged ones (old versions, edited settings files) are skipped.
+    const valid = (n) => Boolean(n && typeof n === 'object' && (n.t === 'group' ? Array.isArray(n.tabs) : Array.isArray(n.c)));
+    const saved = this.prefs.get('layouts')?.[name];
+    if (valid(saved)) return saved;
     // Then the layout saved with "Save Changes", a custom workspace as created, or the built-in one.
-    const kept = this.prefs.get('savedLayouts')?.[name] || this.prefs.get('customWorkspaces')?.[name];
+    const kept = [this.prefs.get('savedLayouts')?.[name], this.prefs.get('customWorkspaces')?.[name]].find(valid);
     if (kept) return structuredClone(kept);
     return (WORKSPACES[name] || WORKSPACES[DEFAULT_WORKSPACE])();
   }
