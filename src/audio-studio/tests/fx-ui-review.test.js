@@ -334,6 +334,20 @@ describe('effect view layouts', () => {
     }
   });
 
+  it('wrap columns of sliders onto a second row on tablets', () => {
+    const css = readFileSync(resolve(__dirname, '../src/styles/effects.css'), 'utf8');
+    const base = css.indexOf('.fx-columns {');
+    const tablet = css.indexOf('@media (max-width: 1100px)', base);
+    const phone = css.indexOf('@media (max-width: 720px)', base);
+    // The tablet rule follows the base rule and comes before the one-column phone rule.
+    expect(base).toBeGreaterThan(-1);
+    expect(tablet).toBeGreaterThan(base);
+    expect(phone).toBeGreaterThan(tablet);
+    expect(css.slice(tablet, phone)).toMatch(
+      /\.fx-columns:has\(\.fx-scale\) \{\s*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 280px\), 1fr\)\);/,
+    );
+  });
+
   it('scroll the Generate Tones components inside their frame on narrow screens', () => {
     const css = readFileSync(resolve(__dirname, '../src/styles/effects-content.css'), 'utf8');
     const block = css.slice(css.indexOf('@media (max-width: 760px)')).split(/\n}\n/)[0];
