@@ -10,6 +10,7 @@ import { uid, newImage, newMaterial } from '../data/defaults';
 import type { DocumentData, ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
 import { encodeImage, imageCanvas, imageReady, imageTexture, primeImage, touchImage } from '../render/images';
+import { isTiled } from '../render/udim';
 import { renderContext } from '../render/context';
 import { download } from '../io/native';
 import { fileEvents } from '../io/files';
@@ -166,6 +167,7 @@ export function addPaintSlot(
 // persisting painted pixels
 
 let saving: Promise<void> = Promise.resolve();
+const TILED_MSG = 'Painting on UDIM tiled images is not supported yet';
 /** Images whose painted pixels are still being encoded into their bytes (count per image id). */
 const encoding = new Map<string, number>();
 
@@ -192,6 +194,12 @@ fileEvents.beforeSave.push(() => {
  */
 export function commitImage(img: Img, label: string | null): Promise<void> {
   const live0 = app.doc.images[img.id] ?? img;
+  // the canvas of a UDIM image is the atlas of all its tiles: storing it as the image's own
+  // (first tile's) pixels would wreck the image
+  if (isTiled(live0)) {
+    app.report('ERROR', TILED_MSG);
+    return saving;
+  }
   touchImage(live0);
   const rev = live0.revision;
   // toBlob copies the canvas pixels synchronously, so later strokes cannot leak into these bytes
@@ -287,6 +295,10 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
     return true;
   }
   img = app.doc.images[img.id];
+  if (isTiled(img)) {
+    app.report('ERROR', TILED_MSG);
+    return true;
+  }
   const canvas = imageCanvas(img);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   const W = canvas.width,
@@ -963,6 +975,7 @@ function projectImage(v: View3D, src: Img): string | null {
   const img0 = paintImage(ob);
   if (!img0) return 'No paint texture';
   const img = app.doc.images[img0.id];
+  if (isTiled(img)) return TILED_MSG;
   const canvas = imageCanvas(img);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   const W = canvas.width,

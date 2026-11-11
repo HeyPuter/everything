@@ -431,3 +431,35 @@ test.describe('right click while dragging cancels', () => {
     await expectNoErrors(errors);
   });
 });
+
+test('texture painting leaves a UDIM tiled image intact', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'SELECT' }, { invoke: false });
+    a.run('object.delete', {}, { invoke: false });
+    a.run('mesh.primitive_uv_sphere_add', { radius: 3 }, { invoke: false });
+    a.run('object.mode_set', { mode: 'TEXTURE_PAINT' }, { invoke: false });
+    a.run('paint.add_texture_paint_slot', { name: 'Paint', width: 256, height: 256 }, { invoke: false });
+    const { makeTiled, addTile } = await import('/src/render/udim.ts' as string);
+    const img = Object.values(a.doc.images as Record<string, { name: string }>).find((i) => i.name === 'Paint');
+    makeTiled(img);
+    addTile(img, 1002, { width: 256, height: 256 });
+    a.pushUndo('Tiles');
+    a.changed('doc');
+  });
+  await page.waitForTimeout(300);
+  const { x, y } = await viewportCenter(page);
+  await page.mouse.move(x - 50, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(x - 50 + i * 10, y);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const r = await ev(page, () => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const img = Object.values(a.doc.images as Record<string, { name: string; source: string; bytes: Uint8Array | null; tiles?: unknown[] }>).find((i) => i.name === 'Paint')!;
+    return { source: img.source, tiles: img.tiles?.length, bytes: img.bytes?.length ?? 0, report: a.reports[a.reports.length - 1].message };
+  });
+  expect(r).toEqual({ source: 'TILED', tiles: 2, bytes: 0, report: 'Painting on UDIM tiled images is not supported yet' });
+  await expectNoErrors(errors);
+});
