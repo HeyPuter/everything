@@ -106,6 +106,26 @@ describe('Gradient panel', () => {
     menuItem(p, 'Hide Options').run();
     expect(p.options.hidden).toBe(true);
   });
+
+  it('keeps the same stop selected when its Location moves it past another stop', async () => {
+    const { ed, add, panel } = await paintSetup();
+    const stops = [{ offset: 0, color: '#ff0000', opacity: 1 }, { offset: 0.5, color: '#00ff00', opacity: 1 }, { offset: 1, color: '#0000ff', opacity: 1 }];
+    const id = add({ fill: { type: 'linear', angle: 0, stops } });
+    ed.select([id]);
+    const p = panel('gradient');
+    paintState.setStop(0);
+    p.update();
+    const input = p.location.el.querySelector('input');
+    input.focus();
+    input.value = '75';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    input.blur();
+    expect(ed.doc.get(id).fill.stops.map((s) => s.color)).toEqual(['#00ff00', '#ff0000', '#0000ff']);
+    p.update();
+    expect(p.slider.selected).toBe(1);
+    expect(input.value).toBe('75%');
+    paintState.setStop(0);
+  });
 });
 
 describe('Freeform gradients on the canvas', () => {
