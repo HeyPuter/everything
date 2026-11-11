@@ -293,6 +293,18 @@ describe('timeline keyboard focus', () => {
   });
 });
 
+describe('spoken names', () => {
+  it('start with the text shown on the clip and the Cover button', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 2, { speed: 0.5 }), clip('image', 2, 2));
+    const { tl, node } = mountTimeline(p);
+    const shown = (el) => el.textContent.replace(/\s+/g, ' ').trim();
+    expect(shown(node(a.id))).toMatch(/^vid 00:00:02:00 0\.5x$/);
+    for (const el of tl.el.querySelectorAll('.tl-clip, .tl-cover')) expect(el.getAttribute('aria-label').startsWith(shown(el))).toBe(true);
+    tl.dispose();
+  });
+});
+
 describe('timeline lanes', () => {
   it('are named like their track headers, renamed tracks included', () => {
     const p = fixture();

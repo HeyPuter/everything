@@ -298,7 +298,7 @@ export function createTimeline(ctx) {
         actions.renameTrack(track.id);
       });
       if (track.main) {
-        const cover = h('button.tl-cover', { type: 'button', 'aria-label': 'Set thumbnail to the frame at the playhead', 'data-tip': 'Use the frame at the playhead as the project thumbnail' }, icon('pencil', 12), h('span', 'Cover'));
+        const cover = h('button.tl-cover', { type: 'button', 'aria-label': 'Cover: use the frame at the playhead as the project thumbnail', 'data-tip': 'Use the frame at the playhead as the project thumbnail' }, icon('pencil', 12), h('span', 'Cover'));
         cover.addEventListener('click', () => {
           store.update('Set thumbnail', (p) => {
             p.cover = { time: store.time };
@@ -339,9 +339,13 @@ export function createTimeline(ctx) {
     return [xToTime(left), xToTime(right)];
   }
 
-  function clipAria(clip, track) {
-    const label = T.clipLabel(store.project, clip);
-    const bits = [`${TYPE_LABEL[clip.type]}: ${label}`, `starts at ${spokenDuration(clip.start)}`, `length ${spokenDuration(clip.duration)}`];
+  /**
+   * A clip's spoken name. It starts with the text shown on the clip (name,
+   * length, badges), so speech input and screen readers match what is seen.
+   */
+  function clipAria(clip, track, e) {
+    const visible = [e.name.textContent, e.dur.textContent, e.badges.textContent].filter(Boolean).join(' ');
+    const bits = [visible, TYPE_LABEL[clip.type], `starts at ${spokenDuration(clip.start)}`, `length ${spokenDuration(clip.duration)}`];
     if (track.main) bits.push('base track');
     if (hasCurve(clip)) bits.push('speed curve');
     else if (clip.speed && clip.speed !== 1) bits.push(`speed ${clip.speed}x`);
@@ -362,7 +366,8 @@ export function createTimeline(ctx) {
       const node = h('div.tl-clip', { role: 'option', tabindex: '-1', 'data-id': clip.id },
         cv,
         cuts,
-        h('div.clip-head', h('span.clip-type', icon(iconForClip(clip), 12)), name, dur, badges),
+        // The spaces are not laid out (flex) but keep the words apart in the clip's text.
+        h('div.clip-head', h('span.clip-type', icon(iconForClip(clip), 12)), name, ' ', dur, ' ', badges),
         kf,
         h('div.clip-trim.l', { 'data-edge': 'start', 'aria-hidden': 'true' }),
         h('div.clip-trim.r', { 'data-edge': 'end', 'aria-hidden': 'true' }),
@@ -455,7 +460,7 @@ export function createTimeline(ctx) {
           if (clip.group) badges.push(h('span.badge', { title: 'Grouped' }, icon('group', 10)));
           if (clip.disabled) badges.push(h('span.badge', { title: 'Disabled' }, icon('powerOff', 10)));
           e.badges.replaceChildren(...badges);
-          e.node.setAttribute('aria-label', clipAria(clip, row.track));
+          e.node.setAttribute('aria-label', clipAria(clip, row.track, e));
         }
         if (clip.multicam || e.cutSig) renderCuts(e, clip);
         // Keyframe diamonds for the selected clip.
@@ -521,7 +526,10 @@ export function createTimeline(ctx) {
     for (const clip of multicams) {
       const e = clipEls.get(clip.id);
       const text = clipText(clip);
-      if (e && e.name.textContent !== text) e.name.textContent = text;
+      if (!e || e.name.textContent === text) continue;
+      e.name.textContent = text;
+      const track = T.findClip(store.project, clip.id)?.track;
+      if (track) e.node.setAttribute('aria-label', clipAria(clip, track, e));
     }
   }
 
