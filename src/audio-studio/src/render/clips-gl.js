@@ -70,7 +70,19 @@ export class ClipWaveRenderer {
     }
     this.ctx2d = this.gl ? null : canvas.getContext?.('2d') || null;
     this.columns = new Float32Array(0);
-    if (this.gl) this.#init();
+    if (this.gl) {
+      this.#init();
+      // Listeners go on once; a restored context only needs its resources rebuilt.
+      canvas.addEventListener('webglcontextlost', (e) => {
+        e.preventDefault();
+        this.lost = true;
+      });
+      canvas.addEventListener('webglcontextrestored', () => {
+        this.lost = false;
+        this.#init();
+        this.onRestore?.();
+      });
+    }
   }
 
   get webgl() {
@@ -104,15 +116,6 @@ export class ClipWaveRenderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.enable(gl.SCISSOR_TEST);
-    this.canvas.addEventListener('webglcontextlost', (e) => {
-      e.preventDefault();
-      this.lost = true;
-    });
-    this.canvas.addEventListener('webglcontextrestored', () => {
-      this.lost = false;
-      this.#init();
-      this.onRestore?.();
-    });
   }
 
   resize(width, height, dpr = window.devicePixelRatio || 1) {

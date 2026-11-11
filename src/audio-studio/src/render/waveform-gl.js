@@ -81,8 +81,19 @@ export class WaveformRenderer {
       this.gl = null;
     }
     this.ctx2d = null;
-    if (this.gl) this.#initGL();
-    else this.ctx2d = canvas.getContext('2d');
+    if (this.gl) {
+      this.#initGL();
+      // Listeners go on once; a restored context only needs its resources rebuilt.
+      canvas.addEventListener('webglcontextlost', (e) => {
+        e.preventDefault();
+        this.lost = true;
+      });
+      canvas.addEventListener('webglcontextrestored', () => {
+        this.lost = false;
+        this.#initGL();
+        this.onRestore?.();
+      });
+    } else this.ctx2d = canvas.getContext('2d');
     this.columns = new Float32Array(0);
   }
 
@@ -116,15 +127,6 @@ export class WaveformRenderer {
     gl.bindVertexArray(null);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    this.canvas.addEventListener('webglcontextlost', (e) => {
-      e.preventDefault();
-      this.lost = true;
-    });
-    this.canvas.addEventListener('webglcontextrestored', () => {
-      this.lost = false;
-      this.#initGL();
-      this.onRestore?.();
-    });
   }
 
   /** Matches the backing store to CSS size; returns device pixel size. */

@@ -384,3 +384,43 @@ describe('locked markers', () => {
     }
   });
 });
+
+describe('WebGL context restore', () => {
+  /** A WebGL2 stand-in: every call succeeds and returns a placeholder. */
+  function stubGL() {
+    return new Proxy(
+      {},
+      {
+        get: (t, k) => {
+          if (k in t) return t[k];
+          if (k === 'getShaderParameter' || k === 'getProgramParameter')
+            return (_, p) => (p === 'ACTIVE_UNIFORMS' ? 0 : true);
+          if (typeof k === 'string' && /^[A-Z_0-9]+$/.test(k)) return k;
+          return () => ({});
+        },
+      },
+    );
+  }
+
+  it('rebuilds resources without adding listeners each time', async () => {
+    const { WaveformRenderer } = await import('../src/render/waveform-gl.js');
+    const { ClipWaveRenderer } = await import('../src/render/clips-gl.js');
+    for (const R of [WaveformRenderer, ClipWaveRenderer]) {
+      const canvas = document.createElement('canvas');
+      canvas.getContext = () => stubGL();
+      const add = vi.spyOn(canvas, 'addEventListener');
+      const r = new R(canvas);
+      const restored = vi.fn();
+      r.onRestore = restored;
+      const listeners = add.mock.calls.length;
+      for (let i = 0; i < 3; i++) {
+        canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+        expect(r.lost).toBe(true);
+        canvas.dispatchEvent(new Event('webglcontextrestored'));
+        expect(r.lost).toBe(false);
+      }
+      expect(add.mock.calls.length).toBe(listeners);
+      expect(restored).toHaveBeenCalledTimes(3);
+    }
+  });
+});
