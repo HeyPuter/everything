@@ -304,9 +304,13 @@ export function createMenubar(app, menus) {
   let open = null;
   let openIndex = -1;
 
+  // One tab stop (roving tabindex): the menu last opened or moved to.
+  const rove = (i) => buttons.forEach((b, j) => (b.tabIndex = j === i ? 0 : -1));
+
   const openAt = (i, focus = 'first') => {
     if (open) open.close('switch');
     const btn = buttons[i];
+    rove(i);
     const r = btn.getBoundingClientRect();
     openIndex = i;
     btn.setAttribute('aria-expanded', 'true');
@@ -352,8 +356,7 @@ export function createMenubar(app, menus) {
           if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
             e.preventDefault();
             const next = (i + (e.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
-            buttons.forEach((b) => (b.tabIndex = -1));
-            buttons[next].tabIndex = 0;
+            rove(next);
             buttons[next].focus();
           } else if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();

@@ -291,4 +291,18 @@ describe('menu bar Tab', () => {
     expect(document.activeElement).toBe(objectBtn);
     expect(tab.defaultPrevented).toBe(false);
   });
+
+  it('makes the menu opened by a click the bar\'s tab stop, so Shift+Tab leaves the bar', async () => {
+    const { bootApp } = await import('./helpers.js');
+    const app = bootApp();
+    app.newDocument();
+    const buttons = [...document.querySelectorAll('.menubar-item')];
+    const objectBtn = buttons.find((b) => b.textContent === 'Object');
+    objectBtn.click();
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+    document.activeElement.dispatchEvent(tab);
+    expect(document.activeElement).toBe(objectBtn);
+    // The browser then moves to the previous tab stop: only Object is one, so that is before the bar.
+    expect(buttons.filter((b) => b.tabIndex === 0)).toEqual([objectBtn]);
+  });
 });
