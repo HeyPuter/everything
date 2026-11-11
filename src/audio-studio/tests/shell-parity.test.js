@@ -1,6 +1,6 @@
 // App shell: built-in workspaces, toolbar workspace tabs and the migration of
 // layouts saved against older built-in arrangements.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { WORKSPACES, DEFAULT_TABS, LAYOUT_VERSION } from '../src/ui/workspaces.js';
 
 const groups = (node, out = []) => {
@@ -196,5 +196,35 @@ describe('command search', () => {
     document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(document.querySelector('[role=menu]')).toBe(null);
     expect(document.activeElement).toBe(input);
+  });
+});
+
+describe('shortcuts while typing', () => {
+  it('leaves select all, clipboard and undo keys to a focused text field', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const { IS_MAC, CommandRegistry } = await import('../src/commands/registry.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    // Earlier tests' shells are still listening too, so watch every registry.
+    const ran = [];
+    const spy = vi.spyOn(CommandRegistry.prototype, 'run').mockImplementation((id) => ran.push(id));
+    const field = document.createElement('input');
+    field.type = 'text';
+    root.append(field);
+    const press = (target, key, extra = {}) => {
+      const e = new KeyboardEvent('keydown', { key, code: `Key${key.toUpperCase()}`, bubbles: true, cancelable: true, metaKey: IS_MAC, ctrlKey: !IS_MAC, ...extra });
+      target.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    for (const k of ['a', 'c', 'v', 'x', 'z', 'y']) expect(press(field, k)).toBe(false);
+    expect(press(field, 'z', { shiftKey: true })).toBe(false);
+    expect(ran).toEqual([]);
+    // Other command shortcuts (Save) still work from a field, and Select All works elsewhere.
+    expect(press(field, 's')).toBe(true);
+    expect(press(document.body, 'a')).toBe(true);
+    expect(ran).toEqual(['file.save', 'edit.selectAll']);
+    spy.mockRestore();
   });
 });

@@ -11,6 +11,7 @@ import { openFiles } from '../storage/files.js';
 import { statusParts } from './status-fields.js';
 import { tabNames } from './workspace-manager.js';
 import { TOOLS } from './tools.js';
+import { eventKey } from '../commands/registry.js';
 
 /** Actions offered by the menu beside the current workspace tab. */
 const WORKSPACE_ACTIONS = ['workspace.reset', 'workspace.saveChanges', 'workspace.saveAs', '-', 'workspace.edit'];
@@ -140,6 +141,7 @@ export function createShell(app, root) {
   dock.setLayout(app.currentLayout());
 
   // Keyboard -----------------------------------------------------------------
+  const TEXT_KEYS = /^([acvxyz]|backspace|delete|home|end|arrow(up|down|left|right))$/;
   const NAV_WIDGETS = '[role=menu], [role=listbox], [role=grid], [role=tree], [role=treegrid], [role=tablist], [role=slider], [role=radiogroup], [role=spinbutton], [role=separator], input[type=range], [data-own-keys]';
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.isComposing) return;
@@ -148,6 +150,8 @@ export function createShell(app, root) {
     if (t instanceof Element && t.closest('puter-user-menu')) return;
     const typing = t instanceof HTMLElement && (t.isContentEditable || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button'].includes(t.type)) || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT');
     if (typing && !(e.metaKey || e.ctrlKey)) return;
+    // Text editing keys (select all, clipboard, undo, caret and word moves) stay with the field.
+    if (typing && TEXT_KEYS.test(eventKey(e))) return;
     if (document.querySelector('.dialog-backdrop')) return;
     const id = app.commands.match(e);
     if (!id) return;
