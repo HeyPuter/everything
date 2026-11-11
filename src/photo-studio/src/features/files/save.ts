@@ -65,6 +65,12 @@ export async function downloadProject(e: Editor) {
   const name = projectName(s.fileName?.replace(/\.[^.]+$/, '') || doc.name);
   const blob = await serialize(doc, s.assets);
   download(blob, name);
+  // An embedded object's contents tab is saved by updating its parent; a
+  // download is only a copy, so closing the tab still offers that save.
+  if (s.saveHandler) {
+    e.message(`Downloaded a copy as ${name}. Save to update the embedded object.`);
+    return;
+  }
   s.saved = doc;
   for (const hook of e.saveHooks) hook(s, blob);
   e.update();
