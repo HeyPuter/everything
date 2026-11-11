@@ -19,6 +19,9 @@ type Drag =
   | { kind: 'resize'; handle: string; start: Point; box: Box }
   | { kind: 'straighten'; start: Point; end: Point };
 let box: Box | undefined;
+// The document (session and size) the box was laid out on: undo, redo or a
+// switch to another document puts a fresh box on the canvas shown.
+let boxDoc: { session: unknown; width: number; height: number } | undefined;
 let drag: Drag | undefined;
 let straighten = false;
 const RAD = Math.PI / 180;
@@ -68,6 +71,18 @@ function ratioOf(e: Editor): number | undefined {
   return undefined;
 }
 const fullBox = (e: Editor): Box => ({ cx: e.doc.width / 2, cy: e.doc.height / 2, w: e.doc.width, h: e.doc.height, angle: 0 });
+function resetBox(e: Editor): Box {
+  boxDoc = { session: e.session, width: e.doc.width, height: e.doc.height };
+  return (box = fullBox(e));
+}
+/** The crop box, reset when the document under it changed size or identity. */
+function currentBox(e: Editor): Box | undefined {
+  if (box && (boxDoc?.session !== e.session || boxDoc.width !== e.doc.width || boxDoc.height !== e.doc.height)) {
+    drag = undefined;
+    resetBox(e);
+  }
+  return box;
+}
 const untouched = (e: Editor) => !!box && box.angle === 0 && Math.abs(box.w - e.doc.width) < 1e-6 && Math.abs(box.h - e.doc.height) < 1e-6 && Math.abs(box.cx - e.doc.width / 2) < 1e-6 && Math.abs(box.cy - e.doc.height / 2) < 1e-6;
 export function boxCorners(b: Box): Quad {
   const c = Math.cos(b.angle * RAD),
@@ -124,10 +139,12 @@ export function resizeBox(b0: Box, handle: string, delta: Point, ratio: number |
 
 function syncFields(e: Editor) {
   const el = e.root.querySelector('#crop-size');
+  const box = currentBox(e);
   if (el && box) el.textContent = `${Math.round(box.w)} × ${Math.round(box.h)} px${box.angle ? `, ${Math.round(box.angle * 10) / 10}°` : ''}`;
 }
 function constrainToRatio(e: Editor) {
   const r = ratioOf(e);
+  const box = currentBox(e);
   if (!box || !r) return;
   // Keep the area roughly the same while matching the ratio.
   const area = box.w * box.h;
@@ -141,18 +158,18 @@ function constrainToRatio(e: Editor) {
 }
 
 async function commitCrop(e: Editor) {
-  if (!box) return;
+  if (!currentBox(e)) return;
   // Canvas transforms and resampling load with the first crop.
   const [{ transformCanvasBy, trimGrid }, { resampleDocument, resolveMethod }] = await Promise.all([import('./layer-ops'), import('./image-size')]);
-  if (!box) return;
+  const b = currentBox(e);
+  if (!b) return;
   const s = settings(e);
-  const w = Math.max(1, Math.round(box.w)),
-    h = Math.max(1, Math.round(box.h));
+  const w = Math.max(1, Math.round(b.w)),
+    h = Math.max(1, Math.round(b.h));
   if (w > 8192 || h > 8192 || w * h > 24_000_000) {
     e.message('Crop size must be 8192 pixels or less per side and 24 megapixels or less.');
     return;
   }
-  const b = box;
   if (Math.abs(b.angle) < 1e-9) {
     const r = { x: Math.round(b.cx - b.w / 2), y: Math.round(b.cy - b.h / 2), width: w, height: h };
     const store = e.assets.tiles;
@@ -180,7 +197,7 @@ async function commitCrop(e: Editor) {
     if (tw !== e.doc.width || th !== e.doc.height) resampleDocument(e, tw, th, resolveMethod('automatic', e.doc.width, e.doc.height, tw, th), ppi, s.resUnit);
     else e.command('Image Size', (d) => setDocumentResolution(d, { horizontalResolution: s.res, horizontalResolutionUnit: s.resUnit, widthUnit: s.resUnit === 'PPCM' ? 'Centimeters' : 'Inches', verticalResolution: s.res, verticalResolutionUnit: s.resUnit, heightUnit: s.resUnit === 'PPCM' ? 'Centimeters' : 'Inches' }));
   }
-  box = fullBox(e);
+  resetBox(e);
   e.fit();
   e.update();
 }
@@ -273,7 +290,7 @@ export const cropTool: Tool = {
   group: 'crop',
   cursor: () => (straighten ? 'crosshair' : 'default'),
   activate: (e) => {
-    box = fullBox(e);
+    resetBox(e);
     straighten = false;
   },
   deactivate: () => {
@@ -346,6 +363,7 @@ export const cropTool: Tool = {
             [s.rw, s.rh] = [s.rh, s.rw];
             if (s.preset !== 'free' && s.preset !== 'original') s.preset = 'free';
           }
+          const box = currentBox(e);
           if (box && !ratioOf(e)) [box.w, box.h] = [box.h, box.w];
           rerender();
         } else if (a === 'clear') {
@@ -361,7 +379,7 @@ export const cropTool: Tool = {
     syncFields(e);
   },
   pointerDown: (e, p) => {
-    box ??= fullBox(e);
+    const box = currentBox(e) ?? resetBox(e);
     const at = { x: p.x, y: p.y };
     if (straighten) {
       drag = { kind: 'straighten', start: at, end: at };
@@ -437,9 +455,9 @@ export const cropTool: Tool = {
     return false;
   },
   overlay: (e) => {
-    if (!box) return '';
-    const z = e.zoom,
-      b = box;
+    const b = currentBox(e);
+    if (!b) return '';
+    const z = e.zoom;
     const W = e.doc.width,
       H = e.doc.height,
       pad = Math.max(W, H) * 4;
@@ -575,7 +593,7 @@ export const cropCommands: Command[] = [
     hidden: true,
     recordable: false,
     run: (e) => {
-      box = fullBox(e);
+      resetBox(e);
       straighten = false;
       e.options();
       e.overlay();
@@ -587,7 +605,7 @@ export const cropCommands: Command[] = [
     hidden: true,
     recordable: false,
     run: (e) => {
-      box = fullBox(e);
+      resetBox(e);
       e.options();
       e.overlay();
     },
