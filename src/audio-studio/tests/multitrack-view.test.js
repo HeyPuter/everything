@@ -150,6 +150,24 @@ describe('multitrack view', () => {
     expect(view.hitTest(200, envY)).toMatchObject({ part: 'line', param: 'volume' });
   });
 
+  it('reorders tracks by dragging headers past hidden tracks', () => {
+    const { view, doc } = ctx;
+    const [t1, t2, t3] = doc.state.tracks.map((t) => t.id);
+    doc.amendView((st) => S.updateTrack(st, t1, { hidden: true }));
+    view.syncHeaders();
+    // Rows: Track 2, Track 3, Mix. Drop Track 2 below Track 3.
+    const r3 = view.rowOf(t3);
+    view.showReorder(t2, r3.top + r3.total - 2);
+    view.finishReorder(t2, r3.top + r3.total - 2);
+    expect(doc.state.tracks.map((t) => t.id)).toEqual([t1, t3, t2]);
+    // And back above Track 3: it lands right before it, after the hidden track.
+    view.syncHeaders();
+    const top = view.rowOf(t3).top;
+    view.showReorder(t2, top + 2);
+    view.finishReorder(t2, top + 2);
+    expect(doc.state.tracks.map((t) => t.id)).toEqual([t1, t2, t3]);
+  });
+
   it('snaps to clip edges and the playhead within eight pixels', () => {
     const { view, app } = ctx;
     app.prefs.set('snap', { ruler: false, markers: true, clips: true });
