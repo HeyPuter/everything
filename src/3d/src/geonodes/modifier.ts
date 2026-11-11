@@ -264,11 +264,12 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
   return { geometry, outputs, viewer, viewerDomain, log };
 }
 
-/** Drop node caches of modifiers that no longer exist. */
+/** Drop node caches and last results of modifiers that no longer exist. */
 export function pruneModifierCaches(doc: DocumentData) {
   const live = new Set<string>();
-  for (const ob of Object.values(doc.objects)) for (const m of ob.modifiers) if (m.type === 'NODES') live.add(`${ob.id}/${m.id}`);
+  for (const ob of Object.values(doc.objects)) for (const m of ob.modifiers ?? []) if (m.type === 'NODES') live.add(`${ob.id}/${m.id}`);
   for (const k of caches.keys()) if (!live.has(k)) caches.delete(k);
+  for (const [id, r] of gnResults) if (!live.has(`${id}/${r.modifierId}`)) gnResults.delete(id);
 }
 
 const VIEWER_COLOR = '.viewer_color';

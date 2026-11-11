@@ -351,3 +351,20 @@ describe('attribute nodes', () => {
     expect(r.geometry.mesh?.vertCount).toBe(1);
   });
 });
+
+describe('results', () => {
+  it('drops the evaluation results of deleted objects and modifiers', async () => {
+    const { gnResults } = await import('../../src/geonodes/results');
+    const { pruneModifierCaches } = await import('../../src/geonodes/modifier');
+    const t = setup();
+    t.doc.objects.obA = { id: 'obA', name: 'A', modifiers: [{ id: 'mA', type: 'NODES' }] } as never;
+    const r = { modifierId: 'mA', geometry: GeometrySet.empty(), warnings: new Map(), ms: 0, executed: 0, evalMesh: {} } as never;
+    gnResults.set('obA', r);
+    gnResults.set('obGone', { ...(r as object), modifierId: 'mX' } as never);
+    pruneModifierCaches(t.doc);
+    expect([...gnResults.keys()]).toEqual(['obA']);
+    t.doc.objects.obA.modifiers = [];
+    pruneModifierCaches(t.doc);
+    expect(gnResults.has('obA')).toBe(false);
+  });
+});
