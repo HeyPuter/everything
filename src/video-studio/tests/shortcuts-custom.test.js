@@ -97,3 +97,38 @@ describe('organize commands', () => {
     expect(store.project.tracks[0].clips[1].transform.scale).toBe(2);
   });
 });
+
+describe('shortcuts on other keyboard layouts', () => {
+  // Earlier tests rebind keys; start from the defaults.
+  beforeEach(() => setup().commands.resetKeys());
+  const ran = (commands, init) => {
+    const hit = [];
+    for (const c of commands.list) vi.spyOn(c, 'run').mockImplementation(() => hit.push(c.id));
+    commands.handleKey(new KeyboardEvent('keydown', init));
+    return hit;
+  };
+
+  it('undoes with Cmd/Ctrl+Z on a German keyboard, where Z sits on the US Y key', () => {
+    const { commands } = setup();
+    commands.get('undo').enabled = () => true;
+    commands.get('redo').enabled = () => true;
+    expect(ran(commands, { key: 'z', code: 'KeyY', ...mod })).toEqual(['undo']);
+    expect(ran(setup().commands, { key: 'y', code: 'KeyZ', ...mod })).not.toContain('undo');
+  });
+
+  it('selects all with Cmd/Ctrl+A on a French keyboard, where A sits on the US Q key', () => {
+    const { commands } = setup();
+    expect(ran(commands, { key: 'a', code: 'KeyQ', ...mod })).toEqual(['selectAll']);
+  });
+
+  it('falls back to the physical key when the layout types no Latin letter', () => {
+    const { commands } = setup();
+    // Russian layout: the B key types и.
+    expect(ran(commands, { key: 'и', code: 'KeyB', ...mod })).toEqual(['split']);
+  });
+
+  it('records the letter typed when rebinding', () => {
+    expect(specFromEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyY', ...mod }))).toBe('Mod+Z');
+    expect(specFromEvent(new KeyboardEvent('keydown', { key: 'ф', code: 'KeyA' }))).toBe('A');
+  });
+});

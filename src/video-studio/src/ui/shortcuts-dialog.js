@@ -7,7 +7,7 @@
  */
 import { h, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { isMac, shortcutLabel } from '../lib/platform.js';
+import { isMac, shortcutLabel, eventLetter } from '../lib/platform.js';
 import { SHORTCUT_GROUPS, RESERVED_KEYS } from './commands.js';
 import { openDialog, confirmDialog } from './dialog.js';
 import { segmented } from './controls.js';
@@ -26,7 +26,7 @@ const KEY_NAMES = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'D
 export function specFromEvent(e) {
   if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Fn'].includes(e.key)) return null;
   let key = null;
-  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  if (eventLetter(e)) key = eventLetter(e);
   else if (/^Digit[0-9]$/.test(e.code)) key = e.code.slice(5);
   else if (CODE_NAMES[e.code]) key = CODE_NAMES[e.code];
   else if (KEY_NAMES.has(e.key)) key = e.key;
