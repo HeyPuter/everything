@@ -12,6 +12,7 @@ import { serialize } from '../../model/serialization';
 import { gridFromImage, readMask } from '../../model/tiles';
 import { selectionBounds, selectionGrid } from '../../model/selection';
 import { sha256Hex } from '../../model/provenance';
+import { sanitizeStyle } from '../../model/layer-style';
 import { encodePng } from '../files/png';
 import { resampleRGBA } from '../files/resample';
 import { decodeBrowserImage } from '../files/open';
@@ -24,7 +25,7 @@ import { contentsFromFile, fittedTransform, insertInstance, instanceLayer, setCo
 import { nestedFromLayers } from '../embedded/convert';
 import { statuses } from '../embedded/link-state';
 import { libraries } from './service';
-import { TYPE_SINGULAR, type LibraryItem } from './model';
+import { TYPE_SINGULAR, usableItem, type LibraryItem } from './model';
 import type { AddSource } from './context';
 
 const png = (img: { width: number; height: number; data: Uint8Array | Uint8ClampedArray }) =>
@@ -130,6 +131,7 @@ const safeName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0,
  * apply to the selected layers or text, gradients, patterns and brushes
  * become current, graphics are placed. */
 export async function applyItem(e: Editor, item: LibraryItem, opts: { alt?: boolean; at?: [number, number] } = {}) {
+  if (!usableItem(item)) return void e.message(`${item.name} is damaged and cannot be used.`);
   switch (item.type) {
     case 'color': {
       const hex = String(item.data.hex);
@@ -148,7 +150,7 @@ export async function applyItem(e: Editor, item: LibraryItem, opts: { alt?: bool
       return usePattern(e, item);
     case 'layer-style':
       if (!e.hasDocument || !e.selectedLayers.length) return void e.message('Select the layers to apply the style to.');
-      applyLayerStyle(e, item.data.style as LayerStyle, `Apply ${item.name}`);
+      applyLayerStyle(e, cleanStyle(item.data.style as LayerStyle), `Apply ${item.name}`);
       return;
     case 'character-style':
     case 'paragraph-style':
@@ -162,6 +164,13 @@ export async function applyItem(e: Editor, item: LibraryItem, opts: { alt?: bool
     case 'graphic':
       return placeGraphic(e, item, { at: opts.at });
   }
+}
+
+/** A style from a library item with its sizes clamped as for projects (no default scale added). */
+function cleanStyle(style: LayerStyle): LayerStyle {
+  const out = sanitizeStyle(style);
+  if (style.scale === undefined) delete out.scale;
+  return out;
 }
 
 async function usePattern(e: Editor, item: LibraryItem) {

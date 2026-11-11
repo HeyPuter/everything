@@ -247,6 +247,59 @@ export function validItem(v: unknown): v is LibraryItem {
     (i.type !== 'color' || (typeof i.data.hex === 'string' && /^#[0-9a-f]{6}$/i.test(i.data.hex)))
   );
 }
+// The settings an item carries are used as they are (a gradient becomes the
+// current gradient, a layer style is applied to layers), and library files
+// come from other people: an item whose settings do not have the shape its
+// type needs is damaged and is never used.
+const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const fin = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+const triple = (v: unknown) => Array.isArray(v) && v.length === 3 && v.every(fin);
+function usableGradient(g: unknown) {
+  if (!obj(g)) return false;
+  if (g.kind === 'noise') return fin(g.roughness) && ['rgb', 'hsb', 'lab'].includes(g.model as string) && triple(g.min) && triple(g.max) && fin(g.seed);
+  const stop = (x: unknown): x is Record<string, unknown> => obj(x) && fin(x.location) && (x.midpoint === undefined || fin(x.midpoint));
+  return (
+    g.kind === 'solid' &&
+    Array.isArray(g.colorStops) && g.colorStops.length > 0 && g.colorStops.length <= 256 &&
+    g.colorStops.every((x) => stop(x) && (x.color === 'foreground' || x.color === 'background' || triple(x.color))) &&
+    Array.isArray(g.opacityStops) && g.opacityStops.length <= 256 &&
+    g.opacityStops.every((x) => stop(x) && fin(x.opacity)) &&
+    (g.smoothness === undefined || fin(g.smoothness))
+  );
+}
+const STYLE_LISTS = ['dropShadow', 'innerShadow', 'colorOverlay', 'gradientOverlay', 'stroke'];
+const STYLE_SINGLES = ['outerGlow', 'innerGlow', 'bevel', 'satin', 'patternOverlay'];
+function usableLayerStyle(v: unknown) {
+  if (!obj(v)) return false;
+  for (const [k, x] of Object.entries(v)) {
+    if (k === 'enabled' ? typeof x !== 'boolean' : ['scale', 'globalAngle', 'globalAltitude'].includes(k) ? !fin(x) : STYLE_LISTS.includes(k) ? !(Array.isArray(x) && x.length <= 10 && x.every(obj)) : STYLE_SINGLES.includes(k) ? !obj(x) : true) return false;
+  }
+  return true;
+}
+function usableBrush(p: unknown) {
+  if (!obj(p) || !obj(p.tip) || (p.tip.dynamics !== undefined && !obj(p.tip.dynamics))) return false;
+  const s = p.sample;
+  return s === undefined || (obj(s) && Number.isInteger(s.width) && Number.isInteger(s.height) && (s.width as number) > 0 && (s.height as number) > 0 && (s.width as number) <= 1024 && (s.height as number) <= 1024 && typeof s.data === 'string');
+}
+/** Whether an item's settings can be used (see above). */
+export function usableItem(item: LibraryItem): boolean {
+  const d = item.data;
+  switch (item.type) {
+    case 'gradient':
+      return usableGradient(d.gradient);
+    case 'layer-style':
+      return usableLayerStyle(d.style);
+    case 'brush':
+      return usableBrush(d.preset);
+    case 'character-style':
+      return obj(d.def) && obj(d.def.style);
+    case 'paragraph-style':
+      return obj(d.def) && obj(d.def.paragraph) && obj(d.def.char);
+    default:
+      return true;
+  }
+}
+
 export function validLibrary(v: unknown): v is Library {
   if (!v || typeof v !== 'object') return false;
   const l = v as Library;
@@ -312,14 +365,20 @@ export async function importLibraryFile(text: string, hash: (bytes: Uint8Array) 
   const assets = new Map<string, Blob>();
   for (const [h, a] of Object.entries(v.assets ?? {})) {
     if (!isHash(h) || !a || typeof a.data !== 'string' || typeof a.type !== 'string') continue;
-    const bytes = fromBase64(a.data);
+    let bytes: Uint8Array;
+    try {
+      bytes = fromBase64(a.data);
+    } catch {
+      // Damaged content: the items using it are left out below.
+      continue;
+    }
     if ((await hash(bytes)) === h) assets.set(h, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: a.type }));
   }
   const at = now.toISOString();
   let skipped = 0;
   const items = v.library.items.filter((i) => {
-    // Items whose content did not arrive intact are left out.
-    const ok = Object.values(i.assets ?? {}).every((h) => assets.has(h));
+    // Items whose content did not arrive intact, or whose settings are damaged, are left out.
+    const ok = Object.values(i.assets ?? {}).every((h) => assets.has(h)) && usableItem(i);
     if (!ok) skipped++;
     return ok;
   });
