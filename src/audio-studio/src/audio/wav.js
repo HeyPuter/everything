@@ -3,7 +3,7 @@
 // (cue + LIST/adtl labl/ltxt), which round-trip markers with other editors,
 // mu-law/A-law and LIST/INFO metadata (title, artist, ...).
 
-import { parseRiffInfo, parseBext, parseCart } from './meta.js';
+import { parseRiffInfo, parseBext, parseCart, decodeText } from './meta.js';
 import { parseXmp } from './xmp.js';
 import { ulaw, alaw } from './aiff.js';
 
@@ -91,7 +91,7 @@ export function parseWav(buffer) {
         const cueId = dv.getUint32(q + 8, true);
         if (q + 8 + ssize > end) break;
         if (sid === 'labl' || sid === 'note') {
-          const text = new TextDecoder().decode(new Uint8Array(buffer, q + 12, Math.max(0, ssize - 4))).replace(/\0+$/, '');
+          const text = decodeText(new Uint8Array(buffer, q + 12, Math.max(0, ssize - 4))).replace(/\0+$/, '');
           (sid === 'labl' ? labels : notes).set(cueId, text);
         } else if (sid === 'ltxt' && ssize >= 8) {
           lengths.set(cueId, dv.getUint32(q + 12, true));

@@ -121,6 +121,14 @@ describe('metadata writers and readers', () => {
     expect(parseVorbisComment(vorbisComment(meta))).toEqual(meta);
     expect(cleanMeta({ title: '  ', foo: 'x', artist: ' A ' })).toEqual({ artist: 'A' });
   });
+  it('reads Windows-1252 text that older editors wrote in WAV chunks', () => {
+    // "Café Nürn" in Windows-1252, not valid UTF-8.
+    const text = [0x43, 0x61, 0x66, 0xe9, 0x20, 0x4e, 0xfc, 0x72, 0x6e, 0];
+    const info = Uint8Array.from([...'INFOINAM'].map((c) => c.charCodeAt(0)).concat([text.length, 0, 0, 0], text));
+    expect(parseRiffInfo(info)).toEqual({ title: 'Café Nürn' });
+    // UTF-8 text is still read as UTF-8.
+    expect(parseRiffInfo(riffInfoChunk({ title: 'Café ♪' }).subarray(8))).toEqual({ title: 'Café ♪' });
+  });
   it('edits one field of a document state', () => {
     const s = { channels: [], meta: { title: 'a' } };
     expect(withMetaField(s, 'title', 'a')).toBe(null);
