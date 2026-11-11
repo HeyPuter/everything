@@ -211,6 +211,16 @@ describe('Version history of downloaded documents', () => {
     expect(legacyKeyFor(opened)).toBe(null);
   });
 
+  it('a document shown in two windows keeps one version per save', async () => {
+    const { app, ed } = await setup();
+    await app.commands.run('window.newWindow');
+    expect(app.editors.filter((e) => e.doc === ed.doc).length).toBe(2);
+    app.activate(ed);
+    ed.doc.markSaved();
+    await versionsSettle();
+    expect((await app.versions.list(versionKey(ed))).length).toBe(1);
+  });
+
   it('templates and versions do not pass on the identity of the document they came from', async () => {
     const { app, ed } = await setup();
     versionKey(ed);

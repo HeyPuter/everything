@@ -484,7 +484,7 @@ export function registerFileCommands(app) {
   app.userTemplates = new TemplateStore(store);
   app.versions = new VersionStore(store);
 
-  // Keep a version every time a document is saved.
+  // Keep a version every time a document is saved (once per document, however many windows show it).
   const watched = new WeakSet();
   const keep = async (ed) => {
     const doc = ed.doc;
@@ -497,11 +497,14 @@ export function registerFileCommands(app) {
     await app.versions.add(key, doc, { name: ed.name });
   };
   const watch = (ed) => {
-    if (!ed || watched.has(ed)) return;
-    watched.add(ed);
-    ed.doc.on('saved', () => {
+    if (!ed || watched.has(ed.doc)) return;
+    const doc = ed.doc;
+    watched.add(doc);
+    doc.on('saved', () => {
       const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
-      idle(() => keep(ed).catch((err) => console.warn('Could not keep a version', err)));
+      // The window that saved is the active one; its file is the one written.
+      const target = app.editor?.doc === doc ? app.editor : app.editors.includes(ed) ? ed : app.editors.find((e) => e.doc === doc) || ed;
+      idle(() => keep(target).catch((err) => console.warn('Could not keep a version', err)));
     });
   };
   app.on('file-opened', (ed) => {
