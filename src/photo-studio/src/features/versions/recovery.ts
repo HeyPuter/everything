@@ -92,10 +92,22 @@ async function offerRecovery(e: Editor) {
     const chosen = new FormData(ev.currentTarget as HTMLFormElement).getAll('keep').map((v) => records[Number(v)]);
     done();
     void e.run(async () => {
-      for (const r of chosen) await restoreRecord(e, r);
+      // One damaged record must not stop the others; it stays to be offered again.
+      const failed: RecoveryRecord[] = [];
+      for (const r of chosen) {
+        try {
+          await restoreRecord(e, r);
+        } catch (error) {
+          console.error(error);
+          failed.push(r);
+        }
+      }
       // Unchecked documents are discarded too: the dialog asked once.
-      for (const r of records) await store.remove(r.sessionId);
-      if (chosen.length) e.message(`Restored ${chosen.length} document${chosen.length === 1 ? '' : 's'}. Save to keep ${chosen.length === 1 ? 'it' : 'them'}.`);
+      for (const r of records) if (!failed.includes(r)) await store.remove(r.sessionId);
+      const restored = chosen.length - failed.length;
+      if (failed.length)
+        e.message(`${failed.map((r) => `“${r.name}”`).join(', ')} could not be restored${restored ? `; restored ${restored} other document${restored === 1 ? '' : 's'}` : ''}. ${failed.length === 1 ? 'It is' : 'They are'} offered again next time, or choose Discard All.`);
+      else if (restored) e.message(`Restored ${restored} document${restored === 1 ? '' : 's'}. Save to keep ${restored === 1 ? 'it' : 'them'}.`);
     });
   };
   dialog.showModal();

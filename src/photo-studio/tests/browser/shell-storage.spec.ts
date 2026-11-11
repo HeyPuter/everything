@@ -33,3 +33,29 @@ test('a write that does not fit in browser storage fails instead of reporting su
     await cdp.send('Storage.overrideQuotaForOrigin', { origin });
   }
 });
+
+test('a damaged recovery record does not stop the others from being restored', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 64, 48, '#aa3355', 'kept.png');
+  await run(page, 'adjust.invert');
+  await run(page, 'file.autosave-now');
+  // A record whose project cannot be read, newer than the good one (restored first).
+  await page.evaluate(async () => {
+    const { localStore } = await import('/src/persistence/local-store.ts');
+    await localStore().put('recovery', 'damaged', { sessionId: 'damaged', instance: 'gone', docId: 'x', name: 'Damaged', time: Date.now() + 1000, project: new Blob(['not a project']) });
+  });
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer);
+  const dialog = page.locator('#dialog');
+  await expect(dialog.locator('.recovery-item')).toHaveCount(2);
+  await dialog.getByRole('button', { name: 'Restore' }).click();
+  await expect(page.locator('#document-name')).toHaveText('kept');
+  await expect(page.locator('#toast')).toContainText('“Damaged” could not be restored; restored 1 other document');
+  await idle(page);
+  // Only the damaged record is offered again.
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer);
+  await expect(dialog.locator('.recovery-item')).toHaveCount(1);
+  await expect(dialog.locator('.recovery-item')).toContainText('Damaged');
+  await dialog.getByRole('button', { name: 'Discard All' }).click();
+});
