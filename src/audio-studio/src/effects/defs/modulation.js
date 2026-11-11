@@ -104,8 +104,24 @@ registerEffect({
     preset('Resonant Squelch', { stages: 8, intensity: 100, depth: 60, rate: 1.8, phaseDiff: 45, upperFreq: 2200, feedback: 85, mix: 55, gain: -4 }),
     preset('Slow Shimmer', { stages: 10, intensity: 60, depth: 50, rate: 0.07, phaseDiff: 90, upperFreq: 9000, feedback: 15, mix: 40, gain: 0 }),
   ],
-  tail: (v, rate) => Math.round(rate * 0.05),
+  tail: (v, rate) => phaserTail(v, rate),
 });
+
+/**
+ * Frames until the Phaser's feedback loop rings down by 60 dB, at least the
+ * 50 ms its stages ring on their own. Each pass round the loop loses the
+ * feedback amount and takes the stages' group delay, longest at the lowest
+ * break frequency the sweep reaches: 1 / tan(pi f / rate) frames per stage
+ * (fx/modulation/phaser.rs: upper frequency, 6 octaves below it at full depth).
+ */
+export function phaserTail(v, rate) {
+  const stages = clamp(Math.round(v.stages), 1, 12);
+  const upper = clamp(v.upperFreq, 20, 20000);
+  const lower = Math.max(20, upper * 2 ** (-6 * clamp(v.depth / 100, 0, 1)));
+  const pass = stages / Math.tan((Math.PI * clamp(lower, 10, rate * 0.45)) / rate);
+  const fb = clamp(Math.abs(v.feedback) / 100, 0, 0.95);
+  return Math.max(Math.round(rate * 0.05), feedbackTail(pass, fb, rate));
+}
 
 const CF = { chorus: { ms: 18 + 8, fbScale: 0.5 }, flanger: { ms: 3 + 2.8, fbScale: 1 } };
 

@@ -3,7 +3,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { wasmBytes } from './fx-wasm.js';
 import { FxHost } from '../src/engine/fxhost.js';
-import { getEffect, slotSpec, defaults } from '../src/effects/index.js';
+import { getEffect, slotSpec, defaults, effectTail } from '../src/effects/index.js';
 import { applyChain } from '../src/engine/offline.js';
 import { renderEffect } from '../src/effects/apply.js';
 import { Channel } from '../src/audio/channel.js';
@@ -211,5 +211,37 @@ describe('Doppler Shifter on 5.1 files', () => {
     expect(same(six[4], six[0])).toBe(true);
     expect(same(six[5], six[1])).toBe(true);
     expect(same(six[0], six[1])).toBe(false);
+  });
+});
+
+describe('Phaser tail', () => {
+  it('lasts until strong feedback has rung down', async () => {
+    const rate = 48000;
+    const n = rate / 2;
+    let seed = 1;
+    const x = Float32Array.from({ length: n }, () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return (seed / 2 ** 32 - 0.5) * 0.5;
+    });
+    const def = getEffect('phaser');
+    const values = {
+      ...defaults(def),
+      stages: 12,
+      depth: 100,
+      upperFreq: 300,
+      feedback: -90,
+      mix: 100,
+    };
+    const tail = effectTail(def, values, rate);
+    const extra = rate;
+    const [out] = await applyChain(
+      [Channel.fromSamples(x)],
+      rate,
+      [slotSpec(def, values, { rate })],
+      { tail: tail + extra },
+    );
+    const peak = (a, b) => out.subarray(a, b).reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+    // What the declared tail leaves out is below -60 dB.
+    expect(20 * Math.log10(peak(n + tail, n + tail + extra) / peak(0, n))).toBeLessThan(-60);
   });
 });
