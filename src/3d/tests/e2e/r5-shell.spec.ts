@@ -235,3 +235,34 @@ test('an outliner box selection the browser cancels (touch scrolling) selects no
   expect(await sel()).toEqual(before);
   await expectNoErrors(errors);
 });
+
+test('a pie menu opened at the window edge moves in, and directions still count from the pointer', async ({ page }) => {
+  const errors = await openApp(page);
+  const v = (await page.locator('.area[data-editor="VIEW_3D"]').first().boundingBox())!;
+  const shading = () => page.evaluate(async () => (await import('/src/editors/view3d/view3d.ts')).activeView3D()!.shading.type);
+  const x = v.x + 40,
+    y = v.y + v.height - 30;
+  await page.mouse.move(x, y);
+  await page.keyboard.down('z');
+  await expect(page.locator('.pie-item')).toHaveCount(6);
+  const boxes = await page.evaluate(() => [...document.querySelectorAll('.pie-item')].map((e) => e.getBoundingClientRect().toJSON()));
+  const [w, hh] = await page.evaluate(() => [innerWidth, innerHeight]);
+  for (const b of boxes) {
+    expect(b.left).toBeGreaterThanOrEqual(0);
+    expect(b.right).toBeLessThanOrEqual(w);
+    expect(b.bottom).toBeLessThanOrEqual(hh);
+  }
+  // 4 picks Wireframe
+  await page.keyboard.press('4');
+  await page.keyboard.up('z');
+  expect(await shading()).toBe('WIREFRAME');
+  // a flick to the right (still left of the moved pie's middle) picks the east item, Solid
+  await page.keyboard.down('z');
+  await expect(page.locator('.pie-item')).toHaveCount(6);
+  await page.mouse.move(x + 50, y, { steps: 3 });
+  await page.waitForTimeout(350);
+  await page.keyboard.up('z');
+  await expect(page.locator('.pie-item')).toHaveCount(0);
+  expect(await shading()).toBe('SOLID');
+  await expectNoErrors(errors);
+});

@@ -491,7 +491,8 @@ export const menuSettings = {
   pythonTips: true,
 };
 
-let pie: { el: HTMLElement; items: (PieItem | null)[]; cx: number; cy: number; hl: number; opened: number; key?: string } | null = null;
+/** `cx, cy`: where the pie is drawn; `ox, oy`: where it was opened (directions are measured from there). */
+let pie: { el: HTMLElement; items: (PieItem | null)[]; cx: number; cy: number; ox: number; oy: number; hl: number; opened: number; key?: string } | null = null;
 
 export function pieOpen() {
   return !!pie;
@@ -503,15 +504,30 @@ export function openPie(title: string, items: (PieItem | null)[], x: number, y: 
   const el = document.createElement('div');
   el.className = 'pie';
   ensureLayer().append(el);
-  pie = { el, items, cx: x, cy: y, hl: -1, opened: performance.now(), key };
+  pie = { el, items, cx: x, cy: y, ox: x, oy: y, hl: -1, opened: performance.now(), key };
   renderPie(title);
+  // opened near a window edge: move the pie in so every item can be reached
+  const box = [...el.querySelectorAll<HTMLElement>('.pie-item, .pie-title')].map((n) => n.getBoundingClientRect());
+  if (box.length) {
+    const fit = (lo: number, hi: number, max: number) => (lo < 4 ? Math.min(4 - lo, Math.max(0, max - 4 - hi)) : hi > max - 4 ? -Math.min(hi - (max - 4), Math.max(0, lo - 4)) : 0);
+    const sx = fit(Math.min(...box.map((r) => r.left)), Math.max(...box.map((r) => r.right)), innerWidth);
+    const sy = fit(Math.min(...box.map((r) => r.top)), Math.max(...box.map((r) => r.bottom)), innerHeight);
+    if (sx || sy) {
+      pie.cx += sx;
+      pie.cy += sy;
+      renderPie(title);
+    }
+  }
   const move = (e: PointerEvent) => {
     if (!pie) return;
-    const dx = e.clientX - pie.cx,
-      dy = pie.cy - e.clientY;
+    // over an item: that one; elsewhere the direction from where the pie was opened
+    const over = (e.target as Element | null)?.closest?.('.pie-item') as HTMLElement | null;
+    const dx = e.clientX - pie.ox,
+      dy = pie.oy - e.clientY;
     const dist = Math.hypot(dx, dy);
     let hl = -1;
-    if (dist > menuSettings.pieThreshold) {
+    if (over && pie.el.contains(over)) hl = Number(over.dataset.i);
+    else if (dist > menuSettings.pieThreshold) {
       const ang = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
       let best = 999;
       pie.items.forEach((it, i) => {
@@ -607,6 +623,7 @@ function renderPie(title: string) {
         'div',
         {
           class: { 'pie-item': true, hl: i === p.hl, active: !!it.active, [align]: true },
+          'data-i': i,
           style: { left: `${x}px`, top: `${y}px` },
           onpointerenter: () => {
             p.hl = i;
