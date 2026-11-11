@@ -297,4 +297,17 @@ describe('session follow-ups', () => {
     expect(reasons).toEqual(['Before Recovering the Last Session']);
   }, 60000);
 
+  it('recording a recent file keeps the entries another tab added', async () => {
+    const { installFakeIndexedDb } = await import('./support/fakeidb');
+    const idb = installFakeIndexedDb();
+    vi.resetModules();
+    const session = await import('../../src/io/session');
+    await session.sessionReady;
+    await session.recordRecent('mine.p3d', new Uint8Array([1]));
+    // another tab records a file in the meantime (straight into storage)
+    const kv = idb.stores.get('p3d-session')!.get('kv')!;
+    kv.set('recent', [{ name: 'other.p3d', time: Date.now(), size: 1 }, ...(kv.get('recent') as unknown[])]);
+    await session.recordRecent('third.p3d', new Uint8Array([3]));
+    expect(session.recentFiles().map((e) => e.name).slice(0, 3)).toEqual(['third.p3d', 'other.p3d', 'mine.p3d']);
+  });
 });

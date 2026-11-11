@@ -85,7 +85,12 @@ export function recentFiles(): readonly RecentEntry[] {
   return recent;
 }
 
+/** The stored list (other tabs may have changed it since this one read it), else this tab's. */
+const storedRecent = async () => (await get<RecentEntry[]>(KV, 'recent')) ?? recent;
+
 export async function recordRecent(name: string, bytes: Uint8Array) {
+  // read-modify-write of the stored list, so tabs do not drop each other's entries
+  recent = await storedRecent();
   if (bytes.length > MAX_STORED_BYTES) {
     // too large to keep: an older copy of the file must not come back through Open Recent / Revert
     if (!recent.some((e) => e.name === name)) return;
@@ -140,7 +145,7 @@ export async function openRecent(name: string): Promise<boolean> {
   const bytes = await recentBytes(name);
   if (!bytes) {
     app.report('ERROR', `"${name}" is no longer available`);
-    recent = recent.filter((e) => e.name !== name);
+    recent = (await storedRecent()).filter((e) => e.name !== name);
     await put(KV, 'recent', recent);
     notify();
     return false;
