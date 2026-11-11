@@ -1084,13 +1084,41 @@ export function worldBounds(ids: string[]): Box3 {
     const ev = app.graph.get(id);
     if (!ev) continue;
     if (ev.mesh && ev.mesh.positions.length) {
+      // every vertex (sampling missed the extremes of big meshes), transformed inline
       const P = ev.mesh.positions;
-      const v = new Vector3();
-      const step = Math.max(1, Math.floor(P.length / 3 / 20000));
-      for (let i = 0; i < P.length / 3; i += step) {
-        v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(ev.world);
+      const e = ev.world.elements;
+      let x0 = Infinity,
+        y0 = Infinity,
+        z0 = Infinity,
+        x1 = -Infinity,
+        y1 = -Infinity,
+        z1 = -Infinity;
+      const perspective = e[3] !== 0 || e[7] !== 0 || e[11] !== 0 || e[15] !== 1;
+      for (let i = 0; i < P.length; i += 3) {
+        const px = P[i],
+          py = P[i + 1],
+          pz = P[i + 2];
+        let x = e[0] * px + e[4] * py + e[8] * pz + e[12],
+          y = e[1] * px + e[5] * py + e[9] * pz + e[13],
+          z = e[2] * px + e[6] * py + e[10] * pz + e[14];
+        if (perspective) {
+          const w = 1 / (e[3] * px + e[7] * py + e[11] * pz + e[15]);
+          x *= w;
+          y *= w;
+          z *= w;
+        }
         // a broken coordinate (NaN / Infinity) would turn the framed view into NaN
-        if (Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)) box.expandByPoint(v);
+        if (!(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z))) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+        if (z < z0) z0 = z;
+        if (z > z1) z1 = z;
+      }
+      if (x0 <= x1) {
+        box.expandByPoint(new Vector3(x0, y0, z0));
+        box.expandByPoint(new Vector3(x1, y1, z1));
       }
     } else {
       const p = new Vector3().setFromMatrixPosition(ev.world);

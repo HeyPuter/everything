@@ -363,3 +363,30 @@ describe('delete a scene', () => {
     expect(byName('Cube.001')).toBeUndefined();
   });
 });
+
+describe('framing big meshes', () => {
+  it('includes every vertex of a mesh with more than 20,000 vertices', async () => {
+    const { worldBounds } = await import('../../src/editors/view3d/view3d');
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    const me = app.doc.meshes[cube.data!];
+    const n = 50001;
+    const P = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) P[i * 3] = (i % 100) / 100;
+    // the far-out vertices sit between sampled ones
+    P[1 * 3 + 2] = 40;
+    P[3 * 3 + 1] = -25;
+    me.positions = P;
+    me.offsets = new Uint32Array([0]);
+    me.indices = new Uint32Array(0);
+    me.uvs = new Float32Array(0);
+    me.normals = new Float32Array(0);
+    me.smooth = new Uint8Array(0);
+    me.material_index = new Uint16Array(0);
+    cube.location = [1, 0, 0];
+    app.graph.evaluate(app.doc, false);
+    const b = worldBounds([cube.id]);
+    expect(b.max.z).toBeCloseTo(40, 4);
+    expect(b.min.y).toBeCloseTo(-25, 4);
+    expect(b.min.x).toBeCloseTo(1, 4);
+  });
+});
