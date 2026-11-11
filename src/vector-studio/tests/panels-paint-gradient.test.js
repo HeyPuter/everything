@@ -153,6 +153,41 @@ describe('Gradient panel', () => {
   });
 });
 
+describe('Gradient tool', () => {
+  it('applies a gradient and sets its vector in one undo step', async () => {
+    const { app, ed, add } = await paintSetup();
+    const id = add({ fill: { type: 'solid', color: '#ff0000' } }, [0, 0, 100, 100]);
+    ed.select([]);
+    app.setTool('gradient');
+    const tool = app.getTool('gradient');
+    const ev = (x, y) => {
+      const s = ed.view.toScreen(x, y);
+      return { x, y, sx: s.x, sy: s.y, shift: false, alt: false };
+    };
+    const steps = ed.doc.undoStack.length;
+    tool.onPointerDown(ev(10, 50));
+    tool.onPointerMove(ev(50, 50));
+    tool.onPointerMove(ev(90, 50));
+    tool.onPointerUp(ev(90, 50));
+    expect(ed.doc.get(id).fill).toMatchObject({ type: 'linear', x1: 10, x2: 90 });
+    expect(ed.doc.undoStack.length).toBe(steps + 1);
+    ed.doc.undo();
+    expect(ed.doc.get(id).fill).toEqual({ type: 'solid', color: '#ff0000' });
+    // A click without a drag still applies the gradient (one step).
+    tool.onPointerDown(ev(50, 50));
+    tool.onPointerUp(ev(50, 50));
+    expect(ed.doc.get(id).fill.type).toBe('linear');
+    expect(ed.doc.undoStack.at(-1).label).toBe('Apply Gradient');
+    // Escape mid-drag cancels the whole gesture.
+    ed.doc.undo();
+    tool.onPointerDown(ev(10, 50));
+    tool.onPointerMove(ev(60, 50));
+    tool.onKeyDown({ key: 'Escape' });
+    expect(ed.doc.get(id).fill).toEqual({ type: 'solid', color: '#ff0000' });
+    expect(ed.doc.tx).toBe(null);
+  });
+});
+
 describe('Freeform gradients on the canvas', () => {
   it('adds, moves and deletes points with the Gradient tool', async () => {
     const { app, ed, add } = await paintSetup();

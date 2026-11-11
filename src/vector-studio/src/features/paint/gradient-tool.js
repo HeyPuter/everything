@@ -323,18 +323,18 @@ export class GradientTool extends Tool {
     }
     const all = paintTargets(ed);
     if (!all.length) return;
+    let tx = null;
     if (!nodes.length) {
-      // Apply the last gradient to objects that do not have one yet.
+      // Apply the last gradient to objects that do not have one yet, in the same undo step as the drag.
       const last = paintState.lastGradient || ed.lastGradient || DEFAULT_LINEAR;
       const without = all.filter((n) => !isGradient(n[key]));
       if (without.length) {
-        doc.transact('Apply Gradient', () => {
-          for (const n of without) doc.update(n.id, { [key]: structuredClone(stripVector(last)) });
-        });
+        tx = doc.begin('Apply Gradient');
+        for (const n of without) doc.update(n.id, { [key]: structuredClone(stripVector(last)) });
       }
       nodes = this.targets();
     }
-    this.drag = { part: { kind: 'vector' }, tx: null, nodes, x0: e.x, y0: e.y, sx0: e.sx, sy0: e.sy, moved: false };
+    this.drag = { part: { kind: 'vector' }, tx, nodes, x0: e.x, y0: e.y, sx0: e.sx, sy0: e.sy, moved: false };
   }
 
   onPointerMove(e) {
@@ -356,6 +356,7 @@ export class GradientTool extends Tool {
       if (!d.moved && Math.hypot(e.sx - d.sx0, e.sy - d.sy0) < 3) return;
       d.moved = true;
       if (!d.tx) d.tx = doc.begin('Gradient');
+      else d.tx.label = 'Gradient';
       const p = e.shift ? constrain45(d.x0, d.y0, e.x, e.y) : { x: e.x, y: e.y };
       d.cur = p;
       this.setPaint(d.nodes, (paint) => setGradientVector(paint, d.x0, d.y0, p.x, p.y));
