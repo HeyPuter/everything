@@ -301,3 +301,44 @@ test('a linked material can be looked at: dragging nodes, links and edges report
   expect(await page.evaluate(() => (window as unknown as { app: { reports: { message: string }[] } }).app.reports.some((r) => /node tree is linked/.test(r.message)))).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('compositor: huge Bokeh Blur and non-separable Blur sizes finish', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = await openApp(page);
+  const r = await page.evaluate(async () => {
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('node.new_compositing_node_group');
+    const T = await import('/src/nodes/tree.ts');
+    const D = await import('/src/compositor/data.ts');
+    const RUN = await import('/src/compositor/run.ts');
+    const { newImage } = await import('/src/data/defaults.ts');
+    const img = newImage('small', 64, 64, 'UV_GRID');
+    a.doc.images[img.id] = img;
+    const out: Record<string, unknown> = {};
+    for (const [type, inputs] of [
+      ['CompositorNodeBokehBlur', { Size: 1e6 }],
+      ['CompositorNodeBlur', { Size: [4000, 4000], Separable: false }],
+    ] as const) {
+      const t = D.compositingGroup(a.doc)!.tree;
+      t.nodes = [];
+      t.links = [];
+      const ctx = T.ctxOf(a.doc, t);
+      const src = T.addNode(t, 'CompositorNodeImage', [-300, 0], { image: img.id });
+      const n = T.addNode(t, type, [0, 0]);
+      Object.assign(n.inputs, inputs);
+      const v = T.addNode(t, 'CompositorNodeViewer', [300, 0]);
+      T.connect(ctx, src.id, 'Image', n.id, 'Image');
+      T.connect(ctx, n.id, 'Image', v.id, 'Image');
+      const t0 = performance.now();
+      const res = RUN.runCompositor(a.doc, { layers: null, composite: false, viewer: true, viewerNode: v.id });
+      const finite = !!res.viewer && res.viewer.data.every((x) => Number.isFinite(x));
+      out[type] = { finite, error: res.error ?? null, slow: performance.now() - t0 > 30000 };
+    }
+    return out;
+  });
+  expect(r).toEqual({
+    CompositorNodeBokehBlur: { finite: true, error: null, slow: false },
+    CompositorNodeBlur: { finite: true, error: null, slow: false },
+  });
+  await expectNoErrors(errors);
+});
