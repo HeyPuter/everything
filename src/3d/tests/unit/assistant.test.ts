@@ -80,6 +80,17 @@ describe('run_script', () => {
     expect(app.undo.history.length).toBe(steps);
   });
 
+  it('turns a wrong operator argument into an error the model can fix, and clamps one past the limits', async () => {
+    const bad = await script(`bpy.ops.mesh.primitive_cube_add({size: 'big'});`);
+    expect(bad.ok).toBe(false);
+    expect(bad.content).toMatch(/TypeError: bpy\.ops\.mesh\.primitive_cube_add\(\): size expected a number, not str/);
+    expect(objectNames()).toEqual(['Camera', 'Cube', 'Light']);
+    const r = await script(`bpy.ops.mesh.primitive_uv_sphere_add({segments: -5, ring_count: 1}); print(C.object.data.vertices.length);`);
+    expect(r.ok).toBe(true);
+    // Blender clamps to the property's range: 3 segments × 2 inner rings + the poles
+    expect(r.content).toContain('Printed:\n8');
+  });
+
   it('says when nothing changed', async () => {
     const r = await script(`print(D.objects.length)`);
     expect(r.ok).toBe(true);

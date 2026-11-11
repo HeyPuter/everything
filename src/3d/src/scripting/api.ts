@@ -11,7 +11,7 @@
 import { TEX_MAPPING_NODES, texMapping, setTexMapping } from '../nodes/texmapping';
 import { uvMaps, setActiveUV, addUVMap, removeActiveUV, renameUV, hasActiveUV } from '../mesh/uvmaps';
 import { Matrix4 } from 'three';
-import { app, operators, type OpResult } from '../app/app';
+import { app, operators, type OpResult, type PropDef } from '../app/app';
 import type { DocumentData, ObjectData, MeshData, NodeTreeData, NodeData, ID, ImageData, TextData, CollectionData, MaterialData } from '../data/types';
 import { newMetaball } from '../metaball/data';
 import {
@@ -3066,6 +3066,28 @@ export const opHooks = {
 const MODIFIER_BY_ID = new Set(['object.modifier_move_to_index', 'object.modifier_copy', 'object.modifier_copy_to_selected', 'object.modifier_apply']);
 
 /** Run an operator from a script: `{'FINISHED'}` / `{'CANCELLED'}`, raises on poll failure or errors. */
+/**
+ * Number properties as Blender takes them from a script: anything but a number raises
+ * TypeError (a string became NaN geometry), a value past the property's limits is clamped
+ * (a segment count of a billion hung the page), and an int is rounded.
+ */
+function checkNumberProps(idname: string, defs: PropDef[] | undefined, plain: Record<string, unknown>) {
+  for (const d of defs ?? []) {
+    if ((d.type !== 'int' && d.type !== 'float') || !(d.id in plain)) continue;
+    let v = plain[d.id];
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'boolean') v = Number(v);
+    if (typeof v !== 'number' || Number.isNaN(v)) {
+      const what = typeof v === 'number' ? 'nan' : Array.isArray(v) ? 'list' : typeof v === 'string' ? 'str' : typeof v;
+      throw pyError('TypeError', `bpy.ops.${idname}(): ${d.id} expected a number, not ${what}`);
+    }
+    let n = v;
+    if (d.min !== undefined) n = Math.max(d.min, n);
+    if (d.max !== undefined) n = Math.min(d.max, n);
+    plain[d.id] = d.type === 'int' && Number.isFinite(n) ? Math.round(n) : n;
+  }
+}
+
 export function callOperator(idname: string, props: Record<string, unknown> = {}, execContext: ExecContext = 'EXEC_DEFAULT'): 'FINISHED' | 'CANCELLED' | 'RUNNING_MODAL' | 'PASS_THROUGH' {
   const op = operators.get(idname);
   if (!op) throw pyError('AttributeError', `Calling operator "bpy.ops.${idname}" error, could not be found`);
@@ -3082,6 +3104,7 @@ export function callOperator(idname: string, props: Record<string, unknown> = {}
     if (m) parts.push([`${m[1].toLowerCase()}.${m[2]}`, (v ?? {}) as Record<string, unknown>]);
     else plain[k] = toPlain(v);
   }
+  checkNumberProps(idname, op.props, plain);
   // scripts name modifiers by their name; these operators keep the modifier's id
   if (MODIFIER_BY_ID.has(idname) && typeof plain.modifier === 'string') {
     const ob = app.activeObject;
