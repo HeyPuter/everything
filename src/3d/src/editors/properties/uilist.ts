@@ -143,7 +143,8 @@ export function visibleIndices(items: { label: string }[], f: Pick<ListFilter, '
   const q = f.text.trim().toLowerCase();
   let idx = items.map((_, i) => i);
   if (q) {
-    const re = q.includes('*') ? new RegExp(`^${q.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`) : null;
+    // wildcards: * any run of characters, ? one character
+    const re = q.includes('*') ? new RegExp(`^${q.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`) : null;
     idx = idx.filter((i) => {
       const l = items[i].label.toLowerCase();
       const m = re ? re.test(l) : l.includes(q);
