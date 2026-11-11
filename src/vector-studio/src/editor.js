@@ -102,7 +102,12 @@ export class Editor extends Emitter {
       if (e.structural) this.#pruneSelection();
       if (e.commit && this.isolation && !doc.has(this.isolation)) this.#lostIsolation();
       if (!doc.has(this.activeLayerId)) this.activeLayerId = doc.root.children[doc.root.children.length - 1];
+      // Undo, or canceling an Alt-drag duplicate, can remove the active artboard.
+      const boards = doc.artboards?.length ?? 0;
+      const lostBoard = boards > 0 && this.activeArtboard >= boards;
+      if (lostBoard) this.activeArtboard = boards - 1;
       this.emit('doc-change', e);
+      if (lostBoard) this.emit('artboard');
     });
   }
 
