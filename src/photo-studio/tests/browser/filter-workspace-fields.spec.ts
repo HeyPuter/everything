@@ -41,3 +41,16 @@ test('Wide Angle Correction fields keep the value in use for blank or out-of-ran
   await expect(d.locator('#wa-scale')).toHaveValue('50');
   await d.locator('.wa-cancel').click();
 });
+
+test('Field Blur pin value keeps the value in use for blank or out-of-range entries', async ({ page }) => {
+  await start(page, 'filter.apply.field-blur');
+  const d = page.locator('dialog.filter-dialog[open]');
+  await expect(d).toBeVisible();
+  const value = d.getByRole('spinbutton', { name: 'Selected Pin' });
+  await expect(value).toHaveValue('15');
+  await enter(value, '');
+  await expect(value).toHaveValue('15');
+  await enter(value, '9999');
+  await expect(value).toHaveValue('500');
+  await d.locator('.fd-cancel').click();
+});

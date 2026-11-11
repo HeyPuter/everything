@@ -274,7 +274,13 @@ function pinEditor(c: HTMLCanvasElement, spec: Extract<ParamSpec, { type: 'pins'
     set(pins, final);
     draw();
   };
-  valueInput.addEventListener('change', () => Number.isFinite(Number(valueInput.value)) && setValue(Number(valueInput.value), true));
+  valueInput.addEventListener('change', () => {
+    const v = valueInput.value.trim() === '' ? NaN : Number(valueInput.value);
+    if (Number.isFinite(v)) setValue(v, true);
+    // Show the value in use (clamped, or kept for a blank entry).
+    const pin = get()[selected];
+    if (pin) valueInput.value = String(Math.round(pin.value * 10) / 10);
+  });
   range.addEventListener('input', () => setValue(fromSlider(numSpec, Number(range.value)), false));
   range.addEventListener('change', () => setValue(fromSlider(numSpec, Number(range.value)), true));
   const removeSelected = () => {
