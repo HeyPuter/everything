@@ -86,9 +86,12 @@ export function tracksPanel(app) {
     }
     const q = search.value.trim().toLowerCase();
     const tracks = doc.state.tracks.filter((t) => !q || t.name.toLowerCase().includes(q));
+    // Rows are rebuilt on every edit (Space hides a track): keyboard focus stays on the same track.
+    const focused = list.contains(document.activeElement) ? document.activeElement.closest('.track-row')?.dataset.id : null;
     list.replaceChildren(...tracks.map((t) => row(doc, t)));
     if (!tracks.length) list.append(h('li.track-empty', q ? 'No matching tracks' : 'This session has no tracks'));
     if (!list.querySelector('[tabindex="0"]')) list.querySelector('.track-row')?.setAttribute('tabindex', '0');
+    if (focused) list.querySelector(`.track-row[data-id="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   };
   const schedule = () => {
     if (!pending) pending = requestAnimationFrame(() => {
