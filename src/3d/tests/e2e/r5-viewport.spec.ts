@@ -185,3 +185,17 @@ test('the viewport follows a device pixel ratio change (window moved to another 
   await cdp.send('Emulation.clearDeviceMetricsOverride');
   await expectNoErrors(errors);
 });
+
+test('View Camera in a new empty scene does not borrow another scene camera', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  const r = await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('scene.new', { type: 'NEW' });
+    a.flush();
+    const res = a.run('view3d.view_camera');
+    return { res, camera: a.doc.scene.camera };
+  });
+  expect(r).toEqual({ res: 'CANCELLED', camera: null });
+  await expectNoErrors(errors);
+});

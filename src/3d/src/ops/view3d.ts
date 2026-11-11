@@ -13,6 +13,7 @@ import { relativeAxisView } from '../editors/view3d/navextra';
 import { cloneShared } from '../data/cow';
 import { uid } from '../data/defaults';
 import { uniqueName, activeCollection } from './object';
+import { sceneObjects } from '../scenes/scenes';
 import type { ObjectData } from '../data/types';
 
 const v3d = () => !!activeView3D();
@@ -193,8 +194,9 @@ registerOperators([
     exec: (ctx) => {
       const v = activeView3D()!;
       if (!v.activeCameraId()) {
-        // use the first camera object if none is active
-        const cam = Object.values(ctx.doc.objects).find((o) => o.type === 'CAMERA');
+        // use the first camera object of this scene if none is active
+        const inScene = sceneObjects(ctx.doc, ctx.doc.scene);
+        const cam = ctx.doc.object_order.map((id) => ctx.doc.objects[id]).find((o) => o?.type === 'CAMERA' && inScene.has(o.id));
         if (!cam) {
           app.report('WARNING', 'No active camera found');
           return 'CANCELLED';
