@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { parseMarkerText, parseDelimited } from '../src/storage/markers-io.js';
 import { conformOptions, defaultOptions, estimateSize, withExtension, sanitizeFileName, exportMarkers, formatForName, describeSampleType, describeSettings, usesDither } from '../src/export/formats.js';
 import { id3v2Tag, parseId3v2, riffInfoChunk, parseRiffInfo, vorbisComment, parseVorbisComment, cleanMeta, readTags } from '../src/audio/meta.js';
@@ -186,6 +186,18 @@ describe('file probing and decoding', () => {
     expect(r.channels[0][50]).toBe(0.25);
     expect(parseAiff(buf).channels.length).toBe(1);
     expect(readTags(buf)).toEqual({});
+  });
+  it('opens the other files when one of several fails, naming the one that failed', async () => {
+    const { openFiles } = await import('../src/storage/files.js');
+    const good = await bytesOf(WavWriter);
+    const bad = good.slice();
+    new DataView(bad.buffer).setUint16(22, 0, true); // zero channels: a damaged header
+    const added = [];
+    const app = { setStatus: () => {}, notify: vi.fn(), addDocument: (d) => added.push(d), activate: vi.fn(), prefs: { get: () => [], set: () => {} } };
+    const docs = await openFiles(app, [new File([bad], 'Broken.wav'), new File([good], 'Fine.wav')]);
+    expect(docs.map((d) => d.name)).toEqual(['Fine.wav']);
+    expect(app.activate).toHaveBeenCalledWith(docs[0]);
+    expect(app.notify).toHaveBeenCalledWith('"Broken.wav" could not be opened. The WAV file header is damaged.', { error: true });
   });
   it('rejects empty and known-unsupported files with clear messages', async () => {
     await expect(decodeAudio(new ArrayBuffer(0), 'a.mp3')).rejects.toThrow(/empty/);
