@@ -198,7 +198,14 @@ export function createTopbar(ctx) {
   };
   const menubar = h('nav.menubar', { 'aria-label': 'Menu bar' }, Object.entries(menus).map(([name, items]) => {
     const b = h('button.menubar-item', { type: 'button' }, name);
-    menuButton(b, items, { label: name });
+    // Left and right in an open menu move to the next menu, as in a desktop menu bar.
+    const onSibling = (dir) => {
+      const btns = [...menubar.children];
+      const next = btns[(btns.indexOf(b) + dir + btns.length) % btns.length];
+      next.focus();
+      next.click();
+    };
+    menuButton(b, items, { label: name, onSibling });
     // With one menu open, pointing at another menu bar item switches to it.
     b.addEventListener('pointerenter', () => {
       const other = [...menubar.children].find((x) => x !== b && x.getAttribute('aria-expanded') === 'true');

@@ -1,6 +1,6 @@
 // Popup menus: submenu placement, focus return from submenus and point-anchored context menus.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { showMenu, closeMenus } from '../src/ui/menu.js';
+import { showMenu, closeMenus, menuButton } from '../src/ui/menu.js';
 
 const frame = () => new Promise((r) => setTimeout(r, 5));
 const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
@@ -111,5 +111,68 @@ describe('context menus at a point', () => {
     const handle = showMenu({ x: 40, y: 50 }, [{ label: 'Copy', onSelect() {} }]);
     expect(handle.el.style.left).toBe('40px');
     expect(handle.el.style.top).toBe('54px');
+  });
+});
+
+// Menus focus their first item on the next animation frame.
+const settle = () => new Promise((r) => setTimeout(r, 40));
+
+describe('menu bar menus', () => {
+  it('move to the menu beside them with left and right arrows', async () => {
+    const bar = document.createElement('nav');
+    document.body.append(bar);
+    const names = ['File', 'Edit', 'View'];
+    const btns = names.map((name) => {
+      const b = document.createElement('button');
+      b.textContent = name;
+      bar.append(b);
+      const onSibling = (dir) => {
+        const next = btns[(btns.indexOf(b) + dir + btns.length) % btns.length];
+        next.focus();
+        next.click();
+      };
+      menuButton(b, () => [{ label: `${name} one`, onSelect() {} }, { label: 'More', submenu: [{ label: `${name} sub`, onSelect() {} }] }], { label: name, onSibling });
+      return b;
+    });
+    const openMenus = () => [...document.querySelectorAll('.menu')].map((m) => m.getAttribute('aria-label'));
+    btns[0].focus();
+    btns[0].click();
+    await settle();
+    expect(openMenus()).toEqual(['File']);
+    key(document.activeElement, 'ArrowRight');
+    await settle();
+    expect(openMenus()).toEqual(['Edit']);
+    expect(document.activeElement.textContent).toContain('Edit one');
+    expect(btns[0].getAttribute('aria-expanded')).toBe('false');
+    expect(btns[1].getAttribute('aria-expanded')).toBe('true');
+    key(document.activeElement, 'ArrowLeft');
+    await settle();
+    expect(openMenus()).toEqual(['File']);
+    key(document.activeElement, 'ArrowLeft');
+    await settle();
+    expect(openMenus()).toEqual(['View']);
+    // On a submenu item, right opens the submenu; left inside the submenu goes back to it.
+    key(document.activeElement, 'ArrowDown');
+    key(document.activeElement, 'ArrowRight');
+    await settle();
+    expect(openMenus()).toEqual(['View', 'More']);
+    // Right on a plain item inside the submenu moves on to the next menu bar menu.
+    key(document.activeElement, 'ArrowRight');
+    await settle();
+    expect(openMenus()).toEqual(['File']);
+    key(document.activeElement, 'Escape');
+    expect(openMenus()).toEqual([]);
+    expect(document.activeElement).toBe(btns[0]);
+  });
+
+  it('leave left and right alone in menus outside a menu bar', async () => {
+    const { handle } = rootMenu();
+    await settle();
+    const item = handle.el.querySelectorAll('.menu-item')[1];
+    item.focus();
+    key(item, 'ArrowRight');
+    key(item, 'ArrowLeft');
+    expect(document.contains(handle.el)).toBe(true);
+    expect(document.activeElement).toBe(item);
   });
 });
