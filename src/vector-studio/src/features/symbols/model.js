@@ -697,19 +697,47 @@ function matchingSymbol(doc, src) {
 }
 
 /**
+ * Master parts of an incoming definition matched to the document's copy by
+ * position (instance overrides are keyed by part id, and a copied master's
+ * parts have other ids): incoming part id -> document part id.
+ */
+function matchParts(sub, doc, defId) {
+  const byId = new Map(sub.nodes.map((n) => [n.id, n]));
+  const out = new Map();
+  const walk = (sid, did) => {
+    const a = byId.get(sid);
+    const b = doc.get(did);
+    if (!a || !b || a.type !== b.type) return;
+    if (sid !== did) out.set(sid, did);
+    if (a.children && b.children) a.children.forEach((c, i) => b.children[i] && walk(c, b.children[i]));
+  };
+  walk(sub.root, defId);
+  return out;
+}
+
+/** An instance's overrides keyed by the part ids of the document's copy of its symbol. */
+function remapOverrides(overrides, parts) {
+  if (!overrides || !parts?.size) return overrides;
+  return Object.fromEntries(Object.entries(overrides).map(([k, v]) => [parts.get(k) || k, v]));
+}
+
+/**
  * Make sure a document has the definitions some pasted nodes refer to
  * (inside a transaction). Symbols the document already has are reused;
  * others are added, renamed when their name is taken. Returns a map from
- * the incoming symbol ids to the ids to use.
+ * the incoming symbol ids to the ids to use; its `parts` maps each incoming
+ * symbol's part ids to the document's (see remapInstances).
  */
 export function importSymbols(doc, subtrees = []) {
   const map = new Map();
+  map.parts = new Map();
   const added = [];
   for (const sub of subtrees) {
     const src = sub.nodes[0];
     const same = matchingSymbol(doc, src);
     if (same) {
       map.set(src.id, same.id);
+      map.parts.set(src.id, matchParts(sub, doc, same.id));
       continue;
     }
     ensureStore(doc);
@@ -718,19 +746,29 @@ export function importSymbols(doc, subtrees = []) {
     const node = doc.importSubtree({ root: sub.root, nodes: [{ ...src, name: uniqueSymbolName(doc, src.name), symbolDef: { ...src.symbolDef, origin } }, ...sub.nodes.slice(1)] }, STORE_ID);
     symbolNames.set(node.id, node.name);
     map.set(src.id, node.id);
+    map.parts.set(src.id, matchParts(sub, doc, node.id));
     added.push(node.id);
   }
-  // Nested instances inside the added masters point at the new ids too.
+  // Nested instances inside the added masters point at the new ids (and parts) too.
   for (const id of added) {
-    for (const n of doc.descendants(id)) if (n.type === 'instance' && map.has(n.symbol) && map.get(n.symbol) !== n.symbol) doc.update(n.id, { symbol: map.get(n.symbol) });
+    for (const n of doc.descendants(id)) {
+      if (n.type !== 'instance' || !map.has(n.symbol)) continue;
+      const parts = map.parts.get(n.symbol);
+      if (map.get(n.symbol) !== n.symbol || (n.overrides && parts.size)) doc.update(n.id, { symbol: map.get(n.symbol), overrides: remapOverrides(n.overrides, parts) });
+    }
   }
   return map;
 }
 
-/** Subtree nodes with their instances pointing through an id map. */
+/** Subtree nodes with their instances pointing through an id map (and their overrides through its parts). */
 export function remapInstances(nodes, map) {
   if (!map.size) return nodes;
-  return nodes.map((n) => (n.type === 'instance' && map.has(n.symbol) && map.get(n.symbol) !== n.symbol ? { ...n, symbol: map.get(n.symbol) } : n));
+  return nodes.map((n) => {
+    if (n.type !== 'instance' || !map.has(n.symbol)) return n;
+    const parts = map.parts?.get(n.symbol);
+    if (map.get(n.symbol) === n.symbol && !(n.overrides && parts?.size)) return n;
+    return { ...n, symbol: map.get(n.symbol), overrides: remapOverrides(n.overrides, parts) };
+  });
 }
 
 // ---- moving master artwork (editing in place) ----

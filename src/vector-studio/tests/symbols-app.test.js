@@ -319,6 +319,35 @@ describe('clipboard', () => {
     await app.commands.run('edit.paste');
     expect(symbolDefs(doc2)).toHaveLength(1);
   });
+
+  it('keeps the parts a dynamic instance overrides when pasted into another document', async () => {
+    const { def, instance } = await makeSymbol();
+    const doc = app.editor.doc;
+    const partFills = (d, id) => {
+      const { items, vdoc } = liveArtwork(d, d.get(id));
+      const leaves = (n) => (n.children ? n.children.flatMap((c) => leaves(vdoc.get(c))) : [n.fill?.color]);
+      return items.flatMap(leaves);
+    };
+    // The instance recolors the first part of its symbol.
+    const part = getDef(doc, def.id).children[0];
+    doc.transact('Override', () => doc.update(instance.id, { overrides: { [part]: { fill: green } } }));
+    const look = partFills(doc, instance.id);
+    expect(look).toContain('#00ff00');
+    app.editor.select([instance.id]);
+    await app.commands.run('edit.copy');
+    app.newDocument();
+    const doc2 = app.editor.doc;
+    await app.commands.run('edit.paste');
+    expect(partFills(doc2, app.editor.topSelection()[0])).toEqual(look);
+    // Again once the symbol is in this document, and from there back into the first one.
+    await app.commands.run('edit.paste');
+    expect(partFills(doc2, app.editor.topSelection()[0])).toEqual(look);
+    await app.commands.run('edit.copy');
+    app.activate(app.editors[0]);
+    await app.commands.run('edit.paste');
+    expect(partFills(doc, app.editor.topSelection()[0])).toEqual(look);
+    expect(symbolDefs(doc)).toHaveLength(1);
+  });
 });
 
 describe('symbol libraries', () => {
