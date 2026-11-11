@@ -23,6 +23,8 @@ test('undoing a crop puts a crop box around the whole restored canvas', async ({
   await page.keyboard.press('Enter');
   await idle(page);
   expect(await docSize(page)).toEqual([400, 300]);
+  // Committing the untouched box adds no empty step.
+  expect(await historyLabels(page)).toEqual([]);
 });
 
 test('Perspective Crop refuses a dented outline instead of failing', async ({ page }) => {

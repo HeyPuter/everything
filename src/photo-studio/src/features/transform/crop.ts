@@ -178,6 +178,8 @@ async function commitCrop(e: Editor) {
     e.message('The crop’s width and height must come to 8192 pixels or less per side and 24 megapixels or less at this resolution.');
     return;
   }
+  // Committing the untouched box changes nothing: no empty Crop step.
+  if (untouched(e) && !s.deleteCropped && !target) return;
   if (Math.abs(b.angle) < 1e-9) {
     const r = { x: Math.round(b.cx - b.w / 2), y: Math.round(b.cy - b.h / 2), width: w, height: h };
     const store = e.assets.tiles;
