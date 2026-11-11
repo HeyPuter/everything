@@ -261,3 +261,20 @@ describe('per-tab recovery slots', () => {
     Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true });
   });
 });
+
+describe('damaged project files', () => {
+  it('say the file is damaged instead of showing parser errors', async () => {
+    const { decodeDocument, encodeDocument } = await import('../../src/io/native');
+    const good = encodeDocument(startupDocument());
+    // corrupt JSON
+    const badJson = good.slice();
+    badJson[12] = 0x5d; // "]" where the JSON object starts
+    expect(() => decodeDocument(badJson)).toThrow('The file is damaged.');
+    // garbage after the magic number
+    expect(() => decodeDocument(new TextEncoder().encode('P3D\0garbagegarbage'))).toThrow('The file is damaged.');
+    // a genuinely newer file still says so
+    const newer = good.slice();
+    new DataView(newer.buffer).setUint32(4, 2, true);
+    expect(() => decodeDocument(newer)).toThrow('newer version');
+  });
+});

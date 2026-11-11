@@ -67,11 +67,25 @@ export function isNativeFile(bytes: Uint8Array) {
 }
 
 export function decodeDocument(bytes: Uint8Array): { doc: DocumentData; extra: Record<string, unknown> } {
+  try {
+    return decode(bytes);
+  } catch (e) {
+    // a damaged file trips JSON / DataView / property errors whose wording means nothing to users
+    if (e instanceof SyntaxError || e instanceof RangeError || e instanceof TypeError) {
+      console.warn('Cannot decode the project file:', e);
+      throw new Error('The file is damaged.');
+    }
+    throw e;
+  }
+}
+
+function decode(bytes: Uint8Array): { doc: DocumentData; extra: Record<string, unknown> } {
   if (bytes.length > MAX_FILE_BYTES) throw new Error('File is too large.');
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (dv.getUint32(0, true) !== MAGIC) throw new Error('Not a project file.');
   const version = dv.getUint32(4, true);
-  if (version > FORMAT_VERSION) throw new Error(`This file was saved by a newer version (format ${version}).`);
+  // versions grow one at a time: a huge number is a damaged header, not a newer file
+  if (version > FORMAT_VERSION) throw new Error(version < 1000 ? `This file was saved by a newer version (format ${version}).` : 'The file is damaged.');
   const jsonLen = dv.getUint32(8, true);
   if (12 + jsonLen > bytes.length) throw new Error('The file is truncated.');
   const json = new TextDecoder().decode(bytes.subarray(12, 12 + jsonLen));
