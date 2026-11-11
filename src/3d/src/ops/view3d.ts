@@ -529,7 +529,7 @@ registerOperators([
       const cur = new Vector3(...ctx.doc.scene.cursor.location);
       const center = selectionMedian() ?? new Vector3();
       if (ctx.doc.mode !== 'OBJECT') return snapSelectedElements((c) => (p.use_offset ? cur.clone().add(c.sub(center)) : cur.clone())) ? 'FINISHED' : 'CANCELLED';
-      for (const ob of app.selectedObjects()) {
+      for (const ob of snapRoots()) {
         const w = app.graph.get(ob.id)!.world.clone();
         const pos = new Vector3().setFromMatrixPosition(w);
         const target = p.use_offset ? cur.clone().add(pos.clone().sub(center)) : cur;
@@ -546,7 +546,7 @@ registerOperators([
       const g = gridStep();
       const round = (v: Vector3) => new Vector3(Math.round(v.x / g) * g, Math.round(v.y / g) * g, Math.round(v.z / g) * g);
       if (ctx.doc.mode !== 'OBJECT') return snapSelectedElements((c) => round(c)) ? 'FINISHED' : 'CANCELLED';
-      for (const ob of app.selectedObjects()) {
+      for (const ob of snapRoots()) {
         const w = app.graph.get(ob.id)!.world.clone();
         w.setPosition(round(new Vector3().setFromMatrixPosition(w)));
         setWorld(ob, w);
@@ -560,7 +560,7 @@ registerOperators([
     exec: (ctx) => {
       if (ctx.doc.mode !== 'OBJECT') return snapSelectedElements((_c, active) => active ?? null) ? 'FINISHED' : 'CANCELLED';
       const target = new Vector3().setFromMatrixPosition(app.graph.get(app.activeObject!.id)!.world);
-      for (const ob of app.selectedObjects()) {
+      for (const ob of snapRoots()) {
         if (ob.id === app.activeObject!.id) continue;
         const w = app.graph.get(ob.id)!.world.clone();
         w.setPosition(target);
@@ -636,6 +636,16 @@ registerOperators([
 ]);
 
 let clipboard: { objects: { ob: ObjectData; world: number[] }[]; data: Record<string, unknown> } | null = null;
+
+/** Selected objects without a selected ancestor: children of moved parents move along with them. */
+function snapRoots(): ObjectData[] {
+  const sel = app.selectedObjects();
+  const ids = new Set(sel.map((o) => o.id));
+  return sel.filter((o) => {
+    for (let p = o.parent; p; p = app.doc.objects[p]?.parent ?? null) if (ids.has(p)) return false;
+    return true;
+  });
+}
 
 function setWorld(ob: ObjectData, w: Matrix4) {
   const parentInv = ob.parent ? app.graph.get(ob.parent)!.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();
