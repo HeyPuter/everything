@@ -201,3 +201,35 @@ describe('loudness normalization', () => {
     }
   });
 });
+
+describe('voice effects in the mix', () => {
+  it('keeps pitch-shifted voices in sync with the picture on average', async () => {
+    const sr = 48000;
+    // Clicks at different points of the shifter's cycle; its delay wobbles around a mean.
+    const clicks = Array.from({ length: 9 }, (_, k) => Math.round((0.2 + k * 0.37) * sr));
+    const click = (i) => {
+      for (const c of clicks) if (i >= c && i < c + 48) return 0.8 * Math.sin((Math.PI * (i - c)) / 48);
+      return 0;
+    };
+    for (const id of ['low', 'high', 'giant', 'squeaky']) {
+      const clip = makeClip('audio', { assetId: 'a', start: 1 * US, duration: 4 * US });
+      clip.audioFx = { voice: { id, params: {} } };
+      const { p, openSource } = project([clip], { a: synth(sr, 5, click, 2) });
+      const { channels } = await renderAudio(p, null, { sampleRate: sr, channels: 2, openSource });
+      let off = 0;
+      for (const c of clicks) {
+        // Energy centroid of the click's echo in the mix, against where it belongs.
+        const at = sr + c + 24;
+        let sum = 0;
+        let weighted = 0;
+        for (let i = at - 0.05 * sr; i < at + 0.12 * sr; i++) {
+          const v = channels[0][i] ** 2;
+          sum += v;
+          weighted += v * (i - at);
+        }
+        off += weighted / sum / sr / clicks.length;
+      }
+      expect(Math.abs(off), id).toBeLessThan(0.008);
+    }
+  });
+});
