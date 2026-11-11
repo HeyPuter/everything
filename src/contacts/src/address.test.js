@@ -42,6 +42,27 @@ describe('formatAddressLines', () => {
     expect(lines[lines.length - 1]).toBe('United States')
   })
 
+  it('puts postal code before city for DE (and FR)', () => {
+    const de = formatAddressLines({
+      street: 'Unter den Linden 1',
+      city: 'Berlin',
+      postalCode: '10117',
+      country: 'DE',
+    })
+    expect(de).toContain('10117 Berlin')
+    expect(de).not.toContain('Berlin, 10117')
+    expect(de[de.length - 1]).toBe('Germany')
+
+    const fr = formatAddressLines({
+      street: '10 Rue de Rivoli',
+      city: 'Paris',
+      postalCode: '75001',
+      country: 'FR',
+    })
+    expect(fr).toContain('75001 Paris')
+    expect(fr).not.toContain('Paris, 75001')
+  })
+
   it('returns nothing for an empty address', () => {
     expect(formatAddressLines({})).toEqual([])
   })
