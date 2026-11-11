@@ -59,3 +59,26 @@ describe('large-selection drag preview', () => {
     s.commit();
   });
 });
+
+describe('large-selection drag preview with Alt', () => {
+  it('shows the originals in place once Alt switches the drag to copies', () => {
+    const app = bootApp();
+    app.newDocument();
+    const ids = many(app, PREVIEW_THRESHOLD + 10);
+    const view = app.views.get(app.editor);
+    const s = new TransformSession(app.editor, 'Move');
+    s.apply([1, 0, 0, 1, 10, 0]);
+    view.renderNow();
+    expect(view.previewCache.isMoving(ids[0])).toBe(true);
+    s.setDuplicate(true);
+    view.renderNow();
+    // The copies move; the originals stay in the static artwork.
+    expect(view.previewCache.isMoving(ids[0])).toBe(false);
+    expect(view.previewCache.isMoving(s.ids[0])).toBe(true);
+    s.setDuplicate(false);
+    view.renderNow();
+    expect(view.previewCache.isMoving(ids[0])).toBe(true);
+    s.cancel();
+    view.renderNow();
+  });
+});
