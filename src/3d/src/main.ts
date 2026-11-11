@@ -70,7 +70,15 @@ let ctx: RenderContext;
 try {
   ctx = new RenderContext(app, document.body);
   setRenderContext(ctx);
-  ctx.engine.onLost = (msg) => showFatal(msg);
+  ctx.engine.onLost = (msg) => {
+    const el = showFatal(msg);
+    // the message goes away when the context comes back
+    const restored = () => {
+      el.remove();
+      ctx.engine.restoreCallbacks.delete(restored);
+    };
+    ctx.engine.restoreCallbacks.add(restored);
+  };
 } catch (e) {
   showFatal(`WebGL 2 is required to display the 3D viewport. ${e instanceof Error ? e.message : ''}`);
 }
@@ -146,6 +154,7 @@ function showFatal(message: string) {
   el.setAttribute('role', 'alert');
   el.textContent = message;
   document.body.append(el);
+  return el;
 }
 
 // expose for scripting & debugging

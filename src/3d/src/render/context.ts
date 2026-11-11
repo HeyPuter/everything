@@ -3,6 +3,7 @@ import { Color, DataTexture, RGBAFormat, FloatType, EquirectangularReflectionMap
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { RenderEngine } from './engine';
 import { SceneSync } from './scene';
+import { dropHdriEnvironments } from './studiolights';
 import type { App } from '../app/app';
 import type { WorldData } from '../data/types';
 
@@ -26,6 +27,17 @@ export class RenderContext {
     this.engine = new RenderEngine(container);
     this.sync = new SceneSync(app);
     app.subscribe(() => this.engine.requestDraw());
+    // environments rendered into targets lost their pixels with the context: build them again
+    this.engine.restoreCallbacks.add(() => {
+      this.studioEnv?.dispose();
+      this.studioEnv = null;
+      if (this.worldEnvTarget) this.worldEnvTarget.dispose();
+      this.worldEnvTarget = null;
+      this.worldEnv = null;
+      this.worldEnvKey = '';
+      dropHdriEnvironments();
+      this.forceSync();
+    });
   }
 
   /** Bring the three.js scene up to date with the depsgraph (once per revision). */

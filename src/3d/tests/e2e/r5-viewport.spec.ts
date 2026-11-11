@@ -134,3 +134,36 @@ test('a cancelled pen/touch press in the viewport does not select later', async 
   expect(await selected()).toEqual(['Cube']);
   await expectNoErrors(errors);
 });
+
+test('the viewport comes back after the graphics context is restored', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const { renderContext } = await import('/src/render/context.ts' as string);
+    renderContext.engine.renderer.forceContextLoss();
+  });
+  await expect(page.locator('.error-screen')).toBeVisible();
+  await page.evaluate(async () => {
+    const { renderContext } = await import('/src/render/context.ts' as string);
+    renderContext.engine.renderer.forceContextRestore();
+  });
+  await expect(page.locator('.error-screen')).toHaveCount(0);
+  const r = await page.evaluate(async () => {
+    const { renderContext } = await import('/src/render/context.ts' as string);
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const eng = renderContext.engine;
+    a.run('view3d.toggle_shading', { type: 'MATERIAL' });
+    a.changed('doc');
+    a.flush();
+    eng.drawAll();
+    // the cube in the middle of the view is drawn again (not the empty canvas colour)
+    const gl = eng.renderer.getContext() as WebGL2RenderingContext;
+    const v = document.querySelector('.view3d')!.getBoundingClientRect();
+    const base = eng.canvas.getBoundingClientRect();
+    const px = new Uint8Array(4);
+    gl.readPixels(Math.round((v.left + v.width / 2 - base.left) * eng.dpr), Math.round((base.bottom - v.top - v.height / 2) * eng.dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return { lost: eng.lost, px: [...px] };
+  });
+  expect(r.lost).toBe(false);
+  expect(r.px.slice(0, 3).some((c) => c > 60)).toBe(true);
+  await expectNoErrors(errors);
+});
