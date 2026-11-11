@@ -433,3 +433,24 @@ describe('Files panel focus', () => {
     expect(document.activeElement.isConnected).toBe(true);
   });
 });
+
+describe('Markers panel focus', () => {
+  it('moves focus to the next row when the focused marker is deleted', async () => {
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const d = audioDoc(2);
+    app.addDocument(d);
+    for (const [id, start] of [['m1', 100], ['m2', 600], ['m3', 1200]]) d.apply('Add Marker', { ...d.state, markers: [...d.state.markers, { id, name: id, start, duration: 0, type: 'cue', description: '' }] });
+    const panel = create(app, 'markers');
+    document.body.replaceChildren(panel.el);
+    panel.show();
+    const row = (id) => panel.el.querySelector(`tr[data-id="${id}"]`);
+    row('m2').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.activeElement).toBe(row('m2'));
+    row('m2').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(d.state.markers.map((m) => m.id)).toEqual(['m1', 'm3']);
+    // Focus stays in the list (on the marker now in that place), not on the page.
+    expect(document.activeElement).toBe(row('m3'));
+  });
+});

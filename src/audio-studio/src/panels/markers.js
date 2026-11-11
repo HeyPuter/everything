@@ -177,6 +177,10 @@ export function markersPanel(app) {
   };
 
   const render = () => {
+    // A focused row that goes away (deleted, filtered) hands focus to the row now in its
+    // place, so keys such as Delete stay in the list instead of reaching the editor.
+    const focusedRow = body.contains(document.activeElement) ? document.activeElement.closest('tr[data-id]') : null;
+    const focusedAt = focusedRow ? [...body.querySelectorAll('tr[data-id]')].indexOf(focusedRow) : -1;
     renderHead();
     const d = doc();
     body.replaceChildren();
@@ -239,6 +243,11 @@ export function markersPanel(app) {
     if (!body.querySelector('tr[tabindex="0"]')) {
       const first = body.querySelector('tr[data-id]');
       if (first) first.tabIndex = 0;
+    }
+    if (focusedRow) {
+      const rows = [...body.querySelectorAll('tr[data-id]')];
+      const same = rows.find((r) => r.dataset.id === focusedRow.dataset.id);
+      (same || rows[Math.min(focusedAt, rows.length - 1)])?.focus({ preventScroll: Boolean(same) });
     }
     updateButtons();
   };
