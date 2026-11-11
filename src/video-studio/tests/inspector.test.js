@@ -526,6 +526,37 @@ describe('text', () => {
   });
 });
 
+describe('animation grid keyboard', () => {
+  it('arrow keys skip tiles hidden by the search', () => {
+    env.store.select(env.v1.id);
+    tab('Animation').click();
+    const search = env.el.querySelector('.anim-search');
+    search.value = 'slide';
+    search.dispatchEvent(new Event('input'));
+    const tiles = [...env.el.querySelectorAll('.anim-grid [role=radio]')];
+    const shown = tiles.filter((b) => !b.hidden);
+    expect(shown.length).toBeGreaterThan(2);
+    expect(shown.length).toBeLessThan(tiles.length);
+    shown[0].focus();
+    for (let i = 1; i < shown.length; i++) {
+      shown[i - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(document.activeElement).toBe(shown[i]);
+    }
+    shown.at(-1).dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    expect(document.activeElement).toBe(shown[0]);
+    shown[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(document.activeElement).toBe(shown.at(-1));
+    // One tile stays in the tab order, and it is a visible one.
+    expect(tiles.filter((b) => b.tabIndex === 0)).toEqual([shown.at(-1)]);
+    // The applied animation hidden by the search: a shown tile keeps the tab stop.
+    tiles.find((b) => b.textContent === 'Fade in').click();
+    search.focus();
+    search.value = 'slide';
+    search.dispatchEvent(new Event('input'));
+    expect(tiles.filter((b) => b.tabIndex === 0)).toEqual([shown[0]]);
+  });
+});
+
 describe('transition and multi-selection', () => {
   it('edits the selected transition', () => {
     env.ctx.actions.applyTransition('mix', { clipId: env.v1.id });

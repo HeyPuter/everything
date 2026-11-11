@@ -133,6 +133,8 @@ function kindPanel(view, kind, state) {
       const a = list.find((x) => x.id === b.dataset.id);
       b.hidden = Boolean(a) && ((cat !== 'all' && catOf(a) !== cat) || (q && !a.label.toLowerCase().includes(q)));
     });
+    // Keep the grid's tab stop on a tile that shows.
+    if (!grid.el.contains(document.activeElement)) grid.set(view.clip?.[key]?.id || null);
   };
   const chips = h('div.anim-cats', { role: 'radiogroup', 'aria-label': 'Animation category' }, cats.map((c) => {
     const b = h('button.chip', { type: 'button', role: 'radio', 'aria-checked': String(c.id === cat), 'data-cat': c.id }, c.label);

@@ -393,16 +393,20 @@ export function choiceGrid({ label, items, value, onPick, className = '' }) {
     btns.forEach((b, i) => {
       const on = (items[i].id ?? null) === (id ?? null);
       b.setAttribute('aria-checked', String(on));
-      b.tabIndex = on ? 0 : -1;
-      any ||= on;
+      b.tabIndex = on && !b.hidden ? 0 : -1;
+      any ||= on && !b.hidden;
     });
-    if (!any && btns[0]) btns[0].tabIndex = 0;
+    // The checked tile hidden (or none checked): the first shown one takes the tab stop.
+    const first = btns.find((b) => !b.hidden);
+    if (!any && first) first.tabIndex = 0;
   };
   grid.addEventListener('keydown', (e) => {
     if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
-    const i = btns.indexOf(document.activeElement);
+    // Tiles hidden by a search or category are skipped.
+    const shown = btns.filter((b) => !b.hidden);
+    const i = shown.indexOf(document.activeElement);
     if (i < 0) return;
-    const w = btns[0].getBoundingClientRect().width;
+    const w = shown[0].getBoundingClientRect().width;
     const cols = w ? Math.max(1, Math.round(grid.clientWidth / w)) : 4;
     let j = i;
     if (e.key === 'ArrowRight') j = i + 1;
@@ -410,13 +414,13 @@ export function choiceGrid({ label, items, value, onPick, className = '' }) {
     if (e.key === 'ArrowDown') j = i + cols;
     if (e.key === 'ArrowUp') j = i - cols;
     if (e.key === 'Home') j = 0;
-    if (e.key === 'End') j = btns.length - 1;
+    if (e.key === 'End') j = shown.length - 1;
     e.preventDefault();
     e.stopPropagation();
-    if (j >= 0 && j < btns.length) {
+    if (j >= 0 && j < shown.length) {
       btns.forEach((b) => (b.tabIndex = -1));
-      btns[j].tabIndex = 0;
-      btns[j].focus();
+      shown[j].tabIndex = 0;
+      shown[j].focus();
     }
   });
   grid.append(...btns);
