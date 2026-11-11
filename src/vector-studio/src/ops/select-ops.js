@@ -4,7 +4,7 @@
 import { UserError } from '../lib/errors.js';
 import { nodeBounds, rectsIntersect } from '../model/geometry.js';
 
-/** Top-level selectable objects (direct children of unlocked, visible layers). */
+/** Top-level selectable objects (children of unlocked, visible layers and sublayers, never the layers themselves). */
 export function selectableTargets(editor) {
   const { doc } = editor;
   const out = [];
@@ -12,14 +12,17 @@ export function selectableTargets(editor) {
   // An isolated single object (path, text...) is the only target.
   const iso = editor.isolation && doc.get(editor.isolation);
   if (iso && (!iso.children || iso.type === 'compound')) return iso.hidden || iso.locked ? [] : [iso.id];
-  for (const lid of root) {
+  const collect = (lid) => {
     const layer = doc.get(lid);
-    if (!layer || layer.hidden || layer.locked) continue;
+    if (!layer || layer.hidden || layer.locked) return;
     for (const id of layer.children) {
       const n = doc.get(id);
-      if (n && !n.hidden && !n.locked) out.push(id);
+      if (!n || n.hidden || n.locked) continue;
+      if (n.type === 'layer') collect(id);
+      else out.push(id);
     }
-  }
+  };
+  for (const lid of root) collect(lid);
   return out;
 }
 

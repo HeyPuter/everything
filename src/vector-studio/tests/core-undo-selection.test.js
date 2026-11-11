@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { bootApp } from './helpers.js';
 import { createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
+import { insertLayer } from '../src/ops/layer-ops.js';
 
 const sel = (ed) => [...ed.selection].sort();
 
@@ -284,5 +285,32 @@ describe('Arrange inside a clip group', () => {
     ed.selectAnchors(a, [0, 1, 2, 3]);
     await app.commands.run('object.sendToBack');
     expect(doc.get(clip).children).toEqual([a, b, mask]);
+  });
+});
+
+describe('Select All with sublayers', () => {
+  it('selects the objects in visible, unlocked sublayers, never a sublayer itself', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const layer = ed.targetLayer().id;
+    const rect = (x) => createPath(rectangle(x, 0, 10, 10), true);
+    const [a, b, c] = [rect(0), rect(20), rect(40)];
+    let sub;
+    let locked;
+    doc.transact('Setup', () => {
+      doc.insert(a, layer);
+      sub = insertLayer(doc, layer).id;
+      doc.insert(b, sub);
+      locked = insertLayer(doc, layer, Infinity, { locked: true }).id;
+      doc.insert(c, locked);
+    });
+    await app.commands.run('select.all');
+    expect(new Set(ed.selection)).toEqual(new Set([a.id, b.id]));
+    await app.commands.run('object.group');
+    const [g] = ed.selection;
+    expect(doc.get(g).children).toEqual([a.id, b.id]);
+    expect(doc.get(sub).type).toBe('layer');
+    expect(doc.get(sub).parent).toBe(layer);
   });
 });
