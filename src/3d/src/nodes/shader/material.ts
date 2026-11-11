@@ -27,7 +27,7 @@ import {
 } from 'three';
 import type { DocumentData, MaterialData, NodeData } from '../../data/types';
 import type { PbrHint } from '../../render/final/ptmaterial';
-import { activeOutput } from '../tree';
+import { activeOutput, treeEvalJson } from '../tree';
 import { setMaterialCompiler, setMaterialKeyExtra, principledFallback, errorMaterial } from '../../render/pbr';
 import { imageTexture } from '../../render/images';
 import { compileTree, DISPLACE_MARK, hashString, type CompiledTree, type UniformSpec } from './codegen';
@@ -458,7 +458,7 @@ setMaterialKeyExtra((doc, ma) => {
       if (gid && !seen.has(gid) && doc.node_groups[gid]) {
         seen.add(gid);
         const g = doc.node_groups[gid];
-        k += `|g:${JSON.stringify(g.tree)}`;
+        k += `|g:${treeEvalJson(g.tree)}`;
         visit(g.tree.nodes);
       }
       const img = n.props.image as string | undefined;

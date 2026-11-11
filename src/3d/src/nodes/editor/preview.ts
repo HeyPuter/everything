@@ -7,7 +7,7 @@ import { renderContext } from '../../render/context';
 import { app } from '../../app/app';
 import { compileMaterial } from '../shader/material';
 import { canConvert, getNodeType, nodeSockets } from '../registry';
-import { connect, ctxOf, makeNode } from '../tree';
+import { connect, ctxOf, makeNode, treeEvalJson } from '../tree';
 import { hashString } from '../shader/codegen';
 
 const SIZE = 192; // rendered size; shown at node width
@@ -63,7 +63,7 @@ export function previewTreeKey(doc: DocumentData, ma: MaterialData): string {
     }
   };
   walk(ma.tree, 0);
-  return hashString(JSON.stringify(ma.tree) + [...used].map((id) => JSON.stringify(doc.node_groups[id].tree)).join('') + ma.blend_method);
+  return hashString(treeEvalJson(ma.tree) + [...used].map((id) => treeEvalJson(doc.node_groups[id].tree)).join('') + ma.blend_method);
 }
 
 /** The preview image URL of a node (possibly from an older state while a new one renders). */

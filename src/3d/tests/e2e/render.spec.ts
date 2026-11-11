@@ -212,3 +212,37 @@ test('the world is baked again after the graphics context is restored', async ({
   expect(r).toEqual({ reused: true, rerendered: true, fresh: true });
   await expectNoErrors(errors);
 });
+
+test('the world is baked again when a node group nested two levels deep changes, not when nodes move', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async (imp) => {
+    const a = (window as any).app;
+    const W = await (0, eval)(imp)('/src/nodes/shader/world.ts');
+    const T = await (0, eval)(imp)('/src/nodes/tree.ts');
+    const { renderContext } = await (0, eval)(imp)('/src/render/context.ts');
+    const renderer = renderContext.engine.renderer;
+    const w = a.doc.worlds[a.doc.scene.world];
+    // World Output ← Group ← Group ← Background
+    const bg = w.tree.nodes.find((n: any) => n.type === 'ShaderNodeBackground');
+    const outer = T.makeGroup(a.doc, w.tree, new Set([bg.id]));
+    const g1 = a.doc.node_groups[outer.props.node_tree].tree;
+    const inner = T.makeGroup(a.doc, g1, new Set([g1.nodes.find((n: any) => n.type === 'ShaderNodeBackground').id]));
+    const g2 = a.doc.node_groups[inner.props.node_tree].tree;
+    const deep = g2.nodes.find((n: any) => n.type === 'ShaderNodeBackground');
+    let renders = 0;
+    const orig = renderer.render.bind(renderer);
+    renderer.render = (...args: unknown[]) => (renders++, orig(...args));
+    W.bakeWorld(a.doc, w);
+    const n0 = renders;
+    deep.location = [deep.location[0] + 40, deep.location[1]];
+    deep.select = !deep.select;
+    W.bakeWorld(a.doc, w);
+    const afterMove = renders;
+    deep.inputs.Color = [0.9, 0.1, 0.1, 1];
+    W.bakeWorld(a.doc, w);
+    renderer.render = orig;
+    return { moveRendered: afterMove > n0, valueRendered: renders > afterMove };
+  }, IMPORT);
+  expect(r).toEqual({ moveRendered: false, valueRendered: true });
+  await expectNoErrors(errors);
+});

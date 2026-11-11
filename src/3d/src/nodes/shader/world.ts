@@ -24,6 +24,7 @@ import {
 } from 'three';
 import type { DocumentData, WorldData } from '../../data/types';
 import { compileTree, type CompiledTree, type UniformSpec } from './codegen';
+import { treeEvalJson } from '../tree';
 import { imageTexture } from '../../render/images';
 import { setWorldBaker, type WorldEval } from '../../render/world';
 import { renderContext } from '../../render/context';
@@ -150,18 +151,26 @@ function render(renderer: WebGLRenderer, b: Bake) {
 /** Bake the world tree into an equirectangular texture (null if no renderer is available). */
 let memo: { key: string; result: WorldEval } | null = null;
 
-/** Cheap change key for a world tree (tree data + referenced image state). */
+/** Cheap change key for a world tree (tree data, the node groups it uses at any depth, referenced image state). */
 function memoKey(doc: DocumentData, w: WorldData) {
-  let k = JSON.stringify(w.tree);
-  for (const n of w.tree.nodes) {
-    const id = n.props.image as string | undefined;
-    const img = id ? doc.images[id] : undefined;
-    if (img) k += `|${id}:${img.revision ?? 0}:${(imageTexture(img) as { version: number }).version}`;
-  }
-  for (const n of w.tree.nodes) {
-    const gid = n.props.node_tree as string | undefined;
-    if (gid && doc.node_groups[gid]) k += `|g${JSON.stringify(doc.node_groups[gid].tree)}`;
-  }
+  let k = '';
+  const seen = new Set<string>();
+  const visit = (tree: WorldData['tree']) => {
+    k += `|${treeEvalJson(tree)}`;
+    for (const n of tree.nodes) {
+      const id = n.props.image as string | undefined;
+      const img = id ? doc.images[id] : undefined;
+      if (img) k += `|${id}:${img.revision ?? 0}:${(imageTexture(img) as { version: number }).version}`;
+      // Scene Time: the frame is a value of the tree
+      if (n.type === 'GeometryNodeInputSceneTime') k += `|f:${doc.scene.frame_current}:${doc.scene.frame_subframe ?? 0}`;
+      const gid = n.props.node_tree as string | undefined;
+      if (gid && !seen.has(gid) && doc.node_groups[gid]) {
+        seen.add(gid);
+        visit(doc.node_groups[gid].tree);
+      }
+    }
+  };
+  visit(w.tree);
   return k;
 }
 
