@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Library, AutoSaver } from '../src/storage/library.js';
+import { Library, AutoSaver, STALL_MS } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { EditorStore } from '../src/model/store.js';
 import { createProject } from '../src/model/project.js';
@@ -599,6 +599,40 @@ describe('AutoSaver', () => {
     await finish('c');
     await vi.advanceTimersByTimeAsync(5000);
     expect(saved()).toBe('c');
+    expect(store.dirty).toBe(false);
+  });
+
+  it('lets the editor be left when a save never answers, without a second write or a false Saved', async () => {
+    quiet();
+    // The project write hangs (a stalled connection) until the test lets it finish.
+    const pending = [];
+    const write = backend.writeJSON;
+    backend.writeJSON = (path, value) => {
+      if (!path.startsWith('projects/')) return write(path, value);
+      return new Promise((resolve) => pending.push({ name: value.name, finish: () => write(path, value).then(resolve) }));
+    };
+    edit('stuck');
+    const leaving = saver.flush();
+    const outcome = leaving.then(() => 'left', (err) => err.message);
+    await vi.advanceTimersByTimeAsync(STALL_MS + 10);
+    // Leaving is told the edits aren't saved, so it can ask instead of hanging.
+    expect(await outcome).toMatch(/taking too long/);
+    expect(saver.status).toBe('error');
+    expect(store.dirty).toBe(true);
+    // Edits meanwhile don't start another write beside the stalled one.
+    edit('later');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pending.map((w) => w.name)).toEqual(['stuck']);
+    expect(saver.status).toBe('error');
+    await expect(saver.flush()).rejects.toThrow(/taking too long/);
+    // It lands at last: confirmed, then the newer edit is saved after it.
+    await pending.shift().finish();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(pending.map((w) => w.name)).toEqual(['later']);
+    await pending.shift().finish();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(saved()).toBe('later');
+    expect(saver.status).toBe('saved');
     expect(store.dirty).toBe(false);
   });
 

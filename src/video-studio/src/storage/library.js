@@ -559,6 +559,13 @@ export class Library extends Emitter {
 }
 
 /** Autosave: debounced writes after edits, with retry and status events. */
+/**
+ * A project write that hasn't answered after this long counts as failed for
+ * the status and for leaving; it is still waited for before the next write
+ * starts, so it can't land after a newer one.
+ */
+export const STALL_MS = 45_000;
+
 export class AutoSaver extends Emitter {
   constructor(library, store, { delay = 1200 } = {}) {
     super();
@@ -573,7 +580,9 @@ export class AutoSaver extends Emitter {
   }
 
   schedule() {
-    this._set('pending');
+    // A write that doesn't answer still blocks the next one: keep saying so.
+    if (this.stalled) this._set('error', this.error);
+    else this._set('pending');
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.save(), this.delay);
   }
@@ -589,12 +598,28 @@ export class AutoSaver extends Emitter {
     if (this.saving) {
       // Several callers may be waiting (the timer, Save now, leaving): one goes next, the
       // others wait for it too. Two writes in flight could land out of order.
-      while (this.saving) await this.saving;
+      while (this.saving) {
+        await this._waitForSave();
+        // Stalled: no new write beside it. It saves again when that write answers.
+        if (this.stalled) {
+          this._set('error', this.error);
+          return;
+        }
+      }
       if (!this.store.dirty) return;
     }
     const revision = this.store.revision;
     const snapshot = this.store.projectForSave ? this.store.projectForSave() : structuredClone(this.store.project);
     this._set('saving');
+    let wake;
+    this._stallWake = new Promise((r) => (wake = r));
+    const stall = setTimeout(() => {
+      if (!this.saving) return;
+      this.stalled = true;
+      this.error = new Error('Saving is taking too long. Check your connection.');
+      this._set('error', this.error);
+      wake();
+    }, STALL_MS);
     this.saving = this.library
       .saveProject(snapshot)
       .then(() => {
@@ -611,9 +636,18 @@ export class AutoSaver extends Emitter {
         this.timer = setTimeout(() => this.save(), 8000);
       })
       .finally(() => {
+        clearTimeout(stall);
         this.saving = null;
+        this.stalled = false;
+        wake();
       });
-    return this.saving;
+    return this._waitForSave();
+  }
+
+  /** The write in flight settling, or it being declared stalled, whichever comes first. */
+  _waitForSave() {
+    if (!this.saving || this.stalled) return Promise.resolve();
+    return Promise.race([this.saving, this._stallWake]);
   }
 
   /**
@@ -622,8 +656,8 @@ export class AutoSaver extends Emitter {
    */
   async flush() {
     if (this.timer || this.store.dirty) await this.save();
-    else if (this.saving) await this.saving;
-    if (this.status === 'error' && this.store.dirty) throw this.error || new Error("Couldn't save your changes.");
+    else if (this.saving) await this._waitForSave();
+    if ((this.status === 'error' || this.stalled) && this.store.dirty) throw this.error || new Error("Couldn't save your changes.");
   }
 
   dispose() {
