@@ -66,7 +66,11 @@ export function loadImage(bytes: Uint8Array, mime: string): Promise<ImageBitmap>
 export function imageNow(bytes: Uint8Array, mime: string, onReady?: () => void): ImageBitmap | null {
   const b = imagesReady.get(bytes);
   if (b) return b;
-  void loadImage(bytes, mime).then(() => onReady?.());
+  // an image that cannot be decoded just has no thumbnail (no unhandled rejection per redraw)
+  loadImage(bytes, mime).then(
+    () => onReady?.(),
+    () => {},
+  );
   return null;
 }
 

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from 'vitest';
-import { getMovie, movieCacheStats, releaseUnusedMedia } from '../../src/sequencer/media';
+import { getMovie, imageNow, movieCacheStats, releaseUnusedMedia } from '../../src/sequencer/media';
 
 describe('movie resources', () => {
   it('releases movies no strip uses any more (after the grace period), revoking their URLs', () => {
@@ -28,5 +28,19 @@ describe('movie resources', () => {
     releaseUnusedMedia(new Set(), 0);
     expect(movieCacheStats().movies).toBe(0);
     vi.restoreAllMocks();
+  });
+});
+
+describe('image thumbnails', () => {
+  it('an image that cannot be decoded has no thumbnail and raises no unhandled rejection', async () => {
+    const g = globalThis as { createImageBitmap?: unknown };
+    const prev = g.createImageBitmap;
+    g.createImageBitmap = () => Promise.reject(new Error('The source image could not be decoded.'));
+    const bad = new Uint8Array(16);
+    let ready = 0;
+    for (let i = 0; i < 3; i++) expect(imageNow(bad, 'image/png', () => ready++)).toBe(null);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ready).toBe(0);
+    g.createImageBitmap = prev;
   });
 });
