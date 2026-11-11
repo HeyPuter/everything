@@ -443,6 +443,27 @@ describe('Library media', () => {
   });
 });
 
+describe('Library LUTs', () => {
+  const cube = (title) => new File([`TITLE "${title}"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n${title.length % 2} 1 1\n`], `${title}.cube`);
+
+  it('keeps the LUT list when it could not be read before an import', async () => {
+    const backend = memoryBackend();
+    await new Library(backend).importLut(cube('Warm'));
+    const lib = new Library(backend);
+    const read = backend.readJSON;
+    backend.readJSON = async (path) => {
+      if (path === 'luts/index.json') throw new Error('Simulated network failure');
+      return read(path);
+    };
+    // The color panel shows no LUTs meanwhile, and an import can't replace the list.
+    expect(await lib.listLuts()).toEqual([]);
+    await expect(lib.importLut(cube('Cold'))).rejects.toThrow('Simulated network failure');
+    backend.readJSON = read;
+    await lib.importLut(cube('Cold'));
+    expect((await new Library(backend).listLuts()).map((x) => x.name).sort()).toEqual(['Cold', 'Warm']);
+  });
+});
+
 describe('AutoSaver', () => {
   let backend;
   let lib;

@@ -479,7 +479,17 @@ export class Library extends Emitter {
   /** Imported LUTs, newest first. */
   async listLuts() {
     if (this.luts) return this.luts;
-    const list = await this.backend.readJSON('luts/index.json').catch(() => null);
+    // Shown as empty while it can't be read; read again next time.
+    return this._readLuts().catch(() => []);
+  }
+
+  /** The stored LUT list. Rejects when it can't be read, so a change never replaces it with a shorter one. */
+  async _readLuts() {
+    if (this.luts) return this.luts;
+    const list = await this.backend.readJSON('luts/index.json').catch((err) => {
+      if (err instanceof SyntaxError) return null;
+      throw err;
+    });
     this.luts = (Array.isArray(list) ? list : [])
       .filter((x) => x && typeof x.id === 'string' && /^[a-z0-9_-]{1,128}$/i.test(x.id))
       .map((x) => ({ id: x.id, name: String(x.name || 'LUT').slice(0, 120), kind: x.kind === '1d' ? '1d' : '3d', size: Number(x.size) || 0, added: Number(x.added) || 0 }));
@@ -496,8 +506,8 @@ export class Library extends Emitter {
     const lut = parseCube(text);
     const id = await fingerprint(file);
     const entry = { id, name: lutName(lut, file.name), kind: lut.kind, size: lut.size, added: Date.now() };
+    const list = await this._readLuts();
     await this.backend.writeBlob(`luts/${id}.cube`, new Blob([text], { type: 'text/plain' }));
-    const list = await this.listLuts();
     this.luts = [entry, ...list.filter((x) => x.id !== id)];
     await this.backend.writeJSON('luts/index.json', this.luts);
     this.emit('luts', this.luts);
@@ -514,7 +524,7 @@ export class Library extends Emitter {
 
   /** Forget a LUT (clips that use it render without it). */
   async removeLut(id) {
-    const list = await this.listLuts();
+    const list = await this._readLuts();
     this.luts = list.filter((x) => x.id !== id);
     await this.backend.writeJSON('luts/index.json', this.luts);
     await this.backend.remove(`luts/${id}.cube`).catch(() => {});
