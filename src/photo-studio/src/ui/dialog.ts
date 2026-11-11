@@ -29,19 +29,38 @@ export function formDialog(
     // A blank line in the message starts a new paragraph.
     const paragraphs = message ? message.split(/\n\s*\n/).map((m) => `<p>${escapeXML(m.trim())}</p>`).join('') : '';
     dialog.innerHTML = `<form method="dialog"><h2>${escapeXML(title)}</h2>${paragraphs}${fields.map((f) => `<label class="dialog-field ${f.type === 'checkbox' ? 'checkbox-field' : ''}">${escapeXML(f.label)}${field(f)}</label>`).join('')}<div class="dialog-actions"><button type="button" id="cancel-dialog">Cancel</button><button type="submit" class="primary">${escapeXML(submit)}</button></div></form>`;
-    const close = () => {
-      dialog.close();
-      resolve(null);
+    const form = dialog.querySelector('form')!;
+    // Settles once: by the buttons, Escape, or another dialog taking the
+    // element over (the earlier question then counts as cancelled).
+    let done = false;
+    const finish = (values: Record<string, string> | null) => {
+      if (done) return;
+      done = true;
+      replaced.disconnect();
+      dialog.removeEventListener('close', closed);
+      resolve(values);
     };
-    dialog.querySelector('#cancel-dialog')!.addEventListener('click', close);
-    dialog.oncancel = () => resolve(null);
-    dialog.querySelector('form')!.onsubmit = (e) => {
+    const replaced = new MutationObserver(() => {
+      if (!form.isConnected || form.parentElement !== dialog) finish(null);
+    });
+    replaced.observe(dialog, { childList: true });
+    // A close event queued by the previous dialog arrives after this one opened.
+    const closed = () => {
+      if (!dialog.open) finish(null);
+    };
+    dialog.addEventListener('close', closed);
+    dialog.querySelector('#cancel-dialog')!.addEventListener('click', () => {
+      finish(null);
+      dialog.close();
+    });
+    dialog.oncancel = () => finish(null);
+    form.onsubmit = (e) => {
       e.preventDefault();
       // Later entries win, so a checked box overrides its hidden "no".
       const values: Record<string, string> = {};
       for (const [k, v] of new FormData(e.currentTarget as HTMLFormElement).entries()) values[k] = String(v);
+      finish(values);
       dialog.close();
-      resolve(values);
     };
     dialog.showModal();
   });
