@@ -24,18 +24,21 @@
 import { createPath, createText, createGroup, DEFAULT_CHAR, NEW_PARA } from '../../model/nodes.js';
 import { downloadBlob } from '../io/deliver.js';
 
-const BOOT = `
-<script>
-(() => {
+/**
+ * The script side of the API, as source text: `post` sends a message to the
+ * app, `listen` receives them. It runs in a dedicated worker inside the
+ * sandboxed iframe, so a runaway loop cannot freeze the app (a sandboxed
+ * iframe may share the app's thread) and removing the iframe stops it.
+ */
+export const SCRIPT_CORE = `(post, listen) => {
   let seq = 0;
   const waiting = new Map();
   const call = (method, ...args) => new Promise((resolve, reject) => {
     const id = ++seq;
     waiting.set(id, { resolve, reject });
-    parent.postMessage({ __vs: 'call', id, method, args }, '*');
+    post({ __vs: 'call', id, method, args });
   });
-  addEventListener('message', (e) => {
-    const m = e.data;
+  listen((m) => {
     if (!m || typeof m !== 'object') return;
     if (m.__vs === 'reply') {
       const w = waiting.get(m.id);
@@ -64,16 +67,53 @@ const BOOT = `
       try {
         fn = new Function('vs', '"use strict"; return (async () => {\\n' + m.source + '\\n})();');
       } catch (err) {
-        parent.postMessage({ __vs: 'done', error: 'Syntax error: ' + err.message }, '*');
+        post({ __vs: 'done', error: 'Syntax error: ' + err.message });
         return;
       }
       Promise.resolve()
         .then(() => fn(vs))
-        .then((value) => parent.postMessage({ __vs: 'done', value: value === undefined ? null : String(value) }, '*'))
-        .catch((err) => parent.postMessage({ __vs: 'done', error: (err && err.message) || String(err) }, '*'));
+        .then((value) => post({ __vs: 'done', value: value === undefined ? null : String(value) }))
+        .catch((err) => post({ __vs: 'done', error: (err && err.message) || String(err) }));
     }
   });
-  parent.postMessage({ __vs: 'ready' }, '*');
+  post({ __vs: 'ready' });
+}`;
+
+const BOOT = `
+<script>
+(() => {
+  const core = ${SCRIPT_CORE};
+  const toParent = (m) => parent.postMessage(m, '*');
+  const fromParent = (fn) => addEventListener('message', (e) => { if (e.source === parent) fn(e.data); });
+  let worker = null;
+  let started = false;
+  const inline = () => {
+    if (started) return;
+    started = true;
+    worker = null;
+    core(toParent, fromParent);
+  };
+  try {
+    const src = '(' + core.toString() + ')((m) => postMessage(m), (fn) => addEventListener("message", (e) => fn(e.data)));';
+    worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+  } catch {
+    worker = null;
+  }
+  if (!worker) {
+    inline();
+    return;
+  }
+  // Workers this browser will not start here (no 'ready' yet) fall back to running in the iframe.
+  worker.onerror = () => {
+    if (started) return;
+    worker.terminate();
+    inline();
+  };
+  worker.onmessage = (e) => {
+    started = true;
+    toParent(e.data);
+  };
+  fromParent((m) => worker?.postMessage(m));
 })();
 <\/script>`;
 
