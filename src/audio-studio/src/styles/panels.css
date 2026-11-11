@@ -214,6 +214,37 @@
   border-color: var(--meter-red);
 }
 
+/* Touch: each LED takes taps over a finger-sized area around it, growing away from its neighbour. */
+@media (pointer: coarse) {
+  .clip-led {
+    position: relative;
+  }
+
+  .clip-led::before {
+    content: '';
+    position: absolute;
+    inset: -7px;
+  }
+
+  .clip-led:first-child::before {
+    top: -13px;
+    bottom: -1px;
+  }
+
+  .clip-led:last-child::before {
+    top: -1px;
+    bottom: -13px;
+  }
+
+  [data-orientation='vertical'] .clip-led:first-child::before {
+    inset: -7px -1px -7px -13px;
+  }
+
+  [data-orientation='vertical'] .clip-led:last-child::before {
+    inset: -7px -13px -7px -1px;
+  }
+}
+
 /* Selection / View */
 .selection-panel {
   padding: 6px 10px;
