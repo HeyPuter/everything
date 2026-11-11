@@ -52,6 +52,13 @@ export function proofState(s: DocumentSession): ProofState {
     st = { setup: workingCmykSetup(), on: false, gamut: false };
     states.set(s, st);
   }
+  // Working CMYK and the working plates follow Edit > Color Settings, so a
+  // document opened before a change does not keep proofing the old profile.
+  const k = st.setup.kind;
+  if (k === 'cmyk' || k === 'plate') {
+    const w = colorSettings();
+    if (st.setup.ref !== w.cmyk || st.setup.intent !== w.intent || st.setup.bpc !== w.bpc) st.setup = { ...st.setup, ref: w.cmyk, intent: w.intent, bpc: w.bpc };
+  }
   return st;
 }
 export const PLATE_LABELS: Record<Plate | 'cmy', string> = {

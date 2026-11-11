@@ -66,7 +66,7 @@ export async function colorSettingsDialog(e: Editor) {
         { name: 'gamutOpacity', label: 'Gamut warning opacity (%)', value: draft.gamutOpacity, type: 'number', min: 0, max: 100, step: 1 },
       ],
       'OK',
-      'Working spaces are used by Image > Mode conversions, new proofs and the color picker. Settings are saved in this browser.',
+      'Working spaces are used by Image > Mode conversions, the Working CMYK proof and the color picker. Settings are saved in this browser.',
     ],
     (field, ref) => ((draft as Record<string, unknown>)[field] = ref),
   );
