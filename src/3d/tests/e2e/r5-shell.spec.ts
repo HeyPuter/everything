@@ -75,3 +75,18 @@ test('Enter and Esc that end an input method composition leave rename fields ope
   await expect(input).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('a damaged screen layout in a file leaves the workspace usable', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async () => {
+    const { projectUiState } = await import('/src/io/files.ts');
+    const { shell } = await import('/src/ui/shell.ts');
+    // a split with one child, a list entry that is not a workspace
+    projectUiState.load({ workspace: 'Layout', workspaces: [null, { name: 'Layout' }], layouts: { Layout: { split: 'h', ratio: 0.5, a: { area: { id: 'x1', type: 'VIEW_3D' } } } } });
+    return { areas: shell.screen.areas.length, active: shell.active };
+  });
+  expect(r.active).toBe('Layout');
+  expect(r.areas).toBeGreaterThan(1);
+  await expect(page.locator('.area[data-editor="VIEW_3D"]')).toHaveCount(1);
+  await expectNoErrors(errors);
+});

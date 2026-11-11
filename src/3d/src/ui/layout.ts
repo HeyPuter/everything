@@ -37,6 +37,29 @@ export function areaRects(n: LayoutNode, w: number, h: number, gap = GAP): Map<s
   return out;
 }
 
+/**
+ * A layout read from a file or storage, checked: every split has two valid children and a finite
+ * ratio (clamped like a dragged edge), every area an id (unique) and a type. Null when unusable.
+ */
+export function sanitizeLayout(n: unknown, ids = new Set<string>()): LayoutNode | null {
+  if (!n || typeof n !== 'object') return null;
+  const o = n as Record<string, unknown>;
+  if ('area' in o) {
+    const a = o.area as Record<string, unknown> | null;
+    if (!a || typeof a !== 'object' || typeof a.id !== 'string' || !a.id || typeof a.type !== 'string' || ids.has(a.id)) return null;
+    ids.add(a.id);
+    const area = { ...a } as unknown as AreaState;
+    if (a.ui !== undefined && (!a.ui || typeof a.ui !== 'object')) delete area.ui;
+    return { area };
+  }
+  if (o.split !== 'h' && o.split !== 'v') return null;
+  const ra = sanitizeLayout(o.a, ids);
+  const rb = ra && sanitizeLayout(o.b, ids);
+  if (!ra || !rb) return null;
+  const ratio = typeof o.ratio === 'number' && Number.isFinite(o.ratio) ? Math.max(0.02, Math.min(0.98, o.ratio)) : 0.5;
+  return { split: o.split, ratio, a: ra, b: rb };
+}
+
 export function leaves(n: LayoutNode, out: AreaState[] = []): AreaState[] {
   if ('area' in n) out.push(n.area);
   else {

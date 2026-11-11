@@ -4,6 +4,7 @@ import { appIcon, icon } from './icons';
 import { openMenu, promptText, type MenuItem } from './menu';
 import { app, registerOperators } from '../app/app';
 import { Screen, areaOfElement, defaultWorkspaces, workspaceTemplates, type Workspace, type LayoutNode } from './screen';
+import { sanitizeLayout } from './layout';
 import { uiState, prefs, savePrefs } from '../app/prefs';
 import { projectUiState } from '../io/files';
 import { appMenu, fileMenu, editMenu, renderMenu, windowMenu, helpMenu, fileNewTemplates } from './topbar';
@@ -103,14 +104,22 @@ export class Shell {
       layouts: Object.fromEntries([...this.layouts.entries(), [this.active, this.screen.serialize()]]),
     });
     projectUiState.load = (s) => {
-      const layouts = s.layouts as Record<string, LayoutNode> | undefined;
-      if (layouts) for (const [k, v] of Object.entries(layouts)) this.layouts.set(k, v);
+      // layouts that are damaged (or from an unknown format) are skipped: the workspace keeps its own
+      let layouts: Record<string, LayoutNode> | undefined;
+      if (s.layouts && typeof s.layouts === 'object') {
+        layouts = {};
+        for (const [k, v] of Object.entries(s.layouts)) {
+          const l = sanitizeLayout(v);
+          if (l) layouts[k] = l;
+        }
+        for (const [k, v] of Object.entries(layouts)) this.layouts.set(k, v);
+      }
       // custom workspace lists (added, renamed, deleted or reordered workspaces)
       const list = s.workspaces as { name: string; mode?: Workspace['mode']; pinScene?: boolean; scene?: string; use_filter_by_owner?: boolean; owner_ids?: string[] }[] | undefined;
       if (Array.isArray(list) && list.length && layouts) {
         const defaults = defaultWorkspaces();
         this.workspaces = list
-          .filter((w) => layouts[w.name] || defaults.some((d) => d.name === w.name))
+          .filter((w) => w && typeof w.name === 'string' && (layouts[w.name] || defaults.some((d) => d.name === w.name)))
           .map((w) => ({ name: w.name, mode: w.mode, pinScene: w.pinScene, scene: w.scene, use_filter_by_owner: w.use_filter_by_owner, owner_ids: Array.isArray(w.owner_ids) ? w.owner_ids.filter((x) => typeof x === 'string') : undefined, layout: layouts[w.name] ?? defaults.find((d) => d.name === w.name)!.layout }));
       }
       if (typeof s.workspace === 'string' && this.workspaces.some((w) => w.name === s.workspace)) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { areaRects, splitLayout, joinLayout, swapLayout, neighbourOn, removeFromLayout, treeFromRects, leaves, sharedSide } from '../../src/ui/layout';
+import { areaRects, splitLayout, joinLayout, swapLayout, neighbourOn, removeFromLayout, treeFromRects, leaves, sharedSide, sanitizeLayout } from '../../src/ui/layout';
 import type { LayoutNode, AreaState } from '../../src/ui/screen';
 
 const A = (id: string): LayoutNode => ({ area: { id, type: 'VIEW_3D' } });
@@ -89,5 +89,24 @@ describe('swap and remove', () => {
     const t = treeFromRects(items, { x: 0, y: 0, w: W, h: HH })!;
     const back = areaRects(t, W, HH);
     for (const id of ['a', 'b', 'c']) expect(back.get(id)).toEqual(rects.get(id));
+  });
+});
+
+describe('layouts read from files', () => {
+  it('keeps a valid layout and clamps its ratios', () => {
+    const l = sanitizeLayout(H(7, A('a'), V(Number.NaN, A('b'), A('c'))))!;
+    expect(ids(l)).toEqual(['a', 'b', 'c']);
+    expect((l as { ratio: number }).ratio).toBe(0.98);
+    expect(((l as { b: { ratio: number } }).b).ratio).toBe(0.5);
+  });
+
+  it('rejects damaged trees: missing children, bad areas, duplicate ids', () => {
+    expect(sanitizeLayout({ split: 'h', ratio: 0.5, a: A('a') })).toBeNull();
+    expect(sanitizeLayout({ split: 'x', ratio: 0.5, a: A('a'), b: A('b') })).toBeNull();
+    expect(sanitizeLayout({ area: { id: 3, type: 'VIEW_3D' } })).toBeNull();
+    expect(sanitizeLayout({ area: null })).toBeNull();
+    expect(sanitizeLayout(H(0.5, A('a'), A('a')))).toBeNull();
+    expect(sanitizeLayout(null)).toBeNull();
+    expect(sanitizeLayout('Layout')).toBeNull();
   });
 });
