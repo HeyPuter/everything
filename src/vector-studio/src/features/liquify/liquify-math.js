@@ -289,10 +289,11 @@ export function detailLength(brush, detail = 2) {
  * Simplify option does after a stroke: a smooth anchor (or a straight
  * point between two collinear lines) is dropped when one cubic through its
  * neighbors stays within the tolerance of the two segments it replaces.
- * Corners and anchors that shape the path are kept, so geometry the
- * stroke never reached is not changed.
+ * Corners and anchors that shape the path are kept. With a `region`
+ * ({ x, y, w, h }, the area a stroke covered) only anchors inside it are
+ * removed, so geometry the stroke never reached is not changed.
  */
-export function simplifyAnchors(anchors, closed, tolerance) {
+export function simplifyAnchors(anchors, closed, tolerance, region = null) {
   if (anchors.length < 3 || !(tolerance > 0)) return anchors;
   const total = anchors.length;
   // Sample points of every original segment, so each merge is checked
@@ -322,6 +323,7 @@ export function simplifyAnchors(anchors, closed, tolerance) {
       const P = pts[(i - 1 + n) % n];
       const A = pts[i];
       const Q = pts[(i + 1) % n];
+      if (region && !(A.a.x >= region.x && A.a.x <= region.x + region.w && A.a.y >= region.y && A.a.y <= region.y + region.h)) continue;
       const merged = mergeAt(P.a, A.a, Q.a, tolerance, between(P.idx, Q.idx));
       if (!merged) continue;
       pts[(i - 1 + n) % n] = { a: merged.p, idx: P.idx };
