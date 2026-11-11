@@ -8,7 +8,7 @@ import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/t
 import { evaluateGroup, modifierDeps } from '../../src/geonodes/modifier';
 import { convexHull } from '../../src/geonodes/ops/hull';
 import { coneMesh, cubeMesh, uvSphereMesh } from '../../src/geonodes/ops/primitives';
-import { GeometrySet, identity } from '../../src/geonodes/geometry';
+import { GeometrySet, geometryBounds, identity } from '../../src/geonodes/geometry';
 
 /** A group with one geometry input and one geometry output. */
 function geoGroup(id: string): NodeGroupData {
@@ -150,5 +150,21 @@ describe('Convex Hull', () => {
     const h = convexHull(uvSphereMesh(200, 120, 1, null).positions);
     expect(h.vertCount).toBe(23802);
     expect(h.vertCount - h.edgeCount + h.faceCount).toBe(2);
+  });
+});
+
+describe('instances', () => {
+  it('Rotate Instances in local space turns a stretched instance rigidly', () => {
+    const t = setup();
+    const iop = node(t, 'GeometryNodeInstanceOnPoints', { Scale: [2, 1, 1] });
+    link(t, node(t, 'GeometryNodeMeshLine', { Count: 1 }), 'Mesh', iop, 'Points');
+    link(t, node(t, 'GeometryNodeMeshCube'), 'Mesh', iop, 'Instance');
+    const rot = node(t, 'GeometryNodeRotateInstances', { Rotation: [0, 0, Math.PI / 2], 'Local Space': true });
+    link(t, iop, 'Instances', rot, 'Instances');
+    const re = node(t, 'GeometryNodeRealizeInstances');
+    link(t, rot, 'Instances', re, 'Geometry');
+    const b = geometryBounds(run(t, re).geometry)!;
+    expect(b.max[0] - b.min[0]).toBeCloseTo(1);
+    expect(b.max[1] - b.min[1]).toBeCloseTo(2);
   });
 });

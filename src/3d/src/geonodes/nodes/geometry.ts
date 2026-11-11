@@ -323,18 +323,50 @@ gn('GeometryNodeTranslateInstances', 'geometry', {
     ),
 });
 
+/** Rotation by `angle` around the axis in column `o` of matrix `m` (column-major 4×4). */
+function axisAngleMat(m: ArrayLike<number>, o: number, angle: number): Float64Array {
+  const l = Math.hypot(m[o], m[o + 1], m[o + 2]);
+  const x = l ? m[o] / l : 0,
+    y = l ? m[o + 1] / l : 0,
+    z = l ? m[o + 2] / l : 0;
+  const c = Math.cos(angle),
+    s = Math.sin(angle),
+    t = 1 - c;
+  const r = new Float64Array(16);
+  if (!l) {
+    r[0] = r[5] = r[10] = r[15] = 1;
+    return r;
+  }
+  r[0] = t * x * x + c;
+  r[1] = t * x * y + s * z;
+  r[2] = t * x * z - s * y;
+  r[4] = t * x * y - s * z;
+  r[5] = t * y * y + c;
+  r[6] = t * y * z + s * x;
+  r[8] = t * x * z + s * y;
+  r[9] = t * y * z - s * x;
+  r[10] = t * z * z + c;
+  r[15] = 1;
+  return r;
+}
+
 gn('GeometryNodeRotateInstances', 'geometry', {
   exec: (ctx) =>
     instanceOp(
       ctx,
       (T, i, local, v) => {
-        const R = composeMat([0, 0, 0], [v[0][i * 3], v[0][i * 3 + 1], v[0][i * 3 + 2]], [1, 1, 1]);
-        const pivot = [v[1][i * 3], v[1][i * 3 + 1], v[1][i * 3 + 2]];
+        const e = [v[0][i * 3], v[0][i * 3 + 1], v[0][i * 3 + 2]];
+        let pivot = [v[1][i * 3], v[1][i * 3 + 1], v[1][i * 3 + 2]];
         const m = T.subarray(i * 16, i * 16 + 16);
+        let R: ArrayLike<number>;
+        if (local) {
+          // rotate in place around the instance's own (normalized) axes, so a scaled instance turns rigidly
+          R = mulMat(axisAngleMat(m, 8, e[2]), mulMat(axisAngleMat(m, 4, e[1]), axisAngleMat(m, 0, e[0])));
+          pivot = [0, 1, 2].map((k) => m[k] * pivot[0] + m[4 + k] * pivot[1] + m[8 + k] * pivot[2] + m[12 + k]);
+        } else R = composeMat([0, 0, 0], e, [1, 1, 1]);
         const toP = composeMat(pivot, [0, 0, 0], [1, 1, 1]),
           fromP = composeMat([-pivot[0], -pivot[1], -pivot[2]], [0, 0, 0], [1, 1, 1]);
-        const res = local ? mulMat(m, mulMat(toP, mulMat(R, fromP))) : mulMat(mulMat(toP, mulMat(R, fromP)), m);
-        m.set(res);
+        m.set(mulMat(mulMat(toP, mulMat(R, fromP)), m));
       },
       [ctx.field('Rotation', 'ROTATION'), ctx.field('Pivot Point', 'VECTOR')],
     ),
