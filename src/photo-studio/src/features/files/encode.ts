@@ -90,7 +90,9 @@ export function outputSize(w: number, h: number, s: Pick<ExportSettings, 'sizeMo
     nw = s.width || w;
     nh = s.height || h;
   }
-  return [Math.max(1, Math.min(8192, Math.round(nw))), Math.max(1, Math.min(8192, Math.round(nh)))];
+  // Scaled sizes keep their proportions within the 8192-pixel limit.
+  const k = s.sizeMode === 'exact' ? 1 : Math.min(1, 8192 / nw, 8192 / nh);
+  return [Math.max(1, Math.min(8192, Math.round(nw * k))), Math.max(1, Math.min(8192, Math.round(nh * k)))];
 }
 /** Largest size that fits within w × h, keeping the aspect ratio (never enlarges unless asked). */
 export function fitSize(w: number, h: number, maxW: number, maxH: number, enlarge = false): [number, number] {
