@@ -175,6 +175,27 @@ describe('object commands', () => {
     expect(Math.sign(signedArea(o.anchors))).not.toBe(Math.sign(signedArea(i.anchors)));
   });
 
+  it('makes a compound path from nested groups without leaving empty groups behind', async () => {
+    const ed = app.editor;
+    const doc = ed.doc;
+    const outer = addRect(app, 0, 0, 100, 100);
+    const inner = addRect(app, 25, 25, 50, 50);
+    ed.select([outer.id, inner.id]);
+    await app.commands.run('object.group');
+    const innerGroup = [...ed.selection][0];
+    await app.commands.run('object.group');
+    const outerGroup = [...ed.selection][0];
+    await app.commands.run('object.compoundMake');
+    const c = ed.selectedNodes()[0];
+    expect(c.type).toBe('compound');
+    expect(doc.has(innerGroup)).toBe(false);
+    expect(doc.has(outerGroup)).toBe(false);
+    expect(doc.get(ed.targetLayer().id).children).toEqual([c.id]);
+    await app.commands.run('edit.undo');
+    expect(doc.get(ed.targetLayer().id).children).toEqual([outerGroup]);
+    expect(doc.get(outerGroup).children).toEqual([innerGroup]);
+  });
+
   it('aligns to the selection and distributes centers', async () => {
     const a = addRect(app, 0, 0, 10, 10);
     const b = addRect(app, 50, 30, 10, 10);

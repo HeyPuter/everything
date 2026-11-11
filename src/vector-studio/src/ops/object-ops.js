@@ -386,7 +386,8 @@ export function makeCompound(editor) {
       doc.move(p.id, c.id);
       doc.update(p.id, { shape: undefined });
     }
-    for (const id of editor.topSelection()) if (doc.has(id) && doc.get(id).type !== 'path' && doc.get(id).children?.length === 0) doc.remove(id);
+    // Groups (nested ones too) and compound paths the paths came from go once emptied.
+    removeEmptyContainers(doc, new Set(paths.map((p) => p.parent)), editor.isolation);
   });
   editor.select([cid]);
 }
