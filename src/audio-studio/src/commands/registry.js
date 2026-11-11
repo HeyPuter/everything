@@ -76,8 +76,16 @@ export class CommandRegistry {
   }
 
   resetShortcuts(id) {
-    if (id) this.overrides.delete(id);
-    else this.overrides.clear();
+    if (id) {
+      this.overrides.delete(id);
+      // Default keys that were moved to other commands come back from them.
+      for (const k of this.defaultKeys(id)) {
+        const n = normalizeShortcut(k);
+        for (const other of this.commands.keys()) {
+          if (other !== id && this.keysFor(other).some((x) => normalizeShortcut(x) === n)) this.overrides.set(other, this.keysFor(other).filter((x) => normalizeShortcut(x) !== n));
+        }
+      }
+    } else this.overrides.clear();
     this.#persist();
   }
 
