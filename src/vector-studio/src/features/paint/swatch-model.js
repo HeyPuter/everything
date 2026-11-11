@@ -124,6 +124,21 @@ export function rewriteSwatchRefs(doc, test, paintFor, relinkTo) {
   }
 }
 
+/**
+ * A paint brought up to date with the global swatches it links to (the
+ * current fill and stroke keep `swatchId` too): the swatch's color with the
+ * paint's tint, or the color unlinked when the swatch is gone or no longer
+ * global. Returns the same object when nothing changed.
+ */
+export function resolveSwatchLinks(doc, paint) {
+  if (!paint || (!paint.swatchId && !paint.stops?.some((s) => s.swatchId))) return paint;
+  const next = rewritePaint(paint, () => true, (id) => {
+    const sw = findSwatch(doc, id);
+    return sw?.global && sw.paint?.type === 'solid' ? sw.paint : null;
+  });
+  return JSON.stringify(next) === JSON.stringify(paint) ? paint : next;
+}
+
 /** `relinkTo` (when given) moves the link to that swatch id, or drops it when null. */
 function relink(out, relinkTo) {
   if (relinkTo === undefined) return out;
