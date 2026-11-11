@@ -8,7 +8,7 @@ import { MeshEdit, edgeKey } from '../../src/modes/editmesh/meshedit';
 import { extrudeRegion, insetFaces, loopCut } from '../../src/modes/editmesh/ops-topology';
 import { bevelEdges, bevelVertices } from '../../src/modes/editmesh/bevel';
 import { deleteGeometry, removeDoubles, makeNormalsConsistent, flipFace, duplicateSelection } from '../../src/modes/editmesh/ops-basic';
-import { edgeLoop, edgeRing } from '../../src/modes/editmesh/select';
+import { edgeLoop, edgeRing, edgeLoopsOf } from '../../src/modes/editmesh/select';
 import { bisectMesh, packIslands } from '../../src/modes/editmesh/ops-uv';
 import { ripSelection } from '../../src/modes/editmesh/rip';
 
@@ -226,6 +226,17 @@ describe('MeshEdit', () => {
     Object.assign(me, prim.grid(6, 4));
     expect(edgeLoop(me, 2 * 7 + 1, 2 * 7 + 2).length).toBe(6);
     expect(edgeRing(me, 2 * 7 + 1, 2 * 7 + 2).length).toBe(5);
+  });
+
+  it('unions the loops and rings of many edges like walking each one', () => {
+    for (const me of [newMeshData('T', prim.torus(12, 8)), newMeshData('S', prim.uvSphere(8, 6)), newMeshData('G', prim.grid(5, 4))]) {
+      const edges = MeshEdit.from(me).edges();
+      for (const ring of [false, true]) {
+        const naive = new Set(edges.flatMap(([a, b]) => (ring ? edgeRing(me, a, b) : edgeLoop(me, a, b)).map(([x, y]) => edgeKey(x, y))));
+        const fast = new Set(edgeLoopsOf(me, edges, ring).map(([x, y]) => edgeKey(x, y)));
+        expect([...fast].sort()).toEqual([...naive].sort());
+      }
+    }
   });
 
   it('bisects a cube along a plane', () => {

@@ -340,6 +340,25 @@ export function edgeRing(me: MeshData, a: number, b: number): [number, number][]
   return out;
 }
 
+/** Union of the loops (or rings) through each of `edges`. An edge already covered by a loop that
+ *  runs over manifold edges only has that same loop, so it isn't walked again (linear instead of
+ *  edges × loop length). */
+export function edgeLoopsOf(me: MeshData, edges: [number, number][], ring: boolean): [number, number][] {
+  const { ef } = loopTopology(me);
+  const covered = new Set<string>();
+  const out: [number, number][] = [];
+  for (const [a, b] of edges) {
+    if (covered.has(edgeKey(a, b))) continue;
+    const l = ring ? edgeRing(me, a, b) : edgeLoop(me, a, b);
+    for (const e of l) out.push(e);
+    // loops: all interior or all boundary edges; rings: no edge with more than two faces
+    const n = ef.get(edgeKey(a, b))?.length ?? 0;
+    const same = ring ? l.every(([x, y]) => (ef.get(edgeKey(x, y))?.length ?? 0) <= 2) : (n === 1 || n === 2) && l.every(([x, y]) => ef.get(edgeKey(x, y))?.length === n);
+    if (same) for (const [x, y] of l) covered.add(edgeKey(x, y));
+  }
+  return out;
+}
+
 function selectLoopOrRing(me: MeshData, a: number, b: number, ring: boolean, extend: boolean, mode: string) {
   const edges = ring ? edgeRing(me, a, b) : edgeLoop(me, a, b);
   if (mode === 'EDGE') {
@@ -746,7 +765,7 @@ registerOperators([
     exec: (_ctx, p) => {
       eachMesh((me, m) => {
         const sel = new Uint8Array(me.select_vert!);
-        for (const [a, b] of m.selectedEdges()) for (const [x, y] of p.ring ? edgeRing(me, a, b) : edgeLoop(me, a, b)) sel[x] = sel[y] = 1;
+        for (const [x, y] of edgeLoopsOf(me, m.selectedEdges(), !!p.ring)) sel[x] = sel[y] = 1;
         me.select_vert = sel;
       });
     },
