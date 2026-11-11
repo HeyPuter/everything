@@ -113,10 +113,22 @@ function wheelCard(view, def) {
   level.addEventListener('pointerdown', () => (levelDrag = true));
   level.addEventListener('pointerup', () => (levelDrag = false));
   level.addEventListener('pointercancel', () => (levelDrag = false));
+  // Keys held on the slider make one undo step, ended on key up, as a drag does.
+  let levelKeys = false;
+  level.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) levelKeys = true;
+  });
+  const endLevelKeys = () => {
+    if (!levelKeys) return;
+    levelKeys = false;
+    view.store.seal();
+  };
+  level.addEventListener('keyup', endLevelKeys);
+  level.addEventListener('blur', endLevelKeys);
   level.addEventListener('input', () => set({ ...wheelOf(view.clip, def.id), l: Number(level.value) }, false, 'brightness'));
   level.addEventListener('change', () => {
     levelDrag = false;
-    set({ ...wheelOf(view.clip, def.id), l: Number(level.value) }, true, 'brightness');
+    set({ ...wheelOf(view.clip, def.id), l: Number(level.value) }, !levelKeys, 'brightness');
   });
   level.addEventListener('dblclick', () => set({ ...wheelOf(view.clip, def.id), l: 0 }, true, 'brightness'));
 

@@ -186,9 +186,21 @@ function constantPanel(view) {
     range.setAttribute('aria-valuetext', `${fmt(s)} times`);
     commit(s, false);
   });
+  // Keys held on the slider make one undo step, ended on key up, as a drag does.
+  let keyRun = false;
+  range.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) keyRun = true;
+  });
+  const endKeyRun = () => {
+    if (!keyRun) return;
+    keyRun = false;
+    if (view.clip) commit(view.clip.speed, true);
+  };
+  range.addEventListener('keyup', endKeyRun);
+  range.addEventListener('blur', endKeyRun);
   range.addEventListener('change', () => {
     dragging = false;
-    commit(posToSpeed(Number(range.value)), true);
+    commit(posToSpeed(Number(range.value)), !keyRun);
   });
   const commitNum = () => {
     const raw = parseNumber(num.value);

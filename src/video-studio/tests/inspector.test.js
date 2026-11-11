@@ -755,6 +755,27 @@ describe('number boxes', () => {
     expect(input.value).toBe('0');
   });
 
+  it('holding an arrow key on the speed slider is one undo step', () => {
+    env.store.select(env.v1.id);
+    tab('Speed').click();
+    const input = field('Speed').querySelector('input[type=range]');
+    input.focus();
+    const steps = env.store.history.undoStack.length;
+    const start = Number(input.value);
+    for (let i = 1; i <= 4; i++) {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: i > 1, bubbles: true }));
+      input.value = String(start + i * 5);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    expect(clip(env.v1.id).speed).toBeGreaterThan(1);
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+    env.store.undo();
+    expect(clip(env.v1.id).speed).toBe(1);
+    expect(clip(env.v1.id).duration).toBe(5 * US);
+  });
+
   it('shows the stored value when the clip limits what was typed', () => {
     env.store.select(env.aud.id);
     const num = typeEnter('Volume', 100);

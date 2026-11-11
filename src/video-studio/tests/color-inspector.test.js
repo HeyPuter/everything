@@ -241,6 +241,21 @@ describe('Curves', () => {
 describe('Wheels', () => {
   beforeEach(() => tab('Wheels').click());
 
+  it('holding an arrow key on a wheel brightness slider is one undo step', () => {
+    const level = env.el.querySelectorAll('.wheel-level')[0];
+    level.focus();
+    const steps = env.store.history.undoStack.length;
+    for (let i = 1; i <= 4; i++) {
+      level.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: i > 1, bubbles: true }));
+      level.value = String(i);
+      level.dispatchEvent(new Event('input', { bubbles: true }));
+      level.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    level.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    expect(clip(env.v1.id).grade.wheels.shadows.l).toBe(4);
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+  });
+
   it('a double-click centers a wheel in one undo step', () => {
     const [shadows] = env.el.querySelectorAll('.wheel-disk');
     key(shadows, 'ArrowRight', { shiftKey: true });
