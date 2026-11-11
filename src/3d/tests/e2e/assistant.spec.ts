@@ -230,3 +230,25 @@ test('buttons that go away when used hand the keyboard to the message box', asyn
   await expect(page.locator('.as-bot .as-text').last()).toContainText('Hello.');
   await expect(input).toBeFocused();
 });
+
+test('the status line is rewritten only when what it says changes', async ({ page }) => {
+  await openApp(page);
+  await page.evaluate(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+        yield { type: 'text', text: `word${i} ` };
+      }
+    };
+    const w = window as unknown as { __said: string[] };
+    w.__said = [];
+    const status = document.querySelector('.as-status')!;
+    new MutationObserver(() => w.__said.push(status.textContent ?? '')).observe(status, { childList: true, characterData: true, subtree: true });
+  });
+  await page.locator('.as-input').fill('hi');
+  await page.locator('.as-input').press('Enter');
+  await expect(page.locator('.as-bot .as-text')).toContainText('word29');
+  // a live region: every write is read out again, so a streamed reply must not say "Writing…" once per piece
+  const said = await page.evaluate(() => (window as unknown as { __said: string[] }).__said);
+  expect(said.filter((s) => s === 'Writing…').length).toBe(1);
+});

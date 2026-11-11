@@ -259,13 +259,18 @@ export class AssistantPanel {
     this.input.style.height = `${Math.min(200, this.input.scrollHeight)}px`;
   }
 
+  /** The status line is a live region: it is only written when what it says changes, or it is read out again for every streamed piece. */
+  private say(text: string) {
+    if (this.status.textContent !== text) this.status.textContent = text;
+  }
+
   private flash(message: string) {
     clearTimeout(this.flashTimer);
     this.status.textContent = message;
     this.status.classList.add('warn');
     this.flashTimer = window.setTimeout(() => {
       this.status.classList.remove('warn');
-      if (!this.agent.busy) this.status.textContent = '';
+      if (!this.agent.busy) this.say('');
     }, 6000);
   }
 
@@ -324,15 +329,15 @@ export class AssistantPanel {
     this.sendBtn.setAttribute('aria-label', on ? 'Stop' : 'Send');
     this.sendBtn.classList.toggle('stop', on);
     this.el.classList.toggle('busy', on);
-    if (!on) this.status.textContent = '';
+    if (!on) this.say('');
   }
 
   /** Whether Puter AI can be used; otherwise explains why in the conversation. */
   private async ready(): Promise<boolean> {
     if (this.chat || devChat()) return true;
-    this.status.textContent = 'Connecting to Puter…';
+    this.say('Connecting to Puter…');
     const sdk = await loadPuter();
-    this.status.textContent = '';
+    this.say('');
     if (!sdk?.ai) {
       this.notice('The assistant runs on Puter AI, which could not be reached. Check your connection and try again.');
       return false;
@@ -388,13 +393,13 @@ export class AssistantPanel {
     if (this.pending.length) {
       const waiting = this.pending;
       this.sending = true;
-      this.status.textContent = 'Reading attached files…';
+      this.say('Reading attached files…');
       let read: (Attachment | null)[];
       try {
         read = await Promise.all(waiting.map((it) => it.ready));
       } finally {
         this.sending = false;
-        this.status.textContent = '';
+        this.say('');
       }
       if (this.agent.busy) return;
       items = waiting.filter((it, i) => read[i] && this.pending.includes(it));
@@ -558,7 +563,7 @@ export class AssistantPanel {
     const turn = this.newTurn();
     this.turn = turn;
     this.setBusy(true);
-    this.status.textContent = 'Thinking…';
+    this.say('Thinking…');
     this.scroll(true);
     let res: ExchangeResult;
     try {
@@ -572,7 +577,7 @@ export class AssistantPanel {
           }
           turn.text.src += e.text;
           this.queueText(turn.text);
-          this.status.textContent = 'Writing…';
+          this.say('Writing…');
         } else if (e.type === 'step') {
           if (!turn.steps) {
             if (turn.text) this.renderText(turn.text);
@@ -581,9 +586,9 @@ export class AssistantPanel {
             turn.text = null;
           }
           this.renderStep(turn, turn.steps, e.step);
-          this.status.textContent = e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…';
+          this.say(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
         } else if (e.type === 'round') {
-          this.status.textContent = 'Thinking…';
+          this.say('Thinking…');
         }
       });
     } catch (e) {
