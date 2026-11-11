@@ -459,12 +459,18 @@ export class WaveformView {
       consider(Math.round(Math.round(frame / step) * step));
     }
     if (snap.zero && bestD === tol) {
-      const ch = this.doc.state.channels[0];
-      if (ch && ch.length) {
+      // The sum of the channels enabled for editing, as Adjust Selection to Zero Crossings uses.
+      const chans = this.doc.state.channels.filter((_, i) => this.doc.selection.channels[i] !== false);
+      const len = chans[0]?.length ?? 0;
+      if (len) {
         const r = Math.max(8, Math.round(this.fpp * 6));
         const a = Math.max(0, Math.round(frame) - r);
-        const b = Math.min(ch.length, Math.round(frame) + r);
-        const s = ch.toArray(a, b);
+        const b = Math.min(len, Math.round(frame) + r);
+        const s = new Float32Array(Math.max(0, b - a));
+        for (const c of chans) {
+          const x = c.toArray(a, b);
+          for (let i = 0; i < x.length; i++) s[i] += x[i];
+        }
         let zbest = -1;
         let zd = Infinity;
         for (let i = 1; i < s.length; i++) {

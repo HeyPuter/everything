@@ -573,3 +573,22 @@ describe('Mix Paste clipboard list', () => {
     await p;
   });
 });
+
+describe('snap to zero crossings', () => {
+  it('uses the channels enabled for editing', async () => {
+    const { app, doc, view } = await makeView({ frames: 4800 });
+    const { Channel } = await import('../src/audio/channel.js');
+    // Left crosses zero at 1000, right at 1010.
+    const step = (at) =>
+      Channel.fromSamples(Float32Array.from({ length: 4800 }, (_, i) => (i < at ? -0.5 : 0.5)));
+    doc.apply('Audio', { ...doc.state, channels: [step(1000), step(1010)] });
+    app.prefs.set('snap', { ...app.prefs.get('snap'), zero: true, ruler: false, markers: false });
+    // Both channels: their sum is -1, then 0 from 1000, and only crosses zero at 1010.
+    expect(view.snap(1004, { force: true })).toBe(1010);
+    doc.setChannelEnabled(0, false);
+    expect(view.snap(1004, { force: true })).toBe(1010);
+    doc.setChannelEnabled(0, true);
+    doc.setChannelEnabled(1, false);
+    expect(view.snap(1004, { force: true })).toBe(1000);
+  });
+});
