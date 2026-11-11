@@ -162,7 +162,10 @@ export function markersPanel(app) {
       anchor = m.id;
       if (m.duration) d.setSelection(m.start, m.start + m.duration);
       else d.setSelection(m.start, m.start);
-      d.setCursor(m.start);
+      // Through the editor, so playback in progress jumps there too.
+      const view = app.currentView?.();
+      if (view?.seek && view.doc === d) view.seek(m.start);
+      else d.setCursor(m.start);
       const v = d.view;
       if (m.start < v.start || m.start > v.end) {
         const span = v.end - v.start;

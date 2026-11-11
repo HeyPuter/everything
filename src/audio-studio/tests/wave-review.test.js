@@ -469,3 +469,26 @@ describe('deferred peak levels', () => {
     expect(view.dirty.wave).toBe(false);
   });
 });
+
+describe('Markers panel during playback', () => {
+  it('moves playback to a clicked marker', async () => {
+    const { app, doc } = await makeView();
+    const { markersPanel } = await import('../src/panels/markers.js');
+    const m = createMarker({ start: 30000, name: 'Here' });
+    doc.apply('Markers', { ...doc.state, markers: [m] });
+    const panel = markersPanel(app);
+    document.body.append(panel.el);
+    const playing = vi.spyOn(app.engine, 'playing', 'get').mockReturnValue(true);
+    const position = vi.spyOn(app.engine, 'position', 'get').mockReturnValue(1000);
+    const seek = vi.spyOn(app.engine, 'seek').mockImplementation(() => {});
+    try {
+      panel.el.querySelector(`tr[data-id="${m.id}"]`).click();
+      expect(seek).toHaveBeenCalledWith(30000);
+      expect(doc.cursor).toBe(30000);
+    } finally {
+      playing.mockRestore();
+      position.mockRestore();
+      seek.mockRestore();
+    }
+  });
+});
