@@ -830,6 +830,13 @@ export class Editor {
       else this.transform.apply();
       return;
     }
+    // While a tool gesture is in progress (the button is still down) shortcuts
+    // wait: undoing, switching tools or closing the document under a stroke
+    // would leave the stroke without its end.
+    if (this.toolBusy) {
+      if (shortcut.startsWith('Mod+')) e.preventDefault();
+      return;
+    }
     if (this.tool === 'move' && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.startsWith('Arrow')) {
       e.preventDefault();
       if (!this.transform.dragging) {

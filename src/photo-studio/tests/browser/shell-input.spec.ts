@@ -158,3 +158,28 @@ test('Space released while the window is in the background does not leave the ca
   expect(await page.evaluate(() => window.photoStudio.pan)).toEqual(pan);
   expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(['Brush Tool']);
 });
+
+test('shortcuts wait while a brush stroke is being drawn', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.setTool('brush'));
+  await idle(page);
+  const box = (await page.locator('#viewport').boundingBox())!;
+  const cx = box.x + box.width / 2,
+    cy = box.y + box.height / 2;
+  await page.mouse.move(cx - 40, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx, cy, { steps: 4 });
+  // A tool key and Undo in the middle of the stroke are ignored.
+  await page.keyboard.press('e');
+  await page.keyboard.press('Meta+z');
+  await page.mouse.move(cx + 40, cy, { steps: 4 });
+  await page.mouse.up();
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.tool)).toBe('brush');
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(['Brush Tool']);
+  // Once the button is up they work again.
+  await page.keyboard.press('Meta+z');
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
+  await page.keyboard.press('e');
+  expect(await page.evaluate(() => window.photoStudio.tool)).toBe('eraser');
+});
