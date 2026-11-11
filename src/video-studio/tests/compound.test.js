@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createCompound, breakApart, composeTransform, compoundClips } from '../src/model/compound.js';
-import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition, deleteClips } from '../src/model/timeline.js';
+import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition, deleteClips, MIN_CLIP } from '../src/model/timeline.js';
 import { normalizeProject, makeClip } from '../src/model/project.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
@@ -92,6 +92,18 @@ describe('compound clips', () => {
     expect(text.start).toBe(0);
     expect(text.duration).toBe(s(2));
     expect(restored.length).toBe(3);
+  });
+
+  it('leaves out slivers shorter than the shortest clip when broken apart', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const comp = createCompound(p, [a.id, b.id], RIPPLE);
+    // Trimmed to start 10 ms before the cut: 10 ms of A shows.
+    trimClip(p, comp.id, 'start', s(1.99), RIPPLE);
+    const out = breakApart(p, comp.id, RIPPLE);
+    expect(out).toHaveLength(1);
+    expect(out[0].duration).toBe(s(2));
+    expect(allClips(p).every((c) => c.duration >= MIN_CLIP)).toBe(true);
   });
 
   it('composes transforms around the frame center', () => {

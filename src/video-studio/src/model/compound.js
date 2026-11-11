@@ -5,7 +5,7 @@
  */
 import { uid } from '../lib/ids.js';
 import { makeClip, DEFAULT_TRANSFORM } from './project.js';
-import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips, cleanupTransitions } from './timeline.js';
+import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips, cleanupTransitions, MIN_CLIP } from './timeline.js';
 import { trimTo } from './slice.js';
 import { storedTimelineTracks } from './timelines.js';
 
@@ -126,7 +126,9 @@ export function breakApart(project, id, opts = {}) {
   for (const t of [...c.sequence.tracks].reverse()) {
     for (const child of t.clips) {
       const copy = trimTo(structuredClone(child), c.in, c.in + c.duration);
-      if (!copy) continue;
+      // A sliver shorter than the shortest clip the editor allows (under a frame at 60 fps)
+      // would be a clip too thin to see or select.
+      if (!copy || copy.duration < MIN_CLIP) continue;
       copy.id = uid('c');
       copy.start = c.start + copy.start - c.in;
       inheritFromCompound(copy, c, W, H);
