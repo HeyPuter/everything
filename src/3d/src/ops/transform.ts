@@ -5,13 +5,13 @@
 //   into a TState, applies it, and on confirm offers the equivalent operator call for
 //   Adjust Last Operation;
 // - the operators' exec() rebuilds the TState from their properties and applies it once.
-import { Matrix3, Matrix4, Quaternion, Vector3 } from 'three';
+import { Euler, Matrix3, Matrix4, Quaternion, Vector3 } from 'three';
 import { isReadOnly } from '../library/readonly';
 import { app, onAppReady, operators, registerOperator, registerOperators, type ModalHandler, type Operator, type PropDef } from '../app/app';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { prefs } from '../app/prefs';
 import type { ObjectData } from '../data/types';
-import { applyMatrixToObject, toMatrix4, localMatrix, rotationQuaternion, setRotationFromQuaternion } from '../eval/transform';
+import { applyMatrixToObject, toMatrix4, localMatrix, rotationQuaternion, setRotationFromQuaternion, threeOrder } from '../eval/transform';
 import { autoKeyObjects } from '../anim/keyframes';
 import { renderContext } from '../render/context';
 import { findSnapTarget, snapIndicator, type SnapElement } from './snap';
@@ -94,8 +94,11 @@ function objectElement(ob: ObjectData, ids: Set<string>, weight: number, distanc
   // (an object scaled to zero has no inverse: no offset then)
   const basisWorld = app.graph.get(ob.id)?.worldBasis.clone() ?? w0.clone();
   const constraintFix = isDegenerate(w0) ? new Matrix4() : basisWorld.clone().multiply(w0.clone().invert());
-  // the object's own rotation, kept when the new matrix has a zero scale and cannot tell it
+  // the object's own rotation (with its delta), kept when the new matrix has a zero scale and cannot
+  // tell it, and used to keep the signs of a negative scale
   const q0 = rotationQuaternion(ob.rotation_mode, ob.rotation_euler, ob.rotation_quaternion, ob.rotation_axis_angle);
+  const dr = ob.delta_rotation_euler;
+  if (dr[0] || dr[1] || dr[2]) q0.premultiply(new Quaternion().setFromEuler(new Euler(dr[0], dr[1], dr[2], threeOrder(ob.rotation_mode === 'QUATERNION' || ob.rotation_mode === 'AXIS_ANGLE' ? 'XYZ' : ob.rotation_mode))));
   const parentRot = robustRotation(parentMat, new Quaternion());
   const ts = app.doc.scene.tool_settings;
   // Affect Only Origins: the object data is counter-transformed so the geometry stays in place
@@ -121,18 +124,25 @@ function objectElement(ob: ObjectData, ids: Set<string>, weight: number, distanc
       const unconstrained = constraintFix.clone().multiply(target);
       const local = parentInv.clone().multiply(unconstrained);
       Object.assign(ob, cloneBefore(before));
-      if (isDegenerate(local)) {
-        // a zero scale (before or after): the rotation follows the transform's own turn
-        const turn = robustRotation(m, new Quaternion());
+      {
+        // the rotation the object should end up near: its own, turned by the transform. A zero scale
+        // takes its rotation from it, and a negative scale keeps its signs (moving an object scaled
+        // -1, -1, 1 must not turn it into scale 1 with a half turn)
+        // (a mirroring transform reads as a scale by -1, not as a half turn)
+        const turn = new Quaternion(),
+          turnScale = new Vector3();
+        robustDecompose(m, new Quaternion(), new Vector3(), turn, turnScale);
+        closestSigns(turn, turnScale, new Quaternion());
         const ref = parentRot.clone().invert().multiply(turn).multiply(parentRot).multiply(q0);
         const lp = new Vector3(),
           lq = new Quaternion(),
           ls = new Vector3();
         robustDecompose(local, ref, lp, lq, ls);
+        closestSigns(lq, ls, ref);
         ob.location = [lp.x - ob.delta_location[0], lp.y - ob.delta_location[1], lp.z - ob.delta_location[2]];
         ob.scale = [ls.x / (ob.delta_scale[0] || 1), ls.y / (ob.delta_scale[1] || 1), ls.z / (ob.delta_scale[2] || 1)];
         setRotationFromQuaternion(ob, lq);
-      } else applyMatrixToObject(ob, local);
+      }
       // respect transform locks
       for (let i = 0; i < 3; i++) {
         if (ob.lock_location[i]) ob.location[i] = before.location[i];
@@ -209,6 +219,28 @@ function robustDecompose(m: Matrix4, ref: Quaternion, p: Vector3, q: Quaternion,
   if (flip < 0) basis.makeBasis(axes[0]!.clone().negate(), axes[1]!, axes[2]!);
   q.setFromRotationMatrix(basis);
   s.set(ok[0] ? len[0] * flip : 0, ok[1] ? len[1] : 0, ok[2] ? len[2] : 0);
+}
+
+/**
+ * A rotation + scale has four equivalent forms (two scale signs flipped with a half turn around the
+ * third axis): pick the one whose rotation is closest to `ref`.
+ */
+function closestSigns(q: Quaternion, s: Vector3, ref: Quaternion) {
+  let bestQ = q.clone(),
+    bestS = s.clone(),
+    best = Math.abs(q.dot(ref));
+  const half = [new Quaternion(1, 0, 0, 0), new Quaternion(0, 1, 0, 0), new Quaternion(0, 0, 1, 0)];
+  for (let axis = 0; axis < 3; axis++) {
+    const cq = q.clone().multiply(half[axis]);
+    const d = Math.abs(cq.dot(ref));
+    if (d > best + 1e-9) {
+      best = d;
+      bestQ = cq;
+      bestS = s.clone().multiply(new Vector3(axis === 0 ? 1 : -1, axis === 1 ? 1 : -1, axis === 2 ? 1 : -1));
+    }
+  }
+  q.copy(bestQ);
+  s.copy(bestS);
 }
 
 /** Rotation part of a matrix that may have zero-scaled axes. */

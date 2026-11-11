@@ -390,3 +390,37 @@ describe('framing big meshes', () => {
     expect(b.min.x).toBeCloseTo(1, 4);
   });
 });
+
+describe('transforms keep negative scale values', () => {
+  const cubeOf = () => Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+  const r4 = (a: number[]) => a.map((x) => +x.toFixed(4) + 0);
+  it('moving a mirrored object leaves its scale and rotation values alone', () => {
+    const cube = cubeOf();
+    cube.scale = [-1, -1, 1];
+    cube.rotation_euler = [0, 0, 0.3];
+    select(cube);
+    execOp('transform.translate', { value: [1, 0, 0] });
+    expect(r4(cube.location)).toEqual([1, 0, 0]);
+    expect(r4(cube.scale)).toEqual([-1, -1, 1]);
+    expect(r4(cube.rotation_euler)).toEqual([0, 0, 0.3]);
+    execOp('transform.rotate', { value: 0.2, orient_axis: 'Z', orient_type: 'GLOBAL' });
+    expect(r4(cube.scale)).toEqual([-1, -1, 1]);
+    expect(r4(cube.rotation_euler)).toEqual([0, 0, 0.5]);
+  });
+
+  it('S -1 scales every axis by -1 without turning the object', () => {
+    const cube = cubeOf();
+    select(cube);
+    execOp('transform.resize', { value: [-2, -2, -2] });
+    expect(r4(cube.scale)).toEqual([-2, -2, -2]);
+    expect(r4(cube.rotation_euler)).toEqual([0, 0, 0]);
+  });
+
+  it('mirroring along Y flips the Y scale', () => {
+    const cube = cubeOf();
+    select(cube);
+    execOp('transform.mirror', { constraint_axis: [false, true, false], orient_type: 'GLOBAL' });
+    expect(r4(cube.scale)).toEqual([1, -1, 1]);
+    expect(r4(cube.rotation_euler)).toEqual([0, 0, 0]);
+  });
+});
