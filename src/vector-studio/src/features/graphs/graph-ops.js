@@ -169,14 +169,47 @@ export function pasteDesign(doc, id, parentId) {
   return doc.importSubtree({ root: d.root, nodes: d.nodes }, parentId);
 }
 
+/** Design ids a graph's series options use. */
+function designIdsOf(g) {
+  const out = [];
+  for (const s of Object.values(g.live.options?.series || {})) {
+    if (s?.column?.design) out.push(s.column.design);
+    if (s?.marker?.design) out.push(s.marker.design);
+  }
+  return out;
+}
+
+/** The designs some (copied) nodes' graphs use, for carrying them to another document. */
+export function designsFor(doc, nodes) {
+  const ids = new Set();
+  for (const n of nodes) if (isGraph(n)) for (const id of designIdsOf(n)) ids.add(id);
+  return graphDesigns(doc).filter((d) => ids.has(d.id));
+}
+
+/**
+ * Add the designs pasted graphs use that the document does not have
+ * (inside a transaction); a design keeps its id, so graphs find it, and is
+ * renamed when its name is taken.
+ */
+export function importDesigns(doc, designs = []) {
+  const have = graphDesigns(doc);
+  const missing = designs.filter((d) => d?.id && !have.some((x) => x.id === d.id));
+  if (!missing.length) return;
+  const used = new Set(have.map((d) => d.name));
+  const added = missing.map((d) => {
+    let name = d.name;
+    for (let i = 2; used.has(name); i++) name = `${d.name} ${i}`;
+    used.add(name);
+    return { ...d, name };
+  });
+  doc.updateRoot({ graphDesigns: [...have, ...added] });
+}
+
 /** Designs no graph in the document uses. */
 export function unusedDesigns(doc) {
   const used = new Set();
   doc.walk((n) => {
-    if (isGraph(n)) for (const s of Object.values(n.live.options?.series || {})) {
-      if (s?.column?.design) used.add(s.column.design);
-      if (s?.marker?.design) used.add(s.marker.design);
-    }
+    if (isGraph(n)) for (const id of designIdsOf(n)) used.add(id);
     return true;
   });
   return graphDesigns(doc).filter((d) => !used.has(d.id));

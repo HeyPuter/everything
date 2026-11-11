@@ -139,6 +139,36 @@ describe('graphs in the document', () => {
     expect(li.filter((n) => n.type === 'group' && n.source === g.children[0]).length).toBe(4 + 1);
   });
 
+  it('a graph pasted into another document brings its column design along', async () => {
+    const doc = app.editor.doc;
+    const art = createPath(rectangle(0, 0, 10, 20), true, { fill: { type: 'solid', color: '#ff0000' } });
+    doc.transact('Art', () => doc.insert(art, app.editor.targetLayer().id));
+    let design;
+    doc.transact('Design', () => (design = addDesign(doc, [art.id], 'Bar')));
+    const g = makeGraph(app);
+    doc.transact('Column', () => setSeriesOption(doc, [{ graph: doc.get(g.id), index: 0 }], 'column', { design: design.id, mode: 'repeat', unit: 1, fraction: 'scale' }));
+    const designed = (d, n) => liveArtwork(d, n).items.filter((v) => v.type === 'group' && v.source === n.children[0]).length;
+    const before = designed(doc, doc.get(g.id));
+    app.editor.select([g.id]);
+    app.commands.run('edit.copy');
+    app.newDocument();
+    // The other document has its own design named Bar: the pasted one is renamed, not merged.
+    const d2 = app.editor.doc;
+    const own = createPath(rectangle(0, 0, 5, 5), true, { fill: { type: 'solid', color: '#0000ff' } });
+    d2.transact('Art', () => d2.insert(own, app.editor.targetLayer().id));
+    d2.transact('Design', () => addDesign(d2, [own.id], 'Bar'));
+    await app.commands.run('edit.paste');
+    const pasted = d2.get(app.editor.topSelection()[0]);
+    expect(designed(d2, pasted)).toBe(before);
+    expect(d2.root.graphDesigns.map((x) => x.name)).toEqual(['Bar', 'Bar 2']);
+    // Pasting again reuses the design; undo takes the design back with the graph.
+    await app.commands.run('edit.paste');
+    expect(d2.root.graphDesigns).toHaveLength(2);
+    d2.undo();
+    d2.undo();
+    expect(d2.root.graphDesigns).toHaveLength(1);
+  });
+
   it('graph tool drag creates a graph and opens the data window', async () => {
     app.setTool('graph-column');
     const t = app.tool;
