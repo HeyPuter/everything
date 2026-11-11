@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { puterChat, type ChatMessage } from '../../src/assistant/ai';
+import { puterChat, withCacheBreakpoints, type ChatMessage } from '../../src/assistant/ai';
 
 type G = { puter?: unknown };
 
@@ -35,5 +35,38 @@ describe('Puter AI requests', () => {
     expect(calls[0].options.provider).toBe('claude');
     await drain([{ role: 'user', content: 'hi' }], { model: 'gpt-5' });
     expect(calls[1].options.provider).toBeUndefined();
+  });
+
+  it('marks prompt-cache breakpoints on the instructions, finished turns and the newest message', async () => {
+    const t: ChatMessage[] = [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'one' },
+      { role: 'user', content: 'second' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'get_scene', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'a', content: 'scene' },
+    ];
+    const before = structuredClone(t);
+    const calls = stubPuter();
+    await drain(t);
+    const sent = calls[0].messages as unknown[];
+    // Puter caches nothing for Claude unless the messages ask, so every round paid for the whole conversation again.
+    expect(t).toEqual(before);
+    expect(JSON.stringify(sent).match(/cache_control/g)).toHaveLength(4);
+    expect(sent[0]).toEqual({ role: 'system', content: [{ type: 'text', text: 'S', cache_control: { type: 'ephemeral', ttl: '1h' } }] });
+    expect(sent[1]).toBe(t[1]);
+    expect(sent[2]).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'one', cache_control: { type: 'ephemeral' } }] });
+    expect(sent[3]).toEqual({ role: 'user', content: [{ type: 'text', text: 'second', cache_control: { type: 'ephemeral' } }] });
+    // A tool result in Claude's own shape: Puter rebuilds an OpenAI tool message without the breakpoint.
+    expect(sent[5]).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: 'scene', cache_control: { type: 'ephemeral' } }] });
+    // A screenshot message is marked on its image.
+    const shot: ChatMessage = { role: 'user', content: [{ type: 'text', text: 'shot' }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } }] };
+    const out = withCacheBreakpoints([...t, shot]) as { content: { cache_control?: unknown }[] }[];
+    expect(out[6].content[1].cache_control).toEqual({ type: 'ephemeral' });
+    expect(out[6].content[0].cache_control).toBeUndefined();
+    // The first message of a chat is both the turn's start and the newest; an empty result takes no breakpoint.
+    expect(JSON.stringify(withCacheBreakpoints([{ role: 'system', content: 'S' }, { role: 'user', content: 'hi' }])).match(/cache_control/g)).toHaveLength(2);
+    const empty: ChatMessage = { role: 'tool', tool_call_id: 'a', content: '' };
+    expect(withCacheBreakpoints([...t.slice(0, 5), empty]).at(-1)).toBe(empty);
   });
 });

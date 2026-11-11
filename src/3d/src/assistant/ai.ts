@@ -68,6 +68,68 @@ const reachedLimit = (usage: { output_tokens?: number; completion_tokens?: numbe
 let callSeq = 0;
 const newCallId = () => `call_${Date.now().toString(36)}_${(++callSeq).toString(36)}`;
 
+/** The instructions and tools are the same for everyone: cached for an hour. */
+const CACHE_LONG = { type: 'ephemeral', ttl: '1h' } as const;
+const CACHE = { type: 'ephemeral' } as const;
+type Block = Record<string, unknown>;
+
+/** Content as blocks with a cache breakpoint on the last one (an empty text block cannot take one). */
+function marked(content: string | ChatPart[] | null, cache: Block): Block[] | null {
+  const blocks: Block[] = typeof content === 'string' ? (content ? [{ type: 'text', text: content }] : []) : [...(content ?? [])];
+  const last = blocks.at(-1);
+  if (!last || (last.type === 'text' && !last.text)) return null;
+  blocks[blocks.length - 1] = { ...last, cache_control: cache };
+  return blocks;
+}
+
+/**
+ * The request with prompt-cache breakpoints (Puter passes them to Claude, and
+ * caches nothing unless asked; Claude takes at most four):
+ * - the instructions, which the tools come before;
+ * - the end of the last finished turn, and on a turn's first request the end
+ *   of the one before. Earlier turns are sent shortened (no snapshot, results
+ *   cut), so they read the same in every later request; a new turn reads them
+ *   from the cache written by the turn before, instead of paying to write the
+ *   whole conversation again;
+ * - the message that started the current turn, anchoring rounds that add more
+ *   blocks than the cache looks back over;
+ * - the newest message, which the next round reads up to.
+ * A tool result goes in Claude's own shape, which keeps the breakpoint: Puter
+ * rebuilds an OpenAI tool message without it. The messages given are not changed.
+ */
+export function withCacheBreakpoints(messages: ChatMessage[]): unknown[] {
+  const out: unknown[] = [...messages];
+  const markAt = (i: number, cache: Block) => {
+    const m = messages[i];
+    if (!m) return;
+    if (m.role === 'tool') {
+      // Like an empty text block, an empty result is not given a breakpoint.
+      if (!m.content) return;
+      out[i] = { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content, cache_control: cache }] };
+      return;
+    }
+    // A breakpoint on a reply's text would sit before its tool calls, not at its end.
+    if (m.role === 'assistant' && m.tool_calls?.length) return;
+    const content = marked(m.content, cache);
+    if (content) out[i] = { ...m, content };
+  };
+  if (messages[0]?.role === 'system') markAt(0, CACHE_LONG);
+  // Where each turn starts: a message the user wrote, after the instructions or a finished reply.
+  const starts: number[] = [];
+  for (let i = 1; i < messages.length; i++) {
+    const prev = messages[i - 1];
+    if (messages[i].role === 'user' && (prev.role === 'system' || (prev.role === 'assistant' && !prev.tool_calls?.length))) starts.push(i);
+  }
+  const turn = starts.at(-1) ?? -1;
+  const last = messages.length - 1;
+  // A finished turn ends with the reply before the next turn's start.
+  if (turn === last && starts.length > 2) markAt(starts.at(-2)! - 1, CACHE);
+  if (starts.length > 1) markAt(turn - 1, CACHE);
+  if (turn > 0 && turn < last) markAt(turn, CACHE);
+  if (last > 0) markAt(last, CACHE);
+  return out;
+}
+
 /** puter.ai.chat, streamed. A reply the SDK hands back whole is yielded in the same pieces. */
 export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}): AsyncIterable<StreamPart> {
   if (!prefs.use_online_access) throw new Error('The assistant works online, but online access is turned off (Preferences ▸ System ▸ Network).');
@@ -89,7 +151,7 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
   if (opts.maxTokens) options.max_tokens = opts.maxTokens;
   let res: unknown;
   try {
-    res = await p.ai.chat(messages, options);
+    res = await p.ai.chat(withCacheBreakpoints(messages), options);
   } catch (e) {
     throw aiError(e);
   }
