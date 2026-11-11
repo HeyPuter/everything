@@ -316,3 +316,41 @@ test('saving right after a texture paint stroke keeps the stroke in the file', a
   expect(red).toBeGreaterThan(1000);
   await expectNoErrors(errors);
 });
+
+test('a fill reaches the stroke all around in a perspective view', async ({ page }) => {
+  const errors = await openApp(page);
+  await emptyGP(page);
+  const { x, y } = await viewportCenter(page);
+  // a circle on the (tilted) drawing plane: its far side is deeper than its start
+  await page.mouse.move(x + 100, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 64; i++) await page.mouse.move(x + 100 * Math.cos((i / 64) * Math.PI * 2), y + 100 * Math.sin((i / 64) * Math.PI * 2));
+  await page.mouse.up();
+  await page.evaluate(() => (window as any).app.run('wm.tool_set_by_id', { name: 'builtin.brush.Fill' }, { invoke: false })); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.mouse.click(x, y);
+  // distances of the fill outline from the circle's center, in viewport pixels
+  const r = await page.evaluate(async () => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { activeView3D } = await import('/src/editors/view3d/view3d.ts' as string);
+    const { layerScreen } = await import('/src/greasepencil/paint.ts' as string);
+    const g = a.doc.grease_pencils[a.activeObject.data];
+    const d = g.drawings[g.layers[0].frames[0].drawing];
+    const scr = layerScreen(activeView3D(), a.activeObject, g.layers[0]);
+    const pts = (s: number) => {
+      const out: [number, number][] = [];
+      for (let i = d.offsets[s]; i < d.offsets[s + 1]; i++) out.push(scr({ co: [d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]] }));
+      return out;
+    };
+    // fills go first (behind), the drawn circle last
+    const circle = pts(d.offsets.length - 2);
+    const cx = circle.reduce((s, p) => s + p[0], 0) / circle.length,
+      cy = circle.reduce((s, p) => s + p[1], 0) / circle.length;
+    const dist = pts(0).map(([px, py]) => Math.hypot(px - cx, py - cy));
+    return { strokes: d.offsets.length - 1, min: Math.min(...dist), max: Math.max(...dist) };
+  });
+  expect(r.strokes).toBe(2);
+  // the 25 px stroke's inner edge sits 87.5 px from the center
+  expect(r.min).toBeGreaterThan(84);
+  expect(r.max).toBeLessThan(96);
+  await expectNoErrors(errors);
+});
