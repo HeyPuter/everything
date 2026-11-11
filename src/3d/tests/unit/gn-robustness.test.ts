@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { setup, node, link, run, env } from './gnmesh-harness';
 import { addNode, connect, ctxOf } from '../../src/nodes/tree';
 import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/types';
-import { evaluateGroup } from '../../src/geonodes/modifier';
+import { evaluateGroup, modifierDeps } from '../../src/geonodes/modifier';
 import { GeometrySet, identity } from '../../src/geonodes/geometry';
 
 /** A group with one geometry input and one geometry output. */
@@ -74,5 +74,16 @@ describe('evaluation cache', () => {
     expect(evaluateGroup(t.group, m, e(), GeometrySet.empty(), 'in', 'objinfo', false).geometry.mesh!.positions[0]).toBeCloseTo(0.5);
     x = 3;
     expect(evaluateGroup(t.group, m, e(), GeometrySet.empty(), 'in', 'objinfo', false).geometry.mesh!.positions[0]).toBeCloseTo(2.5);
+  });
+
+  it('makes the modifier depend on objects chosen on a Switch feeding Object Info', () => {
+    const t = setup();
+    t.doc.objects.obX = { id: 'obX', name: 'X' } as never;
+    const sw = node(t, 'GeometryNodeSwitch', { True: 'obX' }, { input_type: 'OBJECT' });
+    const info = node(t, 'GeometryNodeObjectInfo');
+    link(t, sw, 'Output', info, 'Object');
+    link(t, info, 'Geometry', t.out, 'Geometry');
+    const m = { id: 'md', name: 'GN', type: 'NODES', node_group: t.group.id } as unknown as ModifierBase;
+    expect(modifierDeps(t.doc, m)).toEqual(['obX']);
   });
 });

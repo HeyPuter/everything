@@ -47,11 +47,19 @@ export function modifierDeps(doc: DocumentData, m: ModifierBase): string[] {
   const g = nodeGroupOf(doc, m);
   if (!g) return [];
   const out = new Set<string>();
-  for (const t of groupTrees(doc, g.tree))
+  for (const t of groupTrees(doc, g.tree)) {
+    const linked = new Set(t.links.map((l) => `${l.to_node}\u0001${l.to_socket}`));
     for (const n of t.nodes) {
       const ex = geoExecs[n.type];
       for (const id of ex?.deps?.(n, doc) ?? []) out.add(id);
+      // objects and collections chosen on other nodes (Switch, nested group inputs, …) and linked onward
+      for (const [k, v] of Object.entries(n.inputs)) {
+        if (typeof v !== 'string' || linked.has(`${n.id}\u0001${k}`)) continue;
+        if (doc.objects[v]) out.add(v);
+        else if (doc.collections[v]) for (const id of collectionObjects(doc, v)) out.add(id);
+      }
     }
+  }
   // object / collection inputs of the modifier
   for (const it of interfaceInputs(g.tree)) {
     const { type } = interfaceSocketType(it.socket_type);
