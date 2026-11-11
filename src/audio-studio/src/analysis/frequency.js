@@ -288,8 +288,9 @@ export function frequencyPanel(app) {
       });
       ctx.globalAlpha = 1;
     };
-    const curve = (db, fft, color, width = 1.25, dash = null, fill = false) => {
-      const df = rate / fft;
+    // `traceRate` is the sample rate the trace was measured at (a held trace may differ).
+    const curve = (db, fft, traceRate, color, width = 1.25, dash = null, fill = false) => {
+      const df = traceRate / fft;
       const bins = db.length;
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
@@ -301,6 +302,8 @@ export function frequencyPanel(app) {
         const fb = scale.toHz((i + 1) / cols);
         const ka = fa / df;
         const kb = fb / df;
+        // A held trace from a lower sample rate ends at its own Nyquist frequency.
+        if (i && ka > bins - 0.5) break;
         let v;
         if (kb - ka < 1) {
           const k = (ka + kb) / 2;
@@ -334,7 +337,7 @@ export function frequencyPanel(app) {
     ctx.rect(g.left, g.top, g.right - g.left, g.bottom - g.top);
     ctx.clip();
     holds.forEach((hd, i) => {
-      if (hd) for (const [, db] of hd.traces) curve(db, hd.fft, HOLD_COLORS[i], 1, [4, 3]);
+      if (hd) for (const [, db] of hd.traces) curve(db, hd.fft, hd.rate, HOLD_COLORS[i], 1, [4, 3]);
     });
     const colors = { L: cssVar('--wave'), M: cssVar('--wave'), R: cssVar('--accent-strong') };
     const shown = traces(data, channel);
@@ -342,7 +345,7 @@ export function frequencyPanel(app) {
     // The first channel is drawn last, on top.
     for (const [name, db] of shown.slice().reverse()) {
       if (display === 'bars') drawBars(db, data.fft, colors[name], shown.length > 1 && name === 'R' ? 0.45 : 0.85);
-      else curve(db, data.fft, colors[name], 1.5, null, display === 'area');
+      else curve(db, data.fft, rate, colors[name], 1.5, null, display === 'area');
     }
     // Cursor.
     if (hoverX !== null && hoverX >= g.left && hoverX <= g.right) {
