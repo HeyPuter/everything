@@ -176,10 +176,13 @@ registerEffect({
     preset('Hot Digital Master', { gain: -4, tolerance: 0.5, minRun: 4, method: 1 }),
     preset('Overdriven Recorder', { gain: -8, tolerance: 5, minRun: 3, method: 0 }),
   ],
-  run: async ({ channels, values, dsp, onProgress, signal }) => {
-    // The clip level is found from the loudest sample across every channel.
+  run: async ({ channels, values, dsp, onProgress, signal, mask = null }) => {
+    // The clip level is found from the loudest sample across the channels being repaired.
     let peak = 0;
-    for (const ch of channels) for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]));
+    channels.forEach((ch, c) => {
+      if (mask && !mask[c]) return;
+      for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]));
+    });
     const g = 10 ** (values.gain / 20);
     if (peak <= 0) return channels.map((c) => c.slice());
     const level = peak * (1 - values.tolerance / 100) * 0.99999;

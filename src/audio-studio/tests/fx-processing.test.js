@@ -376,3 +376,33 @@ describe('Fade and Gain Envelope editors', () => {
     }
   });
 });
+
+describe('DeClipper', () => {
+  it('finds the clip level of the channels it repairs', async () => {
+    const rate = 48000;
+    const n = 4800;
+    // Left clipped flat at 0.6; right louder and clean.
+    const clean = sine(n, 200, rate, 0.9);
+    const left = clean.map((v) => Math.max(-0.6, Math.min(0.6, v)));
+    const right = sine(n, 300, rate, 1);
+    const state = {
+      sampleRate: rate,
+      channels: [Channel.fromSamples(left), Channel.fromSamples(right)],
+      markers: [],
+    };
+    const def = getEffect('declipper');
+    const values = { ...defaults(def), gain: 0 };
+    const { state: next } = await renderEffect({
+      def,
+      values,
+      state,
+      start: 0,
+      end: n,
+      mask: [true, false],
+    });
+    const out = next.channels[0].toArray(0, n);
+    const peak = out.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+    expect(peak).toBeGreaterThan(0.7);
+    expect(Array.from(next.channels[1].toArray(0, n))).toEqual(Array.from(right));
+  });
+});
