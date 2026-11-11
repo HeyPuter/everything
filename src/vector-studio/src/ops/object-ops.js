@@ -377,14 +377,16 @@ export function makeCompound(editor) {
     doc.insert(c, parent.id, index);
     // Compound paths reverse inner subpaths so holes appear under the non-zero rule.
     const outerSign = Math.sign(signedArea(paths.reduce((a, b) => (Math.abs(signedArea(b.anchors)) > Math.abs(signedArea(a.anchors)) ? b : a)).anchors)) || 1;
-    for (const p of paths) {
+    // Bounds measured once: the containment test compares every pair.
+    const bounds = paths.map((p) => nodeBounds(doc, p));
+    paths.forEach((p, i) => {
       const cur = doc.get(p.id);
       const area = signedArea(cur.anchors);
-      const containedByOther = paths.some((o) => o.id !== p.id && contains(nodeBounds(doc, o), nodeBounds(doc, cur)));
+      const containedByOther = bounds.some((o, j) => j !== i && contains(o, bounds[i]));
       if (containedByOther && Math.sign(area) === outerSign) doc.update(p.id, { anchors: reverseAnchors(cur.anchors) });
       doc.move(p.id, c.id);
       doc.update(p.id, { shape: undefined });
-    }
+    });
     // Groups (nested ones too) and compound paths the paths came from go once emptied.
     removeEmptyContainers(doc, new Set(paths.map((p) => p.parent)), editor.isolation);
     editor.select([c.id]);
