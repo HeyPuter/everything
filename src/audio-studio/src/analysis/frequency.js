@@ -75,7 +75,7 @@ export function frequencyPanel(app) {
     clearBtn,
   );
   const displaySel = select({ label: 'Display', value: p0.display, options: DISPLAYS, onChange: (v) => setPref({ display: v }) });
-  const scanBtn = h('button.btn.sm', { type: 'button', title: 'Average the spectrum of the selection, or of the whole file', onclick: () => recompute.now({ scan: true }) }, 'Scan');
+  const scanBtn = h('button.btn.sm', { type: 'button', title: 'Average the spectrum of the selection, or of the whole file', onclick: () => scanNow() }, 'Scan');
   const advBtn = h('button.disclosure.freq-adv-toggle', { type: 'button', 'aria-expanded': String(Boolean(p0.advanced)), onclick: () => setPref({ advanced: !prefs().advanced }) }, icon('chevron-right', 12), 'Advanced');
   const advanced = h('div.freq-advanced', { hidden: !p0.advanced }, h('label.freq-field', h('span', 'FFT Size:'), fftSel), h('label.freq-field', h('span', 'Window:'), winSel));
   const bottom = h(
@@ -170,6 +170,10 @@ export function frequencyPanel(app) {
     }
   };
   const recompute = debounce(() => compute(), 150);
+  const scanNow = () => {
+    recompute.cancel();
+    compute({ scan: true });
+  };
 
   const current = () => (app.engine.playing && live ? live : still);
 
@@ -426,6 +430,6 @@ export function frequencyPanel(app) {
     focus() {
       plot.focus();
     },
-    scan: () => recompute(),
+    scan: () => scanNow(),
   };
 }
