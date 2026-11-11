@@ -206,8 +206,9 @@ export async function takeSnapshot(reason?: string) {
   // at most MAX_SNAPSHOTS, and within the size budget (the newest always stays)
   let total = 0;
   const keep = next.filter((sn, i) => (total += sn.size) && (i === 0 || (i < MAX_SNAPSHOTS && total <= MAX_SNAPSHOT_TOTAL)));
+  // the copy must be stored before it is listed (a full disk would leave an entry without data)
+  await idb(FILES, 'readwrite', (s) => void s.put(bytes, key));
   for (const old of next) if (!keep.includes(old)) await del(FILES, old.key);
-  await put(FILES, key, bytes);
   await put(KV, 'snapshots', keep);
   lastSnapshotRevision = app.revision;
   lastSnapshotTime = Date.now();

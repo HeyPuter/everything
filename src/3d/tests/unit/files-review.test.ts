@@ -168,3 +168,22 @@ describe('saving into a folder', () => {
     expect(app.dirty).toBe(true);
   });
 });
+
+describe('auto save snapshots', () => {
+  it('lists only snapshots whose copy was stored', async () => {
+    const { installFakeIndexedDb } = await import('./support/fakeidb');
+    const idb = installFakeIndexedDb();
+    const session = await import('../../src/io/session');
+    await session.sessionReady;
+    await session.takeSnapshot('first');
+    const before = await session.listSnapshots();
+    expect(before.length).toBeGreaterThan(0);
+    idb.fail.put = true;
+    await expect(session.takeSnapshot('second')).rejects.toBeTruthy();
+    idb.fail.put = false;
+    const after = await session.listSnapshots();
+    expect(after.map((s) => s.key)).toEqual(before.map((s) => s.key));
+    // every listed snapshot opens
+    expect(await session.openSnapshot(after[0])).toBe(true);
+  });
+});
