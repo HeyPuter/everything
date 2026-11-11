@@ -10,6 +10,7 @@
  * overwrite each other's canvases.
  */
 import { Input, BlobSource, ALL_FORMATS, CanvasSink } from 'mediabunny';
+import { FRAME_SLACK } from '../lib/time.js';
 
 export class FrameSource {
   /** blobFor(asset): the file to decode (default the library's; the player passes proxies). */
@@ -83,7 +84,8 @@ export class FrameSource {
         const sec = e.want;
         e.want = null;
         if (e.frame && Math.abs(e.frame.sec - sec) < 1e-4) continue;
-        const wrapped = await e.sink.getCanvas(sec);
+        // A frame stamped a hair after sec (millisecond timestamps) is the one meant, as in exports.
+        const wrapped = await e.sink.getCanvas(sec + FRAME_SLACK);
         if (wrapped) {
           // Remember the time asked for so tolerance checks match the request.
           e.frame = { sec, canvas: wrapped.canvas, ts: wrapped.timestamp, version: (e.frame?.version || 0) + 1 };
@@ -119,7 +121,7 @@ export class FrameSource {
         const sec = e.pairWant;
         e.pairWant = null;
         if (covers(e.pair, sec)) continue;
-        const it = e.pairSink.canvases(sec);
+        const it = e.pairSink.canvases(sec + FRAME_SLACK);
         try {
           const first = await it.next();
           if (first.done) continue;
@@ -156,6 +158,5 @@ export class FrameSource {
 /** Whether a decoded pair holds the frame shown at sec (and the one after it). */
 function covers(pair, sec) {
   if (!pair) return false;
-  const eps = 1e-6;
-  return pair.a.ts <= sec + eps && (!pair.b || sec + eps < pair.b.ts);
+  return pair.a.ts <= sec + FRAME_SLACK && (!pair.b || sec + FRAME_SLACK < pair.b.ts);
 }

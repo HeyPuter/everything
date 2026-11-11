@@ -6,6 +6,14 @@
 export const US = 1_000_000;
 
 export const sec = (us) => us / US;
+
+/**
+ * Slack (seconds) when looking up the source frame shown at a time. WebM and
+ * MKV store timestamps in whole milliseconds, so at 30 fps frame 2 is stamped
+ * 0.067 s while 0.066667 s is asked for: a frame starting up to just over half
+ * a millisecond later is the one meant. Used by the preview and the export alike.
+ */
+export const FRAME_SLACK = 6e-4;
 export const us = (seconds) => Math.round(seconds * US);
 
 /** Duration of one frame at the given rate, in microseconds (not rounded to an integer frame count). */

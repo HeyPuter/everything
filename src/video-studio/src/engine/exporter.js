@@ -14,7 +14,7 @@ import {
   FlacOutputFormat, CanvasSource, AudioSampleSource, AudioSample, Quality, Input, BlobSource, ALL_FORMATS,
   VideoSampleSink, canEncodeVideo, canEncodeAudio,
 } from 'mediabunny';
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 import { projectDuration } from '../model/timeline.js';
 import { Compositor } from './compositor.js';
 import { ensureLuts } from './luts.js';
@@ -268,7 +268,7 @@ async function preloadFonts(project) {
  * keep the latest sample at or before the wanted time and the one after it
  * (smooth slow motion draws between the two), close the rest.
  */
-class ClipFrames {
+export class ClipFrames {
   constructor(clip, track) {
     this.clip = clip;
     this.track = track;
@@ -304,10 +304,9 @@ class ClipFrames {
       this.cur = await this._pull();
       this.next = await this._pull();
     }
-    // Timeline times are whole microseconds and a clip's speed multiplies their
-    // rounding (3x lands 1-2 us short of a frame); 0.1 ms is far below any frame interval.
-    const eps = 1e-4;
-    while (this.next && this.next.timestamp <= sec + eps) {
+    // Timeline times are whole microseconds (a clip's speed multiplies their rounding)
+    // and some containers round frame times to milliseconds: see FRAME_SLACK.
+    while (this.next && this.next.timestamp <= sec + FRAME_SLACK) {
       this.cur?.close();
       this.cur = this.next;
       this.next = await this._pull();
