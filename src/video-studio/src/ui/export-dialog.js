@@ -480,6 +480,11 @@ export function openExportDialog(ctx) {
             }
           },
         });
+        // Finishing a file doesn't stop for Cancel or a closed dialog: drop what it made.
+        if (controller.signal.aborted) {
+          r?.release?.();
+          throw new DOMException('Export canceled', 'AbortError');
+        }
         results.push(r);
       }
       finish();

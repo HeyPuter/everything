@@ -193,6 +193,36 @@ describe('export dialog with several files', () => {
     }
   });
 
+  it('downloads nothing when the dialog is closed while the last file is being finished', async () => {
+    let finish = null;
+    exportProject.mockImplementation(async (project, library, settings, { kind }) => {
+      if (kind === 'video') return video;
+      // Finishing the file doesn't look at the signal: it completes after the dialog closed.
+      await new Promise((r) => (finish = r));
+      return { kind: 'audio', blob: new Blob(['wav']), fileName: 'Trip.wav', duration: 2 * US, elapsed: 1, release: () => released.push('audio') };
+    });
+    const clicks = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      released.length = 0;
+      const d = await twoJobs();
+      button(d, 'Export').click();
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      d.close();
+      finish();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(clicks).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(60_000);
+      expect(released.sort()).toEqual(['audio', 'video']);
+    } finally {
+      vi.useRealTimers();
+      exportProject.mockReset();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('keeps the finished video when the next file fails', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     exportProject.mockImplementation(async (project, library, settings, { kind }) => {
