@@ -3,7 +3,8 @@ import { setup, publish, invite, USERS } from './review-helpers.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 import { EditorStore } from '../src/model/store.js';
 import { addTimeline } from '../src/model/timelines.js';
-import { projectDuration } from '../src/model/timeline.js';
+import { projectDuration, mainTrack as mainTrackOf } from '../src/model/timeline.js';
+import { createCompound } from '../src/model/compound.js';
 import { createThreadList } from '../src/ui/review/threads.js';
 import { ReviewPage, cleanReviewHash } from '../src/ui/review/review-page.js';
 import { createReviewPanel, reviewMarkers } from '../src/ui/review/review-panel.js';
@@ -608,6 +609,33 @@ describe('editor review panel', () => {
     expect(store.project.markers.map((m) => m.time)).toEqual([s(3)]);
     store.openTimeline(main);
     expect(store.project.markers || []).toEqual([]);
+    panel.dispose();
+  });
+
+  it('leaves a compound clip being edited before seeking or adding markers', async () => {
+    const env = await setup();
+    const p = projectWithClips();
+    onMain(p, clip('video', 10, 4));
+    const store = new EditorStore(p);
+    const deps = { exportProject: fakeExport(), detectCapabilities: caps };
+    const v1 = await shareForReview({ puter: env.sdk.alice, project: store.project, library: null, title: 'Main', deps });
+    await env.as('alice')('comment.add', { review: v1.review.id, version: 1, id: 'c_comp0001', text: 'Here', t: s(12) });
+    const second = mainTrackOf(store.project).clips[1].id;
+    store.update('Group', (pp) => createCompound(pp, [second]));
+    const comp = mainTrackOf(store.project).clips[1].id;
+    const panel = createReviewPanel({ store, library: { backend: { kind: 'puter' } }, puter: env.sdk.alice, account: {} }, { deps: { interval: 60_000 } });
+    document.body.append(panel.el);
+    panel.toggle(true);
+    await until(() => panel.el.querySelector('.rv-thread'));
+    store.openCompound(comp);
+    panel.el.querySelector('.rv-time').click();
+    // The comment's time is on the timeline, not inside the compound clip.
+    expect(store.nest).toHaveLength(0);
+    expect(store.time).toBe(s(12));
+    store.openCompound(comp);
+    btn(panel.el, 'Add as markers').click();
+    expect(store.nest).toHaveLength(0);
+    expect(store.project.markers.map((m) => m.time)).toEqual([s(12)]);
     panel.dispose();
   });
 

@@ -55,8 +55,14 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
   const markersBtn = h('button.rv-action', { type: 'button' }, icon('bookmark', 14), 'Add as markers');
   const status = h('p.rv-sync', { role: 'status' });
   const counts = h('span.rv-panel-counts');
-  /** Open the timeline version v was shared from, when it still exists and another is open. Returns its name or null. */
+  /**
+   * Leave any compound clip being edited and open the timeline version v was shared from, when it still exists and
+   * another is open. Returns its name or null.
+   */
   function openVersionTimeline(v) {
+    // Comment times are on a timeline: inside a compound clip being edited they landed at the wrong time, and its
+    // markers are not kept when it closes.
+    while (store.nest?.length) store.closeCompound();
     const id = v?.timelineId;
     if (!id || id === store.project.timelineId || !store.project.timelines?.some((t) => t.id === id)) return null;
     return store.openTimeline(id) ? activeTimeline(store.project).name : null;
