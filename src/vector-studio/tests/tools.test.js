@@ -150,6 +150,15 @@ describe('object commands', () => {
     expect(nodeBounds(doc, g)).toMatchObject({ x: 25, y: 25, w: 50, h: 50 });
     await app.commands.run('object.clipRelease');
     expect(doc.has(g.id)).toBe(false);
+    expect(doc.undoLabel).toBe('Release Clipping Mask');
+    // One Undo brings the clip group back, selected.
+    await app.commands.run('edit.undo');
+    expect(doc.get(g.id).clip).toBe(true);
+    expect(doc.get(g.id).children).toEqual([art.id, mask.id]);
+    expect([...app.editor.selection]).toEqual([g.id]);
+    await app.commands.run('edit.redo');
+    expect(doc.has(g.id)).toBe(false);
+    expect(new Set(app.editor.selection)).toEqual(new Set([art.id, mask.id]));
   });
 
   it('makes a compound path that punches a hole', async () => {

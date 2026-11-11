@@ -345,11 +345,12 @@ export function releaseClipMask(editor) {
   });
   const groups = [...new Set(ids.filter(Boolean))];
   if (!groups.length) return;
+  // One undo step: the Ungroup transaction joins this one.
   doc.transact('Release Clipping Mask', () => {
     for (const id of groups) doc.update(id, { clip: false });
+    editor.select(groups);
+    ungroup(editor);
   });
-  editor.select(groups);
-  ungroup(editor);
 }
 
 /** Make Compound Path from the selected paths (and paths inside selected groups). */
