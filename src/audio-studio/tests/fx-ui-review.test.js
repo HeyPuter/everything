@@ -8,6 +8,7 @@ import { AudioFile } from '../src/model/audio-file.js';
 import { fakeApp, filled } from './fx-helpers.js';
 import { openEffectDialog } from '../src/effects/dialog.js';
 import { getEffect } from '../src/effects/registry.js';
+import { installPreviewEditor } from '../src/editor/preview-editor.js';
 
 const pointer = (type, x, y) =>
   new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
@@ -211,5 +212,65 @@ describe('effect dialog favorites', () => {
     expect(bar.hidden).toBe(true);
     [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
     expect(await done).toBe(null);
+  });
+});
+
+describe('Preview Editor', () => {
+  it('appears on its own once an offline effect changes the length', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    const app = fakeApp();
+    app.formatTime = (f, rate) => `${(f / rate).toFixed(3)}`;
+    const host = document.createElement('div');
+    document.body.append(host);
+    installPreviewEditor(app, host);
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 1000,
+      channels: [Channel.fromSamples(filled(1000, 0.1))],
+    });
+    doc.view = { start: 0, end: 1000, amp: 1 };
+    const ran = [];
+    const stretch = {
+      id: 'pvStretch',
+      name: 'Stretch',
+      params: [{ id: 'k', min: 1, max: 2, default: 1 }],
+      kind: null,
+      process: async ({ channels, values }) => {
+        ran.push('stretch');
+        return channels.map((c) => new Float32Array(Math.round(c.length * values.k)));
+      },
+    };
+    const gain = {
+      id: 'pvGain',
+      name: 'Gain',
+      params: [{ id: 'g', min: 0, max: 2, default: 1 }],
+      kind: 3,
+      process: async ({ channels }) => {
+        ran.push('gain');
+        return channels;
+      },
+    };
+    const el = host.querySelector('.preview-editor');
+    const settle = () => new Promise((r) => setTimeout(r, 300));
+    // A realtime effect never changes the length: nothing renders while the preview is hidden.
+    app.emit('effect-values', { def: gain, values: { g: 2 }, doc });
+    await settle();
+    expect(ran).toEqual([]);
+    expect(el.hidden).toBe(true);
+    // An offline effect that keeps the length leaves it hidden; one that changes it shows it.
+    app.emit('effect-values', { def: stretch, values: { k: 1 }, doc });
+    await settle();
+    expect(ran).toEqual(['stretch']);
+    expect(el.hidden).toBe(true);
+    app.emit('effect-values', { def: stretch, values: { k: 1.5 }, doc });
+    await settle();
+    expect(el.hidden).toBe(false);
+    expect(host.querySelector('.preview-status').textContent).toBe('Length +0.500');
+    app.emit('effect-values', null);
+    expect(el.hidden).toBe(true);
+    host.remove();
   });
 });
