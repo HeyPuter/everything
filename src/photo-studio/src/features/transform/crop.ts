@@ -257,6 +257,11 @@ async function commitPerspective(e: Editor) {
     return;
   }
   const q = orderQuad(quad);
+  // A dented or flat outline has no plane to straighten (the outline turns red).
+  if (!isConvex(q)) {
+    e.message('The corners must form a convex four-sided shape; drag them to the corners of the plane.');
+    return;
+  }
   const s = (e.settings.perspectiveCrop as { w?: number; h?: number } | undefined) ?? {};
   const auto = rectifiedSize(q);
   const w = s.w && s.w > 0 ? Math.round(s.w) : auto.width,
@@ -495,7 +500,7 @@ export const perspectiveCropTool: Tool = {
   options: (e) => {
     const s = (e.settings.perspectiveCrop as { w?: number; h?: number; grid?: boolean } | undefined) ?? {};
     const auto = quad.length === 4 ? rectifiedSize(orderQuad(quad)) : undefined;
-    return `<label>W <input id="pc-w" type="number" min="0" step="1" value="${s.w || ''}" placeholder="${auto?.width ?? 'auto'}"> px</label><label>H <input id="pc-h" type="number" min="0" step="1" value="${s.h || ''}" placeholder="${auto?.height ?? 'auto'}"> px</label><label class="transform-setting"><input id="pc-grid" type="checkbox" ${s.grid !== false ? 'checked' : ''}>Show Grid</label><span class="hint">${quad.length < 4 ? `Click ${4 - quad.length} more corner${quad.length === 3 ? '' : 's'}, or drag a rectangle.` : 'Drag corners to match the plane, then press Enter.'}</span><span class="divider"></span><button data-command="perspective-crop.cancel" class="icon-button" title="Cancel (Escape)" aria-label="Cancel perspective crop">${svg('ban', 16)}</button><button data-command="perspective-crop.commit" class="icon-button transform-apply" title="Commit (Enter)" aria-label="Commit perspective crop" ${quad.length === 4 ? '' : 'disabled'}>${svg('check', 16)}</button>`;
+    return `<label>W <input id="pc-w" type="number" min="0" step="1" value="${s.w || ''}" placeholder="${auto?.width ?? 'auto'}"> px</label><label>H <input id="pc-h" type="number" min="0" step="1" value="${s.h || ''}" placeholder="${auto?.height ?? 'auto'}"> px</label><label class="transform-setting"><input id="pc-grid" type="checkbox" ${s.grid !== false ? 'checked' : ''}>Show Grid</label><span class="hint">${quad.length < 4 ? `Click ${4 - quad.length} more corner${quad.length === 3 ? '' : 's'}, or drag a rectangle.` : 'Drag corners to match the plane, then press Enter.'}</span><span class="divider"></span><button data-command="perspective-crop.cancel" class="icon-button" title="Cancel (Escape)" aria-label="Cancel perspective crop">${svg('ban', 16)}</button><button data-command="perspective-crop.commit" class="icon-button transform-apply" title="Commit (Enter)" aria-label="Commit perspective crop" ${quad.length === 4 && isConvex(orderQuad(quad)) ? '' : 'disabled'}>${svg('check', 16)}</button>`;
   },
   bindOptions: ({ e, el }) => {
     refocusAfterChoice(e, el);

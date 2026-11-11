@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, canvasDrag, idle, openImage, tool, undo } from './helpers';
+import { boot, canvasClick, canvasDrag, historyLabels, idle, openImage, tool, undo } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -23,4 +23,20 @@ test('undoing a crop puts a crop box around the whole restored canvas', async ({
   await page.keyboard.press('Enter');
   await idle(page);
   expect(await docSize(page)).toEqual([400, 300]);
+});
+
+test('Perspective Crop refuses a dented outline instead of failing', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await tool(page, 'Perspective Crop Tool');
+  for (const [x, y] of [[50, 50], [350, 50], [200, 100], [50, 250]]) await canvasClick(page, x, y);
+  await expect(page.locator('polygon.crop-box')).toHaveClass(/invalid/);
+  await expect(page.getByRole('button', { name: 'Commit perspective crop' })).toBeDisabled();
+  await page.keyboard.press('Enter');
+  await idle(page);
+  await expect(page.locator('#status')).toContainText('convex');
+  expect(await docSize(page)).toEqual([400, 300]);
+  expect(await historyLabels(page)).toEqual([]);
+  expect(errors).toEqual([]);
 });
