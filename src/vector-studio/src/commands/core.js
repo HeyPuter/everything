@@ -219,7 +219,9 @@ export function registerCoreCommands(app) {
         const id = ed().isolation;
         ed().isolation = null;
         ed().isolationLeaf = null;
-        ed().select(ed().doc.has(id) ? [id] : []);
+        // The isolated object ends up selected, unless it was hidden or locked meanwhile (from the Layers panel).
+        const doc = ed().doc;
+        ed().select(doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id) ? [id] : []);
         ed().emit('isolation');
         ed().invalidate();
       },

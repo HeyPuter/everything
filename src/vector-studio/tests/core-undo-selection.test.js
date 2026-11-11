@@ -406,3 +406,27 @@ describe('Distribute', () => {
     expect(doc.get(p.id).anchors[0].x).toBe(0);
   });
 });
+
+describe('Exit Isolation Mode', () => {
+  it('selects the isolated group, unless it was locked or hidden meanwhile', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const ids = [0, 1].map((i) => {
+      const p = createPath(rectangle(i * 20, 0, 10, 10), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    });
+    ed.select(ids);
+    await app.commands.run('object.group');
+    const [g] = ed.selection;
+    await app.commands.run('object.isolate');
+    await app.commands.run('object.exitIsolation');
+    expect([...ed.selection]).toEqual([g]);
+    await app.commands.run('object.isolate');
+    doc.transact('Lock', () => doc.update(g, { locked: true }));
+    await app.commands.run('object.exitIsolation');
+    expect(ed.isolation).toBe(null);
+    expect([...ed.selection]).toEqual([]);
+  });
+});
