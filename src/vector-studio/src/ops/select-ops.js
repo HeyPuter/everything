@@ -11,7 +11,9 @@ export function selectableTargets(editor) {
   const root = editor.isolation ? [editor.isolation] : doc.root.children;
   // An isolated single object (path, text...) is the only target.
   const iso = editor.isolation && doc.get(editor.isolation);
-  if (iso && (!iso.children || iso.type === 'compound')) return iso.hidden || iso.locked ? [] : [iso.id];
+  // Nothing inside an isolated object that was hidden or locked meanwhile (itself or a layer around it).
+  if (iso && (doc.isHidden(iso.id) || doc.isLocked(iso.id))) return [];
+  if (iso && (!iso.children || iso.type === 'compound')) return [iso.id];
   const collect = (lid) => {
     const layer = doc.get(lid);
     if (!layer || layer.hidden || layer.locked) return;

@@ -452,3 +452,39 @@ describe('Undo and Redo selections', () => {
     expect(doc.get(p.id).anchors[0].x).toBe(0);
   });
 });
+
+describe('selections never take hidden or locked objects', () => {
+  it('Select All in an isolated group whose layer was locked meanwhile selects nothing', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const ids = [0, 1].map((i) => {
+      const p = createPath(rectangle(i * 20, 0, 10, 10), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    });
+    ed.select(ids);
+    await app.commands.run('object.group');
+    await app.commands.run('object.isolate');
+    // The layer around the isolated group (from the Layers panel).
+    doc.transact('Lock', () => doc.update(doc.layerOf(ed.isolation).id, { locked: true }));
+    await app.commands.run('select.all');
+    expect(ed.selection.size).toBe(0);
+  });
+
+  it('Release Compound Path leaves hidden subpaths unselected', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const ids = [0, 1].map((i) => {
+      const p = createPath(rectangle(i * 20, 0, 10, 10), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    });
+    ed.select(ids);
+    await app.commands.run('object.compoundMake');
+    doc.transact('Hide', () => doc.update(ids[0], { hidden: true }));
+    await app.commands.run('object.compoundRelease');
+    expect([...ed.selection]).toEqual([ids[1]]);
+  });
+});

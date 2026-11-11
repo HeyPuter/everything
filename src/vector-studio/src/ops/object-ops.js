@@ -447,7 +447,8 @@ export function releaseCompound(editor) {
       }
       doc.remove(id);
     }
-    editor.select(out);
+    // Hidden or locked subpaths come out but stay unselected.
+    editor.select(out.filter((k) => !doc.get(k).hidden && !doc.get(k).locked));
   });
 }
 
