@@ -298,3 +298,33 @@ test('a WebM animation render cancelled before its first frame releases the vide
   if (r !== 'no-webcodecs' && (r as { made: number }).made) expect(r).toEqual({ made: 1, closed: 1 });
   await expectNoErrors(errors);
 });
+
+test('painting on a UDIM tiled image in the Image Editor is refused up front', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async (imp) => {
+    const a = (window as any).app;
+    const { newImage } = await (0, eval)(imp)('/src/data/defaults.ts');
+    const U = await (0, eval)(imp)('/src/render/udim.ts');
+    const img = newImage('Tiles', 64, 64);
+    a.doc.images[img.id] = img;
+    U.makeTiled(img);
+    U.addTile(img, 1002, { width: 64, height: 64 });
+    const { shell } = await (0, eval)(imp)('/src/ui/shell.ts');
+    const area = shell.screen.areas.find((x: any) => x.type === 'VIEW_3D');
+    area.setType('IMAGE_EDITOR');
+    area.editor.showImage(img.id);
+    area.editor.setMode('PAINT');
+    a.changed('ui');
+  }, IMPORT);
+  await page.waitForTimeout(300);
+  const before = await page.evaluate(() => JSON.stringify((Object.values((window as any).app.doc.images) as any[]).find((i) => i.name === 'Tiles').tiles.map((t: any) => [t.revision ?? 0, !!t.bytes])));
+  const box = (await page.locator('.ie-root').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2 + 10, { steps: 3 });
+  await page.mouse.up();
+  const after = await page.evaluate(() => JSON.stringify((Object.values((window as any).app.doc.images) as any[]).find((i) => i.name === 'Tiles').tiles.map((t: any) => [t.revision ?? 0, !!t.bytes])));
+  expect(after).toBe(before);
+  expect(await page.evaluate(() => (window as any).app.reports.slice(-1)[0]?.message)).toBe('Painting on UDIM tiled images is not supported yet');
+  await expectNoErrors(errors);
+});

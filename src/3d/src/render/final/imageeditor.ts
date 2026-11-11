@@ -1854,7 +1854,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
       if (e.button === 0 && this.paintMode()) {
         const img = this.image;
         if (!img) app.report('WARNING', 'No image to paint on: create or open one, or add a paint slot to the object');
-        else if (isTiled(img)) app.report('WARNING', 'Painting on UDIM tiles is not supported yet: paint a single image');
+        else if (isTiled(img)) app.report('WARNING', 'Painting on UDIM tiled images is not supported yet');
         else imagePaintStroke(this, img, e);
         return;
       }
