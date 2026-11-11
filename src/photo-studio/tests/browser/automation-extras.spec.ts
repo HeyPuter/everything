@@ -95,3 +95,20 @@ test('a damaged or hostile actions file loads safely and the app still starts af
   await expect(page.locator('.actions-list .action-row.set', { hasText: 'Shared' })).toHaveCount(1);
   expect(errors).toEqual([]);
 });
+
+test('deleting the action being recorded stops the recording', async ({ page }) => {
+  await page.evaluate(() => localStorage.removeItem('photo-studio-actions'));
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  await openImage(page, 64, 48, '#204080', 'rec.png');
+  await page.evaluate(() => window.photoStudio.dock.show('actions'));
+  await page.locator('.actions-list .action-row.action', { hasText: 'Mirror Canvas' }).click();
+  await page.evaluate(() => window.photoStudio.runCommand('actions.record'));
+  await expect(page.locator('.actions-list .action-row.recording')).toHaveCount(1);
+  await page.evaluate(() => window.photoStudio.runCommand('actions.delete'));
+  await expect(page.locator('.actions-list .action-row.action', { hasText: 'Mirror Canvas' })).toHaveCount(0);
+  // Nothing is recorded any more, and Stop has nothing to stop.
+  expect(await page.evaluate(() => !!window.photoStudio.recorder)).toBe(false);
+  await expect(page.getByRole('button', { name: 'Stop recording' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Begin recording' })).toBeDisabled();
+});

@@ -301,6 +301,9 @@ export function installActions(e: Editor) {
       recordable: false,
       run: (e) => {
         const { set, action } = find();
+        // Deleting the action being recorded (or its set) ends the recording.
+        const removed = action ? (selected.step === undefined ? [action] : []) : (set?.actions ?? []);
+        if (recording && removed.includes(recording)) stopRecording(e);
         if (action && selected.step !== undefined) action.steps.splice(selected.step, 1);
         else if (set && action) set.actions = set.actions.filter((a) => a !== action);
         else if (set) sets = sets.filter((s) => s !== set);
