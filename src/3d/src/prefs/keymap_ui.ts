@@ -437,18 +437,22 @@ export class KeymapView {
           value: capturing ? 'Press a key…' : bindingLabel(k),
           'aria-label': `Key for ${itemLabel(k)}`,
           'data-tip': 'Key Binding\nClick, then press the new key combination (Esc cancels)',
-          onfocus: (e: FocusEvent) => {
-            this.capturing = k;
-            this.redraw();
-            (e.target as HTMLInputElement).value = 'Press a key…';
-          },
+          // a click (or Enter / Space on the field reached with Tab) starts listening for the new key
+          onclick: (e: MouseEvent) => this.capturing !== k && this.startCapture(k, e.target as HTMLInputElement),
           onblur: () => {
             if (this.capturing === k) {
               this.capturing = null;
               this.redraw();
             }
           },
-          onkeydown: (e: KeyboardEvent) => this.capture(k, e),
+          onkeydown: (e: KeyboardEvent) => {
+            if (this.capturing === k) return this.capture(k, e);
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              this.startCapture(k, e.target as HTMLInputElement);
+            }
+          },
         }),
         modified
           ? h('button', { class: 'hdr-toggle km-reset', 'data-tip': keyconfig.isUserItem(k) ? 'Remove\nDelete this user binding' : 'Restore\nRestore this key binding to its default', 'aria-label': keyconfig.isUserItem(k) ? 'Remove binding' : 'Restore default', onclick: () => (keyconfig.isUserItem(k) ? keyconfig.remove(k) : keyconfig.restore(k), this.changed()) }, icon(keyconfig.isUserItem(k) ? 'x' : 'km_restore'))
@@ -458,6 +462,12 @@ export class KeymapView {
     );
   }
 
+  private startCapture(k: KeyItem, input: HTMLInputElement) {
+    this.capturing = k;
+    this.redraw();
+    input.value = 'Press a key…';
+  }
+
   private capture(k: KeyItem, e: KeyboardEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -465,6 +475,7 @@ export class KeymapView {
     const input = e.target as HTMLInputElement;
     if (e.key === 'Escape') {
       this.capturing = null;
+      input.value = bindingLabel(k);
       input.blur();
       return;
     }

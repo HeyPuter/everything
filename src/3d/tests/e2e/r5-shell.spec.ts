@@ -127,3 +127,29 @@ test('Esc in a text field drops the typed text instead of committing it', async 
   expect(await page.evaluate(() => (window as any).app.activeObject.name)).toBe('Box');
   await expectNoErrors(errors);
 });
+
+test('tabbing through the keymap editor does not rebind keys to Tab', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => (window as any).app.run('screen.userpref_show', { section: 'KEYMAP' }));
+  await expect(page.locator('.prefs-window')).toBeVisible();
+  await page.locator('.prefs-nav-btn[data-section="KEYMAP"]').click();
+  await page.locator('.km-search input').fill('view3d.toggle_sidebar');
+  const key = page.locator('.km-item', { hasText: 'Sidebar' }).first().locator('.km-key');
+  const before = await key.inputValue();
+  // reach the key field with the keyboard and move on
+  await key.focus();
+  await expect(key).toHaveValue(before);
+  await page.keyboard.press('Tab');
+  await expect(key).toHaveValue(before);
+  // Enter on the focused field starts capturing; a click still does too
+  await key.focus();
+  await page.keyboard.press('Enter');
+  await expect(key).toHaveValue('Press a key…');
+  await page.keyboard.press('Escape');
+  await expect(key).toHaveValue(before);
+  await key.click();
+  await expect(key).toHaveValue('Press a key…');
+  await page.keyboard.press('Shift+J');
+  await expect(key).toHaveValue('Shift J');
+  await expectNoErrors(errors);
+});
