@@ -244,6 +244,10 @@ describe('toolbar and panel buttons', () => {
     const fs = await import('node:fs');
     const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/shell.css`, 'utf8');
     expect(css).toMatch(/\.toolbar \.icon-btn\[hidden\] \{\s*display: none;/);
+    // Every component's hidden elements stay hidden whatever display its class sets
+    // (Files > Show Preview Transport, Media Browser's Add Folder without folder access).
+    const base = fs.readFileSync(`${import.meta.dirname}/../src/styles/base.css`, 'utf8');
+    expect(base).toMatch(/\[hidden\] \{\s*display: none !important;/);
     // View > Status Bar hides the bar with the hidden attribute, which .statusbar's display overrides.
     expect(css).toMatch(/\.statusbar\[hidden\] \{\s*display: none;/);
     // Panel menu buttons take taps over a larger transparent area on coarse pointers.
