@@ -182,3 +182,20 @@ describe('apply rotation with custom normals', () => {
     expect([cn[0], cn[1], cn[2]].map((x) => +x.toFixed(4) + 0)).toEqual([0, 1, 0]);
   });
 });
+
+describe('framing with broken coordinates', () => {
+  it('ignores non-finite positions in the bounds', async () => {
+    const { worldBounds } = await import('../../src/editors/view3d/view3d');
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    const e = newObject('E', 'EMPTY', null);
+    addObjectToScene(app.doc, e, { location: [NaN, 0, 0] });
+    const me = app.doc.meshes[cube.data!];
+    const P = new Float32Array(me.positions);
+    P[0] = Infinity;
+    me.positions = P;
+    app.graph.evaluate(app.doc, false);
+    const b = worldBounds([cube.id, e.id]);
+    expect([...b.min.toArray(), ...b.max.toArray()].every(Number.isFinite)).toBe(true);
+    expect(b.max.toArray()).toEqual([1, 1, 1]);
+  });
+});

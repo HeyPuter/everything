@@ -469,6 +469,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (box.isEmpty()) return;
     const c = box.getCenter(new Vector3()),
       r = box.getSize(new Vector3()).length() / 2;
+    // NaN / infinite bounds (broken coordinates) would leave the view unusable
+    if (![c.x, c.y, c.z, r].every(Number.isFinite)) return;
     this.leaveCamera();
     if (smooth) this.animateTo(c, Math.max(r, 0.05));
     else this.nav.frame(c, Math.max(r, 0.05));
@@ -1072,10 +1074,15 @@ export function worldBounds(ids: string[]): Box3 {
       const P = ev.mesh.positions;
       const v = new Vector3();
       const step = Math.max(1, Math.floor(P.length / 3 / 20000));
-      for (let i = 0; i < P.length / 3; i += step) box.expandByPoint(v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(ev.world));
+      for (let i = 0; i < P.length / 3; i += step) {
+        v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(ev.world);
+        // a broken coordinate (NaN / Infinity) would turn the framed view into NaN
+        if (Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)) box.expandByPoint(v);
+      }
     } else {
       const p = new Vector3().setFromMatrixPosition(ev.world);
       const s = ev.ob.type === 'EMPTY' ? ev.ob.empty_display_size : 1;
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z) || !Number.isFinite(s)) continue;
       box.expandByPoint(p.clone().addScalar(-s * 0.5));
       box.expandByPoint(p.clone().addScalar(s * 0.5));
     }
