@@ -553,10 +553,21 @@ export function reversePaths(editor) {
 export function nudge(editor, dx, dy, { copy = false } = {}) {
   const { doc } = editor;
   if (!editor.selection.size) return;
-  const partial = [...editor.anchors].filter(([id, set]) => doc.get(id) && set.size < doc.get(id).anchors.length);
+  // Segments a Direct Selection marquee crossed move with their end points (as when dragged).
+  const hits = selectedSegmentHits(editor);
+  const partial = [...editor.anchors]
+    .filter(([id, set]) => doc.get(id) && set.size < doc.get(id).anchors.length)
+    .map(([id, set]) => {
+      const idx = new Set(set);
+      const count = doc.get(id).anchors.length;
+      for (const i of hits.get(id) || []) idx.add(i).add((i + 1) % count);
+      return [id, idx];
+    });
   doc.transact(copy ? 'Duplicate' : 'Move', () => {
     if (partial.length && !copy) {
       for (const [id, set] of partial) {
+        // A path the marquee touched without selecting any of it stays as it is.
+        if (!set.size) continue;
         const n = doc.get(id);
         doc.update(id, {
           // Moved anchors keep their other properties (a live corner, ...).

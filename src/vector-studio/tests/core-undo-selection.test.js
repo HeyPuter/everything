@@ -332,3 +332,37 @@ describe('moving anchors from the keyboard', () => {
     expect(doc.get(p.id).anchors[1].corner).toEqual({ r: 10, type: 'round' });
   });
 });
+
+describe('nudging a Direct Selection marquee selection', () => {
+  it('moves crossed segments with their end points and leaves merely touched paths alone', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    ed.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
+    const doc = ed.doc;
+    const add = (x) => {
+      const p = createPath(rectangle(x, 0, 100, 100), true, {}, { shape: { kind: 'rect', x, y: 0, w: 100, h: 100 } });
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    };
+    const a = add(0);
+    // Marquee across the top edge only (no anchor inside).
+    app.setTool('direct-selection');
+    const ev = (x, y) => ({ x, y, sx: x, sy: y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', pressure: 0.5, native: {} });
+    app.tool.onPointerDown(ev(40, -10));
+    app.tool.onPointerMove(ev(50, 5));
+    app.tool.onPointerUp(ev(60, 10));
+    expect(ed.anchors.get(a)?.size).toBe(0);
+    const steps = doc.undoStack.length;
+    app.canvasHost.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    const after = doc.get(a);
+    // The top segment's two anchors moved down; the others stayed.
+    expect(after.anchors.map((p) => p.y)).toEqual([1, 1, 100, 100]);
+    expect(doc.undoStack.length).toBe(steps + 1);
+    // A path the marquee only touched, with no segment crossed record, is not changed.
+    ed.segmentHits = new Map();
+    ed.selectAnchors(a, []);
+    const cur = doc.get(a);
+    app.canvasHost.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(doc.get(a)).toBe(cur);
+  });
+});
