@@ -308,6 +308,8 @@ export function moveClip(project, id, target, opts = {}) {
     if (track.locked) continue;
     for (const c of track.clips) if (withIds.has(c.id)) others.push({ clip: c, track });
   }
+  const origStart = clip.start;
+  const otherStarts = others.map((o) => o.clip.start);
   return withRipple(project, opts, () => {
     from.clips.splice(from.clips.indexOf(clip), 1);
     let dest = target.trackId ? findTrack(project, target.trackId) : from;
@@ -326,11 +328,13 @@ export function moveClip(project, id, target, opts = {}) {
       dest.clips.push(clip);
       sortTrack(dest);
     } else if (dest.main) {
-      // No room on the base track without ripple: put it back.
-      clip.start -= dt;
+      // No room on the base track without ripple: put everything back where it was
+      // (not by -dt: starts were clamped at 0).
+      clip.start = origStart;
       from.clips.push(clip);
       sortTrack(from);
-      for (const o of others) o.clip.start -= dt;
+      others.forEach((o, i) => (o.clip.start = otherStarts[i]));
+      for (const t of new Set(others.map((o) => o.track))) sortTrack(t);
       return false;
     } else {
       const alt = trackWithRoom(project, dest.kind, clip.start, clipEnd(clip), moving);

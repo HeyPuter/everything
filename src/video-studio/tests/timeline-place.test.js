@@ -190,6 +190,17 @@ describe('moveClip', () => {
     expect(mainTrack(p).clips).toEqual([a, b]);
   });
 
+  it('puts every clip back exactly when a base track move is refused, even ones held at 0', () => {
+    const p = fixture();
+    const [, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const t = clip('text', 1, 1);
+    addClip(p, t, FREE);
+    // A 3 s move left holds the title at 0; the base clip has no room there.
+    expect(moveClip(p, b.id, { start: s(-1) }, { ...FREE, with: [t.id] })).toBe(false);
+    expect(b.start).toBe(s(2));
+    expect(t.start).toBe(s(1));
+  });
+
   it('moves grouped clips by the same offset', () => {
     const p = fixture();
     const t = clip('text', 1, 2);
