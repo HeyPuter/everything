@@ -192,6 +192,9 @@ export class Autosaver {
       ],
     });
     if (!choice) return [];
+    // Unsaved work is only thrown away once the user confirms it; otherwise it is offered again next time.
+    const unwanted = entries.filter((e, i) => choice === 'discard' || !checks[i].checked);
+    const discard = unwanted.length && (await confirmDiscard(unwanted));
     const opened = [];
     const kept = [];
     const damaged = [];
@@ -211,7 +214,7 @@ export class Autosaver {
           damaged.push(e.name || 'Untitled');
           await store.remove(e.id);
         }
-      } else await store.remove(e.id);
+      } else if (discard) await store.remove(e.id);
     }
     if (opened.length) this.app.notify(`Recovered ${opened.length} document${opened.length === 1 ? '' : 's'}. Save to keep the changes.`);
     if (damaged.length) this.app.notify(`${damaged.map((n) => `"${n}"`).join(', ')} could not be recovered: the recovery copy is damaged.`, { error: true, timeout: 8000 });
@@ -249,4 +252,20 @@ export class Autosaver {
       return null;
     }
   }
+}
+
+/** Ask before discarding recovery copies; resolves true to discard, false to keep them for next time. */
+async function confirmDiscard(entries) {
+  const names = entries.map((e) => `"${e.name || 'Untitled'}"`);
+  const one = entries.length === 1;
+  const what = one ? names[0] : names.length <= 3 ? `${names.length} documents (${names.join(', ')})` : `${names.length} documents`;
+  const choice = await openDialog({
+    title: one ? 'Discard Recovered Document' : 'Discard Recovered Documents',
+    body: h('p.dialog-message', `Discard ${what}? ${one ? 'Its' : 'Their'} unsaved changes will be lost. Keep ${one ? 'it' : 'them'} to be offered again the next time Vector Studio starts.`),
+    buttons: [
+      { label: 'Discard', value: 'discard', danger: true, left: true },
+      { label: 'Keep for Later', value: 'keep', primary: true },
+    ],
+  });
+  return choice === 'discard';
 }

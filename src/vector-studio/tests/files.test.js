@@ -346,6 +346,44 @@ describe('recovery bookkeeping', () => {
     expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/"Damaged" could not be recovered: the recovery copy is damaged/), expect.objectContaining({ error: true }));
   });
 
+  it('asks before discarding recovery copies, and keeps them for next time unless confirmed', async () => {
+    const b = memoryBackend();
+    const store = new RecoveryStore([b]);
+    for (const [id, name] of [['a', 'Logo'], ['b', 'Flyer'], ['c', 'Card']]) await store.put(id, { name, data: await serializeDocument(sampleDoc()), session: 'dead', saved: 1 });
+    const prefs = new Prefs(memStorage());
+    const app = { prefs, editors: [], notify: vi.fn(), renderTabs: vi.fn(), addDocument: vi.fn((doc, { file }) => ({ doc, file })) };
+    const saver = new Autosaver(app, { store, session: 'me' });
+    saver.liveSessions = async () => new Set();
+    const asked = [];
+    let answer = 'keep';
+    dialogHooks.open = async (opts) => {
+      if (opts.title === 'Recover Documents') {
+        // Uncheck "Flyer", recover the others.
+        opts.body.querySelector('#rec-b').checked = false;
+        return 'recover';
+      }
+      asked.push(opts.body.textContent);
+      return answer;
+    };
+    try {
+      expect((await saver.offerRecovery()).map((e) => e.file.name)).toEqual(['Logo [Recovered]', 'Card [Recovered]']);
+      expect(asked).toEqual([expect.stringContaining('Discard "Flyer"? Its unsaved changes will be lost.')]);
+      // Kept: offered again next time.
+      expect((await store.list()).map((e) => e.id)).toEqual(['a', 'b', 'c']);
+      // Discard everything, confirmed this time.
+      dialogHooks.open = async (opts) => {
+        if (opts.title === 'Recover Documents') return 'discard';
+        asked.push(opts.body.textContent);
+        return 'discard';
+      };
+      expect(await saver.offerRecovery()).toEqual([]);
+      expect(asked[1]).toContain('Discard 3 documents ("Logo", "Flyer", "Card")?');
+      expect(await store.list()).toEqual([]);
+    } finally {
+      dialogHooks.open = null;
+    }
+  });
+
   it('does not leave a recovery copy behind when the document is saved while it is being written', async () => {
     const store = new RecoveryStore([memoryBackend()]);
     const prefs = new Prefs(memStorage());
