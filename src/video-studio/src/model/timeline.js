@@ -113,6 +113,19 @@ export function sortTrack(track) {
   track.clips.sort((a, b) => a.start - b.start);
 }
 
+/** Put a clip into a sorted track in order (after clips that start at the same time). */
+function insertSorted(track, clip) {
+  const list = track.clips;
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].start <= clip.start) lo = mid + 1;
+    else hi = mid;
+  }
+  list.splice(lo, 0, clip);
+}
+
 export function trackFree(track, start, end, excludeIds = new Set()) {
   for (const c of track.clips) {
     if (excludeIds.has(c.id)) continue;
@@ -299,16 +312,15 @@ export function addClip(project, clip, opts = {}) {
         return { track: main, clip };
       }
       if (trackFree(main, clip.start, clipEnd(clip))) {
-        main.clips.push(clip);
-        sortTrack(main);
+        insertSorted(main, clip);
         return { track: main, clip };
       }
     }
     let track = opts.trackId ? findTrack(project, opts.trackId) : null;
     if (track && (!trackAccepts(track, clip) || track.locked || (track.main && opts.ripple) || !trackFree(track, clip.start, clipEnd(clip)))) track = null;
     if (!track) track = trackWithRoom(project, kind, clip.start, clipEnd(clip));
-    track.clips.push(clip);
-    sortTrack(track);
+    // Tracks are kept sorted; inserting in place is much cheaper than sorting per clip.
+    insertSorted(track, clip);
     return { track, clip };
   });
 }
@@ -562,22 +574,41 @@ export function pasteClips(project, clips, t, opts = {}) {
   const bases = copies.filter(isBase).sort((a, b) => a.src.start - b.src.start);
   let shift = 0;
   let prev = null;
+  // Overlays already on the timeline follow the base clips the pasted ones push along:
+  // linked once for the whole paste (per clip it is slow with thousands of clips).
+  const relink = bases.length && opts.ripple && opts.linkOverlays ? captureLinks(project) : null;
   for (const copy of bases) {
     const c = fresh(copy);
     c.start = prev && opts.ripple ? clipEnd(prev) : Math.max(0, want(copy) + shift);
-    const clip = addClip(project, c, { ...opts, main: true }).clip;
+    const clip = addClip(project, c, { ...opts, main: true, linkOverlays: false }).clip;
     if (!prev) shift = clip.start - want(copy);
     placed.set(copy, clip);
     prev = clip;
   }
+  relink?.();
+  // The pasted base clip each copy sat on (the bases don't overlap), found by halves.
+  const hostOf = (copy) => {
+    let lo = 0;
+    let hi = bases.length - 1;
+    let b = null;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (bases[mid].src.start <= copy.src.start) {
+        b = bases[mid];
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    const audio = TRACK_KIND_FOR[copy.type] === 'audio';
+    return b && copy.src.start < clipEnd(b.src) && (!audio || clipEnd(copy.src) <= clipEnd(b.src) + 1000) ? b : null;
+  };
   for (const copy of copies) {
     if (isBase(copy)) continue;
     const c = fresh(copy);
-    const audio = TRACK_KIND_FOR[c.type] === 'audio';
-    const host = bases.find((b) => copy.src.start >= b.src.start && copy.src.start < clipEnd(b.src) && (!audio || clipEnd(copy.src) <= clipEnd(b.src) + 1000));
+    const host = hostOf(copy);
     c.start = host ? placed.get(host).start + (copy.src.start - host.src.start) : Math.max(0, want(copy) + shift);
     // opts.keepTracks (duplicate): each copy on the track it was copied from, where there is room.
-    placed.set(copy, addClip(project, c, { ...opts, main: false, ...(opts.keepTracks && copy.src._track ? { trackId: copy.src._track } : {}) }).clip);
+    // Adding an overlay leaves the base track as it is, so no ripple.
+    placed.set(copy, addClip(project, c, { ...opts, ripple: false, main: false, ...(opts.keepTracks && copy.src._track ? { trackId: copy.src._track } : {}) }).clip);
   }
   return copies.map((copy) => placed.get(copy));
 }

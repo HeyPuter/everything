@@ -24,8 +24,11 @@ import { createClipEffectActions } from './clip-effects-actions.js';
 
 /** Copies of clips for the clipboard, marked with whether they were on the base track. */
 function clipBoard(project, ids) {
+  // One pass over the tracks (a search per id is slow for thousands of clips).
+  const at = new Map();
+  for (const track of project.tracks) for (const clip of track.clips) at.set(clip.id, { clip, track });
   return ids
-    .map((id) => T.findClip(project, id))
+    .map((id) => at.get(id))
     .filter(Boolean)
     .map(({ clip, track }) => ({ ...structuredClone(clip), _main: Boolean(track.main), _track: track.id }));
 }
