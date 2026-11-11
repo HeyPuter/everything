@@ -908,4 +908,22 @@ describe('AI sidebar panel', () => {
     expect(panel.el.querySelector('.ai-empty')).toBeTruthy();
     expect([...document.querySelectorAll('.toast')].some((t) => /could not be read/.test(t.textContent))).toBe(true);
   });
+
+  it('sends nothing into a new chat started while the files were being added', async () => {
+    const readFile = vi.fn(async (file) => ({ name: file.name, kind: 'image', size: file.size, blocks: [] }));
+    const { panel, ctx, chat } = mount([[{ type: 'text', text: 'Nice photo.' }]], { readFile });
+    const importFile = ctx.library.importFile.bind(ctx.library);
+    let release;
+    ctx.library.importFile = vi.fn((...a) => new Promise((r) => (release = () => r(importFile(...a)))));
+    panel.open();
+    panel.attach([new File(['img'], 'cat.png', { type: 'image/png' })]);
+    panel.send('animate my cat');
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    panel.newChat();
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(chat).not.toHaveBeenCalled();
+    expect(panel.el.querySelector('.ai-msg')).toBe(null);
+    expect(panel.messages).toEqual([]);
+  });
 });

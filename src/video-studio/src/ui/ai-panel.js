@@ -655,6 +655,8 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
 
   let current = null;
   let sending = false;
+  // Counts New chats: a message still adding its files when one is started belongs to the chat it was written in.
+  let chatSeq = 0;
   function setBusy(busy) {
     root.classList.toggle('busy', busy);
     sendBtn.replaceChildren(icon(busy ? 'stop' : 'arrowUp', busy ? 14 : 17));
@@ -678,6 +680,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
       return;
     }
     if (!isOpen) open({ focus: false });
+    const chatAt = chatSeq;
     let items = [];
     let files = [];
     if (pending.length) {
@@ -690,7 +693,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
       } finally {
         sending = false;
       }
-      if (destroyed || agent.busy) {
+      if (destroyed || agent.busy || chatAt !== chatSeq) {
         syncSend();
         return;
       }
@@ -719,7 +722,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
         sending = false;
         syncSend();
       }
-      if (destroyed || agent.busy) return;
+      if (destroyed || agent.busy || chatAt !== chatSeq) return;
       if (!message && !files.length) {
         // Only files, and none could be added (each said why): nothing goes out, so the message is taken back.
         removeKeepingFocus(bubble);
@@ -876,6 +879,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
   }
 
   function newChat() {
+    chatSeq++;
     if (agent.busy) stop();
     agent.reset();
     current = null;
