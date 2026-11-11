@@ -217,6 +217,31 @@ describe('tool flyouts on phones', () => {
   });
 });
 
+describe('home recent files', () => {
+  it('removing a recent file with the keyboard keeps focus in the list', async () => {
+    const { bootAppWithFeatures } = await import('./helpers.js');
+    const app = await bootAppWithFeatures();
+    const items = [{ name: 'a.vstudio' }, { name: 'b.vstudio' }, { name: 'c.vstudio' }];
+    app.recentFiles = async () => items;
+    app.removeRecent = async () => {};
+    app.showHome();
+    await new Promise((r) => setTimeout(r, 0));
+    const removes = () => [...app.home.querySelectorAll('.recent-remove')];
+    removes()[1].focus();
+    removes()[1].click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).toBe(removes()[1]);
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Remove c.vstudio from recent');
+    // The last one: focus moves to the one before it, then to New file when the list is empty.
+    removes()[1].click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Remove a.vstudio from recent');
+    removes()[0].click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement.textContent).toBe('New file');
+  });
+});
+
 describe('ruler guides', () => {
   it('dragging a guide out and releasing it off the canvas (over the panels) adds no guide', async () => {
     const { bootApp } = await import('./helpers.js');

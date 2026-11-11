@@ -125,10 +125,17 @@ async function renderHome(app, host) {
         if (!app.removeRecent) return cell;
         // The file module can drop entries from the list.
         cell.append(
-          h('button.icon-btn.recent-remove', { type: 'button', 'aria-label': `Remove ${it.name} from recent`, 'data-tip': 'Remove from recent', onclick: async () => {
+          h('button.icon-btn.recent-remove', { type: 'button', 'aria-label': `Remove ${it.name} from recent`, 'data-tip': 'Remove from recent', onclick: async (e) => {
+            const had = e.currentTarget.contains(document.activeElement);
+            const i = [...recentList.querySelectorAll('.recent-cell')].indexOf(cell);
             await app.removeRecent(it);
             items = items.filter((x) => x !== it);
             draw();
+            // Keep keyboard focus in the list: on the next file's remove button (else the previous one).
+            if (had) {
+              const rest = [...recentList.querySelectorAll('.recent-remove')];
+              (rest[Math.min(i, rest.length - 1)] || host.querySelector('.home-side .btn'))?.focus();
+            }
           } }, icon('x', 12)),
         );
         return cell;
