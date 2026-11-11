@@ -248,7 +248,20 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
   // `above`: open upward from y (menus anchored to the status bar).
   let top = above ? Math.max(4, (y ?? 0) - mh) : y ?? 0;
   if (left + mw > vw - 4) left = parentMenu ? Math.max(4, left - mw - (parentMenu.el.offsetWidth - 4)) : Math.max(4, vw - mw - 4);
-  if (top + mh > vh - 4) top = Math.max(4, vh - mh - 4);
+  if (top + mh > vh - 4) {
+    // A menu dropping from its button never covers the button (moved over
+    // the menu bar it would open whatever lands under the pointer): it
+    // scrolls below the button, or opens above it when there is more room.
+    if (anchor && !above) {
+      const a = anchor.getBoundingClientRect();
+      const below = vh - top - 4;
+      const aboveRoom = a.top - 8;
+      if (aboveRoom > below) {
+        top = Math.max(4, a.top - 4 - mh);
+        if (mh > aboveRoom) menu.style.maxHeight = `${aboveRoom}px`;
+      } else menu.style.maxHeight = `${below}px`;
+    } else top = Math.max(4, vh - mh - 4);
+  }
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
 
