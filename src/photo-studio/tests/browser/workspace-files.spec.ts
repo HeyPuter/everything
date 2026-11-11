@@ -54,6 +54,14 @@ function expectClose(a: number[][], b: number[][], tolerance: number) {
   a.forEach((p, i) => p.forEach((v, c) => expect(Math.abs(v - b[i][c]), `point ${samplePoints[i]} channel ${c}: ${p} vs ${b[i]}`).toBeLessThanOrEqual(tolerance)));
 }
 
+test('Quick Export names the file as Export As does: after the File Info title, else the document', async ({ page }) => {
+  await openSplit(page, 'IMG_0042.png');
+  expect((await downloadFrom(page, () => run(page, 'file.quick-export-png'))).name).toBe('IMG_0042.png');
+  await page.evaluate(() => window.photoStudio.command('File Info', (d) => (d.info = { ...d.info, title: ' Harbor at Dusk ' })));
+  await idle(page);
+  expect((await downloadFrom(page, () => run(page, 'file.quick-export-png'))).name).toBe('Harbor at Dusk.png');
+});
+
 test('Quick Export as PNG downloads a PNG that decodes to the document', async ({ page }) => {
   await openSplit(page);
   const file = await downloadFrom(page, () => run(page, 'file.quick-export-png'));

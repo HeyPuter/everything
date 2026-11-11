@@ -296,6 +296,10 @@ export function encodeIcon(img: { width: number; height: number; data: Uint8Clam
   return encodeIco(entries);
 }
 
+/** What exports are named after: the File Info title, else the document's name. */
+export function exportBaseName(doc: { name: string; info?: { title?: string } }) {
+  return doc.info?.title?.trim() || doc.name;
+}
 export function exportFileName(base: string, format: ExportFormat) {
   return `${base.replace(/[\\/:*?"<>|]+/g, '_') || 'Untitled'}.${formatInfo[format].ext}`;
 }
