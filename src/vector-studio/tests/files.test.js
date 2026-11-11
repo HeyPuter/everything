@@ -526,6 +526,26 @@ describe('FileService', () => {
     expect((await parseDocument(files.get('/u/Logo.vstudio'))).doc.root.name).toBe('Edited during save');
   });
 
+  it('clears the file name message in the Save As dialog once the name is edited', async () => {
+    const { app } = fakeApp();
+    app.prefs.set('filesSaveDialog', 'app');
+    const svc = new FileService(app, { recent: null });
+    const ed = app.addDocument(sampleDoc());
+    const done = svc.saveAs(ed);
+    let input = null;
+    for (let i = 0; i < 50 && !(input = document.querySelector('dialog[open] #files-save-name')); i++) await new Promise((r) => setTimeout(r, 10));
+    const dlg = input.closest('dialog');
+    input.value = '  ';
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Save').click();
+    const error = dlg.querySelector('.form-error');
+    await vi.waitFor(() => expect(error.textContent).toBe('Enter a file name.'));
+    input.value = 'Logo';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(error.textContent).toBe('');
+    dlg.querySelector('.dialog-close').click();
+    expect(await done).toBe(false);
+  });
+
   it('returns false when the save picker is cancelled', async () => {
     const { app } = fakeApp({ cancelPicker: true });
     const svc = new FileService(app, { recent: null });

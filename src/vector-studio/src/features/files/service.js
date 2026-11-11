@@ -367,6 +367,8 @@ export class FileService {
     const nameInput = h('input', { type: 'text', id: 'files-save-name', value: stripExtension(suggested), spellcheck: false, autocomplete: 'off' });
     const where = h('p.form-help', { id: 'files-save-where' }, `Saves to Your files (${dir === APPDATA_DIR ? 'Vector Studio app folder' : dir.replace(/^\/[^/]+\//, '')}) in your Puter cloud.`);
     const error = h('p.form-error', { role: 'alert' });
+    // A message about the name goes away once the name changes.
+    nameInput.addEventListener('input', () => (error.textContent = ''));
     const usingDocs = dir !== APPDATA_DIR;
     const body = h(
       'div.form.files-save',
