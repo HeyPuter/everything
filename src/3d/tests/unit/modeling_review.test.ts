@@ -77,6 +77,22 @@ describe('dissolve', () => {
 });
 
 describe('applying modifiers', () => {
+  it('keeps loose edges, renumbered like the result', async () => {
+    await import('../../src/editors/properties/stack');
+    const me = mesh();
+    const nv = me.positions.length / 3;
+    // a loose edge from a copy of the last vertex (welded away) to a far vertex
+    me.positions = Float32Array.from([...me.positions, ...me.positions.slice((nv - 1) * 3, nv * 3), 3, 0, 0]);
+    me.loose_edges = new Uint32Array([nv, nv + 1]);
+    me.weights = me.weights.map((w) => Float32Array.from([...w, 0, 0]));
+    app.run('object.modifier_add', { type: 'WELD' });
+    const ob = app.activeObject!;
+    expect(app.run('object.modifier_apply', { modifier: ob.modifiers[0].id })).toBe('FINISHED');
+    const out = mesh();
+    expect(out.positions.length / 3).toBe(nv + 1);
+    expect(Array.from(out.loose_edges ?? []).sort()).toEqual([nv - 1, nv].sort());
+  });
+
   it('applies a geometry nodes modifier’s output, not the geometry its viewer shows', async () => {
     await import('../../src/editors/properties/stack');
     const { setup, node, link } = await import('./gnmesh-harness');

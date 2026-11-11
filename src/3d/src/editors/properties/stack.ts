@@ -420,6 +420,7 @@ registerOperators([
       me.seams = mesh.seams ? new Uint32Array(mesh.seams) : undefined;
       me.sharp = mesh.sharp ? new Uint32Array(mesh.sharp) : undefined;
       me.creases = mesh.creases ? new Float32Array(mesh.creases) : undefined;
+      me.loose_edges = mesh.looseEdges?.length ? new Uint32Array(mesh.looseEdges) : undefined;
       me.auto_smooth_angle = mesh.auto_smooth_angle;
       if (mesh.weights && mesh.vertex_groups) me.weights = mesh.weights.map((w) => new Float32Array(w));
       me.shape_keys = [];
