@@ -188,7 +188,7 @@ export function lazyTool(meta: Pick<Tool, 'id' | 'label' | 'key' | 'icon' | 'gro
 /** A panel whose body lives in a lazily loaded module; it loads the first
  * time the panel is shown. */
 export function lazyPanel(meta: Omit<Panel, 'mount' | 'update'>, load: Lazy<Pick<Panel, 'mount' | 'update' | 'menu'>>): Panel {
-  return {
+  const panel: Panel = {
     ...meta,
     menu: meta.menu ?? (load.loaded?.menu ? (e) => load.loaded!.menu!(e) : undefined),
     mount: (e, el) => {
@@ -201,9 +201,29 @@ export function lazyPanel(meta: Omit<Panel, 'mount' | 'update'>, load: Lazy<Pick
           m.mount(e, el);
           if (el.isConnected) m.update?.(e, el);
         },
-        (error) => e.message(error instanceof Error ? error.message : String(error)),
+        (error) => {
+          // The dock mounts a panel once: offer to load it again here.
+          el.classList.remove('panel-loading');
+          const text = error instanceof Error ? error.message : String(error);
+          const box = document.createElement('div');
+          box.className = 'panel-load-error';
+          box.setAttribute('role', 'alert');
+          const p = document.createElement('p');
+          p.textContent = text;
+          const retry = document.createElement('button');
+          retry.type = 'button';
+          retry.textContent = 'Try Again';
+          retry.addEventListener('click', () => {
+            el.replaceChildren();
+            panel.mount(e, el);
+          });
+          box.append(p, retry);
+          el.replaceChildren(box);
+          e.message(text);
+        },
       );
     },
     update: (e, el) => load.loaded?.update?.(e, el),
   };
+  return panel;
 }

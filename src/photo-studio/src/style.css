@@ -2351,3 +2351,5 @@ html.feature-loading .statusbar::after { content: ''; position: absolute; left: 
 @keyframes feature-loading { from { background-position: -40% 0; } to { background-position: 140% 0; } }
 .panel-loading { min-height: 48px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 12%, transparent), transparent) 0 0 / 40% 100% no-repeat; animation: feature-loading 0.9s linear infinite; }
 @media (prefers-reduced-motion: reduce) { html.feature-loading .statusbar::after, .panel-loading { animation: none; } }
+.panel-load-error { display: grid; gap: 8px; justify-items: start; padding: 12px 10px; color: var(--muted); }
+.panel-load-error p { margin: 0; line-height: 1.4; }
