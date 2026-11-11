@@ -510,3 +510,28 @@ test('vertex painting a face corner attribute blends each corner from its own co
   expect(r.flattened).toBe(0);
   await expectNoErrors(errors);
 });
+
+test('the brush shelf header fits a narrow viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 700, height: 800 });
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'SELECT' }, { invoke: false });
+    a.run('object.delete', {}, { invoke: false });
+    a.run('mesh.primitive_uv_sphere_add', {}, { invoke: false });
+    a.run('object.mode_set', { mode: 'SCULPT' }, { invoke: false });
+  });
+  const shelf = page.locator('.view3d .paint-shelf').first();
+  await expect(shelf).toBeVisible();
+  const overflow = await shelf.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return [...el.querySelectorAll('.ps-bar > *')].filter((c) => {
+      const q = c.getBoundingClientRect();
+      return q.width > 0 && (q.right > r.right + 1 || q.left < r.left - 1);
+    }).length;
+  });
+  expect(overflow).toBe(0);
+  // the search field and the close button stay reachable
+  await expect(shelf.locator('.ps-search')).toBeInViewport();
+  await expectNoErrors(errors);
+});
