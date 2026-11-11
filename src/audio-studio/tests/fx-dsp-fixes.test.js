@@ -146,3 +146,33 @@ describe('Phaser tail', () => {
     }
   });
 });
+
+describe('Loudness channel weights', () => {
+  it('weights the surrounds of 5.0, 5.1 and 7.1 audio by +1.5 dB and drops the LFE', async () => {
+    const { dsp } = await import('../src/audio/dsp.js');
+    const { loudnessMeter } = await import('../src/analysis/dsp-ext.js');
+    const d = await dsp();
+    const n = RATE * 10;
+    const tone = Float32Array.from(
+      { length: n },
+      (_, i) => 0.1 * Math.sin((2 * Math.PI * 997 * i) / RATE),
+    );
+    const silent = new Float32Array(n);
+    const read = (channels, index) => {
+      const m = loudnessMeter(d, RATE, channels);
+      m.push(Array.from({ length: channels }, (_, c) => (c === index ? tone : silent)));
+      const r = m.result();
+      m.free();
+      return r.integrated;
+    };
+    const surround = -23.01 + 10 * Math.log10(1.41);
+    expect(read(5, 0)).toBeCloseTo(-23.01, 1);
+    expect(read(5, 3)).toBeCloseTo(surround, 1);
+    expect(read(5, 4)).toBeCloseTo(surround, 1);
+    expect(read(6, 4)).toBeCloseTo(surround, 1);
+    expect(read(6, 3)).toBe(-Infinity);
+    for (const i of [4, 5, 6, 7]) expect(read(8, i)).toBeCloseTo(surround, 1);
+    expect(read(8, 2)).toBeCloseTo(-23.01, 1);
+    expect(read(8, 3)).toBe(-Infinity);
+  });
+});
