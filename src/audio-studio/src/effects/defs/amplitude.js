@@ -501,9 +501,10 @@ registerEffect({
 
 /**
  * Peak normalization. Statistics come from the WASM stats kernel; the gain
- * multiply is a single pass per channel.
+ * multiply is a single pass per channel. Equal normalization takes the loudest
+ * of the channels being written (`mask`), so their peak reaches the target.
  */
-async function runNormalize({ channels, values, dsp, onProgress, signal }) {
+async function runNormalize({ channels, values, dsp, onProgress, signal, mask = null }) {
   const target = values.unit === 0 ? 10 ** (values.targetDb / 20) : values.targetPercent / 100;
   const info = [];
   for (const ch of channels) {
@@ -512,7 +513,7 @@ async function runNormalize({ channels, values, dsp, onProgress, signal }) {
     const mean = values.removeDc && ch.length ? sum / ch.length : 0;
     info.push({ mean, peak: Math.max(Math.abs(max - mean), Math.abs(min - mean)) });
   }
-  const loudest = Math.max(0, ...info.map((i) => i.peak));
+  const loudest = Math.max(0, ...info.filter((_, c) => !mask || mask[c]).map((i) => i.peak));
   // DC Bias Adjust moves each channel's offset to the bias amount (0 % removes it).
   const bias = values.removeDc ? (values.dcAmount || 0) / 100 : 0;
   const out = [];

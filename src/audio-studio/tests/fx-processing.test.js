@@ -100,3 +100,26 @@ describe('applying effects to files with more than two channels', () => {
     });
   });
 });
+
+describe('Normalize', () => {
+  it('brings the written channels to the target when normalizing equally', async () => {
+    const n = 1000;
+    const l = sine(n, 440, 48000, 0.25);
+    const r = sine(n, 440, 48000, 0.5);
+    const state = {
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(l), Channel.fromSamples(r)],
+      markers: [],
+    };
+    const def = getEffect('normalize');
+    const peak = (c) => c.toArray(0, n).reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+    const values = { ...defaults(def), unit: 1, targetPercent: 100, equal: true };
+    const left = await renderEffect({ def, values, state, start: 0, end: n, mask: [true, false] });
+    expect(peak(left.state.channels[0])).toBeCloseTo(1, 4);
+    expect(peak(left.state.channels[1])).toBeCloseTo(0.5, 4);
+    // Both channels: one gain keeps their balance.
+    const both = await renderEffect({ def, values, state, start: 0, end: n });
+    expect(peak(both.state.channels[0])).toBeCloseTo(0.5, 4);
+    expect(peak(both.state.channels[1])).toBeCloseTo(1, 4);
+  });
+});
