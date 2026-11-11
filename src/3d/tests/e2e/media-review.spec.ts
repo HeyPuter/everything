@@ -355,5 +355,7 @@ test('sequencer: a narrow (phone-width) timeline frames the scene range', async 
   expect(v.W).toBeGreaterThan(150);
   expect(v.span).toBeGreaterThan(v.W * 0.6);
   expect(v.span).toBeLessThanOrEqual(v.W);
+  // the channel region leaves most of the width to the strips
+  expect(v.ch).toBeLessThanOrEqual(v.area * 0.4 + 1);
   await expectNoErrors(errors);
 });

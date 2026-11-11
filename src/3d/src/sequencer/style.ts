@@ -24,7 +24,7 @@ const css = /* css */ `
 .seq-toolbar[hidden] { display: none; }
 .seq-pv-toolbar { position: absolute; left: 6px; top: 6px; width: auto; padding: 3px; border-radius: 6px; border: none; background: rgba(37, 38, 39, 0.92); z-index: 2; }
 .seq-toolbar .tb-tool { width: 32px; height: 32px; }
-.seq-ch { position: relative; flex: none; background: #181a1b; border-right: 1px solid #121315; overflow: hidden; cursor: default; }
+.seq-ch { position: relative; flex: none; max-width: 40%; background: #181a1b; border-right: 1px solid #121315; overflow: hidden; cursor: default; }
 .seq-ch::after { content: ''; position: absolute; top: 0; bottom: 0; right: 0; width: 5px; cursor: ew-resize; }
 .seq-ch-inner { position: absolute; inset: 0; }
 .seq-ch-top { position: absolute; left: 0; right: 0; top: 0; background: #181a1b; z-index: 1; }
