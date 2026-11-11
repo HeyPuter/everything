@@ -240,3 +240,23 @@ test('Select All in an options field selects its text, not the document', async 
   expect(await page.evaluate(() => window.photoStudio.doc.selection ?? null)).toBeNull();
   expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
 });
+
+test('the toolbar and the options bar keep the keyboard focus when they redraw', async ({ page }) => {
+  // Choosing a tool with Enter redraws the toolbar.
+  await page.locator('[data-slot="brush"]').focus();
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => window.photoStudio.tool)).toBe('brush');
+  await expect(page.locator('[data-slot="brush"]')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('[data-slot="brush"] + [data-slot], [data-slot="brush"] ~ [data-slot]').first()).toBeFocused();
+  // A changed option redraws the options bar as Tab moves on to the next field.
+  await page.locator('#brush-size').fill('37');
+  await page.keyboard.press('Tab');
+  await idle(page);
+  await expect(page.locator('#brush-size')).toHaveValue('37');
+  await expect(page.locator('#brush-hardness')).toBeFocused();
+  await page.locator('#brush-hardness').fill('40');
+  await page.keyboard.press('Shift+Tab');
+  await idle(page);
+  await expect(page.locator('#brush-size')).toBeFocused();
+});

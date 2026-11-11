@@ -505,8 +505,28 @@ export class Editor {
     if (this.transform.active)
       html = `<span class="transform-label">Free Transform</span><label class="transform-setting"><input id="transform-proportions" type="checkbox" ${this.transform.shared || this.transform.proportional ? 'checked' : ''} ${this.transform.shared ? 'disabled' : ''}>Proportions</label><label class="transform-setting"><input id="transform-snap" type="checkbox" ${this.transform.snapping ? 'checked' : ''}>Snap</label><button data-command="edit.transform-cancel" class="icon-button" title="Cancel transform (Escape)" aria-label="Cancel">${svg('ban', 16)}</button><button data-command="edit.transform-commit" class="icon-button transform-apply" title="Commit transform (Enter)" aria-label="Apply">${svg('check', 16)}</button>`;
     else html = tool?.options?.(this) ?? '';
+    // The bar is rebuilt after every edit; a control that had the keyboard
+    // focus (often the one Tab just moved to) gets it back, with its caret.
+    const focused = document.activeElement as HTMLInputElement | null;
+    const keep = focused && el.contains(focused) && focused.id ? { id: focused.id, start: caret(focused, 'selectionStart'), end: caret(focused, 'selectionEnd') } : this.optionsTab ? { id: this.optionsTab.id, start: null, end: null } : undefined;
     el.innerHTML = html;
     if (!this.transform.active) tool?.bindOptions?.({ e: this, el });
+    if (keep) {
+      const again = el.querySelector<HTMLInputElement>(`#${CSS.escape(keep.id)}`);
+      again?.focus({ preventScroll: true });
+      if (again && keep.start !== null && keep.end !== null && caret(again, 'selectionStart') !== null) again.setSelectionRange(keep.start, keep.end);
+      // A change committed by Tab rebuilds the bar while the browser moves the
+      // focus to a control that no longer exists; finish the move here.
+      const tab = this.optionsTab;
+      if (tab?.id === keep.id)
+        setTimeout(() => {
+          const now = document.activeElement;
+          if (now && now !== document.body && now.isConnected && now !== again) return;
+          const list = [...el.querySelectorAll<HTMLElement>('input,select,button,textarea,[tabindex]')].filter((x) => x.tabIndex >= 0 && !(x as HTMLInputElement).disabled && x.offsetParent !== null);
+          const at = list.findIndex((x) => x.id === keep.id);
+          list[at + (tab.back ? -1 : 1)]?.focus({ preventScroll: true });
+        });
+    }
     this.el('#viewport').dataset.tool = this.tool;
     this.el('#viewport').style.cursor = this.cursorFor ? this.cursorFor(tool) : (tool?.cursor?.(this) ?? '');
   }
@@ -708,6 +728,16 @@ export class Editor {
   // ----- Input -----
   private bind() {
     watchOptionTips(this.el('#tool-options'));
+    this.el('#tool-options').addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key !== 'Tab') return;
+        const id = (e.target as HTMLElement).id;
+        this.optionsTab = id ? { id, back: e.shiftKey } : undefined;
+        setTimeout(() => (this.optionsTab = undefined));
+      },
+      true,
+    );
     this.root.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
       const close = target.closest<HTMLElement>('[data-close-view]');
@@ -802,6 +832,8 @@ export class Editor {
     this.preferences.theme = theme as Preferences['theme'];
     this.preferencesChanged();
   }
+  // The options-bar control Tab is leaving (see options()).
+  private optionsTab?: { id: string; back: boolean };
   private keyDown(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
     // puter.js's user menu takes its own keys (they arrive from the element).
@@ -890,6 +922,15 @@ export class Editor {
   }
   // The last number key, for two-digit opacity values.
   private digit?: { n: number; at: number };
+}
+
+/** A text field's caret position, or null where there is none (number fields, buttons). */
+function caret(el: HTMLInputElement, which: 'selectionStart' | 'selectionEnd'): number | null {
+  try {
+    return typeof el[which] === 'number' ? el[which] : null;
+  } catch {
+    return null;
+  }
 }
 
 // Markup last written by setMarkup, per element. Most updates redraw rulers
