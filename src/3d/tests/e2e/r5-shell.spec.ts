@@ -308,3 +308,19 @@ test('menu buttons that open on press also open from the keyboard', async ({ pag
   await expect(mode).toBeFocused();
   await expectNoErrors(errors);
 });
+
+test('a phone-width window starts with the assistant closed, and the button still opens it', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  const errors = await openApp(page);
+  await expect(page.locator('.assistant-dock')).toBeHidden();
+  const view = (await page.locator('.area[data-editor="VIEW_3D"]').first().boundingBox())!;
+  expect(view.width).toBeGreaterThan(150);
+  // the same in the other workspaces
+  for (const ws of ['Modeling', 'Shading']) {
+    await page.locator('.ws-tab', { hasText: ws }).first().click();
+    await expect(page.locator('.assistant-dock')).toBeHidden();
+  }
+  await page.evaluate(() => (window as any).app.run('wm.assistant_toggle'));
+  await expect(page.locator('.assistant')).toBeVisible();
+  await expectNoErrors(errors);
+});

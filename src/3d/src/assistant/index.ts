@@ -9,6 +9,8 @@ import { AssistantPanel } from './panel';
 const STATE_KEY = 'p3d:assistant-dock';
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 720;
+/** The workspace keeps at least this much beside the docked assistant when it opens by itself. */
+const NARROW_WORKSPACE = 500;
 
 let panel: AssistantPanel | null = null;
 let dock: HTMLElement | null = null;
@@ -103,8 +105,10 @@ export function toggleAssistant(open = !assistantOpen(), focus = true) {
 export function restoreAssistant() {
   const s = load();
   if (typeof s.width === 'number' && Number.isFinite(s.width)) width = s.width;
-  // Shown without taking the keyboard, so viewport shortcuts work straight away.
-  if (s.open !== false) toggleAssistant(true, false);
+  // Shown without taking the keyboard, so viewport shortcuts work straight away. A narrow window
+  // (a phone) starts with it closed: docked, it would leave the workspace a sliver; the topbar
+  // button still opens it.
+  if (s.open !== false && window.innerWidth >= MIN_WIDTH + NARROW_WORKSPACE) toggleAssistant(true, false);
 }
 
 registerOperators([
