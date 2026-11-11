@@ -336,3 +336,18 @@ describe('mesh attributes', () => {
     for (let i = 0; i < n; i++) expect(Array.from(a.data.subarray(i * 3, i * 3 + 3)).map((x) => Math.round(x * 1e4) / 1e4 || 0)).toEqual([0, 0, 1.5708]);
   });
 });
+
+describe('attribute nodes', () => {
+  it('Domain Size counts Grease Pencil layers', () => {
+    const t = setup();
+    const gp = node(t, 'GeometryNodeCurvesToGreasePencil', { 'Instances as Layers': false });
+    link(t, node(t, 'GeometryNodeCurvePrimitiveCircle'), 'Curve', gp, 'Curves');
+    const size = node(t, 'GeometryNodeAttributeDomainSize', {}, { component: 'GREASEPENCIL' });
+    link(t, gp, 'Grease Pencil', size, 'Geometry');
+    const line = node(t, 'GeometryNodeMeshLine');
+    link(t, size, 'Layer Count', line, 'Count');
+    const r = run(t, line, 'Mesh');
+    expect([...r.log.warnings.values()].flat()).toEqual([]);
+    expect(r.geometry.mesh?.vertCount).toBe(1);
+  });
+});
