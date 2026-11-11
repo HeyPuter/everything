@@ -201,6 +201,28 @@ describe('moveClip', () => {
     expect(t.start).toBe(s(1));
   });
 
+  it('refuses a group move without ripple that would stack a base clip on another', () => {
+    const p = fixture();
+    const [a, b, c] = onMain(p, clip('video', 0, 2), clip('video', 2, 3), clip('video', 5, 2));
+    // C has room further right, but A moving with it would land on B.
+    expect(moveClip(p, c.id, { start: s(6) }, { ...FREE, with: [a.id] })).toBe(false);
+    expect(spans(mainTrack(p))).toEqual([[0, 2], [2, 3], [5, 2]]);
+    expect(mainTrack(p).clips).toEqual([a, b, c]);
+    expect(noOverlaps(p)).toBe(true);
+  });
+
+  it('moves a group by one offset that stops at 0, keeping its layout', () => {
+    const p = fixture();
+    const x = clip('text', 0, 1);
+    const y = clip('text', 1, 1);
+    const lead = clip('effect', 5, 1);
+    for (const c of [x, y, lead]) addClip(p, c, FREE);
+    // Each clamped on its own, Y would slide onto X at 0.
+    expect(moveClip(p, lead.id, { start: s(4.5) }, { ...FREE, with: [x.id, y.id] })).toBe(false);
+    expect([x.start, y.start, lead.start]).toEqual([0, s(1), s(5)]);
+    expect(trackOf(p, x.id)).toBe(trackOf(p, y.id));
+  });
+
   it('moves grouped clips by the same offset', () => {
     const p = fixture();
     const t = clip('text', 1, 2);

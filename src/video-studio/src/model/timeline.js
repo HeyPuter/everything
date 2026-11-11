@@ -300,7 +300,6 @@ export function moveClip(project, id, target, opts = {}) {
   const found = findClip(project, id);
   if (!found || found.track.locked) return false;
   const { clip, track: from } = found;
-  const dt = target.start - clip.start;
   const withIds = new Set(opts.with || []);
   withIds.delete(id);
   const others = [];
@@ -310,32 +309,38 @@ export function moveClip(project, id, target, opts = {}) {
   }
   const origStart = clip.start;
   const otherStarts = others.map((o) => o.clip.start);
+  // The clips move together by one offset, held so the earliest stops at 0 (clamping each
+  // on its own would bunch them up there).
+  const dt = Math.max(Math.round(target.start) - origStart, -Math.min(origStart, ...otherStarts));
+  const sameTrack = target.newTrackAt === undefined && (!target.trackId || target.trackId === from.id);
+  // Asked to move earlier while already held at 0: nothing can move.
+  if (!dt && Math.round(target.start) !== origStart && sameTrack) return false;
   return withRipple(project, opts, () => {
     from.clips.splice(from.clips.indexOf(clip), 1);
     let dest = target.trackId ? findTrack(project, target.trackId) : from;
     if (target.newTrackAt !== undefined) dest = addTrack(project, TRACK_KIND_FOR[clip.type], target.newTrackAt);
     if (!dest || !trackAccepts(dest, clip) || dest.locked) dest = from;
-    clip.start = Math.max(0, Math.round(target.start));
+    clip.start = origStart + dt;
     // Grouped clips move first so they never block the primary clip.
     const moving = new Set([id, ...others.map((o) => o.clip.id)]);
-    for (const o of others) o.clip.start = Math.max(0, o.clip.start + dt);
+    for (const o of others) o.clip.start += dt;
     for (const t of new Set(others.map((o) => o.track))) sortTrack(t);
     if (dest.main && opts.ripple) {
       const index = mainInsertIndex(project, clip.start, clip.id);
       sortTrack(dest);
       dest.clips.splice(index, 0, clip);
-    } else if (trackFree(dest, clip.start, clipEnd(clip), moving)) {
-      dest.clips.push(clip);
-      sortTrack(dest);
-    } else if (dest.main) {
-      // No room on the base track without ripple: put everything back where it was
-      // (not by -dt: starts were clamped at 0).
+    } else if (!opts.ripple && baseClash(project, dest.main ? clip : null, others)) {
+      // No room on the base track without ripple (for this clip or one moving with it):
+      // put everything back where it was.
       clip.start = origStart;
       from.clips.push(clip);
       sortTrack(from);
       others.forEach((o, i) => (o.clip.start = otherStarts[i]));
       for (const t of new Set(others.map((o) => o.track))) sortTrack(t);
       return false;
+    } else if (trackFree(dest, clip.start, clipEnd(clip), moving)) {
+      dest.clips.push(clip);
+      sortTrack(dest);
     } else {
       const alt = trackWithRoom(project, dest.kind, clip.start, clipEnd(clip), moving);
       alt.clips.push(clip);
@@ -344,6 +349,19 @@ export function moveClip(project, id, target, opts = {}) {
     resolveOverlaps(project);
     return true;
   });
+}
+
+/**
+ * True when the base track would hold overlapping clips after a move without
+ * ripple: extra (a clip about to go onto it) or any clip of others already on it.
+ */
+function baseClash(project, extra, others) {
+  const main = mainTrack(project);
+  if (!main || (!extra && !others.some((o) => o.track === main))) return false;
+  const clips = extra ? [...main.clips, extra] : [...main.clips];
+  clips.sort((a, b) => a.start - b.start);
+  for (let i = 1; i < clips.length; i++) if (clips[i].start < clipEnd(clips[i - 1]) - 1) return true;
+  return false;
 }
 
 /** Earliest/latest the given edge can go, honoring source length and neighbors. */
