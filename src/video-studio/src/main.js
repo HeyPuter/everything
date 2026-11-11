@@ -180,6 +180,11 @@ async function startSignedIn(env) {
   };
   watchWindowClose();
   route();
+  // Videos Puter saved for AI generations the page closed on are deleted a while after start (see cleanAiTemp).
+  const started = library;
+  setTimeout(() => {
+    if (library === started) import('./media/ai-video.js').then((m) => m.cleanAiTemp(started.backend)).catch(() => {});
+  }, 15_000);
 }
 
 /**

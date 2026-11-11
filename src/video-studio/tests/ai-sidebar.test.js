@@ -8,7 +8,7 @@ import { addTimeline } from '../src/model/timelines.js';
 import { createCompound } from '../src/model/compound.js';
 import { createAgent, requestMessages, userContent, userText, suggestions, SYSTEM_PROMPT, MAX_ROUNDS } from '../src/media/ai-agent.js';
 import { TOOLS, toolSpecs, changesProject, costly, describeCall, mediaBrief, projectSnapshot } from '../src/media/ai-tools.js';
-import { txt2vidOptions, fitSeconds, videoAspectFor, generateVideo, videoBlobFrom, videoErrorMessage, modelForFrames, estimateCents, formatCents, modelSummary, VIDEO_MODELS, DEFAULT_VIDEO_MODEL } from '../src/media/ai-video.js';
+import { txt2vidOptions, fitSeconds, videoAspectFor, generateVideo, cleanAiTemp, videoBlobFrom, videoErrorMessage, modelForFrames, estimateCents, formatCents, modelSummary, VIDEO_MODELS, DEFAULT_VIDEO_MODEL } from '../src/media/ai-video.js';
 import { txt2imgOptions, IMAGE_MODELS } from '../src/media/imagegen.js';
 import { attachmentKind, attachmentProblem, attachmentsIntro } from '../src/media/ai-attach.js';
 import { aiChatStream, friendlyAiError } from '../src/media/ai-chat.js';
@@ -143,6 +143,41 @@ describe('AI video generation', () => {
     expect(txt2vid).toHaveBeenCalledTimes(2);
     expect(txt2vid.mock.calls[1][0].puter_output_path).toBeUndefined();
     expect(out.blob.type).toBe('video/mp4');
+  });
+
+  it('cleans up copies left by generations the page closed on, never one still in use', async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const stamp = (t) => `${t.toString(36)}-1.mp4`;
+    const items = [
+      { name: stamp(now - 2 * DAY), isDir: false },
+      { name: stamp(now - 60 * 60 * 1000), isDir: false },
+      { name: 'odd name.mp4', isDir: false, modified: Math.floor((now - 3 * DAY) / 1000) },
+      { name: 'unknown.mp4', isDir: false },
+      { name: 'folder', isDir: true, modified: 1 },
+    ];
+    const backend = { list: vi.fn(async (dir) => (dir === '.ai-temp' ? items : [])), remove: vi.fn(async () => {}) };
+    expect(await cleanAiTemp(backend, { now })).toBe(2);
+    expect(backend.remove.mock.calls.map((c) => c[0])).toEqual([`.ai-temp/${stamp(now - 2 * DAY)}`, '.ai-temp/odd name.mp4']);
+    // A generation still running in this tab: its copy is left alone however late the cleanup runs.
+    let finish;
+    let saved;
+    const fs = { read: vi.fn(async () => new Blob(['mp4'], { type: 'video/mp4' })), delete: vi.fn(async () => {}) };
+    const txt2vid = vi.fn((o) => {
+      saved = o.puter_output_path;
+      return new Promise((r) => (finish = () => r({ src: 'https://p.example/c.mp4' })));
+    });
+    const running = generateVideo({ prompt: 'waves' }, { txt2vid, fs, fetchFn: vi.fn() });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    const mine = { name: saved.split('/').pop(), isDir: false };
+    backend.list.mockResolvedValue([mine]);
+    backend.remove.mockClear();
+    expect(await cleanAiTemp(backend, { now: now + 3 * DAY })).toBe(0);
+    finish();
+    await running;
+    // Once collected it is no longer in use (and was deleted by the generation itself).
+    expect(fs.delete).toHaveBeenCalledWith(saved);
+    expect(await cleanAiTemp(backend, { now: now + 3 * DAY })).toBe(1);
   });
 
   it('reads data URIs and explains failures in plain words', async () => {
