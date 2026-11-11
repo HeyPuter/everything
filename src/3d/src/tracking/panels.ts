@@ -6,7 +6,7 @@ import { app } from '../app/app';
 import { panel, numberField, checkbox, enumMenu, textField, opButton, colorSwatch, toggleButton } from '../ui/widgets';
 import { num, bool, enumProp, splitRow, vecProp } from '../ui/props';
 import { tobj, activeTrack, clipFrameToSourceIndex, ensureMarker, focalPixels, markerAt, markerExact, type MovieClipData, type MovieTrackingTrack, type MotionModel } from './types';
-import { readySource, frameCache, cacheSettings } from './source';
+import { readySource, sourceError, frameCache, cacheSettings } from './source';
 import { measureMotion } from './stabilize';
 import type { ClipEditor } from './editor';
 import { solveToolbar, objectsPanel, distortionRows } from './solvepanels';
@@ -374,7 +374,7 @@ function footageTab(ed: ClipEditor, c: MovieClipData): Child[] {
       valueRow('Resolution', c.size[0] ? `${c.size[0]} × ${c.size[1]}` : '—'),
       valueRow('Duration', `${c.frame_duration} frames`),
       valueRow('Frame Rate', `${c.fps} fps`),
-      valueRow('Decoder', src ? (src.kind === 'webcodecs' ? 'WebCodecs (frame accurate)' : src.kind === 'video' ? 'Video element seeking' : 'Image decoder') : 'Loading…'),
+      valueRow('Decoder', src ? (src.kind === 'webcodecs' ? 'WebCodecs (frame accurate)' : src.kind === 'video' ? 'Video element seeking' : 'Image decoder') : sourceError(c) ? 'Cannot open the footage' : 'Loading…'),
       num(c, 'frame_start', 'Start Frame', { int: true, tip: 'Global scene frame number at which this movie starts playing (affects all data associated with a clip)' }),
       num(c, 'frame_offset', 'Frame Offset', { int: true, tip: 'Offset of footage first frame relative to its file name (affects only how footage is loading, does not change data associated with a clip)' }),
     ]),

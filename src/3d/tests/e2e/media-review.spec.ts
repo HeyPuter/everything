@@ -3,17 +3,17 @@ import { openApp, expectNoErrors } from './helpers';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-/** Video Editing workspace; `imp` imports app modules (the instances the app uses). */
-async function videoWorkspace(page: Page) {
+/** A workspace (Video Editing by default); `imp` imports app modules (the instances the app uses). */
+async function videoWorkspace(page: Page, name = 'Video Editing') {
   await page.addInitScript(() => performance.setResourceTimingBufferSize(100000));
   const errors = await openApp(page);
-  await page.evaluate(async () => {
+  await page.evaluate(async (name) => {
     const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
     (window as any).imp = (p: string) => import(U(p));
     const { shell } = await import(U('/src/ui/shell.ts'));
     const { workspaceTemplates } = await import(U('/src/ui/screen.ts'));
-    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Video Editing').create());
-  });
+    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === name).create());
+  }, name);
   await page.waitForTimeout(300);
   return errors;
 }
@@ -112,4 +112,35 @@ test('sequencer: dragging the Channel field resolves overlaps only where the dra
   });
   await expect(page.locator('.num-field[data-id^="seq-ch-"]').first()).toHaveClass(/disabled/);
   await expectNoErrors(errors);
+});
+
+test('clip editor: footage the browser cannot open is reported once, not reopened on every redraw', async ({ page }) => {
+  await videoWorkspace(page, 'Motion Tracking');
+  const urls = await page.evaluate(async () => {
+    const w = window as any;
+    let n = 0;
+    const create = URL.createObjectURL;
+    URL.createObjectURL = (o: Blob | MediaSource) => (n++, create(o));
+    const T = await w.imp('/src/tracking/types.ts');
+    const E = await w.imp('/src/tracking/editor.ts');
+    const c = T.newMovieClip('MCbad', 'bad.mp4', { filepath: 'bad.mp4', movie: { mime: 'video/mp4', bytes: new Uint8Array(4096).fill(7) }, size: [640, 360], frame_duration: 50 });
+    T.clipTable(w.app.doc)[c.id] = c;
+    w.app.doc.scene.active_clip = c.id;
+    E.currentClipEditor().setClip(c.id);
+    for (let i = 0; i < 8; i++) {
+      w.app.setFrame(1 + i);
+      w.app.changed('doc');
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    URL.createObjectURL = create;
+    return n;
+  });
+  expect(urls).toBeLessThanOrEqual(1);
+  // the editor knows why there is no picture (and says so instead of "Loading…")
+  const err = await page.evaluate(async () => {
+    const w = window as any;
+    const S = await w.imp('/src/tracking/source.ts');
+    return S.sourceError(w.app.doc.movieclips.MCbad);
+  });
+  expect(err).toBeTruthy();
 });

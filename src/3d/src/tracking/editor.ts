@@ -26,7 +26,7 @@ import {
   type MovieTrackingMarker,
   type MovieTrackingTrack,
 } from './types';
-import { readySource } from './source';
+import { readySource, sourceError } from './source';
 import { stabilizationMatrix, type Affine2 } from './stabilize';
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { solveErrorText } from './solvepanels';
@@ -432,11 +432,13 @@ export class ClipEditor implements Editor {
       return;
     }
     const src = readySource(c);
+    const failed = src ? null : sourceError(c);
     if (!c.size[0]) {
       if (src) {
         c.size = [src.width, src.height];
         c.frame_duration ||= src.frameCount;
-      } else return void this.retryLater();
+      } else if (failed) return this.drawSourceError(ctx, [w / 2, hh / 2], w, failed);
+      else return void this.retryLater();
     }
     if (!this.fitted) this.frameAll();
     const [W, H] = c.size;
@@ -470,6 +472,7 @@ export class ClipEditor implements Editor {
     if (this.overlays.show_grid) this.drawLensGrid(ctx, T);
     if (inRange && src && !bmp) this.request(idx);
     if (inRange && src) this.prefetchAround(idx);
+    if (failed) this.drawSourceError(ctx, this.viewScreen(W / 2, H / 2, T), w, failed);
     // frame outline
     ctx.strokeStyle = 'rgba(0, 0, 0,0.6)';
     ctx.lineWidth = 1;
@@ -507,7 +510,7 @@ export class ClipEditor implements Editor {
     ctx.shadowColor = 'rgba(0, 0, 0,0.9)';
     ctx.shadowBlur = 2;
     const left = this.showToolbar ? 238 : 8;
-    const info = `Frame: ${cf} / ${c.frame_duration}${src ? `  ${W}×${H}  ${src.fps} fps  [${src.kind === 'webcodecs' ? 'WebCodecs' : src.kind === 'video' ? 'Video element' : 'Image sequence'}]` : '  Loading…'}${!inRange ? '  (outside of the clip)' : ''}`;
+    const info = `Frame: ${cf} / ${c.frame_duration}${src ? `  ${W}×${H}  ${src.fps} fps  [${src.kind === 'webcodecs' ? 'WebCodecs' : src.kind === 'video' ? 'Video element' : 'Image sequence'}]` : failed ? '  Footage unavailable' : '  Loading…'}${!inRange ? '  (outside of the clip)' : ''}`;
     ctx.fillText(info, left, 16);
     const job = jobState.get();
     if (job) ctx.fillText(`${job.label}… ${Math.round(job.progress * 100)}%${job.detail ? `  ${job.detail}` : ''}  (Esc to stop)`, left, 32);
@@ -701,6 +704,17 @@ export class ClipEditor implements Editor {
     const c = this.clip;
     if (!c) return null;
     return proxySource(c, this.proxyRenderSize) ?? readySource(c);
+  }
+
+  /** The footage cannot be opened in this browser: say so instead of an empty frame. */
+  private drawSourceError(ctx: CanvasRenderingContext2D, at: [number, number], w: number, message: string) {
+    ctx.fillStyle = canvasTextGrey(0xb0);
+    ctx.font = '12px var(--font, sans-serif)';
+    ctx.textAlign = 'center';
+    const max = Math.max(40, w - 24);
+    ctx.fillText('Cannot open the footage of this clip', at[0], at[1] - 8, max);
+    ctx.fillText(message, at[0], at[1] + 10, max);
+    ctx.textAlign = 'start';
   }
 
   private retryLater() {
