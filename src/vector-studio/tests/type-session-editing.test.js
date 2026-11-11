@@ -85,4 +85,24 @@ describe('type editing session', () => {
     key(s, 'Delete', { ctrlKey: true });
     expect(doc.get(id).text).toBe('one ');
   });
+
+  it('Find Next with Check Locked Layers moves past a match in locked type instead of sticking on it', async () => {
+    const { lastFind, findNext } = await import('../src/features/type/find.js');
+    const a = add('a cat');
+    const t = createText('the cat', 100, 200, { locked: true });
+    doc.transact('Add', () => doc.insert(t, app.editor.targetLayer().id));
+    const c = add('one cat');
+    expect(doc.isLocked(t.id)).toBe(true);
+    Object.assign(lastFind, { query: 'cat', matchCase: false, wholeWord: false, includeLocked: true, includeHidden: false, backwards: false, current: null });
+    edit(a, 0);
+    expect(findNext(app)).toBe('found');
+    expect(app.typeSession.id).toBe(a);
+    // The locked match is reported (it cannot be edited or selected) and the next search continues after it.
+    expect(findNext(app)).toBe('locked');
+    expect(lastFind.current.id).toBe(t.id);
+    expect(app.editor.selection.has(t.id)).toBe(false);
+    expect(findNext(app)).toBe('found');
+    expect(app.typeSession?.id).toBe(c);
+    Object.assign(lastFind, { includeLocked: false, current: null });
+  });
 });

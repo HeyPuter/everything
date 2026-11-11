@@ -61,10 +61,11 @@ export function installTextServices(app) {
       label: 'Find Next',
       enabled: (a) => Boolean(a.editor),
       run: async (a) => {
-        const { findNext, lastFind, openFindReplace } = await import('./find.js');
+        const { findNext, lastFind, openFindReplace, LOCKED_MATCH } = await import('./find.js');
         if (!lastFind.query) return openFindReplace(a);
         const r = findNext(a);
         if (r === 'none') a.notify(`No more matches for \u201c${lastFind.query}\u201d.`, { polite: true });
+        else if (r === 'locked') a.notify(LOCKED_MATCH, { polite: true });
         return undefined;
       },
     },
