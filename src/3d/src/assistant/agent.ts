@@ -49,7 +49,8 @@ export interface ExchangeResult {
 export interface AgentOptions {
   chat: ChatFn;
   tools: () => ToolSpec[];
-  runTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
+  /** The signal aborts when the user presses Stop: a tool still waiting (for the Python runtime, say) must then not change the scene. */
+  runTool: (name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult>;
   system: string;
   snapshot: () => string;
   model: () => string;
@@ -164,7 +165,8 @@ export function createAgent(o: AgentOptions) {
     const emit = (e: AgentEvent) => { try { onEvent(e); } catch (err) { console.error(err); } };
     let stopResolve!: (v: typeof STOP) => void;
     const stopSignal = new Promise<typeof STOP>((r) => { stopResolve = r; });
-    const run = { stopped: false, stop() { if (!this.stopped) { this.stopped = true; stopResolve(STOP); } } };
+    const aborter = new AbortController();
+    const run = { stopped: false, stop() { if (!this.stopped) { this.stopped = true; aborter.abort(); stopResolve(STOP); } } };
     running = run;
     const steps: Step[] = [];
     let imagesRefused = false;
@@ -237,7 +239,7 @@ export function createAgent(o: AgentOptions) {
             content = 'Error: the arguments could not be read as JSON.';
           } else {
             emit({ type: 'step', step: { ...step } });
-            const result = await Promise.race([o.runTool(call.name, call.input), stopSignal]);
+            const result = await Promise.race([o.runTool(call.name, call.input, aborter.signal), stopSignal]);
             if (result === STOP) {
               step.status = 'skipped';
               content = 'Stopped by the user while running; its effect may or may not have been applied. Check the scene before continuing.';

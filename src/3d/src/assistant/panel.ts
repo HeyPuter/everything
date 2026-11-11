@@ -178,7 +178,7 @@ export class AssistantPanel {
     this.agent = createAgent({
       chat: (m, o) => (this.chat ?? devChat() ?? puterChat)(m, o),
       tools: () => toolSpecs(this.host),
-      runTool: (name, args) => runTool(this.host, name, args),
+      runTool: (name, args, signal) => runTool(this.host, name, args, signal),
       system: SYSTEM_PROMPT,
       snapshot: () => sceneSnapshot(this.host),
       model: () => this.model,

@@ -66,7 +66,7 @@ interface ToolDef {
   description: string;
   parameters: Obj;
   ui?: boolean;
-  run(a: Obj, host: AssistantHost): Promise<ToolResult | string> | ToolResult | string;
+  run(a: Obj, host: AssistantHost, signal?: AbortSignal): Promise<ToolResult | string> | ToolResult | string;
 }
 
 const obj = (properties: Obj, required: string[] = []): Obj => ({ type: 'object', properties, required, additionalProperties: false });
@@ -230,7 +230,7 @@ function describeChanges(before: SceneState, after: SceneState, ins: Inspector, 
 // ---------------------------------------------------------------------------
 // run_script
 
-async function runScript(a: Obj, host: AssistantHost): Promise<ToolResult> {
+async function runScript(a: Obj, host: AssistantHost, signal?: AbortSignal): Promise<ToolResult> {
   const app = host.app;
   const code = String(a.code ?? '');
   if (!code.trim()) throw new ToolError('code is empty.');
@@ -242,6 +242,8 @@ async function runScript(a: Obj, host: AssistantHost): Promise<ToolResult> {
     } catch (e) {
       throw new ToolError(`${(e as Error).message} Write the script in JavaScript instead.`);
     }
+    // Stopped while the runtime loaded: the exchange is over, and its changes are one undo step already.
+    if (signal?.aborted) throw new ToolError('Not run: the user stopped the assistant.');
   }
   const ins = new Inspector(app);
   ins.settle();
@@ -507,11 +509,11 @@ export function toolSpecs(host: AssistantHost): ToolSpec[] {
   return TOOLS.filter((t) => !t.ui || host.ui).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 }
 
-export async function runTool(host: AssistantHost, name: string, args: Obj): Promise<ToolResult> {
+export async function runTool(host: AssistantHost, name: string, args: Obj, signal?: AbortSignal): Promise<ToolResult> {
   const tool = TOOLS.find((t) => t.name === name);
   if (!tool || (tool.ui && !host.ui)) return { ok: false, content: `Error: there is no tool named ${name}.` };
   try {
-    const r = await tool.run(args ?? {}, host);
+    const r = await tool.run(args ?? {}, host, signal);
     return typeof r === 'string' ? { ok: true, content: r } : r;
   } catch (e) {
     if (e instanceof ToolError) return { ok: false, content: `Error: ${e.message}` };
