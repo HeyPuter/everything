@@ -225,7 +225,18 @@ function bindCommandSearch(app, input) {
     }
     if (!results.length) results.push({ type: 'cmd', label: 'No matching commands', enabled: false });
     const r = input.getBoundingClientRect();
-    menu = openMenu(app, results, { x: r.left, y: r.bottom + 2, anchor: input, label: 'Command results', focus: 'none', onClose: () => (menu = null) });
+    menu = openMenu(app, results, {
+      x: r.left,
+      y: r.bottom + 2,
+      anchor: input,
+      label: 'Command results',
+      // The field keeps focus so typing goes on refining the search.
+      focus: 'keep',
+      onClose: (reason) => {
+        menu = null;
+        if (reason === 'escape') input.focus();
+      },
+    });
   };
   input.addEventListener('input', show);
   input.addEventListener('keydown', (e) => {

@@ -268,7 +268,8 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
   if (parentMenu) parentMenu.child = api;
   if (focus === 'first') (focusable()[0] || menu).focus();
   else if (focus === 'last') (focusable().slice(-1)[0] || menu).focus();
-  else menu.focus({ preventScroll: true });
+  // 'keep' leaves focus where it is (a search field that keeps taking typing).
+  else if (focus !== 'keep') menu.focus({ preventScroll: true });
   return api;
 }
 

@@ -172,3 +172,29 @@ describe('toolbar workspace tabs', () => {
     expect(menu).toBe(null);
   });
 });
+
+describe('command search', () => {
+  it('keeps focus in the search field while results show, so typing goes on', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    const input = root.querySelector('.command-search');
+    input.focus();
+    input.value = 'n';
+    input.dispatchEvent(new Event('input'));
+    expect(document.querySelector('[role=menu][aria-label="Command results"]')).not.toBe(null);
+    expect(document.activeElement).toBe(input);
+    input.value = 'new';
+    input.dispatchEvent(new Event('input'));
+    expect(document.activeElement).toBe(input);
+    expect(document.querySelectorAll('[role=menu]')).toHaveLength(1);
+    // Down moves into the results; Escape there closes them and returns to the field.
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement.closest('[aria-label="Command results"]')).not.toBe(null);
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('[role=menu]')).toBe(null);
+    expect(document.activeElement).toBe(input);
+  });
+});
