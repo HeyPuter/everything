@@ -97,7 +97,7 @@ function redoProps(): Child {
 
 export function lastOpPanel(_v: unknown): Child {
   const last = app.lastOp;
-  if (!last || app.modal) return null;
+  if (!last || app.modal || !app.canAdjustLast) return null;
   const op = operators.get(last.idname);
   if (!op?.props?.some((d) => !d.hidden)) return null;
   const open = isPanelOpen('redo-panel', false);
@@ -115,6 +115,6 @@ export function lastOpPanel(_v: unknown): Child {
 }
 
 export function openRedoPopup(at: { x: number; y: number }) {
-  if (!app.lastOp) return;
+  if (!app.canAdjustLast) return;
   openPopover(at, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, app.lastOp?.label ?? ''), redoProps()), { width: 280 });
 }

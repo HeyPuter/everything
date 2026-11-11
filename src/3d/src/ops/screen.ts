@@ -112,7 +112,7 @@ registerOperators([
     label: 'Adjust Last Operation',
     description: 'Display parameters for last action performed',
     undo: false,
-    poll: () => !!app.lastOp,
+    poll: () => app.canAdjustLast,
     exec: () => openRedoPopup({ x: app.pointer.x - 140, y: app.pointer.y - 20 }),
   },
   {
