@@ -466,3 +466,33 @@ test('action editor: make markers local, then add pose markers', async ({ page }
   expect(await page.evaluate(() => (window as any).app.doc.scene.timeline_markers.length)).toBe(0); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
+
+test('playback continues from a frame set while playing and after undo', async ({ page }) => {
+  const errors = await openApp(page);
+  const frame = () => page.evaluate(() => (window as any).app.doc.scene.frame_current as number); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    app.doc.scene.frame_end = 1000;
+    app.run('screen.animation_play');
+  });
+  await page.waitForFunction(() => (window as any).app.doc.scene.frame_current > 3); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // a frame jump while playing is where playback goes on from (it does not snap back)
+  await page.evaluate(() => (window as any).app.run('screen.frame_offset', { delta: 500 })); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.waitForTimeout(150);
+  expect(await frame()).toBeGreaterThanOrEqual(500);
+  await page.evaluate(() => (window as any).app.run('screen.animation_play')); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // undo replaces the document: playing every frame keeps advancing in the restored one
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    app.doc.scene.sync_mode = 'NONE';
+    app.run('transform.translate', { value: [1, 0, 0] }, { invoke: false });
+    app.run('screen.animation_play');
+  });
+  await page.waitForTimeout(150);
+  await page.evaluate(() => (window as any).app.undoStep()); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.waitForTimeout(50);
+  const f0 = await frame();
+  await page.waitForFunction((f) => (window as any).app.doc.scene.frame_current > f + 3, f0); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.evaluate(() => (window as any).app.run('screen.animation_play')); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expectNoErrors(errors);
+});
