@@ -1003,7 +1003,11 @@ export class WaveformView {
           const next = Math.max(0, Math.min(doc.length, moving + dir * Math.max(1, Math.round(this.fpp * 10))));
           doc.setSelection(anchor, next);
           doc.setCursor(next, { silent: true });
-        } else this.seek(doc.cursor + dir * step);
+        } else {
+          // While this file plays, step from the moving playhead, not from where playback started.
+          const from = this.app.engine.playing && this.app.active === doc ? this.app.playhead : doc.cursor;
+          this.seek(from + dir * step);
+        }
       } else if (e.key === 'Escape') doc.setSelection(doc.cursor, doc.cursor);
       else handled = false;
       if (handled) {

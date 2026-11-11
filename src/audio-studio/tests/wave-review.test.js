@@ -1,5 +1,5 @@
 // Regression tests for the Waveform editor review: data model, edits, view.
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { createMarker, markerOptions } from '../src/model/markers.js';
 import * as E from '../src/model/edits.js';
 
@@ -118,5 +118,27 @@ describe('marker navigation', () => {
     expect(doc.cursor).toBe(1001);
     await app.commands.run('marker.next');
     expect(doc.cursor).toBe(48000);
+  });
+});
+
+describe('waveform keyboard', () => {
+  it('steps the playhead from its live position while the file plays', async () => {
+    const { app, doc, view } = await makeView();
+    doc.setCursor(1000);
+    const playing = vi.spyOn(app.engine, 'playing', 'get').mockReturnValue(true);
+    const position = vi.spyOn(app.engine, 'position', 'get').mockReturnValue(30000);
+    const seek = vi.spyOn(app.engine, 'seek').mockImplementation(() => {});
+    try {
+      view.surface.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+      );
+      const step = Math.round(view.fpp * 10);
+      expect(seek).toHaveBeenCalledWith(30000 + step);
+      expect(doc.cursor).toBe(30000 + step);
+    } finally {
+      playing.mockRestore();
+      position.mockRestore();
+      seek.mockRestore();
+    }
   });
 });
