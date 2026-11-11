@@ -101,7 +101,13 @@ function showDialog({ title, body, buttons = [], className = '', onOpen, onClose
     makeDraggable(dialog, header);
     document.body.append(dialog);
     dialog.showModal();
-    const focusEl = initialFocus?.() || content.querySelector('input:not([type=hidden]), select, textarea, button') || footer.querySelector('.btn.primary');
+    // With no field and no safe default (a danger button such as Replace or
+    // Delete), focus starts on the dismissing button, as in system alerts.
+    const focusEl =
+      initialFocus?.() ||
+      content.querySelector('input:not([type=hidden]), select, textarea, button') ||
+      footer.querySelector('.btn.primary') ||
+      footer.querySelector('.btn:not(.danger):not(.left)');
     focusEl?.focus();
     if (focusEl?.select && focusEl.type !== 'checkbox' && focusEl.type !== 'range') focusEl.select();
     onOpen?.({ dialog, close, footer, content });

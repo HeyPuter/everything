@@ -53,3 +53,25 @@ describe('menu placement', () => {
     m.close();
   });
 });
+
+describe('dialog initial focus', () => {
+  it('a confirmation whose action is destructive starts on Cancel, not the close button', async () => {
+    const { installCanvasStub } = await import('./helpers.js');
+    const { confirmDialog, openDialog } = await import('../src/ui/dialogs/dialog.js');
+    installCanvasStub();
+    const p = confirmDialog({ title: 'Delete Set?', message: 'This cannot be undone.', okLabel: 'Delete', danger: true });
+    expect(document.activeElement.textContent).toBe('Cancel');
+    document.activeElement.click();
+    expect(await p).toBe(false);
+    // The Save As "Replace File?" confirmation lists Cancel and a danger button only.
+    const q = openDialog({ title: 'Replace File?', body: document.createElement('p'), buttons: [{ label: 'Cancel', value: false }, { label: 'Replace', value: true, danger: true }] });
+    expect(document.activeElement.textContent).toBe('Cancel');
+    document.activeElement.click();
+    expect(await q).toBe(false);
+    // A safe primary button still takes focus.
+    const r = confirmDialog({ title: 'Continue?', message: 'Go on?' });
+    expect(document.activeElement.textContent).toBe('OK');
+    document.activeElement.click();
+    expect(await r).toBe(true);
+  });
+});
