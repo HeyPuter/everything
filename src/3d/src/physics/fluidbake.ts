@@ -5,7 +5,7 @@
 // resumable); script / test calls run to completion at once.
 import { app, registerOperators, type OpContext } from '../app/app';
 import type { DocumentData, ObjectData } from '../data/types';
-import { statusWidgets } from '../ui/shell';
+import { statusWidgets } from '../ui/statuswidgets';
 import { h } from '../ui/h';
 import { icon } from '../ui/icons';
 import { caches, freeCache, startBudget, type FrameCache } from './common';

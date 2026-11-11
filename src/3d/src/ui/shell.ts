@@ -10,8 +10,8 @@ import { appMenu, fileMenu, editMenu, renderMenu, windowMenu, helpMenu, fileNewT
 
 export { fileNewTemplates };
 
-/** Extra status bar content (e.g. the progress of a running render job), drawn before reports. */
-export const statusWidgets: (() => Child)[] = [];
+import { statusWidgets } from './statuswidgets';
+export { statusWidgets };
 /** Scene / view layer selectors at the right of the top bar (replace the plain scene name field). */
 export const topbarSceneWidgets: (() => Child)[] = [];
 import { textField } from './widgets';
