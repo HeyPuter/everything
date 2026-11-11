@@ -82,6 +82,17 @@ describe('MeshEdit', () => {
     expect(me.sculpt_face_set![0]).toBe(2);
   });
 
+  it('keeps a mesh without UV maps without one after a topology change', () => {
+    const { me } = cubeEdit();
+    me.uvs = new Float32Array(0);
+    const m = MeshEdit.from(me);
+    selectFace(m, (c) => c[2] > 0.9);
+    extrudeRegion(m);
+    m.write(me);
+    expect(me.uvs.length).toBe(0);
+    expect(me.indices.length).toBe(40);
+  });
+
   it('extrudes a face region with walls', () => {
     const { m } = cubeEdit();
     selectFace(m, (c) => c[2] > 0.9);

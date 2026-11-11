@@ -91,6 +91,8 @@ export class MeshEdit {
   gattrs: GAttr[] = [];
   vgen: number[][] = [];
   egen: Map<string, number[]>[] = [];
+  /** the mesh has no active UV map (its last one was removed): keep it that way on write */
+  noUV = false;
 
   get vcount() {
     return this.pos.length / 3;
@@ -99,6 +101,7 @@ export class MeshEdit {
   static from(me: MeshData): MeshEdit {
     const m = new MeshEdit();
     m.pos = Array.from(me.positions);
+    m.noUV = me.uvs.length === 0 && me.indices.length > 0;
     const nv = me.positions.length / 3;
     m.sel = me.select_vert ? Array.from(me.select_vert) : new Array(nv).fill(0);
     m.hide = me.hide_vert ? Array.from(me.hide_vert) : new Array(nv).fill(0);
@@ -158,7 +161,7 @@ export class MeshEdit {
     me.positions = built.positions;
     me.offsets = built.offsets;
     me.indices = built.indices;
-    me.uvs = built.uvs;
+    me.uvs = this.noUV ? new Float32Array(0) : built.uvs;
     me.normals = built.normals;
     me.smooth = built.smooth;
     me.material_index = built.material_index;
@@ -259,6 +262,7 @@ export class MeshEdit {
   clone(): MeshEdit {
     const c = new MeshEdit();
     c.pos = this.pos.slice();
+    c.noUV = this.noUV;
     c.sel = this.sel.slice();
     c.hide = this.hide.slice();
     c.weights = this.weights.map((w) => w.slice());

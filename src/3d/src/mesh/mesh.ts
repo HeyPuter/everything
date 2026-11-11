@@ -84,8 +84,8 @@ export function buildMesh(
     for (let k = 0; k < f.verts.length; k++, c++) {
       indices[c] = f.verts[k];
       if (f.uvs) {
-        uvs[c * 2] = f.uvs[k * 2];
-        uvs[c * 2 + 1] = f.uvs[k * 2 + 1];
+        uvs[c * 2] = f.uvs[k * 2] ?? 0;
+        uvs[c * 2 + 1] = f.uvs[k * 2 + 1] ?? 0;
       }
       normals[c * 3] = n[0];
       normals[c * 3 + 1] = n[1];
