@@ -145,6 +145,31 @@
 .lb-opt {
   margin: 2px 0;
 }
+/* narrow windows (phones): places and options stack above and below the file list */
+@media (max-width: 640px) {
+  .lb-main {
+    flex-direction: column;
+  }
+  .lb-side,
+  .lb-opts {
+    width: auto;
+    max-height: 28%;
+    border-left: none;
+    border-right: none;
+  }
+  .lb-side {
+    border-bottom: 1px solid var(--g-1d, #1a1b1c);
+  }
+  .lb-opts {
+    border-top: 1px solid var(--g-1d, #1a1b1c);
+  }
+  .lb-center {
+    min-height: 120px;
+  }
+  .lb-filter {
+    width: 120px;
+  }
+}
 .lb-foot {
   display: flex;
   align-items: center;

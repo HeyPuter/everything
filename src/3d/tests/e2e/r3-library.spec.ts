@@ -346,3 +346,19 @@ test('Relocate a library to another file, pack it into the project', async ({ pa
   await expect.poll(() => page.evaluate(() => (Object.values((window as any).app.doc.libraries) as any[])[0].packed_file?.length ?? 0)).toBeGreaterThan(0);
   await expectNoErrors(errors);
 });
+
+test('File > Append on a phone keeps the file list visible', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  const errors = await openApp(page);
+  await page.evaluate(() => (window as any).app.run('wm.append'));
+  const center = page.locator('.library-browser .lb-center');
+  await expect(center).toBeVisible();
+  const box = (await center.boundingBox())!;
+  expect(box.width).toBeGreaterThan(250);
+  expect(box.height).toBeGreaterThan(100);
+  await expect(page.locator('.library-browser .lb-side')).toBeVisible();
+  await expect(page.locator('.library-browser .lb-opts')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});
