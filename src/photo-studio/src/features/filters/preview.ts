@@ -106,6 +106,8 @@ export class FilterPreview {
   private sig = '';
   private paneImg?: PaneImage;
   private fullRes?: { sig: string; grid: TileGrid };
+  // The full-resolution render in progress, so OK can wait for it.
+  private fullRun?: { sig: string; promise: Promise<TileGrid> };
   private fullTimer = 0;
   private paneBusy = false;
   private paneDirty = false;
@@ -324,12 +326,21 @@ export class FilterPreview {
   // ----- Full resolution -----
   private scheduleFull(delay = 350) {
     clearTimeout(this.fullTimer);
-    if (this.disposed || this.fullRes?.sig === this.sig) return;
+    if (this.disposed || this.fullRes?.sig === this.sig || this.fullRun?.sig === this.sig) return;
     if (!this.canvasPreview && this.local) return;
     this.fullTimer = window.setTimeout(() => void this.runFull().catch(() => undefined), delay);
   }
-  private async runFull(): Promise<TileGrid> {
+  private runFull(): Promise<TileGrid> {
     const sig = this.sig;
+    const promise = this.renderFull(sig);
+    this.fullRun = { sig, promise };
+    const done = () => {
+      if (this.fullRun?.promise === promise) this.fullRun = undefined;
+    };
+    promise.then(done, done);
+    return promise;
+  }
+  private async renderFull(sig: string): Promise<TileGrid> {
     this.progressBusy.add('full');
     this.showProgress(0);
     try {
@@ -358,6 +369,9 @@ export class FilterPreview {
   async finish(): Promise<TileGrid> {
     clearTimeout(this.fullTimer);
     if (this.fullRes?.sig === this.sig) return this.fullRes.grid;
+    // A render of these settings is already running: wait for it rather
+    // than cancelling it and starting over.
+    if (this.fullRun?.sig === this.sig) return this.fullRun.promise;
     return this.runFull();
   }
   cancel() {
