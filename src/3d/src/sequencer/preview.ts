@@ -5,7 +5,9 @@ import { drawShape, type SelectShape } from './shapes';
 import { app } from '../app/app';
 import { withCompositor, SequencerRender, Cancelled } from './render';
 import { renderScenePreview } from './scene';
-import { pauseIdleMovies } from './media';
+import { pauseIdleMovies, releaseUnusedMedia } from './media';
+import { allScenes } from '../scenes/scenes';
+import { allStrips } from './strips';
 import { stripImageCorners, previewStrips, pointInPoly, stripOrigin } from './transform';
 import { activeStrip, hasEditor } from './context';
 import type { Strip } from './types';
@@ -94,6 +96,17 @@ export class PreviewRegion implements Annotate2DHost {
   dispose() {
     this.disposed = true;
     this.gen++;
+    clearTimeout(this.sweepTimer);
+  }
+
+  private sweepTimer = 0;
+  /** Free movies no strip of the document uses any more (checked again until none are waiting). */
+  private sweepMedia() {
+    clearTimeout(this.sweepTimer);
+    if (this.disposed) return;
+    const used = new Set<Uint8Array>();
+    for (const sc of allScenes(app.doc)) for (const s of allStrips(sc.sequence_editor?.strips ?? [])) if (s.media) used.add(s.media.bytes);
+    if (releaseUnusedMedia(used)) this.sweepTimer = window.setTimeout(() => this.sweepMedia(), 6000);
   }
 
   // ------------------------------------------------------------------ geometry
@@ -281,6 +294,7 @@ export class PreviewRegion implements Annotate2DHost {
       if (app.playing) await new Promise((r) => requestAnimationFrame(r));
     }
     pauseIdleMovies();
+    this.sweepMedia();
   }
 
   private async renderOnce(my: number) {

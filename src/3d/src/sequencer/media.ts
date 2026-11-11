@@ -92,6 +92,8 @@ export class Movie {
   private cachePx = 0;
   private queue: Promise<unknown> = Promise.resolve();
   lastLive = 0;
+  /** last time a caller asked for this movie (getMovie) */
+  lastUsed = performance.now();
   error: string | null = null;
 
   constructor(bytes: Uint8Array, mime: string) {
@@ -208,6 +210,16 @@ export class Movie {
   pauseIfIdle() {
     if (!this.video.paused && performance.now() - this.lastLive > 250) this.video.pause();
   }
+
+  /** Free the frame cache, the element's decoder and the object URL (the movie is unusable after). */
+  dispose() {
+    this.clearCache();
+    const v = this.video;
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+    URL.revokeObjectURL(this.url);
+  }
 }
 
 async function estimateFps(v: HTMLVideoElement): Promise<number> {
@@ -242,8 +254,7 @@ async function estimateFps(v: HTMLVideoElement): Promise<number> {
   return Math.round(fps * 100) / 100;
 }
 
-const movies = new WeakMap<Uint8Array, Movie>();
-const liveMovies = new Set<Movie>();
+const movies = new Map<Uint8Array, Movie>();
 
 export function getMovie(bytes: Uint8Array, mime: string): Movie {
   let m = movies.get(bytes);
@@ -251,23 +262,55 @@ export function getMovie(bytes: Uint8Array, mime: string): Movie {
     m = new Movie(bytes, mime);
     movies.set(bytes, m);
   }
-  liveMovies.add(m);
+  m.lastUsed = performance.now();
   return m;
+}
+
+/**
+ * Release the movies and thumbnail sources of media no strip uses any more (deleted strips, failed
+ * loads, other documents): their decoders, frame caches and object URLs. Media asked for within the
+ * last `graceMs` stay (a movie being added is not in the document yet). Returns whether unused media
+ * are still waiting for the grace period to end.
+ */
+export function releaseUnusedMedia(used: Set<Uint8Array>, graceMs = 5000): boolean {
+  const now = performance.now();
+  let waiting = false;
+  for (const [bytes, m] of movies) {
+    if (used.has(bytes)) continue;
+    if (now - m.lastUsed < graceMs) waiting = true;
+    else {
+      m.dispose();
+      movies.delete(bytes);
+    }
+  }
+  for (const [bytes, t] of thumbs) {
+    if (used.has(bytes)) continue;
+    if (now - t.lastUsed < graceMs) waiting = true;
+    else {
+      for (const b of t.cache.values()) b.close();
+      t.cache.clear();
+      t.video.removeAttribute('src');
+      t.video.load();
+      URL.revokeObjectURL(t.url);
+      thumbs.delete(bytes);
+    }
+  }
+  return waiting;
 }
 
 /** Pause movies that are no longer being played back live. */
 export function pauseIdleMovies() {
-  for (const m of liveMovies) m.pauseIfIdle();
+  for (const m of movies.values()) m.pauseIfIdle();
 }
 
 export function clearMovieCaches() {
-  for (const m of liveMovies) m.clearCache();
+  for (const m of movies.values()) m.clearCache();
 }
 
 export function movieCacheStats() {
   let frames = 0;
-  for (const m of liveMovies) frames += m.cachedFrames;
-  return { movies: liveMovies.size, frames };
+  for (const m of movies.values()) frames += m.cachedFrames;
+  return { movies: movies.size, frames };
 }
 
 // ---------------------------------------------------------------------------
@@ -360,13 +403,15 @@ export { PEAKS_PER_SECOND };
 
 const THUMB_H = 48;
 interface ThumbSource {
+  url: string;
+  lastUsed: number;
   video: HTMLVideoElement;
   ready: Promise<boolean>;
   cache: Map<number, ImageBitmap>;
   pending: Set<number>;
   queue: Promise<unknown>;
 }
-const thumbs = new WeakMap<Uint8Array, ThumbSource>();
+const thumbs = new Map<Uint8Array, ThumbSource>();
 
 /** Thumbnail at `time` (rounded to 0.1 s); `onReady` is called when a missing one is decoded. */
 export function movieThumb(bytes: Uint8Array, mime: string, time: number, onReady: () => void): ImageBitmap | null {
@@ -375,14 +420,16 @@ export function movieThumb(bytes: Uint8Array, mime: string, time: number, onRead
     const v = document.createElement('video');
     v.muted = true;
     v.preload = 'auto';
-    v.src = URL.createObjectURL(blobOf(bytes, mime));
+    const url = URL.createObjectURL(blobOf(bytes, mime));
+    v.src = url;
     const ready = new Promise<boolean>((res) => {
       v.addEventListener('loadeddata', () => res(true), { once: true });
       v.addEventListener('error', () => res(false), { once: true });
     });
-    t = { video: v, ready, cache: new Map(), pending: new Set(), queue: Promise.resolve() };
+    t = { url, lastUsed: 0, video: v, ready, cache: new Map(), pending: new Set(), queue: Promise.resolve() };
     thumbs.set(bytes, t);
   }
+  t.lastUsed = performance.now();
   const key = Math.round(time * 10);
   const hit = t.cache.get(key);
   if (hit) return hit;
