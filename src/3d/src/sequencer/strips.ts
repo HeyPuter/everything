@@ -593,6 +593,20 @@ export function resolveOverlap(list: Strip[], moved: Strip[], mode: SequencerToo
           const name = uniqueName(root, o.name, taken);
           taken.add(name);
           const right = cloneStrip(o, name);
+          // a meta's copied children need names of their own too (their effects follow)
+          const kids = right.strips ? allStrips(right.strips) : [];
+          const renamed = new Map<string, string>();
+          for (const k of kids) {
+            const nn = uniqueName(root, k.name, taken);
+            taken.add(nn);
+            renamed.set(k.name, nn);
+            k.name = nn;
+          }
+          for (const k of kids) {
+            if (k.input_1 && renamed.has(k.input_1)) k.input_1 = renamed.get(k.input_1)!;
+            if (k.input_2 && renamed.has(k.input_2)) k.input_2 = renamed.get(k.input_2)!;
+            if (k.connections) k.connections = k.connections.map((n) => renamed.get(n) ?? n);
+          }
           setRightHandle(o, a);
           setLeftHandle(right, b);
           list.push(right);
@@ -837,7 +851,7 @@ export function makeMeta(ed: SequenceEditor, list: Strip[], members: Strip[]): S
 }
 
 /** Move a meta strip's children back into `list` (children outside the meta range are trimmed). */
-export function separateMeta(list: Strip[], meta: Strip, overlapMode: SequencerToolSettings['overlap_mode'] = 'SHUFFLE'): Strip[] {
+export function separateMeta(list: Strip[], meta: Strip, overlapMode: SequencerToolSettings['overlap_mode'] = 'SHUFFLE', root: { strips: Strip[] } = { strips: list }): Strip[] {
   const kids = meta.strips ?? [];
   list.splice(list.indexOf(meta), 1);
   const a = finalStart(meta),
@@ -854,7 +868,7 @@ export function separateMeta(list: Strip[], meta: Strip, overlapMode: SequencerT
     out.push(k);
   }
   updateEffectRanges(list);
-  resolveOverlap(list, out, overlapMode);
+  resolveOverlap(list, out, overlapMode, root);
   return out;
 }
 

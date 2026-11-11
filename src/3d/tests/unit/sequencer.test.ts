@@ -240,6 +240,22 @@ describe('channels & overlap', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+  it('overwriting into a meta strip names the copied children uniquely', () => {
+    const e = ed();
+    const a = add(e, 'COLOR', 1, 1, 100);
+    const fx = add(e, 'GAUSSIAN_BLUR', 2, 1, 100);
+    fx.input_1 = a.name;
+    const m = S.makeMeta(e, e.strips, [a, fx])!;
+    const x = add(e, 'COLOR', m.channel, 40, 10, 'X');
+    S.resolveOverlap(e.strips, [x], 'OVERWRITE');
+    const names = S.allStrips(e.strips).map((s) => s.name);
+    expect(names.length).toBe(7);
+    expect(new Set(names).size).toBe(names.length);
+    const right = e.strips.find((s) => s.type === 'META' && s !== m)!;
+    const [c, b] = right.strips!;
+    expect(b.input_1).toBe(c.name);
+  });
+
   it('snaps to the closest target within the threshold', () => {
     expect(S.snapOffset([10, 20], [12, 30], 3)).toBe(2);
     expect(S.snapOffset([10, 20], [26], 3)).toBe(null);

@@ -593,7 +593,7 @@ const ops: Operator[] = [
     poll: () => selectedStrips().some((s) => s.type === 'META'),
     exec: () => {
       const list = seqList();
-      for (const m of list.filter((s) => s.select && s.type === 'META')) S.separateMeta(list, m, toolSettings().overlap_mode);
+      for (const m of list.filter((s) => s.select && s.type === 'META')) S.separateMeta(list, m, toolSettings().overlap_mode, seqEditor());
       done();
     },
   },
