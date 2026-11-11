@@ -335,6 +335,28 @@ puter-user-menu::part(apps-panel) {
   outline: none;
 }
 
+/* Touch: a 20 px grab area over the 4 px line, reaching into the frames on both sides. */
+@media (pointer: coarse) {
+  .dock-split {
+    position: relative;
+    z-index: 2;
+  }
+
+  .dock-split::before {
+    content: '';
+    position: absolute;
+    touch-action: none;
+  }
+
+  .dock-row > .dock-split::before {
+    inset: 0 -8px;
+  }
+
+  .dock-col > .dock-split::before {
+    inset: -8px 0;
+  }
+}
+
 .panel-group {
   display: flex;
   flex-direction: column;

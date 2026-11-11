@@ -15,4 +15,14 @@ describe('touch targets', () => {
     expect(block).toMatch(/\.clip-led:first-child::before \{\s*top: -13px;\s*bottom: -1px;/);
     expect(block).toMatch(/\.clip-led:last-child::before \{\s*top: -1px;\s*bottom: -13px;/);
   });
+
+  it('gives dock splitters a 20 px grab area that does not pan the page on coarse pointers', () => {
+    const shell = css('shell.css');
+    const block = shell.slice(shell.indexOf('@media (pointer: coarse) {\n  .dock-split {'));
+    expect(block).toMatch(
+      /\.dock-split::before \{\s*content: '';\s*position: absolute;\s*touch-action: none;/,
+    );
+    expect(block).toMatch(/\.dock-row > \.dock-split::before \{\s*inset: 0 -8px;/);
+    expect(block).toMatch(/\.dock-col > \.dock-split::before \{\s*inset: -8px 0;/);
+  });
 });
