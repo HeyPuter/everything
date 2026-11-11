@@ -148,6 +148,16 @@ describe('clip edits', () => {
     expect(S.findClip(r4, b.id).start).toBe(100);
   });
 
+  it('trimming either edge keeps both fades inside the clip', () => {
+    const [s, c] = withClip(base(), { fadeIn: { length: 80, curve: 0 }, fadeOut: { length: 70, curve: 2 } });
+    const out = S.findClip(S.trimClip(s, c.id, 'out', 50, 1000), c.id);
+    expect(out.fadeIn).toEqual({ length: 50, curve: 0 });
+    expect(out.fadeOut).toEqual({ length: 50, curve: 2 });
+    const inn = S.findClip(S.trimClip(s, c.id, 'in', 60, 1000), c.id);
+    expect(inn.fadeIn.length).toBe(40);
+    expect(inn.fadeOut).toEqual({ length: 40, curve: 2 });
+  });
+
   it('ripple deleting overlapping clips closes the time they cover only once', () => {
     let s = base(1);
     const t0 = s.tracks[0].id;

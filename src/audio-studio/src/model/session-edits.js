@@ -465,6 +465,7 @@ export function trimClip(state, id, edge, frame, sourceLength = Infinity) {
       offset: Math.max(0, offset),
       length,
       fadeIn: { ...c.fadeIn, length: Math.min(c.fadeIn.length, length) },
+      fadeOut: { ...c.fadeOut, length: Math.min(c.fadeOut.length, length) },
       volumeEnv: d > 0 ? shiftEnvelope(c.volumeEnv, d, length, 0) : c.volumeEnv.map((p) => ({ ...p, t: p.t - d })),
       panEnv: d > 0 ? shiftEnvelope(c.panEnv, d, length, 0) : c.panEnv.map((p) => ({ ...p, t: p.t - d })),
     };
@@ -476,6 +477,7 @@ export function trimClip(state, id, edge, frame, sourceLength = Infinity) {
     next = {
       ...c,
       length,
+      fadeIn: { ...c.fadeIn, length: Math.min(c.fadeIn.length, length) },
       fadeOut: { ...c.fadeOut, length: Math.min(c.fadeOut.length, length) },
       volumeEnv: length < c.length ? shiftEnvelope(c.volumeEnv, 0, length, 0) : c.volumeEnv,
       panEnv: length < c.length ? shiftEnvelope(c.panEnv, 0, length, 0) : c.panEnv,
