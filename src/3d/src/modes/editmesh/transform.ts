@@ -8,6 +8,7 @@ import { frameHooks, medianHooks } from '../../ops/view3d';
 import { Box3 } from 'three';
 import { cornerNormals, vertexNeighbors, polyNormal } from '../../mesh/mesh';
 import type { MeshData } from '../../data/types';
+import { nearestDistances } from '../../mesh/nearest';
 
 function falloff(type: string, t: number): number {
   // t: 0 at selection → 1 at radius
@@ -170,18 +171,23 @@ transformProviders.push({
             }
           }
         } else {
-          const selPts: Vector3[] = [];
-          for (let i = 0; i < nv; i++) if (weight[i]) selPts.push(new Vector3(base[i * 3], base[i * 3 + 1], base[i * 3 + 2]).applyMatrix4(world));
+          // world-space distance to the nearest selected vertex (only those within reach matter)
+          const selPts: number[] = [],
+            others: number[] = [],
+            otherIdx: number[] = [];
+          const p = new Vector3();
           for (let i = 0; i < nv; i++) {
+            p.set(base[i * 3], base[i * 3 + 1], base[i * 3 + 2]).applyMatrix4(world);
             if (weight[i]) {
               dist[i] = 0;
-              continue;
+              selPts.push(p.x, p.y, p.z);
+            } else {
+              others.push(p.x, p.y, p.z);
+              otherIdx.push(i);
             }
-            const p = new Vector3(base[i * 3], base[i * 3 + 1], base[i * 3 + 2]).applyMatrix4(world);
-            let best = Infinity;
-            for (const q of selPts) best = Math.min(best, p.distanceToSquared(q));
-            dist[i] = Math.sqrt(best);
           }
+          const near = nearestDistances(selPts, others, radius);
+          otherIdx.forEach((i, k) => (dist[i] = near[k]));
         }
         for (let i = 0; i < nv; i++) if (!weight[i] && dist[i] < radius && !me.hide_vert?.[i]) weight[i] = falloff(ts.proportional_edit_falloff, dist[i] / radius);
       }
