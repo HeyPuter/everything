@@ -358,10 +358,12 @@ export function upcomingVideoClips(project, t, ahead) {
   const out = [];
   for (const track of project.tracks) {
     if (track.kind !== 'video' || track.hidden) continue;
-    for (const c of track.clips) {
+    const clips = track.clips;
+    for (let i = 0; i < clips.length; i++) {
+      const c = clips[i];
       if (c.type !== 'video') continue;
       const pad = c.transition ? c.transition.duration : 0;
-      const prev = track.clips[track.clips.indexOf(c) - 1];
+      const prev = clips[i - 1];
       const lead = prev?.transition ? prev.transition.duration : 0;
       if (c.start - lead <= t + ahead && clipEnd(c) + pad > t) out.push(c);
     }
