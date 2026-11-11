@@ -435,6 +435,26 @@ describe('FileService', () => {
     expect(reopened.doc.root.name).toBe('Changed');
   });
 
+  it('saves again after an in-flight save when the document changed meanwhile', async () => {
+    const { app, files, puter } = fakeApp();
+    const svc = new FileService(app, { recent: null });
+    const ed = app.addDocument(sampleDoc(), { file: { kind: 'puter', path: '/u/Logo.vstudio', name: 'Logo.vstudio' } });
+    const write = puter.fs.write.getMockImplementation();
+    let release;
+    puter.fs.write.mockImplementationOnce((...a) => new Promise((r) => (release = () => r(write(...a)))));
+    const first = svc.save(ed);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    // An edit while the first write is still in flight, then Save again (or Close > Save).
+    ed.doc.transact('Rename', () => ed.doc.updateRoot({ name: 'Edited during save' }));
+    const second = svc.save(ed);
+    release();
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(ed.doc.dirty).toBe(false);
+    expect(puter.fs.write).toHaveBeenCalledTimes(2);
+    expect((await parseDocument(files.get('/u/Logo.vstudio'))).doc.root.name).toBe('Edited during save');
+  });
+
   it('returns false when the save picker is cancelled', async () => {
     const { app } = fakeApp({ cancelPicker: true });
     const svc = new FileService(app, { recent: null });

@@ -153,7 +153,19 @@ export class FileService {
   /** Save in place (Save As when the document has no file yet). Resolves true when saved. */
   save(editor = this.app.editor) {
     if (!editor) return Promise.resolve(false);
-    if (editor._saving) return editor._saving;
+    if (editor._saving) {
+      // A save is still writing: once it lands, save again if the document changed meanwhile,
+      // so Save (or Close > Save) never reports success for edits that were not written.
+      if (!editor._saveAgain) {
+        const again = editor._saving
+          .then((ok) => (ok && editor.doc.dirty ? this.save(editor) : ok))
+          .finally(() => {
+            if (editor._saveAgain === again) editor._saveAgain = null;
+          });
+        editor._saveAgain = again;
+      }
+      return editor._saveAgain;
+    }
     const job = this.#save(editor).finally(() => {
       editor._saving = null;
     });
