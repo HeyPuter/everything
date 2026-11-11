@@ -402,6 +402,20 @@ puter-user-menu::part(apps-panel) {
   margin-right: 6px;
 }
 
+/* A finger-sized target on touch screens: a transparent hit area fills the taller tab strip
+   and the gaps beside the button without widening the strip, so no tab label gets cut off. */
+@media (pointer: coarse) {
+  .panel-menu-btn {
+    position: relative;
+  }
+
+  .panel-menu-btn::before {
+    content: '';
+    position: absolute;
+    inset: -9px -8px -9px -6px;
+  }
+}
+
 .panel-body {
   position: relative;
   flex: 1;
