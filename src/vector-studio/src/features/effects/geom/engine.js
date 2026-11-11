@@ -12,6 +12,7 @@ import { OP, runGeom, geomIfLoaded } from '../../geometry/engine/index.js';
 import { encode, jobSize } from '../../geometry/engine/codec.js';
 import { geomEffectsChanged } from '../../../model/geom-effects.js';
 import { paintParts } from '../../../model/geom-effects.js';
+import { JOIN, CAP, ALIGN, strokeParams } from '../../geometry/stroke-params.js';
 
 /** Anchor count up to which a job runs synchronously while drawing. */
 export const SYNC_LIMIT = 4000;
@@ -76,9 +77,6 @@ export function clearEngineResults() {
   results.clear();
 }
 
-const JOIN = { miter: 0, round: 1, bevel: 2 };
-const CAP = { butt: 0, round: 1, square: 2 };
-const ALIGN = { center: 0, inside: 1, outside: 2 };
 
 /** Engine shapes for outlines grouped by paint, applying `fn(subpaths, paint)` to each group. */
 function byPaint(node, subs, fn) {
@@ -121,8 +119,7 @@ export function offsetPath(subs, fx, info) {
 export function outlineStroke(subs, fx, info) {
   const n = info.node;
   if (!n || !(n.strokeWidth > 0) || !n.stroke) return subs;
-  const dash = n.dash?.length ? n.dash : [];
-  const params = [n.strokeWidth, JOIN[n.strokeJoin] ?? 0, CAP[n.strokeCap] ?? 0, n.miterLimit || 10, ALIGN[n.strokeAlign] ?? 0, n.dashOffset || 0, ...dash];
+  const params = strokeParams(n);
   return byPaint(n, subs, (group, paint) => {
     if (paint) return group;
     const r = engineResult(OP.STROKE, [{ subpaths: group, filled: Boolean(n.fill), evenodd: n.fillRule === 'evenodd' }], params, { pending: info.pending });

@@ -290,6 +290,13 @@ describe('engine effects', () => {
     expect(outlineStroke(rect(), {}, { node: { type: 'path', stroke: null } })).toEqual(rect());
   });
 
+  it('outlines the dots of a dotted stroke (zero-length dashes with round caps)', () => {
+    const node = { type: 'path', stroke: blue, strokeWidth: 10, strokeCap: 'round', dash: [0, 20], fill: null };
+    const out = outlineStroke([{ anchors: line(0, 0, 100, 0), closed: false }], {}, { node, pending: () => {} });
+    expect(out).toHaveLength(5);
+    for (const s of out) expect(area([s])).toBeCloseTo(Math.PI * 25, 0);
+  });
+
   it('combines group items with the pathfinder style rules', () => {
     const items = [
       { style: { fill: red, stroke: null }, subpaths: [{ anchors: rectangle(0, 0, 60, 60), closed: true }] },
