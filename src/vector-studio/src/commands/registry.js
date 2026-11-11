@@ -40,6 +40,7 @@ export class CommandRegistry {
       def.altShortcuts = undefined;
     }
     this.commands.set(def.id, def);
+    this.conditional = null;
     for (const s of [].concat(def.shortcut || [], def.altShortcuts || [])) {
       this.byShortcut.set(normalizeShortcut(s), def.id);
     }
@@ -52,6 +53,7 @@ export class CommandRegistry {
   setOverrides(overrides) {
     this.overrides = new Map(Object.entries(overrides || {}));
     this.byShortcut = new Map();
+    this.conditional = null;
     for (const def of this.commands.values()) {
       if (this.overrides.has(def.id)) {
         def.shortcut = this.overrides.get(def.id) || undefined;
@@ -108,9 +110,41 @@ export class CommandRegistry {
     }
   }
 
-  /** Command id for a keyboard event, or null. */
+  /**
+   * Command id for a keyboard event, or null. Where two commands share keys
+   * (Shift+Mod+K is both Color Settings and All Caps), one with
+   * a `shortcutWhen(app)` that holds right now wins (All Caps with text
+   * selected); otherwise the one without a condition does.
+   */
   match(ev) {
-    return this.byShortcut.get(eventShortcut(ev)) || null;
+    const key = eventShortcut(ev);
+    const id = this.byShortcut.get(key) || null;
+    if (!this.conditional) {
+      // Commands with a shortcut condition, by key (rebuilt after register/setOverrides).
+      this.conditional = new Map();
+      for (const c of this.commands.values()) {
+        if (!c.shortcutWhen) continue;
+        for (const s of [].concat(c.shortcut || [], c.altShortcuts || [])) {
+          const k = normalizeShortcut(s);
+          this.conditional.set(k, [...(this.conditional.get(k) || []), c]);
+        }
+      }
+    }
+    const shared = this.conditional.get(key);
+    if (!shared) return id;
+    const now = shared.find((c) => {
+      try {
+        return c.shortcutWhen(this.app);
+      } catch {
+        return false;
+      }
+    });
+    if (now) return now.id;
+    if (id && !this.commands.get(id)?.shortcutWhen) return id;
+    for (const c of this.commands.values()) {
+      if (!c.shortcutWhen && [].concat(c.shortcut || [], c.altShortcuts || []).some((s) => normalizeShortcut(s) === key)) return c.id;
+    }
+    return null;
   }
 
   shortcutLabel(id) {

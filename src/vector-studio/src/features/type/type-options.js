@@ -474,7 +474,8 @@ export function installTypeOptions(app) {
   installAutoSize(app);
   const c = app.commands;
   c.register([
-    charToggle('type.allCaps', 'All Caps', 'caps', 'all', 'normal', 'Shift+Mod+K'),
+    // Shift+Mod+K is also Color Settings: it toggles All Caps only with text to act on.
+    { ...charToggle('type.allCaps', 'All Caps', 'caps', 'all', 'normal', 'Shift+Mod+K'), shortcutWhen: (a) => currentTextNodes(a).length > 0 },
     charToggle('type.smallCaps', 'Small Caps', 'caps', 'small', 'normal'),
     charToggle('type.superscript', 'Superscript', 'position', 'super', 'normal'),
     charToggle('type.subscript', 'Subscript', 'position', 'sub', 'normal'),
