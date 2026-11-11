@@ -135,12 +135,11 @@ export function createSessionState({ sampleRate = 48000, bitDepth = 32, tracks =
   let list;
   if (Array.isArray(template)) list = template.map((t, i) => createTrack({ color: TRACK_COLORS[i % TRACK_COLORS.length], ...t }));
   else list = Array.from({ length: tracks }, (_, i) => createTrack({ name: `Track ${i + 1}`, color: TRACK_COLORS[i % TRACK_COLORS.length] }));
-  // Template tracks may name a bus by its name for their output.
+  // Template tracks may name a bus by its name for their output and sends.
+  const busId = (name) => list.find((b) => b.type === 'bus' && b.name === name)?.id;
   for (const t of list) {
-    if (t.output !== 'master' && !list.some((b) => b.id === t.output)) {
-      const bus = list.find((b) => b.type === 'bus' && b.name === t.output);
-      t.output = bus ? bus.id : 'master';
-    }
+    if (t.output !== 'master' && !list.some((b) => b.id === t.output)) t.output = busId(t.output) || 'master';
+    for (const x of t.sends) if (x.target && !list.some((b) => b.id === x.target)) x.target = busId(x.target) || null;
   }
   return {
     sampleRate,
