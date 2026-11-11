@@ -187,25 +187,41 @@ function dissolveEdges(m: MeshEdit, useVerts: boolean) {
         nb = B.verts.length;
       let ia = -1;
       for (let i = 0; i < na && ia < 0; i++) if (edgeKey(A.verts[i], A.verts[(i + 1) % na]) === k) ia = i;
-      const a = A.verts[ia],
-        b = A.verts[(ia + 1) % na];
-      // A: ... a b ... ; B contains b a
-      const jb = B.verts.indexOf(b);
-      if (B.verts[(jb + 1) % nb] !== a) continue;
+      // B runs along the edge the other way (B contains y then x)
+      const reversedInB = (x: number, y: number) => {
+        const j = B.verts.indexOf(y);
+        return j >= 0 && B.verts[(j + 1) % nb] === x;
+      };
+      if (!reversedInB(A.verts[ia], A.verts[(ia + 1) % na])) continue;
+      // the faces may share a chain of edges around this one (A: … p0 … pm …): join across all of it,
+      // dropping the chain's inner vertices, like Blender's face join
+      let s0 = ia,
+        e0 = (ia + 1) % na,
+        chain = 1;
+      while (chain < na - 1 && reversedInB(A.verts[(s0 - 1 + na) % na], A.verts[s0])) {
+        s0 = (s0 - 1 + na) % na;
+        chain++;
+      }
+      while (chain < na - 1 && reversedInB(A.verts[e0], A.verts[(e0 + 1) % na])) {
+        e0 = (e0 + 1) % na;
+        chain++;
+      }
+      if (chain >= nb - 1) continue;
       const verts: number[] = [],
         uvs: number[] = [];
-      for (let k2 = 0; k2 < na; k2++) {
-        const j = (ia + 1 + k2) % na; // start at b, go around to a
+      for (let k2 = 0; k2 <= na - chain; k2++) {
+        const j = (e0 + k2) % na; // start at pm, go around to p0
         verts.push(A.verts[j]);
         uvs.push(A.uvs[j * 2], A.uvs[j * 2 + 1]);
       }
-      // B from after a back to before b
-      for (let k2 = 2; k2 < nb; k2++) {
-        const j = (jb + k2) % nb;
+      // B from after p0 back to before pm
+      const jp0 = B.verts.indexOf(A.verts[s0]);
+      for (let k2 = 1; k2 < nb - chain; k2++) {
+        const j = (jp0 + k2) % nb;
         verts.push(B.verts[j]);
         uvs.push(B.uvs[j * 2], B.uvs[j * 2 + 1]);
       }
-      if (new Set(verts).size !== verts.length) continue;
+      if (verts.length < 3 || new Set(verts).size !== verts.length) continue;
       unlink(fa);
       unlink(fb);
       faces[fa] = faces[fb] = null;
