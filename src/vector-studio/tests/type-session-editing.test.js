@@ -197,4 +197,14 @@ describe('type editing session', () => {
     expect(doc.undoStack.length).toBe(steps);
     expect(doc.get(id).runs).toBeUndefined();
   });
+
+  it('Smart Punctuation on selected characters keeps exactly those characters selected', async () => {
+    const { applySmartPunctuation } = await import('../src/features/type/smart-punctuation.js');
+    const id = add('Wait... and -- then... the end');
+    const s = edit(id);
+    s.setSelection(0, 22);
+    applySmartPunctuation(app, { ellipses: true, dashes: true }, 'selection');
+    expect(doc.get(id).text).toBe('Wait\u2026 and \u2013 then\u2026 the end');
+    expect(s.selectedText()).toBe('Wait\u2026 and \u2013 then\u2026');
+  });
 });
