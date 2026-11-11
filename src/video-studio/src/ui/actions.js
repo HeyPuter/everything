@@ -55,31 +55,43 @@ export function createActions(ctx) {
     return ok ? clip : null;
   }
 
-  const actions = {
-    /** Import local files into the project's media library. Returns the new assets. */
-    async importFiles(files, { addToTimeline = false, folder = null, origin } = {}) {
-      const list = [...files];
-      const assets = [];
-      for (const file of list) {
-        try {
-          const asset = await ctx.library.importFile(file, origin ? { origin } : undefined);
-          // Into the media bin folder being viewed (see model/bins.js).
-          if (folder && store.project.bins?.some((b) => b.id === folder)) asset.folder = folder;
-          assets.push(asset);
-        } catch (err) {
-          console.error(err);
-          toast(importErrorText(file, err), { kind: 'error' });
-        }
+  /** The import itself (see actions.importFiles). */
+  async function importFilesNow(files, { addToTimeline = false, folder = null, origin } = {}) {
+    const list = [...files];
+    const assets = [];
+    for (const file of list) {
+      try {
+        const asset = await ctx.library.importFile(file, origin ? { origin } : undefined);
+        // Into the media bin folder being viewed (see model/bins.js).
+        if (folder && store.project.bins?.some((b) => b.id === folder)) asset.folder = folder;
+        assets.push(asset);
+      } catch (err) {
+        console.error(err);
+        toast(importErrorText(file, err), { kind: 'error' });
       }
-      if (!assets.length) return [];
-      store.update(assets.length === 1 ? `Import ${assets[0].name}` : `Import ${assets.length} files`, (p) => {
-        for (const a of assets) p.assets[a.id] = a;
-      }, { structural: false });
-      // Several files go one after another, starting at the playhead.
-      let at = store.time;
-      if (addToTimeline) for (const a of assets) at = T.clipEnd(actions.addAsset(a, { start: at }) || { start: at, duration: 0 });
-      announce(assets.length === 1 ? `Imported ${assets[0].name}` : `Imported ${assets.length} files`);
-      return assets;
+    }
+    if (!assets.length) return [];
+    store.update(assets.length === 1 ? `Import ${assets[0].name}` : `Import ${assets.length} files`, (p) => {
+      for (const a of assets) p.assets[a.id] = a;
+    }, { structural: false });
+    // Several files go one after another, starting at the playhead.
+    let at = store.time;
+    if (addToTimeline) for (const a of assets) at = T.clipEnd(actions.addAsset(a, { start: at }) || { start: at, duration: 0 });
+    announce(assets.length === 1 ? `Imported ${assets[0].name}` : `Imported ${assets.length} files`);
+    return assets;
+  }
+
+  const actions = {
+    /**
+     * Import local files into the project's media library. Returns the new assets.
+     * Leaving the editor waits for imports in progress (ctx.imports), so they are saved.
+     */
+    importFiles(files, opts) {
+      const job = importFilesNow(files, opts);
+      const imports = (ctx.imports ||= new Set());
+      imports.add(job);
+      job.finally(() => imports.delete(job)).catch(() => {});
+      return job;
     },
 
     /** Register an asset produced in the app (recording, speech, sound effect). */

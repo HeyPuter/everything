@@ -468,6 +468,8 @@ export class Editor {
     // Asked twice (a double click, the window closing while asking): one question.
     this._leaving ||= (async () => {
       this.ctx.player?.pause();
+      // Files being imported join the project when they are read: wait, so they are saved too.
+      if (this.ctx.imports?.size) await Promise.allSettled([...this.ctx.imports]);
       let saved = true;
       try {
         await this.saver.flush();

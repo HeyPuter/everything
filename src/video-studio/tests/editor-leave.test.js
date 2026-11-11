@@ -49,6 +49,26 @@ describe('leaving the editor', () => {
     expect((await library.openProject(p.id)).name).toBe('Saved name');
   });
 
+  it('waits for files being imported, so they are in the saved project', async () => {
+    const { library, onExit, p } = await open();
+    // Reading the file takes a moment; the user leaves meanwhile.
+    let finish;
+    const read = new Promise((r) => (finish = r));
+    vi.spyOn(library, 'importFile').mockImplementation(async (file) => {
+      await read;
+      return { id: 'a_new', kind: 'image', name: file.name, hash: 'h9', ext: 'png', width: 4, height: 4, added: 1 };
+    });
+    const importing = editor.ctx.actions.importFiles([new File(['x'], 'late.png', { type: 'image/png' })]);
+    const leaving = editor.exit();
+    await settle();
+    expect(onExit).not.toHaveBeenCalled();
+    finish();
+    await importing;
+    await leaving;
+    expect(onExit).toHaveBeenCalled();
+    expect((await library.openProject(p.id)).assets.a_new?.name).toBe('late.png');
+  });
+
   it('stays open after a failed save when the user chooses to stay, and keeps retrying', async () => {
     const { backend, library, onExit, p } = await open();
     rename('Unsaved name');

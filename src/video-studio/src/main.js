@@ -114,13 +114,14 @@ async function openProject(id, files) {
   }
   history.replaceState(null, '', `#project=${encodeURIComponent(id)}`);
   if (files?.length) {
-    const assets = await view.ctx.actions.importFiles(files);
+    const { ctx } = view;
+    const assets = await ctx.actions.importFiles(files);
     let first = true;
     for (const a of assets) {
-      view.ctx.actions.addAsset(a, { start: view.ctx.store.duration, adoptRatio: first });
+      ctx.actions.addAsset(a, { start: ctx.store.duration, adoptRatio: first });
       first = false;
     }
-    view.ctx.store.seek(0);
+    ctx.store.seek(0);
   }
 }
 
