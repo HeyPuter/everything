@@ -104,3 +104,14 @@ describe('text contrast', () => {
     }
   });
 });
+
+describe('buttons', () => {
+  it('let a full-width button wrap a label that does not fit, at the usual height otherwise', () => {
+    const base = css('base.css');
+    const block = rule(base, '.btn.block');
+    expect(block).toMatch(/white-space:\s*normal/);
+    expect(block).toMatch(/height:\s*auto/);
+    expect(block).toMatch(/min-height:\s*32px/);
+    expect(rule(base, '.btn.small.block')).toMatch(/min-height:\s*28px/);
+  });
+});
