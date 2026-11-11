@@ -61,4 +61,21 @@ describe('Frequency Analysis panel', () => {
     await vi.advanceTimersByTimeAsync(300);
     expect(poolCall.mock.calls[0][0].frames).toBe(msg.frames);
   });
+
+  it('does no analysis while hidden and catches up when shown', async () => {
+    vi.useFakeTimers();
+    const { panel, doc } = setup();
+    panel.show();
+    await vi.advanceTimersByTimeAsync(300);
+    panel.hide();
+    poolCall.mockClear();
+    doc.setSelection(1000, 60000);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(poolCall).not.toHaveBeenCalled();
+    // Showing it again analyses the new selection without waiting.
+    panel.show();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(poolCall).toHaveBeenCalledTimes(1);
+    expect(poolCall.mock.calls[0][0].frames).toBeGreaterThan(1);
+  });
 });

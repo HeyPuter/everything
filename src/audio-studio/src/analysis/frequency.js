@@ -97,6 +97,7 @@ export function frequencyPanel(app) {
   let scanRange = null; // set by Scan until the selection or document changes
   let hoverX = null;
   let gen = 0;
+  let stale = false; // something changed while the panel was hidden
   let d = null;
   let analyzers = new Map();
   dsp().then((x) => (d = x)).catch(() => {});
@@ -134,6 +135,11 @@ export function frequencyPanel(app) {
   });
 
   const compute = async ({ scan = false } = {}) => {
+    // A hidden panel skips the analysis; show() computes it again.
+    if (!visible) {
+      stale = true;
+      return;
+    }
     const doc = app.active;
     const my = ++gen;
     if (scan && doc?.kind === 'audio') scanRange = { doc, ...(doc.hasSelection ? doc.selection : { start: 0, end: doc.length }) };
@@ -420,7 +426,12 @@ export function frequencyPanel(app) {
     show() {
       visible = true;
       tap.start();
-      recompute();
+      if (stale) {
+        // Replace the trace from before the panel was hidden right away.
+        stale = false;
+        recompute.cancel();
+        compute();
+      } else recompute();
       schedule();
     },
     hide() {
