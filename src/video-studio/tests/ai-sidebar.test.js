@@ -275,6 +275,19 @@ describe('AI sidebar tools', () => {
     expect((await runner.run('generate_transition', { after_clip: b.id })).content).toMatch(/no video or image clip follows/);
   });
 
+  it('keeps what it makes within the timeline and an image within an hour', async () => {
+    const { store, ctx } = setup(clip('video', 0, 4));
+    const { runner } = runnerFor(ctx);
+    const pic = await runner.run('generate_image', { prompt: 'x', place: 'overlay', start: 1e9, duration: 1e9 });
+    const made = findClip(store.project, pic.target.ids[0]).clip;
+    expect(made.start).toBe(s(4));
+    expect(made.duration).toBe(s(3600));
+    const voice = await runner.run('add_voiceover', { text: 'x', start: -5 });
+    expect(findClip(store.project, voice.target.ids[0]).clip.start).toBe(0);
+    const added = await runner.run('add_media_to_timeline', { media: made.assetId, place: 'end', duration: 1e9 });
+    expect(findClip(store.project, added.target.ids[0]).clip.duration).toBe(s(3600));
+  });
+
   it('refuses media ids that are only names every object has', async () => {
     const { store, ctx } = setup(clip('video', 0, 4));
     const { runner, services } = runnerFor(ctx);

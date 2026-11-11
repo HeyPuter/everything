@@ -40,6 +40,8 @@ const span = (c) => `${secs(c.start)}-${secs(c.start + c.duration)}`;
 // A media id the model names, looked up as the project's own: "constructor" or "toString" found Object's and put a
 // clip of no length on the timeline.
 const mediaById = (project, id) => (id && Object.hasOwn(project.assets || {}, id) ? project.assets[id] : null);
+/** An image clip length the model asks for (seconds) in microseconds, as add_text takes it (0.2 s to an hour); 0 when none. */
+const imageLength = (v) => (Number.isFinite(num(v)) ? Math.round(Math.min(3600, Math.max(0.2, num(v))) * US) : 0);
 const elapsed = (ms) => {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -172,7 +174,8 @@ export function createAiToolRunner(ctx, services = {}) {
    */
   function place(asset, { place: where = 'end', start, duration, afterId = null, trackId } = {}) {
     const p = store.project;
-    const t = Number.isFinite(num(start)) ? Math.round(Math.max(0, num(start)) * US) : store.time;
+    // Within the timeline, as the edit tools' times are: "start": 1e9 made a timeline thousands of years long.
+    const t = Number.isFinite(num(start)) ? Math.round(Math.min(Math.max(0, num(start)), store.duration / US) * US) : store.time;
     if (where === 'media') return { clip: null, words: 'in the media library (not on the timeline)' };
     let clip = null;
     if (!isVisual(asset)) clip = actions.addAsset(asset, { start: t });
@@ -419,7 +422,7 @@ export function createAiToolRunner(ctx, services = {}) {
       if (!made) return { skipped: true };
       const asset = await importMade(new File([made.blob], imageFileName(prompt, (made.blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')), { type: made.blob.type || 'image/png' }), 'ai-image');
       if (control?.stopped?.()) return keepMade(asset, 'picture');
-      const duration = Number.isFinite(num(a.duration)) ? Math.round(Math.max(0.2, num(a.duration)) * US) : 0;
+      const duration = imageLength(a.duration);
       const { entry, value } = oneStep('Generate picture', asset, () => place(asset, { place: a.place, start: a.start, duration }), at);
       if (value.clip) store.select(value.clip.id);
       return ok(`made a picture (media ${asset.id}) and added it ${value.words}.`, { changed: true, entry, target: value.clip ? { ids: [value.clip.id], time: value.clip.start } : null });
@@ -469,7 +472,7 @@ export function createAiToolRunner(ctx, services = {}) {
     add_media_to_timeline(a) {
       const asset = mediaById(store.project, str(a.media, 80));
       if (!asset) return fail(`there is no media ${str(a.media, 80) || '(none named)'} in the library (call list_media)`);
-      const duration = Number.isFinite(num(a.duration)) ? Math.round(Math.max(0.2, num(a.duration)) * US) : 0;
+      const duration = imageLength(a.duration);
       const mark = store.beginBatch();
       let value;
       try {
