@@ -354,3 +354,80 @@ test('a fill reaches the stroke all around in a perspective view', async ({ page
   expect(r.max).toBeLessThan(96);
   await expectNoErrors(errors);
 });
+
+test.describe('right click while dragging cancels', () => {
+  const objState = (page: Page) =>
+    ev(page, () => {
+      const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+      return { loc: (a.activeObject?.location as number[]).map((v) => +v.toFixed(3)), modal: !!a.modal, sel: Object.values(a.doc.objects as Record<string, { select: boolean }>).filter((o) => o.select).length };
+    });
+
+  test('a tweak-drag move, a box select and a lasso; a plain right click still opens the menu', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y, box } = await viewportCenter(page);
+    await page.evaluate(() => (window as any).app.run('wm.tool_set_by_id', { name: 'builtin.select' }, { invoke: false })); // eslint-disable-line @typescript-eslint/no-explicit-any
+    // tweak: drag the cube, right click with the left still held
+    const s0 = await objState(page);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 80, y + 30, { steps: 6 });
+    expect((await objState(page)).modal).toBe(true);
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.up({ button: 'right' });
+    await page.mouse.up();
+    const s1 = await objState(page);
+    expect(s1.modal).toBe(false);
+    expect(s1.loc).toEqual(s0.loc);
+    await expect(page.locator('.menu')).toHaveCount(0);
+    // box select around the cube from empty space: cancelled, nothing gets selected
+    await page.evaluate(() => {
+      const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+      a.run('object.select_all', { action: 'DESELECT' }, { invoke: false });
+      a.run('wm.tool_set_by_id', { name: 'builtin.select_box' }, { invoke: false });
+    });
+    await page.mouse.move(box.x + 150, box.y + 150);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 150, box.y + box.height - 150, { steps: 6 });
+    await expect(page.locator('.view3d .select-box').first()).toBeVisible();
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.up({ button: 'right' });
+    await expect(page.locator('.view3d .select-box').first()).toBeHidden();
+    await page.mouse.up();
+    expect((await objState(page)).sel).toBe(0);
+    await expect(page.locator('.menu')).toHaveCount(0);
+    // lasso: cancelled too
+    await page.evaluate(() => (window as any).app.run('wm.tool_set_by_id', { name: 'builtin.select_lasso' }, { invoke: false })); // eslint-disable-line @typescript-eslint/no-explicit-any
+    await page.mouse.move(box.x + 150, box.y + 150);
+    await page.mouse.down();
+    for (const [dx, dy] of [[400, 0], [400, 400], [0, 400], [0, 10]]) await page.mouse.move(box.x + 150 + dx, box.y + 150 + dy, { steps: 4 });
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.up({ button: 'right' });
+    await page.mouse.up();
+    expect((await objState(page)).sel).toBe(0);
+    await expect(page.locator('.menu')).toHaveCount(0);
+    // an ordinary right click opens the context menu
+    await page.mouse.click(x, y, { button: 'right' });
+    await expect(page.locator('.menu')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expectNoErrors(errors);
+  });
+
+  test('a Pen tool handle drag', async ({ page }) => {
+    const errors = await openApp(page);
+    await emptyGP(page, 'EDIT');
+    await page.evaluate(() => (window as any).app.run('wm.tool_set_by_id', { name: 'builtin.pen' }, { invoke: false })); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { x, y } = await viewportCenter(page);
+    await page.mouse.click(x, y);
+    await page.waitForTimeout(400);
+    // drag out a new point, then cancel it with a right click
+    await page.mouse.move(x + 100, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 140, y + 30, { steps: 5 });
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.up({ button: 'right' });
+    await page.mouse.up();
+    expect(await gpPoints(page)).toBe(1);
+    expect(await ev(page, () => (window as any).app.modal)).toBeNull(); // eslint-disable-line @typescript-eslint/no-explicit-any
+    await expectNoErrors(errors);
+  });
+});

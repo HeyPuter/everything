@@ -94,12 +94,14 @@ const local = (v: View3D, e: { clientX: number; clientY: number }) => {
 export function lassoDrag(v: View3D, e: PointerEvent, mode: SelectMode) {
   const pts = [local(v, e)];
   const move = (ev: PointerEvent) => {
+    // a right press while the left is held (it arrives as a move) cancels the lasso
+    if (ev.buttons & ~e.buttons & 2) return stopFollow(ev);
     const p = local(v, ev);
     const last = pts[pts.length - 1];
     if (Math.hypot(p.x - last.x, p.y - last.y) > 2) pts.push(p);
     drawLasso(v, pts);
   };
-  followPointer(e, move, (_ev, cancelled) => {
+  const stopFollow = followPointer(e, move, (_ev, cancelled) => {
     drawLasso(v, null);
     if (pts.length >= 3 && !cancelled) selectInRegion(v, { kind: 'lasso', pts }, mode, 'Lasso Select');
   });

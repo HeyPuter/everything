@@ -787,6 +787,12 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     const move = (ev: PointerEvent) => {
       // other fingers / pens do not drive this selection
       if (ev.pointerId !== e.pointerId) return;
+      // a right press while the left is held (it arrives as a move) cancels the box / click
+      if (ev.buttons & ~e.buttons & 2) {
+        stop();
+        this.boxEl.hidden = true;
+        return;
+      }
       const q = this.local(ev);
       if (!dragging && Math.hypot(q.x - start.x, q.y - start.y) > prefs.drag_threshold_mouse) {
         dragging = true;

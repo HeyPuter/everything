@@ -361,10 +361,35 @@ export function installKeyboard() {
     },
     true,
   );
+  // a button pressed while another one is held arrives as a pointer move with more `buttons`
+  // (a chorded press, no pointerdown): a right press during a left drag still reaches the modal,
+  // so right click cancels drags
+  let heldButtons = 0;
   addEventListener(
     'pointermove',
     (e) => {
       app.pointer = { x: e.clientX, y: e.clientY };
+      const pressed = e.buttons & ~heldButtons;
+      heldButtons = e.buttons;
+      if (pressed & 2 && app.modal?.onPointerDown) {
+        const down = new PointerEvent('pointerdown', {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          button: 2,
+          buttons: e.buttons,
+          pointerId: e.pointerId,
+          pointerType: e.pointerType,
+          shiftKey: e.shiftKey,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+        });
+        const r = app.modal.onPointerDown(down);
+        if (r) {
+          app.endModal(r);
+          return;
+        }
+      }
       if (app.modal?.onPointerMove) app.modal.onPointerMove(e);
     },
     true,
@@ -372,6 +397,7 @@ export function installKeyboard() {
   addEventListener(
     'pointerdown',
     (e) => {
+      heldButtons = e.buttons;
       if (!app.modal) return;
       // modal pointer clicks are handled by the editor under the pointer, or here as fallback
       const inArea = (e.target as HTMLElement).closest?.('.area-main');
@@ -388,6 +414,7 @@ export function installKeyboard() {
   addEventListener(
     'pointerup',
     (e) => {
+      heldButtons = e.buttons;
       if (!app.modal) return;
       const r = app.modal.onPointerUp?.(e);
       if (r) app.endModal(r);
