@@ -216,3 +216,36 @@ describe('PDF decompression bombs', () => {
     expect(doc.assets.size).toBe(1);
   });
 });
+
+describe('PDF content that multiplies itself', () => {
+  it('a Type 3 glyph that draws its own font is drawn once, not exponentially', async () => {
+    const doc = await open(
+      onePage('BT /F1 12 Tf 10 10 Td (aaaa) Tj ET', {
+        resources: '<< /Font << /F1 5 0 R >> >>',
+        extra: [
+          '<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /a 6 0 R >> /Encoding << /Differences [97 /a] >> /FirstChar 97 /LastChar 97 /Widths [1000] /Resources << /Font << /F1 5 0 R >> >> >>',
+          { dict: '<< >>', stream: '1000 0 d0 BT /F1 12 Tf (aa) Tj ET 0 0 500 500 re f' },
+        ],
+      }),
+    );
+    // Four glyphs, each one square.
+    expect(leaves(doc).filter((n) => n.type === 'path')).toHaveLength(4);
+  });
+
+  it('stops making objects past the limit and says so', async () => {
+    const { PDFDocument } = await import('../src/features/interop/pdf/document.js');
+    const { Interpreter } = await import('../src/features/interop/pdf/interpret.js');
+    const { Builder } = await import('../src/features/interop/pdf/build.js');
+    const pdf = new PDFDocument(onePage('0 0 1 1 re f\n'.repeat(100)));
+    const builder = new Builder();
+    const interp = new Interpreter(pdf, { builder, maxNodes: 20 });
+    interp.renderPage(pdf.pages[0], [1, 0, 0, 1, 0, 0]);
+    expect(builder.nodes.size).toBeLessThanOrEqual(25);
+    expect(interp.warnings).toContain('The page has too much content; part of it was not imported.');
+  });
+
+  it('graphics state saves nested past the limit still restore in pairs', async () => {
+    const doc = await open(onePage(`${'q '.repeat(1500)} 1 0 0 rg 0 0 5 5 re f ${'Q '.repeat(1500)} 10 10 5 5 re f`));
+    expect(leaves(doc).map((n) => n.fill.color)).toEqual(['#ff0000', '#000000']);
+  });
+});
