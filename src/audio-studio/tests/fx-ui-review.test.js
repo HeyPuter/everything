@@ -12,6 +12,8 @@ import { openEffectDialog } from '../src/effects/dialog.js';
 import { getEffect } from '../src/effects/registry.js';
 import { installPreviewEditor } from '../src/editor/preview-editor.js';
 import { installFavorites, favoritesPanel, saveFavorites } from '../src/effects/favorites.js';
+import { generateNoiseCommand, NOISE_DEF } from '../src/effects/generate-ui.js';
+import { savePreset, userPresets } from '../src/effects/presets.js';
 
 const pointer = (type, x, y) =>
   new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
@@ -442,5 +444,31 @@ describe('Multiband Compressor crossovers', () => {
     expect(latest.xover2).toBeGreaterThan(latest.xover1);
     [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
     await done;
+  });
+});
+
+describe('generator presets', () => {
+  it('can delete your own presets', async () => {
+    const app = fakeApp();
+    savePreset(app.prefs, NOISE_DEF, 'Quiet Pink', { color: 'pink', volume: -40 });
+    app.prefs.set('fxLast', { 'gen.noise': { color: 'pink', volume: -40 } });
+    const run = generateNoiseCommand(app);
+    await new Promise((r) => setTimeout(r, 0));
+    const dlg = [...document.querySelectorAll('.fx-dialog')].at(-1);
+    const sel = dlg.querySelector('.fx-preset-select');
+    const del = dlg.querySelector('[aria-label="Delete preset"]');
+    expect(sel.value).toBe('Quiet Pink');
+    expect(del.disabled).toBe(false);
+    del.click();
+    expect(userPresets(app.prefs, 'gen.noise')).toEqual([]);
+    expect(sel.value).toBe('');
+    expect(del.disabled).toBe(true);
+    // Built-in presets stay.
+    sel.value = 'Brown Rumble';
+    sel.dispatchEvent(new Event('change'));
+    expect(sel.value).toBe('Brown Rumble');
+    expect(del.disabled).toBe(true);
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    expect(await run).toBe(null);
   });
 });

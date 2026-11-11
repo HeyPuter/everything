@@ -12,7 +12,7 @@ import { AudioFile } from '../model/audio-file.js';
 import * as E from '../model/edits.js';
 import { paramControls, inlinePrompt } from './dialog.js';
 import { normalizeValues } from './params.js';
-import { allPresets, savePreset, matchPreset, lastValues, rememberValues } from './presets.js';
+import { allPresets, savePreset, deletePreset, matchPreset, lastValues, rememberValues } from './presets.js';
 import { generateTones, generateNoise, dbToGain, WAVEFORMS, NOISE_COLORS, NOISE_STYLES } from './generate.js';
 import { tonesBody, noiseBody } from './generate-views.js';
 import { controlsFor } from './layout.js';
@@ -288,6 +288,7 @@ async function generatorDialog(app, def, { withPlacement, preview = null }) {
     const cur = matchPreset(app.prefs, def, ctx.values);
     presetSel.replaceChildren(...(cur ? [] : [h('option', { value: '' }, '(Custom)')]), ...list.map((p) => h('option', { value: p.name }, p.name)));
     presetSel.value = cur;
+    delBtn.disabled = !list.find((p) => p.name === cur)?.user;
   };
   presetSel.addEventListener('change', () => {
     const p = allPresets(app.prefs, def).find((x) => x.name === presetSel.value);
@@ -305,17 +306,26 @@ async function generatorDialog(app, def, { withPlacement, preview = null }) {
   let dismiss = null;
   const saveBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Save settings as a preset', title: 'Save settings as a preset', onclick: () => {
     dismiss = inlinePrompt(nameRow, { label: 'Preset name:', value: 'My Preset', returnFocus: saveBtn, onSave: (n) => {
-      savePreset(app.prefs, def, n, ctx.values);
+      const saved = savePreset(app.prefs, def, n, ctx.values);
       syncPresets();
+      announce(`Preset ${saved} saved`);
     } });
   } }, icon('save', 15));
+  // Your own presets can be deleted (built-in ones cannot).
+  const delBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Delete preset', title: 'Delete preset', onclick: () => {
+    const name = presetSel.value;
+    if (!allPresets(app.prefs, def).find((p) => p.name === name)?.user) return;
+    deletePreset(app.prefs, def.id, name);
+    syncPresets();
+    announce(`Preset ${name} deleted`);
+  } }, icon('trash-2', 15));
   syncPresets();
   const player = preview ? previewPlayer(app, () => preview(ctx.values)) : null;
   if (player) ctx.subscribe(() => player.refresh());
   const r = await openDialog({
     title: def.name,
     className: `fx-dialog${def.dialogClass ? `.${def.dialogClass}` : ''}`,
-    body: h('div.fx-dialog-body', def.presets.length ? h('div.fx-presetbar', h('label.fx-label', 'Presets:'), presetSel, saveBtn) : null, nameRow, content),
+    body: h('div.fx-dialog-body', def.presets.length ? h('div.fx-presetbar', h('label.fx-label', 'Presets:'), presetSel, saveBtn, delBtn) : null, nameRow, content),
     footerStart: player?.el,
     buttons: [
       { label: 'Cancel', value: null },
