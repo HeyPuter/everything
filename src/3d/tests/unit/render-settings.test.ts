@@ -233,6 +233,15 @@ describe('output helpers', () => {
     expect(frameFileName('//render/shot_###', 7, 'png')).toBe('shot_007.png');
     expect(frameFileName('//render/shot_###', 7, 'png', false)).toBe('shot_007');
   });
+  it('file names keep a matching image extension and pad negative frames like printf', () => {
+    expect(frameFileName('//render/shot_####.png', 7, 'png')).toBe('shot_0007.png');
+    expect(frameFileName('//render/shot_####.JPEG', 7, 'jpg')).toBe('shot_0007.JPEG');
+    expect(frameFileName('//render/shot_####.png', 7, 'jpg')).toBe('shot_0007.jpg');
+    expect(frameFileName('//render/shot_####.v2', 7, 'png')).toBe('shot_0007.v2.png');
+    expect(frameFileName('//render/shot_###', -5, 'png')).toBe('shot_-05.png');
+    expect(frameFileName('//render/shot_', -5, 'png')).toBe('shot_-005.png');
+    expect(frameFileName('//render/v##_f####', 12, 'png')).toBe('v##_f0012.png');
+  });
   it('tiling and transparency', () => {
     expect(tileCount({ use_auto_tile: true, tile_size: 640 }, 1920, 1080)).toEqual([3, 2]);
     expect(tileCount({ use_auto_tile: false }, 1920, 1080)).toEqual([1, 1]);
