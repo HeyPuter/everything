@@ -547,7 +547,8 @@ export class Screen {
   }
 
   load(layout: LayoutNode) {
-    for (const a of this.areas) {
+    const old = this.areas;
+    for (const a of old) {
       a.editor.dispose();
       a.el.remove();
     }
@@ -561,6 +562,9 @@ export class Screen {
     this.layout = layout;
     for (const st of leaves(layout)) this.areas.push(new Area(this, st));
     for (const a of this.areas) this.el.append(a.el);
+    // shortcuts must not reach the removed areas (the pointer may be outside every area now)
+    if (old.includes(app.hoverArea as Area)) app.hoverArea = null;
+    if (old.includes(app.activeArea as Area)) app.activeArea = this.findArea('VIEW_3D') ?? this.areas[0] ?? null;
     this.relayout();
     for (const a of this.areas) a.drawHeader();
   }

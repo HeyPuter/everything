@@ -386,6 +386,24 @@ test('renaming in the Properties name fields keeps names unique and ignores empt
   await expectNoErrors(errors);
 });
 
+test('switching workspaces never leaves the app pointing at the old, removed areas', async ({ page }) => {
+  const errors = await openApp(page);
+  const v = (await page.locator('.area[data-editor="VIEW_3D"]').first().boundingBox())!;
+  await page.mouse.move(v.x + v.width / 2, v.y + v.height / 2);
+  await page.mouse.click(v.x + v.width / 2, v.y + v.height / 2);
+  // over the top bar: no area takes the hover when the new layout appears
+  await page.mouse.move(700, 10);
+  await page.keyboard.press('Control+PageDown');
+  await expect(page.locator('.ws-tab.on')).not.toHaveText('Layout');
+  const r = await page.evaluate(() => {
+    const a = (window as any).app;
+    return { hover: a.hoverArea ? a.hoverArea.el.isConnected : null, active: a.activeArea ? a.activeArea.el.isConnected : null };
+  });
+  expect(r.hover).not.toBe(false);
+  expect(r.active).not.toBe(false);
+  await expectNoErrors(errors);
+});
+
 test('a phone-width window starts with the assistant closed, and the button still opens it', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 700 });
   const errors = await openApp(page);
