@@ -82,12 +82,16 @@ export async function renderGraph(graph, sources, { start = 0, end, onProgress, 
  * (plus `tail` frames when given, for reverb/delay tails). Mono input is
  * processed as stereo and folded back to one channel. With more than two
  * channels (5.1) the first two are processed as the stereo pair and every
- * further channel on its own, like mono, so each keeps its own audio. Pass the
+ * further channel on its own, like mono, so each keeps its own audio; a 5.1
+ * file through surround-capable slots only (spec `channels: 6`) is rendered
+ * as one six-channel track instead. Pass the
  * chain's total `latency` (see effectLatency in src/effects/index.js) to
  * compensate delay.
  */
 export async function applyChain(channels, rate, specs, { start = 0, end = channels[0].length, tail = 0, latency = 0, onProgress, signal } = {}) {
-  if (channels.length > 2) {
+  // Surround-capable slots (`channels: 6`, Surround Reverb) take a 5.1 file whole.
+  const six = channels.length === 6 && specs.length > 0 && specs.every((s) => s.channels === 6);
+  if (channels.length > 2 && !six) {
     const groups = [[0, 1], ...channels.slice(2).map((_, i) => [i + 2])];
     const outs = [];
     for (let k = 0; k < groups.length; k++) {
@@ -105,9 +109,17 @@ export async function applyChain(channels, rate, specs, { start = 0, end = chann
     tracks: [{ id: 'fx', gain: 1, pan: 0, clips: [{ id: 'c', source: key, channels: sub.length, start: 0, offset: 0, length: len, gain: 1, fadeIn: 0, fadeOut: 0 }], fx: specs }],
     master: { gain: 1 },
   };
+  if (six) {
+    graph.surround = true;
+    graph.tracks[0].six = true;
+  }
   // `latency` frames (lookahead limiters, spectral effects) are rendered past
   // the end and dropped from the start so the output lines up with the input.
-  let [L, R] = await renderGraph(graph, new Map([[key, sub]]), { start: 0, end: len + tail + latency, onProgress, signal });
+  const sources = new Map([[key, sub]]);
+  const total = len + tail + latency;
+  const outs = await renderGraph(graph, sources, { start: 0, end: total, onProgress, signal });
+  if (six) return latency > 0 ? outs.map((c) => c.subarray(latency)) : outs;
+  let [L, R] = outs;
   if (latency > 0) {
     L = L.subarray(latency);
     R = R.subarray(latency);

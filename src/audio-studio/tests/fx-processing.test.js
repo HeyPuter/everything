@@ -406,3 +406,40 @@ describe('DeClipper', () => {
     expect(Array.from(next.channels[1].toArray(0, n))).toEqual(Array.from(right));
   });
 });
+
+describe('Surround Reverb on 5.1 files', () => {
+  it('runs the six-channel processor over the whole file', async () => {
+    const rate = 48000;
+    const n = rate / 4;
+    const src = Array.from({ length: 6 }, (_, c) => sine(n, 200 + 150 * c, rate, 0.2));
+    const def = getEffect('surroundReverb');
+    const values = defaults(def);
+    const state = {
+      sampleRate: rate,
+      channels: src.map((a) => Channel.fromSamples(a)),
+      markers: [],
+    };
+    const { state: next } = await renderEffect({
+      def,
+      values,
+      state,
+      start: 0,
+      end: n,
+      applyChain,
+    });
+    // The same processor run directly on six channels, its latency dropped.
+    const lat = def.latency(values, rate);
+    const h = host(rate);
+    const chain = h.sync([slotSpec(def, values, { rate, channels: 6 })]);
+    const buf = src.map((a) => {
+      const b = new Float32Array(n + lat);
+      b.set(a);
+      return b;
+    });
+    h.run(chain, buf, n + lat);
+    next.channels.forEach((c, k) => {
+      const got = c.toArray(0, n);
+      for (const i of [1000, 6000, 11000]) expect(got[i]).toBeCloseTo(buf[k][i + lat], 5);
+    });
+  });
+});

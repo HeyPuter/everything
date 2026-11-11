@@ -107,7 +107,9 @@ export async function renderEffect({ def, values, state, start, end, mask = null
   if (!isRealtime(def)) throw new UserError(`${def.name} cannot be applied yet.`);
   const tail = tailFrames(def, values, rate);
   const latency = latencyFrames(def, values, rate);
-  const spec = slotSpec(def, values, { key: 'apply', doc, rate, route: state.channels.length === 2 ? route : null });
+  const channels = state.channels.length;
+  const routed = channels === 2 ? route : null;
+  const spec = slotSpec(def, values, { key: 'apply', doc, rate, route: routed, channels });
   const outs = await applyChain(state.channels, rate, [spec], { start, end, tail, latency, onProgress, signal });
   if (signal?.aborted) throw abortError();
   return { state: writeResult(state, start, end, outs, mask, { tail }), length: end - start };
