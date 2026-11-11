@@ -106,7 +106,11 @@ registerLive('onPath', {
     const path = doc.get(node.live.path);
     if (path && !path.hidden) items.push(path.id);
     for (const { node: n, m } of onPathPlacements(doc, node)) {
-      if (!m) continue;
+      // Without a usable path (deleted, or down to one point) the objects stay where they are.
+      if (!m) {
+        items.push(n.id);
+        continue;
+      }
       const v = transformedCopy(doc, n, m, extra, { base: 'oop' });
       v.parent = node.id;
       extra.set(v.id, v);

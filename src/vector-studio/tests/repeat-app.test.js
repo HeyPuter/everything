@@ -283,6 +283,22 @@ describe('objects on path', () => {
     expect(doc.get(gid).live.angle).toBe(30);
   });
 
+  it('objects stay visible where they are when the path is deleted or down to one point', () => {
+    const path = addPath(app, [[100, 300], [400, 300]]);
+    const a = addRect(app, 10, 10, 20, 20);
+    const b = addRect(app, 50, 10, 20, 20);
+    const doc = app.editor.doc;
+    let gid;
+    doc.transact('Attach', () => (gid = attachToPath(doc, [path.id, a.id, b.id], path.id)));
+    doc.transact('Delete', () => doc.remove(path.id));
+    const { items } = liveArtwork(doc, doc.get(gid));
+    expect(items.map((n) => n.id)).toEqual([a.id, b.id]);
+    expect(nodeBounds(doc, doc.get(gid))).toEqual({ x: 10, y: 10, w: 60, h: 20 });
+    doc.undo();
+    doc.transact('Shorten', () => doc.update(path.id, { anchors: [anchor(100, 300)] }));
+    expect(liveArtwork(doc, doc.get(gid)).items.map((n) => n.id)).toEqual([path.id, a.id, b.id]);
+  });
+
   it('objects on a path inside a symbol instance follow the instance', async () => {
     const path = addPath(app, [[100, 300], [400, 300]]);
     const a = addRect(app, 10, 10, 20, 20);
