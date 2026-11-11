@@ -15,6 +15,7 @@ export class MediaPool {
     this.elements = []; // { id, el, assetId, kind, clipId, lastUsed, gain, src }
     this.images = new Map(); // assetId -> ImageBitmap | 'loading' | 'error'
     this.urls = new Map(); // assetId -> url | Promise
+    this.failed = new Map(); // assetId -> { n, at, timer }: reads that failed, tried again from `at`
     this.audioCtx = null;
     this.master = null;
     this.frame = 0;
@@ -55,12 +56,50 @@ export class MediaPool {
   _url(asset) {
     let u = this.urls.get(asset.id);
     if (u) return u;
-    u = Promise.resolve(this.urlFor(asset)).then((url) => {
-      this.urls.set(asset.id, url);
-      return url;
-    });
+    u = Promise.resolve()
+      .then(() => this.urlFor(asset))
+      .then(
+        (url) => {
+          this.urls.set(asset.id, url);
+          this._clearFailure(asset.id);
+          return url;
+        },
+        (err) => {
+          if (this.urls.get(asset.id) === u) this.urls.delete(asset.id);
+          this._fail(asset.id);
+          throw err;
+        },
+      );
     this.urls.set(asset.id, u);
     return u;
+  }
+
+  /**
+   * Note a failed read of a file (a network error, say) so it is tried again
+   * after a pause that grows from 2 s to a minute, with a redraw then, instead
+   * of leaving its clips without picture and sound for the rest of the session.
+   */
+  _fail(assetId) {
+    if (this.disposed) return;
+    const prev = this.failed.get(assetId);
+    clearTimeout(prev?.timer);
+    const n = (prev?.n || 0) + 1;
+    const wait = Math.min(60_000, 2000 * 2 ** (n - 1));
+    const timer = setTimeout(() => {
+      if (!this.disposed) this.onReady?.();
+    }, wait);
+    this.failed.set(assetId, { n, at: Date.now() + wait, timer });
+  }
+
+  _clearFailure(assetId) {
+    clearTimeout(this.failed.get(assetId)?.timer);
+    this.failed.delete(assetId);
+  }
+
+  /** Whether a failed file may be read again now. */
+  _retryDue(assetId) {
+    const f = this.failed.get(assetId);
+    return !f || Date.now() >= f.at;
   }
 
   _create(asset, kind) {
@@ -84,7 +123,7 @@ export class MediaPool {
     });
     const url = this._url(asset);
     if (typeof url === 'string') el.src = url;
-    else url.then((u) => (el.src = u)).catch(() => {});
+    else url.then((u) => (el.src = u)).catch(() => (entry.noSource = true));
     this._route(entry);
     this.elements.push(entry);
     return entry;
@@ -114,6 +153,11 @@ export class MediaPool {
           bestD = d;
         }
       }
+    }
+    // An element whose file could not be read: a fresh one tries the file again once it is due.
+    if (best?.noSource && this._retryDue(asset.id)) {
+      this._destroy(best);
+      best = null;
     }
     if (!best) best = this._create(asset, kind);
     best.claimed = true;
@@ -169,17 +213,26 @@ export class MediaPool {
   image(asset) {
     const have = this.images.get(asset.id);
     if (have && have !== 'loading' && have !== 'error') return have;
-    if (have) return null;
+    if (have === 'loading' || (have === 'error' && !this._retryDue(asset.id))) return null;
     this.images.set(asset.id, 'loading');
     // WebGL ignores UNPACK_FLIP_Y for ImageBitmap sources, so flip while decoding (EXIF orientation still applies).
     this.library
       .mediaBlob(asset)
       .then((blob) => createImageBitmap(blob, { imageOrientation: 'flipY' }))
       .then((bmp) => {
+        if (this.disposed || this.images.get(asset.id) !== 'loading') {
+          bmp.close?.();
+          return;
+        }
         this.images.set(asset.id, bmp);
+        this._clearFailure(asset.id);
         this.onReady?.();
       })
-      .catch(() => this.images.set(asset.id, 'error'));
+      .catch(() => {
+        if (this.images.get(asset.id) !== 'loading') return;
+        this.images.set(asset.id, 'error');
+        this._fail(asset.id);
+      });
     return null;
   }
 
@@ -190,9 +243,12 @@ export class MediaPool {
     if (img && img.close) img.close();
     this.images.delete(assetId);
     this.urls.delete(assetId);
+    this._clearFailure(assetId);
   }
 
   dispose() {
+    this.disposed = true;
+    for (const id of [...this.failed.keys()]) this._clearFailure(id);
     for (const e of [...this.elements]) this._destroy(e);
     for (const img of this.images.values()) img?.close?.();
     this.images.clear();
