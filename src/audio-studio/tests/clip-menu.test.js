@@ -68,6 +68,42 @@ describe('fade kinds', () => {
   });
 });
 
+describe('fades on many clips', () => {
+  it('sets the fade kind of every selected clip in one pass, crossfading chains both ways', () => {
+    let s = { ...S.createSessionState({ sampleRate: RATE, tracks: 1 }), autoCrossfade: false };
+    const t = s.tracks[0].id;
+    // A chain of clips each overlapping the next by 100 frames, plus a lone clip.
+    const chain = Array.from({ length: 4 }, (_, i) => S.createClip({ trackId: t, sourceId: 'src', start: i * 500, length: 600 }));
+    const lone = S.createClip({ trackId: t, sourceId: 'src', start: 5000, length: 400 });
+    s = S.addClips(s, [...chain, lone]);
+    const ids = [...chain, lone].map((c) => c.id);
+    const xf = S.setFadeMode(s, ids, 'in', 'crossfade');
+    expect(chain.map((c) => S.findClip(xf, c.id).fadeIn.xf)).toEqual([undefined, true, true, true]);
+    expect(chain.map((c) => S.findClip(xf, c.id).fadeOut.xf)).toEqual([true, true, true, undefined]);
+    expect(S.findClip(xf, lone.id)).toBe(S.findClip(s, lone.id));
+    expect(S.activeCrossfades(xf)).toHaveLength(3);
+    const fade = S.setFadeMode(xf, ids, 'out', 'fade');
+    expect(chain.map((c) => S.findClip(fade, c.id).fadeOut.xf)).toEqual([false, false, false, undefined]);
+    expect(S.findClip(fade, lone.id).fadeOut.length).toBe(S.defaultFadeLength(lone, RATE));
+    expect(S.activeCrossfades(fade)).toHaveLength(0);
+  });
+
+  it('trims the selected clips to the playhead in one pass, leaving locked clips and no undo step when nothing changes', () => {
+    let s = S.createSessionState({ sampleRate: RATE, tracks: 2 });
+    const [t0, t1] = s.tracks.map((t) => t.id);
+    const a = S.createClip({ trackId: t0, sourceId: 'src', start: 0, length: 600, fadeOut: { length: 500, curve: 0 } });
+    const b = S.createClip({ trackId: t1, sourceId: 'src', start: 100, length: 600 });
+    const c = S.createClip({ trackId: t1, sourceId: 'src', start: 1000, length: 600, locked: true });
+    s = S.addClips(s, [a, b, c]);
+    const out = S.trimClipsAt(s, [a.id, b.id], 'out', 300);
+    expect([S.findClip(out, a.id).length, S.findClip(out, b.id).length]).toEqual([300, 200]);
+    expect(S.findClip(out, a.id).fadeOut.length).toBe(300);
+    const inn = S.trimClipsAt(s, [a.id, b.id], 'in', 300, () => 600);
+    expect([S.findClip(inn, a.id).start, S.findClip(inn, a.id).offset, S.findClip(inn, b.id).start]).toEqual([300, 300, 300]);
+    expect(S.trimClipsAt(s, [c.id], 'in', 1200)).toBe(s);
+  });
+});
+
 describe('groups', () => {
   it('removes one clip from a group and dissolves a group left with one clip', () => {
     let s = S.createSessionState({ sampleRate: RATE, tracks: 1 });

@@ -459,14 +459,21 @@ function shiftEnvelope(points, d, length, fallback) {
  */
 export function trimClip(state, id, edge, frame, sourceLength = Infinity) {
   const c = findClip(state, id);
-  if (!c || c.locked) return state;
+  const next = c && trimmedClip(c, edge, frame, sourceLength);
+  if (!next || next === c) return state;
+  return { ...state, clips: state.clips.map((x) => (x.id === id ? next : x)) };
+}
+
+/** A clip with one edge trimmed to timeline frame `frame` (see trimClip); the same clip when nothing changes. */
+export function trimmedClip(c, edge, frame, sourceLength = Infinity) {
+  if (c.locked) return c;
   frame = Math.round(frame);
   let next;
   if (edge === 'in') {
     const minStart = c.loop ? 0 : c.start - c.offset;
     const s = Math.max(Math.max(0, minStart), Math.min(clipEnd(c) - 1, frame));
     const d = s - c.start;
-    if (!d) return state;
+    if (!d) return c;
     let offset = c.offset + d;
     if (c.loop && offset < 0 && Number.isFinite(sourceLength)) offset = ((offset % sourceLength) + sourceLength) % sourceLength;
     const length = c.length - d;
@@ -483,7 +490,7 @@ export function trimClip(state, id, edge, frame, sourceLength = Infinity) {
   } else {
     const maxEnd = c.loop ? Infinity : c.start + Math.max(1, sourceLength - c.offset);
     const e = Math.max(c.start + 1, Math.min(maxEnd, frame));
-    if (e === clipEnd(c)) return state;
+    if (e === clipEnd(c)) return c;
     const length = e - c.start;
     next = {
       ...c,
@@ -494,7 +501,20 @@ export function trimClip(state, id, edge, frame, sourceLength = Infinity) {
       panEnv: length < c.length ? shiftEnvelope(c.panEnv, 0, length, 0) : c.panEnv,
     };
   }
-  return { ...state, clips: state.clips.map((x) => (x.id === id ? next : x)) };
+  return next;
+}
+
+/** Trims one edge of several clips to timeline frame `frame` (`sourceLength(sourceId)` as in trimClip). */
+export function trimClipsAt(state, ids, edge, frame, sourceLength = () => Infinity) {
+  const set = new Set(ids);
+  let changed = false;
+  const clips = state.clips.map((c) => {
+    if (!set.has(c.id)) return c;
+    const next = trimmedClip(c, edge, frame, sourceLength(c.sourceId));
+    if (next !== c) changed = true;
+    return next;
+  });
+  return changed ? { ...state, clips } : state;
 }
 
 /** Slips the audio inside a clip by `delta` frames (positive moves the audio right). */
@@ -510,15 +530,16 @@ export function slipClip(state, id, delta, sourceLength = Infinity) {
 
 /** Trims clips to [a, b) (clips outside the range are left alone). */
 export function trimClipsToRange(state, ids, a, b, sourceLength = () => Infinity) {
-  let s = state;
-  for (const id of ids) {
-    const c = findClip(s, id);
-    if (!c || c.locked || clipEnd(c) <= a || c.start >= b) continue;
-    if (c.start < a) s = trimClip(s, id, 'in', a, sourceLength(c.sourceId));
-    const c2 = findClip(s, id);
-    if (clipEnd(c2) > b) s = trimClip(s, id, 'out', b, sourceLength(c2.sourceId));
-  }
-  return s;
+  const set = new Set(ids);
+  let changed = false;
+  const clips = state.clips.map((c) => {
+    if (!set.has(c.id) || c.locked || clipEnd(c) <= a || c.start >= b) return c;
+    let next = c.start < a ? trimmedClip(c, 'in', a, sourceLength(c.sourceId)) : c;
+    if (clipEnd(next) > b) next = trimmedClip(next, 'out', b, sourceLength(next.sourceId));
+    if (next !== c) changed = true;
+    return next;
+  });
+  return changed ? { ...state, clips } : state;
 }
 
 /**
@@ -742,18 +763,29 @@ export function fadeMode(state, clip, dir, active = activeCrossfades(state)) {
 export function setFadeMode(state, ids, dir, mode) {
   const key = dir === 'in' ? 'fadeIn' : 'fadeOut';
   const other = dir === 'in' ? 'fadeOut' : 'fadeIn';
-  const overlaps = crossfades(state);
-  let next = state;
+  const byId = new Map(state.clips.map((c) => [c.id, c]));
+  // Overlaps at that end of each clip.
+  const overlaps = new Map();
+  for (const x of crossfades(state)) {
+    const id = dir === 'in' ? x.in : x.out;
+    if (!overlaps.has(id)) overlaps.set(id, []);
+    overlaps.get(id).push(x);
+  }
+  const patches = new Map();
+  const patch = (id, k, f) => patches.set(id, { ...patches.get(id), [k]: f });
   for (const id of ids) {
-    const c = findClip(next, id);
+    const c = byId.get(id);
     if (!c) continue;
-    const mine = overlaps.filter((x) => (dir === 'in' ? x.in : x.out) === id);
+    const mine = overlaps.get(id) || [];
     const f = { ...c[key] };
     if (mode === 'crossfade') {
       if (!mine.length) continue;
       f.xf = true;
-      next = updateClips(next, [id], { [key]: f });
-      next = updateClips(next, mine.map((x) => (dir === 'in' ? x.out : x.in)), (n) => ({ [other]: { ...n[other], xf: true } }));
+      patch(id, key, f);
+      for (const x of mine) {
+        const n = dir === 'in' ? x.out : x.in;
+        patch(n, other, { ...(patches.get(n)?.[other] || byId.get(n)[other]), xf: true });
+      }
       continue;
     }
     if (mode === 'none') f.length = 0;
@@ -761,9 +793,9 @@ export function setFadeMode(state, ids, dir, mode) {
     // Only an overlapping end needs to say "no crossfade"; elsewhere the session setting applies later.
     if (mine.length) f.xf = false;
     else delete f.xf;
-    next = updateClips(next, [id], { [key]: f });
+    patch(id, key, f);
   }
-  return next;
+  return patches.size ? updateClips(state, [...patches.keys()], (c) => patches.get(c.id)) : state;
 }
 
 /** Front-to-back order of clips on a track: higher z first, then later in the list. */
@@ -790,7 +822,8 @@ export function groupClips(state, ids) {
 }
 
 export function ungroupClips(state, ids) {
-  const groups = new Set(state.clips.filter((c) => ids.includes(c.id) && c.groupId).map((c) => c.groupId));
+  const set = new Set(ids);
+  const groups = new Set(state.clips.filter((c) => set.has(c.id) && c.groupId).map((c) => c.groupId));
   return updateClips(
     state,
     state.clips.filter((c) => groups.has(c.groupId)).map((c) => c.id),
