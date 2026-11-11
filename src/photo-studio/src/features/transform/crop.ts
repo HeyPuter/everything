@@ -170,6 +170,14 @@ async function commitCrop(e: Editor) {
     e.message('Crop size must be 8192 pixels or less per side and 24 megapixels or less.');
     return;
   }
+  // W x H x Resolution resamples after cropping: check that size up front so
+  // the crop is not left half done.
+  const ppi = s.resUnit === 'PPCM' ? s.res * 2.54 : s.res;
+  const target = s.preset === 'whr' && s.tw > 0 && s.th > 0 ? { width: Math.max(1, Math.round(toPixels(s.tw, s.tunit, ppi, w))), height: Math.max(1, Math.round(toPixels(s.th, s.tunit, ppi, h))) } : undefined;
+  if (target && (target.width > 8192 || target.height > 8192 || target.width * target.height > 24_000_000)) {
+    e.message('The crop’s width and height must come to 8192 pixels or less per side and 24 megapixels or less at this resolution.');
+    return;
+  }
   if (Math.abs(b.angle) < 1e-9) {
     const r = { x: Math.round(b.cx - b.w / 2), y: Math.round(b.cy - b.h / 2), width: w, height: h };
     const store = e.assets.tiles;
@@ -190,10 +198,8 @@ async function commitCrop(e: Editor) {
     const m = compose(translate(w / 2, h / 2), rotateM(-b.angle), translate(-b.cx, -b.cy));
     await transformCanvasBy(e, 'Crop', m, w, h, { trim: s.deleteCropped });
   }
-  if (s.preset === 'whr' && s.tw > 0 && s.th > 0) {
-    const ppi = s.resUnit === 'PPCM' ? s.res * 2.54 : s.res;
-    const tw = Math.max(1, Math.round(toPixels(s.tw, s.tunit, ppi, w))),
-      th = Math.max(1, Math.round(toPixels(s.th, s.tunit, ppi, h)));
+  if (target) {
+    const { width: tw, height: th } = target;
     if (tw !== e.doc.width || th !== e.doc.height) resampleDocument(e, tw, th, resolveMethod('automatic', e.doc.width, e.doc.height, tw, th), ppi, s.resUnit);
     else e.command('Image Size', (d) => setDocumentResolution(d, { horizontalResolution: s.res, horizontalResolutionUnit: s.resUnit, widthUnit: s.resUnit === 'PPCM' ? 'Centimeters' : 'Inches', verticalResolution: s.res, verticalResolutionUnit: s.resUnit, heightUnit: s.resUnit === 'PPCM' ? 'Centimeters' : 'Inches' }));
   }

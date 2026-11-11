@@ -40,3 +40,14 @@ test('Perspective Crop refuses a dented outline instead of failing', async ({ pa
   expect(await historyLabels(page)).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('W x H x Resolution too large for the canvas leaves the image uncropped', async ({ page }) => {
+  await page.evaluate(() => (window.photoStudio.settings.crop = { preset: 'whr', tw: 20000, th: 15000, tunit: 'px', res: 300, resUnit: 'PPI' }));
+  await tool(page, 'Crop Tool');
+  await canvasDrag(page, [[50, 50], [250, 200]], 5);
+  await page.keyboard.press('Enter');
+  await idle(page);
+  await expect(page.locator('#status')).toContainText('8192 pixels');
+  expect(await docSize(page)).toEqual([400, 300]);
+  expect(await historyLabels(page)).toEqual([]);
+});
