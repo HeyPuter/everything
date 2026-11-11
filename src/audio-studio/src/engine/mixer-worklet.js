@@ -42,29 +42,24 @@ class MixerProcessor extends AudioWorkletProcessor {
 
   onMessage(m) {
     switch (m.type) {
-      case 'init':
-        if (m.module) {
-          try {
-            this.host = new FxHost(new WebAssembly.Instance(m.module, {}), sampleRate);
-          } catch (err) {
-            this.port.postMessage({ type: 'error', message: String(err) });
-          }
-        }
+      case 'init': {
+        // The DSP arrives as bytes (or a compiled module) and compiles here; a
+        // graph that came first gets its effects once the host is ready.
+        const src = m.module || m.bytes;
+        if (!src) break;
+        WebAssembly.instantiate(src, {})
+          .then((r) => {
+            this.host = new FxHost(r.instance || r, sampleRate);
+            this.resolveFx();
+          })
+          .catch((err) => this.port.postMessage({ type: 'error', message: `Effects are unavailable: ${err}` }));
         break;
+      }
       case 'graph':
         this.graph = m.graph;
         // A 5.1 session renders six channels, monitored through a stereo downmix.
         this.six = this.graph.surround ? this.six || Array.from({ length: 6 }, () => new Float32Array(QUANTUM)) : null;
-        if (this.host) {
-          for (const t of this.graph.tracks) {
-            t.fx = this.host.sync(t.fx);
-            for (const c of t.clips) if (c.fx) c.fx = this.host.sync(c.fx);
-          }
-          if (this.graph.master) this.graph.master.fx = this.host.sync(this.graph.master.fx);
-          this.host.prune(new Set([...graphFxKeys(m.graph)].filter(Boolean)));
-        } else {
-          for (const t of this.graph.tracks) t.fx = [];
-        }
+        this.resolveFx();
         break;
       case 'chunk':
         this.store.put(m.key, m.index, m.channels);
@@ -100,6 +95,19 @@ class MixerProcessor extends AudioWorkletProcessor {
         this.tapOn = Boolean(m.on);
         break;
     }
+  }
+
+  /** Turns the graph's effect slot specs into live instances (once the host is ready; until then no effects run). */
+  resolveFx() {
+    const g = this.graph;
+    if (!this.host || g.fxResolved) return;
+    for (const t of g.tracks) {
+      t.fx = this.host.sync(t.fx);
+      for (const c of t.clips) if (c.fx) c.fx = this.host.sync(c.fx);
+    }
+    if (g.master) g.master.fx = this.host.sync(g.master.fx);
+    this.host.prune(new Set([...graphFxKeys(g)].filter(Boolean)));
+    g.fxResolved = true;
   }
 
   report() {

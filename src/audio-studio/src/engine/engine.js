@@ -8,7 +8,7 @@ import mixerUrl from './mixer-worklet.js?worker&url';
 import captureUrl from './capture-worklet.js?worker&url';
 import { Emitter } from '../lib/emitter.js';
 import { CHUNK } from './mixcore.js';
-import { dspModule } from '../audio/dsp.js';
+import { dspBytes } from '../audio/dsp.js';
 import { UserError } from '../lib/errors.js';
 
 const LOOKAHEAD_S = 4;
@@ -121,13 +121,15 @@ export class Engine extends Emitter {
     this.outputRoute = null;
     this.#routeOutput();
     if (this.sinkId) await this.#applySink();
-    let module = null;
+    // The worklet compiles the DSP from its bytes (a compiled module posted to
+    // an AudioWorklet fails to arrive in Chrome, which left every effect out).
+    let bytes = null;
     try {
-      module = await dspModule();
+      bytes = await dspBytes();
     } catch {
       // Effects are unavailable without DSP; plain playback still works.
     }
-    node.port.postMessage({ type: 'init', module });
+    node.port.postMessage({ type: 'init', bytes });
     this.sent.clear();
     node.port.postMessage({ type: 'graph', graph: this.graph });
     if (this.tapUsers) node.port.postMessage({ type: 'tap', on: true });
