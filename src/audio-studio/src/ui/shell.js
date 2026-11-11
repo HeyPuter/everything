@@ -11,6 +11,7 @@ import { openFiles } from '../storage/files.js';
 import { statusParts } from './status-fields.js';
 import { tabNames } from './workspace-manager.js';
 import { TOOLS } from './tools.js';
+import { eventKey } from '../commands/registry.js';
 
 /** Actions offered by the menu beside the current workspace tab. */
 const WORKSPACE_ACTIONS = ['workspace.reset', 'workspace.saveChanges', 'workspace.saveAs', '-', 'workspace.edit'];
@@ -140,6 +141,7 @@ export function createShell(app, root) {
   dock.setLayout(app.currentLayout());
 
   // Keyboard -----------------------------------------------------------------
+  const TEXT_KEYS = /^([acvxyz]|backspace|delete|home|end|arrow(up|down|left|right))$/;
   const NAV_WIDGETS = '[role=menu], [role=listbox], [role=grid], [role=tree], [role=treegrid], [role=tablist], [role=slider], [role=radiogroup], [role=spinbutton], [role=separator], input[type=range], [data-own-keys]';
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.isComposing) return;
@@ -148,12 +150,14 @@ export function createShell(app, root) {
     if (t instanceof Element && t.closest('puter-user-menu')) return;
     const typing = t instanceof HTMLElement && (t.isContentEditable || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button'].includes(t.type)) || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT');
     if (typing && !(e.metaKey || e.ctrlKey)) return;
+    // Text editing keys (select all, clipboard, undo, caret and word moves) stay with the field.
+    if (typing && TEXT_KEYS.test(eventKey(e))) return;
     if (document.querySelector('.dialog-backdrop')) return;
     const id = app.commands.match(e);
     if (!id) return;
     // Plain keys (Space, letters) should still activate focused buttons and menus.
     const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
-    if (plain && (e.key === ' ' || e.key === 'Enter') && t instanceof HTMLElement && t.closest('button, [role=menuitem], [role=tab], [role=option], a, summary')) return;
+    if (plain && (e.key === ' ' || e.key === 'Enter') && t instanceof HTMLElement && t.closest('button, input[type=checkbox], input[type=radio], [role=menuitem], [role=menuitemcheckbox], [role=tab], [role=option], [role=checkbox], [role=switch], [role=radio], a, summary')) return;
     // Navigation keys stay with focused widgets that move with them (lists, tabs, sliders).
     const nav = /^(Delete|Backspace|Home|End|PageUp|PageDown|Arrow(Up|Down|Left|Right))$/.test(e.key);
     if (plain && nav && t instanceof HTMLElement && t.closest(NAV_WIDGETS)) return;
@@ -225,7 +229,18 @@ function bindCommandSearch(app, input) {
     }
     if (!results.length) results.push({ type: 'cmd', label: 'No matching commands', enabled: false });
     const r = input.getBoundingClientRect();
-    menu = openMenu(app, results, { x: r.left, y: r.bottom + 2, anchor: input, label: 'Command results', focus: 'none', onClose: () => (menu = null) });
+    menu = openMenu(app, results, {
+      x: r.left,
+      y: r.bottom + 2,
+      anchor: input,
+      label: 'Command results',
+      // The field keeps focus so typing goes on refining the search.
+      focus: 'keep',
+      onClose: (reason) => {
+        menu = null;
+        if (reason === 'escape') input.focus();
+      },
+    });
   };
   input.addEventListener('input', show);
   input.addEventListener('keydown', (e) => {

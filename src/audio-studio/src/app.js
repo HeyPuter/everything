@@ -11,6 +11,7 @@ import { openMenu } from './ui/menubar.js';
 import { WORKSPACES, TABLET, PHONE, DEFAULT_WORKSPACE, LAYOUT_VERSION } from './ui/workspaces.js';
 import { saveChangesDialog } from './ui/dialog.js';
 import { formatTime, beatSeconds } from './lib/time.js';
+import { isUserError } from './lib/errors.js';
 
 export class App extends Emitter {
   constructor() {
@@ -202,8 +203,8 @@ export class App extends Emitter {
       await engine.play({ from: start, to: end ?? len, loop: loopRange });
       this.emit('transport', 'playing');
     } catch (err) {
-      console.error(err);
-      this.notify('Playback is not available in this browser.', { error: true });
+      if (!isUserError(err)) console.error(err);
+      this.notify(isUserError(err) ? err.message : 'Playback is not available in this browser.', { error: true });
     }
   }
 
@@ -294,9 +295,9 @@ export class App extends Emitter {
     if (emit) this.emit('transport', 'stopped');
   }
 
+  /** Loop playback follows the selection; without one it loops the whole content, as when it starts. */
   #updateLoop() {
-    const sel = this.active?.selection;
-    if (sel && sel.end > sel.start) engine.setLoop({ start: sel.start, end: sel.end });
+    if (this.active) engine.setLoop(this.loopRange(this.active));
   }
 
   /** Time Display preferences as the `music` options of lib/time.js. */
@@ -351,10 +352,12 @@ export class App extends Emitter {
     if (this.layoutMode === 'phone') return PHONE();
     if (this.layoutMode === 'tablet') return TABLET();
     const name = this.prefs.get('workspace');
-    const saved = this.prefs.get('layouts')[name];
-    if (saved) return saved;
+    // A layout tree from storage; damaged ones (old versions, edited settings files) are skipped.
+    const valid = (n) => Boolean(n && typeof n === 'object' && (n.t === 'group' ? Array.isArray(n.tabs) : Array.isArray(n.c)));
+    const saved = this.prefs.get('layouts')?.[name];
+    if (valid(saved)) return saved;
     // Then the layout saved with "Save Changes", a custom workspace as created, or the built-in one.
-    const kept = this.prefs.get('savedLayouts')?.[name] || this.prefs.get('customWorkspaces')?.[name];
+    const kept = [this.prefs.get('savedLayouts')?.[name], this.prefs.get('customWorkspaces')?.[name]].find(valid);
     if (kept) return structuredClone(kept);
     return (WORKSPACES[name] || WORKSPACES[DEFAULT_WORKSPACE])();
   }

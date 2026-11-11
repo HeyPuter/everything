@@ -99,3 +99,33 @@ describe('tile cache', () => {
     expect(c.bytes).toBe(0);
   });
 });
+
+describe('spectrogram shader', () => {
+  it('shows the loudest bin a pixel spans, so narrow high tones stay visible', async () => {
+    // On a log axis one pixel near the top covers many bins; sampling only the
+    // pixel centre dropped tones between centres (a 6 kHz sine vanished).
+    const { FS } = await import('../src/spectral/renderer.js');
+    expect(FS).toMatch(/dFdy\(vUv\.y\)/);
+    expect(FS).toMatch(/v = max\(v, texture\(uTex/);
+  });
+});
+
+describe('tile textures wider than the GPU allows', () => {
+  it('combines neighbouring bins, keeping the loudest', async () => {
+    const { fitBins } = await import('../src/spectral/renderer.js');
+    // Two columns of 4097 bins (an 8192-point FFT) for a 4096-texel GPU.
+    const bins = 4097;
+    const bytes = new Uint8Array(bins * 2);
+    bytes[256] = 200; // column 0, bin 256
+    bytes[bins + 4096] = 99; // column 1, the Nyquist bin
+    bytes[bins + 1001] = 7;
+    const { bytes: out, width } = fitBins(bytes, bins, 2, 4096);
+    expect(width).toBe(2049);
+    expect(out.length).toBe(2049 * 2);
+    expect(out[128]).toBe(200);
+    expect(out[2049 + 2048]).toBe(99);
+    expect(out[2049 + 500]).toBe(7);
+    // Within the limit, the bytes pass through untouched.
+    expect(fitBins(bytes, bins, 2, 8192)).toEqual({ bytes, width: bins });
+  });
+});

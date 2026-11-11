@@ -26,16 +26,32 @@ import { loudnessMeterEditor } from './meter-view.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+// Plots repainted on a theme change. One window listener serves them all; a
+// plot that has been on the page and left it (its dialog closed) is dropped,
+// so closed dialogs are not kept alive by the listener.
+const themed = new Set();
+const dropClosedPlots = () => {
+  for (const p of themed) if (p.shown && !p.el.isConnected) themed.delete(p);
+};
+if (typeof window !== 'undefined') {
+  window.addEventListener('themechange', () => {
+    dropClosedPlots();
+    for (const p of themed) p.redraw();
+  });
+}
+
 /** A canvas plot with an overlay layer for handle buttons; redraws on resize and theme change. */
 export function plot(className, label, draw) {
   const canvas = h('canvas', { 'aria-hidden': 'true' });
   const layer = h('div.fx-plot-layer');
   const el = h(`div.fx-plot.${className}`, { role: 'group', 'aria-label': label }, canvas, layer);
   let raf = 0;
+  const entry = { el, shown: false, redraw: null };
   const redraw = () => {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
+      if (el.isConnected) entry.shown = true;
       const W = el.clientWidth;
       const H = el.clientHeight;
       if (!W || !H) return;
@@ -52,7 +68,9 @@ export function plot(className, label, draw) {
     });
   };
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(redraw).observe(el);
-  window.addEventListener('themechange', redraw);
+  entry.redraw = redraw;
+  dropClosedPlots();
+  themed.add(entry);
   return { el, canvas, layer, redraw };
 }
 
@@ -476,18 +494,25 @@ export function envelopeControl({ param, value, onChange, smooth = () => false, 
     return `calc(${((1 - fr) * 100).toFixed(3)}% + ${(12 * fr - 6).toFixed(2)}px)`;
   };
   const emit = () => onChange?.(points);
+  const place = (btn, pt, i) => {
+    btn.setAttribute('aria-label', `Point ${i + 1} of ${points.length}`);
+    btn.setAttribute('aria-valuenow', String(pt.v));
+    btn.setAttribute('aria-valuetext', pointText ? pointText(pt) : `${xLabel(pt.t)}, ${fmt(pt.v)}`);
+    btn.title = pointText ? pointText(pt) : `${xLabel(pt.t)}: ${fmt(pt.v)}`;
+    btn.style.left = `${pt.t * 100}%`;
+    btn.style.top = topFor(pt.v);
+  };
   const layout = () => {
+    // The same number of points keeps the handles in place, so a handle being
+    // dragged keeps its pointer capture (rebuilding it would end the drag).
+    if (view.layer.children.length === points.length) {
+      points.forEach((pt, i) => place(view.layer.children[i], pt, i));
+      return;
+    }
     view.layer.replaceChildren(
       ...points.map((pt, i) => {
-        const btn = h('button.fx-handle.fx-point', {
-          type: 'button',
-          role: 'slider',
-          'aria-label': `Point ${i + 1} of ${points.length}`,
-          'aria-valuenow': String(pt.v),
-          'aria-valuetext': pointText ? pointText(pt) : `${xLabel(pt.t)}, ${fmt(pt.v)}`,
-          title: pointText ? pointText(pt) : `${xLabel(pt.t)}: ${fmt(pt.v)}`,
-          style: { left: `${pt.t * 100}%`, top: topFor(pt.v) },
-        });
+        const btn = h('button.fx-handle.fx-point', { type: 'button', role: 'slider' });
+        place(btn, pt, i);
         draggable(btn, view.el, (fx, fy) => {
           const H = view.el.clientHeight;
           const v = min + ((H - 6 - fy * H) / (H - 12)) * (max - min);

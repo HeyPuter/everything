@@ -84,6 +84,20 @@ export function hasMeta(meta) {
 
 const enc = new TextEncoder();
 const utf8 = new TextDecoder('utf-8');
+const utf8Strict = new TextDecoder('utf-8', { fatal: true });
+const cp1252 = new TextDecoder('windows-1252');
+
+/**
+ * Text of a WAV chunk field: UTF-8 (what this app writes), or Windows-1252,
+ * the code page older editors used, when the bytes are not valid UTF-8.
+ */
+export function decodeText(bytes) {
+  try {
+    return utf8Strict.decode(bytes);
+  } catch {
+    return cp1252.decode(bytes);
+  }
+}
 
 /** Whether meta has a field only XMP stores (exports then add an XMP packet). */
 export function hasXmpOnly(meta) {
@@ -174,7 +188,7 @@ export function parseRiffInfo(bytes) {
   while (o + 8 <= bytes.length) {
     const id = latin1(bytes.subarray(o, o + 4));
     const size = dv.getUint32(o + 4, true);
-    if (keys[id]) out[keys[id]] = strip(utf8.decode(bytes.subarray(o + 8, Math.min(bytes.length, o + 8 + size))));
+    if (keys[id]) out[keys[id]] = strip(decodeText(bytes.subarray(o + 8, Math.min(bytes.length, o + 8 + size))));
     o += 8 + size + (size & 1);
   }
   return cleanMeta(out);
@@ -195,7 +209,7 @@ function fixedText(s, len) {
   return out;
 }
 
-const readFixed = (bytes, at, len) => strip(utf8.decode(bytes.subarray(at, Math.min(bytes.length, at + len))));
+const readFixed = (bytes, at, len) => strip(decodeText(bytes.subarray(at, Math.min(bytes.length, at + len))));
 
 const BEXT_FIXED = 602;
 
@@ -232,7 +246,7 @@ export function parseBext(bytes) {
     bextDate: readFixed(bytes, 320, 10),
     bextTime: readFixed(bytes, 330, 8),
     bextTimeRef: ref ? String(ref) : '',
-    bextCodingHistory: bytes.length > BEXT_FIXED ? utf8.decode(bytes.subarray(BEXT_FIXED)).replace(/\0+$/, '').replace(/\r\n/g, '\n').trim() : '',
+    bextCodingHistory: bytes.length > BEXT_FIXED ? decodeText(bytes.subarray(BEXT_FIXED)).replace(/\0+$/, '').replace(/\r\n/g, '\n').trim() : '',
   });
 }
 
@@ -286,7 +300,7 @@ export function parseCart(bytes) {
     at += len;
   }
   out.cartUrl = readFixed(bytes, CART_URL_AT, 1024);
-  if (bytes.length > CART_FIXED) out.cartTagText = utf8.decode(bytes.subarray(CART_FIXED)).replace(/\0+$/, '').replace(/\r\n/g, '\n').trim();
+  if (bytes.length > CART_FIXED) out.cartTagText = decodeText(bytes.subarray(CART_FIXED)).replace(/\0+$/, '').replace(/\r\n/g, '\n').trim();
   return cleanMeta(out);
 }
 
@@ -486,7 +500,9 @@ export function readTags(buffer) {
     const head = latin1(b.subarray(0, 4));
     if (head === 'fLaC') return flacTags(b);
     if (head === 'OggS') return oggTags(b);
-    if (latin1(b.subarray(4, 8)) === 'ftyp') return mp4Tags(b);
+    // MP4 boxes are walked by their headers only, so the whole file costs little; the
+    // moov box with the tags often follows the media data, far past the first megabytes.
+    if (latin1(b.subarray(4, 8)) === 'ftyp') return mp4Tags(new Uint8Array(buffer));
   } catch {
     // Unreadable tags never block opening the audio.
   }

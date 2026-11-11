@@ -126,7 +126,7 @@ describe('Effects > Diagnostics', () => {
     const { Dock } = await import('../src/ui/dock.js');
     const { AudioFile } = await import('../src/model/audio-file.js');
     const { Channel } = await import('../src/audio/channel.js');
-    HTMLCanvasElement.prototype.getContext = () => null;
+    HTMLCanvasElement.prototype.getContext = (type) => (type === '2d' ? fakeContext() : null);
     localStorage.clear();
     const app = new App();
     for (const install of FEATURES) install(app);

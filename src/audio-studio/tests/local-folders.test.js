@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseLocalPath, rootPath, localDirname, isLocalPath, readLocalDir, localFile } from '../src/storage/local-folders.js';
+import { parseLocalPath, rootPath, localDirname, isLocalPath, readLocalDir, localFile, loadRoots, removeRoot } from '../src/storage/local-folders.js';
+import { abortingIndexedDB, settleWithin } from './helpers/aborting-idb.js';
 import { crumbs, resolveMediaItems } from '../src/panels/media-browser.js';
 
 // A minimal stand-in for FileSystemDirectoryHandle / FileSystemFileHandle.
@@ -27,6 +28,20 @@ function fileHandle(name, text) {
 const roots = [{ id: 'r1', name: 'Music', handle: dirHandle('Music', { 'a.wav': 'RIFF', Takes: { 'b.flac': 'fLaC!' }, '.hidden': 'x' }) }];
 
 describe('device folders', () => {
+  it('settles when an IndexedDB transaction aborts instead of hanging', async () => {
+    const saved = [globalThis.indexedDB, window.showDirectoryPicker];
+    globalThis.indexedDB = abortingIndexedDB();
+    window.showDirectoryPicker = async () => roots[0].handle;
+    try {
+      expect(await settleWithin(loadRoots())).toEqual({ value: [] });
+      const removed = await settleWithin(removeRoot('r1'));
+      expect(removed.error?.name).toBe('QuotaExceededError');
+    } finally {
+      [globalThis.indexedDB, window.showDirectoryPicker] = saved;
+      if (!saved[1]) delete window.showDirectoryPicker;
+    }
+  });
+
   it('parses and builds paths', () => {
     expect(isLocalPath('local:r1/Takes')).toBe(true);
     expect(isLocalPath('/home/a')).toBe(false);

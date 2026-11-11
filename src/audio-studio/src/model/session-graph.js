@@ -12,15 +12,16 @@
 // six channels and the others are placed by their surround panner).
 
 import { sourceKey } from '../engine/engine.js';
-import { activeCrossfades, frontOrder, clipEnd, SILENT_DB } from './session-edits.js';
+import { activeCrossfades, clipEnd, SILENT_DB } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
+import { getEffect } from '../effects/registry.js';
 import { clickSound, DEFAULT_METRONOME_SOUND } from '../multitrack/metronome-sounds.js';
 
 export const dbToGain = (db) => (db <= SILENT_DB ? 0 : Math.pow(10, db / 20));
 
 /**
  * A track's effects rack for the graph: { fx } plus, with a dry/wet mix
- * below 100%, { fxMix, fxWet, fxDry } (see mixcore runChain). Input and
+ * below 100%, { fxMix, fxWet, fxDry, fxLatency } (see mixcore runChain). Input and
  * output gain only apply while the rack has effects to run.
  */
 export function trackRackSpecs(t, rateDoc, channels = 2) {
@@ -32,7 +33,13 @@ export function trackRackSpecs(t, rateDoc, channels = 2) {
   const out = t.fxOut ? gainSpec(`trk:${t.id}:out`, t.fxOut) : null;
   const r = { fx: out ? [...wet, out] : wet };
   const mix = Math.max(0, Math.min(1, t.fxMix ?? 1));
-  if (mix < 1) Object.assign(r, { fxMix: mix, fxWet: wet.length, fxDry: dbToGain(t.fxIn || 0) });
+  if (mix < 1) {
+    // The dry part is delayed by the wet slots' latency (runChain), so the blend lines up.
+    // On six channels only the surround-capable slots run.
+    const run = channels === 6 ? t.fx.filter((s) => getEffect(s?.effect)?.surround) : t.fx;
+    const fxLatency = rackTiming({ slots: run }, rateDoc?.sampleRate || 48000).latency;
+    Object.assign(r, { fxMix: mix, fxWet: wet.length, fxDry: dbToGain(t.fxIn || 0), fxLatency });
+  }
   return r;
 }
 
@@ -79,17 +86,56 @@ function subtract(a, b, cuts) {
   return parts.filter(([p, q]) => q > p);
 }
 
+const plans = new WeakMap();
+
 /**
  * Audible intervals of each clip plus its effective fades. Returns
- * Map(clipId -> { parts: [[start, end)], fadeIn, fadeOut }).
+ * Map(clipId -> { parts: [[start, end)], fadeIn, fadeOut }) (shared: do not modify).
+ * Cached per clip list, so redraws and graph rebuilds that leave the clips alone reuse it.
  */
 export function clipPlan(state) {
+  const auto = state.autoCrossfade !== false;
+  const hit = plans.get(state.clips);
+  if (hit && hit.auto === auto) return hit.plan;
+  const plan = computeClipPlan(state);
+  plans.set(state.clips, { auto, plan });
+  return plan;
+}
+
+// The last plan of each track (by id): a drag or edit that leaves a track's clips alone reuses it.
+const trackPlans = new Map();
+
+function computeClipPlan(state) {
+  const auto = state.autoCrossfade !== false;
+  // Muted clips are silent and neither hide nor crossfade with others; clips only meet on their track.
+  const byTrack = new Map();
+  for (const c of state.clips) {
+    if (c.mute) continue;
+    if (!byTrack.has(c.trackId)) byTrack.set(c.trackId, []);
+    byTrack.get(c.trackId).push(c);
+  }
   const plan = new Map();
-  const xf = activeCrossfades(state);
+  for (const [trackId, list] of byTrack) {
+    const hit = trackPlans.get(trackId);
+    let entries;
+    if (hit && hit.auto === auto && hit.list.length === list.length && hit.list.every((c, i) => c === list[i])) entries = hit.entries;
+    else {
+      entries = planTrack(list, auto);
+      trackPlans.set(trackId, { list, auto, entries });
+    }
+    for (const [id, v] of entries) plan.set(id, v);
+  }
+  if (trackPlans.size > byTrack.size + 256) for (const id of trackPlans.keys()) if (!byTrack.has(id)) trackPlans.delete(id);
+  return plan;
+}
+
+/** The plan entries ([clipId, { parts, fadeIn, fadeOut }]) of the unmuted clips of one track, in state order. */
+function planTrack(list, auto) {
+  const xf = activeCrossfades({ clips: list, autoCrossfade: auto });
   const pairs = new Map(); // "a|b" -> [start, end) shared by a crossfading pair
   const fades = new Map();
-  for (const c of state.clips) fades.set(c.id, { fadeIn: { ...c.fadeIn }, fadeOut: { ...c.fadeOut } });
-  const byId = new Map(state.clips.map((c) => [c.id, c]));
+  for (const c of list) fades.set(c.id, { fadeIn: { ...c.fadeIn }, fadeOut: { ...c.fadeOut } });
+  const byId = new Map(list.map((c) => [c.id, c]));
   for (const x of xf) {
     const a = byId.get(x.out);
     const b = byId.get(x.in);
@@ -100,28 +146,36 @@ export function clipPlan(state) {
     pairs.set(`${a.id}|${b.id}`, [x.start, x.end]);
     pairs.set(`${b.id}|${a.id}`, [x.start, x.end]);
   }
-  const order = frontOrder(state);
-  const byTrack = new Map();
-  for (const c of state.clips) {
-    if (c.mute) continue;
-    if (!byTrack.has(c.trackId)) byTrack.set(c.trackId, []);
-    byTrack.get(c.trackId).push(c);
-  }
-  for (const clips of byTrack.values()) {
-    for (const c of clips) {
-      const cuts = [];
-      for (const o of clips) {
-        if (o === c || order.get(o.id) < order.get(c.id)) continue;
-        if (o.start >= clipEnd(c) || clipEnd(o) <= c.start) continue;
-        // A crossfade overlap stays audible on both clips; otherwise the front clip hides this one.
-        const zone = pairs.get(`${c.id}|${o.id}`);
-        if (zone) cuts.push(...subtract(o.start, clipEnd(o), [zone]));
-        else cuts.push([o.start, clipEnd(o)]);
-      }
-      plan.set(c.id, { parts: subtract(c.start, clipEnd(c), cuts), ...fades.get(c.id) });
+  // Front-to-back order as in frontOrder: z, then later in the list.
+  const order = new Map(list.map((c, i) => [c.id, c.z * 1e6 + i]));
+  // Clips in start order: only those starting less than the longest clip before a clip's start can reach it.
+  const clips = list.slice().sort((a, b) => a.start - b.start);
+  const z = clips.map((c) => order.get(c.id));
+  let maxLen = 0;
+  for (const c of clips) maxLen = Math.max(maxLen, c.length);
+  const out = new Map();
+  for (let i = 0; i < clips.length; i++) {
+    const c = clips[i];
+    const end = clipEnd(c);
+    const cuts = [];
+    let lo = 0;
+    let hi = clips.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (clips[mid].start <= c.start - maxLen) lo = mid + 1;
+      else hi = mid;
     }
+    for (let j = lo; j < clips.length && clips[j].start < end; j++) {
+      const o = clips[j];
+      if (j === i || z[j] < z[i] || clipEnd(o) <= c.start) continue;
+      // A crossfade overlap stays audible on both clips; otherwise the front clip hides this one.
+      const zone = pairs.get(`${c.id}|${o.id}`);
+      if (zone) cuts.push(...subtract(o.start, clipEnd(o), [zone]));
+      else cuts.push([o.start, clipEnd(o)]);
+    }
+    out.set(c.id, { parts: subtract(c.start, end, cuts), ...fades.get(c.id) });
   }
-  return plan;
+  return list.map((c) => [c.id, out.get(c.id)]);
 }
 
 /** Splits a (possibly looped) clip interval into contiguous source reads. */

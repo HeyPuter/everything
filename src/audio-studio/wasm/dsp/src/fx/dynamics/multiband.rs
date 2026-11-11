@@ -150,12 +150,15 @@ impl Multiband {
         m
     }
 
-    /// Ordered crossover frequencies in log2 Hz.
+    /// Ordered crossover frequencies in log2 Hz. Each bound is applied as a
+    /// max then a min (not `clamp`): at the ceiling, f1 * 1.1 can round just
+    /// above top / 1.1, and `clamp` panics when its lower bound passes the
+    /// upper one.
     fn freq_targets(&self) -> [f32; 3] {
         let top = self.rate * 0.45;
-        let f1 = self.p[0].clamp(20.0, top / 1.21);
-        let f2 = self.p[1].clamp(f1 * 1.1, top / 1.1);
-        let f3 = self.p[2].clamp(f2 * 1.1, top);
+        let f1 = self.p[0].max(20.0).min(top / 1.21);
+        let f2 = self.p[1].max(f1 * 1.1).min(top / 1.1);
+        let f3 = self.p[2].max(f2 * 1.1).min(top);
         [f1.log2(), f2.log2(), f3.log2()]
     }
 
@@ -399,6 +402,23 @@ mod tests {
             fx.set_param(3 + 7 * b, 0.0);
         }
         fx.set_param(32, 0.0);
+    }
+
+    #[test]
+    fn crossovers_at_the_ceiling_keep_their_order() {
+        // f1 at top / 1.21 used to round f1 * 1.1 above top / 1.1 and panic.
+        for r in [8000.0, 11025.0, 22050.0, 44100.0, 48000.0, 88200.0, 176400.0, 192000.0] {
+            for p in [[20000.0, 20000.0, 20000.0], [1e6, 0.0, 0.0], [16500.0, 18000.0, 19500.0]] {
+                let mut fx = make(33, r, 2);
+                for (i, v) in p.iter().enumerate() {
+                    fx.set_param(i as u32, *v);
+                }
+                fx.reset();
+                let mut buf = vec![0.1f32; 256];
+                fx.process(&mut buf, 2, 128);
+                assert!(buf.iter().all(|v| v.is_finite()), "{r}");
+            }
+        }
     }
 
     #[test]

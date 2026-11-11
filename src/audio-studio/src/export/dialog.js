@@ -7,7 +7,7 @@ import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { openDialog } from '../ui/dialog.js';
 import * as puter from '../storage/puter.js';
-import { FORMATS, getFormat, conformOptions, defaultOptions, estimateSize, formatBytesShort, describeSampleType, describeSettings, usesDither, withExtension, sanitizeFileName, channelLabel, COMMON_RATES, docBitDepth, formatForName } from './formats.js';
+import { FORMATS, getFormat, conformOptions, defaultOptions, estimateSize, formatBytesShort, describeSampleType, describeSettings, usesDither, withExtension, stripExtension, sanitizeFileName, channelLabel, COMMON_RATES, docBitDepth, formatForName } from './formats.js';
 import { DITHER_MODES } from '../audio/quantize.js';
 import { codecSupported } from './webcodecs.js';
 import { mp3Bitrates } from './mp3.js';
@@ -41,7 +41,7 @@ export function initialState(doc, { mode, frames, remembered = {}, includeMeta }
     markers: meta,
     meta,
   }).options;
-  const stem = doc.name.replace(/\.[a-z0-9]{1,5}$/i, '');
+  const stem = stripExtension(doc.name);
   const name = mode === 'selection' ? `${stem} Selection` : stem;
   return { name: withExtension(name, format), options, frames, sourceRate: doc.sampleRate };
 }

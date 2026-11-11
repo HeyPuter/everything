@@ -1,11 +1,12 @@
 // Offline effect processes run in a dedicated Worker so the main thread stays
 // free. A definition provides a pure `run` and uses `process: offloaded(id)`:
 //
-//   run: async ({ channels, rate, values, extra, dsp, onProgress, signal }) =>
+//   run: async ({ channels, rate, values, extra, dsp, onProgress, signal, mask }) =>
 //          Float32Array[] | { channels, markers }
 //
 // `values` already include defaults; `extra` carries document data captured on
-// the main thread by `context` (for example the noise print). Without Worker
+// the main thread by `context` (for example the noise print); `mask` lists the
+// channels that are written (null = all). Without Worker
 // support (tests) `run` executes in place.
 //
 // A definition may also offer named helper tasks that are not the effect
@@ -79,13 +80,13 @@ async function inWorker(job, { signal, onProgress }) {
  * @param {{ context?: ({ doc, app, values }) => object }} [o]
  */
 export function offloaded(id, { context } = {}) {
-  return async function process({ channels, rate, values = {}, signal, onProgress, doc, app } = {}) {
+  return async function process({ channels, rate, values = {}, signal, onProgress, doc, app, mask = null } = {}) {
     const def = getEffect(id);
     const all = { ...defaults(def), ...values };
     const extra = context ? context({ doc, app, values: all }) : {};
     if (typeof Worker === 'undefined' || !workerFactory) {
-      return def.run({ channels, rate, values: all, extra, dsp: await dsp(), onProgress, signal });
+      return def.run({ channels, rate, values: all, extra, dsp: await dsp(), onProgress, signal, mask });
     }
-    return inWorker({ id, channels, rate, values: all, extra }, { signal, onProgress });
+    return inWorker({ id, channels, rate, values: all, extra, mask }, { signal, onProgress });
   };
 }

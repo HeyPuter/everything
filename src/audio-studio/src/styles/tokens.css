@@ -40,11 +40,14 @@
   --text: #d6d6d6;
   --text-strong: #f2f2f2;
   --text-dim: #a3a3a3;
-  --text-faint: #6f6f6f;
+  --text-faint: #8a8a8a;
   --accent: #2d8ceb;
   --accent-strong: #4aa3f5;
   --accent-text: #ffffff;
   --accent-soft: rgba(45, 140, 235, 0.22);
+  /* Fills under white text (primary buttons, highlighted menu items): a deeper accent, 4.5:1. */
+  --accent-fill: #1a73d1;
+  --accent-fill-hover: #1766bb;
   --hot: #4ea6f2;
   --focus: #5aaeff;
   --wave: #3fe0a5;
@@ -97,11 +100,13 @@
   --text: #2a2a2a;
   --text-strong: #111111;
   --text-dim: #555555;
-  --text-faint: #6b6b6b;
+  --text-faint: #666666;
   --accent: #1473e6;
   --accent-strong: #0d66d0;
   --accent-text: #ffffff;
   --accent-soft: rgba(20, 115, 230, 0.16);
+  --accent-fill: var(--accent);
+  --accent-fill-hover: var(--accent-strong);
   --hot: #0d66d0;
   --focus: #1473e6;
   --wave: #0f9e6c;

@@ -66,6 +66,26 @@ export function mixColors(a, b, t) {
   return `#${hex2((x[0] + (y[0] - x[0]) * t) * 255)}${hex2((x[1] + (y[1] - x[1]) * t) * 255)}${hex2((x[2] + (y[2] - x[2]) * t) * 255)}`;
 }
 
+const luminance = (color) => {
+  const lin = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = parseColor(color);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+};
+
+/** Contrast ratio of white text on `color`. */
+export function whiteContrast(color) {
+  return 1.05 / (luminance(color) + 0.05);
+}
+
+/** `color` deepened just enough (toward black) for white text to reach 4.5:1. */
+export function fillForWhiteText(color) {
+  for (let t = 0; t < 1; t += 0.02) {
+    const c = mixColors(color, '#000000', t);
+    if (whiteContrast(c) >= 4.6) return c;
+  }
+  return '#000000';
+}
+
 /** Valid '#rgb' / '#rrggbb' string or null. */
 export function cleanColor(v) {
   return typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v.trim()) ? v.trim().toLowerCase() : null;
@@ -106,6 +126,12 @@ export function appearanceVars(prefs, theme = resolvedTheme(), base = () => '') 
       '--focus': theme === 'light' ? b : mixColors(b, '#ffffff', 0.25),
       '--cti': b,
     });
+    // White text sits on these fills: dark-theme accents are deepened to keep it readable.
+    // In the light theme only accents below 4.5:1 change; the others keep their own colors.
+    const keep = theme === 'light' && whiteContrast(b) >= 4.5;
+    const fill = keep ? b : fillForWhiteText(b);
+    vars['--accent-fill'] = fill;
+    vars['--accent-fill-hover'] = keep ? strong : mixColors(fill, '#000000', 0.1);
   }
   const bright = brightnessOf(prefs);
   if (bright) {
@@ -150,7 +176,7 @@ export function markerColor(type) {
   return (type && type !== 'cue' && cssVar(`--marker-${type}`)) || cssVar('--marker');
 }
 
-const APPLIED = ['--accent', '--accent-strong', '--accent-soft', '--hot', '--focus', '--cti', '--bg-editor', '--wave', '--wave-dim', '--wave-sel', '--sel-bg', '--sel-edge', '--playhead', '--marker', '--marker-range', '--marker-subclip', '--marker-cart', '--marker-cd', ...BRIGHTNESS_TOKENS];
+const APPLIED = ['--accent', '--accent-strong', '--accent-soft', '--accent-fill', '--accent-fill-hover', '--hot', '--focus', '--cti', '--bg-editor', '--wave', '--wave-dim', '--wave-sel', '--sel-bg', '--sel-edge', '--playhead', '--marker', '--marker-range', '--marker-subclip', '--marker-cart', '--marker-cd', ...BRIGHTNESS_TOKENS];
 let lastKey = '';
 
 /** Writes the appearance properties onto <html>; repaints (via 'themechange') when they changed. */

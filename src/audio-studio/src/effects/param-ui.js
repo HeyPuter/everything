@@ -78,6 +78,9 @@ function numberControl(p, getValues, onSet, { vertical = false } = {}) {
     const [n, u] = formatParts(p, v);
     return !u || u === (p.unit || '') ? n : `${n} ${u}`;
   };
+  // A log value is scrubbed as a slider position snapped to 0.0025; a typed
+  // value is kept as typed instead of snapping to the nearest position.
+  let typed = null;
   const hot = log
     ? hotNumber({
         value: toPosition(p, getValues()[p.id]),
@@ -89,9 +92,18 @@ function numberControl(p, getValues, onSet, { vertical = false } = {}) {
         format: (x) => formatValue(p, fromPosition(p, x)),
         parts: (x) => parts(fromPosition(p, x)),
         editText: (x) => editText(fromPosition(p, x)),
-        parse: (s) => toPosition(p, parseValue(p, s)),
+        parse: (s) => {
+          typed = parseValue(p, s);
+          return toPosition(p, typed);
+        },
         onInput: (x) => onSet(p.id, fromPosition(p, x)),
-        onChange: (x) => onSet(p.id, fromPosition(p, x)),
+        onChange: (x) => {
+          const v = Number.isFinite(typed) ? typed : fromPosition(p, x);
+          typed = null;
+          onSet(p.id, v);
+          // Typing the current value changes nothing, so show it again unsnapped.
+          hot.setValue(toPosition(p, getValues()[p.id]));
+        },
         defaultValue: toPosition(p, p.default),
       })
     : hotNumber({
@@ -162,7 +174,16 @@ export function paramControl(p, getValues, onSet, { doc = null, range = null, sm
     const env =
       type === 'curve'
         ? curveControl({ param: p, value: getValues()[p.id], onChange: (points) => onSet(p.id, points), smooth: smoothNow })
-        : envelopeControl({ param: p, value: getValues()[p.id], onChange: (points) => onSet(p.id, points), doc, range, smooth: smoothNow });
+        : envelopeControl({
+            param: p,
+            value: getValues()[p.id],
+            onChange: (points) => onSet(p.id, points),
+            doc,
+            range,
+            smooth: smoothNow,
+            // A definition's own drawing (the spline its process applies).
+            render: p.render ? (points, n) => p.render(points, n, getValues()) : null,
+          });
     const show = (v, from) => {
       if (from !== p.id) env.setPoints(v[p.id]);
       else env.redraw();

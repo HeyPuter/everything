@@ -13,7 +13,7 @@ import * as local from '../storage/local-folders.js';
 import { AUDIO_EXTENSIONS, extensionOf, decodeAudio } from '../audio/decode.js';
 import { encodeWav } from '../audio/wav.js';
 import { openFiles } from '../storage/files.js';
-import { probeAudio, describeProbe, HEAD_BYTES, TAIL_BYTES } from '../storage/probe.js';
+import { probeSource, describeProbe } from '../storage/probe.js';
 import { formatBytesShort } from '../export/formats.js';
 import { formatTime } from '../lib/time.js';
 
@@ -222,7 +222,7 @@ export function mediaBrowserPanel(app) {
     }
     const usable = (p) => p && ((local.isLocalPath(p) && rootOf(p) && access.get(rootOf(p).id) === 'granted') || (!local.isLocalPath(p) && home && p.startsWith(home)));
     if (!usable(dir)) {
-      if (home) dir = await puter.appDir().then(async (d) => ((await puter.exists(d)) ? d : home));
+      if (home) dir = await puter.appDir().then(async (d) => ((await puter.exists(d).catch(() => false)) ? d : home));
       else {
         const r = deviceRoots.find((x) => access.get(x.id) === 'granted');
         dir = r ? local.rootPath(r.id) : null;
@@ -302,12 +302,7 @@ export function mediaBrowserPanel(app) {
         const key = `${it.path}:${it.modified}`;
         try {
           const size = it.size || 0;
-          const head = new Uint8Array(await (await readRange(it, 0, Math.min(HEAD_BYTES, size || HEAD_BYTES))).arrayBuffer());
-          let p = probeAudio(head, size);
-          if (p.needTail && size > HEAD_BYTES) {
-            const tail = new Uint8Array(await (await readRange(it, Math.max(0, size - TAIL_BYTES), Math.min(TAIL_BYTES, size))).arrayBuffer());
-            p = probeAudio(head, size, tail);
-          }
+          const p = await probeSource(async (at, n) => new Uint8Array(await (await readRange(it, at, n)).arrayBuffer()), size);
           probes.set(key, p);
         } catch {
           probes.set(key, { format: extensionOf(it.name).toUpperCase() });

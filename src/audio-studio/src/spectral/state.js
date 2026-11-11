@@ -51,7 +51,8 @@ export function pitchOn(app) {
  */
 export function pitchSettings(prefs, rate) {
   const w = Number(prefs.get('pitchWindow'));
-  const n = [1024, 2048, 4096, 8192].includes(w) ? w : rate > 64000 ? 4096 : 2048;
+  // Automatic: lags reach half the window, so keep ~43 ms of lag (50 Hz) at any rate.
+  const n = [1024, 2048, 4096, 8192].includes(w) ? w : rate > 128000 ? 8192 : rate > 64000 ? 4096 : 2048;
   const lo = Number(prefs.get('pitchMinHz'));
   const hi = Number(prefs.get('pitchMaxHz'));
   const fmin = Math.max(20, Math.min(1000, Number.isFinite(lo) ? lo : 50));

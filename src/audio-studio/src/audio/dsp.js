@@ -1,11 +1,12 @@
 // Loads the Rust DSP module (src/audio/dsp.wasm, built from wasm/dsp) and wraps
 // the kernels used on the main thread and in workers. The compiled
-// WebAssembly.Module is also handed to the playback worklet.
+// WebAssembly.Module is shared with workers; the playback worklet gets the bytes.
 
 import wasmUrl from './dsp.wasm?url';
 
 let modulePromise = null;
 let instancePromise = null;
+let bytesPromise = null;
 
 /** Sample-rate conversion settings (Preferences > Data): quality 0..100 and the pre/post filter. */
 const resampleDefaults = { quality: 50, filter: true };
@@ -38,6 +39,23 @@ export function dspModule() {
     });
   }
   return modulePromise;
+}
+
+/**
+ * The module's bytes. The playback worklet compiles its own copy: browsers
+ * (Chrome) refuse a compiled WebAssembly.Module posted to an AudioWorklet.
+ */
+export function dspBytes() {
+  if (!bytesPromise) {
+    bytesPromise = fetch(wasmUrl).then((res) => {
+      if (!res.ok) throw new Error(`DSP module: HTTP ${res.status}`);
+      return res.arrayBuffer();
+    });
+    bytesPromise.catch(() => {
+      bytesPromise = null;
+    });
+  }
+  return bytesPromise;
 }
 
 /** For tests and workers that already hold the bytes. */

@@ -1,6 +1,6 @@
 // App shell: built-in workspaces, toolbar workspace tabs and the migration of
 // layouts saved against older built-in arrangements.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { WORKSPACES, DEFAULT_TABS, LAYOUT_VERSION } from '../src/ui/workspaces.js';
 
 const groups = (node, out = []) => {
@@ -170,5 +170,191 @@ describe('toolbar workspace tabs', () => {
     expect(items.some((t) => t.includes('Save as New Workspace'))).toBe(true);
     expect(items.some((t) => t.includes('Edit Workspaces'))).toBe(true);
     expect(menu).toBe(null);
+  });
+});
+
+describe('command search', () => {
+  it('keeps focus in the search field while results show, so typing goes on', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    const input = root.querySelector('.command-search');
+    input.focus();
+    input.value = 'n';
+    input.dispatchEvent(new Event('input'));
+    expect(document.querySelector('[role=menu][aria-label="Command results"]')).not.toBe(null);
+    expect(document.activeElement).toBe(input);
+    input.value = 'new';
+    input.dispatchEvent(new Event('input'));
+    expect(document.activeElement).toBe(input);
+    expect(document.querySelectorAll('[role=menu]')).toHaveLength(1);
+    // Down moves into the results; Escape there closes them and returns to the field.
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement.closest('[aria-label="Command results"]')).not.toBe(null);
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('[role=menu]')).toBe(null);
+    expect(document.activeElement).toBe(input);
+  });
+});
+
+describe('shortcuts while typing', () => {
+  it('leaves select all, clipboard and undo keys to a focused text field', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const { IS_MAC, CommandRegistry } = await import('../src/commands/registry.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    // Earlier tests' shells are still listening too, so watch every registry.
+    const ran = [];
+    const spy = vi.spyOn(CommandRegistry.prototype, 'run').mockImplementation((id) => ran.push(id));
+    const field = document.createElement('input');
+    field.type = 'text';
+    root.append(field);
+    const press = (target, key, extra = {}) => {
+      const e = new KeyboardEvent('keydown', { key, code: `Key${key.toUpperCase()}`, bubbles: true, cancelable: true, metaKey: IS_MAC, ctrlKey: !IS_MAC, ...extra });
+      target.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    for (const k of ['a', 'c', 'v', 'x', 'z', 'y']) expect(press(field, k)).toBe(false);
+    expect(press(field, 'z', { shiftKey: true })).toBe(false);
+    expect(ran).toEqual([]);
+    // Other command shortcuts (Save) still work from a field, and Select All works elsewhere.
+    expect(press(field, 's')).toBe(true);
+    expect(press(document.body, 'a')).toBe(true);
+    expect(ran).toEqual(['file.save', 'edit.selectAll']);
+    spy.mockRestore();
+  });
+});
+
+describe('toolbar and panel buttons', () => {
+  it('hides the workspace button outside the desktop layout, honours a hidden status bar and sizes panel menus for touch', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    Object.defineProperty(window, 'innerWidth', { value: 820, configurable: true });
+    createShell(app, root);
+    await new Promise((r) => requestAnimationFrame(r));
+    const more = root.querySelector('[aria-label="All workspaces"]');
+    expect(more.hidden).toBe(true);
+    // .icon-btn sets display, which would override the hidden attribute (jsdom does not cascade it).
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/shell.css`, 'utf8');
+    expect(css).toMatch(/\.toolbar \.icon-btn\[hidden\] \{\s*display: none;/);
+    // Every component's hidden elements stay hidden whatever display its class sets
+    // (Files > Show Preview Transport, Media Browser's Add Folder without folder access).
+    const base = fs.readFileSync(`${import.meta.dirname}/../src/styles/base.css`, 'utf8');
+    expect(base).toMatch(/\[hidden\] \{\s*display: none !important;/);
+    // View > Status Bar hides the bar with the hidden attribute, which .statusbar's display overrides.
+    expect(css).toMatch(/\.statusbar\[hidden\] \{\s*display: none;/);
+    // Panel menu buttons take taps over a larger transparent area on coarse pointers.
+    expect(css).toMatch(/@media \(pointer: coarse\) \{\s*\.panel-menu-btn \{\s*position: relative;\s*\}\s*\.panel-menu-btn::before \{\s*content: '';\s*position: absolute;\s*inset: -9px -8px -9px -6px;/);
+    Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
+  });
+});
+
+describe('theme contrast', () => {
+  it('keeps faint text readable (4.5:1) on panels in both themes', async () => {
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/tokens.css`, 'utf8');
+    const block = (sel) => css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+    const token = (b, name) => b.match(new RegExp(`${name}: (#[0-9a-f]{6});`))[1];
+    const lum = (hex) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+    for (const sel of [":root[data-theme-resolved='dark']", ":root[data-theme-resolved='light']"]) {
+      const b = block(sel);
+      for (const bg of ['--bg-panel', '--bg-panel-alt']) expect(ratio(token(b, '--text-faint'), token(b, bg))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe('popup menu focus', () => {
+  it('returns focus to the opening button or the previous focus on Escape and Tab', async () => {
+    const app = await makeApp();
+    const { openMenu } = await import('../src/ui/menubar.js');
+    const btn = document.createElement('button');
+    const field = document.createElement('input');
+    document.body.replaceChildren(btn, field);
+    const items = [{ type: 'cmd', label: 'One', enabled: true, run: () => {} }, { type: 'sub', label: 'More', items: [{ type: 'cmd', label: 'Two', enabled: true, run: () => {} }] }];
+    const key = (key) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    btn.focus();
+    openMenu(app, items, { x: 0, y: 0, anchor: btn });
+    expect(document.activeElement.textContent).toContain('One');
+    key('Escape');
+    expect(document.querySelector('.menu')).toBe(null);
+    expect(document.activeElement).toBe(btn);
+    // Tab from a submenu closes the whole menu and goes back to the button too.
+    openMenu(app, items, { x: 0, y: 0, anchor: btn });
+    key('ArrowDown');
+    key('ArrowRight');
+    expect(document.activeElement.textContent).toContain('Two');
+    key('Tab');
+    expect(document.querySelector('.menu')).toBe(null);
+    expect(document.activeElement).toBe(btn);
+    // A context menu (no button) goes back to what had focus.
+    field.focus();
+    openMenu(app, items, { x: 0, y: 0 });
+    key('Escape');
+    expect(document.activeElement).toBe(field);
+  });
+});
+
+describe('dialog initial focus', () => {
+  it('skips an initial focus target that cannot take focus', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    document.body.replaceChildren();
+    const tab = document.createElement('button');
+    tab.className = 'tab';
+    tab.disabled = true; // like page tabs hidden on a phone
+    const pick = document.createElement('select');
+    pick.className = 'pick';
+    const field = document.createElement('input');
+    const body = document.createElement('div');
+    body.append(field, pick, tab);
+    const done = openDialog({ title: 'T', body, initialFocus: ['.tab', '.pick'] });
+    expect(document.activeElement).toBe(pick);
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await done;
+    // Nothing in the selector can take focus: the usual first field.
+    pick.remove();
+    const again = openDialog({ title: 'T', body, initialFocus: '.tab' });
+    expect(document.activeElement).toBe(field);
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await again;
+  });
+});
+
+describe('Space on focused controls', () => {
+  it('toggles a focused checkbox or radio instead of starting playback', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const { CommandRegistry } = await import('../src/commands/registry.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    const ran = [];
+    const spy = vi.spyOn(CommandRegistry.prototype, 'run').mockImplementation((id) => ran.push(id));
+    const space = (target) => {
+      const e = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true });
+      target.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    for (const type of ['checkbox', 'radio']) {
+      const input = document.createElement('input');
+      input.type = type;
+      root.append(input);
+      expect(space(input)).toBe(false);
+    }
+    expect(ran).toEqual([]);
+    // Elsewhere Space still plays.
+    expect(space(document.body)).toBe(true);
+    expect(ran).toEqual(['transport.toggle']);
+    spy.mockRestore();
   });
 });

@@ -103,6 +103,9 @@ export function playlistPanel(app) {
   };
 
   function render() {
+    // Rows are rebuilt (playback moving on, entries removed): keyboard focus stays in the list.
+    const focusedRow = body.contains(document.activeElement) ? document.activeElement.closest('tr[data-id]') : null;
+    const focusedAt = focusedRow ? [...body.querySelectorAll('tr[data-id]')].indexOf(focusedRow) : -1;
     const d = doc();
     const list = entries();
     for (const id of [...selected]) if (!list.some((e) => e.id === id)) selected.delete(id);
@@ -149,6 +152,11 @@ export function playlistPanel(app) {
       );
     }
     if (!body.querySelector('tr[tabindex="0"]')) body.querySelector('tr[data-id]')?.setAttribute('tabindex', '0');
+    if (focusedRow && (!document.activeElement || document.activeElement === document.body)) {
+      const rows = [...body.querySelectorAll('tr[data-id]')];
+      const same = rows.find((r) => r.dataset.id === focusedRow.dataset.id);
+      (same || body.querySelector('tr[tabindex="0"]') || rows[Math.min(focusedAt, rows.length - 1)])?.focus({ preventScroll: Boolean(same) });
+    }
     total.textContent = d ? app.formatTime(totalFrames(list, markers, d.length), d.sampleRate) : '';
     const has = Boolean(d);
     addSel.disabled = !has || !markers.length;

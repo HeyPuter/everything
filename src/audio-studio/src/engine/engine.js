@@ -8,7 +8,8 @@ import mixerUrl from './mixer-worklet.js?worker&url';
 import captureUrl from './capture-worklet.js?worker&url';
 import { Emitter } from '../lib/emitter.js';
 import { CHUNK } from './mixcore.js';
-import { dspModule } from '../audio/dsp.js';
+import { dspBytes } from '../audio/dsp.js';
+import { UserError } from '../lib/errors.js';
 
 const LOOKAHEAD_S = 4;
 const KEEP_BEHIND_S = 1;
@@ -35,6 +36,9 @@ export function cleanMap(map) {
     return Number.isFinite(n) && n >= -1 && n < 32 ? n : i;
   });
 }
+
+const wholeFrame = (f) => Math.max(0, Math.round(Number(f) || 0));
+const wholeLoop = (loop) => (loop ? { ...loop, start: wholeFrame(loop.start), end: wholeFrame(loop.end) } : null);
 
 export class Engine extends Emitter {
   constructor() {
@@ -96,8 +100,10 @@ export class Engine extends Emitter {
     try {
       ctx = new AudioContext({ sampleRate: rate, latencyHint: this.latencyHint });
     } catch {
-      // Some browsers limit the rates a context can run at; play at the device
-      // rate instead (the graph is still mixed at its own rate).
+      // Some browsers limit the rates a context can run at (Firefox: 8 to 192
+      // kHz). Recording and metering still work at the device rate (takes are
+      // resampled), but play() refuses: the mixer has no rate conversion, so
+      // the audio would play at the wrong speed and pitch.
       ctx = new AudioContext({ latencyHint: this.latencyHint });
     }
     this.ctx = ctx;
@@ -115,13 +121,15 @@ export class Engine extends Emitter {
     this.outputRoute = null;
     this.#routeOutput();
     if (this.sinkId) await this.#applySink();
-    let module = null;
+    // The worklet compiles the DSP from its bytes (a compiled module posted to
+    // an AudioWorklet fails to arrive in Chrome, which left every effect out).
+    let bytes = null;
     try {
-      module = await dspModule();
+      bytes = await dspBytes();
     } catch {
       // Effects are unavailable without DSP; plain playback still works.
     }
-    node.port.postMessage({ type: 'init', module });
+    node.port.postMessage({ type: 'init', bytes });
     this.sent.clear();
     node.port.postMessage({ type: 'graph', graph: this.graph });
     if (this.tapUsers) node.port.postMessage({ type: 'tap', on: true });
@@ -272,7 +280,12 @@ export class Engine extends Emitter {
    * graph); `loop` = { start, end } repeats that range.
    */
   async play({ from = 0, to = null, loop = null } = {}) {
-    await this.ensure(this.graph.rate || this.rate);
+    from = wholeFrame(from);
+    if (to != null) to = wholeFrame(to);
+    loop = wholeLoop(loop);
+    const rate = this.graph.rate || this.rate;
+    await this.ensure(rate);
+    if (this.ctx.sampleRate !== rate) throw new UserError(`This browser can't play ${rate} Hz audio. Convert its sample rate (Edit > Convert Sample Type) to play it.`);
     this.range = { from, to, loop };
     this.lastPos = { frame: from, time: this.ctx.currentTime };
     this.#feed(from);
@@ -291,6 +304,10 @@ export class Engine extends Emitter {
   }
 
   setLoop(loop) {
+    loop = wholeLoop(loop);
+    // Past the new loop's end the mixer jumps to its start on the next block:
+    // the interpolated playhead follows rather than wrapping from the old position.
+    if (this.playing && loop && loop.end > loop.start && this.lastPos.frame >= loop.end) this.lastPos = { frame: loop.start, time: this.ctx?.currentTime ?? 0 };
     this.range.loop = loop;
     this.node?.port.postMessage({ type: 'loop', loop });
     if (this.playing) this.#feed();
@@ -307,6 +324,9 @@ export class Engine extends Emitter {
 
   /** Moves the playhead while playing (seamless jump). */
   seek(frame) {
+    // The mixer reads chunks by whole frame index: a fractional playhead (for
+    // example the interpolated `position`) would read undefined samples as NaN.
+    frame = wholeFrame(frame);
     this.lastPos = { frame, time: this.ctx?.currentTime ?? 0 };
     if (!this.node) return;
     this.#feed(frame);

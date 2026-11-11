@@ -320,7 +320,8 @@ export class MultitrackView {
       }
     }
     const lineY = index < tracks.length ? tracks[index].top : tracks.length ? tracks[tracks.length - 1].top + tracks[tracks.length - 1].total : 0;
-    this.reorder = { id, index };
+    // The track the line sits above (null: after the last one); hidden tracks have no row.
+    this.reorder = { id, index, before: tracks[index]?.id ?? null };
     this.reorderLine.hidden = false;
     this.reorderLine.style.transform = `translateY(${lineY - this.scrollY}px)`;
   }
@@ -330,8 +331,10 @@ export class MultitrackView {
     const r = this.reorder;
     this.reorder = null;
     if (!r || clientY === null) return;
-    const from = this.doc.state.tracks.findIndex((t) => t.id === id);
-    let to = r.index;
+    const tracks = this.doc.state.tracks;
+    const from = tracks.findIndex((t) => t.id === id);
+    const before = r.before === null ? -1 : tracks.findIndex((t) => t.id === r.before);
+    let to = before < 0 ? tracks.length : before;
     if (to > from) to--;
     if (to !== from) this.doc.apply('Move Track', S.reorderTrack(this.doc.state, id, to));
   }
@@ -1540,8 +1543,9 @@ export class MultitrackView {
     this.drag = { ...base, kind: 'move', ids, lead: c, rowIndex: this.#audioIndex(hit.row.id), copy: false };
   }
 
+  /** Position among the shown audio tracks (clip moves skip hidden tracks). */
   #audioIndex(trackId) {
-    return S.audioTracks(this.doc.state).findIndex((t) => t.id === trackId);
+    return S.audioTracks(this.doc.state).filter((t) => !t.hidden).findIndex((t) => t.id === trackId);
   }
 
   #dragMove(e, x, y) {
@@ -1874,7 +1878,9 @@ export class MultitrackView {
 
   #focusNextClip(dir) {
     const doc = this.doc;
-    const clips = doc.state.clips.slice().sort((a, b) => a.start - b.start || this.#audioIndex(a.trackId) - this.#audioIndex(b.trackId));
+    // Clips on hidden tracks cannot be seen, so Tab skips them.
+    const shown = new Set(this.rows.map((r) => r.id));
+    const clips = doc.state.clips.filter((c) => shown.has(c.trackId)).sort((a, b) => a.start - b.start || this.#audioIndex(a.trackId) - this.#audioIndex(b.trackId));
     if (!clips.length) return false;
     const cur = clips.findIndex((c) => doc.selectedClips.has(c.id));
     // Past the last (or before the first) clip, Tab leaves the editor as usual.

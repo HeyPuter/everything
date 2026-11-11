@@ -252,7 +252,11 @@ export function installCoreCommands(app) {
         const doc = app.active;
         if (!(await confirmDialog({ title: 'Revert', message: `Discard all changes to "${doc.name}" since it was last saved?`, confirm: 'Revert', danger: true }))) return;
         const i = doc.history.entries.findIndex((e) => e.state === doc.savedState);
-        doc.history.goTo(i >= 0 ? i : 0);
+        if (i >= 0) doc.history.goTo(i);
+        // The saved state can be gone from the history (cleared, trimmed, or
+        // rewritten by marker changes kept out of it): restore it as a new step.
+        else if (doc.savedState && doc.apply) doc.apply('Revert', doc.savedState);
+        else doc.history.goTo(0);
       },
     },
     {
@@ -330,11 +334,13 @@ export function installCoreCommands(app) {
       enabled: (a) => hasAudio(a) && a.clipboard?.type === 'audio',
       run: async () => {
         const doc = audio(app);
-        const clip = await conformRate(app.clipboard, doc.sampleRate);
+        // The clipboard as it was when Paste ran (another can be chosen while a clip is resampled).
+        const source = app.clipboard;
+        const clip = await conformRate(source, doc.sampleRate);
         const n = clip.channels[0]?.length ?? 0;
         const at = doc.hasSelection ? doc.selection.start : doc.cursor;
         let state = doc.hasSelection ? E.replaceRange(doc.state, doc.selection.start, doc.selection.end, clip, doc.channelMask) : E.insertClip(doc.state, at, clip, doc.channelMask);
-        if (!doc.channelMask) state = withClipMarkers(app, state, app.clipboard, at, app.clipboard.sampleRate);
+        if (!doc.channelMask) state = withClipMarkers(app, state, source, at, source.sampleRate);
         doc.apply('Paste', state, { selection: { start: at, end: at + n }, cursor: at });
       },
     },
@@ -540,7 +546,7 @@ export function installCoreCommands(app) {
       enabled: hasAudio,
       run: () => {
         const doc = audio(app);
-        const at = app.playhead - 1;
+        const at = app.playhead;
         const prev = doc.state.markers.flatMap((m) => [m.start, m.start + m.duration]).filter((f) => f < at).sort((a, b) => b - a)[0] ?? 0;
         app.currentView?.()?.seek(prev);
       },
@@ -552,7 +558,7 @@ export function installCoreCommands(app) {
       enabled: hasAudio,
       run: () => {
         const doc = audio(app);
-        const at = app.playhead + 1;
+        const at = app.playhead;
         const next = doc.state.markers.flatMap((m) => [m.start, m.start + m.duration]).filter((f) => f > at).sort((a, b) => a - b)[0] ?? doc.length;
         app.currentView?.()?.seek(next);
       },
@@ -734,7 +740,9 @@ export function installCoreCommands(app) {
       enabled: anyDoc,
       run: () => {
         const doc = app.active;
-        const at = app.playhead - doc.sampleRate * 0.05;
+        // While playing, a stop just passed (within 50 ms) is skipped so pressing Previous again
+        // goes on to the one before it; when stopped the playhead sits exactly on its stop.
+        const at = app.engine.playing ? app.playhead - doc.sampleRate * 0.05 : app.playhead;
         const stops = [0, ...(doc.state?.markers || []).flatMap((m) => [m.start, m.start + m.duration])];
         if (doc.hasSelection) stops.push(doc.selection.start, doc.selection.end);
         const prev = stops.filter((f) => f < at).sort((a, b) => b - a)[0] ?? 0;
@@ -748,7 +756,7 @@ export function installCoreCommands(app) {
       enabled: anyDoc,
       run: () => {
         const doc = app.active;
-        const at = app.playhead + 1;
+        const at = app.playhead;
         const stops = [doc.length, ...(doc.state?.markers || []).flatMap((m) => [m.start, m.start + m.duration])];
         if (doc.hasSelection) stops.push(doc.selection.start, doc.selection.end);
         const next = stops.filter((f) => f > at).sort((a, b) => a - b)[0] ?? doc.length;

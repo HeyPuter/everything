@@ -52,10 +52,14 @@ async function tx(mode, fn) {
       d.close();
       resolve(out?.result ?? out);
     };
-    t.onerror = () => {
+    // A failed request fires `error`; a quota or other failure at commit only
+    // `abort`. Either settles the promise, so callers never wait forever.
+    const fail = () => {
       d.close();
-      reject(t.error);
+      reject(t.error || new Error('The folder list could not be saved.'));
     };
+    t.onerror = fail;
+    t.onabort = fail;
   });
 }
 

@@ -1044,7 +1044,8 @@ export function preferencesDialog(app, args = {}) {
     wide: true,
     className: 'prefs-window',
     body,
-    initialFocus: '.prefs-tab[aria-selected="true"]',
+    // The page tabs, or the page picker that replaces them on phones.
+    initialFocus: ['.prefs-tab[aria-selected="true"]', '.prefs-pick'],
     footerStart: h('div.prefs-resets', h('button.btn', { type: 'button', onclick: resetPage }, 'Reset Page'), h('button.btn', { type: 'button', onclick: resetAll }, 'Reset All')),
     buttons: [
       { label: 'Cancel', value: null },

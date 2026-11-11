@@ -62,6 +62,19 @@ export function planMatch(measure, s) {
   return { action: 'gain', gainDb: capped, note: `Limited to ${fmtDb(integrated + capped, 1)} LUFS by the true peak ceiling` };
 }
 
+/**
+ * Status text after matching with `plan`, given the loudness measured
+ * afterwards: { text, short } where `short` means the target was missed by
+ * more than the tolerance (limiting held the level down).
+ */
+export function matchOutcome(plan, after, s) {
+  const got = after?.integrated;
+  if (plan.action === 'limit' && Number.isFinite(got) && Math.abs(got - s.target) > s.tolerance + 0.05) {
+    return { text: `Gain with limiting: reached ${fmtDb(got, 1)} LUFS`, short: true };
+  }
+  return { text: plan.note || `Gain ${plan.gainDb >= 0 ? '+' : ''}${plan.gainDb.toFixed(1)} dB`, short: plan.action === 'gain' && Boolean(plan.note) };
+}
+
 /** Streams a document through a worker loudness session. */
 export async function measureLoudness(state, onProgress) {
   const chans = state.channels;
@@ -328,6 +341,7 @@ export function loudnessPanel(app) {
     running = true;
     const s = prefs();
     let changed = 0;
+    let short = 0;
     try {
       for (const e of entries) {
         if (!app.documents.includes(e.doc)) continue;
@@ -346,11 +360,13 @@ export function loudnessPanel(app) {
         });
         commitWhole(e.doc, 'Match Loudness', state);
         changed++;
-        await scanOne(e);
-        e.status = plan.note || `Gain ${plan.gainDb >= 0 ? '+' : ''}${plan.gainDb.toFixed(1)} dB`;
+        const outcome = matchOutcome(plan, await scanOne(e), s);
+        if (outcome.short) short++;
+        e.status = outcome.text;
         renderRows();
       }
-      status.textContent = changed ? `Matched ${changed} file${changed === 1 ? '' : 's'} to ${s.target.toFixed(1)} LUFS.` : 'Nothing needed to change.';
+      const missed = short ? ` ${short} of them stayed below the target to keep the true peak ceiling.` : '';
+      status.textContent = changed ? `Matched ${changed} file${changed === 1 ? '' : 's'} to ${s.target.toFixed(1)} LUFS.${missed}` : 'Nothing needed to change.';
       announce(status.textContent);
     } catch (err) {
       status.textContent = `Matching failed: ${err.message}`;

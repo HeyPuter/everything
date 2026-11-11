@@ -186,7 +186,8 @@ export function parseTime(text, rate, format = 'decimal', music = {}) {
 /** Nice ruler step (in seconds) so labels are at least `minPx` apart. */
 export function rulerStep(secondsPerPixel, minPx = 80) {
   const target = secondsPerPixel * minPx;
-  const steps = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+  // Down to 10 microseconds, so a view zoomed in to a few samples still has labelled ticks.
+  const steps = [0.00001, 0.00002, 0.00005, 0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
   for (const s of steps) if (s >= target) return s;
   return Math.ceil(target / 3600) * 3600;
 }
@@ -199,7 +200,7 @@ export function rulerLabel(seconds, step) {
     const h = Math.floor(m / 60);
     return h ? `${h}:${pad(m % 60)}:${pad(seconds % 60)}` : `${m}:${pad(seconds % 60)}`;
   }
-  const decimals = step >= 1 ? 1 : step >= 0.1 ? 1 : step >= 0.01 ? 2 : 3;
+  const decimals = step >= 0.1 ? 1 : step >= 0.01 ? 2 : step >= 0.001 ? 3 : step >= 0.0001 ? 4 : 5;
   // Round to the shown precision first: ruler ticks accumulate float error, and
   // 119.99999 must read 2:00.0, not 1:60.0.
   const scale = 10 ** decimals;

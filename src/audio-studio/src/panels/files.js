@@ -94,6 +94,8 @@ export function filesPanel(app) {
   // Files picked out by Clip > Reveal Clips in Files Panel, until another file is opened.
   let revealed = new Set();
   const render = () => {
+    // Rows are rebuilt (playback starting, edits): keyboard focus stays on the same file.
+    const focused = body.contains(document.activeElement) ? document.activeElement.closest('tr')?.dataset.id || document.activeElement.closest('tr')?.dataset.file : null;
     renderHead();
     const cols = columns();
     body.replaceChildren();
@@ -163,6 +165,7 @@ export function filesPanel(app) {
       body.append(row);
       if (expanded.has(doc.id)) for (const m of doc.state.markers) body.append(markerRow(doc, m));
     }
+    if (focused) body.querySelector(`tr[data-id="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
     playBtn.disabled = !app.active;
     playBtn.replaceChildren(icon(app.engine.playing ? 'square' : 'play', app.engine.playing ? 13 : 15));
     loopBtn.setAttribute('aria-pressed', String(app.loop));
@@ -186,7 +189,7 @@ export function filesPanel(app) {
     };
     return h(
       'tr.files-marker',
-      { tabindex: '-1', onclick: go, onkeydown: (e) => e.key === 'Enter' && go() },
+      { tabindex: '-1', dataset: { file: doc.id }, onclick: go, onkeydown: (e) => e.key === 'Enter' && go() },
       h('td.name-cell', h('span.files-twisty'), icon(m.duration ? 'bookmark' : 'flag', 12), h('span', m.name || 'Marker')),
       h('td.tabular', { colspan: String(Math.max(1, columns().length - 1)) }, app.formatTime(m.start, doc.sampleRate), m.duration ? ` – ${app.formatTime(m.start + m.duration, doc.sampleRate)}` : ''),
     );

@@ -214,9 +214,41 @@
   border-color: var(--meter-red);
 }
 
+/* Touch: each LED takes taps over a finger-sized area around it, growing away from its neighbour. */
+@media (pointer: coarse) {
+  .clip-led {
+    position: relative;
+  }
+
+  .clip-led::before {
+    content: '';
+    position: absolute;
+    inset: -7px;
+  }
+
+  .clip-led:first-child::before {
+    top: -13px;
+    bottom: -1px;
+  }
+
+  .clip-led:last-child::before {
+    top: -1px;
+    bottom: -13px;
+  }
+
+  [data-orientation='vertical'] .clip-led:first-child::before {
+    inset: -7px -1px -7px -13px;
+  }
+
+  [data-orientation='vertical'] .clip-led:last-child::before {
+    inset: -7px -13px -7px -1px;
+  }
+}
+
 /* Selection / View */
 .selection-panel {
   padding: 6px 10px;
+  container-type: inline-size;
 }
 
 .selview-table {
@@ -261,6 +293,40 @@
 
 .time-field:disabled {
   color: var(--text-faint);
+}
+
+/* Narrow frames (the Default workspace on a 1280 px screen): tighter spacing and
+   type so Start, End and Duration all stay in view. */
+@container (max-width: 320px) {
+  .selview-table {
+    width: calc(100% + 12px);
+    margin: 0 -6px;
+    table-layout: fixed;
+    font-size: var(--fs-sm);
+  }
+
+  /* The row labels' column; Start, End and Duration share the rest equally. */
+  .selview-table thead td:first-child {
+    width: 5em;
+  }
+
+  .selview-table th {
+    padding: 2px 1px;
+  }
+
+  .selview-table tbody th {
+    padding-right: 3px;
+  }
+
+  .selview-table td {
+    padding: 2px 1px;
+  }
+
+  .time-field {
+    min-width: 0;
+    padding: 0 1px;
+    font-size: var(--fs-sm);
+  }
 }
 
 /* Properties */

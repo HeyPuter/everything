@@ -204,12 +204,11 @@ async function matchLoudnessDialog(app, doc, clips) {
   });
   if (r !== 'ok') return;
   const t = Number(target.value);
-  let state = doc.state;
+  const gains = new Map();
   clips.forEach((c, i) => {
-    if (!Number.isFinite(levels[i])) return;
-    state = S.updateClips(state, [c.id], { gain: Math.max(-48, Math.min(24, Math.round((c.gain + t - levels[i]) * 10) / 10)) });
+    if (Number.isFinite(levels[i])) gains.set(c.id, Math.max(-48, Math.min(24, Math.round((c.gain + t - levels[i]) * 10) / 10)));
   });
-  doc.apply('Match Clip Loudness', state);
+  doc.apply('Match Clip Loudness', S.updateClips(doc.state, [...gains.keys()], (c) => ({ gain: gains.get(c.id) })));
 }
 
 /** The metronome sound a session uses: its own choice, else the last one picked. */
@@ -405,12 +404,13 @@ function clipboardFrom(doc, clips, range) {
   const t0 = range ? range[0] : Math.min(...clips.map((c) => c.start));
   const audio = S.audioTracks(doc.state);
   const idx = new Map(audio.map((t, i) => [t.id, i]));
-  const firstTrack = Math.min(...clips.map((c) => idx.get(c.trackId) ?? 0));
   let parts = clips;
   if (range) {
     const s = S.trimClipsToRange({ ...doc.state, clips: clips.map((c) => ({ ...c, locked: false })) }, clips.map((c) => c.id), range[0], range[1], (id) => doc.sourceLength(id));
     parts = s.clips.filter((c) => c.start < range[1] && S.clipEnd(c) > range[0]);
   }
+  // Track offsets count from the top track of what is copied (selected clips outside the range are not).
+  const firstTrack = Math.min(...parts.map((c) => idx.get(c.trackId) ?? 0));
   const pool = new Map();
   for (const c of parts) {
     pool.set(c.sourceId, doc.pool.get(c.sourceId));
@@ -457,7 +457,7 @@ async function pasteClips(app, doc, clip) {
       track = audio()[base];
     }
     const c = S.createClip({ trackId: track.id, sourceId, name: baseName(file.name), start: at, length: channels[0].length });
-    state = S.addClips(state, [c]);
+    state = S.addClipsOnTop(state, [c]);
     ids.push(c.id);
   } else {
     for (const [id, src] of clip.pool) if (src && !doc.pool.has(id)) doc.pool.set(id, src);
@@ -465,15 +465,18 @@ async function pasteClips(app, doc, clip) {
       app.notify('Clips copied from a session at another sample rate cannot be pasted here.', { error: true });
       return;
     }
+    const pasted = [];
     for (const c of clip.clips) {
       while (!audio()[base + c.trackOffset]) {
         const made = newTrack(state, {});
         state = made.state;
       }
       const n = S.createClip({ ...c, id: undefined, trackId: audio()[base + c.trackOffset].id, start: at + c.start });
-      state = S.addClips(state, [n]);
+      pasted.push(n);
       ids.push(n.id);
     }
+    // Pasted clips come to the front, like clips placed by a move.
+    state = S.addClipsOnTop(state, pasted);
   }
   doc.apply('Paste', state, { clips: ids });
 }
@@ -595,13 +598,14 @@ export function installMultitrackCommands(app) {
     },
     run: () => {
       const doc = session(app);
-      let state = doc.state;
-      for (const c of doc.clipSelection) {
-        const f = dir === 'in' ? c.fadeIn : c.fadeOut;
+      const key = dir === 'in' ? 'fadeIn' : 'fadeOut';
+      const crossfading = new Set(S.activeCrossfades(doc.state).map((x) => (dir === 'in' ? x.in : x.out)));
+      const state = S.updateClips(doc.state, [...doc.selectedClips], (c) => {
+        const f = c[key];
         // A crossfading end keeps its overlap length; the curve shapes the crossfade.
-        const length = f.length || (S.fadeMode(state, c, dir) === 'crossfade' ? 0 : S.defaultFadeLength(c, doc.sampleRate));
-        state = S.setFade(state, [c.id], dir, { curve: S.FADE_CURVES[kind.toLowerCase()], length });
-      }
+        const length = f.length || (crossfading.has(c.id) ? 0 : S.defaultFadeLength(c, doc.sampleRate));
+        return { [key]: { ...f, curve: S.FADE_CURVES[kind.toLowerCase()], length: Math.max(0, Math.min(c.length, Math.round(length))) } };
+      });
       doc.apply(dir === 'in' ? 'Fade In' : 'Fade Out', state);
     },
   });
@@ -1134,9 +1138,9 @@ export function installMultitrackCommands(app) {
       enabled: hasClips,
       run: () => {
         const doc = session(app);
-        let s = doc.state;
-        for (const c of doc.clipSelection) if (app.playhead > c.start && app.playhead < S.clipEnd(c)) s = S.trimClip(s, c.id, 'in', app.playhead, doc.sourceLength(c.sourceId));
-        doc.apply('Trim Start', s);
+        const at = app.playhead;
+        const under = doc.clipSelection.filter((c) => at > c.start && at < S.clipEnd(c)).map((c) => c.id);
+        doc.apply('Trim Start', S.trimClipsAt(doc.state, under, 'in', at, (id) => doc.sourceLength(id)));
       },
     },
     {
@@ -1145,9 +1149,9 @@ export function installMultitrackCommands(app) {
       enabled: hasClips,
       run: () => {
         const doc = session(app);
-        let s = doc.state;
-        for (const c of doc.clipSelection) if (app.playhead > c.start && app.playhead < S.clipEnd(c)) s = S.trimClip(s, c.id, 'out', app.playhead, doc.sourceLength(c.sourceId));
-        doc.apply('Trim End', s);
+        const at = app.playhead;
+        const under = doc.clipSelection.filter((c) => at > c.start && at < S.clipEnd(c)).map((c) => c.id);
+        doc.apply('Trim End', S.trimClipsAt(doc.state, under, 'out', at, (id) => doc.sourceLength(id)));
       },
     },
     { id: 'clip.lock', label: 'Lock in Time', enabled: hasClips, checked: allSelected('locked'), run: toggleSelected('locked', 'Lock Clip', 'Unlock Clip') },

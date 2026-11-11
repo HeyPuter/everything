@@ -11,7 +11,7 @@
 import { h } from '../lib/dom.js';
 import { Channel } from '../audio/channel.js';
 import { WaveformRenderer } from '../render/waveform-gl.js';
-import { renderEffect, isAbort } from '../effects/apply.js';
+import { renderEffect, isAbort, isRealtime } from '../effects/apply.js';
 import { cssVar } from '../ui/theme.js';
 import { icon } from '../ui/icons.js';
 
@@ -51,6 +51,9 @@ export function installPreviewEditor(app, host) {
 
   // Automatic: for effects that change the length, or for any effect (Preferences > Effects).
   const wanted = () => Boolean(current) && (app.prefs.get('previewEditor') || (app.prefs.get('previewAuto') !== false && (changesLength || app.prefs.get('previewAutoMode') === 'any')));
+  // While hidden for 'length', the preview still renders offline effects to find out
+  // whether they change the length (realtime effects never do).
+  const detecting = () => Boolean(current) && !changesLength && app.prefs.get('previewAuto') !== false && app.prefs.get('previewAutoMode') !== 'any' && !isRealtime(current.def);
 
   const sync = () => {
     const show = wanted();
@@ -66,7 +69,7 @@ export function installPreviewEditor(app, host) {
 
   async function compute() {
     controller?.abort();
-    if (!current || !wanted()) return;
+    if (!current || !(wanted() || detecting())) return;
     const { def, values, doc } = current;
     const r = previewRange(doc);
     label.textContent = `${def.name}`;
@@ -86,10 +89,14 @@ export function installPreviewEditor(app, host) {
       if (delta !== 0 && !changesLength) {
         changesLength = true;
         sync();
+        clearTimeout(timer); // this render is the one to show
       }
-      // The processed state: show the view range, stretched or shrunk by the effect.
+      if (el.hidden) return;
+      // The processed state: show the view range, stretched or shrunk by the effect,
+      // at the main editor's scale (a view running past the end of the file stays blank there).
       const [vs, ve] = r.view;
-      result = { channels: out.state.channels.map((c) => c.slice(vs, Math.max(vs + 1, ve + delta))), span: ve - vs + delta };
+      const v = doc.view;
+      result = { channels: out.state.channels.map((c) => c.slice(vs, Math.max(vs + 1, ve + delta))), start: v.start - vs, span: v.end - v.start + delta };
       status.textContent = delta ? `Length ${delta > 0 ? '+' : '-'}${app.formatTime(Math.abs(delta), doc.sampleRate)}` : '';
       draw();
     } catch (err) {
@@ -122,7 +129,7 @@ export function installPreviewEditor(app, host) {
     const lh = (H * dpr - gap * (n - 1)) / n;
     const lanes = result.channels.map((_, i) => ({ top: i * (lh + gap), bottom: i * (lh + gap) + lh }));
     const color = cssVar('--wave');
-    renderer.draw({ channels: result.channels, start: 0, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: current.doc.view.amp || 1, lanes, colors: result.channels.map(() => color) });
+    renderer.draw({ channels: result.channels, start: result.start, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: current.doc.view.amp || 1, lanes, colors: result.channels.map(() => color) });
   }
 
   app.on('effect-values', (payload) => {
@@ -138,10 +145,10 @@ export function installPreviewEditor(app, host) {
     }
     if (docChanged) changesLength = false;
     sync();
-    if (!el.hidden) schedule(docChanged ? 0 : 250);
+    if (!el.hidden || detecting()) schedule(docChanged ? 0 : 250);
   });
   app.on('doc-change', (doc, e) => {
-    if (!current || doc !== current.doc || el.hidden) return;
+    if (!current || doc !== current.doc || (el.hidden && !detecting())) return;
     if (e.kind === 'view' || e.kind === 'selection' || e.kind === 'edit' || e.kind === 'history') schedule(e.kind === 'view' ? 120 : 250);
   });
   app.prefs.on('change', (key) => (key === 'previewEditor' || key === 'previewAuto' || key === 'previewAutoMode') && sync());

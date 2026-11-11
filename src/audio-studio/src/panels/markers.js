@@ -104,8 +104,11 @@ export function markersPanel(app) {
 
   const commit = (m, field, value) => {
     const d = doc();
-    const next = editMarkerField(m, field, value, d.length);
-    if (JSON.stringify(next) === JSON.stringify(m)) return;
+    // Onto the marker as it is now: it may have been moved (on the ruler) while its cell was edited.
+    const current = d?.state.markers.find((x) => x.id === m.id);
+    if (!current) return;
+    const next = editMarkerField(current, field, value, d.length);
+    if (JSON.stringify(next) === JSON.stringify(current)) return;
     d.apply('Edit Marker', { ...d.state, markers: sortMarkers(d.state.markers.map((x) => (x.id === m.id ? next : x))) });
   };
 
@@ -162,7 +165,10 @@ export function markersPanel(app) {
       anchor = m.id;
       if (m.duration) d.setSelection(m.start, m.start + m.duration);
       else d.setSelection(m.start, m.start);
-      d.setCursor(m.start);
+      // Through the editor, so playback in progress jumps there too.
+      const view = app.currentView?.();
+      if (view?.seek && view.doc === d) view.seek(m.start);
+      else d.setCursor(m.start);
       const v = d.view;
       if (m.start < v.start || m.start > v.end) {
         const span = v.end - v.start;
@@ -177,6 +183,10 @@ export function markersPanel(app) {
   };
 
   const render = () => {
+    // A focused row that goes away (deleted, filtered) hands focus to the row now in its
+    // place, so keys such as Delete stay in the list instead of reaching the editor.
+    const focusedRow = body.contains(document.activeElement) ? document.activeElement.closest('tr[data-id]') : null;
+    const focusedAt = focusedRow ? [...body.querySelectorAll('tr[data-id]')].indexOf(focusedRow) : -1;
     renderHead();
     const d = doc();
     body.replaceChildren();
@@ -239,6 +249,11 @@ export function markersPanel(app) {
     if (!body.querySelector('tr[tabindex="0"]')) {
       const first = body.querySelector('tr[data-id]');
       if (first) first.tabIndex = 0;
+    }
+    if (focusedRow) {
+      const rows = [...body.querySelectorAll('tr[data-id]')];
+      const same = rows.find((r) => r.dataset.id === focusedRow.dataset.id);
+      (same || rows[Math.min(focusedAt, rows.length - 1)])?.focus({ preventScroll: Boolean(same) });
     }
     updateButtons();
   };

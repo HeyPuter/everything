@@ -12,6 +12,8 @@ let openCount = 0;
  * value (Escape and the close button resolve null). `onSubmit(value)` may
  * return false to keep the dialog open (e.g. validation failed). Enter
  * presses the primary button except inside an element with data-own-enter.
+ * `initialFocus` is a selector, or selectors in order of preference; the
+ * first match that can take focus gets it.
  */
 export function openDialog({ title, body, buttons = [{ label: 'OK', value: true, primary: true }], wide = false, onSubmit, footerStart, className = '', initialFocus }) {
   return new Promise((resolve) => {
@@ -86,8 +88,13 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       if (e.target === backdrop) close(null);
     });
     document.body.append(backdrop);
-    const target = (initialFocus && dialog.querySelector(initialFocus)) || dialog.querySelector('input, select, textarea') || dialog.querySelector('.btn.primary') || dialog.querySelector('button');
-    target?.focus();
+    // The first candidate that takes focus (a layout may hide some, e.g. tabs on phones).
+    const preferred = [].concat(initialFocus || []).flatMap((sel) => [...dialog.querySelectorAll(sel)]);
+    const candidates = [...preferred, dialog.querySelector('input, select, textarea'), dialog.querySelector('.btn.primary'), dialog.querySelector('button')];
+    const target = candidates.find((el) => {
+      el?.focus();
+      return el && document.activeElement === el;
+    });
     if (target?.select && target.tagName === 'INPUT') target.select();
   });
 }

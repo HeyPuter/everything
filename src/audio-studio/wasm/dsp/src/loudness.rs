@@ -48,16 +48,27 @@ fn k_weighting(rate: f64) -> [Biquad; 2] {
     [shelf, hp]
 }
 
-/// Channel weights: L, R, C = 1, LFE excluded, surrounds +1.5 dB.
+/// Channel weights (ITU-R BS.1770-4): L, R, C = 1, LFE excluded, surrounds
+/// +1.5 dB. Layouts by channel count, in WAV order: 5 = 5.0 (L R C Ls Rs),
+/// 6 = 5.1 (L R C LFE Ls Rs), 8 = 7.1 (L R C LFE and four surrounds: the back
+/// and side pairs, in either order). Other counts keep 5.1's first six.
 fn channel_weight(index: usize, channels: usize) -> f64 {
-    if channels >= 6 {
-        match index {
+    match channels {
+        5 => match index {
+            3 | 4 => 1.41,
+            _ => 1.0,
+        },
+        8 => match index {
+            3 => 0.0,
+            4..=7 => 1.41,
+            _ => 1.0,
+        },
+        c if c >= 6 => match index {
             3 => 0.0,
             4 | 5 => 1.41,
             _ => 1.0,
-        }
-    } else {
-        1.0
+        },
+        _ => 1.0,
     }
 }
 
@@ -363,6 +374,31 @@ mod tests {
         let mono = s[..s.len() / 2].to_vec();
         let m = measure(rate, 1, &[mono]);
         assert!((m.integrated() + 23.01).abs() < 0.1, "{}", m.integrated());
+    }
+
+    #[test]
+    fn surround_channels_are_weighted_for_5_0_5_1_and_7_1() {
+        // A -20 dBFS 997 Hz sine in one channel: -23.01 LUFS in front, +1.5 dB in a surround,
+        // nothing in the LFE.
+        let rate = 48000.0;
+        let n = (rate * 10.0) as usize;
+        let tone: Vec<f32> = (0..n).map(|i| (0.1 * (2.0 * PI * 997.0 * i as f64 / rate).sin()) as f32).collect();
+        let one = |channels: usize, index: usize| {
+            let mut p = vec![0.0f32; channels * n];
+            p[index * n..(index + 1) * n].copy_from_slice(&tone);
+            measure(rate, channels, &[p]).integrated()
+        };
+        let surround = -23.01 + 10.0 * 1.41f64.log10();
+        for (channels, fronts, surrounds) in [(5, vec![0, 1, 2], vec![3, 4]), (6, vec![0, 1, 2], vec![4, 5]), (8, vec![0, 1, 2], vec![4, 5, 6, 7])] {
+            for i in fronts {
+                assert!((one(channels, i) + 23.01).abs() < 0.05, "{channels} ch {i}: {}", one(channels, i));
+            }
+            for i in surrounds {
+                assert!((one(channels, i) - surround).abs() < 0.05, "{channels} ch {i}: {}", one(channels, i));
+            }
+        }
+        assert!(one(6, 3) < -70.0);
+        assert!(one(8, 3) < -70.0);
     }
 
     #[test]

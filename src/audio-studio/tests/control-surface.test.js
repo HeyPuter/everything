@@ -47,3 +47,115 @@ describe('control surface protocol', () => {
     expect(learnAction(decodeMidi([0xb0, 99, 127]), map)).toBe(null);
   });
 });
+
+describe('control surface ports', () => {
+  const fakeMidi = () => {
+    const inputs = new Map();
+    const access = { inputs, outputs: new Map(), onstatechange: null };
+    const plug = (id, name) => {
+      const port = { id, name, state: 'connected', onmidimessage: null };
+      inputs.set(id, port);
+      access.onstatechange?.({ port });
+      return port;
+    };
+    const unplug = (id) => {
+      const port = inputs.get(id);
+      port.state = 'disconnected';
+      inputs.delete(id);
+      access.onstatechange?.({ port });
+    };
+    return { access, plug, unplug };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  async function setup(midi) {
+    localStorage.clear();
+    Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => midi.access, configurable: true });
+    const { App } = await import('../src/app.js');
+    const { installControlSurface } = await import('../src/control-surface/index.js');
+    const app = new App();
+    app.syncGraph = () => {};
+    const ran = [];
+    app.commands.register({ id: 'transport.play', label: 'Play', run: () => ran.push('play') });
+    installControlSurface(app);
+    return { app, ran };
+  }
+
+  it('connects a controller plugged in after the surface was turned on', async () => {
+    const midi = fakeMidi();
+    const { app, ran } = await setup(midi);
+    app.prefs.set('controlSurface', { enabled: true, input: '', output: '', protocol: 'mcu', mappings: {} });
+    await tick();
+    expect(app.controlSurface.status.text).toBe('No MIDI input connected.');
+    const port = midi.plug('a', 'Desk');
+    await tick();
+    expect(app.controlSurface.status.text).toBe('Listening to Desk');
+    port.onmidimessage({ data: [0x90, 94, 127] });
+    expect(ran).toEqual(['play']);
+    // Unplugged, then back again.
+    midi.unplug('a');
+    await tick();
+    expect(app.controlSurface.status.text).toBe('No MIDI input connected.');
+    const again = midi.plug('a', 'Desk');
+    await tick();
+    expect(app.controlSurface.status.text).toBe('Listening to Desk');
+    again.onmidimessage({ data: [0x90, 94, 127] });
+    expect(ran).toEqual(['play', 'play']);
+    delete navigator.requestMIDIAccess;
+  });
+});
+
+describe('control surface learn', () => {
+  it('stops waiting for a control once the Learn button is gone', async () => {
+    localStorage.clear();
+    const inputs = new Map([['a', { id: 'a', name: 'Desk', state: 'connected', onmidimessage: null }]]);
+    Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => ({ inputs, outputs: new Map(), onstatechange: null }), configurable: true });
+    const { App } = await import('../src/app.js');
+    const { installControlSurface } = await import('../src/control-surface/index.js');
+    const app = new App();
+    app.syncGraph = () => {};
+    const ran = [];
+    app.commands.register({ id: 'transport.play', label: 'Play', run: () => ran.push('play') });
+    installControlSurface(app);
+    app.prefs.set('controlSurface', { enabled: true, input: '', output: '', protocol: 'mcu', mappings: {} });
+    await new Promise((r) => setTimeout(r, 0));
+    const port = inputs.get('a');
+    // While the button is shown, the next control is learned instead of performed.
+    const learned = app.controlSurface.learn(() => true);
+    port.onmidimessage({ data: [0x90, 94, 127] });
+    expect(await learned).toBe('note:0:94');
+    expect(ran).toEqual([]);
+    // Preferences closed while waiting: the control works as usual and nothing is learned.
+    const stale = app.controlSurface.learn(() => false);
+    port.onmidimessage({ data: [0x90, 94, 127] });
+    expect(await stale).toBe(null);
+    expect(ran).toEqual(['play']);
+    delete navigator.requestMIDIAccess;
+  });
+});
+
+describe('control surface preferences page', () => {
+  it('does not pile up listeners as the page is rebuilt', async () => {
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { installControlSurface } = await import('../src/control-surface/index.js');
+    const app = new App();
+    app.syncGraph = () => {};
+    installControlSurface(app);
+    const section = app.preferenceSections.find((s) => s.category === 'controlSurface');
+    let ports = 0;
+    const on = app.on.bind(app);
+    app.on = (type, fn) => {
+      if (type !== 'midi-ports') return on(type, fn);
+      ports++;
+      const off = on(type, fn);
+      return () => {
+        ports--;
+        off();
+      };
+    };
+    for (let i = 0; i < 5; i++) section.build(app);
+    expect(app.controlSurface.status.listeners.size).toBe(1);
+    expect(ports).toBe(1);
+  });
+});

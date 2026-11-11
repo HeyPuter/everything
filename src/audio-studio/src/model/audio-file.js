@@ -29,7 +29,13 @@ export class AudioFile extends Emitter {
     this.origin = origin;
     this.history = new History({ sampleRate, channels, markers, meta });
     this.savedState = this.history.state;
+    let shown = this.history.state;
     this.history.on('change', () => {
+      // Undo or redo across a sample rate conversion keeps the view and playhead at the
+      // same times; the conversion itself (an apply) sets them.
+      const prev = shown;
+      shown = this.state;
+      if (!this.#applying && prev.sampleRate !== shown.sampleRate) this.#rescale(lengthOf(shown) / lengthOf(prev));
       this.#syncBitDepth();
       this.clampView();
       this.emit('change', { kind: 'history' });
@@ -93,12 +99,27 @@ export class AudioFile extends Emitter {
     this.emit('change', { kind: 'saved' });
   }
 
+  #applying = false;
+
+  /** Scales the view, playhead and selection by `k` (frames at a new sample rate). */
+  #rescale(k) {
+    if (!(k > 0) || !Number.isFinite(k) || k === 1) return;
+    this.view = { ...this.view, start: this.view.start * k, end: this.view.end * k };
+    this.cursor = Math.round(this.cursor * k);
+    this.selection = { ...this.selection, start: Math.round(this.selection.start * k), end: Math.round(this.selection.end * k) };
+  }
+
   /** Commits a new state as one undo step. */
   apply(label, state, { selection, cursor } = {}) {
     if (state === this.state) return false;
     if (state.bitDepth !== undefined && this.state.bitDepth === undefined) this.baseBitDepth ??= this.info.bitDepth;
-    if (!markerOptions.undo && markersOnlyChange(this.state, state)) this.history.outside(state, (s) => ({ ...s, markers: state.markers }));
-    else this.history.push(label, state);
+    this.#applying = true;
+    try {
+      if (!markerOptions.undo && markersOnlyChange(this.state, state)) this.history.outside(state, (s) => ({ ...s, markers: state.markers }));
+      else this.history.push(label, state);
+    } finally {
+      this.#applying = false;
+    }
     this.#syncBitDepth();
     if (selection) this.setSelection(selection.start, selection.end, { silent: true });
     if (cursor !== undefined) this.setCursor(cursor, { silent: true });

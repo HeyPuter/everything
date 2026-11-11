@@ -193,12 +193,17 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         e.preventDefault();
         close('escape');
         if (parentMenu) parentMenu.refocus();
+        else restoreFocus(api);
         break;
-      case 'Tab':
+      case 'Tab': {
         e.preventDefault();
         close('tab');
         parentMenu?.closeAll?.();
+        let root = api;
+        while (root.parentMenu) root = root.parentMenu;
+        restoreFocus(root);
         break;
+      }
       case 'Enter':
       case ' ':
         e.preventDefault();
@@ -252,6 +257,7 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
     el: menu,
     close,
     parentMenu,
+    anchor,
     returnFocus,
     child: null,
     refocus: () => {
@@ -268,8 +274,16 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
   if (parentMenu) parentMenu.child = api;
   if (focus === 'first') (focusable()[0] || menu).focus();
   else if (focus === 'last') (focusable().slice(-1)[0] || menu).focus();
-  else menu.focus({ preventScroll: true });
+  // 'keep' leaves focus where it is (a search field that keeps taking typing).
+  else if (focus !== 'keep') menu.focus({ preventScroll: true });
   return api;
+}
+
+/** After a menu is dismissed: back to the button that opened it, else to what had focus before. */
+function restoreFocus(root) {
+  if (document.activeElement && document.activeElement !== document.body && document.activeElement.isConnected) return;
+  const back = root.anchor?.isConnected ? root.anchor : root.returnFocus;
+  if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true });
 }
 
 /** The application menu bar. */
@@ -284,6 +298,8 @@ export function createMenubar(app, menus) {
     const btn = buttons[i];
     const r = btn.getBoundingClientRect();
     openIndex = i;
+    // Roving tabindex follows the open menu, so Escape and Tab leave from its button.
+    buttons.forEach((b, j) => (b.tabIndex = j === i ? 0 : -1));
     btn.setAttribute('aria-expanded', 'true');
     btn.classList.add('open');
     const items = resolveItems(app, menus[i].submenu);

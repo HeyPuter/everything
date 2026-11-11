@@ -5,7 +5,7 @@ import { Session } from '../src/model/session.js';
 import { buildSessionGraph, clipPlan, dbEnvelopeToGain, metronomeBar } from '../src/model/session-graph.js';
 import { serializeSession, parseSession, safeFileName, mediaFolderName } from '../src/model/session-io.js';
 import { createMarker } from '../src/model/markers.js';
-import { zipStore, unzipStore, crc32 } from '../src/lib/zip.js';
+import { zipStore, unzipStore, crc32, zipProblem } from '../src/lib/zip.js';
 
 const RATE = 1000;
 
@@ -73,6 +73,23 @@ describe('clip edits', () => {
     expect(S.findClip(s, c.id).trackId).toBe(s.tracks[1].id);
     s = S.moveClips(s, [c.id], 10, 5);
     expect(S.findClip(s, c.id).trackId).toBe(s.tracks[2].id);
+  });
+
+  it('moves clips across shown tracks only, skipping hidden ones', () => {
+    let [s, c] = withClip(base(4), { start: 50 });
+    const [t0, t1, t2, t3] = s.tracks.map((t) => t.id);
+    s = S.updateTrack(s, t1, { hidden: true });
+    s = S.updateTrack(s, t3, { hidden: true });
+    const h = S.createClip({ trackId: t1, sourceId: 'src', start: 300, length: 100 });
+    s = S.addClips(s, [h]);
+    // Down one row lands on Track 3 (Track 2 is hidden); further down is clamped there.
+    expect(S.findClip(S.moveClips(s, [c.id], 0, 1), c.id).trackId).toBe(t2);
+    expect(S.findClip(S.moveClips(s, [c.id], 0, 3), c.id).trackId).toBe(t2);
+    // A selected clip on a hidden track only moves in time.
+    const both = S.moveClips(s, [c.id, h.id], 10, 1);
+    expect([S.findClip(both, c.id).trackId, S.findClip(both, h.id).trackId, S.findClip(both, h.id).start]).toEqual([t2, t1, 310]);
+    expect(S.findClip(S.moveClips(s, [h.id], 0, 1), h.id).trackId).toBe(t1);
+    expect(S.findClip(s, c.id).trackId).toBe(t0);
   });
 
   it('copies clips with Alt-drag semantics and leaves locked clips in place', () => {
@@ -148,6 +165,58 @@ describe('clip edits', () => {
     expect(S.findClip(r4, b.id).start).toBe(100);
   });
 
+  it('trimming either edge keeps both fades inside the clip', () => {
+    const [s, c] = withClip(base(), { fadeIn: { length: 80, curve: 0 }, fadeOut: { length: 70, curve: 2 } });
+    const out = S.findClip(S.trimClip(s, c.id, 'out', 50, 1000), c.id);
+    expect(out.fadeIn).toEqual({ length: 50, curve: 0 });
+    expect(out.fadeOut).toEqual({ length: 50, curve: 2 });
+    const inn = S.findClip(S.trimClip(s, c.id, 'in', 60, 1000), c.id);
+    expect(inn.fadeIn.length).toBe(40);
+    expect(inn.fadeOut).toEqual({ length: 40, curve: 2 });
+  });
+
+  it('adds clips on top of the clips there, keeping their own order', () => {
+    let s = base(1);
+    const t0 = s.tracks[0].id;
+    const a = S.createClip({ trackId: t0, sourceId: 'x', start: 0, length: 100, z: 4 });
+    s = S.addClips(s, [a]);
+    const b = S.createClip({ trackId: t0, sourceId: 'x', start: 10, length: 20, z: 2 });
+    const c = S.createClip({ trackId: t0, sourceId: 'x', start: 20, length: 20, z: 3 });
+    const r = S.addClipsOnTop(s, [b, c]);
+    expect(S.findClip(r, b.id).z).toBe(5);
+    expect(S.findClip(r, c.id).z).toBe(6);
+    expect(S.addClipsOnTop(s, [])).toBe(s);
+  });
+
+  it('ripple deletes time in selected clips only', () => {
+    let s = base(1);
+    const t0 = s.tracks[0].id;
+    const a = S.createClip({ trackId: t0, sourceId: 'x', start: 0, length: 300 });
+    const b = S.createClip({ trackId: t0, sourceId: 'x', start: 400, length: 100 });
+    const c = S.createClip({ trackId: t0, sourceId: 'x', start: 600, length: 100 });
+    s = S.addClips(s, [a, b, c]);
+    const r = S.rippleDeleteTime(s, 100, 200, { ids: [a.id, b.id] });
+    const parts = r.clips.filter((x) => x.sourceId === 'x').map((x) => [x.id === a.id, x.start, x.length]);
+    expect(parts).toEqual([[true, 0, 100], [false, 100, 100], [false, 300, 100], [false, 600, 100]]);
+    expect(S.findClip(r, b.id).start).toBe(300);
+    expect(S.findClip(r, c.id).start).toBe(600);
+  });
+
+  it('ripple deleting overlapping clips closes the time they cover only once', () => {
+    let s = base(1);
+    const t0 = s.tracks[0].id;
+    const a = S.createClip({ trackId: t0, sourceId: 'x', start: 0, length: 200 });
+    const b = S.createClip({ trackId: t0, sourceId: 'x', start: 100, length: 200 });
+    const c = S.createClip({ trackId: t0, sourceId: 'x', start: 400, length: 100 });
+    const d = S.createClip({ trackId: t0, sourceId: 'x', start: 600, length: 50 });
+    const e = S.createClip({ trackId: t0, sourceId: 'x', start: 700, length: 50 });
+    s = S.addClips(s, [a, b, c, d, e]);
+    // [0, 300) and [600, 650) are removed: 300 + 50 frames.
+    const r = S.rippleDeleteClips(s, [a.id, b.id, d.id]);
+    expect(S.findClip(r, c.id).start).toBe(100);
+    expect(S.findClip(r, e.id).start).toBe(350);
+  });
+
   it('removes a time range from selected clips without moving others', () => {
     let s = base(1);
     const a = S.createClip({ trackId: s.tracks[0].id, sourceId: 'x', start: 0, length: 100 });
@@ -213,6 +282,48 @@ describe('crossfades and playback plan', () => {
     const off = clipPlan({ ...s, autoCrossfade: false });
     expect(off.get(a.id).parts).toEqual([[0, 80]]);
     expect(off.get(b.id).parts).toEqual([[80, 180]]);
+  });
+
+  it('plans many overlapping clips like a clip-by-clip comparison, and reuses the plan', () => {
+    // The plan as every clip against every other clip on its track.
+    const naive = (st) => {
+      const order = S.frontOrder(st);
+      const zones = new Map(S.activeCrossfades(st).flatMap((x) => [[`${x.out}|${x.in}`, [x.start, x.end]], [`${x.in}|${x.out}`, [x.start, x.end]]]));
+      const out = new Map();
+      for (const c of st.clips) {
+        if (c.mute) continue;
+        let parts = [[c.start, S.clipEnd(c)]];
+        const cut = (x, y) => (parts = parts.flatMap(([p, q]) => (y <= p || x >= q ? [[p, q]] : [[p, Math.min(x, q)], [Math.max(y, p), q]].filter(([u, v]) => v > u))));
+        for (const o of st.clips) {
+          if (o === c || o.mute || o.trackId !== c.trackId || order.get(o.id) < order.get(c.id)) continue;
+          if (o.start >= S.clipEnd(c) || S.clipEnd(o) <= c.start) continue;
+          const zone = zones.get(`${c.id}|${o.id}`);
+          if (!zone) cut(o.start, S.clipEnd(o));
+          else {
+            if (zone[0] > o.start) cut(o.start, zone[0]);
+            if (zone[1] < S.clipEnd(o)) cut(zone[1], S.clipEnd(o));
+          }
+        }
+        out.set(c.id, parts);
+      }
+      return out;
+    };
+    let seed = 7;
+    const rnd = (n) => ((seed = (seed * 1103515245 + 12345) % 2147483648) % n);
+    for (let round = 0; round < 20; round++) {
+      let st = base(3);
+      const clips = [];
+      for (let i = 0; i < 40; i++) clips.push(S.createClip({ trackId: st.tracks[rnd(3)].id, sourceId: 'x', start: rnd(2000), length: 1 + rnd(round % 4 ? 300 : 1500), z: rnd(3), mute: rnd(10) === 0 }));
+      st = { ...S.addClips(st, clips), autoCrossfade: round % 2 === 0 };
+      const plan = clipPlan(st);
+      const want = naive(st);
+      for (const [id, parts] of want) expect(plan.get(id).parts).toEqual(parts);
+      expect(clipPlan(st)).toBe(plan);
+      // An edit on one track: the other tracks reuse their plans, the edited one is planned again.
+      const moved = S.moveClips(st, [st.clips[rnd(40)].id], rnd(400) - 200, rnd(3) - 1);
+      const next = clipPlan(moved);
+      for (const [id, parts] of naive(moved)) expect(next.get(id).parts).toEqual(parts);
+    }
   });
 });
 
@@ -334,6 +445,26 @@ describe('Session document', () => {
     expect(doc.length).toBe(40);
     expect(doc.extent).toBeGreaterThanOrEqual(60 * RATE);
   });
+
+  it('lists the selected clips in timeline order as they change', () => {
+    const doc = new Session({ sampleRate: RATE, tracks: 1 });
+    const t = doc.state.tracks[0].id;
+    const [a, b, c] = [50, 10, 30].map((start) => S.createClip({ trackId: t, sourceId: 'x', start, length: 5 }));
+    doc.apply('Add', S.addClips(doc.state, [a, b, c]));
+    doc.selectClips([a.id, b.id]);
+    const ids = () => doc.clipSelection.map((x) => x.id);
+    expect(ids()).toEqual([b.id, a.id]);
+    doc.clipSelection.pop();
+    expect(ids()).toEqual([b.id, a.id]);
+    doc.selectClips([c.id], 'add');
+    expect(ids()).toEqual([b.id, c.id, a.id]);
+    doc.apply('Move', S.moveClips(doc.state, [a.id], -45));
+    expect(ids()).toEqual([a.id, b.id, c.id]);
+    doc.apply('Delete', S.removeClips(doc.state, [b.id]));
+    expect(ids()).toEqual([a.id, c.id]);
+    doc.selectedClips = new Set([c.id]);
+    expect(ids()).toEqual([c.id]);
+  });
 });
 
 describe('session files', () => {
@@ -373,6 +504,17 @@ describe('session files', () => {
     const files = unzipStore(await blob.arrayBuffer());
     expect(new TextDecoder().decode(files.get('a.txt'))).toBe('hello');
     expect([...files.get('dir/b.bin')]).toEqual([1, 2, 3]);
+  });
+
+  it('refuses archives past the 4 GB / 65,535-file limits instead of writing a corrupt one', () => {
+    const files = [{ name: 'a.bin', data: new Uint8Array(100) }, { name: 'b.bin', data: new Uint8Array(100) }];
+    // The size check matches the archive exactly: at the limit it is written, one byte less refuses.
+    const size = zipStore(files).size;
+    expect(zipProblem(files.map((f) => ({ name: f.name, size: f.data.length })))).toBe('');
+    expect(zipStore(files, { limits: { bytes: size, entries: 10 } }).size).toBe(size);
+    expect(() => zipStore(files, { limits: { bytes: size - 1, entries: 10 } })).toThrow('more than a ZIP file can hold');
+    expect(() => zipStore(files, { limits: { bytes: size, entries: 1 } })).toThrow('A ZIP file holds at most 1 files; there are 2.');
+    expect(zipProblem([{ name: 'big.wav', size: 2 ** 32 }])).toMatch(/more than 4 GB/);
   });
 });
 

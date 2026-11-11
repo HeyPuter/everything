@@ -11,7 +11,7 @@ import { cssVar, CANVAS_FONT } from '../ui/theme.js';
 import { subTabs } from '../panels/subtabs.js';
 import { analysisPool } from './pool.js';
 import { fmtDb, gainToDb, fitCanvas } from './common.js';
-import { HIST_BINS, binDb } from './rms-histogram.js';
+import { HIST_BINS, binDb, rmsBin } from './rms-histogram.js';
 
 /** RMS settings: window width in ms and the 0 dB reference (full-scale square or sine wave). */
 export const RMS_DEFAULTS = { windowMs: 50, ref: 'square' };
@@ -50,6 +50,9 @@ export function statsRows(result, channelCount, settings = RMS_DEFAULTS) {
   const frames = (c) => Math.max(1, c.frames);
   const off = rmsOffset(settings);
   const rmsDb = (g) => fmtDb(gainToDb(g) + off);
+  // A range shorter than the RMS window is measured as one window.
+  const total = (c) => Math.sqrt(c.sq / frames(c));
+  const win = (c) => (c.rmsCount ? null : c.frames ? total(c) : 0);
   return [
     ['Peak Amplitude', per((c) => `${fmtDb(gainToDb(Math.max(Math.abs(c.min), Math.abs(c.max))))} dB`)],
     ['True Peak Amplitude', per((c, i) => `${fmtDb(gainToDb(L.truePeak[i]))} dBTP`)],
@@ -57,11 +60,11 @@ export function statsRows(result, channelCount, settings = RMS_DEFAULTS) {
     ['DC Offset', per((c) => `${((c.sum / frames(c)) * 100).toFixed(3)} %`)],
     ['Minimum Sample Value', per((c) => (c.frames ? c.min.toFixed(5) : '0'))],
     ['Maximum Sample Value', per((c) => (c.frames ? c.max.toFixed(5) : '0'))],
-    ['Minimum RMS Amplitude', per((c) => `${rmsDb(c.rmsCount ? c.rmsMin : 0)} dB`)],
-    ['Maximum RMS Amplitude', per((c) => `${rmsDb(c.rmsMax)} dB`)],
-    ['Average RMS Amplitude', per((c) => `${rmsDb(c.rmsCount ? c.rmsSum / c.rmsCount : 0)} dB`)],
-    ['Total RMS Amplitude', per((c) => `${rmsDb(Math.sqrt(c.sq / frames(c)))} dB`)],
-    ['Dynamic Range', per((c) => (c.rmsCount && c.rmsMin > 0 ? `${(gainToDb(c.rmsMax) - gainToDb(c.rmsMin)).toFixed(2)} dB` : '∞ dB'))],
+    ['Minimum RMS Amplitude', per((c) => `${rmsDb(win(c) ?? c.rmsMin)} dB`)],
+    ['Maximum RMS Amplitude', per((c) => `${rmsDb(win(c) ?? c.rmsMax)} dB`)],
+    ['Average RMS Amplitude', per((c) => `${rmsDb(win(c) ?? c.rmsSum / c.rmsCount)} dB`)],
+    ['Total RMS Amplitude', per((c) => `${rmsDb(total(c))} dB`)],
+    ['Dynamic Range', per((c) => (c.rmsCount && c.rmsMin > 0 ? `${(gainToDb(c.rmsMax) - gainToDb(c.rmsMin)).toFixed(2)} dB` : win(c) > 0 ? '0.00 dB' : '∞ dB'))],
     ['Measured Bit Depth', per((c) => (c.bits === 0 ? 'Silent' : c.bits === 32 ? '32 (float)' : String(c.bits)))],
     ['Integrated Loudness', `${fmtDb(L.integrated)} LUFS`],
     ['Loudness Range', `${L.range.toFixed(2)} LU`],
@@ -72,7 +75,14 @@ export function statsRows(result, channelCount, settings = RMS_DEFAULTS) {
 
 /** Percent of windows per bin, per channel, trimmed to the bins in use (with a little margin). */
 export function histogramSeries(result, channelCount) {
-  const hists = result.channels.slice(0, channelCount).map((c) => c.hist || new Uint32Array(HIST_BINS));
+  const hists = result.channels.slice(0, channelCount).map((c) => {
+    const hst = c.hist || new Uint32Array(HIST_BINS);
+    if (c.rmsCount || !c.frames) return hst;
+    // A range shorter than the RMS window counts as one window (as in statsRows).
+    const one = new Uint32Array(HIST_BINS);
+    one[rmsBin(Math.sqrt(c.sq / c.frames))] = 1;
+    return one;
+  });
   let lo = HIST_BINS;
   let hi = -1;
   for (const hst of hists) {

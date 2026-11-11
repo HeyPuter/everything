@@ -275,6 +275,26 @@ describe('M4A muxer', () => {
     expect(dv.getUint32(stsz + 16)).toBe(50);
     expect(dv.getUint32(stsz + 20)).toBe(200);
     expect(readTags(file.buffer)).toEqual(meta);
+    // Files written with the movie box after a long media box keep their tags too.
+    const [ftyp, moov] = parts;
+    const late = new Uint8Array(ftyp.length + 8 + (6 << 20) + moov.length);
+    late.set(ftyp);
+    new DataView(late.buffer).setUint32(ftyp.length, 8 + (6 << 20));
+    late.set([0x6d, 0x64, 0x61, 0x74], ftyp.length + 4);
+    late.set(moov, late.length - moov.length);
+    expect(readTags(late.buffer)).toEqual(meta);
+  });
+
+  it('records priming, padding and length as iTunSMPB so Apple players trim the padding', () => {
+    const packets = Array.from({ length: 74 }, () => new Uint8Array(100));
+    const parts = muxM4a({ sampleRate: 48000, channels: 2, packets, totalFrames: 72000, priming: 2112, bitrate: 128000, meta: {} });
+    const file = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+    parts.reduce((at, p) => (file.set(p, at), at + p.length), 0);
+    const text = new TextDecoder('latin1').decode(file);
+    expect(text).toContain('iTunSMPB');
+    // 2112 priming, 74 * 1024 - 2112 - 72000 = 1664 padding, 72000 frames.
+    expect(text).toContain(' 00000000 00000840 00000680 0000000000011940 00000000');
+    expect(readTags(file.buffer)).toEqual({});
   });
 });
 

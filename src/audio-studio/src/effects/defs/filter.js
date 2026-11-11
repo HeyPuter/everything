@@ -16,7 +16,9 @@ const SLOPES = [
   { value: 8, label: '48 dB/oct' },
 ];
 
-const qParam = (def, max = 100) => num('q', 'Q', 0.1, max, def, '', { step: 0.01, scale: 'log' });
+// Four significant digits keep the shelves' Butterworth 0.7071 (a 0.01 step rounded it to 0.71).
+const qParam = (def, max = 100) =>
+  num('q', 'Q', 0.1, max, def, '', { step: 0.01, sig: 4, scale: 'log' });
 
 // ------------------------------------------------------------ Parametric EQ
 

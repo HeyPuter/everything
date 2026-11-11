@@ -81,8 +81,19 @@ export class WaveformRenderer {
       this.gl = null;
     }
     this.ctx2d = null;
-    if (this.gl) this.#initGL();
-    else this.ctx2d = canvas.getContext('2d');
+    if (this.gl) {
+      this.#initGL();
+      // Listeners go on once; a restored context only needs its resources rebuilt.
+      canvas.addEventListener('webglcontextlost', (e) => {
+        e.preventDefault();
+        this.lost = true;
+      });
+      canvas.addEventListener('webglcontextrestored', () => {
+        this.lost = false;
+        this.#initGL();
+        this.onRestore?.();
+      });
+    } else this.ctx2d = canvas.getContext('2d');
     this.columns = new Float32Array(0);
   }
 
@@ -116,15 +127,6 @@ export class WaveformRenderer {
     gl.bindVertexArray(null);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    this.canvas.addEventListener('webglcontextlost', (e) => {
-      e.preventDefault();
-      this.lost = true;
-    });
-    this.canvas.addEventListener('webglcontextrestored', () => {
-      this.lost = false;
-      this.#initGL();
-      this.onRestore?.();
-    });
   }
 
   /** Matches the backing store to CSS size; returns device pixel size. */
@@ -148,16 +150,17 @@ export class WaveformRenderer {
    * @param {number} p.amp vertical zoom
    * @param {{top:number,bottom:number}[]} p.lanes lane rectangles in device pixels
    * @param {string[]} p.colors CSS colors per channel
+   * @param {object} [p.defer] spreads first-time peak building over frames (see channelColumns)
    */
-  draw({ channels, start, fpp, amp, lanes, colors }) {
+  draw({ channels, start, fpp, amp, lanes, colors, defer = null }) {
     if (this.lost) return;
     const W = this.canvas.width;
     const H = this.canvas.height;
-    if (this.gl) this.#drawGL(channels, start, fpp, amp, lanes, colors, W, H);
-    else this.#draw2d(channels, start, fpp, amp, lanes, colors, W, H);
+    if (this.gl) this.#drawGL(channels, start, fpp, amp, lanes, colors, W, H, defer);
+    else this.#draw2d(channels, start, fpp, amp, lanes, colors, W, H, defer);
   }
 
-  #drawGL(channels, start, fpp, amp, lanes, colors, W, H) {
+  #drawGL(channels, start, fpp, amp, lanes, colors, W, H, defer) {
     const gl = this.gl;
     gl.viewport(0, 0, W, H);
     gl.clearColor(0, 0, 0, 0);
@@ -171,7 +174,7 @@ export class WaveformRenderer {
       if (fpp > 1) {
         const cols = W;
         if (this.columns.length < cols * 2) this.columns = new Float32Array(cols * 2);
-        const data = channelColumns(ch, start, fpp, cols, this.columns);
+        const data = channelColumns(ch, start, fpp, cols, this.columns, defer);
         // Expand each column by a hair so flat silence stays visible.
         const minSpan = (2 / Math.max(1, lane.bottom - lane.top)) / Math.max(amp, 1e-6);
         let first = 0;
@@ -227,7 +230,7 @@ export class WaveformRenderer {
     gl.bindVertexArray(null);
   }
 
-  #draw2d(channels, start, fpp, amp, lanes, colors, W, H) {
+  #draw2d(channels, start, fpp, amp, lanes, colors, W, H, defer) {
     const ctx = this.ctx2d;
     if (!ctx) return;
     ctx.clearRect(0, 0, W, H);
@@ -240,7 +243,7 @@ export class WaveformRenderer {
       ctx.strokeStyle = colors[i] || colors[0];
       if (fpp > 1) {
         if (this.columns.length < W * 2) this.columns = new Float32Array(W * 2);
-        const data = channelColumns(ch, start, fpp, W, this.columns);
+        const data = channelColumns(ch, start, fpp, W, this.columns, defer);
         for (let c = 0; c < W; c++) {
           const lo = data[2 * c];
           if (Number.isNaN(lo)) continue;

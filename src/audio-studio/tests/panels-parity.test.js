@@ -161,6 +161,23 @@ describe('Amplitude Statistics', () => {
     expect(row(statsRows(result, 1, { ref: 'sine' }), 'Peak Amplitude')).toBe('-6.02 dB');
   });
 
+  it('measures a range shorter than the RMS window as one window', () => {
+    // 100 samples at 0.5: no whole 50 ms window, so the windowed stats are empty.
+    const ch = { min: 0.5, max: 0.5, sum: 50, sq: 0.25 * 100, clipped: 0, bits: 32, rmsMin: Infinity, rmsMax: 0, rmsSum: 0, rmsCount: 0, frames: 100 };
+    const result = { channels: [ch], loudness: { truePeak: [0.5], integrated: -Infinity, range: 0, maxMomentary: -Infinity, maxShortTerm: -Infinity } };
+    const row = (label) => statsRows(result, 1).find((r) => r[0] === label)[1][0];
+    for (const label of ['Minimum RMS Amplitude', 'Maximum RMS Amplitude', 'Average RMS Amplitude', 'Total RMS Amplitude']) expect(row(label), label).toBe('-6.02 dB');
+    expect(row('Dynamic Range')).toBe('0.00 dB');
+    // The RMS histogram shows that one window too.
+    const { series } = histogramSeries(result, 1);
+    expect(series[0][-HIST_FLOOR - 6]).toBe(100);
+    // Silence keeps its minus-infinity levels.
+    const silent = { ...ch, min: 0, max: 0, sum: 0, sq: 0 };
+    const rows = statsRows({ ...result, channels: [silent] }, 1);
+    expect(rows.find((r) => r[0] === 'Average RMS Amplitude')[1][0]).toBe('-∞ dB');
+    expect(rows.find((r) => r[0] === 'Dynamic Range')[1][0]).toBe('∞ dB');
+  });
+
   it('has General, RMS Histogram and RMS Settings tabs', () => {
     const app = makeApp();
     app.addDocument(audioDoc());
@@ -393,5 +410,73 @@ describe('Markers to Batch Process', () => {
     const { state } = await loadItem(item);
     expect(state.channels[0].length).toBe(500);
     expect(doc.state.channels[0].length).toBe(4000);
+  });
+});
+
+describe('Files panel focus', () => {
+  it('keeps keyboard focus on the same file when the list re-renders', () => {
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const a = audioDoc(1);
+    const b = audioDoc(2);
+    b.name = 'b.wav';
+    app.addDocument(a);
+    app.addDocument(b);
+    const panel = create(app, 'files');
+    document.body.replaceChildren(panel.el);
+    const row = (d) => panel.el.querySelector(`tr[data-id="${d.id}"]`);
+    row(a).focus();
+    expect(document.activeElement).toBe(row(a));
+    // Playback starting or stopping re-renders every row.
+    app.emit('transport', 'playing');
+    expect(document.activeElement).toBe(row(a));
+    expect(document.activeElement.isConnected).toBe(true);
+  });
+});
+
+describe('Markers panel focus', () => {
+  it('moves focus to the next row when the focused marker is deleted', async () => {
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const d = audioDoc(2);
+    app.addDocument(d);
+    for (const [id, start] of [['m1', 100], ['m2', 600], ['m3', 1200]]) d.apply('Add Marker', { ...d.state, markers: [...d.state.markers, { id, name: id, start, duration: 0, type: 'cue', description: '' }] });
+    const panel = create(app, 'markers');
+    document.body.replaceChildren(panel.el);
+    panel.show();
+    const row = (id) => panel.el.querySelector(`tr[data-id="${id}"]`);
+    row('m2').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.activeElement).toBe(row('m2'));
+    row('m2').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(d.state.markers.map((m) => m.id)).toEqual(['m1', 'm3']);
+    // Focus stays in the list (on the marker now in that place), not on the page.
+    expect(document.activeElement).toBe(row('m3'));
+  });
+});
+
+describe('Playlist panel focus', () => {
+  it('keeps focus in the list when entries are removed or playback changes', async () => {
+    const { playlistPanel, setPlaylist } = await import('../src/panels/playlist.js');
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const d = audioDoc(2);
+    app.addDocument(d);
+    const markers = ['m1', 'm2', 'm3'].map((id, i) => ({ id, name: id, start: i * 500, duration: 200, type: 'cue', description: '' }));
+    d.apply('Add Markers', { ...d.state, markers });
+    setPlaylist(d, markers.map((m) => ({ id: `e-${m.id}`, markerId: m.id, loops: 1 })));
+    const panel = playlistPanel(app);
+    document.body.replaceChildren(panel.el);
+    panel.render();
+    const row = (id) => panel.el.querySelector(`tr[data-id="${id}"]`);
+    row('e-m1').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.activeElement).toBe(row('e-m1'));
+    // A re-render (e.g. the player moving on) keeps focus on the same entry.
+    panel.render();
+    expect(document.activeElement).toBe(row('e-m1'));
+    // Delete removes it and focus moves to the entry now selected in its place.
+    row('e-m1').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+    expect(panel.el.querySelectorAll('tr[data-id]')).toHaveLength(2);
+    expect(document.activeElement).toBe(row('e-m2'));
   });
 });

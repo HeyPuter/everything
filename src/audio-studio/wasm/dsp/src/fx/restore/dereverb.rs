@@ -3,7 +3,7 @@
 //! the room's rate (a statistical reverb model after Lebart/Habets), and
 //! subtracted as a spectral gain.
 //!
-//! Params: 0 amount %, 1 processing focus (0 all, 1 low, 2 mid, 3 high),
+//! Params: 0 amount %, 1 processing focus (0 all, 1 low, 2 mid, 3 high, 4 low and high),
 //! 2 output gain dB, 3 reverb decay (T60) ms, 4 auto gain (0/1: makes up
 //! the level the reduction takes away, tracked over about a second).
 
@@ -78,7 +78,7 @@ impl Effect for DeReverb {
     fn set_param(&mut self, idx: u32, v: f32) {
         match idx {
             0 => self.amount = v.clamp(0.0, 100.0),
-            1 => self.focus = v.round().clamp(0.0, 3.0) as u32,
+            1 => self.focus = v.round().clamp(0.0, 4.0) as u32,
             2 => self.gain.target = db_to_gain(v.clamp(-40.0, 40.0)),
             3 => self.t60 = v.clamp(100.0, 10000.0),
             4 => {

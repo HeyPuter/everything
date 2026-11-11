@@ -149,7 +149,7 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
       if (index < 0 || !audio()[index + p.trackOffset] || audio()[index + p.trackOffset].id !== track.id) index = audio().findIndex((x) => x.id === track.id) - p.trackOffset;
     }
     const clip = S.createClip({ trackId: track.id, sourceId: p.sourceId, name: baseName(p.doc.name), start: p.start, offset: p.offset, length: p.length });
-    state = S.addClips(state, [clip]);
+    state = S.addClipsOnTop(state, [clip]);
     ids.push(clip.id);
     p.clip = clip;
   }

@@ -62,6 +62,28 @@ describe('detection', () => {
     expect(none.problems).toEqual([]);
   });
 
+  it('skips channels disabled for editing', async () => {
+    const n = RATE;
+    const clean = music(n);
+    const left = withClicks(clean, [6000, 20000]);
+    const right = withClicks(clean, [20000, 40000]);
+    const channels = stateOf([left, right]).channels;
+    const { problems } = await scanProblems({ effect: 'declicker', values: vals('declicker'), channels, rate: RATE, start: 0, end: n, mask: [false, true] });
+    expect(problems.map((p) => p.channels)).toEqual([[1], [1]]);
+    // DeClipper: the clip level comes from the enabled channel, and its gain leaves the other alone.
+    const loud = Float32Array.from({ length: 4800 }, (_, i) => Math.max(-1, Math.min(1, 1.3 * Math.sin((2 * Math.PI * 150 * i) / RATE))));
+    const soft = loud.map((v) => Math.max(-0.5, Math.min(0.5, v)));
+    const st = stateOf([loud, soft]);
+    const values = vals('declipper', { gain: -6, tolerance: 0.1, minRun: 3 });
+    const scan = await scanProblems({ effect: 'declipper', values, channels: st.channels, rate: RATE, start: 0, end: 4800, mask: [false, true] });
+    expect(scan.info.level).toBeCloseTo(0.5 * 0.999, 3);
+    expect(scan.problems.length).toBeGreaterThan(5);
+    expect(scan.problems.every((p) => p.channels.join() === '1')).toBe(true);
+    const next = await repairClips(st, scan.problems, values, scan.info.level, [0, 4800], { mask: [false, true] });
+    expect(next.channels[0]).toBe(st.channels[0]);
+    expect(next.channels[1]).not.toBe(st.channels[1]);
+  });
+
   it('scans only the requested range and keeps file positions', async () => {
     const left = withClicks(music(RATE), [6000, 30000]);
     const { problems } = await scanProblems({ effect: 'declicker', values: vals('declicker'), channels: stateOf([left]).channels, rate: RATE, start: 20000, end: RATE });
@@ -90,6 +112,8 @@ describe('detection', () => {
     expect(Math.abs(sil.problems[0].end - RATE)).toBeLessThan(RATE * 0.02);
     expect(sil.problems.at(-1).end).toBe(n);
     expect(sil.problems[0].level).toBeLessThan(-90);
+    // Digital silence reads as -Infinity, not the -200 dB detection floor.
+    expect(sil.problems[0].level).toBe(-Infinity);
     const aud = await scanProblems({ effect: 'markAudio', values: vals('markAudio', { padding: 0 }), channels: chans, rate: RATE, start: 0, end: n });
     expect(aud.problems).toHaveLength(2);
     expect(Math.abs(aud.problems[1].start - 3 * RATE)).toBeLessThan(RATE * 0.02);
@@ -200,5 +224,29 @@ describe('marking any diagnostic', () => {
     expect(doc.state.markers.length).toBeGreaterThanOrEqual(2);
     expect(doc.state.markers[0].name).toMatch(/^Click 01$/);
     expect(doc.state.channels[0]).toBe(before);
+  });
+
+  it('repairs only enabled channels from the panel', async () => {
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { diagnosticsPanel } = await import('../src/diagnostics/panel.js');
+    localStorage.clear();
+    const app = new App();
+    installCore(app);
+    const x = withClicks(music(RATE), [10000, 30000]);
+    const doc = new AudioFile({ name: 'c.wav', sampleRate: RATE, channels: [Channel.fromSamples(x), Channel.fromSamples(x.slice())] });
+    app.addDocument(doc);
+    doc.setSelection(0, 0, { channels: [true, false] });
+    const p = diagnosticsPanel(app);
+    p.select('declicker');
+    const button = (re) => [...p.el.querySelectorAll('button')].find((b) => re.test(b.textContent));
+    button(/^Scan File$/).click();
+    await expect.poll(() => button(/^Repair All$/)?.disabled, { timeout: 5000 }).toBe(false);
+    const right = doc.state.channels[1];
+    button(/^Repair All$/).click();
+    await expect.poll(() => p.el.querySelector('.diag-caption').textContent, { timeout: 5000 }).toMatch(/done/);
+    expect(doc.state.channels[1]).toBe(right);
+    expect(doc.state.channels[0].toArray(10000, 10001)[0]).not.toBeCloseTo(x[10000], 3);
   });
 });

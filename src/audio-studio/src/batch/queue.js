@@ -7,7 +7,7 @@
 //         status, progress, message, output }  (range: part of an open file, from the Markers panel)
 // status: 'ready' | 'waiting' | 'running' | 'done' | 'error' | 'cancelled' | 'skipped'
 
-import { withExtension, sanitizeFileName, getFormat, conformOptions } from '../export/formats.js';
+import { withExtension, stripExtension, sanitizeFileName, getFormat, conformOptions } from '../export/formats.js';
 
 let nextItem = 1;
 
@@ -100,7 +100,7 @@ export function exportOptionsFor(settings, source) {
 
 /** Output file name: prefix + name without extension + suffix + the format's extension. */
 export function outputName(name, settings) {
-  const stem = String(name || 'Untitled').replace(/\.[a-z0-9]{1,5}$/i, '');
+  const stem = stripExtension(name || 'Untitled');
   const base = sanitizeFileName(`${settings.prefix || ''}${stem}${settings.suffix || ''}`) || 'Untitled';
   return withExtension(base, settings.format);
 }

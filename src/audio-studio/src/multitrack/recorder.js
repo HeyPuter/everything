@@ -68,9 +68,11 @@ export class SessionRecorder {
     }
     const chunks = [];
     const off = engine.on('record-data', (channels) => chunks.push(channels));
+    let monitoring = false;
     if (armed.some((t) => t.monitor)) {
       try {
         engine.input.src.connect(engine.ctx.destination);
+        monitoring = true;
       } catch {
         // Monitoring is best effort.
       }
@@ -83,7 +85,26 @@ export class SessionRecorder {
     this.take = { doc, from, punch, loop, chunks, off, armed: armed.map((t) => t.id) };
     engine.setRecording(true);
     app.playStart = from;
-    await engine.play({ from, to: punch && !loop ? punch.end : null, loop: loop ? { start: punch.start, end: punch.end } : null });
+    try {
+      await engine.play({ from, to: punch && !loop ? punch.end : null, loop: loop ? { start: punch.start, end: punch.end } : null });
+    } catch (err) {
+      // Playback refused (e.g. a rate this browser cannot play) or failed:
+      // undo the start so the input is not left capturing, then report it.
+      engine.setRecording(false);
+      off();
+      if (this.take?.chunks === chunks) this.take = null;
+      app.playStart = null;
+      if (monitoring) {
+        try {
+          engine.input?.src.disconnect(engine.ctx.destination);
+        } catch {
+          // Already disconnected.
+        }
+      }
+      // The input stays open only for Meter Input Signal, which opened it for itself.
+      if (!app.inputMetering) engine.closeInput();
+      throw err;
+    }
     app.recording = true;
     app.emit('transport', 'recording');
     announce('Recording');
@@ -150,7 +171,8 @@ export class SessionRecorder {
         // Only the newest of stacked takes plays; the others stay to pick from.
         clips.push(S.createClip({ trackId, sourceId, name: file.name.replace(/\.wav$/, ''), start: p.at, length: p.length, mute: i < pieces.length - 1 }));
       }
-      state = S.addClips(state, clips);
+      // Takes play over the clips they were recorded over (a punch-in replaces what is there).
+      state = S.addClipsOnTop(state, clips);
       ids.push(clips[clips.length - 1].id);
     }
     if (app.active !== doc) app.activate(doc);

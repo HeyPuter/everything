@@ -22,14 +22,7 @@ pub fn notch_bell(rate: f32, f: f32, q: f32, gain_db: f32) -> Coefs {
     let (c, s) = (w0.cos(), w0.sin());
     let g = 10f64.powf(gain_db.min(0.0) as f64 / 20.0);
     let alpha = s / (2.0 * q.max(0.01) as f64);
-    let a0 = 1.0 + alpha;
-    Coefs {
-        b0: ((1.0 + alpha * g) / a0) as f32,
-        b1: (-2.0 * c / a0) as f32,
-        b2: ((1.0 - alpha * g) / a0) as f32,
-        a1: (-2.0 * c / a0) as f32,
-        a2: ((1.0 - alpha) / a0) as f32,
-    }
+    Coefs::norm(1.0 + alpha * g, -2.0 * c, 1.0 - alpha * g, 1.0 + alpha, -2.0 * c, 1.0 - alpha)
 }
 
 pub struct NotchFilter {
@@ -130,13 +123,14 @@ mod tests {
     }
 
     #[test]
-    fn ultra_quiet_lowers_rounding_noise_of_a_deep_low_notch() {
-        // A -90 dB notch at 30 Hz on a 1 kHz tone: away from the notch the output
-        // should equal the input; what differs is mostly rounding noise.
+    fn ultra_quiet_lowers_rounding_noise_of_a_deep_notch() {
+        // A -90 dB notch on a 1 kHz tone: away from the notch the output should
+        // equal the input; what differs is mostly rounding noise. A 30 Hz notch
+        // is ill-conditioned in f32, so it runs in double precision either way.
         let x = sine(1000.0, 48000.0, 48000, 0.5);
-        let err = |quiet: f32| {
+        let err = |freq: f32, quiet: f32| {
             let mut fx = make(14, 48000.0, 1);
-            fx.set_param(4, 30.0);
+            fx.set_param(4, freq);
             fx.set_param(5, -90.0);
             fx.set_param(1, 0.0);
             fx.set_param(21, quiet);
@@ -145,7 +139,9 @@ mod tests {
             let d: Vec<f32> = y.iter().zip(&x).map(|(a, b)| a - b).collect();
             rms(&d[24000..])
         };
-        let (plain, quiet) = (err(0.0), err(1.0));
+        let (plain, quiet) = (err(300.0, 0.0), err(300.0, 1.0));
         assert!(quiet < plain, "plain {plain} quiet {quiet}");
+        let (plain, quiet) = (err(30.0, 0.0), err(30.0, 1.0));
+        assert!((plain - quiet).abs() <= quiet * 0.01, "plain {plain} quiet {quiet}");
     }
 }

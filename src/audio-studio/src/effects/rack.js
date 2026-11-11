@@ -129,7 +129,9 @@ export function rackChain(rack, prefix = 'rack', doc = null) {
 /**
  * Routes an audio file's playback graph through its rack: the rack's slots
  * follow any preview effects on the file track; output gain and the wet/dry
- * mix become track gains, with a parallel dry track when mix < 1.
+ * mix become track gains, with a parallel dry track when mix < 1. The dry
+ * track plays as late as the rack's latency (lookahead, spectral effects)
+ * delays the wet one, as in renderRack, so the blend does not comb filter.
  */
 export function decorateGraph(graph, rack, doc = null) {
   if (!rackActive(rack)) return graph;
@@ -140,7 +142,11 @@ export function decorateGraph(graph, rack, doc = null) {
   const pre = wet.fx || [];
   wet.fx = [...pre, ...rackChain(rack, 'rack', doc)];
   if (mix < 1) {
-    const dry = { ...wet, id: 'file-dry', fx: pre.map((s) => ({ ...s, key: `dry:${s.key}` })), gain: wet.gain * out * dbGain(rack.input) * (1 - mix) };
+    const lat = rackTiming(rack, graph.rate || doc?.sampleRate || 48000).latency;
+    const clips = lat ? wet.clips.map((c) => ({ ...c, start: c.start + lat })) : wet.clips;
+    const fx = pre.map((s) => ({ ...s, key: `dry:${s.key}` }));
+    const gain = wet.gain * out * dbGain(rack.input) * (1 - mix);
+    const dry = { ...wet, id: 'file-dry', clips, fx, gain };
     graph.tracks.push(dry);
   }
   wet.gain *= out * mix;
@@ -347,6 +353,11 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
     const slots = slotsNow();
     const off = disabled();
     list.classList.toggle('off', off);
+    // Rows are rebuilt: a focused slot control keeps its focus (power toggles,
+    // Delete, and the slot after its effect dialog closes).
+    const active = document.activeElement;
+    const focusRowIndex = active && list.contains(active) ? [...list.children].indexOf(active.closest('li')) : -1;
+    const focusPart = active?.classList?.contains('rack-power') ? '.rack-power' : '.rack-name';
     list.replaceChildren(
       ...slots.map((slot, i) => {
         const def = slot && getEffect(slot.effect);
@@ -386,6 +397,11 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
         return h(`li.rack-slot${slot ? '' : '.empty'}${slot && !on ? '.bypassed' : ''}${def ? '' : slot ? '.missing' : ''}`, power, nameBtn, menuBtn, grip);
       }),
     );
+    if (focusRowIndex >= 0) {
+      const row = list.children[focusRowIndex];
+      const target = row?.querySelector(focusPart);
+      (target && !target.disabled ? target : row?.querySelector('.rack-name'))?.focus();
+    }
   }
 
   render();

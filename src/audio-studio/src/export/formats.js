@@ -225,10 +225,19 @@ export function exportMarkers(markers, start, end, from, to) {
     .map((m) => ({ ...m, start: Math.round((m.start - start) * k), duration: Math.round(Math.min(m.duration || 0, end - m.start) * k) }));
 }
 
+/**
+ * `name` without a file extension. Only a suffix with a letter counts, so the
+ * version in "Mix 1.5" is kept (".wav", ".mp3" and ".m4a" are removed).
+ */
+export function stripExtension(name) {
+  return String(name).replace(/\.(?=[0-9]*[a-z])[a-z0-9]{1,5}$/i, '');
+}
+
 /** Replaces the extension of `name` with the format's. */
 export function withExtension(name, formatId) {
   const f = getFormat(formatId);
-  const base = String(name || 'Untitled').replace(/\.[a-z0-9]{1,5}$/i, '');
+  // Trailing dots go first ("Song." is not "Song..wav"); most file systems drop them anyway.
+  const base = stripExtension(String(name || 'Untitled').replace(/\.+$/, ''));
   return `${base}.${f ? f.ext : 'wav'}`;
 }
 

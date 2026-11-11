@@ -62,26 +62,54 @@ export function sniffSampleRate(buffer) {
     return 48000;
   }
   // MP4/M4A: the mp4a sample entry stores the rate as 16.16 fixed point.
-  for (let i = 4; i + 36 < b.length; i++) {
-    if (b[i] === 0x6d && b[i + 1] === 0x70 && b[i + 2] === 0x34 && b[i + 3] === 0x61) {
-      const rate = (b[i + 28] << 8) | b[i + 29];
-      if (rate >= 8000 && rate <= 192000) return rate;
+  const mp4a = (v, from, to) => {
+    for (let i = from; i + 36 < to; i++) {
+      if (v[i] === 0x6d && v[i + 1] === 0x70 && v[i + 2] === 0x34 && v[i + 3] === 0x61) {
+        const rate = (v[i + 28] << 8) | v[i + 29];
+        if (rate >= 8000 && rate <= 192000) return rate;
+      }
     }
+    return 0;
+  };
+  const inHead = mp4a(b, 4, b.length);
+  if (inHead) return inHead;
+  const all = new Uint8Array(buffer);
+  if (str(4, 4) === 'ftyp' && all.length > b.length) {
+    // The movie box is often written after the media data, past the first megabyte.
+    const moov = mp4Box(all, 'moov');
+    if (moov) return mp4a(all, moov[0], moov[1]);
   }
-  // MPEG audio: skip an ID3v2 tag, then read the first frame header.
+  // MPEG audio: skip an ID3v2 tag (cover art can make it megabytes long), then read the first frame header.
   let o = 0;
-  if (str(0, 3) === 'ID3') o = 10 + ((b[6] << 21) | (b[7] << 14) | (b[8] << 7) | b[9]);
-  for (let i = o; i + 4 < b.length && i < o + 65536; i++) {
-    if (b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0) {
-      const version = (b[i + 1] >> 3) & 3;
-      const layer = (b[i + 1] >> 1) & 3;
-      const rateIdx = (b[i + 2] >> 2) & 3;
+  if (str(0, 3) === 'ID3' && b.length >= 10) o = 10 + ((b[6] << 21) | (b[7] << 14) | (b[8] << 7) | b[9]) + (b[5] & 0x10 ? 10 : 0);
+  for (let i = o; i + 4 < all.length && i < o + 65536; i++) {
+    if (all[i] === 0xff && (all[i + 1] & 0xe0) === 0xe0) {
+      const version = (all[i + 1] >> 3) & 3;
+      const layer = (all[i + 1] >> 1) & 3;
+      const rateIdx = (all[i + 2] >> 2) & 3;
       if (version === 1 || layer === 0 || rateIdx === 3) continue;
       const base = [44100, 48000, 32000][rateIdx];
       return version === 3 ? base : version === 2 ? base / 2 : base / 4;
     }
   }
   return 0;
+}
+
+/** [start, end) of the first top-level MP4 box of `type`, or null. */
+function mp4Box(bytes, type) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let o = 0; o + 8 <= bytes.length; ) {
+    let size = dv.getUint32(o);
+    let head = 8;
+    if (size === 1 && o + 16 <= bytes.length) {
+      size = Number(dv.getBigUint64(o + 8));
+      head = 16;
+    } else if (size === 0) size = bytes.length - o;
+    if (size < head) return null;
+    if (String.fromCharCode(bytes[o + 4], bytes[o + 5], bytes[o + 6], bytes[o + 7]) === type) return [o + head, Math.min(bytes.length, o + size)];
+    o += size;
+  }
+  return null;
 }
 
 /**

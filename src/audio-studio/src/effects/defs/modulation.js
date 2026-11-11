@@ -10,6 +10,32 @@ const hzRate = (id, label, min, max, def, o = {}) => num(id, label, min, max, de
 /** Largest interaural delay of the chorus's binaural cues (fx/modulation/chorus.rs ITD_MS). */
 const CHORUS_ITD_MS = 0.65;
 
+/**
+ * Gain of the Chorus's summed voices in the louder channel, each voice at
+ * 1 / sqrt(voices) panned by the width, times the voices' mean level under
+ * their amplitude wobble (modulation depth); mirrors fx/modulation/chorus.rs
+ * loop_gain. Takes the dialog values ({ voices, depth, width: %, binaural }).
+ */
+export function chorusLoopGain({ voices, depth, width, binaural }) {
+  const v = Math.min(8, Math.max(2, Math.round(voices) || 2));
+  const floor = 10 ** (-Math.min(24, Math.max(0, depth || 0)) / 20);
+  const w = Math.min(1, Math.max(0, (width || 0) / 100));
+  let l = 0;
+  let r = 0;
+  for (let i = 0; i < v; i++) {
+    const q = w * ((2 * i) / (v - 1) - 1);
+    if (binaural) {
+      const far = 1 - 0.5 * Math.abs(q);
+      l += q > 0 ? far : 1;
+      r += q > 0 ? 1 : far;
+    } else {
+      l += 1 - Math.max(q, 0);
+      r += 1 + Math.min(q, 0);
+    }
+  }
+  return ((Math.max(l, r) / Math.sqrt(v)) * (1 + floor)) / 2;
+}
+
 registerEffect({
   id: 'chorus',
   name: 'Chorus',
@@ -43,7 +69,11 @@ registerEffect({
   ],
   tail: (v, rate) => {
     const longest = clamp(v.delay, 1, 50) * 1.3 + clamp(v.spread, 0, 200) + (v.binaural ? CHORUS_ITD_MS : 0);
-    return feedbackTail((longest / 1000) * rate, clamp(v.feedback / 100, 0, 0.9), rate);
+    // The voices feed back together, so the loop can ring longer than the
+    // feedback alone suggests (up to the 0.95 the processor is held to).
+    const fb = clamp(v.feedback / 100, 0, 0.9);
+    const loop = Math.min(0.95, fb * chorusLoopGain(v));
+    return feedbackTail((longest / 1000) * rate, Math.max(fb, loop), rate);
   },
 });
 
@@ -104,8 +134,24 @@ registerEffect({
     preset('Resonant Squelch', { stages: 8, intensity: 100, depth: 60, rate: 1.8, phaseDiff: 45, upperFreq: 2200, feedback: 85, mix: 55, gain: -4 }),
     preset('Slow Shimmer', { stages: 10, intensity: 60, depth: 50, rate: 0.07, phaseDiff: 90, upperFreq: 9000, feedback: 15, mix: 40, gain: 0 }),
   ],
-  tail: (v, rate) => Math.round(rate * 0.05),
+  tail: (v, rate) => phaserTail(v, rate),
 });
+
+/**
+ * Frames until the Phaser's feedback loop rings down by 60 dB, at least the
+ * 50 ms its stages ring on their own. Each pass round the loop loses the
+ * feedback amount and takes the stages' group delay, longest at the lowest
+ * break frequency the sweep reaches: 1 / tan(pi f / rate) frames per stage
+ * (fx/modulation/phaser.rs: upper frequency, 6 octaves below it at full depth).
+ */
+export function phaserTail(v, rate) {
+  const stages = clamp(Math.round(v.stages), 1, 12);
+  const upper = clamp(v.upperFreq, 20, 20000);
+  const lower = Math.max(20, upper * 2 ** (-6 * clamp(v.depth / 100, 0, 1)));
+  const pass = stages / Math.tan((Math.PI * clamp(lower, 10, rate * 0.45)) / rate);
+  const fb = clamp(Math.abs(v.feedback) / 100, 0, 0.95);
+  return Math.max(Math.round(rate * 0.05), feedbackTail(pass, fb, rate));
+}
 
 const CF = { chorus: { ms: 18 + 8, fbScale: 0.5 }, flanger: { ms: 3 + 2.8, fbScale: 1 } };
 

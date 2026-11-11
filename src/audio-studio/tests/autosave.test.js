@@ -173,4 +173,33 @@ describe('autosave controller', () => {
     expect((await store.list()).length).toBe(0);
     ctl2.destroy();
   });
+
+  it('leaves no recovery copy of a document closed or saved while its autosave was being written', async () => {
+    const root = new MemDir();
+    const store = new AutosaveStore(async () => root);
+    const app = fakeApp();
+    const ctl = installAutosave(app, { store, interval: 1e9 });
+    const doc = docWith('Closed.wav', 600000);
+    app.documents.push(doc);
+    doc.on('change', (e) => app.emit('doc-change', doc, e));
+    doc.apply('Edit', { ...doc.state, meta: { artist: 'A' } });
+    // Closed (without saving) while the write is in progress.
+    const pending = ctl.run();
+    await new Promise((r) => setTimeout(r, 0));
+    app.documents.length = 0;
+    app.emit('documents');
+    await pending;
+    expect(await store.list()).toHaveLength(0);
+    // Saved while the write is in progress.
+    const doc2 = docWith('Saved.wav', 600000);
+    app.documents.push(doc2);
+    doc2.on('change', (e) => app.emit('doc-change', doc2, e));
+    doc2.apply('Edit', { ...doc2.state, meta: { artist: 'B' } });
+    const pending2 = ctl.run();
+    await new Promise((r) => setTimeout(r, 0));
+    doc2.markSaved();
+    await pending2;
+    expect(await store.list()).toHaveLength(0);
+    ctl.destroy();
+  });
 });

@@ -7,6 +7,8 @@
 //! 10 highest quality, 11 average left and right input (the voices all hear
 //! the mono sum), 12 binaural cues (a voice panned to one side reaches the
 //! other ear up to ITD_MS later and quieter, as sound around a head does).
+//! The sum of the voices is fed back, so the feedback is held where that loop
+//! gain stays below 0.95 (loop_gain); lower settings are applied as set.
 
 use super::fsin;
 use crate::fx::delay::feedback_tail;
@@ -31,6 +33,10 @@ pub struct Chorus {
     spread_ms: f32,
     delay_rate: f32,
     fb: f32,
+    /// Feedback actually applied: `fb`, held below a loop gain of 0.95.
+    fb_eff: f32,
+    /// Channels the instance runs on (the voices are panned only on two).
+    channels: usize,
     depth_db: f32,
     mod_rate: f32,
     width: f32,
@@ -46,7 +52,7 @@ pub struct Chorus {
 }
 
 impl Chorus {
-    pub fn new(rate: f32, _channels: usize) -> Chorus {
+    pub fn new(rate: f32, channels: usize) -> Chorus {
         let max = ((MAX_DELAY_MS * 1.3 + MAX_SPREAD_MS + ITD_MS + 2.0) * rate / 1000.0) as usize + 8;
         let mut phase = [0.0; MAX_VOICES];
         let mut amp_phase = [0.0; MAX_VOICES];
@@ -64,6 +70,8 @@ impl Chorus {
             spread_ms: 10.0,
             delay_rate: 0.6,
             fb: 0.0,
+            fb_eff: 0.0,
+            channels,
             depth_db: 2.0,
             mod_rate: 1.2,
             width: 0.8,
@@ -77,6 +85,35 @@ impl Chorus {
             last: [0.0; 2],
             fresh: true,
         }
+    }
+
+    /// Gain of the summed voices fed back, in the louder channel: each voice
+    /// at 1 / sqrt(voices), panned by the width (or the binaural levels), at
+    /// its mean level under the amplitude wobble. It exceeds 1 with several
+    /// voices near the middle, so the feedback alone does not bound the loop.
+    pub fn loop_gain(&self) -> f32 {
+        let v = self.voices;
+        let floor = 10f32.powf(-self.depth_db / 20.0);
+        let (mut l, mut r) = (0.0f32, 0.0f32);
+        for i in 0..v {
+            let p = if self.channels >= 2 { self.width * (2.0 * i as f32 / (v - 1) as f32 - 1.0) } else { 0.0 };
+            if self.binaural && self.channels >= 2 {
+                let far = 1.0 - 0.5 * p.abs();
+                l += if p > 0.0 { far } else { 1.0 };
+                r += if p > 0.0 { 1.0 } else { far };
+            } else {
+                l += 1.0 - p.max(0.0);
+                r += 1.0 + p.min(0.0);
+            }
+        }
+        l.max(r) / (v as f32).sqrt() * (1.0 + floor) / 2.0
+    }
+
+    /// Holds the applied feedback below a loop gain of 0.95 (unchanged below it),
+    /// so a high feedback with many voices rings down instead of growing.
+    fn update_feedback(&mut self) {
+        let g = self.loop_gain();
+        self.fb_eff = if self.fb * g > 0.95 { 0.95 / g } else { self.fb };
     }
 
     /// Longest delay any voice reaches, in ms.
@@ -108,6 +145,9 @@ impl Effect for Chorus {
             11 => self.average = v >= 0.5,
             12 => self.binaural = v >= 0.5,
             _ => {}
+        }
+        if matches!(idx, 0 | 3 | 5 | 7 | 12) {
+            self.update_feedback();
         }
     }
 
@@ -194,7 +234,7 @@ impl Effect for Chorus {
                 for c in 0..ch {
                     let x = buf[c * frames + j];
                     let input = if self.average && ch == 2 { mono } else { x };
-                    self.lines[c].push(input + self.fb * self.last[c]);
+                    self.lines[c].push(input + self.fb_eff * self.last[c]);
                     self.last[c] = acc[c];
                     buf[c * frames + j] = x * dry + acc[c] * wet;
                 }
@@ -212,13 +252,33 @@ impl Effect for Chorus {
     fn tail(&self) -> u32 {
         let itd = if self.binaural { ITD_MS } else { 0.0 };
         let ms = (Chorus::max_delay_ms(self.delay_ms, self.spread_ms) + itd) as f64;
-        feedback_tail(ms * self.rate as f64 / 1000.0, self.fb as f64, self.rate)
+        // The loop rings at the feedback times the voices' gain (at least the feedback).
+        let g = (self.fb * self.loop_gain()).min(0.95).max(self.fb) as f64;
+        feedback_tail(ms * self.rate as f64 / 1000.0, g, self.rate)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::fx::testutil::*;
+
+    #[test]
+    fn high_feedback_with_many_voices_rings_down() {
+        let rate = 48000.0;
+        for (voices, fb, width) in [(8.0, 90.0, 100.0), (8.0, 45.0, 0.0), (5.0, 90.0, 80.0)] {
+            let mut fx = make(70, rate, 2);
+            for (i, v) in [(0, voices), (3, fb), (7, width)] {
+                fx.set_param(i, v);
+            }
+            fx.reset();
+            let x = sine(300.0, rate, 48000, 0.3);
+            let silent = vec![0.0; 48000];
+            run_stereo(fx.as_mut(), &x, &x);
+            let (l, r) = run_stereo(fx.as_mut(), &silent, &silent);
+            let tail = rms(&l[36000..]).max(rms(&r[36000..]));
+            assert!(tail < 0.01, "{voices} {fb} {width}: {tail}");
+        }
+    }
 
     #[test]
     fn average_input_feeds_both_sides_and_binaural_cues_delay_the_far_ear() {

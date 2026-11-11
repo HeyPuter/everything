@@ -3,11 +3,15 @@
 //   kind 'level'  input or output peak in dB, filling from the left
 //   kind 'gr'     gain reduction in dB (<= 0), filling from the right
 //   kind 'gate'   a lamp: lit while the gate is open (value 0..1)
-// Values hold for a moment and then fall back, so short peaks stay visible.
+// Values hold for a moment and then fall back, so short peaks stay visible;
+// when the readings stop (playback stopped) the meter returns to rest.
 
 import { h } from '../lib/dom.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+/** Readouts arrive about 15 times a second while audio plays; this long without one is rest. */
+const IDLE_MS = 600;
 
 /** One meter: { el, set(value), clear() }. */
 export function levelMeter({ label = '', kind = 'level', min = kind === 'gr' ? -24 : -60, max = 0, vertical = false } = {}) {
@@ -15,8 +19,11 @@ export function levelMeter({ label = '', kind = 'level', min = kind === 'gr' ? -
   const bar = h(`div.fx-lm-bar.${kind}${vertical ? '.v' : ''}`, fill);
   const text = h('span.fx-lm-value');
   const el = h(`div.fx-lm${vertical ? '.v' : ''}`, { role: 'meter', 'aria-label': label, 'aria-valuemin': String(min), 'aria-valuemax': String(max) }, label ? h('span.fx-lm-label', label) : null, bar, kind === 'gate' ? null : text);
-  let shown = kind === 'gr' ? 0 : min;
+  // At rest: no reduction, silence, the gate lamp off.
+  const rest = kind === 'gr' ? 0 : min;
+  let shown = rest;
   let at = 0;
+  let idle = 0;
   const draw = (v) => {
     if (kind === 'gate') {
       bar.classList.toggle('on', v >= 0.5);
@@ -29,10 +36,17 @@ export function levelMeter({ label = '', kind = 'level', min = kind === 'gr' ? -
     el.setAttribute('aria-valuenow', String(Math.round(v * 10) / 10));
   };
   draw(shown);
+  const clear = () => {
+    clearTimeout(idle);
+    shown = rest;
+    draw(shown);
+  };
   return {
     el,
     set(v) {
       if (!Number.isFinite(v)) return;
+      clearTimeout(idle);
+      idle = setTimeout(clear, IDLE_MS);
       const now = performance.now();
       // Peak hold: louder (or deeper) readings show at once; quieter ones after 300 ms.
       const louder = kind === 'gr' ? v < shown : v > shown;
@@ -42,10 +56,7 @@ export function levelMeter({ label = '', kind = 'level', min = kind === 'gr' ? -
         draw(shown);
       }
     },
-    clear() {
-      shown = kind === 'gr' ? 0 : kind === 'gate' ? 1 : min;
-      draw(shown);
-    },
+    clear,
   };
 }
 

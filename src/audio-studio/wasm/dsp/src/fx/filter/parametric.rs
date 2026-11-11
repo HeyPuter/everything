@@ -135,6 +135,31 @@ impl Effect for ParametricEq {
 #[cfg(test)]
 mod tests {
     use crate::fx::testutil::*;
+    use crate::fx::util::{gain_to_db, Coefs};
+
+    #[test]
+    fn very_low_shelves_follow_their_design_at_high_rates() {
+        // A +12 dB shelf at 10 Hz at 192 kHz: its poles are too close to DC for
+        // f32 coefficients, which turned 30 Hz from +0.2 dB into +4.7 dB.
+        for rate in [48000.0, 96000.0, 192000.0] {
+            for (f, at) in [(10.0, 30.0), (10.0, 15.0), (20.0, 60.0)] {
+                let want = gain_to_db(Coefs::low_shelf(rate, f, 0.7071, 12.0).magnitude_wide(at, rate));
+                for quiet in [0.0, 1.0] {
+                    // Four seconds, measured over the last two (whole cycles at these frequencies).
+                    let mut fx = make(10, rate, 1);
+                    for (i, v) in [(5, 1.0), (6, f), (7, 12.0), (8, 0.7071), (36, quiet)] {
+                        fx.set_param(i, v);
+                    }
+                    fx.reset();
+                    let n = (rate * 4.0) as usize;
+                    let x = sine(at, rate, n, 0.25);
+                    let y = run_mono(fx.as_mut(), &x);
+                    let got = gain_to_db(rms(&y[n / 2..]) / rms(&x[n / 2..]));
+                    assert!((got - want).abs() < 0.1, "{rate} {f} Hz at {at}: {got} vs {want} (quiet {quiet})");
+                }
+            }
+        }
+    }
 
     fn eq(params: &[(u32, f32)], f: f32) -> f32 {
         sine_gain_db(10, params, f, 48000.0)

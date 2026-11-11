@@ -77,6 +77,8 @@ export function eventsPanel(app) {
   };
 
   function render() {
+    // New events arrive at any time and rebuild the rows: keyboard focus stays in the list.
+    const focused = body.contains(document.activeElement) ? document.activeElement.closest('tr[data-id]')?.dataset.id : null;
     const rows = sorted();
     const ids = new Set(rows.map((e) => e.id));
     for (const id of [...selected]) if (!ids.has(id)) selected.delete(id);
@@ -102,6 +104,7 @@ export function eventsPanel(app) {
       );
     }
     if (!body.querySelector('tr[tabindex="0"]')) body.querySelector('tr[data-id]')?.setAttribute('tabindex', '0');
+    if (focused) (body.querySelector(`tr[data-id="${CSS.escape(focused)}"]`) || body.querySelector('tr[tabindex="0"]'))?.focus({ preventScroll: true });
     del.disabled = !selected.size;
     clearAll.disabled = !rows.length;
   }

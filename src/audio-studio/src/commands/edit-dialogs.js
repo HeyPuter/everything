@@ -31,15 +31,20 @@ export const PASTE_TYPES = [
 
 export const MIX_PASTE_DEFAULTS = { type: 'overlap', copied: 100, existing: 100, invert: false, crossfade: false, crossfadeMs: 50, loop: false, loops: 3 };
 
-/** Source channels conformed to `count` channels (mono spreads, more channels average down). */
-function conformTo(source, count) {
+/**
+ * Source channels conformed to `count` channels (mono spreads, more channels
+ * average down). Channels a multichannel source does not have (the centre and
+ * surrounds of a 5.1 file under a stereo paste) are null, or with `reuse`
+ * (pasting into channels the user picked) take the source's last channel.
+ */
+function conformTo(source, count, reuse = false) {
   if (source.length === count) return source;
   if (count === 1) {
     const out = new Float32Array(source[0].length);
     for (const c of source) for (let i = 0; i < out.length; i++) out[i] += c[i] / source.length;
     return [out];
   }
-  return Array.from({ length: count }, (_, i) => source[Math.min(i, source.length - 1)]);
+  return Array.from({ length: count }, (_, i) => source[i] ?? (reuse || source.length === 1 ? source[source.length - 1] : null));
 }
 
 /**
@@ -52,7 +57,7 @@ function conformTo(source, count) {
  */
 export function mixPasteState(state, at, source, o = {}) {
   const nch = state.channels.length;
-  const src = conformTo(source, nch);
+  const src = conformTo(source, nch, Boolean(o.mask && !o.mask.every(Boolean)));
   const unit = src[0]?.length || 0;
   const loops = Math.max(1, Math.min(1000, Math.round(o.loops || 1)));
   const n = unit * loops;
@@ -64,7 +69,7 @@ export function mixPasteState(state, at, source, o = {}) {
   const env = (k) => (fade ? Math.min(1, (k + 0.5) / fade, (n - k - 0.5) / fade) : 1);
   const pasted = src.map((c) => {
     const out = new Float32Array(n);
-    for (let k = 0; k < n; k++) out[k] = c[k % unit] * gc;
+    if (c) for (let k = 0; k < n; k++) out[k] = c[k % unit] * gc;
     return out;
   });
   const type = o.type || 'overlap';
@@ -79,7 +84,8 @@ export function mixPasteState(state, at, source, o = {}) {
   return {
     ...s,
     channels: s.channels.map((c, i) => {
-      if (o.mask && !o.mask[i]) return c;
+      // Channels the pasted audio does not have stay as they are (Insert fills them with silence).
+      if ((o.mask && !o.mask[i]) || !src[i]) return c;
       const ex = c.toArray(at, at + n);
       const p = pasted[i];
       for (let k = 0; k < n; k++) {
@@ -128,7 +134,7 @@ export async function mixPasteDialog(app, { doc, conformRate }) {
   const board = h(
     'select.select',
     { 'aria-label': 'Clipboard', disabled: !boards.length },
-    boards.length ? boards.map(({ c, i }) => h('option', { value: i, selected: i === app.clipboardIndex }, `Clipboard ${i + 1}: ${fmtSeconds(c.channels[0].length, c.sampleRate)}, ${c.channels.length === 1 ? 'mono' : 'stereo'}`)) : h('option', 'All clipboards are empty'),
+    boards.length ? boards.map(({ c, i }) => h('option', { value: i, selected: i === app.clipboardIndex }, `Clipboard ${i + 1}: ${fmtSeconds(c.channels[0].length, c.sampleRate)}, ${layoutName(c.channels.length).toLowerCase()}`)) : h('option', 'All clipboards are empty'),
   );
   const fileName = h('input.input', { type: 'text', readOnly: true, placeholder: 'No file chosen', 'aria-label': 'File to paste' });
   let file = null;
@@ -228,6 +234,18 @@ export const CONVERT_PRESETS = [
 export function convertChannelData(channels, count, { left = 0.5, right = 0.5 } = {}) {
   if (channels.length === count) return channels;
   const n = channels[0]?.length || 0;
+  if (count === 2 && channels.length > 2) {
+    // Surround down to stereo: 5.1 (L R C LFE Ls Rs) folds centre and surrounds in at -3 dB,
+    // leaving out the LFE; other layouts keep their front pair.
+    if (channels.length !== 6) return channels.slice(0, 2);
+    const [L, R, C, , Ls, Rs] = channels;
+    const out = [new Float32Array(n), new Float32Array(n)];
+    for (let i = 0; i < n; i++) {
+      out[0][i] = L[i] + Math.SQRT1_2 * (C[i] + Ls[i]);
+      out[1][i] = R[i] + Math.SQRT1_2 * (C[i] + Rs[i]);
+    }
+    return out;
+  }
   if (count === 1) {
     // Down to mono: left and right weighted by the mix levels.
     const out = new Float32Array(n);
@@ -286,7 +304,8 @@ export function convertState(state, target, resample) {
   return { ...state, sampleRate: rate, channels: data.map((c) => Channel.fromSamples(c)), markers, bitDepth: bits };
 }
 
-const describe = (rate, ch, bits) => `${rate} Hz, ${ch === 1 ? 'Mono' : 'Stereo'}, ${bits === 32 ? '32-bit Float' : `${bits}-bit`}`;
+const layoutName = (ch) => (ch === 1 ? 'Mono' : ch === 2 ? 'Stereo' : ch === 6 ? '5.1' : `${ch} Channels`);
+const describe = (rate, ch, bits) => `${rate} Hz, ${layoutName(ch)}, ${bits === 32 ? '32-bit Float' : `${bits}-bit`}`;
 
 export async function convertSampleTypeDialog(app, doc) {
   const userPresets = () => (Array.isArray(app.prefs.get('convertPresets')) ? app.prefs.get('convertPresets') : []);
@@ -297,8 +316,9 @@ export async function convertSampleTypeDialog(app, doc) {
   const listId = `rates-${Math.random().toString(36).slice(2)}`;
   const rate = h('input.input.num.dlg-rate', { type: 'number', min: 1000, max: 384000, step: 1, value: doc.sampleRate, list: listId, 'aria-label': 'Sample rate (Hz)' });
   const rates = h('datalist', { id: listId }, COMMON_RATES.map((r) => h('option', { value: r })));
-  const channels = h('select.select', { 'aria-label': 'Channels' }, h('option', { value: '1' }, 'Mono'), h('option', { value: '2' }, 'Stereo'));
-  channels.value = String(Math.min(2, doc.channelCount));
+  // A surround file keeps its channels unless the conversion asks for mono or stereo.
+  const channels = h('select.select', { 'aria-label': 'Channels' }, h('option', { value: '1' }, 'Mono'), h('option', { value: '2' }, 'Stereo'), doc.channelCount > 2 ? h('option', { value: String(doc.channelCount) }, layoutName(doc.channelCount)) : null);
+  channels.value = String(doc.channelCount);
   const left = h('input.input.num', { type: 'number', min: 0, max: 200, step: 1, 'aria-label': 'Left mix (percent)' });
   const right = h('input.input.num', { type: 'number', min: 0, max: 200, step: 1, 'aria-label': 'Right mix (percent)' });
   const mixNote = h('p.dlg-note');
@@ -344,7 +364,7 @@ export async function convertSampleTypeDialog(app, doc) {
   const current = () => ({ rate: Math.round(Number(rate.value)), channels: Number(channels.value), bits: Number(bits.value) });
   const matches = (p) => {
     const c = current();
-    return (p.rate ?? doc.sampleRate) === c.rate && (p.channels ?? Math.min(2, doc.channelCount)) === c.channels && (p.bits ?? srcBits) === c.bits;
+    return (p.rate ?? doc.sampleRate) === c.rate && (p.channels ?? doc.channelCount) === c.channels && (p.bits ?? srcBits) === c.bits;
   };
   const syncPresets = () => {
     const list = all();
@@ -364,7 +384,7 @@ export async function convertSampleTypeDialog(app, doc) {
     const p = all()[Number(presetSel.value)];
     if (!p) return;
     rate.value = p.rate ?? doc.sampleRate;
-    channels.value = String(p.channels ?? Math.min(2, doc.channelCount));
+    channels.value = String(p.channels ?? doc.channelCount);
     bits.value = String(p.bits ?? srcBits);
     if (p.dither) dither.value = p.dither;
     if (p.quality != null) quality.value = qualityNum.value = p.quality;

@@ -289,6 +289,12 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
     flex-wrap: wrap;
   }
 
+  /* The component bank takes the full width and scrolls inside it, not the whole dialog. */
+  .gen-columns > .fx-group:has(.gen-comps) {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
   .gen-comps {
     overflow-x: auto;
   }
@@ -527,6 +533,14 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
 
 .fx-split.apc-split {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* Narrow screens stack these splits like the other two-column effect views. */
+@media (max-width: 720px) {
+  .fx-split.cce-split,
+  .fx-split.apc-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .apc-side {

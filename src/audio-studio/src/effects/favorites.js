@@ -290,7 +290,8 @@ export async function newFavoriteDialog(app) {
   const effectSel = h(
     'select.select',
     { 'aria-label': 'Effect' },
-    groupedEffects().map((g) => h('optgroup', { label: g.label }, g.defs.map((d) => h('option', { value: d.id }, d.name)))),
+    // Measuring effects (Loudness Meter) leave the audio unchanged: nothing to save.
+    groupedEffects((d) => !d.measureOnly).map((g) => h('optgroup', { label: g.label }, g.defs.map((d) => h('option', { value: d.id }, d.name)))),
   );
   const shortcut = shortcutField(app, '', null);
   const error = h('div.fx-name-error', { role: 'alert' });
@@ -468,9 +469,13 @@ export function favoritesPanel(app) {
   };
 
   const current = () => loadFavorites(app.prefs).find((f) => f.id === selectedId) || null;
+  // What a selection change can alter: whether each favorite can run.
+  const problems = () => loadFavorites(app.prefs).map((f) => favoriteProblem(app, f)).join('\n');
+  let shownProblems = null;
 
   const render = () => {
     const list = loadFavorites(app.prefs);
+    shownProblems = problems();
     if (selectedId && !list.some((f) => f.id === selectedId)) selectedId = null;
     if (!selectedId && list.length) selectedId = list[0].id;
     const hadFocus = el.contains(document.activeElement) && document.activeElement.tagName === 'TR';
@@ -531,7 +536,8 @@ export function favoritesPanel(app) {
   app.prefs.on('change', (key) => key === 'favorites' && render());
   app.on('favorites', render);
   app.on('active', render);
-  app.on('doc-change', (doc, e) => doc === app.active && e.kind === 'selection' && render());
+  // Selection drags fire many changes; redraw only when one changes what a favorite can do.
+  app.on('doc-change', (doc, e) => doc === app.active && e.kind === 'selection' && problems() !== shownProblems && render());
   render();
   return { el, show: render, focus: () => (body.querySelector('tr[aria-selected="true"]') || body.querySelector('tr'))?.focus() };
 }

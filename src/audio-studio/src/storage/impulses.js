@@ -28,10 +28,14 @@ export function idbBackend() {
         d.close();
         resolve(req?.result);
       };
-      t.onerror = () => {
+      // A failed request fires `error`; a quota or other failure at commit only
+      // `abort`. Either settles the promise, so callers never wait forever.
+      const fail = () => {
         d.close();
-        reject(t.error);
+        reject(t.error || new Error('The impulse storage could not be written.'));
       };
+      t.onerror = fail;
+      t.onabort = fail;
     });
   };
   return {

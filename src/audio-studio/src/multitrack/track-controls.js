@@ -17,6 +17,8 @@ export class TrackControls {
     this.doc = doc;
     /** key `${trackId}:${param}` -> { trackId, param, segments: [{ t0, points }], value, lastT, done } */
     this.passes = new Map();
+    /** Touch passes that ended before another touch of the same control in one playback. */
+    this.finished = [];
     doc.overrides = {};
   }
 
@@ -79,6 +81,7 @@ export class TrackControls {
     const t = Math.round(this.app.playhead);
     let pass = this.passes.get(key);
     if (!pass || pass.done) {
+      if (pass) this.finished.push(pass);
       pass = { trackId: track.id, param, segments: [{ t0: t, points: [{ t, v: value }] }], value, lastT: t, done: false };
       this.passes.set(key, pass);
     } else {
@@ -121,7 +124,8 @@ export class TrackControls {
   commit(stopFrame) {
     if (!this.passes.size) return;
     let state = this.doc.state;
-    for (const pass of this.passes.values()) {
+    // Earlier touches of a control first, so a later pass over the same time wins.
+    for (const pass of [...this.finished, ...this.passes.values()]) {
       const track = findTrack(state, pass.trackId);
       if (!track) continue;
       let lane = track.automation[pass.param];
@@ -135,6 +139,7 @@ export class TrackControls {
       state = setAutomation(state, pass.trackId, pass.param, lane);
     }
     this.passes.clear();
+    this.finished = [];
     this.doc.overrides = {};
     this.doc.apply('Write Automation', state);
     this.app.syncGraph();

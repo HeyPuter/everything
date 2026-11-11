@@ -21,8 +21,15 @@ export const db = (id, label, min, max, def, o = {}) => num(id, label, min, max,
 /** Frequency in Hz on a log scale. */
 export const hz = (id, label, min, max, def, o = {}) => num(id, label, min, max, def, 'Hz', { step: 1, scale: 'log', ...o });
 
-/** Milliseconds; log scale when the range spans decades. */
-export const ms = (id, label, min, max, def, o = {}) => num(id, label, min, max, def, 'ms', { step: max - min > 100 ? 1 : 0.1, scale: min > 0 && max / min >= 100 ? 'log' : 'linear', ...o });
+/**
+ * Milliseconds; log scale when the range spans decades. The step is 1 ms on
+ * wide ranges, and 0.1 ms on narrow ones and on any range that starts below
+ * 1 ms (an attack from 0.1 ms), so its low end can be reached and shown.
+ */
+export const ms = (id, label, min, max, def, o = {}) => {
+  const step = max - min > 100 && !(min > 0 && min < 1) ? 1 : 0.1;
+  return num(id, label, min, max, def, 'ms', { step, scale: min > 0 && max / min >= 100 ? 'log' : 'linear', ...o });
+};
 
 /** Percentage (0..100 unless given). */
 export const pct = (id, label, def, o = {}) => num(id, label, o.min ?? 0, o.max ?? 100, def, '%', { step: 1, ...o });

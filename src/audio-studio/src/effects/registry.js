@@ -12,6 +12,8 @@
 //   params: [                      // order = WASM parameter index
 //     { id: 'gain', label: 'Gain', min: -24, max: 24, step: 0.1, default: 0, unit: 'dB',
 //       scale: 'linear' | 'log', type: 'number' | 'bool' | 'choice', options: [{ value, label }],
+//       sig: 4,                     // optional: kept and shown to 4 significant digits instead of
+//                                  // the step's decimals (a Q of 0.7071; the step still moves it)
 //       section: 'Band 1',          // optional grouping label for dialogs
 //       hidden: true },             // optional: driven by a custom editor, not a plain control
 //     // Data params hold JSON-able structures instead of numbers. They keep their
@@ -20,6 +22,8 @@
 //       min: -60, max: 24, unit: 'dB' },      // frequency curve: f in Hz, g in dB
 //     { id: 'envelope', type: 'envelope', default: [{ t: 0, v: 1 }, { t: 1, v: 1 }],
 //       min: 0, max: 4, unit: '%' },          // t: 0..1 across the range, v in [min, max]
+//                                  // optional render: (points, n, values) => Float32Array draws
+//                                  // the curve the process applies (n samples across)
 //     { id: 'curve', type: 'transfer', default: [{ x: -100, y: -100 }, { x: 0, y: 0 }],
 //       min: -100, max: 0, unit: 'dB' },      // level transfer curve: input x to output y in dBFS
 //   ],

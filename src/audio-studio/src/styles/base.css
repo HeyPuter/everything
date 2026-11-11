@@ -6,6 +6,11 @@
   box-sizing: border-box;
 }
 
+/* The hidden attribute always hides, whatever display a component's class sets. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -114,13 +119,14 @@ svg.icon {
 }
 
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
   color: var(--accent-text);
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--accent-fill-hover);
+  border-color: var(--accent-fill-hover);
 }
 
 .btn.danger {
@@ -370,7 +376,7 @@ input[type='range'].slider::-moz-range-thumb {
 
 .menu-item:focus,
 .menu-item:hover {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-text);
   outline: none;
 }

@@ -150,6 +150,57 @@ describe('multitrack view', () => {
     expect(view.hitTest(200, envY)).toMatchObject({ part: 'line', param: 'volume' });
   });
 
+  it('reorders tracks by dragging headers past hidden tracks', () => {
+    const { view, doc } = ctx;
+    const [t1, t2, t3] = doc.state.tracks.map((t) => t.id);
+    doc.amendView((st) => S.updateTrack(st, t1, { hidden: true }));
+    view.syncHeaders();
+    // Rows: Track 2, Track 3, Mix. Drop Track 2 below Track 3.
+    const r3 = view.rowOf(t3);
+    view.showReorder(t2, r3.top + r3.total - 2);
+    view.finishReorder(t2, r3.top + r3.total - 2);
+    expect(doc.state.tracks.map((t) => t.id)).toEqual([t1, t3, t2]);
+    // And back above Track 3: it lands right before it, after the hidden track.
+    view.syncHeaders();
+    const top = view.rowOf(t3).top;
+    view.showReorder(t2, top + 2);
+    view.finishReorder(t2, top + 2);
+    expect(doc.state.tracks.map((t) => t.id)).toEqual([t1, t2, t3]);
+  });
+
+  it('Tab skips clips on hidden tracks', () => {
+    const { view, doc, clip } = ctx;
+    const t2 = doc.state.tracks[1].id;
+    const hidden = S.createClip({ trackId: t2, sourceId: clip.sourceId, name: 'hidden', start: RATE * 2, length: RATE });
+    const later = S.createClip({ trackId: doc.state.tracks[2].id, sourceId: clip.sourceId, name: 'later', start: RATE * 3, length: RATE });
+    doc.apply('Add', S.addClips(doc.state, [hidden, later]));
+    doc.amendView((st) => S.updateTrack(st, t2, { hidden: true }));
+    view.syncHeaders();
+    const tab = () => view.surface.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    tab();
+    expect([...doc.selectedClips]).toEqual([clip.id]);
+    tab();
+    expect([...doc.selectedClips]).toEqual([later.id]);
+  });
+
+  it('drags a clip down past a hidden track onto the row under the pointer', () => {
+    const { view, doc, clip, app } = ctx;
+    app.prefs.set('snapping', false);
+    doc.apply('Add Track', S.addTrack(doc.state, S.createTrack({ name: 'Track 4' })));
+    const [, t2, t3] = doc.state.tracks.map((t) => t.id);
+    doc.amendView((st) => S.updateTrack(st, t2, { hidden: true }));
+    view.syncHeaders();
+    view.surface.setPointerCapture = () => {};
+    const pointer = (type, x, y) => view.surface.dispatchEvent(Object.assign(new Event(type, { bubbles: true }), { clientX: x, clientY: y, button: 0, pointerId: 1, pointerType: 'mouse' }));
+    const r = view.clipRects().find((q) => q.clip.id === clip.id);
+    const target = view.rowOf(t3);
+    pointer('pointerdown', 200, r.y + 60);
+    pointer('pointermove', 210, r.y + 60);
+    pointer('pointermove', 200, target.top + 60);
+    pointer('pointerup', 200, target.top + 60);
+    expect(S.findClip(doc.state, clip.id)).toMatchObject({ trackId: t3, start: clip.start });
+  });
+
   it('snaps to clip edges and the playhead within eight pixels', () => {
     const { view, app } = ctx;
     app.prefs.set('snap', { ruler: false, markers: true, clips: true });
@@ -185,6 +236,23 @@ describe('multitrack view', () => {
     await app.commands.run('edit.paste');
     const pasted = doc.state.clips.find((c) => c.id !== clip.id);
     expect(pasted).toMatchObject({ trackId: doc.state.tracks[2].id, start: RATE * 5, length: RATE * 2 });
+  });
+
+  it('copies the clip parts in the time selection onto the selected track', async () => {
+    const { app, doc, clip } = ctx;
+    const [t1, t2, t3] = doc.state.tracks.map((t) => t.id);
+    const other = S.createClip({ trackId: t2, sourceId: clip.sourceId, name: 'late', start: RATE * 4, length: RATE });
+    doc.apply('Add', S.addClips(doc.state, [other]));
+    // Both clips selected, but the time selection only covers the one on Track 2.
+    doc.selectClips([clip.id, other.id]);
+    doc.setSelection(RATE * 4, RATE * 5, { tracks: [t1, t2] });
+    await app.commands.run('edit.copy');
+    doc.setSelection(RATE * 8, RATE * 8);
+    doc.selectTrack(t3);
+    doc.setCursor(RATE * 8);
+    await app.commands.run('edit.paste');
+    const pasted = doc.state.clips.filter((c) => c.id !== clip.id && c.id !== other.id);
+    expect(pasted.map((c) => [c.trackId, c.start, c.length])).toEqual([[t3, RATE * 8, RATE]]);
   });
 
   it('ripple deletes the time selection across all tracks', async () => {
@@ -299,6 +367,15 @@ describe('session properties', () => {
     loop.dispatchEvent(new Event('change'));
     expect(S.findClip(doc.state, clip.id).loop).toBe(true);
     expect(el.textContent).toContain('Stretch');
+    expect([...el.querySelectorAll('.prop-row')].find((r) => r.textContent.startsWith('Stretch')).textContent).toBe('StretchOff');
+    doc.apply('Stretch', S.updateClips(doc.state, [clip.id], { stretch: { mode: 'rendered', ratio: 1.25, semitones: -3, formants: false, sourceId: clip.sourceId } }));
+    const stretched = sessionPropertySection(app, doc);
+    expect([...stretched.querySelectorAll('.prop-row')].find((r) => r.textContent.startsWith('Stretch')).textContent).toBe('StretchRendered, 125% -3 st');
+    const channels = (e) => [...e.querySelectorAll('.prop-row')].find((r) => r.textContent.startsWith('Channels')).textContent;
+    expect(channels(el)).toBe('ChannelsStereo');
+    doc.apply('Surround', S.updateTrack(doc.state, doc.state.tracks[1].id, { channels: 6 }));
+    doc.selectTrack(doc.state.tracks[1].id);
+    expect(channels(sessionPropertySection(app, doc))).toBe('Channels5.1');
     const name = el.querySelector('input[aria-label="Track name"]');
     name.value = 'Lead';
     name.dispatchEvent(new Event('change'));
@@ -331,6 +408,31 @@ describe('automation writing', () => {
     expect(lane[0]).toEqual({ t: 1000, v: -3 });
     expect(lane[lane.length - 1]).toEqual({ t: 30000, v: -9 });
     expect(S.findTrack(doc.state, id).volume).toBe(0);
+  });
+
+  it('keeps every touch of a control during one playback in Touch mode', () => {
+    const { app, doc } = setup();
+    const id = doc.state.tracks[0].id;
+    doc.apply('Mode', S.updateTrack(doc.state, id, { mode: 'touch' }));
+    let pos = 0;
+    Object.defineProperty(app.engine, 'playing', { get: () => true, configurable: true });
+    Object.defineProperty(app, 'playhead', { get: () => pos, configurable: true });
+    const c = doc.controls;
+    pos = 1000;
+    c.set(id, 'volume', -3, 'input');
+    pos = 5000;
+    c.set(id, 'volume', -6, 'change');
+    pos = 20000;
+    c.set(id, 'volume', -12, 'input');
+    pos = 25000;
+    c.set(id, 'volume', -15, 'change');
+    c.commit(40000);
+    delete app.engine.playing;
+    const lane = S.findTrack(doc.state, id).automation.volume;
+    expect(lane[0]).toEqual({ t: 1000, v: -3 });
+    expect(lane).toContainEqual({ t: 5000, v: -6 });
+    expect(lane).toContainEqual({ t: 20000, v: -12 });
+    expect(lane[lane.length - 1]).toEqual({ t: 25000, v: -15 });
   });
 
   it('sets a keyframe at the playhead when stopped with automation', () => {

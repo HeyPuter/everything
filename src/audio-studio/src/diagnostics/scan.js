@@ -22,6 +22,7 @@ import { addMarkers } from '../effects/apply.js';
 const BLOCK = 1 << 19;
 const CONTEXT = 4096;
 const HOLD = 2;
+const HOLD_FLOOR_DB = -200;
 
 let factory = typeof Worker !== 'undefined' ? () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }) : null;
 
@@ -109,10 +110,12 @@ async function blocks(channel, start, end, fn, { context = CONTEXT, signal, onPr
 
 /**
  * Scans frames [start, end) of Channel[] for the problems an effect finds.
+ * Channels whose `mask` entry is false are not scanned for clicks or
+ * clipping (silence and audio regions span every channel).
  * effect: 'declicker' | 'declipper' | 'deleteSilence' | 'markAudio'; values
  * are that effect's full parameter values. Resolves { problems, info }.
  */
-export async function scanProblems({ effect, values, channels, rate, start, end, signal, onProgress, runner }) {
+export async function scanProblems({ effect, values, channels, rate, start, end, mask = null, signal, onProgress, runner }) {
   const own = !runner;
   runner = runner || (await createRunner());
   const abort = () => runner.close();
@@ -124,6 +127,7 @@ export async function scanProblems({ effect, values, channels, rate, start, end,
       const s = clickSettings(values);
       const runs = [];
       for (let c = 0; c < nch; c++) {
+        if (mask && !mask[c]) continue;
         await blocks(channels[c], start, end, async (samples, a, lo, hi) => {
           const t = await runner.run('clicks', { samples, k: s.k, disc: s.disc, maxRun: s.maxRun, oversample: s.oversample });
           for (let i = 0; i < t.length; i += 3) {
@@ -142,6 +146,7 @@ export async function scanProblems({ effect, values, channels, rate, start, end,
       const oversample = values.oversample / 100;
       const runs = [];
       for (let c = 0; c < nch; c++) {
+        if (mask && !mask[c]) continue;
         await blocks(channels[c], start, end, async (samples, a, lo, hi) => {
           const t = await runner.run('clickLevels', { samples, k, maxRun: maxRunOf(values), oversample });
           for (let i = 0; i < t.length; i += 4) {
@@ -171,6 +176,7 @@ export async function scanProblems({ effect, values, channels, rate, start, end,
       const win = Math.max(64, Math.round(rate * 0.05));
       const dbs = [];
       for (let c = 0; c < nch; c++) {
+        if (mask && !mask[c]) continue;
         await blocks(channels[c], start, end, async (samples, a, lo, hi) => {
           const t = await runner.run('levels', { samples: samples.subarray(a - lo, hi - lo), win });
           dbs.push(...t);
@@ -181,6 +187,7 @@ export async function scanProblems({ effect, values, channels, rate, start, end,
     if (effect === 'declipper') {
       let peak = 0;
       for (let c = 0; c < nch; c++) {
+        if (mask && !mask[c]) continue;
         await blocks(channels[c], start, end, async (samples) => {
           peak = Math.max(peak, await runner.run('peak', { samples }));
         }, { context: 0, signal, onProgress: (f) => onProgress?.((c + f) / nch / 2) });
@@ -189,6 +196,7 @@ export async function scanProblems({ effect, values, channels, rate, start, end,
       const level = peak * (1 - values.tolerance / 100) * 0.99999;
       const runs = [];
       for (let c = 0; c < nch; c++) {
+        if (mask && !mask[c]) continue;
         await blocks(channels[c], start, end, async (samples, a, lo, hi) => {
           const t = await runner.run('clips', { samples, level, minRun: values.minRun });
           for (let i = 0; i < t.length; i += 2) {
@@ -236,7 +244,7 @@ export function holdDb(peak) {
   for (let i = 0; i < n; i++) {
     let m = 0;
     for (let k = Math.max(0, i - HOLD); k <= Math.min(n - 1, i + HOLD); k++) if (peak[k] > m) m = peak[k];
-    db[i] = 20 * Math.log10(Math.max(m, 1e-10));
+    db[i] = Math.max(HOLD_FLOOR_DB, 20 * Math.log10(m));
   }
   return db;
 }
@@ -244,7 +252,8 @@ export function holdDb(peak) {
 function maxDb(db, a, b, win) {
   let m = -Infinity;
   for (let i = Math.floor(a / win); i < Math.min(db.length, Math.ceil(b / win)); i++) if (db[i] > m) m = db[i];
-  return m;
+  // holdDb floors digital silence at -200 dB; report it as -Infinity.
+  return m <= HOLD_FLOOR_DB ? -Infinity : m;
 }
 
 // ----------------------------------------------------------------- actions
@@ -315,7 +324,7 @@ export async function fillProblems(state, problems, { runner, signal, onProgress
  * Repairs the given clipped runs at the scan's clip `level`, then applies
  * the DeClipper gain to [start, end) so restored peaks have headroom.
  */
-export async function repairClips(state, problems, values, level, range, { runner, signal, onProgress } = {}) {
+export async function repairClips(state, problems, values, level, range, { mask = null, runner, signal, onProgress } = {}) {
   const own = !runner;
   runner = runner || (await createRunner());
   try {
@@ -325,7 +334,8 @@ export async function repairClips(state, problems, values, level, range, { runne
       const [a, b] = range;
       next = {
         ...next,
-        channels: next.channels.map((ch) => {
+        channels: next.channels.map((ch, i) => {
+          if (mask && !mask[i]) return ch;
           let out = ch;
           for (let at = a; at < b; at += BLOCK) {
             const block = ch.toArray(at, Math.min(b, at + BLOCK));

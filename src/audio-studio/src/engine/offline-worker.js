@@ -102,16 +102,24 @@ function ensureChunks(id, job, graph, at, n) {
   return Promise.all(waits);
 }
 
-/** Frees chunks wholly before the render position. */
-function dropBehind(job, graph, at) {
+/**
+ * Frees chunks no clip playing at `at` reads around its position. A source
+ * shared by several clips keeps the chunks of each, so a clip that already
+ * ended (or one further along) no longer discards chunks another still needs.
+ */
+export function dropBehind(job, graph, at) {
+  const keep = new Map();
   for (const track of graph.tracks) {
     for (const clip of track.clips) {
-      const src = job.store.sources.get(clip.source);
-      if (!src) continue;
+      if (clip.mute || at < clip.start || at >= clip.start + clip.length) continue;
       const pos = clip.offset + (at - clip.start);
-      for (const index of [...src.keys()]) {
-        if ((index + 1) * CHUNK < pos - CHUNK) src.delete(index);
-      }
+      let set = keep.get(clip.source);
+      if (!set) keep.set(clip.source, (set = new Set()));
+      for (let i = Math.max(0, Math.floor(pos / CHUNK) - 1); i <= Math.floor(pos / CHUNK) + 1; i++) set.add(i);
     }
+  }
+  for (const [key, src] of job.store.sources) {
+    const set = keep.get(key);
+    for (const index of [...src.keys()]) if (!set?.has(index)) src.delete(index);
   }
 }

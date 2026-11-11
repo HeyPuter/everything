@@ -22,10 +22,33 @@ export function crc32(bytes) {
 }
 
 /**
+ * Limits of a plain (non-ZIP64) archive: 32-bit sizes and offsets and a
+ * 16-bit entry count. Past them the fields would wrap and the archive be
+ * corrupt, so the writer refuses instead.
+ */
+export const ZIP_LIMITS = { bytes: 0xffffffff, entries: 0xffff };
+
+/**
+ * Why `entries` ([{ name, size }]) cannot be stored in one ZIP, or ''.
+ * Checked before any data is read, so callers can fall back early.
+ */
+export function zipProblem(entries, limits = ZIP_LIMITS) {
+  if (entries.length > limits.entries) return `A ZIP file holds at most ${limits.entries} files; there are ${entries.length}.`;
+  const enc = new TextEncoder();
+  let total = 22;
+  for (const e of entries) total += 30 + 46 + 2 * enc.encode(e.name).length + e.size;
+  if (total > limits.bytes) return `These files add up to more than ${limits.bytes >= 0xffffffff ? '4 GB' : `${limits.bytes} bytes`}, more than a ZIP file can hold.`;
+  return '';
+}
+
+/**
  * @param {{ name: string, data: Uint8Array }[]} files
+ * @param {{ limits?: { bytes: number, entries: number } }} [o] (tests lower the limits)
  * @returns {Blob} application/zip
  */
-export function zipStore(files) {
+export function zipStore(files, { limits = ZIP_LIMITS } = {}) {
+  const problem = zipProblem(files.map((f) => ({ name: f.name, size: f.data.length })), limits);
+  if (problem) throw new Error(problem);
   const enc = new TextEncoder();
   const parts = [];
   const central = [];

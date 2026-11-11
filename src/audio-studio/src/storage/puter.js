@@ -98,12 +98,25 @@ export async function stat(path) {
   return sdk().fs.stat(path);
 }
 
+/** Whether a Puter error means "no such file" (an Error with `code`, `{ code }` or `{ error: { code } }`). */
+export function isNotFound(err) {
+  const code = err?.code ?? err?.error?.code;
+  return code === 'subject_does_not_exist' || err?.status === 404 || err?.error?.status === 404;
+}
+
+/**
+ * Whether a file exists. Only a not-found answer means false: any other
+ * failure (offline, server error) throws, so callers about to overwrite a
+ * file never take "could not check" for "free to write".
+ */
 export async function exists(path) {
   try {
     await stat(path);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if (isNotFound(err)) return false;
+    const why = err?.message || err?.error?.message || 'Puter did not answer';
+    throw new Error(`Could not check whether "${String(path).split('/').pop()}" already exists in Puter (${why}). Nothing was written.`);
   }
 }
 

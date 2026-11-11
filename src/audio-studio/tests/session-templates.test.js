@@ -23,6 +23,21 @@ describe('session templates', () => {
     expect(next.tracks[0].id).not.toBe(state.tracks[0].id);
   });
 
+  it('keeps sends to buses and track and master EQ', () => {
+    const state = createSessionState({ tracks: 0, template: [{ name: 'Voice', channels: 1 }, { name: 'Verb', type: 'bus' }] });
+    const verb = state.tracks[1].id;
+    state.tracks[0] = createTrack({ ...state.tracks[0], sends: [{ target: verb, level: -6, pre: true }], eq: { on: true, values: { gain1: 3 } } });
+    state.master = createTrack({ ...state.master, eq: { on: true, values: { gain2: -2 } } });
+    const t = JSON.parse(JSON.stringify(templateFromState(state, 'Verb')));
+    const next = stateFromTemplate(t, { sampleRate: 48000, bitDepth: 32, autoCrossfade: true });
+    const bus = next.tracks.find((x) => x.type === 'bus');
+    expect(next.tracks[0].sends).toHaveLength(1);
+    expect(next.tracks[0].sends[0]).toMatchObject({ target: bus.id, level: -6, pre: true, on: true });
+    expect(next.tracks[0].sends[0].id).not.toBe(state.tracks[0].sends[0].id);
+    expect(next.tracks[0].eq).toEqual({ on: true, values: { gain1: 3 } });
+    expect(next.master.eq).toEqual({ on: true, values: { gain2: -2 } });
+  });
+
   it('stores templates by name', () => {
     const prefs = new Prefs({ getItem: () => null, setItem: () => {} });
     saveTemplate(prefs, { id: 'a', label: 'Podcast 2' });

@@ -285,6 +285,11 @@ export function effectsRackPanel(app) {
   });
 
   // Footer: gains, mix, process range, apply.
+  // Typed levels may carry their unit ("-6 dB", "40%") or a decimal comma; empty text is no value.
+  const parseLevel = (text) => {
+    const s = String(text).trim().replace(',', '.').replace(/\s*(db|%)$/i, '');
+    return s ? Number(s) : NaN;
+  };
   const gainKnob = (key, label) => {
     let k;
     const hot = hotNumber({
@@ -295,6 +300,7 @@ export function effectsRackPanel(app) {
       label,
       pixelsPerStep: 1,
       format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`,
+      parse: parseLevel,
       onInput: (v) => set(v),
       onChange: (v) => set(v),
       defaultValue: 0,
@@ -310,7 +316,7 @@ export function effectsRackPanel(app) {
   const input = gainKnob('input', 'Input');
   const output = gainKnob('output', 'Output');
   let mixKnob;
-  const mixHot = hotNumber({ value: 100, min: 0, max: 100, step: 1, label: 'Mix', format: (v) => `${Math.round(v)}%`, onInput: (v) => setMix(v), onChange: (v) => setMix(v), defaultValue: 100 });
+  const mixHot = hotNumber({ value: 100, min: 0, max: 100, step: 1, label: 'Mix', format: (v) => `${Math.round(v)}%`, parse: parseLevel, onInput: (v) => setMix(v), onChange: (v) => setMix(v), defaultValue: 100 });
   const setMix = (v) => {
     mixKnob.setValue(v);
     mixHot.setValue(v);
@@ -426,7 +432,8 @@ export async function applyRack(app) {
     );
     if (doc.state !== before) return false;
     doc.apply('Effects Rack', smoothBoundaries(before, state, start, end, editSmoothFrames(app, before.sampleRate), doc.channelMask));
-    setRack(app, doc, { ...rack, slots: fitSlots([]) });
+    // Empty the rack as it is now: settings changed during the render stay.
+    setRack(app, doc, { ...rackFor(doc), slots: fitSlots([]) });
     announce('Effects Rack applied');
     app.setStatus('Effects Rack applied');
     return true;

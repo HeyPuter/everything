@@ -115,16 +115,17 @@ puter-user-menu::part(avatar) {
 puter-user-menu::part(sign-in) {
   height: 22px;
   padding: 0 10px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-fill);
   border-radius: var(--radius);
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-text);
   font-size: 12px;
   white-space: nowrap;
 }
 
 puter-user-menu::part(sign-in):hover {
-  background: var(--accent-strong);
+  border-color: var(--accent-fill-hover);
+  background: var(--accent-fill-hover);
 }
 
 puter-user-menu::part(menu),
@@ -262,6 +263,11 @@ puter-user-menu::part(apps-panel) {
   color: var(--accent-strong);
 }
 
+/* The workspace overflow button is hidden on tablets and phones (workspaces are desktop only). */
+.toolbar .icon-btn[hidden] {
+  display: none;
+}
+
 .command-search-wrap {
   position: relative;
   display: flex;
@@ -327,6 +333,28 @@ puter-user-menu::part(apps-panel) {
 .dock-split:focus-visible {
   background: var(--accent);
   outline: none;
+}
+
+/* Touch: a 20 px grab area over the 4 px line, reaching into the frames on both sides. */
+@media (pointer: coarse) {
+  .dock-split {
+    position: relative;
+    z-index: 2;
+  }
+
+  .dock-split::before {
+    content: '';
+    position: absolute;
+    touch-action: none;
+  }
+
+  .dock-row > .dock-split::before {
+    inset: 0 -8px;
+  }
+
+  .dock-col > .dock-split::before {
+    inset: -8px 0;
+  }
 }
 
 .panel-group {
@@ -397,6 +425,20 @@ puter-user-menu::part(apps-panel) {
   margin-right: 6px;
 }
 
+/* A finger-sized target on touch screens: a transparent hit area fills the taller tab strip
+   and the gaps beside the button without widening the strip, so no tab label gets cut off. */
+@media (pointer: coarse) {
+  .panel-menu-btn {
+    position: relative;
+  }
+
+  .panel-menu-btn::before {
+    content: '';
+    position: absolute;
+    inset: -9px -8px -9px -6px;
+  }
+}
+
 .panel-body {
   position: relative;
   flex: 1;
@@ -447,6 +489,11 @@ puter-user-menu::part(apps-panel) {
   flex: none;
   white-space: nowrap;
   overflow: hidden;
+}
+
+/* View > Status Bar > Show Status Bar turned off. */
+.statusbar[hidden] {
+  display: none;
 }
 
 .status-info {

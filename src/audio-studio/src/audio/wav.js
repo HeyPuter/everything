@@ -3,7 +3,7 @@
 // (cue + LIST/adtl labl/ltxt), which round-trip markers with other editors,
 // mu-law/A-law and LIST/INFO metadata (title, artist, ...).
 
-import { parseRiffInfo, parseBext, parseCart } from './meta.js';
+import { parseRiffInfo, parseBext, parseCart, decodeText } from './meta.js';
 import { parseXmp } from './xmp.js';
 import { ulaw, alaw } from './aiff.js';
 
@@ -17,7 +17,18 @@ export function isWav(buffer) {
   if (buffer.byteLength < 12) return false;
   const dv = new DataView(buffer);
   const riff = ascii(dv, 0, 4);
-  return (riff === 'RIFF' || riff === 'RF64') && ascii(dv, 8, 4) === 'WAVE';
+  // BW64 (ITU-R BS.2088, broadcast/ADM files) is laid out like RF64.
+  return (riff === 'RIFF' || riff === 'RF64' || riff === 'BW64') && ascii(dv, 8, 4) === 'WAVE';
+}
+
+/** Whether a well-formed chunk header (printable id, size within the file) starts at `o`. */
+function isChunkAt(dv, o) {
+  if (o + 8 > dv.byteLength) return o >= dv.byteLength;
+  for (let i = 0; i < 4; i++) {
+    const c = dv.getUint8(o + i);
+    if (c < 0x20 || c > 0x7e) return false;
+  }
+  return o + 8 + dv.getUint32(o + 4, true) <= dv.byteLength;
 }
 
 /** @returns {{ sampleRate, channels: Float32Array[], bitDepth, float, markers: object[] }} */
@@ -38,7 +49,7 @@ export function parseWav(buffer) {
     const id = ascii(dv, o, 4);
     let size = dv.getUint32(o + 4, true);
     const body = o + 8;
-    if (id === 'ds64') ds64Data = Number(dv.getBigUint64(body + 8, true));
+    if (id === 'ds64' && body + 16 <= buffer.byteLength) ds64Data = Number(dv.getBigUint64(body + 8, true));
     if (id === 'fmt ') {
       let format = dv.getUint16(body, true);
       const channels = dv.getUint16(body + 2, true);
@@ -49,12 +60,17 @@ export function parseWav(buffer) {
     } else if (id === 'data') {
       dataOffset = body;
       dataSize = size === 0xffffffff && ds64Data != null ? ds64Data : size;
+      // A recorder stopped before it finished the header (power loss, crash) leaves
+      // size 0 with the audio running to the end of the file.
+      if (dataSize === 0 && !isChunkAt(dv, body)) dataSize = buffer.byteLength - body;
       if (dataOffset + dataSize > buffer.byteLength) dataSize = buffer.byteLength - dataOffset;
       size = dataSize;
-    } else if (id === 'cue ') {
+    } else if (id === 'cue ' && body + 4 <= buffer.byteLength) {
+      // A damaged or truncated cue list never blocks opening the audio: read
+      // only the points that lie inside both the chunk and the file.
+      const end = Math.min(body + size, buffer.byteLength);
       const n = dv.getUint32(body, true);
-      for (let i = 0; i < n; i++) {
-        const p = body + 4 + i * 24;
+      for (let i = 0, p = body + 4; i < n && p + 24 <= end; i++, p += 24) {
         cues.set(dv.getUint32(p, true), dv.getUint32(p + 20, true));
       }
     } else if (id === 'LIST' && body + 4 <= buffer.byteLength && ascii(dv, body, 4) === 'INFO') {
@@ -68,14 +84,16 @@ export function parseWav(buffer) {
       meta = { ...(id === 'bext' ? parseBext(bytes) : parseCart(bytes)), ...meta };
     } else if (id === 'LIST' && body + 4 <= buffer.byteLength && ascii(dv, body, 4) === 'adtl') {
       let q = body + 4;
-      while (q + 8 <= body + size) {
+      const end = Math.min(body + size, buffer.byteLength);
+      while (q + 12 <= end) {
         const sid = ascii(dv, q, 4);
         const ssize = dv.getUint32(q + 4, true);
         const cueId = dv.getUint32(q + 8, true);
+        if (q + 8 + ssize > end) break;
         if (sid === 'labl' || sid === 'note') {
-          const text = new TextDecoder().decode(new Uint8Array(buffer, q + 12, Math.max(0, ssize - 4))).replace(/\0+$/, '');
+          const text = decodeText(new Uint8Array(buffer, q + 12, Math.max(0, ssize - 4))).replace(/\0+$/, '');
           (sid === 'labl' ? labels : notes).set(cueId, text);
-        } else if (sid === 'ltxt') {
+        } else if (sid === 'ltxt' && ssize >= 8) {
           lengths.set(cueId, dv.getUint32(q + 12, true));
         }
         q += 8 + ssize + (ssize & 1);
@@ -85,11 +103,15 @@ export function parseWav(buffer) {
   }
   if (!fmt || dataOffset < 0) throw new Error('The WAV file has no audio data.');
   const { format, channels: nch, sampleRate, bits } = fmt;
-  if (!nch || !sampleRate) throw new Error('The WAV file header is damaged.');
+  if (!nch || !sampleRate || !bits) throw new Error('The WAV file header is damaged.');
   const isFloat = format === 3;
   const law = format === 6 ? alaw : format === 7 ? ulaw : null;
   if (format !== 1 && format !== 3 && !law) throw new Error('This WAV encoding is not supported.');
-  const bytes = bits / 8;
+  // Samples sit in whole bytes: 20-bit audio is stored (left-justified) in 3 bytes, 12-bit in 2.
+  // Integer math keeps `frames` a small integer; Math.ceil hands back a double, which made the
+  // first (cold) decode of a long file ~20% slower.
+  const bytes = (bits + 7) >> 3;
+  const container = bytes * 8;
   const frames = Math.floor(dataSize / (bytes * nch));
   const channels = Array.from({ length: nch }, () => new Float32Array(frames));
   const src = new Uint8Array(buffer, dataOffset, frames * bytes * nch);
@@ -100,17 +122,17 @@ export function parseWav(buffer) {
     for (let i = 0, p = 0; i < frames; i++) for (let c = 0; c < nch; c++, p += 4) channels[c][i] = view.getFloat32(p, true);
   } else if (isFloat && bits === 64) {
     for (let i = 0, p = 0; i < frames; i++) for (let c = 0; c < nch; c++, p += 8) channels[c][i] = view.getFloat64(p, true);
-  } else if (bits === 16) {
+  } else if (container === 16) {
     for (let i = 0, p = 0; i < frames; i++) for (let c = 0; c < nch; c++, p += 2) channels[c][i] = view.getInt16(p, true) / 32768;
-  } else if (bits === 24) {
+  } else if (container === 24) {
     for (let i = 0, p = 0; i < frames; i++)
       for (let c = 0; c < nch; c++, p += 3) {
         const v = src[p] | (src[p + 1] << 8) | (src[p + 2] << 16);
         channels[c][i] = ((v << 8) >> 8) / 8388608;
       }
-  } else if (bits === 32) {
+  } else if (container === 32) {
     for (let i = 0, p = 0; i < frames; i++) for (let c = 0; c < nch; c++, p += 4) channels[c][i] = view.getInt32(p, true) / 2147483648;
-  } else if (bits === 8) {
+  } else if (container === 8) {
     for (let i = 0, p = 0; i < frames; i++) for (let c = 0; c < nch; c++, p++) channels[c][i] = (src[p] - 128) / 128;
   } else throw new Error(`${bits}-bit WAV files are not supported.`);
   const markers = [...cues].map(([id, position]) => ({
@@ -120,7 +142,7 @@ export function parseWav(buffer) {
     description: notes.get(id) || '',
     type: 'cue',
   }));
-  return { sampleRate, channels, bitDepth: law ? 16 : bits, float: isFloat, markers, meta };
+  return { sampleRate, channels, bitDepth: law ? 16 : container, float: isFloat, markers, meta };
 }
 
 /**

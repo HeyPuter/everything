@@ -128,7 +128,9 @@ export async function openFiles(app, items, { activate = true } = {}) {
       if (source.type === 'puter') rememberRecent(app, { name, path: item.path });
     } catch (err) {
       console.error(err);
-      app.notify(err.message || `Could not open ${name}.`, { error: true });
+      // With several files opening, say which one failed when the message does not.
+      const message = String(err?.message || '');
+      app.notify(message.includes(name) ? message : `"${name}" could not be opened.${message ? ` ${message}` : ''}`, { error: true });
       app.setStatus(`Could not open ${name}`);
     }
   }
