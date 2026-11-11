@@ -359,3 +359,19 @@ test('sequencer: a narrow (phone-width) timeline frames the scene range', async 
   expect(v.ch).toBeLessThanOrEqual(v.area * 0.4 + 1);
   await expectNoErrors(errors);
 });
+
+test('clip editor: at phone width the tool shelf and sidebar do not cover each other', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const errors = await videoWorkspace(page, 'Motion Tracking');
+  await page.evaluate(() => ([...document.querySelectorAll('button.as-icon-btn')].find((b) => /Close/.test(b.getAttribute('data-tip') ?? b.textContent ?? '')) as HTMLElement | undefined)?.click());
+  await page.waitForTimeout(300);
+  const r = await page.evaluate(() => {
+    const root = [...document.querySelectorAll('.clip-root')].find((e) => e.querySelector('.clip-toolbar') && e.querySelector('.clip-sidebar'))!;
+    const box = (sel: string) => root.querySelector(sel)!.getBoundingClientRect();
+    return { tb: box('.clip-toolbar').right, sb: box('.clip-sidebar').left, w: root.getBoundingClientRect().width };
+  });
+  expect(r.w).toBeLessThan(400);
+  // some of the view stays between them
+  expect(r.sb - r.tb).toBeGreaterThan(20);
+  await expectNoErrors(errors);
+});
