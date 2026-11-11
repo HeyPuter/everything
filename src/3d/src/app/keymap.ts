@@ -261,6 +261,17 @@ export function installKeyboard() {
   addEventListener('mousedown', onExtraButton, true);
   addEventListener('mouseup', onExtraButton, true);
   addEventListener('auxclick', (e) => (e.button === 3 || e.button === 4) && e.preventDefault(), true);
+  // A button clicked with the pointer doesn't keep the keyboard focus: Enter pressed later (with the
+  // pointer over another editor) would click it again. Buttons reached with Tab keep it.
+  addEventListener(
+    'click',
+    (e) => {
+      if (e.detail === 0) return;
+      const b = (e.target as Element | null)?.closest?.('button');
+      if (b && document.activeElement === b) b.blur();
+    },
+    true,
+  );
   addEventListener(
     'keydown',
     (e) => {

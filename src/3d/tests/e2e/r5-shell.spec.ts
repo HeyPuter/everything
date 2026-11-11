@@ -90,3 +90,21 @@ test('a damaged screen layout in a file leaves the workspace usable', async ({ p
   await expect(page.locator('.area[data-editor="VIEW_3D"]')).toHaveCount(1);
   await expectNoErrors(errors);
 });
+
+test('Enter over the 3D view does not click the last button clicked with the mouse again', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.properties [data-tab="PHYSICS"]').first().click();
+  await page.locator('.properties button', { hasText: 'Collision' }).click();
+  const mods = () => page.evaluate(() => (window as any).app.activeObject.modifiers.map((m: { type: string }) => m.type));
+  expect(await mods()).toEqual(['COLLISION']);
+  const v = (await page.locator('.area[data-editor="VIEW_3D"]').first().boundingBox())!;
+  await page.mouse.move(v.x + v.width / 2, v.y + v.height / 2);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(100);
+  expect(await mods()).toEqual(['COLLISION']);
+  // a button reached with the keyboard still takes Enter
+  await page.locator('.properties button', { hasText: 'Cloth' }).focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(mods).toContain('CLOTH');
+  await expectNoErrors(errors);
+});
