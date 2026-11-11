@@ -117,3 +117,25 @@ test('dock buttons keep the keyboard focus, and Escape closes an icon panel', as
   await expect(page.locator(`[data-panel-tab="${tabId}"]`)).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator(`[data-panel-tab="${tabId}"]`)).toBeFocused();
 });
+
+test('Ctrl+wheel zooms a mouse notch in steps and a trackpad pinch smoothly', async ({ page }) => {
+  const wheel = (init: WheelEventInit) =>
+    page.evaluate((init) => {
+      const v = document.querySelector('#viewport')!;
+      const r = v.getBoundingClientRect();
+      const e = window.photoStudio;
+      const before = e.zoom;
+      v.dispatchEvent(new WheelEvent('wheel', { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true, ...init }));
+      return e.zoom / before;
+    }, init);
+  // A wheel notch (Windows and Linux report ±100 px) zooms like Alt+wheel.
+  const notch = await wheel({ deltaY: -100, ctrlKey: true });
+  expect(notch).toBeCloseTo(await wheel({ deltaY: -100, altKey: true }), 5);
+  expect(notch).toBeGreaterThan(1.1);
+  expect(notch).toBeLessThan(1.25);
+  expect(await wheel({ deltaY: 100, ctrlKey: true })).toBeCloseTo(1 / notch, 5);
+  // A pinch step keeps the scale it encodes: deltaY = -100 × ln(scale).
+  expect(await wheel({ deltaY: -100 * Math.log(1.05), ctrlKey: true })).toBeCloseTo(1.05, 5);
+  // Line-based wheels (3 lines per notch) zoom like a pixel notch, not 30× slower.
+  expect(await wheel({ deltaY: -3, deltaMode: 1, altKey: true })).toBeGreaterThan(1.05);
+});

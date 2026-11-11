@@ -120,14 +120,21 @@ export function bindCanvas(e: Editor) {
     (event) => {
       event.preventDefault();
       if (e.transform.dragging) return;
+      // Deltas are read before deltaMode (Firefox then reports pixels); lines and pages become pixels.
+      const dx = event.deltaX,
+        dy = event.deltaY;
+      const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
       // Pinch gestures arrive as ctrl+wheel; Alt/Mod+wheel also zooms.
       if (event.ctrlKey || event.metaKey || event.altKey || e.preferences.wheelZooms) {
         const rect = viewport.getBoundingClientRect();
-        e.zoomAt(e.zoom * Math.exp(-event.deltaY * (event.ctrlKey && !event.altKey ? 0.01 : 0.0015)), event.clientX - rect.left, event.clientY - rect.top);
+        // A pinch sends small steps (100 × ln of its scale change) and zooms at that
+        // rate. A mouse wheel notch with Ctrl, the zoom modifier on Windows and Linux,
+        // sends 100 or more and zooms in steps like Alt+wheel, not by e per notch.
+        const pinch = event.ctrlKey && !event.altKey && scale === 1 && Math.abs(dy) < 40;
+        e.zoomAt(e.zoom * Math.exp(-dy * scale * (pinch ? 0.01 : 0.0015)), event.clientX - rect.left, event.clientY - rect.top);
       } else {
-        const scale = event.deltaMode === 1 ? 16 : 1;
-        e.pan.x -= (event.shiftKey ? event.deltaY : event.deltaX) * scale;
-        e.pan.y -= (event.shiftKey ? 0 : event.deltaY) * scale;
+        e.pan.x -= (event.shiftKey ? dy : dx) * scale;
+        e.pan.y -= (event.shiftKey ? 0 : dy) * scale;
         e.view();
       }
     },
