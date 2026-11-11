@@ -34,10 +34,9 @@ describe('delay, modulation and reverb definitions', () => {
         const h = create(x, def, values);
         const rust = x.fx_tail(h);
         const js = effectTail(def, values, RATE);
-        // The processor reports a fixed 50 ms for the Phaser, and the Chorus
-        // tail from its feedback alone, both shorter than their loops ring; the
-        // definitions' tails cover the ring (phaserTail, chorusLoopGain).
-        if (id === 'phaser' || id === 'chorus') expect(js, p.name).toBeGreaterThanOrEqual(rust);
+        // The processor reports a fixed 50 ms for the Phaser, shorter than its
+        // feedback rings; the definition's tail covers the ring (phaserTail).
+        if (id === 'phaser') expect(js, p.name).toBeGreaterThanOrEqual(rust);
         // Float32 parameters on the WASM side can move a rounding by a frame.
         else expect(Math.abs(rust - js), `${p.name}: ${rust} vs ${js}`).toBeLessThanOrEqual(Math.max(2, rust * 1e-5));
         x.fx_free(h);

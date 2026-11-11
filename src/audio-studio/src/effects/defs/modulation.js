@@ -3,13 +3,38 @@
 import { registerEffect } from '../registry.js';
 import { num, db, ms, pct, bool, choice, preset } from './util.js';
 import { feedbackTail } from './delay.js';
-import { chorusLoopGain } from '../../engine/fxhost.js';
 
 const GROUP = 'Modulation';
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const hzRate = (id, label, min, max, def, o = {}) => num(id, label, min, max, def, 'Hz', { step: 0.01, scale: 'log', ...o });
 /** Largest interaural delay of the chorus's binaural cues (fx/modulation/chorus.rs ITD_MS). */
 const CHORUS_ITD_MS = 0.65;
+
+/**
+ * Gain of the Chorus's summed voices in the louder channel, each voice at
+ * 1 / sqrt(voices) panned by the width, times the voices' mean level under
+ * their amplitude wobble (modulation depth); mirrors fx/modulation/chorus.rs
+ * loop_gain. Takes the dialog values ({ voices, depth, width: %, binaural }).
+ */
+export function chorusLoopGain({ voices, depth, width, binaural }) {
+  const v = Math.min(8, Math.max(2, Math.round(voices) || 2));
+  const floor = 10 ** (-Math.min(24, Math.max(0, depth || 0)) / 20);
+  const w = Math.min(1, Math.max(0, (width || 0) / 100));
+  let l = 0;
+  let r = 0;
+  for (let i = 0; i < v; i++) {
+    const q = w * ((2 * i) / (v - 1) - 1);
+    if (binaural) {
+      const far = 1 - 0.5 * Math.abs(q);
+      l += q > 0 ? far : 1;
+      r += q > 0 ? 1 : far;
+    } else {
+      l += 1 - Math.max(q, 0);
+      r += 1 + Math.min(q, 0);
+    }
+  }
+  return ((Math.max(l, r) / Math.sqrt(v)) * (1 + floor)) / 2;
+}
 
 registerEffect({
   id: 'chorus',
@@ -45,7 +70,7 @@ registerEffect({
   tail: (v, rate) => {
     const longest = clamp(v.delay, 1, 50) * 1.3 + clamp(v.spread, 0, 200) + (v.binaural ? CHORUS_ITD_MS : 0);
     // The voices feed back together, so the loop can ring longer than the
-    // feedback alone suggests (up to the 0.95 the processor is held to, fxhost.js).
+    // feedback alone suggests (up to the 0.95 the processor is held to).
     const fb = clamp(v.feedback / 100, 0, 0.9);
     const loop = Math.min(0.95, fb * chorusLoopGain(v));
     return feedbackTail((longest / 1000) * rate, Math.max(fb, loop), rate);

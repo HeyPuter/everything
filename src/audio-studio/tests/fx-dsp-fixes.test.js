@@ -89,3 +89,36 @@ describe('Multiband Compressor crossovers', () => {
     }
   });
 });
+
+describe('Chorus feedback', () => {
+  it('rings down at high feedback with many voices, straight from the processor', () => {
+    const x = instance();
+    // voices, delay, delayRate, feedback, spread, depth, modRate, width, dry, wet, quality, average, binaural
+    for (const [voices, fb, width] of [
+      [8, 90, 100],
+      [8, 45, 0],
+      [2, 90, 0],
+    ]) {
+      const h = x.fx_new(70, RATE, 2);
+      [voices, 12, 0.6, fb, 10, 2, 1.2, width, 70, 50, 1, 0, 0].forEach((v, i) =>
+        x.fx_set(h, i, v),
+      );
+      x.fx_reset(h);
+      const buf = x.mem_alloc(2 * 4096 * 4);
+      const input = noise(2 * 4096, 0.3);
+      let last = 0;
+      for (let b = 0; b < 40; b++) {
+        const v = new Float32Array(x.memory.buffer, buf, 2 * 4096);
+        if (b < 12) v.set(input);
+        else v.fill(0);
+        x.fx_process(h, buf, 4096);
+        last = new Float32Array(x.memory.buffer, buf, 2 * 4096).reduce(
+          (m, s) => Math.max(m, Math.abs(s)),
+          0,
+        );
+      }
+      expect(last, `${voices} voices, ${fb} %, width ${width}`).toBeLessThan(0.01);
+      x.fx_free(h);
+    }
+  });
+});

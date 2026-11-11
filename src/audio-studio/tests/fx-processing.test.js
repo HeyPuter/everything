@@ -2,7 +2,7 @@
 // effect chains) checked numerically against the built DSP module.
 import { describe, it, expect, vi } from 'vitest';
 import { wasmBytes } from './fx-wasm.js';
-import { FxHost, processorParam } from '../src/engine/fxhost.js';
+import { FxHost } from '../src/engine/fxhost.js';
 import { getEffect, slotSpec, defaults, effectTail } from '../src/effects/index.js';
 import { applyChain } from '../src/engine/offline.js';
 import { renderEffect } from '../src/effects/apply.js';
@@ -296,13 +296,14 @@ describe('Chorus feedback', () => {
     expect(20 * Math.log10(peak(n + tail, n + tail + rate) / peak(0, n))).toBeLessThan(-60);
   });
 
-  it('leaves the presets and gentle feedback alone', () => {
+  it('leaves the presets and gentle feedback alone', async () => {
+    const { chorusLoopGain } = await import('../src/effects/defs/modulation.js');
+    // Below a loop gain of 0.95 the processor applies the feedback as set.
     for (const p of def.presets) {
-      const spec = slotSpec(def, { ...defaults(def), ...p.values });
-      expect(processorParam(def.kind, 3, spec.params, rate)).toBe(spec.params[3]);
+      const v = { ...defaults(def), ...p.values };
+      expect((v.feedback / 100) * chorusLoopGain(v), p.name).toBeLessThan(0.95);
     }
-    const spec = slotSpec(def, { ...defaults(def), voices: 2, feedback: 90 });
-    expect(processorParam(def.kind, 3, spec.params, rate)).toBe(90);
+    expect(0.9 * chorusLoopGain({ ...defaults(def), voices: 2 })).toBeLessThan(0.95);
   });
 });
 
