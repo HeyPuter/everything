@@ -352,6 +352,28 @@ describe('retouch panel', () => {
     expect(clip().retouch).toBeUndefined();
   });
 
+  it('moves between shade swatches with arrow keys, with one tab stop per row', () => {
+    segment('Makeup');
+    const sw = [...env.el.querySelectorAll('[aria-label="Lip color shades"] [role=radio]')];
+    expect(sw.filter((b) => b.tabIndex === 0)).toEqual([sw[0]]);
+    sw[0].focus();
+    sw[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(document.activeElement).toBe(sw[1]);
+    expect(clip().retouch.lipColor).toBe(LIP_SWATCHES[1].color);
+    expect(sw.filter((b) => b.tabIndex === 0)).toEqual([sw[1]]);
+    sw[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    sw[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(document.activeElement).toBe(sw.at(-1));
+    expect(clip().retouch.lipColor).toBe(LIP_SWATCHES.at(-1).color);
+    segment('Hair');
+    const hair = [...env.el.querySelectorAll('.hair-swatches [role=radio]')];
+    expect(hair.filter((b) => b.tabIndex === 0)).toEqual([hair[0]]);
+    hair[0].focus();
+    hair[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(clip().hairColor.color).toBe(HAIR_SWATCHES[1].color);
+    expect(hair.filter((b) => b.tabIndex === 0)).toEqual([hair[1]]);
+  });
+
   it('picks a hair swatch at a medium strength, edits the strength, and resets', () => {
     segment('Hair');
     hairModelReady.mockClear();

@@ -80,6 +80,30 @@ function loadModelsFor(clip) {
 }
 
 /**
+ * Keyboard for a radio group of swatches: one tab stop (the checked swatch,
+ * else the first) and arrow keys pick the next or previous one. Returns
+ * sync(), to call after aria-checked changes.
+ */
+function swatchKeys(group, btns) {
+  const sync = () => {
+    const on = Math.max(0, btns.findIndex((b) => b.getAttribute('aria-checked') === 'true'));
+    btns.forEach((b, i) => (b.tabIndex = i === on ? 0 : -1));
+  };
+  group.addEventListener('keydown', (e) => {
+    const i = btns.indexOf(document.activeElement);
+    const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (i < 0 || !d) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const j = (i + d + btns.length) % btns.length;
+    btns[j].focus();
+    btns[j].click();
+  });
+  sync();
+  return sync;
+}
+
+/**
  * A row of round shade swatches (a radio group) ending in a custom color
  * well. onPick(hex, final) runs for both; set(hex, on) marks the shade
  * shown (none while the part is off).
@@ -96,11 +120,14 @@ function swatchRow({ label, swatches, onPick }) {
   const custom = h('input.swatch-custom', { type: 'color', value: swatches[0].color, 'aria-label': `${label} custom color`, 'data-tip': 'Custom color' });
   custom.addEventListener('input', () => onPick(custom.value, false));
   custom.addEventListener('change', () => onPick(custom.value, true));
-  const el = h('div.marker-swatches.retouch-swatches', h('div.retouch-swatch-group', { role: 'radiogroup', 'aria-label': `${label} shades` }, btns), custom);
+  const group = h('div.retouch-swatch-group', { role: 'radiogroup', 'aria-label': `${label} shades` }, btns);
+  const sync = swatchKeys(group, btns);
+  const el = h('div.marker-swatches.retouch-swatches', group, custom);
   return {
     el,
     set(hex, on) {
       btns.forEach((b, i) => b.setAttribute('aria-checked', String(on && swatches[i].color === hex)));
+      sync();
       if (document.activeElement !== custom && hex) custom.value = hex;
     },
   };
@@ -379,6 +406,7 @@ function hairSection(view) {
     });
     return b;
   }));
+  const syncSwatches = swatchKeys(swatches, [...swatches.querySelectorAll('.marker-swatch')]);
   const picker = color(view, { label: 'Hair color', get: (c) => cur(c).color, set: (v, final) => pick(v, final) });
   const strength = slider(view, {
     label: 'Strength',
@@ -393,6 +421,7 @@ function hairSection(view) {
     if (!c) return;
     const col = cur(c).color;
     swatches.querySelectorAll('.marker-swatch').forEach((b, i) => b.setAttribute('aria-checked', String(HAIR_SWATCHES[i].color === col && hairColorOn(c.hairColor))));
+    syncSwatches();
     status.set(hairColorOn(c.hairColor) ? modelStatus(faceModelState(), faceModelError(), 'Finding faces...') || modelStatus(hairModelState(), hairModelError(), 'Finding hair...') : '');
   };
   render();
