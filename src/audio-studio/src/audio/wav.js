@@ -21,6 +21,16 @@ export function isWav(buffer) {
   return (riff === 'RIFF' || riff === 'RF64' || riff === 'BW64') && ascii(dv, 8, 4) === 'WAVE';
 }
 
+/** Whether a well-formed chunk header (printable id, size within the file) starts at `o`. */
+function isChunkAt(dv, o) {
+  if (o + 8 > dv.byteLength) return o >= dv.byteLength;
+  for (let i = 0; i < 4; i++) {
+    const c = dv.getUint8(o + i);
+    if (c < 0x20 || c > 0x7e) return false;
+  }
+  return o + 8 + dv.getUint32(o + 4, true) <= dv.byteLength;
+}
+
 /** @returns {{ sampleRate, channels: Float32Array[], bitDepth, float, markers: object[] }} */
 export function parseWav(buffer) {
   const dv = new DataView(buffer);
@@ -50,6 +60,9 @@ export function parseWav(buffer) {
     } else if (id === 'data') {
       dataOffset = body;
       dataSize = size === 0xffffffff && ds64Data != null ? ds64Data : size;
+      // A recorder stopped before it finished the header (power loss, crash) leaves
+      // size 0 with the audio running to the end of the file.
+      if (dataSize === 0 && !isChunkAt(dv, body)) dataSize = buffer.byteLength - body;
       if (dataOffset + dataSize > buffer.byteLength) dataSize = buffer.byteLength - dataOffset;
       size = dataSize;
     } else if (id === 'cue ' && body + 4 <= buffer.byteLength) {

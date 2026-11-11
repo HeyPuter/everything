@@ -47,6 +47,18 @@ describe('wav', () => {
     expect(Array.from(r.channels[0])).toEqual([0.5, -0.25, 0]);
     expect(r.bitDepth).toBe(24);
   });
+  it('recovers the audio of a recording whose data size was never written', async () => {
+    const samples = tone(1000);
+    const blob = encodeWav({ sampleRate: 44100, channels: [samples], bitDepth: 16, dither: false });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    new DataView(bytes.buffer).setUint32(40, 0, true);
+    const r = parseWav(bytes.buffer);
+    expect(r.channels[0].length).toBe(1000);
+    expect(r.channels[0][123]).toBeCloseTo(samples[123], 4);
+    // An empty data chunk followed by another chunk stays empty.
+    const empty = encodeWav({ sampleRate: 44100, channels: [new Float32Array(0)], bitDepth: 16, markers: [{ start: 0, name: 'A' }] });
+    expect(parseWav(await empty.arrayBuffer()).channels[0].length).toBe(0);
+  });
   it('reads BW64 files like RF64', async () => {
     const blob = encodeWav({ sampleRate: 48000, channels: [Float32Array.of(0.5, -0.5)], bitDepth: 16, dither: false });
     const bytes = new Uint8Array(await blob.arrayBuffer());
