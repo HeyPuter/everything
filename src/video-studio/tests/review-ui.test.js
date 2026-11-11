@@ -388,6 +388,38 @@ describe('review page (reviewer flow)', () => {
     page.dispose();
   });
 
+  it('lets go of the comment\'s pinned time when another version is shown', async () => {
+    const env = await setup();
+    await publish(env, { duration: 10_000_000, fps: 25 });
+    const pub = await publish(env, { duration: 4_000_000, fps: 25 });
+    const token = await invite(env, pub.review.id);
+    const root = document.createElement('div');
+    document.body.append(root);
+    const page = new ReviewPage(root, { puter: env.sdk.bob, link: { review: pub.review.id, server: env.server, token }, interval: 60_000 });
+    await until(() => root.querySelector('.rv-page'));
+    page.setVersion(1);
+    page.seek(8_000_000);
+    page.composer.startHere();
+    const range = root.querySelector('#rv-range');
+    range.checked = true;
+    range.dispatchEvent(new Event('change'));
+    const text = root.querySelector('.rv-compose-text');
+    text.value = 'Cut here';
+    text.dispatchEvent(new Event('input'));
+    expect(root.querySelector('.rv-pin .rv-pin-time').textContent).toBe('00:00:08:00');
+    // On the 4 second version the box keeps the words but pins to the frame shown, as a fresh comment does.
+    page.setVersion(2);
+    expect(text.value).toBe('Cut here');
+    expect(range.checked).toBe(false);
+    page.seek(2_000_000);
+    expect(root.querySelector('.rv-pin .rv-pin-time').textContent).toBe('00:00:02:00');
+    root.querySelector('.rv-composer').dispatchEvent(new Event('submit', { cancelable: true }));
+    await until(() => root.querySelector('.rv-thread') && !root.querySelector('.rv-comment.pending'));
+    expect(root.querySelector('.rv-composer .rv-form-error').textContent).toBe('');
+    expect([...page.session.comments.values()].map((c) => [c.version, c.t, c.end])).toEqual([[2, 2_000_000, null]]);
+    page.dispose();
+  });
+
   it('posts once with Ctrl+Enter', async () => {
     const { page, root } = await opened();
     const text = root.querySelector('.rv-compose-text');

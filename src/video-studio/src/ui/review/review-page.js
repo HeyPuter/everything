@@ -247,6 +247,7 @@ export class ReviewPage {
     this.activeId = null;
     this.t = 0;
     this._linkTries = 0;
+    if (!force) this.composer?.release();
     this.versionSelect.value = String(n);
     this.strip.setAttribute('aria-valuemax', String(Math.round(this.duration / 1e6)));
     this.durEl.textContent = reviewTimecode(this.duration, this.fps);
@@ -576,6 +577,17 @@ export class ReviewPage {
         pin.held = true;
         pinHere();
         text.focus();
+      },
+      /**
+       * Another version is shown: a time pinned on the last one may be past this one's end, or another moment, so
+       * the pin follows the frame shown again (the words stay).
+       */
+      release() {
+        pin.held = false;
+        pin.end = null;
+        rangeBox.checked = false;
+        err.textContent = '';
+        pinHere();
       },
     };
   }
