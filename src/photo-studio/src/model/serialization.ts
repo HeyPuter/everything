@@ -16,7 +16,7 @@ import { validDocumentPatterns, validLayerFill } from './fill-layer';
 import { validLayerStyle } from './layer-style';
 import { validateAnnotations } from './annotations';
 import { validateComments } from '../collab/comments';
-import { validateAnimation } from './animation';
+import { packAnimation, unpackAnimation, validateAnimation, type FrameAnimation } from './animation';
 import { validateTimeline } from './video-timeline';
 import { validateVideoLayer } from './video-layer';
 import { allAudioClips } from './audio-timeline';
@@ -77,6 +77,7 @@ export async function serialize(
   // Layers turned into pixels by any edit no longer draw embedded contents.
   for (const l of allLayers(doc.layers)) if (l.embed && l.kind !== 'image') delete l.embed;
   doc.embeds = usedEmbeds(doc);
+  if (doc.animation) doc.animation = packAnimation(doc.animation) as FrameAnimation;
   for (const l of allLayers(doc.layers)) if (l.embed && !doc.embeds?.[l.embed.contents]) delete l.embed;
   const blobOf = (id: string) => packs.get(id) ?? assets.blob(id);
   const ids = [
@@ -418,6 +419,8 @@ export async function deserialize(
     assets: { id: string; size: number; type: string }[];
     sidecars?: Record<string, unknown>;
   };
+  const read = data.document as { animation?: unknown } | null;
+  if (read && typeof read === 'object' && read.animation !== undefined) read.animation = unpackAnimation(read.animation);
   const document = validateDocument(data.document),
     assets = into ?? new Assets();
   if (data.sidecars && typeof data.sidecars === 'object')

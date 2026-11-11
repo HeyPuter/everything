@@ -304,6 +304,7 @@ export function setFrameDelay(doc: PhotoDocument, indices: number[], delay: numb
 export function framesFromLayers(doc: PhotoDocument, delays: number[] = [], loop?: number) {
   const tops = doc.layers;
   if (tops.length < 2) return false;
+  if (tops.length > maxFrames) throw new Error(`A frame animation can have up to ${maxFrames} frames.`);
   const base: Record<string, FrameLayerState> = {};
   for (const l of allLayers(doc.layers)) base[l.id] = captureState(l);
   const frames = tops.map((top, i): AnimationFrame => {
@@ -450,6 +451,61 @@ export function delayLabel(ms: number) {
   if (ms === 0) return 'No delay';
   const s = ms / 1000;
   return `${Number.isInteger(s * 10) ? s.toFixed(1) : String(Math.round(s * 1000) / 1000)} s`;
+}
+
+// ----- Project files -----
+// Every frame has a record for every layer, so an animation made from a long
+// GIF (n layers, n frames) has n² records, nearly all alike. Large ones are
+// written with each distinct record once: `records.layers` lists the layer
+// IDs, `records.states` the distinct records, and each frame's `refs` gives,
+// per listed layer, the index of its record (-1: none).
+const packAbove = 20_000;
+type PackedAnimation = Omit<FrameAnimation, 'frames'> & {
+  frames: { id: string; delay: number; refs: number[] }[];
+  records: { layers: string[]; states: FrameLayerState[] };
+};
+/** The animation as written to a project file. */
+export function packAnimation(a: FrameAnimation): FrameAnimation | PackedAnimation {
+  const ids = [...new Set(a.frames.flatMap((f) => Object.keys(f.layers)))];
+  if (ids.length * a.frames.length <= packAbove) return a;
+  const states: FrameLayerState[] = [];
+  const index = new Map<string, number>();
+  const frames = a.frames.map((f) => ({
+    id: f.id,
+    delay: f.delay,
+    refs: ids.map((id) => {
+      const s = f.layers[id];
+      if (!s) return -1;
+      const state = frameState(s);
+      const key = JSON.stringify(state);
+      let i = index.get(key);
+      if (i === undefined) index.set(key, (i = states.push(state) - 1));
+      return i;
+    }),
+  }));
+  return { ...a, frames, records: { layers: ids, states } };
+}
+/** An animation read from a project file in either form (validated after). */
+export function unpackAnimation(v: unknown): unknown {
+  const p = v as PackedAnimation;
+  if (!p || typeof p !== 'object' || p.records === undefined) return v;
+  const bad = () => new Error('Invalid frame animation.');
+  const { layers, states } = p.records ?? {};
+  if (!Array.isArray(layers) || !layers.every(isDocumentId) || !Array.isArray(states) || !Array.isArray(p.frames) || p.frames.length > maxFrames || states.some((s) => !s || typeof s !== 'object'))
+    throw bad();
+  const { records: _, ...rest } = p;
+  const frames = p.frames.map((f): AnimationFrame => {
+    if (!f || !Array.isArray(f.refs) || f.refs.length !== layers.length) throw bad();
+    const out: Record<string, FrameLayerState> = {};
+    f.refs.forEach((r, i) => {
+      if (r === -1) return;
+      if (!Number.isInteger(r) || r < 0 || r >= states.length) throw bad();
+      // Each record is its own object: frames are edited in place.
+      out[layers[i]] = { ...states[r], ...(states[r].style ? { style: cloneStyle(states[r].style) } : {}) };
+    });
+    return { id: f.id, delay: f.delay, layers: out };
+  });
+  return { ...rest, frames };
 }
 
 // ----- Validation (projects) -----

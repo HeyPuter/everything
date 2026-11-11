@@ -2,7 +2,7 @@ import type { Editor } from '../../editor';
 import { deserialize } from '../../model/serialization';
 import { escapeXML } from '../../model/assets';
 import { formDialog, information } from '../../ui/dialog';
-import { assertSize, layer, type Layer, type PhotoDocument } from '../../model/document';
+import { assertSize, layer, MAX_LAYERS, type Layer, type PhotoDocument } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
 import { encodeIccProfile } from '../../model/psd-resources';
@@ -17,7 +17,7 @@ import { readJpegDensity, readJpegIcc, readJpegInfo } from '../../imaging/codecs
 import { checkSize } from '../../imaging/codecs/bytes';
 import { decodePng16, rgba16To8 } from './png';
 import { decodeApng, isApng } from '../../imaging/codecs/apng';
-import { framesFromLayers } from '../../model/animation';
+import { framesFromLayers, maxFrames } from '../../model/animation';
 import { noteRecent, type RecentSource } from './recent';
 import { emitAppEvent, openedFiles } from '../../app/app-events';
 
@@ -71,10 +71,14 @@ async function choosePages(kind: string, count: number, choice: PageChoice | und
 }
 const framesLeftOut = (n: number) => `Only the first ${n} frames were opened: the rest need more memory than one file may use.`;
 /** Frames of an animated file as layers (and optionally an animation). */
-function animatedFrames(out: DecodedFile, frames: { rgba: RGBA8; delayMs: number }[], pick: 'layers' | 'animation', plays: number) {
+function animatedFrames(out: DecodedFile, all: { rgba: RGBA8; delayMs: number }[], pick: 'layers' | 'animation', plays: number): string | undefined {
+  // A project holds up to this many frames (or layers); more could be saved but not reopened.
+  const most = pick === 'animation' ? maxFrames : MAX_LAYERS;
+  const frames = all.slice(0, most);
   out.layers = frames.slice(1).map((f, i) => ({ name: `Frame ${i + 2}`, image: f.rgba }));
   if (pick === 'animation') out.animation = { delays: frames.map((f) => f.delayMs), plays };
   else out.layers.forEach((l, i) => (l.name += ` (${frames[i + 1].delayMs} ms)`));
+  if (all.length > most) return `Only the first ${most} of ${all.length} frames were opened: a ${pick === 'animation' ? 'frame animation' : 'document'} holds up to ${most} ${pick === 'animation' ? 'frames' : 'layers'}.`;
 }
 
 function orient<T extends Uint16Array | Float32Array>(data: T, w: number, h: number, o: number | undefined): T {
@@ -115,9 +119,10 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
   if (d.tiffPages && d.tiffPages.length > 1) {
     const pick = await choosePages('page', d.tiffPages.length, opts.pages);
     if (!pick) throw new CancelOpen();
-    if (pick === 'layers')
-      out.layers = d.tiffPages.slice(1).map((p, i) => ({ name: `Page ${i + 2}`, image: applyOrientation(p.rgba8, p.orientation) }));
-    else notes.push(`The file has ${d.tiffPages.length} pages; the first was opened.`);
+    if (pick === 'layers') {
+      out.layers = d.tiffPages.slice(1, MAX_LAYERS).map((p, i) => ({ name: `Page ${i + 2}`, image: applyOrientation(p.rgba8, p.orientation) }));
+      if (d.tiffPages.length > MAX_LAYERS) notes.push(`Only the first ${MAX_LAYERS} of ${d.tiffPages.length} pages were opened: a document holds up to ${MAX_LAYERS} layers.`);
+    } else notes.push(`The file has ${d.tiffPages.length} pages; the first was opened.`);
   }
   if (d.gifFrames && d.gifFrames.length > 1) {
     const pick = await choosePages('frame', d.gifFrames.length, opts.pages, true);
@@ -125,8 +130,9 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
     // GIF stores extra repeats; no looping extension means one play.
     const plays = d.gifLoopCount === undefined ? 1 : d.gifLoopCount === 0 ? 0 : Math.min(65535, d.gifLoopCount + 1);
     if (pick !== 'first') {
-      animatedFrames(out, d.gifFrames, pick, plays);
-      if (d.gifTruncated) notes.push(framesLeftOut(d.gifFrames.length));
+      const capped = animatedFrames(out, d.gifFrames, pick, plays);
+      if (capped) notes.push(capped);
+      else if (d.gifTruncated) notes.push(framesLeftOut(d.gifFrames.length));
     } else notes.push(`Animated GIF with ${d.gifFrames.length} frames; the first was opened.`);
   }
   if (notes.length) out.notice = notes.join(' ');
@@ -161,8 +167,7 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
       if (!pick) throw new CancelOpen();
       const out: DecodedFile = { image: anim.frames[0].rgba };
       if (pick !== 'first') {
-        animatedFrames(out, anim.frames, pick, anim.plays);
-        if (anim.truncated) out.notice = framesLeftOut(anim.frames.length);
+        out.notice = animatedFrames(out, anim.frames, pick, anim.plays) ?? (anim.truncated ? framesLeftOut(anim.frames.length) : undefined);
       } else out.notice = `Animated PNG with ${anim.frames.length} frames; the first was opened.`;
       return out;
     }
