@@ -9,7 +9,10 @@ export interface FakeIdb {
   open: number;
 }
 
+/** Installs the fake once per test file (modules keep their database connections) and returns its state. */
 export function installFakeIndexedDb(): FakeIdb {
+  const g = globalThis as unknown as { __fakeIdb?: FakeIdb };
+  if (g.__fakeIdb) return g.__fakeIdb;
   const state: FakeIdb = { stores: new Map(), fail: { put: false, open: false }, open: 0 };
   const later = (f: () => void) => setTimeout(f, 0);
   const request = () => ({ result: undefined as unknown, error: null as unknown, onsuccess: null as Handler, onerror: null as Handler, onupgradeneeded: null as Handler, onblocked: null as Handler });
@@ -80,5 +83,6 @@ export function installFakeIndexedDb(): FakeIdb {
     },
   };
   (globalThis as unknown as { indexedDB: unknown }).indexedDB = indexedDB;
+  g.__fakeIdb = state;
   return state;
 }

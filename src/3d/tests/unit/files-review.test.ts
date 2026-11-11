@@ -122,3 +122,18 @@ describe('project files with missing parts', () => {
     expect(Object.keys(doc.collections).sort()).toEqual(Object.keys(src.collections).sort());
   });
 });
+
+describe('startup file', () => {
+  it('does not report a startup file as saved when storage fails', async () => {
+    const { installFakeIndexedDb } = await import('./support/fakeidb');
+    const idb = installFakeIndexedDb();
+    const session = await import('../../src/io/session');
+    await session.sessionReady;
+    idb.fail.put = true;
+    await expect(session.saveStartupFile()).rejects.toBeTruthy();
+    expect(session.hasStartupFile()).toBe(false);
+    idb.fail.put = false;
+    await session.saveStartupFile();
+    expect(session.hasStartupFile()).toBe(true);
+  });
+});

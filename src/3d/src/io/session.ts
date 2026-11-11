@@ -163,8 +163,9 @@ export function hasStartupFile() {
 
 export async function saveStartupFile() {
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
+  // a failed write (storage full or unavailable) is reported, not taken for saved
+  await idb(KV, 'readwrite', (s) => void s.put(bytes, 'startup'));
   startup = bytes;
-  await put(KV, 'startup', bytes);
   notify();
 }
 
