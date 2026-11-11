@@ -215,6 +215,19 @@ function bindGuides(e: Editor) {
     finish();
     e.overlay();
   });
+  // Escape abandons the drag: the guide stays where it was (a new one is not
+  // added) and the release that follows does nothing.
+  window.addEventListener(
+    'keydown',
+    (ev) => {
+      if (!drag || ev.key !== 'Escape') return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      finish();
+      e.overlay();
+    },
+    true,
+  );
 }
 
 // ----- Overlay -----
