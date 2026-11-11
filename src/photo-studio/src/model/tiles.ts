@@ -188,7 +188,9 @@ export function readMask(store: TileStore, grid: TileGrid, rect: IRect): Mask8 {
 }
 
 /** Return a new grid with a document-space rectangle replaced by `src`.
- * Touched tiles are copied (never mutated) and empty tiles are dropped. */
+ * Touched tiles are copied (never mutated) and empty tiles are dropped.
+ * Tiles the write leaves as they were stay shared, so rewriting a whole
+ * layer to change a few pixels costs memory only for the tiles that change. */
 export function writeRect(
   store: TileStore,
   grid: TileGrid,
@@ -211,12 +213,13 @@ export function writeRect(
     for (let tx = tx0; tx <= tx1; tx++) {
       const key = tileKey(tx, ty),
         old = grid.tiles[key];
-      const d = old ? new Uint8ClampedArray(store.get(old)) : new Uint8ClampedArray(tileBytes(c));
-      if (!old && c === 1 && grid.fill) d.fill(grid.fill);
       const sx0 = Math.max(lx, tx * TILE),
         sy0 = Math.max(ly, ty * TILE),
         sx1 = Math.min(lx + width, (tx + 1) * TILE),
         sy1 = Math.min(ly + height, (ty + 1) * TILE);
+      if (writesNothing(src.data, width, lx, ly, sx0, sy0, sx1, sy1, c, tx, ty, old ? store.get(old) : undefined, c === 1 ? (grid.fill ?? 0) : 0)) continue;
+      const d = old ? new Uint8ClampedArray(store.get(old)) : new Uint8ClampedArray(tileBytes(c));
+      if (!old && c === 1 && grid.fill) d.fill(grid.fill);
       for (let yy = sy0; yy < sy1; yy++) {
         const from = ((yy - ly) * width + (sx0 - lx)) * c;
         d.set(src.data.subarray(from, from + (sx1 - sx0) * c) as ArrayLike<number>, ((yy - ty * TILE) * TILE + (sx0 - tx * TILE)) * c);
@@ -227,6 +230,47 @@ export function writeRect(
     }
   if (boundsDirty) next.bounds = computeBounds(store, next);
   return next;
+}
+
+// True when writing the source span into a tile would not change it: the
+// tile holds the same values, or it is absent and the values are its fill.
+// Byte data is compared four bytes at a time when both sides are aligned.
+const words = (a: ArrayLike<number>) =>
+  (a instanceof Uint8Array || a instanceof Uint8ClampedArray) && a.byteOffset % 4 === 0
+    ? new Uint32Array(a.buffer, a.byteOffset, a.byteLength >> 2)
+    : undefined;
+function writesNothing(
+  data: ArrayLike<number>,
+  width: number,
+  lx: number,
+  ly: number,
+  sx0: number,
+  sy0: number,
+  sx1: number,
+  sy1: number,
+  c: number,
+  tx: number,
+  ty: number,
+  tile: TileData | undefined,
+  fill: number,
+) {
+  const span = (sx1 - sx0) * c;
+  const wide = c === 4 && (!tile || tile.byteOffset % 4 === 0) ? words(data) : undefined;
+  const tileWords = wide && tile ? new Uint32Array(tile.buffer, tile.byteOffset, tile.byteLength >> 2) : undefined;
+  for (let yy = sy0; yy < sy1; yy++) {
+    const from = ((yy - ly) * width + (sx0 - lx)) * c;
+    const to = ((yy - ty * TILE) * TILE + (sx0 - tx * TILE)) * c;
+    if (wide) {
+      const f = from >> 2, n = span >> 2;
+      if (tileWords) {
+        const t = to >> 2;
+        for (let k = 0; k < n; k++) if (wide[f + k] !== tileWords[t + k]) return false;
+      } else for (let k = 0; k < n; k++) if (wide[f + k] !== 0) return false;
+    } else if (tile) {
+      for (let k = 0; k < span; k++) if (data[from + k] !== tile[to + k]) return false;
+    } else for (let k = 0; k < span; k++) if (data[from + k] !== fill) return false;
+  }
+  return true;
 }
 
 /** Build a grid (aligned with the document tile grid) from a buffer placed at a document position. */

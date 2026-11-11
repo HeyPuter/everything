@@ -42,6 +42,30 @@ describe('tile grids', () => {
     expect(b.tiles['0,0']).toBeUndefined();
     expect(b.bounds).toBeNull();
   });
+  it('keeps tiles a write leaves unchanged shared with the old grid', () => {
+    const store = new TileStore();
+    const img = solid(600, 300, [10, 20, 30, 255]);
+    const a = gridFromImage(store, img);
+    const count = store.size;
+    // Rewrite the whole area with one pixel changed: only its tile is copied.
+    const copy = readRGBA(store, a, { x: 0, y: 0, width: 600, height: 300 });
+    copy.data[(10 * 600 + 300) * 4] = 99;
+    const b = writeRect(store, a, 0, 0, copy);
+    expect(store.size).toBe(count + 1);
+    for (const key of Object.keys(a.tiles)) expect(b.tiles[key] === a.tiles[key]).toBe(key !== '1,0');
+    expect(readRGBA(store, b, { x: 300, y: 10, width: 1, height: 1 }).data[0]).toBe(99);
+    // Transparent pixels over absent tiles and fill values over absent mask tiles add nothing.
+    const c = writeRect(store, b, 700, 0, solid(300, 300, [0, 0, 0, 0]));
+    expect(c.tiles).toEqual(b.tiles);
+    const mask = writeRect(store, allMask(255), 0, 0, { width: 300, height: 10, data: new Uint8Array(3000).fill(255) });
+    expect(mask.tiles).toEqual({});
+    // Unaligned and non-byte sources compare value by value.
+    const odd = new Uint8ClampedArray(600 * 300 * 4 + 1).subarray(1);
+    odd.set(copy.data);
+    expect(writeRect(store, b, 0, 0, { width: 600, height: 300, data: odd }).tiles).toEqual(b.tiles);
+    expect(writeRect(store, b, 0, 0, { width: 600, height: 300, data: Float32Array.from(copy.data) }).tiles).toEqual(b.tiles);
+    expect(store.size).toBe(count + 1);
+  });
   it('treats absent mask tiles as the fill value', () => {
     const store = new TileStore();
     const all = allMask(255);
