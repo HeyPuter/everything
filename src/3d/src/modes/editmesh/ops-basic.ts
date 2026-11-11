@@ -69,30 +69,42 @@ export function deleteGeometry(m: MeshEdit, type: string) {
 
 /** Dissolve selected vertices: merge their surrounding faces into one. */
 function dissolveVerts(m: MeshEdit) {
-  const vf = m.vertexFaces();
+  // faces keep their slot (merged-away ones become null, merged ones are appended) and the
+  // vertex → faces lists are updated per merge instead of rebuilt for every vertex
+  const faces: (EFace | null)[] = m.faces.slice();
+  const vf: number[][] = Array.from({ length: m.vcount }, () => []);
+  faces.forEach((f, fi) => f!.verts.forEach((v) => vf[v].push(fi)));
   const selV = m.selectedVerts();
   for (const v of selV) {
-    const faces = vf[v].filter((f) => m.faces[f] && m.faces[f].verts.includes(v));
-    if (faces.length < 2) {
+    const around = vf[v].filter((f) => faces[f] && faces[f]!.verts.includes(v));
+    if (around.length < 2) {
       // boundary or wire: just remove the vertex from its face
-      for (const fi of faces) {
-        const f = m.faces[fi];
+      for (const fi of around) {
+        const f = faces[fi]!;
         const i = f.verts.indexOf(v);
         if (f.verts.length > 3) removeCorner(f, i);
       }
       continue;
     }
     // walk the ring of faces around v to build the merged polygon
-    const merged = mergeFacesAroundVertex(m, v, faces);
+    const merged = mergeFacesAroundVertex(
+      v,
+      around.map((fi) => faces[fi]!),
+    );
     if (!merged) continue;
-    const set = new Set(faces);
-    const template = m.faces[faces[0]];
-    m.faces = m.faces.map((f, i) => (set.has(i) ? (null as unknown as EFace) : f)).filter(Boolean);
-    m.faces.push({ ...m.makeFace(merged.verts, template, merged.uvs) });
-    // recompute adjacency after each dissolve
-    const nvf = m.vertexFaces();
-    for (let i = 0; i < nvf.length; i++) vf[i] = nvf[i];
+    const template = faces[around[0]]!;
+    const gone = new Set(around);
+    const touched = new Set<number>();
+    for (const fi of around) {
+      for (const u of faces[fi]!.verts) touched.add(u);
+      faces[fi] = null;
+    }
+    for (const u of touched) vf[u] = vf[u].filter((fi) => !gone.has(fi));
+    const nf = faces.length;
+    faces.push({ ...m.makeFace(merged.verts, template, merged.uvs) });
+    for (const u of merged.verts) vf[u].push(nf);
   }
+  m.faces = faces.filter((f): f is EFace => !!f);
   const used = new Uint8Array(m.vcount);
   for (const f of m.faces) for (const v of f.verts) used[v] = 1;
   for (const [a, b] of m.looseEdges) used[a] = used[b] = 1;
@@ -108,10 +120,9 @@ function removeCorner(f: EFace, i: number) {
   if (f.colors) f.colors.splice(i * 4, 4);
 }
 
-function mergeFacesAroundVertex(m: MeshEdit, v: number, faces: number[]): { verts: number[]; uvs: number[] } | null {
+function mergeFacesAroundVertex(v: number, faces: EFace[]): { verts: number[]; uvs: number[] } | null {
   // Each face contributes the path from v's next neighbor to v's previous neighbor (excluding v)
-  const paths = faces.map((fi) => {
-    const f = m.faces[fi];
+  const paths = faces.map((f) => {
     const n = f.verts.length,
       i = f.verts.indexOf(v);
     const verts: number[] = [],

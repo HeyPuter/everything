@@ -62,4 +62,16 @@ describe('dissolve', () => {
     expect(me.offsets.length - 1).toBe(1);
     expect(me.positions.length / 3).toBe(12);
   });
+
+  it('dissolves the inner vertices of a grid into one face', () => {
+    gridInEdit(6);
+    const me0 = mesh();
+    const sel = new Uint8Array(me0.positions.length / 3);
+    for (let i = 0; i < sel.length; i++) sel[i] = Math.abs(me0.positions[i * 3]) < 0.99 && Math.abs(me0.positions[i * 3 + 1]) < 0.99 ? 1 : 0;
+    me0.select_vert = sel;
+    expect(app.run('mesh.dissolve_verts')).toBe('FINISHED');
+    const me = mesh();
+    expect(me.offsets.length - 1).toBe(1);
+    expect(me.positions.length / 3).toBe(24);
+  });
 });
