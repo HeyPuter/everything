@@ -30,7 +30,7 @@ import type { PbrHint } from '../../render/final/ptmaterial';
 import { activeOutput } from '../tree';
 import { setMaterialCompiler, setMaterialKeyExtra, principledFallback, errorMaterial } from '../../render/pbr';
 import { imageTexture } from '../../render/images';
-import { compileTree, DISPLACE_MARK, type CompiledTree, type UniformSpec } from './codegen';
+import { compileTree, DISPLACE_MARK, hashString, type CompiledTree, type UniformSpec } from './codegen';
 import { app } from '../../app/app';
 import { renderContext } from '../../render/context';
 import { hashName } from './util';
@@ -463,6 +463,9 @@ setMaterialKeyExtra((doc, ma) => {
       }
       const img = n.props.image as string | undefined;
       if (img && seen.size && doc.images[img]) k += `|i:${img}:${doc.images[img].revision ?? 0}`;
+      // IES Texture: the photometric data comes from a text data-block
+      const ies = n.props.ies as string | undefined;
+      if (ies && doc.texts[ies]) k += `|t:${ies}:${hashString(doc.texts[ies].body)}`;
       // Scene Time: the frame is a value of the tree
       if ((n as { type?: string }).type === 'GeometryNodeInputSceneTime') k += `|f:${doc.scene.frame_current}:${doc.scene.frame_subframe ?? 0}`;
     }
