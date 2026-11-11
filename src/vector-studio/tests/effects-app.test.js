@@ -8,6 +8,7 @@ import { bootAppWithFeatures } from './helpers.js';
 import { setGeomSource, loadGeom } from '../src/features/geometry/engine/index.js';
 import { createPath, createGroup, createText } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
+import { anchor } from '../src/model/bezier.js';
 import { registerMeasureFont } from '../src/model/text-layout.js';
 import { registerOutlineFont } from '../src/features/type/fonts.js';
 import { createEffect } from '../src/features/paint/effects-model.js';
@@ -18,7 +19,7 @@ import { hitTest } from '../src/render/hit.js';
 import { exportSVG } from '../src/features/io/svg-export.js';
 import { expandAppearance } from '../src/ops/expand-appearance.js';
 import { effectMenuSpec } from '../src/features/effects/index.js';
-import { docRasterSettings, setDocRasterSettings, rasterizeObjects } from '../src/features/effects/raster.js';
+import { docRasterSettings, setDocRasterSettings, rasterizeObjects, rasterizeObjectDialog } from '../src/features/effects/raster.js';
 import { flattenSelection, faceColor, compositeOver, blendColors, maxVectorFaces } from '../src/features/effects/flatten.js';
 import { warpIconPath } from '../src/features/effects/icons.js';
 import { WARP_STYLES } from '../src/model/warp.js';
@@ -375,6 +376,20 @@ describe('rasterizing', () => {
     expect(img.width).toBe(236);
     doc.undo();
     expect(doc.get(id)).toBeTruthy();
+  });
+
+  it('Object > Rasterize on artwork with nothing visible says so instead of blaming an edit', async () => {
+    const { app, doc, ed } = await setup();
+    const line = createPath([anchor(10, 10), anchor(200, 10)], false, { fill: null, stroke: null });
+    doc.transact('Line', () => doc.insert(line, ed.targetLayer().id));
+    ed.select([line.id]);
+    const msgs = [];
+    app.notify = (m) => msgs.push(m);
+    const ok = await rasterizeObjectDialog(app);
+    expect(ok).toBe(false);
+    expect(openDlg()).toBeNull();
+    expect(msgs).toEqual(['There is no visible artwork to rasterize.']);
+    expect(doc.get(line.id)).toBeTruthy();
   });
 });
 

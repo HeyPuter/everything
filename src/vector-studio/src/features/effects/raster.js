@@ -339,6 +339,12 @@ export async function rasterizeObjectDialog(app) {
   if (!ed) return false;
   const ids = ed.topSelection().filter((id) => ed.doc.get(id)?.type !== 'layer');
   if (!ids.length) return false;
+  // Nothing visible (an empty group, an unstroked straight line): say so up front.
+  const vb = selectionBounds(ed.doc, ids, true);
+  if (!vb || !(vb.w > 0) || !(vb.h > 0)) {
+    app.notify('There is no visible artwork to rasterize.');
+    return false;
+  }
   const last = app.prefs?.get?.('rasterizeObject');
   const start = { ...docRasterSettings(ed.doc), clip: false, ...(last || {}) };
   const ctl = rasterControls(start, ed.doc.root.units || 'pt', { clip: { value: start.clip } });
