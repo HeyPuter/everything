@@ -408,3 +408,80 @@ export function usedColorsMissing(doc) {
   }
   return out;
 }
+
+// ---- clipboard ----
+
+/** Every paint of a node: fill, stroke, extra fills and strokes, styled type runs. */
+function nodePaints(n) {
+  const out = [n.fill, n.stroke, ...stackPaints(n)];
+  if (n.type === 'text' && n.runs) for (const r of n.runs) out.push(r.fill, r.stroke);
+  return out.filter((p) => p && typeof p === 'object');
+}
+
+/** A node with its swatch links moved through `map` (old id -> { id, paint? }). */
+function relinkNode(n, map) {
+  const fix = (p) => {
+    if (!p || typeof p !== 'object') return p;
+    if (p.type === 'solid' && map.has(p.swatchId)) {
+      const to = map.get(p.swatchId);
+      return { ...p, swatchId: to.id, ...(to.paint ? { color: tinted(to.paint.color, p.tint) } : {}) };
+    }
+    if (p.stops?.some((s) => map.has(s.swatchId))) {
+      return { ...p, stops: p.stops.map((s) => (map.has(s.swatchId) ? { ...s, swatchId: map.get(s.swatchId).id, ...(map.get(s.swatchId).paint ? { color: map.get(s.swatchId).paint.color } : {}) } : s)) };
+    }
+    return p;
+  };
+  const out = { ...n };
+  for (const key of ['fill', 'stroke']) if (n[key]) out[key] = fix(n[key]);
+  const stack = mapStackPaints(n, fix);
+  if (stack) out.appearance = stack;
+  if (n.type === 'text' && n.runs) out.runs = n.runs.map((r) => (r.fill || r.stroke ? { ...r, ...(r.fill ? { fill: fix(r.fill) } : {}), ...(r.stroke ? { stroke: fix(r.stroke) } : {}) } : r));
+  return out;
+}
+
+/**
+ * Copied artwork brings the global and spot swatches it links to; pasting
+ * it into another document adds the ones that document lacks (a spot ink,
+ * or a global color with the same name and color, it already has is used
+ * instead), so the pasted paints stay linked.
+ */
+export const swatchClipboardHook = {
+  copy(doc, ids, data) {
+    const used = new Map();
+    const visit = (p) => {
+      for (const sid of [p.swatchId, ...(p.stops || []).map((s) => s.swatchId)]) {
+        if (!sid || used.has(sid)) continue;
+        const sw = findSwatch(doc, sid);
+        if (sw?.global && sw.paint?.type === 'solid') used.set(sid, structuredClone(sw));
+      }
+    };
+    for (const item of data.items || []) for (const n of item.nodes || []) for (const p of nodePaints(n)) visit(p);
+    if (used.size) data.swatches = [...used.values()];
+  },
+  paste(doc, data, items) {
+    if (!data.swatches?.length) return null;
+    const list = swatchesOf(doc);
+    const map = new Map();
+    const add = [];
+    for (const sw of data.swatches) {
+      const same = list.find((s) => s.id === sw.id);
+      if (same && same.global && Boolean(same.spot) === Boolean(sw.spot)) {
+        // The same swatch (pasted in its own document, or one copied from it): the artwork takes its current color.
+        if (same.paint?.type === 'solid' && same.paint.color !== sw.paint.color) map.set(sw.id, { id: same.id, paint: same.paint });
+        continue;
+      }
+      const named = list.find((s) => s.global && s.name === sw.name && Boolean(s.spot) === Boolean(sw.spot) && s.paint?.type === 'solid' && (sw.spot || s.paint.color === sw.paint.color));
+      // An ink of the same name is the same ink: the artwork takes its color.
+      if (named) map.set(sw.id, { id: named.id, paint: sw.spot ? named.paint : null });
+      else {
+        const { group, ...rest } = structuredClone(sw);
+        const id = same || add.some((s) => s.id === sw.id) ? newSwatchId() : sw.id;
+        add.push({ ...rest, id });
+        if (id !== sw.id) map.set(sw.id, { id, paint: null });
+      }
+    }
+    if (add.length) doc.updateRoot({ swatches: [...list, ...add] });
+    if (!map.size) return null;
+    return items.map((item) => ({ ...item, nodes: item.nodes.map((n) => (nodePaints(n).length ? relinkNode(n, map) : n)) }));
+  },
+};

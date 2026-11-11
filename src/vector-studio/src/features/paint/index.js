@@ -33,7 +33,8 @@ import { isGradient } from '../../model/gradients.js';
 import { installRecentColors } from './recent-colors.js';
 import { installAppearanceHooks } from './appearance-ops.js';
 import { swatchLibraryMenu } from './swatch-libraries.js';
-import { resolveSwatchLinks } from './swatch-model.js';
+import { resolveSwatchLinks, swatchClipboardHook } from './swatch-model.js';
+import { clipboardHooks } from '../../ops/clipboard.js';
 
 const arrowCache = new WeakMap();
 const trimCache = new WeakMap();
@@ -96,6 +97,8 @@ export function install(app) {
   installFreeform();
   installStrokeGradients();
   registerTransparencyCommands(app);
+  // Pasting into another document brings the global and spot swatches along.
+  if (!clipboardHooks.includes(swatchClipboardHook)) clipboardHooks.push(swatchClipboardHook);
 
   // New Art Has Basic Appearance (on by default): new paths leave out the current effects.
   const syncBasic = () => {
