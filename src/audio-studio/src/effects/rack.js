@@ -347,6 +347,11 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
     const slots = slotsNow();
     const off = disabled();
     list.classList.toggle('off', off);
+    // Rows are rebuilt: a focused slot control keeps its focus (power toggles,
+    // Delete, and the slot after its effect dialog closes).
+    const active = document.activeElement;
+    const focusRowIndex = active && list.contains(active) ? [...list.children].indexOf(active.closest('li')) : -1;
+    const focusPart = active?.classList?.contains('rack-power') ? '.rack-power' : '.rack-name';
     list.replaceChildren(
       ...slots.map((slot, i) => {
         const def = slot && getEffect(slot.effect);
@@ -386,6 +391,11 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
         return h(`li.rack-slot${slot ? '' : '.empty'}${slot && !on ? '.bypassed' : ''}${def ? '' : slot ? '.missing' : ''}`, power, nameBtn, menuBtn, grip);
       }),
     );
+    if (focusRowIndex >= 0) {
+      const row = list.children[focusRowIndex];
+      const target = row?.querySelector(focusPart);
+      (target && !target.disabled ? target : row?.querySelector('.rack-name'))?.focus();
+    }
   }
 
   render();

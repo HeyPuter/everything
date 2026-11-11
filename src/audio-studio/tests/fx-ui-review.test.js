@@ -5,6 +5,7 @@ import { envelopeControl, plot } from '../src/effects/editors.js';
 import { paramControls } from '../src/effects/param-ui.js';
 import { coerce } from '../src/effects/params.js';
 import { routeSummary } from '../src/effects/routing.js';
+import { createRackEditor, makeSlot as rackSlot } from '../src/effects/rack.js';
 import { effectsRackPanel, rackFor } from '../src/effects/rack-panel.js';
 import { Channel } from '../src/audio/channel.js';
 import { AudioFile } from '../src/model/audio-file.js';
@@ -618,5 +619,27 @@ describe('channel summary', () => {
     expect(dlg.querySelector('.fx-map-btn').disabled).toBe(true);
     [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
     await done;
+  });
+});
+
+describe('rack slot list focus', () => {
+  it('stays on the slot when a control rebuilds the list', () => {
+    const app = fakeApp();
+    let slots = [rackSlot('amplify'), rackSlot('amplify')];
+    const ed = createRackEditor({ app, getSlots: () => slots, setSlots: (next) => (slots = next) });
+    document.body.append(ed.el);
+    const row = (i) => ed.el.querySelectorAll('.rack-slot')[i];
+    row(1).querySelector('.rack-power').focus();
+    row(1).querySelector('.rack-power').click();
+    expect(slots[1].enabled).toBe(false);
+    expect(document.activeElement).toBe(row(1).querySelector('.rack-power'));
+    // Delete removes the effect; focus stays on that slot.
+    row(0).querySelector('.rack-name').focus();
+    row(0)
+      .querySelector('.rack-name')
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+    expect(slots[0]).toBe(null);
+    expect(document.activeElement).toBe(row(0).querySelector('.rack-name'));
+    ed.el.remove();
   });
 });
