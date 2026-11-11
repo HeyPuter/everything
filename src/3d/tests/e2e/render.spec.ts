@@ -87,6 +87,36 @@ test('Render region renders only its pixels (cropped or in the frame)', async ({
   await expectNoErrors(errors);
 });
 
+test('A cropped render region goes through the compositor', async ({ page }) => {
+  const errors = await rendering(page);
+  // Render Layers ▸ Invert ▸ Group Output
+  await page.evaluate(async (imp) => {
+    const a = (window as any).app;
+    a.run('node.new_compositing_node_group');
+    const T = await (0, eval)(imp)('/src/nodes/tree.ts');
+    const D = await (0, eval)(imp)('/src/compositor/data.ts');
+    const t = D.compositingGroup(a.doc).tree;
+    const ctx = T.ctxOf(a.doc, t);
+    const out = t.nodes.find((n: any) => n.type === 'NodeGroupOutput');
+    const rl = t.nodes.find((n: any) => n.type === 'CompositorNodeRLayers');
+    const toOut = t.links.find((l: any) => l.to_node === out.id).to_socket;
+    const inv = T.addNode(t, 'CompositorNodeInvert', [0, 0]);
+    T.connect(ctx, rl.id, 'Image', inv.id, 'Color');
+    T.connect(ctx, inv.id, 'Color', out.id, toOut);
+  }, IMPORT);
+  const crop = await renderStill(page, { use_border: true, border_min_x: 0.25, border_max_x: 0.75, border_min_y: 0, border_max_y: 0.5, use_crop_to_border: true });
+  expect([crop.width, crop.height]).toEqual([96, 54]);
+  // the composite replaced the Combined pass (the raw render is kept as the view layer)
+  expect(
+    await page.evaluate(async (imp) => {
+      const { renderResult } = await (0, eval)(imp)('/src/render/final/result.ts');
+      const r = renderResult.get();
+      return !!r.viewLayer && r.passes.Combined !== r.viewLayer.Combined;
+    }, IMPORT),
+  ).toBe(true);
+  await expectNoErrors(errors);
+});
+
 test('Simplify limits subdivision in the viewport', async ({ page }) => {
   const errors = await openApp(page);
   const verts = () => page.evaluate(() => (window as any).app.graph.get((window as any).app.activeObject.id).mesh.positions.length / 3);

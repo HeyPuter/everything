@@ -152,6 +152,7 @@ renderPostHooks.push((r, ctx) => {
     viewer: true,
     viewerNode: compositorState.viewerNode,
     view: sceneView(),
+    size: [r.width, r.height],
   });
   lastSignature = signature(doc);
   apply(out, r, active);
@@ -239,12 +240,14 @@ export function recomposite(force = false) {
   const active = compositingActive(doc);
   if (!active) uncomposite(final);
   compositorState.running = true;
+  const src = final ?? (r && !r.rendering && finalResults.has(r) ? r : null);
   const out = runCompositor(doc, {
-    layers: layersOf(final ?? (r && !r.rendering && finalResults.has(r) ? r : null)),
+    layers: layersOf(src),
     composite: active && !!final,
     viewer: true,
     viewerNode: compositorState.viewerNode,
     view: sceneView(),
+    size: src ? [src.width, src.height] : undefined,
   });
   compositorState.running = false;
   apply(out, final, active && !!final);
