@@ -318,3 +318,21 @@ describe('curve fields', () => {
     expect(f.map((x) => Math.round(x * 1000) / 1000)).toEqual([0, 0.333, 0.667, 1]);
   });
 });
+
+describe('mesh attributes', () => {
+  it('reads quaternion attributes of a mesh as rotations', async () => {
+    const { startupDocument } = await import('../../src/data/defaults');
+    const { baseEvalMesh } = await import('../../src/eval/depsgraph');
+    const { evalMeshToGeometry } = await import('../../src/geonodes/convert');
+    const { readAttribute } = await import('../../src/geonodes/geometry');
+    const me = Object.values(startupDocument().meshes)[0];
+    const n = me.positions.length / 3;
+    const data = new Float32Array(n * 4);
+    // 90° about Z as (w, x, y, z)
+    for (let i = 0; i < n; i++) data.set([Math.SQRT1_2, 0, 0, Math.SQRT1_2], i * 4);
+    me.attributes = [{ name: 'rot', domain: 'POINT', data_type: 'QUATERNION', data }];
+    const a = readAttribute(evalMeshToGeometry(baseEvalMesh(me, false), me).mesh!, 'rot', 'POINT')!;
+    expect(a.data.length).toBe(n * 3);
+    for (let i = 0; i < n; i++) expect(Array.from(a.data.subarray(i * 3, i * 3 + 3)).map((x) => Math.round(x * 1e4) / 1e4 || 0)).toEqual([0, 0, 1.5708]);
+  });
+});
