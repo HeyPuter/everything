@@ -348,8 +348,11 @@ export async function commit(e: Editor) {
     if (empty) return;
     const l = findLayer(s.draft.layers, s.layerId);
     if (!l) return;
+    // The selection goes to this document even if another one is shown
+    // before the text has rendered.
+    const owner = e.session;
     const cov = await textCoverage({ ...l, textData: s.data }, s.before);
-    commitSelectionMask(e, cov, 'replace', 'Type Mask');
+    commitSelectionMask(e, cov, 'replace', 'Type Mask', owner);
     notify();
     return;
   }

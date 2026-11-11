@@ -395,7 +395,7 @@ export function installTypeTools(e: Editor) {
     bindOptions: (ctx) => bindTypeOptions(ctx),
     deactivate: (e) => {
       gesture = undefined;
-      if (session) void commit(e);
+      if (session) return commit(e);
     },
     pointerDown: (e, p) => pointerDown(e, p, vertical, mask),
     pointerMove: (e, p) => pointerMove(e, p),

@@ -173,7 +173,7 @@ export function lazyTool(meta: Pick<Tool, 'id' | 'label' | 'key' | 'icon' | 'gro
       if (t) t.activate?.(e);
       else replay(e);
     },
-    deactivate: (e) => impl()?.deactivate?.(e),
+    deactivate: (e, reason) => impl()?.deactivate?.(e, reason),
     pointerDown: later('pointerDown'),
     pointerMove: later('pointerMove'),
     pointerUp: later('pointerUp'),

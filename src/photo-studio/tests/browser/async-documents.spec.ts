@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, idle, openImage } from './helpers';
+import { boot, canvasClick, idle, openImage, tool } from './helpers';
 
 // Document switching and closing while asynchronous work is in progress, and
 // the dialogs those flows show.
@@ -131,3 +131,55 @@ test('Cancel keeps an unsaved document open and Don’t Save closes it', async (
   await dialog.getByRole('button', { name: 'Don’t Save' }).click();
   await expect.poll(() => names(page)).toEqual(['first']);
 });
+
+/** History labels of every open document, by name. */
+const histories = (page: Page) =>
+  page.evaluate(() => Object.fromEntries(window.photoStudio.sessions.map((s) => [s.doc.name, s.history.labels])));
+
+test('a tab clicked while a command is running switches when the command finishes', async ({ page }) => {
+  await twoDocuments(page);
+  const labels = await histories(page);
+  // A command that edits its document after waiting for something.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    (window as unknown as { done: Promise<void> }).done = e.run(async () => {
+      await new Promise((r) => setTimeout(r, 1500));
+      e.command('Slow Edit', (d) => void (d.guides = [{ orientation: 'vertical', position: 5 }]));
+    });
+  });
+  await page.locator('.document-tab', { hasText: 'first' }).click();
+  await expect(page.locator('#status')).toContainText('first');
+  expect(await page.evaluate(() => window.photoStudio.doc.name)).toBe('second');
+  await page.evaluate(() => (window as unknown as { done: Promise<void> }).done);
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.name)).toBe('first');
+  expect(await histories(page)).toEqual({ first: labels.first, second: [...labels.second, 'Slow Edit'] });
+});
+
+test('switching documents commits a Type Mask into the document it was typed in', async ({ page }) => {
+  await twoDocuments(page);
+  await tool(page, 'Horizontal Type Mask Tool');
+  await canvasClick(page, 10, 30);
+  await page.keyboard.type('Mask');
+  await page.locator('.document-tab', { hasText: 'first' }).click();
+  await idle(page);
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.name)).toBe('first');
+  const state = await page.evaluate(() => window.photoStudio.sessions.map((s) => ({ name: s.doc.name, selection: !!s.doc.selection, label: s.history.labels.at(-1) })));
+  expect(state).toEqual([
+    { name: 'first', selection: false, label: expect.not.stringMatching(/Type Mask/) },
+    { name: 'second', selection: true, label: 'Type Mask' },
+  ]);
+});
+
+test('a document is not closed under a running task', async ({ page }) => {
+  await twoDocuments(page);
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    (window as unknown as { done: Promise<void> }).done = e.run(() => new Promise((r) => setTimeout(r, 1500)));
+  });
+  await page.locator('.document-tab.focused .tab-close').click();
+  await expect(page.locator('#status')).toContainText('can be closed when the current task finishes');
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await page.evaluate(() => (window as unknown as { done: Promise<void> }).done);
+  expect(await names(page)).toEqual(['first', 'second']);
+});
+

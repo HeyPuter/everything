@@ -330,13 +330,13 @@ export class WindowManager {
         const owner = floatId ? this.e.views.find((v) => v.id === floatId) : this.shown(this.frames[Number(frame.dataset.frame)] ?? []);
         if (resize && owner?.floating) return this.dragFloat(ev, owner, 'resize');
         if (floatId && owner && t.closest('.float-title') && !t.closest('button')) {
-          if (owner !== this.e.activeView) void this.e.activateView(owner);
+          if (owner !== this.e.activeView) void this.e.showView(owner);
           return this.dragFloat(ev, owner, 'move');
         }
         if (owner && owner !== this.e.activeView && !t.closest('.document-tab,button')) {
           ev.preventDefault();
           ev.stopPropagation();
-          void this.e.activateView(owner);
+          void this.e.showView(owner);
         }
       },
       true,

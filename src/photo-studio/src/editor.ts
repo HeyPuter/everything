@@ -99,7 +99,17 @@ export class Editor {
     return this.activeView.session;
   }
   set session(s: DocumentSession) {
-    this.setActiveView(this.viewsOf(s).at(-1) ?? this.addView(s));
+    const v = this.viewsOf(s).at(-1) ?? this.addView(s);
+    // A task that opens or creates a document switches to it: the tool ends
+    // its work in the document it was used in, as for a tab switch (work that
+    // takes time keeps to that document itself).
+    const leaving = !!this.transform && !!this.activeView && s !== this.activeView.session && this.sessions.includes(this.activeView.session);
+    if (leaving) {
+      this.transform.apply();
+      void this.activeTool?.deactivate?.(this, 'document');
+    }
+    this.setActiveView(v);
+    if (leaving) this.activeTool?.activate?.(this);
   }
   /** Windows of a document, least recently used first. */
   viewsOf(s: DocumentSession) {
@@ -119,15 +129,34 @@ export class Editor {
     this.activeView = v;
     if (changed && this.windows?.multi) this.windows.layout();
   }
-  /** Make a window active: it receives input and hosts the live canvas. */
+  /** Make a window active: it receives input and hosts the live canvas. The
+   * tool first finishes its work in the document it was used in (committing
+   * text, applying waiting strokes). */
   async activateView(v: DocumentView) {
     if (v === this.activeView || !this.views.includes(v)) return;
+    const turn = ++this.switches;
     this.transform.apply();
-    this.activeTool?.deactivate?.(this);
+    const free = !this.busy;
+    await this.activeTool?.deactivate?.(this, 'document');
+    // Work the tool started as a task of its own.
+    if (free && this.busy) await this.idle;
+    // A later choice (another tab clicked meanwhile) wins.
+    if (turn !== this.switches || v === this.activeView || !this.views.includes(v)) return;
     this.setActiveView(v);
     this.activeTool?.activate?.(this);
     this.view();
     this.update();
+  }
+  private switches = 0;
+  // A window chosen while a task was running; it is shown when the task ends.
+  private pendingView?: DocumentView;
+  /** Show a window the user chose (a tab, a window, the keyboard). While a
+   * task runs the switch waits for it, so the task's edits stay in the
+   * document it started in. */
+  async showView(v: DocumentView) {
+    if (!this.busy) return this.activateView(v);
+    this.pendingView = v;
+    this.message(`“${v.session.doc.name}” is shown when the current task finishes.`);
   }
   /** Close one window; the last window of a document closes the document. */
   async closeView(v: DocumentView) {
@@ -390,9 +419,13 @@ export class Editor {
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => (toast.hidden = true), 5500);
   }
+  // Resolves when the running task ends (or releases the editor).
+  idle: Promise<void> = Promise.resolve();
+  private settle?: () => void;
   async run(task: () => Promise<void>) {
     if (this.busy) return;
     this.busy = true;
+    const idle = (this.idle = new Promise((resolve) => (this.settle = resolve)));
     this.root.setAttribute('aria-busy', 'true');
     try {
       await task();
@@ -404,15 +437,20 @@ export class Editor {
       if (error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError || error instanceof SyntaxError) console.error(error);
       this.message(error instanceof Error ? error.message : String(error));
     } finally {
-      this.busy = false;
-      this.root.removeAttribute('aria-busy');
+      // Unless the task released the editor and another one runs now.
+      if (this.idle === idle) this.release();
     }
   }
   /** Let the user work while a task waits on something that may never answer
    * (a Puter picker that was dismissed); later steps run through `run` again. */
   release() {
+    if (!this.busy) return;
     this.busy = false;
     this.root.removeAttribute('aria-busy');
+    this.settle?.();
+    const v = this.pendingView;
+    this.pendingView = undefined;
+    if (v && v !== this.activeView && this.views.includes(v)) void this.activateView(v);
   }
   /** Run a registered command by ID (menus, shortcuts, buttons, actions). */
   async runCommand(id: string, arg?: unknown) {
@@ -446,7 +484,20 @@ export class Editor {
   lastCommand?: string;
   // The Actions panel installs a recorder while recording.
   recorder?: (id: string, arg?: unknown) => void;
-  command(label: string, edit: (doc: PhotoDocument) => void, opts: { coalesce?: boolean } = {}) {
+  /** One undo step in the active document, or in `opts.session`: work that
+   * finishes after the user switched documents still edits its own. */
+  command(label: string, edit: (doc: PhotoDocument) => void, opts: { coalesce?: boolean; session?: DocumentSession } = {}) {
+    const s = opts.session;
+    if (s && s !== this.session) {
+      if (!this.sessions.includes(s)) return;
+      s.selections.set(s.doc, [...s.selectedIds]);
+      const before = s.doc;
+      s.history.execute(label, edit, opts.coalesce);
+      if (s.doc !== before) s.hasDocument = true;
+      // Its tab shows the unsaved change.
+      this.windows.renderTabs();
+      return;
+    }
     this.transform.apply();
     this.modal?.apply();
     this.session.selections.set(this.doc, [...this.selectedIds]);
@@ -579,7 +630,7 @@ export class Editor {
     if (!tools.has(id)) return;
     if (this.transform.dragging && !this.transform.active) this.transform.cancel();
     if (id !== this.tool) this.transform.apply();
-    this.activeTool?.deactivate?.(this);
+    void this.activeTool?.deactivate?.(this, 'tool');
     this.tool = id;
     this.toolbar?.select(id);
     this.activeTool?.activate?.(this);
@@ -786,14 +837,16 @@ export class Editor {
       const close = target.closest<HTMLElement>('[data-close-view]');
       if (close) {
         const v = this.views.find((x) => x.id === close.dataset.closeView);
-        if (v) void this.closeView(v);
+        // Closing waits for the task, which may be working on that document.
+        if (v && this.busy) this.message(`“${v.session.doc.name}” can be closed when the current task finishes.`);
+        else if (v) void this.closeView(v);
         e.stopPropagation();
         return;
       }
       const tab = target.closest<HTMLElement>('[data-view]');
       if (tab) {
         const v = this.views.find((x) => x.id === tab.dataset.view);
-        if (v) void this.activateView(v);
+        if (v) void this.showView(v);
         return;
       }
       if (this.busy) return;
@@ -816,7 +869,7 @@ export class Editor {
       const next = e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs.at(-1)! : e.key === 'ArrowLeft' ? tabs[(at - 1 + tabs.length) % tabs.length] : e.key === 'ArrowRight' ? tabs[(at + 1) % tabs.length] : tab;
       const v = this.views.find((x) => x.id === next.dataset.view);
       if (!v) return;
-      void this.activateView(v).then(() => this.root.querySelector<HTMLElement>(`.document-tab[data-view="${CSS.escape(v.id)}"]`)?.focus({ preventScroll: true }));
+      void this.showView(v).then(() => this.root.querySelector<HTMLElement>(`.document-tab[data-view="${CSS.escape(v.id)}"]`)?.focus({ preventScroll: true }));
     });
     this.root.addEventListener('change', (e) => {
       const t = e.target as HTMLInputElement;

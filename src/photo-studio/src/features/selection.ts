@@ -116,14 +116,16 @@ export function selectionOp(e: Editor, p: Pick<CanvasPointer, 'shift' | 'alt'>):
   return (e.settings.selectionOp as SelectionOp) ?? 'replace';
 }
 /** Commit a new selection shape (canvas-sized mask) combined with the current one. */
-export function commitSelectionMask(e: Editor, mask: Mask8 | TileGrid | null, op: SelectionOp, label: string) {
-  const store = e.assets.tiles;
-  const doc = e.doc;
+/** Combine a mask with the selection as one undo step, in the active document
+ * or in `session` (a selection computed while the user switched documents). */
+export function commitSelectionMask(e: Editor, mask: Mask8 | TileGrid | null, op: SelectionOp, label: string, session = e.session) {
+  const store = session.assets.tiles;
+  const doc = session.doc;
   const shape = mask && 'data' in mask ? maskGrid(store, mask) : mask;
   const current = selectionGrid(doc, store);
   const next = shape ? combineSelection(store, doc, current, shape, op) : op === 'replace' ? null : current;
-  e.session.lastSelection = current;
-  e.command(label, (d) => applySelection(d, next));
+  session.lastSelection = current;
+  e.command(label, (d) => applySelection(d, next), { session });
 }
 export function optionsFor(e: Editor, extra = '') {
   const op = (e.settings.selectionOp as SelectionOp) ?? 'replace';
