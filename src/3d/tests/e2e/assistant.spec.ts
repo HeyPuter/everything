@@ -179,3 +179,21 @@ test('the assistant stays inside a window narrowed to phone width', async ({ pag
   await page.waitForTimeout(200);
   expect(Math.round((await page.locator('.assistant-dock').boundingBox())!.width)).toBe(380);
 });
+
+test('asking again while signed out shows one sign-in prompt, gone once a message goes', async ({ page }) => {
+  await openApp(page);
+  await page.evaluate(() => {
+    (window as unknown as { puter: unknown }).puter = { auth: { isSignedIn: () => false, signIn: async () => true }, ai: { chat: async () => ({ message: { content: 'Hello.' } }) } };
+  });
+  const input = page.locator('.as-input');
+  await input.fill('hello');
+  for (let i = 0; i < 3; i++) await input.press('Enter');
+  await expect(page.locator('.as-notice')).toHaveCount(1);
+  await expect(input).toHaveValue('hello');
+  await page.evaluate(() => {
+    (window as unknown as { puter: { auth: { isSignedIn: () => boolean } } }).puter.auth.isSignedIn = () => true;
+  });
+  await input.press('Enter');
+  await expect(page.locator('.as-bot .as-text')).toContainText('Hello.');
+  await expect(page.locator('.as-notice')).toHaveCount(0);
+});

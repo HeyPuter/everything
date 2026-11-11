@@ -355,8 +355,14 @@ export class AssistantPanel {
 
   private notice(text: string, action?: HTMLElement) {
     this.log.querySelector('.as-empty')?.remove();
+    // Asking again replaces the notice instead of stacking copies of it.
+    this.clearNotices();
     this.log.append(el('div', { class: 'as-msg as-notice' }, el('p', {}, text), action));
     this.scroll(true);
+  }
+
+  private clearNotices() {
+    for (const n of this.log.querySelectorAll('.as-notice')) n.remove();
   }
 
   private scroll(force = false) {
@@ -407,6 +413,7 @@ export class AssistantPanel {
     this.input.value = '';
     this.grow();
     this.log.querySelector('.as-empty')?.remove();
+    this.clearNotices();
     const bubble = el('div', { class: 'as-msg as-user' });
     if (items.length) bubble.append(sentFiles(items));
     if (text) bubble.append(el('div', { class: 'as-user-text' }, text));
