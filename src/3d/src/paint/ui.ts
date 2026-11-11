@@ -4,7 +4,7 @@ import { app, onAppReady, registerOperators } from '../app/app';
 import { workspacePanel } from '../ui/workspacepanel';
 import { propertiesTabs } from '../editors/properties/properties';
 import { activeTools } from '../app/prefs';
-import { addKeys, keyName, keymaps, keyLabel, type KeyItem } from '../app/keymap';
+import { addKeys, keyInputHooks, keyName, keymaps, keyLabel, type KeyItem } from '../app/keymap';
 import { h, type Child, type VNode } from '../ui/h';
 import { icon } from '../ui/icons';
 import { checkbox, colorSwatch, enumMenu, enumRow, numberField, panel, button, opButton, row } from '../ui/widgets';
@@ -28,7 +28,7 @@ import { operators } from '../app/app';
 import { vertexPaintStroke, sampleVertexColor } from './vpaint';
 import { weightPaintStroke, sampleWeight, ensureActiveGroup } from './wpaint';
 import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource, imagePaintOptions, imagePaintSettings, ensureStencilImage } from './tpaint';
-import { strokeActive } from './stroke';
+import { strokeActive, strokeKeyInput } from './stroke';
 import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
 import { brushFalloff, falloffPresetPoints, linearToSrgb, srgbToLinear } from './math';
@@ -1919,6 +1919,9 @@ function toolHeaderSettingsColumn(mode: BrushMode): Child {
     mode === 'SCULPT' ? directionToggle(b) : null,
   ];
 }
+
+// a running brush stroke owns the keyboard (Esc cancels it, other shortcuts wait)
+keyInputHooks.unshift(strokeKeyInput);
 
 viewportExtensions.push((v) => {
   const orig = v.onKey.bind(v);

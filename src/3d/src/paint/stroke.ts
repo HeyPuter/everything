@@ -3,7 +3,6 @@
 // anchored / dragged dab), with optional stabilizing (lazy mouse).
 import { h, type VNode } from '../ui/h';
 import { tabletPressure } from '../app/prefs';
-import { keyInputHooks } from '../app/keymap';
 import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { renderContext } from '../render/context';
@@ -82,6 +81,14 @@ export interface StrokeView {
 let active: { handler: StrokeHandler; view: StrokeView } | null = null;
 
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'OS']);
+
+/** Key handler of the running live stroke. */
+let strokeKeys: ((e: KeyboardEvent) => boolean) | null = null;
+
+/** Keyboard input during a stroke (the paint UI puts this ahead of the shortcuts): true when used. */
+export function strokeKeyInput(e: KeyboardEvent): boolean {
+  return strokeKeys ? strokeKeys(e) : false;
+}
 
 /** A recorded stroke point in viewport pixels (top-left origin). */
 export interface StrokePoint {
@@ -345,8 +352,7 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     return !MODIFIER_KEYS.has(ev.key);
   };
   const removeKeyHook = () => {
-    const i = keyInputHooks.indexOf(keyHook);
-    if (i >= 0) keyInputHooks.splice(i, 1);
+    if (strokeKeys === keyHook) strokeKeys = null;
   };
   const key = (ev: KeyboardEvent) => {
     ev.preventDefault();
@@ -404,5 +410,5 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
   addEventListener('pointerup', release, true);
   addEventListener('pointercancel', release, true);
   addEventListener('pointerdown', press, true);
-  keyInputHooks.unshift(keyHook);
+  strokeKeys = keyHook;
 }
