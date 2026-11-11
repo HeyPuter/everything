@@ -27,7 +27,7 @@ import {
   type MovieTrackingTrack,
 } from './types';
 import { readySource } from './source';
-import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize';
+import { stabilizationMatrix, type Affine2 } from './stabilize';
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { solveErrorText } from './solvepanels';
 import { reprojectBundle, clipIntrinsics, undistortPixelWith, distortPixelWith } from './reconstruction';
@@ -157,7 +157,6 @@ export class ClipEditor implements Editor {
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   canvas: HTMLCanvasElement;
   ui: HTMLElement;
-  private autoscaleCache: { key: string; value: number } | null = null;
   private loading = new Set<number>();
   private ro: ResizeObserver;
 
@@ -261,13 +260,7 @@ export class ClipEditor implements Editor {
   stab(): Affine2 | null {
     const c = this.clip;
     if (!c || !this.overlays.show_stable || !c.tracking.stabilization.use_2d_stabilization || !c.size[0]) return null;
-    let z = 1;
-    if (c.tracking.stabilization.use_autoscale) {
-      const key = JSON.stringify([c.tracking.stabilization, c.tracking.tracks.map((t) => [t.use_2d_stabilization, t.use_2d_stabilization_rotation, t.weight_stab, t.markers.length, t.markers[t.markers.length - 1]?.co])]);
-      if (this.autoscaleCache?.key !== key) this.autoscaleCache = { key, value: autoscaleFactor(c) };
-      z = this.autoscaleCache.value;
-    }
-    return stabilizationMatrix(c, this.clipFrame, z);
+    return stabilizationMatrix(c, this.clipFrame);
   }
 
   /** Lens model when the footage is shown undistorted (Render Undistorted), else null. */

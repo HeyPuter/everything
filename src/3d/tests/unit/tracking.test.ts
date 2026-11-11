@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildPyramid, cropRegion, regionRect, trackMarker, pyramidLevels, ncc, type P2, type TrackParams } from '../../src/tracking/tracker';
 import { newMovieClip, newTrack, newMarker, insertMarker, type MotionModel, type MovieClipData } from '../../src/tracking/types';
 import { detectFeatures } from '../../src/tracking/detect';
-import { measureMotion, stabilizationMatrix, apply as applyAffine, autoscaleFactor, stabilizationTable } from '../../src/tracking/stabilize';
+import { measureMotion, stabilizationMatrix, apply as applyAffine, autoscaleFactor, cachedAutoscale, stabilizationTable } from '../../src/tracking/stabilize';
 import { followTrackMatrix, type FollowCamera, type FollowRender, type FrameMethod } from '../../src/tracking/follow';
 import { Matrix4, Euler, Vector3, Quaternion } from 'three';
 import { demux, estimateFps, presentationOrder } from '../../src/tracking/demux';
@@ -345,6 +345,26 @@ describe('2D stabilization', () => {
         expect(p[1]).toBeCloseTo(at(3)[1] * H, 5);
       }
     }
+  });
+
+  it('autoscale is computed once per change of the stabilization data, not per frame', () => {
+    const F = 400;
+    const shake = (f: number) => ({ t: [Math.sin(f / 10) * 6, Math.cos(f / 13) * 4] as P2, a: 0, s: 1 });
+    const clip = clipWithTracks(W, H, F, shake, pts, []);
+    Object.assign(clip.tracking.stabilization, { use_2d_stabilization: true, use_autoscale: true, scale_max: 10, anchor_frame: 1 });
+    const z = autoscaleFactor(clip);
+    expect(cachedAutoscale(clip)).toBe(z);
+    // every frame of the clip (each used to recompute the autoscale over the whole clip)
+    const t0 = performance.now();
+    for (let f = 1; f <= F; f++) stabilizationMatrix(clip, f);
+    expect(performance.now() - t0).toBeLessThan(5000);
+    // editing markers in the middle of the tracks invalidates the cached value
+    for (const tr of clip.tracking.tracks) {
+      const m = tr.markers[F / 2];
+      m.co = [m.co[0] + 0.15, m.co[1]];
+    }
+    expect(cachedAutoscale(clip)).toBe(autoscaleFactor(clip));
+    expect(cachedAutoscale(clip)).not.toBe(z);
   });
 
   it('influence and expected position for translation-only stabilization', () => {
