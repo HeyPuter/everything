@@ -108,6 +108,8 @@ export function trimCells(cells) {
   return rows.map((r) => Array.from({ length: width }, (_, j) => r[j] ?? ''));
 }
 
+const MAX_VALUE = 1e300;
+
 /**
  * Parse cells: { categories: [label], series: [{ name, values: [number|null], xs? }] }.
  * For scatter, each series also has `xs`.
@@ -132,18 +134,23 @@ export function parseGraphData(cellsIn, type = 'column') {
   }
   const body = cells.slice(headerRow ? 1 : 0);
   const c0 = headerCol ? 1 : 0;
+  // Values so large that sums and ranges overflow (1e308 - -1e308) are graphed at the largest size that does not.
+  const value = (s) => {
+    const v = cellNumber(s);
+    return v === null ? null : Math.max(-MAX_VALUE, Math.min(MAX_VALUE, v));
+  };
   if (type === 'scatter') {
     const series = [];
     for (let j = c0; j < width; j += 2) {
-      const ys = body.map((r) => cellNumber(r[j]));
-      const xs = body.map((r) => cellNumber(r[j + 1]));
+      const ys = body.map((r) => value(r[j]));
+      const xs = body.map((r) => value(r[j + 1]));
       series.push({ name: headerRow ? cellLabel(cells[0][j]) : '', values: ys, xs });
     }
     return { categories: [], series, headerRow, headerCol };
   }
   const categories = body.map((r) => (headerCol ? cellLabel(r[0]) : ''));
   const series = [];
-  for (let j = c0; j < width; j++) series.push({ name: headerRow ? cellLabel(cells[0][j]) : '', values: body.map((r) => cellNumber(r[j])) });
+  for (let j = c0; j < width; j++) series.push({ name: headerRow ? cellLabel(cells[0][j]) : '', values: body.map((r) => value(r[j])) });
   return { categories, series, headerRow, headerCol };
 }
 
@@ -254,7 +261,8 @@ export function niceScale(lo, hi, divs = 5, includeZero = true) {
   return { min: clean(min), max: clean(max), step: clean(step), divisions: Math.max(1, Math.round((max - min) / step)) };
 }
 
-const clean = (v) => Math.round(v * 1e10) / 1e10;
+// Round off float noise; values this large have no fraction to clean (and v * 1e10 would overflow).
+const clean = (v) => (Math.abs(v) < 1e15 ? Math.round(v * 1e10) / 1e10 : v);
 
 /** An axis label for a value: up to two decimals, with prefix and suffix. */
 export function formatValue(v, prefix = '', suffix = '') {
