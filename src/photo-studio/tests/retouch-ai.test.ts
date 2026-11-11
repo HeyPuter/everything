@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mask8, rgba8 } from '../src/imaging/types';
-import { AIError, aiExpand, aiFill, describeImage, toAIError } from '../src/imaging/ai/puter-ai';
+import { AIError, aiCodec, aiExpand, aiFill, describeImage, toAIError } from '../src/imaging/ai/puter-ai';
 
 const g = globalThis as unknown as { puter?: unknown };
 afterEach(() => {
@@ -44,5 +44,20 @@ describe('Puter AI wrapper', () => {
     const m = mask8(4, 4, 255);
     await expect(aiFill(rgba8(4, 4), m, 'sky', { signal: ac.signal })).rejects.toMatchObject({ code: 'cancelled' });
     expect(txt2img).not.toHaveBeenCalled();
+  });
+  it('reports a reply without an image as a decode error, not a connection failure', async () => {
+    const toDataUri = aiCodec.toDataUri;
+    aiCodec.toDataUri = async () => 'data:image/png;base64,iVBORw0KGgo=';
+    try {
+      const m = mask8(4, 4, 255);
+      for (const reply of [undefined, null, {}, { src: '' }, 42]) {
+        g.puter = { ai: { txt2img: vi.fn(async () => reply), chat: vi.fn() } };
+        const error = await aiFill(rgba8(4, 4), m, 'sky').catch((e) => e);
+        expect(error).toBeInstanceOf(AIError);
+        expect(toAIError(error)).toMatchObject({ code: 'decode', retryable: true });
+      }
+    } finally {
+      aiCodec.toDataUri = toDataUri;
+    }
   });
 });
