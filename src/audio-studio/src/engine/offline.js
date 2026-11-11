@@ -80,10 +80,23 @@ export async function renderGraph(graph, sources, { start = 0, end, onProgress, 
  * Applies an effect chain (slot specs, see fxhost.js) to frames [start, end)
  * of channels. Returns new Float32Arrays per channel of length end - start
  * (plus `tail` frames when given, for reverb/delay tails). Mono input is
- * processed as stereo and folded back to one channel. Pass the chain's total
- * `latency` (see effectLatency in src/effects/index.js) to compensate delay.
+ * processed as stereo and folded back to one channel. With more than two
+ * channels (5.1) the first two are processed as the stereo pair and every
+ * further channel on its own, like mono, so each keeps its own audio. Pass the
+ * chain's total `latency` (see effectLatency in src/effects/index.js) to
+ * compensate delay.
  */
 export async function applyChain(channels, rate, specs, { start = 0, end = channels[0].length, tail = 0, latency = 0, onProgress, signal } = {}) {
+  if (channels.length > 2) {
+    const groups = [[0, 1], ...channels.slice(2).map((_, i) => [i + 2])];
+    const outs = [];
+    for (let k = 0; k < groups.length; k++) {
+      const progress = onProgress && ((f) => onProgress((k + f) / groups.length));
+      const part = groups[k].map((c) => channels[c]);
+      outs.push(...(await applyChain(part, rate, specs, { start, end, tail, latency, onProgress: progress, signal })));
+    }
+    return outs;
+  }
   const sub = channels.map((c) => c.slice(start, end));
   const key = sourceKey(sub);
   const len = end - start;
