@@ -151,7 +151,8 @@ function stepZoom(editor, dir) {
 
 export function registerCoreCommands(app) {
   const c = app.commands;
-  let lastSelection = null;
+  // Deselected ids per document, for Reselect (never another tab's).
+  const lastSelection = new WeakMap();
   const ed = () => app.editor;
 
   c.register([
@@ -240,11 +241,11 @@ export function registerCoreCommands(app) {
       shortcut: 'Shift+Mod+A',
       enabled: hasSel,
       run: () => {
-        lastSelection = [...ed().selection];
+        lastSelection.set(ed(), [...ed().selection]);
         ed().clearSelection();
       },
     },
-    { id: 'select.reselect', label: 'Reselect', shortcut: 'Mod+6', enabled: () => Boolean(lastSelection), run: () => SEL.reselect(ed(), lastSelection) },
+    { id: 'select.reselect', label: 'Reselect', shortcut: 'Mod+6', enabled: (a) => Boolean(a.editor && lastSelection.get(a.editor)), run: () => SEL.reselect(ed(), lastSelection.get(ed())) },
     { id: 'select.inverse', label: 'Inverse', enabled: hasDoc, run: () => SEL.selectInverse(ed()) },
     { id: 'select.nextAbove', label: 'Next Object Above', shortcut: 'Alt+Mod+]', enabled: hasSel, run: () => SEL.selectNext(ed(), 1) },
     { id: 'select.nextBelow', label: 'Next Object Below', shortcut: 'Alt+Mod+[', enabled: hasSel, run: () => SEL.selectNext(ed(), -1) },

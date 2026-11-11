@@ -27,3 +27,27 @@ describe('closing documents', () => {
     expect(app.editors).toEqual([b, c]);
   });
 });
+
+describe('per-document state', () => {
+  it('Reselect brings back what was deselected in this document, never another tab', async () => {
+    const app = bootApp();
+    const add = (ed) => {
+      const p = createPath(rectangle(0, 0, 10, 10), true);
+      ed.doc.transact('Rect', () => ed.doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    };
+    const a = app.newDocument();
+    const inA = add(a);
+    a.select([inA]);
+    await app.commands.run('select.none');
+    const b = app.newDocument();
+    const inB = add(b);
+    b.select([inB]);
+    expect(app.commands.isEnabled('select.reselect')).toBe(false);
+    await app.commands.run('select.reselect');
+    expect([...b.selection]).toEqual([inB]);
+    app.activate(a);
+    await app.commands.run('select.reselect');
+    expect([...a.selection]).toEqual([inA]);
+  });
+});
