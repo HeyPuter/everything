@@ -12,7 +12,7 @@ import { registerFormat } from '../files';
 import { download } from '../native';
 import { scriptState, ensureEvaluated } from '../../scripting/rna';
 import { imageCanvas, imageReady } from '../../render/images';
-import { baseOf, dirOf, extOf, joinPath, normPath, stemOf, vfsCompanion, vfsRead, vfsWrite } from '../vfs';
+import { baseOf, dirOf, extOf, joinPath, normPath, stemOf, vfsCompanion, vfsList, vfsRead, vfsWrite } from '../vfs';
 import { AbortError, companionFilesDialog, loadOptions, optionsDialog, type FormatOption } from './ui';
 
 export interface ImportSource {
@@ -176,9 +176,18 @@ function pickFiles(accept: string, multiple: boolean): Promise<File[]> {
 }
 
 /** Resolve companion files of `path` from the store (scripts) — names next to the file, else anywhere. */
+/** Folder of one File ▸ Import / drop: it holds exactly the files given for that import. */
+const IMPORT_SESSION_DIR = /^\/imports\/session-\d+\//;
+let importSession = 0;
+/** Companion files picked for a model file, by the file's identity (re-importing it does not ask again). */
+const pickedCompanions = new Map<string, Map<string, Uint8Array>>();
+const fileIdentity = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
+
 function storedCompanions(def: FormatDef, path: string, bytes: Uint8Array): Map<string, Uint8Array> {
   const have = new Map<string, Uint8Array>();
   if (!def.companions) return have;
+  // files of an interactive import come only from that import (not same-named files of earlier ones)
+  const strict = IMPORT_SESSION_DIR.test(normPath(path));
   const asked = new Set<string>();
   for (let guard = 0; guard < 8; guard++) {
     const req = def.companions({ name: baseOf(path), bytes }, have);
@@ -186,7 +195,7 @@ function storedCompanions(def: FormatDef, path: string, bytes: Uint8Array): Map<
     asked.add(req.title);
     let added = 0;
     for (const n of req.names) {
-      const b = vfsCompanion(path, n);
+      const b = strict ? (vfsList(dirOf(path)).find((x) => baseOf(x.path).toLowerCase() === baseOf(n).toLowerCase())?.bytes ?? null) : vfsCompanion(path, n);
       if (b) {
         have.set(baseOf(n), b);
         added++;
@@ -247,24 +256,37 @@ function importExec(def: FormatDef, p: Record<string, unknown>): OpResult {
 async function importInteractive(def: FormatDef, opId: string, files: File[], props: Record<string, unknown>) {
   const intro = files.length === 1 ? files[0].name : `${files.length} files`;
   const values = await optionsDialog(def.importOpLabel ?? `Import ${def.label}`, `${def.id}:import`, def.importOptions ?? [], 'Import', intro, propsToOptions(def.importOptions ?? [], { ...optionsToProps(def.importOptions ?? [], dialogStart(def.importOptions ?? [], `${def.id}:import`)), ...stripDefaults(def.importOptions ?? [], props) }));
-  const dir = '/imports';
+  // every import gets its own folder: companions of another model with the same names never mix in
+  const dir = `/imports/session-${++importSession}`;
   const names: string[] = [];
+  const given = new Map<string, Uint8Array>();
+  const all: Uint8Array[] = [];
   for (const f of files) {
     const bytes = new Uint8Array(await f.arrayBuffer());
     vfsWrite(joinPath(dir, f.name), bytes);
+    given.set(f.name.toLowerCase(), bytes);
+    all.push(bytes);
+  }
+  for (const [i, f] of files.entries()) {
+    const bytes = all[i];
     names.push(f.name);
     if (!def.companions) continue;
+    // files picked along with this one, or picked for this same file before
+    const mine = pickedCompanions.get(fileIdentity(f)) ?? new Map<string, Uint8Array>();
+    const known = (n: string) => given.get(baseOf(n).toLowerCase()) ?? mine.get(baseOf(n).toLowerCase()) ?? null;
     const have = new Map<string, Uint8Array>();
     const asked = new Set<string>();
     for (let guard = 0; guard < 8; guard++) {
       const req = def.companions({ name: f.name, bytes }, have);
       if (!req || asked.has(req.title)) break;
       asked.add(req.title);
-      // files already in the store from an earlier pick are reused without asking again
-      const missing = req.names.filter((n) => !vfsCompanion(joinPath(dir, f.name), n));
+      const missing = req.names.filter((n) => !known(n));
       for (const n of req.names) {
-        const b = vfsCompanion(joinPath(dir, f.name), n);
-        if (b) have.set(baseOf(n), b);
+        const b = known(n);
+        if (!b) continue;
+        have.set(baseOf(n), b);
+        mine.set(baseOf(n).toLowerCase(), b);
+        vfsWrite(joinPath(dir, baseOf(n)), b);
       }
       if (!missing.length) continue;
       const picked = await companionFilesDialog(req.title, req.message, missing.map((n) => baseOf(n)), req.accept);
@@ -273,7 +295,14 @@ async function importInteractive(def: FormatDef, opId: string, files: File[], pr
         const b = new Uint8Array(await c.arrayBuffer());
         vfsWrite(joinPath(dir, c.name), b);
         have.set(c.name, b);
+        mine.set(c.name.toLowerCase(), b);
       }
+    }
+    if (mine.size) {
+      pickedCompanions.delete(fileIdentity(f));
+      pickedCompanions.set(fileIdentity(f), mine);
+      // only the latest few models keep their companions in memory
+      while (pickedCompanions.size > 8) pickedCompanions.delete(pickedCompanions.keys().next().value!);
     }
   }
   app.run(opId, { ...optionsToProps(def.importOptions ?? [], values), directory: dir, files: names.map((name) => ({ name })), filepath: joinPath(dir, names[0]) }, { invoke: false });
