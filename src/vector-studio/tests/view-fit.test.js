@@ -71,4 +71,14 @@ describe('fit in window', () => {
     expect(c2.x).toBeCloseTo(c.x);
     expect(c2.y).toBeCloseTo(c.y);
   });
+
+  it('keeps the view of a tab while another tab is shown', () => {
+    resize(994, 761);
+    app.editor.view.stepZoom(1);
+    const before = app.editor.view.snapshot();
+    // Hidden: the canvas has no size until the tab is shown again.
+    resize(0, 0);
+    resize(994, 761);
+    expect(app.editor.view.snapshot()).toEqual(before);
+  });
 });

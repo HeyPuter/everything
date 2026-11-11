@@ -93,6 +93,8 @@ export class CanvasView {
     const w = Math.max(1, Math.round(rect.width));
     const h = Math.max(1, Math.round(rect.height));
     const view = this.editor.view;
+    // A hidden tab has no size: keep its view as it is for when the tab is shown again.
+    if ((!rect.width || !rect.height) && view.width > 1) return;
     const first = !this.editor.viewInitialized;
     if (view.width === w && view.height === h && view.dpr === dpr && !first) return;
     // Keep the document point at the center fixed while the canvas resizes.
