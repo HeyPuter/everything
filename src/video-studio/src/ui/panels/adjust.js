@@ -19,11 +19,29 @@ const CATEGORIES = [
   { id: 'presets', label: 'Your presets' },
 ];
 
-/** Preview that fills in once the LUTs it uses are loaded. */
-function setupPreview(ctx, setup) {
+/**
+ * Preview that fills in once the LUTs it uses are loaded. Drawn once per
+ * look (cache: look -> canvas): the grid is redrawn on every selection, and
+ * rendering each tile again took tens of milliseconds per tile.
+ */
+function setupPreview(ctx, setup, cache) {
+  const key = JSON.stringify([setup.adjust || null, setup.grade || null]);
+  const hit = cache?.get(key);
+  if (hit) {
+    const copy = h('canvas.tile-canvas', { width: hit.width, height: hit.height, 'aria-hidden': 'true' });
+    copy.getContext('2d')?.drawImage(hit, 0, 0);
+    return copy;
+  }
   const canvas = gradePreview(setup);
   const id = setup.grade?.lut?.id;
-  if (id && !getLut(id)) loadLut(id, ctx.library).then((got) => got && gradePreview(setup, canvas));
+  // A LUT still loading: kept once it has been drawn with it.
+  if (id && !getLut(id)) {
+    loadLut(id, ctx.library).then((got) => {
+      if (!got) return;
+      gradePreview(setup, canvas);
+      cache?.set(key, canvas);
+    });
+  } else cache?.set(key, canvas);
   return canvas;
 }
 
@@ -44,6 +62,7 @@ export function adjustTab(ctx) {
     return s && isGradable(s.clip) ? s.clip : null;
   };
   let luts = [];
+  const previews = new Map();
   const hint = h('p.asset-hint', { role: 'status' });
   const importBtn = () => {
     const b = h('button.btn.small', { type: 'button' }, icon('import', 14), 'Import .cube');
@@ -75,7 +94,7 @@ export function adjustTab(ctx) {
   function renderLayer() {
     const t = tile({
       label: 'Custom color layer',
-      preview: setupPreview(ctx, {}),
+      preview: setupPreview(ctx, {}, previews),
       onAdd: () => actions.addAdjustment(),
       drag: { kind: 'adjust' },
       addLabel: 'Add color layer',
@@ -99,7 +118,7 @@ export function adjustTab(ctx) {
       return removable(tile({
         label: e.name,
         sub: `${e.kind.toUpperCase()} ${e.size}`,
-        preview: setupPreview(ctx, setup),
+        preview: setupPreview(ctx, setup, previews),
         active: clip?.grade?.lut?.id === e.id,
         onAdd: () => use(e.name, setup, (c) => applyLut(ctx, c.id, e)),
         drag: { kind: 'adjust', name: e.name, grade: setup.grade },
@@ -123,7 +142,7 @@ export function adjustTab(ctx) {
     hint.textContent = clip ? 'Click a preset to apply it to the selected clip.' : 'Click a preset to add it as a color layer, or select a clip first to apply it to that clip.';
     const tiles = list.map((p) => removable(tile({
       label: p.name,
-      preview: setupPreview(ctx, p),
+      preview: setupPreview(ctx, p, previews),
       onAdd: () => use(p.name, p, (c) => applyPreset(ctx, c.id, p)),
       drag: { kind: 'adjust', name: p.name, adjust: p.adjust, grade: p.grade },
       addLabel: clip ? `Apply preset ${p.name} to clip` : `Add preset ${p.name} as a color layer`,
@@ -149,7 +168,8 @@ export function adjustTab(ctx) {
     layout.refresh();
   }).catch(() => {});
   const offs = [
-    store.on('select', () => layout.category !== 'layer' && redraw()),
+    // Hidden, the tab redraws when it is shown again.
+    store.on('select', () => layout.el.isConnected && layout.category !== 'layer' && redraw()),
     // A LUT applied, removed or undone elsewhere shows on the tiles.
     store.on('change', () => {
       if (layout.el.isConnected && layout.category === 'luts' && (target()?.grade?.lut?.id ?? null) !== shownLut) redraw();

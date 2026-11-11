@@ -318,6 +318,28 @@ describe('presets and the Color assets tab', () => {
     panel.el.remove();
   });
 
+  it('does not redraw the presets on selection while the tab is hidden', () => {
+    savePreset('Punchy', clip(env.v1.id));
+    const panel = colorAssets(env.ctx);
+    document.body.append(panel.el);
+    [...panel.el.querySelectorAll('.asset-cat')].find((b) => b.textContent === 'Your presets').click();
+    const tileBefore = panel.el.querySelector('.tile');
+    env.store.select(env.v2.id);
+    // Shown: redrawn for the new selection.
+    expect(panel.el.querySelector('.tile')).not.toBe(tileBefore);
+    panel.el.remove();
+    const hidden = panel.el.querySelector('.tile');
+    env.store.select(env.v1.id);
+    env.store.clearSelection();
+    expect(panel.el.querySelector('.tile')).toBe(hidden);
+    // Shown again: up to date.
+    document.body.append(panel.el);
+    panel.shown();
+    expect(panel.el.querySelector('.tile').getAttribute('aria-label')).toBe('Add preset Punchy as a color layer');
+    panel.dispose();
+    panel.el.remove();
+  });
+
   it('adds color layers from drag data, validating it', () => {
     env.ctx.actions.addAdjustment({ start: 6 * US, name: 'Dropped', adjust: { exposure: 500, nope: 3 }, grade: { lut: { id: 'bad id!' }, hsl: { red: { h: 5 } } } });
     const c = env.store.selected.clip;
