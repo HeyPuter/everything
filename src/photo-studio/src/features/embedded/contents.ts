@@ -12,7 +12,7 @@ import { gridFromImage } from '../../model/tiles';
 import { readRgbProfile } from '../../color/profile';
 import { sniffImageFormat } from '../../imaging/codecs/sniff';
 import { convertToSrgb, documentProfile, floatTo16 } from '../files/color';
-import { decodeBrowserImage, decodeFile } from '../files/open';
+import { decodeBrowserImage, decodeFile, inMemoryFile } from '../files/open';
 import { addRGBA, addSamples, documentSamples, layerSamples, type Samples } from './render';
 import { computeStack } from './stack-client';
 import { rescaleFrame, rescaleTransform } from './frame-math';
@@ -67,6 +67,9 @@ export async function contentsFromDocument(e: Editor, parent: PhotoDocument, int
 /** Contents from a file: projects and PSD files keep their layers, browser
  * images are drawn directly and other formats are decoded once. */
 export async function contentsFromFile(e: Editor, parent: PhotoDocument, into: Assets, file: Blob, name: string): Promise<EmbeddedContents> {
+  // The contents keep the file's bytes: a file picked from disk is copied,
+  // so they stay readable when it changes there (as linked files do).
+  file = await inMemoryFile(file);
   const lower = name.toLowerCase();
   const title = baseName(name);
   if (lower.endsWith('.photo')) {

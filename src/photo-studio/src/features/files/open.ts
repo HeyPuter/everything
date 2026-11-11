@@ -244,12 +244,16 @@ const resolution = (dpi: number): PhotoDocument['resolution'] => ({
 
 export type OpenOptions = DecodeOptions & { source?: RecentSource };
 
+// Copies made by inMemoryFile, which need no second copy.
+const copies = new WeakSet<Blob>();
 /** Copy a file picked from disk into memory. Chromium reads slices of a
  * disk-backed File lazily from disk, so they fail with NotReadableError once
  * the file changes there; the document's assets are slices of what was opened. */
 export async function inMemoryFile(blob: Blob): Promise<Blob> {
-  if (!(blob instanceof File)) return blob;
-  return new File([await blob.arrayBuffer()], blob.name, { type: blob.type, lastModified: blob.lastModified });
+  if (!(blob instanceof File) || copies.has(blob)) return blob;
+  const copy = new File([await blob.arrayBuffer()], blob.name, { type: blob.type, lastModified: blob.lastModified });
+  copies.add(copy);
+  return copy;
 }
 
 /** Open a file as a new document tab, or place it into the current document. */

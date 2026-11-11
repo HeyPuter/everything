@@ -10,6 +10,7 @@ import { deserialize, serialize } from '../../model/serialization';
 import { setDocumentResolution } from '../../model/text-layer';
 import { pickLocalFiles } from '../embedded/convert';
 import { pickCloudFiles } from './cloud';
+import { inMemoryFile } from './open';
 
 export const importAccept = '.psd,.psb,.photo';
 
@@ -79,6 +80,9 @@ export async function importLayersFrom(e: Editor, blob: Blob, name: string) {
   }
   e.transform.apply();
   e.message(`Reading ${name}…`);
+  // The imported assets are slices of the file: copy one picked from disk so
+  // they stay readable when it changes there.
+  blob = await inMemoryFile(blob);
   const { document: source, notice } = await loadLayersInto(e, blob, name, e.assets);
   if (!source.layers.length) {
     e.message(`${name} has no layers.`);
