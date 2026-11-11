@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { testDsp } from './wasm-helper.js';
 import { loudnessMeter, limiter, bitDepth, windowRms, averageSpectrum, pitchTrack, maskBlend } from '../src/analysis/dsp-ext.js';
-import { planMatch, MATCH_DEFAULTS, LOUDNESS_PRESETS } from '../src/analysis/loudness.js';
+import { planMatch, matchOutcome, MATCH_DEFAULTS, LOUDNESS_PRESETS } from '../src/analysis/loudness.js';
 import { statsRows } from '../src/analysis/amplitude.js';
 import { correlation } from '../src/analysis/phase.js';
 import { fmtDb, gainToDb } from '../src/analysis/common.js';
@@ -92,6 +92,17 @@ describe('Match Loudness planning', () => {
     expect(p.gainDb).toBeCloseTo(2);
     expect(p.note).toMatch(/-22.0 LUFS/);
   });
+  it('says when limiting kept a file below the target', () => {
+    const s = { ...MATCH_DEFAULTS, target: -16, peak: -1 };
+    const plan = planMatch({ integrated: -26, truePeakDb: -3 }, s);
+    expect(plan.action).toBe('limit');
+    expect(matchOutcome(plan, { integrated: -16.2 }, s)).toEqual({ text: 'Gain with limiting', short: false });
+    expect(matchOutcome(plan, { integrated: -24 }, s)).toEqual({ text: 'Gain with limiting: reached -24.0 LUFS', short: true });
+    expect(matchOutcome(planMatch({ integrated: -20, truePeakDb: -10 }, s), { integrated: -16 }, s)).toEqual({ text: 'Gain +4.0 dB', short: false });
+    const capped = planMatch({ integrated: -24, truePeakDb: -3 }, { ...s, limit: false });
+    expect(matchOutcome(capped, { integrated: -22 }, { ...s, limit: false }).short).toBe(true);
+  });
+
   it('skips files within tolerance and silent files', () => {
     expect(planMatch({ integrated: -16.3, truePeakDb: -5 }, s).action).toBe('skip');
     expect(planMatch({ integrated: -Infinity, truePeakDb: -Infinity }, s).action).toBe('skip');
