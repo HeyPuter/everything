@@ -19,6 +19,7 @@
  *   vsr:r:<rid>:log:<n>              { at, comment } comment snapshot saved as change n
  *   vsr:r:<rid>:c:<commentId>        latest snapshot of a comment
  *   vsr:rate:<rid>:<uuid>:<minute>   comments posted this minute (expires)
+ *   vsr:wrate:<rid>:<uuid>:<minute>  comment edits, deletes and resolves this minute (expires)
  *   vsr:joinfail:<uuid>:<window>     failed joins in a 10 minute window (expires)
  */
 import {
@@ -463,6 +464,13 @@ export class ReviewService {
     if (seq >= LIMITS.changesPerReview) fail(409, 'This review has reached its limit of comments.');
   }
 
+  /** Room for one more change to a comment by this person this minute (a change that changes nothing is free). */
+  async roomForEdit(rid, user) {
+    await this.roomForChange(rid);
+    const minute = Math.floor(this.now() / 60_000);
+    if (!(await this.bump(`vsr:wrate:${rid}:${user.uuid}:${minute}`, LIMITS.changesPerMinute, 120))) fail(429, 'You are changing comments very quickly. Wait a moment and try again.');
+  }
+
   async addComment(user, input) {
     const rid = reviewId(input.review);
     const { role } = await this.access(rid, user);
@@ -512,20 +520,20 @@ export class ReviewService {
       if (problem) fail(400, problem);
       const text = cleanText(input.text);
       if (text === c.text) return { comment: c };
-      await this.roomForChange(rid);
+      await this.roomForEdit(rid, user);
       return { comment: await this.record(rid, { ...c, text, edited: this.now() }) };
     }
     if (input.op === 'comment.delete') {
       if (!(mine && canComment(role)) && role !== 'owner') fail(403, 'You can only delete your own comments.');
       if (c.deleted) return { comment: c };
-      await this.roomForChange(rid);
+      await this.roomForEdit(rid, user);
       return { comment: await this.record(rid, { ...c, text: '', deleted: true, edited: this.now() }) };
     }
     if (!canResolve(role)) fail(403, 'You can watch this review but not resolve comments.');
     if (c.parent) fail(400, 'Only whole threads can be resolved.');
     const resolved = input.resolved !== false;
     if (Boolean(c.resolved) === resolved) return { comment: c };
-    await this.roomForChange(rid);
+    await this.roomForEdit(rid, user);
     return { comment: await this.record(rid, { ...c, resolved, resolvedBy: resolved ? { uuid: user.uuid, username: user.username } : null }) };
   }
 }

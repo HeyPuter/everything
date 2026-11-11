@@ -22,6 +22,8 @@ export const LIMITS = Object.freeze({
   text: 2000,
   title: 120,
   commentsPerMinute: 12,
+  // Edits, deletes, resolves and reopens: one person flipping a thread could otherwise use up changesPerReview.
+  changesPerMinute: 60,
   changesPerReview: 20000,
   versions: 50,
   members: 200,

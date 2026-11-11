@@ -327,6 +327,24 @@ describe('review worker: comments', () => {
     expect(await add(100)).toBe(200);
   });
 
+  it('limits how fast one person edits, deletes, resolves and reopens', async () => {
+    const { env, rid } = await withPeople();
+    await env.as('bob')('comment.add', { review: rid, version: 1, id: 'c_flip0001', text: 'flip', t: 0 });
+    let resolved = false;
+    const flip = (who = 'bob') => statusOf(env.as(who)('comment.resolve', { review: rid, id: 'c_flip0001', resolved: !resolved })).then((st) => ((resolved = st === 200 ? !resolved : resolved), st));
+    const edit = (i) => statusOf(env.as('bob')('comment.edit', { review: rid, id: 'c_flip0001', text: `text ${i}` }));
+    for (let i = 0; i < LIMITS.changesPerMinute; i++) expect(await (i % 3 ? flip() : edit(i))).toBe(200);
+    // Toggling a thread over and over would otherwise use up the review's changes for everyone.
+    expect(await flip()).toBe(429);
+    expect(await edit(-1)).toBe(429);
+    // A change that changes nothing costs nothing.
+    expect(await statusOf(env.as('bob')('comment.resolve', { review: rid, id: 'c_flip0001', resolved }))).toBe(200);
+    // Others are not affected; the next minute is fine.
+    expect(await flip('alice')).toBe(200);
+    env.advance(60_000);
+    expect(await edit(1000)).toBe(200);
+  });
+
   it('syncs changes since a cursor, in batches', async () => {
     const { env, rid } = await withPeople();
     for (let i = 0; i < 3; i++) await env.as('alice')('comment.add', { review: rid, version: 1, id: `c_sync${i}000`, text: `n${i}`, t: i * 1000 });
