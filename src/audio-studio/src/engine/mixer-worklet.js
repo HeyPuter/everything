@@ -74,6 +74,7 @@ class MixerProcessor extends AudioWorkletProcessor {
         this.playing = true;
         this.underrunReported.clear();
         if (this.host) this.host.reset();
+        this.scratch.dryDelay?.clear(); // rack dry/wet delay lines start empty, like the effects
         this.report();
         break;
       case 'stop':
@@ -83,6 +84,7 @@ class MixerProcessor extends AudioWorkletProcessor {
       case 'seek':
         this.pos = m.frame;
         if (this.host) this.host.reset();
+        this.scratch.dryDelay?.clear(); // rack dry/wet delay lines start empty, like the effects
         this.report();
         break;
       case 'loop':

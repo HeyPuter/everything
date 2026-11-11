@@ -477,3 +477,85 @@ describe('Q values', () => {
     expect(formatValue(dist, coerce(dist, dist.default))).toBe('0.707');
   });
 });
+
+describe('Effects Rack wet/dry mix with a latent effect', () => {
+  it('lines the dry signal up with the delayed wet one in playback, for files and tracks', async () => {
+    const { ChunkStore, renderBlock, createScratch, CHUNK } =
+      await import('../src/engine/mixcore.js');
+    const { decorateGraph, rackTiming } = await import('../src/effects/rack.js');
+    const { trackRackSpecs } = await import('../src/model/session-graph.js');
+    const rate = 48000;
+    const n = 128 * 187;
+    const x = Float32Array.from(
+      { length: n },
+      (_, i) =>
+        0.25 * Math.sin((2 * Math.PI * 1000 * i) / rate) +
+        0.25 * Math.sin((2 * Math.PI * 1500 * i) / rate),
+    );
+    // A Hard Limiter that never limits: a pure delay of its lookahead.
+    const rack = {
+      slots: [
+        { id: 's1', effect: 'hardLimiter', values: { ceiling: 0, lookahead: 5 }, enabled: true },
+      ],
+      power: true,
+      input: 0,
+      output: 0,
+      mix: 0.5,
+    };
+    const lat = rackTiming(rack, rate).latency;
+    expect(lat).toBeGreaterThan(0);
+    const render = (graph) => {
+      const h = host(rate);
+      for (const t of graph.tracks) t.fx = h.sync(t.fx);
+      const store = new ChunkStore();
+      for (let i = 0; i * CHUNK < n; i++)
+        store.put('src', i, [
+          x.subarray(i * CHUNK, (i + 1) * CHUNK),
+          x.subarray(i * CHUNK, (i + 1) * CHUNK),
+        ]);
+      const scratch = createScratch(128);
+      const out = new Float32Array(n);
+      for (let at = 0; at < n; at += 128) {
+        const m = [new Float32Array(128), new Float32Array(128)];
+        renderBlock(graph, store, at, 128, m, scratch, { runFx: (c, b, f) => h.run(c, b, f) });
+        out.set(m[0], at);
+      }
+      return out;
+    };
+    const clip = {
+      id: 'c',
+      source: 'src',
+      channels: 2,
+      start: 0,
+      offset: 0,
+      length: n,
+      gain: 1,
+      fadeIn: 0,
+      fadeOut: 0,
+    };
+    const file = render(
+      decorateGraph(
+        {
+          rate,
+          tracks: [{ id: 'file', gain: 1, pan: 0, clips: [{ ...clip }], fx: [] }],
+          master: { gain: 1 },
+        },
+        rack,
+      ),
+    );
+    const specs = trackRackSpecs(
+      { id: 't', fxPower: true, fx: rack.slots, fxIn: 0, fxOut: 0, fxMix: 0.5 },
+      { sampleRate: rate },
+    );
+    const track = render({
+      rate,
+      tracks: [{ id: 't', gain: 1, pan: 0, clips: [{ ...clip }], ...specs }],
+      master: { gain: 1 },
+    });
+    for (const out of [file, track]) {
+      let err = 0;
+      for (let i = lat + 1000; i < n; i++) err = Math.max(err, Math.abs(out[i] - x[i - lat]));
+      expect(err).toBeLessThan(1e-4);
+    }
+  });
+});

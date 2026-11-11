@@ -247,6 +247,8 @@ function addInto(track, src, dst, frames) {
  * Runs a track's effect chain in place. With `fxMix` < 1 the first `fxWet`
  * specs (the effects rack: input gain and slots) are blended with the dry
  * signal (scaled by `fxDry`, the rack input gain) before the rest of the chain.
+ * The dry signal is delayed by `fxLatency` frames, the wet slots' processing
+ * delay, so the two line up instead of comb filtering.
  */
 function runChain(track, buf, frames, scratch, runFx) {
   const mix = track.fxMix ?? 1;
@@ -260,6 +262,8 @@ function runChain(track, buf, frames, scratch, runFx) {
   if (!scratch.dry || scratch.dry.length < nch || scratch.dry[0].length < frames) scratch.dry = Array.from({ length: nch }, () => new Float32Array(Math.max(frames, scratch.gains.length)));
   const dry = scratch.dry;
   for (let c = 0; c < nch; c++) dry[c].set(buf[c].subarray(0, frames));
+  const lat = track.fxLatency || 0;
+  if (lat > 0) delayDry(scratch, track.id ?? 'master', dry, nch, frames, lat);
   runFx(track.fxParts.wet, buf, frames);
   const d = (1 - Math.max(0, mix)) * (track.fxDry ?? 1);
   const w = Math.max(0, mix);
@@ -269,6 +273,29 @@ function runChain(track, buf, frames, scratch, runFx) {
     for (let i = 0; i < frames; i++) b[i] = b[i] * w + x[i] * d;
   }
   if (track.fxParts.rest.length) runFx(track.fxParts.rest, buf, frames);
+}
+
+/** Delays `frames` of the dry channels in place by `lat` frames (a ring per track in scratch). */
+function delayDry(scratch, id, dry, nch, frames, lat) {
+  if (!scratch.dryDelay) scratch.dryDelay = new Map();
+  let d = scratch.dryDelay.get(id);
+  if (!d || d.lat !== lat || d.ring.length !== nch) {
+    d = { lat, pos: 0, ring: Array.from({ length: nch }, () => new Float32Array(lat)) };
+    scratch.dryDelay.set(id, d);
+  }
+  let pos = d.pos;
+  for (let c = 0; c < nch; c++) {
+    const r = d.ring[c];
+    const x = dry[c];
+    pos = d.pos;
+    for (let i = 0; i < frames; i++) {
+      const v = r[pos];
+      r[pos] = x[i];
+      x[i] = v;
+      if (++pos === lat) pos = 0;
+    }
+  }
+  d.pos = pos;
 }
 
 /**

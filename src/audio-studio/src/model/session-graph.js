@@ -14,13 +14,14 @@
 import { sourceKey } from '../engine/engine.js';
 import { activeCrossfades, clipEnd, SILENT_DB } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
+import { getEffect } from '../effects/registry.js';
 import { clickSound, DEFAULT_METRONOME_SOUND } from '../multitrack/metronome-sounds.js';
 
 export const dbToGain = (db) => (db <= SILENT_DB ? 0 : Math.pow(10, db / 20));
 
 /**
  * A track's effects rack for the graph: { fx } plus, with a dry/wet mix
- * below 100%, { fxMix, fxWet, fxDry } (see mixcore runChain). Input and
+ * below 100%, { fxMix, fxWet, fxDry, fxLatency } (see mixcore runChain). Input and
  * output gain only apply while the rack has effects to run.
  */
 export function trackRackSpecs(t, rateDoc, channels = 2) {
@@ -32,7 +33,13 @@ export function trackRackSpecs(t, rateDoc, channels = 2) {
   const out = t.fxOut ? gainSpec(`trk:${t.id}:out`, t.fxOut) : null;
   const r = { fx: out ? [...wet, out] : wet };
   const mix = Math.max(0, Math.min(1, t.fxMix ?? 1));
-  if (mix < 1) Object.assign(r, { fxMix: mix, fxWet: wet.length, fxDry: dbToGain(t.fxIn || 0) });
+  if (mix < 1) {
+    // The dry part is delayed by the wet slots' latency (runChain), so the blend lines up.
+    // On six channels only the surround-capable slots run.
+    const run = channels === 6 ? t.fx.filter((s) => getEffect(s?.effect)?.surround) : t.fx;
+    const fxLatency = rackTiming({ slots: run }, rateDoc?.sampleRate || 48000).latency;
+    Object.assign(r, { fxMix: mix, fxWet: wet.length, fxDry: dbToGain(t.fxIn || 0), fxLatency });
+  }
   return r;
 }
 
