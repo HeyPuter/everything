@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
-import { mainTrack, findClip, allClips } from '../src/model/timeline.js';
+import { mainTrack, findClip, allClips, deleteClips } from '../src/model/timeline.js';
 import { TEXT_PRESETS } from '../src/model/catalog.js';
 import { fixture, clip, onMain, spans, kinds, trackOf, s } from './helpers.js';
 import { createCompound } from '../src/model/compound.js';
@@ -413,6 +413,59 @@ describe('importing files', () => {
 });
 
 describe('reverse', () => {
+  const reversedLibrary = (extra = {}) => ({
+    mediaBlob: async () => new Blob(['v']),
+    importFile: async (f) => ({ id: 'rev', kind: 'video', name: f.name, duration: s(10), hasAudio: true, width: 1920, height: 1080 }),
+    ...extra,
+  });
+
+  it('is one undo step, the reversed copy included, and undoes and redoes cleanly', async () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: reversedLibrary() };
+    ctx.actions = createActions(ctx);
+    await ctx.actions.reverseClip(a.id);
+    expect(findClip(store.project, a.id).clip.assetId).toBe('rev');
+    expect(store.project.assets.rev.reversedOf).toBe('vid');
+    expect(store.history.undoStack.map((e) => e.label)).toEqual(['Reverse']);
+    expect(store.undo()).toBe('Reverse');
+    expect(findClip(store.project, a.id).clip.assetId).toBe('vid');
+    expect(store.project.assets.rev).toBeUndefined();
+    expect(store.history.canUndo()).toBe(false);
+    store.redo();
+    expect(findClip(store.project, a.id).clip.assetId).toBe('rev');
+    expect(store.project.assets.rev.reversedOf).toBe('vid');
+    // Back and forth again uses the reversed copy already made, one step each.
+    await ctx.actions.reverseClip(a.id);
+    await ctx.actions.reverseClip(a.id);
+    expect(store.history.undoStack.map((e) => e.label)).toEqual(['Reverse', 'Reverse', 'Reverse']);
+    document.body.replaceChildren();
+  });
+
+  it('keeps the reversed copy as one Reverse step when the clip is deleted while it reverses', async () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const library = reversedLibrary({
+      mediaBlob: async () => {
+        store.update('Delete clip', (pp) => deleteClips(pp, [a.id], store.opts) > 0);
+        return new Blob(['v']);
+      },
+    });
+    const ctx = { store, player: null, library };
+    ctx.actions = createActions(ctx);
+    await ctx.actions.reverseClip(a.id);
+    // The copy stays in the media (with its undo step); Undo takes it away, then the delete.
+    expect(store.history.undoStack.map((e) => e.label)).toEqual(['Delete clip', 'Reverse']);
+    store.undo();
+    expect(store.project.assets.rev).toBeUndefined();
+    expect(findClip(store.project, a.id)).toBeNull();
+    store.undo();
+    expect(findClip(store.project, a.id)).not.toBeNull();
+    document.body.replaceChildren();
+  });
+
   it('closes the progress dialog when the reversed file cannot be saved', async () => {
     const p = fixture();
     const [a] = onMain(p, clip('video', 0, 4));

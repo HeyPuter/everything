@@ -551,6 +551,7 @@ export function createActions(ctx) {
         return;
       }
       let target = Object.values(store.project.assets).find((a) => a.reversedOf === asset.id);
+      let mark = null;
       if (!target) {
         const { reverseFile } = await import('../media/reverse.js');
         const ac = new AbortController();
@@ -564,10 +565,13 @@ export function createActions(ctx) {
           const file = await reverseFile(blob, asset.name, { signal: ac.signal, onProgress: (p) => (bar.style.width = `${Math.round(p * 100)}%`) });
           const [made] = await actions.importFiles([file]);
           if (!made) return;
+          // Importing the reversed copy is the step just recorded. It, marking the copy as
+          // this file played backwards and switching the clip over become one undo step
+          // (nothing else can run in between: no await from here on).
+          mark = { top: store.history.undoStack.at(-2) || null, undos: store.history.undos };
           store.update('Reverse', (p) => {
             p.assets[made.id].reversedOf = asset.id;
           }, { structural: false });
-          store.history.undoStack.pop();
           target = store.project.assets[made.id];
         } catch (err) {
           if (err?.name !== 'AbortError') toast(err?.message || "Couldn't reverse this clip.", { kind: 'error' });
@@ -577,14 +581,15 @@ export function createActions(ctx) {
           d.close();
         }
       }
-      actions.editClip(id, 'Reverse', (c) => {
+      const ok = actions.editClip(id, 'Reverse', (c) => {
         c.in = mirrorIn(asset, target);
         c.assetId = target.id;
         c.reversed = true;
         // A speed curve plays backwards too, so the reversed clip mirrors the original's timing.
         if (c.speedCurve) c.speedCurve = mirrorCurve(c.speedCurve);
       });
-      announce('Clip reversed');
+      if (mark) store.endBatch(mark, 'Reverse');
+      if (ok) announce('Clip reversed');
     },
 
     /** Swap the media of a clip, keeping its timing, effects and keyframes. */
