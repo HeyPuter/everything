@@ -238,6 +238,23 @@ describe('multitrack view', () => {
     expect(pasted).toMatchObject({ trackId: doc.state.tracks[2].id, start: RATE * 5, length: RATE * 2 });
   });
 
+  it('copies the clip parts in the time selection onto the selected track', async () => {
+    const { app, doc, clip } = ctx;
+    const [t1, t2, t3] = doc.state.tracks.map((t) => t.id);
+    const other = S.createClip({ trackId: t2, sourceId: clip.sourceId, name: 'late', start: RATE * 4, length: RATE });
+    doc.apply('Add', S.addClips(doc.state, [other]));
+    // Both clips selected, but the time selection only covers the one on Track 2.
+    doc.selectClips([clip.id, other.id]);
+    doc.setSelection(RATE * 4, RATE * 5, { tracks: [t1, t2] });
+    await app.commands.run('edit.copy');
+    doc.setSelection(RATE * 8, RATE * 8);
+    doc.selectTrack(t3);
+    doc.setCursor(RATE * 8);
+    await app.commands.run('edit.paste');
+    const pasted = doc.state.clips.filter((c) => c.id !== clip.id && c.id !== other.id);
+    expect(pasted.map((c) => [c.trackId, c.start, c.length])).toEqual([[t3, RATE * 8, RATE]]);
+  });
+
   it('ripple deletes the time selection across all tracks', async () => {
     const { app, doc } = ctx;
     doc.setSelection(0, RATE / 2);

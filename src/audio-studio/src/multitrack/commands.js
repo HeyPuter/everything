@@ -404,12 +404,13 @@ function clipboardFrom(doc, clips, range) {
   const t0 = range ? range[0] : Math.min(...clips.map((c) => c.start));
   const audio = S.audioTracks(doc.state);
   const idx = new Map(audio.map((t, i) => [t.id, i]));
-  const firstTrack = Math.min(...clips.map((c) => idx.get(c.trackId) ?? 0));
   let parts = clips;
   if (range) {
     const s = S.trimClipsToRange({ ...doc.state, clips: clips.map((c) => ({ ...c, locked: false })) }, clips.map((c) => c.id), range[0], range[1], (id) => doc.sourceLength(id));
     parts = s.clips.filter((c) => c.start < range[1] && S.clipEnd(c) > range[0]);
   }
+  // Track offsets count from the top track of what is copied (selected clips outside the range are not).
+  const firstTrack = Math.min(...parts.map((c) => idx.get(c.trackId) ?? 0));
   const pool = new Map();
   for (const c of parts) {
     pool.set(c.sourceId, doc.pool.get(c.sourceId));
