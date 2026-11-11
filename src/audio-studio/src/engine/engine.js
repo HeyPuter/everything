@@ -9,6 +9,7 @@ import captureUrl from './capture-worklet.js?worker&url';
 import { Emitter } from '../lib/emitter.js';
 import { CHUNK } from './mixcore.js';
 import { dspModule } from '../audio/dsp.js';
+import { UserError } from '../lib/errors.js';
 
 const LOOKAHEAD_S = 4;
 const KEEP_BEHIND_S = 1;
@@ -99,8 +100,10 @@ export class Engine extends Emitter {
     try {
       ctx = new AudioContext({ sampleRate: rate, latencyHint: this.latencyHint });
     } catch {
-      // Some browsers limit the rates a context can run at; play at the device
-      // rate instead (the graph is still mixed at its own rate).
+      // Some browsers limit the rates a context can run at (Firefox: 8 to 192
+      // kHz). Recording and metering still work at the device rate (takes are
+      // resampled), but play() refuses: the mixer has no rate conversion, so
+      // the audio would play at the wrong speed and pitch.
       ctx = new AudioContext({ latencyHint: this.latencyHint });
     }
     this.ctx = ctx;
@@ -278,7 +281,9 @@ export class Engine extends Emitter {
     from = wholeFrame(from);
     if (to != null) to = wholeFrame(to);
     loop = wholeLoop(loop);
-    await this.ensure(this.graph.rate || this.rate);
+    const rate = this.graph.rate || this.rate;
+    await this.ensure(rate);
+    if (this.ctx.sampleRate !== rate) throw new UserError(`This browser can't play ${rate} Hz audio. Convert its sample rate (Edit > Convert Sample Type) to play it.`);
     this.range = { from, to, loop };
     this.lastPos = { frame: from, time: this.ctx.currentTime };
     this.#feed(from);

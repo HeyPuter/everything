@@ -6,7 +6,7 @@ import { ChunkStore, renderBlock, createScratch } from '../src/engine/mixcore.js
 function fakeEngine() {
   const e = new Engine();
   const sent = [];
-  e.ctx = { currentTime: 1, outputLatency: 0, baseLatency: 0, state: 'running' };
+  e.ctx = { currentTime: 1, outputLatency: 0, baseLatency: 0, state: 'running', sampleRate: 48000 };
   e.requestedRate = 48000;
   e.node = { port: { postMessage: vi.fn((m) => sent.push(m)) } };
   return { e, sent };
@@ -61,7 +61,7 @@ describe('engine transport', () => {
     app.prefs.set('loop', true);
     const sent = [];
     Object.assign(engine, {
-      ctx: { currentTime: 1, state: 'running' },
+      ctx: { currentTime: 1, state: 'running', sampleRate: 48000 },
       requestedRate: 48000,
       node: { port: { postMessage: (m) => sent.push(m) } },
     });
@@ -115,5 +115,25 @@ describe('engine transport', () => {
     dropBehind({ store }, graph, CHUNK * 10 + 100);
     expect([...store.sources.get('loop').keys()]).toEqual([0, 1]);
     expect(store.sources.get('gone').size).toBe(0);
+  });
+
+  it('refuses to play when the audio context could not run at the audio rate', async () => {
+    const { e, sent } = fakeEngine();
+    // The browser fell back to its device rate (48 kHz) for 384 kHz audio.
+    Object.assign(e.ctx, { sampleRate: 48000 });
+    e.graph = { rate: 384000, tracks: [], master: { gain: 1 } };
+    e.requestedRate = 384000;
+    await expect(e.play({ from: 0 })).rejects.toThrow(
+      "This browser can't play 384000 Hz audio. Convert its sample rate (Edit > Convert Sample Type) to play it.",
+    );
+    expect(sent.some((m) => m.type === 'play')).toBe(false);
+    expect(e.playing).toBe(false);
+    // At its own rate it plays.
+    e.ctx.sampleRate = 48000;
+    e.graph = { rate: 48000, tracks: [], master: { gain: 1 } };
+    e.requestedRate = 48000;
+    await e.play({ from: 0 });
+    expect(e.playing).toBe(true);
+    e.stop();
   });
 });

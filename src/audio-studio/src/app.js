@@ -11,6 +11,7 @@ import { openMenu } from './ui/menubar.js';
 import { WORKSPACES, TABLET, PHONE, DEFAULT_WORKSPACE, LAYOUT_VERSION } from './ui/workspaces.js';
 import { saveChangesDialog } from './ui/dialog.js';
 import { formatTime, beatSeconds } from './lib/time.js';
+import { isUserError } from './lib/errors.js';
 
 export class App extends Emitter {
   constructor() {
@@ -202,8 +203,8 @@ export class App extends Emitter {
       await engine.play({ from: start, to: end ?? len, loop: loopRange });
       this.emit('transport', 'playing');
     } catch (err) {
-      console.error(err);
-      this.notify('Playback is not available in this browser.', { error: true });
+      if (!isUserError(err)) console.error(err);
+      this.notify(isUserError(err) ? err.message : 'Playback is not available in this browser.', { error: true });
     }
   }
 
