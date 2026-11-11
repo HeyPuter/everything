@@ -88,6 +88,17 @@ export function updateSwatch(doc, id, patch) {
  * to just unlink (keep the current color).
  */
 export function rewriteSwatchRefs(doc, test, paintFor, relinkTo) {
+  // Gradient swatches whose stops use a global color follow it too.
+  const list = swatchesOf(doc);
+  let swChanged = false;
+  const nextList = list.map((sw) => {
+    if (!sw.paint?.stops) return sw;
+    const p = rewritePaint(sw.paint, test, paintFor, relinkTo);
+    if (p === sw.paint) return sw;
+    swChanged = true;
+    return { ...sw, paint: p };
+  });
+  if (swChanged) doc.updateRoot({ swatches: nextList });
   for (const node of doc.nodes.values()) {
     // Extra fills and strokes (appearance stacks, also on groups and layers) link to swatches too.
     const stack = mapStackPaints(node, (p) => rewritePaint(p, test, paintFor, relinkTo));

@@ -124,6 +124,23 @@ describe('Swatch model operations', () => {
     expect(ed.style.fill).toEqual(solid('#ff8080', { tint: 0.5 }));
   });
 
+  it('updates gradient swatches whose stops use an edited or deleted global color', async () => {
+    const { doc } = await setup();
+    let g;
+    let grad;
+    doc.transact('t', () => {
+      g = addSwatch(doc, { name: 'G', paint: solid('#ff0000'), global: true });
+      grad = addSwatch(doc, { name: 'Grad', paint: { type: 'linear', angle: 0, stops: [{ offset: 0, color: '#ff0000', opacity: 1, swatchId: g }, { offset: 1, color: '#000000', opacity: 1 }] } });
+    });
+    doc.transact('edit', () => updateSwatch(doc, g, { paint: solid('#00ff00') }));
+    expect(findSwatch(doc, grad).paint.stops[0]).toMatchObject({ color: '#00ff00', swatchId: g });
+    doc.undo();
+    expect(findSwatch(doc, grad).paint.stops[0].color).toBe('#ff0000');
+    doc.transact('del', () => removeSwatches(doc, [g]));
+    expect(findSwatch(doc, grad).paint.stops[0].swatchId).toBeUndefined();
+    expect(findSwatch(doc, grad).paint.stops[0].color).toBe('#ff0000');
+  });
+
   it('marks spot swatches global', async () => {
     const { doc } = await setup();
     let id;
