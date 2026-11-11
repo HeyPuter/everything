@@ -249,9 +249,11 @@ export class Renderer {
   // and pixel readbacks are unaffected.
   private displayLut?: { texture: Texture; uniforms: Float32Array };
   private displayLutTarget?: Texture;
+  private displayLutSource?: { size: number; data: Float32Array };
   setDisplayLut(lut: { size: number; data: Float32Array } | null) {
     if (this.displayLut) this.backend.destroy(this.displayLut.texture);
     this.displayLut = undefined;
+    this.displayLutSource = lut ?? undefined;
     if (!lut) return;
     const packed = packLut({ lut3d: lut });
     if (packed.width > this.backend.maxSize) throw new Error('This display table exceeds GPU texture limits.');
@@ -265,6 +267,84 @@ export class Renderer {
   ) {
     this.white = backend.texture(1, 1, new Uint8Array([255, 255, 255, 255]));
     this.styles = new StyleCache(backend);
+    this.watchLoss(backend);
+  }
+  private disposed = false;
+  /** Set while a lost GPU context or device is being re-created. */
+  recovering?: Promise<void>;
+  private watchLoss(backend: Backend) {
+    void backend.lost?.then(() => {
+      if (this.disposed || backend !== this.backend) return;
+      // Readbacks wait for the new backend (a lost context reads blank), but
+      // not for long: a context the browser never restores must not block
+      // saving. Recovery itself goes on.
+      const wait: Promise<void> = Promise.race([this.recover(backend).catch(() => this.reportLost()), new Promise((r) => setTimeout(r, 5000))]).then(() => {
+        if (this.recovering === wait) this.recovering = undefined;
+      });
+      this.recovering = wait;
+    });
+  }
+  /** Re-create the backend after its context or device was lost and draw
+   * the last document again; every texture is rebuilt from tiles and assets.
+   * Without a new backend the editor shows the lost-context message. */
+  private async recover(lost: Backend) {
+    let next: Backend | undefined;
+    if (lost instanceof WebGLBackend) {
+      // The browser restores a lost WebGL context when it can; say so when
+      // it takes long, but keep waiting.
+      const notice = setTimeout(() => this.reportLost(), 5000);
+      await new Promise((resolve) => this.canvas.addEventListener('webglcontextrestored', resolve, { once: true }));
+      clearTimeout(notice);
+      try {
+        if (!this.disposed) next = new WebGLBackend(this.canvas);
+      } catch {
+        // Reported below.
+      }
+    } else
+      for (let attempt = 0; attempt < 3 && !next && !this.disposed; attempt++) {
+        try {
+          next = await WebGPUBackend.create(this.canvas);
+        } catch {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+    if (this.disposed) {
+      next?.dispose();
+      return;
+    }
+    if (!next) return this.reportLost();
+    // The draw in progress ran on the lost context; replace everything after it.
+    while (this.active) await this.idle.catch(() => {});
+    this.replaceBackend(next);
+    const last = this.lastRender;
+    if (last) await this.render(last.doc, last.assets).catch(() => {});
+  }
+  private reportLost() {
+    this.canvas.dispatchEvent(new CustomEvent('renderer-lost', { detail: 'The graphics processor was reset. Save your project and reload the page.' }));
+  }
+  /** Use a new backend: textures of the old one died with its context, so
+   * they are dropped (not destroyed) and rebuilt on the next draw. */
+  private replaceBackend(backend: Backend) {
+    this.backend = backend;
+    this.sources.clear();
+    this.targets = [];
+    this.cursor = 0;
+    this.final = undefined;
+    this.white = backend.texture(1, 1, new Uint8Array([255, 255, 255, 255]));
+    this.size = '';
+    this.profileKey = '';
+    this.profileDepth = 0;
+    this.profileRevision++;
+    this.fromSrgb = this.toSrgb = undefined;
+    this.displayTarget = this.displayLutTarget = undefined;
+    this.knockStack = [];
+    this.knockBase = undefined;
+    this.styles = new StyleCache(backend);
+    this.spatial = undefined;
+    const lut = this.displayLutSource;
+    this.displayLut = undefined;
+    if (lut) this.setDisplayLut(lut);
+    this.watchLoss(backend);
   }
   private styleContext(doc: PhotoDocument, assets: Assets): StyleContext {
     return {
@@ -1295,6 +1375,8 @@ export class Renderer {
     return run;
   }
   private async runExclusive<T>(task: () => Promise<T>): Promise<T> {
+    // Readbacks from a lost context would return blank pixels.
+    while (this.recovering) await this.recovering;
     while (this.active) await this.idle.catch(() => {});
     this.active = true;
     this.exclusiveDepth++;
@@ -1726,6 +1808,7 @@ export class Renderer {
     };
   }
   dispose() {
+    this.disposed = true;
     this.styles.dispose();
     this.spatial?.dispose();
     for (const s of this.sources.values()) this.destroySource(s);

@@ -31,6 +31,9 @@ export class WebGPUBackend implements Backend {
     private context: GPUCanvasContext,
   ) {
     this.maxSize = device.limits.maxTextureDimension2D;
+    this.lost = device.lost.then(() => {
+      if (this.disposed) return new Promise<void>(() => {});
+    });
     const format = navigator.gpu.getPreferredCanvasFormat();
     // SDR UNORM canvas output clips straight RGB before premultiplying; HDR
     // values stay unbounded in offscreen float textures and typed readbacks.
@@ -123,9 +126,6 @@ export class WebGPUBackend implements Backend {
       backend.dispose();
       throw new Error(error.message);
     }
-    device.lost.then((info) =>
-      canvas.dispatchEvent(new CustomEvent('renderer-lost', { detail: info.message })),
-    );
     return backend;
   }
   private ensureColorPipeline() {
@@ -436,7 +436,10 @@ export class WebGPUBackend implements Backend {
       buffer.destroy();
     }
   }
+  readonly lost: Promise<void>;
+  private disposed = false;
   dispose() {
+    this.disposed = true;
     this.context.unconfigure();
     this.device.destroy();
   }
