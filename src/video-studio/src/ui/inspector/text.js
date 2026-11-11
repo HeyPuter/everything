@@ -14,7 +14,7 @@ import { createElement, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, A
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { FONTS, TEXT_PRESETS } from '../../model/catalog.js';
-import { DEFAULT_TEXT_STYLE } from '../../model/project.js';
+import { DEFAULT_TEXT_STYLE, TEXT_MAX } from '../../model/project.js';
 import { allClips } from '../../model/timeline.js';
 import { setKey, removeKey, keyIndexAt, valueAt } from '../../model/keyframes.js';
 import { caseOf, COLOR_KEYS, hasColorKeys, hexToRgb, textColorAt, dropColorKeys } from '../../model/text-style.js';
@@ -43,9 +43,11 @@ const DEF = DEFAULT_TEXT_STYLE;
 /** Text box bound to clip.text; typing merges into one undo step per pause. */
 function textBox(view) {
   const id = uidFor('text');
-  const ta = h('textarea.textarea.insp-textarea', { id, rows: 3, spellcheck: true });
+  // As long as a saved project keeps, so the text does not get shorter on the next open.
+  const ta = h('textarea.textarea.insp-textarea', { id, rows: 3, spellcheck: true, maxLength: TEXT_MAX });
   ta.value = view.clip.text;
   ta.addEventListener('input', () => {
+    if (ta.value.length > TEXT_MAX) ta.value = ta.value.slice(0, TEXT_MAX);
     view.edit('Edit text', (c) => {
       // Highlighted words follow their words (word indexes shift as words come and go).
       if (c.marks?.length) {

@@ -131,6 +131,20 @@ describe('text details', () => {
     expect(document.activeElement).toBe(button('Pick key words'));
   });
 
+  it('keeps the text to the length a saved project keeps', () => {
+    const ta = env.el.querySelector('.insp-textarea');
+    expect(ta.maxLength).toBe(5000);
+    ta.focus();
+    ta.value = 'x'.repeat(6000);
+    ta.dispatchEvent(new Event('input'));
+    expect(clip().text).toHaveLength(5000);
+    expect(normalizeClip(structuredClone(clip())).text).toBe(clip().text);
+    // Empty text stays empty.
+    ta.value = '';
+    ta.dispatchEvent(new Event('input'));
+    expect(normalizeClip(structuredClone(clip())).text).toBe('');
+  });
+
   it('highlighted words stay on their words while the text is edited', () => {
     env.store.update('Mark', (p) => {
       T.findClip(p, env.text.id).clip.marks = [1];

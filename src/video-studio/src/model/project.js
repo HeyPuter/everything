@@ -278,6 +278,9 @@ export function makeClip(type, fields = {}) {
 const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const int = (v, d = 0) => Math.round(num(v, d));
 const str = (v, d = '') => (typeof v === 'string' ? v : d);
+
+/** Longest text a text clip keeps (saved projects are cut to it). */
+export const TEXT_MAX = 5000;
 const bool = (v) => Boolean(v);
 const color = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v)) ? String(v).toLowerCase() : d);
 const clampN = (v, lo, hi, d) => Math.min(hi, Math.max(lo, num(v, d)));
@@ -425,7 +428,7 @@ export function normalizeClip(c) {
     if (smooth) out.smoothSlow = smooth;
   }
   if (c.type === 'text') {
-    out.text = str(c.text, 'Text').slice(0, 5000);
+    out.text = str(c.text, 'Text').slice(0, TEXT_MAX);
     out.style = normStyle(c.style);
     if (c.caption) out.caption = true;
     if (typeof c.captionStyle === 'string' && /^[a-z0-9-]{1,40}$/.test(c.captionStyle)) out.captionStyle = c.captionStyle;
