@@ -275,6 +275,14 @@ describe('M4A muxer', () => {
     expect(dv.getUint32(stsz + 16)).toBe(50);
     expect(dv.getUint32(stsz + 20)).toBe(200);
     expect(readTags(file.buffer)).toEqual(meta);
+    // Files written with the movie box after a long media box keep their tags too.
+    const [ftyp, moov] = parts;
+    const late = new Uint8Array(ftyp.length + 8 + (6 << 20) + moov.length);
+    late.set(ftyp);
+    new DataView(late.buffer).setUint32(ftyp.length, 8 + (6 << 20));
+    late.set([0x6d, 0x64, 0x61, 0x74], ftyp.length + 4);
+    late.set(moov, late.length - moov.length);
+    expect(readTags(late.buffer)).toEqual(meta);
   });
 });
 

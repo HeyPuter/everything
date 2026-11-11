@@ -486,7 +486,9 @@ export function readTags(buffer) {
     const head = latin1(b.subarray(0, 4));
     if (head === 'fLaC') return flacTags(b);
     if (head === 'OggS') return oggTags(b);
-    if (latin1(b.subarray(4, 8)) === 'ftyp') return mp4Tags(b);
+    // MP4 boxes are walked by their headers only, so the whole file costs little; the
+    // moov box with the tags often follows the media data, far past the first megabytes.
+    if (latin1(b.subarray(4, 8)) === 'ftyp') return mp4Tags(new Uint8Array(buffer));
   } catch {
     // Unreadable tags never block opening the audio.
   }
