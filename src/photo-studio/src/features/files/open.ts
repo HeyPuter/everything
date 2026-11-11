@@ -335,6 +335,24 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   void emitAppEvent('open-document', s);
   return true;
 }
+/** Open (or place) several files in turn. A file that cannot be opened does
+ * not stop the others; with more than one file, the failures are reported
+ * together, each with its name. */
+export async function openFiles(e: Editor, files: { blob: Blob; name: string }[], place = false, opts: OpenOptions = {}) {
+  if (files.length === 1) {
+    await openFile(e, files[0].blob, files[0].name, place, opts);
+    return;
+  }
+  const failed: string[] = [];
+  for (const f of files)
+    try {
+      await openFile(e, f.blob, f.name, place, opts);
+    } catch (error) {
+      if (!(error instanceof Error) || error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError) console.error(error);
+      failed.push(`${f.name} could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  if (failed.length) throw new Error(failed.join(' '));
+}
 export { insertAboveSelection } from '../layers/insert';
 async function rasterizeSvg(blob: Blob): Promise<RGBA8> {
   const url = URL.createObjectURL(blob);

@@ -320,8 +320,8 @@ async function pickFiles(e: Editor, place: boolean) {
   input.onchange = () => {
     const files = Array.from(input.files ?? []);
     void e.run(async () => {
-      const { openFile } = await import('./files/open');
-      for (const f of files) await openFile(e, f, f.name, place);
+      const { openFiles } = await import('./files/open');
+      await openFiles(e, files.map((blob) => ({ blob, name: blob.name })), place);
     });
   };
   input.click();

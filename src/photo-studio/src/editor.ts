@@ -787,8 +787,8 @@ export class Editor {
       const files = Array.from(input.files ?? []);
       input.value = '';
       void this.run(async () => {
-        const { openFile } = await import('./features/files/open');
-        for (const file of files) await openFile(this, file, file.name);
+        const { openFiles } = await import('./features/files/open');
+        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })));
       });
     };
     const viewport = this.el('#viewport');
@@ -809,8 +809,8 @@ export class Editor {
       // Dropping onto the canvas places files into the open document.
       const place = this.hasDocument && !!(e.target as HTMLElement).closest('#viewport');
       void this.run(async () => {
-        const { openFile } = await import('./features/files/open');
-        for (const f of files) await openFile(this, f, f.name, place);
+        const { openFiles } = await import('./features/files/open');
+        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })), place);
       });
     });
     viewport.addEventListener('contextmenu', (e) => {

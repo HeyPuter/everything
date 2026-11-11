@@ -77,7 +77,16 @@ export function openFromCloud(e: Editor) {
   void pickCloudFiles(true)
     .then((items) =>
       e.run(async () => {
-        for (const item of items) await openFile(e, await item.read(), item.name, false, { source: { kind: 'puter', path: item.path } });
+        // One file that cannot be read or opened does not stop the others.
+        const failed: string[] = [];
+        for (const item of items)
+          try {
+            await openFile(e, await item.read(), item.name, false, { source: { kind: 'puter', path: item.path } });
+          } catch (error) {
+            if (items.length === 1) throw error;
+            failed.push(`${item.name} could not be opened: ${errorText(error)}`);
+          }
+        if (failed.length) throw new Error(failed.join(' '));
       }),
     )
     .catch((error) => e.message(errorText(error)));
