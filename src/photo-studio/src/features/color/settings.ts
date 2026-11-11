@@ -227,7 +227,10 @@ export async function applyOpenPolicy(e: Editor, s: DocumentSession = e.session)
       ], 'OK', `“${s.doc.name}” has an embedded profile that does not match the working RGB space.`);
       action = v?.action ?? 'preserve';
     }
-    if (action === 'convert') await convertDocumentProfile(e, st.rgb, st.intent, st.bpc, 'Convert to Working RGB');
+    if (action === 'convert')
+      // Not run as a command: report a refused conversion (another document
+      // became current meanwhile) instead of leaving it unhandled.
+      await convertDocumentProfile(e, st.rgb, st.intent, st.bpc, 'Convert to Working RGB').catch((error) => e.message(error instanceof Error ? error.message : String(error)));
     else if (action === 'off' || action === 'discard')
       e.command('Discard Profile', (d) => {
         delete d.iccProfile;

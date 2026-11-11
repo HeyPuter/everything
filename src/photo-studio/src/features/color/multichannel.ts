@@ -10,7 +10,7 @@ import { newPixelLayer } from '../../model/pixel-layer';
 import { cachedTransform } from '../../color/color-management';
 import { CMYK_INKS, GRAY_INK, RGB_INKS, inkComposite, splitCmyk, splitGray, splitRgb, type Ink } from '../../color/multichannel';
 import { flattenOn } from './convert';
-import { flatComposite } from './docops';
+import { assertSameDocument, flatComposite } from './docops';
 import { colorSettings, docCmykRef, docProfile, ensureProfile } from './profiles';
 import { hex, rgb } from './spot-channels';
 export { leaveMultichannel } from './spot-channels';
@@ -50,6 +50,7 @@ export async function convertToMultichannel(e: Editor) {
     planes = splitGray(img);
     inks = [GRAY_INK];
   }
+  assertSameDocument(e, doc);
   const store = e.assets.tiles;
   const spots: AlphaChannel[] = planes.map((p, i) => ({
     id: crypto.randomUUID(),
