@@ -747,17 +747,29 @@ export function nextAdjacent(project, id) {
   return null;
 }
 
-/** Longest transition allowed between a clip and its neighbor. */
+/**
+ * Longest transition allowed between a clip and its neighbor. None into a
+ * compound clip: its contents play on tracks of their own (engine/compound.js),
+ * so a transition there would never show.
+ */
 export function maxTransition(project, clip) {
   const next = nextAdjacent(project, clip.id);
-  if (!next) return 0;
+  if (!next || next.type === 'compound' || clip.type === 'compound') return 0;
   return Math.max(0, Math.min(clip.duration, next.duration, 5 * US));
+}
+
+/** Shortest transition; a cut with less room than this takes none. */
+export const MIN_TRANSITION = 100_000;
+
+/** True when a transition can go on the cut after this clip. */
+export function canTransition(project, clip) {
+  return (clip.type === 'video' || clip.type === 'image') && maxTransition(project, clip) >= MIN_TRANSITION;
 }
 
 function clampTransition(project, clip) {
   if (!clip.transition) return;
   const max = maxTransition(project, clip);
-  if (max < 100_000) clip.transition = null;
+  if (max < MIN_TRANSITION) clip.transition = null;
   else clip.transition.duration = Math.min(clip.transition.duration, max);
 }
 
@@ -769,7 +781,7 @@ export function setTransition(project, id, transitionId, duration = 500_000) {
     return true;
   }
   const max = maxTransition(project, found.clip);
-  if (max < 100_000) return false;
+  if (max < MIN_TRANSITION) return false;
   found.clip.transition = { id: transitionId, duration: Math.min(duration, max) };
   return true;
 }

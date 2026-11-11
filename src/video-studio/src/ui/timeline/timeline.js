@@ -512,6 +512,8 @@ export function createTimeline(ctx) {
         const b = clips[i + 1];
         const cut = T.clipEnd(a);
         if (Math.abs(b.start - cut) > 2000) continue;
+        // Only cuts a transition can go on (not next to compound clips or graphics).
+        if (!a.transition && ((a.type !== 'video' && a.type !== 'image') || b.type === 'compound')) continue;
         const id = a.id;
         let chip = trChips.get(id);
         if ((cut < t0 || cut > t1) && store.transition !== id && !(chip && chip === document.activeElement)) continue;
@@ -1678,7 +1680,7 @@ export function createTimeline(ctx) {
       let best = null;
       let bestD = Infinity;
       for (const c of track.clips) {
-        if (!T.nextAdjacent(store.project, c.id)) continue;
+        if (!T.canTransition(store.project, c)) continue;
         const dd = Math.abs(T.clipEnd(c) - t);
         if (dd < bestD) {
           best = c;

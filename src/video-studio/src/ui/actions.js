@@ -246,14 +246,14 @@ export function createActions(ctx) {
       let clipId = opts.clipId;
       if (!clipId) {
         const s = store.selected;
-        if (s && T.nextAdjacent(p, s.clip.id)) clipId = s.clip.id;
+        if (s && T.canTransition(p, s.clip)) clipId = s.clip.id;
       }
       if (!clipId) {
         const main = T.mainTrack(p);
         let best = null;
         let bestD = Infinity;
         for (const c of main.clips) {
-          if (!T.nextAdjacent(p, c.id)) continue;
+          if (!T.canTransition(p, c)) continue;
           const d = Math.abs(T.clipEnd(c) - at());
           if (d < bestD) {
             best = c;
@@ -276,7 +276,7 @@ export function createActions(ctx) {
     applyTransitionToAll(transitionId, duration = defaultLength.transition()) {
       store.update('Apply transition to all', (p) => {
         const main = T.mainTrack(p);
-        for (const c of main.clips) if (T.nextAdjacent(p, c.id)) T.setTransition(p, c.id, transitionId, duration);
+        for (const c of main.clips) if (T.canTransition(p, c)) T.setTransition(p, c.id, transitionId, duration);
       });
     },
 

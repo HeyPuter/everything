@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   setTransition, maxTransition, cleanupTransitions, nextAdjacent, moveClip,
-  snap, snapRange, snapPoints, editPoint, addClip,
+  snap, snapRange, snapPoints, editPoint, addClip, canTransition,
 } from '../src/model/timeline.js';
+import { createCompound } from '../src/model/compound.js';
+import { evaluate } from '../src/engine/scene.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
 const RIPPLE = { ripple: true, linkOverlays: true };
@@ -43,6 +45,31 @@ describe('transitions', () => {
     addClip(p, t1, RIPPLE);
     addClip(p, clip('text', 2, 2), RIPPLE);
     expect(setTransition(p, t1.id, 'mix')).toBe(false);
+  });
+
+  it('is not offered into a compound clip, whose contents play on tracks of their own', () => {
+    const p = fixture();
+    const [a, b, c] = onMain(p, clip('video', 0, 2), clip('video', 2, 2), clip('video', 4, 2));
+    const comp = createCompound(p, [b.id, c.id], RIPPLE);
+    expect(nextAdjacent(p, a.id)).toBe(comp);
+    expect(maxTransition(p, a)).toBe(0);
+    expect(canTransition(p, a)).toBe(false);
+    expect(setTransition(p, a.id, 'mix')).toBe(false);
+    // One made before (or loaded) is dropped, as it never played.
+    a.transition = { id: 'mix', duration: s(0.5) };
+    cleanupTransitions(p);
+    expect(a.transition).toBe(null);
+    // Out of a compound clip neither.
+    const [x, y] = onMain(p, clip('video', 10, 2), clip('video', 12, 2));
+    const out = createCompound(p, [x.id], FREE);
+    expect(nextAdjacent(p, out.id)).toBe(y);
+    expect(canTransition(p, out)).toBe(false);
+    // The engine draws no transition at that cut.
+    const q = fixture();
+    const [k, l, m] = onMain(q, clip('video', 0, 2), clip('video', 2, 2), clip('video', 4, 2));
+    createCompound(q, [l.id, m.id], RIPPLE);
+    k.transition = { id: 'mix', duration: s(1) };
+    expect(evaluate(q, s(2)).some((layer) => layer.kind === 'transition')).toBe(false);
   });
 
   it('is removed by passing no id', () => {
