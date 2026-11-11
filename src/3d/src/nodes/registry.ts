@@ -237,9 +237,20 @@ export function inputValue(node: NodeData, s: SocketDef): SocketValue {
 }
 
 export function propValue(node: NodeData, id: string): SocketValue {
-  if (node.props[id] !== undefined) return node.props[id];
-  const p = getNodeType(node.type)?.props.find((x) => x.id === id);
+  const v = node.props[id];
+  const p = v === undefined || typeof v === 'string' ? getNodeType(node.type)?.props.find((x) => x.id === id) : undefined;
+  if (v !== undefined && !(p && !validEnumValue(p, v))) return v;
   return p?.d ?? null;
+}
+
+/**
+ * Whether a stored value fits a fixed enum property (values from newer versions or damaged files
+ * do not). Enums whose items depend on the tree or are filled at run time accept anything.
+ */
+export function validEnumValue(p: NodePropDef, v: SocketValue): boolean {
+  if (p.type !== 'ENUM' || !p.items?.length || p.itemsFor || typeof v !== 'string') return true;
+  if (p.items.some(([k]) => k === 'PLACEHOLDER') || !p.items.some(([k]) => k === p.d)) return true;
+  return p.items.some(([k]) => k === v);
 }
 
 export function nodeLabel(node: NodeData): string {
