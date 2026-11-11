@@ -1863,6 +1863,8 @@ export function createTimeline(ctx) {
       queueRender();
       syncButtons();
     }),
+    // Steps folded together (one undo for several edits) change the Undo label.
+    store.on('history', syncButtons),
     store.on('toggles', syncToggles),
     store.on('nest', () => {
       const depth = store.nest.length;

@@ -172,13 +172,13 @@ export function createActions(ctx) {
         if (rounded !== s.fps) patch.fps = rounded;
       }
       if (!Object.keys(patch).length) return;
+      // The add is the step just recorded; it and this become one step under its name.
       const entry = store.history.undoStack.at(-1);
+      const mark = { top: store.history.undoStack.at(-2) || null, undos: store.history.undos };
       store.update('Match media', (p) => {
         Object.assign(p.settings, patch);
       }, { structural: false });
-      if (entry) {
-        store.history.undoStack.pop();
-      }
+      if (entry) store.endBatch(mark, entry.label);
     },
 
     /** Add a text clip in a style preset's or word-art effect's look. */

@@ -327,6 +327,23 @@ describe('dropping files from the desktop', () => {
   });
 });
 
+describe('the first clip of a project', () => {
+  it('names its one undo step on the Undo button, the matched frame rate included', () => {
+    const p = fixture();
+    p.settings.ratio = 'original';
+    p.assets.vid.fps = 25;
+    const { store, ctx, tl } = mountTimeline(p);
+    ctx.actions.addAsset(p.assets.vid);
+    expect(store.project.settings.fps).toBe(25);
+    expect(store.history.undoStack.map((e) => e.label)).toEqual(['Add vid']);
+    expect(tl.el.querySelector('[data-cmd=undo]').getAttribute('data-tip')).toBe('Undo Add vid');
+    store.undo();
+    expect(T.allClips(store.project)).toHaveLength(0);
+    expect(store.project.settings.fps).not.toBe(25);
+    tl.dispose();
+  });
+});
+
 describe('adding several media files', () => {
   it('is one undo step even when the history is full', () => {
     const p = fixture();
