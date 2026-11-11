@@ -333,4 +333,14 @@ describe('effect view layouts', () => {
       expect(narrow, name).not.toBe(null);
     }
   });
+
+  it('scroll the Generate Tones components inside their frame on narrow screens', () => {
+    const css = readFileSync(resolve(__dirname, '../src/styles/effects-content.css'), 'utf8');
+    const block = css.slice(css.indexOf('@media (max-width: 760px)')).split(/\n}\n/)[0];
+    // The frame may shrink to the dialog's width (it is sized to its content otherwise).
+    expect(block).toMatch(
+      /\.gen-columns > \.fx-group:has\(\.gen-comps\) \{\s*flex: 1 1 100%;\s*min-width: 0;/,
+    );
+    expect(block).toMatch(/\.gen-comps \{\s*overflow-x: auto;/);
+  });
 });

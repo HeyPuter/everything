@@ -289,6 +289,12 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
     flex-wrap: wrap;
   }
 
+  /* The component bank takes the full width and scrolls inside it, not the whole dialog. */
+  .gen-columns > .fx-group:has(.gen-comps) {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
   .gen-comps {
     overflow-x: auto;
   }
