@@ -56,3 +56,31 @@ test('a panel menu opened from the keyboard can be navigated and used', async ({
   await expect(menu).toHaveCount(0);
   await expect(button).toBeFocused();
 });
+
+test('two fingers pinch to zoom and pan without painting; one finger still paints', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.setTool('brush'));
+  await idle(page);
+  const box = (await page.locator('#viewport').boundingBox())!;
+  const cx = box.x + box.width / 2,
+    cy = box.y + box.height / 2;
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: string, points: [number, number][]) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
+  const zoom = await page.evaluate(() => window.photoStudio.zoom);
+  // Two fingers land and spread to twice their distance.
+  await touch('touchStart', [[cx - 40, cy], [cx + 40, cy]]);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', [[cx - 40 - i * 5, cy + i * 2], [cx + 40 + i * 5, cy + i * 2]]);
+  await touch('touchEnd', []);
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
+  expect(await page.evaluate(() => window.photoStudio.zoom)).toBeCloseTo(zoom * 2, 2);
+  // The document point under the fingers' midpoint moved with it (16 px down).
+  const [, y] = await page.evaluate(([x, y]) => window.photoStudio.docPoint(x, y), [cx, cy + 16]);
+  const [, y0] = await page.evaluate(([x, y]) => window.photoStudio.docPoint(x, y), [cx, cy]);
+  expect(y - y0).toBeCloseTo(16 / (zoom * 2), 3);
+  // A one-finger drag is a brush stroke.
+  await touch('touchStart', [[cx, cy]]);
+  for (let i = 1; i <= 5; i++) await touch('touchMove', [[cx + i * 8, cy]]);
+  await touch('touchEnd', []);
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(['Brush Tool']);
+});
