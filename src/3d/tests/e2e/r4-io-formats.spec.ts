@@ -68,6 +68,28 @@ test('dropping a model file imports it with its format operator', async ({ page 
   await expectNoErrors(errors);
 });
 
+test('dropping several model files asks for their options one at a time', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async (src) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([src.replace('Tri', 'First')], 'first.obj', { type: 'text/plain' }));
+    dt.items.add(new File([src.replace('Tri', 'Second')], 'second.obj', { type: 'text/plain' }));
+    const canvas = document.querySelector('.view3d') as HTMLElement;
+    canvas.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    canvas.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  }, OBJ);
+  const dlg = page.locator('.io-dialog');
+  await expect(dlg).toHaveCount(1);
+  // Escape skips the first file only; the second one's dialog follows
+  await page.keyboard.press('Escape');
+  await expect(dlg).toHaveCount(1);
+  await dlg.locator('button', { hasText: /^Import$/ }).click();
+  await expect.poll(() => objectNames(page)).toContain('Second');
+  await expect(dlg).toHaveCount(0);
+  expect(await objectNames(page)).not.toContain('First');
+  await expectNoErrors(errors);
+});
+
 test('Collection ▸ Exporters: add an exporter, edit it and export the collection', async ({ page }) => {
   const errors = await openApp(page);
   await page.locator('.rail-tab[data-tab="COLLECTION"]').click();

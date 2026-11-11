@@ -524,7 +524,10 @@ ops.push(
     exec: () => {
       const files = pendingImports.splice(0);
       if (!files.length) return 'CANCELLED';
-      for (const f of files) void openFile(f, 'import');
+      // one after another: each file's options dialog opens once the previous one is answered
+      void (async () => {
+        for (const f of files) await openFile(f, 'import');
+      })();
       return 'CANCELLED';
     },
   },
