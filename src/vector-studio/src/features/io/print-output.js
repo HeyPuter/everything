@@ -230,7 +230,15 @@ export async function buildPrintOutput(app, editor, pages, st, { outlines = null
       const w = num(t.rect.w * t.s);
       const hh = num(t.rect.h * t.s);
       if (art.url) body += `<image href="${art.url}" x="${num(t.x)}" y="${num(t.y)}" width="${w}" height="${hh}" preserveAspectRatio="none"/>`;
-      else if (art.svg) body += art.svg.replace(/^<\?xml[^>]*>\s*/, '').replace(/^<svg\b/, `<svg x="${num(t.x)}" y="${num(t.y)}" width="${w}" height="${hh}" preserveAspectRatio="none" overflow="hidden"`);
+      else if (art.svg && art.at) {
+        // Copies and further tiles reuse the artwork written on its first page, so the
+        // print DOM does not grow by the whole artwork (embedded images included) per sheet.
+        body += `<use href="#${art.id}" x="${num(t.x - art.at.x)}" y="${num(t.y - art.at.y)}" width="${w}" height="${hh}"/>`;
+      } else if (art.svg) {
+        art.id = `vs-print-art-${cache.size}-${k}-${i}`;
+        art.at = { x: t.x, y: t.y };
+        body += art.svg.replace(/^<\?xml[^>]*>\s*/, '').replace(/^<svg\b/, `<svg id="${art.id}" x="${num(t.x)}" y="${num(t.y)}" width="${w}" height="${hh}" preserveAspectRatio="none" overflow="hidden"`);
+      }
     }
     const art = proof ? `<defs><filter id="pp-out-${i}" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%">${proof}</filter></defs><g filter="url(#pp-out-${i})">${body}</g>` : body;
     const mirror = st.emulsion === 'down' ? ` transform="translate(${num(p.w)} 0) scale(-1 1)"` : '';
