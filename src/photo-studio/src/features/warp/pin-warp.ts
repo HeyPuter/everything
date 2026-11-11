@@ -392,8 +392,10 @@ class PinWarpSession extends WarpSession<Snap> {
       remesh();
     });
     this.on(el, 'pw-expansion', (v, t) => {
-      const n = Math.max(0, Math.min(200, Math.round(Number(v))));
+      // A cleared or invalid entry keeps the value in use.
+      const n = Math.max(0, Math.min(200, Math.round(v.trim() === '' ? NaN : Number(v))));
       if (!Number.isFinite(n)) return void (t.value = String(this.s.expansion));
+      t.value = String(n);
       this.push();
       this.s.expansion = n;
       remesh();
