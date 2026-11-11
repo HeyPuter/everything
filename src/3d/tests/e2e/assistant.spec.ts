@@ -197,3 +197,36 @@ test('asking again while signed out shows one sign-in prompt, gone once a messag
   await expect(page.locator('.as-bot .as-text')).toContainText('Hello.');
   await expect(page.locator('.as-notice')).toHaveCount(0);
 });
+
+test('buttons that go away when used hand the keyboard to the message box', async ({ page }) => {
+  await openApp(page);
+  await scriptModel(page, [
+    [{ type: 'tool', id: 'call_1', name: 'run_script', input: { description: 'Add a cube', code: 'bpy.ops.mesh.primitive_cube_add({location: [3, 0, 0]});' } }],
+    [{ type: 'text', text: 'Added.' }],
+  ]);
+  const input = page.locator('.as-input');
+  await input.fill('add a cube');
+  await input.press('Enter');
+  const undo = page.getByRole('button', { name: 'Undo changes' });
+  await expect(undo).toBeVisible();
+  await undo.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.as-meta')).toContainText('Changes undone.');
+  await expect(input).toBeFocused();
+  // a failed reply's Try again
+  await page.evaluate(() => {
+    let n = 0;
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      if (n++ === 0) throw new Error('busy');
+      yield { type: 'text', text: 'Hello.' };
+    };
+  });
+  await input.fill('hi');
+  await input.press('Enter');
+  const retry = page.getByRole('button', { name: 'Try again' });
+  await expect(retry).toBeVisible();
+  await retry.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.as-bot .as-text').last()).toContainText('Hello.');
+  await expect(input).toBeFocused();
+});

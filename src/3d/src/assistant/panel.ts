@@ -344,6 +344,7 @@ export class AssistantPanel {
           .then((ok) => {
             if (!ok) return;
             btn.closest('.as-msg')?.remove();
+            this.input.focus();
             void this.submit();
           })
           .catch((e) => this.flash((e as Error).message));
@@ -600,6 +601,8 @@ export class AssistantPanel {
       retry.addEventListener('click', () => {
         if (this.agent.busy) return;
         turn.foot.replaceChildren();
+        // The button is gone: the keyboard goes to the message box, not to the page.
+        this.input.focus();
         void this.run(request, (on) => this.agent.retry(on));
       });
       turn.foot.append(el('div', { class: 'as-error', role: 'alert' }, `The assistant could not answer: ${res.error.message}`), retry);
@@ -613,6 +616,7 @@ export class AssistantPanel {
         }
         app.undoStep();
         undo.replaceWith(el('span', { class: 'as-meta' }, 'Changes undone.'));
+        this.input.focus();
       });
       turn.foot.prepend(undo);
     }
