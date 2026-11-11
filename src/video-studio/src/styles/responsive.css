@@ -322,7 +322,8 @@
 
 .editor[data-layout='phone'] .workspace {
   padding: 0;
-  grid-template-rows: minmax(200px, min(calc(var(--upper, 0.5) * 100%), 52%)) 8px minmax(150px, 1fr);
+  /* The minimums give way on short screens (a phone held sideways), so the timeline never runs under the dock. */
+  grid-template-rows: minmax(min(200px, 50%), min(calc(var(--upper, 0.5) * 100%), 52%)) 8px minmax(min(150px, calc(50% - 8px)), 1fr);
 }
 
 .editor[data-layout='phone'] .upper {
