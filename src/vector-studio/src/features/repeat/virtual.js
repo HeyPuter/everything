@@ -9,6 +9,7 @@
 import { virtualId, isVirtualId } from '../../model/live.js';
 import { transformPatches, nodeBounds, unionRect } from '../../model/geometry.js';
 import { isIdentity } from '../../lib/matrix.js';
+import { remapIdRefs } from '../../model/document.js';
 
 /**
  * A virtual copy of `node` transformed by `m`. Descendants go into `extra`
@@ -17,8 +18,10 @@ import { isIdentity } from '../../lib/matrix.js';
  */
 export function transformedCopy(doc, node, m, extra, { base = 'copy', patch = null } = {}) {
   const patches = isIdentity(m) ? new Map() : transformPatches(doc, node, m, {});
+  const ids = new Map();
   const copy = (n) => {
-    const out = { ...n, ...(patches.get(n.id) || {}), id: virtualId(base) };
+    let out = { ...n, ...(patches.get(n.id) || {}), id: virtualId(base) };
+    ids.set(n.id, out.id);
     const src = isVirtualId(n.id) ? n.source : n.id;
     if (src) out.source = src;
     else delete out.source;
@@ -32,6 +35,8 @@ export function transformedCopy(doc, node, m, extra, { base = 'copy', patch = nu
         extra.set(cc.id, cc);
         out.children.push(cc.id);
       }
+      // Nested live objects that name their children (interlace zones) name the copies.
+      out = remapIdRefs(out, ids);
     }
     return out;
   };

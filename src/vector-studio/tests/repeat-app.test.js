@@ -259,4 +259,24 @@ describe('objects on path', () => {
     await app.commands.run('edit.pasteInPlace');
     expect(placed(app.editor.doc, app.editor.topSelection()[0])).toEqual(before);
   });
+
+  it('objects on a path inside a symbol instance follow the instance', async () => {
+    const path = addPath(app, [[100, 300], [400, 300]]);
+    const a = addRect(app, 10, 10, 20, 20);
+    const b = addRect(app, 50, 10, 20, 20);
+    const doc = app.editor.doc;
+    let gid;
+    doc.transact('Attach', () => (gid = attachToPath(doc, [path.id, a.id, b.id], path.id)));
+    const boxes = (d, n) => {
+      const { items, vdoc } = liveArtwork(d, n);
+      return items.map((v) => nodeBounds(vdoc, v)).map((r) => [Math.round(r.x), Math.round(r.y)]);
+    };
+    const before = boxes(doc, doc.get(gid));
+    app.editor.select([gid]);
+    await app.commands.run('symbol.new', { direct: true, name: 'Beads' });
+    const inst = app.editor.topSelection()[0];
+    doc.transact('Move', () => transformNodes(doc, [inst], translate(0, 100)));
+    const { items, vdoc } = liveArtwork(doc, doc.get(inst));
+    expect(boxes(vdoc, items[0])).toEqual(before.map(([x, y]) => [x, y + 100]));
+  });
 });

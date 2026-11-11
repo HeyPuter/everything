@@ -159,6 +159,28 @@ describe('interlace', () => {
     crossing(app.editor.doc, app.editor.topSelection()[0]);
   });
 
+  it('keeps its crossings inside a symbol instance and a repeat', async () => {
+    await app.commands.run('interlace.make');
+    const gid = app.editor.topSelection()[0];
+    const tool = app.tool;
+    tool.onPointerDown(ev(app, top.x, top.y));
+    await tool.onPointerUp(ev(app, top.x, top.y));
+    tool.onKeyDown({ key: 'Escape' });
+    // The generated interlace inside another live object still draws its zone (3 items: 2 rings + zone).
+    const inner = (id) => {
+      const { items, vdoc } = liveArtwork(doc, doc.get(id));
+      return items.map((n) => liveArtwork(vdoc, n).items.length);
+    };
+    app.editor.select([gid]);
+    await app.commands.run('repeat.grid');
+    const rep = app.editor.topSelection()[0];
+    expect(inner(rep).every((k) => k === 3)).toBe(true);
+    doc.undo();
+    app.editor.select([gid]);
+    await app.commands.run('symbol.new', { direct: true, name: 'Rings' });
+    expect(inner(app.editor.topSelection()[0])).toEqual([3]);
+  });
+
   it('a dragged loop makes a freehand zone', async () => {
     await app.commands.run('interlace.make');
     const gid = app.editor.topSelection()[0];

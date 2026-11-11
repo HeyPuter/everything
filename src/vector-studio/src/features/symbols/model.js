@@ -32,6 +32,7 @@ import { transformPatches, nodeBounds, unionRect, visualBounds } from '../../mod
 import { STYLE_KEYS } from '../../model/nodes.js';
 import { apply, multiply, translate, IDENTITY, invert } from '../../lib/matrix.js';
 import { hexToRgb, rgbToHex } from '../../lib/color.js';
+import { remapIdRefs } from '../../model/document.js';
 
 export const STORE_ID = 'symbols';
 
@@ -498,12 +499,18 @@ export function generateInstance(doc, inst) {
 
   const extra = new Map();
   const chain = [...inside, def.id];
+  const ids = new Map();
   const build = (id, parent) => {
     const n = sdoc.get(id);
     if (!n) return null;
     const vid = virtualId(id);
-    const v = { ...n, ...patches.get(id), id: vid, parent };
-    if (n.children) v.children = n.children.map((c) => build(c, vid)).filter(Boolean);
+    ids.set(id, vid);
+    let v = { ...n, ...patches.get(id), id: vid, parent };
+    if (n.children) {
+      v.children = n.children.map((c) => build(c, vid)).filter(Boolean);
+      // Live parts that name their children (interlace zones, Objects on Path) name the copies.
+      v = remapIdRefs(v, ids);
+    }
     masterOf.set(v, id);
     if (v.type === 'instance') ancestry.set(v, chain);
     extra.set(vid, v);

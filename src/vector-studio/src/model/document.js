@@ -25,15 +25,19 @@ export const FORMAT_VERSION = 1;
 /**
  * Live objects that refer to their own children by id (an interlace's zone
  * orders, the path of Objects on Path) register fn(node, idMap) -> node here,
- * so copies made with fresh ids (paste, duplicate) refer to the copied children.
+ * so copies made with fresh ids (paste, duplicate, the virtual copies of live
+ * artwork) refer to the copied children.
  */
 export const idRefHooks = [];
 
-function remapRefs(node, idMap) {
+/** A copied node with its references to other copied nodes (old id -> new id in idMap) updated. */
+export function remapIdRefs(node, idMap) {
+  if (!node.live) return node;
   let out = node;
   for (const fn of idRefHooks) out = fn(out, idMap) || out;
   return out;
 }
+
 const HISTORY_LIMIT = 200;
 
 const { get: mapGet, values: mapValues, entries: mapEntries, forEach: mapForEach } = Map.prototype;
@@ -827,8 +831,7 @@ export class VDocument extends Emitter {
       return out;
     };
     const node = copy(src, src.parent);
-    if (!idRefHooks.length) return { node, descendants };
-    return { node: remapRefs(node, idMap), descendants: descendants.map((n) => remapRefs(n, idMap)) };
+    return { node: remapIdRefs(node, idMap), descendants: descendants.map((n) => remapIdRefs(n, idMap)) };
   }
 
   /** Serializable subtree for the clipboard: { root, nodes: [...] } with original ids. */
@@ -849,7 +852,7 @@ export class VDocument extends Emitter {
       const out = { ...n, id: map.get(n.id) };
       if (n.children) out.children = n.children.map((c) => map.get(c)).filter(Boolean);
       if (n.parent && map.has(n.parent)) out.parent = map.get(n.parent);
-      return remapRefs(out, map);
+      return remapIdRefs(out, map);
     });
     const root = nodes[0];
     return this.insert(root, parentId, index, nodes.slice(1));

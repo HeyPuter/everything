@@ -30,6 +30,7 @@ import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb } from '../../lib/color.js';
 import { multiply, scale, translate, rotate } from '../../lib/matrix.js';
 import { pathSampler } from '../../model/path-sampler.js';
 import { isGradient, sampleStops } from '../../model/gradients.js';
+import { remapIdRefs } from '../../model/document.js';
 
 export const DEFAULT_BLEND = Object.freeze({ spacing: 'smooth', steps: 5, distance: 20, orientation: 'page', easing: 'linear', easeAmount: 0.5, easeColor: true, colorMode: 'rgb' });
 
@@ -261,7 +262,7 @@ function transformedCopy(doc, node, m, extra, style) {
   const copy = (n) => {
     const nid = `blend~${++vid}`;
     ids.set(n.id, nid);
-    const out = { ...n, ...(patches.get(n.id) || {}), id: nid };
+    let out = { ...n, ...(patches.get(n.id) || {}), id: nid };
     if (n.children) {
       out.children = n.children.map((c) => {
         const cn = doc.get(c);
@@ -270,6 +271,8 @@ function transformedCopy(doc, node, m, extra, style) {
         extra.set(cc.id, cc);
         return cc.id;
       }).filter(Boolean);
+      // Nested live objects that name their children (interlace zones) name the copies.
+      out = remapIdRefs(out, ids);
     }
     return out;
   };
