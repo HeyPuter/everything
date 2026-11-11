@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { envelopeControl } from '../src/effects/editors.js';
+import { describe, it, expect, vi } from 'vitest';
+import { envelopeControl, plot } from '../src/effects/editors.js';
 import { paramControls } from '../src/effects/param-ui.js';
 import { coerce } from '../src/effects/params.js';
 
@@ -115,5 +115,30 @@ describe('value coercion', () => {
     }
     expect(outside).toEqual([]);
     expect(coerce({ min: 0.1, max: 500, step: 1 }, 0.1)).toBe(0.1);
+  });
+});
+
+describe('plots', () => {
+  it('stop repainting on theme changes once their dialog has closed', async () => {
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+    const repaints = async () => {
+      await frame();
+      raf.mockClear();
+      window.dispatchEvent(new CustomEvent('themechange'));
+      return raf.mock.calls.length;
+    };
+    const before = await repaints();
+    const closed = plot('a', 'A', () => {});
+    document.body.append(closed.el);
+    closed.redraw();
+    await frame();
+    closed.el.remove();
+    const open = plot('b', 'B', () => {});
+    document.body.append(open.el);
+    // Only the plot on the page schedules a repaint.
+    expect(await repaints()).toBe(before + 1);
+    raf.mockRestore();
+    open.el.remove();
   });
 });
