@@ -73,8 +73,13 @@ function rangeMinMax(block, x, y, acc) {
  * Fills out[2 * c], out[2 * c + 1] with min and max of each pixel column
  * c in [0, columns), where column c spans frames [start + c * fpp, start + (c + 1) * fpp).
  * Columns outside the channel are NaN so renderers can skip them.
+ *
+ * `defer` ({ deadline, pending: Set }) spreads first-time level building over
+ * several frames: once performance.now() passes the deadline, a column that
+ * needs levels of a block without them is left NaN and the block goes into
+ * `pending`, to be drawn on a later call.
  */
-export function channelColumns(channel, start, fpp, columns, out = new Float32Array(columns * 2)) {
+export function channelColumns(channel, start, fpp, columns, out = new Float32Array(columns * 2), defer = null) {
   const acc = [0, 0];
   for (let c = 0; c < columns; c++) {
     let a = Math.floor(start + c * fpp);
@@ -91,16 +96,25 @@ export function channelColumns(channel, start, fpp, columns, out = new Float32Ar
     acc[1] = -Infinity;
     let i = channel.pieceIndex(a);
     let at = a;
+    let missing = false;
     while (at < b) {
       const p = channel.pieces[i];
       const inPiece = at - channel.starts[i];
       const take = Math.min(p.length - inPiece, b - at);
-      rangeMinMax(p.block, p.offset + inPiece, p.offset + inPiece + take, acc);
+      // Ranges this long read the block's levels (see rangeMinMax); each call builds at least one.
+      const unbuilt = defer && !p.block.peaks && take >= L1 * 2;
+      if (unbuilt && (defer.pending.size || (defer.built && performance.now() > defer.deadline))) {
+        defer.pending.add(p.block);
+        missing = true;
+      } else if (!missing) {
+        if (unbuilt) defer.built = (defer.built || 0) + 1;
+        rangeMinMax(p.block, p.offset + inPiece, p.offset + inPiece + take, acc);
+      }
       at += take;
       i++;
     }
-    out[2 * c] = acc[0];
-    out[2 * c + 1] = acc[1];
+    out[2 * c] = missing ? NaN : acc[0];
+    out[2 * c + 1] = missing ? NaN : acc[1];
   }
   return out;
 }

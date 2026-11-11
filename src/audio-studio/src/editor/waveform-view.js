@@ -33,6 +33,9 @@ function withAlpha(color, alpha) {
   return `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a * alpha})`;
 }
 
+/** Time each frame may spend building peak levels for blocks drawn for the first time. */
+const PEAK_FRAME_BUDGET_MS = 12;
+
 /** Levels the amplitude ruler can label, loudest first. */
 const DB_LADDER = [0, -1, -3, -6, -9, -12, -18, -24, -30, -36, -42, -48, -54, -60, -72, -84, -96];
 
@@ -493,6 +496,9 @@ export class WaveformView {
     if (!this.width) return;
     const playing = this.app.engine.playing && this.app.active === doc;
     if (playing) this.#autoScroll();
+    // A newly opened long file builds its peak levels over several frames
+    // instead of in one long task; what is not ready yet fills in as it is.
+    this.peakDefer = { deadline: performance.now() + PEAK_FRAME_BUDGET_MS, pending: new Set() };
     if (this.dirty.wave) this.#drawWave();
     if (this.dirty.overlay) this.#drawOverlay();
     if (this.dirty.ruler) this.ruler.draw();
@@ -500,6 +506,12 @@ export class WaveformView {
     if (this.dirty.amp) this.#drawAmp();
     for (const l of this.layers) if (l.visible?.() !== false) l.draw?.(this.dirty);
     for (const k of Object.keys(this.dirty)) this.dirty[k] = false;
+    if (this.peakDefer.pending.size) {
+      this.overview.peaksFor = null;
+      this.invalidate('wave');
+      this.invalidate('overview');
+    }
+    this.peakDefer = null;
     this.#placePlayhead();
   }
 
@@ -533,7 +545,7 @@ export class WaveformView {
     });
     const amp = doc.view.amp;
     this.waveMask = doc.selection.channels.join();
-    this.renderer.draw({ channels: doc.state.channels, start: doc.view.start, fpp: this.fpp / dpr, amp, lanes, colors });
+    this.renderer.draw({ channels: doc.state.channels, start: doc.view.start, fpp: this.fpp / dpr, amp, lanes, colors, defer: this.peakDefer });
   }
 
   #drawOverlay() {
@@ -692,7 +704,7 @@ export class WaveformView {
     const ch = this.doc.state.channels;
     if (!ch.length || !this.doc.length) return null;
     const fpp = total / cols;
-    const strips = ch.map((c) => channelColumns(c, 0, fpp, cols));
+    const strips = ch.map((c) => channelColumns(c, 0, fpp, cols, undefined, this.peakDefer));
     if (strips.length === 1 || !this.app.prefs.get('waveLayered')) return strips.length === 1 ? strips[0] : strips;
     const out = strips[0];
     for (const o of strips.slice(1)) {

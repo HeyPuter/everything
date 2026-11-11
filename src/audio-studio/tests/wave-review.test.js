@@ -424,3 +424,48 @@ describe('WebGL context restore', () => {
     }
   });
 });
+
+describe('deferred peak levels', () => {
+  it('fills in over several calls and ends up identical to a full build', async () => {
+    const { Channel } = await import('../src/audio/channel.js');
+    const { channelColumns } = await import('../src/audio/peaks.js');
+    const make = () => {
+      let s = 7;
+      const data = Float32Array.from(
+        { length: 1 << 20 },
+        () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32) * 2 - 1,
+      );
+      return Channel.fromSamples(data);
+    };
+    const expected = channelColumns(make(), -1000, 2500, 500);
+    const ch = make();
+    let calls = 0;
+    let out;
+    for (;;) {
+      const defer = { deadline: -Infinity, pending: new Set() };
+      out = channelColumns(ch, -1000, 2500, 500, undefined, defer);
+      calls++;
+      if (!defer.pending.size) break;
+      // Columns over blocks still waiting are blank, never wrong.
+      for (let c = 0; c < 500; c++)
+        if (!Number.isNaN(out[2 * c])) expect(out[2 * c]).toBe(expected[2 * c]);
+      expect(calls).toBeLessThan(40);
+    }
+    expect(calls).toBe(16); // 16 blocks, at least one built per call
+    expect(Array.from(out)).toEqual(Array.from(expected));
+  });
+
+  it('draws the view in one frame once levels exist', async () => {
+    const { doc, view } = await makeView({ frames: 48000 * 30 });
+    const draw = vi.spyOn(view.renderer, 'draw');
+    doc.setView(0, doc.length);
+    view.frame();
+    for (let i = 0; i < 40 && view.dirty.wave; i++) view.frame();
+    expect(view.dirty.wave).toBe(false);
+    const n = draw.mock.calls.length;
+    doc.setView(48000, 96000);
+    view.frame();
+    expect(draw.mock.calls.length).toBe(n + 1);
+    expect(view.dirty.wave).toBe(false);
+  });
+});
