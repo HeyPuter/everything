@@ -42,7 +42,7 @@ import { isIdentityWarp } from '../../imaging/text/warp';
 
 type Gesture =
   | { kind: 'select'; anchor: [number, number]; unit: 'char' | 'word' | 'paragraph' }
-  | { kind: 'box'; handle: string; start: [number, number]; data: TextLayerData; snap: boolean }
+  | { kind: 'box'; handle: string; start: [number, number]; data: TextLayerData; snap: boolean; id: string }
   | { kind: 'move'; start: [number, number]; id: string }
   | { kind: 'create'; start: [number, number]; current: [number, number] };
 let gesture: Gesture | undefined;
@@ -83,7 +83,7 @@ async function pointerDown(e: Editor, p: CanvasPointer, vertical: boolean, mask:
   if (session) {
     const h = handleAt(e, p);
     if (h) {
-      gesture = { kind: 'box', handle: h, start: toLocal(sessionLayer()!, p.x, p.y), data: session.data, snap: true };
+      gesture = { kind: 'box', handle: h, start: toLocal(sessionLayer()!, p.x, p.y), data: session.data, snap: true, id: crypto.randomUUID() };
       return;
     }
     if (p.mod && !session.mask) {
@@ -196,7 +196,8 @@ function pointerMove(e: Editor, p: CanvasPointer) {
       if (g.handle.startsWith('n')) y -= min - height;
       height = min;
     }
-    updateData(e, (d) => ({ ...d, origin: { x, y }, box: { width, height } }), 'box');
+    // Each drag is one undo step.
+    updateData(e, (d) => ({ ...d, origin: { x, y }, box: { width, height } }), `box:${g.id}`);
   }
 }
 

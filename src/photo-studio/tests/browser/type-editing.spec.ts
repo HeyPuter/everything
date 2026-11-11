@@ -128,3 +128,24 @@ test('the composition underline runs beside vertical text', async ({ page }) => 
   expect(Math.abs(pts.at(-1)![1] - pts[0][1])).toBeGreaterThan(20);
   await cdp.send('Input.insertText', { text: '日本' });
 });
+
+test('each resize of a paragraph frame is its own undo step', async ({ page }) => {
+  await canvasDrag(page, [[60, 60], [260, 160]], 6);
+  await page.keyboard.type('Frame');
+  const box = () => page.evaluate(() => {
+    const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+    const b = m.currentSession()!.data.box!;
+    return [Math.round(b.width), Math.round(b.height)];
+  });
+  const start = await box();
+  expect(start).toEqual([200, 100]);
+  await canvasDrag(page, [[260, 160], [300, 180]], 6);
+  const first = await box();
+  expect(first).toEqual([240, 120]);
+  await canvasDrag(page, [[300, 180], [320, 200]], 6);
+  expect(await box()).toEqual([260, 140]);
+  await page.keyboard.press('Meta+z');
+  expect(await box()).toEqual(first);
+  await page.keyboard.press('Meta+z');
+  expect(await box()).toEqual(start);
+});
