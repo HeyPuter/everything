@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { puterChat, withCacheBreakpoints, type ChatMessage } from '../../src/assistant/ai';
+import { requestMessages } from '../../src/assistant/agent';
 
 type G = { puter?: unknown };
 
@@ -68,5 +69,25 @@ describe('Puter AI requests', () => {
     expect(JSON.stringify(withCacheBreakpoints([{ role: 'system', content: 'S' }, { role: 'user', content: 'hi' }])).match(/cache_control/g)).toHaveLength(2);
     const empty: ChatMessage = { role: 'tool', tool_call_id: 'a', content: '' };
     expect(withCacheBreakpoints([...t.slice(0, 5), empty]).at(-1)).toBe(empty);
+  });
+
+  it('never sends half of a character cut from an earlier result', async () => {
+    const t: ChatMessage[] = [
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'get_scene', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'a', content: `${'a'.repeat(1499)}😀 and more` },
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'second' },
+    ];
+    // An old result is cut to 1500 characters, which can split an emoji in two;
+    // the API refuses the lone half as invalid JSON, in every later request.
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    const req = requestMessages(t, 'S');
+    expect(lone.test(String(req[3].content))).toBe(true);
+    const calls = stubPuter();
+    await drain(req);
+    const tool = (calls[0].messages as { content: unknown }[])[3];
+    expect(lone.test(String(tool.content))).toBe(false);
+    expect(String(tool.content)).toContain('a�\n[…cut');
   });
 });
