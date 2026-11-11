@@ -1387,6 +1387,11 @@ export function syncedObjectIds() {
 
 let preview: { obId: string; mesh: GPMesh } | null = null;
 
+/** Object id whose live stroke preview is shown (tests / debugging). */
+export function strokePreviewObject() {
+  return preview?.mesh.parent ? preview.obId : null;
+}
+
 /** Show (or clear with null) an in-progress stroke drawing for an object/layer. */
 export function setStrokePreview(obId: string | null, d: GPDrawing | null, layer?: GPLayer | null) {
   const s = obId ? synced.get(obId) : undefined;

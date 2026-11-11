@@ -229,6 +229,11 @@ export function startDraw(v: View3D, e: PointerEvent, fillGuide = false) {
       setStrokePreview(c.ob.id, fromStrokes([build()]), c.layer);
       if (stab) v.drawSvg();
     },
+    // Esc: nothing was committed yet, only the live preview to drop
+    cancel: () => {
+      lazy.on = false;
+      setStrokePreview(null, null);
+    },
     end: () => {
       lazy.on = false;
       setStrokePreview(null, null);
