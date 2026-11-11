@@ -2,7 +2,7 @@
 // effect chains) checked numerically against the built DSP module.
 import { describe, it, expect, vi } from 'vitest';
 import { wasmBytes } from './fx-wasm.js';
-import { FxHost } from '../src/engine/fxhost.js';
+import { FxHost, processorParam } from '../src/engine/fxhost.js';
 import { getEffect, slotSpec, defaults, effectTail } from '../src/effects/index.js';
 import { applyChain } from '../src/engine/offline.js';
 import { renderEffect } from '../src/effects/apply.js';
@@ -243,5 +243,65 @@ describe('Phaser tail', () => {
     const peak = (a, b) => out.subarray(a, b).reduce((m, v) => Math.max(m, Math.abs(v)), 0);
     // What the declared tail leaves out is below -60 dB.
     expect(20 * Math.log10(peak(n + tail, n + tail + extra) / peak(0, n))).toBeLessThan(-60);
+  });
+});
+
+describe('Chorus feedback', () => {
+  const rate = 48000;
+  const def = getEffect('chorus');
+
+  it('rings down instead of growing without bound at high feedback', () => {
+    for (const values of [
+      { voices: 8, feedback: 90, width: 100 },
+      { voices: 8, feedback: 45, width: 0 },
+      { voices: 5, feedback: 90, width: 80, binaural: true },
+    ]) {
+      const h = host(rate);
+      const chain = h.sync([slotSpec(def, { ...defaults(def), ...values }, { rate })]);
+      let seed = 1;
+      let last = 0;
+      for (let b = 0; b < 24; b++) {
+        const buf = [new Float32Array(8192), new Float32Array(8192)];
+        if (b < 6) {
+          for (const c of buf) {
+            for (let i = 0; i < 8192; i++) {
+              seed = (seed * 1664525 + 1013904223) >>> 0;
+              c[i] = (seed / 2 ** 32 - 0.5) * 0.5;
+            }
+          }
+        }
+        h.run(chain, buf, 8192);
+        last = buf.reduce((m, c) => c.reduce((n, v) => Math.max(n, Math.abs(v)), m), 0);
+      }
+      expect(last, JSON.stringify(values)).toBeLessThan(0.05);
+    }
+  });
+
+  it('renders a tail as long as the loop rings', async () => {
+    const values = { ...defaults(def), voices: 8, feedback: 45, width: 0 };
+    const n = rate / 2;
+    let seed = 1;
+    const x = Float32Array.from({ length: n }, () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return (seed / 2 ** 32 - 0.5) * 0.5;
+    });
+    const tail = effectTail(def, values, rate);
+    const [out] = await applyChain(
+      [Channel.fromSamples(x), Channel.fromSamples(x)],
+      rate,
+      [slotSpec(def, values, { rate })],
+      { tail: tail + rate },
+    );
+    const peak = (a, b) => out.subarray(a, b).reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+    expect(20 * Math.log10(peak(n + tail, n + tail + rate) / peak(0, n))).toBeLessThan(-60);
+  });
+
+  it('leaves the presets and gentle feedback alone', () => {
+    for (const p of def.presets) {
+      const spec = slotSpec(def, { ...defaults(def), ...p.values });
+      expect(processorParam(def.kind, 3, spec.params, rate)).toBe(spec.params[3]);
+    }
+    const spec = slotSpec(def, { ...defaults(def), voices: 2, feedback: 90 });
+    expect(processorParam(def.kind, 3, spec.params, rate)).toBe(90);
   });
 });

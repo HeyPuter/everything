@@ -3,6 +3,7 @@
 import { registerEffect } from '../registry.js';
 import { num, db, ms, pct, bool, choice, preset } from './util.js';
 import { feedbackTail } from './delay.js';
+import { chorusLoopGain } from '../../engine/fxhost.js';
 
 const GROUP = 'Modulation';
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -43,7 +44,11 @@ registerEffect({
   ],
   tail: (v, rate) => {
     const longest = clamp(v.delay, 1, 50) * 1.3 + clamp(v.spread, 0, 200) + (v.binaural ? CHORUS_ITD_MS : 0);
-    return feedbackTail((longest / 1000) * rate, clamp(v.feedback / 100, 0, 0.9), rate);
+    // The voices feed back together, so the loop can ring longer than the
+    // feedback alone suggests (up to the 0.95 the processor is held to, fxhost.js).
+    const fb = clamp(v.feedback / 100, 0, 0.9);
+    const loop = Math.min(0.95, fb * chorusLoopGain(v));
+    return feedbackTail((longest / 1000) * rate, Math.max(fb, loop), rate);
   },
 });
 

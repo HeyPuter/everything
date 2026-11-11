@@ -17,16 +17,52 @@ const READOUT_MAX = 64;
 
 /**
  * A parameter value as handed to the processor, kept inside limits that depend
- * on the sample rate. Multiband Compressor (kind 33): a low or mid crossover
- * at the processor's ceiling (0.45 x rate / 1.21, / 1.1) trips a rounding
- * error in its crossover ordering that aborts the WASM module (at 44.1 kHz a
- * low crossover from 16.4 kHz up), so those two stay just below it.
+ * on the sample rate or on other parameters (`p`, the slot's values).
+ * Multiband Compressor (kind 33): a low or mid crossover at the processor's
+ * ceiling (0.45 x rate / 1.21, / 1.1) trips a rounding error in its crossover
+ * ordering that aborts the WASM module (at 44.1 kHz a low crossover from
+ * 16.4 kHz up), so those two stay just below it.
+ * Chorus (kind 70): the feedback returns the sum of the voices, which can be
+ * louder than the input (up to sqrt(voices) when they all sit in the middle),
+ * so a high feedback grows without bound (to Infinity); it is kept below the
+ * level where the loop gain reaches 1.
  */
-export function processorParam(kind, index, value, rate) {
+export function processorParam(kind, index, p, rate) {
+  const value = p[index];
   if (kind === 33 && index < 2) {
     return Math.min(value, (rate * 0.45 * 0.999) / (index === 0 ? 1.21 : 1.1));
   }
+  if (kind === 70 && index === 3) {
+    const gain = chorusLoopGain({ voices: p[0], depth: p[5], width: p[7], binaural: p[12] >= 0.5 });
+    return Math.min(value, 95 / gain);
+  }
   return value;
+}
+
+/**
+ * Gain of the Chorus's summed voices in the louder channel, each voice at
+ * 1 / sqrt(voices) panned by the width (fx/modulation/chorus.rs), times the
+ * voices' mean level under their amplitude wobble (modulation depth).
+ * Takes the dialog values ({ voices, depth, width: %, binaural }).
+ */
+export function chorusLoopGain({ voices, depth, width, binaural }) {
+  const v = Math.min(8, Math.max(2, Math.round(voices) || 2));
+  const floor = 10 ** (-Math.min(24, Math.max(0, depth || 0)) / 20);
+  const w = Math.min(1, Math.max(0, (width || 0) / 100));
+  let l = 0;
+  let r = 0;
+  for (let i = 0; i < v; i++) {
+    const q = w * ((2 * i) / (v - 1) - 1);
+    if (binaural) {
+      const far = 1 - 0.5 * Math.abs(q);
+      l += q > 0 ? far : 1;
+      r += q > 0 ? 1 : far;
+    } else {
+      l += 1 - Math.max(q, 0);
+      r += 1 + Math.min(q, 0);
+    }
+  }
+  return ((Math.max(l, r) / Math.sqrt(v)) * (1 + floor)) / 2;
 }
 
 export class FxHost {
@@ -70,9 +106,10 @@ export class FxHost {
       }
       const p = spec.params || [];
       for (let i = 0; i < p.length; i++) {
-        if (s.params[i] !== p[i]) {
-          this.x.fx_set(s.handle, i, processorParam(spec.kind, i, p[i], this.rate));
-          s.params[i] = p[i];
+        const v = processorParam(spec.kind, i, p, this.rate);
+        if (s.params[i] !== v) {
+          this.x.fx_set(s.handle, i, v);
+          s.params[i] = v;
         }
       }
       // A new instance starts at its settings instead of gliding from defaults
