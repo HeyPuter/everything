@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { envelopeControl, plot } from '../src/effects/editors.js';
 import { paramControls } from '../src/effects/param-ui.js';
 import { coerce } from '../src/effects/params.js';
+import { routeSummary } from '../src/effects/routing.js';
 import { effectsRackPanel, rackFor } from '../src/effects/rack-panel.js';
 import { Channel } from '../src/audio/channel.js';
 import { AudioFile } from '../src/model/audio-file.js';
@@ -589,5 +590,33 @@ describe('effect dialog name prompts', () => {
     [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
     await done;
     expect(saved).toEqual([]);
+  });
+});
+
+describe('channel summary', () => {
+  it('lists every channel of a 5.1 file the effect processes', () => {
+    expect(routeSummary(null, 6)).toBe('In: 1, 2, 3, 4, 5, 6 | Out: 1, 2, 3, 4, 5, 6');
+    expect(routeSummary(null, 6, [true, true, false, false, true, true])).toBe(
+      'In: 1, 2, 3, 4, 5, 6 | Out: 1, 2, 5, 6',
+    );
+    expect(routeSummary(null, 2)).toBe('In: L, R | Out: L, R');
+  });
+
+  it('shows it in the effect dialog of a 5.1 file', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'six.wav',
+      sampleRate: 48000,
+      channels: Array.from({ length: 6 }, () => Channel.fromSamples(filled(480, 0.1))),
+    });
+    app.active = doc;
+    const done = openEffectDialog(app, getEffect('amplify'), { doc, routing: {} });
+    const dlg = document.querySelector('.fx-dialog');
+    expect(dlg.querySelector('.fx-route-summary').textContent).toBe(
+      'In: 1, 2, 3, 4, 5, 6 | Out: 1, 2, 3, 4, 5, 6',
+    );
+    expect(dlg.querySelector('.fx-map-btn').disabled).toBe(true);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await done;
   });
 });

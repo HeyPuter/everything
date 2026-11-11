@@ -28,10 +28,18 @@ export function isIdentityRoute(route) {
   return !route || (route.in.every((v, i) => v === IDENTITY.in[i]) && route.out.every((v, i) => v === IDENTITY.out[i]));
 }
 
-/** "In: L, R | Out: L, R" for a route on a file with n channels. */
-export function routeSummary(route, n = 2) {
+/**
+ * "In: L, R | Out: L, R" for a route on a file with n channels. Without a
+ * route, a file wider than stereo (5.1) is processed on all its channels,
+ * written to those `mask` enables.
+ */
+export function routeSummary(route, n = 2, mask = null) {
   const names = channelNames(n);
   if (n < 2) return `In: ${names[0]} | Out: ${route && route.out[0] < 0 ? 'None' : names[0]}`;
+  if (n > 2 && !route) {
+    const outs = names.filter((_, k) => !mask || mask[k]);
+    return `In: ${names.join(', ')} | Out: ${outs.length ? outs.join(', ') : 'None'}`;
+  }
   const r = route || IDENTITY;
   const ins = r.in.map((s) => (s < 0 ? '-' : names[s]));
   const outs = r.out.map((o, k) => (o < 0 ? null : names[k])).filter(Boolean);

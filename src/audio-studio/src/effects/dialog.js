@@ -241,7 +241,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   // Channel map: which channels feed the effect and which receive its output.
   const mapPanel = h('div.fx-popover.fx-chmap', { hidden: true, role: 'group', 'aria-label': 'Channel map' });
   const summary = h('div.fx-route-summary');
-  const showRoute = () => (summary.textContent = routeSummary(route, channelCount));
+  const showRoute = () => (summary.textContent = routeSummary(route, channelCount, doc?.channelMask));
   const mapBtn = h('button.icon-btn.fx-map-btn', { type: 'button', 'aria-label': 'Channel map', 'aria-expanded': 'false', title: routable ? 'Channel map: choose the channels the effect reads and writes' : 'Channel routing is available for stereo files from the Effects menu', disabled: !routable, onclick: () => toggle(mapPanel, mapBtn, buildMap) }, icon('channel-map', 16));
   function buildMap() {
     const names = channelNames(2);
