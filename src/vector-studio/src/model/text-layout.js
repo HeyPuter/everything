@@ -504,6 +504,7 @@ function measureChars(node, text, vertical, tm = TYPE_METRICS) {
     }
     if (textHooks.shape && run.end > run.start && textHooks.shape(st, text, run.start, Math.min(run.end, n), out, key)) out.shaped = true;
   }
+  mergeClusters(text, out);
   if (vertical) groupTcy(text, out);
   else applySpacing(node, text, out);
   applyEastAsian(node, text, out);
@@ -544,6 +545,43 @@ function groupTcy(text, out) {
       if (out.rot) out.rot[k] = 0;
     }
     i = j;
+  }
+}
+
+const graphemeSegmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+const CLUSTER_HINT = /[\p{M}\u200d\u1100-\u11ff\ud7b0-\ud7ff]/u;
+
+/**
+ * User-perceived characters made of several code units (emoji, flags, a
+ * letter with its marks, an Indic conjunct) are measured and drawn whole:
+ * the first unit carries the cluster, the others take no room. Measured
+ * apart, an emoji drew as two replacement glyphs on a path or in vertical
+ * type, and marks drifted away from their letters.
+ */
+function mergeClusters(text, out) {
+  if (!graphemeSegmenter || !(/[\ud800-\udfff]/.test(text) || CLUSTER_HINT.test(text))) return;
+  for (const { index: a, segment } of graphemeSegmenter.segment(text)) {
+    const b = a + segment.length;
+    if (b - a < 2 || /[\n\r\t\u2028]/.test(segment)) continue;
+    const st = out.sty[a];
+    if (!st) continue;
+    let whole = true;
+    for (let k = a; k < b && whole; k++) if (out.sty[k] !== st || out.size[k] !== out.size[a] || out.glyph?.[k] != null) whole = false;
+    if (!whole) continue; // styled apart or shaped by the font: keep per character
+    const str = out.disp.slice(a, b).join('');
+    const hs = (st.horizontalScale ?? 100) / 100;
+    const w = ((width100(st, fontKey(st), str) * out.size[a]) / 100) * hs;
+    out.disp[a] = str;
+    out.gw[a] = w;
+    if (!out.vertical || out.rot?.[a]) out.adv[a] = w + ((st.tracking || 0) / 1000) * st.fontSize;
+    for (let k = a + 1; k < b; k++) {
+      out.disp[k] = '';
+      out.adv[k] = 0;
+      out.gw[k] = 0;
+      out.kern[k] = 0;
+      out.manual[k] = 0;
+      if (out.rot) out.rot[k] = 0;
+    }
   }
 }
 
@@ -2124,7 +2162,7 @@ export function glyphPlacements(lay) {
     const last = lay.kind === 'path' ? Math.min(line.contentEnd, line.visibleEnd ?? line.contentEnd) : line.contentEnd;
     for (let i = line.start; i < last; i++) {
       const c = text[i];
-      if (c === '\n' || c === '\t' || c === ' ' || c === '　' || c === LINE_SEP || c === SHY) continue;
+      if (c === '\n' || c === '\t' || c === ' ' || c === '　' || c === LINE_SEP || c === SHY || !ch.disp[i]) continue;
       const glyph = ch.glyph ? ch.glyph[i] : undefined;
       if (glyph === -1) continue; // part of the ligature drawn at an earlier character
       const st = ch.sty[i];
