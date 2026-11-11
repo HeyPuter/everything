@@ -48,6 +48,28 @@ const changed = (label: string) => {
   app.changed('doc');
 };
 
+/**
+ * Rename from a name field: an empty name is refused (the field shows the old one again), the
+ * name is trimmed and made unique with `unique`.
+ */
+function renameTo(owner: { name: string }, typed: string, unique: (name: string) => string, label: string) {
+  const n = typed.trim();
+  if (!n || n === owner.name) return void app.changed('ui');
+  owner.name = unique(n);
+  changed(label);
+}
+
+/** `base`, or `base.001`, `base.002`… if another data-block of the list already has the name. */
+function uniqueAmong(names: string[], base: string) {
+  const taken = new Set(names);
+  if (!taken.has(base)) return base;
+  const stem = base.replace(/\.\d{3}$/, '');
+  for (let i = 1; ; i++) {
+    const n = `${stem}.${String(i).padStart(3, '0')}`;
+    if (!taken.has(n)) return n;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tool
 
@@ -222,7 +244,7 @@ registerTab({
     const c = propertiesCollection();
     if (!c) return h('div', { class: 'prop-note' }, 'No collection');
     return [
-      h('div', { class: 'id-row' }, icon(idDecoration(c.id)?.icon ?? 'collection'), idDecoration(c.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(c.id)!.tip }, c.name) : textField('col-name', c.name, (v) => ((c.name = uniqueName(doc, v, 'collections')), changed('Rename Collection')))),
+      h('div', { class: 'id-row' }, icon(idDecoration(c.id)?.icon ?? 'collection'), idDecoration(c.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(c.id)!.tip }, c.name) : textField('col-name', c.name, (v) => renameTo(c, v, (n) => uniqueName(doc, n, 'collections'), 'Rename Collection'))),
       panel('col-restrict', 'Restrictions', () => [boolHeading(c, 'hide_select', 'Selectable', '', {}), bool(c, 'hide_render', 'Disable in Renders'), bool(c, 'holdout' as never, 'Holdout'), bool(c, 'indirect_only' as never, 'Indirect Only')]),
       panel(
         'col-instancing',
@@ -256,7 +278,7 @@ registerTab({
     const rotPath = o.rotation_mode === 'QUATERNION' ? 'rotation_quaternion' : o.rotation_mode === 'AXIS_ANGLE' ? 'rotation_axis_angle' : 'rotation_euler';
     const parents = Object.values(doc.objects).filter((x) => x.id !== o.id);
     return [
-      h('div', { class: 'id-row' }, icon(idDecoration(o.id)?.icon ?? 'object'), idDecoration(o.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(o.id)!.tip }, o.name) : textField('ob-name', o.name, (v) => ((o.name = uniqueName(doc, v)), changed('Rename Object')))),
+      h('div', { class: 'id-row' }, icon(idDecoration(o.id)?.icon ?? 'object'), idDecoration(o.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(o.id)!.tip }, o.name) : textField('ob-name', o.name, (v) => renameTo(o, v, (n) => uniqueName(doc, n), 'Rename Object'))),
       panel('ob-transform', 'Transform', () => [
         vecProp(o, 'location', 'Location', { unit: 'distance', anim: { ob: o, path: 'location' }, lock: { owner: o, key: 'lock_location' } }),
         o.rotation_mode === 'QUATERNION'
@@ -351,7 +373,7 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
     cur
       ? [
           idDecoration(cur.id) ? h('span', { class: 'ids-lib', 'data-tip': idDecoration(cur.id)!.tip }, icon(idDecoration(cur.id)!.icon)) : null,
-          idDecoration(cur.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(cur.id)!.tip }, cur.name) : textField(`${id}-name`, cur.name, (v) => ((cur.name = v), changed('Rename'))),
+          idDecoration(cur.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(cur.id)!.tip }, cur.name) : textField(`${id}-name`, cur.name, (v) => renameTo(cur, v, (n) => uniqueAmong(items.filter((i) => i !== cur).map((i) => i.name), n), 'Rename')),
           opts.users && opts.users > 1 ? h('button', { class: 'ids-users', 'data-tip': 'Display number of users of this data (click to make a single-user copy)', onclick: () => opts.duplicate?.() }, String(opts.users)) : null,
           h('button', { class: { 'ids-btn': true, on: !!cur.use_fake_user }, 'data-tip': 'Fake User\nSave this data-block even if it has no users', disabled: !!idDecoration(cur.id)?.readonly, onclick: () => app.run('ed.lib_id_fake_user_toggle', { id: cur.id }, { invoke: false }) }, icon(cur.use_fake_user ? 'fake_user_on' : 'fake_user_off')),
           opts.duplicate ? h('button', { class: 'ids-btn', 'data-tip': 'New (duplicate)', onclick: () => opts.duplicate!() }, icon('duplicate')) : null,

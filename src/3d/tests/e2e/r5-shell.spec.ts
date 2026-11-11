@@ -356,6 +356,36 @@ test('a dropdown or colour picker opened inside a popover opens over it and clos
   await expectNoErrors(errors);
 });
 
+test('renaming in the Properties name fields keeps names unique and ignores empty names', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.properties [data-tab="OBJECT"]').first().click();
+  const name = page.locator('.properties .id-row .text-field input').first();
+  // an empty name is refused
+  await name.click();
+  await name.fill('   ');
+  await name.press('Enter');
+  expect(await page.evaluate(() => (window as any).app.activeObject.name)).toBe('Cube');
+  await expect(name).toHaveValue('Cube');
+  // another object's name gets a number
+  await name.click();
+  await name.fill('Camera');
+  await name.press('Enter');
+  expect(await page.evaluate(() => (window as any).app.activeObject.name)).toBe('Camera.001');
+  // data-blocks (the mesh) too
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('mesh.primitive_plane_add', {}, { invoke: false });
+  });
+  await page.locator('.properties [data-tab="DATA"]').first().click();
+  const mesh = page.locator('.properties .id-selector .text-field input').first();
+  await expect(mesh).toHaveValue('Plane');
+  await mesh.click();
+  await mesh.fill('Cube');
+  await mesh.press('Enter');
+  expect(await page.evaluate(() => { const a = (window as any).app; return a.doc.meshes[a.activeObject.data].name; })).toBe('Cube.001');
+  await expectNoErrors(errors);
+});
+
 test('a phone-width window starts with the assistant closed, and the button still opens it', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 700 });
   const errors = await openApp(page);
