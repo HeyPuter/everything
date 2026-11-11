@@ -148,7 +148,11 @@ export function paste(editor, mode = 'center') {
       const parent = doc.get(parentId);
       index = parent.children.indexOf(anchorId) + (mode === 'front' ? 1 : 0);
     } else if (mode === 'back') index = 0;
-    if (doc.isLocked(parentId)) parentId = doc.layers().find((l) => !l.locked && !l.hidden)?.id;
+    // Never into a locked or hidden layer (pasted artwork would be invisible or uneditable).
+    if (doc.isLocked(parentId) || doc.isHidden(parentId)) {
+      parentId = doc.layers().find((l) => !l.locked && !l.hidden)?.id;
+      index = Infinity;
+    }
     if (!parentId) throw new UserError('All layers are locked or hidden.');
     let items = data.items;
     for (const hk of clipboardHooks) items = hk.paste?.(doc, data, items) || items;

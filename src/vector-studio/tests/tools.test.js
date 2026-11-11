@@ -200,6 +200,25 @@ describe('object commands', () => {
     expect(kids.indexOf(copy.id)).toBe(kids.indexOf(a.id) + 1);
   });
 
+  it('never pastes into a hidden layer', async () => {
+    const ed = app.editor;
+    const doc = ed.doc;
+    const bottom = ed.targetLayer().id;
+    const a = addRect(app, 0, 0, 10, 10);
+    ed.select([a.id]);
+    await app.commands.run('edit.copy');
+    let top;
+    doc.transact('Layer', () => (top = doc.addLayer('Top').id));
+    ed.activeLayerId = top;
+    doc.transact('Hide', () => doc.update(top, { hidden: true }));
+    for (const cmd of ['edit.paste', 'edit.pasteInPlace']) {
+      await app.commands.run(cmd);
+      const [id] = ed.selection;
+      expect(doc.get(id).parent).toBe(bottom);
+      expect(doc.isHidden(id)).toBe(false);
+    }
+  });
+
   it('joins two open paths at their nearest ends', async () => {
     const doc = app.editor.doc;
     const p1 = createPath([{ x: 0, y: 0, ix: 0, iy: 0, ox: 0, oy: 0 }, { x: 10, y: 0, ix: 10, iy: 0, ox: 10, oy: 0 }], false);
