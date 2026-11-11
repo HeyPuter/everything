@@ -418,3 +418,17 @@ test('two fingers pan and pinch-zoom the view without selecting', async ({ page 
   expect(await page.evaluate(() => Object.values((window as any).app.doc.objects).filter((o: any) => o.select).length)).toBe(0); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
+
+test('the 3D view header folds its menus when the window gets narrow', async ({ page }) => {
+  const errors = await openApp(page);
+  const header = page.locator('.area:has(.view3d) .area-header').first();
+  await expect(header.locator('.hdr-collapsed-menus')).toHaveCount(0);
+  await page.setViewportSize({ width: 600, height: 800 });
+  await expect(header.locator('.hdr-collapsed-menus')).toHaveCount(1);
+  // nothing in the header is cut off any more than it can scroll
+  const over = await header.evaluate((h) => h.scrollWidth - h.clientWidth);
+  expect(over).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(header.locator('.hdr-collapsed-menus')).toHaveCount(0);
+  await expectNoErrors(errors);
+});

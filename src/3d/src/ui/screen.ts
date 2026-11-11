@@ -607,6 +607,8 @@ export class Screen {
       if ('area' in n) {
         const a = this.areas.find((ar) => ar.id === n.area.id);
         if (!a) return;
+        // a new width can make the header fit (or no longer fit): measure it again
+        if (a.rect.w !== w) scheduleHeaderFit(a);
         a.rect = { x, y, w, h: hgt };
         Object.assign(a.el.style, { left: `${x}px`, top: `${y}px`, width: `${Math.max(0, w)}px`, height: `${Math.max(0, hgt)}px`, display: '' });
         return;
