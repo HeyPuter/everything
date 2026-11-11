@@ -2,6 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { envelopeControl, plot } from '../src/effects/editors.js';
 import { paramControls } from '../src/effects/param-ui.js';
 import { coerce } from '../src/effects/params.js';
+import { effectsRackPanel, rackFor } from '../src/effects/rack-panel.js';
+import { Channel } from '../src/audio/channel.js';
+import { AudioFile } from '../src/model/audio-file.js';
+import { fakeApp, filled } from './fx-helpers.js';
 
 const pointer = (type, x, y) =>
   new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
@@ -140,5 +144,41 @@ describe('plots', () => {
     expect(await repaints()).toBe(before + 1);
     raf.mockRestore();
     open.el.remove();
+  });
+});
+
+describe('Effects Rack levels', () => {
+  it('accept typed values with units and ignore empty entries', () => {
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(480, 0.1))],
+    });
+    app.active = doc;
+    const panel = effectsRackPanel(app);
+    document.body.append(panel.el);
+    const type = (i, text) => {
+      const hot = panel.el.querySelectorAll('.rack-knob .hot')[i];
+      hot.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      const input = panel.el.querySelector('.hot-edit');
+      input.value = text;
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    };
+    type(0, '-6 dB');
+    expect(rackFor(doc).input).toBe(-6);
+    type(0, '+3');
+    expect(rackFor(doc).input).toBe(3);
+    type(0, '1,5');
+    expect(rackFor(doc).input).toBe(1.5);
+    type(0, '');
+    expect(rackFor(doc).input).toBe(1.5);
+    type(1, '-2.5dB');
+    expect(rackFor(doc).output).toBe(-2.5);
+    type(2, '40%');
+    expect(rackFor(doc).mix).toBeCloseTo(0.4);
+    type(2, ' ');
+    expect(rackFor(doc).mix).toBeCloseTo(0.4);
+    panel.el.remove();
   });
 });
