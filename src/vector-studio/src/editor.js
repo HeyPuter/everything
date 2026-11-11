@@ -91,8 +91,10 @@ export class Editor extends Emitter {
     doc.selection = {
       get: () => ({ ids: [...this.selection], anchors: [...this.anchors].map(([k, v]) => [k, [...v]]) }),
       set: (s) => {
-        this.selection = new SelectionSet(s.ids.filter((id) => doc.has(id)));
-        this.anchors = new Map(s.anchors.filter(([k]) => doc.has(k)).map(([k, v]) => [k, new Set(v)]));
+        // Undo and Redo bring a selection back only where it can still be selected (not hidden or locked since).
+        const ok = (id) => doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id);
+        this.selection = new SelectionSet(s.ids.filter(ok));
+        this.anchors = new Map(s.anchors.filter(([k]) => ok(k)).map(([k, v]) => [k, new Set(v)]));
         this.emit('selection');
       },
     };
@@ -100,7 +102,12 @@ export class Editor extends Emitter {
       if (e.structural) this.#pruneSelection();
       if (e.commit && this.isolation && !doc.has(this.isolation)) this.#lostIsolation();
       if (!doc.has(this.activeLayerId)) this.activeLayerId = doc.root.children[doc.root.children.length - 1];
+      // Undo, or canceling an Alt-drag duplicate, can remove the active artboard.
+      const boards = doc.artboards?.length ?? 0;
+      const lostBoard = boards > 0 && this.activeArtboard >= boards;
+      if (lostBoard) this.activeArtboard = boards - 1;
       this.emit('doc-change', e);
+      if (lostBoard) this.emit('artboard');
     });
   }
 
@@ -371,11 +378,14 @@ export class Editor extends Emitter {
    */
   #isolationContainer(leaf) {
     const doc = this.doc;
-    const parent = doc.get(leaf.parent);
+    // A subpath of a compound path: the compound path is the object that gets wrapped (only paths go inside one).
+    let obj = leaf;
+    while (doc.get(obj.parent)?.type === 'compound') obj = doc.get(obj.parent);
+    const parent = doc.get(obj.parent);
     if (!doc.tx || !parent) return parent || doc.layers().slice(-1)[0];
     const g = createGroup([]);
-    doc.insert(g, parent.id, parent.children.indexOf(leaf.id));
-    doc.move(leaf.id, g.id);
+    doc.insert(g, parent.id, parent.children.indexOf(obj.id));
+    doc.move(obj.id, g.id);
     this.isolationLeaf = leaf.id;
     this.isolation = g.id;
     this.emit('isolation');
@@ -389,8 +399,18 @@ export class Editor extends Emitter {
    * transaction.
    */
   drawTarget() {
-    const base = { parentId: this.targetLayer().id, index: Infinity };
+    const base = this.newArtTarget();
     return this.drawTargetHook?.(this, base) || base;
+  }
+
+  /**
+   * Where commands put new artwork, ignoring the drawing mode: the top of
+   * the target layer, or just below the clipping path in an isolated clip
+   * group (the last child clips).
+   */
+  newArtTarget() {
+    const t = this.targetLayer();
+    return { parentId: t.id, index: t.clip && t.children.length ? t.children.length - 1 : Infinity };
   }
 
   /** Insert newly drawn artwork (and its built descendants) at the draw target. */
@@ -421,9 +441,19 @@ export class Editor extends Emitter {
     this.emit('view');
   }
 
+  /**
+   * Room (CSS px) Fit Artboard and Fit All leave around the art: 48 px, and
+   * 16 px clear of chrome floating over the canvas (`overlayInsets`, set by the app).
+   */
+  fitMargin() {
+    const over = this.overlayInsets?.() || {};
+    const m = (side) => Math.max(48, (over[side] || 0) + 16);
+    return { top: m('top'), right: m('right'), bottom: m('bottom'), left: m('left') };
+  }
+
   fitArtboard(index = this.activeArtboard) {
     const a = this.artboard(index);
-    if (a) this.view.fit(a, 48);
+    if (a) this.view.fit(a, this.fitMargin());
     this.viewChanged();
   }
 
@@ -432,7 +462,7 @@ export class Editor extends Emitter {
     for (const a of this.doc.artboards) {
       r = r ? { x: Math.min(r.x, a.x), y: Math.min(r.y, a.y), w: Math.max(r.x + r.w, a.x + a.w) - Math.min(r.x, a.x), h: Math.max(r.y + r.h, a.y + a.h) - Math.min(r.y, a.y) } : { ...a };
     }
-    if (r) this.view.fit(r, 48);
+    if (r) this.view.fit(r, this.fitMargin());
     this.viewChanged();
   }
 

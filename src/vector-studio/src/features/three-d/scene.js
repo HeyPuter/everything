@@ -33,8 +33,12 @@ export const BSP_LIMIT = 2600;
 const meshCache = new Map();
 const MESH_CACHE_SIZE = 24;
 
-/** FNV-style hash of the numbers in subpaths (cache key for meshes). */
-function hashSubpaths(subpaths) {
+/**
+ * FNV-style hash of the numbers in subpaths relative to the model's origin
+ * (cache key for meshes): meshes are built around the origin, so moving an
+ * object reuses its mesh.
+ */
+function hashSubpaths(subpaths, [x0, y0] = [0, 0]) {
   let h = 2166136261;
   const mix = (v) => {
     h ^= Math.round(v * 64) | 0;
@@ -43,12 +47,12 @@ function hashSubpaths(subpaths) {
   for (const s of subpaths) {
     mix(s.closed ? 7 : 3);
     for (const a of s.anchors) {
-      mix(a.x);
-      mix(a.y);
-      mix(a.ix ?? a.x);
-      mix(a.iy ?? a.y);
-      mix(a.ox ?? a.x);
-      mix(a.oy ?? a.y);
+      mix(a.x - x0);
+      mix(a.y - y0);
+      mix((a.ix ?? a.x) - x0);
+      mix((a.iy ?? a.y) - y0);
+      mix((a.ox ?? a.x) - x0);
+      mix((a.oy ?? a.y) - y0);
     }
     mix(-1);
   }
@@ -127,7 +131,7 @@ export function buildModels(items, fx, opts = {}) {
       for (const p of polys) for (const q of p.pts) radius = Math.max(radius, Math.hypot(q[0] - origin[0], q[1] - origin[1]));
       continue;
     }
-    const key = `${meshKey(fx, opts.draft)}|${origin.map((v) => Math.round(v * 64)).join(',')}|${it.style?.fill ? 'f' : 'o'}|${hashSubpaths(it.subpaths)}`;
+    const key = `${meshKey(fx, opts.draft)}|${it.style?.fill ? 'f' : 'o'}|${hashSubpaths(it.subpaths, origin)}`;
     let entry = meshCache.get(key);
     if (entry) {
       meshCache.delete(key);

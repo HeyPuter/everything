@@ -238,7 +238,8 @@ export class ColorPanel extends Panel {
     const v = this.hex.value.trim();
     const s = v.startsWith('#') ? v : `#${v}`;
     if (!isHex(s)) {
-      this.hex.value = (this.current || '#000000').slice(1).toUpperCase();
+      // A mixed selection goes back to the empty field with its Mixed placeholder.
+      this.hex.value = this.mixed ? '' : (this.current || '#000000').slice(1).toUpperCase();
       return;
     }
     const hex = normalizeHex(s);
@@ -259,6 +260,7 @@ export class ColorPanel extends Panel {
     this.current = color;
     const none = !paint;
     const mixed = paint === 'mixed';
+    this.mixed = mixed;
     this.sliders.setColor(color);
     this.el.classList.toggle('is-none', none);
     if (document.activeElement !== this.hex) this.hex.value = mixed ? '' : color.slice(1).toUpperCase();

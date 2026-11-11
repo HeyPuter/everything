@@ -12,7 +12,8 @@ import { createText } from '../../model/nodes.js';
 import { layoutText, textHooks } from '../../model/text-layout.js';
 import { pathBounds } from '../../model/bezier.js';
 import { multiply } from '../../lib/matrix.js';
-import { isThreaded, threadFrames, headOf, linkFrames, insertFrame, releaseFrames, removeThreading, prepareFrameRemoval } from './thread-model.js';
+import { isThreaded, threadFrames, headOf, linkFrames, insertFrame, releaseFrames, removeThreading, prepareFrameRemoval, copiedThreads, relinkPasted } from './thread-model.js';
+import { clipboardHooks } from '../../ops/clipboard.js';
 import { session } from './type-ops.js';
 
 const PORT = 8;
@@ -387,7 +388,21 @@ export function drawThreadPort(ctx, p, color, state) {
   }
 }
 
+/** Links of frames being cut, worked out before the cut unthreads them (see edit.cut below). */
+let cutThreads = null;
+
+/** Copies of threaded frames stay linked to each other: copy works out the links, paste points them at the copies. */
+const threadClipboardHook = {
+  copy(doc, ids, data) {
+    const links = cutThreads || copiedThreads(doc, ids);
+    if (!links.size) return;
+    for (const item of data.items) item.nodes = item.nodes.map((n) => (links.has(n.id) ? { ...n, ...links.get(n.id) } : n));
+  },
+  placed: (doc, idMap) => relinkPasted(doc, idMap),
+};
+
 export function installThreads(app) {
+  if (!clipboardHooks.includes(threadClipboardHook)) clipboardHooks.push(threadClipboardHook);
   textHooks.story = (node) => {
     const doc = docForNode(app, node);
     if (!doc) return null;
@@ -451,8 +466,14 @@ export function installThreads(app) {
         const touches = ids.some((sid) => isThreaded(ed.doc.get(sid)) || ed.doc.descendants(sid).some(isThreaded));
         if (!touches) return orig.run(a, args);
         return ed.doc.transact(id === 'edit.cut' ? 'Cut' : 'Clear', () => {
-          prepareFrameRemoval(ed.doc, ids);
-          return orig.run(a, args);
+          // The copy made by Cut links the cut frames as they were threaded before the removal.
+          if (id === 'edit.cut') cutThreads = copiedThreads(ed.doc, ids);
+          try {
+            prepareFrameRemoval(ed.doc, ids);
+            return orig.run(a, args);
+          } finally {
+            cutThreads = null;
+          }
         });
       },
     });

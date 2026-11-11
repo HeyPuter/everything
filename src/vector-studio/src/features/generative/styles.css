@@ -5,6 +5,10 @@
   display: none !important;
 }
 
+.panel-generate {
+  padding: 10px 12px 12px;
+}
+
 .gen-field {
   display: flex;
   flex-direction: column;
@@ -441,6 +445,11 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 10px 12px 12px;
+}
+
+.gen-history:empty {
+  display: none;
 }
 
 .gen-hist-entry {

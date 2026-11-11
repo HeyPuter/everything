@@ -71,8 +71,15 @@
 import { isGeomEffectType } from './geom-effects.js';
 
 const KINDS = new Map();
+// liveDef per node, keyed by id and checked by identity (nodes are immutable): a
+// WeakMap keyed by node objects made every garbage collection slower, since
+// each edit replaces node objects. Entries are reused in place; the cache is
+// dropped when the kinds change or it outgrows any document.
+let defCache = new Map();
+const DEF_CACHE_LIMIT = 1 << 18;
 
 export function registerLive(key, def) {
+  defCache = new Map();
   KINDS.set(key, { key, ...def });
   // Keep the `first` kinds ahead of the others in test order.
   if (def.first) {
@@ -91,6 +98,24 @@ export function liveKinds() {
 /** The live kind definition for a node, or null for ordinary artwork. */
 export function liveDef(node) {
   if (!node || node.type === 'root' || node.type === 'layer') return null;
+  // Rendering, bounds and hit testing ask for every object, often several times: test the kinds once.
+  const id = node.id;
+  if (id === undefined) return findLiveDef(node);
+  const e = defCache.get(id);
+  if (e !== undefined) {
+    if (e.node !== node) {
+      e.node = node;
+      e.def = findLiveDef(node);
+    }
+    return e.def;
+  }
+  if (defCache.size >= DEF_CACHE_LIMIT) defCache.clear();
+  const d = findLiveDef(node);
+  defCache.set(id, { node, def: d });
+  return d;
+}
+
+function findLiveDef(node) {
   if (node.live?.kind) {
     const d = KINDS.get(node.live.kind);
     if (d && (!d.test || d.test(node))) return d;

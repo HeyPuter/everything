@@ -323,6 +323,9 @@ export class LayersPanel extends Panel {
   renderRows() {
     const ed = this.app.editor;
     if (!ed || !this.rows) return;
+    // Rebuilding would remove the name field being edited (the refresh that
+    // follows the double-click's selection would end every rename at once).
+    if (this.renaming?.isConnected) return;
     const top = this.viewport.scrollTop;
     const height = this.viewport.clientHeight || 400;
     const first = Math.max(0, Math.floor(top / this.rowH) - 4);
@@ -697,14 +700,22 @@ export class LayersPanel extends Panel {
 
   rename(row, n) {
     const nameEl = row.querySelector('.lr-name');
+    if (!nameEl) return;
     const input = h('input.lr-rename', { type: 'text', value: n.name || defaultLabel(n), 'aria-label': 'Name' });
     nameEl.replaceWith(input);
+    this.renaming = input;
     input.focus();
     input.select();
+    let finished = false;
     const done = (commit) => {
-      if (commit && input.value !== (n.name || defaultLabel(n))) {
-        const doc = this.app.editor.doc;
-        doc.transact('Rename', () => doc.update(n.id, { name: input.value.trim() }));
+      // Enter or Escape moves focus away, and the blur that follows must not commit again.
+      if (finished) return;
+      finished = true;
+      this.renaming = null;
+      const doc = this.app.editor?.doc;
+      const name = input.value.trim();
+      if (commit && doc?.get(n.id) && name !== (n.name || defaultLabel(n))) {
+        doc.transact('Rename', () => doc.update(n.id, { name }));
       } else this.renderRows();
       this.tree.focus();
     };

@@ -21,7 +21,7 @@
  */
 import { Emitter } from '../../lib/emitter.js';
 import { uid } from '../../lib/ids.js';
-import { Overlay, applyBatch, applyNodeOps, diffNodes, same, stateFromJSON, stateToJSON } from './ops.js';
+import { Overlay, applyBatch, applyNodeOps, diffNodes, safeBatch, same, stateFromJSON, stateToJSON } from './ops.js';
 import { applyCommentOps } from './comments.js';
 import { canComment, canEdit, colorFor, keyPair } from './protocol.js';
 import { PeerMesh } from './peers.js';
@@ -245,7 +245,8 @@ export class CollabSession extends Emitter {
             this.#reject(batch, err);
             continue;
           }
-          batch.sent = false;
+          // The server may have taken the batch before the reply was lost, so it stays marked as
+          // sent: later edits go in a new batch instead of one the server would skip as a retry.
           this.setStatus('offline');
           this.backoff = Math.min(30000, (this.backoff || 1000) * 2);
           if (this.timers) {
@@ -338,7 +339,8 @@ export class CollabSession extends Emitter {
     this.seq = record.seq;
     if (record.skipped || !record.batch) return;
     const mine = this.pending.find((b) => b.id === record.batch.id);
-    const changed = applyBatch(this.base, record.batch);
+    // Changes that would break the document (let through by an older server) are left out.
+    const changed = applyBatch(this.base, safeBatch(record.batch));
     for (const id of changed) this.dirtyIds.add(id);
     if (record.batch.comments?.length) {
       this.commentsDirty = true;

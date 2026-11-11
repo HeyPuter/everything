@@ -21,6 +21,10 @@ import { multiply } from '../../../lib/matrix.js';
 import { uid } from '../../../lib/ids.js';
 import { readHatchPattern, patternTile } from './dxf-hatch.js';
 
+/** Most objects an import makes, and most entities it visits (block arrays and nested blocks multiply them). */
+const MAX_ENTITIES = 300000;
+const MAX_VISITS = 2000000;
+
 /** Group code / value pairs. */
 export function dxfPairs(text) {
   const lines = text.split(/\r\n|\r|\n/);
@@ -136,6 +140,19 @@ function readBlocks(pairs, sec) {
 // ---- geometry ----
 
 /** Cubic segments approximating an elliptical arc (angles in radians, direction by sign). */
+/**
+ * The end angle of an arc from a0 to a1 turning counterclockwise (or
+ * clockwise), moved to within one turn of a0: a sweep in (0, 2 pi]. Angles
+ * many turns apart (or huge) would otherwise loop for ever or produce
+ * billions of segments.
+ */
+function endAngle(a0, a1, ccw = true) {
+  const T = Math.PI * 2;
+  let d = ccw ? a1 - a0 : a0 - a1;
+  if (!(d > 0 && d <= T + 1e-6)) d = ((d % T) + T) % T || T;
+  return ccw ? a0 + d : a0 - d;
+}
+
 function arcSegments(cx, cy, rx, ry, rot, a0, a1) {
   const out = [];
   const total = a1 - a0;
@@ -222,21 +239,48 @@ function deBoor(k, x, U, P, p) {
 }
 
 /** Insert knot u once (Boehm). */
-function insertKnot(U, P, p, u) {
-  let k = p;
-  while (k < U.length - p - 2 && U[k + 1] <= u) k++;
-  const Q = [];
-  for (let i = 0; i <= P.length; i++) {
-    if (i <= k - p) Q.push(P[i]);
-    else if (i > k) Q.push(P[i - 1]);
-    else {
-      const den = U[i + p] - U[i];
-      const a = den ? (u - U[i]) / den : 0;
-      Q.push(P[i].map((v, c) => (1 - a) * P[i - 1][c] + a * v));
+/**
+ * The Bezier segments (p + 1 points each) of a non-rational B-spline with
+ * clamped knots: knot insertion span by span (Piegl and Tiller, algorithm
+ * A5.6), linear in the number of control points. Null when the knots are
+ * not clamped, decrease, or repeat more than p times inside.
+ */
+function bezierSegments(U, P, p) {
+  const m = U.length - 1;
+  const eq = (a, b) => Math.abs(a - b) < 1e-12;
+  for (let i = 0; i < m; i++) if (U[i + 1] < U[i]) return null;
+  for (let i = 1; i <= p; i++) if (!eq(U[i], U[0]) || !eq(U[m - i], U[m])) return null;
+  const lerp = (al, q1, q0) => [al * q1[0] + (1 - al) * q0[0], al * q1[1] + (1 - al) * q0[1]];
+  const segs = [];
+  const alphas = [];
+  let Q = P.slice(0, p + 1);
+  let a = p;
+  let b = p + 1;
+  while (b < m) {
+    const i = b;
+    while (b < m && eq(U[b + 1], U[b])) b++;
+    const mult = b - i + 1;
+    if (mult > p && b < m) return null;
+    const next = b < m ? new Array(p + 1) : null;
+    if (mult < p) {
+      const numer = U[b] - U[a];
+      for (let j = p; j > mult; j--) alphas[j - mult - 1] = numer / (U[a + j] - U[a]);
+      const r = p - mult;
+      for (let j = 1; j <= r; j++) {
+        const s = mult + j;
+        for (let k = p; k >= s; k--) Q[k] = lerp(alphas[k - s], Q[k], Q[k - 1]);
+        if (next) next[r - j] = Q[p];
+      }
+    }
+    segs.push(Q);
+    if (next) {
+      for (let k = p - mult; k <= p; k++) next[k] = P[b - p + k];
+      Q = next;
+      a = b;
+      b++;
     }
   }
-  const NU = [...U.slice(0, k + 1), u, ...U.slice(k + 1)];
-  return { U: NU, P: Q };
+  return segs;
 }
 
 /** A spline entity as a subpath. */
@@ -268,38 +312,20 @@ function splineSub(rec) {
     s.closed = closed;
     return s;
   }
-  if (!rational && validKnots && p <= 3) {
-    // Raise every interior knot to multiplicity p: the control polygon becomes Bezier segments.
-    let U = knots.slice();
-    let P = ctrl.map((c) => c.slice());
-    const lo = U[p];
-    const hi = U[U.length - p - 1];
-    const interior = [...new Set(U.slice(p + 1, U.length - p - 1))].filter((u) => u > lo && u < hi);
-    for (const u of interior) {
-      let mult = U.filter((x) => Math.abs(x - u) < 1e-12).length;
-      while (mult < p) {
-        ({ U, P } = insertKnot(U, P, p, u));
-        mult++;
+  const segs = !rational && validKnots && p <= 3 ? bezierSegments(knots, ctrl, p) : null;
+  if (segs) {
+    const s = new Sub(ctrl[0][0], ctrl[0][1]);
+    for (const q of segs) {
+      if (p === 3) s.curve(q[1], q[2], q[3]);
+      else {
+        // Quadratic to cubic.
+        const c1 = [q[0][0] + (2 / 3) * (q[1][0] - q[0][0]), q[0][1] + (2 / 3) * (q[1][1] - q[0][1])];
+        const c2 = [q[2][0] + (2 / 3) * (q[1][0] - q[2][0]), q[2][1] + (2 / 3) * (q[1][1] - q[2][1])];
+        s.curve(c1, c2, q[2]);
       }
     }
-    // Clamp unclamped ends by evaluating the end points.
-    const start = deBoor(p, lo, U, P, p);
-    const s = new Sub(start[0], start[1]);
-    const segs = Math.round((P.length - 1) / p);
-    if (Math.abs(U[0] - lo) < 1e-12 && Math.abs(U[U.length - 1] - hi) < 1e-12 && segs * p === P.length - 1) {
-      for (let k = 0; k < segs; k++) {
-        const q = P.slice(k * p, k * p + p + 1);
-        if (p === 3) s.curve(q[1], q[2], q[3]);
-        else {
-          // Quadratic to cubic.
-          const c1 = [q[0][0] + (2 / 3) * (q[1][0] - q[0][0]), q[0][1] + (2 / 3) * (q[1][1] - q[0][1])];
-          const c2 = [q[2][0] + (2 / 3) * (q[1][0] - q[2][0]), q[2][1] + (2 / 3) * (q[1][1] - q[2][1])];
-          s.curve(c1, c2, q[2]);
-        }
-      }
-      s.closed = closed;
-      return s;
-    }
+    s.closed = closed;
+    return s;
   }
   // Rational, higher degree or unusual knots: sample and fit.
   const U = validKnots ? knots : (() => {
@@ -314,9 +340,10 @@ function splineSub(rec) {
   const hi = U[U.length - p - 1];
   const pts = [];
   const N = Math.max(32, ctrl.length * 12);
+  // The parameter only grows: the knot span search continues from the previous sample's span.
+  let k = p;
   for (let i = 0; i <= N; i++) {
     const x = lo + ((hi - lo) * i) / N;
-    let k = p;
     while (k < U.length - p - 2 && U[k + 1] <= x) k++;
     const v = deBoor(k, Math.min(x, hi - 1e-12), U, H, p);
     pts.push({ x: v[0] / (v[2] || 1), y: v[1] / (v[2] || 1) });
@@ -404,6 +431,9 @@ class DXFConverter {
     this.warnings = new Set();
     this.families = families || [];
     this.count = 0;
+    // Entities visited, including block contents placed by inserts (nested and arrayed ones multiply).
+    this.visits = 0;
+    this.truncated = false;
     this.patterns = [];
     this.patternCache = new Map();
   }
@@ -499,7 +529,10 @@ class DXFConverter {
   }
 
   entity(e, m, ctx, depth = 0) {
-    if (this.count > 300000) return;
+    if (this.count > MAX_ENTITIES || ++this.visits > MAX_VISITS) {
+      this.truncated = true;
+      return;
+    }
     const T = e.type;
     const n = (c, dflt = 0) => gn(e, c, dflt);
     const ext = n(230, 1) < 0 ? -1 : 1; // extrusion -Z mirrors x (common for mirrored arcs)
@@ -533,8 +566,7 @@ class DXFConverter {
       }
       case 'ARC': {
         const a0 = (n(50) * Math.PI) / 180;
-        let a1 = (n(51) * Math.PI) / 180;
-        while (a1 <= a0) a1 += Math.PI * 2;
+        const a1 = endAngle(a0, (n(51) * Math.PI) / 180);
         const { start, segments } = arcSegments(n(10), n(20), n(40), n(40), 0, a0, a1);
         const s = new Sub(...start);
         segments.forEach((seg) => s.add(seg));
@@ -547,8 +579,7 @@ class DXFConverter {
         const rx = Math.hypot(mx, my);
         const ry = rx * n(40, 1);
         const t0 = n(41, 0);
-        let t1 = n(42, Math.PI * 2);
-        while (t1 <= t0) t1 += Math.PI * 2;
+        const t1 = endAngle(t0, n(42, Math.PI * 2));
         const full = Math.abs(t1 - t0 - Math.PI * 2) < 1e-6;
         const { start, segments } = arcSegments(n(10), n(20), rx, ry, Math.atan2(my, mx), t0, t1);
         const s = new Sub(...start);
@@ -681,7 +712,7 @@ class DXFConverter {
               a0 = -a0;
               a1 = -a1;
             }
-            while (ccw ? a1 <= a0 : a1 >= a0) a1 += ccw ? Math.PI * 2 : -Math.PI * 2;
+            a1 = endAngle(a0, a1, ccw);
             const r = arcSegments(cx, cy, rx, ry, rot, a0, a1);
             if (!s) s = new Sub(...r.start);
             r.segments.forEach((seg) => s.add(seg));
@@ -814,8 +845,9 @@ class DXFConverter {
     const iy = isDim ? 0 : gn(e, 20);
     const color = this.colorOf(e, ctx, L);
     const kids = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows && !this.truncated; r++) {
+      for (let c = 0; c < cols && !this.truncated; c++) {
+        if (++this.visits > MAX_VISITS) this.truncated = true;
         const cr = Math.cos(rot);
         const sr = Math.sin(rot);
         const ox = c * cs;
@@ -823,7 +855,10 @@ class DXFConverter {
         const place = [cr * sx, sr * sx, -sr * sy, cr * sy, ix + cr * ox - sr * oy, iy + sr * ox + cr * oy];
         const bm = multiply(m, multiply(place, [1, 0, 0, 1, -block.base[0], -block.base[1]]));
         const inner = { group: kids, blockColor: color, layer: layerName === '0' ? ctx.layer : layerName };
-        for (const be of block.entities) this.entity(be, bm, inner, depth + 1);
+        for (const be of block.entities) {
+          if (this.truncated) break;
+          this.entity(be, bm, inner, depth + 1);
+        }
       }
     }
     if (!kids.length) return;
@@ -868,8 +903,9 @@ function meshEdges(e, flags) {
       }
     }
   } else {
-    const M = Math.max(1, gn(e, 71, 0));
-    const N = Math.max(1, gn(e, 72, 0));
+    // The vertex counts come from the header: rows past the vertices the file has are empty.
+    const N = Math.min(Math.max(1, gn(e, 72, 0)), Math.max(1, verts.length));
+    const M = Math.min(Math.max(1, gn(e, 71, 0)), Math.ceil(verts.length / N) || 1);
     const at = (i, j) => verts[i * N + j];
     for (let i = 0; i < M; i++) {
       for (let j = 0; j < N; j++) {
@@ -942,6 +978,7 @@ export function convertDXF(data, opts = {}) {
   const order = [...data.layers.keys()];
   layers.sort((a, b) => order.indexOf(a.key.slice(4)) - order.indexOf(b.key.slice(4)));
   const warnings = [...conv.warnings];
+  if (conv.truncated) warnings.push('The drawing has too much content: only part of it was imported.');
   if (conv.skipped?.size) warnings.push(`Unsupported entities were skipped: ${[...conv.skipped].slice(0, 8).join(', ')}.`);
   // Move the drawing to the origin.
   const shim = { get: (id) => nodes.get(id) };

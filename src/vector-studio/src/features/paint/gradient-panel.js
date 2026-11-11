@@ -18,7 +18,7 @@ import { openPopover } from '../../ui/popover.js';
 import { createColorPicker } from '../../ui/color-picker.js';
 import { applyStyle } from '../../ops/paint-ops.js';
 import { createGradientSlider } from './gradient-slider.js';
-import { DEFAULT_LINEAR, setStop, removeStop, reverseGradient, setGradientType, gradientAngle, setGradientAngle, normalizeGradient, resetGradientVector } from './gradient-model.js';
+import { DEFAULT_LINEAR, setStop, moveStop, removeStop, reverseGradient, setGradientType, gradientAngle, setGradientAngle, normalizeGradient, resetGradientVector } from './gradient-model.js';
 import { isGradient } from '../../model/gradients.js';
 import { miniFillStroke, focusedPaint, gestureKey, paintState } from './ui-common.js';
 import { isFreeform, setPoint, removePoint, setFreeformMode } from './freeform.js';
@@ -142,8 +142,10 @@ export class GradientPanel extends Panel {
       width: '56px',
       onCommit: (v, o) => {
         if (!o?.live) this.coalesce = gestureKey('gradient');
-        const p = normalizeGradient(setStop(this.paint, this.slider.selected, { offset: v / 100 }));
-        this.commit(p, 'Stop Location', this.coalesce);
+        // The stop keeps its selection when the new location moves it past others.
+        const r = moveStop(this.paint, this.slider.selected, v / 100);
+        paintState.setStop(r.index);
+        this.commit(normalizeGradient(r.paint), 'Stop Location', this.coalesce);
       },
     });
     this.delStop = iconButton('trash', 'Delete Stop', () => {

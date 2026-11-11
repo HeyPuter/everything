@@ -10,6 +10,7 @@
  *   vs:<room>:invite:<hash>     link invitation: role, review link, expiry
  *   vs:<room>:seq               the last edit's sequence number (atomic counter)
  *   vs:<room>:log:<seq>         one edit batch, or a file reference when large
+ *   vs:<room>:claim:<seq>       taken (atomically) by the commit that writes log:<seq>, or by a skip
  *   vs:<room>:done:<batch>      sequence of an accepted batch (retries are not applied twice)
  *   vs:<room>:cp                latest checkpoint: { seq, path }
  *   vs:<room>:presence:<sess>   a participant's session: ticket, cursor, selection, view
@@ -20,7 +21,7 @@
  * authorship is checked here, whatever the client shows.
  */
 import { ID, INVITE_ROLES, SESSION_TTL, canComment, canEdit, canManage, hash, keyPair, sign } from '../src/features/collab/protocol.js';
-import { applyBatch, editsContent, stateFromJSON, stateToJSON, validateBatch } from '../src/features/collab/ops.js';
+import { applyBatch, editsContent, safeBatch, stateFromJSON, stateToJSON, validateBatch } from '../src/features/collab/ops.js';
 import { checkCommentOps } from '../src/features/collab/comments.js';
 
 const DAY = 86_400_000;
@@ -30,6 +31,9 @@ const SYNC_PAGE = 200;
 const RESET_AFTER = 1000;
 const INLINE_RECORD = 60_000;
 const MAX_PRESENCE = 64;
+// How long a missing record must have been overtaken by a later one before a viewer may skip it
+// (clients wait as long, see HOLE_MS in session.js).
+const SKIP_AFTER = 20_000;
 
 // Recent document states per room, so commits and joins need not replay the log.
 const STATES = new Map();
@@ -258,7 +262,7 @@ export class DocService {
       for (const r of records) {
         // Another request may have brought this copy forward meanwhile.
         if (r.seq <= entry.seq) continue;
-        if (r.batch) applyBatch(entry.state, r.batch);
+        if (r.batch) applyBatch(entry.state, safeBatch(r.batch));
         entry.seq = r.seq;
       }
     }
@@ -276,12 +280,25 @@ export class DocService {
     if (since >= head) return { ...base, records: [] };
     if (head - since > RESET_AFTER) return { ...base, reset: true, records: [] };
     // A sequence number taken by a commit that never finished writing is
-    // skipped once a client has waited for it long enough.
-    if (Number.isSafeInteger(input.skip) && input.skip === since + 1 && !(await this.kv.get(`${prefix}log:${input.skip}`))) {
-      await this.kv.set(`${prefix}log:${input.skip}`, { seq: input.skip, skipped: true, time: this.now() });
+    // skipped once a client has waited for it long enough. The claim makes
+    // a slow commit and a skip exclusive: whichever comes second gives way.
+    const skip = input.skip;
+    if (Number.isSafeInteger(skip) && skip === since + 1 && !(await this.kv.get(`${prefix}log:${skip}`)) && (await this.maySkip(room, member, skip, head))) {
+      if ((await this.kv.incr(`${prefix}claim:${skip}`)) === 1) await this.kv.set(`${prefix}log:${skip}`, { seq: skip, skipped: true, time: this.now() });
     }
     const { records, hole } = await this.records(room, since + 1, Math.min(head, since + SYNC_PAGE));
     return { ...base, records, hole, more: since + records.length < head && hole === null };
+  }
+
+  /**
+   * People who can commit wait for a missing record themselves; a viewer
+   * may only skip one that a later record overtook long enough ago.
+   */
+  async maySkip(room, member, n, head) {
+    if (canComment(member.role)) return true;
+    if (n >= head) return false;
+    const next = await this.kv.get(`vs:${room}:log:${n + 1}`);
+    return Boolean(next && Number.isFinite(next.time) && this.now() - next.time >= SKIP_AFTER);
   }
 
   async commit(room, user, member, input) {
@@ -296,15 +313,22 @@ export class DocService {
       const { state } = await this.load(room);
       checkCommentOps(state.comments, batch.comments, user, member.role);
     }
-    const seq = await this.kv.incr(prefix + 'seq');
+    let seq = await this.kv.incr(prefix + 'seq');
     const session = typeof input.session === 'string' ? input.session.slice(0, 100) : null;
-    let row = { seq, batch, by: { uuid: user.uuid, username: user.username }, session, time: this.now() };
     const text = JSON.stringify(batch);
+    let file = null;
     if (text.length > INLINE_RECORD) {
-      const path = `collab/rooms/${room}/r-${seq}.json`;
-      await this.writeFile(path, text);
-      row = { ...row, batch: undefined, file: path };
+      file = `collab/rooms/${room}/r-${seq}.json`;
+      await this.writeFile(file, text);
     }
+    // A client that waited too long for this record may have skipped it meanwhile (see sync):
+    // then this edit takes the next number instead, so no one misses it.
+    for (let tries = 0; (await this.kv.incr(`${prefix}claim:${seq}`)) !== 1; tries++) {
+      if (tries >= 5) fail(503, 'The document is busy. Try again in a moment.');
+      seq = await this.kv.incr(prefix + 'seq');
+    }
+    let row = { seq, batch, by: { uuid: user.uuid, username: user.username }, session, time: this.now() };
+    if (file) row = { ...row, batch: undefined, file };
     await this.kv.set(prefix + 'log:' + seq, row);
     await this.kv.set(prefix + 'done:' + batch.id, seq, Math.floor((this.now() + 7 * DAY) / 1000));
     const entry = STATES.get(room);

@@ -66,18 +66,27 @@ function textNodes(doc, { includeLocked = false, includeHidden = false } = {}) {
 /** The last Find and Replace settings, so Edit > Find Next can repeat the search. */
 export const lastFind = { query: '', replace: '', matchCase: false, wholeWord: false, includeLocked: false, includeHidden: false, backwards: false, current: null };
 
+export const LOCKED_MATCH = 'Found a match in locked type, which cannot be selected. Replace still changes it.';
+
 function showMatch(app, m) {
   lastFind.current = m;
   const tool = app.getTool('type');
   if (app.toolId !== 'type') app.setTool('type');
   const sess = tool.editText(m.id, null);
-  sess?.setSelection(m.start, m.end);
+  if (sess) {
+    sess.setSelection(m.start, m.end);
+    return true;
+  }
+  // Locked type (Check Locked Layers) cannot be edited: nothing to show it in, and the next search continues after it.
+  tool.endEditing({ select: false });
+  return false;
 }
 
 /**
  * Select the next match of the last query after the current match (or the
- * caret), wrapping around the document. Returns 'found', 'none' or 'empty'
- * (no query or no text objects).
+ * caret), wrapping around the document. Returns 'found', 'locked' (a match
+ * in locked type, which cannot be selected), 'none' or 'empty' (no query or
+ * no text objects).
  */
 export function findNext(app) {
   const ed = app.editor;
@@ -102,10 +111,7 @@ export function findNext(app) {
     let ms;
     if (back) ms = findMatches(n.text, q, opts).filter((m) => (k === 0 ? m.end <= from : k < N || m.start >= from)).reverse();
     else ms = findMatches(n.text, q, opts).filter((m) => (k === 0 ? m.start >= from : k < N || m.end <= from));
-    if (ms.length) {
-      showMatch(app, { id: n.id, ...ms[0] });
-      return 'found';
-    }
+    if (ms.length) return showMatch(app, { id: n.id, ...ms[0] }) ? 'found' : 'locked';
   }
   lastFind.current = null;
   return 'none';
@@ -148,8 +154,8 @@ export function openFindReplace(app) {
   const doFind = () => {
     sync();
     const r = findNext(app);
-    status.textContent = r === 'found' ? '' : r === 'none' ? 'No matches found.' : findIn.value ? 'No text objects to search.' : 'Enter text to find.';
-    return r === 'found';
+    status.textContent = r === 'found' ? '' : r === 'locked' ? LOCKED_MATCH : r === 'none' ? 'No matches found.' : findIn.value ? 'No text objects to search.' : 'Enter text to find.';
+    return r === 'found' || r === 'locked';
   };
 
   const replace = () => {

@@ -132,7 +132,8 @@ export function createRulers(app, host) {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       ed.alignmentGuides = null;
-      const inside = ev.clientX > canvasRect.left && ev.clientY > canvasRect.top;
+      // Released over the rulers, the panels or the status bar: no guide.
+      const inside = ev.clientX > canvasRect.left && ev.clientY > canvasRect.top && ev.clientX < canvasRect.right && ev.clientY < canvasRect.bottom;
       if (pos != null && inside) {
         ed.doc.transact('Add Guide', () => ed.doc.updateRoot({ guides: [...(ed.doc.root.guides || []), { axis, pos }] }));
         if (!ed.viewOptions.guides) ed.setViewOption('guides', true);

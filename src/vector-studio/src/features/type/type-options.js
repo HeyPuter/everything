@@ -13,6 +13,7 @@ import { HYPHENATION_DEFAULTS, hyphenationOf } from '../../model/hyphenate.js';
 import { session, applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, currentTextNodes, MIXED } from './type-ops.js';
 import { selectedTextNodes } from './outlines.js';
 import { headOf, threadFrames } from './thread-model.js';
+import { fontEvents } from './fonts.js';
 import { paraStylePatch, paragraphIndexAt, paragraphRanges } from '../../model/text-runs.js';
 
 const hasText = (app) => Boolean(session(app)) || (app.editor ? selectedTextNodes(app.editor).length > 0 : false);
@@ -466,6 +467,32 @@ export function installAutoSize(app) {
   };
   app.on('active-editor', wire);
   if (app.editor) wire(app.editor);
+  // A frame fitted before its font loaded was measured with a stand-in font:
+  // fit it again, as a correction of the step that fitted it (no new undo step).
+  const waiting = new WeakSet();
+  const refit = (doc) => {
+    if (doc.tx) {
+      if (waiting.has(doc)) return;
+      waiting.add(doc);
+      const off = doc.on('change', (e) => {
+        if (!e.commit || doc.tx) return;
+        off();
+        waiting.delete(doc);
+        refit(doc);
+      });
+      return;
+    }
+    const changes = new Map();
+    for (const node of doc.leaves()) {
+      if (node.type !== 'text' || !autoSized(node)) continue;
+      const height = autoHeight(node);
+      if (Math.abs(height - node.height) >= 0.01) changes.set(node.id, { ...node, height });
+    }
+    if (changes.size) doc.amendDerived(changes);
+  };
+  fontEvents.on('loaded', () => {
+    for (const ed of app.editors || []) refit(ed.doc);
+  });
 }
 
 // ---- commands ----
@@ -474,7 +501,8 @@ export function installTypeOptions(app) {
   installAutoSize(app);
   const c = app.commands;
   c.register([
-    charToggle('type.allCaps', 'All Caps', 'caps', 'all', 'normal', 'Shift+Mod+K'),
+    // Shift+Mod+K is also Color Settings: it toggles All Caps only with text to act on.
+    { ...charToggle('type.allCaps', 'All Caps', 'caps', 'all', 'normal', 'Shift+Mod+K'), shortcutWhen: (a) => currentTextNodes(a).length > 0 },
     charToggle('type.smallCaps', 'Small Caps', 'caps', 'small', 'normal'),
     charToggle('type.superscript', 'Superscript', 'position', 'super', 'normal'),
     charToggle('type.subscript', 'Subscript', 'position', 'sub', 'normal'),

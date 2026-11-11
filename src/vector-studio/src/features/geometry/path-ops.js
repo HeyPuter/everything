@@ -17,6 +17,9 @@ import {
   replaceWith,
   snapshot,
   unchangedSince,
+  isLiveContainer,
+  insideLive,
+  expandLiveFirst,
 } from './nodes-io.js';
 import { addMidpoints, removeAnchorsKeepingShape, fitPolygon } from './anchors.js';
 import { flattenPath, simplifyPolyline, anchor as mkAnchor } from '../../model/bezier.js';
@@ -32,20 +35,10 @@ import { tracePath } from '../../render/draw.js';
 import { formatLength } from '../../lib/units.js';
 import { hasAppearanceStack } from '../../model/appearance.js';
 import { expandNodeAppearance } from '../../ops/expand-appearance.js';
+import { isLive } from '../../model/live.js';
+import { JOIN, strokeParams, strokeWork, HEAVY_STROKE_WORK } from './stroke-params.js';
 
-const JOIN = { miter: 0, round: 1, bevel: 2 };
-const CAP = { butt: 0, round: 1, square: 2 };
-const ALIGN = { center: 0, inside: 1, outside: 2 };
-
-/**
- * Engine params for a node's stroke. `pattern` ({ dash, offset }) is the
- * dash actually drawn (corner-aligned dashes adjust the node's own).
- */
-export function strokeParams(node, pattern = null) {
-  const dash = pattern ? pattern.dash || [] : node.dash && node.dash.length ? node.dash : [];
-  const offset = pattern ? pattern.offset || 0 : node.dashOffset || 0;
-  return [node.strokeWidth || 0, JOIN[node.strokeJoin] ?? 0, CAP[node.strokeCap] ?? 0, node.miterLimit || 10, ALIGN[node.strokeAlign] ?? 0, offset, ...dash];
-}
+export { strokeParams };
 
 /**
  * The stroke as drawn: the engine shape (open paths with arrowheads are
@@ -65,6 +58,18 @@ function drawnStroke(app, doc, node) {
 
 function targets(editor) {
   return geometryLeaves(editor.doc, editor.topSelection());
+}
+
+/**
+ * Like targets(), but leaving out the inputs of live objects (a blend's
+ * keys, a Repeat's source): results inserted next to them would become
+ * extra inputs. With only live objects selected, says to expand them.
+ */
+function pathTargets(app, what) {
+  const live = [];
+  const nodes = geometryLeaves(app.editor.doc, app.editor.topSelection(), { intoLive: false, skippedLive: live });
+  if (!nodes.length && live.length) app.notify(expandLiveFirst(what, live[0]));
+  return { nodes, live };
 }
 
 /** Position just above (or at) a node within its parent. */
@@ -148,7 +153,14 @@ export async function outlineStroke(app, { label = 'Outline Stroke', expandFill 
   const snap = snapshot(doc, nodes);
   const strokes = nodes.map((n) => drawnStroke(app, doc, n));
   const results = await withBusy(app, label, () =>
-    Promise.all(nodes.map((n, i) => runGeom(OP.STROKE, [strokes[i].shape], strokeParams(n, strokes[i].pattern), { tol: 0.01 }))),
+    Promise.all(
+      nodes.map((n, i) => {
+        const params = strokeParams(n, strokes[i].pattern, strokes[i].shape.subpaths);
+        // Many dashes take long even on a short path: keep the UI responsive.
+        const worker = strokeWork(params, strokes[i].shape.subpaths) > HEAVY_STROKE_WORK || undefined;
+        return runGeom(OP.STROKE, [strokes[i].shape], params, { tol: 0.01, worker });
+      }),
+    ),
   );
   if (!unchangedSince(doc, snap)) return false;
   const ids = [];
@@ -336,9 +348,9 @@ export function convertToShapes(app) {
 export async function offsetPathDialog(app) {
   const editor = app.editor;
   const doc = editor.doc;
-  const nodes = targets(editor);
+  const { nodes, live } = pathTargets(app, 'Offset Path');
   if (!nodes.length) {
-    app.notify('Select one or more paths.');
+    if (!live.length) app.notify('Select one or more paths.');
     return false;
   }
   const last = app.prefs.get('offsetPath') || { offset: 10, joins: 'miter', miter: 4 };
@@ -400,6 +412,11 @@ export async function offsetPathDialog(app) {
   doc.transact('Offset Path', () => {
     ids = apply(v, records);
   });
+  if (!ids.length) {
+    // A negative offset larger than the shape leaves nothing to insert.
+    app.notify(`An offset of ${formatLength(v.offset, doc.root.units || 'pt')} leaves nothing of the selected ${nodes.length > 1 ? 'paths' : 'path'}.`);
+    return false;
+  }
   editor.select(ids);
   return true;
 }
@@ -624,9 +641,9 @@ export function removeAnchorPoints(app) {
 export async function divideBelow(app) {
   const editor = app.editor;
   const doc = editor.doc;
-  const sel = targets(editor);
+  const { nodes: sel, live } = pathTargets(app, 'Divide Objects Below');
   if (sel.length !== 1) {
-    app.notify('Select exactly one path to divide the objects below it.');
+    if (sel.length || !live.length) app.notify('Select exactly one path to divide the objects below it.');
     return false;
   }
   const cutter = sel[0];
@@ -638,7 +655,7 @@ export async function divideBelow(app) {
     .filter((n) => !doc.isLocked(n.id) && !doc.isHidden(n.id))
     .filter((n) => {
       const b = nodeBounds(doc, n);
-      return b && cb && rectsIntersect(b, cb);
+      return b && cb && rectsIntersect(b, cb) && !insideLive(doc, n);
     });
   if (!below.length) {
     app.notify('There are no objects below the selected path.');
@@ -808,17 +825,22 @@ const round4 = (v) => Math.round(v * 1e4) / 1e4;
 /** Ids Clean Up would delete. */
 export function cleanUpTargets(doc, { stray = true, unpainted = true, emptyText = true } = {}) {
   const out = [];
+  // Painted by something other than its own fill and stroke (an appearance stack, a brush, ...).
+  const unpaintedNode = (n) => !n.fill && !(n.stroke && n.strokeWidth > 0) && !isLive(n);
   doc.walk((n) => {
     if (n.type === 'layer') return !n.locked;
     if (n.locked) return false;
+    // The contents of live objects (a blend's spine, Objects on Path, ...) are their inputs, not artwork;
+    // a group with effects or an appearance stack still draws its contents as they are.
+    if (isLiveContainer(n)) return false;
     const parent = doc.get(n.parent);
     const isMask = parent?.type === 'group' && parent.clip && parent.children[parent.children.length - 1] === n.id;
     const inCompound = parent?.type === 'compound';
     if (n.type === 'path' && !inCompound) {
       if (stray && n.anchors.length === 1) out.push(n.id);
-      else if (unpainted && !n.fill && !(n.stroke && n.strokeWidth > 0) && !isMask) out.push(n.id);
+      else if (unpainted && unpaintedNode(n) && !isMask) out.push(n.id);
     } else if (n.type === 'path' && inCompound && stray && n.anchors.length === 1) out.push(n.id);
-    else if (n.type === 'compound' && unpainted && !n.fill && !(n.stroke && n.strokeWidth > 0) && !isMask) out.push(n.id);
+    else if (n.type === 'compound' && unpainted && unpaintedNode(n) && !isMask) out.push(n.id);
     else if (n.type === 'text' && emptyText && !(n.text || '').trim()) out.push(n.id);
     return n.type !== 'compound';
   });

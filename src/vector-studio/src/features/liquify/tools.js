@@ -46,6 +46,12 @@ function targetPaths(editor) {
   return out;
 }
 
+function unionBox(a, b) {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+}
+
 class LiquifyTool extends Tool {
   static op = 'warp';
   static hint = 'Drag over paths to distort them | Option+drag before pressing resizes the brush | Double-click the tool for options';
@@ -150,7 +156,7 @@ class LiquifyTool extends Tool {
       for (const id of this.stroke.touched) {
         const n = this.doc.get(id);
         if (!n) continue;
-        const anchors = simplifyAnchors(n.anchors, n.closed, tolPx);
+        const anchors = simplifyAnchors(n.anchors, n.closed, tolPx, this.stroke.region);
         if (anchors !== n.anchors) this.doc.update(id, { anchors });
       }
     }
@@ -183,6 +189,11 @@ class LiquifyTool extends Tool {
     const b = this.brush;
     const o = this.options;
     const brush = this.brushAt(x, y);
+    // The area the stroke covered, where Simplify may remove anchors (warp carries them along the drag).
+    const r = Math.max(b.w, b.h) / 2 + Math.hypot(dx, dy);
+    const box = { x: x - r, y: y - r, w: 2 * r, h: 2 * r };
+    const reg = this.stroke.region;
+    this.stroke.region = reg ? unionBox(reg, box) : box;
     const intensity = (b.intensity / 100) * (b.pressure ? Math.max(0.1, this.stroke.pressure * 2) : 1);
     const op = this.constructor.op;
     const params = { ...o, dx, dy, horizontal: (o.horizontal ?? 0) / 100, vertical: (o.vertical ?? 100) / 100 };

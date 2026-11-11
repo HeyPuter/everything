@@ -15,6 +15,9 @@ import { openPaintPopover } from '../../ui/popover.js';
 import { commonStyle } from '../../ops/paint-ops.js';
 import { openMenu, resolveItems } from '../../ui/menubar.js';
 
+/** Gap (px) between the canvas bottom and the bar where it rests with nothing selected. */
+const REST_GAP = 28;
+
 const ALIGN_MENU = ['align.left', 'align.hcenter', 'align.right', '-', 'align.top', 'align.vcenter', 'align.bottom', '-', 'distribute.hcenter', 'distribute.vcenter', 'distribute.hspace', 'distribute.vspace'];
 
 /** Release command per live group kind (repeats, traced images, envelopes, ...). */
@@ -238,6 +241,12 @@ export function installTaskbar(app) {
     for (const b of bar.querySelectorAll('[data-cmd]')) b.disabled = !app.commands.isEnabled(b.dataset.cmd);
   }
 
+  // Fit Artboard and Fit All keep the art clear of the bar where it rests (bottom center).
+  app.canvasOverlayInsets = () => {
+    if (!enabled() || pinned() || app.root.classList.contains('arrange-tiled')) return null;
+    return { bottom: (bar.offsetHeight || 34) + REST_GAP };
+  };
+
   function shouldShow() {
     const ed = app.editor;
     if (!enabled() || !ed || suppressed) return false;
@@ -282,7 +291,7 @@ export function installTaskbar(app) {
         if (y + bh > sh - 8) y = offY + minY - bh - 18;
       } else {
         x = sw / 2 - bw / 2;
-        y = sh - bh - 28;
+        y = sh - bh - REST_GAP;
       }
     }
     x = Math.max(8, Math.min(sw - bw - 8, x));

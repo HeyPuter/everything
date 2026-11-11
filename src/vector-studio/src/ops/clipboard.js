@@ -8,20 +8,22 @@
 import { UserError } from '../lib/errors.js';
 import { selectionBounds, transformNodes, unionRect } from '../model/geometry.js';
 import { pathBounds, segmentCount } from '../model/bezier.js';
-import { createPath } from '../model/nodes.js';
+import { createPath, pickStyle } from '../model/nodes.js';
 import { translate } from '../lib/matrix.js';
 import { deleteSelection, selectedSegment, selectedSegmentHits } from './object-ops.js';
 
 export const clipboard = { data: null };
 
 /**
- * Feature hooks: [{ copy(doc, ids, data), paste(doc, data, items), targetLayer(doc, data, item) }].
+ * Feature hooks: [{ copy(doc, ids, data), paste(doc, data, items), targetLayer(doc, data, item), placed(doc, idMap) }].
  * copy() can add what the copied objects need to the clipboard data (e.g.
  * the brush or symbol definitions they use); paste() runs inside the Paste
  * transaction, before the objects arrive, to bring that into the target
  * document, and may return the items to insert instead (e.g. with symbol
  * references renamed). targetLayer() may name the layer an item pastes
- * into (Paste Remembers Layers); null keeps the usual target.
+ * into (Paste Remembers Layers); null keeps the usual target. placed() runs
+ * after each placement of the items with every copied id -> new id, to
+ * relink references between pasted objects (e.g. threaded text).
  */
 export const clipboardHooks = [];
 
@@ -83,7 +85,10 @@ export function copy(editor, { cut = false } = {}) {
   const whole = [];
   let bounds = null;
   for (const id of ids) {
-    const n = doc.get(id);
+    let n = doc.get(id);
+    // A subpath of a compound path is painted by the compound: its copy takes that paint.
+    const holder = doc.get(n.parent);
+    if (holder?.type === 'compound') n = { ...n, ...pickStyle(holder) };
     if (parts.has(id)) {
       for (const run of segmentRuns(n, parts.get(id))) {
         const piece = { ...n, id: createPath([], false).id, anchors: run.anchors, closed: run.closed, shape: undefined };
@@ -93,7 +98,9 @@ export function copy(editor, { cut = false } = {}) {
     } else if (editor.anchors.get(id)?.size === 0) {
       // A path the marquee touched without selecting any of it.
     } else {
-      items.push(doc.exportSubtree(id));
+      const item = doc.exportSubtree(id);
+      item.nodes[0] = n;
+      items.push(item);
       whole.push(id);
     }
   }
@@ -142,26 +149,36 @@ export function paste(editor, mode = 'center') {
       // Paste and Paste in Place follow the drawing mode (behind the selection, inside a path).
       ({ parentId, index } = editor.drawTarget());
     } else if ((mode === 'front' || mode === 'back') && sel.length) {
-      const anchorId = mode === 'front' ? sel[sel.length - 1] : sel[0];
-      const node = doc.get(anchorId);
+      let node = doc.get(mode === 'front' ? sel[sel.length - 1] : sel[0]);
+      // A subpath of a compound path (Direct Selection) stands for its compound: only paths go inside one.
+      while (doc.get(node.parent)?.type === 'compound') node = doc.get(node.parent);
       parentId = node.parent;
       const parent = doc.get(parentId);
-      index = parent.children.indexOf(anchorId) + (mode === 'front' ? 1 : 0);
+      index = parent.children.indexOf(node.id) + (mode === 'front' ? 1 : 0);
     } else if (mode === 'back') index = 0;
-    if (doc.isLocked(parentId)) parentId = doc.layers().find((l) => !l.locked && !l.hidden)?.id;
+    // Never into a locked or hidden layer (pasted artwork would be invisible or uneditable).
+    if (doc.isLocked(parentId) || doc.isHidden(parentId)) {
+      parentId = doc.layers().find((l) => !l.locked && !l.hidden)?.id;
+      index = Infinity;
+    }
     if (!parentId) throw new UserError('All layers are locked or hidden.');
+    // Into a clip group (isolated, or next to its clipping path): below the clipping path, so it keeps clipping.
+    const target = doc.get(parentId);
+    if (target.clip && target.children.length && index >= target.children.length) index = target.children.length - 1;
     let items = data.items;
     for (const hk of clipboardHooks) items = hk.paste?.(doc, data, items) || items;
     const placeOnce = (dx, dy) => {
       const ids = [];
+      const idMap = new Map();
       let i = index;
       for (const item of items) {
         // Paste Remembers Layers: a hook may send the item back to the layer it came from.
         const into = mode === 'front' || mode === 'back' ? null : clipboardHooks.reduce((r, hk) => r || hk.targetLayer?.(doc, data, item) || null, null);
-        const node = into ? doc.importSubtree(item, into) : doc.importSubtree(item, parentId, i);
+        const node = into ? doc.importSubtree(item, into, Infinity, idMap) : doc.importSubtree(item, parentId, i, idMap);
         if (Number.isFinite(i)) i++;
         ids.push(node.id);
       }
+      for (const hk of clipboardHooks) hk.placed?.(doc, idMap);
       if (dx || dy) transformNodes(doc, ids, translate(dx, dy));
       pasted.push(...ids);
     };
@@ -176,7 +193,7 @@ export function paste(editor, mode = 'center') {
       placeOnce(0, 0);
       if (b) transformNodes(doc, pasted, translate(c.x - (b.x + b.w / 2), c.y - (b.y + b.h / 2)));
     } else placeOnce(0, 0);
+    editor.select(pasted);
   });
-  editor.select(pasted);
   return true;
 }

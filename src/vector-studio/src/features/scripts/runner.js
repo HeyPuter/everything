@@ -24,18 +24,21 @@
 import { createPath, createText, createGroup, DEFAULT_CHAR, NEW_PARA } from '../../model/nodes.js';
 import { downloadBlob } from '../io/deliver.js';
 
-const BOOT = `
-<script>
-(() => {
+/**
+ * The script side of the API, as source text: `post` sends a message to the
+ * app, `listen` receives them. It runs in a dedicated worker inside the
+ * sandboxed iframe, so a runaway loop cannot freeze the app (a sandboxed
+ * iframe may share the app's thread) and removing the iframe stops it.
+ */
+export const SCRIPT_CORE = `(post, listen) => {
   let seq = 0;
   const waiting = new Map();
   const call = (method, ...args) => new Promise((resolve, reject) => {
     const id = ++seq;
     waiting.set(id, { resolve, reject });
-    parent.postMessage({ __vs: 'call', id, method, args }, '*');
+    post({ __vs: 'call', id, method, args });
   });
-  addEventListener('message', (e) => {
-    const m = e.data;
+  listen((m) => {
     if (!m || typeof m !== 'object') return;
     if (m.__vs === 'reply') {
       const w = waiting.get(m.id);
@@ -64,16 +67,53 @@ const BOOT = `
       try {
         fn = new Function('vs', '"use strict"; return (async () => {\\n' + m.source + '\\n})();');
       } catch (err) {
-        parent.postMessage({ __vs: 'done', error: 'Syntax error: ' + err.message }, '*');
+        post({ __vs: 'done', error: 'Syntax error: ' + err.message });
         return;
       }
       Promise.resolve()
         .then(() => fn(vs))
-        .then((value) => parent.postMessage({ __vs: 'done', value: value === undefined ? null : String(value) }, '*'))
-        .catch((err) => parent.postMessage({ __vs: 'done', error: (err && err.message) || String(err) }, '*'));
+        .then((value) => post({ __vs: 'done', value: value === undefined ? null : String(value) }))
+        .catch((err) => post({ __vs: 'done', error: (err && err.message) || String(err) }));
     }
   });
-  parent.postMessage({ __vs: 'ready' }, '*');
+  post({ __vs: 'ready' });
+}`;
+
+const BOOT = `
+<script>
+(() => {
+  const core = ${SCRIPT_CORE};
+  const toParent = (m) => parent.postMessage(m, '*');
+  const fromParent = (fn) => addEventListener('message', (e) => { if (e.source === parent) fn(e.data); });
+  let worker = null;
+  let started = false;
+  const inline = () => {
+    if (started) return;
+    started = true;
+    worker = null;
+    core(toParent, fromParent);
+  };
+  try {
+    const src = '(' + core.toString() + ')((m) => postMessage(m), (fn) => addEventListener("message", (e) => fn(e.data)));';
+    worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+  } catch {
+    worker = null;
+  }
+  if (!worker) {
+    inline();
+    return;
+  }
+  // Workers this browser will not start here (no 'ready' yet) fall back to running in the iframe.
+  worker.onerror = () => {
+    if (started) return;
+    worker.terminate();
+    inline();
+  };
+  worker.onmessage = (e) => {
+    started = true;
+    toParent(e.data);
+  };
+  fromParent((m) => worker?.postMessage(m));
 })();
 <\/script>`;
 
@@ -82,11 +122,19 @@ const plain = (n) => (n ? JSON.parse(JSON.stringify(n)) : null);
 /** Object properties a script may change (structure stays with create/remove). */
 const LOCKED_KEYS = new Set(['id', 'type', 'parent', 'children']);
 
+/** Script anchors as path points: { x, y } is enough; missing curve handles sit on the point. */
+function toAnchors(list) {
+  const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  return (Array.isArray(list) ? list : [])
+    .filter((a) => a && typeof a === 'object' && Number.isFinite(a.x) && Number.isFinite(a.y))
+    .map((a) => ({ ...a, ix: num(a.ix, a.x), iy: num(a.iy, a.y), ox: num(a.ox, a.x), oy: num(a.oy, a.y) }));
+}
+
 /** Build a node from script JSON. */
 function nodeFromJSON(data) {
   const t = data?.type;
   const { id, parent, children, ...rest } = data || {};
-  if (t === 'path') return createPath(Array.isArray(rest.anchors) ? rest.anchors : [], Boolean(rest.closed), rest);
+  if (t === 'path') return createPath(toAnchors(rest.anchors), Boolean(rest.closed), { ...rest, anchors: toAnchors(rest.anchors) });
   if (t === 'text') return createText(String(rest.text ?? ''), Number(rest.x) || 0, Number(rest.y) || 0, { ...rest, char: { ...DEFAULT_CHAR, ...rest.char }, para: { ...NEW_PARA, ...rest.para } });
   if (t === 'group') return createGroup([], rest);
   throw new Error(`Scripts can create path, text and group objects, not "${t}".`);
@@ -179,6 +227,7 @@ export function scriptAPI(app, editor, name) {
     update: (id, patch) => {
       check(id);
       const clean = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => !LOCKED_KEYS.has(k)));
+      if ('anchors' in clean) clean.anchors = toAnchors(clean.anchors);
       mutate(() => doc.update(id, clean));
       return true;
     },

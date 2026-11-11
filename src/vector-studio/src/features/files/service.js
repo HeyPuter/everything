@@ -18,7 +18,7 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
-import { serializeDocument, parseDocument, FileFormatError, toBytes, isGzip, gunzip, canCompress } from './format.js';
+import { serializeDocument, parseDocument, documentId, newFileId, FileFormatError, toBytes, isGzip, gunzip, canCompress } from './format.js';
 import { renderThumbnail } from './thumbnail.js';
 import { NATIVE_EXT, NATIVE_MIME, baseName, ensureExtension, extensionOf, fileKind, joinPath, stripExtension, suggestFileName, uniqueName } from './naming.js';
 import { classifyError, errorText, saveErrorDialog, sleep } from './errors.js';
@@ -68,11 +68,13 @@ export class FileService {
 
   // ---- encoding ----
 
-  async encode(editor, { thumbnail = true } = {}) {
+  async encode(editor, { thumbnail = true, copy = false } = {}) {
     const doc = editor.doc;
     const rev = doc.revision;
     const thumb = thumbnail ? await renderThumbnail(doc) : null;
-    const bytes = await serializeDocument(doc, { thumbnail: thumb });
+    // A saved file carries the document's identity (its version history follows it); a copy gets its own.
+    const id = copy ? newFileId() : documentId(doc);
+    const bytes = await serializeDocument(doc, { thumbnail: thumb, id });
     return { bytes, thumb, rev };
   }
 
@@ -153,7 +155,19 @@ export class FileService {
   /** Save in place (Save As when the document has no file yet). Resolves true when saved. */
   save(editor = this.app.editor) {
     if (!editor) return Promise.resolve(false);
-    if (editor._saving) return editor._saving;
+    if (editor._saving) {
+      // A save is still writing: once it lands, save again if the document changed meanwhile,
+      // so Save (or Close > Save) never reports success for edits that were not written.
+      if (!editor._saveAgain) {
+        const again = editor._saving
+          .then((ok) => (ok && editor.doc.dirty ? this.save(editor) : ok))
+          .finally(() => {
+            if (editor._saveAgain === again) editor._saveAgain = null;
+          });
+        editor._saveAgain = again;
+      }
+      return editor._saveAgain;
+    }
     const job = this.#save(editor).finally(() => {
       editor._saving = null;
     });
@@ -272,7 +286,7 @@ export class FileService {
       }
     }
 
-    const enc = await this.encode(editor);
+    const enc = await this.encode(editor, { copy });
     if (this.cloud) return this.#saveAsCloud(editor, enc, suggested, { copy });
     if (fsAccessAvailable()) return this.#saveAsHandle(editor, enc, suggested, { copy });
     downloadBytes(enc.bytes, suggested);
@@ -355,6 +369,8 @@ export class FileService {
     const nameInput = h('input', { type: 'text', id: 'files-save-name', value: stripExtension(suggested), spellcheck: false, autocomplete: 'off' });
     const where = h('p.form-help', { id: 'files-save-where' }, `Saves to Your files (${dir === APPDATA_DIR ? 'Vector Studio app folder' : dir.replace(/^\/[^/]+\//, '')}) in your Puter cloud.`);
     const error = h('p.form-error', { role: 'alert' });
+    // A message about the name goes away once the name changes.
+    nameInput.addEventListener('input', () => (error.textContent = ''));
     const usingDocs = dir !== APPDATA_DIR;
     const body = h(
       'div.form.files-save',
@@ -528,6 +544,7 @@ export class FileService {
       if (info.kind === 'missing') {
         await this.app.dialogs.alert({ title: 'File Not Found', message: `"${name}" could not be found. It may have been moved, renamed or deleted.` });
         await this.recent?.remove({ kind: 'puter', path });
+        this.#refreshHome();
       } else await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${name}" could not be opened. ${info.message}` });
       return null;
     }
@@ -641,6 +658,7 @@ export class FileService {
       if (!handle) {
         await this.recent?.remove(entry);
         await this.app.dialogs.alert({ title: 'File Not Available', message: `"${entry.name}" can no longer be opened from here. Use Open to choose it again.` });
+        this.#refreshHome();
         return null;
       }
       const existing = this.findOpen({ kind: 'local', handleId: entry.handleId });
@@ -657,11 +675,17 @@ export class FileService {
         if (isMissing(err)) {
           await this.recent?.remove(entry);
           await this.app.dialogs.alert({ title: 'File Not Found', message: `"${entry.name}" could not be found. It may have been moved or deleted.` });
+          this.#refreshHome();
         } else await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${entry.name}" could not be opened. ${errorText(err)}` });
         return null;
       }
     }
     return null;
+  }
+
+  /** Redraw the home screen (Recent, Your files) after a listed file turned out to be gone. */
+  #refreshHome() {
+    if (this.app.home && !this.app.home.hidden) this.app.renderHome?.(this.app.home);
   }
 
   // ---- revert ----

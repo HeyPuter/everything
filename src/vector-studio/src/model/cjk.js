@@ -25,6 +25,17 @@ export const KINSOKU = {
   hard: { noStart: new Set(CLOSE + STOPS + MIDDLE + MARKS + ITERATION + SMALL_KANA + PROLONGED), noEnd: new Set(OPEN) },
 };
 
+/**
+ * Vertical presentation forms (the 'vert' substitutions): in vertical type
+ * stops and commas sit in the top right of their em, and brackets, dashes
+ * and ellipses turn to run down the column.
+ */
+const VERT_PAIRS = ['、︑', '。︒', '，︐', '…︙', '‥︰', '—︱', '–︲', '（︵', '）︶', '｛︷', '｝︸', '〔︹', '〕︺', '【︻', '】︼', '《︽', '》︾', '〈︿', '〉﹀', '「﹁', '」﹂', '『﹃', '』﹄', '［﹇', '］﹈', '〖︗', '〗︘'];
+export const VERTICAL_FORMS = new Map(VERT_PAIRS.map((p) => [p[0], p[1]]));
+
+/** Characters with no vertical form that turn a quarter clockwise in vertical type (prolonged sound mark, wave dashes). */
+export const TURNS_IN_VERTICAL = new Set('ー〜～－');
+
 /** Whether kinsoku `mode` lets a line break between characters a and b. */
 export function kinsokuAllows(mode, a, b) {
   const k = KINSOKU[mode];

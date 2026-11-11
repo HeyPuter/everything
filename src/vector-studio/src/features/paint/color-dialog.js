@@ -204,7 +204,15 @@ export function openColorPickerDialog(app, { value = '#000000', title = 'Color P
     draw();
   };
   const fromFields = (key, text, max) => {
-    const v = clamp(Number(String(text).replace(/[%°]/g, '')) || 0, 0, max);
+    const n = Number(String(text).replace(/[%°]/g, '').trim());
+    // Text that is not a number puts the field back instead of zeroing the channel.
+    if (!String(text).trim() || !Number.isFinite(n)) {
+      const vals = { h: hsb.h, s: hsb.s, v: hsb.v, ...rgb, ...cmykEngine.toCmyk(rgb) };
+      const f = [...fields, ...cmykFields].find((x) => x.key === key);
+      if (f) f.input.value = String(Math.round(vals[key]));
+      return;
+    }
+    const v = clamp(n, 0, max);
     if (HSB_KEYS.includes(key)) setHsb({ ...hsb, [key]: v });
     else if (['r', 'g', 'b'].includes(key)) setRgb({ ...rgb, [key]: v });
     else {

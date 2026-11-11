@@ -186,9 +186,11 @@
     clip: rect(0 0 0 0);
   }
 
-  /* Dialogs slide up as sheets from the bottom edge. */
+  /* Dialogs slide up as sheets from the bottom edge (over the widths of
+     feature dialogs such as New Document and Print). */
   .dialog,
-  .dialog.wide {
+  .dialog.wide,
+  dialog.dialog[open] {
     margin: auto 0 0;
     width: 100vw;
     max-width: 100vw;

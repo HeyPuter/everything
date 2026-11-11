@@ -4,7 +4,7 @@ import { createPath } from '../src/model/nodes.js';
 import { anchor } from '../src/model/bezier.js';
 import { rectangle } from '../src/model/shapes.js';
 import { isLive, liveArtwork } from '../src/model/live.js';
-import { docBrushes } from '../src/features/brushes/brush-model.js';
+import { docBrushes, setDocBrushes, brushById } from '../src/features/brushes/brush-model.js';
 import { DEFAULT_BRUSHES, BRUSH_LIBRARIES } from '../src/features/brushes/libraries.js';
 import { pressureSamples, reshapeSection } from '../src/features/brushes/paintbrush-tool.js';
 import { selectSame } from '../src/ops/select-ops.js';
@@ -160,6 +160,58 @@ describe('Brushes panel', () => {
     const leaves = doc.leaves();
     expect(leaves.length).toBeGreaterThan(5);
     expect(leaves.every((n) => !isLive(n))).toBe(true);
+  });
+});
+
+describe('brushes on extra strokes', () => {
+  it('count as in use for Delete Brush, unused brushes and copying', async () => {
+    const app = await setup();
+    const doc = app.editor.doc;
+    const extra = { type: 'stroke', stroke: black, strokeWidth: 4, brush: { id: 'def.dots', seed: 1 } };
+    const id = addPath(app, [anchor(100, 100), anchor(300, 100)], false, { appearance: [{ type: 'fill', base: true }, { type: 'stroke', base: true }, extra] });
+    doc.transact('Brushes', () => setDocBrushes(doc, [...docBrushes(doc).filter((b) => b.id !== 'def.dots'), brushById(doc, 'def.dots')]));
+    const { brushUsers } = await import('../src/features/brushes/brush-model.js');
+    const { unusedBrushIds, brushClipboardHook } = await import('../src/features/brushes/brush-ops.js');
+    expect(brushUsers(doc, 'def.dots')).toEqual([id]);
+    expect(unusedBrushIds(doc)).not.toContain('def.dots');
+    const data = { items: [{ nodes: [doc.get(id)] }] };
+    brushClipboardHook.copy(doc, [id], data);
+    expect(data.brushes.map((b) => b.id)).toEqual(['def.dots']);
+    // Deleting it asks what to do; Remove Strokes leaves a plain extra stroke.
+    const { confirmDeleteBrushes } = await import('../src/features/brushes/brush-actions.js');
+    const done = confirmDeleteBrushes(app, ['def.dots']);
+    await tick();
+    button('Remove Strokes').click();
+    await done;
+    const item = doc.get(id).appearance[2];
+    expect(item.brush).toBeUndefined();
+    expect(item).toMatchObject({ type: 'stroke', strokeWidth: 4 });
+    expect(doc.get(id).brush).toBeUndefined();
+  });
+
+  it('moves a selected extra stroke to the edited copy with Apply to Selected Strokes', async () => {
+    const app = await setup();
+    const doc = app.editor.doc;
+    const extra = { type: 'stroke', stroke: black, strokeWidth: 4, brush: { id: 'def.dots', seed: 1 } };
+    const id = addPath(app, [anchor(100, 100), anchor(300, 100)], false, { appearance: [{ type: 'fill', base: true }, { type: 'stroke', base: true }, extra] });
+    const other = addPath(app, [anchor(100, 200), anchor(300, 200)], false, { brush: { id: 'def.dots', seed: 2 } });
+    doc.transact('Brushes', () => setDocBrushes(doc, [...docBrushes(doc).filter((b) => b.id !== 'def.dots'), brushById(doc, 'def.dots')]));
+    app.editor.select([id]);
+    const { editBrush } = await import('../src/features/brushes/brush-actions.js');
+    const done = editBrush(app, 'def.dots');
+    await tick();
+    const name = dialog().querySelector('input[type=text]');
+    name.value = 'Dots 2';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    button('OK').click();
+    await tick();
+    button('Apply to Selected Strokes').click();
+    await done;
+    const n = doc.get(id);
+    expect(n.brush).toBeUndefined();
+    expect(n.appearance[2].brush.id).not.toBe('def.dots');
+    expect(n.appearance[2].brush.seed).toBe(1);
+    expect(doc.get(other).brush.id).toBe('def.dots');
   });
 });
 

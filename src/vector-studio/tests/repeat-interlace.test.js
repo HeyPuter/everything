@@ -129,6 +129,58 @@ describe('interlace', () => {
     expect(app.toolId).toBe('interlace');
   });
 
+  it('copies keep their zones: paste, paste into another document, duplicate and Alt-drag', async () => {
+    await app.commands.run('interlace.make');
+    const gid = app.editor.topSelection()[0];
+    const tool = app.tool;
+    tool.onPointerDown(ev(app, top.x, top.y));
+    await tool.onPointerUp(ev(app, top.x, top.y));
+    tool.onKeyDown({ key: 'Escape' });
+    const crossing = (d, id) => {
+      const g = d.get(id);
+      expect(g.live.zones).toHaveLength(1);
+      expect(g.live.zones[0].order.every((c) => g.children.includes(c))).toBe(true);
+      // Inside the zone the copied red ring (the group's first child) is in front.
+      expect(orderAt(g, top.x, top.y)).toEqual([g.children[1], g.children[0]]);
+      expect(liveArtwork(d, g).items).toHaveLength(3);
+    };
+    app.editor.select([gid]);
+    await app.commands.run('edit.copy');
+    await app.commands.run('edit.pasteInPlace');
+    crossing(doc, app.editor.topSelection()[0]);
+    app.editor.select([gid]);
+    await app.commands.run('edit.duplicate');
+    crossing(doc, app.editor.topSelection()[0]);
+    const { node, descendants } = doc.cloneSubtree(gid);
+    doc.transact('Copy', () => doc.insert(node, doc.layers()[0].id, Infinity, descendants));
+    crossing(doc, node.id);
+    app.newDocument();
+    await app.commands.run('edit.pasteInPlace');
+    crossing(app.editor.doc, app.editor.topSelection()[0]);
+  });
+
+  it('keeps its crossings inside a symbol instance and a repeat', async () => {
+    await app.commands.run('interlace.make');
+    const gid = app.editor.topSelection()[0];
+    const tool = app.tool;
+    tool.onPointerDown(ev(app, top.x, top.y));
+    await tool.onPointerUp(ev(app, top.x, top.y));
+    tool.onKeyDown({ key: 'Escape' });
+    // The generated interlace inside another live object still draws its zone (3 items: 2 rings + zone).
+    const inner = (id) => {
+      const { items, vdoc } = liveArtwork(doc, doc.get(id));
+      return items.map((n) => liveArtwork(vdoc, n).items.length);
+    };
+    app.editor.select([gid]);
+    await app.commands.run('repeat.grid');
+    const rep = app.editor.topSelection()[0];
+    expect(inner(rep).every((k) => k === 3)).toBe(true);
+    doc.undo();
+    app.editor.select([gid]);
+    await app.commands.run('symbol.new', { direct: true, name: 'Rings' });
+    expect(inner(app.editor.topSelection()[0])).toEqual([3]);
+  });
+
   it('a dragged loop makes a freehand zone', async () => {
     await app.commands.run('interlace.make');
     const gid = app.editor.topSelection()[0];

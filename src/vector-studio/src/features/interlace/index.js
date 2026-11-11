@@ -32,7 +32,7 @@ async function objectArea(doc, node) {
     if (!sh.subpaths.length) continue;
     if (l.fill) parts.push({ subpaths: sh.subpaths, filled: true, evenodd: sh.evenodd });
     if (l.stroke && l.strokeWidth > 0) {
-      const recs = await runGeom(OP.STROKE, [{ subpaths: sh.subpaths, filled: false }], strokeParams(l), { tol: 0.01 });
+      const recs = await runGeom(OP.STROKE, [{ subpaths: sh.subpaths, filled: false }], strokeParams(l, null, sh.subpaths), { tol: 0.01 });
       for (const r of recs) if (r.subpaths.length) parts.push({ subpaths: r.subpaths, filled: true });
     }
   }

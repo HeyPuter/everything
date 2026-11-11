@@ -8,6 +8,7 @@
  */
 import { workerURL } from './protocol.js';
 import { authorize, refuseCredential } from './auth.js';
+import { classifyError } from '../files/errors.js';
 
 const WORKER_KEY = 'vector-studio-collab-worker-v1';
 const BUNDLE = 'worker/vector-studio-worker.js';
@@ -30,8 +31,13 @@ export async function call(puter, server, input, { timeout = 30000 } = {}) {
   try {
     server = workerURL(server);
     const body = JSON.stringify(input);
-    let headers = await authorize(puter, server, body);
     const unreachable = () => new CollabError('Could not reach the shared document. Check your connection.', { offline: true });
+    // Loading the credential talks to Puter too: a dropped connection there is being offline.
+    const credential = () =>
+      authorize(puter, server, body).catch((err) => {
+        throw classifyError(err).kind === 'offline' ? unreachable() : err;
+      });
+    let headers = await credential();
     const send = async () => {
       try {
         return await puter.workers.exec(`${server}/api`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body, signal: controller.signal, redirect: 'error' });
@@ -41,7 +47,7 @@ export async function call(puter, server, input, { timeout = 30000 } = {}) {
     };
     let res = await send();
     if (res.status === 401 && refuseCredential(puter, headers)) {
-      headers = await authorize(puter, server, body);
+      headers = await credential();
       res = await send();
     }
     const reply = await res.json().catch(() => null);

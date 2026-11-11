@@ -18,10 +18,15 @@ export function rasterKind(bytes) {
 /** Decode to { width, height, data (RGBA), ppi }, or null for other formats. */
 export function decodeRaster(bytes) {
   const kind = rasterKind(bytes);
-  if (kind === 'tiff') return decodeTIFF(bytes);
-  if (kind === 'psd') return decodePSD(bytes);
-  if (kind === 'bmp') return decodeBMP(bytes);
-  return null;
+  const decode = { tiff: decodeTIFF, psd: decodePSD, bmp: decodeBMP }[kind];
+  if (!decode) return null;
+  try {
+    return decode(bytes);
+  } catch (err) {
+    // Reads past the end of a truncated or damaged file.
+    if (err instanceof RangeError && /bounds|DataView/.test(err.message)) throw new Error(`The ${kind === 'bmp' ? 'bitmap' : kind.toUpperCase()} file is damaged or incomplete.`);
+    throw err;
+  }
 }
 
 /** PNG bytes for a TIFF/PSD/BMP file ({ mime, bytes, width, height, ppi }), or null. */

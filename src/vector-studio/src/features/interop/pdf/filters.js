@@ -69,29 +69,48 @@ export function ascii85(b) {
   return out.slice(0, n);
 }
 
-function runLength(b) {
-  const out = [];
+/** Most bytes a stream decodes to (more is a decompression bomb: the rest is dropped). */
+export const MAX_DECODED = 1 << 28;
+
+function runLength(b, limit = MAX_DECODED) {
+  let out = new Uint8Array(Math.min(limit, Math.max(1024, b.length * 2)));
+  let n = 0;
+  const reserve = (k) => {
+    if (n + k <= out.length) return true;
+    if (n + k > limit) return false;
+    const next = new Uint8Array(Math.min(limit, Math.max(out.length * 2, n + k)));
+    next.set(out.subarray(0, n));
+    out = next;
+    return true;
+  };
   let i = 0;
   while (i < b.length) {
     const len = b[i++];
     if (len === 128) break;
     if (len < 128) {
-      for (let k = 0; k <= len && i < b.length; k++) out.push(b[i++]);
+      const k = Math.min(len + 1, b.length - i);
+      if (!reserve(k)) break;
+      out.set(b.subarray(i, i + k), n);
+      n += k;
+      i += k;
     } else {
       const v = b[i++];
-      for (let k = 0; k < 257 - len; k++) out.push(v);
+      if (!reserve(257 - len)) break;
+      out.fill(v, n, n + 257 - len);
+      n += 257 - len;
     }
   }
-  return Uint8Array.from(out);
+  return out.slice(0, n);
 }
 
-/** LZW (PDF/TIFF flavour: MSB-first codes, 258 = clear, 257 = end). */
-export function lzw(b, earlyChange = 1) {
-  let out = new Uint8Array(Math.max(1024, b.length * 3));
+/** LZW (PDF/TIFF flavour: MSB-first codes, 258 = clear, 257 = end), keeping at most `limit` bytes. */
+export function lzw(b, earlyChange = 1, limit = Infinity) {
+  let out = new Uint8Array(Math.min(limit, Math.max(1024, b.length * 3)));
   let n = 0;
   const push = (v) => {
     if (n >= out.length) {
-      const next = new Uint8Array(out.length * 2);
+      if (n >= limit) return;
+      const next = new Uint8Array(Math.min(limit, out.length * 2));
       next.set(out);
       out = next;
     }
@@ -112,7 +131,7 @@ export function lzw(b, earlyChange = 1) {
   let nbits = 0;
   let pos = 0;
   const stack = new Uint8Array(4096);
-  for (;;) {
+  while (n < limit) {
     while (nbits < bits && pos < b.length) {
       buf = ((buf << 8) | b[pos++]) >>> 0;
       nbits += 8;
@@ -236,20 +255,21 @@ export function filtersOf(dict) {
 
 /**
  * Decode a stream's data. Returns { bytes, image } where `image` is the
- * name of an image codec left to decode (DCTDecode...) or null.
+ * name of an image codec left to decode (DCTDecode...) or null. Each filter
+ * keeps at most `limit` bytes of output.
  */
-export function decodeStream(stream) {
+export function decodeStream(stream, { limit = MAX_DECODED } = {}) {
   let data = stream.raw;
   for (const { name, parms } of filtersOf(stream.dict)) {
     if (IMAGE_FILTERS.has(name)) return { bytes: data, image: name === 'DCT' ? 'DCTDecode' : name === 'CCF' ? 'CCITTFaxDecode' : name, parms };
     switch (name) {
       case 'FlateDecode':
       case 'Fl':
-        data = unpredict(inflate(data), parms);
+        data = unpredict(inflate(data, limit), parms);
         break;
       case 'LZWDecode':
       case 'LZW':
-        data = unpredict(lzw(data, parms ? parms.num('EarlyChange', 1) : 1), parms);
+        data = unpredict(lzw(data, parms ? parms.num('EarlyChange', 1) : 1, limit), parms);
         break;
       case 'ASCIIHexDecode':
       case 'AHx':
@@ -261,7 +281,7 @@ export function decodeStream(stream) {
         break;
       case 'RunLengthDecode':
       case 'RL':
-        data = runLength(data);
+        data = runLength(data, limit);
         break;
       case 'Crypt':
         break;

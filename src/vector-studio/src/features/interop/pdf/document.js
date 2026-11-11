@@ -361,18 +361,23 @@ export class PDFDocument {
 
   // ---- pages ----
 
-  collectPages(node, inherited, seen) {
-    if (!(node instanceof PDFDict) || seen.has(node)) return;
-    seen.add(node);
-    const inh = { ...inherited };
-    for (const k of ['Resources', 'MediaBox', 'CropBox', 'Rotate']) if (node.has(k)) inh[k] = node.get(k);
-    const kids = node.get('Kids');
-    const type = node.name('Type');
-    if (Array.isArray(kids) && type !== 'Page') {
-      for (const k of kids) this.collectPages(this.fetch(k), inh, seen);
-      return;
+  /** Pages in document order (a work list, not recursion: page trees can be deeper than the call stack). */
+  collectPages(root, inherited, seen) {
+    const todo = [[root, inherited]];
+    while (todo.length) {
+      const [node, inh0] = todo.pop();
+      if (!(node instanceof PDFDict) || seen.has(node)) continue;
+      seen.add(node);
+      const inh = { ...inh0 };
+      for (const k of ['Resources', 'MediaBox', 'CropBox', 'Rotate']) if (node.has(k)) inh[k] = node.get(k);
+      const kids = node.get('Kids');
+      const type = node.name('Type');
+      if (Array.isArray(kids) && type !== 'Page') {
+        for (let i = kids.length - 1; i >= 0; i--) todo.push([this.fetch(kids[i]), inh]);
+        continue;
+      }
+      this.pages.push(new PDFPage(this, node, inh, this.pages.length));
     }
-    this.pages.push(new PDFPage(this, node, inh, this.pages.length));
   }
 
   /** Document title from the info dictionary. */

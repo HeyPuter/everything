@@ -21,11 +21,92 @@ import { createLayer, isContainer } from './nodes.js';
 import { DEFAULT_SWATCHES } from './swatches.js';
 
 export const FORMAT_VERSION = 1;
+
+/**
+ * Live objects that refer to their own children by id (an interlace's zone
+ * orders, the path of Objects on Path) register fn(node, idMap) -> node here,
+ * so copies made with fresh ids (paste, duplicate, the virtual copies of live
+ * artwork) refer to the copied children.
+ */
+export const idRefHooks = [];
+
+/** A copied node with its references to other copied nodes (old id -> new id in idMap) updated. */
+export function remapIdRefs(node, idMap) {
+  if (!node.live) return node;
+  let out = node;
+  for (const fn of idRefHooks) out = fn(out, idMap) || out;
+  return out;
+}
+
 const HISTORY_LIMIT = 200;
 
-/** The node map, with a version that changes on every write (for derived caches). */
+const { get: mapGet, values: mapValues, entries: mapEntries, forEach: mapForEach } = Map.prototype;
+
+// NodeMap reads inside a transaction: a node handed out is no longer edited in place.
+function trackedGet(key) {
+  if (this.owned.delete(key) && !this.owned.size) this.retrack();
+  return mapGet.call(this, key);
+}
+function trackedValues() {
+  this.owned.clear();
+  this.retrack();
+  return mapValues.call(this);
+}
+function trackedEntries() {
+  this.owned.clear();
+  this.retrack();
+  return mapEntries.call(this);
+}
+function trackedForEach(fn, thisArg) {
+  this.owned.clear();
+  this.retrack();
+  return mapForEach.call(this, fn, thisArg);
+}
+
+/**
+ * The node map, with a version that changes on every write (for derived caches).
+ *
+ * `owned` (inside a transaction) holds the containers whose children list
+ * the transaction may still edit in place (see VDocument.#ownedChildren).
+ * Handing such a node out (get, values, entries, forEach; snapshot(); not
+ * a bare for...of over the map, which the model does not do mid-change) ends
+ * that: its next change copies the list again, so a node object a caller
+ * holds, and its children array, never change under it. `peek` reads
+ * without handing out (the document's own bookkeeping). Outside
+ * transactions these are Map's own methods, so reads cost nothing extra.
+ */
 class NodeMap extends Map {
   version = 0;
+  owned = null;
+  // Own properties that only change value (never added or removed), so the map keeps one shape.
+  get = mapGet;
+  values = mapValues;
+  entries = mapEntries;
+  forEach = mapForEach;
+
+  /** Start (with the transaction's owned set) or stop tracking hand-outs. */
+  track(owned) {
+    this.owned = owned;
+    this.retrack();
+  }
+
+  /**
+   * Reads are intercepted only while the transaction owns a container: most
+   * transactions (moves, restyles) never do, and their reads, often many per
+   * change event in listeners, then cost what Map's own do.
+   */
+  retrack() {
+    const on = Boolean(this.owned?.size);
+    if ((this.get === trackedGet) === on) return;
+    this.get = on ? trackedGet : mapGet;
+    this.values = on ? trackedValues : mapValues;
+    this.entries = on ? trackedEntries : mapEntries;
+    this.forEach = on ? trackedForEach : mapForEach;
+  }
+
+  peek(key) {
+    return mapGet.call(this, key);
+  }
 
   set(key, value) {
     this.version++;
@@ -94,6 +175,9 @@ export class VDocument extends Emitter {
     this.undoStack = [];
     this.redoStack = [];
     this.tx = null;
+    // An id for the current content: every commit, coalesced edit and remote
+    // change gets a fresh one, and undo/redo return to the step's ids, so the
+    // same number never stands for two different states (dirty, autosave).
     this.revision = 0;
     this.savedRevision = 0;
     /** Optional { get(), set(value) } so undo can restore the editor selection. */
@@ -175,15 +259,26 @@ export class VDocument extends Emitter {
     return out;
   }
 
-  /** Recompute parent pointers from the children lists (after load). */
+  /**
+   * Recompute parent pointers from the children lists (after load). A node
+   * listed by more than one container (a damaged file: shared children or a
+   * cycle) stays with the first and is dropped from the others' lists, so
+   * the tree draws each object once and loading never recurses forever.
+   */
   repairParents() {
-    const visit = (id, parent) => {
-      const node = this.nodes.get(id);
-      if (!node) return;
-      if (node.parent !== parent) this.nodes.set(id, { ...node, parent });
-      if (node.children) for (const c of node.children) visit(c, id);
-    };
-    visit('root', null);
+    const claimed = new Set(['root']);
+    const stack = [['root', null]];
+    while (stack.length) {
+      const [id, parent] = stack.pop();
+      let node = this.nodes.get(id);
+      if (!node) continue;
+      if (node.parent !== parent) this.nodes.set(id, (node = { ...node, parent }));
+      if (!node.children) continue;
+      const kids = [];
+      for (const c of node.children) if (!claimed.has(c)) claimed.add(c), kids.push(c);
+      if (kids.length !== node.children.length) this.nodes.set(id, { ...node, children: kids });
+      for (let i = kids.length - 1; i >= 0; i--) stack.push([kids[i], id]);
+    }
   }
 
   get root() {
@@ -351,8 +446,10 @@ export class VDocument extends Emitter {
       structural: false,
       commit: () => this.#commit(tx),
       cancel: () => this.#cancel(tx),
+      owned: new Set(),
     };
     this.tx = tx;
+    this.nodes.track(tx.owned);
     return tx;
   }
 
@@ -374,13 +471,14 @@ export class VDocument extends Emitter {
   #touch(id) {
     const tx = this.tx;
     if (!tx) throw new Error('Document changes must happen inside a transaction');
-    if (!tx.before.has(id)) tx.before.set(id, this.nodes.get(id));
+    if (!tx.before.has(id)) tx.before.set(id, this.nodes.peek(id));
     tx.changed.add(id);
   }
 
   #commit(tx) {
     if (this.tx !== tx) return;
     this.tx = null;
+    this.nodes.track(null);
     const after = new Map();
     for (const id of tx.before.keys()) after.set(id, this.nodes.get(id));
     // Drop no-op touches.
@@ -395,6 +493,7 @@ export class VDocument extends Emitter {
       for (const id of last.before.keys()) last.after.set(id, this.nodes.get(id));
       last.selectionAfter = this.selection ? this.selection.get() : null;
       last.time = Date.now();
+      last.rev = this.revision = this.#nextRevision();
       this.emit('transaction', { label: tx.label, before: tx.before, after });
       this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
       this.emit('history');
@@ -409,11 +508,13 @@ export class VDocument extends Emitter {
       selectionAfter: this.selection ? this.selection.get() : null,
       structural: tx.structural,
       time: Date.now(),
+      prevRev: this.revision,
+      rev: this.#nextRevision(),
     };
     this.undoStack.push(record);
     while (this.undoStack.length > (this.historyLimit || HISTORY_LIMIT)) this.undoStack.shift();
     this.redoStack.length = 0;
-    this.revision++;
+    this.revision = record.rev;
     this.emit('transaction', { label: tx.label, before: tx.before, after });
     this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
     this.emit('history');
@@ -422,12 +523,21 @@ export class VDocument extends Emitter {
   #cancel(tx) {
     if (this.tx !== tx) return;
     this.tx = null;
+    this.nodes.track(null);
     for (const [id, old] of tx.before) {
       if (old === undefined) this.nodes.delete(id);
       else this.nodes.set(id, old);
     }
     if (this.selection && tx.selectionBefore != null) this.selection.set(tx.selectionBefore);
     this.emit('change', { ids: tx.changed, structural: true, commit: true });
+  }
+
+  #lastRevision = 0;
+
+  /** A revision number no state of this document has had (code may also set `revision` directly). */
+  #nextRevision() {
+    this.#lastRevision = Math.max(this.#lastRevision, this.revision, this.savedRevision) + 1;
+    return this.#lastRevision;
   }
 
   get canUndo() {
@@ -451,7 +561,7 @@ export class VDocument extends Emitter {
     const rec = this.undoStack.pop();
     const prev = this.#restore(rec.before);
     this.redoStack.push(rec);
-    this.revision--;
+    this.revision = rec.prevRev ?? this.revision - 1;
     this.emit('transaction', { label: rec.label, before: prev, after: rec.before, undo: true });
     if (this.selection && rec.selectionBefore != null) this.selection.set(rec.selectionBefore);
     this.emit('change', { ids: new Set(rec.before.keys()), structural: true, commit: true, undo: true });
@@ -464,7 +574,7 @@ export class VDocument extends Emitter {
     const rec = this.redoStack.pop();
     const prev = this.#restore(rec.after);
     this.undoStack.push(rec);
-    this.revision++;
+    this.revision = rec.rev ?? this.revision + 1;
     this.emit('transaction', { label: rec.label, before: prev, after: rec.after, redo: true });
     if (this.selection && rec.selectionAfter != null) this.selection.set(rec.selectionAfter);
     this.emit('change', { ids: new Set(rec.after.keys()), structural: true, commit: true, undo: true });
@@ -504,9 +614,42 @@ export class VDocument extends Emitter {
     if (!ids.size) return ids;
     // Caches keyed on the revision see the change; a saved document stays saved.
     const clean = this.revision === this.savedRevision;
-    this.revision++;
+    this.revision = this.#nextRevision();
     if (clean) this.savedRevision = this.revision;
     this.emit('change', { ids, structural: true, commit: true, remote: true });
+    return ids;
+  }
+
+  /**
+   * Replace nodes with recomputed derived data (an auto-sized frame's height
+   * measured again once its font has loaded): `changes` maps ids to their
+   * corrected node. No undo step is added: every history step that would
+   * bring back the exact node replaced brings back the corrected one, so
+   * Undo and Redo keep the correction. A saved document stays saved.
+   */
+  amendDerived(changes) {
+    if (this.tx) throw new Error(`Transaction "${this.tx.label}" is still open`);
+    const ids = new Set();
+    for (const [id, next] of changes) {
+      const prev = this.nodes.get(id);
+      if (!prev || !next || prev === next) continue;
+      this.nodes.set(id, next);
+      ids.add(id);
+      for (const rec of [...this.undoStack, ...this.redoStack]) {
+        if (rec.before.get(id) === prev) rec.before.set(id, next);
+        if (rec.after.get(id) === prev) rec.after.set(id, next);
+      }
+    }
+    if (!ids.size) return ids;
+    // Caches keyed on the revision see the change; the steps that lead to this state keep leading to it.
+    const old = this.revision;
+    this.revision = this.#nextRevision();
+    if (this.savedRevision === old) this.savedRevision = this.revision;
+    for (const rec of [...this.undoStack, ...this.redoStack]) {
+      if (rec.rev === old) rec.rev = this.revision;
+      if (rec.prevRev === old) rec.prevRev = this.revision;
+    }
+    this.emit('change', { ids, structural: false, commit: true });
     return ids;
   }
 
@@ -538,6 +681,8 @@ export class VDocument extends Emitter {
 
   /** The whole document state. Nodes are immutable, so this is a cheap shallow copy. */
   snapshot() {
+    this.nodes.owned?.clear(); // its node objects are handed out
+    this.nodes.retrack();
     return { nodes: new Map(this.nodes), assets: new Map(this.assets) };
   }
 
@@ -557,6 +702,7 @@ export class VDocument extends Emitter {
       else this.nodes.set(id, next);
       changed.add(id);
     }
+    this.nodes.retrack();
     for (const [id, a] of snap.assets || []) if (!this.assets.has(id)) this.assets.set(id, a);
     this.tx.structural = true;
     this.emit('change', { ids: changed, structural: true, live: true });
@@ -567,12 +713,12 @@ export class VDocument extends Emitter {
 
   /** Shallow-merge a patch into a node, replacing the object. */
   update(id, patch) {
-    const old = this.nodes.get(id);
+    const old = this.nodes.peek(id);
     if (!old) return null;
     this.#touch(id);
     const next = { ...old, ...patch };
-    // A patched children list is a fresh array the caller owns; stop mutating in place.
-    if (patch.children && this.tx.owned) this.tx.owned.delete(id);
+    // The new object goes back to the caller (and a patched list is the caller's): no more edits in place.
+    if (this.tx.owned.delete(id) && !this.tx.owned.size) this.nodes.retrack();
     this.nodes.set(id, next);
     this.emit('change', { ids: new Set([id]), structural: false, live: true });
     return next;
@@ -583,13 +729,13 @@ export class VDocument extends Emitter {
    * parent. `index` counts back-to-front; default puts it on top.
    */
   insert(node, parentId, index = Infinity, descendants = []) {
-    const parent = this.nodes.get(parentId);
+    const parent = this.nodes.peek(parentId);
     if (!parent || !parent.children) throw new Error(`Cannot insert into ${parentId}`);
     for (const d of descendants) {
       this.#touch(d.id);
       this.nodes.set(d.id, d);
     }
-    const prior = this.nodes.get(node.id);
+    const prior = this.nodes.peek(node.id);
     this.#touch(node.id);
     this.nodes.set(node.id, { ...node, parent: parentId });
     const children = this.#ownedChildren(parentId);
@@ -606,25 +752,28 @@ export class VDocument extends Emitter {
   }
 
   /**
-   * The children array of a container that this transaction may mutate in
-   * place: the first touch copies the node (the old object stays the undo
-   * snapshot), later inserts reuse the copy. Bulk inserts stay O(n).
+   * The children array of a container that this transaction may edit in
+   * place: a container not owned yet (first change, or handed out to a
+   * caller since its last change) gets a new node object with a copy of
+   * the list, so the objects callers hold (and the undo snapshot) keep
+   * theirs; until it is handed out again later changes reuse the copy, so
+   * bulk inserts, moves and removals stay O(n).
    */
   #ownedChildren(parentId) {
-    const tx = this.tx;
-    if (!tx.owned) tx.owned = new Set();
-    if (!tx.owned.has(parentId)) {
+    const owned = this.tx.owned;
+    if (!owned.has(parentId)) {
       this.#touch(parentId);
-      const p = this.nodes.get(parentId);
+      const p = this.nodes.peek(parentId);
       this.nodes.set(parentId, { ...p, children: p.children.slice() });
-      tx.owned.add(parentId);
+      owned.add(parentId);
+      if (owned.size === 1) this.nodes.retrack();
     }
-    return this.nodes.get(parentId).children;
+    return this.nodes.peek(parentId).children;
   }
 
   /** Remove a node and all its descendants. */
   remove(id) {
-    const node = this.nodes.get(id);
+    const node = this.nodes.peek(id);
     if (!node || id === 'root') return;
     for (const d of this.descendants(id)) {
       this.#touch(d.id);
@@ -632,30 +781,32 @@ export class VDocument extends Emitter {
     }
     this.#touch(id);
     this.nodes.delete(id);
-    const parent = node.parent ? this.nodes.get(node.parent) : null;
-    if (parent) {
-      this.#touch(parent.id);
-      this.nodes.set(parent.id, { ...parent, children: parent.children.filter((c) => c !== id) });
-    }
+    this.#unlink(id, node.parent);
     this.tx.structural = true;
+  }
+
+  /** Take `id` out of its parent's children list (see #ownedChildren). */
+  #unlink(id, parentId) {
+    if (!this.nodes.peek(parentId)?.children) return;
+    const children = this.#ownedChildren(parentId);
+    const at = children.indexOf(id);
+    if (at >= 0) children.splice(at, 1);
   }
 
   /** Move a node to another parent (or reorder within the same one). */
   move(id, parentId, index = Infinity) {
-    const node = this.nodes.get(id);
+    const node = this.nodes.peek(id);
     if (!node) return;
-    if (id === parentId || this.isAncestor(id, parentId)) throw new Error('Cannot move a node into itself');
-    const oldParent = node.parent ? this.nodes.get(node.parent) : null;
-    if (oldParent) {
-      this.#touch(oldParent.id);
-      this.nodes.set(oldParent.id, { ...oldParent, children: oldParent.children.filter((c) => c !== id) });
+    // (peek: checking must not hand the containers out, see #ownedChildren.)
+    for (let n = this.nodes.peek(parentId); n; n = n.parent ? this.nodes.peek(n.parent) : null) {
+      if (n.id === id) throw new Error('Cannot move a node into itself');
     }
-    const parent = this.nodes.get(parentId);
-    this.#touch(parentId);
-    const children = parent.children.filter((c) => c !== id);
+    if (!this.nodes.peek(parentId)?.children) throw new Error(`Cannot move into ${parentId}`);
+    this.#unlink(id, node.parent);
+    const children = this.#ownedChildren(parentId);
     const at = Math.max(0, Math.min(children.length, index));
-    children.splice(at, 0, id);
-    this.nodes.set(parentId, { ...parent, children });
+    if (at === children.length) children.push(id);
+    else children.splice(at, 0, id);
     this.#touch(id);
     this.nodes.set(id, { ...node, parent: parentId });
     this.tx.structural = true;
@@ -680,7 +831,7 @@ export class VDocument extends Emitter {
       return out;
     };
     const node = copy(src, src.parent);
-    return { node, descendants };
+    return { node: remapIdRefs(node, idMap), descendants: descendants.map((n) => remapIdRefs(n, idMap)) };
   }
 
   /** Serializable subtree for the clipboard: { root, nodes: [...] } with original ids. */
@@ -689,15 +840,19 @@ export class VDocument extends Emitter {
     return { root: id, nodes };
   }
 
-  /** Re-id and insert a subtree produced by exportSubtree(). Returns the new root node. */
-  importSubtree(sub, parentId, index = Infinity) {
+  /**
+   * Re-id and insert a subtree produced by exportSubtree(). Returns the new
+   * root node. `idMap` (optional) collects old id -> new id.
+   */
+  importSubtree(sub, parentId, index = Infinity, idMap = null) {
     const map = new Map();
     for (const n of sub.nodes) map.set(n.id, uid(n.type[0]));
+    if (idMap) for (const [a, b] of map) idMap.set(a, b);
     const nodes = sub.nodes.map((n) => {
       const out = { ...n, id: map.get(n.id) };
       if (n.children) out.children = n.children.map((c) => map.get(c)).filter(Boolean);
       if (n.parent && map.has(n.parent)) out.parent = map.get(n.parent);
-      return out;
+      return remapIdRefs(out, map);
     });
     const root = nodes[0];
     return this.insert(root, parentId, index, nodes.slice(1));

@@ -136,6 +136,104 @@ describe('PDF export', () => {
   });
 });
 
+describe('clip groups in PDF export', () => {
+  it('keeps the alignment of a clipping path\'s stroke', async () => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    const layer = doc.layers()[0].id;
+    const content = createPath(rectangle(0, 0, 120, 120), true, { fill: { type: 'solid', color: '#ff0000' }, stroke: null });
+    const mask = createPath(ellipse(20, 20, 80, 80), true, { fill: null, stroke: { type: 'solid', color: '#0000ff' }, strokeWidth: 10, strokeAlign: 'inside' });
+    doc.transact('build', () => doc.insert(createGroup([content.id, mask.id], { clip: true }), layer, Infinity, [content, mask]));
+    doc.repairParents();
+    const { bytes } = await writePDF(doc, [doc.artboards[0]], { compress: false });
+    const page = streams(bytes).find((st) => /0 0 1 RG/.test(st.data)).data;
+    // An inside stroke is a double-width stroke inside a clip to the shape (a centered 10pt stroke would spill outside).
+    expect(page).toMatch(/W n\n20 w [^]*0 0 1 RG/);
+    expect(page).not.toMatch(/\n10 w /);
+  });
+});
+
+describe('transparency groups in PDF export', () => {
+  it('writes Isolate Blending and Knockout Group groups as isolated and knockout transparency groups', async () => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    const layer = doc.layers()[0].id;
+    const kids = (color) => [createPath(rectangle(10, 10, 70, 70), true, { fill: { type: 'solid', color: '#ffff00' }, stroke: null }), createPath(rectangle(40, 40, 70, 70), true, { fill: { type: 'solid', color }, stroke: null, blendMode: 'multiply', opacity: 0.6 })];
+    const a = kids('#00ffff');
+    const b = kids('#ff00ff');
+    const c = kids('#00ff00');
+    doc.transact('build', () => {
+      doc.insert(createGroup(a.map((k) => k.id), { isolate: true }), layer, Infinity, a);
+      doc.insert(createGroup(b.map((k) => k.id), { knockout: true }), layer, Infinity, b);
+      doc.insert(createGroup(c.map((k) => k.id)), layer, Infinity, c);
+    });
+    doc.repairParents();
+    const { bytes } = await writePDF(doc, [doc.artboards[0]], { compress: false });
+    const forms = streams(bytes).filter((st) => /\/Subtype \/Form/.test(st.dict));
+    const form = (color) => forms.find((f) => f.data.includes(color));
+    // The multiply blends only with the group's own contents.
+    expect(form('0 1 1 rg').dict).toMatch(/\/Group << \/S \/Transparency [^>]*\/I true >>/);
+    expect(form('1 0 1 rg').dict).toMatch(/\/I true \/K true >>/);
+    // A plain group stays inline.
+    expect(form('0 1 0 rg')).toBeUndefined();
+  });
+});
+
+describe('gradient opacity in PDF export', () => {
+  const fade = (a, b) => ({ type: 'linear', angle: 0, stops: [{ offset: 0, color: '#ff0000', opacity: a }, { offset: 1, color: '#ff0000', opacity: b }] });
+  const pdfOf = async (fill, opts = {}) => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    doc.transact('build', () => doc.insert(createPath(rectangle(10, 10, 100, 100), true, { fill, stroke: null }), doc.layers()[0].id));
+    return latin1((await writePDF(doc, [doc.artboards[0]], { compress: false, ...opts })).bytes);
+  };
+
+  it('fades a gradient whose stops differ in opacity through a soft mask', async () => {
+    const s = await pdfOf(fade(1, 0));
+    // The mask is the same shading in gray, from opaque to clear, not one average opacity for the whole fill.
+    expect(s).toMatch(/\/SMask << \/Type \/Mask \/S \/Luminosity \/G \d+ 0 R >>/);
+    expect(s).toMatch(/\/ShadingType 2 \/ColorSpace \/DeviceGray [^]*\/C0 \[1\] \/C1 \[0\]/);
+    expect(s).not.toMatch(/\/ca 0\.5/);
+  });
+
+  it('keeps a uniform stop opacity as a constant alpha, and PDF/X-1a opaque', async () => {
+    const uniform = await pdfOf(fade(0.5, 0.5));
+    expect(uniform).toContain('/ca 0.5');
+    expect(uniform).not.toContain('/SMask');
+    expect(await pdfOf(fade(1, 0), { pdfx: 'x1a' })).not.toContain('/SMask');
+  });
+  it('fades a gradient stroke whose stops differ in opacity through a soft mask stroked like the path', async () => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    doc.transact('build', () => doc.insert(createPath(rectangle(10, 10, 100, 100), true, { fill: null, stroke: fade(1, 0), strokeWidth: 8 }), doc.layers()[0].id));
+    const { bytes } = await writePDF(doc, [doc.artboards[0]], { compress: false });
+    const s = latin1(bytes);
+    expect(s).toMatch(/\/SMask << \/Type \/Mask \/S \/Luminosity \/G \d+ 0 R >>/);
+    expect(s).toMatch(/\/ShadingType 2 \/ColorSpace \/DeviceGray [^]*\/C0 \[1\] \/C1 \[0\]/);
+    // The mask strokes the same path at the same width with the gray shading pattern.
+    const mask = streams(bytes).find((st) => /\/Group << \/S \/Transparency \/CS \/DeviceGray >>/.test(st.dict));
+    expect(mask.data).toMatch(/^8 w [^]*\/Pattern CS \/P\d+ SCN\n[^]*S\n$/);
+    expect(s).not.toMatch(/\/CA 0\.5/);
+  });
+});
+
+describe('editing during a PDF export', () => {
+  it('writes the document as it was when the export started', async () => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    const layer = doc.layers()[0].id;
+    const red = { type: 'solid', color: '#ff0000' };
+    let second;
+    doc.transact('build', () => {
+      doc.insert(createPath(rectangle(10, 10, 40, 40), true, { fill: red, stroke: null }), layer);
+      const group = doc.insert(createGroup([]), layer);
+      second = doc.insert(createPath(rectangle(60, 60, 40, 40), true, { fill: red, stroke: null }), group.id);
+    });
+    // The writer yields between objects; an edit made meanwhile must not reach the file halfway through.
+    const pending = writePDF(doc, [doc.artboards[0]], { compress: false });
+    doc.transact('recolor', () => doc.update(second.id, { fill: { type: 'solid', color: '#0000ff' } }));
+    const s = latin1((await pending).bytes);
+    expect(s).toContain('1 0 0 rg');
+    expect(s).not.toContain('0 0 1 rg');
+    expect(doc.get(second.id).fill.color).toBe('#0000ff');
+  });
+});
+
 describe('document bleed in PDF export', () => {
   it('uses the document bleed per side with Use Document Bleed Settings', async () => {
     const doc = sampleDoc();

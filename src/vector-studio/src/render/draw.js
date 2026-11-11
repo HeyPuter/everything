@@ -17,6 +17,7 @@ import { gradientGeometry, localGradientGeometry, nodeBounds, visualBounds, rect
 import { layoutText, cssFont, glyphPlacements, extraPlacements, drawsAsSegments, riseOf, textHooks, decorationRects } from '../model/text-layout.js';
 import { expandStops, focalPoint } from '../model/gradients.js';
 import { multiply } from '../lib/matrix.js';
+import { feasibleDash } from '../model/dash-limit.js';
 import { geomEffectsOf, effectiveSubpaths, paintParts } from '../model/geom-effects.js';
 import { liveDef, liveArtwork } from '../model/live.js';
 import '../model/live-effects.js';
@@ -167,9 +168,12 @@ function setStrokeProps(ctx, node, widthScale = 1) {
   ctx.lineJoin = node.strokeJoin || 'miter';
   ctx.miterLimit = node.miterLimit || 10;
   const custom = drawHooks.dashPattern ? drawHooks.dashPattern(node, widthScale) : null;
-  const dash = custom ? custom.dash : node.dash && node.dash.length ? node.dash : null;
+  let dash = custom ? custom.dash : node.dash && node.dash.length ? node.dash : null;
+  let offset = custom ? custom.offset : node.dashOffset || 0;
+  // Hundreds of thousands of tiny dashes take seconds per frame (round caps especially): draw a look-alike.
+  if (dash && node.anchors) ({ dash, offset } = feasibleDash(dash, offset, ctx.lineWidth, node.strokeCap === 'round' || node.strokeCap === 'square', [node]));
   ctx.setLineDash(dash || []);
-  ctx.lineDashOffset = custom ? custom.offset : node.dashOffset || 0;
+  ctx.lineDashOffset = offset;
 }
 
 /** Stroke with alignment: center, inside (clip to the shape) or outside (clip to its complement). */

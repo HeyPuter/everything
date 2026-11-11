@@ -95,7 +95,7 @@ export function expandAppearance(editor, label = 'Expand Appearance') {
   const out = [];
   doc.transact(label, () => {
     for (const id of ids) out.push(expandNodeAppearance(doc, id));
+    editor.select(out.filter((id) => doc.get(id)));
   });
-  editor.select(out.filter((id) => doc.get(id)));
   return true;
 }

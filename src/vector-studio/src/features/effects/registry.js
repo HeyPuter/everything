@@ -14,7 +14,8 @@ import { registerEffectType, EFFECTS } from '../paint/effects-model.js';
 import { freeDistort, puckerBloat, roughen, transformEffect, tweak, twist, zigzag, newSeed, SQUARE_CORNERS } from './geom/distort.js';
 import { convertToShape, cropMarks } from './geom/shapes.js';
 import { scribble, SCRIBBLE_PRESETS } from './geom/scribble.js';
-import { offsetPath, outlineStroke, pathfinderOnShape, pathfinderCombine, PATHFINDER_EFFECTS } from './geom/engine.js';
+import { offsetPath, outlineStroke, pathfinderOnShape, pathfinderCombine, clipItem, PATHFINDER_EFFECTS } from './geom/engine.js';
+import { shapeHooks } from '../../model/live-effects.js';
 
 const seeded = (p) => ({ ...p, seed: Number.isFinite(p.seed) && p.seed !== 0 ? p.seed : newSeed() });
 
@@ -166,6 +167,9 @@ function withoutMeta(preset) {
 
 /** Record types of the vector effects. */
 export const VECTOR_EFFECT_TYPES = Object.keys(DEFS);
+
+// Pathfinder and 3D on a group see the contents of clipping groups cut to their clipping paths.
+shapeHooks.clip = (item, clip) => clipItem(item, clip);
 
 for (const [type, def] of Object.entries(DEFS)) {
   const { apply, outset, combine, ...meta } = def;

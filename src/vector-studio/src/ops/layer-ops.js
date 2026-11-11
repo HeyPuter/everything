@@ -66,17 +66,33 @@ export function insertLayer(doc, parentId, index = Infinity, props = {}) {
   return doc.insert(layer, parentId, index);
 }
 
-/** Copies of nodes, each placed right above its original. Returns the copies' ids. */
+/** Copies of nodes, each placed right above its original. Returns the copies' ids (back to front). */
 export function duplicateNodes(doc, ids) {
   const out = [];
+  const byParent = new Map(); // parent id -> Map(original id -> copy id)
   for (const id of doc.sortByPaintOrder(ids)) {
     const n = doc.get(id);
-    const parent = n && doc.get(n.parent);
-    if (!parent) continue;
+    // (has, not get: reading the parent between inserts would make each insert copy its list.)
+    const pid = n?.parent;
+    if (!pid || !doc.has(pid)) continue;
     const { node, descendants } = doc.cloneSubtree(id);
     if (n.type === 'layer') node.name = `${n.name || 'Layer'} copy`;
-    doc.insert(node, parent.id, parent.children.indexOf(id) + 1, descendants);
+    doc.insert(node, pid, Infinity, descendants);
+    if (!byParent.has(pid)) byParent.set(pid, new Map());
+    byParent.get(pid).set(id, node.id);
     out.push(node.id);
+  }
+  // Each copy moves right above its original in one pass per parent
+  // (inserting each at its index would be quadratic for thousands of copies).
+  for (const [pid, copies] of byParent) {
+    const added = new Set(copies.values());
+    const next = [];
+    for (const c of doc.get(pid).children) {
+      if (added.has(c)) continue;
+      next.push(c);
+      if (copies.has(c)) next.push(copies.get(c));
+    }
+    doc.update(pid, { children: next });
   }
   return out;
 }

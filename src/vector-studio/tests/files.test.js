@@ -8,6 +8,8 @@ import { nextUntitled, ensureExtension, suggestFileName, uniqueName, fileKind, b
 import { RecentFiles, entryKey } from '../src/features/files/recent.js';
 import { RecoveryStore, recoverableEntries } from '../src/features/files/recovery.js';
 import { memoryBackend } from '../src/features/files/backends.js';
+import { Autosaver } from '../src/features/files/autosave.js';
+import { dialogHooks } from '../src/ui/dialogs/dialog.js';
 import { parsePresetForm, withOrientation, orientationOf, pushPreset, presetKey, sizeLabel } from '../src/features/files/presets.js';
 import { documentSetupPatch } from '../src/features/files/document-setup.js';
 import { documentStats } from '../src/features/files/document-info.js';
@@ -95,6 +97,33 @@ describe('native format', () => {
     expect(r.doc.root.grid).toEqual({ spacing: 72, subdivisions: 8 });
   });
 
+  it('repairs malformed objects so the document can be drawn', async () => {
+    const nodes = {
+      root: { id: 'root', type: 'root', name: 'Damaged', children: ['l1'], artboards: [{ id: 'a', name: 'A', x: 0, y: 0, w: 100, h: 100 }] },
+      l1: { id: 'l1', type: 'layer', name: 'Layer 1', children: ['p1', 'p2', 'p3', 'g1', 't1'] },
+      p1: { id: 'p1', type: 'path', closed: true },
+      p2: { id: 'p2', type: 'path', anchors: 'abc', closed: true },
+      p3: { id: 'p3', type: 'path', anchors: [null, { x: 1, y: 2 }, { x: 'a', y: 2 }, { x: 5, y: 6, ix: 4, iy: 5, ox: 6, oy: 7 }], closed: false },
+      g1: { id: 'g1', type: 'group', name: 'G' },
+      t1: { id: 't1', type: 'text', text: 42, x: 1, y: 2 },
+    };
+    const r = await parseDocument(JSON.stringify({ format: 'vector-studio', version: 1, nodes }));
+    expect(r.doc.get('p1').anchors).toEqual([]);
+    expect(r.doc.get('p2').anchors).toEqual([]);
+    expect(r.doc.get('p3').anchors).toEqual([
+      { x: 1, y: 2, ix: 1, iy: 2, ox: 1, oy: 2 },
+      { x: 5, y: 6, ix: 4, iy: 5, ox: 6, oy: 7 },
+    ]);
+    expect(r.doc.get('g1').children).toEqual([]);
+    expect(r.doc.get('t1')).toMatchObject({ text: '42', transform: [1, 0, 0, 1, 0, 0] });
+    expect(r.doc.get('t1').char.fontSize).toBeGreaterThan(0);
+    // Well-formed objects are left as they are.
+    const doc = sampleDoc();
+    const again = await parseDocument(await serializeDocument(doc));
+    expect(JSON.stringify(again.doc.toJSON().nodes.root.children)).toBe(JSON.stringify(doc.root.children));
+    for (const [id, n] of doc.nodes) if (id !== 'root') expect(again.doc.get(id)).toEqual(n);
+  });
+
   it('adds a layer when a document has none', () => {
     const { data } = validateData({ format: 'vector-studio', version: 1, nodes: { root: { id: 'root', type: 'root', children: [] } } });
     expect(data.nodes.root.children).toHaveLength(1);
@@ -155,6 +184,44 @@ describe('preferences storage', () => {
     const saved = JSON.parse(storage.getItem('vector-studio:prefs'));
     expect(saved.alignmentGuides).toBe(false);
     expect('smartGuides' in saved).toBe(false);
+  });
+
+  it('keeps what another window saved when this one changes a different preference', () => {
+    const storage = memStorage();
+    const first = new Prefs(storage);
+    const second = new Prefs(storage);
+    first.set('theme', 'dark');
+    second.set('dockTab', 'layers');
+    const saved = JSON.parse(storage.getItem('vector-studio:prefs'));
+    expect(saved.theme).toBe('dark');
+    expect(saved.dockTab).toBe('layers');
+    expect(new Prefs(storage).get('theme')).toBe('dark');
+    // The same preference: the latest change wins.
+    second.set('theme', 'light');
+    expect(new Prefs(storage).get('theme')).toBe('light');
+  });
+
+  it('falls back to defaults for damaged stored values', () => {
+    const storage = memStorage();
+    storage.setItem('vector-studio:prefs', JSON.stringify({ keyboardIncrement: '1O', recentFiles: null, openPanels: 'x', dockOpen: 'yes', theme: 5, undoLevels: null, toolbarColumns: 3, cornerRadius: 4, guideColor: 'red', lastRect: { w: 5, h: 6 } }));
+    const prefs = new Prefs(storage);
+    expect(prefs.get('keyboardIncrement')).toBe(1);
+    expect(prefs.get('recentFiles')).toEqual([]);
+    expect(prefs.get('openPanels')).toEqual([]);
+    expect(prefs.get('dockOpen')).toBe(true);
+    expect(prefs.get('theme')).toBe('system');
+    expect(prefs.get('undoLevels')).toBe(200);
+    expect(prefs.get('toolbarColumns')).toBe('auto');
+    // Valid values, and keys other modules own, are kept.
+    expect(prefs.get('cornerRadius')).toBe(4);
+    expect(prefs.get('guideColor')).toBe('red');
+    expect(prefs.get('lastRect')).toEqual({ w: 5, h: 6 });
+    for (const raw of ['null', '[1,2]', '"text"', '{"__proto__":{"polluted":1}}']) {
+      storage.setItem('vector-studio:prefs', raw);
+      const p = new Prefs(storage);
+      expect(p.get('keyboardIncrement')).toBe(1);
+      expect(p.values.polluted).toBeUndefined();
+    }
   });
 });
 
@@ -252,6 +319,162 @@ describe('recovery bookkeeping', () => {
     expect([...local.files.keys()].some((k) => k.endsWith('r1.vstudio'))).toBe(false);
   });
 
+  it('keeps a recovery copy that could not be read right now, and drops a damaged one', async () => {
+    const b = memoryBackend();
+    const store = new RecoveryStore([b]);
+    await store.put('ok', { name: 'Fine', data: await serializeDocument(sampleDoc()), session: 'dead', saved: 3 });
+    await store.put('net', { name: 'Offline', data: await serializeDocument(sampleDoc()), session: 'dead', saved: 2 });
+    await store.put('bad', { name: 'Damaged', data: new Uint8Array([1, 2, 3]), session: 'dead', saved: 1 });
+    const readBlob = b.readBlob;
+    b.readBlob = async (path) => {
+      if (path.includes('net.vstudio')) throw new Error('Failed to fetch');
+      return readBlob(path);
+    };
+    const prefs = new Prefs(memStorage());
+    const app = { prefs, editors: [], notify: vi.fn(), renderTabs: vi.fn(), addDocument: vi.fn((doc, { file }) => ({ doc, file })) };
+    const saver = new Autosaver(app, { store, session: 'me' });
+    saver.liveSessions = async () => new Set();
+    dialogHooks.open = async () => 'recover';
+    try {
+      const opened = await saver.offerRecovery();
+      expect(opened.map((e) => e.file.name)).toEqual(['Fine [Recovered]']);
+    } finally {
+      dialogHooks.open = null;
+    }
+    expect((await store.list()).map((e) => e.id)).toEqual(['ok', 'net']);
+    expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/"Offline" could not be recovered right now/), expect.objectContaining({ error: true }));
+    expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/"Damaged" could not be recovered: the recovery copy is damaged/), expect.objectContaining({ error: true }));
+  });
+
+  it('asks before discarding recovery copies, and keeps them for next time unless confirmed', async () => {
+    const b = memoryBackend();
+    const store = new RecoveryStore([b]);
+    for (const [id, name] of [['a', 'Logo'], ['b', 'Flyer'], ['c', 'Card']]) await store.put(id, { name, data: await serializeDocument(sampleDoc()), session: 'dead', saved: 1 });
+    const prefs = new Prefs(memStorage());
+    const app = { prefs, editors: [], notify: vi.fn(), renderTabs: vi.fn(), addDocument: vi.fn((doc, { file }) => ({ doc, file })) };
+    const saver = new Autosaver(app, { store, session: 'me' });
+    saver.liveSessions = async () => new Set();
+    const asked = [];
+    let answer = 'keep';
+    dialogHooks.open = async (opts) => {
+      if (opts.title === 'Recover Documents') {
+        // Uncheck "Flyer", recover the others.
+        opts.body.querySelector('#rec-b').checked = false;
+        return 'recover';
+      }
+      asked.push(opts.body.textContent);
+      return answer;
+    };
+    try {
+      expect((await saver.offerRecovery()).map((e) => e.file.name)).toEqual(['Logo [Recovered]', 'Card [Recovered]']);
+      expect(asked).toEqual([expect.stringContaining('Discard "Flyer"? Its unsaved changes will be lost.')]);
+      // Kept: offered again next time.
+      expect((await store.list()).map((e) => e.id)).toEqual(['a', 'b', 'c']);
+      // Discard everything, confirmed this time.
+      dialogHooks.open = async (opts) => {
+        if (opts.title === 'Recover Documents') return 'discard';
+        asked.push(opts.body.textContent);
+        return 'discard';
+      };
+      expect(await saver.offerRecovery()).toEqual([]);
+      expect(asked[1]).toContain('Discard 3 documents ("Logo", "Flyer", "Card")?');
+      expect(await store.list()).toEqual([]);
+    } finally {
+      dialogHooks.open = null;
+    }
+  });
+
+  it('does not leave a recovery copy behind when the document is saved while it is being written', async () => {
+    const store = new RecoveryStore([memoryBackend()]);
+    const prefs = new Prefs(memStorage());
+    const doc = sampleDoc();
+    const editor = { doc, name: 'Logo', file: null };
+    const app = { prefs, editors: [editor] };
+    const saver = new Autosaver(app, { store, session: 'me' });
+    const flushing = saver.flush();
+    // Saved (and its copy discarded) while the copy is still being encoded.
+    doc.markSaved();
+    await saver.discard(editor);
+    await flushing;
+    expect(await store.list()).toEqual([]);
+  });
+
+  it('keeps the last edits made before the page closes even when the storage write never finishes', async () => {
+    const b = memoryBackend();
+    // The page closes: writes it starts never land.
+    let closing = false;
+    const store = new RecoveryStore([{ ...b, writeBlob: (...args) => (closing ? new Promise(() => {}) : b.writeBlob(...args)) }]);
+    const prefs = new Prefs(memStorage());
+    const doc = sampleDoc();
+    const editor = { doc, name: 'Logo', file: null };
+    const saver = new Autosaver({ prefs, editors: [editor] }, { store, session: 'closed' });
+    // The regular copy and the one kept at close can carry the same time.
+    const now = vi.spyOn(Date, 'now').mockReturnValue(5000);
+    await saver.flush();
+    const id = editor.recoveryId;
+    doc.transact('Add', () => doc.insert(createPath(rectangle(100, 10, 20, 20), true), doc.layers()[0].id));
+    closing = true;
+    saver.flush({ hiding: true });
+    const key = `vs-recovery-unwritten:${id}`;
+    expect(localStorage.getItem(key)).toContain('"revision":2');
+    // Next start: the kept copy is written back, offered, and forgotten.
+    const store2 = new RecoveryStore([b]);
+    const app = { prefs, editors: [], notify: vi.fn(), renderTabs: vi.fn(), addDocument: vi.fn((d, { file }) => ({ doc: d, file })) };
+    const next = new Autosaver(app, { store: store2, session: 'me' });
+    next.liveSessions = async () => new Set();
+    dialogHooks.open = async () => 'recover';
+    try {
+      const [opened] = await next.offerRecovery();
+      expect(opened.doc.nodes.size).toBe(doc.nodes.size);
+    } finally {
+      dialogHooks.open = null;
+      now.mockRestore();
+    }
+    expect(localStorage.getItem(key)).toBe(null);
+    expect((await store2.list()).map((e) => e.revision)).toEqual([2]);
+  });
+
+  it('never lets a kept copy replace a newer stored one, and forgets kept copies once written or discarded', async () => {
+    const store = new RecoveryStore([memoryBackend()]);
+    const prefs = new Prefs(memStorage());
+    const doc = sampleDoc();
+    const editor = { doc, name: 'Logo', file: null };
+    const editors = [editor];
+    const saver = new Autosaver({ prefs, editors }, { store, session: 'old' });
+    // Hidden, then the write lands: the kept copy is no longer needed.
+    await saver.flush({ hiding: true });
+    const key = `vs-recovery-unwritten:${editor.recoveryId}`;
+    expect(localStorage.getItem(key)).toBe(null);
+    // Kept, then discarded (saved or closed without saving).
+    doc.transact('Add', () => doc.insert(createPath(rectangle(100, 10, 20, 20), true), doc.layers()[0].id));
+    const busy = saver.flush({ hiding: true });
+    expect(localStorage.getItem(key)).not.toBe(null);
+    await busy;
+    doc.transact('Add', () => doc.insert(createPath(rectangle(130, 10, 20, 20), true), doc.layers()[0].id));
+    const flushing = saver.flush({ hiding: true });
+    editors.length = 0;
+    await saver.discard(editor);
+    await flushing;
+    expect(localStorage.getItem(key)).toBe(null);
+    // A kept copy older than the stored one is dropped, not written back.
+    await store.put('r9', { name: 'New', data: await serializeDocument(sampleDoc()), revision: 7, session: 'old', saved: 2000 });
+    localStorage.setItem('vs-recovery-unwritten:r9', `${JSON.stringify({ id: 'r9', name: 'Old', file: null, revision: 5, session: 'old', saved: 1000 })}\n{}`);
+    // A copy kept by a tab that is still running is left to that tab.
+    localStorage.setItem('vs-recovery-unwritten:r8', `${JSON.stringify({ id: 'r8', name: 'Live', file: null, revision: 1, session: 'live', saved: 3000 })}\n{}`);
+    const next = new Autosaver({ prefs, editors: [] }, { store, session: 'me' });
+    next.liveSessions = async () => new Set(['live']);
+    dialogHooks.open = async () => null;
+    try {
+      await next.offerRecovery();
+    } finally {
+      dialogHooks.open = null;
+    }
+    expect((await store.list()).map((e) => `${e.id}:${e.name}`)).toEqual(['r9:New']);
+    expect(localStorage.getItem('vs-recovery-unwritten:r9')).toBe(null);
+    expect(localStorage.getItem('vs-recovery-unwritten:r8')).not.toBe(null);
+    localStorage.removeItem('vs-recovery-unwritten:r8');
+  });
+
   it('skips copies owned by sessions that are still running', () => {
     const entries = [{ id: 'a', session: 'live' }, { id: 'b', session: 'dead' }, { id: 'c' }, { id: 'd', session: 'me' }];
     expect(recoverableEntries(entries, new Set(['live']), 'me').map((e) => e.id)).toEqual(['b', 'c']);
@@ -292,6 +515,17 @@ describe('new document values', () => {
     expect(parsePresetForm({ ...base, artboards: '1001' })).toMatchObject({ ok: false, field: 'artboards' });
     expect(parsePresetForm({ ...base, bleed: { ...base.bleed, left: '2 in' } })).toMatchObject({ ok: false, field: 'bleed-left' });
     expect(parsePresetForm({ ...base, units: 'furlongs' }).value.units).toBe('pt');
+  });
+
+  it('states the limits in the chosen units, rounded so both ends are allowed', () => {
+    expect(parsePresetForm({ ...base, width: '0', units: 'pt' }).message).toBe('Width must be between 1 pt and 16383 pt.');
+    expect(parsePresetForm({ ...base, width: '9000', units: 'mm' }).message).toBe('Width must be between 0.4 mm and 5779.5 mm.');
+    expect(parsePresetForm({ ...base, height: '300', units: 'in' }).message).toBe('Height must be between 0.02 in and 227.54 in.');
+    expect(parsePresetForm({ ...base, width: '0', units: 'px' }).message).toBe('Width must be between 1 px and 16383 px.');
+    expect(parsePresetForm({ ...base, units: 'cm', bleed: { ...base.bleed, top: '3' } }).message).toBe('Bleed must be between 0 cm and 2.54 cm.');
+    // The stated ends are themselves accepted.
+    expect(parsePresetForm({ ...base, width: '5779.5', height: '0.4', units: 'mm' }).ok).toBe(true);
+    expect(parsePresetForm({ ...base, width: '227.54', height: '0.02', units: 'in' }).ok).toBe(true);
   });
 
   it('handles orientation and preset lists', () => {
@@ -435,6 +669,46 @@ describe('FileService', () => {
     expect(reopened.doc.root.name).toBe('Changed');
   });
 
+  it('saves again after an in-flight save when the document changed meanwhile', async () => {
+    const { app, files, puter } = fakeApp();
+    const svc = new FileService(app, { recent: null });
+    const ed = app.addDocument(sampleDoc(), { file: { kind: 'puter', path: '/u/Logo.vstudio', name: 'Logo.vstudio' } });
+    const write = puter.fs.write.getMockImplementation();
+    let release;
+    puter.fs.write.mockImplementationOnce((...a) => new Promise((r) => (release = () => r(write(...a)))));
+    const first = svc.save(ed);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    // An edit while the first write is still in flight, then Save again (or Close > Save).
+    ed.doc.transact('Rename', () => ed.doc.updateRoot({ name: 'Edited during save' }));
+    const second = svc.save(ed);
+    release();
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(ed.doc.dirty).toBe(false);
+    expect(puter.fs.write).toHaveBeenCalledTimes(2);
+    expect((await parseDocument(files.get('/u/Logo.vstudio'))).doc.root.name).toBe('Edited during save');
+  });
+
+  it('clears the file name message in the Save As dialog once the name is edited', async () => {
+    const { app } = fakeApp();
+    app.prefs.set('filesSaveDialog', 'app');
+    const svc = new FileService(app, { recent: null });
+    const ed = app.addDocument(sampleDoc());
+    const done = svc.saveAs(ed);
+    let input = null;
+    for (let i = 0; i < 50 && !(input = document.querySelector('dialog[open] #files-save-name')); i++) await new Promise((r) => setTimeout(r, 10));
+    const dlg = input.closest('dialog');
+    input.value = '  ';
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Save').click();
+    const error = dlg.querySelector('.form-error');
+    await vi.waitFor(() => expect(error.textContent).toBe('Enter a file name.'));
+    input.value = 'Logo';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(error.textContent).toBe('');
+    dlg.querySelector('.dialog-close').click();
+    expect(await done).toBe(false);
+  });
+
   it('returns false when the save picker is cancelled', async () => {
     const { app } = fakeApp({ cancelPicker: true });
     const svc = new FileService(app, { recent: null });
@@ -453,9 +727,13 @@ describe('FileService', () => {
     expect(await svc.openPath('/u/a.vstudio')).toBe(ed);
     expect(app.editors).toHaveLength(1);
     await recent.add({ kind: 'puter', path: '/u/gone.vstudio', name: 'gone.vstudio' });
+    // The home screen listing it is redrawn without it.
+    app.home = { hidden: false };
+    app.renderHome = vi.fn();
     expect(await svc.openPath('/u/gone.vstudio')).toBe(null);
     expect(app.dialogs.alert).toHaveBeenCalled();
     expect(recent.list().some((e) => e.name === 'gone.vstudio')).toBe(false);
+    expect(app.renderHome).toHaveBeenCalledWith(app.home);
   });
 
   it('explains when SVG import is unavailable and uses it when present', async () => {

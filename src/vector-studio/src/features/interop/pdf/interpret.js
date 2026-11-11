@@ -37,6 +37,9 @@ const app = (m, x, y) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * 
 const scaleOf = (m) => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1;
 const anchorAt = (p) => ({ x: p.x, y: p.y, ix: p.x, iy: p.y, ox: p.x, oy: p.y });
 
+/** Deepest graphics state nesting kept (real files nest a few dozen levels). */
+const MAX_SAVES = 1000;
+
 class GState {
   constructor(ctm) {
     this.ctm = ctm;
@@ -129,6 +132,8 @@ export class Interpreter {
     this.formStack = [];
     this.opCount = 0;
     this.maxOps = opts.maxOps || 4_000_000;
+    // Objects made: past this many the document could not be edited (or would exhaust memory).
+    this.maxNodes = opts.maxNodes || 500_000;
     this.readOptionalContent();
   }
 
@@ -237,6 +242,8 @@ export class Interpreter {
     const stack = [];
     let ops = [];
     const saveDepth = stack.length;
+    // Saves past MAX_SAVES are not kept (each copies the state); their restores are skipped to match.
+    let unsaved = 0;
     this.path = [];
     this.cur = null;
     let pendingClip = null;
@@ -258,7 +265,7 @@ export class Interpreter {
         if (ops.length > 10000) ops = ops.slice(-100);
         continue;
       }
-      if (++this.opCount > this.maxOps) {
+      if (++this.opCount > this.maxOps || this.out.nodes.size > this.maxNodes) {
         this.warn('The page has too much content; part of it was not imported.');
         break;
       }
@@ -269,11 +276,15 @@ export class Interpreter {
         switch (obj.cmd) {
           // ---- graphics state ----
           case 'q':
-            stack.push(gs);
-            gs = gs.clone();
+            if (stack.length >= MAX_SAVES) unsaved++;
+            else {
+              stack.push(gs);
+              gs = gs.clone();
+            }
             break;
           case 'Q':
-            if (stack.length > saveDepth) gs = stack.pop();
+            if (unsaved) unsaved--;
+            else if (stack.length > saveDepth) gs = stack.pop();
             break;
           case 'cm':
             gs.ctm = multiply(gs.ctm, [n(0), n(1), n(2), n(3), n(4), n(5)]);
@@ -1088,8 +1099,8 @@ export class Interpreter {
 
   imageAsset(img) {
     if (img.kind === 'unsupported') {
-      this.warn(`Images in ${img.codec} format cannot be shown and were replaced by gray boxes.`);
-      return { placeholder: true, width: img.width, height: img.height, label: `${what} image` };
+      this.warn(img.tooLarge ? 'Images too large to import were replaced by gray boxes.' : `Images in ${img.codec} format cannot be shown and were replaced by gray boxes.`);
+      return { placeholder: true, width: img.width, height: img.height, label: img.tooLarge ? 'Image too large to import' : `${img.codec} image` };
     }
     const id = uid('img');
     this.images.push({ id, img });
@@ -1412,6 +1423,8 @@ export class Interpreter {
       const savedTlm = this.tlm;
       const savedPath = this.path;
       if (this.formStack.length > 24) break;
+      // A glyph that draws itself (through its font's resources) is skipped.
+      if (this.formStack.includes(proc)) continue;
       this.formStack.push(proc);
       try {
         let data;

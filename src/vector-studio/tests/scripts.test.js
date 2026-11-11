@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bootAppWithFeatures } from './helpers.js';
-import { scriptAPI } from '../src/features/scripts/runner.js';
+import { scriptAPI, SCRIPT_CORE } from '../src/features/scripts/runner.js';
 import { BUILT_IN_SCRIPTS } from '../src/features/scripts/index.js';
 import { createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
@@ -53,6 +53,39 @@ describe('scripts', () => {
     expect(() => api.create({ type: 'image' })).toThrow(/path, text and group/);
     api.remove(id);
     expect(doc.get(id)).toBeUndefined();
+  });
+
+  it('runs the script side of the protocol (as the worker does), keeping line breaks around the source', async () => {
+    const core = new Function(`return ${SCRIPT_CORE};`)();
+    const sent = [];
+    let deliver = null;
+    const done = new Promise((resolve) => {
+      core(
+        (m) => {
+          sent.push(m);
+          if (m.__vs === 'call') deliver({ __vs: 'reply', id: m.id, value: [{ id: 'a' }, { id: 'b' }] });
+          if (m.__vs === 'done') resolve(m);
+        },
+        (fn) => {
+          deliver = fn;
+        },
+      );
+      expect(sent[0]).toEqual({ __vs: 'ready' });
+      deliver({ __vs: 'run', doc: { name: 'D' }, source: 'const all = await vs.objects();\nreturn vs.doc.name + all.length // a trailing comment' });
+    });
+    expect(await done).toEqual({ __vs: 'done', value: 'D2' });
+  });
+
+  it('fills in curve handles for points given as { x, y }', async () => {
+    const { app, doc, a } = await setup();
+    const { api } = scriptAPI(app, app.editor, 'Test');
+    const id = api.create({ type: 'path', closed: true, anchors: [{ x: 0, y: 0 }, { x: 10, y: 0, ox: 12, oy: 3 }, null, { x: 5, y: 'no' }] });
+    expect(doc.get(id).anchors).toEqual([
+      { x: 0, y: 0, ix: 0, iy: 0, ox: 0, oy: 0 },
+      { x: 10, y: 0, ix: 10, iy: 0, ox: 12, oy: 3 },
+    ]);
+    api.update(a.id, { anchors: [{ x: 1, y: 2 }, { x: 3, y: 4 }] });
+    expect(doc.get(a.id).anchors[1]).toEqual({ x: 3, y: 4, ix: 3, iy: 4, ox: 3, oy: 4 });
   });
 
   it('lists built-in scripts in File > Scripts', async () => {

@@ -297,6 +297,7 @@ export class App extends Emitter {
   addDocument(doc, { file = null, activate = true } = {}) {
     const editor = new Editor(doc, { file, prefs: this.prefs });
     editor.style = { ...editor.style };
+    editor.overlayInsets = () => this.canvasOverlayInsets?.() || null;
     this.editors.push(editor);
     editor.on('selection', () => {
       this.#onEditorEvent(editor);
@@ -375,6 +376,8 @@ export class App extends Emitter {
       }
     }
     const i = this.editors.indexOf(editor);
+    // Closed meanwhile (a second close while the save prompt or the save was pending).
+    if (i < 0) return true;
     this.editors.splice(i, 1);
     this.views.get(editor)?.destroy();
     this.views.get(editor)?.host.remove();

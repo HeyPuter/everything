@@ -19,12 +19,22 @@ import { symbolSection } from './props-section.js';
 import { SYMBOL_LIBRARIES } from './libraries.js';
 import { openSymbolLibrary } from './library-window.js';
 import { userLibraryMenu } from '../paint/user-libraries.js';
-import { exportSymbolsFor, importSymbols, remapInstances, indexSymbolNames, getDef, masterBounds, updateDefinition } from './model.js';
+import { exportSymbolsFor, importSymbols, remapInstances, indexSymbolNames, getDef, masterBounds, updateDefinition, editingStack, isSymbolDef, STORE_ID } from './model.js';
+import { exportSkips } from '../io/hooks.js';
 import { syncSymbolEditing, editingSymbol } from './editing.js';
 import { importedSymbolGroups, convertImportedSymbols } from './svg-symbols.js';
 
+/** A symbol's master sits on the page while it is edited; exports show its instances only. */
+function mastersOnPage(doc) {
+  return editingStack(doc)
+    .map((e) => doc.get(e.id))
+    .filter((n) => isSymbolDef(n) && n.parent !== STORE_ID)
+    .map((n) => n.id);
+}
+
 export function install(app) {
   registerSymbolIcons();
+  if (!exportSkips.includes(mastersOnPage)) exportSkips.push(mastersOnPage);
   app.registerPanel(SymbolsPanel);
   for (const T of SYMBOLISM_TOOLS) app.registerTool(T);
   registerSymbolCommands(app);
@@ -99,7 +109,12 @@ function installClipboardHooks() {
     copy(doc, ids, data) {
       const nodes = data.items.flatMap((it) => it.nodes);
       const symbols = exportSymbolsFor(doc, nodes);
-      if (symbols.length) data.symbols = symbols;
+      if (!symbols.length) return;
+      data.symbols = symbols;
+      // Images in the masters travel with them, like images among the copied objects.
+      for (const sub of symbols) {
+        for (const n of sub.nodes) if (n.type === 'image' && doc.assets.has(n.asset)) data.assets = { ...data.assets, [n.asset]: doc.assets.get(n.asset) };
+      }
     },
     paste(doc, data, items) {
       if (!data.symbols?.length) return items;

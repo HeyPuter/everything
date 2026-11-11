@@ -100,6 +100,25 @@ describe('separations and output', () => {
     expect(els[0].querySelector('filter feComponentTransfer')).toBeTruthy();
   });
 
+  it('writes the artwork once and reuses it for further copies', async () => {
+    const { app, ed, doc } = await setup();
+    const st = normalizePrint({ copies: 3, collate: true });
+    const pages = printJob(doc, { ...st, which: 'all' });
+    const { root } = await buildPrintOutput(app, ed, pages, st);
+    const els = [...root.querySelectorAll('.io-print-page')];
+    expect(els.length).toBe(3 * pages.length);
+    // Each distinct page's artwork is in the DOM once (embedded images included), not once per sheet.
+    const arts = root.querySelectorAll('svg[id^="vs-print-art-"]');
+    expect(arts.length).toBe(pages.length);
+    const last = els.at(-1);
+    expect(last.querySelector('svg[id^="vs-print-art-"]')).toBeNull();
+    const use = last.querySelector('use');
+    expect(root.querySelector(`#${use.getAttribute('href').slice(1)}`)).toBeTruthy();
+    // The reference lands where the artwork was placed on its first page.
+    expect(use.getAttribute('x')).toBe('0');
+    expect(use.getAttribute('y')).toBe('0');
+  });
+
   it('builds one raster page per plate for separations', async () => {
     const { app, ed, doc } = await setup();
     const st = normalizePrint({ mode: 'separations', marks: { pageInfo: true } });

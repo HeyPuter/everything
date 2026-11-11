@@ -8,7 +8,7 @@
  */
 import { h } from '../../lib/dom.js';
 import { icon } from '../../ui/icons.js';
-import { trimCells, parseDelimited, transposeCells, switchXY, TYPE_LABELS } from './graph-math.js';
+import { trimCells, parseDelimited, transposeCells, switchXY, dataNotes, dataNotesText, TYPE_LABELS } from './graph-math.js';
 import { selectedGraphs, updateGraph } from './graph-ops.js';
 import { isGraph } from './graph-live.js';
 
@@ -33,7 +33,18 @@ export class GraphDataWindow {
     this.gid = null;
     this.cells = [];
     this.dirty = false;
+    this.editor = null;
     this.onSelection = () => this.#follow();
+    this.onDocChange = () => this.#refresh();
+    // Without unapplied edits the window follows the active document; with them it stays with its own.
+    app.on?.('active-editor', (ed) => {
+      if (!this.open || this.dirty || ed === this.editor) return;
+      const g = ed ? selectedGraphs(ed)[0] : null;
+      if (!g) return this.close();
+      this.#bind(ed);
+      this.#load(g);
+    });
+    app.on?.('closed', (ed) => ed === this.editor && this.close());
   }
 
   get open() {
@@ -44,16 +55,26 @@ export class GraphDataWindow {
   show(gid) {
     const g = this.app.editor?.doc.get(gid);
     if (!isGraph(g)) return;
-    if (!this.open) this.#build();
+    if (!this.open) {
+      this.returnTo = document.activeElement;
+      this.#build();
+    }
+    this.#bind(this.app.editor);
     this.#load(g);
     this.el.querySelector('input.gd-cell')?.focus();
   }
 
   close() {
     if (!this.el) return;
-    this.editor?.off('selection', this.onSelection);
-    this.editor = null;
+    this.#bind(null);
+    const hadFocus = this.el.contains(document.activeElement);
     this.el.remove();
+    // Focus goes back where it was (the canvas), not to the page.
+    if (hadFocus) {
+      const back = this.returnTo?.isConnected && this.returnTo !== document.body ? this.returnTo : this.app.canvasHost;
+      back?.focus?.({ preventScroll: true });
+    }
+    this.returnTo = null;
     this.el = null;
     this.gid = null;
   }
@@ -67,10 +88,30 @@ export class GraphDataWindow {
     return true;
   }
 
+  /** Listen to an editor's selection and document (null stops listening). */
+  #bind(editor) {
+    if (editor === this.editor) return;
+    this.editor?.off('selection', this.onSelection);
+    this.editor?.doc.off('change', this.onDocChange);
+    this.editor = editor;
+    editor?.on('selection', this.onSelection);
+    editor?.doc.on('change', this.onDocChange);
+  }
+
   #follow() {
     if (!this.open || this.dirty) return;
-    const g = selectedGraphs(this.app.editor)[0];
+    const g = selectedGraphs(this.editor)[0];
     if (g && g.id !== this.gid) this.#load(g);
+  }
+
+  /** The document changed (undo, another edit): show the graph's data unless there are unapplied edits. */
+  #refresh() {
+    if (!this.open || this.dirty) return;
+    const g = this.editor?.doc.get(this.gid);
+    if (!isGraph(g)) return this.close();
+    if (g.live.data === this.source && g.live.type === this.type) return;
+    const at = document.activeElement?.closest?.('input.gd-cell');
+    this.#load(g, at && this.table.contains(at) ? [Number(at.dataset.r), Number(at.dataset.c)] : null);
   }
 
   #build() {
@@ -107,8 +148,6 @@ export class GraphDataWindow {
     });
     this.#dragHandle(header);
     document.body.append(this.el);
-    this.editor = this.app.editor;
-    this.editor?.on('selection', this.onSelection);
   }
 
   #dragHandle(handle) {
@@ -128,15 +167,16 @@ export class GraphDataWindow {
     handle.addEventListener('pointerup', () => (start = null));
   }
 
-  #load(g) {
+  #load(g, focus = null) {
     this.gid = g.id;
     this.type = g.live.type;
+    this.source = g.live.data;
     this.original = trimCells(g.live.data || []);
     this.cells = this.original.map((r) => r.slice());
     this.dirty = false;
     this.title.textContent = `Graph Data: ${TYPE_LABELS[this.type] || 'Graph'}`;
     this.switchBtn.disabled = this.type !== 'scatter';
-    this.#render();
+    this.#render(focus);
     this.#setStatus('');
   }
 
@@ -262,7 +302,7 @@ export class GraphDataWindow {
 
   /** Apply the grid to the graph (one undo step). */
   apply() {
-    const ed = this.app.editor;
+    const ed = this.editor;
     const g = ed?.doc.get(this.gid);
     if (!isGraph(g)) {
       this.#setStatus('The graph is gone.');
@@ -271,8 +311,9 @@ export class GraphDataWindow {
     const data = trimCells(this.cells);
     ed.doc.transact('Graph Data', () => updateGraph(ed.doc, g.id, { data }));
     this.original = data.map((r) => r.slice());
+    this.source = ed.doc.get(g.id).live.data;
     this.dirty = false;
-    this.#setStatus('Applied.');
+    this.#setStatus(`Applied. ${dataNotesText(dataNotes(data, g.live.type))}`.trim());
     return true;
   }
 

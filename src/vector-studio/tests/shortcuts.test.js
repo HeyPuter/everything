@@ -44,3 +44,41 @@ describe('keyboard shortcut sets', () => {
     expect(activeChanges(prefs).commands['edit.copy']).toBe('Mod+Shift+C');
   });
 });
+
+describe('default shortcuts', () => {
+  it('each key runs one command, so a menu never shows a shortcut that runs something else', async () => {
+    const { normalizeShortcut } = await import('../src/commands/registry.js');
+    const app = await bootAppWithFeatures();
+    const owners = new Map();
+    for (const c of app.commands.commands.values()) {
+      for (const s of [].concat(c.defaultShortcut || [])) {
+        const k = normalizeShortcut(s);
+        owners.set(k, [...(owners.get(k) || []), c.id]);
+      }
+    }
+    const shared = [...owners].filter(([k, ids]) => ids.length > 1 && !(k === 'mod+shift+k'));
+    expect(shared).toEqual([]);
+    // F8 is New Symbol; the Info panel is Mod+F8.
+    expect(app.commands.match({ key: 'F8', code: 'F8', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false })).toBe('symbol.new');
+    expect(app.commands.get('panel.info').shortcut).toBe('Mod+F8');
+  });
+
+  it('Shift+Mod+K opens Color Settings, and toggles All Caps only with text selected', async () => {
+    const { createText } = await import('../src/model/nodes.js');
+    const app = await bootAppWithFeatures();
+    const ev = { key: 'K', code: 'KeyK', metaKey: true, ctrlKey: true, altKey: false, shiftKey: true };
+    expect(app.commands.match(ev)).toBe('edit.colorSettings');
+    const ed = app.newDocument();
+    expect(app.commands.match(ev)).toBe('edit.colorSettings');
+    let id;
+    ed.doc.transact('Text', () => {
+      const t = createText('Hello', 0, 0);
+      ed.doc.insert(t, ed.doc.layers()[0].id);
+      id = t.id;
+    });
+    ed.select([id]);
+    expect(app.commands.match(ev)).toBe('type.allCaps');
+    ed.select([]);
+    expect(app.commands.match(ev)).toBe('edit.colorSettings');
+  });
+});

@@ -19,12 +19,16 @@ import { createGroup } from '../../model/nodes.js';
 import { nodeBounds, transformPatches } from '../../model/geometry.js';
 import { pathSampler } from '../../model/path-sampler.js';
 import { pathLength } from '../../model/bezier.js';
-import { multiply, translate, rotate, scaleFactor } from '../../lib/matrix.js';
+import { multiply, translate, rotate, scaleFactor, rotation } from '../../lib/matrix.js';
 import { transformedCopy } from './virtual.js';
+import { idRefHooks } from '../../model/document.js';
 
 export const ON_PATH_DEFAULTS = Object.freeze({ spacing: 'even', distance: 36, align: 'center', rotate: true, angle: 0, offset: 0, reverse: false });
 
 export const isOnPath = (n) => n?.type === 'group' && n.live?.kind === 'onPath';
+
+// Copies (paste, duplicate) follow their own copy of the path.
+idRefHooks.push((n, map) => (isOnPath(n) && map.has(n.live.path) ? { ...n, live: { ...n.live, path: map.get(n.live.path) } } : n));
 
 const samplerCache = new WeakMap();
 
@@ -81,7 +85,9 @@ export function onPathPlacements(doc, node) {
     // Local offset across the path: above puts the object's bottom edge on it.
     const dy = o.align === 'above' ? -b.h / 2 : o.align === 'below' ? b.h / 2 : 0;
     let m = translate(-cx, -cy);
-    if (o.angle) m = multiply(rotate(-o.angle), m);
+    // `turned`: how far the objects themselves were turned with the group, undone when they turn with the path.
+    const turn = (o.angle || 0) + (o.rotate ? o.turned || 0 : 0);
+    if (turn) m = multiply(rotate(-turn), m);
     m = multiply(translate(0, dy), m);
     if (o.rotate) m = multiply(rotate((p.angle * 180) / Math.PI), m);
     m = multiply(translate(p.x, p.y), m);
@@ -100,7 +106,11 @@ registerLive('onPath', {
     const path = doc.get(node.live.path);
     if (path && !path.hidden) items.push(path.id);
     for (const { node: n, m } of onPathPlacements(doc, node)) {
-      if (!m) continue;
+      // Without a usable path (deleted, or down to one point) the objects stay where they are.
+      if (!m) {
+        items.push(n.id);
+        continue;
+      }
       const v = transformedCopy(doc, n, m, extra, { base: 'oop' });
       v.parent = node.id;
       extra.set(v.id, v);
@@ -109,9 +119,20 @@ registerLive('onPath', {
     return { items, extra };
   },
   transformParams(node, m) {
+    const L = node.live;
+    const patch = {};
     const s = scaleFactor(m);
-    if (Math.abs(s - 1) < 1e-9 || node.live.spacing !== 'distance') return null;
-    return { live: { ...node.live, distance: node.live.distance * s } };
+    if (Math.abs(s - 1) > 1e-9 && L.spacing === 'distance') patch.distance = L.distance * s;
+    // Rotating (or flipping) the group turns the objects and the path alike: objects that turn
+    // with the path would turn twice, so the turn they got is recorded and taken off again.
+    const flip = m[0] * m[3] - m[1] * m[2] < 0;
+    const spin = flip ? (Math.atan2(-m[1], -m[0]) * 180) / Math.PI : rotation(m);
+    const turned = flip ? spin + 180 - (L.turned || 0) : (L.turned || 0) + spin;
+    const norm = ((((turned + 180) % 360) + 360) % 360) - 180;
+    if (Math.abs(norm - (L.turned || 0)) > 1e-9) patch.turned = Math.abs(norm) < 1e-9 ? 0 : norm;
+    // A flip mirrors the extra turn the objects take from the path.
+    if (flip && L.angle) patch.angle = -L.angle;
+    return Object.keys(patch).length ? { live: { ...L, ...patch } } : null;
   },
 });
 

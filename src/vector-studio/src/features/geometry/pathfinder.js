@@ -12,7 +12,8 @@
  */
 import { OP, runGeom } from './engine/index.js';
 import { withBusy } from './busy.js';
-import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, groupOf, replaceWith, insertionPoint, fillOnly, solidKey, snapshot, unchangedSince, isOpenLine } from './nodes-io.js';
+import { flattenPath } from '../../model/bezier.js';
+import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, groupOf, replaceWith, insertionPoint, fillOnly, solidKey, snapshot, unchangedSince, isOpenLine, expandLiveFirst } from './nodes-io.js';
 
 export const SHAPE_MODES = [
   { kind: 'unite', label: 'Unite', icon: 'pathfinder-unite', op: OP.UNITE },
@@ -84,14 +85,25 @@ function docVersion(doc) {
 }
 const operandCache = new WeakMap();
 
-/** Path/compound leaves of the selection, back to front (cached until the document or selection changes). */
+/**
+ * Path/compound leaves of the selection, back to front (cached until the
+ * document or selection changes). The inputs of live groups (a blend's
+ * keys, a Repeat's source, ...) are not operands: combining them would
+ * leave a broken live object behind.
+ */
 export function operands(editor) {
+  return operandInfo(editor).leaves;
+}
+
+function operandInfo(editor) {
   const sig = `${docVersion(editor.doc)}|${[...editor.selection].join(',')}`;
   const hit = operandCache.get(editor);
-  if (hit && hit.sig === sig) return hit.leaves;
-  const leaves = geometryLeaves(editor.doc, editor.topSelection());
-  operandCache.set(editor, { sig, leaves });
-  return leaves;
+  if (hit && hit.sig === sig) return hit;
+  const live = [];
+  const leaves = geometryLeaves(editor.doc, editor.topSelection(), { intoLive: false, skippedLive: live });
+  const info = { sig, leaves, live };
+  operandCache.set(editor, info);
+  return info;
 }
 
 /** Whether a pathfinder can run on the selection. */
@@ -156,6 +168,37 @@ export function shapesFor(doc, kind, leaves) {
   });
 }
 
+/** Whether an engine shape encloses no area (each subpath closed up), e.g. a straight open line. */
+function hasNoArea(shape) {
+  for (const sp of shape.subpaths) {
+    const pts = flattenPath(sp.anchors, true, 0.05);
+    let s = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const q = pts[(i + 1) % pts.length];
+      s += p.x * q.y - q.x * p.y;
+    }
+    if (Math.abs(s / 2) > 1e-6) return false;
+  }
+  return true;
+}
+
+/**
+ * Why a shape mode can only produce nothing, or null. Shape modes treat
+ * paths as areas, and the engine leaves out operands with no area: the
+ * result was then computed without them, so Intersect with a straight
+ * line returned the other shapes unchanged and Minus Back with a line in
+ * front returned the back shape. An area-less operand that must contain
+ * the result empties it instead.
+ */
+export function emptyShapeModeReason(kind, shapes) {
+  if (shapes.length < 2) return null;
+  if (kind === 'intersect' && shapes.some(hasNoArea)) return 'a selected path has no area';
+  if (kind === 'minusFront' && hasNoArea(shapes[0])) return 'the backmost path has no area';
+  if (kind === 'minusBack' && hasNoArea(shapes[shapes.length - 1])) return 'the frontmost path has no area';
+  return null;
+}
+
 /** Run a pathfinder on the editor's selection (async: big jobs use the worker). */
 export async function runPathfinder(app, kind) {
   const editor = app.editor;
@@ -165,12 +208,19 @@ export async function runPathfinder(app, kind) {
   const doc = editor.doc;
   const leaves = operands(editor);
   if (!canRun(editor, kind)) {
-    app.notify(kind === 'unite' ? 'Select two or more paths, or a compound path.' : 'Select two or more paths.');
+    const { live } = operandInfo(editor);
+    if (live.length) app.notify(expandLiveFirst(def.label, live[0]));
+    else app.notify(kind === 'unite' ? 'Select two or more paths, or a compound path.' : 'Select two or more paths.');
     return false;
   }
   app.lastPathfinder = kind;
   const snap = snapshot(doc, leaves);
   const shapes = shapesFor(doc, kind, leaves);
+  const empty = emptyShapeModeReason(kind, shapes);
+  if (empty) {
+    app.notify(`${def.label} produced no shapes: ${empty}.`);
+    return false;
+  }
   const records = await withBusy(app, def.label, () => runGeom(def.op, shapes, [], { tol: pathfinderOptions.precision }));
   if (app.editor !== editor || !unchangedSince(doc, snap)) {
     app.notify(`${def.label} was canceled because the artwork changed.`);

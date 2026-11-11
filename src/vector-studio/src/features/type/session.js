@@ -13,7 +13,7 @@ import { h } from '../../lib/dom.js';
 import { typedQuote } from '../files/type-setup.js';
 import { IS_MAC, eventKey } from '../../commands/registry.js';
 import { editLayout, caretPosition, hitTestText, selectionPolygons, lineIndexOf, indexInLine } from '../../model/text-layout.js';
-import { replaceRange, overridesAt, wordAt, prevWordIndex, nextWordIndex, paragraphRanges, paragraphIndexAt } from '../../model/text-runs.js';
+import { replaceRange, overridesAt, wordAt, prevWordIndex, nextWordIndex, paragraphRanges, paragraphIndexAt, nextCharIndex, prevCharIndex, backspaceIndex } from '../../model/text-runs.js';
 import { apply, invert, multiply } from '../../lib/matrix.js';
 import { layerColor } from '../../render/overlay.js';
 import { tracePath } from '../../render/draw.js';
@@ -93,6 +93,8 @@ export class TextSession {
     this.composing = null;
     this.blinkOn = true;
     this.ended = false;
+    this.revealQueued = false;
+    this.keepView = false;
     this.input = hiddenInput(app);
     this.unsub = this.doc.on('change', () => this.#docChanged());
     editor.textEdit = { id, caret, anchor };
@@ -166,6 +168,16 @@ export class TextSession {
     this.editor.textEdit = { id: this.id, caret: this.caret, anchor: this.anchor };
     this.#startBlink();
     this.#placeInput();
+    // Once the caret settles (callers often place it in steps): keep it in view.
+    if (!this.revealQueued) {
+      this.revealQueued = true;
+      queueMicrotask(() => {
+        this.revealQueued = false;
+        const keep = this.keepView;
+        this.keepView = false;
+        if (!keep && !this.ended && this.#reveal()) this.#placeInput();
+      });
+    }
     this.editor.emit('overlay');
     this.app.dock?.update();
     this.app.emit('text-selection', this);
@@ -195,6 +207,31 @@ export class TextSession {
     this.burst++;
     this.lastKind = null;
     this.sync();
+  }
+
+  /** Scroll the view just enough to show the caret (typing, arrow keys or Find past the edge of the window). */
+  #reveal() {
+    const n = this.node();
+    const lay = this.layout();
+    const view = this.editor.view;
+    if (!n || !lay || view.width < 80 || view.height < 80) return false;
+    const c = caretPosition(lay, this.caret);
+    const margin = 32;
+    let dx = 0;
+    let dy = 0;
+    for (const p of [c.top, c.bottom]) {
+      const d = apply(n.transform, p.x, p.y);
+      const q = view.toScreen(d.x, d.y);
+      if (!Number.isFinite(q.x) || !Number.isFinite(q.y)) return false;
+      if (q.x + dx < margin) dx = margin - q.x;
+      else if (q.x + dx > view.width - margin) dx = view.width - margin - q.x;
+      if (q.y + dy < margin) dy = margin - q.y;
+      else if (q.y + dy > view.height - margin) dy = view.height - margin - q.y;
+    }
+    if (!dx && !dy) return false;
+    view.set({ panX: view.panX + dx, panY: view.panY + dy });
+    this.editor.viewChanged();
+    return true;
   }
 
   #placeInput() {
@@ -251,11 +288,8 @@ export class TextSession {
     let from = a - 1;
     if (unit === 'word') from = prevWordIndex(n.text, a);
     else if (unit === 'line') from = this.#lineStart(a);
-    else {
-      // Keep surrogate pairs together.
-      const code = n.text.charCodeAt(a - 1);
-      if (code >= 0xdc00 && code <= 0xdfff && a > 1) from = a - 2;
-    }
+    // Whole emoji (surrogate pairs, flags, ZWJ sequences); a combining mark on its own.
+    else from = backspaceIndex(n.text, a);
     this.deleteRange(Math.min(from, a - 1), a);
   }
 
@@ -266,10 +300,8 @@ export class TextSession {
     if (!n || a >= n.text.length) return;
     let to = a + 1;
     if (unit === 'word') to = nextWordIndex(n.text, a);
-    else {
-      const code = n.text.charCodeAt(a);
-      if (code >= 0xd800 && code <= 0xdbff) to = a + 2;
-    }
+    else if (unit === 'line') to = this.#lineEnd(a);
+    else to = nextCharIndex(n.text, a);
     this.deleteRange(a, Math.max(to, a + 1));
   }
 
@@ -323,19 +355,23 @@ export class TextSession {
     this.goalU = goal;
   }
 
+  // Selecting a whole word, paragraph or story does not scroll the view to its end.
   selectAll() {
     const n = this.node();
+    this.keepView = true;
     this.setSelection(0, n ? n.text.length : 0);
   }
 
   selectWord(i) {
     const [a, b] = wordAt(this.node().text, i);
+    this.keepView = true;
     this.setSelection(a, b);
   }
 
   selectParagraph(i) {
     const text = this.node().text;
     const pr = paragraphRanges(text)[paragraphIndexAt(text, i)];
+    this.keepView = true;
     this.setSelection(pr.start, Math.min(text.length, pr.end + (text[pr.end] === '\n' ? 1 : 0)));
   }
 
@@ -595,7 +631,7 @@ export class TextSession {
         const right = nav === 'ArrowRight';
         if (!shift && a !== b && !mod) this.move(right ? b : a, false);
         else if (mod) this.move(right ? nextWordIndex(n.text, this.caret) : prevWordIndex(n.text, this.caret), shift);
-        else this.move(this.caret + (right ? 1 : -1), shift);
+        else this.move(right ? nextCharIndex(n.text, this.caret) : prevCharIndex(n.text, this.caret), shift);
         return true;
       }
       case 'ArrowUp':
@@ -625,11 +661,12 @@ export class TextSession {
       case 'PageDown':
         this.move(n.text.length, shift);
         return true;
+      // Option (Mac) or Ctrl (Windows, Linux) deletes a word; Command (Mac) to the start or end of the line.
       case 'Backspace':
-        this.deleteBackward(alt ? 'word' : mod ? 'line' : 'char');
+        this.deleteBackward(alt || (mod && !IS_MAC) ? 'word' : mod ? 'line' : 'char');
         return true;
       case 'Delete':
-        this.deleteForward(alt || mod ? 'word' : 'char');
+        this.deleteForward(alt || (mod && !IS_MAC) ? 'word' : mod ? 'line' : 'char');
         return true;
       case 'Enter':
         if (e.code === 'NumpadEnter') {

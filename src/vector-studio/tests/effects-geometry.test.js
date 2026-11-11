@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { installCanvasStub } from './helpers.js';
@@ -16,6 +16,7 @@ import { freeDistort, freeDistortMapping, puckerBloat, roughen, zigzag, tweak, t
 import { convertToShape, cropMarks, CROP_MARK_PAINT } from '../src/features/effects/geom/shapes.js';
 import { scribble, SCRIBBLE_PRESETS } from '../src/features/effects/geom/scribble.js';
 import { offsetPath, outlineStroke, pathfinderCombine, pathfinderOnShape } from '../src/features/effects/geom/engine.js';
+import { MAX_DASHES } from '../src/features/geometry/stroke-params.js';
 
 beforeAll(async () => {
   installCanvasStub();
@@ -290,6 +291,27 @@ describe('engine effects', () => {
     expect(outlineStroke(rect(), {}, { node: { type: 'path', stroke: null } })).toEqual(rect());
   });
 
+  it('outlines the dots of a dotted stroke (zero-length dashes with round caps)', () => {
+    const node = { type: 'path', stroke: blue, strokeWidth: 10, strokeCap: 'round', dash: [0, 20], fill: null };
+    const out = outlineStroke([{ anchors: line(0, 0, 100, 0), closed: false }], {}, { node, pending: () => {} });
+    expect(out).toHaveLength(5);
+    for (const s of out) expect(area([s])).toBeCloseTo(Math.PI * 25, 0);
+  });
+
+  it('outlines a pattern of tiny dashes coarser, in the background, instead of freezing', async () => {
+    const node = { type: 'path', stroke: blue, strokeWidth: 1, dash: [0.0001, 0.0001], fill: null };
+    const subs = [{ anchors: line(0, 0, 100, 0), closed: false }];
+    const pending = vi.fn();
+    // Too much work to do while drawing: the outline passes through until the background result arrives.
+    expect(outlineStroke(subs, {}, { node, pending })).toBe(subs);
+    expect(pending).toHaveBeenCalled();
+    await vi.waitFor(() => {
+      const out = outlineStroke(subs, {}, { node, pending });
+      expect(out.length).toBeGreaterThan(1000);
+      expect(out.length).toBeLessThanOrEqual(MAX_DASHES + 1);
+    });
+  });
+
   it('combines group items with the pathfinder style rules', () => {
     const items = [
       { style: { fill: red, stroke: null }, subpaths: [{ anchors: rectangle(0, 0, 60, 60), closed: true }] },
@@ -314,11 +336,39 @@ describe('engine effects', () => {
     expect(pathfinderCombine(items.slice(0, 1), { kind: 'intersect' })).toEqual(items.slice(0, 1));
   });
 
+  it('gives nothing for Intersect or Minus Back with a straight line that has to contain the result', () => {
+    const sq = { style: { fill: red, stroke: null }, subpaths: [{ anchors: rectangle(0, 0, 100, 100), closed: true }] };
+    const ln = { style: { fill: null, stroke: blue, strokeWidth: 1 }, subpaths: [{ anchors: line(-20, 50, 120, 50), closed: false }] };
+    expect(pathfinderCombine([sq, ln], { kind: 'intersect' })).toEqual([]);
+    expect(pathfinderCombine([sq, ln], { kind: 'minusBack' })).toEqual([]);
+    expect(pathfinderCombine([ln, sq], { kind: 'minusFront' })).toEqual([]);
+    // The line cut away from the square leaves the square.
+    expect(area(pathfinderCombine([ln, sq], { kind: 'minusBack' })[0].subpaths)).toBeCloseTo(10000, 0);
+  });
+
   it('runs on a single compound path as separate shapes', () => {
     const subs = [{ anchors: rectangle(0, 0, 60, 60), closed: true }, { anchors: rectangle(30, 30, 60, 60), closed: true }];
     const out = pathfinderOnShape(subs, { kind: 'unite' }, { pending: () => {} });
     expect(out).toHaveLength(1);
     expect(area(out)).toBeCloseTo(6300, 0);
+  });
+
+  it('cuts the contents of a clipping group to its clipping path, which paints nothing', () => {
+    const a = createPath(rectangle(0, 0, 60, 60), true, { fill: blue, stroke: null });
+    const big = createPath(rectangle(50, 0, 300, 300), true, { fill: red, stroke: null });
+    const clip = createPath(rectangle(50, 0, 60, 60), true, { fill: null, stroke: null });
+    const cg = createGroup([big.id, clip.id], { clip: true });
+    const g = createGroup([a.id, cg.id], { effects: [createEffect('pathfinder', { kind: 'unite' })] });
+    const doc = docWith({ node: g, descendants: [{ ...a, parent: g.id }, { ...cg, parent: g.id }, { ...big, parent: cg.id }, { ...clip, parent: cg.id }] });
+    const { items, vdoc } = liveArtwork(doc, doc.get(g.id));
+    const kids = items[0].children.map((id) => vdoc.get(id));
+    expect(kids).toHaveLength(1);
+    // The united shape takes the clipped artwork's paint, not the unpainted clipping path's.
+    expect(kids[0].fill).toBe(red);
+    const b = pathBounds(kids[0].anchors, true);
+    expect(b.x).toBeCloseTo(0, 3);
+    expect(b.x + b.w).toBeCloseTo(110, 3);
+    expect(b.y + b.h).toBeCloseTo(60, 3);
   });
 
   it('applies Pathfinder effects to a group as a whole', () => {

@@ -9,7 +9,7 @@ import { formatLength, parseLength } from '../../lib/units.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { clearGeometryCache } from '../../model/geometry.js';
-import { UNIT_OPTIONS, LIMITS } from './presets.js';
+import { UNIT_OPTIONS, LIMITS, rangeLabel } from './presets.js';
 import { normalizeBleed } from './format.js';
 import { LANGUAGES, DOUBLE_QUOTES, SINGLE_QUOTES, SCRIPT_LIMITS, typeOptionsOf } from './type-setup.js';
 
@@ -214,9 +214,9 @@ export async function documentSetupDialog(app, editor = app.editor) {
       el.focus();
       return false;
     };
-    for (const [s, el] of Object.entries(bleedIn)) if (!Number.isFinite(v.bleed[s]) || v.bleed[s] < 0 || v.bleed[s] > LIMITS.maxBleed) return bad(el, `Bleed must be between 0 and ${LIMITS.maxBleed} pt.`);
-    if (!Number.isFinite(v.width) || v.width < LIMITS.minSize || v.width > LIMITS.maxSize) return bad(wIn, `Width must be between ${LIMITS.minSize} and ${LIMITS.maxSize} pt.`);
-    if (!Number.isFinite(v.height) || v.height < LIMITS.minSize || v.height > LIMITS.maxSize) return bad(hIn, `Height must be between ${LIMITS.minSize} and ${LIMITS.maxSize} pt.`);
+    for (const [s, el] of Object.entries(bleedIn)) if (!Number.isFinite(v.bleed[s]) || v.bleed[s] < 0 || v.bleed[s] > LIMITS.maxBleed) return bad(el, `Bleed must be ${rangeLabel(0, LIMITS.maxBleed, units)}.`);
+    if (!Number.isFinite(v.width) || v.width < LIMITS.minSize || v.width > LIMITS.maxSize) return bad(wIn, `Width must be ${rangeLabel(LIMITS.minSize, LIMITS.maxSize, units)}.`);
+    if (!Number.isFinite(v.height) || v.height < LIMITS.minSize || v.height > LIMITS.maxSize) return bad(hIn, `Height must be ${rangeLabel(LIMITS.minSize, LIMITS.maxSize, units)}.`);
     for (const [k, [lo, hi]] of Object.entries(SCRIPT_LIMITS)) {
       const x = v.typeOptions[k];
       if (!Number.isFinite(x) || x < lo || x > hi) return bad(script[k], `${scriptLabels[k]} must be between ${lo}% and ${hi}%.`);

@@ -89,7 +89,11 @@ export class ZoomTool extends Tool {
     const w = Math.abs(d.sx - d.sx0);
     const h = Math.abs(d.sy - d.sy0);
     if (w > 4 && h > 4 && !d.alt) {
-      editor.view.fit({ x: Math.min(d.x0, d.x), y: Math.min(d.y0, d.y), w: Math.abs(d.x - d.x0), h: Math.abs(d.y - d.y0) }, 0);
+      // Fill the window with the dragged screen rectangle, keeping the view rotation.
+      const v = editor.view;
+      const c = v.toDoc((d.sx0 + d.sx) / 2, (d.sy0 + d.sy) / 2);
+      v.set({ zoom: v.zoom * Math.min(v.width / w, v.height / h) });
+      v.centerOn(c.x, c.y);
     } else editor.view.stepZoom(e.alt || d.alt ? -1 : 1, e.sx, e.sy);
     editor.viewChanged();
     this.overlay();

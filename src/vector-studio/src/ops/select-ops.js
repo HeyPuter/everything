@@ -4,22 +4,27 @@
 import { UserError } from '../lib/errors.js';
 import { nodeBounds, rectsIntersect } from '../model/geometry.js';
 
-/** Top-level selectable objects (direct children of unlocked, visible layers). */
+/** Top-level selectable objects (children of unlocked, visible layers and sublayers, never the layers themselves). */
 export function selectableTargets(editor) {
   const { doc } = editor;
   const out = [];
   const root = editor.isolation ? [editor.isolation] : doc.root.children;
   // An isolated single object (path, text...) is the only target.
   const iso = editor.isolation && doc.get(editor.isolation);
-  if (iso && (!iso.children || iso.type === 'compound')) return iso.hidden || iso.locked ? [] : [iso.id];
-  for (const lid of root) {
+  // Nothing inside an isolated object that was hidden or locked meanwhile (itself or a layer around it).
+  if (iso && (doc.isHidden(iso.id) || doc.isLocked(iso.id))) return [];
+  if (iso && (!iso.children || iso.type === 'compound')) return [iso.id];
+  const collect = (lid) => {
     const layer = doc.get(lid);
-    if (!layer || layer.hidden || layer.locked) continue;
+    if (!layer || layer.hidden || layer.locked) return;
     for (const id of layer.children) {
       const n = doc.get(id);
-      if (n && !n.hidden && !n.locked) out.push(id);
+      if (!n || n.hidden || n.locked) continue;
+      if (n.type === 'layer') collect(id);
+      else out.push(id);
     }
-  }
+  };
+  for (const lid of root) collect(lid);
   return out;
 }
 
@@ -97,14 +102,17 @@ export function selectObjects(editor, what) {
   doc.walk((n) => {
     if (n.hidden || n.locked) return false;
     if (what === 'text' && n.type === 'text') out.push(n.id);
-    if (what === 'clipping' && n.type === 'group' && n.clip && n.children.length) out.push(n.children[n.children.length - 1]);
+    if (what === 'clipping' && n.type === 'group' && n.clip && n.children.length) {
+      const mask = doc.get(n.children[n.children.length - 1]);
+      if (mask && !mask.hidden && !mask.locked) out.push(mask.id);
+    }
     if (what === 'stray' && n.type === 'path' && n.anchors.length === 1) out.push(n.id);
     return true;
   });
   editor.select(out);
 }
 
-/** Next object above/below the current one in stacking order (within its parent). */
+/** Next object above/below the current one in stacking order (within its parent), skipping hidden and locked ones and sublayers. */
 export function selectNext(editor, dir) {
   const { doc } = editor;
   const sel = editor.topSelection();
@@ -112,9 +120,14 @@ export function selectNext(editor, dir) {
   const id = dir > 0 ? sel[sel.length - 1] : sel[0];
   const n = doc.get(id);
   const parent = doc.get(n.parent);
-  const i = parent.children.indexOf(id) + dir;
-  const next = parent.children[i];
-  if (next && !doc.get(next)?.locked) editor.select([next]);
+  const kids = parent.children;
+  for (let i = kids.indexOf(id) + dir; i >= 0 && i < kids.length; i += dir) {
+    const next = doc.get(kids[i]);
+    if (next && !next.hidden && !next.locked && next.type !== 'layer') {
+      editor.select([next.id]);
+      return;
+    }
+  }
 }
 
 /** Remember and restore selections (Select > Reselect). */

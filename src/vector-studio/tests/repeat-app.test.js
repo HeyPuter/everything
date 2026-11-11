@@ -3,12 +3,13 @@ import { bootAppWithFeatures } from './helpers.js';
 import { createPath } from '../src/model/nodes.js';
 import { rectangle, ellipse } from '../src/model/shapes.js';
 import { anchor } from '../src/model/bezier.js';
-import { nodeBounds } from '../src/model/geometry.js';
+import { nodeBounds, transformNodes } from '../src/model/geometry.js';
 import { liveArtwork } from '../src/model/live.js';
 import { radialGeometry, gridLayout } from '../src/features/repeat/repeat-model.js';
 import { repeatHandles } from '../src/features/repeat/repeat-widgets.js';
 import { repeatValues, applyRepeatValues } from '../src/features/repeat/repeat-ui.js';
-import { onPathSampler, onPathPositions } from '../src/features/repeat/on-path.js';
+import { onPathSampler, onPathPositions, attachToPath } from '../src/features/repeat/on-path.js';
+import { translate, rotate, scale, multiply, apply } from '../src/lib/matrix.js';
 import { PropertiesPanel } from '../src/ui/panels/properties.js';
 
 function ev(app, x, y, extra = {}) {
@@ -227,5 +228,94 @@ describe('objects on path', () => {
     expect(doc.get(gid)).toBeTruthy();
     await app.commands.run('objectsOnPath.expand');
     expect(doc.get(gid)).toBeUndefined();
+  });
+
+  it('a pasted or duplicated objects-on-path group follows its own copy of the path', async () => {
+    const path = addPath(app, [[100, 300], [400, 300]]);
+    const a = addRect(app, 10, 10, 20, 20);
+    const b = addRect(app, 50, 10, 20, 20);
+    const doc = app.editor.doc;
+    let gid;
+    doc.transact('Attach', () => (gid = attachToPath(doc, [path.id, a.id, b.id], path.id)));
+    const placed = (d, id) => {
+      const g = d.get(id);
+      expect(g.children).toContain(g.live.path);
+      const { items, vdoc } = liveArtwork(d, g);
+      return items.map((n) => Math.round(nodeBounds(vdoc, n).x));
+    };
+    const before = placed(doc, gid);
+    app.editor.select([gid]);
+    await app.commands.run('edit.copy');
+    await app.commands.run('edit.pasteInPlace');
+    const pasted = app.editor.topSelection()[0];
+    expect(placed(doc, pasted)).toEqual(before);
+    // Moving the original's path leaves the copy where it is.
+    doc.transact('Move', () => transformNodes(doc, [path.id], translate(0, 100)));
+    expect(placed(doc, pasted)).toEqual(before);
+    app.editor.select([pasted]);
+    await app.commands.run('edit.duplicate');
+    expect(placed(doc, app.editor.topSelection()[0])).toEqual(before);
+    app.newDocument();
+    await app.commands.run('edit.pasteInPlace');
+    expect(placed(app.editor.doc, app.editor.topSelection()[0])).toEqual(before);
+  });
+
+  it('rotating or flipping an objects-on-path group turns the objects once', () => {
+    const path = addPath(app, [[100, 300], [400, 300]]);
+    const a = addRect(app, 10, 10, 40, 10);
+    const doc = app.editor.doc;
+    let gid;
+    doc.transact('Attach', () => (gid = attachToPath(doc, [path.id, a.id], path.id, { rotate: true, angle: 30 })));
+    // The placed copy's corners, transformed with the group, are where the copy lands after the transform.
+    const corners = () => {
+      const { items, vdoc } = liveArtwork(doc, doc.get(gid));
+      return vdoc.get(items[1].id).anchors.map((p) => [p.x, p.y]);
+    };
+    for (const m of [rotate(90, 250, 300), rotate(-37, 0, 0), scale(-1, 1, 250, 0), multiply(rotate(20), scale(1, -1))]) {
+      const expected = corners().map(([x, y]) => apply(m, x, y));
+      doc.transact('Transform', () => transformNodes(doc, [gid], m));
+      corners().forEach(([x, y], i) => {
+        expect(x).toBeCloseTo(expected[i].x, 6);
+        expect(y).toBeCloseTo(expected[i].y, 6);
+      });
+    }
+    // The option keeps its meaning: the objects still turn 30 degrees from the path (mirrored once each flip).
+    expect(doc.get(gid).live.angle).toBe(30);
+  });
+
+  it('objects stay visible where they are when the path is deleted or down to one point', () => {
+    const path = addPath(app, [[100, 300], [400, 300]]);
+    const a = addRect(app, 10, 10, 20, 20);
+    const b = addRect(app, 50, 10, 20, 20);
+    const doc = app.editor.doc;
+    let gid;
+    doc.transact('Attach', () => (gid = attachToPath(doc, [path.id, a.id, b.id], path.id)));
+    doc.transact('Delete', () => doc.remove(path.id));
+    const { items } = liveArtwork(doc, doc.get(gid));
+    expect(items.map((n) => n.id)).toEqual([a.id, b.id]);
+    expect(nodeBounds(doc, doc.get(gid))).toEqual({ x: 10, y: 10, w: 60, h: 20 });
+    doc.undo();
+    doc.transact('Shorten', () => doc.update(path.id, { anchors: [anchor(100, 300)] }));
+    expect(liveArtwork(doc, doc.get(gid)).items.map((n) => n.id)).toEqual([path.id, a.id, b.id]);
+  });
+
+  it('objects on a path inside a symbol instance follow the instance', async () => {
+    const path = addPath(app, [[100, 300], [400, 300]]);
+    const a = addRect(app, 10, 10, 20, 20);
+    const b = addRect(app, 50, 10, 20, 20);
+    const doc = app.editor.doc;
+    let gid;
+    doc.transact('Attach', () => (gid = attachToPath(doc, [path.id, a.id, b.id], path.id)));
+    const boxes = (d, n) => {
+      const { items, vdoc } = liveArtwork(d, n);
+      return items.map((v) => nodeBounds(vdoc, v)).map((r) => [Math.round(r.x), Math.round(r.y)]);
+    };
+    const before = boxes(doc, doc.get(gid));
+    app.editor.select([gid]);
+    await app.commands.run('symbol.new', { direct: true, name: 'Beads' });
+    const inst = app.editor.topSelection()[0];
+    doc.transact('Move', () => transformNodes(doc, [inst], translate(0, 100)));
+    const { items, vdoc } = liveArtwork(doc, doc.get(inst));
+    expect(boxes(vdoc, items[0])).toEqual(before.map(([x, y]) => [x, y + 100]));
   });
 });

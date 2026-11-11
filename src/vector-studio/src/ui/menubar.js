@@ -198,11 +198,18 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         close('escape');
         if (parentMenu) parentMenu.refocus();
         break;
-      case 'Tab':
-        e.preventDefault();
+      case 'Tab': {
+        // Close the menus and put focus back on the menu's button without
+        // preventing the key: Tab then moves on from there, as the menubar
+        // pattern asks (focus used to drop to the page).
+        let root = api;
+        while (root.parentMenu) root = root.parentMenu;
+        const back = root.anchor?.isConnected ? root.anchor : root.returnFocus;
         close('tab');
         parentMenu?.closeAll?.();
+        if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true });
         break;
+      }
       case 'Enter':
       case ' ':
         e.preventDefault();
@@ -248,7 +255,20 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
   // `above`: open upward from y (menus anchored to the status bar).
   let top = above ? Math.max(4, (y ?? 0) - mh) : y ?? 0;
   if (left + mw > vw - 4) left = parentMenu ? Math.max(4, left - mw - (parentMenu.el.offsetWidth - 4)) : Math.max(4, vw - mw - 4);
-  if (top + mh > vh - 4) top = Math.max(4, vh - mh - 4);
+  if (top + mh > vh - 4) {
+    // A menu dropping from its button never covers the button (moved over
+    // the menu bar it would open whatever lands under the pointer): it
+    // scrolls below the button, or opens above it when there is more room.
+    if (anchor && !above) {
+      const a = anchor.getBoundingClientRect();
+      const below = vh - top - 4;
+      const aboveRoom = a.top - 8;
+      if (aboveRoom > below) {
+        top = Math.max(4, a.top - 4 - mh);
+        if (mh > aboveRoom) menu.style.maxHeight = `${aboveRoom}px`;
+      } else menu.style.maxHeight = `${below}px`;
+    } else top = Math.max(4, vh - mh - 4);
+  }
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
 
@@ -257,6 +277,7 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
     close,
     parentMenu,
     returnFocus,
+    anchor,
     child: null,
     refocus: () => {
       const r = submenu?.row;
@@ -283,9 +304,13 @@ export function createMenubar(app, menus) {
   let open = null;
   let openIndex = -1;
 
+  // One tab stop (roving tabindex): the menu last opened or moved to.
+  const rove = (i) => buttons.forEach((b, j) => (b.tabIndex = j === i ? 0 : -1));
+
   const openAt = (i, focus = 'first') => {
     if (open) open.close('switch');
     const btn = buttons[i];
+    rove(i);
     const r = btn.getBoundingClientRect();
     openIndex = i;
     btn.setAttribute('aria-expanded', 'true');
@@ -331,8 +356,7 @@ export function createMenubar(app, menus) {
           if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
             e.preventDefault();
             const next = (i + (e.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
-            buttons.forEach((b) => (b.tabIndex = -1));
-            buttons[next].tabIndex = 0;
+            rove(next);
             buttons[next].focus();
           } else if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();

@@ -7,11 +7,11 @@
  * handle collinear (Alt breaks it into a corner).
  */
 import { Tool, tol, fmt, constrain45, constrainAngle } from './tool.js';
-import { hitTest, marqueeHits, pointInPolygon, nodeTouchesRect } from '../render/hit.js';
+import { hitTest, marqueeHits, pointInPolygon, nodeTouchesRect, nodeTouchesQuad } from '../render/hit.js';
 import { TransformSession } from './transform-session.js';
 import { anchor, hasIn, hasOut, nearestOnPath, segmentPoints, segmentCount, pointAt } from '../model/bezier.js';
 import { buildSnapIndex, snapPoint } from './snap.js';
-import { rectFrom } from './selection.js';
+import { marqueeRegion } from './selection.js';
 import { leafNodes } from '../render/overlay.js';
 import { selectedSegmentHits } from '../ops/object-ops.js';
 
@@ -116,9 +116,9 @@ function activePaths(editor) {
   return [...out.values()].filter((p) => p && !editor.doc.isLocked(p.id));
 }
 
-/** New anchors with the given indices moved by (dx, dy), handles included. */
+/** New anchors with the given indices moved by (dx, dy), handles included (other properties, such as a live corner, kept). */
 export function moveAnchorSet(anchors, indices, dx, dy) {
-  return anchors.map((a, i) => (indices.has(i) ? { x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy } : a));
+  return anchors.map((a, i) => (indices.has(i) ? { ...a, x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy } : a));
 }
 
 export class DirectSelectionTool extends Tool {
@@ -428,9 +428,9 @@ export class DirectSelectionTool extends Tool {
       return;
     }
     if (d.kind === 'marquee') {
-      const r = rectFrom(d);
-      if (r.w * editor.view.zoom > 2 || r.h * editor.view.zoom > 2) {
-        this.selectInRegion((a) => a.x >= r.x && a.x <= r.x + r.w && a.y >= r.y && a.y <= r.y + r.h, r, d.add, true, d.add);
+      const { r, screen, inside, quad } = marqueeRegion(editor, d);
+      if (screen.w > 2 || screen.h > 2) {
+        this.selectInRegion((a) => inside(a.x, a.y), r, d.add, true, d.add, quad);
         for (const hook of directSelectionHooks) hook.marquee?.(this, r, d.add);
       }
       this.overlay();
@@ -456,14 +456,14 @@ export class DirectSelectionTool extends Tool {
    * records the crossed segments (Delete removes just those). With `toggle`
    * (Shift-marquee), enclosed anchors and objects flip in or out of the selection.
    */
-  selectInRegion(inside, r, add, segments = false, toggle = false) {
+  selectInRegion(inside, r, add, segments = false, toggle = false, quad = null) {
     const editor = this.editor;
     if (!add) {
       editor.clearSelection();
       editor.segmentHits = new Map();
     }
     if (!editor.segmentHits) editor.segmentHits = new Map();
-    const hits = marqueeHits(editor.doc, r, { intoCompound: true });
+    const hits = marqueeHits(editor.doc, r, { intoCompound: true, quad });
     let any = false;
     for (const n of hits) {
       if (n.type === 'path') {
@@ -483,7 +483,8 @@ export class DirectSelectionTool extends Tool {
             for (let i = 0; i < segmentCount(n.anchors, n.closed); i++) {
               const c = segmentPoints(n.anchors, i);
               const seg = [anchor(c[0], c[1], c[0], c[1], c[2], c[3]), anchor(c[6], c[7], c[4], c[5], c[6], c[7])];
-              if (nodeTouchesRect(editor.doc, { type: 'path', anchors: seg, closed: false }, r)) crossed.push(i);
+              const sn = { type: 'path', anchors: seg, closed: false };
+              if (quad ? nodeTouchesQuad(editor.doc, sn, quad, r) : nodeTouchesRect(editor.doc, sn, r)) crossed.push(i);
             }
             editor.segmentHits.set(n.id, { node: n, set: editor.anchors.get(n.id), indices: crossed });
           }
@@ -672,8 +673,8 @@ export class GroupSelectionTool extends Tool {
     if (!d) return;
     const editor = this.editor;
     if (d.kind === 'marquee') {
-      const r = rectFrom(d);
-      const hits = marqueeHits(editor.doc, r);
+      const { r, opts } = marqueeRegion(editor, d);
+      const hits = marqueeHits(editor.doc, r, opts);
       editor.select(hits.map((n) => n.id), d.add ? { toggle: true } : {});
     } else if (d.session) d.session.commit();
     this.overlay();

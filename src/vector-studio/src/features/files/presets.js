@@ -122,6 +122,18 @@ export const PREVIEW_OPTIONS = [
 /** Limits on artboard size, artboard count and bleed (sizes in user units). */
 export const LIMITS = { minSize: 1, maxSize: 16383, maxArtboards: 1000, maxBleed: 72 };
 
+/**
+ * "between 0.4 mm and 5779.4 mm": a range of lengths in points, shown in
+ * `units` and rounded inward so both ends are allowed.
+ */
+export function rangeLabel(lo, hi, units) {
+  const u = UNITS[units] ? units : 'pt';
+  const p = 10 ** (u === 'pt' || u === 'px' ? 0 : u === 'mm' ? 1 : 2);
+  const f = UNITS[u].factor;
+  const show = (v) => `${Number(v.toFixed(2))} ${u}`;
+  return `between ${show(Math.ceil((lo / f) * p - 1e-9) / p)} and ${show(Math.floor((hi / f) * p + 1e-9) / p)}`;
+}
+
 /** "8.5 x 11 in" for a preset card. */
 export function sizeLabel(p) {
   const u = UNITS[p.units] ? p.units : 'pt';
@@ -148,7 +160,7 @@ export function parsePresetForm(raw) {
   const len = (s) => parseLength(String(s ?? ''), units);
   const width = len(raw.width);
   const height = len(raw.height);
-  const range = `between ${LIMITS.minSize} pt and ${LIMITS.maxSize} pt (227 in)`;
+  const range = rangeLabel(LIMITS.minSize, LIMITS.maxSize, units);
   if (!Number.isFinite(width) || width < LIMITS.minSize || width > LIMITS.maxSize) return fail('width', `Width must be ${range}.`);
   if (!Number.isFinite(height) || height < LIMITS.minSize || height > LIMITS.maxSize) return fail('height', `Height must be ${range}.`);
   const artboards = parseNumber(String(raw.artboards ?? '1'));
@@ -157,7 +169,7 @@ export function parsePresetForm(raw) {
   for (const side of ['top', 'bottom', 'left', 'right']) {
     const s = raw.bleed?.[side];
     const v = s === '' || s == null ? 0 : len(s);
-    if (!Number.isFinite(v) || v < 0 || v > LIMITS.maxBleed) return fail(`bleed-${side}`, `Bleed must be between 0 and ${LIMITS.maxBleed} pt (1 in).`);
+    if (!Number.isFinite(v) || v < 0 || v > LIMITS.maxBleed) return fail(`bleed-${side}`, `Bleed must be ${rangeLabel(0, LIMITS.maxBleed, units)}.`);
     bleed[side] = v;
   }
   const ppi = Number(raw.rasterResolution ?? 72);
@@ -167,7 +179,7 @@ export function parsePresetForm(raw) {
   const value = { name, width, height, units, artboards, bleed, colorMode, rasterResolution, previewMode };
   if (artboards > 1) {
     const spacing = raw.spacing === '' || raw.spacing == null ? 20 : len(raw.spacing);
-    if (!Number.isFinite(spacing) || spacing < 0 || spacing > LIMITS.maxSize) return fail('spacing', `Spacing must be between 0 and ${LIMITS.maxSize} pt.`);
+    if (!Number.isFinite(spacing) || spacing < 0 || spacing > LIMITS.maxSize) return fail('spacing', `Spacing must be ${rangeLabel(0, LIMITS.maxSize, units)}.`);
     const columns = raw.columns === '' || raw.columns == null ? 0 : parseNumber(String(raw.columns));
     if (!Number.isInteger(columns) || columns < 0 || columns > LIMITS.maxArtboards) return fail('columns', 'Enter a whole number of columns (0 picks one).');
     value.layout = LAYOUT_OPTIONS.some((o) => o.value === raw.layout) ? raw.layout : 'gridRow';

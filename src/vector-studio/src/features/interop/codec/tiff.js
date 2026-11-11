@@ -12,6 +12,7 @@
 import { inflate, deflateZlib } from './zlib.js';
 import { lzw as lzwDecode } from '../pdf/filters.js';
 import { cmykEngine } from '../../../lib/color.js';
+import { imageSizeOk } from './limits.js';
 
 export function isTIFF(b) {
   return b.length > 8 && ((b[0] === 0x49 && b[1] === 0x49 && b[2] === 42 && b[3] === 0) || (b[0] === 0x4d && b[1] === 0x4d && b[2] === 0 && b[3] === 42));
@@ -67,7 +68,9 @@ export function decodeTIFF(bytes) {
   const width = one(256, 0);
   const height = one(257, 0);
   if (!width || !height) throw new Error('The TIFF image has no size');
+  if (!imageSizeOk(width, height)) throw new Error(`The TIFF image is too large to import (${width} x ${height} pixels).`);
   const spp = one(277, 1);
+  if (!(spp >= 1 && spp <= 64)) throw new Error('The TIFF image has an invalid number of channels.');
   const bps = tags.get(258) || [1];
   const bits = bps[0] || 1;
   const comp = one(259, 1);

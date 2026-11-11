@@ -141,6 +141,7 @@ export function applySmartPunctuation(app, opts, scope) {
     for (const n of nodes) if (n.text) targets.push({ id: n.id, from: 0, to: n.text.length });
   }
   const total = {};
+  const len0 = s?.node()?.text.length ?? 0;
   doc.transact('Smart Punctuation', () => {
     for (const t of targets) {
       const n = doc.get(t.id);
@@ -151,7 +152,13 @@ export function applySmartPunctuation(app, opts, scope) {
       for (const k in counts) total[k] = (total[k] || 0) + counts[k];
     }
   });
-  if (s && !s.ended) s.changed();
+  if (s && !s.ended) {
+    // A selection keeps covering its text, which replacements may have made shorter or longer.
+    const [a, b] = s.range();
+    const delta = (s.node()?.text.length ?? len0) - len0;
+    if (scope === 'selection' && a !== b && delta) s.setSelection(a, b + delta);
+    else s.changed();
+  }
   return total;
 }
 

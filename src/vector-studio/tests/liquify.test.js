@@ -79,6 +79,16 @@ describe('liquify math', () => {
     for (const c of r) expect(s.some((p) => p.x === c.x && p.y === c.y)).toBe(true);
   });
 
+  it('simplify only removes anchors inside the given region', () => {
+    const e = ellipse(0, 0, 100, 100);
+    const dense = densify(e, true, brush(0, 0, 400), detailLength(brush(0, 0, 400), 10));
+    const region = { x: -10, y: -10, w: 40, h: 120 };
+    const s = simplifyAnchors(dense, true, 0.5, region);
+    expect(s.length).toBeLessThan(dense.length);
+    const outside = dense.filter((a) => a.x > 30);
+    for (const a of outside) expect(s.some((b) => b.x === a.x && b.y === a.y)).toBe(true);
+  });
+
   it('simplify removes most of the added anchors', () => {
     const e = ellipse(0, 0, 100, 100);
     const dense = densify(e, true, brush(0, 0, 400), detailLength(brush(0, 0, 400), 10));
@@ -124,6 +134,30 @@ describe('liquify tools', () => {
     expect(pathBounds(after.anchors, true).y).toBeLessThan(80);
     app.editor.doc.undo();
     expect(app.editor.doc.get(id)).toBe(before);
+  });
+
+  it('Simplify after a stroke leaves the anchors the brush never reached', () => {
+    // A finely drawn wavy outline, warped at one spot on its right side.
+    const anchors = [];
+    for (let i = 0; i < 600; i++) {
+      const t = (i / 600) * 2 * Math.PI;
+      const r = 150 * (1 + 0.05 * Math.sin(40 * t));
+      anchors.push({ x: 300 + r * Math.cos(t), y: 300 + r * Math.sin(t) });
+    }
+    const n = createPath(anchors.map((p) => ({ ...p, ix: p.x, iy: p.y, ox: p.x, oy: p.y })), true, { fill: { type: 'solid', color: '#ff0000' } });
+    const doc = app.editor.doc;
+    doc.transact('Wavy', () => doc.insert(n, app.editor.targetLayer().id));
+    app.editor.select([n.id]);
+    app.setTool('warp');
+    const t = app.tool;
+    t.onPointerDown(ev(457, 300));
+    for (let i = 1; i <= 4; i++) t.onPointerMove(ev(457 + i * 4, 300));
+    t.onPointerUp(ev(473, 300));
+    const after = doc.get(n.id).anchors;
+    // Every original anchor on the left half is still there.
+    const left = n.anchors.filter((a) => a.x < 250);
+    expect(left.length).toBeGreaterThan(100);
+    for (const a of left) expect(after.some((b) => b.x === a.x && b.y === a.y)).toBe(true);
   });
 
   it('distorts unselected paths under the brush when nothing is selected', () => {

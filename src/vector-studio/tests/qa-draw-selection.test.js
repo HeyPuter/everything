@@ -132,3 +132,53 @@ describe('Selection tool Shift-drag', () => {
     expect(app.editor.selection.size).toBe(0);
   });
 });
+
+describe('marquee in a rotated view', () => {
+  // Drag between two screen points (the marquee is upright on screen).
+  function marquee(app, tool, a, b, mods = {}) {
+    const at = (s) => {
+      const p = app.editor.view.toDoc(s[0], s[1]);
+      return { x: p.x, y: p.y, sx: s[0], sy: s[1], shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', pressure: 0.5, native: {}, ...mods };
+    };
+    tool.onPointerDown(at(a));
+    tool.onPointerMove(at([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]));
+    tool.onPointerMove(at(b));
+    tool.onPointerUp(at(b));
+  }
+
+  function setup() {
+    const app = bootApp();
+    app.newDocument();
+    app.editor.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
+    app.editor.view.rotateView(45);
+    const inside = addRect(app, 0, 0, 10, 10);
+    const outside = addRect(app, 0, 0, 10, 10);
+    // Place both: one under the screen marquee, one off it but inside the document box of its corners.
+    // Near a corner of the marquee: the document box between its corner points misses it.
+    const s = app.editor.view.toDoc(455, 445);
+    const doc = app.editor.doc;
+    const off = app.editor.view.toDoc(500, 520);
+    doc.transact('Move', () => {
+      doc.update(inside.id, { anchors: rectangle(s.x - 5, s.y - 5, 10, 10) });
+      doc.update(outside.id, { anchors: rectangle(off.x - 5, off.y - 5, 10, 10) });
+    });
+    return { app, inside, outside };
+  }
+
+  it('selects what the marquee covers on screen with the Selection tool', () => {
+    const { app, inside, outside } = setup();
+    app.setTool('selection');
+    // The screen marquee 440..560 x 340..460 covers the first square only.
+    marquee(app, app.tool, [440, 340], [560, 460]);
+    expect([...app.editor.selection]).toEqual([inside.id]);
+    expect(app.editor.selection.has(outside.id)).toBe(false);
+  });
+
+  it('selects the anchors the marquee covers on screen with the Direct Selection tool', () => {
+    const { app, inside, outside } = setup();
+    app.setTool('direct-selection');
+    marquee(app, app.tool, [440, 340], [560, 460]);
+    expect(app.editor.selection.has(inside.id)).toBe(true);
+    expect(app.editor.selection.has(outside.id)).toBe(false);
+  });
+});

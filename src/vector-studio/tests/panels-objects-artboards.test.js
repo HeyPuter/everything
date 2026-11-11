@@ -75,3 +75,17 @@ describe('Artboards panel menu', () => {
     expect(ed.activeArtboard).toBe(2);
   });
 });
+
+describe('Active artboard after the artboard list shrinks', () => {
+  it('stays on an existing artboard when undo removes the active one, so nudging still moves it', () => {
+    const { ed, doc } = setup();
+    ed.setActiveArtboard(2);
+    doc.undo();
+    expect(doc.artboards).toHaveLength(1);
+    expect(ed.activeArtboard).toBe(0);
+    app.setTool('artboard');
+    app.tool.onKeyDown({ key: 'ArrowRight', shiftKey: false, metaKey: false, ctrlKey: false });
+    expect(doc.artboards[0].x).toBe(1);
+    app.setTool('selection');
+  });
+});

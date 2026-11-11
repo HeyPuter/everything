@@ -14,12 +14,15 @@
 import { MQDecoder } from './mq.js';
 import { decodeCCITT } from './ccitt.js';
 
+import { MAX_IMAGE_PIXELS } from './limits.js';
+
 export class JBIG2Error extends Error {}
 
 // ---------------------------------------------------------------- bitmaps
 
 class Bitmap {
   constructor(w, h, fill = 0) {
+    if (w * h > MAX_IMAGE_PIXELS) throw new JBIG2Error('The image is too large');
     this.w = w;
     this.h = h;
     this.d = new Uint8Array(Math.max(0, w * h));

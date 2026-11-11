@@ -16,11 +16,13 @@ import { memoryBackend } from '../files/backends.js';
 import { hashKey } from '../files/recent.js';
 import { formatBytes, relativeTime } from '../files/naming.js';
 
-import { serializeDocument, parseDocument } from '../files/format.js';
+import { serializeDocument, parseDocument, documentId } from '../files/format.js';
 import { renderThumbnail } from '../files/thumbnail.js';
 import { familyInfo } from '../type/fonts.js';
 
 export const VERSION_LIMIT = 20;
+/** Shared documents are "saved" whenever the server has every edit: they keep a version at most this often. */
+export const SHARED_VERSION_MS = 10 * 60 * 1000;
 
 let fallbackStore = null;
 /** The app-private storage backend. */
@@ -32,7 +34,8 @@ export function localStore(app) {
 
 async function encodeDoc(doc) {
   const thumb = await renderThumbnail(doc, { size: 192 }).catch(() => null);
-  const bytes = await serializeDocument(doc, { thumbnail: thumb });
+  // Templates and versions are content only: documents made from them get their own identity.
+  const bytes = await serializeDocument(doc, { thumbnail: thumb, id: null });
   return { bytes, thumb };
 }
 
@@ -99,16 +102,44 @@ async function saveAsTemplate(app) {
 
 // ---- Versions ----
 
-/** The storage key for an editor's file: its path, file name or document name. */
+/**
+ * The storage key for an editor's versions: its cloud path, its file
+ * handle, its shared document, or else the document's own identity, which
+ * its saved files carry (so documents saved as downloads under the same
+ * name never share a history).
+ */
 export function versionKey(editor) {
   const f = editor.file;
-  return hashKey(f?.path ? `puter:${f.path}` : f?.handleId ? `local:${f.handleId}` : `name:${f?.name || editor.doc.root.name}`);
+  if (f?.path) return hashKey(`puter:${f.path}`);
+  if (f?.handleId) return hashKey(`local:${f.handleId}`);
+  if (f?.kind === 'shared' && f.room) return hashKey(`shared:${f.server || ''}:${f.room}`);
+  return hashKey(`doc:${documentId(editor.doc)}`);
+}
+
+/**
+ * Before documents had an identity, versions of files without a cloud path
+ * or file handle were kept under their file name. A file from then (one
+ * without an identity) still lists those versions, and takes a copy of them
+ * once it is saved with its new identity.
+ */
+export function legacyKeyFor(editor) {
+  const f = editor.file;
+  if (editor.doc.fileId || f?.kind !== 'import' || f.format !== 'native' || !f.name) return null;
+  return hashKey(`name:${f.name}`);
 }
 
 export class VersionStore {
   constructor(store, limit = VERSION_LIMIT) {
     this.store = store;
     this.limit = limit;
+    this.queue = Promise.resolve();
+  }
+
+  /** Index updates run one at a time, so saves that land together never drop each other's entries. */
+  #run(fn) {
+    const next = this.queue.then(fn, fn);
+    this.queue = next.catch(() => {});
+    return next;
   }
 
   async list(key) {
@@ -118,14 +149,16 @@ export class VersionStore {
   async add(key, doc, { name = '', label = '' } = {}) {
     const { bytes, thumb } = await encodeDoc(doc);
     const entry = { id: uid('ver'), time: Date.now(), size: bytes.length, name, label, thumb };
-    await this.store.writeBlob(`versions/${key}/${entry.id}.vstudio`, new Blob([bytes]));
-    const list = [...(await this.list(key)), entry];
-    while (list.length > this.limit) {
-      const old = list.shift();
-      await this.store.remove(`versions/${key}/${old.id}.vstudio`);
-    }
-    await this.store.writeJSON(`versions/${key}/index.json`, list);
-    return entry;
+    return this.#run(async () => {
+      await this.store.writeBlob(`versions/${key}/${entry.id}.vstudio`, new Blob([bytes]));
+      const list = [...(await this.list(key)), entry];
+      while (list.length > this.limit) {
+        const old = list.shift();
+        await this.store.remove(`versions/${key}/${old.id}.vstudio`);
+      }
+      await this.store.writeJSON(`versions/${key}/index.json`, list);
+      return entry;
+    });
   }
 
   async read(key, id) {
@@ -134,9 +167,36 @@ export class VersionStore {
     return (await parseDocument(bytes)).doc;
   }
 
-  async remove(key, id) {
-    await this.store.remove(`versions/${key}/${id}.vstudio`);
-    await this.store.writeJSON(`versions/${key}/index.json`, (await this.list(key)).filter((v) => v.id !== id));
+  /** Copy the versions kept under `from` into `to` (newest kept within the limit). */
+  adopt(from, to) {
+    return this.#run(async () => {
+      const old = await this.list(from);
+      if (!old.length || from === to) return 0;
+      const mine = await this.list(to);
+      const have = new Set(mine.map((v) => v.id));
+      const copied = [];
+      for (const v of old) {
+        if (have.has(v.id)) continue;
+        const blob = await this.store.readBlob(`versions/${from}/${v.id}.vstudio`);
+        if (!blob) continue;
+        await this.store.writeBlob(`versions/${to}/${v.id}.vstudio`, blob);
+        copied.push(v);
+      }
+      const list = [...copied, ...mine].sort((a, b) => a.time - b.time);
+      while (list.length > this.limit) {
+        const drop = list.shift();
+        await this.store.remove(`versions/${to}/${drop.id}.vstudio`);
+      }
+      await this.store.writeJSON(`versions/${to}/index.json`, list);
+      return copied.length;
+    });
+  }
+
+  remove(key, id) {
+    return this.#run(async () => {
+      await this.store.remove(`versions/${key}/${id}.vstudio`);
+      await this.store.writeJSON(`versions/${key}/index.json`, (await this.list(key)).filter((v) => v.id !== id));
+    });
   }
 }
 
@@ -155,7 +215,10 @@ async function versionHistoryDialog(app) {
   const ed = app.editor;
   const versions = app.versions;
   const key = versionKey(ed);
-  let list = (await versions.list(key)).slice().reverse();
+  // A file from before documents had an identity also lists the versions kept under its name.
+  const legacy = ed.doc.legacyVersionKey;
+  const listed = async (k) => (k ? (await versions.list(k)).map((v) => ({ ...v, key: k })) : []);
+  let list = [...(await listed(key)), ...(await listed(legacy))].sort((a, b) => b.time - a.time);
   let selected = list[0]?.id || null;
   const listEl = h('ul.vh-list', { role: 'listbox', tabindex: '0', 'aria-label': 'Versions' });
   const preview = h('div.vh-preview', { 'aria-live': 'polite' });
@@ -192,30 +255,47 @@ async function versionHistoryDialog(app) {
     e.preventDefault();
     select(list[Math.max(0, Math.min(list.length - 1, j))].id);
   });
-  restoreBtn.addEventListener('click', async () => {
-    const doc = await versions.read(key, selected);
+  // Each action runs once at a time; failures (a version that is gone, storage errors) are reported.
+  const action = (btn, fn) =>
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try {
+        await fn();
+      } catch (err) {
+        app.notify(err?.message || 'Something went wrong.', { error: true });
+      } finally {
+        btn.disabled = false;
+        render();
+      }
+    });
+  action(restoreBtn, async () => {
+    const doc = await versions.read(list.find((x) => x.id === selected)?.key || key, selected);
     restoreDocumentContent(ed, doc);
     app.notify('Restored the version. Undo returns to the current content.', { polite: true });
     close?.(true);
   });
-  copyBtn.addEventListener('click', async () => {
-    const doc = await versions.read(key, selected);
+  action(copyBtn, async () => {
     const v = list.find((x) => x.id === selected);
+    const doc = await versions.read(v?.key || key, selected);
     doc.nodes.set('root', { ...doc.root, name: `${ed.name.replace(/\.[^.]+$/, '')} (${new Date(v.time).toLocaleString()})` });
     close?.(true);
     app.addDocument(doc);
   });
-  delBtn.addEventListener('click', async () => {
-    await versions.remove(key, selected);
-    list = list.filter((v) => v.id !== selected);
+  action(delBtn, async () => {
+    const v = list.find((x) => x.id === selected);
+    if (!v) return;
+    // A deleted version cannot be brought back.
+    const ok = await app.dialogs.confirm({ title: 'Delete Version', message: `Delete the version saved ${new Date(v.time).toLocaleString()}? This cannot be undone.`, okLabel: 'Delete', danger: true });
+    if (!ok) return;
+    await versions.remove(v.key || key, v.id);
+    list = list.filter((x) => x.id !== v.id);
     selected = list[0]?.id || null;
-    render();
   });
-  saveBtn.addEventListener('click', async () => {
+  action(saveBtn, async () => {
     const entry = await versions.add(key, ed.doc, { name: ed.name, label: 'Saved manually' });
-    list.unshift(entry);
+    list.unshift({ ...entry, key });
     selected = entry.id;
-    render();
   });
   render();
   return app.dialogs.open({
@@ -411,16 +491,45 @@ export function registerFileCommands(app) {
   app.userTemplates = new TemplateStore(store);
   app.versions = new VersionStore(store);
 
-  // Keep a version every time a document is saved.
+  // Keep a version every time a document is saved (once per document, however many windows show it).
   const watched = new WeakSet();
+  const kept = new WeakMap(); // doc -> { key, time, changed }: the last version kept automatically
+  const keep = async (ed) => {
+    const doc = ed.doc;
+    const key = versionKey(ed);
+    const last = kept.get(doc);
+    // Saving again without changes keeps no duplicate; shared documents keep one now and then.
+    if (last?.key === key && (!last.changed || (ed.file?.kind === 'shared' && Date.now() - last.time < SHARED_VERSION_MS))) return;
+    kept.set(doc, { key, time: Date.now(), changed: false });
+    // A file from before documents had an identity now has one: it takes its versions along.
+    if (doc.legacyVersionKey) {
+      await app.versions.adopt(doc.legacyVersionKey, key);
+      doc.legacyVersionKey = null;
+    }
+    await app.versions.add(key, doc, { name: ed.name });
+  };
   const watch = (ed) => {
-    if (!ed || watched.has(ed)) return;
-    watched.add(ed);
-    ed.doc.on('saved', () => {
+    if (!ed || watched.has(ed.doc)) return;
+    const doc = ed.doc;
+    watched.add(doc);
+    const changed = () => {
+      const last = kept.get(doc);
+      if (last) last.changed = true;
+    };
+    // Once per committed change (every edit, undo or remote change ends with one), not per object.
+    doc.on('change', (e) => e.commit && changed());
+    doc.on('comments', changed);
+    doc.on('saved', () => {
       const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
-      idle(() => app.versions.add(versionKey(ed), ed.doc, { name: ed.name }).catch((err) => console.warn('Could not keep a version', err)));
+      // The window that saved is the active one; its file is the one written.
+      const target = app.editor?.doc === doc ? app.editor : app.editors.includes(ed) ? ed : app.editors.find((e) => e.doc === doc) || ed;
+      idle(() => keep(target).catch((err) => console.warn('Could not keep a version', err)));
     });
   };
+  app.on('file-opened', (ed) => {
+    const legacy = ed && legacyKeyFor(ed);
+    if (legacy) ed.doc.legacyVersionKey = legacy;
+  });
   app.on('active-editor', (ed) => {
     watch(ed);
     if (ed) syncColorPanelMode(app, ed);

@@ -89,7 +89,8 @@ export function placeSymbol(app, symbolId = currentSymbol(app.editor), point = n
   }
   let inst = null;
   doc.transact('Place Symbol Instance', () => {
-    inst = placeInstance(doc, symbolId, layer.id, x, y);
+    const t = ed.drawTarget();
+    inst = placeInstance(doc, symbolId, t.parentId, x, y, t.index);
   });
   ed.select([inst.id]);
   return inst;

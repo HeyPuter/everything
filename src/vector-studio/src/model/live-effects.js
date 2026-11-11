@@ -66,14 +66,18 @@ registerLive('groupEffects', {
 /**
  * Shapes of objects that are not made of anchors, from the modules that
  * know them: text(doc, node) -> [{ style, subpaths, fillRule }] | null
- * (glyph outlines; null while fonts load).
+ * (glyph outlines; null while fonts load). clip(item, clipSubpaths) -> the
+ * item's subpaths cut to a clipping path, null to leave them, or undefined
+ * while the result is being computed.
  */
-export const shapeHooks = { text: null };
+export const shapeHooks = { text: null, clip: null };
 
 /**
  * The visible shapes of a group as combine() items, back to front: paths
  * and compound paths with their own geometry effects applied, type as its
- * glyph outlines, and the generated shapes of live artwork inside.
+ * glyph outlines, and the generated shapes of live artwork inside. The
+ * contents of a clipping group are cut to its clipping path, which is not
+ * a shape of its own.
  */
 export function shapeItems(doc, g) {
   const out = [];
@@ -82,6 +86,19 @@ export function shapeItems(doc, g) {
     if (n.type === 'path' || n.type === 'compound') {
       const subpaths = effectiveSubpaths(vdoc, n).filter((s) => s.anchors.length > 1);
       if (subpaths.length) out.push({ style: { ...pickStyle(n), effects: [] }, fillRule: n.fillRule, subpaths, source: n.source || n.id });
+    } else if (n.type === 'group' && !liveDef(n) && n.clip && n.children.length) {
+      // The clipping path (the last child) shapes the contents and paints nothing.
+      const from = out.length;
+      visit(vdoc, vdoc.get(n.children[n.children.length - 1]));
+      const clip = out.splice(from).flatMap((it) => it.subpaths.filter((s) => s.closed));
+      for (const c of n.children.slice(0, -1)) visit(vdoc, vdoc.get(c));
+      if (!shapeHooks.clip) return;
+      for (let i = out.length - 1; i >= from; i--) {
+        const subpaths = clip.length ? shapeHooks.clip(out[i], clip) : [];
+        if (subpaths === null || subpaths === undefined) continue;
+        if (subpaths.length) out[i] = { ...out[i], subpaths };
+        else out.splice(i, 1);
+      }
     } else if (n.type === 'group' && !liveDef(n)) {
       for (const c of n.children) visit(vdoc, vdoc.get(c));
     } else if (liveDef(n)) {

@@ -252,6 +252,21 @@ describe('edit colors', () => {
     expect(inv.get(p1.id).stroke).toBeUndefined();
   });
 
+  it('recolors freeform gradient points and gradient mesh points', async () => {
+    const { createMesh, meshPoint } = await import('../src/features/mesh/mesh-model.js');
+    const ff = createPath(rectangle(0, 0, 10, 10), true, { fill: { type: 'freeform', points: [{ x: 0, y: 0, color: '#ff0000' }, { x: 1, y: 1, color: '#0000ff' }] }, stroke: null });
+    const mesh = createMesh(1, 1, [meshPoint(0, 20, '#ff0000'), meshPoint(10, 20, '#00ff00'), meshPoint(0, 30, '#0000ff'), meshPoint(10, 30, '#ffffff')]);
+    const doc = docWith(ff, mesh);
+    const nodes = colorTargets(doc, [ff.id, mesh.id]);
+    expect(nodes.map((n) => n.id)).toEqual([ff.id, mesh.id]);
+    expect(collectColors(nodes).find((c) => c.color === '#ff0000').count).toBe(2);
+    const inv = colorPatches(nodes, invertColor);
+    expect(inv.get(ff.id).fill.points.map((pt) => pt.color)).toEqual(['#00ffff', '#ffff00']);
+    expect(inv.get(mesh.id).points.map((pt) => pt.c)).toEqual(['#00ffff', '#ff00ff', '#ffff00', '#000000']);
+    // Strokes only: the mesh (all fill) stays.
+    expect(colorPatches(nodes, invertColor, { fill: false }).size).toBe(0);
+  });
+
   it('converts, saturates and adjusts colors', () => {
     expect(grayscaleColor('#ff0000')).toBe('#4c4c4c');
     expect(saturateColor('#ff8000', -100)).toBe(grayscaleColor('#ff8000'));

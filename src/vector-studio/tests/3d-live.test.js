@@ -229,6 +229,21 @@ describe('3D scenes', () => {
     expect(deeper.models[0].mesh).not.toBe(full.models[0].mesh);
   });
 
+  it('reuses the mesh when the object only moves, and draws it at the new place', () => {
+    clearMeshCache();
+    const f = fx3d('inflate', { rotX: 0, rotY: 0, rotZ: 0 });
+    const a = createPath(ellipse(0, 0, 100, 60), true, { fill: solid('#22aa66') });
+    const b = createPath(ellipse(250.5, -40, 100, 60), true, { fill: solid('#22aa66') });
+    const here = buildModels(items(a), f);
+    const there = buildModels(items(b), f);
+    expect(there.models[0].mesh).toBe(here.models[0].mesh);
+    const xs = (s) => renderModels(s, f).faces.flatMap((x) => x.rings.flat().map((q) => q[0]));
+    expect(Math.min(...xs(there)) - Math.min(...xs(here))).toBeCloseTo(250.5, 6);
+    // A different shape at the same place builds its own mesh.
+    const c = createPath(ellipse(0, 0, 100, 70), true, { fill: solid('#22aa66') });
+    expect(buildModels(items(c), f).models[0].mesh).not.toBe(here.models[0].mesh);
+  });
+
   it('revolves about the left or right edge of the artwork', () => {
     const p = rectPath(100, 0, 50, 80);
     const span = (axis) => {

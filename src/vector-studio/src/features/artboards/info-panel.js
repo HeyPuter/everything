@@ -39,7 +39,7 @@ export class InfoPanel extends Panel {
   static title = 'Info';
   static icon = 'info';
   static placement = 'strip';
-  static shortcut = 'F8';
+  static shortcut = 'Mod+F8';
 
   menu() {
     const on = this.app.prefs.get('infoShowOptions') !== false;

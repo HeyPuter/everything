@@ -116,9 +116,46 @@ describe('opening files', () => {
     expect(await app.files.service.openBytes(new TextEncoder().encode('%PDF-1.4 garbage'), { name: 'broken.pdf' })).toBe(null);
     expect(calls[0].title).toBe('Could Not Open');
   });
+
+  it('names the file once in the reason a file cannot be opened', async () => {
+    const calls = [];
+    app.dialogs.alert = async (o) => calls.push(o);
+    // A TIFF header that ends before its first directory.
+    expect(await app.files.service.openBytes(new Uint8Array([0x49, 0x49, 42, 0, 8, 0, 0, 0, 32, 0]), { name: 'scan.tif' })).toBe(null);
+    expect(calls[0].message).toBe('"scan.tif" could not be imported. The TIFF file is damaged or incomplete.');
+  });
 });
 
 describe('placing files', () => {
+  it('reads a fractional page number as the nearest page', async () => {
+    const ed = app.newDocument({ width: 400, height: 400 });
+    const { placeFile } = await import('../src/features/io/place.js');
+    const objs = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 5 0 R >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 6 0 R >>',
+      { dict: '<< >>', stream: '1 0 0 rg 0 0 10 10 re f' },
+      { dict: '<< >>', stream: '0 0 1 rg 0 0 10 10 re f' },
+    ];
+    const placing = placeFile(app, ed, file(buildPDF(objs), 'pages.pdf'));
+    const input = await new Promise((resolve) => {
+      const poll = () => {
+        const el = document.querySelector('dialog[open] .ix-page-input');
+        if (el) resolve(el);
+        else setTimeout(poll, 10);
+      };
+      poll();
+    });
+    input.value = '1.4';
+    input.dispatchEvent(new Event('change'));
+    expect(input.value).toBe('1');
+    await clickDialog('Place');
+    const id = await placing;
+    const node = ed.doc.get(id);
+    expect((node.fill || ed.doc.get(node.children?.[0])?.fill)?.color).toBe('#ff0000');
+  });
+
   it('places a PDF page with the chosen crop box', async () => {
     const ed = app.newDocument({ width: 400, height: 400 });
     const { placeFile } = await import('../src/features/io/place.js');

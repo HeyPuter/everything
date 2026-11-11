@@ -33,6 +33,8 @@ import { isGradient } from '../../model/gradients.js';
 import { installRecentColors } from './recent-colors.js';
 import { installAppearanceHooks } from './appearance-ops.js';
 import { swatchLibraryMenu } from './swatch-libraries.js';
+import { resolveSwatchLinks, swatchClipboardHook } from './swatch-model.js';
+import { clipboardHooks } from '../../ops/clipboard.js';
 
 const arrowCache = new WeakMap();
 const trimCache = new WeakMap();
@@ -95,12 +97,31 @@ export function install(app) {
   installFreeform();
   installStrokeGradients();
   registerTransparencyCommands(app);
+  // Pasting into another document brings the global and spot swatches along.
+  if (!clipboardHooks.includes(swatchClipboardHook)) clipboardHooks.push(swatchClipboardHook);
 
   // New Art Has Basic Appearance (on by default): new paths leave out the current effects.
   const syncBasic = () => {
     for (const ed of app.editors?.values?.() || [app.editor]) if (ed) ed.basicNewArt = app.prefs.get('newArtBasic') !== false;
   };
   app.on('active-editor', syncBasic);
+
+  // The current fill and stroke follow the global swatches they link to (edits, deletes, undo).
+  const linked = new WeakSet();
+  const syncLinkedStyle = (ed) => {
+    const patch = {};
+    for (const key of ['fill', 'stroke']) {
+      const next = resolveSwatchLinks(ed.doc, ed.style?.[key]);
+      if (next !== ed.style?.[key]) patch[key] = next;
+    }
+    if (Object.keys(patch).length) ed.setStyle(patch);
+  };
+  app.on('active-editor', (ed) => {
+    if (!ed || linked.has(ed)) return;
+    linked.add(ed);
+    ed.on('doc-change', (e) => e.commit && syncLinkedStyle(ed));
+    syncLinkedStyle(ed);
+  });
   app.prefs.on('change', ({ key }) => key === 'newArtBasic' && syncBasic());
 
   // Window > Graphic Style Libraries: open a library in the Graphic Styles panel.

@@ -16,6 +16,9 @@ import { gestureKey } from './ui-common.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 
+/** Shortest dash or gap (points) the dash fields accept, other than 0. */
+const MIN_DASH = 0.01;
+
 /** Small SVG preview of a line ending in an arrowhead (pointing right, or left for the start). */
 export function arrowPreview(id, which = 'end') {
   const svg = document.createElementNS(SVG, 'svg');
@@ -237,8 +240,14 @@ export class StrokePanel extends Panel {
     for (const input of this.dashInputs) {
       const s = input.value.trim();
       if (!s) break;
-      const v = parseLength(s, unit);
+      let v = parseLength(s, unit);
       if (!Number.isFinite(v) || v < 0) break;
+      // Shorter dashes and gaps would show as 0 (and turn into 0 when committed again) and make
+      // millions of dashes; zero stays zero (a dot with round caps).
+      if (v > 0 && v < MIN_DASH) {
+        v = MIN_DASH;
+        input.value = formatLength(v, unit);
+      }
       vals.push(v);
     }
     if (!vals.length || vals.every((v) => v === 0)) return;

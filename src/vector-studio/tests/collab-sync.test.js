@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { network, joinClient, shareNew, settle, rect, content, alice, bob, cam } from './collab-helpers.js';
 import { memoryOutbox } from '../src/features/collab/outbox.js';
+import { CollabSession } from '../src/features/collab/session.js';
+import { call } from '../src/features/collab/api.js';
+import { SERVER } from './collab-helpers.js';
 
 async function pair() {
   const net = network();
@@ -265,6 +268,33 @@ describe('collaboration sync', () => {
     expect(b.session.pending).toHaveLength(0);
     const seqs = [...net.puter.kv.data.keys()].filter((k) => k.includes(':log:'));
     expect(seqs).toHaveLength(1);
+  });
+
+  it('an edit made right after a lost acknowledgement is not folded into the batch the server already took', async () => {
+    const { a, b, net } = await pair();
+    const L = layerOf(a.doc);
+    net.lostAck = true;
+    b.doc.transact('Add', () => b.doc.insert(rect('first'), L));
+    await b.session.sending;
+    b.doc.transact('Add', () => b.doc.insert(rect('second'), L));
+    await settle(a, b);
+    for (const doc of [a.doc, b.doc]) expect(new Set(doc.get(L).children)).toEqual(new Set(['first', 'second']));
+    expect(b.session.pending).toHaveLength(0);
+  });
+
+  it('opens the device copy when the connection is down before a credential could be loaded', async () => {
+    const { a, room } = await pair();
+    // This device kept a copy from an earlier session.
+    const outbox = memoryOutbox();
+    const key = `${SERVER}|${room}|${bob.uuid}`;
+    await outbox.put(key, { seq: 0, state: { nodes: Object.fromEntries(a.doc.nodes), assets: {}, comments: null }, pending: [], role: 'editor' });
+    // After a reload the credential has to be read from Puter storage first, and the network is down.
+    const offline = () => Promise.reject(new TypeError('Failed to fetch'));
+    const puter = { authToken: 'session-token', kv: { get: offline, set: offline }, fs: { write: offline }, workers: { exec: offline } };
+    const session = new CollabSession({ transport: { call: (input) => call(puter, SERVER, input) }, server: SERVER, room, user: bob, outbox, timers: false });
+    const data = await session.join();
+    expect(session.status).toBe('offline');
+    expect(Object.keys(data.nodes)).toEqual([...a.doc.nodes.keys()]);
   });
 
   it('new participants load a checkpoint plus later edits', async () => {

@@ -181,13 +181,39 @@ export function toBool(v) {
 
 // ---- CSV ----
 
-/** Parse CSV text (RFC 4180 quoting) into rows of cells. */
-export function parseCSV(text) {
+const DELIMITERS = [',', ';', '\t'];
+
+/**
+ * The delimiter of delimited text, as spreadsheet apps detect it: an Excel
+ * "sep=" first line, else whichever of comma, semicolon and tab occurs most
+ * in the header row outside quotes (comma when none does).
+ */
+export function detectDelimiter(text) {
+  const s = String(text).replace(/^\uFEFF/, '');
+  const sep = /^sep=(.)\r?\n/i.exec(s);
+  if (sep) return sep[1];
+  const counts = new Map(DELIMITERS.map((d) => [d, 0]));
+  let q = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '"') q = !q;
+    else if (!q && (c === '\n' || c === '\r')) break;
+    else if (!q && counts.has(c)) counts.set(c, counts.get(c) + 1);
+  }
+  let best = ',';
+  for (const d of DELIMITERS) if (counts.get(d) > counts.get(best)) best = d;
+  return best;
+}
+
+/** Parse CSV text (RFC 4180 quoting) into rows of cells; semicolon- and tab-separated text too. */
+export function parseCSV(text, delimiter = detectDelimiter(text)) {
   const rows = [];
   let row = [];
   let cell = '';
   let q = false;
-  const s = String(text).replace(/^﻿/, '');
+  let s = String(text).replace(/^\uFEFF/, '');
+  // Excel's "sep=;" line names the delimiter; it is not data.
+  s = s.replace(/^sep=.\r?\n/i, '');
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (q) {
@@ -198,7 +224,7 @@ export function parseCSV(text) {
         } else q = false;
       } else cell += c;
     } else if (c === '"') q = true;
-    else if (c === ',') {
+    else if (c === delimiter) {
       row.push(cell);
       cell = '';
     } else if (c === '\n' || c === '\r') {
@@ -238,17 +264,33 @@ export function importCSV(doc, text) {
   const rows = parseCSV(text);
   if (rows.length < 2) throw new Error('The file needs a header row of variable names and at least one row of values.');
   const header = rows[0].map((h) => h.trim());
-  const ids = header.map((h) => {
+  // Columns without a name and without values (trailing delimiters) are left out.
+  const used = header.map((h, c) => Boolean(h) || rows.some((r, i) => i > 0 && String(r[c] ?? '').trim()));
+  const columns = header.map((h, c) => {
+    if (!used[c]) return null;
+    if (!h) throw new Error(`Column ${c + 1} has values but no name. Give it a variable name in the header row.`);
     const type = Object.keys(PREFIX).find((t) => h.startsWith(PREFIX[t])) || 'text';
-    const name = cleanName(type === 'text' ? h : h.slice(1));
-    const existing = variablesOf(doc).find((v) => v.name === name);
-    return existing ? existing.id : addVariable(doc, type, name).id;
+    return { header: h, type, name: cleanName(type === 'text' ? h : h.slice(1)) };
+  });
+  // Two columns for one variable would silently overwrite each other's values.
+  const seen = new Map();
+  for (const col of columns) {
+    if (!col) continue;
+    const other = seen.get(col.name);
+    if (other) throw new Error(other === col.header ? `The column "${col.header}" appears twice. Give each column its own name.` : `The columns "${other}" and "${col.header}" both become the variable "${col.name}". Give them different names.`);
+    seen.set(col.name, col.header);
+  }
+  const ids = columns.map((col) => {
+    if (!col) return null;
+    const existing = variablesOf(doc).find((v) => v.name === col.name);
+    return existing ? existing.id : addVariable(doc, col.type, col.name).id;
   });
   const types = new Map(variablesOf(doc).map((v) => [v.id, v.type]));
   const sets = [...dataSetsOf(doc)];
   rows.slice(1).forEach((r) => {
     const values = {};
     ids.forEach((id, c) => {
+      if (!id) return;
       const raw = r[c] ?? '';
       values[id] = types.get(id) === 'visibility' ? toBool(raw) : raw;
     });

@@ -12,7 +12,7 @@ import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { registerContentEffect } from '../../render/effects.js';
 import { registerEffectType } from '../paint/effects-model.js';
-import { selectionBounds, inflate } from '../../model/geometry.js';
+import { selectionBounds, inflate, visualBounds } from '../../model/geometry.js';
 import { createImage, createGroup, createCompound, createPath } from '../../model/nodes.js';
 import { geometryLeaves, subpathsOf } from '../geometry/nodes-io.js';
 import { openEffectDialog, choiceField, checkField, selectRow, numberRow, group } from './dialog-kit.js';
@@ -129,7 +129,7 @@ function convertCanvas(ctx, w, hgt, model) {
  * white background reaching `padding` around it, and with hard edges when
  * anti-aliasing is off.
  */
-export function rasterizeLayer(layer, e, scale, pool) {
+export function rasterizeLayer(layer, e, scale, pool, info) {
   const src = layer.canvas;
   const W = src.width;
   const H = src.height;
@@ -146,17 +146,32 @@ export function rasterizeLayer(layer, e, scale, pool) {
   }
   const f = (Math.max(36, e.resolution || 72) / 72) / Math.max(1e-6, scale);
   if (f < 0.999) {
-    const w = Math.max(1, Math.round(W * f));
-    const hh = Math.max(1, Math.round(H * f));
+    // The pixel grid starts at the object's corner rather than the layer's (which is cut at the
+    // screen edge), so the pixels stay on the artwork while panning. (sx, sy): the first cell's corner.
+    const cell = 1 / f;
+    let sx = 0;
+    let sy = 0;
+    const vb = info?.node && info.doc && info.transform ? visualBounds(info.doc, info.node) : null;
+    if (vb) {
+      const m = info.transform;
+      const phase = (v) => {
+        const r = ((v % cell) + cell) % cell;
+        return r > 1e-6 ? r - cell : 0;
+      };
+      sx = phase(m.a * vb.x + m.c * vb.y + m.e - (info.x || 0));
+      sy = phase(m.b * vb.x + m.d * vb.y + m.f - (info.y || 0));
+    }
+    const w = Math.max(1, Math.ceil((W - sx) * f));
+    const hh = Math.max(1, Math.ceil((H - sy) * f));
     const tmp = makeCanvas(w, hh);
     const t = tmp.getContext('2d');
     t.imageSmoothingEnabled = true;
     if ('imageSmoothingQuality' in t) t.imageSmoothingQuality = 'high';
-    t.drawImage(src, 0, 0, W, H, 0, 0, w, hh);
+    t.drawImage(src, 0, 0, W, H, -sx * f, -sy * f, W * f, H * f);
     if (e.antialias === false) harden(t, w, hh);
     convertCanvas(t, w, hh, e.colorModel);
     c.imageSmoothingEnabled = false;
-    c.drawImage(tmp, 0, 0, w, hh, 0, 0, W, H);
+    c.drawImage(tmp, 0, 0, w, hh, sx, sy, w * cell, hh * cell);
     c.imageSmoothingEnabled = true;
   } else {
     c.drawImage(src, 0, 0);
@@ -339,6 +354,12 @@ export async function rasterizeObjectDialog(app) {
   if (!ed) return false;
   const ids = ed.topSelection().filter((id) => ed.doc.get(id)?.type !== 'layer');
   if (!ids.length) return false;
+  // Nothing visible (an empty group, an unstroked straight line): say so up front.
+  const vb = selectionBounds(ed.doc, ids, true);
+  if (!vb || !(vb.w > 0) || !(vb.h > 0)) {
+    app.notify('There is no visible artwork to rasterize.');
+    return false;
+  }
   const last = app.prefs?.get?.('rasterizeObject');
   const start = { ...docRasterSettings(ed.doc), clip: false, ...(last || {}) };
   const ctl = rasterControls(start, ed.doc.root.units || 'pt', { clip: { value: start.clip } });

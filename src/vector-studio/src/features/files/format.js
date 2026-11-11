@@ -9,6 +9,7 @@
  */
 import { VDocument, FORMAT_VERSION } from '../../model/document.js';
 import { DEFAULT_SWATCHES } from '../../model/swatches.js';
+import { DEFAULT_CHAR } from '../../model/nodes.js';
 
 export { FORMAT_VERSION };
 
@@ -87,17 +88,37 @@ function usedAssets(json) {
   return out;
 }
 
-/** The JSON object written to disk. */
-export function documentData(doc, { thumbnail = null, savedAt = Date.now(), app = 'Vector Studio' } = {}) {
+const FILE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The document's file identity: a random id written into every file saved
+ * from it (meta.id) and read back on open, so a document keeps its version
+ * history wherever its file goes (downloads, renamed copies).
+ */
+export function documentId(doc) {
+  if (!doc.fileId) doc.fileId = newFileId();
+  return doc.fileId;
+}
+
+export function newFileId() {
+  return globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * The JSON object written to disk. `id` is the file identity to embed:
+ * the document's own by default, null for none (templates, versions).
+ */
+export function documentData(doc, { thumbnail = null, savedAt = Date.now(), app = 'Vector Studio', id = doc.fileId } = {}) {
   const json = doc.toJSON();
   json.assets = usedAssets(json);
   json.meta = { app, saved: new Date(savedAt).toISOString(), thumbnail: thumbnail || null };
+  if (id) json.meta.id = id;
   return json;
 }
 
 /** Serialize a document to file bytes (gzip by default). */
-export async function serializeDocument(doc, { thumbnail = null, compress = true, savedAt } = {}) {
-  const bytes = encoder.encode(JSON.stringify(documentData(doc, { thumbnail, savedAt })));
+export async function serializeDocument(doc, { thumbnail = null, compress = true, savedAt, id } = {}) {
+  const bytes = encoder.encode(JSON.stringify(documentData(doc, { thumbnail, savedAt, ...(id !== undefined ? { id } : {}) })));
   if (!compress || !canCompress()) return bytes;
   return gzip(bytes);
 }
@@ -133,6 +154,41 @@ export function normalizeBleed(b) {
 }
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+const CONTAINERS = new Set(['root', 'layer', 'group', 'compound']);
+const isMatrix = (m) => Array.isArray(m) && m.length === 6 && m.every(finite);
+
+/**
+ * The fields drawing and hit testing rely on, patched with safe defaults
+ * where they are missing or malformed (points that are not points are
+ * dropped, missing curve handles sit on their point).
+ */
+function repairNode(node) {
+  let patch = null;
+  const set = (k, v) => ((patch ||= {})[k] = v);
+  if (CONTAINERS.has(node.type) && !Array.isArray(node.children)) set('children', []);
+  if (node.type === 'path') {
+    let changed = !Array.isArray(node.anchors);
+    const anchors = [];
+    for (const a of Array.isArray(node.anchors) ? node.anchors : []) {
+      if (!a || typeof a !== 'object' || !finite(a.x) || !finite(a.y)) {
+        changed = true;
+        continue;
+      }
+      if (finite(a.ix) && finite(a.iy) && finite(a.ox) && finite(a.oy)) anchors.push(a);
+      else {
+        changed = true;
+        anchors.push({ ...a, ix: finite(a.ix) ? a.ix : a.x, iy: finite(a.iy) ? a.iy : a.y, ox: finite(a.ox) ? a.ox : a.x, oy: finite(a.oy) ? a.oy : a.y });
+      }
+    }
+    if (changed) set('anchors', anchors);
+  }
+  if (node.type === 'text') {
+    if (typeof node.text !== 'string') set('text', node.text == null ? '' : String(node.text));
+    if (!node.char || typeof node.char !== 'object' || Array.isArray(node.char)) set('char', { ...DEFAULT_CHAR });
+    if (!isMatrix(node.transform)) set('transform', [1, 0, 0, 1, 0, 0]);
+  }
+  return patch ? { ...node, ...patch } : node;
+}
 
 /**
  * Check the structure and repair what can be repaired safely: missing
@@ -157,7 +213,8 @@ export function validateData(data) {
       repaired++;
       continue;
     }
-    fixed[id] = node.id === id ? node : { ...node, id };
+    const ok = repairNode(node);
+    fixed[id] = ok.id === id ? ok : { ...ok, id };
   }
   for (const [id, node] of Object.entries(fixed)) {
     if (!Array.isArray(node.children)) continue;
@@ -231,9 +288,11 @@ export async function parseDocument(input) {
   } catch (err) {
     throw new FileFormatError(`The document could not be read: ${err?.message || err}`, 'damaged');
   }
+  const meta = json.meta && typeof json.meta === 'object' ? json.meta : {};
+  doc.fileId = typeof meta.id === 'string' && FILE_ID.test(meta.id) ? meta.id : null;
   return {
     doc,
-    meta: json.meta && typeof json.meta === 'object' ? json.meta : {},
+    meta,
     version: Number(json.version ?? 0),
     migrated,
     repaired: checked.repaired,

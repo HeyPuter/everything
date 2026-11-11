@@ -453,7 +453,8 @@ export class ActionEngine {
       if (!target || ed.doc.isLocked(target.id) || ed.doc.isHidden(target.id)) return 'The current layer is locked or hidden.';
       const out = [];
       ed.doc.transact(st.label || 'Insert Path', () => {
-        for (const sub of st.subs || []) out.push(ed.doc.importSubtree(sub, target.id).id);
+        const t = ed.newArtTarget();
+        for (const [i, sub] of (st.subs || []).entries()) out.push(ed.doc.importSubtree(sub, t.parentId, t.index + i).id);
       });
       ed.select(out);
       return true;

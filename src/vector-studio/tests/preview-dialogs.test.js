@@ -129,3 +129,25 @@ describe('Preview dialogs and outside actions', () => {
     expect(doc.tx).toBeNull();
   });
 });
+
+describe('Edit Colors previews', () => {
+  it('put extra fills back when the preview returns to no change', async () => {
+    const { app, doc, id } = await setup();
+    const extra = { type: 'fill', fill: { type: 'solid', color: '#cc3333' } };
+    doc.transact('Stack', () => doc.update(id, { appearance: [{ type: 'fill', base: true }, { type: 'stroke', base: true }, extra] }));
+    const before = doc.get(id);
+    const done = app.commands.run('color.saturate');
+    await tick();
+    const dlg = document.querySelector('dialog[open]');
+    tweak(dlg);
+    expect(doc.get(id).appearance[2].fill.color).not.toBe('#cc3333');
+    const range = dlg.querySelector('input[type=range]');
+    range.value = '0';
+    range.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(doc.get(id).appearance).toEqual(before.appearance);
+    close(dlg, 'ok');
+    await done;
+    expect(doc.get(id).appearance).toEqual(before.appearance);
+    expect(doc.get(id).fill).toEqual(before.fill);
+  });
+});

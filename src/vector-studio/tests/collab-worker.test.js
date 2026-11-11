@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { network, joinClient, shareNew, settle, rect, alice, bob, cam } from './collab-helpers.js';
+import { network, joinClient, shareNew, settle, rect, content, alice, bob, cam } from './collab-helpers.js';
 import { DocService } from '../worker/service.js';
 import { authenticate } from '../worker/auth.js';
 import { hash, keyPair, sign, shareLink, parseShareLink, workerURL } from '../src/features/collab/protocol.js';
 import { tokenClaims } from '../src/features/collab/auth.js';
-import { listOps, applyListOps, validateBatch } from '../src/features/collab/ops.js';
+import { listOps, applyListOps, validateBatch, safeBatch } from '../src/features/collab/ops.js';
 
 const fails = async (p, status) => {
   const err = await p.then(
@@ -109,6 +109,99 @@ describe('collaboration worker access', () => {
     expect(() => validateBatch({ id: 'x', nodes: [{ id: 'bad id!', del: true }] })).toThrow();
     expect(() => validateBatch({ id: 'x', nodes: [{ id: 'a', put: { type: 'path' }, del: true }] })).toThrow();
     expect(validateBatch({ id: 'x', nodes: [{ id: 'a', set: { name: 'n' }, kids: [['+', 'b', null, null]] }] })).toBeTruthy();
+  });
+
+  it('refuses document settings that would break everyone\'s copy', async () => {
+    const net = network();
+    const { room, client: a } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    const b = await joinClient(net, bob, room, { invite: token });
+    const bad = [
+      { id: 'root', set: { type: 'group' } },
+      { id: 'root', set: { artboards: 'junk' } },
+      { id: 'root', set: { artboards: [] } },
+      { id: 'root', set: { artboards: [{ x: 0, y: 0, w: 0, h: 10 }] } },
+      { id: 'root', set: { grid: null } },
+      { id: 'root', set: { parent: 'l1' } },
+      { id: 'root', unset: ['swatches'] },
+      { id: 'root', put: { type: 'root', children: [] } },
+      { id: 'p', put: { ...rect('p'), type: 'root' } },
+    ];
+    let n = 0;
+    for (const op of bad) await fails(net.service.call(bob, { op: 'commit', room, batch: { id: `bad${n++}`, nodes: [op] } }), 400);
+    // Ordinary document settings still go through.
+    const ok = await net.service.call(bob, { op: 'commit', room, batch: { id: 'ok', nodes: [{ id: 'root', set: { units: 'mm', artboards: [{ id: 'a1', name: 'A', x: 0, y: 0, w: 50, h: 50 }] } }] } });
+    expect(ok.seq).toBe(1);
+    await settle(a, b);
+    expect(a.doc.root.units).toBe('mm');
+    expect(content(a.doc)).toEqual(content(b.doc));
+  });
+
+  it('clients leave out harmful changes an older server let through, all alike', async () => {
+    const net = network();
+    const { room, client: a } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    const b = await joinClient(net, bob, room, { invite: token });
+    // An older server stored this without checking it.
+    const seq = await net.puter.kv.incr(`vs:${room}:seq`);
+    const batch = { id: 'old', nodes: [{ id: 'root', set: { artboards: 'junk', units: 'in' } }, { id: 'root', set: { name: 'Renamed' } }, { id: 'p', put: { ...rect('p'), parent: a.doc.layers()[0].id } }] };
+    await net.puter.kv.set(`vs:${room}:log:${seq}`, { seq, batch, by: { uuid: bob.uuid, username: 'bob' }, time: Date.now() });
+    expect(safeBatch(batch).nodes.map((op) => op.id)).toEqual(['root', 'p']);
+    await settle(a, b);
+    expect(Array.isArray(a.doc.root.artboards)).toBe(true);
+    expect(a.doc.root.name).toBe('Renamed');
+    expect(a.doc.has('p')).toBe(true);
+    expect(content(a.doc)).toEqual(content(b.doc));
+    // A newcomer gets the same document from the server.
+    const c = await joinClient(net, alice, room);
+    expect(content(c.doc)).toEqual(content(a.doc));
+  });
+
+  it('an edit whose record was skipped while it was still being written is not lost', async () => {
+    const net = network();
+    const { room, client: a } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    const b = await joinClient(net, bob, room, { invite: token });
+    // Alice's edit is large, so its commit writes a file before the record: hold that write.
+    const write = net.puter.fs.write;
+    let release;
+    const held = new Promise((r) => (release = r));
+    net.puter.fs.write = async function (path, ...rest) {
+      if (path.endsWith('/r-1.json')) await held;
+      return write.call(this, path, ...rest);
+    };
+    const layer = a.doc.layers()[0].id;
+    a.doc.transact('Add', () => a.doc.insert(rect('slow', 0, 0, { name: 'x'.repeat(70000) }), layer));
+    const sending = a.session.sending;
+    for (let i = 0; i < 20 && Number(net.puter.kv.data.get(`vs:${room}:seq`)) !== 1; i++) await new Promise((r) => setTimeout(r, 1));
+    // Bob has waited long enough for record 1 and skips it.
+    b.session.hole = { seq: 1, since: Date.now() - 30_000 };
+    await b.session.sync();
+    expect(b.session.seq).toBe(1);
+    expect(net.puter.kv.data.get(`vs:${room}:log:1`)).toMatchObject({ skipped: true });
+    release();
+    await sending;
+    await settle(a, b);
+    expect(b.doc.has('slow')).toBe(true);
+    expect(content(a.doc)).toEqual(content(b.doc));
+  });
+
+  it('a viewer cannot skip a record that is still being written', async () => {
+    const net = network();
+    const { room } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'viewer' });
+    await net.service.call(cam, { op: 'join', room, invite: token });
+    // A commit took number 1 and has not written its record yet; number 2 is done.
+    await net.puter.kv.incr(`vs:${room}:seq`);
+    await net.service.call(alice, { op: 'commit', room, batch: { id: 'b2', nodes: [{ id: 'root', set: { units: 'mm' } }] } });
+    const res = await net.service.call(cam, { op: 'sync', room, since: 0, skip: 1 });
+    expect(res.records).toEqual([]);
+    expect(net.puter.kv.data.has(`vs:${room}:log:1`)).toBe(false);
+    // Long after the later edit, the hole is skipped for the viewer too.
+    const later = new DocService(net.puter, { now: () => Date.now() + 25_000 });
+    const res2 = await later.call(cam, { op: 'sync', room, since: 0, skip: 1 });
+    expect(res2.records.map((r) => r.seq)).toEqual([1, 2]);
+    expect(res2.records[0].skipped).toBe(true);
   });
 
   it('presence returns the roster with a ticket signed by the room key', async () => {

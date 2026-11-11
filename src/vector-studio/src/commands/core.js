@@ -9,6 +9,7 @@ import { multiply, rotate, scale, shear, translate } from '../lib/matrix.js';
 import { transformNodes, transformPatches, selectionBounds, selectionFrame, frameToDoc, frameMatrix } from '../model/geometry.js';
 import { reflectAcross } from '../tools/transform-tools.js';
 import { createPath } from '../model/nodes.js';
+import { duplicateNodes } from '../ops/layer-ops.js';
 
 const hasDoc = (app) => Boolean(app.editor);
 const hasSel = (app) => Boolean(app.editor?.selection.size);
@@ -42,15 +43,7 @@ function transformAgain(app) {
 }
 
 function duplicate(editor, ids) {
-  const doc = editor.doc;
-  const out = [];
-  for (const id of ids) {
-    const n = doc.get(id);
-    const parent = doc.get(n.parent);
-    const { node, descendants } = doc.cloneSubtree(id);
-    doc.insert(node, parent.id, parent.children.indexOf(id) + 1, descendants);
-    out.push(node.id);
-  }
+  const out = duplicateNodes(editor.doc, ids);
   editor.select(out);
   return out;
 }
@@ -151,7 +144,8 @@ function stepZoom(editor, dir) {
 
 export function registerCoreCommands(app) {
   const c = app.commands;
-  let lastSelection = null;
+  // Deselected ids per document, for Reselect (never another tab's).
+  const lastSelection = new WeakMap();
   const ed = () => app.editor;
 
   c.register([
@@ -225,7 +219,9 @@ export function registerCoreCommands(app) {
         const id = ed().isolation;
         ed().isolation = null;
         ed().isolationLeaf = null;
-        ed().select(ed().doc.has(id) ? [id] : []);
+        // The isolated object ends up selected, unless it was hidden or locked meanwhile (from the Layers panel).
+        const doc = ed().doc;
+        ed().select(doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id) ? [id] : []);
         ed().emit('isolation');
         ed().invalidate();
       },
@@ -240,11 +236,11 @@ export function registerCoreCommands(app) {
       shortcut: 'Shift+Mod+A',
       enabled: hasSel,
       run: () => {
-        lastSelection = [...ed().selection];
+        lastSelection.set(ed(), [...ed().selection]);
         ed().clearSelection();
       },
     },
-    { id: 'select.reselect', label: 'Reselect', shortcut: 'Mod+6', enabled: () => Boolean(lastSelection), run: () => SEL.reselect(ed(), lastSelection) },
+    { id: 'select.reselect', label: 'Reselect', shortcut: 'Mod+6', enabled: (a) => Boolean(a.editor && lastSelection.get(a.editor)), run: () => SEL.reselect(ed(), lastSelection.get(ed())) },
     { id: 'select.inverse', label: 'Inverse', enabled: hasDoc, run: () => SEL.selectInverse(ed()) },
     { id: 'select.nextAbove', label: 'Next Object Above', shortcut: 'Alt+Mod+]', enabled: hasSel, run: () => SEL.selectNext(ed(), 1) },
     { id: 'select.nextBelow', label: 'Next Object Below', shortcut: 'Alt+Mod+[', enabled: hasSel, run: () => SEL.selectNext(ed(), -1) },
@@ -335,15 +331,16 @@ export function registerCoreCommands(app) {
         const maxY = Math.max(...boards.map((b) => b.y + b.h)) + 200;
         const ids = [];
         e.doc.transact('Release Guides', () => {
-          for (const g of guides) {
+          const t = e.newArtTarget();
+          for (const [i, g] of guides.entries()) {
             const pts = g.axis === 'x' ? [[g.pos, minY], [g.pos, maxY]] : [[minX, g.pos], [maxX, g.pos]];
             const node = createPath(pts.map(([x, y]) => ({ x, y, ix: x, iy: y, ox: x, oy: y })), false, { fill: null, stroke: { type: 'solid', color: '#000000' }, strokeWidth: 1 });
-            e.doc.insert(node, e.targetLayer().id);
+            e.doc.insert(node, t.parentId, t.index + i);
             ids.push(node.id);
           }
           e.doc.updateRoot({ guides: [] });
+          e.select(ids);
         });
-        e.select(ids);
       },
     },
     { id: 'object.lockOthers', label: 'Lock Others', shortcut: 'Alt+Shift+Mod+2', enabled: hasSel, run: () => O.lockOrHideOthers(ed(), 'locked') },

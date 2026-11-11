@@ -31,6 +31,13 @@ describe('French', () => {
     const t = { ...createText('une maisonn', 0, 0), char: { ...createText('', 0, 0).char, language: 'fr-FR' } };
     expect(spellIssues(t, loadedSpeller).map((i) => [i.word, i.dict])).toEqual([['maisonn', 'fr-FR']]);
   });
+
+  it('checks decomposed accented words (letters followed by combining marks) whole', () => {
+    const t = { ...createText('un \u00e9l\u00e8ve tr\u00e8s gentil, une maisonn'.normalize('NFD'), 0, 0), char: { ...createText('', 0, 0).char, language: 'fr-FR' } };
+    expect(spellIssues(t, loadedSpeller).map((i) => [i.word, t.text.slice(i.start, i.end)])).toEqual([['maisonn', 'maisonn']]);
+    const bad = { ...t, text: 'tre\u0300ss' };
+    expect(spellIssues(bad, loadedSpeller).map((i) => i.word)).toEqual(['tre\u0300ss']);
+  });
 });
 
 describe('spelling dictionaries', () => {

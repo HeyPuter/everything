@@ -4,6 +4,7 @@
   "description": "Vector Studio: a professional vector illustration editor on Puter. Pen, shape, brush and liquify tools, live effects, symbols, envelopes, 3D, type, artboards, collaboration, SVG and PDF export, stored in your own cloud.",
   "type": "module",
   "private": true,
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=22.12"
   },

@@ -51,16 +51,34 @@ export function normalizeLibrary(data) {
   };
 }
 
+/** Where libraries with edits not yet written are kept when the page goes away (localStorage). */
+const JOURNAL = 'vs-libraries-unwritten';
+
+function storage() {
+  try {
+    return globalThis.localStorage || null;
+  } catch {
+    return null;
+  }
+}
+
 export class LibraryStore {
-  /** `backend` overrides the storage choice (tests). */
-  constructor(app, backend = null) {
+  /**
+   * `backend` overrides the storage choice (tests), and `journal` the
+   * localStorage key for edits not yet written (none for a fixed backend).
+   */
+  constructor(app, backend = null, { journal = backend ? null : JOURNAL } = {}) {
     this.app = app;
     this.fixed = backend;
+    this.journalKey = journal;
+    this.unwritten = new Map(); // library id -> { lib, rev }: edits not yet confirmed written
+    this.revs = new Map(); // library id -> edit count
     this.libraries = [];
     this.loaded = false;
     this.loading = null;
     this.listeners = new Set();
-    this.pending = new Map(); // library id -> timer
+    this.pending = new Map(); // library id -> { timer, lib, backend }: a write waiting to merge quick edits
+    this.queues = new Map(); // library id -> the last queued write or removal
   }
 
   get backend() {
@@ -112,6 +130,7 @@ export class LibraryStore {
       } catch {
         this.libraries = [];
       }
+      this.#recoverJournal(backend);
       this.loaded = true;
       this.loading = null;
       this.#emit();
@@ -124,18 +143,104 @@ export class LibraryStore {
     return this.libraries.find((l) => l.id === id) || null;
   }
 
+  /** Run a storage operation on one library after the ones already queued for it, so they land in order. */
+  #queue(id, fn) {
+    const next = (this.queues.get(id) || Promise.resolve()).then(fn, fn);
+    const tail = next.catch(() => {});
+    this.queues.set(id, tail);
+    tail.then(() => {
+      if (this.queues.get(id) === tail) this.queues.delete(id);
+    });
+    return next;
+  }
+
+  #write(lib, backend) {
+    return this.#queue(lib.id, async () => {
+      const rev = this.revs.get(lib.id);
+      await backend.writeJSON(`${lib.id}.json`, lib);
+      // Written, unless it was edited again meanwhile (that write is queued).
+      if (this.unwritten.get(lib.id)?.rev === rev) this.unwritten.delete(lib.id);
+    });
+  }
+
+  /**
+   * Keep the libraries whose edits are not written yet in localStorage,
+   * which is written at once: storage writes started while the page is
+   * closing may never finish. The next load writes them back.
+   */
+  #writeJournal() {
+    const ls = this.journalKey && storage();
+    if (!ls) return;
+    try {
+      if (!this.unwritten.size) ls.removeItem(this.journalKey);
+      else ls.setItem(this.journalKey, JSON.stringify({ location: this.location, libraries: [...this.unwritten.values()].map((u) => u.lib) }));
+    } catch {
+      // Over the storage quota (large graphics): the regular write is all there is.
+    }
+  }
+
+  /** Bring back edits a closed page could not write (see #writeJournal). */
+  #recoverJournal(backend) {
+    const ls = this.journalKey && storage();
+    let data = null;
+    try {
+      data = JSON.parse(ls?.getItem(this.journalKey) || 'null');
+    } catch {
+      data = null;
+    }
+    if (!data || data.location !== this.location || !Array.isArray(data.libraries)) return;
+    const writes = [];
+    for (const raw of data.libraries) {
+      const lib = normalizeLibrary(raw);
+      if (!lib || typeof raw.id !== 'string') continue;
+      const i = this.libraries.findIndex((l) => l.id === lib.id);
+      if (i >= 0 && this.libraries[i].modified >= lib.modified) continue;
+      if (i >= 0) this.libraries[i] = lib;
+      else this.libraries.push(lib);
+      this.#mark(lib);
+      writes.push(this.#write(lib, backend));
+    }
+    this.libraries.sort((a, b) => a.name.localeCompare(b.name));
+    // Once written (or found to be older than what was written), the journal is done with.
+    Promise.allSettled(writes).then(() => this.#writeJournal());
+  }
+
+  #mark(lib) {
+    const rev = (this.revs.get(lib.id) || 0) + 1;
+    this.revs.set(lib.id, rev);
+    this.unwritten.set(lib.id, { lib, rev });
+  }
+
   async save(lib, { immediate = false } = {}) {
     lib.modified = Date.now();
+    this.#mark(lib);
     this.#emit();
-    clearTimeout(this.pending.get(lib.id));
-    const write = async () => {
-      this.pending.delete(lib.id);
-      await this.backend.writeJSON(`${lib.id}.json`, lib);
-    };
-    if (immediate) return write();
+    clearTimeout(this.pending.get(lib.id)?.timer);
+    this.pending.delete(lib.id);
+    // Written where libraries were kept when the edit was made, even if signing in or out switches it meanwhile.
+    const backend = this.backend;
+    if (immediate) return this.#write(lib, backend);
     // Quick successive edits (adding several items) are written once.
-    this.pending.set(lib.id, setTimeout(() => write().catch((err) => this.app.notify?.(`Could not save the library: ${err?.message || err}`, { error: true })), 400));
+    const timer = setTimeout(() => this.flush(lib.id), 400);
+    this.pending.set(lib.id, { timer, lib, backend });
     return undefined;
+  }
+
+  /**
+   * Write edits still waiting to be merged now (all libraries, or one), and
+   * resolve once everything queued has been written. When the page is
+   * hidden or closed (`hiding`), edits not written yet are also kept in
+   * localStorage, so a change made just before is not lost.
+   */
+  flush(id = null, { hiding = false } = {}) {
+    for (const [key, p] of [...this.pending]) {
+      if (id && key !== id) continue;
+      clearTimeout(p.timer);
+      this.pending.delete(key);
+      this.#write(p.lib, p.backend).catch((err) => this.app.notify?.(`Could not save the library: ${err?.message || err}`, { error: true }));
+    }
+    if (hiding) this.#writeJournal();
+    return Promise.all([...this.queues.values()]);
   }
 
   async create(name) {
@@ -147,9 +252,13 @@ export class LibraryStore {
   }
 
   async remove(id) {
-    clearTimeout(this.pending.get(id));
+    clearTimeout(this.pending.get(id)?.timer);
+    this.pending.delete(id);
+    if (this.unwritten.delete(id)) this.#writeJournal();
     this.libraries = this.libraries.filter((l) => l.id !== id);
-    await this.backend.remove(`${id}.json`);
+    const backend = this.backend;
+    // After any write still in flight, which would otherwise bring the file back.
+    await this.#queue(id, () => backend.remove(`${id}.json`));
     this.#emit();
   }
 

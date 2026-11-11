@@ -119,7 +119,8 @@ function patternDefs(interp) {
 
 /**
  * A new document from PDF pages.
- * opts: { name, pages: [indices] (default all), families, textMode, onProgress }
+ * opts: { name, pages: [indices] (default all), families, textMode, onProgress,
+ * signal (an AbortSignal: aborting stops between pages with its AbortError) }
  */
 export async function pdfToDocument(bytes, opts = {}) {
   const pdf = openPDF(bytes);
@@ -144,6 +145,7 @@ export async function pdfToDocument(bytes, opts = {}) {
     x += size.w + gap;
     opts.onProgress?.((k + 1) / (indices.length + 1));
     await nextTask();
+    opts.signal?.throwIfAborted();
   }
   const { layers, nodes } = builder.finish();
   const assets = new Map();

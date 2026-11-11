@@ -34,6 +34,7 @@ export class CanvasInput {
     host.addEventListener('pointermove', (e) => this.move(e));
     host.addEventListener('pointerup', (e) => this.up(e));
     host.addEventListener('pointercancel', (e) => this.cancel(e));
+    host.addEventListener('lostpointercapture', (e) => this.lostCapture(e));
     host.addEventListener('pointerleave', () => this.leave());
     host.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     host.addEventListener('contextmenu', (e) => this.contextMenu(e));
@@ -150,7 +151,7 @@ export class CanvasInput {
     const now = e.timeStamp || performance.now();
     const dbl = now - this.lastClick.t < 400 && Math.hypot(ev.sx - this.lastClick.x, ev.sy - this.lastClick.y) < 6;
     this.lastClick = { t: dbl ? 0 : now, x: ev.sx, y: ev.sy };
-    this.active = { id: e.pointerId, tool };
+    this.active = { id: e.pointerId, tool, last: e };
     if (dbl) {
       this.active = null;
       tool.onDoubleClick(ev);
@@ -190,8 +191,12 @@ export class CanvasInput {
     this.app.rulers?.setPointer({ sx: ev.sx, sy: ev.sy });
     this.app.setPointerStatus?.(ev);
     const tool = this.currentTool();
-    if (this.active && this.active.id === e.pointerId) this.active.tool.onPointerMove(ev);
-    else if (!this.active && tool && e.pointerType !== 'touch') tool.onHover(ev);
+    if (this.active && this.active.id === e.pointerId) {
+      this.active.last = e;
+      // A press that turned into a drag is not the first click of a double-click.
+      if (this.lastClick.t && Math.hypot(ev.sx - this.lastClick.x, ev.sy - this.lastClick.y) >= 6) this.lastClick.t = 0;
+      this.active.tool.onPointerMove(ev);
+    } else if (!this.active && tool && e.pointerType !== 'touch') tool.onHover(ev);
   }
 
   up(e) {
@@ -220,12 +225,14 @@ export class CanvasInput {
     if (this.pan) {
       this.pan = null;
       this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
+      this.#applyPendingTempTool();
       return;
     }
     if (this.active && this.active.id === e.pointerId) {
       const { tool } = this.active;
       this.active = null;
       tool.onPointerUp(this.toEvent(e));
+      this.#applyPendingTempTool();
     }
   }
 
@@ -240,6 +247,30 @@ export class CanvasInput {
     }
     this.pan = null;
     if (this.pointers.size < 2) this.gesture = null;
+    this.#applyPendingTempTool();
+  }
+
+  /**
+   * The canvas lost pointer capture mid-press (released by script, the
+   * canvas hidden or moved...): the pointerup may now land on another
+   * element and never reach the canvas, so the press ends here, where the
+   * pointer last was, instead of leaving the tool dragging. After a normal
+   * pointerup or pointercancel nothing is active and this does nothing.
+   */
+  lostCapture(e) {
+    if (this.pan && !this.active && this.pointers.has(e.pointerId)) {
+      this.pointers.delete(e.pointerId);
+      this.pan = null;
+      this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
+      this.#applyPendingTempTool();
+      return;
+    }
+    if (!this.active || this.active.id !== e.pointerId) return;
+    const { tool, last } = this.active;
+    this.active = null;
+    this.pointers.delete(e.pointerId);
+    tool.onPointerUp(this.toEvent(last));
+    this.#applyPendingTempTool();
   }
 
   leave() {
@@ -332,9 +363,22 @@ export class CanvasInput {
     this.app.showContextMenu(e.clientX, e.clientY);
   }
 
+  #applyPendingTempTool() {
+    const p = this.pendingTempTool;
+    if (!p || this.active || this.pan) return;
+    this.pendingTempTool = null;
+    this.setTempTool(p.tool);
+  }
+
   /** Space / Cmd temporary tools (called from the app's key handlers). */
   setTempTool(tool) {
-    if (this.active) return;
+    // Mid-drag the tool in use keeps the pointer: Space or Command pressed or
+    // released during a drag takes effect when the button comes up.
+    if (this.active || this.pan) {
+      this.pendingTempTool = { tool };
+      return;
+    }
+    this.pendingTempTool = null;
     if (this.tempTool === tool) return;
     this.tempTool?.deactivate?.();
     this.tempTool = tool;

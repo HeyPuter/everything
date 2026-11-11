@@ -19,7 +19,8 @@ import { paintCssHooks } from '../../ui/widgets.js';
 import { commonStyle } from '../../ops/paint-ops.js';
 import { findSwatch } from '../paint/swatch-model.js';
 import { SWATCH_LIBRARIES } from '../paint/swatch-libraries.js';
-import { findPattern, addPattern, previewCopies, patternsOf } from './model.js';
+import { findPattern, addPattern, previewCopies, patternsOf, patternClipboardHook } from './model.js';
+import { clipboardHooks } from '../../ops/clipboard.js';
 import { patternCss, rememberPatterns } from './render.js';
 import { editLayer, editDef, makePattern, editPattern, finishEditing, cancelEditing, savePatternCopy, syncEditing } from './edit.js';
 import { PatternOptionsPanel } from './panel.js';
@@ -205,6 +206,9 @@ export function install(app) {
   };
   const prevExtra = app.extraSwatchLibraries;
   app.extraSwatchLibraries = () => [...(prevExtra?.() || []), ...patternLibraries()];
+
+  // Pasting into another document brings the pattern definitions along.
+  if (!clipboardHooks.includes(patternClipboardHook)) clipboardHooks.push(patternClipboardHook);
 
   app.registerPanel(PatternOptionsPanel);
   app.registerTool(PatternTileTool);

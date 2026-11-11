@@ -327,6 +327,42 @@ export function stateFromJSON(data) {
   };
 }
 
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+const isBoard = (a) => Boolean(a) && typeof a === 'object' && finite(a.x) && finite(a.y) && finite(a.w) && finite(a.h) && a.w > 0 && a.h > 0;
+/** Document root fields every copy relies on (the rules files are checked with on opening). */
+const ROOT_FIELDS = {
+  type: (v) => v === 'root',
+  artboards: (v) => Array.isArray(v) && v.length > 0 && v.every(isBoard),
+  guides: Array.isArray,
+  swatches: Array.isArray,
+  units: (v) => typeof v === 'string',
+  name: (v) => typeof v === 'string',
+  grid: (v) => Boolean(v) && typeof v === 'object' && finite(v.spacing) && finite(v.subdivisions) && v.spacing > 0 && v.subdivisions >= 1,
+};
+
+/**
+ * Whether a node op would leave the document unusable for everyone: a root
+ * whose required fields are missing or malformed, or another node posing as
+ * the root.
+ */
+export function harmfulOp(op) {
+  if (op.id !== 'root') return op.put?.type === 'root' || op.set?.type === 'root';
+  if (op.del) return true;
+  if (op.put) return !Object.entries(ROOT_FIELDS).every(([k, ok]) => ok(op.put[k])) || op.put.parent != null;
+  if (op.set) for (const [k, v] of Object.entries(op.set)) if ((k === 'parent' && v != null) || (ROOT_FIELDS[k] && !ROOT_FIELDS[k](v))) return true;
+  return Boolean(op.unset?.some((k) => k in ROOT_FIELDS));
+}
+
+/**
+ * A batch without ops that would break the document (see harmfulOp). The
+ * server refuses them; clients drop any an older server let through, all in
+ * the same way, so their copies still agree.
+ */
+export function safeBatch(batch) {
+  if (!batch.nodes?.some(harmfulOp)) return batch;
+  return { ...batch, nodes: batch.nodes.filter((op) => !harmfulOp(op)) };
+}
+
 /** Check a batch's shape (not permissions). Throws a readable error. */
 export function validateBatch(batch) {
   const bad = (m) => {
@@ -345,7 +381,7 @@ export function validateBatch(batch) {
       if (kinds.length > 1 || !op.put || typeof op.put !== 'object' || Array.isArray(op.put) || typeof op.put.type !== 'string') bad('Invalid object.');
       if (op.put.children !== undefined && !(Array.isArray(op.put.children) && op.put.children.every((c) => typeof c === 'string'))) bad('Invalid object.');
     }
-    if (op.id === 'root' && (op.del || (op.put && op.put.type !== 'root'))) bad('The document root cannot be removed.');
+    if (op.id === 'root' && op.del) bad('The document root cannot be removed.');
     if (op.set !== undefined && (!op.set || typeof op.set !== 'object' || Array.isArray(op.set) || 'children' in op.set)) bad('Invalid change.');
     if (op.unset !== undefined && !(Array.isArray(op.unset) && op.unset.every((k) => typeof k === 'string'))) bad('Invalid change.');
     if (op.kids !== undefined) {
@@ -355,6 +391,7 @@ export function validateBatch(batch) {
         if (k[0] === '+' && ((k[2] != null && typeof k[2] !== 'string') || (k[3] != null && typeof k[3] !== 'string'))) bad('Invalid change.');
       }
     }
+    if (harmfulOp(op)) bad(op.id === 'root' ? 'Invalid document settings.' : 'Invalid object.');
   }
   if (batch.assets !== undefined) {
     if (!batch.assets || typeof batch.assets !== 'object' || Array.isArray(batch.assets)) bad('Invalid image data.');

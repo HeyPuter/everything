@@ -94,14 +94,21 @@ export class Viewport {
     this.zoomAt(next, sx, sy);
   }
 
-  /** Fit a document rect in the view with a margin in CSS pixels. Resets rotation. */
+  /**
+   * Fit a document rect in the view with a margin in CSS pixels: one for
+   * every side, or { top, right, bottom, left } (the rect is centered
+   * between them). Resets rotation.
+   */
   fit(rect, margin = 40) {
     if (!rect || rect.w <= 0 || rect.h <= 0) return;
-    const availW = Math.max(1, this.width - margin * 2);
-    const availH = Math.max(1, this.height - margin * 2);
+    const m = typeof margin === 'number' ? { top: margin, right: margin, bottom: margin, left: margin } : margin;
+    const availW = Math.max(1, this.width - m.left - m.right);
+    const availH = Math.max(1, this.height - m.top - m.bottom);
     const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(availW / rect.w, availH / rect.h)));
     this.set({ zoom: z, rotation: 0 });
-    this.set({ panX: this.width / 2 - (rect.x + rect.w / 2) * z, panY: this.height / 2 - (rect.y + rect.h / 2) * z });
+    const cx = (m.left + this.width - m.right) / 2;
+    const cy = (m.top + this.height - m.bottom) / 2;
+    this.set({ panX: cx - (rect.x + rect.w / 2) * z, panY: cy - (rect.y + rect.h / 2) * z });
   }
 
   /** Center a document point in the view at the current zoom. */

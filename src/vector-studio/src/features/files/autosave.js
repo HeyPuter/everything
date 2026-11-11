@@ -5,17 +5,39 @@
  * On startup, copies left behind by a session that is no longer running
  * are offered for recovery. Copies are removed when a document is saved or
  * closed without saving.
+ *
+ * Storage writes started while the page closes may never finish (seen in
+ * Chromium), so when the page is hidden or closed the copies about to be
+ * written are also kept in localStorage, which is written at once; the next
+ * start writes back any that are newer than the stored copy.
  */
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
-import { serializeDocument, parseDocument } from './format.js';
+import { serializeDocument, parseDocument, documentData, canCompress, gzip } from './format.js';
 import { RecoveryStore, recoverableEntries } from './recovery.js';
 import { puterBackend, opfsBackend, opfsAvailable } from './backends.js';
 import { relativeTime } from './naming.js';
 import { handleStore } from './handles.js';
 
 const CHANNEL = 'vector-studio-recovery';
+/** localStorage key prefix for copies kept at page close (see the top comment): `<prefix><recovery id>`. */
+const STASH = 'vs-recovery-unwritten:';
+/** Leave room in localStorage (about 5M characters) for preferences: larger documents rely on the regular write. */
+const STASH_LIMIT = 2_500_000;
+
+function storage() {
+  try {
+    return globalThis.localStorage || null;
+  } catch {
+    return null;
+  }
+}
+
+function encodeText(text) {
+  const bytes = new TextEncoder().encode(text);
+  return canCompress() ? gzip(bytes) : bytes;
+}
 
 export class Autosaver {
   constructor(app, { store = null, session = uid('s') } = {}) {
@@ -25,6 +47,7 @@ export class Autosaver {
     this.storeKey = null;
     this.cached = null;
     this.saved = new WeakMap(); // editor -> revision last written
+    this.stashed = new Map(); // recovery id -> revision kept in localStorage at page close
     this.timer = 0;
     this.busy = null;
     this.channel = null;
@@ -62,9 +85,9 @@ export class Autosaver {
       if (key === 'autosaveEnabled' || key === 'autosaveMinutes') this.schedule();
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this.flush();
+      if (document.visibilityState === 'hidden') this.flush({ hiding: true });
     });
-    window.addEventListener('pagehide', () => this.flush());
+    window.addEventListener('pagehide', () => this.flush({ hiding: true }));
     this.app.on('closed', (editor) => this.discard(editor));
     try {
       this.channel = new BroadcastChannel(CHANNEL);
@@ -87,35 +110,84 @@ export class Autosaver {
     return editor.recoveryId;
   }
 
-  /** Write recovery copies of every dirty document that changed since its last copy. */
-  flush() {
+  /**
+   * Write recovery copies of every dirty document that changed since its
+   * last copy. When the page is being hidden or closed (`hiding`), they are
+   * also kept in localStorage at once (see the top comment).
+   */
+  flush({ hiding = false } = {}) {
+    const texts = hiding ? this.#stash() : null;
     if (this.busy) return this.busy;
-    this.busy = this.#flush().finally(() => {
+    this.busy = this.#flush(texts).finally(() => {
       this.busy = null;
     });
     return this.busy;
   }
 
-  async #flush() {
+  /** Documents whose recovery copy is out of date. */
+  #changed() {
+    return this.app.editors.filter((editor) => editor.doc.dirty && !editor.doc.tx && this.saved.get(editor) !== editor.doc.revision);
+  }
+
+  /** Keep the copies about to be written in localStorage. Returns editor -> { text, rev } for the regular write. */
+  #stash() {
+    const texts = new Map();
+    const ls = storage();
+    if (!ls || !this.store || !this.enabled) return texts;
+    let room = STASH_LIMIT;
+    for (const editor of this.#changed()) {
+      const doc = editor.doc;
+      const id = this.recoveryId(editor);
+      const key = STASH + id;
+      try {
+        const text = JSON.stringify(documentData(doc));
+        texts.set(editor, { text, rev: doc.revision });
+        room -= text.length;
+        if (room < 0) throw new Error('Too large to keep in localStorage');
+        const meta = { id, ...this.#entry(editor), revision: doc.revision, session: this.session, saved: Date.now() };
+        ls.setItem(key, `${JSON.stringify(meta)}\n${text}`);
+        this.stashed.set(id, doc.revision);
+      } catch {
+        // Over the quota: an older copy kept here would replace the newer one being written.
+        this.#unstash(id);
+      }
+    }
+    return texts;
+  }
+
+  #unstash(id, rev = Infinity) {
+    if (!this.stashed.has(id) && rev !== Infinity) return;
+    if (this.stashed.get(id) > rev) return;
+    this.stashed.delete(id);
+    try {
+      storage()?.removeItem(STASH + id);
+    } catch {
+      // Best effort.
+    }
+  }
+
+  #entry(editor) {
+    const f = editor.file;
+    return { name: editor.name, file: f ? { kind: f.kind, path: f.path || null, name: f.name || null, handleId: f.handleId || null } : null };
+  }
+
+  async #flush(texts = null) {
     const store = this.store;
     if (!store || !this.enabled) return 0;
     let n = 0;
-    for (const editor of [...this.app.editors]) {
+    for (const editor of this.#changed()) {
       const doc = editor.doc;
-      if (!doc.dirty || doc.tx) continue;
-      if (this.saved.get(editor) === doc.revision) continue;
       const rev = doc.revision;
       try {
-        const data = await serializeDocument(doc);
-        const f = editor.file;
-        await store.put(this.recoveryId(editor), {
-          name: editor.name,
-          file: f ? { kind: f.kind, path: f.path || null, name: f.name || null, handleId: f.handleId || null } : null,
-          data,
-          revision: rev,
-          session: this.session,
-        });
+        const kept = texts?.get(editor);
+        const data = kept?.rev === rev ? await encodeText(kept.text) : await serializeDocument(doc);
+        // Saved or closed while the copy was being encoded: a copy written now would outlive the
+        // discard and be offered for recovery later.
+        if (!doc.dirty || !this.app.editors.includes(editor)) continue;
+        const id = this.recoveryId(editor);
+        await store.put(id, { ...this.#entry(editor), data, revision: rev, session: this.session });
         this.saved.set(editor, rev);
+        this.#unstash(id, rev);
         n++;
       } catch (err) {
         console.warn('Autosave failed', err);
@@ -128,6 +200,7 @@ export class Autosaver {
   async discard(editor) {
     this.saved.delete(editor);
     if (!editor?.recoveryId) return;
+    this.#unstash(editor.recoveryId);
     try {
       await this.store?.remove(editor.recoveryId);
     } catch {
@@ -163,7 +236,9 @@ export class Autosaver {
     if (!store) return [];
     let entries;
     try {
-      entries = recoverableEntries(await store.list(), await this.liveSessions(), this.session);
+      const live = await this.liveSessions();
+      await this.#restoreStashes(store, live);
+      entries = recoverableEntries(await store.list(), live, this.session);
     } catch {
       return [];
     }
@@ -189,24 +264,91 @@ export class Autosaver {
       ],
     });
     if (!choice) return [];
+    // Unsaved work is only thrown away once the user confirms it; otherwise it is offered again next time.
+    const unwanted = entries.filter((e, i) => choice === 'discard' || !checks[i].checked);
+    const discard = unwanted.length && (await confirmDiscard(unwanted));
     const opened = [];
+    const kept = [];
+    const damaged = [];
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       if (choice === 'recover' && checks[i].checked) {
-        const ed = await this.recover(e);
+        let ed = null;
+        try {
+          ed = await this.recover(e);
+        } catch {
+          // The copy could not be read right now (offline): keep it to offer again next time.
+          kept.push(e.name || 'Untitled');
+          continue;
+        }
         if (ed) opened.push(ed);
-        else await store.remove(e.id);
-      } else await store.remove(e.id);
+        else {
+          damaged.push(e.name || 'Untitled');
+          await store.remove(e.id);
+        }
+      } else if (discard) await store.remove(e.id);
     }
     if (opened.length) this.app.notify(`Recovered ${opened.length} document${opened.length === 1 ? '' : 's'}. Save to keep the changes.`);
+    if (damaged.length) this.app.notify(`${damaged.map((n) => `"${n}"`).join(', ')} could not be recovered: the recovery copy is damaged.`, { error: true, timeout: 8000 });
+    if (kept.length) this.app.notify(`${kept.map((n) => `"${n}"`).join(', ')} could not be recovered right now. Check your connection; Vector Studio will offer ${kept.length === 1 ? 'it' : 'them'} again next time it starts.`, { error: true, timeout: 8000 });
     return opened;
   }
 
+  /**
+   * Write back the copies a closed page kept in localStorage (see #stash)
+   * when they are newer than the stored ones, then forget them. Copies of
+   * sessions still running in other tabs are theirs to write.
+   */
+  async #restoreStashes(store, live) {
+    const ls = storage();
+    if (!ls) return;
+    const keys = [];
+    try {
+      for (let i = 0; i < ls.length; i++) if (ls.key(i)?.startsWith(STASH)) keys.push(ls.key(i));
+    } catch {
+      return;
+    }
+    if (!keys.length) return;
+    const stored = new Map((await store.list()).map((e) => [e.id, e]));
+    for (const key of keys) {
+      let raw = null;
+      let meta = null;
+      try {
+        raw = ls.getItem(key);
+        meta = JSON.parse(raw.slice(0, raw.indexOf('\n')));
+      } catch {
+        meta = null;
+      }
+      if (!meta || typeof meta.id !== 'string' || key !== STASH + meta.id) {
+        ls.removeItem(key);
+        continue;
+      }
+      if (meta.session === this.session || live.has(meta.session)) continue;
+      const prev = stored.get(meta.id);
+      try {
+        // Newer: by edit count when the same session wrote both (times can tie), else by time.
+        const newer = !prev || (prev.session === meta.session ? meta.revision > prev.revision : (meta.saved || 0) > (prev.saved || 0));
+        if (newer) {
+          const data = await encodeText(raw.slice(raw.indexOf('\n') + 1));
+          await store.put(meta.id, { name: meta.name, file: meta.file, data, revision: meta.revision, session: meta.session, saved: meta.saved });
+        }
+        ls.removeItem(key);
+      } catch (err) {
+        // Kept to write back next time.
+        console.warn('Could not restore a recovery copy', err);
+      }
+    }
+  }
+
+  /**
+   * Open a recovery copy. Resolves the editor, or null when the copy is gone
+   * or damaged; throws when it could not be read right now.
+   */
   async recover(entry) {
     const store = this.store;
+    const blob = await store.read(entry);
+    if (!blob) return null;
     try {
-      const blob = await store.read(entry);
-      if (!blob) return null;
       const { doc } = await parseDocument(blob);
       // Recovered work is unsaved until the user saves it.
       doc.savedRevision = -1;
@@ -228,4 +370,20 @@ export class Autosaver {
       return null;
     }
   }
+}
+
+/** Ask before discarding recovery copies; resolves true to discard, false to keep them for next time. */
+async function confirmDiscard(entries) {
+  const names = entries.map((e) => `"${e.name || 'Untitled'}"`);
+  const one = entries.length === 1;
+  const what = one ? names[0] : names.length <= 3 ? `${names.length} documents (${names.join(', ')})` : `${names.length} documents`;
+  const choice = await openDialog({
+    title: one ? 'Discard Recovered Document' : 'Discard Recovered Documents',
+    body: h('p.dialog-message', `Discard ${what}? ${one ? 'Its' : 'Their'} unsaved changes will be lost. Keep ${one ? 'it' : 'them'} to be offered again the next time Vector Studio starts.`),
+    buttons: [
+      { label: 'Discard', value: 'discard', danger: true, left: true },
+      { label: 'Keep for Later', value: 'keep', primary: true },
+    ],
+  });
+  return choice === 'discard';
 }

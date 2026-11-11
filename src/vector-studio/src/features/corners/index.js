@@ -65,6 +65,8 @@ export function cornerTargets(app) {
   const out = [];
   const ids = tool === 'selection' ? editor.topSelection() : [...editor.selection];
   for (const id of ids) {
+    // Too many corners show no widgets: stop counting (hover and every overlay frame ask).
+    if (out.length > MAX_WIDGETS) return [];
     const n = doc.get(id);
     if (!n || n.type !== 'path' || !n.anchors?.length || doc.isLocked(id) || doc.isHidden(id)) continue;
     if (n.shape?.kind === 'rect') {

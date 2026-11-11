@@ -16,7 +16,7 @@ import { tracePath } from '../../render/draw.js';
 import { newPathStyle } from '../../tools/pen.js';
 import { OP, runGeom, loadGeom } from './engine/index.js';
 import { withBusy, isBusy } from './busy.js';
-import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, replaceWith, snapshot, unchangedSince, solidKey, insertionPoint } from './nodes-io.js';
+import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, replaceWith, snapshot, unchangedSince, solidKey, insertionPoint, insideLive, expandLiveFirst } from './nodes-io.js';
 
 function withDocTransform(ctx, view, fn) {
   ctx.save();
@@ -41,9 +41,21 @@ function path2dOf(subpaths) {
   return p;
 }
 
-/** All visible, unlocked path/compound leaves in the document (paint order). */
+/** All visible, unlocked path/compound leaves in the document (paint order), except the inputs of live objects. */
 function editableLeaves(doc) {
-  return doc.leaves().filter((n) => (n.type === 'path' || n.type === 'compound') && !doc.isHidden(n.id) && !doc.isLocked(n.id));
+  return doc.leaves().filter((n) => (n.type === 'path' || n.type === 'compound') && !doc.isHidden(n.id) && !doc.isLocked(n.id) && !insideLive(doc, n));
+}
+
+/**
+ * Path/compound leaves of the selection, leaving out the inputs of live
+ * objects (cutting a blend's keys or a Repeat's source in place breaks
+ * it). With only live objects selected, tells the user to expand them.
+ */
+function selectedLeaves(tool, what) {
+  const live = [];
+  const leaves = geometryLeaves(tool.editor.doc, tool.editor.topSelection(), { intoLive: false, skippedLive: live });
+  if (!leaves.length && live.length && what) tool.app.notify(expandLiveFirst(what, live[0]));
+  return leaves;
 }
 
 function polylineBounds(pts, pad = 0) {
@@ -127,7 +139,8 @@ export class ShapeBuilderTool extends Tool {
   async refreshFaces() {
     const editor = this.editor;
     if (!editor) return;
-    const leaves = geometryLeaves(editor.doc, editor.topSelection());
+    const live = [];
+    const leaves = geometryLeaves(editor.doc, editor.topSelection(), { intoLive: false, skippedLive: live });
     const key = leaves.map((n) => n.id).join('|');
     const same = this.facesKey === key && this.leaves.length === leaves.length && this.leaves.every((n, i) => n === leaves[i]);
     if (same) return;
@@ -136,7 +149,7 @@ export class ShapeBuilderTool extends Tool {
     this.faces = null;
     this.hoverFace = -1;
     if (leaves.length < 1) {
-      this.status('Select two or more overlapping shapes, then drag across regions to merge them');
+      this.status(live.length ? expandLiveFirst('Shape Builder', live[0]) : 'Select two or more overlapping shapes, then drag across regions to merge them');
       this.overlay();
       return;
     }
@@ -476,7 +489,7 @@ export class KnifeTool extends Tool {
     const doc = editor.doc;
     const anchors = pts.length === 2 ? pts.map((p) => mkAnchor(p.x, p.y)) : fitCurve(simplifyPolyline(pts, tol(editor, 0.75)), tol(editor, 1.5) ** 2);
     const bounds = polylineBounds(pts);
-    const pool = editor.selection.size ? geometryLeaves(doc, editor.topSelection()) : editableLeaves(doc);
+    const pool = editor.selection.size ? selectedLeaves(this, 'The Knife') : editableLeaves(doc);
     const targets = pool.filter((n) => (n.closed || n.type === 'compound' || n.fill) && rectsIntersect(nodeBounds(doc, n) || { x: 0, y: 0, w: -1, h: -1 }, bounds));
     if (!targets.length) return;
     const shapes = [...targets.map((n) => shapeOf(doc, n)), { subpaths: [{ anchors, closed: false }], filled: false, string: true }];
@@ -669,7 +682,7 @@ export class EraserTool extends RoundBrushTool {
     try {
       const pad = rect ? 0 : this.size / 2;
       const bounds = polylineBounds(pts, pad);
-      const pool = hadSelection ? geometryLeaves(doc, editor.topSelection()) : editableLeaves(doc);
+      const pool = hadSelection ? selectedLeaves(this, 'The Eraser') : editableLeaves(doc);
       const targets = pool.filter((n) => {
         const b = nodeBounds(doc, n);
         const sw = n.stroke ? (n.strokeWidth || 0) / 2 : 0;
@@ -832,7 +845,7 @@ export class JoinTool extends Tool {
     const doc = editor.doc;
     const r = tol(editor, 10);
     const bounds = polylineBounds(pts, r);
-    const pool = editor.selection.size ? geometryLeaves(doc, editor.topSelection()) : editableLeaves(doc);
+    const pool = editor.selection.size ? selectedLeaves(this) : editableLeaves(doc);
     const out = [];
     for (const n of pool) {
       if (n.type !== 'path' || n.closed || n.anchors.length < 2) continue;

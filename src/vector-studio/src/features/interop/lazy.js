@@ -54,9 +54,11 @@ function families() {
 
 const stem = (name) => String(name || 'Untitled').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
 
+/** A user-facing error; `what` names the file (null when the caller's message already does). */
 function friendly(err, what) {
   if (err instanceof UserError) return err;
   if (err instanceof PDFError) return new UserError(err.message);
+  if (!what) return new UserError(err?.message || 'The file could not be read.');
   return new UserError(`${what} could not be read. ${err?.message || ''}`.trim());
 }
 
@@ -270,7 +272,7 @@ export async function openForeign(app, bytes, { name, format }) {
         pages = choice.pages;
         textMode = choice.textMode;
       }
-      return await withProgress(app, 'Opening PDF', (onProgress) => pdfToDocument(info.doc, { name: docName, pages, families: fams, textMode, onProgress }));
+      return await withProgress(app, 'Opening PDF', (onProgress, signal) => pdfToDocument(info.doc, { name: docName, pages, families: fams, textMode, onProgress, signal }), { cancelable: true });
     }
     if (format === 'eps') {
       await preparePostScript(bytes);
@@ -300,7 +302,8 @@ export async function openForeign(app, bytes, { name, format }) {
     }
     if (format === 'raster') return await openRaster(bytes, docName);
   } catch (err) {
-    throw friendly(err, `"${name}"`);
+    // File > Open reports '"name" could not be imported.' before this message.
+    throw friendly(err, null);
   }
   return null;
 }
@@ -354,9 +357,9 @@ async function flattenSettings(app, doc, ids, name) {
   return opts;
 }
 
-async function outlinesFor(app, doc, ids, wanted) {
+async function outlinesFor(app, doc, ids, wanted, { images = false } = {}) {
   if (!wanted || !app.textOutlines) return null;
-  const map = await collectTextOutlines(app, doc, ids || doc.root.children);
+  const map = await collectTextOutlines(app, doc, ids || doc.root.children, { images });
   return map.size ? map : null;
 }
 
@@ -371,7 +374,7 @@ export async function renderExport(app, key, editor, region, options = {}) {
   const { rect, ids } = exportRegion(editor, region.rects ? { rect: region.rects[0] } : region);
   if (!rect || !(rect.w > 0) || !(rect.h > 0)) throw new UserError('There is nothing to export.');
   if (key === 'eps') {
-    const outlines = await outlinesFor(app, doc, ids, options.textOutlines !== false);
+    const outlines = await outlinesFor(app, doc, ids, options.textOutlines !== false, { images: true });
     const flatten = await flattenSettings(app, doc, ids, options.flattener);
     const { text, warnings } = await writeEPS(doc, { rect, ids, level: options.level, colorMode: options.colorMode, outlines, title: options.title, flatten });
     if (warnings.length) app.notify?.([...new Set(warnings)].join(' '), { timeout: 6000 });

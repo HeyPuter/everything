@@ -3,9 +3,43 @@
  * shared "replace these objects with results" transaction helpers.
  */
 import { createPath, createCompound, createGroup, pickStyle, STYLE_KEYS } from '../../model/nodes.js';
+import { liveDef } from '../../model/live.js';
 
-/** Leaves that carry geometry (paths and compound paths), back to front, from the given ids. */
-export function geometryLeaves(doc, ids, { skipHidden = true, skipLocked = true } = {}) {
+/** Live kinds of groups whose children are ordinary artwork (drawn as they are). */
+const PLAIN_CONTENT_KINDS = new Set(['groupEffects', 'appearance']);
+
+/** Whether a group is a live object (blend, Repeat, ...) whose children are its inputs rather than its artwork. */
+export function isLiveContainer(n) {
+  if (n?.type !== 'group') return false;
+  const def = liveDef(n);
+  return Boolean(def && !PLAIN_CONTENT_KINDS.has(def.key));
+}
+
+/** Whether a node is an input of a live object (inside a blend, a Repeat, ...). */
+export function insideLive(doc, n) {
+  for (let p = doc.get(n.parent); p; p = doc.get(p.parent)) if (isLiveContainer(p)) return true;
+  return false;
+}
+
+/** "the blend" for a live group labeled "<Blend>". */
+function liveLabel(node) {
+  const def = liveDef(node);
+  const raw = typeof def?.label === 'function' ? def.label(node) : def?.label;
+  const name = String(raw || '').replace(/[<>]/g, '').trim().toLowerCase();
+  return name ? `the ${name}` : 'live objects';
+}
+
+/** Message for a path operation given only live objects: "<what> works on paths. Expand the blend first (...)". */
+export function expandLiveFirst(what, live) {
+  return `${what} works on paths. Expand ${liveLabel(live)} first (Object > Expand).`;
+}
+
+/**
+ * Leaves that carry geometry (paths and compound paths), back to front,
+ * from the given ids. With `intoLive: false` the inputs of live groups are
+ * left out (`skippedLive` collects those groups).
+ */
+export function geometryLeaves(doc, ids, { skipHidden = true, skipLocked = true, intoLive = true, skippedLive = null } = {}) {
   const out = [];
   const seen = new Set();
   const visit = (n) => {
@@ -17,6 +51,7 @@ export function geometryLeaves(doc, ids, { skipHidden = true, skipLocked = true 
     if (skipHidden && n.hidden) return;
     if (skipLocked && n.locked) return;
     if (n.type === 'path' || n.type === 'compound') out.push(n);
+    else if (!intoLive && isLiveContainer(n)) skippedLive?.push(n);
     else if (n.type === 'group' || n.type === 'layer') for (const c of n.children) visit(doc.get(c));
   };
   for (const id of doc.sortByPaintOrder(ids)) visit(doc.get(id));

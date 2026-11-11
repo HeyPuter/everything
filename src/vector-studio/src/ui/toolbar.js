@@ -169,8 +169,15 @@ export function createToolbar(app) {
     document.body.append(flyout);
     const fw = flyout.offsetWidth;
     const fh = flyout.offsetHeight;
-    flyout.style.left = `${Math.min(window.innerWidth - fw - 4, r.right + 4)}px`;
-    flyout.style.top = `${Math.min(window.innerHeight - fh - 4, r.top)}px`;
+    // Beside the button; above it on phones, where the tools are a row along
+    // the bottom edge and a flyout beside the button would cover the row.
+    if (typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches) {
+      flyout.style.left = `${Math.max(4, Math.min(window.innerWidth - fw - 4, r.left))}px`;
+      flyout.style.top = `${Math.max(4, r.top - fh - 4)}px`;
+    } else {
+      flyout.style.left = `${Math.min(window.innerWidth - fw - 4, r.right + 4)}px`;
+      flyout.style.top = `${Math.min(window.innerHeight - fh - 4, r.top)}px`;
+    }
     document.addEventListener('pointerdown', outside, true);
     if (focusFirst) flyout.querySelector('.flyout-item')?.focus();
   };

@@ -9,6 +9,7 @@ import { createGroup, createCompound, createPath } from '../model/nodes.js';
 import { nodeBounds, selectionBounds, transformNodes, visualBounds } from '../model/geometry.js';
 import { reverseAnchors, signedArea } from '../model/bezier.js';
 import { translate } from '../lib/matrix.js';
+import { duplicateNodes } from './layer-ops.js';
 
 /** Selected ids grouped by parent, each list back-to-front. */
 function byParent(doc, ids) {
@@ -164,11 +165,25 @@ function deleteAnchors(doc, path, indices) {
   });
 }
 
+/**
+ * Selected objects for commands that build or move containers: a subpath of
+ * a compound path (Direct Selection) stands for its compound path, since
+ * only paths can go inside one. Back to front, without repeats.
+ */
+function wholeObjects(doc, ids) {
+  const out = new Set();
+  for (const id of ids) {
+    let n = doc.get(id);
+    while (n && doc.get(n.parent)?.type === 'compound') n = doc.get(n.parent);
+    if (n) out.add(n.id);
+  }
+  return doc.sortByPaintOrder(out);
+}
+
 export function group(editor) {
   const { doc } = editor;
-  const ids = editor.topSelection();
+  const ids = wholeObjects(doc, editor.topSelection());
   if (!ids.length) return;
-  let gid;
   doc.transact('Group', () => {
     // The group goes where the topmost selected object was.
     const top = doc.get(ids[ids.length - 1]);
@@ -176,10 +191,10 @@ export function group(editor) {
     const index = parent.children.indexOf(top.id) + 1;
     const g = createGroup([]);
     doc.insert(g, parent.id, index);
-    gid = g.id;
     for (const id of ids) doc.move(id, g.id);
+    // Selected inside the transaction so Redo selects the group again.
+    editor.select([g.id]);
   });
-  editor.select([gid]);
 }
 
 export function ungroup(editor) {
@@ -200,8 +215,10 @@ export function ungroup(editor) {
       }
       doc.remove(id);
     }
+    // Hidden or locked contents come out of the group but stay unselected.
+    const pickable = (id) => !doc.get(id).hidden && !doc.get(id).locked;
+    editor.select([...released.filter(pickable), ...editor.topSelection().filter((id) => doc.has(id))]);
   });
-  editor.select([...released, ...editor.topSelection().filter((id) => doc.has(id))]);
 }
 
 /** Arrange within each parent: 'front' | 'forward' | 'backward' | 'back'. */
@@ -211,9 +228,12 @@ export function arrange(editor, how) {
   if (!ids.length) return;
   const labels = { front: 'Bring to Front', forward: 'Bring Forward', backward: 'Send Backward', back: 'Send to Back' };
   doc.transact(labels[how], () => {
-    for (const [parentId, list] of byParent(doc, ids)) {
+    for (let [parentId, list] of byParent(doc, ids)) {
       const parent = doc.get(parentId);
-      const children = parent.children.slice();
+      // In a clip group the clipping path (the last child) stays last, so it keeps clipping.
+      const mask = parent.clip && parent.children.length ? parent.children[parent.children.length - 1] : null;
+      const children = mask ? parent.children.slice(0, -1) : parent.children.slice();
+      if (mask) list = list.filter((id) => id !== mask);
       const sel = new Set(list);
       let next;
       if (how === 'front') next = [...children.filter((c) => !sel.has(c)), ...list];
@@ -230,7 +250,9 @@ export function arrange(editor, how) {
           if (sel.has(next[i]) && !sel.has(next[i - 1])) [next[i], next[i - 1]] = [next[i - 1], next[i]];
         }
       }
-      doc.update(parentId, { children: next });
+      if (mask) children.push(mask), next.push(mask);
+      // Already in place (Bring to Front on the frontmost object): no undo step, document stays saved.
+      if (next.some((c, i) => c !== children[i])) doc.update(parentId, { children: next });
     }
   });
 }
@@ -238,7 +260,7 @@ export function arrange(editor, how) {
 /** Move the selection to another layer (Object > Arrange > Send to Current Layer). */
 export function sendToLayer(editor, layerId) {
   const { doc } = editor;
-  const ids = editor.topSelection();
+  const ids = wholeObjects(doc, editor.topSelection());
   doc.transact('Send to Current Layer', () => {
     for (const id of ids) doc.move(id, layerId);
   });
@@ -248,8 +270,10 @@ export function lockSelection(editor) {
   const { doc } = editor;
   const ids = editor.topSelection();
   if (!ids.length) return;
-  doc.transact('Lock', () => ids.forEach((id) => doc.update(id, { locked: true })));
-  editor.clearSelection();
+  doc.transact('Lock', () => {
+    ids.forEach((id) => doc.update(id, { locked: true }));
+    editor.clearSelection();
+  });
 }
 
 /** Unlock everything below the layer level and select what was unlocked. */
@@ -265,8 +289,9 @@ export function unlockAll(editor) {
       }
       return true;
     });
+    // What is still hidden is unlocked but not selected.
+    editor.select(out.filter((id) => !doc.isHidden(id)));
   });
-  editor.select(out);
 }
 
 /**
@@ -294,8 +319,10 @@ export function hideSelection(editor) {
   const { doc } = editor;
   const ids = editor.topSelection();
   if (!ids.length) return;
-  doc.transact('Hide', () => ids.forEach((id) => doc.update(id, { hidden: true })));
-  editor.clearSelection();
+  doc.transact('Hide', () => {
+    ids.forEach((id) => doc.update(id, { hidden: true }));
+    editor.clearSelection();
+  });
 }
 
 export function showAll(editor) {
@@ -310,30 +337,29 @@ export function showAll(editor) {
       }
       return true;
     });
+    // What is still locked is shown but not selected.
+    editor.select(out.filter((id) => !doc.isLocked(id)));
   });
-  editor.select(out);
 }
 
 /** Make Clipping Mask: the topmost selected object clips the others. */
 export function makeClipMask(editor) {
   const { doc } = editor;
-  const ids = editor.topSelection();
+  const ids = wholeObjects(doc, editor.topSelection());
   if (ids.length < 2) throw new UserError('Select at least two objects: the topmost one becomes the clipping path.');
   const mask = doc.get(ids[ids.length - 1]);
   if (!['path', 'compound', 'text', 'group'].includes(mask.type)) throw new UserError('The clipping path must be a path, compound path, group or text.');
-  let gid;
   doc.transact('Make Clipping Mask', () => {
     const top = doc.get(ids[ids.length - 1]);
     const parent = doc.get(top.parent);
     const index = parent.children.indexOf(top.id) + 1;
     const g = createGroup([], { clip: true });
     doc.insert(g, parent.id, index);
-    gid = g.id;
     for (const id of ids) doc.move(id, g.id);
     // The clipping path loses its paint: it only defines the clip.
     if (mask.type === 'path' || mask.type === 'compound') doc.update(mask.id, { fill: null, stroke: null });
+    editor.select([g.id]);
   });
-  editor.select([gid]);
 }
 
 export function releaseClipMask(editor) {
@@ -345,11 +371,12 @@ export function releaseClipMask(editor) {
   });
   const groups = [...new Set(ids.filter(Boolean))];
   if (!groups.length) return;
+  // One undo step: the Ungroup transaction joins this one.
   doc.transact('Release Clipping Mask', () => {
     for (const id of groups) doc.update(id, { clip: false });
+    editor.select(groups);
+    ungroup(editor);
   });
-  editor.select(groups);
-  ungroup(editor);
 }
 
 /** Make Compound Path from the selected paths (and paths inside selected groups). */
@@ -362,32 +389,34 @@ export function makeCompound(editor) {
     else if (n.type === 'compound') for (const c of n.children) paths.push(doc.get(c));
     else if (n.type === 'group') for (const c of n.children) collect(doc.get(c));
   };
-  for (const id of editor.topSelection()) collect(doc.get(id));
+  const sel = wholeObjects(doc, editor.topSelection());
+  for (const id of sel) collect(doc.get(id));
   if (paths.length < 1) return;
-  const topPaint = doc.get(editor.topSelection()[editor.topSelection().length - 1]);
-  let cid;
+  const topPaint = doc.get(sel[sel.length - 1]);
   doc.transact('Make Compound Path', () => {
     const style = { ...pickPaint(paths[0]) };
     if (topPaint && (topPaint.type === 'path' || topPaint.type === 'compound')) Object.assign(style, pickPaint(topPaint));
-    const top = doc.get(editor.topSelection()[editor.topSelection().length - 1]);
+    const top = doc.get(sel[sel.length - 1]);
     const parent = doc.get(top.parent);
     const index = parent.children.indexOf(top.id) + 1;
     const c = createCompound([], style, { fillRule: 'nonzero' });
     doc.insert(c, parent.id, index);
-    cid = c.id;
     // Compound paths reverse inner subpaths so holes appear under the non-zero rule.
     const outerSign = Math.sign(signedArea(paths.reduce((a, b) => (Math.abs(signedArea(b.anchors)) > Math.abs(signedArea(a.anchors)) ? b : a)).anchors)) || 1;
-    for (const p of paths) {
+    // Bounds measured once: the containment test compares every pair.
+    const bounds = paths.map((p) => nodeBounds(doc, p));
+    paths.forEach((p, i) => {
       const cur = doc.get(p.id);
       const area = signedArea(cur.anchors);
-      const containedByOther = paths.some((o) => o.id !== p.id && contains(nodeBounds(doc, o), nodeBounds(doc, cur)));
+      const containedByOther = bounds.some((o, j) => j !== i && contains(o, bounds[i]));
       if (containedByOther && Math.sign(area) === outerSign) doc.update(p.id, { anchors: reverseAnchors(cur.anchors) });
       doc.move(p.id, c.id);
       doc.update(p.id, { shape: undefined });
-    }
-    for (const id of editor.topSelection()) if (doc.has(id) && doc.get(id).type !== 'path' && doc.get(id).children?.length === 0) doc.remove(id);
+    });
+    // Groups (nested ones too) and compound paths the paths came from go once emptied.
+    removeEmptyContainers(doc, new Set(paths.map((p) => p.parent)), editor.isolation);
+    editor.select([c.id]);
   });
-  editor.select([cid]);
 }
 
 function contains(a, b) {
@@ -418,8 +447,9 @@ export function releaseCompound(editor) {
       }
       doc.remove(id);
     }
+    // Hidden or locked subpaths come out but stay unselected.
+    editor.select(out.filter((k) => !doc.get(k).hidden && !doc.get(k).locked));
   });
-  editor.select(out);
 }
 
 /**
@@ -502,7 +532,7 @@ export function average(editor, axis = 'both') {
         if (!sel.has(i)) return a;
         const dx = axis === 'v' ? 0 : ax - a.x;
         const dy = axis === 'h' ? 0 : ay - a.y;
-        return { x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy };
+        return { ...a, x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy };
       });
       doc.update(n.id, { anchors, shape: undefined });
     }
@@ -524,13 +554,25 @@ export function reversePaths(editor) {
 export function nudge(editor, dx, dy, { copy = false } = {}) {
   const { doc } = editor;
   if (!editor.selection.size) return;
-  const partial = [...editor.anchors].filter(([id, set]) => doc.get(id) && set.size < doc.get(id).anchors.length);
+  // Segments a Direct Selection marquee crossed move with their end points (as when dragged).
+  const hits = selectedSegmentHits(editor);
+  const partial = [...editor.anchors]
+    .filter(([id, set]) => doc.get(id) && set.size < doc.get(id).anchors.length)
+    .map(([id, set]) => {
+      const idx = new Set(set);
+      const count = doc.get(id).anchors.length;
+      for (const i of hits.get(id) || []) idx.add(i).add((i + 1) % count);
+      return [id, idx];
+    });
   doc.transact(copy ? 'Duplicate' : 'Move', () => {
     if (partial.length && !copy) {
       for (const [id, set] of partial) {
+        // A path the marquee touched without selecting any of it stays as it is.
+        if (!set.size) continue;
         const n = doc.get(id);
         doc.update(id, {
-          anchors: n.anchors.map((a, i) => (set.has(i) ? { x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy } : a)),
+          // Moved anchors keep their other properties (a live corner, ...).
+          anchors: n.anchors.map((a, i) => (set.has(i) ? { ...a, x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy } : a)),
           shape: undefined,
         });
       }
@@ -543,16 +585,8 @@ export function nudge(editor, dx, dy, { copy = false } = {}) {
     }
     let ids = editor.topSelection();
     if (copy) {
-      const copies = [];
-      for (const id of ids) {
-        const n = doc.get(id);
-        const parent = doc.get(n.parent);
-        const { node, descendants } = doc.cloneSubtree(id);
-        doc.insert(node, parent.id, parent.children.indexOf(id) + 1, descendants);
-        copies.push(node.id);
-      }
-      ids = copies;
-      editor.select(copies);
+      ids = duplicateNodes(doc, ids);
+      editor.select(ids);
     }
     transformNodes(doc, ids, translate(dx, dy));
     // A nudge is a move, so Transform Again repeats it (as a copy after Alt+arrow).
@@ -603,6 +637,8 @@ export function distribute(editor, edge, { spacing = null, key = null, previewBo
   const ids = editor.topSelection();
   if (ids.length < (spacing != null ? 2 : 3)) return;
   const items = ids.map((id) => ({ id, b: previewBounds ? visualBounds(doc, doc.get(id)) : nodeBounds(doc, doc.get(id)) })).filter((i) => i.b);
+  // Objects without bounds (empty groups) take no part.
+  if (items.length < (spacing != null ? 2 : 3)) return;
   const horizontal = ['left', 'hcenter', 'right', 'hspace'].includes(edge);
   const pos = (b) => {
     if (edge === 'left' || edge === 'hspace') return b.x;
@@ -622,9 +658,9 @@ export function distribute(editor, edge, { spacing = null, key = null, previewBo
       const total = items.reduce((s, i) => s + size(i.b), 0);
       const gap = spacing != null ? spacing : (end - start - total) / (items.length - 1);
       let cursor = start;
-      if (spacing != null && key) {
+      const ki = key ? items.findIndex((i) => i.id === key) : -1;
+      if (spacing != null && ki >= 0) {
         // Lay out around the key object, which stays put.
-        const ki = items.findIndex((i) => i.id === key);
         cursor = (horizontal ? items[ki].b.x : items[ki].b.y) - items.slice(0, ki).reduce((s, i) => s + size(i.b) + gap, 0);
       }
       for (const it of items) {

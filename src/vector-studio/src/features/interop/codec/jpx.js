@@ -16,6 +16,8 @@
  */
 import { MQDecoder } from './mq.js';
 
+import { imageSizeOk } from './limits.js';
+
 export class JPXError extends Error {}
 
 const u16 = (d, p) => (d[p] << 8) | d[p + 1];
@@ -935,6 +937,7 @@ export function decodeJPX(bytes) {
   const W = siz.w - siz.x0;
   const H = siz.h - siz.y0;
   const nc = siz.comps.length;
+  if (!imageSizeOk(W, H)) throw new JPXError('The JPEG 2000 image is too large');
   const planes = siz.comps.map(() => new Float32Array(W * H));
   for (const [index, t] of cs0.tiles) {
     const dt = decodeTile(cs0, t, index);

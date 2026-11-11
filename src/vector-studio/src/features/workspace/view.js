@@ -54,7 +54,7 @@ export function proofFilterMarkup(id, kind) {
     // Press gamut: saturated colors pull in, paper white and solid black do not reach the screen's extremes.
     body = '<feColorMatrix type="saturate" values="0.8"/><feComponentTransfer><feFuncR type="linear" slope="0.9" intercept="0.045"/><feFuncG type="linear" slope="0.9" intercept="0.04"/><feFuncB type="linear" slope="0.88" intercept="0.035"/></feComponentTransfer>';
   } else if (p.m) body = `<feColorMatrix type="matrix" values="${matrixValues(p.m)}"/>`;
-  else body = '<feColorMatrix type="identity"/>';
+  else body = '<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0"/>';
   return `<filter id="${id}" color-interpolation-filters="${p.space}" x="0" y="0" width="100%" height="100%">${body}</filter>`;
 }
 

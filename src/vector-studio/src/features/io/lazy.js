@@ -27,8 +27,8 @@ export { placeFile, placeSVG, placeText, imageNodeData, reportWarnings, svgToNod
  */
 export async function importSvgDocument(app, text, { name } = {}) {
   const docName = name ? String(name).replace(/\.svgz?$/i, '') : 'Untitled';
-  const doc = await withProgress(app, 'Importing SVG', (onProgress) => svgToDocumentAsync(text, { name: docName, onProgress }));
-  if (doc.importWarnings?.length) setTimeout(() => reportWarnings(app, doc.importWarnings), 300);
+  const doc = await withProgress(app, 'Importing SVG', (onProgress, signal) => svgToDocumentAsync(text, { name: docName, onProgress, signal }), { cancelable: true });
+  if (doc?.importWarnings?.length) setTimeout(() => reportWarnings(app, doc.importWarnings), 300);
   return doc;
 }
 
@@ -60,7 +60,7 @@ export async function svg(app, editor, opts = {}) {
   let o = opts;
   if (opts.textMode === 'outlines' && !opts.outlines) {
     o = syncOutlines(app, editor, opts);
-    if (!o.outlines?.size) o = { ...opts, outlines: await collectTextOutlines(app, editor.doc, editor.doc.root.children) };
+    if (!o.outlines?.size) o = { ...opts, outlines: await collectTextOutlines(app, editor.doc, editor.doc.root.children, { images: true }) };
   }
   return editorSVG(editor, o);
 }
@@ -83,7 +83,7 @@ export async function pdf(app, editor, opts = {}) {
     rects = idx.map((i) => doc.artboards[i]).filter(Boolean);
   }
   const wantOutlines = opts.textOutlines !== false && Boolean(app.textOutlines);
-  const outlines = wantOutlines ? await collectTextOutlines(app, doc, ids || doc.root.children) : null;
+  const outlines = wantOutlines ? await collectTextOutlines(app, doc, ids || doc.root.children, { images: true }) : null;
   const { bytes } = await writePDF(doc, rects, { bleed: opts.bleed || 0, ids, outlines, outlinesWanted: wantOutlines, title: opts.title || doc.name, background: opts.background });
   return bytes;
 }
@@ -120,7 +120,8 @@ export function clipboardSVG(data, mark) {
 /** Open an SVG file as a new document (used when the files module is not installed). */
 export async function openSVGFile(app, file) {
   const text = await file.text();
-  const doc = await withProgress(app, 'Importing SVG', (onProgress) => svgToDocumentAsync(text, { name: String(file.name || 'Untitled').replace(/\.svgz?$/i, ''), onProgress }));
+  const doc = await withProgress(app, 'Importing SVG', (onProgress, signal) => svgToDocumentAsync(text, { name: String(file.name || 'Untitled').replace(/\.svgz?$/i, ''), onProgress, signal }), { cancelable: true });
+  if (!doc) return null;
   app.addDocument(doc, { file: null });
   reportWarnings(app, doc.importWarnings);
   return doc;

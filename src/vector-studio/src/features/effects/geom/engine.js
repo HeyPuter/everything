@@ -12,6 +12,8 @@ import { OP, runGeom, geomIfLoaded } from '../../geometry/engine/index.js';
 import { encode, jobSize } from '../../geometry/engine/codec.js';
 import { geomEffectsChanged } from '../../../model/geom-effects.js';
 import { paintParts } from '../../../model/geom-effects.js';
+import { JOIN, CAP, ALIGN, strokeParams, strokeWork, HEAVY_STROKE_WORK } from '../../geometry/stroke-params.js';
+import { emptyShapeModeReason } from '../../geometry/pathfinder.js';
 
 /** Anchor count up to which a job runs synchronously while drawing. */
 export const SYNC_LIMIT = 4000;
@@ -34,11 +36,12 @@ function hashInput(op, shapes, params, tol) {
 /**
  * Engine records for a job: an array, null when the engine failed, or
  * undefined while the result is still being computed in the background
- * (`pending()` is called then).
+ * (`pending()` is called then). `heavy` sends a job with few anchors but
+ * much work (many dashes) to the background too.
  */
-export function engineResult(op, shapes, params = [], { tol = 0.02, pending = null } = {}) {
+export function engineResult(op, shapes, params = [], { tol = 0.02, pending = null, heavy = false } = {}) {
   const inst = geomIfLoaded();
-  if (inst && jobSize(shapes) <= SYNC_LIMIT) {
+  if (inst && !heavy && jobSize(shapes) <= SYNC_LIMIT) {
     try {
       return inst.run(op, shapes, params, tol);
     } catch {
@@ -76,9 +79,6 @@ export function clearEngineResults() {
   results.clear();
 }
 
-const JOIN = { miter: 0, round: 1, bevel: 2 };
-const CAP = { butt: 0, round: 1, square: 2 };
-const ALIGN = { center: 0, inside: 1, outside: 2 };
 
 /** Engine shapes for outlines grouped by paint, applying `fn(subpaths, paint)` to each group. */
 function byPaint(node, subs, fn) {
@@ -121,11 +121,11 @@ export function offsetPath(subs, fx, info) {
 export function outlineStroke(subs, fx, info) {
   const n = info.node;
   if (!n || !(n.strokeWidth > 0) || !n.stroke) return subs;
-  const dash = n.dash?.length ? n.dash : [];
-  const params = [n.strokeWidth, JOIN[n.strokeJoin] ?? 0, CAP[n.strokeCap] ?? 0, n.miterLimit || 10, ALIGN[n.strokeAlign] ?? 0, n.dashOffset || 0, ...dash];
+  const params = strokeParams(n, null, subs);
   return byPaint(n, subs, (group, paint) => {
     if (paint) return group;
-    const r = engineResult(OP.STROKE, [{ subpaths: group, filled: Boolean(n.fill), evenodd: n.fillRule === 'evenodd' }], params, { pending: info.pending });
+    const heavy = strokeWork(params, group) > HEAVY_STROKE_WORK;
+    const r = engineResult(OP.STROKE, [{ subpaths: group, filled: Boolean(n.fill), evenodd: n.fillRule === 'evenodd' }], params, { pending: info.pending, heavy });
     return r ? recordSubpaths(r) : group;
   });
 }
@@ -154,6 +154,23 @@ export function pathfinderOnShape(subs, fx, info) {
   const r = engineResult(def.op, shapes, [], { pending: info.pending });
   if (!r) return subs;
   return [...recordSubpaths(r), ...subs.filter((s) => s.paint)];
+}
+
+/**
+ * A shape item's outlines cut to a clipping path (shapeHooks.clip): the
+ * filled area inside the clip, or undefined while the engine computes it.
+ * Open outlines are left alone.
+ */
+export function clipItem(item, clip, info = {}) {
+  const own = item.subpaths.filter((s) => !s.paint && s.anchors.length > 1);
+  if (!own.length || own.every((s) => !s.closed)) return null;
+  const shapes = [
+    { subpaths: own, filled: true, evenodd: item.fillRule === 'evenodd' },
+    { subpaths: clip, filled: true },
+  ];
+  const r = engineResult(OP.INTERSECT, shapes, [], { pending: info.pending });
+  if (r === undefined) return undefined;
+  return r ? recordSubpaths(r) : null;
 }
 
 const solidKey = (style) => (style.fill?.type === 'solid' ? `${style.fill.color.toLowerCase()}|${style.fill.opacity ?? 1}` : null);
@@ -188,6 +205,8 @@ export function pathfinderCombine(items, fx, info) {
   if (!shapes.length) return items;
   const unite = def.kind === 'unite' || def.kind === 'divide' || def.kind === 'outline';
   if (shapes.length < 2 && !(unite && shapes[0].subpaths.length > 1)) return items;
+  // The engine leaves out operands with no area (a straight line), so it would ignore one that empties the result.
+  if (def.mode && emptyShapeModeReason(def.kind, shapes)) return [];
   const records = engineResult(def.op, shapes, [], { pending: info?.pending });
   if (records === undefined) return null;
   if (!records) return items;

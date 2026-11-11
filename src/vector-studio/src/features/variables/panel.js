@@ -29,6 +29,7 @@ import {
 } from './model.js';
 import { fitTransform } from '../panels/links.js';
 import { updateGraph } from '../graphs/graph-ops.js';
+import { VDocument } from '../../model/document.js';
 
 export const LIBRARY_FORMAT = 'vector-studio-variables';
 
@@ -44,6 +45,14 @@ async function fetchSource(app, src) {
 }
 
 const setText = (doc, node, text) => replaceIn(doc, node, 0, node.text.length, text, 'Apply Data Set');
+
+/** A document with the same content, to change without touching the original or its history. */
+function scratchCopy(doc) {
+  const copy = new VDocument();
+  for (const [id, n] of doc.nodes) copy.nodes.set(id, n);
+  copy.assets = new Map(doc.assets);
+  return copy;
+}
 
 export class VariablesPanel extends Panel {
   static id = 'variables';
@@ -211,6 +220,14 @@ export class VariablesPanel extends Panel {
   async apply(id) {
     if (!id) return false;
     const doc = this.doc;
+    const options = await this.#applyOptions(doc, id);
+    if (this.doc !== doc) return false;
+    doc.transact('Apply Data Set', () => applyDataSet(doc, id, setText, options));
+    return true;
+  }
+
+  /** What applyDataSet needs for data set `id` of `doc`: its linked files loaded, and graphs redrawn. */
+  async #applyOptions(doc, id) {
     const loaded = new Map();
     const sources = imageSources(doc, id);
     if (sources.size) {
@@ -223,7 +240,6 @@ export class VariablesPanel extends Panel {
           this.app.notify(err?.message || `Could not load ${src}.`, { error: true });
         }
       }
-      if (this.doc !== doc) return false;
     }
     const setImage = (d, node, src) => {
       const data = loaded.get(src);
@@ -232,8 +248,7 @@ export class VariablesPanel extends Panel {
       const link = /^(https?:|data:|blob:)/i.test(src) ? { source: 'url', url: src, name: src.split('/').pop() } : { source: 'puter', path: src, name: src.split('/').pop(), modified: Date.now() };
       d.update(node.id, { asset: data.assetId, width: data.width, height: data.height, transform: fitTransform(node, data.width, data.height, this.app.prefs.get('linkPlacement') || 'fit'), link });
     };
-    doc.transact('Apply Data Set', () => applyDataSet(doc, id, setText, { setImage, setGraph: (d, gid, cells) => updateGraph(d, gid, { data: cells }) }));
-    return true;
+    return { setImage, setGraph: (d, gid, cells) => updateGraph(d, gid, { data: cells }) };
   }
 
   menu() {
@@ -338,7 +353,7 @@ export class VariablesPanel extends Panel {
   }
 
   importData() {
-    const input = h('input', { type: 'file', accept: '.csv,text/csv', hidden: true });
+    const input = h('input', { type: 'file', accept: '.csv,.tsv,.txt,text/csv,text/tab-separated-values', hidden: true });
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
       input.remove();
@@ -360,7 +375,11 @@ export class VariablesPanel extends Panel {
     input.click();
   }
 
-  /** Apply each data set in turn and export the active artboard, then restore. */
+  /**
+   * Export the active artboard once per data set. Each data set is applied
+   * to a scratch copy of the document, so the artwork, its undo history and
+   * edits made meanwhile are left alone.
+   */
   async exportEach() {
     const app = this.app;
     const ed = app.editor;
@@ -373,20 +392,21 @@ export class VariablesPanel extends Panel {
     });
     if (!v) return;
     const doc = ed.doc;
-    const original = doc.root.dataSet;
+    const artboard = ed.activeArtboard;
     const files = [];
     try {
       for (const ds of dataSetsOf(doc)) {
-        doc.transact('Apply Data Set', () => applyDataSet(doc, ds.id, setText));
+        const copy = scratchCopy(doc);
+        const options = await this.#applyOptions(copy, ds.id);
+        copy.transact('Apply Data Set', () => applyDataSet(copy, ds.id, setText, options));
+        const view = { doc: copy, activeArtboard: artboard, artboard: (i = artboard) => copy.artboards[Math.min(i, copy.artboards.length - 1)] || null };
         const base = safeFileName(ds.name, 'Data Set');
-        if (v.format === 'svg') files.push({ name: `${base}.svg`, blob: new Blob([await app.exporters.svg(ed, {})], { type: 'image/svg+xml' }) });
-        else if (v.format === 'pdf') files.push({ name: `${base}.pdf`, blob: new Blob([await app.exporters.pdf(ed, {})], { type: 'application/pdf' }) });
-        else files.push({ name: `${base}.png`, blob: await app.exporters.raster(ed, { format: 'png', scale: 1 }) });
+        if (v.format === 'svg') files.push({ name: `${base}.svg`, blob: new Blob([await app.exporters.svg(view, {})], { type: 'image/svg+xml' }) });
+        else if (v.format === 'pdf') files.push({ name: `${base}.pdf`, blob: new Blob([await app.exporters.pdf(view, {})], { type: 'application/pdf' }) });
+        else files.push({ name: `${base}.png`, blob: await app.exporters.raster(view, { format: 'png', scale: 1 }) });
       }
     } catch (err) {
       app.notify(`Export failed: ${err?.message || err}`, { error: true });
-    } finally {
-      if (original) doc.transact('Apply Data Set', () => applyDataSet(doc, original, setText));
     }
     if (files.length) {
       const msg = await deliverFiles(app, files, { zip: v.zip, zipName: `${safeFileName(ed.name || 'Data Sets')}.zip` });

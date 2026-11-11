@@ -528,7 +528,7 @@ export class DimensionTool extends Tool {
     const orient = pk.kind === 'linear' ? (s.orient === 'auto' ? 'aligned' : s.orient) : pk.kind === 'radial' ? s.radial : undefined;
     const node = createDimension(pk.kind, { p1: strip(pts.p1), p2: strip(pts.p2), ...(pts.vertex ? { vertex: strip(pts.vertex) } : {}) }, { orient, attach, dim: newDimOptions(this.app) });
     pk.tx = doc.begin(`${KIND_LABELS[pk.kind]} Dimension`);
-    doc.insert(node, ed.targetLayer().id);
+    ed.insertDrawn(node);
     pk.id = node.id;
     pk.phase = 'place';
     pk.auto = pk.kind === 'linear' && s.orient === 'auto';

@@ -205,7 +205,7 @@ export class FlareTool extends Tool {
         d.tx = doc.begin('Flare');
         const color = editor.style.fill?.type === 'solid' ? editor.style.fill.color : FLARE_DEFAULTS.color;
         const f = createFlare(d.x0, d.y0, { ...o, color, center: { ...o.center, diameter } });
-        doc.insert(f, editor.targetLayer().id);
+        editor.insertDrawn(f);
         d.id = f.id;
         editor.select([f.id]);
       }
@@ -238,7 +238,7 @@ export class FlareTool extends Tool {
       let id;
       editor.doc.transact('Flare', () => {
         const f = createFlare(d.x0, d.y0, { ...opts, color });
-        editor.doc.insert(f, editor.targetLayer().id);
+        editor.insertDrawn(f);
         id = f.id;
       });
       editor.select([id]);

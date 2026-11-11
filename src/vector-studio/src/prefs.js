@@ -38,7 +38,10 @@ export class Prefs extends Emitter {
     this.values = { ...DEFAULT_PREFS };
     try {
       const raw = storage?.getItem(KEY);
-      if (raw) Object.assign(this.values, JSON.parse(raw));
+      const stored = raw ? JSON.parse(raw) : null;
+      if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+        for (const [k, v] of Object.entries(stored)) if (k !== '__proto__' && fits(k, v)) this.values[k] = v;
+      }
       if (migrate(this.values)) this.save();
     } catch {
       // Corrupt or unavailable storage: keep defaults.
@@ -52,17 +55,47 @@ export class Prefs extends Emitter {
   set(key, value) {
     if (this.values[key] === value) return;
     this.values[key] = value;
-    this.save();
+    this.save(key);
     this.emit('change', { key, value });
   }
 
-  save() {
+  /**
+   * Write the preferences; with `key`, only that one changes in storage, so
+   * what another window saved since this one loaded is kept, not reverted.
+   */
+  save(key = null) {
     try {
-      this.storage?.setItem(KEY, JSON.stringify(this.values));
+      let out = this.values;
+      if (key != null) {
+        let stored = null;
+        try {
+          stored = JSON.parse(this.storage?.getItem(KEY) || 'null');
+        } catch {
+          // Unreadable: write this window's values.
+        }
+        if (stored && typeof stored === 'object' && !Array.isArray(stored)) out = { ...stored, [key]: this.values[key] };
+      }
+      this.storage?.setItem(KEY, JSON.stringify(out));
     } catch {
       // Quota or privacy mode: preferences just will not persist.
     }
   }
+}
+
+/**
+ * A stored value can stand in for a default of the same kind: a damaged or
+ * hand-edited entry (a number that is text, a list that is null) falls back
+ * to the default instead of feeding NaN into nudges and lists into crashes.
+ * Keys without a default here (feature preferences) are kept as stored.
+ */
+function fits(key, value) {
+  if (!(key in DEFAULT_PREFS)) return true;
+  const d = DEFAULT_PREFS[key];
+  if (d === null) return true;
+  if (key === 'toolbarColumns') return value === 'auto' || value === 1 || value === 2;
+  if (typeof d === 'number') return Number.isFinite(value);
+  if (Array.isArray(d)) return Array.isArray(value);
+  return typeof value === typeof d;
 }
 
 // Keys (and the Preferences section id) under the names used by earlier versions.

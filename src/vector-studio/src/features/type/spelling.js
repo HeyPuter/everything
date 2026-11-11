@@ -26,7 +26,8 @@ export const DEFAULT_SPELL_OPTIONS = Object.freeze({
   ignoreRoman: true, // skip Roman numerals
 });
 
-const WORD_RE = /[\p{L}\p{N}]+(?:['\u2019][\p{L}]+)*/gu;
+// Combining marks belong to their letters (decomposed text, as pasted from macOS file names or PDFs).
+const WORD_RE = /[\p{L}\p{N}][\p{L}\p{M}\p{N}]*(?:['\u2019]\p{L}[\p{L}\p{M}]*)*/gu;
 const ROMAN = /^(?=[MDCLXVI])M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/;
 
 const ignoredAll = new Set(); // Ignore All, for this session
@@ -72,7 +73,7 @@ export function findIssues(text, speller, opts = DEFAULT_SPELL_OPTIONS, accept =
       /^\p{N}+$/u.test(word);
     if (o.repeated && prev && prev.word.toLowerCase() === word.toLowerCase() && /^[ \t\u00a0]+$/.test(s.slice(prev.end, w.start)) && !/\p{N}/u.test(word)) {
       out.push({ start: w.start, end: w.end, word, kind: 'repeated', from: prev.end });
-    } else if (!skip && !accept(word) && !speller.correct(word, { matchCase: o.matchCase })) {
+    } else if (!skip && !accept(word) && !accept(word.normalize('NFC')) && !speller.correct(word.normalize('NFC'), { matchCase: o.matchCase })) {
       out.push({ ...w, kind: 'spelling' });
     }
     prev = w;
@@ -307,7 +308,7 @@ export async function openCheckSpelling(app) {
       bChangeAll.disabled = true;
     } else {
       status.textContent = `Not in the dictionary: \u201c${issue.word}\u201d`;
-      const sug = (loadedSpeller(issue.dict) || speller).suggest(issue.word);
+      const sug = (loadedSpeller(issue.dict) || speller).suggest(issue.word.normalize('NFC'));
       list.replaceChildren(...(sug.length ? sug.map((w, i) => h('div.sp-item', { role: 'option', 'aria-selected': String(i === 0), 'data-value': w }, w)) : [h('div.sp-empty', 'No suggestions')]));
       changeTo.value = sug[0] || issue.word;
     }

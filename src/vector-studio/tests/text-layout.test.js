@@ -180,4 +180,20 @@ describe('vertical and path type', () => {
     const short = createText('a long text that cannot fit', 0, 0, { kind: 'path', pathAnchors: [anchors[0], { ...anchors[1], y: 20, iy: 20, oy: 20 }] });
     expect(layoutText(short).overflow).toBe(true);
   });
+
+  it('draws an emoji or a letter with its marks as one glyph on a path and in vertical type', () => {
+    const anchors = [
+      { x: 0, y: 0, ix: 0, iy: 0, ox: 0, oy: 0 },
+      { x: 600, y: 0, ix: 600, iy: 0, ox: 600, oy: 0 },
+    ];
+    const text = 'a\u{1F600}b cafe\u0301';
+    for (const extra of [{ kind: 'path', pathAnchors: anchors, pathClosed: false }, { kind: 'area', vertical: true, width: 40, height: 600 }]) {
+      const lay = layoutText(createText(text, 0, 0, extra));
+      const strs = glyphPlacements(lay).map((g) => g.ch);
+      expect(strs).toEqual(['a', '\u{1F600}', 'b', 'c', 'a', 'f', 'e\u0301']);
+      // The second code unit of each cluster takes no room.
+      expect(lay.chars.adv[2]).toBe(0);
+      expect(lay.chars.adv[9]).toBe(0);
+    }
+  });
 });

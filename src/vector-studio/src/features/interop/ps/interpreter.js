@@ -81,6 +81,14 @@ class GS {
   }
 }
 
+/**
+ * Largest string or array a program may allocate, the bytes all its string
+ * and array allocations may add up to, and the deepest dictionary stack.
+ */
+const MAX_COMPOSITE = 0xffffff;
+const MAX_VM = 1 << 28;
+const MAX_DICT_STACK = 250;
+
 /** Convert a PostScript object to the PDF object model (for shadings and functions). */
 function toPDF(v, depth = 0) {
   if (depth > 12) return null;
@@ -112,6 +120,7 @@ export class PSInterpreter {
     this.families = familyMatcher(opts.families);
     this.ops = 0;
     this.maxOps = opts.maxOps || 3_000_000;
+    this.vm = 0;
     this.depth = 0;
     this.pages = 0;
     this.gs = new GS(opts.base || [1, 0, 0, -1, 0, 792]);
@@ -542,8 +551,14 @@ export class PSInterpreter {
       S.push(new PSString(str.bytes, str.off, Math.min(t.length, str.len)));
     });
     // composite objects
-    d('string', () => S.push(new PSString(new Uint8Array(Math.max(0, S.int())))));
-    d('array', () => S.push(new PSArray(new Array(Math.max(0, S.int())).fill(null))));
+    // Allocations past the limits are VMerrors (as on a printer): they would exhaust or crash the tab.
+    const size = (op, bytesEach) => {
+      const n = Math.max(0, S.int());
+      if (n > MAX_COMPOSITE || (S.vm += n * bytesEach) > MAX_VM) throw new PSError('VMerror', op);
+      return n;
+    };
+    d('string', () => S.push(new PSString(new Uint8Array(size('string', 1)))));
+    d('array', () => S.push(new PSArray(new Array(size('array', 8)).fill(null))));
     d('dict', () => (S.pop(), S.push(new PSDict())));
     d('length', () => {
       const v = S.pop();
@@ -598,6 +613,8 @@ export class PSInterpreter {
     d('begin', () => {
       const v = S.pop();
       if (!(v instanceof PSDict)) throw new PSError('typecheck', 'begin');
+      // Name lookup walks the dictionary stack: an unbounded one makes every lookup slower.
+      if (S.ds.length >= MAX_DICT_STACK) throw new PSError('dictstackoverflow', 'begin');
       S.ds.push(v);
     });
     d('end', () => {
@@ -1262,7 +1279,7 @@ export class PSInterpreter {
     d('colorimage', () => S.image('colorimage'));
     // errors: let handlers be called by name
     d('handleerror', () => {});
-    for (const n of ['undefined', 'typecheck', 'rangecheck', 'stackunderflow', 'invalidaccess', 'undefinedresult', 'limitcheck', 'nocurrentpoint', 'unmatchedmark', 'ioerror', 'syntaxerror', 'invalidfont', 'undefinedresource', 'VMerror', 'interrupt', 'timeout', 'dictstackunderflow', 'execstackoverflow', 'invalidexit', 'invalidfileaccess', 'invalidrestore', 'unregistered', 'configurationerror']) {
+    for (const n of ['undefined', 'typecheck', 'rangecheck', 'stackunderflow', 'invalidaccess', 'undefinedresult', 'limitcheck', 'nocurrentpoint', 'unmatchedmark', 'ioerror', 'syntaxerror', 'invalidfont', 'undefinedresource', 'VMerror', 'interrupt', 'timeout', 'dictstackunderflow', 'dictstackoverflow', 'execstackoverflow', 'invalidexit', 'invalidfileaccess', 'invalidrestore', 'unregistered', 'configurationerror']) {
       errordict.set(n, new PSOp(n, () => {
         throw new Stop();
       }));

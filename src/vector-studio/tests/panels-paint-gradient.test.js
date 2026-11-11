@@ -106,6 +106,86 @@ describe('Gradient panel', () => {
     menuItem(p, 'Hide Options').run();
     expect(p.options.hidden).toBe(true);
   });
+
+  it('keeps the same stop selected when its Location moves it past another stop', async () => {
+    const { ed, add, panel } = await paintSetup();
+    const stops = [{ offset: 0, color: '#ff0000', opacity: 1 }, { offset: 0.5, color: '#00ff00', opacity: 1 }, { offset: 1, color: '#0000ff', opacity: 1 }];
+    const id = add({ fill: { type: 'linear', angle: 0, stops } });
+    ed.select([id]);
+    const p = panel('gradient');
+    paintState.setStop(0);
+    p.update();
+    const input = p.location.el.querySelector('input');
+    input.focus();
+    input.value = '75';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    input.blur();
+    expect(ed.doc.get(id).fill.stops.map((s) => s.color)).toEqual(['#00ff00', '#ff0000', '#0000ff']);
+    p.update();
+    expect(p.slider.selected).toBe(1);
+    expect(input.value).toBe('75%');
+    paintState.setStop(0);
+  });
+
+  it('keeps the dragged stop selected while it passes another stop', async () => {
+    const { ed, add, panel } = await paintSetup();
+    const stops = [{ offset: 0, color: '#ff0000', opacity: 1 }, { offset: 0.5, color: '#00ff00', opacity: 1 }, { offset: 1, color: '#0000ff', opacity: 1 }];
+    const id = add({ fill: { type: 'linear', angle: 0, stops } });
+    ed.select([id]);
+    const p = panel('gradient');
+    paintState.setStop(0);
+    p.update();
+    const proto = Element.prototype;
+    const had = proto.setPointerCapture;
+    proto.setPointerCapture = () => {};
+    // The bar has no layout in jsdom: its width counts as 1px, so clientX is the fraction.
+    const stop = p.slider.el.querySelectorAll('.gs-stop')[0];
+    stop.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 }));
+    stop.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 0.75, clientY: 0 }));
+    expect(ed.doc.get(id).fill.stops[1].color).toBe('#ff0000');
+    expect(p.slider.selected).toBe(1);
+    expect(p.location.input.value).toBe('75%');
+    stop.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 0.75, clientY: 0 }));
+    expect(p.slider.selected).toBe(1);
+    if (had) proto.setPointerCapture = had;
+    else delete proto.setPointerCapture;
+    paintState.setStop(0);
+  });
+});
+
+describe('Gradient tool', () => {
+  it('applies a gradient and sets its vector in one undo step', async () => {
+    const { app, ed, add } = await paintSetup();
+    const id = add({ fill: { type: 'solid', color: '#ff0000' } }, [0, 0, 100, 100]);
+    ed.select([]);
+    app.setTool('gradient');
+    const tool = app.getTool('gradient');
+    const ev = (x, y) => {
+      const s = ed.view.toScreen(x, y);
+      return { x, y, sx: s.x, sy: s.y, shift: false, alt: false };
+    };
+    const steps = ed.doc.undoStack.length;
+    tool.onPointerDown(ev(10, 50));
+    tool.onPointerMove(ev(50, 50));
+    tool.onPointerMove(ev(90, 50));
+    tool.onPointerUp(ev(90, 50));
+    expect(ed.doc.get(id).fill).toMatchObject({ type: 'linear', x1: 10, x2: 90 });
+    expect(ed.doc.undoStack.length).toBe(steps + 1);
+    ed.doc.undo();
+    expect(ed.doc.get(id).fill).toEqual({ type: 'solid', color: '#ff0000' });
+    // A click without a drag still applies the gradient (one step).
+    tool.onPointerDown(ev(50, 50));
+    tool.onPointerUp(ev(50, 50));
+    expect(ed.doc.get(id).fill.type).toBe('linear');
+    expect(ed.doc.undoStack.at(-1).label).toBe('Apply Gradient');
+    // Escape mid-drag cancels the whole gesture.
+    ed.doc.undo();
+    tool.onPointerDown(ev(10, 50));
+    tool.onPointerMove(ev(60, 50));
+    tool.onKeyDown({ key: 'Escape' });
+    expect(ed.doc.get(id).fill).toEqual({ type: 'solid', color: '#ff0000' });
+    expect(ed.doc.tx).toBe(null);
+  });
 });
 
 describe('Freeform gradients on the canvas', () => {
@@ -163,5 +243,28 @@ describe('Stroke panel menu', () => {
     expect(p.weight.el.isConnected).toBe(true);
     expect(app.prefs.get('strokeOptions')).toBe(false);
     expect(menuItem(p, 'Show Options')).toBeTruthy();
+  });
+});
+
+describe('Stroke panel dash fields', () => {
+  it('keeps dashes and gaps at least 0.01 pt so they show as typed and cannot freeze Outline Stroke', async () => {
+    const { panel, add, ed, doc } = await paintSetup();
+    const id = add({ fill: null, stroke: solid('#000000'), strokeWidth: 1, dash: [4, 2] });
+    ed.select([id]);
+    const p = panel('stroke');
+    const [dash, gap] = p.dashInputs;
+    dash.value = '0.0001';
+    dash.dispatchEvent(new Event('change'));
+    expect(doc.get(id).dash).toEqual([0.01, 2]);
+    p.update();
+    expect(dash.value).toBe('0.01 pt');
+    // Re-committing the shown values keeps the dash (it used to show "0 pt" and turn into a zero-length dash).
+    gap.value = '0.0001';
+    gap.dispatchEvent(new Event('change'));
+    expect(doc.get(id).dash).toEqual([0.01, 0.01]);
+    // Zero stays zero: a dotted line.
+    dash.value = '0';
+    dash.dispatchEvent(new Event('change'));
+    expect(doc.get(id).dash).toEqual([0, 0.01]);
   });
 });

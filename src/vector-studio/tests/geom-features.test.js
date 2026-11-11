@@ -4,7 +4,7 @@ import path from 'node:path';
 import { setGeomSource, runGeom, OP } from '../src/features/geometry/engine/index.js';
 import { VDocument } from '../src/model/document.js';
 import { Editor } from '../src/editor.js';
-import { createPath, createCompound } from '../src/model/nodes.js';
+import { createPath, createCompound, createGroup } from '../src/model/nodes.js';
 import { rectangle, ellipse, polygon } from '../src/model/shapes.js';
 import { flattenPath, anchor } from '../src/model/bezier.js';
 import { runPathfinder, buildResults, canRun } from '../src/features/geometry/pathfinder.js';
@@ -12,6 +12,9 @@ import { shapeBuilderPlan, splitPathAt, joinEnds } from '../src/features/geometr
 import { addMidpoints, removeAnchorsKeepingShape, fitPolygon } from '../src/features/geometry/anchors.js';
 import { recognizeShape, gridCells, cleanUpTargets, outlineStroke, divideBelow, simplifySubpaths, addAnchorPoints, strokeParams } from '../src/features/geometry/path-ops.js';
 import { geometryLeaves, nodeFromSubpaths } from '../src/features/geometry/nodes-io.js';
+import { MAX_DASHES, MAX_DASH_WORK, strokeWork } from '../src/features/geometry/stroke-params.js';
+import { makeBlend, replaceSpine } from '../src/features/artboards/blend.js';
+import { liveDef } from '../src/model/live.js';
 
 beforeAll(() => {
   setGeomSource(fs.readFileSync(path.resolve(__dirname, '../src/wasm/geom.wasm')));
@@ -59,6 +62,61 @@ describe('Pathfinder on documents', () => {
     expect(app.lastPathfinder).toBe('unite');
     doc.undo();
     expect(doc.get(layer.id).children).toEqual([a.id, b.id]);
+  });
+
+  it('does not combine the keys of a selected blend, which would break it', async () => {
+    const a = createPath(rectangle(0, 0, 10, 10), true, { fill: solid('#ff0000') });
+    const b = createPath(rectangle(100, 0, 10, 10), true, { fill: solid('#0000ff') });
+    const { doc, editor, app, layer } = setup([a, b]);
+    let g;
+    doc.transact('blend', () => {
+      g = makeBlend(doc, [a.id, b.id]);
+    });
+    editor.select([g]);
+    expect(canRun(editor, 'unite')).toBe(false);
+    expect(await runPathfinder(app, 'unite')).toBe(false);
+    expect(app.notify).toHaveBeenCalledWith('Unite works on paths. Expand the blend first (Object > Expand).');
+    expect(doc.get(g).children).toEqual([a.id, b.id]);
+    // With other paths selected too, the blend is left alone.
+    const c = createPath(rectangle(0, 50, 10, 10), true, { fill: solid('#00ff00') });
+    const d = createPath(rectangle(5, 55, 10, 10), true, { fill: solid('#00ff00') });
+    doc.transact('more', () => [c, d].forEach((n) => doc.insert(n, layer.id)));
+    editor.select([g, c.id, d.id]);
+    expect(await runPathfinder(app, 'unite')).toBe(true);
+    expect(doc.get(g).children).toEqual([a.id, b.id]);
+  });
+
+  it('treats a straight open line as having no area in Intersect, Minus Front and Minus Back', async () => {
+    const mk = () => ({
+      rect: createPath(rectangle(0, 0, 100, 100), true, { fill: solid('#ff0000') }),
+      line: createPath([anchor(-20, 50), anchor(120, 50)], false, { fill: null, stroke: solid('#000000'), strokeWidth: 1 }),
+    });
+    // [kind, line in front?, expected result]
+    const cases = [
+      ['intersect', true, 'none'],
+      ['intersect', false, 'none'],
+      ['minusBack', true, 'none'],
+      ['minusFront', false, 'none'],
+      ['minusBack', false, 'rect'],
+      ['minusFront', true, 'rect'],
+      ['unite', true, 'rect'],
+    ];
+    for (const [kind, lineFront, expected] of cases) {
+      const { rect, line } = mk();
+      const { doc, editor, app, layer } = setup(lineFront ? [rect, line] : [line, rect]);
+      editor.select([rect.id, line.id]);
+      const ok = await runPathfinder(app, kind);
+      const kids = doc.get(layer.id).children;
+      if (expected === 'none') {
+        expect(ok, kind).toBe(false);
+        expect(app.notify.mock.calls[0][0], kind).toMatch(/produced no shapes: .* path has no area\.$/);
+        expect(kids, kind).toHaveLength(2);
+      } else {
+        expect(ok, kind).toBe(true);
+        expect(kids, kind).toHaveLength(1);
+        expect(areaOf(doc.get(kids[0]).anchors), kind).toBeCloseTo(10000, 0);
+      }
+    }
   });
 
   it('Minus Front keeps the backmost style and makes a compound path for holes', async () => {
@@ -290,6 +348,30 @@ describe('path commands', () => {
     expect(cleanUpTargets(doc, { stray: false, unpainted: true, emptyText: true })).toEqual([unpainted.id]);
   });
 
+  it('Clean Up keeps blend spines and objects painted only by their appearance stack', () => {
+    const a = createPath(rectangle(0, 0, 10, 10), true);
+    const b = createPath(rectangle(100, 0, 10, 10), true);
+    const spine = createPath([anchor(5, 5), anchor(105, 5)], false, { stroke: solid('#000000') });
+    const stacked = createPath(rectangle(0, 50, 10, 10), true, { fill: null, stroke: null, appearance: [{ type: 'fill', fill: solid('#00ff00') }] });
+    const unpainted = createPath(rectangle(0, 80, 5, 5), true, { fill: null, stroke: null });
+    const { doc } = setup([a, b, spine, stacked, unpainted]);
+    doc.transact('blend', () => {
+      const g = makeBlend(doc, [a.id, b.id]);
+      replaceSpine(doc, g, spine.id);
+    });
+    expect(doc.get(spine.id).blendSpine).toBe(true);
+    expect(cleanUpTargets(doc)).toEqual([unpainted.id]);
+    // Inside a group that only carries an appearance, stray points are still found.
+    const stray = createPath([anchor(1, 1)], false);
+    const g = createGroup([], { appearance: [{ type: 'contents' }, { type: 'stroke', stroke: solid('#000000'), strokeWidth: 2 }] });
+    doc.transact('group', () => {
+      doc.insert(g, doc.layers()[0].id);
+      doc.insert(stray, g.id);
+    });
+    expect(liveDef(doc.get(g.id))?.key).toBe('appearance');
+    expect(cleanUpTargets(doc).sort()).toEqual([unpainted.id, stray.id].sort());
+  });
+
   it('Outline Stroke turns a stroked filled path into a group of fill and stroke shapes', async () => {
     const p = createPath(rectangle(0, 0, 100, 100), true, { fill: solid('#ff0000'), stroke: solid('#0000ff'), strokeWidth: 10 });
     const { doc, editor, app, layer } = setup([p]);
@@ -304,6 +386,54 @@ describe('path commands', () => {
     expect(stroke.type).toBe('compound');
     expect(stroke.fill.color).toBe('#0000ff');
     expect(stroke.stroke).toBe(null);
+  });
+
+  it('Outline Stroke keeps the dots of a dotted line (zero-length dashes with round caps)', async () => {
+    const p = createPath([anchor(0, 0), anchor(100, 0)], false, { fill: null, stroke: solid('#0000ff'), strokeWidth: 10, strokeCap: 'round', dash: [0, 20] });
+    const { doc, editor, app, layer } = setup([p]);
+    editor.select([p.id]);
+    await outlineStroke(app);
+    const dots = doc.get(doc.get(layer.id).children[0]);
+    expect(dots.type).toBe('compound');
+    expect(dots.fill.color).toBe('#0000ff');
+    const kids = dots.children.map((c) => doc.get(c));
+    expect(kids).toHaveLength(5);
+    for (const k of kids) expect(areaOf(k.anchors)).toBeCloseTo(Math.PI * 25, 0);
+    // Butt caps draw nothing for zero-length dashes; an all-zero pattern stays solid.
+    expect(strokeParams({ ...p, strokeCap: 'butt' }).slice(6)).toEqual([0, 20]);
+    expect(strokeParams({ ...p, dash: [0, 0] }).slice(6)).toEqual([0, 0]);
+  });
+
+  it('Outline Stroke caps the number of dashes so a tiny dash cannot freeze the app', async () => {
+    const p = createPath([anchor(0, 0), anchor(100, 0)], false, { fill: null, stroke: solid('#0000ff'), strokeWidth: 1, dash: [0.0001, 0.0001] });
+    const { doc, editor, app, layer } = setup([p]);
+    editor.select([p.id]);
+    await outlineStroke(app);
+    const dashes = doc.get(doc.get(layer.id).children[0]);
+    expect(dashes.type).toBe('compound');
+    expect(dashes.children.length).toBeGreaterThan(MAX_DASHES * 0.9);
+    expect(dashes.children.length).toBeLessThanOrEqual(MAX_DASHES + 1);
+    // The pattern keeps its proportions; patterns within the limit are unchanged.
+    const subs = [{ anchors: p.anchors, closed: false }];
+    const [d1, d2] = strokeParams(p, null, subs).slice(6);
+    expect(d1).toBeCloseTo(d2, 9);
+    expect(d1 + d2).toBeCloseTo(100 / MAX_DASHES, 6);
+    expect(strokeParams({ ...p, dash: [3, 2] }, null, subs).slice(6)).toEqual([3, 2]);
+    // Round caps that cover every gap of a too-dense pattern draw a solid stroke: it is outlined as one.
+    const round = { ...p, strokeWidth: 2, strokeCap: 'round' };
+    expect(strokeParams(round, null, subs).slice(6)).toEqual([]);
+    expect(strokeParams({ ...round, dash: [0.01, 0.01] }, null, subs).slice(6)).toEqual([]);
+    // Overlapping caps count for more work: a pattern that does not cover its gaps is scaled up instead.
+    const wide = { ...p, strokeWidth: 10, strokeCap: 'round', dash: [0, 2] };
+    const [, gap] = strokeParams(wide, null, subs).slice(6);
+    expect(gap).toBeCloseTo(2, 9);
+    const long = [{ anchors: [anchor(0, 0), anchor(100000, 0)], closed: false }];
+    const [, scaled] = strokeParams(wide, null, long).slice(6);
+    expect(scaled).toBeGreaterThan(2);
+    expect(strokeWork(strokeParams(wide, null, long), long)).toBeLessThanOrEqual(MAX_DASH_WORK * 1.001);
+    // An ordinary dotted line stays as drawn: 5,000 dots of 10 pt every 11 pt.
+    const dotted = [{ anchors: [anchor(0, 0), anchor(55000, 0)], closed: false }];
+    expect(strokeParams({ ...wide, dash: [0, 11] }, null, dotted).slice(6)).toEqual([1e-4, 11]);
   });
 
   it('Divide Objects Below cuts the objects under the selected path', async () => {

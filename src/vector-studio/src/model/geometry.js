@@ -357,7 +357,12 @@ export function visualBounds(doc, node) {
     return b && effectsOutset(node, b) ? inflate(b, effectsOutset(node, b)) : b;
   }
   if (node.type === 'group' && node.clip && node.children.length) {
-    return nodeBounds(doc, doc.get(node.children[node.children.length - 1]));
+    // The clip shapes the contents; the group's own shadows and glows still reach past it.
+    const mask = doc.get(node.children[node.children.length - 1]);
+    let b = nodeBounds(doc, mask);
+    // A clipping path's own stroke draws on top, outside the clip.
+    if (b && mask.stroke && mask.strokeWidth > 0 && (mask.type === 'path' || mask.type === 'compound')) b = inflate(b, strokeOutset(mask));
+    return b && effectsOutset(node, b) ? inflate(b, effectsOutset(node, b)) : b;
   }
   let b = null;
   for (const c of node.children || []) {

@@ -88,6 +88,22 @@ function categoryOf(u) {
   return null;
 }
 
+/**
+ * SVG path data rounded to 2 decimals. opentype.js's toPathData rounds a
+ * value a hair off a whole number (7.00000002) to NaN.
+ */
+function pathData(path) {
+  const n = (v) => String(Math.round(v * 100) / 100);
+  let d = '';
+  for (const c of path.commands) {
+    if (c.type === 'M' || c.type === 'L') d += `${c.type}${n(c.x)} ${n(c.y)}`;
+    else if (c.type === 'Q') d += `Q${n(c.x1)} ${n(c.y1)} ${n(c.x)} ${n(c.y)}`;
+    else if (c.type === 'C') d += `C${n(c.x1)} ${n(c.y1)} ${n(c.x2)} ${n(c.y2)} ${n(c.x)} ${n(c.y)}`;
+    else if (c.type === 'Z') d += 'Z';
+  }
+  return d;
+}
+
 /** SVG markup of a glyph fitted to a cell of `size` px. */
 export function glyphSvg(font, glyphIndex, size) {
   const g = font.glyphs.get(glyphIndex);
@@ -100,7 +116,7 @@ export function glyphSvg(font, glyphIndex, size) {
   const bb = path?.getBoundingBox();
   const ink = bb && Number.isFinite(bb.x1) && bb.x2 > bb.x1 ? bb : null;
   const x = ink ? size / 2 - (ink.x1 + ink.x2) / 2 : (size - ((g?.advanceWidth || 0) / font.unitsPerEm) * em) / 2;
-  const d = g ? g.getPath(x, base, em).toPathData(2) : '';
+  const d = g ? pathData(g.getPath(x, base, em)) : '';
   return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true" focusable="false"><path d="${d}" fill="currentColor"/></svg>`;
 }
 

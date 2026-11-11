@@ -510,9 +510,18 @@
 
 /* ---- Narrow screens ---- */
 @media (max-width: 760px) {
-  .collab-status-text,
-  .collab-share-label {
+  .collab-status-text {
     display: none;
+  }
+
+  /* Visually hidden, but still the Share button's accessible name. */
+  .collab-share-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   .collab-status {

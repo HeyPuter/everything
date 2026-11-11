@@ -327,7 +327,8 @@ export class SymbolSprayerTool extends SymbolismTool {
     const ed = this.editor;
     const doc = ed.doc;
     if (this.stroke.set && doc.has(this.stroke.set)) return this.stroke.set;
-    const set = doc.insert(createSymbolSet([]), ed.targetLayer().id);
+    const t = ed.drawTarget();
+    const set = doc.insert(createSymbolSet([]), t.parentId, t.index);
     this.stroke.set = set.id;
     ed.select([set.id]);
     return set.id;

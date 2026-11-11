@@ -106,7 +106,16 @@ export async function editBrush(app, brushId) {
       addBrush(doc, fresh, def.id);
       brushState(app).currentId = fresh.id;
       // Apply to Selected Strokes: the selected ones move to the new brush (keeping their own overrides).
-      if (how === 'selected') for (const id of selectedUsers) doc.update(id, { brush: { ...doc.get(id).brush, id: fresh.id } });
+      if (how === 'selected') {
+        const move = (b) => (b?.id === def.id ? { ...b, id: fresh.id } : b);
+        for (const id of selectedUsers) {
+          const n = doc.get(id);
+          const patch = {};
+          if (n.brush?.id === def.id) patch.brush = move(n.brush);
+          if (n.appearance?.some((it) => it?.brush?.id === def.id)) patch.appearance = n.appearance.map((it) => (it?.type === 'stroke' && !it.base && it.brush?.id === def.id ? { ...it, brush: move(it.brush) } : it));
+          doc.update(id, patch);
+        }
+      }
     }
   });
   return true;

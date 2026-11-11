@@ -10,11 +10,29 @@ import './graph-live.js';
 import { registerGraphIcons } from './icons.js';
 import { GRAPH_TOOLS } from './graph-tools.js';
 import { GraphDataWindow } from './graph-data.js';
-import { selectedGraphs, graphOf } from './graph-ops.js';
+import { selectedGraphs, graphOf, designsFor, importDesigns } from './graph-ops.js';
 import { isGraph } from './graph-live.js';
 import { graphTypeDialog, graphDesignDialog, graphColumnDialog, graphMarkerDialog } from './graph-dialogs.js';
 import { expandLive } from '../../model/live.js';
 import { selectionDoubleClickHooks } from '../../tools/selection.js';
+import { clipboardHooks } from '../../ops/clipboard.js';
+
+/** Copied graphs carry the column and marker designs they use; paste adds the missing ones. */
+const designClipboardHook = {
+  copy(doc, ids, data) {
+    const designs = designsFor(doc, data.items.flatMap((it) => it.nodes));
+    if (!designs.length) return;
+    data.graphDesigns = designs;
+    // Images in the designs travel with them.
+    for (const d of designs) {
+      for (const n of d.nodes) if (n.type === 'image' && doc.assets.has(n.asset)) data.assets = { ...data.assets, [n.asset]: doc.assets.get(n.asset) };
+    }
+  },
+  paste(doc, data, items) {
+    if (data.graphDesigns?.length) importDesigns(doc, data.graphDesigns);
+    return items;
+  },
+};
 
 const hasGraph = (a) => selectedGraphs(a.editor).length > 0;
 
@@ -73,6 +91,8 @@ export function install(app) {
       },
     });
   }
+
+  if (!clipboardHooks.includes(designClipboardHook)) clipboardHooks.push(designClipboardHook);
 
   // Double-clicking a graph opens its data.
   if (!selectionDoubleClickHooks.includes(openDataOnDoubleClick)) selectionDoubleClickHooks.push(openDataOnDoubleClick);

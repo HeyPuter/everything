@@ -14,6 +14,8 @@ import {
   trimCells,
   valueScale,
   graphOptions,
+  dataNotes,
+  dataNotesText,
 } from '../src/features/graphs/graph-math.js';
 
 const DATA = [
@@ -91,8 +93,30 @@ describe('scales', () => {
   });
 });
 
+describe('data notes', () => {
+  it('counts cells left out of the graph: text among the values and negative pie values', () => {
+    const cells = [['', 'A', 'B'], ['Q1', '-5', 'abc'], ['Q2', '3', '-1']];
+    expect(dataNotes(cells, 'column')).toEqual({ text: 1, negative: 0 });
+    expect(dataNotes(cells, 'pie')).toEqual({ text: 1, negative: 2 });
+    expect(dataNotesText(dataNotes(cells, 'pie'))).toBe('Left out: 1 cell is not a number; 2 negative values (pie graphs show positive values only).');
+    expect(dataNotesText(dataNotes(DATA, 'column'))).toBe('');
+  });
+});
+
 describe('graph layout', () => {
   const base = { type: 'column', data: DATA, options: {}, frame: { w: 200, h: 100 } };
+
+  it('lays out every graph type with finite geometry for enormous values', () => {
+    const scale = niceScale(-1e300, 1e300);
+    expect([scale.min, scale.max, scale.step].every(Number.isFinite)).toBe(true);
+    const data = [['', 'A', 'B'], ['x', '1e308', '-1e308'], ['y', '5', '1e300']];
+    const finite = (o) => (typeof o === 'number' ? Number.isFinite(o) : !o || typeof o !== 'object' || Object.values(o).every(finite));
+    for (const type of ['column', 'stacked-column', 'bar', 'stacked-bar', 'line', 'area', 'scatter', 'pie', 'radar']) {
+      const s = layoutGraph({ ...base, type, data });
+      if (type !== 'scatter') expect(s.marks.length, type).toBeGreaterThan(0);
+      expect(finite(s.marks) && finite(s.lines) && finite(s.texts) && finite(s.bars), type).toBe(true);
+    }
+  });
 
   it('lays out grouped columns from zero', () => {
     const s = layoutGraph(base);

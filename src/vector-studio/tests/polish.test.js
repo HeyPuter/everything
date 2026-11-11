@@ -365,4 +365,77 @@ describe('responsive SVG import', () => {
     expect(document.querySelector('[role="progressbar"]')).toBeNull();
     expect(root.getAttribute('aria-busy')).toBe('false');
   });
+  it('cancels a slow import from the pill or with Escape, leaving nothing behind', async () => {
+    const { withProgress } = await import('../src/features/io/progress.js');
+    const { convertSVGAsync } = await import('../src/features/io/svg-import.js');
+    for (const how of ['click', 'escape']) {
+      const root = document.createElement('div');
+      const notes = [];
+      let stopped = null;
+      const r = await withProgress(
+        { root, notify: (m) => notes.push(m) },
+        'Importing SVG',
+        async (onProgress, signal) => {
+          let ticks = 0;
+          try {
+            return await convertSVGAsync(big(3000), {
+              slice: 0,
+              signal,
+              onProgress: () => {
+                if (++ticks !== 3) return;
+                const btn = document.querySelector('.io-progress button');
+                expect(btn.textContent).toBe('Cancel');
+                if (how === 'click') btn.click();
+                else window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+              },
+            });
+          } catch (err) {
+            stopped = { name: err.name, ticks };
+            throw err;
+          }
+        },
+        { delay: 0, cancelable: true },
+      );
+      expect(r).toBeNull();
+      // The work stopped at its next check instead of running to the end.
+      expect(stopped).toEqual({ name: 'AbortError', ticks: 3 });
+      expect(document.querySelector('.io-progress')).toBeNull();
+      expect(root.getAttribute('aria-busy')).toBe('false');
+      expect(document.body.classList.contains('io-busy')).toBe(false);
+      expect(notes).toEqual(['Importing SVG canceled.']);
+    }
+    // Without cancelable the pill has no button.
+    let btn;
+    await withProgress({ root: null }, 'Importing SVG', async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      btn = document.querySelector('.io-progress button');
+    }, { delay: 0 });
+    expect(btn).toBeNull();
+  });
+
+  it('stops opening a many-page PDF between pages when canceled', async () => {
+    const { pdfToDocument } = await import('../src/features/interop/pdf/import.js');
+    const objs = [];
+    const add = (o) => objs.push(o);
+    add('<< /Type /Catalog /Pages 2 0 R >>');
+    add('<< /Type /Pages /Kids [4 0 R 5 0 R 6 0 R] /Count 3 >>');
+    const content = '0 0 1 rg 10 10 50 50 re f\n';
+    add(`<< /Length ${content.length} >>\nstream\n${content}endstream`);
+    for (let i = 0; i < 3; i++) add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 3 0 R >>');
+    let out = '%PDF-1.4\n';
+    const offs = objs.map((o, i) => {
+      const at = out.length;
+      out += `${i + 1} 0 obj\n${o}\nendobj\n`;
+      return at;
+    });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    const bytes = Uint8Array.from(out, (c) => c.charCodeAt(0));
+    expect((await pdfToDocument(bytes)).artboards).toHaveLength(3);
+    const ctl = new AbortController();
+    const seen = [];
+    const run = pdfToDocument(bytes, { signal: ctl.signal, onProgress: (v) => (seen.push(v), ctl.abort()) });
+    await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+    expect(seen).toHaveLength(1);
+  });
 });

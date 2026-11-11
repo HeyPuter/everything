@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { bootAppWithFeatures } from './helpers.js';
-import { createPath, defaultLabel } from '../src/model/nodes.js';
+import { createPath, createImage, defaultLabel } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { nodeBounds, transformNodes } from '../src/model/geometry.js';
 import { hitTest } from '../src/render/hit.js';
@@ -139,6 +139,43 @@ describe('graphs in the document', () => {
     expect(li.filter((n) => n.type === 'group' && n.source === g.children[0]).length).toBe(4 + 1);
   });
 
+  it('a graph pasted into another document brings its column design along', async () => {
+    const doc = app.editor.doc;
+    const art = createPath(rectangle(0, 0, 10, 20), true, { fill: { type: 'solid', color: '#ff0000' } });
+    // The design includes an image, which goes along with it.
+    doc.assets.set('design-img', { mime: 'image/png', data: 'data:image/png;base64,AAAA' });
+    const pic = createImage('design-img', 10, 5, [1, 0, 0, 1, 0, 0]);
+    doc.transact('Art', () => {
+      doc.insert(art, app.editor.targetLayer().id);
+      doc.insert(pic, app.editor.targetLayer().id);
+    });
+    let design;
+    doc.transact('Design', () => (design = addDesign(doc, [art.id, pic.id], 'Bar')));
+    const g = makeGraph(app);
+    doc.transact('Column', () => setSeriesOption(doc, [{ graph: doc.get(g.id), index: 0 }], 'column', { design: design.id, mode: 'repeat', unit: 1, fraction: 'scale' }));
+    const designed = (d, n) => liveArtwork(d, n).items.filter((v) => v.type === 'group' && v.source === n.children[0]).length;
+    const before = designed(doc, doc.get(g.id));
+    app.editor.select([g.id]);
+    app.commands.run('edit.copy');
+    app.newDocument();
+    // The other document has its own design named Bar: the pasted one is renamed, not merged.
+    const d2 = app.editor.doc;
+    const own = createPath(rectangle(0, 0, 5, 5), true, { fill: { type: 'solid', color: '#0000ff' } });
+    d2.transact('Art', () => d2.insert(own, app.editor.targetLayer().id));
+    d2.transact('Design', () => addDesign(d2, [own.id], 'Bar'));
+    await app.commands.run('edit.paste');
+    const pasted = d2.get(app.editor.topSelection()[0]);
+    expect(designed(d2, pasted)).toBe(before);
+    expect(d2.root.graphDesigns.map((x) => x.name)).toEqual(['Bar', 'Bar 2']);
+    expect(d2.assets.get('design-img')).toEqual(doc.assets.get('design-img'));
+    // Pasting again reuses the design; undo takes the design back with the graph.
+    await app.commands.run('edit.paste');
+    expect(d2.root.graphDesigns).toHaveLength(2);
+    d2.undo();
+    d2.undo();
+    expect(d2.root.graphDesigns).toHaveLength(1);
+  });
+
   it('graph tool drag creates a graph and opens the data window', async () => {
     app.setTool('graph-column');
     const t = app.tool;
@@ -170,6 +207,64 @@ describe('graphs in the document', () => {
     expect(app.graphData.data[5]).toEqual(['Q5', '7', '8']);
     win.querySelector('.gd-close').click();
     await tick();
+    expect(document.querySelector('.graph-data')).toBeNull();
+  });
+
+  it('closing the Graph Data window with Escape puts focus back on the canvas', async () => {
+    const g = makeGraph(app);
+    app.canvasHost.focus();
+    app.graphData.show(g.id);
+    const win = document.querySelector('.graph-data');
+    expect(win.contains(document.activeElement)).toBe(true);
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await tick();
+    expect(document.querySelector('.graph-data')).toBeNull();
+    expect(document.activeElement).toBe(app.canvasHost);
+  });
+
+  it('the Graph Data window follows undo, and edits stay with their own document', async () => {
+    const g = makeGraph(app);
+    const doc = app.editor.doc;
+    app.graphData.show(g.id);
+    const win = document.querySelector('.graph-data');
+    const cell = (r, c) => win.querySelector(`input[data-r="${r}"][data-c="${c}"]`);
+    cell(1, 1).value = '9';
+    cell(1, 1).dispatchEvent(new Event('input'));
+    app.graphData.apply();
+    expect(doc.get(g.id).live.data[1][1]).toBe('9');
+    expect(win.querySelector('.gd-status').textContent).toBe('Applied.');
+    // Undo takes the graph back to 3: the window shows that, so a later Apply does not redo it.
+    doc.undo();
+    expect(cell(1, 1).value).toBe('3');
+    cell(2, 1).value = '7';
+    cell(2, 1).dispatchEvent(new Event('input'));
+    cell(2, 2).value = 'n/a';
+    cell(2, 2).dispatchEvent(new Event('input'));
+    app.graphData.apply();
+    expect(doc.get(g.id).live.data[1][1]).toBe('3');
+    expect(doc.get(g.id).live.data[2][1]).toBe('7');
+    // A cell the graph cannot use is reported, not dropped silently.
+    expect(win.querySelector('.gd-status').textContent).toBe('Applied. Left out: 1 cell is not a number.');
+    // Unapplied edits are kept through other changes to the document.
+    cell(3, 1).value = '1';
+    cell(3, 1).dispatchEvent(new Event('input'));
+    doc.transact('Rect', () => doc.insert(createPath(rectangle(0, 0, 5, 5), true), app.editor.targetLayer().id));
+    expect(cell(3, 1).value).toBe('1');
+    // Switching to another document applies to the graph the window was editing.
+    const first = app.editor;
+    app.newDocument();
+    expect(app.editor).not.toBe(first);
+    app.graphData.apply();
+    expect(doc.get(g.id).live.data[3][1]).toBe('1');
+    expect(doc.undoLabel).toBe('Graph Data');
+    // Deleting the graph closes a window without edits.
+    first.doc.transact('Delete', () => first.doc.remove(g.id));
+    expect(document.querySelector('.graph-data')).toBeNull();
+    // Without edits, switching to a document with no graph selected closes the window.
+    first.doc.undo();
+    app.activate(first);
+    app.graphData.show(g.id);
+    app.newDocument();
     expect(document.querySelector('.graph-data')).toBeNull();
   });
 

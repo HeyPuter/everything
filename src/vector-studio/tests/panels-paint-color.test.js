@@ -47,6 +47,23 @@ describe('Color panel menu', () => {
     expect(swatchesOf(ed.doc).at(-1).paint).toEqual(solid('#123456'));
   });
 
+  it('keeps the hex field empty for a mixed selection when nothing valid is typed', async () => {
+    const { ed, add, panel } = await paintSetup();
+    const a = add({ fill: solid('#ff0000') });
+    const b = add({ fill: solid('#0000ff') });
+    ed.select([a, b]);
+    const p = panel('color');
+    expect(p.hex.value).toBe('');
+    expect(p.hex.placeholder).toBe('Mixed');
+    p.hex.focus();
+    p.hex.value = 'zz';
+    p.hex.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    p.hex.blur();
+    expect(p.hex.value).toBe('');
+    expect(ed.doc.get(a).fill.color).toBe('#ff0000');
+    expect(ed.doc.get(b).fill.color).toBe('#0000ff');
+  });
+
   it('swaps and resets fill and stroke from the panel', async () => {
     const { ed, add, panel } = await paintSetup();
     const id = add({ fill: solid('#ff0000'), stroke: solid('#0000ff'), strokeWidth: 1 });

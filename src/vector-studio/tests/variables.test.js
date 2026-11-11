@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { VDocument } from '../src/model/document.js';
 import { createText, createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { replaceIn } from '../src/features/type/type-ops.js';
-import { addVariable, bind, captureDataSet, applyDataSet, importCSV, toCSV, parseCSV, removeVariables, boundTo, variablesOf, dataSetsOf } from '../src/features/variables/model.js';
+import { addVariable, bind, captureDataSet, applyDataSet, importCSV, toCSV, parseCSV, detectDelimiter, removeVariables, boundTo, variablesOf, dataSetsOf } from '../src/features/variables/model.js';
 import { bootAppWithFeatures } from './helpers.js';
 
 const setText = (doc, node, text) => replaceIn(doc, node, 0, node.text.length, text, 'Apply');
@@ -67,6 +67,72 @@ describe('variables', () => {
     doc.transact('remove', () => removeVariables(doc, [title.id]));
     expect(doc.get(t.id).bindings).toBeUndefined();
     expect(Object.keys(dataSetsOf(doc)[0].values)).toEqual([badge.id]);
+  });
+
+  it('reads semicolon- and tab-separated files, and refuses columns that would overwrite each other', () => {
+    expect(detectDelimiter('Name;Price\nA;1,5\n')).toBe(';');
+    expect(detectDelimiter('Name\tPrice\nA\t1\n')).toBe('\t');
+    expect(detectDelimiter('"a;b",c\n')).toBe(',');
+    expect(detectDelimiter('Title\nx\n')).toBe(',');
+    expect(parseCSV('sep=;\r\nName;Price\r\nA;"1,5"\r\n')).toEqual([['Name', 'Price'], ['A', '1,5']]);
+    const { doc } = setup();
+    doc.transact('import', () => importCSV(doc, 'Title;#Badge\nSpring, 2027;yes\n'));
+    expect(variablesOf(doc).map((v) => [v.name, v.type])).toEqual([['Title', 'text'], ['Badge', 'visibility']]);
+    expect(Object.values(dataSetsOf(doc)[0].values)).toEqual(['Spring, 2027', true]);
+    doc.transact('import', () => importCSV(doc, 'Title\tCity\nA\tB\n'));
+    expect(variablesOf(doc).map((v) => v.name)).toEqual(['Title', 'Badge', 'City']);
+    // Trailing delimiters (empty, unnamed columns) are ignored.
+    doc.transact('import', () => importCSV(doc, 'Title,City,,\nC,D,,\n'));
+    expect(variablesOf(doc)).toHaveLength(3);
+    const sets = dataSetsOf(doc).length;
+    const vars = variablesOf(doc).length;
+    const refuse = (text, msg) => {
+      expect(() => doc.transact('import', () => importCSV(doc, text))).toThrow(msg);
+      expect(dataSetsOf(doc)).toHaveLength(sets);
+      expect(variablesOf(doc)).toHaveLength(vars);
+    };
+    refuse('Name,Name\n1,2\n', /"Name" appears twice/);
+    refuse('First Name,First_Name\n1,2\n', /both become the variable "First_Name"/);
+    refuse('Title,,City\nA,x,B\n', /Column 2 has values but no name/);
+  });
+
+  it('Export Each Data Set leaves the artwork and its undo history as they were', async () => {
+    const app = await bootAppWithFeatures();
+    const ed = app.newDocument({ name: 'Cards' });
+    const doc = ed.doc;
+    const layer = ed.targetLayer().id;
+    const t = createText('Hello', 10, 10);
+    doc.transact('add', () => doc.insert(t, layer));
+    doc.transact('vars', () => {
+      const name = addVariable(doc, 'text', 'Name');
+      bind(doc, t.id, 'text', name.id);
+      importCSV(doc, 'Name\nAda\nGrace\n');
+    });
+    const undoDepth = doc.undoStack.length;
+    const before = doc.nodes.get(t.id);
+    const panel = app.dock.panels.get('variables');
+    app.dialogs.form = async () => ({ format: 'svg', zip: false });
+    const blobs = [];
+    const orig = URL.createObjectURL;
+    URL.createObjectURL = (b) => {
+      blobs.push(b);
+      return 'blob:x';
+    };
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      await panel.exportEach();
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      click.mockRestore();
+      URL.createObjectURL = orig;
+    }
+    const texts = await Promise.all(blobs.map((b) => b.text()));
+    expect(texts.some((x) => x.includes('Ada'))).toBe(true);
+    expect(texts.some((x) => x.includes('Grace'))).toBe(true);
+    expect(doc.nodes.get(t.id)).toBe(before);
+    expect(doc.get(t.id).text).toBe('Hello');
+    expect(doc.undoStack.length).toBe(undoDepth);
+    expect(doc.root.dataSet ?? null).toBe(null);
   });
 
   it('registers the Variables panel', async () => {

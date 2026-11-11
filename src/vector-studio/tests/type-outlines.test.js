@@ -5,7 +5,8 @@ import opentype from 'opentype.js';
 import { createText } from '../src/model/nodes.js';
 import { registerMeasureFont, layoutText, glyphPlacements } from '../src/model/text-layout.js';
 import { registerOutlineFont } from '../src/features/type/fonts.js';
-import { textToPathData, commandsToContours, outlineNodes } from '../src/features/type/outlines.js';
+import { textToPathData, commandsToContours, outlineNodes, createOutlines } from '../src/features/type/outlines.js';
+import { bootAppWithFeatures } from './helpers.js';
 import { areaToPointPatch } from '../src/features/type/commands.js';
 import { findMatches } from '../src/features/type/find.js';
 import { fillPlaceholder } from '../src/features/type/lorem.js';
@@ -142,5 +143,84 @@ describe('type commands helpers', () => {
     expect(t.length).toBeGreaterThan(20);
     expect(layoutText({ ...n, text: t }).overflow).toBe(false);
     expect(layoutText({ ...n, text: `${t} more words here to overflow the box` }).overflow).toBe(true);
+  });
+
+  it('reports characters the font has no glyphs for instead of outlining them as boxes', async () => {
+    const style = { char: { fontFamily: 'Inter', fontWeight: 400, fontStyle: 'normal', fontSize: 40 } };
+    const glyphs = await textToPathData(createText('a\u{1F600}b \u05E9', 0, 0, style));
+    expect(glyphs.missing).toEqual([
+      { ch: '\u{1F600}', family: 'Inter' },
+      { ch: '\u05E9', family: 'Inter' },
+    ]);
+    expect((await textToPathData(createText('ab c', 0, 0, style))).missing).toEqual([]);
+
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const doc = app.editor.doc;
+    const ok = createText('Hello', 0, 0, style);
+    const bad = createText('Hi \u{1F600}', 0, 100, style);
+    doc.transact('Add', () => {
+      doc.insert(ok, app.editor.targetLayer().id);
+      doc.insert(bad, app.editor.targetLayer().id);
+    });
+    const notes = [];
+    app.notify = (msg) => notes.push(msg);
+    app.editor.select([ok.id, bad.id]);
+    await createOutlines(app);
+    expect(doc.has(ok.id)).toBe(false);
+    expect(doc.get(bad.id).text).toBe('Hi \u{1F600}');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('\u{1F600}');
+    expect(notes[0]).toContain('Inter');
+    expect(app.editor.selection.has(bad.id)).toBe(true);
+  });
+
+  it('exports characters the font lacks as images of what the canvas shows, not empty-glyph boxes', async () => {
+    const { collectTextOutlines } = await import('../src/features/io/outlines.js');
+    const { exportSVG } = await import('../src/features/io/svg-export.js');
+    const { writePDF } = await import('../src/features/io/pdf.js');
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const doc = app.editor.doc;
+    const style = { char: { fontFamily: 'Inter', fontWeight: 400, fontStyle: 'normal', fontSize: 40 } };
+    const t = createText('a\u{1F600}b \u05E9\u05DC\u05D5\u05DD', 20, 100, style);
+    doc.transact('Add', () => doc.insert(t, app.editor.targetLayer().id));
+    const notes = [];
+    app.notify = (msg) => notes.push(msg);
+    // The test canvas draws nothing: give it pixels and a PNG to hand back.
+    const proto = HTMLCanvasElement.prototype;
+    const { getContext, toDataURL } = proto;
+    proto.getContext = function stubbed() {
+      const c = getContext.call(this);
+      c.getImageData = (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4).fill(200) });
+      return c;
+    };
+    proto.toDataURL = () => 'data:image/png;base64,AAAA';
+    let map;
+    try {
+      map = await collectTextOutlines(app, doc, doc.root.children, { images: true });
+    } finally {
+      proto.getContext = getContext;
+      proto.toDataURL = toDataURL;
+    }
+    const runs = map.get(t.id);
+    // Only 'a' and 'b' are outlined; the emoji and the Hebrew word (one run, so it keeps its order) are images.
+    const glyphs = await textToPathData(t);
+    const outlined = glyphs.filter((g) => !g.fallback).reduce((n, g) => n + g.contours.length, 0);
+    expect(runs.reduce((n, r) => n + r.subpaths.length, 0)).toBe(outlined);
+    expect(runs.fallback.map((g) => g.ch)).toEqual(['\u{1F600}', '\u05E9\u05DC\u05D5\u05DD']);
+    expect(runs.images).toHaveLength(2);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('\u{1F600} \u05E9 \u05DC \u05D5 \u05DD');
+    const rect = { x: 0, y: 0, w: 400, h: 200 };
+    const svg = exportSVG(doc, { rect, textMode: 'outlines', outlines: map });
+    expect(svg.match(/<image /g)).toHaveLength(2);
+    expect(svg).toContain('xmlns:xlink=');
+    const { bytes } = await writePDF(doc, [rect], { outlines: map, outlinesWanted: true, compress: false });
+    const pdf = new TextDecoder('latin1').decode(bytes);
+    expect(pdf.match(/\/Subtype \/Image/g)?.length).toBeGreaterThanOrEqual(2);
+    // Without images (other uses of the outlines), nothing changes.
+    const plain = await collectTextOutlines(app, doc, doc.root.children);
+    expect(plain.get(t.id).images).toBeUndefined();
   });
 });

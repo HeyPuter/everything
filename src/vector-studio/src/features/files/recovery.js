@@ -82,17 +82,24 @@ export class RecoveryStore {
     });
   }
 
-  /** The stored bytes for an entry from list(), or null. */
+  /**
+   * The stored bytes for an entry from list(), or null when no store has
+   * them. Throws when a store that could hold them failed (offline), so a
+   * copy that exists is never mistaken for a missing one.
+   */
   async read(entry) {
     const backends = entry.backend ? [entry.backend, ...this.backends.filter((b) => b !== entry.backend)] : this.backends;
+    let failure = null;
     for (const b of backends) {
       try {
         const blob = await b.readBlob(`${DIR}/${entry.id}.vstudio`);
         if (blob) return blob;
-      } catch {
+      } catch (err) {
         // Try the next store.
+        failure = failure || err;
       }
     }
+    if (failure) throw failure;
     return null;
   }
 

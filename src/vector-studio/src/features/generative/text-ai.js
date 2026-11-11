@@ -245,7 +245,7 @@ export function insertGeneratedText(app, text, kind = 'paragraph', targets = tex
   const lines = Math.max(1, Math.ceil((text.length * size * 0.55) / width) + (text.match(/\n/g) || []).length);
   const height = Math.min(a.h * 0.8, lines * size * 1.3 + size);
   const node = createText(text, a.x + (a.w - width) / 2, a.y + (a.h - height) / 2, { kind: 'area', width, height, char: { ...d.char, fontSize: size }, para: { ...d.para }, fill: d.fill, stroke: d.stroke, strokeWidth: d.strokeWidth });
-  doc.transact('Generate Text', () => doc.insert(node, ed.targetLayer().id));
+  doc.transact('Generate Text', () => ed.insertDrawn(node));
   ed.select([node.id]);
   return node.id;
 }

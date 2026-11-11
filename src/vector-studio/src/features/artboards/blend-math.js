@@ -29,6 +29,8 @@ import { nodeBounds, transformPatches } from '../../model/geometry.js';
 import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb } from '../../lib/color.js';
 import { multiply, scale, translate, rotate } from '../../lib/matrix.js';
 import { pathSampler } from '../../model/path-sampler.js';
+import { isGradient, sampleStops } from '../../model/gradients.js';
+import { remapIdRefs } from '../../model/document.js';
 
 export const DEFAULT_BLEND = Object.freeze({ spacing: 'smooth', steps: 5, distance: 20, orientation: 'page', easing: 'linear', easeAmount: 0.5, easeColor: true, colorMode: 'rgb' });
 
@@ -126,6 +128,20 @@ export function matchAnchors(a, closedA, b, closedB) {
   return [A, B];
 }
 
+// Matched anchor lists per pair of anchor arrays (nodes are immutable): every step between two
+// keys interpolates the same pair, so the matching (O(n^2) for closed paths) runs once per pair.
+const matchCache = new WeakMap();
+
+function matchedPair(a, b) {
+  let byB = matchCache.get(a.anchors);
+  if (!byB) matchCache.set(a.anchors, (byB = new WeakMap()));
+  const key = `${a.closed ? 1 : 0}${b.closed ? 1 : 0}`;
+  let hit = byB.get(b.anchors);
+  if (!hit) byB.set(b.anchors, (hit = {}));
+  if (!hit[key]) hit[key] = matchAnchors(a.anchors, a.closed, b.anchors, b.closed);
+  return hit[key];
+}
+
 export function lerpAnchors(A, B, t) {
   return A.map((p, i) => {
     const q = B[i];
@@ -150,7 +166,22 @@ export function lerpColor(a, b, t, mode = 'rgb') {
   return rgbToHex({ r: Math.round(lerp(p.r, q.r, t)), g: Math.round(lerp(p.g, q.g, t)), b: Math.round(lerp(p.b, q.b, t)) });
 }
 
-/** Interpolate two paints. None blends as the other color fading out; mismatched kinds switch halfway. */
+/** A gradient's stops sampled at the given offsets (so two gradients can blend stop by stop). */
+function stopsAt(stops, offsets) {
+  return offsets.map((offset) => ({ offset, ...sampleStops(stops, offset) }));
+}
+
+/** A gradient shaped like `like` in one solid color (none: like's colors, transparent), for blending with it. */
+function flatGradient(paint, like) {
+  if (!paint) return { ...like, stops: like.stops.map((s) => ({ offset: s.offset, color: s.color, opacity: 0 })) };
+  return { ...like, stops: like.stops.map((s) => ({ offset: s.offset, color: paint.color, opacity: paint.opacity ?? 1 })) };
+}
+
+/**
+ * Interpolate two paints. None blends as the other color fading out; a solid color
+ * or none blends into a gradient as a gradient of that color; gradients with
+ * different stops blend at the stops of both; other mismatched kinds switch halfway.
+ */
 export function lerpPaint(a, b, t, mode = 'rgb') {
   if (!a && !b) return null;
   if (a?.type === 'solid' && b?.type === 'solid') {
@@ -162,6 +193,12 @@ export function lerpPaint(a, b, t, mode = 'rgb') {
   }
   if (!a && b?.type === 'solid') return { ...b, opacity: lerp(0, b.opacity ?? 1, t) };
   if (a?.type === 'solid' && !b) return { ...a, opacity: lerp(a.opacity ?? 1, 0, t) };
+  if (isGradient(b) && (!a || a.type === 'solid') && b.stops?.length) return lerpPaint(flatGradient(a, b), b, t, mode);
+  if (isGradient(a) && (!b || b.type === 'solid') && a.stops?.length) return lerpPaint(a, flatGradient(b, a), t, mode);
+  if (a && b && a.type === b.type && isGradient(a) && a.stops?.length && b.stops?.length && a.stops.length !== b.stops.length) {
+    const offsets = [...new Set([...a.stops, ...b.stops].map((s) => s.offset))].sort((x, y) => x - y);
+    return lerpPaint({ ...a, stops: stopsAt(a.stops, offsets) }, { ...b, stops: stopsAt(b.stops, offsets) }, t, mode);
+  }
   if (a && b && a.type === b.type && (a.type === 'linear' || a.type === 'radial') && a.stops.length === b.stops.length) {
     const sa = [...a.stops].sort((x, y) => x.offset - y.offset);
     const sb = [...b.stops].sort((x, y) => x.offset - y.offset);
@@ -239,7 +276,7 @@ function transformedCopy(doc, node, m, extra, style) {
   const copy = (n) => {
     const nid = `blend~${++vid}`;
     ids.set(n.id, nid);
-    const out = { ...n, ...(patches.get(n.id) || {}), id: nid };
+    let out = { ...n, ...(patches.get(n.id) || {}), id: nid };
     if (n.children) {
       out.children = n.children.map((c) => {
         const cn = doc.get(c);
@@ -248,6 +285,8 @@ function transformedCopy(doc, node, m, extra, style) {
         extra.set(cc.id, cc);
         return cc.id;
       }).filter(Boolean);
+      // Nested live objects that name their children (interlace zones) name the copies.
+      out = remapIdRefs(out, ids);
     }
     return out;
   };
@@ -262,7 +301,7 @@ function transformedCopy(doc, node, m, extra, style) {
  */
 export function interpolateNode(doc, a, b, t, extra, copts = {}) {
   if (a.type === 'path' && b.type === 'path' && a.anchors.length && b.anchors.length) {
-    const [A, B] = matchAnchors(a.anchors, a.closed, b.anchors, b.closed);
+    const [A, B] = matchedPair(a, b);
     return { ...a, ...lerpStyle(a, b, t, copts), id: `blend~${++vid}`, anchors: lerpAnchors(A, B, t), closed: t < 0.5 ? a.closed : b.closed, shape: undefined };
   }
   if ((a.type === 'compound' || a.type === 'group') && a.type === b.type && a.children.length === b.children.length && a.children.length) {

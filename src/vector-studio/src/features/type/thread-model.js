@@ -230,19 +230,72 @@ export function removeThreading(doc, ids) {
     threads.set(frames[0].id, frames);
   }
   for (const frames of threads.values()) {
-    const head = frames[0];
-    const len = String(head.text ?? '').length;
-    const parts = frames.map((f) => layoutText(f));
-    const starts = parts.map((lay) => lay.story?.start ?? 0);
-    frames.forEach((f, i) => {
-      const s = i === 0 ? 0 : starts[i];
-      const e = i === frames.length - 1 ? len : Math.max(s, starts[i + 1]);
-      // A break that ended the previous frame's last paragraph does not start this one.
-      const s2 = i > 0 && head.text[s - 1] !== '\n' && head.text[s] === '\n' ? s + 1 : s;
-      let e2 = e;
-      if (i < frames.length - 1 && head.text[e - 1] === '\n') e2 = e - 1;
-      doc.update(f.id, { ...sliceStory(head, s2, Math.max(s2, e2)), threadPrev: undefined, threadNext: undefined });
+    const starts = storyStarts(frames);
+    frames.forEach((f, i) => doc.update(f.id, { ...shownStory(frames, starts, i, i), threadPrev: undefined, threadNext: undefined }));
+  }
+}
+
+/** Where each frame's text starts in its thread's story. */
+function storyStarts(frames) {
+  return frames.map((f) => layoutText(f).story?.start ?? 0);
+}
+
+/** Story fields for the text frames i0..i1 of a thread show (the last frame also the overflow). */
+function shownStory(frames, starts, i0, i1) {
+  const head = frames[0];
+  const len = String(head.text ?? '').length;
+  const s = i0 === 0 ? 0 : starts[i0];
+  const e = i1 === frames.length - 1 ? len : Math.max(s, starts[i1 + 1]);
+  // A break that ended the previous frame's last paragraph does not start this one.
+  const s2 = i0 > 0 && head.text[s - 1] !== '\n' && head.text[s] === '\n' ? s + 1 : s;
+  let e2 = e;
+  if (i1 < frames.length - 1 && head.text[e - 1] === '\n') e2 = e - 1;
+  return sliceStory(head, s2, Math.max(s2, e2));
+}
+
+/**
+ * How copies of the threaded frames among `ids` (and their contents) are
+ * linked: id -> { threadPrev, threadNext, story fields }. The copied frames
+ * of a thread link to each other in thread order, and the first holds the
+ * text they showed (the whole story when every frame is copied); a single
+ * copied frame becomes plain area type with its text.
+ */
+export function copiedThreads(doc, ids) {
+  const copied = new Set();
+  const visit = (id) => {
+    const n = doc.get(id);
+    if (!n || copied.has(id)) return;
+    copied.add(id);
+    if (n.children) for (const c of n.children) visit(c);
+  };
+  for (const id of ids) visit(id);
+  const threads = new Map();
+  for (const id of copied) {
+    const n = doc.get(id);
+    if (!isThreaded(n)) continue;
+    const frames = threadFrames(doc, n);
+    if (!threads.has(frames[0].id)) threads.set(frames[0].id, frames);
+  }
+  const out = new Map();
+  for (const frames of threads.values()) {
+    const keep = frames.filter((f) => copied.has(f.id));
+    const story = keep.length === frames.length ? storyOf(frames[0]) : shownStory(frames, storyStarts(frames), frames.indexOf(keep[0]), frames.indexOf(keep[keep.length - 1]));
+    keep.forEach((f, i) => {
+      out.set(f.id, { threadPrev: i ? keep[i - 1].id : undefined, threadNext: i < keep.length - 1 ? keep[i + 1].id : undefined, ...(i ? emptyStory() : story) });
     });
+  }
+  return out;
+}
+
+/**
+ * After pasting copies (idMap: copied id -> new id): links between copied
+ * frames point at the new frames; links to frames that were not copied go.
+ */
+export function relinkPasted(doc, idMap) {
+  for (const id of idMap.values()) {
+    const n = doc.get(id);
+    if (n?.type !== 'text' || !(n.threadPrev || n.threadNext)) continue;
+    doc.update(id, { threadPrev: (n.threadPrev && idMap.get(n.threadPrev)) || undefined, threadNext: (n.threadNext && idMap.get(n.threadNext)) || undefined });
   }
 }
 

@@ -223,9 +223,17 @@ export function newBrushProblem(type, art) {
 export function brushUsers(doc, brushId) {
   const out = [];
   doc.walk((n) => {
-    if (n.brush?.id === brushId) out.push(n.id);
+    if (nodeBrushIds(n).includes(brushId)) out.push(n.id);
     return true;
   });
+  return out;
+}
+
+/** Ids of the brushes a node strokes with: its own stroke's and its extra strokes' (Appearance panel). */
+export function nodeBrushIds(n) {
+  const out = [];
+  if (n?.brush?.id) out.push(n.brush.id);
+  if (Array.isArray(n?.appearance)) for (const it of n.appearance) if (it?.type === 'stroke' && !it.base && it.brush?.id) out.push(it.brush.id);
   return out;
 }
 

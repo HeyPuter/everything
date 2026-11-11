@@ -55,7 +55,7 @@ function matrixMarkup(m, offset = [0, 0, 0]) {
 
 /** Filter showing numbers of RGB profile `from` on an sRGB display: exact for matrix/curve profiles, fitted otherwise. */
 export function rgbProofBody(from) {
-  if (from === 'srgb' || from === 'monitor') return '<feColorMatrix type="identity"/>';
+  if (from === 'srgb' || from === 'monitor') return '<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0"/>';
   if (RGB_SPACES[from]) {
     const src = RGB_SPACES[from];
     const m = mul3x3(inv3(rgbToXyzMatrix('srgb')), rgbToXyzMatrix(from));
@@ -165,7 +165,7 @@ const fitCache = new Map();
 
 /** Fitted filter primitives for a transform (RGB -> RGB), cached by `key`. */
 function fittedBody(key, t) {
-  if (!t) return '<feColorMatrix type="identity"/>';
+  if (!t) return '<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0"/>';
   let fit = fitCache.get(key);
   if (!fit) {
     fit = fitColorTransform((rgb) => t.convert(rgb));

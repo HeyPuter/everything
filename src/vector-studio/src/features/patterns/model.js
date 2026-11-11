@@ -244,6 +244,34 @@ export function patternPaint(id, transform = null) {
   return transform ? { type: 'pattern', id, transform } : { type: 'pattern', id };
 }
 
+/**
+ * Clipboard support: copied objects carry the definitions of the patterns
+ * they are painted with (and the patterns drawn inside those), and pasting
+ * into another document adds the ones it lacks.
+ */
+export const patternClipboardHook = {
+  copy(doc, ids, data) {
+    const defs = new Map();
+    const visit = (p) => {
+      if (p?.type !== 'pattern' || defs.has(p.id)) return;
+      const def = findPattern(doc, p.id);
+      if (!def) return;
+      defs.set(p.id, def);
+      for (const n of def.art?.nodes || []) visitNode(n);
+    };
+    const visitNode = (n) => {
+      visit(n.fill);
+      visit(n.stroke);
+      if (n.runs) for (const r of n.runs) visit(r.fill), visit(r.stroke);
+    };
+    for (const item of data.items || []) for (const n of item.nodes || []) visitNode(n);
+    data.patterns = [...defs.values()];
+  },
+  paste(doc, data) {
+    for (const def of data.patterns || []) if (!findPattern(doc, def.id)) addPattern(doc, structuredClone(def));
+  },
+};
+
 /** Pattern ids used by objects in the document (fills, strokes and styled type runs). */
 export function usedPatternIds(doc) {
   const out = new Set();

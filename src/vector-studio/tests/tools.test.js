@@ -150,6 +150,15 @@ describe('object commands', () => {
     expect(nodeBounds(doc, g)).toMatchObject({ x: 25, y: 25, w: 50, h: 50 });
     await app.commands.run('object.clipRelease');
     expect(doc.has(g.id)).toBe(false);
+    expect(doc.undoLabel).toBe('Release Clipping Mask');
+    // One Undo brings the clip group back, selected.
+    await app.commands.run('edit.undo');
+    expect(doc.get(g.id).clip).toBe(true);
+    expect(doc.get(g.id).children).toEqual([art.id, mask.id]);
+    expect([...app.editor.selection]).toEqual([g.id]);
+    await app.commands.run('edit.redo');
+    expect(doc.has(g.id)).toBe(false);
+    expect(new Set(app.editor.selection)).toEqual(new Set([art.id, mask.id]));
   });
 
   it('makes a compound path that punches a hole', async () => {
@@ -164,6 +173,27 @@ describe('object commands', () => {
     const { signedArea } = await import('../src/model/bezier.js');
     const [o, i] = c.children.map((id) => app.editor.doc.get(id));
     expect(Math.sign(signedArea(o.anchors))).not.toBe(Math.sign(signedArea(i.anchors)));
+  });
+
+  it('makes a compound path from nested groups without leaving empty groups behind', async () => {
+    const ed = app.editor;
+    const doc = ed.doc;
+    const outer = addRect(app, 0, 0, 100, 100);
+    const inner = addRect(app, 25, 25, 50, 50);
+    ed.select([outer.id, inner.id]);
+    await app.commands.run('object.group');
+    const innerGroup = [...ed.selection][0];
+    await app.commands.run('object.group');
+    const outerGroup = [...ed.selection][0];
+    await app.commands.run('object.compoundMake');
+    const c = ed.selectedNodes()[0];
+    expect(c.type).toBe('compound');
+    expect(doc.has(innerGroup)).toBe(false);
+    expect(doc.has(outerGroup)).toBe(false);
+    expect(doc.get(ed.targetLayer().id).children).toEqual([c.id]);
+    await app.commands.run('edit.undo');
+    expect(doc.get(ed.targetLayer().id).children).toEqual([outerGroup]);
+    expect(doc.get(outerGroup).children).toEqual([innerGroup]);
   });
 
   it('aligns to the selection and distributes centers', async () => {
@@ -189,6 +219,25 @@ describe('object commands', () => {
     expect(nodeBounds(ed.doc, copy)).toMatchObject({ x: 0, y: 0 });
     const kids = ed.doc.get(ed.targetLayer().id).children;
     expect(kids.indexOf(copy.id)).toBe(kids.indexOf(a.id) + 1);
+  });
+
+  it('never pastes into a hidden layer', async () => {
+    const ed = app.editor;
+    const doc = ed.doc;
+    const bottom = ed.targetLayer().id;
+    const a = addRect(app, 0, 0, 10, 10);
+    ed.select([a.id]);
+    await app.commands.run('edit.copy');
+    let top;
+    doc.transact('Layer', () => (top = doc.addLayer('Top').id));
+    ed.activeLayerId = top;
+    doc.transact('Hide', () => doc.update(top, { hidden: true }));
+    for (const cmd of ['edit.paste', 'edit.pasteInPlace']) {
+      await app.commands.run(cmd);
+      const [id] = ed.selection;
+      expect(doc.get(id).parent).toBe(bottom);
+      expect(doc.isHidden(id)).toBe(false);
+    }
   });
 
   it('joins two open paths at their nearest ends', async () => {
