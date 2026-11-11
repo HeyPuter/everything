@@ -397,7 +397,7 @@ registerOperators([
         const b = browserOf(ctx);
         const before = catalogById(cats, String(p.catalog_id))?.path;
         const to = renameCatalog(cats, String(p.catalog_id), String(p.name));
-        if (!to) return false;
+        if (!to || to === before) return false;
         if (b && before && b.catalogPath && (b.catalogPath === before || b.catalogPath.startsWith(`${before}/`))) b.catalogPath = to + b.catalogPath.slice(before.length);
       }),
   },
@@ -963,9 +963,13 @@ function catalogEdit(ctx: OpContext, fn: (cats: ReturnType<typeof libraryCatalog
   const lib = b?.library ?? '';
   const doc = libraryDoc(lib);
   if (!doc || !libraryInfo(lib)?.editable) return 'CANCELLED' as const;
-  if (lib !== LOCAL) catalogUndoPush(lib);
+  const undoStep = lib !== LOCAL ? catalogUndoPush(lib) : null;
   const r = fn((doc.asset_catalogs ??= []), doc, lib);
-  if (r === false) return 'CANCELLED' as const;
+  if (r === false) {
+    // nothing changed: no empty step in the catalog history (and redo stays available)
+    undoStep?.();
+    return 'CANCELLED' as const;
+  }
   if (lib !== LOCAL) {
     libraryChanged(lib);
     b?.draw();

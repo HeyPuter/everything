@@ -282,13 +282,23 @@ function restoreCatalogState(doc: DocumentData, s: string) {
   }
 }
 
-/** Remember the catalog state of a user library before an edit (for Undo Catalog Edits). */
-export function catalogUndoPush(id: string) {
+/**
+ * Remember the catalog state of a user library before an edit (for Undo Catalog Edits).
+ * Returns a function that takes the step back when the edit changed nothing.
+ */
+export function catalogUndoPush(id: string): () => void {
   const st = loaded.get(id);
-  if (!st?.doc) return;
-  st.undo.push(catalogState(st.doc));
+  if (!st?.doc) return () => {};
+  const state = catalogState(st.doc);
+  const redo = st.redo;
+  st.undo.push(state);
   if (st.undo.length > 64) st.undo.shift();
   st.redo = [];
+  return () => {
+    if (st.undo.at(-1) !== state) return;
+    st.undo.pop();
+    st.redo = redo;
+  };
 }
 
 export const canCatalogUndo = (id: string) => !!loaded.get(id)?.undo.length;
