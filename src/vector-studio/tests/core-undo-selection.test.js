@@ -127,3 +127,25 @@ describe('Arrange', () => {
     expect(doc.get(ed.targetLayer().id).children).toEqual([ids[1], ids[0]]);
   });
 });
+
+describe('Ungroup', () => {
+  it('leaves hidden and locked contents unselected', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const ids = [0, 1, 2].map((i) => {
+      const p = createPath(rectangle(i * 20, 0, 10, 10), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    });
+    ed.select(ids);
+    await app.commands.run('object.group');
+    doc.transact('Flags', () => {
+      doc.update(ids[0], { hidden: true });
+      doc.update(ids[1], { locked: true });
+    });
+    await app.commands.run('object.ungroup');
+    expect(doc.get(ed.targetLayer().id).children).toEqual(ids);
+    expect([...ed.selection]).toEqual([ids[2]]);
+  });
+});

@@ -199,7 +199,9 @@ export function ungroup(editor) {
       }
       doc.remove(id);
     }
-    editor.select([...released, ...editor.topSelection().filter((id) => doc.has(id))]);
+    // Hidden or locked contents come out of the group but stay unselected.
+    const pickable = (id) => !doc.get(id).hidden && !doc.get(id).locked;
+    editor.select([...released.filter(pickable), ...editor.topSelection().filter((id) => doc.has(id))]);
   });
 }
 
