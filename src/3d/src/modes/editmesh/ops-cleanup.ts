@@ -6,7 +6,7 @@ import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { withEdit } from './context';
 import { editPoll, mergeVerts } from './ops-basic';
 import { symmetrizeMesh } from './symmetrize';
-import { V, faceEdgeKeys, dissolveEdgeSet, dissolveCollinearVerts, splitFace, triangulateCorners, subFace, trisToQuads, removeCorner, dissolveVertex } from './geom';
+import { V, faceEdgeKeys, dissolveEdgeSet, dissolveCollinearVerts, splitFace, triangulateCorners, subFace, trisToQuads, removeCorner, dissolveVertex, dissolveIndex } from './geom';
 
 // ---------------------------------------------------------------------------
 // limited dissolve
@@ -500,7 +500,9 @@ export function unsubdivideStep(m: MeshEdit): boolean {
   }
   // each removed vertex's fan becomes one face
   let n = 0;
-  for (const v of remove) if (dissolveVertex(m, v)) n++;
+  const index = dissolveIndex(m);
+  for (const v of remove) if (dissolveVertex(m, v, index)) n++;
+  if (index.removed.size) m.faces = m.faces.filter((f) => !index.removed.has(f));
   if (n) m.compact();
   return n > 0;
 }
