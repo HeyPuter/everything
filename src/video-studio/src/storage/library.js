@@ -541,8 +541,10 @@ export class Library extends Emitter {
   /** Forget a LUT (clips that use it render without it). */
   async removeLut(id) {
     const list = await this._readLuts();
-    this.luts = list.filter((x) => x.id !== id);
-    await this.backend.writeJSON('luts/index.json', this.luts);
+    const next = list.filter((x) => x.id !== id);
+    // The list changes only once the index is saved, so a failed write keeps them in step.
+    await this.backend.writeJSON('luts/index.json', next);
+    this.luts = next;
     await this.backend.remove(`luts/${id}.cube`).catch(() => {});
     this.emit('luts', this.luts);
   }

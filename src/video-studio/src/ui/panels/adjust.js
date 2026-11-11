@@ -11,7 +11,7 @@ import { getLut, loadLut, dropLut } from '../../engine/luts.js';
 import { tabLayout, tileGrid, tile, emptyState } from './common.js';
 import { gradePreview } from './previews.js';
 import { isGradable, chooseLutFiles, applyLut, colorPresets, onPresetsChanged, applyPreset, removePreset } from '../color-tools.js';
-import { confirmDialog } from '../dialog.js';
+import { confirmDialog, toast } from '../dialog.js';
 
 const CATEGORIES = [
   { id: 'layer', label: 'Color layer' },
@@ -126,7 +126,12 @@ export function adjustTab(ctx) {
       }), `LUT ${e.name}`, async () => {
         const ok = await confirmDialog({ title: 'Remove LUT', message: `Remove "${e.name}" from your library? Clips that use it will no longer show it.`, confirm: 'Remove', danger: true });
         if (!ok) return;
-        await library.removeLut(e.id);
+        try {
+          await library.removeLut(e.id);
+        } catch (err) {
+          toast(`Couldn't remove the LUT ${e.name}. ${err?.message || 'Try again.'}`, { kind: 'error' });
+          return;
+        }
         dropLut(e.id);
         announce('LUT removed');
       });

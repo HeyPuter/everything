@@ -7,6 +7,8 @@ import { adjustTab as colorAssets } from '../src/ui/panels/adjust.js';
 import { savePreset, applyPreset, colorPresets, removePreset, applyLut } from '../src/ui/color-tools.js';
 import * as T from '../src/model/timeline.js';
 import { US } from '../src/lib/time.js';
+import { Library } from '../src/storage/library.js';
+import { memoryBackend } from '../src/storage/backends.js';
 
 let env;
 
@@ -338,6 +340,32 @@ describe('presets and the Color assets tab', () => {
     expect(panel.el.querySelector('.tile').getAttribute('aria-label')).toBe('Add preset Punchy as a color layer');
     panel.dispose();
     panel.el.remove();
+  });
+
+  it('says so when a LUT cannot be removed, and keeps it listed', async () => {
+    const lib = new Library(memoryBackend());
+    env.ctx.library = lib;
+    const cube = 'TITLE "Warm"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n';
+    await lib.importLut(new File([cube], 'warm.cube'));
+    const panel = colorAssets(env.ctx);
+    document.body.append(panel.el);
+    await new Promise((r) => setTimeout(r, 0));
+    [...panel.el.querySelectorAll('.asset-cat')].find((b) => b.textContent === 'LUTs').click();
+    expect([...panel.el.querySelectorAll('.tile-label')].map((t) => t.textContent)).toEqual(['Warm']);
+    lib.backend.writeJSON = async () => {
+      throw new Error('Storage is full');
+    };
+    panel.el.querySelector('[aria-label="Remove LUT Warm"]').click();
+    await new Promise((r) => setTimeout(r, 0));
+    [...document.querySelectorAll('dialog button')].find((b) => b.textContent === 'Remove').click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect([...document.querySelectorAll('.toast.error')].map((t) => t.textContent).join()).toMatch(/Couldn't remove the LUT Warm/);
+    expect((await lib.listLuts()).map((e) => e.name)).toEqual(['Warm']);
+    expect([...panel.el.querySelectorAll('.tile-label')].map((t) => t.textContent)).toEqual(['Warm']);
+    panel.dispose();
+    panel.el.remove();
+    document.querySelectorAll('dialog, .toasts').forEach((d) => d.remove());
   });
 
   it('adds color layers from drag data, validating it', () => {
