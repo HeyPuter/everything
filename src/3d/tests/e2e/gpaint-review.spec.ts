@@ -67,12 +67,20 @@ test('a sculpt stroke pressed off the mesh starts when it reaches the surface', 
   await page.waitForTimeout(100);
   expect(Math.abs((await sum()) - s0)).toBeGreaterThan(1e-3);
   expect(await ev(page, () => (window as any).app.undo.index)).toBe(undo0 + 1); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // the Draw Face Sets brush too
+  await page.evaluate(() => (window as any).app.run('wm.tool_set_by_id', { name: 'brush_draw_face_sets' }, { invoke: false })); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.mouse.move(box.x + 120, y + 30);
+  await page.mouse.down();
+  for (let i = 1; i <= 30; i++) await page.mouse.move(box.x + 120 + ((x - box.x - 120) * i) / 30, y + 30);
+  await page.mouse.up();
+  expect(await ev(page, () => (window as any).app.undo.index)).toBe(undo0 + 2); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(await ev(page, () => new Set((window as any).app.doc.meshes[(window as any).app.activeObject.data].sculpt_face_set).size)).toBe(2); // eslint-disable-line @typescript-eslint/no-explicit-any
   // a press and release in empty space does nothing
   await page.mouse.move(box.x + 120, box.y + 60);
   await page.mouse.down();
   await page.mouse.move(box.x + 140, box.y + 60);
   await page.mouse.up();
-  expect(await ev(page, () => (window as any).app.undo.index)).toBe(undo0 + 1); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(await ev(page, () => (window as any).app.undo.index)).toBe(undo0 + 2); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
 

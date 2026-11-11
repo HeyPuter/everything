@@ -1790,7 +1790,11 @@ export function brushStroke(v: View3D, e: PointerEvent, live = true): boolean {
       app.report('INFO', 'Viewport color set to Attribute to show the painted colors');
     }
     lastStrokeStarted = vertexPaintStroke(v, e, sb);
-  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') lastStrokeStarted = faceSetStroke(v, e, activeBrush('SCULPT')!) !== false;
+  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') {
+    const start = (ev: PointerEvent) => faceSetStroke(v, ev, activeBrush('SCULPT')!) !== false;
+    lastStrokeStarted = start(e);
+    if (!lastStrokeStarted && live) startOnSurface(v, e, start);
+  }
   else if (mode === 'SCULPT') {
     lastStrokeStarted = sculptStroke(v, e);
     if (!lastStrokeStarted && live) startOnSurface(v, e, (ev) => sculptStroke(v, ev));
