@@ -544,7 +544,8 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  /* A panel too short for the list and its actions (phones) scrolls as a whole. */
+  overflow: hidden auto;
   container-type: inline-size;
 }
 
