@@ -138,13 +138,17 @@ export function saveFile(name = app.filename, copy = false) {
   const target = fileEvents.saveTarget;
   if (target && !copy && target.name === name) {
     // the file came from a writable folder: update it in place
+    // saved as of now: edits made while the file is being written mark it modified again
+    app.dirty = false;
     target.write(bytes).then(
       () => {
-        app.dirty = false;
         for (const f of fileEvents.saved) f(name, bytes);
         app.report('INFO', `Saved "${name}"`);
       },
-      (e) => app.report('ERROR', `Cannot save "${name}": ${e instanceof Error ? e.message : String(e)}`),
+      (e) => {
+        app.dirty = true;
+        app.report('ERROR', `Cannot save "${name}": ${e instanceof Error ? e.message : String(e)}`);
+      },
     );
     return;
   }

@@ -168,7 +168,8 @@ onAppReady(() => {
   // Save Prompt: the browser asks before leaving with changes made since the last save or open
   let savedRevision = app.revision;
   const mark = () => (savedRevision = app.revision);
-  fileEvents.saved.push(mark);
+  // a save that finished after further edits leaves the file modified (and the prompt on)
+  fileEvents.saved.push(() => void (!app.dirty && mark()));
   fileEvents.opened.push(mark);
   addEventListener('beforeunload', (e) => {
     if (!prefs.use_save_prompt || !app.dirty || app.revision === savedRevision) return;

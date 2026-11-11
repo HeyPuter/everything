@@ -137,3 +137,34 @@ describe('startup file', () => {
     expect(session.hasStartupFile()).toBe(true);
   });
 });
+
+describe('saving into a folder', () => {
+  it('keeps edits made while the file was being written', async () => {
+    const { saveFile } = await import('../../src/io/files');
+    let finish: () => void = () => {};
+    app.filename = 'project.p3d';
+    fileEvents.saveTarget = { name: 'project.p3d', write: () => new Promise<void>((r) => (finish = r)) };
+    app.dirty = true;
+    saveFile();
+    // an edit lands before the write completes
+    app.doc.objects[app.doc.object_order[0]].location = [1, 2, 3];
+    app.changed('doc');
+    finish();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(app.reports.at(-1)?.message).toBe('Saved "project.p3d"');
+    expect(app.dirty).toBe(true);
+    // a save with nothing happening meanwhile clears it
+    saveFile();
+    app.doc.scene.frame_current = 7;
+    app.changed('frame');
+    finish();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(app.dirty).toBe(false);
+    // a failed write leaves it modified
+    fileEvents.saveTarget = { name: 'project.p3d', write: async () => Promise.reject(new Error('denied')) };
+    saveFile();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(app.reports.at(-1)?.type).toBe('ERROR');
+    expect(app.dirty).toBe(true);
+  });
+});
