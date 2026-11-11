@@ -422,9 +422,12 @@ function abortError() {
  * Scenes whose picture fails get a backdrop and scenes whose voice fails
  * are timed by their length; both are listed in `problems`. Throws only
  * when cancelled or when nothing at all could be made.
+ * reuse (a Map kept by the caller between runs) holds the pictures and voices
+ * already made, by what they were made from: a run after Stop or a failure
+ * takes them from there rather than paying for them again.
  * Returns { layout, assets, problems, timing: 'speech' | 'estimate' | 'mixed' }.
  */
-export async function generateScenes(scenes, opts, services, { signal, onProgress } = {}) {
+export async function generateScenes(scenes, opts, services, { signal, onProgress, reuse = null } = {}) {
   const list = scenes.filter((s) => String(s.narration || '').trim()).slice(0, SCENES_MAX);
   if (!list.length) throw new Error('Write at least one scene first.');
   const { voice, style = 'none', aspect = '16:9', width = 1920, height = 1080, captions = 'clean-caption' } = opts;
@@ -438,16 +441,28 @@ export async function generateScenes(scenes, opts, services, { signal, onProgres
   const check = () => {
     if (signal?.aborted) throw abortError();
   };
+  // Two scenes asking for the same picture or words still get one each.
+  const seen = new Map();
+  const keyOf = (k) => {
+    const c = (seen.get(k) || 0) + 1;
+    seen.set(k, c);
+    return `${k}\n${c}`;
+  };
   for (let i = 0; i < list.length; i++) {
     check();
     const s = list[i];
     const n = i + 1;
     onProgress?.({ done, total: steps, label: `Scene ${n} of ${list.length}: picture` });
     let image = null;
+    const pictureKey = keyOf(`picture\n${aspect}\n${style}\n${pictureText(s)}`);
     try {
-      const blob = await services.image(pictureText(s), { aspect, style, signal });
-      check();
-      const asset = await services.addMedia(new File([blob], `Scene ${n} picture.${/jpe?g/.test(blob.type) ? 'jpg' : 'png'}`, { type: blob.type || 'image/png' }), 'generate');
+      let asset = reuse?.get(pictureKey);
+      if (!asset) {
+        const blob = await services.image(pictureText(s), { aspect, style, signal });
+        asset = await services.addMedia(new File([blob], `Scene ${n} picture.${/jpe?g/.test(blob.type) ? 'jpg' : 'png'}`, { type: blob.type || 'image/png' }), 'generate');
+        reuse?.set(pictureKey, asset);
+        check();
+      }
       assets.push(asset);
       image = { assetId: asset.id, name: asset.name };
     } catch (err) {
@@ -465,17 +480,25 @@ export async function generateScenes(scenes, opts, services, { signal, onProgres
     check();
     let voiceClip = null;
     let words = null;
+    const voiceKey = keyOf(`voice\n${voice}\n${s.narration}`);
     try {
-      const blob = await services.speech(s.narration, voice, { signal });
-      check();
-      const ext = /wav/.test(blob.type) ? 'wav' : /ogg/.test(blob.type) ? 'ogg' : 'mp3';
-      const asset = await services.addMedia(new File([blob], `Scene ${n} narration.${ext}`, { type: blob.type || 'audio/mpeg' }), 'speech');
-      if (!asset?.duration) throw new Error('The narration came back empty.');
+      let kept = reuse?.get(voiceKey);
+      if (!kept) {
+        const blob = await services.speech(s.narration, voice, { signal });
+        const ext = /wav/.test(blob.type) ? 'wav' : /ogg/.test(blob.type) ? 'ogg' : 'mp3';
+        const asset = await services.addMedia(new File([blob], `Scene ${n} narration.${ext}`, { type: blob.type || 'audio/mpeg' }), 'speech');
+        if (!asset?.duration) throw new Error('The narration came back empty.');
+        kept = { asset, blob, words: null };
+        reuse?.set(voiceKey, kept);
+        check();
+      }
+      const { asset } = kept;
       assets.push(asset);
       voiceClip = { assetId: asset.id, duration: asset.duration };
       if (captions && services.words) {
         try {
-          words = await services.words(asset, blob, { signal });
+          kept.words ??= await services.words(asset, kept.blob, { signal });
+          words = kept.words;
         } catch (err) {
           if (err?.name === 'AbortError') throw err;
           words = null;
