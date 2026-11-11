@@ -75,3 +75,38 @@ describe('dialog initial focus', () => {
     expect(await r).toBe(true);
   });
 });
+
+describe('form dialog validation', () => {
+  it('names the allowed range, marks the field invalid and clears once fixed', async () => {
+    const { installCanvasStub } = await import('./helpers.js');
+    const { formDialog } = await import('../src/ui/dialogs/dialog.js');
+    installCanvasStub();
+    const p = formDialog(null, {
+      title: 'Test',
+      fields: [
+        { key: 'n', label: 'Copies', type: 'number', value: 5, min: 1, max: 10 },
+        { key: 'a', label: 'Angle', type: 'angle', value: 0, min: -360 },
+      ],
+    });
+    const dlg = document.querySelector('dialog[open]');
+    const [n] = dlg.querySelectorAll('input');
+    const ok = dlg.querySelector('.btn.primary');
+    const err = dlg.querySelector('.form-error');
+    n.value = '0';
+    ok.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(err.textContent).toBe('Copies must be between 1 and 10.');
+    expect(n.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(n);
+    n.value = 'abc';
+    ok.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(err.textContent).toBe('Enter a number for Copies.');
+    n.value = '3';
+    n.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(err.textContent).toBe('');
+    expect(n.hasAttribute('aria-invalid')).toBe(false);
+    ok.click();
+    expect(await p).toEqual({ n: 3, a: 0 });
+  });
+});

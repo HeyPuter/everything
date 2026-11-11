@@ -488,16 +488,39 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
   if (onChange) body.addEventListener('input', () => valid().ok && onChange(read()));
   if (onChange) body.addEventListener('change', () => valid().ok && onChange(read()));
   syncDisabled();
+  /** What is wrong with a field's value, naming the allowed range. */
+  const problem = (f) => {
+    const v = readOne(f);
+    const name = String(f.label).replace(/:$/, '');
+    if (!Number.isFinite(v)) return `Enter a number for ${name}.`;
+    const show = (x) => String(showValue(f, x, unit));
+    if (f.min != null && f.max != null) return `${name} must be between ${show(f.min)} and ${show(f.max)}.`;
+    if (f.min != null) return `${name} must be at least ${show(f.min)}.`;
+    return `${name} must be at most ${show(f.max)}.`;
+  };
+  let invalidEl = null;
   const validate = () => {
     const r = valid();
+    invalidEl?.removeAttribute('aria-invalid');
+    invalidEl = null;
     if (!r.ok) {
-      error.textContent = `Enter a valid value for ${r.field.label}.`;
-      inputs.get(r.field.key)?.focus();
+      error.textContent = problem(r.field);
+      invalidEl = inputs.get(r.field.key);
+      invalidEl?.setAttribute('aria-invalid', 'true');
+      invalidEl?.focus();
       return false;
     }
     error.textContent = '';
     return true;
   };
+  // The message goes away once the value is fixed.
+  body.addEventListener('input', () => {
+    if (error.textContent && valid().ok) {
+      error.textContent = '';
+      invalidEl?.removeAttribute('aria-invalid');
+      invalidEl = null;
+    }
+  });
   return openDialog({
     title,
     body,

@@ -173,6 +173,10 @@
   color: var(--danger);
 }
 
+.form [aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
 .form-description {
   margin: 0 0 4px;
   color: var(--text-2);
