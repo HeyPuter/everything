@@ -33,6 +33,7 @@ import { CORE_TOOLS } from './tools/index.js';
 import { applyTheme, THEME_OPTIONS } from './theme.js';
 import { defaultLabel } from './model/nodes.js';
 import { formatLength } from './lib/units.js';
+import { installHeldModifiers } from './lib/held-modifiers.js';
 
 /** Focusable controls that Enter or Space activate. */
 const ACTIVATABLE = 'button, a[href], summary, select, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"]';
@@ -40,6 +41,8 @@ const ACTIVATABLE = 'button, a[href], summary, select, [role="button"], [role="m
 export class App extends Emitter {
   constructor(root, { prefs, env = 'web', user = null, picture = null, onSignIn = null, onSignOut = null, onSessionChange = null, storage = null } = {}) {
     super();
+    // Shift-tap and friends on tablets whose touch events carry no modifier keys.
+    if (typeof window !== 'undefined') installHeldModifiers(window);
     this.root = root;
     this.prefs = prefs;
     this.env = env;
