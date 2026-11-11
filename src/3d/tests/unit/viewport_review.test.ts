@@ -235,3 +235,36 @@ describe('transforms with a zero scale', () => {
     expect(cube.scale).toEqual([0, 0, 0]);
   });
 });
+
+describe('join', () => {
+  it('keeps the faces of a mirrored object pointing outwards and carries corner/vertex data', () => {
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    const me0 = app.doc.meshes[cube.data!];
+    me0.color_attributes = [{ name: 'Col', domain: 'POINT', data: new Float32Array((me0.positions.length / 3) * 4).fill(0.5) }];
+    select(cube);
+    run('object.duplicate_move', {});
+    const dup = app.activeObject!;
+    dup.location = [5, 0, 0];
+    dup.scale = [-1, 1, 1];
+    app.graph.evaluate(app.doc, false);
+    select(cube, dup);
+    app.doc.scene.active_object = cube.id;
+    app.graph.evaluate(app.doc, false);
+    run('object.join');
+    const me = app.doc.meshes[cube.data!];
+    const nv = me.positions.length / 3;
+    expect(nv).toBe(16);
+    // the colour attribute grows with the vertices
+    expect(me.color_attributes[0]?.data.length).toBe(nv * 4);
+    // every face points away from the centre of its own cube
+    for (let f = 0; f < me.offsets.length - 1; f++) {
+      const c = [0, 0, 0];
+      const s = me.offsets[f],
+        e = me.offsets[f + 1];
+      for (let k = s; k < e; k++) for (let j = 0; j < 3; j++) c[j] += me.positions[me.indices[k] * 3 + j] / (e - s);
+      const cx = c[0] > 2.5 ? 5 : 0;
+      const d = (c[0] - cx) * me.normals[s * 3] + c[1] * me.normals[s * 3 + 1] + c[2] * me.normals[s * 3 + 2];
+      expect(d, `face ${f}`).toBeGreaterThan(0);
+    }
+  });
+});

@@ -340,6 +340,68 @@ function transformMeshData(me: MeshData, m: Matrix4) {
   if (m.determinant() < 0) reverseWinding(me);
 }
 
+/**
+ * Colour attributes, extra UV maps and generic point / corner / face attributes of joined meshes:
+ * layers merge by name, elements a mesh has no layer for get zeros. `parts[0]` is the target as it
+ * was before the join.
+ */
+function joinLayers(target: MeshData, parts: MeshData[]) {
+  const counts = parts.map((me) => ({ POINT: me.positions.length / 3, CORNER: me.indices.length, FACE: me.offsets.length - 1 }));
+  type Layer = { data: ArrayLike<number> & { length: number }; stride: number };
+  const merge = (domain: 'POINT' | 'CORNER' | 'FACE', make: (n: number) => Float32Array | Int32Array | Uint8Array, find: (me: MeshData) => Layer | null) => {
+    const total = counts.reduce((t, c) => t + c[domain], 0);
+    const first = parts.map(find).find((l) => l);
+    if (!first) return null;
+    const out = make(total * first.stride);
+    let at = 0;
+    parts.forEach((me, i) => {
+      const n = counts[i][domain];
+      const l = find(me);
+      if (l && l.stride === first.stride && l.data.length >= n * l.stride) for (let k = 0; k < n * l.stride; k++) out[at * first.stride + k] = l.data[k];
+      at += n;
+    });
+    return out;
+  };
+  const stride = (data: { length: number }, n: number) => (n > 0 && data.length % n === 0 ? data.length / n : 0);
+  // colour attributes
+  const colNames: { name: string; domain: 'POINT' | 'CORNER' }[] = [];
+  for (const me of parts) for (const c of me.color_attributes ?? []) if (!colNames.some((x) => x.name === c.name)) colNames.push({ name: c.name, domain: c.domain });
+  target.color_attributes = colNames.map(({ name, domain }) => ({
+    name,
+    domain,
+    data: merge(domain, (n) => new Float32Array(n), (me) => {
+      const c = (me.color_attributes ?? []).find((x) => x.name === name && x.domain === domain);
+      return c ? { data: c.data, stride: 4 } : null;
+    }) as Float32Array,
+  }));
+  // extra UV maps
+  const uvNames: string[] = [];
+  for (const me of parts) for (const u of me.uv_layers_extra ?? []) if (!uvNames.includes(u.name)) uvNames.push(u.name);
+  if (uvNames.length)
+    target.uv_layers_extra = uvNames.map((name) => ({
+      name,
+      data: merge('CORNER', (n) => new Float32Array(n), (me) => {
+        const u = (me.uv_layers_extra ?? []).find((x) => x.name === name);
+        return u ? { data: u.data, stride: 2 } : null;
+      }) as Float32Array,
+    }));
+  // generic attributes (edge attributes are dropped: the joined edges are numbered anew)
+  const attrs: NonNullable<MeshData['attributes']> = [];
+  for (const me of parts)
+    for (const a of me.attributes ?? []) {
+      if (a.domain === 'EDGE' || attrs.some((x) => x.name === a.name)) continue;
+      const domain = a.domain;
+      const k = stride(a.data, counts[parts.indexOf(me)][domain]);
+      if (!k) continue;
+      const data = merge(domain, (n) => new (a.data.constructor as new (n: number) => Float32Array | Int32Array | Uint8Array)(n), (pm) => {
+        const b = (pm.attributes ?? []).find((x) => x.name === a.name && x.domain === domain && x.data_type === a.data_type);
+        return b ? { data: b.data, stride: stride(b.data, counts[parts.indexOf(pm)][domain]) } : null;
+      });
+      if (data) attrs.push({ ...a, data });
+    }
+  if (target.attributes || attrs.length) target.attributes = attrs;
+}
+
 /** Reverse the corner order of every face, carrying all corner and edge data along. */
 function reverseWinding(me: MeshData) {
   const nf = me.offsets.length - 1,
@@ -1241,10 +1303,18 @@ registerOperators([
       // shape keys of the active mesh continue over the joined vertices (matching names, else the rest shape)
       const keys = tme.shape_keys.map((k) => ({ ...k, out: Array.from(k.data) }));
       const remove = new Set<string>();
+      // meshes in join order, for the colour / UV / generic attribute layers
+      const parts: MeshData[] = [{ ...tme }];
       for (const ob of app.selectedObjects()) {
         if (ob.id === target.id || ob.type !== 'MESH') continue;
-        const me = doc.meshes[ob.data!];
         const m = inv.clone().multiply(app.graph.get(ob.id)!.world);
+        let me = doc.meshes[ob.data!];
+        if (m.determinant() < 0) {
+          // a mirrored object: turn its faces around so they keep pointing outwards
+          me = { ...me };
+          reverseWinding(me);
+        }
+        parts.push(me);
         const base = positions.length / 3;
         const v = new Vector3();
         const transformed = (src: ArrayLike<number>) => {
@@ -1293,6 +1363,7 @@ registerOperators([
       tme.weights = weights.map((w) => Float32Array.from(w));
       tme.shape_keys = keys.length === 0 || keys[0].out.length !== tme.positions.length ? [] : keys.map(({ out, ...k }) => ({ ...k, data: Float32Array.from(out) }));
       tme.select_vert = undefined;
+      joinLayers(tme, parts);
       deleteObjects(doc, remove);
       target.select = true;
     },
