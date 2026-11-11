@@ -350,6 +350,8 @@ export async function matchColorDialog(e: Editor) {
   const o: MatchOptions = { ...DEFAULT_MATCH };
   let source: LabStats | null = null;
   const statsCache = new Map<string, LabStats>();
+  let picks = 0;
+  let measuring: Promise<void> = Promise.resolve();
   const loadSource = async (key: string) => {
     if (!key) return null;
     let st = statsCache.get(key);
@@ -382,11 +384,24 @@ export async function matchColorDialog(e: Editor) {
     });
   };
   shell.body.append(
-    select('Source', options, '', async (v) => {
+    select('Source', options, '', (v) => {
+      // Measuring takes a while; only the source chosen last is used.
+      const mine = ++picks;
       shell.status.textContent = v ? 'Measuring…' : '';
-      source = await loadSource(v);
-      shell.status.textContent = '';
-      refresh();
+      measuring = loadSource(v).then(
+        (st) => {
+          if (mine !== picks) return;
+          source = st;
+          shell.status.textContent = '';
+          refresh();
+        },
+        () => {
+          if (mine !== picks) return;
+          source = null;
+          shell.status.textContent = 'The source cannot be measured.';
+          refresh();
+        },
+      );
     }).el,
     slider({ label: 'Luminance', min: 1, max: 200, value: o.luminance, onInput: (v, c) => ((o.luminance = v), c && refresh()) }).el,
     slider({ label: 'Color Intensity', min: 0, max: 200, value: o.intensity, onInput: (v, c) => ((o.intensity = v), c && refresh()) }).el,
@@ -398,6 +413,8 @@ export async function matchColorDialog(e: Editor) {
   const ok = await shell.result;
   restore(e);
   if (!ok) return;
+  // OK while the chosen source is still being measured applies that source.
+  await measuring;
   const adj = adjustment();
   await applyToLayer(e, 'Match Color', (image) => adjustInWorker(image, adj));
 }
