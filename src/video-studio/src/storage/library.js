@@ -59,7 +59,12 @@ export class Library extends Emitter {
   }
 
   async _readIndex() {
-    let index = await this.backend.readJSON('index.json').catch(() => null);
+    // Missing or damaged: rebuilt from the project files. A read that failed (offline) is an
+    // error: rebuilding then could skip project files that can't be read either and drop them.
+    let index = await this.backend.readJSON('index.json').catch((err) => {
+      if (err instanceof SyntaxError) return null;
+      throw err;
+    });
     if (!Array.isArray(index)) index = await this._rebuildIndex();
     this.index = index;
     return index;
@@ -73,8 +78,9 @@ export class Library extends Emitter {
       try {
         const p = await this.openProject(f.name.slice(0, -'.json'.length));
         out.push(projectSummary(p, projectDuration(p)));
-      } catch {
-        /* skip unreadable files */
+      } catch (err) {
+        // Damaged files are left out; any other failure stops the rebuild before it drops projects.
+        if (!err?.unreadable) throw err;
       }
     }
     await this.backend.writeJSON('index.json', out).catch(() => {});

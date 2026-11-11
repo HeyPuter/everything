@@ -108,6 +108,26 @@ describe('Library projects', () => {
     expect(json(backend, 'index.json').map((x) => x.id)).toEqual([p.id]);
   });
 
+  it('does not rebuild the list from the project files when it could not be read', async () => {
+    const a = await lib.createProject({ name: 'A' });
+    const b = await lib.createProject({ name: 'B' });
+    const index = backend.files.get('index.json');
+    // Offline for a moment: the list and one project file can't be read.
+    const read = backend.readJSON;
+    backend.readJSON = async (path) => {
+      if (path === 'index.json' || path === `projects/${b.id}.json`) throw new Error('Simulated network failure');
+      return read(path);
+    };
+    const fresh = new Library(backend);
+    await expect(fresh.listProjects()).rejects.toThrow('Simulated network failure');
+    expect(backend.files.get('index.json')).toBe(index);
+    // A rebuild (the list is damaged) that can't read a project file stops instead of dropping it.
+    backend.files.set('index.json', '{"oops');
+    await expect(fresh.listProjects()).rejects.toThrow('Simulated network failure');
+    backend.readJSON = read;
+    expect((await fresh.listProjects()).map((p) => p.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
   it('keeps the file name as the project id, so a rebuilt index opens the right file', async () => {
     backend.files.set('projects/abc.json', JSON.stringify({ format: 'video-studio-project', name: 'No id' }));
     backend.files.set('projects/def.json', JSON.stringify({ format: 'video-studio-project', id: 'other', name: 'Wrong id' }));
