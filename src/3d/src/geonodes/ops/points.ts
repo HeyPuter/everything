@@ -1,5 +1,5 @@
 // Distribute Points on Faces and Instance on Points.
-import { InstancesComponent, MeshComponent, PointsComponent, allocData, composeMat, dataComps, type AttrMap, type InstanceReference } from '../geometry';
+import { InstancesComponent, MeshComponent, PointsComponent, allocData, composeMat, dataComps, mulMat, type AttrMap, type InstanceReference } from '../geometry';
 import { faceNormals } from '../meshutil';
 import { triangulatePoly } from '../../mesh/mesh';
 import { hash2, hash3, u2f } from '../noise';
@@ -194,6 +194,8 @@ export function instanceOnPoints(
   refIndexOf: (i: number) => number,
   rotation: Float32Array,
   scale: Float32Array,
+  /** transform applied before the point's own (a picked instance keeps its transform) */
+  local?: (i: number) => ArrayLike<number> | null,
 ): InstancesComponent {
   const n = positions.length / 3;
   const keep: number[] = [];
@@ -203,7 +205,8 @@ export function instanceOnPoints(
   const m = new Float64Array(16);
   keep.forEach((s, i) => {
     composeMat(positions.subarray(s * 3, s * 3 + 3), rotation.subarray(s * 3, s * 3 + 3), scale.subarray(s * 3, s * 3 + 3), m);
-    T.set(m, i * 16);
+    const l = local?.(s);
+    T.set(l ? mulMat(m, l) : m, i * 16);
     R[i] = refIndexOf(s);
   });
   const attrs: AttrMap = new Map();

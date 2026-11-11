@@ -172,6 +172,23 @@ describe('Convex Hull', () => {
 });
 
 describe('instances', () => {
+  it('Instance on Points keeps the transform of a picked instance', () => {
+    const t = setup();
+    // two instances of a cube, the second one moved up by 5
+    const two = node(t, 'GeometryNodeInstanceOnPoints');
+    link(t, node(t, 'GeometryNodeMeshLine', { Count: 2, Offset: [0, 0, 5] }), 'Mesh', two, 'Points');
+    link(t, node(t, 'GeometryNodeMeshCube'), 'Mesh', two, 'Instance');
+    const iop = node(t, 'GeometryNodeInstanceOnPoints', { 'Pick Instance': true });
+    link(t, node(t, 'FunctionNodeInputInt', {}, { integer: 1 }), 'Integer', iop, 'Instance Index');
+    link(t, node(t, 'GeometryNodeMeshLine', { Count: 1, 'Start Location': [10, 0, 0] }), 'Mesh', iop, 'Points');
+    link(t, two, 'Instances', iop, 'Instance');
+    const re = node(t, 'GeometryNodeRealizeInstances');
+    link(t, iop, 'Instances', re, 'Geometry');
+    const b = geometryBounds(run(t, re).geometry)!;
+    expect(b.min).toEqual([9.5, -0.5, 4.5]);
+    expect(b.max).toEqual([10.5, 0.5, 5.5]);
+  });
+
   it('Rotate Instances in local space turns a stretched instance rigidly', () => {
     const t = setup();
     const iop = node(t, 'GeometryNodeInstanceOnPoints', { Scale: [2, 1, 1] });

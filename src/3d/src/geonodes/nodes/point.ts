@@ -111,7 +111,7 @@ gn(
     exec: (ctx) => {
       const pts = ctx.geometry('Points');
       const inst = ctx.geometry('Instance');
-      const pick = ctx.bool('Pick Instance') && !!inst.instances;
+      const pick = ctx.bool('Pick Instance') && !!inst.instances?.count;
       let refs: InstanceReference[];
       if (pick) refs = inst.instances!.references.length ? inst.instances!.references : [];
       else refs = inst.isEmpty() ? [] : [{ type: 'GEOMETRY', geometry: inst, key: refKey(inst) }];
@@ -132,19 +132,16 @@ gn(
         } else positions = c.positions;
         const idx = r.values[2];
         const pickRef = pick ? inst.instances!.refIndex : null;
+        const picked = (i: number) => ((idx[i] % pickRef!.length) + pickRef!.length) % pickRef!.length;
         const comp = instanceOnPoints(
           positions,
           c.attrs,
           r.sel,
           refs,
-          (i) => {
-            if (!pickRef) return 0;
-            const n = pickRef.length;
-            const j = ((idx[i] % n) + n) % n;
-            return pickRef[j];
-          },
+          (i) => (pickRef ? pickRef[picked(i)] : 0),
           r.values[0] as Float32Array,
           r.values[1] as Float32Array,
+          pickRef ? (i) => inst.instances!.transforms.subarray(picked(i) * 16, picked(i) * 16 + 16) : undefined,
         );
         out.push(new GeometrySet(undefined, undefined, undefined, comp));
       }
