@@ -3,7 +3,8 @@ import { setup, publish, invite, USERS } from './review-helpers.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 import { EditorStore } from '../src/model/store.js';
 import { addTimeline } from '../src/model/timelines.js';
-import { projectDuration } from '../src/model/timeline.js';
+import { projectDuration, mainTrack as mainTrackOf } from '../src/model/timeline.js';
+import { createCompound } from '../src/model/compound.js';
 import { createThreadList } from '../src/ui/review/threads.js';
 import { ReviewPage, cleanReviewHash } from '../src/ui/review/review-page.js';
 import { createReviewPanel, reviewMarkers } from '../src/ui/review/review-panel.js';
@@ -11,7 +12,7 @@ import { openShareDialog, appBase } from '../src/ui/review/share-dialog.js';
 import { shareForReview, reviewSettings, reviewSource, reviewFilePath, REVIEW_PRESET } from '../src/review/share.js';
 import { ReviewSession } from '../src/review/session.js';
 import { parseReviewHash } from '../src/review/protocol.js';
-import { WORKER_KEY } from '../src/review/api.js';
+import { WORKER_KEY, call as callWorker } from '../src/review/api.js';
 import axe from 'axe-core';
 
 /** Serious and critical axe violations (layout-dependent rules off in jsdom). */
@@ -196,6 +197,19 @@ describe('share for review (owner flow)', () => {
     expect(r2.review.versions[1]).toMatchObject({ range: { in: s(1), out: s(4) }, duration: s(3) });
   });
 
+  it('removes the saved copy when the review server refuses the new version', async () => {
+    const env = await setup();
+    const p = projectWithClips();
+    const deps = { exportProject: fakeExport(), detectCapabilities: caps };
+    const reviewFiles = () => [...env.world.storage.tables.get('files').keys()].filter((k) => k.includes('/reviews/'));
+    const r1 = await shareForReview({ puter: env.sdk.alice, project: p, library: null, title: 'Launch film', deps });
+    expect(reviewFiles()).toHaveLength(1);
+    // The review is full: every further share is refused, and each left a whole 720p copy in the owner's files.
+    await env.sdk.alice.kv.set(`vsr:r:${r1.review.id}:vseq`, 50);
+    await expect(shareForReview({ puter: env.sdk.alice, project: p, library: null, title: 'Launch film', deps })).rejects.toMatchObject({ status: 409 });
+    expect(reviewFiles()).toHaveLength(1);
+  });
+
   it('publishes nothing when cancelled while the copy is being saved, and removes the saved copy', async () => {
     const env = await setup();
     const p = projectWithClips();
@@ -249,6 +263,30 @@ describe('share dialog', () => {
     await until(() => again.el.querySelector('[aria-label="People"] .rv-row.empty'));
     await expect(env.as('bob')('sync', { review: link.review, since: 0 })).rejects.toMatchObject({ status: 403 });
     again.close();
+  });
+
+  it('shows the role a person has after a role change fails', async () => {
+    const env = await setup();
+    const store = new EditorStore(projectWithClips());
+    const pub = await publish(env, { projectId: store.project.id });
+    await env.as('bob')('join', { review: pub.review.id, token: await invite(env, pub.review.id) });
+    let refuse = false;
+    const call = (p, server, input) => (refuse && input.op === 'member.role' ? Promise.reject(new Error('Try again.')) : callWorker(p, server, input));
+    const ctx = { store, library: { backend: { kind: 'puter' } }, puter: env.sdk.alice, account: {} };
+    const dlg = openShareDialog(ctx, { deps: { call } });
+    const people = await until(() => [...dlg.el.querySelectorAll('[aria-label="People"] .rv-row')].find((r) => r.textContent.includes('bob')));
+    const sel = people.querySelector('select');
+    sel.value = 'viewer';
+    sel.dispatchEvent(new Event('change'));
+    await until(() => env.world.calls.some((c) => c.op === 'member.role'));
+    await new Promise((r) => setTimeout(r, 20));
+    refuse = true;
+    sel.value = 'commenter';
+    sel.dispatchEvent(new Event('change'));
+    await until(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('Try again.')));
+    expect((await env.as('alice')('members', { review: pub.review.id })).members[0].role).toBe('viewer');
+    expect(sel.value).toBe('viewer');
+    dlg.close();
   });
 
   it('asks to sign in when Puter is not available', () => {
@@ -347,6 +385,38 @@ describe('review page (reviewer flow)', () => {
     root.querySelector('#rv-show-resolved').click();
     expect(root.querySelectorAll('.rv-thread').length).toBe(1);
     owner.dispose();
+    page.dispose();
+  });
+
+  it('lets go of the comment\'s pinned time when another version is shown', async () => {
+    const env = await setup();
+    await publish(env, { duration: 10_000_000, fps: 25 });
+    const pub = await publish(env, { duration: 4_000_000, fps: 25 });
+    const token = await invite(env, pub.review.id);
+    const root = document.createElement('div');
+    document.body.append(root);
+    const page = new ReviewPage(root, { puter: env.sdk.bob, link: { review: pub.review.id, server: env.server, token }, interval: 60_000 });
+    await until(() => root.querySelector('.rv-page'));
+    page.setVersion(1);
+    page.seek(8_000_000);
+    page.composer.startHere();
+    const range = root.querySelector('#rv-range');
+    range.checked = true;
+    range.dispatchEvent(new Event('change'));
+    const text = root.querySelector('.rv-compose-text');
+    text.value = 'Cut here';
+    text.dispatchEvent(new Event('input'));
+    expect(root.querySelector('.rv-pin .rv-pin-time').textContent).toBe('00:00:08:00');
+    // On the 4 second version the box keeps the words but pins to the frame shown, as a fresh comment does.
+    page.setVersion(2);
+    expect(text.value).toBe('Cut here');
+    expect(range.checked).toBe(false);
+    page.seek(2_000_000);
+    expect(root.querySelector('.rv-pin .rv-pin-time').textContent).toBe('00:00:02:00');
+    root.querySelector('.rv-composer').dispatchEvent(new Event('submit', { cancelable: true }));
+    await until(() => root.querySelector('.rv-thread') && !root.querySelector('.rv-comment.pending'));
+    expect(root.querySelector('.rv-composer .rv-form-error').textContent).toBe('');
+    expect([...page.session.comments.values()].map((c) => [c.version, c.t, c.end])).toEqual([[2, 2_000_000, null]]);
     page.dispose();
   });
 
@@ -452,6 +522,26 @@ describe('review page (reviewer flow)', () => {
     page.dispose();
   });
 
+  it('shows the comment\'s frame when it is on a version whose video is still loading', async () => {
+    const { page } = await opened('commenter', { versions: 2 });
+    const c = await page.session.addComment({ version: 1, text: 'On v1', t: 4_000_000 });
+    // As in a browser: a new source has no frames until its metadata has loaded.
+    let ready = 4;
+    Object.defineProperty(page.video, 'readyState', { configurable: true, get: () => ready });
+    const src = page.video.getAttribute('src');
+    page.video._time = 0;
+    ready = 0;
+    page.seekToComment(page.session.comments.get(c.id));
+    await until(() => page.version === 1 && page.video.getAttribute('src') !== src);
+    await until(() => page.t === 4_000_000);
+    expect(page.video.currentTime).toBe(0);
+    ready = 1;
+    page.video.dispatchEvent(new Event('loadedmetadata'));
+    expect(page.video.currentTime).toBeCloseTo(4.02, 5);
+    expect(page.t).toBe(4_000_000);
+    page.dispose();
+  });
+
   it('shows why a link does not work', async () => {
     const env = await setup();
     const pub = await publish(env);
@@ -551,6 +641,33 @@ describe('editor review panel', () => {
     expect(store.project.markers.map((m) => m.time)).toEqual([s(3)]);
     store.openTimeline(main);
     expect(store.project.markers || []).toEqual([]);
+    panel.dispose();
+  });
+
+  it('leaves a compound clip being edited before seeking or adding markers', async () => {
+    const env = await setup();
+    const p = projectWithClips();
+    onMain(p, clip('video', 10, 4));
+    const store = new EditorStore(p);
+    const deps = { exportProject: fakeExport(), detectCapabilities: caps };
+    const v1 = await shareForReview({ puter: env.sdk.alice, project: store.project, library: null, title: 'Main', deps });
+    await env.as('alice')('comment.add', { review: v1.review.id, version: 1, id: 'c_comp0001', text: 'Here', t: s(12) });
+    const second = mainTrackOf(store.project).clips[1].id;
+    store.update('Group', (pp) => createCompound(pp, [second]));
+    const comp = mainTrackOf(store.project).clips[1].id;
+    const panel = createReviewPanel({ store, library: { backend: { kind: 'puter' } }, puter: env.sdk.alice, account: {} }, { deps: { interval: 60_000 } });
+    document.body.append(panel.el);
+    panel.toggle(true);
+    await until(() => panel.el.querySelector('.rv-thread'));
+    store.openCompound(comp);
+    panel.el.querySelector('.rv-time').click();
+    // The comment's time is on the timeline, not inside the compound clip.
+    expect(store.nest).toHaveLength(0);
+    expect(store.time).toBe(s(12));
+    store.openCompound(comp);
+    btn(panel.el, 'Add as markers').click();
+    expect(store.nest).toHaveLength(0);
+    expect(store.project.markers.map((m) => m.time)).toEqual([s(12)]);
     panel.dispose();
   });
 

@@ -9,6 +9,7 @@ import * as T from '../model/timeline.js';
 import { allClipsDeep } from '../model/compound.js';
 import { storedTimelineTracks } from '../model/timelines.js';
 import { openDialog, confirmDialog, toast } from './dialog.js';
+import { ACCEPT_FOR } from '../media/media-types.js';
 
 /** Assets no clip refers to (directly, or through a reversed copy in use). */
 export function unusedAssets(project) {
@@ -42,7 +43,10 @@ function soundClips(project, assetId) {
  */
 export function swapAsset(project, oldId, asset) {
   const old = project.assets[oldId];
-  project.assets[asset.id] = { ...asset, ...(old?.folder ? { folder: old.folder } : {}) };
+  // The same file chosen again (relinking a missing one): a reversed copy and its original stay paired.
+  const same = Boolean(old?.hash && asset.hash === old.hash && oldId !== asset.id);
+  project.assets[asset.id] = { ...asset, ...(old?.folder ? { folder: old.folder } : {}), ...(same && old.reversedOf ? { reversedOf: old.reversedOf } : {}) };
+  if (same) for (const a of Object.values(project.assets)) if (a.reversedOf === oldId) a.reversedOf = asset.id;
   const toImage = asset.kind === 'image' && old?.kind !== 'image';
   if (toImage && oldId !== asset.id) {
     const sound = new Set(soundClips(project, oldId).map((c) => c.id));
@@ -91,7 +95,6 @@ function pickFile(accept) {
   });
 }
 
-const ACCEPT = { video: 'video/*,.mkv,.mov,.m4v,.webm', audio: 'audio/*,.mp3,.wav,.m4a,.flac,.ogg,.opus', image: 'image/*' };
 
 export function createMediaActions(ctx) {
   const { store } = ctx;
@@ -139,9 +142,14 @@ export function createMediaActions(ctx) {
 
     /** Select every clip using an asset and jump to the first. */
     revealAsset(assetId) {
-      const clips = T.allClips(store.project).filter((c) => c.assetId === assetId).sort((x, y) => x.start - y.start);
+      const top = T.allClips(store.project);
+      let clips = top.filter((c) => c.assetId === assetId);
+      // Only inside compound clips: those are what shows on the timeline.
+      if (!clips.length) clips = top.filter((c) => c.type === 'compound' && allClipsDeep({ tracks: c.sequence.tracks }).some((x) => x.assetId === assetId));
+      clips.sort((x, y) => x.start - y.start);
       if (!clips.length) {
-        toast('This item is not on the timeline.', { kind: 'info' });
+        const other = (store.project.timelines || []).find((t) => t.id !== store.project.timelineId && Array.isArray(t.tracks) && allClipsDeep({ tracks: t.tracks }).some((x) => x.assetId === assetId));
+        toast(other ? `This item is only used on the timeline ${other.name}.` : 'This item is not on the timeline.', { kind: 'info' });
         return;
       }
       store.select(clips.map((c) => c.id));
@@ -153,7 +161,7 @@ export function createMediaActions(ctx) {
     async replaceAssetFile(assetId) {
       const old = store.project.assets[assetId];
       if (!old) return null;
-      const file = await pickFile(ACCEPT[old.kind] || '');
+      const file = await pickFile(ACCEPT_FOR[old.kind] || '');
       if (!file) return null;
       let asset;
       try {

@@ -172,7 +172,7 @@ function safeDescribe(describe, call) {
 }
 
 /**
- * An assistant for one project. chat(messages, { model, tools, maxTokens }) is
+ * An assistant for one project. chat(messages, { model, tools, maxTokens, signal }) is
  * an async iterable of { type: 'text', text }, { type: 'tool', id, name, input }
  * and { type: 'cut' } (media/ai-chat.js). runTool(name, args, control) ->
  * { ok, content, changed, entry, target }, or a promise of it
@@ -192,6 +192,8 @@ function safeDescribe(describe, call) {
 export function createAgent({ chat, runTool, describe, approve, snapshot = () => '', settings = () => ({}) }) {
   let messages = [];
   let running = null;
+  // Notes for the model that could not go on the last reply yet (one still running, or one that did not finish).
+  let notes = [];
 
   function needsApproval(name, step) {
     if (!changesProject(name)) return false;
@@ -216,9 +218,11 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
     const abort = new AbortController();
     const run = {
       stopped: false,
-      stop() {
+      reason: null,
+      stop(reason = 'stop') {
         if (!this.stopped) {
           this.stopped = true;
+          this.reason = reason;
           stopResolve(STOP);
           abort.abort();
         }
@@ -232,7 +236,7 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
         let text = '';
         let cut = false;
         const calls = [];
-        const iterable = chat(requestMessages(transcript), { model: AI_MODEL, tools: toolSpecs(), maxTokens: MAX_OUTPUT_TOKENS });
+        const iterable = chat(requestMessages(transcript), { model: AI_MODEL, tools: toolSpecs(), maxTokens: MAX_OUTPUT_TOKENS, signal: abort.signal });
         const iter = iterable[Symbol.asyncIterator]();
         for (;;) {
           const next = await Promise.race([iter.next(), stopSignal]);
@@ -302,6 +306,8 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
               emit({ type: 'step', step: { ...step } });
               const control = {
                 stopped: () => run.stopped,
+                // Why: 'stop' (Stop pressed), 'new-chat' (the chat was cleared) or 'leave'.
+                reason: () => run.reason,
                 signal: abort.signal,
                 note: (note) => {
                   step.note = note || null;
@@ -360,6 +366,11 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
       if (running) throw new Error('The assistant is still answering');
       // A reply that failed before it finished leaves the turn open: closed first, so turns stay in order.
       if (messages.length && messages.at(-1).role !== 'assistant') messages.push({ role: 'assistant', content: '(My previous reply did not finish.)' });
+      if (notes.length) {
+        const last = messages.at(-1);
+        last.content = [last.content, ...notes].filter(Boolean).join('\n\n');
+        notes = [];
+      }
       const content = userMessageContent(userContent(text, snapshot()), attachments);
       messages.push(attachments.length
         ? { role: 'user', content, attachments: attachments.map(({ name, kind, assetId, width, height, seconds, blocks }) => ({ name, kind, assetId, width, height, seconds, bytes: sentBytes(blocks) })) }
@@ -379,16 +390,22 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
     /** Tell the model something that happened outside the chat (the user undid a reply), with the next message. */
     note(text) {
       const last = messages.at(-1);
-      if (last?.role === 'assistant' && typeof last.content === 'string') last.content = `${last.content}\n\n${text}`;
-      else if (last?.role === 'assistant') last.content = text;
+      // A reply still running, or one stopped or failed after its tool calls, ends in a call's answer: the note waits
+      // for the next message, rather than being lost (the model went on using clips the user had undone) or breaking
+      // the order of the calls and their answers.
+      if (running || last?.role !== 'assistant' || last.tool_calls?.length) {
+        if (messages.length) notes.push(text);
+      } else last.content = typeof last.content === 'string' && last.content ? `${last.content}\n\n${text}` : text;
     },
     stop() {
       running?.stop();
     },
-    reset() {
-      running?.stop();
+    /** Start over (reason: 'new-chat', or 'leave' when the editor goes); a reply still running stops. */
+    reset(reason = 'new-chat') {
+      running?.stop(reason);
       running = null;
       messages = [];
+      notes = [];
     },
   };
 }

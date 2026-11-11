@@ -59,3 +59,64 @@ describe('preferences', () => {
     d.close();
   });
 });
+
+describe('preferences in two tabs', () => {
+  it("don't put back another tab's older settings when this tab changes one", async () => {
+    const { prefs } = await import('../src/ui/prefs.js');
+    setPref('leftW', 400);
+    expect(prefs().leftW).toBe(400);
+    // Another tab customizes a shortcut and a preference meanwhile.
+    const KEY = 'video-studio:prefs';
+    const other = { ...JSON.parse(localStorage.getItem(KEY)), shortcuts: { split: ['S'] }, imageDuration: 7 };
+    localStorage.setItem(KEY, JSON.stringify(other));
+    // This tab then resizes a panel.
+    setPref('leftW', 420);
+    const saved = JSON.parse(localStorage.getItem(KEY));
+    expect(saved.leftW).toBe(420);
+    expect(saved.shortcuts).toEqual({ split: ['S'] });
+    expect(saved.imageDuration).toBe(7);
+    // Told about the other tab's change, this tab reads it.
+    window.dispatchEvent(new StorageEvent('storage', { key: KEY }));
+    expect(prefs().imageDuration).toBe(7);
+    expect(pref('imageDuration')).toBe(7);
+    setPref('imageDuration', undefined);
+    setPref('shortcuts', {});
+  });
+});
+
+describe('theme in two tabs', () => {
+  it('follows a theme chosen in another tab', async () => {
+    const { setTheme, onThemeChange } = await import('../src/ui/prefs.js');
+    setTheme('dark');
+    const seen = [];
+    const off = onThemeChange((t) => seen.push(t));
+    localStorage.setItem('video-studio:theme', 'light');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'video-studio:theme' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.dataset.themeResolved).toBe('light');
+    expect(seen).toEqual(['light']);
+    off();
+    setTheme('dark');
+  });
+});
+
+describe('media copies in preferences', () => {
+  it('shows the cloud media copies on this device and deletes them', async () => {
+    const { ctx } = setup();
+    const { Library } = await import('../src/storage/library.js');
+    const { memoryBackend } = await import('../src/storage/backends.js');
+    const cache = memoryBackend({ 'media/h1.mp4': new Blob(['a']), 'media/h2.mp4': new Blob(['b']) });
+    ctx.library = new Library(memoryBackend(), { cache });
+    const d = openPreferences(ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    const row = [...document.querySelectorAll('.pref-row')].find((r) => r.textContent.includes('Media copies'));
+    expect(row.querySelector('.cache-usage').textContent).toMatch(/^2 files/);
+    row.querySelector('button').click();
+    await new Promise((r) => setTimeout(r, 0));
+    [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Delete').click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect([...cache.files.keys()]).toEqual([]);
+    expect(row.querySelector('.cache-usage').textContent).toBe('No media copies on this device.');
+    d.close();
+  });
+});

@@ -304,6 +304,9 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
   });
   create.addEventListener('click', () => run());
 
+  // Pictures and voices made in this dialog: Create after Stop or a failure takes them again rather than paying twice.
+  const made = new Map();
+
   async function run() {
     if (busy || abort) return;
     const todo = scenes.filter((s) => s.narration.trim());
@@ -333,7 +336,7 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
         captions: opts.captions,
         music: opts.music,
         musicName: MUSIC_BY_ID.get(opts.music)?.title,
-      }, services, { signal: abort.signal, onProgress: set });
+      }, services, { signal: abort.signal, onProgress: set, reuse: made });
       progressText.textContent = 'Putting it together...';
       const name = projectName(env.topic || script.value);
       const note = problemSummary(res.problems);

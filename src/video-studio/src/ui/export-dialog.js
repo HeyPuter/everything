@@ -13,7 +13,7 @@ import { audibleClips } from '../engine/scene.js';
 import {
   RESOLUTIONS, FRAME_RATES, BITRATE_LEVELS, VIDEO_CODECS, CONTAINERS, AUDIO_FORMATS, DEFAULT_SETTINGS,
   outputSize, videoBitrate, estimateSize, reconcile, audioCodecFor, detectCapabilities, exportProject, renderStill,
-  describeError, formatBytes, safeFileName, renderFrames,
+  describeError, formatBytes, safeFileName, renderFrames, WAV_MAX_US, WAV_TOO_LONG,
 } from '../engine/exporter.js';
 import { sliceProject, exportSpan } from '../model/slice.js';
 import { GifWriter } from '../media/gif.js';
@@ -131,8 +131,9 @@ export function openExportDialog(ctx) {
   };
   let project = source();
   let duration = projectDuration(project);
-  const hasSound = audibleClips(full).length > 0;
-  const hasCaptions = captionCues(full).length > 0;
+  // Sound and captions of the part being exported (a range or a selection may have none).
+  const hasSound = () => audibleClips(project).length > 0;
+  let hasCaptions = captionCues(project).length > 0;
   if (!BITRATE_LEVELS.some((l) => l.value === s.bitrate)) s.bitrate = DEFAULT_SETTINGS.bitrate;
   if (!signedIn(ctx)) s.destination = 'device';
   if (!s.video && !s.audio) s.video = true;
@@ -203,6 +204,7 @@ export function openExportDialog(ctx) {
     s.scope = v;
     project = source();
     duration = projectDuration(project);
+    hasCaptions = captionCues(project).length > 0;
     update();
   });
   scope.row.hidden = scopeOptions.length < 2;
@@ -291,11 +293,10 @@ export function openExportDialog(ctx) {
     s.gif = v;
     update();
   }, [gifWidth.row, gifFps.row, gifLoop.row, gifHint]);
-  const capSection = checkSection('Captions file (.srt)', s.captions && hasCaptions, (v) => {
+  const capSection = checkSection('Captions file (.srt)', s.captions, (v) => {
     s.captions = v;
     update();
   }, [h('p.export-hint', 'Saves the captions as a subtitle file next to the video.')]);
-  capSection.el.hidden = !hasCaptions;
 
   const form = h('form.export-form', { novalidate: true }, nameRow, destRow, timelineSel.row, scope.row, videoSection.el, audioSection.el, gifSection.el, capSection.el);
   form.addEventListener('submit', (e) => {
@@ -356,14 +357,18 @@ export function openExportDialog(ctx) {
     bitrate.el.title = `${(bps / 1e6).toFixed(1)} Mbps`;
     const codecLabel = VIDEO_CODECS.find((c) => c.value === s.codec)?.label;
     // The container's sound codecs may not be encodable here (MOV needs AAC).
-    const noSound = Boolean(s.video && s.includeAudio && hasSound && caps && !audioCodecFor(s.format, caps.audio));
+    const sound = hasSound();
+    const noSound = Boolean(s.video && s.includeAudio && sound && caps && !audioCodecFor(s.format, caps.audio));
     if (caps && !caps.video.length) codecNote.textContent = 'This browser cannot encode video. Audio export still works.';
     else if (noSound) codecNote.replaceChildren(icon('alert', 14), `This browser cannot encode sound for ${CONTAINERS[s.format].label}. Choose another format, or turn off Export audio.`);
     else codecNote.textContent = `${size.width} x ${size.height}, ${codecLabel}, about ${(bps / 1e6).toFixed(1)} Mbps`;
-    audioSwitch.disabled = !hasSound;
-    audioRow.classList.toggle('disabled', !hasSound);
-    if (!hasSound) audioHint.textContent = 'This project has no sound yet.';
+    audioSwitch.disabled = !sound;
+    audioRow.classList.toggle('disabled', !sound);
+    capSection.el.hidden = !hasCaptions;
+    if (!sound) audioHint.textContent = s.scope === 'all' ? 'This project has no sound yet.' : 'The part being exported has no sound.';
     else audioHint.textContent = s.video ? 'Also saves the sound as a separate file.' : 'Audio only: exports just the sound.';
+    const wavTooLong = s.audio && s.audioFormat === 'wav' && duration > WAV_MAX_US;
+    if (wavTooLong) audioHint.replaceChildren(icon('alert', 14), WAV_TOO_LONG);
     destHint.textContent = s.destination === 'puter' ? 'Saved to the Videos folder in your Puter account.' : 'Downloaded by your browser.';
     const gifW = Math.min(s.gifWidth, projW);
     const gifFrames = Math.ceil((duration / US) * s.gifFps);
@@ -373,7 +378,7 @@ export function openExportDialog(ctx) {
     const bytes = (s.video || s.audio ? estimateSize(s, duration, { projW, projH }) : 0) + gifBytes;
     const nothing = !s.video && !s.audio && !s.gif && !(s.captions && hasCaptions);
     const noVideo = s.video && caps && !caps.video.length;
-    exportBtn.disabled = duration <= 0 || nothing || noVideo || noSound;
+    exportBtn.disabled = duration <= 0 || nothing || noVideo || noSound || wavTooLong;
     scope.set(s.scope);
     footerInfo.replaceChildren(
       h('span', icon('clock', 14), `Length ${clock(duration)}`),
@@ -480,6 +485,11 @@ export function openExportDialog(ctx) {
             }
           },
         });
+        // Finishing a file doesn't stop for Cancel or a closed dialog: drop what it made.
+        if (controller.signal.aborted) {
+          r?.release?.();
+          throw new DOMException('Export canceled', 'AbortError');
+        }
         results.push(r);
       }
       finish();
@@ -567,9 +577,10 @@ export function openExportDialog(ctx) {
     const cloud = signedIn(ctx);
     const rows = results.map((r) => {
       const status = h('p.export-file-status', { role: 'status' });
-      const dl = h('button.btn', { type: 'button' }, icon('download', 16), 'Download');
+      // Several files each have these buttons: their spoken names say which file.
+      const dl = h('button.btn', { type: 'button', 'aria-label': `Download ${r.fileName}` }, icon('download', 16), 'Download');
       dl.addEventListener('click', () => download(r));
-      const save = cloud ? h('button.btn', { type: 'button' }, icon('cloud', 16), 'Save to Puter') : null;
+      const save = cloud ? h('button.btn', { type: 'button', 'aria-label': `Save ${r.fileName} to Puter` }, icon('cloud', 16), 'Save to Puter') : null;
       save?.addEventListener('click', () => saveWithPicker(r, status));
       const meta = r.kind === 'video' || r.kind === 'gif'
         ? `${r.width} x ${r.height}, ${clock(r.duration)}, ${formatBytes(r.blob.size)}`

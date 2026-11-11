@@ -59,6 +59,37 @@ describe('script to video dialog', () => {
     expect(store.project.tracks.find((t) => t.main).clips).toHaveLength(0);
   });
 
+  it('does not pay again for what was made before Stop when Create is pressed again', async () => {
+    const store = new EditorStore(fixture());
+    const svc = services();
+    const d = openScriptDialog({ library: {}, store }, { services: svc });
+    const el = d.el;
+    el.querySelector('.aic-script').value = 'First scene has quite a few words in it.\n\nSecond scene also has enough words.';
+    button(el, 'Next').click();
+    // Stop while the second scene's picture is being made.
+    svc.image.mockImplementationOnce(async () => new Blob(['png'], { type: 'image/png' })).mockImplementationOnce(async () => {
+      button(el, 'Stop').click();
+      return new Blob(['png'], { type: 'image/png' });
+    });
+    button(el, 'Create').click();
+    await vi.waitFor(() => expect(button(el, 'Create')).toBeTruthy());
+    expect(svc.image).toHaveBeenCalledTimes(2);
+    expect(svc.speech).toHaveBeenCalledTimes(1);
+    button(el, 'Create').click();
+    await vi.waitFor(() => expect(el.isConnected).toBe(false));
+    // The first scene's picture and voice and the second's picture were made (and paid for) already.
+    expect(svc.image).toHaveBeenCalledTimes(2);
+    expect(svc.speech).toHaveBeenCalledTimes(2);
+    expect(store.project.tracks.find((t) => t.main).clips).toHaveLength(2);
+    // Another dialog makes its own.
+    const again = openScriptDialog({ library: {}, store }, { services: svc });
+    again.el.querySelector('.aic-script').value = 'First scene has quite a few words in it.\n\nSecond scene also has enough words.';
+    button(again.el, 'Next').click();
+    button(again.el, 'Create').click();
+    await vi.waitFor(() => expect(again.el.isConnected).toBe(false));
+    expect(svc.image).toHaveBeenCalledTimes(4);
+  });
+
   it('makes a new project from the home screen', async () => {
     const saved = [];
     const library = { saveProject: vi.fn(async (p) => saved.push(p)) };

@@ -393,16 +393,20 @@ export function choiceGrid({ label, items, value, onPick, className = '' }) {
     btns.forEach((b, i) => {
       const on = (items[i].id ?? null) === (id ?? null);
       b.setAttribute('aria-checked', String(on));
-      b.tabIndex = on ? 0 : -1;
-      any ||= on;
+      b.tabIndex = on && !b.hidden ? 0 : -1;
+      any ||= on && !b.hidden;
     });
-    if (!any && btns[0]) btns[0].tabIndex = 0;
+    // The checked tile hidden (or none checked): the first shown one takes the tab stop.
+    const first = btns.find((b) => !b.hidden);
+    if (!any && first) first.tabIndex = 0;
   };
   grid.addEventListener('keydown', (e) => {
     if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
-    const i = btns.indexOf(document.activeElement);
+    // Tiles hidden by a search or category are skipped.
+    const shown = btns.filter((b) => !b.hidden);
+    const i = shown.indexOf(document.activeElement);
     if (i < 0) return;
-    const w = btns[0].getBoundingClientRect().width;
+    const w = shown[0].getBoundingClientRect().width;
     const cols = w ? Math.max(1, Math.round(grid.clientWidth / w)) : 4;
     let j = i;
     if (e.key === 'ArrowRight') j = i + 1;
@@ -410,13 +414,13 @@ export function choiceGrid({ label, items, value, onPick, className = '' }) {
     if (e.key === 'ArrowDown') j = i + cols;
     if (e.key === 'ArrowUp') j = i - cols;
     if (e.key === 'Home') j = 0;
-    if (e.key === 'End') j = btns.length - 1;
+    if (e.key === 'End') j = shown.length - 1;
     e.preventDefault();
     e.stopPropagation();
-    if (j >= 0 && j < btns.length) {
+    if (j >= 0 && j < shown.length) {
       btns.forEach((b) => (b.tabIndex = -1));
-      btns[j].tabIndex = 0;
-      btns[j].focus();
+      shown[j].tabIndex = 0;
+      shown[j].focus();
     }
   });
   grid.append(...btns);
@@ -426,14 +430,15 @@ export function choiceGrid({ label, items, value, onPick, className = '' }) {
 
 /**
  * Run fn (an edit that may rebuild the control that has focus), then, if
- * focus was lost (to the page, or onto a control that is now disabled),
+ * focus was lost (to the page, or onto a control that is now disabled or hidden),
  * focus the first of finders() that gives a usable element. Keeps the next
  * Space from playing the timeline instead of pressing a button.
  */
 export function keepFocus(fn, ...finders) {
   fn();
   const a = document.activeElement;
-  if (a && a !== document.body && a.isConnected && !a.disabled) return;
+  // A control hidden under focus loses it too (browsers move focus to the page).
+  if (a && a !== document.body && a.isConnected && !a.disabled && !a.closest('[hidden]')) return;
   for (const find of finders) {
     const el = find();
     if (el?.isConnected && !el.disabled && !el.closest('[hidden]')) {
@@ -441,6 +446,20 @@ export function keepFocus(fn, ...finders) {
       return;
     }
   }
+}
+
+/**
+ * After async work that disabled the control with focus (browsers then move
+ * focus to the page), put focus back on it, unless the user moved on. When
+ * the panel was rebuilt meanwhile, the first of finders() that gives a
+ * usable element takes it instead.
+ */
+export function restoreFocus(el, ...finders) {
+  const a = document.activeElement;
+  const usable = (x) => x?.isConnected && !x.disabled && !x.closest('[hidden]');
+  if (!el || el === document.body || (a && a !== document.body && usable(a))) return;
+  const to = usable(el) ? el : finders.map((f) => f()).find(usable);
+  to?.focus();
 }
 
 /** Seconds with one decimal, for labels. */

@@ -13,7 +13,7 @@ import { clipLabel } from '../../model/timeline.js';
 import { lutFailed } from '../../engine/luts.js';
 import { sliderField, segmented } from '../controls.js';
 import { ready } from '../../media/segmenter.js';
-import { slider, row, uidFor, note, propSection } from './common.js';
+import { slider, row, uidFor, note, propSection, restoreFocus } from './common.js';
 import { gradeSection, editGrade } from './color-common.js';
 import { autoAdjust, chooseLutFiles, applyLut, savePreset, matchColor } from '../color-tools.js';
 import { promptDialog, toast } from '../dialog.js';
@@ -101,7 +101,15 @@ function lutSection(view) {
   };
   sync();
   view.bind(() => {
-    if (document.activeElement !== sel) sync();
+    // With focus on the picker, its options stay (rebuilding them could close it); it still
+    // shows the clip's LUT (undo, another panel) when that is one of them.
+    if (document.activeElement !== sel) {
+      sync();
+      return;
+    }
+    const cur = view.clip?.grade?.lut?.id || '';
+    if (sel.value !== cur && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
+    intensity.el.hidden = !view.clip?.grade?.lut;
   });
   return gradeSection(view, {
     id: 'lut',
@@ -160,6 +168,7 @@ function matchSection(view) {
     } finally {
       go.disabled = false;
       go.removeAttribute('aria-busy');
+      restoreFocus(go);
     }
   });
   render();

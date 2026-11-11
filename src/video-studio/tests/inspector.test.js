@@ -8,6 +8,7 @@ import { speedToPos, posToSpeed } from '../src/ui/inspector/speed.js';
 import * as T from '../src/model/timeline.js';
 import { US } from '../src/lib/time.js';
 import { closeMenus } from '../src/ui/menu.js';
+import { maskEdit } from '../src/ui/mask-edit-state.js';
 
 // jsdom has no canvas; previews fall back to blank tiles.
 HTMLCanvasElement.prototype.getContext = () => null;
@@ -124,6 +125,27 @@ describe('inspector layout', () => {
   });
 });
 
+describe('pickers follow undo while they have focus', () => {
+  it('the filter and effect pickers of filter and effect clips', () => {
+    env.store.select(env.filt.id);
+    let sel = field('Filter').querySelector('select');
+    sel.focus();
+    sel.value = 'noir';
+    sel.dispatchEvent(new Event('change'));
+    expect(clip(env.filt.id).filter).toBe('noir');
+    env.store.undo();
+    expect(clip(env.filt.id).filter).toBe('vivid');
+    expect(sel.value).toBe('vivid');
+    env.store.select(env.fx.id);
+    sel = field('Effect').querySelector('select');
+    sel.focus();
+    sel.value = 'glitch';
+    sel.dispatchEvent(new Event('change'));
+    env.store.undo();
+    expect(sel.value).toBe('blur');
+  });
+});
+
 describe('top tabs that do not fit', () => {
   afterEach(() => closeMenus());
 
@@ -209,6 +231,16 @@ describe('video basic', () => {
     expect(clip(env.v1.id).blend).toBe('screen');
     env.el.querySelector('[aria-label="Reset Transform"]').click();
     expect(clip(env.v1.id).transform).toMatchObject({ rotation: 0, flipH: false, scale: 1 });
+  });
+
+  it('keeps keyboard focus after removing the clip filter', () => {
+    env.ctx.actions.addFilter('vivid', { toClip: clip(env.v1.id) });
+    expect(clip(env.v1.id).filter?.id).toBe('vivid');
+    const remove = env.el.querySelector('[aria-label="Remove filter"]');
+    remove.focus();
+    remove.click();
+    expect(clip(env.v1.id).filter).toBeFalsy();
+    expect(document.activeElement.textContent).toBe('Browse filters');
   });
 
   it('crop keeps part of the picture', () => {
@@ -353,6 +385,40 @@ describe('mask and chroma', () => {
     expect(clip(env.v1.id).masks[2].text).toBeUndefined();
   });
 
+  it('the selected mask stays selected when another mask moves or is deleted', () => {
+    tab('Mask').click();
+    for (const id of ['ellipse', 'rectangle', 'star']) env.el.querySelector(`.mask-tile[data-shape=${id}]`).click();
+    const selected = () => clip(env.v1.id).masks[maskEdit.index].type;
+    env.el.querySelector('[aria-label^="Mask 2,"]').click();
+    expect(selected()).toBe('rectangle');
+    // The mask above moves below it.
+    env.el.querySelector('[aria-label="Move down mask 1"]').click();
+    expect(clip(env.v1.id).masks.map((m) => m.type)).toEqual(['rectangle', 'ellipse', 'star']);
+    expect(selected()).toBe('rectangle');
+    expect(env.el.querySelector('.mask-settings .section-title').textContent).toBe('Mask 1: Rectangle');
+    // The mask below moves above it.
+    env.el.querySelector('[aria-label="Move up mask 3"]').click();
+    expect(clip(env.v1.id).masks.map((m) => m.type)).toEqual(['rectangle', 'star', 'ellipse']);
+    expect(selected()).toBe('rectangle');
+    // Another mask is deleted.
+    env.el.querySelector('[aria-label^="Mask 3,"]').click();
+    env.el.querySelector('[aria-label="Delete mask 1"]').click();
+    expect(clip(env.v1.id).masks.map((m) => m.type)).toEqual(['star', 'ellipse']);
+    expect(selected()).toBe('ellipse');
+  });
+
+  it('keeps keyboard focus when the last mask that fits is added', () => {
+    tab('Mask').click();
+    for (const id of ['star', 'polygon', 'text']) env.el.querySelector(`.mask-tile[data-shape=${id}]`).click();
+    const heart = env.el.querySelector('.mask-tile[data-shape=heart]');
+    heart.focus();
+    heart.click();
+    expect(clip(env.v1.id).masks).toHaveLength(4);
+    expect(heart.disabled).toBe(true);
+    // Focus goes to the new mask in the list.
+    expect(document.activeElement.getAttribute('aria-label')).toMatch(/^Mask 4, Heart/);
+  });
+
   it('turns chroma key on and tunes it', () => {
     tab('Chroma key').click();
     env.el.querySelector('[role=switch]').click();
@@ -411,21 +477,24 @@ describe('audio and speed', () => {
     expect(preset.getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('a speed drag that dips and comes back keeps a clip held by its neighbor', () => {
+  it('a speed drag that dips and comes back keeps the footage of a clip next to another', () => {
     env.store.toggles.ripple = false;
     env.store.select(env.v1.id);
     tab('Speed').click();
     const r = env.el.querySelector('.speed-field input[type=range]');
+    const layout = () => JSON.stringify(env.store.project.tracks.map((t) => t.clips.map((c) => [c.id, c.start, c.duration])));
+    const start = layout();
     drag(r, [speedToPos(0.7), speedToPos(0.5), speedToPos(0.7), speedToPos(1)]);
     expect(clip(env.v1.id).speed).toBe(1);
     expect(clip(env.v1.id).duration).toBe(5 * US);
-    // The neighbor still limits a slower clip.
+    // Nothing the slower steps moved is left behind.
+    expect(layout()).toBe(start);
+    // A slower clip keeps all its footage (the clips after it make room).
     drag(r, [speedToPos(0.5)]);
-    expect(clip(env.v1.id).duration).toBe(5 * US);
+    expect(clip(env.v1.id).duration).toBe(10 * US);
     expect(clip(env.v1.id).speed).toBe(0.5);
-    // A new drag starts from what the clip now shows (2.5 s of footage).
     drag(r, [speedToPos(1)]);
-    expect(clip(env.v1.id).duration).toBe(2.5 * US);
+    expect(clip(env.v1.id).duration).toBe(5 * US);
   });
 });
 
@@ -523,6 +592,37 @@ describe('text', () => {
   it('text animations include typewriter', () => {
     tab('Animation').click();
     expect([...env.el.querySelectorAll('.anim-grid [role=radio]')].some((t) => t.textContent === 'Typewriter')).toBe(true);
+  });
+});
+
+describe('animation grid keyboard', () => {
+  it('arrow keys skip tiles hidden by the search', () => {
+    env.store.select(env.v1.id);
+    tab('Animation').click();
+    const search = env.el.querySelector('.anim-search');
+    search.value = 'slide';
+    search.dispatchEvent(new Event('input'));
+    const tiles = [...env.el.querySelectorAll('.anim-grid [role=radio]')];
+    const shown = tiles.filter((b) => !b.hidden);
+    expect(shown.length).toBeGreaterThan(2);
+    expect(shown.length).toBeLessThan(tiles.length);
+    shown[0].focus();
+    for (let i = 1; i < shown.length; i++) {
+      shown[i - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(document.activeElement).toBe(shown[i]);
+    }
+    shown.at(-1).dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    expect(document.activeElement).toBe(shown[0]);
+    shown[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(document.activeElement).toBe(shown.at(-1));
+    // One tile stays in the tab order, and it is a visible one.
+    expect(tiles.filter((b) => b.tabIndex === 0)).toEqual([shown.at(-1)]);
+    // The applied animation hidden by the search: a shown tile keeps the tab stop.
+    tiles.find((b) => b.textContent === 'Fade in').click();
+    search.focus();
+    search.value = 'slide';
+    search.dispatchEvent(new Event('input'));
+    expect(tiles.filter((b) => b.tabIndex === 0)).toEqual([shown[0]]);
   });
 });
 
@@ -640,6 +740,66 @@ describe('number boxes', () => {
     expect(clip(env.v1.id).opacity).toBe(0);
   });
 
+  it('holding an arrow key in a number box is one undo step', () => {
+    env.store.select(env.v1.id);
+    const num = field('Rotate').querySelector('.num-input');
+    num.focus();
+    const steps = env.store.history.undoStack.length;
+    for (let i = 0; i < 5; i++) num.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', repeat: i > 0, bubbles: true }));
+    num.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowUp', bubbles: true }));
+    expect(clip(env.v1.id).transform.rotation).toBe(5);
+    expect(num.value).toBe('5');
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+    // Separate presses are separate steps.
+    arrow(num, 'ArrowDown');
+    num.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', bubbles: true }));
+    expect(env.store.history.undoStack.length).toBe(steps + 2);
+    env.store.undo();
+    expect(clip(env.v1.id).transform.rotation).toBe(5);
+    env.store.undo();
+    expect(clip(env.v1.id).transform.rotation).toBe(0);
+  });
+
+  it('holding an arrow key on a slider is one undo step', () => {
+    env.store.select(env.v1.id);
+    const input = range('Rotate');
+    input.focus();
+    const steps = env.store.history.undoStack.length;
+    for (let i = 1; i <= 4; i++) {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: i > 1, bubbles: true }));
+      input.value = String(i);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    expect(clip(env.v1.id).transform.rotation).toBe(4);
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+    env.store.undo();
+    expect(clip(env.v1.id).transform.rotation).toBe(0);
+    expect(input.value).toBe('0');
+  });
+
+  it('holding an arrow key on the speed slider is one undo step', () => {
+    env.store.select(env.v1.id);
+    tab('Speed').click();
+    const input = field('Speed').querySelector('input[type=range]');
+    input.focus();
+    const steps = env.store.history.undoStack.length;
+    const start = Number(input.value);
+    for (let i = 1; i <= 4; i++) {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: i > 1, bubbles: true }));
+      input.value = String(start + i * 5);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    expect(clip(env.v1.id).speed).toBeGreaterThan(1);
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+    env.store.undo();
+    expect(clip(env.v1.id).speed).toBe(1);
+    expect(clip(env.v1.id).duration).toBe(5 * US);
+  });
+
   it('shows the stored value when the clip limits what was typed', () => {
     env.store.select(env.aud.id);
     const num = typeEnter('Volume', 100);
@@ -698,6 +858,10 @@ describe('number boxes', () => {
     num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(clip(env.v1.id).speed).toBe(100);
     expect(num.value).toBe('100');
+    // A decimal comma (European keyboards and phone keypads) is a decimal point.
+    num.value = '1,5';
+    num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(clip(env.v1.id).speed).toBe(1.5);
   });
 
   it('unchanged values and resets at the defaults add no undo steps', () => {

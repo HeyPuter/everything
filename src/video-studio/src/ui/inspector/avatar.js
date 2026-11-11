@@ -13,7 +13,7 @@ import { AVATAR_POSITIONS, AVATAR_SCRIPT_MAX, positionOf } from '../../model/ava
 import { avatarCharacter } from '../../engine/avatars.js';
 import { revoiceAvatar, syncAvatarTo, relipAvatar, voiceChoices } from '../avatar-actions.js';
 import { characterGrid, framingControl, backgroundControl, positionControl } from '../avatar-ui.js';
-import { propSection, row, note } from './common.js';
+import { propSection, row, note, restoreFocus } from './common.js';
 import { transformSection, blendSection } from './transform.js';
 
 function lookSections(view) {
@@ -62,6 +62,7 @@ function voiceSection(view) {
   let busy = false;
   const run = async (fn) => {
     if (busy) return;
+    const had = document.activeElement;
     busy = true;
     sync();
     try {
@@ -73,6 +74,7 @@ function voiceSection(view) {
     }
     busy = false;
     sync();
+    restoreFocus(had);
   };
 
   const script = h('textarea.textarea.insp-textarea.avatar-script', { maxLength: AVATAR_SCRIPT_MAX, rows: 4, 'aria-label': 'Script', placeholder: 'What the presenter says' });

@@ -42,7 +42,8 @@ export function maskTab(view) {
   const tiles = MASK_SHAPES.map((s) => {
     const b = h('button.mask-tile', { type: 'button', 'data-shape': s.id, 'data-tip': `Add ${s.label.toLowerCase()} mask`, 'aria-label': `Add ${s.label.toLowerCase()} mask` },
       h('span.mask-tile-icon', icon(s.icon, 20)), h('span.mask-tile-label', s.label));
-    b.addEventListener('click', () => add(s.id));
+    // The tiles turn off once the stack is full; focus then goes to the new mask.
+    b.addEventListener('click', () => keepFocus(() => add(s.id), () => listEl.lastElementChild?.querySelector('[data-act="pick"]')));
     return b;
   });
   const addGrid = h('div.mask-tiles', { role: 'group', 'aria-label': 'Add mask' }, ...tiles);
@@ -109,8 +110,10 @@ export function maskTab(view) {
       }
     }, control(i, 'dup'), control(i, 'pick')), n >= MAX_MASKS);
     const del = btn('trash', 'Delete', 'delete', () => keepFocus(() => {
-      view.edit('Delete mask', (c) => removeMask(c, i));
-      maskEdit.set({ index: Math.max(0, i - 1), point: -1, drawing: false });
+      const s = sel();
+      if (!view.edit('Delete mask', (c) => removeMask(c, i))) return;
+      // Another mask stays selected; the deleted one hands over to the one above it.
+      maskEdit.set({ index: s === i ? Math.max(0, i - 1) : s > i ? s - 1 : s, point: -1, drawing: false });
       announce('Mask deleted');
       render(true);
     }, control(i, 'delete'), control(i - 1, 'delete'), () => tiles[0]));
@@ -118,8 +121,14 @@ export function maskTab(view) {
   }
 
   function move(from, to) {
-    view.edit('Reorder masks', (c) => moveMask(c, from, to));
-    if (sel() === from) maskEdit.set({ index: to });
+    const s = sel();
+    if (!view.edit('Reorder masks', (c) => moveMask(c, from, to))) return;
+    // The selected mask stays selected wherever it ends up.
+    let index = s;
+    if (s === from) index = to;
+    else if (from < s && s <= to) index = s - 1;
+    else if (to <= s && s < from) index = s + 1;
+    maskEdit.set({ index });
     render(true);
   }
 

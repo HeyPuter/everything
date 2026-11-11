@@ -15,7 +15,8 @@ import {
   sortAssets, filterAssets, formatBytes, MEDIA_SORTS, MEDIA_TYPES,
 } from '../../model/bins.js';
 import { BACKDROPS, BACKDROP_GROUPS, drawBackdrop } from '../../media/backdrops.js';
-import { tabLayout, tileGrid, tile, emptyState } from './common.js';
+import { MEDIA_ACCEPT } from '../../media/media-types.js';
+import { tabLayout, tileGrid, tile, tileNote, emptyState } from './common.js';
 import { generatePanel } from './generate.js';
 import { renderTimelines, timelinesSignature } from './timelines.js';
 import { showMenu, menuButton } from '../menu.js';
@@ -25,7 +26,6 @@ import { openRecordDialog } from '../record-dialog.js';
 import { canProxy, proxyMode, heavyReason, REASON_LABEL } from '../../model/proxy.js';
 import '../../styles/proxy.css';
 
-const ACCEPT = 'video/*,audio/*,image/*,.mkv,.mov,.m4v,.webm,.mp3,.wav,.m4a,.flac,.ogg,.opus';
 const DRAG_MIME = 'application/x-video-studio';
 const BIN_MIME = 'application/x-video-studio-bin';
 const KIND_LABEL = { video: 'Video', image: 'Photo', audio: 'Audio' };
@@ -77,7 +77,7 @@ export function proxyBadgeState(asset, proxies, mode = 'auto') {
 export function mediaTab(ctx) {
   const { store, actions, media } = ctx;
   const proxies = ctx.proxies || null;
-  const fileInput = h('input', { type: 'file', multiple: true, accept: ACCEPT, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
+  const fileInput = h('input', { type: 'file', multiple: true, accept: MEDIA_ACCEPT, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
   fileInput.addEventListener('change', async () => {
     const files = [...fileInput.files];
     fileInput.value = '';
@@ -532,7 +532,7 @@ export function mediaTab(ctx) {
     const el = asRow
       ? h('button.media-row.folder-row', { type: 'button', draggable: 'true', 'aria-label': label }, h('span.media-row-thumb.folder', icon('folder', 18)), h('span.media-row-text', h('span.media-row-name', b.name), h('span.media-row-facts', { 'aria-hidden': 'true' }, facts)))
       : h('button.tile.folder-tile', { type: 'button', draggable: 'true', 'aria-label': label },
-        h('span.tile-preview.folder-preview', icon('folder', 34), h('span.tile-badge', { 'aria-hidden': 'true' }, String(count))),
+        h('span.tile-preview.folder-preview', icon('folder', 34), tileNote('badge', count)),
         h('span.tile-label', b.name));
     el.addEventListener('click', () => open(b.id));
     el.addEventListener('contextmenu', (e) => {

@@ -268,6 +268,17 @@ describe('normalizeProject', () => {
     expect(p.tracks[0].clips[1].transition).toBe(null);
   });
 
+  it('drops a transition into a compound clip, which never played', () => {
+    const p = normalizeProject({
+      tracks: [{ id: 'm', kind: 'video', main: true, clips: [
+        { id: 'a', type: 'image', start: 0, duration: 2e6, transition: { id: 'mix', duration: 5e5 } },
+        { id: 'k', type: 'compound', start: 2e6, duration: 2e6, sequence: { tracks: [{ id: 'n', kind: 'video', main: true, clips: [{ id: 'i', type: 'image', start: 0, duration: 2e6 }] }] } },
+      ] }],
+    });
+    expect(p.tracks[0].clips.map((c) => c.type)).toEqual(['image', 'compound']);
+    expect(p.tracks[0].clips[0].transition).toBe(null);
+  });
+
   it('clamps settings and clip values into range', () => {
     const p = normalizeProject({
       settings: { width: 99999, height: 'tall', fps: 29.97, ratio: 'weird', background: { type: 'blur', color: 'red', blur: 5 } },

@@ -655,6 +655,8 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
 
   let current = null;
   let sending = false;
+  // Counts New chats: a message still adding its files when one is started belongs to the chat it was written in.
+  let chatSeq = 0;
   function setBusy(busy) {
     root.classList.toggle('busy', busy);
     sendBtn.replaceChildren(icon(busy ? 'stop' : 'arrowUp', busy ? 14 : 17));
@@ -678,6 +680,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
       return;
     }
     if (!isOpen) open({ focus: false });
+    const chatAt = chatSeq;
     let items = [];
     let files = [];
     if (pending.length) {
@@ -690,7 +693,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
       } finally {
         sending = false;
       }
-      if (destroyed || agent.busy) {
+      if (destroyed || agent.busy || chatAt !== chatSeq) {
         syncSend();
         return;
       }
@@ -710,16 +713,25 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
         input.value = '';
         autoGrow();
       }
-      userBubble(message, items);
+      const bubble = userBubble(message, items);
       sending = true;
       syncSend();
       try {
         files = await importAttachments(items, reads);
       } finally {
         sending = false;
+        syncSend();
       }
-      if (destroyed || agent.busy) return;
-      if (!message && !files.length) return;
+      if (destroyed || agent.busy || chatAt !== chatSeq) return;
+      if (!message && !files.length) {
+        // Only files, and none could be added (each said why): nothing goes out, so the message is taken back.
+        removeKeepingFocus(bubble);
+        if (!log.querySelector('.ai-msg')) {
+          log.append(empty);
+          renderEmpty();
+        }
+        return;
+      }
     } else {
       if (text == null) {
         input.value = '';
@@ -728,10 +740,11 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
       userBubble(message);
     }
     for (const button of log.querySelectorAll('.ai-retry, .ai-new-chat')) button.remove();
-    exchange((onEvent) => agent.send(message, onEvent, { attachments: files }));
+    exchange((onEvent) => agent.send(message, onEvent, { attachments: files }), message);
   }
 
-  async function exchange(start) {
+  /** start(onEvent) runs the exchange; asked: what the user wrote for it, to name the reply by later. */
+  async function exchange(start, asked = '') {
     const reply = assistantMessage();
     current = reply;
     setBusy(true);
@@ -781,12 +794,13 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
     if (!isOpen && !outcome.stopped) {
       toast(outcome.error ? 'The assistant could not answer' : 'The assistant has answered', { kind: outcome.error ? 'error' : 'info', action: { label: 'Open', onClick: () => open() } });
     }
-    renderFoot(reply, outcome);
+    renderFoot(reply, outcome, asked);
   }
 
   function retry() {
     if (agent.busy) return;
-    exchange((onEvent) => agent.retry(onEvent));
+    const lastUser = agent.messages.findLast((m) => m.role === 'user');
+    exchange((onEvent) => agent.retry(onEvent), lastUser ? userText(lastUser.content) : '');
   }
 
   /* ---------- A reply's foot: copy, and Undo for its changes ---------- */
@@ -796,7 +810,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
     for (const fn of undos) fn();
   }
 
-  function renderFoot(reply, outcome) {
+  function renderFoot(reply, outcome, asked = '') {
     const items = [];
     const text = reply.fullText;
     if (text && !outcome.error) {
@@ -842,7 +856,10 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
         undone = true;
         undos.delete(refresh);
         refresh();
-        agent.note('(The user then undid the changes in this reply.)');
+        // Named by its request: the note goes with the next message, maybe after other replies.
+        const words = String(asked).replace(/\s+/g, ' ').trim();
+        const which = words ? `for "${words.length > 80 ? `${words.slice(0, 79)}…` : words}"` : 'for the message with the attached files';
+        agent.note(`(The user then undid the changes you made ${which}.)`);
         announce('Assistant changes undone');
         if (had) input.focus({ preventScroll: true });
       };
@@ -862,8 +879,10 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
   }
 
   function newChat() {
-    if (agent.busy) stop();
-    agent.reset();
+    chatSeq++;
+    // A reply still running stops as part of the new chat (what it was making is kept, and said so).
+    if (pendingApproval) answer(false);
+    agent.reset('new-chat');
     current = null;
     pendingApproval = null;
     undos.clear();
@@ -1009,7 +1028,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
     dispose() {
       destroyed = true;
       runner.close();
-      agent.reset();
+      agent.reset('leave');
       offs.forEach((f) => f?.());
       globalThis.removeEventListener?.('resize', onResize);
       sheet.dispose();

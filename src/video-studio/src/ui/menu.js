@@ -86,7 +86,7 @@ export function showMenu(anchor, items, opts = {}) {
       h('span.menu-check', it.checked ? icon('check', 14) : null),
       it.swatch ? h('span.menu-swatch', { style: { background: it.swatch } }) : it.icon ? icon(it.icon, 16) : null,
       h('span.menu-label', it.label),
-      it.shortcut ? h('span.menu-shortcut', shortcutLabel(it.shortcut)) : it.hint ? h('span.menu-shortcut', it.hint) : null,
+      it.shortcut ? h('span.menu-shortcut.menu-key', shortcutLabel(it.shortcut)) : it.hint ? h('span.menu-shortcut', it.hint) : null,
       it.submenu ? icon('chevronRight', 14, 'menu-sub-arrow') : null,
     );
     const openSub = () => {
@@ -120,6 +120,7 @@ export function showMenu(anchor, items, opts = {}) {
     menu.append(btn);
   }
   handle.parent = opts.parent || null;
+  handle.onSibling = opts.onSibling || null;
   const focusables = () => entries.filter((e) => !e.it.disabled).map((e) => e.btn);
   handle.focusFirst = () => focusables()[0]?.focus({ preventScroll: true });
   menu.addEventListener('keydown', (e) => {
@@ -141,15 +142,23 @@ export function showMenu(anchor, items, opts = {}) {
       e.preventDefault();
       e.stopPropagation();
       handle.close(true);
-    } else if (e.key === 'ArrowRight') {
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       const entry = entries.find((x) => x.btn === document.activeElement);
-      if (entry?.it.submenu) {
+      let root = handle;
+      while (root.parent) root = root.parent;
+      if (e.key === 'ArrowRight' && entry?.it.submenu && !entry.it.disabled) {
         e.preventDefault();
         entry.openSub().focusFirst();
+      } else if (e.key === 'ArrowLeft' && handle.parent) {
+        e.preventDefault();
+        handle.close(true);
+      } else if (root.onSibling) {
+        // A menu bar's menu: left and right open the menu beside it.
+        e.preventDefault();
+        e.stopPropagation();
+        root.close(false);
+        root.onSibling(e.key === 'ArrowRight' ? 1 : -1);
       }
-    } else if (e.key === 'ArrowLeft' && handle.parent) {
-      e.preventDefault();
-      handle.close(true);
     } else if (e.key === 'Tab') {
       e.preventDefault();
       let root = handle;

@@ -37,6 +37,17 @@ function errorScreen(title, message, retry) {
   root.replaceChildren(h('main#main.splash', icon('cloudOff', 32), h('h1.splash-title', title), h('p.splash-sub', message), retry ? h('button.btn.primary', { type: 'button', onclick: retry }, 'Try again') : null));
 }
 
+/** A part of the app failed to load: say so, with a reload (which also picks up a new version). */
+function cantLoad(err, what) {
+  console.error(err);
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  toast(offline ? `Couldn't open ${what} while offline. Connect and try again.` : `Couldn't open ${what}. Reload the page and try again.`, {
+    kind: 'error',
+    duration: 12000,
+    action: { label: 'Reload', onClick: () => location.reload() },
+  });
+}
+
 function showHome() {
   view?.dispose?.();
   if (/#(project|review)=/.test(location.hash)) history.replaceState(null, '', `${location.pathname}${location.search}`);
@@ -53,8 +64,10 @@ async function openProject(id, files) {
   view?.dispose?.();
   loading('Opening project...');
   let project;
+  let claim;
   try {
-    project = await library.openProject(id);
+    // Read once claimed: something written into the file meanwhile stays (see openForEditing).
+    ({ project, claim } = await library.openForEditing(id));
   } catch (err) {
     toast(err?.message || "Couldn't open the project.", { kind: 'error' });
     showHome();
@@ -67,7 +80,6 @@ async function openProject(id, files) {
     return;
   }
   // Open in another tab too: edits in both would overwrite each other, so ask first.
-  const claim = await library.claimProject(id);
   if (!claim.held) {
     const ok = await confirmDialog({
       title: 'Project open in another tab',
@@ -81,25 +93,33 @@ async function openProject(id, files) {
       return;
     }
   }
-  const { Editor } = await import('./ui/editor.js');
-  view = new Editor(root, {
-    library,
-    project,
-    claim,
-    account,
-    onExit: () => showHome(),
-    onNewProject: () => createProject({ ratio: 'original' }),
-    onOpenProject: (other) => openProject(other),
-  });
+  try {
+    const { Editor } = await import('./ui/editor.js');
+    view = new Editor(root, {
+      library,
+      project,
+      claim,
+      account,
+      onExit: () => showHome(),
+      onNewProject: () => createProject({ ratio: 'original' }),
+      onOpenProject: (other) => openProject(other),
+    });
+  } catch (err) {
+    // The editor's code didn't load (offline, or the app was updated meanwhile) or couldn't start:
+    // back to Home rather than "Opening project..." for good, and let another tab open it.
+    claim.release();
+    view = null;
+    cantLoad(err, 'the editor');
+    showHome();
+    return;
+  }
   history.replaceState(null, '', `#project=${encodeURIComponent(id)}`);
   if (files?.length) {
-    const assets = await view.ctx.actions.importFiles(files);
-    let first = true;
-    for (const a of assets) {
-      view.ctx.actions.addAsset(a, { start: view.ctx.store.duration, adoptRatio: first });
-      first = false;
-    }
-    view.ctx.store.seek(0);
+    const { ctx } = view;
+    const assets = await ctx.actions.importFiles(files);
+    // One after another, as one undo step (the first picture or video sets the project's shape).
+    ctx.actions.addAssets(assets, { start: ctx.store.duration });
+    ctx.store.seek(0);
   }
 }
 
@@ -158,6 +178,11 @@ async function startSignedIn(env) {
   };
   watchWindowClose();
   route();
+  // Videos Puter saved for AI generations the page closed on are deleted a while after start (see cleanAiTemp).
+  const started = library;
+  setTimeout(() => {
+    if (library === started) import('./media/ai-video.js').then((m) => m.cleanAiTemp(started.backend)).catch(() => {});
+  }, 15_000);
 }
 
 /**
@@ -228,7 +253,15 @@ async function openReview(link) {
   }
   view?.dispose?.();
   loading('Opening review...');
-  const { ReviewPage } = await import('./ui/review/review-page.js');
+  let ReviewPage;
+  try {
+    ({ ReviewPage } = await import('./ui/review/review-page.js'));
+  } catch (err) {
+    view = null;
+    cantLoad(err, 'the review');
+    showHome();
+    return;
+  }
   view = new ReviewPage(root, {
     puter: typeof puter !== 'undefined' ? puter : null,
     account,

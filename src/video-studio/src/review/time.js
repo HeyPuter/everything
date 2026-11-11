@@ -101,7 +101,8 @@ export function stripMarkers(comments, duration, { minGap = 0.012 } = {}) {
     const prev = out[out.length - 1];
     if (prev && m.at - prev.at < minGap) {
       prev.ids.push(...m.ids);
-      prev.width = Math.max(prev.width, m.at + m.width - prev.at);
+      // Only a range widens the marker: points merged with it are within the gap, and two points stay a point.
+      if (m.width) prev.width = Math.max(prev.width, m.at + m.width - prev.at);
       prev.resolved = prev.resolved && m.resolved;
     } else out.push({ ...m });
   }

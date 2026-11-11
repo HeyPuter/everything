@@ -11,7 +11,7 @@ import { getLut, loadLut, dropLut } from '../../engine/luts.js';
 import { tabLayout, tileGrid, tile, emptyState } from './common.js';
 import { gradePreview } from './previews.js';
 import { isGradable, chooseLutFiles, applyLut, colorPresets, onPresetsChanged, applyPreset, removePreset } from '../color-tools.js';
-import { confirmDialog } from '../dialog.js';
+import { confirmDialog, toast } from '../dialog.js';
 
 const CATEGORIES = [
   { id: 'layer', label: 'Color layer' },
@@ -19,11 +19,29 @@ const CATEGORIES = [
   { id: 'presets', label: 'Your presets' },
 ];
 
-/** Preview that fills in once the LUTs it uses are loaded. */
-function setupPreview(ctx, setup) {
+/**
+ * Preview that fills in once the LUTs it uses are loaded. Drawn once per
+ * look (cache: look -> canvas): the grid is redrawn on every selection, and
+ * rendering each tile again took tens of milliseconds per tile.
+ */
+function setupPreview(ctx, setup, cache) {
+  const key = JSON.stringify([setup.adjust || null, setup.grade || null]);
+  const hit = cache?.get(key);
+  if (hit) {
+    const copy = h('canvas.tile-canvas', { width: hit.width, height: hit.height, 'aria-hidden': 'true' });
+    copy.getContext('2d')?.drawImage(hit, 0, 0);
+    return copy;
+  }
   const canvas = gradePreview(setup);
   const id = setup.grade?.lut?.id;
-  if (id && !getLut(id)) loadLut(id, ctx.library).then((got) => got && gradePreview(setup, canvas));
+  // A LUT still loading: kept once it has been drawn with it.
+  if (id && !getLut(id)) {
+    loadLut(id, ctx.library).then((got) => {
+      if (!got) return;
+      gradePreview(setup, canvas);
+      if (canvas.drawn) cache?.set(key, canvas);
+    });
+  } else if (canvas.drawn) cache?.set(key, canvas);
   return canvas;
 }
 
@@ -44,6 +62,7 @@ export function adjustTab(ctx) {
     return s && isGradable(s.clip) ? s.clip : null;
   };
   let luts = [];
+  const previews = new Map();
   const hint = h('p.asset-hint', { role: 'status' });
   const importBtn = () => {
     const b = h('button.btn.small', { type: 'button' }, icon('import', 14), 'Import .cube');
@@ -56,21 +75,29 @@ export function adjustTab(ctx) {
     return b;
   };
 
+  /** Redraw the tiles, keeping keyboard focus on the same tile. */
+  const redraw = () => {
+    const had = layout.el.contains(document.activeElement) ? document.activeElement : null;
+    layout.refresh();
+    if (had && !had.isConnected) (layout.el.querySelector(`.tile[aria-label="${CSS.escape(had.getAttribute('aria-label') || '')}"]`) || layout.el.querySelector('.tile'))?.focus();
+  };
+
   /** Apply to the selected clip, or add a color layer at the playhead. */
   const use = (name, setup, applyToClip) => {
     const clip = target();
     if (clip) applyToClip(clip);
     else actions.addAdjustment({ name, adjust: setup.adjust, grade: setup.grade });
-    layout.refresh();
+    redraw();
   };
+  let shownLut = null; // the selected clip's LUT the tiles show
 
   function renderLayer() {
     const t = tile({
       label: 'Custom color layer',
-      preview: setupPreview(ctx, {}),
+      preview: setupPreview(ctx, {}, previews),
       onAdd: () => actions.addAdjustment(),
       drag: { kind: 'adjust' },
-      addLabel: 'Add color layer',
+      addLabel: 'Add custom color layer',
     });
     return h('div',
       h('p.asset-hint', 'A color layer grades every clip below it. Fine-tune it in Details. To grade a single clip, select it and open Color in Details.'),
@@ -80,6 +107,7 @@ export function adjustTab(ctx) {
 
   function renderLuts(q) {
     const clip = target();
+    shownLut = clip?.grade?.lut?.id ?? null;
     const list = luts.filter((e) => !q || e.name.toLowerCase().includes(q));
     if (!luts.length) {
       return emptyState('palette', 'No LUTs yet', 'Import .cube look-up tables (1D or 3D) from your grading tools or camera maker. They are kept in your library for every project.', importBtn());
@@ -90,7 +118,7 @@ export function adjustTab(ctx) {
       return removable(tile({
         label: e.name,
         sub: `${e.kind.toUpperCase()} ${e.size}`,
-        preview: setupPreview(ctx, setup),
+        preview: setupPreview(ctx, setup, previews),
         active: clip?.grade?.lut?.id === e.id,
         onAdd: () => use(e.name, setup, (c) => applyLut(ctx, c.id, e)),
         drag: { kind: 'adjust', name: e.name, grade: setup.grade },
@@ -98,7 +126,12 @@ export function adjustTab(ctx) {
       }), `LUT ${e.name}`, async () => {
         const ok = await confirmDialog({ title: 'Remove LUT', message: `Remove "${e.name}" from your library? Clips that use it will no longer show it.`, confirm: 'Remove', danger: true });
         if (!ok) return;
-        await library.removeLut(e.id);
+        try {
+          await library.removeLut(e.id);
+        } catch (err) {
+          toast(`Couldn't remove the LUT ${e.name}. ${err?.message || 'Try again.'}`, { kind: 'error' });
+          return;
+        }
         dropLut(e.id);
         announce('LUT removed');
       });
@@ -114,7 +147,7 @@ export function adjustTab(ctx) {
     hint.textContent = clip ? 'Click a preset to apply it to the selected clip.' : 'Click a preset to add it as a color layer, or select a clip first to apply it to that clip.';
     const tiles = list.map((p) => removable(tile({
       label: p.name,
-      preview: setupPreview(ctx, p),
+      preview: setupPreview(ctx, p, previews),
       onAdd: () => use(p.name, p, (c) => applyPreset(ctx, c.id, p)),
       drag: { kind: 'adjust', name: p.name, adjust: p.adjust, grade: p.grade },
       addLabel: clip ? `Apply preset ${p.name} to clip` : `Add preset ${p.name} as a color layer`,
@@ -140,7 +173,12 @@ export function adjustTab(ctx) {
     layout.refresh();
   }).catch(() => {});
   const offs = [
-    store.on('select', () => layout.category !== 'layer' && layout.refresh()),
+    // Hidden, the tab redraws when it is shown again.
+    store.on('select', () => layout.el.isConnected && layout.category !== 'layer' && redraw()),
+    // A LUT applied, removed or undone elsewhere shows on the tiles.
+    store.on('change', () => {
+      if (layout.el.isConnected && layout.category === 'luts' && (target()?.grade?.lut?.id ?? null) !== shownLut) redraw();
+    }),
     onPresetsChanged(() => layout.category === 'presets' && layout.refresh()),
     library?.on?.('luts', (list) => {
       luts = list;

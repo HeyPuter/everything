@@ -22,8 +22,11 @@ const MODE_HINT = {
   auto: 'Proxies are made for 4K, high bitrate or high frame rate videos, and for videos that play back slowly on this device.',
 };
 
-/** One line on the project's proxies: "2 ready, 1 being made (40%)". */
-export function proxySummary(project, proxies) {
+/**
+ * One line on the project's proxies: "2 ready, 1 being made (40%)". coarse
+ * rounds the progress down to quarters (for screen reader announcements).
+ */
+export function proxySummary(project, proxies, { coarse = false } = {}) {
   if (!proxies) return '';
   const seen = new Set();
   let ready = 0;
@@ -44,7 +47,7 @@ export function proxySummary(project, proxies) {
   }
   const parts = [];
   if (ready) parts.push(`${ready} ready${size ? ` (${formatBytes(size)})` : ''}`);
-  if (making !== null) parts.push(`1 being made (${Math.round(making * 100)}%)`);
+  if (making !== null) parts.push(`1 being made (${coarse ? Math.floor(making * 4) * 25 : Math.round(making * 100)}%)`);
   if (waiting) parts.push(`${waiting} waiting`);
   if (failed) parts.push(`${failed} failed`);
   return parts.length ? `Proxies: ${parts.join(', ')}.` : seen.size ? 'No proxies yet.' : 'No videos in this project.';
@@ -156,12 +159,15 @@ export function projectView(ctx) {
     className: 'proxy-mode',
   });
   const hint = h('p.proxy-hint');
-  const status = h('p.proxy-status', { role: 'status' });
+  // The line shows every percent; screen readers hear the start, each quarter and the end.
+  const status = h('p.proxy-status');
+  const spoken = h('p.sr-only', { role: 'status' });
   const proxyBody = h('div.proxy-settings',
     h('div.field.insp-row', h('span.field-label', 'Use proxies'), h('div.insp-row-control', modeCtl.el)),
     h('p.proxy-hint', 'Proxies are small copies of your videos that play smoothly while you edit. They stay on this device; exports always use the original files.'),
     hint,
     status,
+    spoken,
   );
   scope.bind(() => {
     const mode = proxyMode(store.project);
@@ -169,6 +175,8 @@ export function projectView(ctx) {
     hint.textContent = MODE_HINT[mode];
     status.textContent = proxySummary(store.project, ctx.proxies);
     status.hidden = !ctx.proxies || !status.textContent;
+    const say = ctx.proxies ? proxySummary(store.project, ctx.proxies, { coarse: true }) : '';
+    if (spoken.textContent !== say) spoken.textContent = say;
   });
   scope.update();
 

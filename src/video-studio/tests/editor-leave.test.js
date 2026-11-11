@@ -49,6 +49,37 @@ describe('leaving the editor', () => {
     expect((await library.openProject(p.id)).name).toBe('Saved name');
   });
 
+  it('waits for files being imported, so they are in the saved project', async () => {
+    const { library, onExit, p } = await open();
+    // Reading the file takes a moment; the user leaves meanwhile.
+    let finish;
+    const read = new Promise((r) => (finish = r));
+    vi.spyOn(library, 'importFile').mockImplementation(async (file) => {
+      await read;
+      return { id: 'a_new', kind: 'image', name: file.name, hash: 'h9', ext: 'png', width: 4, height: 4, added: 1 };
+    });
+    const importing = editor.ctx.actions.importFiles([new File(['x'], 'late.png', { type: 'image/png' })]);
+    const leaving = editor.exit();
+    await settle();
+    expect(onExit).not.toHaveBeenCalled();
+    finish();
+    await importing;
+    await leaving;
+    expect(onExit).toHaveBeenCalled();
+    expect((await library.openProject(p.id)).assets.a_new?.name).toBe('late.png');
+  });
+
+  it('frees the editor once when leaving and the next screen both dispose it', async () => {
+    const { onExit } = await open();
+    const media = vi.spyOn(editor.media, 'dispose');
+    const proxies = vi.spyOn(editor.proxies, 'dispose');
+    const player = vi.spyOn(editor.ctx.player, 'dispose');
+    onExit.mockImplementation(() => editor.dispose());
+    await editor.exit();
+    expect(onExit).toHaveBeenCalled();
+    expect([media.mock.calls.length, proxies.mock.calls.length, player.mock.calls.length]).toEqual([1, 1, 1]);
+  });
+
   it('stays open after a failed save when the user chooses to stay, and keeps retrying', async () => {
     const { backend, library, onExit, p } = await open();
     rename('Unsaved name');
@@ -165,7 +196,7 @@ describe('opening the editor', () => {
     expect(editor.media.missing.has('hv')).toBe(true);
     root.querySelector('[data-cat="project"]')?.click();
     await settle(50);
-    expect(root.querySelector('.tile-sub.missing')?.textContent).toBe('File missing');
+    expect(root.querySelector('.tile-sub.missing')?.dataset.text).toBe('File missing');
   });
 });
 
@@ -210,5 +241,21 @@ describe('a failed save where the status has no room', () => {
     editor.saver.emit('status', { status: 'error' });
     expect(status.textContent).toBe("Couldn't save. Retrying...");
     expect(errorToasts()).toEqual([]);
+  });
+
+  it('says when saving failed because the storage is full', async () => {
+    await open();
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    const status = root.querySelector('.save-status');
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function w() {
+      return this === status ? 240 : 0;
+    });
+    editor.saver.emit('status', { status: 'error', error: new DOMException('The quota has been exceeded.', 'QuotaExceededError') });
+    expect(status.textContent).toBe("Storage is full. Free up space to save.");
+    // Phones: the note says it too.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
+    editor.saver.emit('status', { status: 'saved', at: Date.now() });
+    editor.saver.emit('status', { status: 'error', error: Object.assign(new Error('Storage capacity exceeded'), { code: 'storage_limit_reached' }) });
+    expect(errorToasts()).toEqual(["Couldn't save your changes: your storage is full. Free up space to keep saving."]);
   });
 });

@@ -5,7 +5,7 @@
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { FILTERS, FILTER_CATEGORIES } from '../../model/catalog.js';
-import { slider, propSection, row, uidFor } from './common.js';
+import { slider, propSection, row, uidFor, keepFocus } from './common.js';
 
 const filterLabel = (id) => FILTERS.find((f) => f.id === id)?.label || 'Filter';
 
@@ -14,9 +14,8 @@ export function appliedFilterSection(view) {
   const body = h('div.applied-filter');
   const name = h('span.applied-filter-name');
   const remove = h('button.icon-btn.small', { type: 'button', 'aria-label': 'Remove filter', 'data-tip': 'Remove filter' }, icon('trash', 14));
-  remove.addEventListener('click', () => {
-    view.actions.addFilter(null, { toClip: view.clip });
-  });
+  // The row hides once the filter is gone; focus goes to Browse filters.
+  remove.addEventListener('click', () => keepFocus(() => view.actions.addFilter(null, { toClip: view.clip }), () => browse));
   const browse = h('button.btn.small', { type: 'button' }, icon('filters', 14), 'Browse filters');
   browse.addEventListener('click', () => {
     view.ctx.assets?.show?.('filters');
@@ -83,7 +82,8 @@ export function filterClipTab(view) {
   });
   view.bind(() => {
     const c = view.clip;
-    if (c && pick.select.value !== c.filter && document.activeElement !== pick.select) pick.select.value = c.filter;
+    // Also while focused: setting the value of a native select does not close it or move focus.
+    if (c && pick.select.value !== c.filter) pick.select.value = c.filter;
   });
   return h('div', propSection('Filter', [pick.el, intensity.el], {
     onReset: () => view.edit('Reset filter', (c) => {

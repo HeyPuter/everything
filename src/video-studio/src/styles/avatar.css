@@ -76,6 +76,8 @@
   bottom: -12px;
   padding: 8px 0 12px;
   background: var(--bg-panel);
+  /* Also cover the panel's side padding, where the content scrolling under it showed. */
+  box-shadow: -10px 0 0 var(--bg-panel), 10px 0 0 var(--bg-panel);
 }
 
 .avatar-add {

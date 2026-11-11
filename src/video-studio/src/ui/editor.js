@@ -38,6 +38,15 @@ import { prefs, setPref, onThemeChange } from './prefs.js';
 const PANEL_LIMITS = { left: [240, 720], right: [260, 640] };
 const MIN_PLAYER = 280;
 const RESIZERS = 8;
+/** Run the command for a keydown (where: see commands.handleKey), keeping the key from the browser. */
+function runKey(commands, e, where) {
+  if (!commands.handleKey(e, { where })) return;
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+/** Elements where typed keys are text, not editor shortcuts. */
+const TYPING_FIELDS = 'input:not([type=range]):not([type=checkbox]):not([type=color]), textarea, select, [contenteditable="true"]';
 
 /** The gallery cover is saved this long after the last edit (then when the browser is idle). */
 const COVER_DELAY = 8000;
@@ -199,6 +208,9 @@ export class Editor {
 
     this._onKey = (e) => this.onKey(e);
     document.addEventListener('keydown', this._onKey);
+    // Fields that keep their keys to themselves (stopPropagation) still let Save and the like through.
+    this._onFieldKey = (e) => this.onFieldKey(e);
+    document.addEventListener('keydown', this._onFieldKey, true);
     this._onUnload = (e) => {
       // pageLeaving: the user already chose to leave (signing out, closing the window).
       if (!this.pageLeaving && (store.dirty || library.unsavedMedia)) {
@@ -287,14 +299,25 @@ export class Editor {
     return el;
   }
 
+  /**
+   * Keys typed in a text field (seen before the field, which may keep them to itself): Save,
+   * Export, Preferences and Keyboard shortcuts still work instead of the browser's own.
+   */
+  onFieldKey(e) {
+    if (e.defaultPrevented || document.querySelector('dialog[open]')) return;
+    const t = e.target;
+    if (t.closest?.('.menu, puter-user-menu') || !t.matches?.(TYPING_FIELDS)) return;
+    runKey(this.ctx.commands, e, 'field');
+  }
+
   onKey(e) {
     if (e.defaultPrevented) return;
     const t = e.target;
-    if (document.querySelector('dialog[open]')) return;
+    // With a dialog open only Save works (instead of the browser's Save page).
+    if (document.querySelector('dialog[open]')) return void runKey(this.ctx.commands, e, 'dialog');
     // puter.js's user menu takes its own keys (they arrive from the element).
     if (t.closest?.('.menu, puter-user-menu')) return;
-    const typing = t.matches?.('input:not([type=range]):not([type=checkbox]):not([type=color]), textarea, select, [contenteditable="true"]');
-    if (typing) {
+    if (t.matches?.(TYPING_FIELDS)) {
       // Undo inside text fields belongs to the field, but Escape leaves it.
       if (e.key === 'Escape') t.blur();
       return;
@@ -303,10 +326,7 @@ export class Editor {
     if ((e.key === ' ' || e.key === 'Enter') && t.matches?.('button, [role=button], [role=tab], [role=radio], [role=switch], [role=checkbox], input[type=checkbox], a') && !t.closest('[data-space-plays]')) return;
     // Arrow keys belong to sliders, tab lists and the timeline's own navigation.
     if (e.key.startsWith('Arrow') && (t.matches?.('input[type=range], [role=tab], [role=radio], [role=separator], [role=slider]') || t.closest?.('[data-own-arrows]'))) return;
-    if (this.ctx.commands.handleKey(e)) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+    runKey(this.ctx.commands, e);
   }
 
   /**
@@ -468,6 +488,8 @@ export class Editor {
     // Asked twice (a double click, the window closing while asking): one question.
     this._leaving ||= (async () => {
       this.ctx.player?.pause();
+      // Files being imported join the project when they are read: wait, so they are saved too.
+      if (this.ctx.imports?.size) await Promise.allSettled([...this.ctx.imports]);
       let saved = true;
       try {
         await this.saver.flush();
@@ -548,6 +570,8 @@ export class Editor {
   }
 
   dispose() {
+    // Leaving disposes the editor, and the next screen disposes the view it replaces: once is enough.
+    if (this._disposed) return;
     this._disposed = true;
     this._fitObserver?.disconnect();
     this._offTheme?.();
@@ -559,6 +583,7 @@ export class Editor {
     this._cancelCover();
     document.removeEventListener('visibilitychange', this._onHidden);
     document.removeEventListener('keydown', this._onKey);
+    document.removeEventListener('keydown', this._onFieldKey, true);
     window.removeEventListener('beforeunload', this._onUnload);
     this.saver.dispose();
     this._topbar?.dispose?.();

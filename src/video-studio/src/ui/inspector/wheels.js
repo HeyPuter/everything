@@ -41,19 +41,24 @@ function wheelCard(view, def) {
     return [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000];
   };
   let dragging = false;
+  let moved = false;
   let fine = null; // Shift held: { px, py, x, y } where fine dragging started
   disk.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     disk.focus({ preventScroll: true });
     dragging = true;
+    moved = false;
     fine = null;
     disk.setPointerCapture?.(e.pointerId);
+    // The second press of a double-click (which centers the wheel) moves nothing.
+    if (e.detail >= 2) return;
     const [x, y] = fromPointer(e);
     set({ ...wheelOf(view.clip, def.id), x, y }, false);
   });
   disk.addEventListener('pointermove', (e) => {
     if (!dragging) return;
+    moved = true;
     let [x, y] = fromPointer(e);
     if (e.shiftKey) {
       // Shift: a quarter of the pointer's movement, for fine adjustments.
@@ -72,7 +77,8 @@ function wheelCard(view, def) {
   const end = () => {
     if (!dragging) return;
     dragging = false;
-    view.store.seal();
+    // A plain click stays open, so a double-click's centering joins its undo step.
+    if (moved) view.store.seal();
   };
   disk.addEventListener('pointerup', end);
   disk.addEventListener('pointercancel', end);
@@ -107,10 +113,22 @@ function wheelCard(view, def) {
   level.addEventListener('pointerdown', () => (levelDrag = true));
   level.addEventListener('pointerup', () => (levelDrag = false));
   level.addEventListener('pointercancel', () => (levelDrag = false));
+  // Keys held on the slider make one undo step, ended on key up, as a drag does.
+  let levelKeys = false;
+  level.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) levelKeys = true;
+  });
+  const endLevelKeys = () => {
+    if (!levelKeys) return;
+    levelKeys = false;
+    view.store.seal();
+  };
+  level.addEventListener('keyup', endLevelKeys);
+  level.addEventListener('blur', endLevelKeys);
   level.addEventListener('input', () => set({ ...wheelOf(view.clip, def.id), l: Number(level.value) }, false, 'brightness'));
   level.addEventListener('change', () => {
     levelDrag = false;
-    set({ ...wheelOf(view.clip, def.id), l: Number(level.value) }, true, 'brightness');
+    set({ ...wheelOf(view.clip, def.id), l: Number(level.value) }, !levelKeys, 'brightness');
   });
   level.addEventListener('dblclick', () => set({ ...wheelOf(view.clip, def.id), l: 0 }, true, 'brightness'));
 

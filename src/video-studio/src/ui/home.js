@@ -16,6 +16,7 @@ import { TEMPLATES } from '../model/templates.js';
 import { TRASH_DAYS } from '../storage/library.js';
 import { exportProjectBundle, importProjectBundle, downloadBlob, BUNDLE_ACCEPT } from '../storage/bundle.js';
 import { createProjectFromTemplate } from '../storage/template-project.js';
+import { MEDIA_ACCEPT } from '../media/media-types.js';
 import { showMenu, menuButton } from './menu.js';
 import { confirmDialog, promptDialog, toast, installTooltips, openDialog } from './dialog.js';
 import { accountButton, themeMenuItems } from './topbar.js';
@@ -140,7 +141,7 @@ export class Home {
   /* Shell ---------------------------------------------------------------------- */
 
   render() {
-    this.importInput = h('input', { type: 'file', multiple: true, accept: 'video/*,audio/*,image/*', hidden: true, tabindex: '-1', 'aria-hidden': 'true' });
+    this.importInput = h('input', { type: 'file', multiple: true, accept: MEDIA_ACCEPT, hidden: true, tabindex: '-1', 'aria-hidden': 'true' });
     this.importInput.addEventListener('change', () => {
       const files = [...this.importInput.files];
       this.importInput.value = '';
@@ -217,6 +218,8 @@ export class Home {
   }
 
   renderView() {
+    // Cards drawn before are gone: stop waiting to load their covers.
+    this.coverObserver?.disconnect();
     this.renderNav();
     const titles = { home: 'Video Studio', templates: 'Templates', trash: 'Trash' };
     document.title = this.view === 'home' ? 'Video Studio' : `${titles[this.view]} - Video Studio`;
@@ -343,6 +346,7 @@ export class Home {
 
   renderGrid() {
     if (!this.grid) return;
+    this.coverObserver?.disconnect();
     if (!this.loaded) {
       this.grid.replaceChildren(h('div.home-loading', { role: 'status' }, h('div.spinner'), 'Loading projects...'));
       return;
@@ -364,8 +368,30 @@ export class Home {
 
   cover(p) {
     const cover = h('div.project-cover', h('span.cover-fallback', icon('film', 22)));
-    this.loadCover(p.id, cover);
+    this.watchCover(p.id, cover);
     return cover;
+  }
+
+  /**
+   * Load a cover once its card is close to being scrolled into view: with
+   * many projects, reading every cover at once (a download each from the
+   * cloud) would hold up the ones on screen.
+   */
+  watchCover(id, el) {
+    if (this.coverUrls.has(id) || this.noCover.has(id) || typeof IntersectionObserver !== 'function') {
+      this.loadCover(id, el);
+      return;
+    }
+    this.coverIds ||= new WeakMap();
+    this.coverIds.set(el, id);
+    this.coverObserver ||= new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        this.coverObserver.unobserve(e.target);
+        this.loadCover(this.coverIds.get(e.target), e.target);
+      }
+    }, { root: this.mainEl, rootMargin: '400px 0px' });
+    this.coverObserver.observe(el);
   }
 
   card(p) {
@@ -406,7 +432,18 @@ export class Home {
     el.replaceChildren(h('img', { src: url, alt: '', loading: 'lazy', decoding: 'async' }));
   }
 
+  /**
+   * A project open in another tab saves over whatever is done to it here (a
+   * rename, the Trash, even Delete forever brings it back): say so instead.
+   */
+  async openElsewhere(p, what) {
+    if (!(await this.library.isProjectOpen(p.id))) return false;
+    toast(`${p.name} is open in another tab or window. Close it there to ${what}.`, { kind: 'error' });
+    return true;
+  }
+
   async rename(p) {
+    if (await this.openElsewhere(p, 'rename it')) return;
     const name = await promptDialog({ title: 'Rename project', label: 'Project name', value: p.name, confirm: 'Rename' });
     if (!name || name === p.name) return;
     try {
@@ -429,6 +466,7 @@ export class Home {
   }
 
   async remove(p) {
+    if (await this.openElsewhere(p, 'move it to the Trash')) return;
     try {
       await this.library.trashProject(p.id);
       await this.refreshLists();
@@ -458,7 +496,14 @@ export class Home {
 
   /** Script to video: the new project opens when it is ready. */
   async scriptToVideo() {
-    const m = await import('./script-video.js');
+    let m;
+    try {
+      m = await import('./script-video.js');
+    } catch (err) {
+      console.error(err);
+      toast("Couldn't open Script to video. Check your connection and try again.", { kind: 'error' });
+      return;
+    }
     const env = { library: this.library, account: this.account };
     if (!m.aiReady(env)) {
       m.needAiDialog(this.account, 'Script to video');
@@ -526,6 +571,7 @@ export class Home {
   }
 
   async deleteForever(p) {
+    if (await this.openElsewhere(p, 'delete it')) return;
     const ok = await confirmDialog({ title: 'Delete forever?', message: `${p.name} will be deleted permanently. This can't be undone.`, confirm: 'Delete forever', danger: true });
     if (!ok) return;
     try {
@@ -662,7 +708,7 @@ export class Home {
       depth = Math.max(0, depth - 1);
       if (!depth) page.classList.remove('dropping');
     });
-    page.addEventListener('drop', (e) => {
+    page.addEventListener('drop', async (e) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
       depth = 0;
@@ -670,8 +716,9 @@ export class Home {
       const files = [...e.dataTransfer.files];
       const bundles = files.filter((f) => /\.zip$/i.test(f.name));
       const media = files.filter((f) => !bundles.includes(f));
-      if (bundles.length) this.importBundles(bundles);
-      else if (media.length) this.onImportFiles(media);
+      // Both at once: the project files are added, then the media opens in a new project.
+      if (bundles.length) await this.importBundles(bundles);
+      if (media.length) this.onImportFiles(media);
     });
   }
 
@@ -698,6 +745,7 @@ export class Home {
 
   dispose() {
     window.removeEventListener('hashchange', this.onHash);
+    this.coverObserver?.disconnect();
     for (const u of this.coverUrls.values()) URL.revokeObjectURL(u);
   }
 }

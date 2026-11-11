@@ -13,6 +13,8 @@
  * old proxy. Timing is kept exactly: same timestamps, same duration.
  */
 
+import { STREAM_EXTS } from '../media/media-types.js';
+
 /** Bump when the proxy format changes; older proxies are deleted on start. */
 export const PROXY_VERSION = 1;
 /** Short side of a proxy in pixels (720p landscape, 720 wide portrait). */
@@ -62,6 +64,7 @@ export function bitrateOf(asset) {
  */
 export function heavyReason(asset) {
   if (!canProxy(asset)) return null;
+  if (needsProxyToPlay(asset)) return 'format';
   const w = asset.width || 0;
   const h = asset.height || 0;
   const long = Math.max(w, h);
@@ -72,8 +75,17 @@ export function heavyReason(asset) {
   return null;
 }
 
+/**
+ * A video the preview's media elements can't play at all (MPEG transport
+ * streams, see media/media-types.js): without a proxy it shows decoded
+ * frames while paused but plays choppy and silent.
+ */
+export function needsProxyToPlay(asset) {
+  return canProxy(asset) && STREAM_EXTS.has(asset.ext);
+}
+
 /** Why a proxy is made (heavyReason() or slow decoding), to read mid-sentence. */
-export const REASON_LABEL = { '4k': '4K or larger', bitrate: 'high bitrate', fps: 'high frame rate', slow: 'slow to decode' };
+export const REASON_LABEL = { format: "a format the preview can't play directly", '4k': '4K or larger', bitrate: 'high bitrate', fps: 'high frame rate', slow: 'slow to decode' };
 
 /** Whether a proxy would be smaller or lighter than the original. */
 export function proxyWorthwhile(asset) {
@@ -89,7 +101,7 @@ export function proxyWorthwhile(asset) {
  */
 export function wantsProxy(asset, mode, { slow = false } = {}) {
   if (!canProxy(asset) || mode === 'off') return false;
-  if (slow) return true;
+  if (slow || needsProxyToPlay(asset)) return true;
   if (mode === 'on') return proxyWorthwhile(asset);
   return Boolean(heavyReason(asset));
 }

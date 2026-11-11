@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   groupWords, joinWords, wrapCaption, segmentsToWords, distributeText, speechRegions,
-  parseSubtitles, toSrt, buildCaptionClips, captionCues, splitForTranscription, lineCharsFor, CAPTION_POSITIONS,
+  parseSubtitles, subtitleText, toSrt, buildCaptionClips, captionCues, splitForTranscription, lineCharsFor, CAPTION_POSITIONS,
   mixdown,
 } from '../src/media/transcribe.js';
 import { captionsTab } from '../src/ui/panels/captions.js';
@@ -9,7 +9,7 @@ import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { setPref } from '../src/ui/prefs.js';
 import { fixture, clip, onMain, s } from './helpers.js';
-import { createProject } from '../src/model/project.js';
+import { createProject, makeClip } from '../src/model/project.js';
 import { TEXT_PRESETS } from '../src/model/catalog.js';
 
 const W = (text, start, end) => ({ text, start, end });
@@ -155,6 +155,38 @@ describe('subtitle files', () => {
     expect(parseSubtitles('1\n00:00:02,000 --> 00:00:01,000\nbackwards\n\n2\nno timing\n\n3\n00:00:01,000 --> 00:00:02,000\n\n')).toEqual([]);
   });
 
+  it('reads cues when the file leaves out the blank lines between them', () => {
+    const srt = '1\n00:00:01,000 --> 00:00:02,000\nHello\n2\n00:00:03,000 --> 00:00:04,000\nWorld\nagain\n3\n00:00:05,000 --> 00:00:06,000\nEnd';
+    expect(parseSubtitles(srt)).toEqual([
+      { start: 1, end: 2, text: 'Hello' },
+      { start: 3, end: 4, text: 'World\nagain' },
+      { start: 5, end: 6, text: 'End' },
+    ]);
+  });
+
+  it('reads times without milliseconds and keeps arrows in the text', () => {
+    const srt = '1\n00:00:01 --> 00:00:03\nStep one --> step two\n\n2\n00:01:00 --> 00:01:02,5\nLater\n';
+    expect(parseSubtitles(srt)).toEqual([
+      { start: 1, end: 3, text: 'Step one --> step two' },
+      { start: 60, end: 62.5, text: 'Later' },
+    ]);
+  });
+
+  it('reads subtitle files saved as UTF-16 or Windows-1252', async () => {
+    const srt = '1\r\n00:00:01,000 --> 00:00:02,000\r\nCafé déjà vu\r\n';
+    const utf16 = (le, bom) => {
+      const out = [];
+      if (bom) out.push(...(le ? [0xff, 0xfe] : [0xfe, 0xff]));
+      for (const ch of srt) out.push(...(le ? [ch.charCodeAt(0) & 255, ch.charCodeAt(0) >> 8] : [ch.charCodeAt(0) >> 8, ch.charCodeAt(0) & 255]));
+      return new Uint8Array(out);
+    };
+    const want = [{ start: 1, end: 2, text: 'Café déjà vu' }];
+    for (const bytes of [utf16(true, true), utf16(true, false), utf16(false, true), Uint8Array.from(srt, (c) => c.charCodeAt(0))]) {
+      expect(parseSubtitles(await subtitleText(new Blob([bytes])))).toEqual(want);
+    }
+    expect(parseSubtitles(await subtitleText(new Blob([`\ufeff${srt}`])))).toEqual(want);
+  });
+
   it('writes SubRip that parses back', () => {
     const cues = [{ start: 0, end: 1.234, text: 'First' }, { start: 3661.5, end: 3662, text: 'Second\nline' }, { start: 4000, end: 4001, text: '  ' }];
     const srt = toSrt(cues);
@@ -206,6 +238,22 @@ describe('buildCaptionClips', () => {
     const clips = buildCaptionClips([{ start: 0, end: 1, text: 'x' }, { start: 1, end: 2, text: 'y' }]);
     p.tracks.unshift({ id: 't1', kind: 'text', locked: false, hidden: false, muted: false, clips });
     expect(captionCues(p)).toEqual([{ start: 0, end: 1, text: 'x' }, { start: 1, end: 2, text: 'y' }]);
+  });
+  it('reads captions inside compound clips, where the compound shows them', () => {
+    const p = createProject();
+    const inner = buildCaptionClips([{ start: 0, end: 1, text: 'cut off' }, { start: 1, end: 2, text: 'one' }, { start: 2, end: 4, text: 'two' }]);
+    const comp = makeClip('compound', { start: 10 * 1e6, in: 1e6, duration: 2.5 * 1e6, sequence: { tracks: [{ id: 'n1', kind: 'text', locked: false, hidden: false, muted: false, clips: inner }] } });
+    p.tracks.unshift({ id: 't1', kind: 'video', locked: false, hidden: false, muted: false, clips: [comp] });
+    expect(captionCues(p)).toEqual([{ start: 10, end: 11, text: 'one' }, { start: 11, end: 12.5, text: 'two' }]);
+  });
+
+  it('leaves captions that are turned off or on a hidden track out of the cues', () => {
+    const p = createProject();
+    const [a, b, c] = buildCaptionClips([{ start: 0, end: 1, text: 'shown' }, { start: 1, end: 2, text: 'off' }, { start: 2, end: 3, text: 'hidden' }]);
+    b.disabled = true;
+    p.tracks.unshift({ id: 't1', kind: 'text', locked: false, hidden: false, muted: false, clips: [a, b] });
+    p.tracks.unshift({ id: 't2', kind: 'text', locked: false, hidden: true, muted: false, clips: [c] });
+    expect(captionCues(p).map((x) => x.text)).toEqual(['shown']);
   });
 });
 
@@ -269,5 +317,43 @@ describe('Transcript in the Captions tab', () => {
     words[0].dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
     expect(store.time).toBe(s(0.5));
     tab.dispose?.();
+  });
+});
+
+describe('Translate captions', () => {
+  afterEach(() => {
+    delete globalThis.puter;
+    document.body.replaceChildren();
+  });
+
+  it('stops translating when the dialog is canceled or closed', async () => {
+    for (const how of ['cancel', 'escape', 'x', 'backdrop']) {
+      document.body.replaceChildren();
+      let reply = null;
+      globalThis.puter = { ai: { chat: () => new Promise((r) => (reply = r)) } };
+      const p = createProject();
+      p.tracks.unshift({ id: 'tc', kind: 'text', locked: false, hidden: false, muted: false, clips: buildCaptionClips([{ start: 0, end: 1, text: 'Hello' }]) });
+      const store = new EditorStore(p);
+      const ctx = { store, player: null, library: { backend: { kind: 'puter' } }, account: {} };
+      ctx.actions = createActions(ctx);
+      const tab = captionsTab(ctx);
+      document.body.append(tab.el);
+      [...tab.el.querySelectorAll('.asset-cat')].find((b) => b.textContent === 'Captions').click();
+      [...tab.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'AI').click();
+      [...document.querySelectorAll('.menu [role^=menuitem]')].find((b) => b.textContent.includes('Translate')).click();
+      const d = document.querySelector('dialog');
+      [...d.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Translate').click();
+      await vi.waitFor(() => expect(reply).toBeTypeOf('function'));
+      if (how === 'cancel') [...d.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Cancel').click();
+      else if (how === 'escape') d.dispatchEvent(new Event('cancel', { cancelable: true }));
+      else if (how === 'x') d.querySelector('.dialog-close').click();
+      else d.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      expect(d.isConnected).toBe(false);
+      reply('["Hola"]');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(store.project.tracks.flatMap((t) => t.clips).map((c) => c.text)).toEqual(['Hello']);
+      expect(store.history.canUndo(), how).toBe(false);
+      tab.dispose?.();
+    }
   });
 });

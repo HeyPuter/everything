@@ -5,7 +5,7 @@
  */
 import { uid } from '../lib/ids.js';
 import { makeClip, DEFAULT_TRANSFORM } from './project.js';
-import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips } from './timeline.js';
+import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips, cleanupTransitions, MIN_CLIP } from './timeline.js';
 import { trimTo } from './slice.js';
 import { storedTimelineTracks } from './timelines.js';
 
@@ -74,6 +74,8 @@ export function createCompound(project, ids, opts = {}) {
     if (v) v.main = true;
     else nested.push({ id: uid('t'), kind: 'video', main: true, locked: false, hidden: false, muted: false, clips: [] });
   }
+  // A transition into a clip left outside has no partner in there.
+  cleanupTransitions({ tracks: nested });
   const compound = makeClip('compound', { start: a, duration: b - a, name: `Compound clip ${nextNumber(project)}`, sequence: { tracks: nested } });
   addClip(project, compound, { ...opts, main: onMain });
   return compound;
@@ -124,7 +126,9 @@ export function breakApart(project, id, opts = {}) {
   for (const t of [...c.sequence.tracks].reverse()) {
     for (const child of t.clips) {
       const copy = trimTo(structuredClone(child), c.in, c.in + c.duration);
-      if (!copy) continue;
+      // A sliver shorter than the shortest clip the editor allows (under a frame at 60 fps)
+      // would be a clip too thin to see or select.
+      if (!copy || copy.duration < MIN_CLIP) continue;
       copy.id = uid('c');
       copy.start = c.start + copy.start - c.in;
       inheritFromCompound(copy, c, W, H);

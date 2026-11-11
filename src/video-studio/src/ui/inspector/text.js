@@ -14,10 +14,10 @@ import { createElement, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, A
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { FONTS, TEXT_PRESETS } from '../../model/catalog.js';
-import { DEFAULT_TEXT_STYLE } from '../../model/project.js';
+import { DEFAULT_TEXT_STYLE, TEXT_MAX } from '../../model/project.js';
 import { allClips } from '../../model/timeline.js';
 import { setKey, removeKey, keyIndexAt, valueAt } from '../../model/keyframes.js';
-import { caseOf, COLOR_KEYS, hasColorKeys, hexToRgb, textColorAt } from '../../model/text-style.js';
+import { caseOf, COLOR_KEYS, hasColorKeys, hexToRgb, textColorAt, dropColorKeys } from '../../model/text-style.js';
 import { rasterizeText } from '../../engine/text.js';
 import { FONT_ACCEPT, importFontFile } from '../../media/fonts.js';
 import { segmented, section, colorField } from '../controls.js';
@@ -28,6 +28,7 @@ import { bubbleTab } from './text-bubble.js';
 import { effectsTab } from './text-effects.js';
 import { lookCanvas } from '../text-thumbs.js';
 import { wordsOf, pickKeywords } from '../../model/text-marks.js';
+import { remapMarks } from '../../model/find-replace.js';
 
 const fontCss = (id) => FONTS.find((f) => f.id === id)?.css || `'${id.replace(/'/g, '')}', sans-serif`;
 
@@ -42,10 +43,18 @@ const DEF = DEFAULT_TEXT_STYLE;
 /** Text box bound to clip.text; typing merges into one undo step per pause. */
 function textBox(view) {
   const id = uidFor('text');
-  const ta = h('textarea.textarea.insp-textarea', { id, rows: 3, spellcheck: true });
+  // As long as a saved project keeps, so the text does not get shorter on the next open.
+  const ta = h('textarea.textarea.insp-textarea', { id, rows: 3, spellcheck: true, maxLength: TEXT_MAX });
   ta.value = view.clip.text;
   ta.addEventListener('input', () => {
+    if (ta.value.length > TEXT_MAX) ta.value = ta.value.slice(0, TEXT_MAX);
     view.edit('Edit text', (c) => {
+      // Highlighted words follow their words (word indexes shift as words come and go).
+      if (c.marks?.length) {
+        const marks = remapMarks(c.marks, c.text, ta.value);
+        if (marks.length) c.marks = marks;
+        else delete c.marks;
+      }
       c.text = ta.value;
     }, { key: 'text', final: false });
   });
@@ -132,11 +141,14 @@ function presetsRow(view) {
     value: view.clip.preset || null,
     onPick: (id) => {
       const p = TEXT_PRESETS.find((x) => x.id === id);
+      // The preset's color replaces a keyed one too (as Reset does), else the keys would hide it.
+      let unkeyed = false;
       view.edit('Text style', (c) => {
         c.style = { ...DEFAULT_TEXT_STYLE, ...p.style };
         c.preset = p.id;
+        unkeyed = dropColorKeys(c);
       });
-      announce(`${p.label} style applied`);
+      announce(`${p.label} style applied${unkeyed ? '. Color keyframes removed' : ''}`);
     },
   });
   view.bind(() => grid.set(view.clip?.preset || null));
@@ -598,7 +610,7 @@ function basicPanel(view) {
     onReset: () => view.edit('Reset text style', (x) => {
       const preset = TEXT_PRESETS.find((p) => p.id === x.preset);
       x.style = { ...DEFAULT_TEXT_STYLE, ...(preset?.style || {}) };
-      for (const k of COLOR_KEYS) delete x.keyframes[k];
+      dropColorKeys(x);
     }),
   });
   const fill = propSection('Fill', [row('Type', fillType.el), solid.el, g1.el, g2.el, thirdRow, g3.el, angle.el, fillOpacity.el], {

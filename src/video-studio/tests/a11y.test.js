@@ -176,3 +176,13 @@ describe('editor keyboard', () => {
     expect(handled).toEqual(['INPUT:range', 'DIV']);
   });
 });
+
+describe('page shell', () => {
+  it('names the skip link for every screen it serves (home, editor, review page)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const html = readFileSync(resolve(import.meta.dirname, '../index.html'), 'utf8');
+    const link = /<a class="skip-link" href="#main">([^<]+)<\/a>/.exec(html);
+    expect(link[1]).toBe('Skip to main content');
+  });
+});

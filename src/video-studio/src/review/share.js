@@ -77,11 +77,18 @@ export async function shareForReview({ puter, project, library, scope = 'all', t
     const input = { op: 'review.publish', clientId, projectId: project.id, title: cleanTitle(title || project.name), video };
     let published;
     try {
-      published = await d.call(puter, server, input);
+      try {
+        published = await d.call(puter, server, input);
+      } catch (err) {
+        // The publish is keyed by clientId, so one retry after a lost answer is safe.
+        if (err.status) throw err;
+        published = await d.call(puter, server, input);
+      }
     } catch (err) {
-      // The publish is keyed by clientId, so one retry after a lost answer is safe.
-      if (err.status) throw err;
-      published = await d.call(puter, server, input);
+      // Refused (a full review, a file too big...): no version points at the copy, so it isn't left behind. After a
+      // lost answer or a server failure it may have been published, so it stays.
+      if (err.status >= 400 && err.status < 500) await puter.fs.delete(item.path).catch(() => {});
+      throw err;
     }
     return { server, review: published.review, version: published.version };
   } finally {

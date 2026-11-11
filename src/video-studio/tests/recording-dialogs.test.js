@@ -92,3 +92,74 @@ describe('Record dialog', () => {
     expect(live()).toBe(0);
   });
 });
+
+describe('recorders when the device goes away', () => {
+  /** A MediaRecorder that stops by itself when end() is called, as when its tracks end. */
+  class FakeRecorder extends EventTarget {
+    constructor(stream, opts) {
+      super();
+      this.state = 'inactive';
+      this.mimeType = opts?.mimeType || 'video/webm';
+    }
+    start() {
+      this.state = 'recording';
+    }
+    _finish() {
+      this.state = 'inactive';
+      setTimeout(() => {
+        this.ondataavailable?.({ data: new Blob(['last']) });
+        this.dispatchEvent(new Event('stop'));
+      }, 0);
+    }
+    stop() {
+      this._finish();
+    }
+    end() {
+      this.ondataavailable?.({ data: new Blob(['take']) });
+      this._finish();
+    }
+  }
+
+  it.each([
+    ['camera or screen', async () => new (await import('../src/media/capture.js')).VideoRecorder()],
+    ['microphone', async () => new (await import('../src/media/voiceover.js')).VoiceRecorder()],
+  ])('keeps the %s take recorded before the recorder stopped by itself', async (_, make) => {
+    globalThis.MediaRecorder = FakeRecorder;
+    MediaRecorder.isTypeSupported = () => false;
+    const rec = await make();
+    const interrupted = vi.fn();
+    rec.onInterrupted = interrupted;
+    rec.start({});
+    rec.recorder.end();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(interrupted).toHaveBeenCalledTimes(1);
+    const blob = await rec.stop();
+    expect(await blob.text()).toBe('takelast');
+  });
+
+  it('does not report a stop the user asked for, or a canceled take', async () => {
+    globalThis.MediaRecorder = FakeRecorder;
+    MediaRecorder.isTypeSupported = () => false;
+    const { VideoRecorder } = await import('../src/media/capture.js');
+    const rec = new VideoRecorder();
+    const interrupted = vi.fn();
+    rec.onInterrupted = interrupted;
+    rec.start({});
+    expect(await (await rec.stop()).text()).toBe('last');
+    rec.start({});
+    rec.cancel();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(interrupted).not.toHaveBeenCalled();
+  });
+});
+
+describe('take names', () => {
+  it('numbers the next take after the highest one, so a deleted take is not named twice', async () => {
+    const { nextTakeNumber } = await import('../src/media/capture.js');
+    const assets = { a: { name: 'Voiceover 2.webm' }, b: { name: 'Voiceover 10.webm' }, c: { name: 'Camera recording 3.webm' }, d: { name: 'Voiceover notes.mp3' } };
+    expect(nextTakeNumber(assets, 'Voiceover')).toBe(11);
+    expect(nextTakeNumber(assets, 'Camera recording')).toBe(4);
+    expect(nextTakeNumber(assets, 'Screen recording')).toBe(1);
+    expect(nextTakeNumber({ a: { name: 'Voiceover 2' } }, 'Voiceover')).toBe(3);
+  });
+});

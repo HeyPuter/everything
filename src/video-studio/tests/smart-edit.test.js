@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { silentRanges, frameSignature, signatureDistance, sceneCuts, syncEnvelope, bestLag, SIG_W, SIG_H } from '../src/media/smart-edit.js';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
-import { fixture, clip, onMain } from './helpers.js';
+import { fixture, clip, onMain, s } from './helpers.js';
+import { mixdown } from '../src/media/transcribe.js';
+import { findSilences } from '../src/ui/smart-actions.js';
 
 // Listening to the sound never finishes on its own here; it ends when aborted.
 const listening = { signal: null };
@@ -25,6 +27,23 @@ describe('silence detection', () => {
   });
 });
 
+describe('finding silences', () => {
+  it('keeps photos and other stretches with no sound at all', async () => {
+    // Speech 0-4 s, a quiet tail 4-5 s, a photo 5-10 s (nothing to hear), speech 10-15 s.
+    const rate = 8000;
+    const mix = new Float32Array(15 * rate);
+    for (let i = 0; i < mix.length; i++) {
+      const t = i / rate;
+      if (t < 4 || t >= 10) mix[i] = 0.5 * Math.sin(i * 0.3);
+    }
+    mixdown.mockImplementationOnce(async () => mix);
+    const p = fixture();
+    onMain(p, clip('video', 0, 5), clip('image', 5, 5), clip('video', 10, 5, { in: s(5) }));
+    const ranges = await findSilences({ store: new EditorStore(p), library: {} }, { scope: 'main', thresholdDb: -38, minSilence: 0.6, pad: 0.12 });
+    expect(ranges.map((r) => [r.start / 1e6, r.end / 1e6].map((x) => Math.round(x * 100) / 100))).toEqual([[4.12, 4.88]]);
+  });
+});
+
 describe('Remove silences dialog', () => {
   it.each(['Escape', 'Close'])('stops listening when closed with %s', async (how) => {
     const p = fixture();
@@ -40,6 +59,33 @@ describe('Remove silences dialog', () => {
     else [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
     expect(listening.signal.aborted).toBe(true);
     listening.signal = null;
+    document.body.replaceChildren();
+  });
+});
+
+describe('Remove silences dialog settings', () => {
+  it('asks to find again after a setting changes instead of cutting what the old settings found', async () => {
+    const rate = 8000;
+    const mix = new Float32Array(4 * rate);
+    for (let i = 0; i < mix.length; i++) if (i < rate || i >= 3 * rate) mix[i] = 0.5 * Math.sin(i * 0.3);
+    mixdown.mockImplementationOnce(async () => mix);
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: {} };
+    ctx.actions = createActions(ctx);
+    ctx.actions.removeSilences();
+    const dlg = document.querySelector('dialog[open]');
+    const button = (text) => [...dlg.querySelectorAll('button')].find((b) => b.textContent === text);
+    button('Find silences').click();
+    await vi.waitFor(() => expect(button('Cut them').disabled).toBe(false));
+    const min = [...dlg.querySelectorAll('input')][1];
+    min.value = '3';
+    min.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(button('Cut them').disabled).toBe(true);
+    expect(dlg.querySelector('[role=status]').textContent).toMatch(/Find silences/);
+    button('Cut them').click();
+    expect(store.history.canUndo()).toBe(false);
     document.body.replaceChildren();
   });
 });

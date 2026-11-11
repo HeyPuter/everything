@@ -6,7 +6,7 @@
  */
 import { h, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 import * as T from '../model/timeline.js';
 import { openDialog, toast } from './dialog.js';
 import { prefs, setPref } from './prefs.js';
@@ -26,6 +26,20 @@ import { frameLumas, fillGaps, flickerCorrections, flickerKeys, frameGrid, wobbl
 import { extractClipAudio } from '../media/extract-audio.js';
 import { DEFAULT_ADJUST } from '../model/project.js';
 import { adjustProp } from '../model/color.js';
+
+/**
+ * Timeline times (µs) to split a clip at for shot changes at source times
+ * cuts (µs): the first frame of a timeline at fps that shows the new shot,
+ * frames being looked up with FRAME_SLACK as the preview and export do (a
+ * WebM stamps a frame up to half a millisecond after its time). Splits too
+ * close to the clip's ends are left out.
+ */
+export function sceneSplitTimes(clip, cuts, fps) {
+  const frame = US / fps;
+  return cuts
+    .map((src) => Math.round(Math.ceil((clip.start + localAtSource(clip, src - FRAME_SLACK * US - clip.in)) / frame - 1e-6) * frame))
+    .filter((t) => t - clip.start >= T.MIN_CLIP && T.clipEnd(clip) - t >= T.MIN_CLIP);
+}
 
 /** A small modal with a progress bar and Cancel; returns { set, close, signal }. */
 export function progressDialog(title, text) {
@@ -106,10 +120,20 @@ export function applyReframePlan(c, plan) {
  */
 export async function findSilences(ctx, o, { signal, onProgress } = {}) {
   const rate = 8000;
-  const mix = await mixdown(structuredClone(ctx.store.project), ctx.library, { scope: o.scope, sampleRate: rate, signal, onProgress });
+  const project = structuredClone(ctx.store.project);
+  const mix = await mixdown(project, ctx.library, { scope: o.scope, sampleRate: rate, signal, onProgress });
   // The mix is peak-normalized, which is fine for a relative threshold.
   const hop = 0.02;
-  return silentRanges(levelEnvelope(mix, rate, hop), hop, o).map((r) => ({ start: Math.round(r.start * US), end: Math.round(r.end * US) }));
+  const levels = levelEnvelope(mix, rate, hop);
+  // Where no clip with sound plays (photos, titles, muted clips) the picture is
+  // the point, not a pause in the sound: those stretches are never cut.
+  const spans = clipsForScope(project, o.scope).map(({ clip }) => [clip.start / US, T.clipEnd(clip) / US]).sort((a, b) => a[0] - b[0]);
+  for (let i = 0, k = 0, reach = -Infinity; i < levels.length; i++) {
+    const t = (i + 0.5) * hop;
+    while (k < spans.length && spans[k][0] <= t) reach = Math.max(reach, spans[k++][1]);
+    if (t >= reach) levels[i] = Infinity;
+  }
+  return silentRanges(levels, hop, o).map((r) => ({ start: Math.round(r.start * US), end: Math.round(r.end * US) }));
 }
 
 export function createSmartActions(ctx) {
@@ -135,7 +159,7 @@ export function createSmartActions(ctx) {
         const fps = to - from > 600 * US ? 2 : 5;
         const cuts = await detectScenes(blob, from, to, { fps, sensitivity, signal: p.signal, onProgress: (x) => p.set(x) });
         p.close();
-        const times = cuts.map((src) => clip.start + Math.round(localAtSource(clip, src - from))).filter((t) => t - clip.start >= T.MIN_CLIP && T.clipEnd(clip) - t >= T.MIN_CLIP);
+        const times = sceneSplitTimes(clip, cuts, store.fps || store.project.settings.fps || 30);
         if (!times.length) {
           toast('No scene changes were found in this clip.', { kind: 'info' });
           return;
@@ -183,6 +207,18 @@ export function createSmartActions(ctx) {
       });
       cancel.addEventListener('click', () => d.close());
       const read = () => ({ scope: scope.value, thresholdDb: Number(thr.value), minSilence: Number(min.value), pad: Number(pad.value) });
+      const AGAIN = 'Settings changed. Press Find silences to look again.';
+      let searched = false;
+      // What was found belongs to the settings it was found with.
+      const changed = () => {
+        found = [];
+        cut.disabled = true;
+        if (searched && !ac) status.textContent = AGAIN;
+      };
+      for (const el of [scope, thr, min, pad]) {
+        el.addEventListener('input', changed);
+        el.addEventListener('change', changed);
+      }
       find.addEventListener('click', async () => {
         const o = read();
         setPref('silenceOpts', o);
@@ -196,6 +232,11 @@ export function createSmartActions(ctx) {
         status.textContent = 'Listening...';
         try {
           const ranges = await findSilences(ctx, o, { signal: ac.signal, onProgress: (x) => (status.textContent = `Listening... ${Math.round(x * 100)}%`) });
+          searched = true;
+          if (JSON.stringify(read()) !== JSON.stringify(o)) {
+            status.textContent = AGAIN;
+            return;
+          }
           found = ranges;
           const total = ranges.reduce((s, r) => s + r.end - r.start, 0);
           status.textContent = ranges.length ? `${ranges.length} silent part${ranges.length === 1 ? '' : 's'}, ${(total / US).toFixed(1)} s in all.` : 'No silences that long were found.';

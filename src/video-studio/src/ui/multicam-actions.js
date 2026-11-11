@@ -41,8 +41,9 @@ export function createMulticamActions(ctx) {
   /** Edit the multicam data of a clip; fn(mc, clip) returns the new data. */
   const editCuts = (id, label, fn) =>
     store.update(label, (p) => {
-      const c = T.findClip(p, id)?.clip;
-      if (!c || !isMulticam(c)) return false;
+      const f = T.findClip(p, id);
+      const c = f?.clip;
+      if (!c || !isMulticam(c) || f.track.locked) return false;
       const next = fn(c.multicam, c);
       if (!next || JSON.stringify(next) === JSON.stringify(c.multicam)) return false;
       c.multicam = next;

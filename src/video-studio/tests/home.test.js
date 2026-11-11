@@ -111,6 +111,47 @@ describe('home screen', () => {
     expect(root.textContent).toContain('The Trash is empty.');
   });
 
+  it('does not trash, delete or rename a project that is open in another tab', async () => {
+    const lib = new Library(memoryBackend());
+    const p = await lib.createProject({ name: 'Busy' });
+    vi.stubGlobal('navigator', { ...navigator, locks: { query: async () => ({ held: [{ name: `video-studio:project:${p.id}` }], pending: [] }) } });
+    try {
+      const h = mount(lib);
+      await settle();
+      await h.remove({ id: p.id, name: 'Busy' });
+      expect(titles()).toEqual(['Busy']);
+      expect([...document.querySelectorAll('.toast')].at(-1).textContent).toContain('Busy is open in another tab');
+      vi.spyOn(lib, 'renameProject');
+      const renaming = h.rename({ id: p.id, name: 'Busy' });
+      await settle();
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      await renaming;
+      expect(lib.renameProject).not.toHaveBeenCalled();
+      // Trashed in a tab that had it closed, then opened again elsewhere from a stale page: Delete forever waits too.
+      await lib.trashProject(p.id);
+      await h.deleteForever({ id: p.id, name: 'Busy' });
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      expect(lib.backend.files.has(`projects/${p.id}.json`)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('adds dropped project files and opens dropped media together', async () => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    const bundles = vi.spyOn(h, 'importBundles').mockResolvedValue();
+    const zip = new File(['zip'], 'Trip.video-studio.zip', { type: 'application/zip' });
+    const clipFile = new File(['v'], 'clip.mp4', { type: 'video/mp4' });
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    drop.dataTransfer = { types: ['Files'], files: [zip, clipFile] };
+    root.querySelector('.home').dispatchEvent(drop);
+    await settle();
+    expect(bundles).toHaveBeenCalledWith([zip]);
+    expect(h.onImportFiles).toHaveBeenCalledWith([clipFile]);
+  });
+
   it('purges projects that have been in the Trash too long when it opens', async () => {
     const lib = new Library(memoryBackend());
     const old = await lib.createProject({ name: 'Old' });
@@ -186,6 +227,55 @@ describe('home project list', () => {
       await settle(5);
     }
     expect(reads).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads covers as their cards come near the screen, not all at once', async () => {
+    const watched = [];
+    globalThis.IntersectionObserver = class {
+      constructor(cb) {
+        this.cb = cb;
+        this.els = new Set();
+        watched.push(this);
+      }
+      observe(el) {
+        this.els.add(el);
+      }
+      unobserve(el) {
+        this.els.delete(el);
+      }
+      disconnect() {
+        this.els.clear();
+      }
+      show(els) {
+        this.cb(els.map((target) => ({ target, isIntersecting: true })));
+      }
+    };
+    try {
+      const lib = new Library(memoryBackend());
+      for (let i = 0; i < 30; i++) {
+        const p = await lib.createProject({ name: `P${i}` });
+        await lib.saveCover(p.id, new Blob(['jpg'], { type: 'image/jpeg' }));
+      }
+      const reads = vi.spyOn(lib, 'coverBlob');
+      mount(lib);
+      await settle();
+      expect(reads).not.toHaveBeenCalled();
+      const io = watched.at(-1);
+      expect(io.els.size).toBe(30);
+      io.show([...root.querySelectorAll('.project-cover')].slice(0, 6));
+      await settle();
+      expect(reads).toHaveBeenCalledTimes(6);
+      expect(root.querySelectorAll('.project-cover img')).toHaveLength(6);
+      // A search draws new cards: the ones read already come from memory, the others wait again.
+      const search = root.querySelector('.home-search');
+      search.value = 'p1';
+      search.dispatchEvent(new Event('input'));
+      await settle();
+      expect(root.querySelectorAll('.project-card')).toHaveLength(11);
+      expect(io.els.size).toBe(11 - root.querySelectorAll('.project-cover img').length);
+    } finally {
+      delete globalThis.IntersectionObserver;
+    }
   });
 });
 

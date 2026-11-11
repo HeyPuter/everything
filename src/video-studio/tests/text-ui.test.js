@@ -131,6 +131,62 @@ describe('text details', () => {
     expect(document.activeElement).toBe(button('Pick key words'));
   });
 
+  it('keeps the text to the length a saved project keeps', () => {
+    const ta = env.el.querySelector('.insp-textarea');
+    expect(ta.maxLength).toBe(5000);
+    ta.focus();
+    ta.value = 'x'.repeat(6000);
+    ta.dispatchEvent(new Event('input'));
+    expect(clip().text).toHaveLength(5000);
+    expect(normalizeClip(structuredClone(clip())).text).toBe(clip().text);
+    // Empty text stays empty.
+    ta.value = '';
+    ta.dispatchEvent(new Event('input'));
+    expect(normalizeClip(structuredClone(clip())).text).toBe('');
+  });
+
+  it('highlighted words stay on their words while the text is edited', () => {
+    env.store.update('Mark', (p) => {
+      T.findClip(p, env.text.id).clip.marks = [1];
+    }, { structural: false });
+    const ta = env.el.querySelector('.insp-textarea');
+    ta.focus();
+    for (const v of ['O Hello world', 'Oh Hello world']) {
+      ta.value = v;
+      ta.dispatchEvent(new Event('input'));
+    }
+    expect(clip().marks).toEqual([2]);
+    ta.value = 'world';
+    ta.dispatchEvent(new Event('input'));
+    ta.dispatchEvent(new Event('change'));
+    expect(clip().marks).toEqual([0]);
+    env.store.undo();
+    expect(clip().text).toBe('Hello world');
+    expect(clip().marks).toEqual([1]);
+  });
+
+  it('a style preset or word-art look replaces a keyed color in one undo step', () => {
+    env.store.seek(2 * US);
+    button('Add keyframe for color').click();
+    env.store.seek(4 * US);
+    const hex = field('Color').querySelector('.hex-input');
+    hex.value = '#ff0000';
+    hex.dispatchEvent(new Event('change'));
+    expect(clip().keyframes[COLOR_KEYS[0]]).toHaveLength(2);
+    const steps = env.store.history.undoStack.length;
+    const preset = [...env.el.querySelectorAll('.preset-grid [role=radio]')].find((b) => b.getAttribute('title') !== 'None');
+    preset.click();
+    // The preset's color shows: no keys left to override it.
+    for (const k of COLOR_KEYS) expect(clip().keyframes[k]).toBeUndefined();
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+    env.store.undo();
+    expect(clip().keyframes[COLOR_KEYS[0]]).toHaveLength(2);
+    tab('Word art').click();
+    env.el.querySelectorAll('.effect-grid [role=radio]')[1].click();
+    for (const k of COLOR_KEYS) expect(clip().keyframes[k]).toBeUndefined();
+    expect(env.store.history.undoStack.length).toBe(steps + 1);
+  });
+
   it('a keyed text color does not change with the playhead off the clip', () => {
     env.store.seek(2 * US);
     button('Add keyframe for color').click();
@@ -219,13 +275,27 @@ describe('text speech', () => {
     });
     tab('Speech').click();
     expect(env.el.querySelector('.speech-quote').textContent).toBe('Hello world');
-    button('Add as audio clip').click();
+    const add = button('Add as audio clip');
+    add.focus();
+    add.click();
+    // The button is disabled while the speech is made; browsers then move focus to the page.
+    expect(add.disabled).toBe(true);
+    // Browsers move focus off a disabled control.
+    {
+      const b = document.activeElement;
+      b.disabled = false;
+      b.blur();
+      b.disabled = true;
+    }
     await vi.waitFor(() => expect(T.allClips(env.store.project).some((c) => c.type === 'audio')).toBe(true));
     const audio = T.allClips(env.store.project).find((c) => c.type === 'audio');
     expect(audio.start).toBe(1 * US);
     await vi.waitFor(() => expect(clip().duration).toBe(2.5 * US));
     expect(globalThis.puter.ai.txt2speech).toHaveBeenCalledWith('Hello world', expect.any(Object));
     expect(env.store.selected.clip.id).toBe(env.text.id);
+    // Focus is back on the button.
+    await vi.waitFor(() => expect(document.activeElement.textContent).toBe('Add as audio clip'));
+    expect(document.activeElement.closest('.text-speech')).toBeTruthy();
     fetchSpy.mockRestore();
   });
 });

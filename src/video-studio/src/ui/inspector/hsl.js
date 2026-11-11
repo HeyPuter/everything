@@ -5,7 +5,8 @@
  */
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
-import { HSL_RANGES, hsvToRgb, nearestHslRange } from '../../model/color.js';
+import { HSL_RANGES, hsvToRgb, rgbToHsv, nearestHslRange } from '../../model/color.js';
+import { toast } from '../dialog.js';
 import { slider, keepFocus } from './common.js';
 import { gradeSection, editGrade } from './color-common.js';
 import { pickFromPlayer } from '../color-tools.js';
@@ -70,10 +71,16 @@ export function hslTab(view, state = {}) {
     cancelPick = pickFromPlayer(view.ctx, view.id, {
       onPick: (rgb) => {
         done();
+        // White, gray and black have no hue to pick a range by (it would always read as Reds).
+        if (rgbToHsv(...rgb)[1] < 0.08) {
+          toast('That spot has almost no color. Pick a colored part of the picture.', { kind: 'info' });
+          return;
+        }
         select(nearestHslRange(...rgb));
         announce(`${range().label} selected`);
       },
       onCancel: done,
+      alive: () => picker.isConnected,
     });
   });
 

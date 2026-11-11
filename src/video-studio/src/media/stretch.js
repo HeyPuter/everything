@@ -121,7 +121,10 @@ export class WsolaStretcher {
 
   _grain(G, posAt, step, read, nch) {
     const { N, hs, D } = this;
-    const ideal = posAt(G);
+    // A grain is heard mostly around its middle (the window's peak): line that up with
+    // where the speed puts it. Anchoring its start instead put sped-up sound late and
+    // slowed-down sound early, by up to half a grain.
+    const ideal = posAt(G + hs) - hs * step;
     let a = ideal;
     if (this.prevA !== null) {
       const natural = this.prevA + hs * step;

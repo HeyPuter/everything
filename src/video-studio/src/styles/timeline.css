@@ -120,13 +120,13 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 4px 0 8px;
+  /* Room for "Audio track 2" and the like at the default width. */
+  padding: 0 4px 0 6px;
 }
 
 .tl-header-icon {
   color: var(--text-3);
   display: inline-flex;
-  margin-right: 2px;
 }
 
 .tl-header-btns {

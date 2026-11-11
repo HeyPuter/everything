@@ -159,3 +159,34 @@ describe('softClip', () => {
     }
   });
 });
+
+describe('PeakLimiter', () => {
+  const chunks = (amp, spikes = []) => [0, 1, 2].map((k) => [0, 1].map((c) => Float32Array.from({ length: 4800 }, (_, i) => {
+    const at = k * 4800 + i;
+    return (spikes.includes(at) ? 1.6 : amp) * Math.sin(at * 0.07 + c);
+  })));
+
+  it('passes sound under the threshold bit for bit', () => {
+    const lim = new js.PeakLimiter(48000);
+    const parts = chunks(0.89);
+    const copy = parts.map((p) => p.map((ch) => ch.slice()));
+    parts.forEach((p, k) => lim.process(p, parts[k + 1] || null));
+    expect(parts).toEqual(copy);
+  });
+
+  it('keeps every sample under the threshold, also for peaks right after a chunk boundary', () => {
+    const lim = new js.PeakLimiter(48000);
+    const parts = chunks(0.5, [4801, 4803, 9700, 12000]);
+    parts.forEach((p, k) => lim.process(p, parts[k + 1] || null));
+    for (const p of parts) for (const ch of p) for (const v of ch) expect(Math.abs(v)).toBeLessThanOrEqual(0.9 + 1e-6);
+    // Before the look-ahead reaches the first spike, the sound is untouched.
+    expect(parts[0][0][4000]).toBe(Math.fround(0.5 * Math.sin(4000 * 0.07)));
+    // And the gain comes all the way back: a second of quiet sound after it passes unchanged.
+    const later = [0, 1].map(() => Float32Array.from({ length: 48000 }, (_, i) => 0.5 * Math.sin(i * 0.07)));
+    lim.process(later, null);
+    const quiet = [0, 1].map(() => Float32Array.from({ length: 4800 }, (_, i) => 0.5 * Math.sin(i * 0.07)));
+    const copy = quiet.map((ch) => ch.slice());
+    lim.process(quiet, null);
+    expect(quiet).toEqual(copy);
+  });
+});

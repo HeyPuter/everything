@@ -59,7 +59,12 @@ export class Library extends Emitter {
   }
 
   async _readIndex() {
-    let index = await this.backend.readJSON('index.json').catch(() => null);
+    // Missing or damaged: rebuilt from the project files. A read that failed (offline) is an
+    // error: rebuilding then could skip project files that can't be read either and drop them.
+    let index = await this.backend.readJSON('index.json').catch((err) => {
+      if (err instanceof SyntaxError) return null;
+      throw err;
+    });
     if (!Array.isArray(index)) index = await this._rebuildIndex();
     this.index = index;
     return index;
@@ -73,8 +78,9 @@ export class Library extends Emitter {
       try {
         const p = await this.openProject(f.name.slice(0, -'.json'.length));
         out.push(projectSummary(p, projectDuration(p)));
-      } catch {
-        /* skip unreadable files */
+      } catch (err) {
+        // Damaged files are left out; any other failure stops the rebuild before it drops projects.
+        if (!err?.unreadable) throw err;
       }
     }
     await this.backend.writeJSON('index.json', out).catch(() => {});
@@ -168,7 +174,11 @@ export class Library extends Emitter {
     const p = await this.openProject(id);
     const copy = structuredClone(p);
     copy.id = uid('p');
-    copy.name = `${p.name} copy`;
+    // "Trip copy", then "Trip copy 2"...: a name no project (Trash included) has.
+    const used = new Set((await this._readIndex()).map((x) => String(x.name).trim().toLowerCase()));
+    const base = `${p.name} copy`.slice(0, 200);
+    copy.name = base;
+    for (let n = 2; used.has(copy.name.toLowerCase()); n++) copy.name = `${base} ${n}`;
     delete copy.deletedAt;
     copy.created = copy.modified = Date.now();
     await this.saveProject(copy);
@@ -217,14 +227,14 @@ export class Library extends Emitter {
   /** Delete every project in the Trash for good. Returns the ids removed. */
   async emptyTrash() {
     const ids = (await this.listTrash()).map((p) => p.id);
-    for (const id of ids) await this.deleteProject(id);
+    await this._deleteProjects(ids);
     return ids;
   }
 
   /** Delete projects that have been in the Trash longer than maxAge (default 30 days). */
   async purgeTrash({ now = Date.now(), maxAge = TRASH_DAYS * DAY } = {}) {
     const old = (await this.listTrash()).filter((p) => now - p.deletedAt >= maxAge).map((p) => p.id);
-    for (const id of old) await this.deleteProject(id);
+    await this._deleteProjects(old);
     return old;
   }
 
@@ -244,9 +254,60 @@ export class Library extends Emitter {
 
   /** Delete a project for good (its media stays: other projects may use it). */
   async deleteProject(id) {
-    await this.backend.remove(`projects/${id}.json`);
-    await this.backend.remove(`covers/${id}.jpg`).catch(() => {});
-    await this._updateIndex((list) => list.filter((p) => p.id !== id));
+    await this._deleteProjects([id]);
+  }
+
+  async _deleteProjects(ids) {
+    const gone = [];
+    for (const id of ids) {
+      // What it used, to let go of cached copies afterwards.
+      if (this.cache) gone.push(await this.openProject(id).catch(() => null));
+      await this.backend.remove(`projects/${id}.json`);
+      await this.backend.remove(`covers/${id}.jpg`).catch(() => {});
+      await this._updateIndex((list) => list.filter((p) => p.id !== id));
+    }
+    if (gone.some(Boolean)) this.cacheCleanup = this._dropCached(gone.filter(Boolean)).catch(() => {});
+  }
+
+  /**
+   * Remove the cached copies (this browser's copies of cloud media) of media
+   * that projects deleted for good used and no other project uses. When any
+   * other project can't be read, nothing is removed.
+   */
+  async _dropCached(projects) {
+    const paths = new Set();
+    for (const p of projects) for (const a of Object.values(p.assets || {})) if (a.hash) paths.add(this.mediaPath(a));
+    if (!paths.size) return;
+    for (const e of await this._readIndex()) {
+      const p = await this.openProject(e.id);
+      for (const a of Object.values(p.assets)) paths.delete(this.mediaPath(a));
+    }
+    for (const path of paths) await this.cache.remove(path).catch(() => {});
+  }
+
+  /** Media files cached in this browser: { files, bytes } (zero without a cache). */
+  async cacheUsage() {
+    if (!this.cache) return { files: 0, bytes: 0 };
+    const files = (await this.cache.list('media')).filter((f) => !f.isDir);
+    return { files: files.length, bytes: files.reduce((n, f) => n + (f.size || 0), 0) };
+  }
+
+  /**
+   * Delete this browser's copies of cloud media (they are read from the
+   * cloud again when needed). Files the open project holds right now stay.
+   * Returns how many were deleted.
+   */
+  async clearCache() {
+    if (!this.cache) return 0;
+    let n = 0;
+    for (const f of await this.cache.list('media')) {
+      if (f.isDir) continue;
+      const hash = f.name.replace(/\.[^.]*$/, '');
+      if (this.blobs.has(hash) || this.reads.has(hash) || this.uploads.has(hash)) continue;
+      await this.cache.remove(`media/${f.name}`).catch(() => {});
+      n++;
+    }
+    return n;
   }
 
   async saveCover(id, blob) {
@@ -256,6 +317,28 @@ export class Library extends Emitter {
 
   async coverBlob(id) {
     return this.backend.readBlob(`covers/${id}.jpg`).catch(() => null);
+  }
+
+  /**
+   * Open a project for the editor: { project, claim }. The file is read once
+   * this tab holds the claim, so anything written into it before that (an AI
+   * result finishing for it writes only while holding the claim) is in the
+   * copy the editor saves back; claiming first keeps it to one read. A
+   * project in the Trash comes back unclaimed (claim null). When another tab
+   * has it open (claim.held false) that tab saves over it anyway.
+   */
+  async openForEditing(id) {
+    const claim = await this.claimProject(id);
+    let project;
+    try {
+      project = await this.openProject(id);
+    } catch (err) {
+      claim.release();
+      throw err;
+    }
+    if (!project.deletedAt) return { project, claim };
+    claim.release();
+    return { project, claim: null };
   }
 
   /**
@@ -290,6 +373,18 @@ export class Library extends Emitter {
     };
   }
 
+  /** True when a tab or window of this browser has the project open in the editor (see claimProject). */
+  async isProjectOpen(id) {
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+    if (!locks?.query) return false;
+    try {
+      const { held = [] } = await locks.query();
+      return held.some((l) => l.name === `video-studio:project:${id}`);
+    } catch {
+      return false;
+    }
+  }
+
   mediaPath(asset) {
     return `media/${asset.hash}.${asset.ext}`;
   }
@@ -298,18 +393,21 @@ export class Library extends Emitter {
    * Import a local File: probe it, start storing it, and return the asset at
    * once so it can be used while the upload continues.
    */
-  async importFile(file, { origin = 'import' } = {}) {
+  async importFile(file, { origin = 'import', onNote } = {}) {
     // Mediabunny is loaded on first import so the home screen starts faster.
-    const { probe, extOf } = await import('../media/probe.js');
+    const { probe, extOf, storableFile, mediaMime } = await import('../media/probe.js');
+    // SVG pictures are stored drawn as PNG (the name stays the one the user knows).
+    const source = file;
+    file = await storableFile(file);
     const info = await probe(file);
     const hash = await fingerprint(file);
     const asset = normalizeAsset({
       id: uid('a'),
       kind: info.kind,
-      name: file.name || `${info.kind} ${new Date().toLocaleString()}`,
+      name: source.name || `${info.kind} ${new Date().toLocaleString()}`,
       hash,
       ext: extOf(file.name, file.type),
-      mime: file.type,
+      mime: mediaMime(file),
       size: file.size,
       duration: info.duration,
       width: info.width,
@@ -320,6 +418,7 @@ export class Library extends Emitter {
       added: Date.now(),
       origin,
     });
+    if (info.soundUnsupported) onNote?.(`${source.name || 'This video'}: its sound can't be played in this browser, so it was added without sound.`);
     this.blobs.set(hash, file);
     this._store(asset, file);
     return asset;
@@ -470,7 +569,17 @@ export class Library extends Emitter {
   /** Imported LUTs, newest first. */
   async listLuts() {
     if (this.luts) return this.luts;
-    const list = await this.backend.readJSON('luts/index.json').catch(() => null);
+    // Shown as empty while it can't be read; read again next time.
+    return this._readLuts().catch(() => []);
+  }
+
+  /** The stored LUT list. Rejects when it can't be read, so a change never replaces it with a shorter one. */
+  async _readLuts() {
+    if (this.luts) return this.luts;
+    const list = await this.backend.readJSON('luts/index.json').catch((err) => {
+      if (err instanceof SyntaxError) return null;
+      throw err;
+    });
     this.luts = (Array.isArray(list) ? list : [])
       .filter((x) => x && typeof x.id === 'string' && /^[a-z0-9_-]{1,128}$/i.test(x.id))
       .map((x) => ({ id: x.id, name: String(x.name || 'LUT').slice(0, 120), kind: x.kind === '1d' ? '1d' : '3d', size: Number(x.size) || 0, added: Number(x.added) || 0 }));
@@ -487,8 +596,8 @@ export class Library extends Emitter {
     const lut = parseCube(text);
     const id = await fingerprint(file);
     const entry = { id, name: lutName(lut, file.name), kind: lut.kind, size: lut.size, added: Date.now() };
+    const list = await this._readLuts();
     await this.backend.writeBlob(`luts/${id}.cube`, new Blob([text], { type: 'text/plain' }));
-    const list = await this.listLuts();
     this.luts = [entry, ...list.filter((x) => x.id !== id)];
     await this.backend.writeJSON('luts/index.json', this.luts);
     this.emit('luts', this.luts);
@@ -505,9 +614,11 @@ export class Library extends Emitter {
 
   /** Forget a LUT (clips that use it render without it). */
   async removeLut(id) {
-    const list = await this.listLuts();
-    this.luts = list.filter((x) => x.id !== id);
-    await this.backend.writeJSON('luts/index.json', this.luts);
+    const list = await this._readLuts();
+    const next = list.filter((x) => x.id !== id);
+    // The list changes only once the index is saved, so a failed write keeps them in step.
+    await this.backend.writeJSON('luts/index.json', next);
+    this.luts = next;
     await this.backend.remove(`luts/${id}.cube`).catch(() => {});
     this.emit('luts', this.luts);
   }
@@ -522,6 +633,13 @@ export class Library extends Emitter {
 }
 
 /** Autosave: debounced writes after edits, with retry and status events. */
+/**
+ * A project write that hasn't answered after this long counts as failed for
+ * the status and for leaving; it is still waited for before the next write
+ * starts, so it can't land after a newer one.
+ */
+export const STALL_MS = 45_000;
+
 export class AutoSaver extends Emitter {
   constructor(library, store, { delay = 1200 } = {}) {
     super();
@@ -536,7 +654,9 @@ export class AutoSaver extends Emitter {
   }
 
   schedule() {
-    this._set('pending');
+    // A write that doesn't answer still blocks the next one: keep saying so.
+    if (this.stalled) this._set('error', this.error);
+    else this._set('pending');
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.save(), this.delay);
   }
@@ -550,12 +670,30 @@ export class AutoSaver extends Emitter {
     clearTimeout(this.timer);
     this.timer = null;
     if (this.saving) {
-      await this.saving;
+      // Several callers may be waiting (the timer, Save now, leaving): one goes next, the
+      // others wait for it too. Two writes in flight could land out of order.
+      while (this.saving) {
+        await this._waitForSave();
+        // Stalled: no new write beside it. It saves again when that write answers.
+        if (this.stalled) {
+          this._set('error', this.error);
+          return;
+        }
+      }
       if (!this.store.dirty) return;
     }
     const revision = this.store.revision;
     const snapshot = this.store.projectForSave ? this.store.projectForSave() : structuredClone(this.store.project);
     this._set('saving');
+    let wake;
+    this._stallWake = new Promise((r) => (wake = r));
+    const stall = setTimeout(() => {
+      if (!this.saving) return;
+      this.stalled = true;
+      this.error = new Error('Saving is taking too long. Check your connection.');
+      this._set('error', this.error);
+      wake();
+    }, STALL_MS);
     this.saving = this.library
       .saveProject(snapshot)
       .then(() => {
@@ -572,9 +710,18 @@ export class AutoSaver extends Emitter {
         this.timer = setTimeout(() => this.save(), 8000);
       })
       .finally(() => {
+        clearTimeout(stall);
         this.saving = null;
+        this.stalled = false;
+        wake();
       });
-    return this.saving;
+    return this._waitForSave();
+  }
+
+  /** The write in flight settling, or it being declared stalled, whichever comes first. */
+  _waitForSave() {
+    if (!this.saving || this.stalled) return Promise.resolve();
+    return Promise.race([this.saving, this._stallWake]);
   }
 
   /**
@@ -583,8 +730,8 @@ export class AutoSaver extends Emitter {
    */
   async flush() {
     if (this.timer || this.store.dirty) await this.save();
-    else if (this.saving) await this.saving;
-    if (this.status === 'error' && this.store.dirty) throw this.error || new Error("Couldn't save your changes.");
+    else if (this.saving) await this._waitForSave();
+    if ((this.status === 'error' || this.stalled) && this.store.dirty) throw this.error || new Error("Couldn't save your changes.");
   }
 
   dispose() {

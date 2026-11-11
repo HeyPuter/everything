@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { createCommands } from '../src/ui/commands.js';
 import { createActions } from '../src/ui/actions.js';
-import { openShortcutsDialog } from '../src/ui/shortcuts-dialog.js';
+import { openShortcutsDialog, keyLabels } from '../src/ui/shortcuts-dialog.js';
+import { shortcutLabel } from '../src/lib/platform.js';
 import { KEY_LAYOUTS, layoutKeys, findConflicts, findLayout } from '../src/ui/shortcut-layouts.js';
 import { setPref } from '../src/ui/prefs.js';
 import { US } from '../src/lib/time.js';
@@ -230,5 +231,43 @@ describe('shortcuts dialog accessibility', () => {
     expect(document.activeElement).toBe(tabs()[0]);
     key(document.activeElement, 'ArrowLeft');
     expect(document.activeElement).toBe(tabs()[tabs().length - 1]);
+  });
+});
+
+describe('shortcuts dialog keyboard focus', () => {
+  const row = (label) => [...document.querySelectorAll('.shortcut-row')].find((r) => r.querySelector('.shortcut-label').firstChild.textContent === label);
+
+  it('writes the keys in layout descriptions as this keyboard shows them', () => {
+    const { commands } = setup();
+    openShortcutsDialog(commands);
+    const desc = document.querySelector('.shortcut-layout-desc').textContent;
+    expect(desc).not.toMatch(/Mod\+/);
+    expect(desc).toContain(shortcutLabel('Mod+B'));
+    expect(keyLabels('Mod+K adds, Alt+arrows nudge, Mod+Shift+Z')).toBe(`${shortcutLabel('Mod+K')} adds, Alt+arrows nudge, ${shortcutLabel('Mod+Shift+Z')}`);
+  });
+
+  it('keeps focus on the shortcut after recording, removing or resetting one', () => {
+    const { commands } = setup();
+    openShortcutsDialog(commands);
+    const add = row('Play or pause').querySelector('.kbd-chip.add');
+    add.focus();
+    add.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F8', code: 'F8', bubbles: true }));
+    expect(commands.get('play').keys).toEqual(['Space', 'F8']);
+    // The list was rebuilt: focus is on the new key, not the page.
+    expect(document.activeElement.textContent).toBe('F8');
+    expect(row('Play or pause').contains(document.activeElement)).toBe(true);
+    row('Play or pause').querySelectorAll('.kbd-remove')[1].click();
+    expect(commands.get('play').keys).toEqual(['Space']);
+    expect(document.activeElement).toBe(row('Play or pause').querySelector('.kbd-chip.add'));
+    row('Play or pause').querySelector('.kbd-remove').click();
+    row('Play or pause').querySelector('[aria-label^="Reset"]').click();
+    expect(commands.get('play').keys).toEqual(['Space']);
+    expect(document.activeElement.textContent).toBe(shortcutLabel('Space'));
+    // Escape while recording cancels and keeps focus on the chip.
+    const chip = row('Play or pause').querySelector('.kbd-chip');
+    chip.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    expect(document.activeElement).toBe(row('Play or pause').querySelector('.kbd-chip'));
   });
 });

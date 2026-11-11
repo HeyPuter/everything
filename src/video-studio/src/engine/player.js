@@ -9,8 +9,8 @@ import { MediaPool } from './media-pool.js';
 import { AudioGraph } from './audio-graph.js';
 import { TextCache } from './text.js';
 import { FrameSource } from './frame-source.js';
-import { evaluate, audibleClips, gainAt, upcomingVideoClips } from './scene.js';
-import { sourceTimeAt } from '../model/timeline.js';
+import { evaluate, audibleClips, gainAt, upcomingVideoStarts } from './scene.js';
+import { sourceTimeAt, clipEnd } from '../model/timeline.js';
 import { hasCurve, speedAt } from '../model/speed-curve.js';
 import { framePosition, needsBetween, FRAME_SNAP } from '../model/slow-motion.js';
 import { ensureLuts, onLutLoaded } from './luts.js';
@@ -19,6 +19,16 @@ import { proxyMode, previewSource } from '../model/proxy.js';
 
 /** Suffix of the pool and decoder ids of proxy files (one per asset). */
 const PROXY_ID = '~proxy';
+
+/**
+ * Whether clip b plays on from where clip a leaves its file, so the element
+ * playing a can simply play into b (a clip split in two, nothing cut out).
+ */
+function continuesInto(a, b) {
+  if (a.assetId !== b.assetId || a.freeze || b.freeze || a.transition || hasCurve(a) || hasCurve(b)) return false;
+  if ((a.speed || 1) !== (b.speed || 1) || (a.keepPitch !== false) !== (b.keepPitch !== false)) return false;
+  return Math.abs(b.start - clipEnd(a)) <= 2000 && Math.abs(sourceTimeAt(a, clipEnd(a)) - b.in) <= 40_000;
+}
 
 export class Player extends Emitter {
   /** proxies: optional ProxyManager; ready proxies stand in for heavy media in the preview. */
@@ -51,14 +61,21 @@ export class Player extends Emitter {
     }
     this.offs = [
       store.on('change', () => this.invalidate()),
-      store.on('time', () => {
+      store.on('time', ({ time }) => {
         if (!this.playing) this.invalidate();
+        // A jump made elsewhere while playing (Home, End, next edit): play on from there.
+        else if (!this._ownSeek) this._restartClock(time);
       }),
       // Color LUTs load in the background and redraw when ready.
       store.on('change', () => this._loadLuts()),
       onLutLoaded(() => this.invalidate()),
       onCutoutReady(() => this.invalidate()),
     ];
+    // The GPU can drop the context (sleep, driver reset); once the compositor has rebuilt its
+    // resources, draw again, or a paused preview stays black until something changes.
+    const onRestored = () => this.invalidate();
+    canvas.addEventListener?.('webglcontextrestored', onRestored);
+    this.offs.push(() => canvas.removeEventListener?.('webglcontextrestored', onRestored));
     if (proxies) {
       this.offs.push(proxies.on('change', ({ hash, removed } = {}) => {
         if (removed) this._forgetProxies(hash);
@@ -260,6 +277,24 @@ export class Player extends Emitter {
     return t;
   }
 
+  /** Seek the store as the playback clock moves (not a jump made by the user). */
+  _clockSeek(t) {
+    this._ownSeek = true;
+    try {
+      this.store.seek(t);
+    } finally {
+      this._ownSeek = false;
+    }
+  }
+
+  /** Run the playback clock on from time t. */
+  _restartClock(t) {
+    this.timeStart = t;
+    this.clockStart = performance.now();
+    this._holdClock();
+    this.invalidate();
+  }
+
   _tick() {
     this.raf = 0;
     if (this.playing) {
@@ -271,12 +306,12 @@ export class Player extends Emitter {
         this.timeStart = this._startAt();
         this.clockStart = performance.now();
         this._holdClock();
-        this.store.seek(this.timeStart);
+        this._clockSeek(this.timeStart);
       } else if (t >= end) {
-        this.store.seek(end);
+        this._clockSeek(end);
         this.pause();
       } else {
-        this.store.seek(t);
+        this._clockSeek(t);
       }
     }
     if (this.dirty || this.playing) {
@@ -390,9 +425,13 @@ export class Player extends Emitter {
     for (const [id, entry] of map) if (entry.gain && !heard.has(id)) entry.gain.gain.value = 0;
     // Warm up clips about to start so the first frame is ready.
     if (this.playing) {
-      for (const c of upcomingVideoClips(project, t, 1.5 * US)) {
-        if (map.has(c.id) || !project.assets[c.assetId]) continue;
-        const sec = c.in / US;
+      for (const { clip: c, prev, from, sourceTime } of upcomingVideoStarts(project, t, 1.5 * US)) {
+        // Only clips still to come (not one that has just been shown, still listed for its transition).
+        if (from <= t || map.has(c.id) || !project.assets[c.assetId]) continue;
+        // The element playing the clip before carries on into it (a split): no second element.
+        if (prev && map.has(prev.id) && continuesInto(prev, c)) continue;
+        // Ready on the first frame it shows, a transition's lead-in included.
+        const sec = sourceTime / US;
         const entry = pool.claim(c, this.previewAsset(project.assets[c.assetId]), 'video', sec);
         if (!entry.el.paused) entry.el.pause();
         if (Math.abs(entry.el.currentTime - sec) > 0.05) pool.seek(entry, sec);
@@ -407,7 +446,11 @@ export class Player extends Emitter {
   /** held: the picture stays on one frame (a transition past the media's start or end), like a freeze frame. */
   _drive(entry, clip, sec, fps, visual, t = this.time, held = false) {
     const el = entry.el;
-    const still = clip.freeze || held;
+    // Sound of a clip longer than what is left of its file: hold at the end in silence, as the
+    // export does (play() would start an ended element over from its beginning).
+    const pastEnd = Number.isFinite(el.duration) && el.duration > 0 && sec >= el.duration - 0.002;
+    if (pastEnd) sec = Math.max(0, el.duration - 0.001);
+    const still = clip.freeze || held || pastEnd;
     if (this.playing && !still && hasCurve(clip)) {
       this._driveCurve(entry, clip, sec, t);
       return;

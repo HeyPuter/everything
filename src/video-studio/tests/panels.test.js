@@ -5,6 +5,7 @@ import { tabLayout, tileGrid, tile, categoryIds } from '../src/ui/panels/common.
 import { prefs, setPref } from '../src/ui/prefs.js';
 import { mediaTab, assetFacts } from '../src/ui/panels/media.js';
 import { filtersTab } from '../src/ui/panels/filters.js';
+import { stickersTab } from '../src/ui/panels/stickers.js';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { createBin, moveAssets } from '../src/model/bins.js';
@@ -94,6 +95,35 @@ describe('tab layout', () => {
     layout.dispose();
     toggleFavorite('demo', 'y');
     expect(layout.el.querySelector('.asset-content').textContent).toBe('favorites:x');
+  });
+
+  it('keeps keyboard focus in the Favorites list when an item is taken out of it', () => {
+    setFavorite('stickers', 'star', true);
+    setFavorite('stickers', 'heart', true);
+    const tab = stickersTab({ actions: {} });
+    document.body.append(tab.el);
+    [...tab.el.querySelectorAll('.asset-cat')].find((b) => b.textContent === 'Favorites').click();
+    const stars = () => [...tab.el.querySelectorAll('.fav-btn')];
+    expect(stars()).toHaveLength(2);
+    stars()[0].focus();
+    stars()[0].click();
+    expect(favoriteIds('stickers')).toEqual(['star']);
+    expect(stars()).toHaveLength(1);
+    // The star of the item that took its place.
+    expect(document.activeElement).toBe(stars()[0]);
+    stars()[0].click();
+    // Nothing left: the Favorites category.
+    expect(document.activeElement.textContent).toBe('Favorites');
+    tab.dispose();
+  });
+
+  it('keeps badge and sub text out of the tile text, so the name contains all of it', () => {
+    const t = tile({ label: 'Lower third', badge: 'Anim', sub: '3 layers', addLabel: 'Add Lower third template' });
+    // The only text in the button is the label, which its name contains (label in name).
+    expect(t.textContent).toBe('Lower third');
+    expect(t.getAttribute('aria-label')).toContain(t.textContent);
+    expect(t.querySelector('.tile-badge').dataset.text).toBe('Anim');
+    expect(t.querySelector('.tile-sub').dataset.text).toBe('3 layers');
   });
 
   it('collapses groups, remembers it per device, and reopens for a selected child', () => {
@@ -263,7 +293,7 @@ describe('media tab', () => {
     media.emit('missing');
     await flush();
     await new Promise((r) => setTimeout(r, 120));
-    expect(vidTile().querySelector('.tile-sub.missing')?.textContent).toBe('File missing');
+    expect(vidTile().querySelector('.tile-sub.missing')?.dataset.text).toBe('File missing');
     expect(vidTile().getAttribute('aria-label')).toContain('file missing');
   });
 

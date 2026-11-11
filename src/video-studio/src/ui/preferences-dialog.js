@@ -100,6 +100,30 @@ function proxyStorageRow(proxies) {
   return h('div.pref-row', h('span.pref-label', 'Proxy media', h('span.pref-hint', 'Small copies of heavy videos for a smooth preview, kept on this device.'), usage), h('span.pref-ctl', del));
 }
 
+/** This browser's copies of cloud media (signed in), with a button to delete them. */
+function mediaCacheRow(library) {
+  const usage = h('span.pref-hint.cache-usage', { 'aria-live': 'polite' }, 'Checking...');
+  const del = h('button.btn.small', { type: 'button', disabled: true }, icon('trash', 14), 'Delete copies');
+  const refresh = () =>
+    library.cacheUsage().then(
+      ({ files, bytes }) => {
+        usage.textContent = files ? `${files} ${files === 1 ? 'file' : 'files'}, ${formatBytes(bytes)}` : 'No media copies on this device.';
+        del.disabled = !files;
+      },
+      () => (usage.textContent = 'Could not read the media copies.'),
+    );
+  del.addEventListener('click', async () => {
+    const ok = await confirmDialog({ title: 'Delete media copies?', message: 'Media is downloaded from your Puter cloud again when a project needs it. Your media and projects are not changed.', confirm: 'Delete', danger: true });
+    if (!ok) return;
+    del.disabled = true;
+    const n = await library.clearCache().catch(() => 0);
+    announce(n ? `${n} media ${n === 1 ? 'copy' : 'copies'} deleted` : 'No media copies to delete');
+    refresh();
+  });
+  refresh();
+  return h('div.pref-row', h('span.pref-label', 'Media copies', h('span.pref-hint', 'Copies of your cloud media kept on this device so projects open faster.'), usage), h('span.pref-ctl', del));
+}
+
 export function openPreferences(ctx) {
   const section = (title, ...rows) => h('section.pref-section', h('h3', title), rows);
   const body = h('div.prefs',
@@ -118,7 +142,7 @@ export function openPreferences(ctx) {
     section('Playback',
       switchRow('Loop playback', 'loopPlayback', 'Start again from the beginning, or from the in point, at the end.'),
     ),
-    ctx.proxies ? section('Storage', proxyStorageRow(ctx.proxies)) : null,
+    ctx.proxies || ctx.library?.cache ? section('Storage', ctx.proxies ? proxyStorageRow(ctx.proxies) : null, ctx.library?.cache ? mediaCacheRow(ctx.library) : null) : null,
     section('Appearance',
       choiceRow('Theme', 'theme', [['dark', 'Dark'], ['light', 'Light'], ['system', 'Match the system']], { get: getTheme, set: setTheme }),
     ),

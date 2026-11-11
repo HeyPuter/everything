@@ -4,7 +4,6 @@
  */
 import { h } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
-import { findClip } from '../../model/timeline.js';
 import { sliderField } from '../controls.js';
 import { createScope, propSection } from './common.js';
 import { DB_MIN, DB_MAX, gainToDb, dbToGain } from './audio.js';
@@ -14,7 +13,17 @@ const TYPE_NAMES = { video: 'video', image: 'image', audio: 'audio', text: 'text
 export function multiView(ctx) {
   const { store, actions } = ctx;
   const scope = createScope();
-  const clips = () => store.selectedIds.map((id) => findClip(store.project, id)?.clip).filter(Boolean);
+  // One pass over the tracks, in selection order: a search per id is quadratic with thousands selected.
+  const clips = () => {
+    const sel = store.selection;
+    const found = new Map();
+    for (const t of store.project.tracks) for (const c of t.clips) if (sel.has(c.id)) found.set(c.id, c);
+    const out = [];
+    for (const id of sel) if (found.has(id)) out.push(found.get(id));
+    return out;
+  };
+  /** The first selected clip that passes test. */
+  const first = (test) => clips().find(test) || null;
   const list = clips();
   const counts = {};
   for (const c of list) counts[c.type] = (counts[c.type] || 0) + 1;
@@ -39,7 +48,7 @@ export function multiView(ctx) {
     });
     f.el.querySelector('.num-input')?.after(h('span.num-unit', { 'aria-hidden': 'true' }, '%'));
     scope.bind(() => {
-      const c = clips().find((x) => 'opacity' in x);
+      const c = first((x) => 'opacity' in x);
       if (c) f.set(Math.round(c.opacity * 100));
     });
     fields.push(f.el);
@@ -63,7 +72,7 @@ export function multiView(ctx) {
     });
     f.el.querySelector('.num-input')?.after(h('span.num-unit', { 'aria-hidden': 'true' }, 'dB'));
     scope.bind(() => {
-      const c = clips().find((x) => 'volume' in x);
+      const c = first((x) => 'volume' in x);
       if (c) f.set(gainToDb(c.volume));
     });
     fields.push(f.el);

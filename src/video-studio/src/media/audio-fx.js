@@ -242,6 +242,8 @@ class Comb {
 export class PitchShifter {
   constructor(sr, semitones, windowMs = 50) {
     this.W = Math.max(64, Math.round((windowMs * sr) / 1000));
+    // The two taps sweep delays 1..W+1 and cross-fade: on average the sound comes out W/2 later.
+    this.latency = Math.round(this.W / 2);
     this.line = new DelayLine(this.W + 8);
     this.phase = 0;
     this.setSemitones(semitones);
@@ -540,6 +542,7 @@ class DriftingLowpass {
 class Series {
   constructor(stages) {
     this.stages = stages.filter(Boolean);
+    this.latency = this.stages.reduce((sum, st) => sum + (st.latency || 0), 0);
   }
 
   process(L, R, n) {
@@ -1137,7 +1140,7 @@ export class ClipChain {
       else if (st && v !== null && name === 'pan') st.set(v);
       else this.stages[name] = makeStage(name, v, this.sr);
     }
-    this.latency = (this.stages.separate?.latency || 0) + (this.stages.denoise?.latency || 0);
+    this.latency = (this.stages.separate?.latency || 0) + (this.stages.denoise?.latency || 0) + (this.stages.voice?.latency || 0);
     return this;
   }
 

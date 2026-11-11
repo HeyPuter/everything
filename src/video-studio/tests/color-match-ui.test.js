@@ -77,8 +77,21 @@ describe('Match color', () => {
     env.store.select(env.plain.id);
     tab('Color').click();
     const depth = env.store.history.undoStack.length;
-    button('Match').click();
+    const go = button('Match');
+    go.focus();
+    go.click();
+    // Disabled while matching; browsers then move focus to the page.
+    expect(go.disabled).toBe(true);
+    // Browsers move focus off a disabled control.
+    {
+      const b = document.activeElement;
+      b.disabled = false;
+      b.blur();
+      b.disabled = true;
+    }
     await until(() => clip(env.plain.id).adjust.temperature !== 0);
+    await until(() => !go.disabled);
+    expect(document.activeElement).toBe(go);
     const a = clip(env.plain.id).adjust;
     expect(a.temperature).toBeGreaterThan(25);
     expect(a.exposure + a.brightness + a.contrast).not.toBe(0);

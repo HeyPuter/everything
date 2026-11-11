@@ -56,15 +56,20 @@ export function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel
   const d = openDialog({ title, body: h('p.dialog-text', message), actions: [no, ok], labelledBody: true, className: 'small' });
   ok.addEventListener('click', () => d.close(true));
   no.addEventListener('click', () => d.close(false));
-  ok.focus();
+  // Enter takes the safe choice when the action destroys something (delete forever, leave unsaved).
+  (danger ? no : ok).focus();
   return d.result.then((v) => v === true);
 }
 
+let promptCount = 0;
+
 export function promptDialog({ title, label, value = '', confirm = 'Save', maxLength = 200 }) {
-  const input = h('input.input', { type: 'text', value, maxLength, 'aria-label': label, autofocus: true });
+  const id = `prompt-${++promptCount}`;
+  const input = h('input.input', { id, type: 'text', value, maxLength, autofocus: true });
   const ok = h('button.btn.primary', { type: 'submit' }, confirm);
   const no = h('button.btn', { type: 'button' }, 'Cancel');
-  const form = h('form.dialog-form', h('label.field-label', { for: '' }, label), input);
+  // The visible label names the field (a click on it focuses the field too).
+  const form = h('form.dialog-form', h('label.field-label', { for: id }, label), input);
   const d = openDialog({ title, body: form, actions: [no, ok], className: 'small' });
   const submit = (e) => {
     e?.preventDefault();
@@ -85,7 +90,7 @@ export function promptDialog({ title, label, value = '', confirm = 'Save', maxLe
 /* Toasts */
 let toastHost = null;
 
-export function toast(message, { kind = 'info', action, duration = 3800 } = {}) {
+export function toast(message, { kind = 'info', action, duration = kind === 'error' ? 8000 : 3800 } = {}) {
   if (!toastHost?.isConnected) {
     toastHost ||= h('div.toasts', { role: 'region', 'aria-label': 'Notifications' });
     document.body.append(toastHost);
@@ -105,9 +110,17 @@ export function toast(message, { kind = 'info', action, duration = 3800 } = {}) 
   });
   toastHost.append(t);
   if (kind !== 'error') announce(message);
-  const arm = () => (timer = setTimeout(remove, duration));
+  // It stays while the pointer is on it or its button has keyboard focus (so Undo or Reload can be reached).
+  const arm = () => {
+    clearTimeout(timer);
+    if (!t.matches(':hover') && !t.contains(document.activeElement)) timer = setTimeout(remove, duration);
+  };
   t.addEventListener('pointerenter', () => clearTimeout(timer));
   t.addEventListener('pointerleave', arm);
+  t.addEventListener('focusin', () => clearTimeout(timer));
+  t.addEventListener('focusout', (e) => {
+    if (!t.contains(e.relatedTarget)) arm();
+  });
   arm();
   return { remove };
 }

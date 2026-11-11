@@ -19,6 +19,7 @@
  *   vsr:r:<rid>:log:<n>              { at, comment } comment snapshot saved as change n
  *   vsr:r:<rid>:c:<commentId>        latest snapshot of a comment
  *   vsr:rate:<rid>:<uuid>:<minute>   comments posted this minute (expires)
+ *   vsr:wrate:<rid>:<uuid>:<minute>  comment edits, deletes and resolves this minute (expires)
  *   vsr:joinfail:<uuid>:<window>     failed joins in a 10 minute window (expires)
  */
 import {
@@ -31,6 +32,9 @@ export const VIDEO_LINK_HOURS = 4;
 export const VIDEO_LINK_RENEW_MS = 30 * 60_000;
 /** A missing change older than this (judged by a later one) was lost, not in flight. */
 export const LOST_CHANGE_MS = 60_000;
+
+/** Everyone who ever joined a review (removed people too) stays on its member list, up to this many times its limit. */
+export const MEMBER_LIST_FACTOR = 5;
 
 const VIDEO_MIME = ['video/mp4', 'video/webm', 'video/quicktime'];
 
@@ -268,10 +272,12 @@ export class ReviewService {
     if (invite.revoked) return refuse('This invite link was turned off. Ask the owner for a new one.');
     if (invite.expires <= this.now()) return refuse('This invite link has expired. Ask the owner for a new one.');
     if (existing?.removed && invite.created <= existing.removed) fail(403, 'The owner removed you from this review. Ask them for a new link.');
-    if (!existing) {
-      const count = (await this.kv.get(`vsr:r:${rid}:mseq`)) || 0;
-      if (count >= LIMITS.members) fail(403, 'This review has reached its limit of people.');
-    }
+    // People removed from the review don't count against its limit; someone removed coming back with a new link
+    // does. Everyone who ever joined stays on the list, so the list itself is capped too.
+    const joinedEver = (await this.kv.get(`vsr:r:${rid}:mseq`)) || 0;
+    const full = () => fail(403, 'This review has reached its limit of people.');
+    if (!existing && joinedEver >= LIMITS.members * MEMBER_LIST_FACTOR) full();
+    if (joinedEver >= LIMITS.members && (await this.memberRecords(rid)).filter((m) => !m.removed).length >= LIMITS.members) full();
     const member = { uuid: user.uuid, username: user.username, role: invite.role, joined: this.now(), invite: invite.id };
     await this.kv.set(`vsr:r:${rid}:m:${user.uuid}`, member);
     if (!existing) {
@@ -463,6 +469,13 @@ export class ReviewService {
     if (seq >= LIMITS.changesPerReview) fail(409, 'This review has reached its limit of comments.');
   }
 
+  /** Room for one more change to a comment by this person this minute (a change that changes nothing is free). */
+  async roomForEdit(rid, user) {
+    await this.roomForChange(rid);
+    const minute = Math.floor(this.now() / 60_000);
+    if (!(await this.bump(`vsr:wrate:${rid}:${user.uuid}:${minute}`, LIMITS.changesPerMinute, 120))) fail(429, 'You are changing comments very quickly. Wait a moment and try again.');
+  }
+
   async addComment(user, input) {
     const rid = reviewId(input.review);
     const { role } = await this.access(rid, user);
@@ -512,20 +525,20 @@ export class ReviewService {
       if (problem) fail(400, problem);
       const text = cleanText(input.text);
       if (text === c.text) return { comment: c };
-      await this.roomForChange(rid);
+      await this.roomForEdit(rid, user);
       return { comment: await this.record(rid, { ...c, text, edited: this.now() }) };
     }
     if (input.op === 'comment.delete') {
       if (!(mine && canComment(role)) && role !== 'owner') fail(403, 'You can only delete your own comments.');
       if (c.deleted) return { comment: c };
-      await this.roomForChange(rid);
+      await this.roomForEdit(rid, user);
       return { comment: await this.record(rid, { ...c, text: '', deleted: true, edited: this.now() }) };
     }
     if (!canResolve(role)) fail(403, 'You can watch this review but not resolve comments.');
     if (c.parent) fail(400, 'Only whole threads can be resolved.');
     const resolved = input.resolved !== false;
     if (Boolean(c.resolved) === resolved) return { comment: c };
-    await this.roomForChange(rid);
+    await this.roomForEdit(rid, user);
     return { comment: await this.record(rid, { ...c, resolved, resolvedBy: resolved ? { uuid: user.uuid, username: user.username } : null }) };
   }
 }

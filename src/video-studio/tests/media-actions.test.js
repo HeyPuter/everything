@@ -38,6 +38,28 @@ describe('media housekeeping', () => {
   });
 });
 
+describe('relinking a video that has a reversed copy', () => {
+  it('keeps the pair linked when the same file is chosen again', () => {
+    const p = fixture();
+    p.assets.vid.hash = 'hv';
+    addAsset(p, { id: 'rev', kind: 'video', duration: s(10), hash: 'hr', reversedOf: 'vid' });
+    swapAsset(p, 'vid', { id: 'vid2', kind: 'video', name: 'v.mp4', hash: 'hv', duration: s(10) });
+    expect(p.assets.rev.reversedOf).toBe('vid2');
+    swapAsset(p, 'rev', { id: 'rev2', kind: 'video', name: 'v reversed.mp4', hash: 'hr', duration: s(10) });
+    expect(p.assets.rev2.reversedOf).toBe('vid2');
+  });
+
+  it('lets go of the reversed copy when the video is replaced by another file', () => {
+    const p = fixture();
+    p.assets.vid.hash = 'hv';
+    addAsset(p, { id: 'rev', kind: 'video', duration: s(10), hash: 'hr', reversedOf: 'vid' });
+    swapAsset(p, 'vid', { id: 'other', kind: 'video', name: 'other.mp4', hash: 'ho', duration: s(10) });
+    expect(p.assets.rev.reversedOf).not.toBe('other');
+    swapAsset(p, 'rev', { id: 'x', kind: 'video', name: 'x.mp4', hash: 'hx', duration: s(10) });
+    expect(p.assets.x.reversedOf).toBeUndefined();
+  });
+});
+
 describe('replacing a video with a photo', () => {
   it('turns its video clips into photo clips and drops the clips that played its sound', () => {
     const p = fixture();
@@ -186,5 +208,33 @@ describe('media actions while a compound clip is open', () => {
     expect(actions.usedOutsideCompound(['vid', 'silent', 'aud'])).toEqual(['vid']);
     store.closeCompound();
     expect(actions.usedOutsideCompound(['vid', 'silent'])).toEqual([]);
+  });
+});
+
+describe('Show on timeline', () => {
+  const lastToast = () => [...document.querySelectorAll('.toast')].at(-1)?.textContent || '';
+
+  it('selects the compound clip holding the media when no clip uses it directly', () => {
+    const p = fixture();
+    const [, b] = onMain(p, clip('video', 0, 5), clip('video', 5, 5, { assetId: 'silent' }));
+    const comp = createCompound(p, [b.id], { ripple: true, linkOverlays: true });
+    const store = new EditorStore(p);
+    createMediaActions({ store, library: null }).revealAsset('silent');
+    expect([...store.selection]).toEqual([comp.id]);
+    expect(store.time).toBe(comp.start);
+  });
+
+  it('names the timeline the media is on when it is not on the open one', async () => {
+    const { ensureTimelines, addTimeline, switchTimeline } = await import('../src/model/timelines.js');
+    const p = fixture();
+    ensureTimelines(p);
+    const other = addTimeline(p, { name: 'Vertical cut' });
+    switchTimeline(p, other);
+    onMain(p, clip('video', 0, 5, { assetId: 'silent' }));
+    switchTimeline(p, p.timelines[0].id);
+    const store = new EditorStore(p);
+    createMediaActions({ store, library: null }).revealAsset('silent');
+    expect(store.selection.size).toBe(0);
+    expect(lastToast()).toContain('Vertical cut');
   });
 });

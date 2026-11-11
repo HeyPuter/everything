@@ -124,6 +124,56 @@ describe('export dialog', () => {
     d2.close();
   });
 
+  it('offers the captions file only when the part being exported has captions', async () => {
+    const p = createProject({ name: 'Trip' });
+    const a = makeClip('image', { assetId: 'a', duration: 2 * US });
+    const b = makeClip('image', { assetId: 'a', start: 2 * US, duration: 2 * US });
+    p.tracks[0].clips.push(a, b);
+    p.tracks.unshift({ id: 'tt', kind: 'text', locked: false, hidden: false, muted: false, clips: [makeClip('text', { text: 'Hi', caption: true, duration: US })] });
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    const ctx = ctxWith(p);
+    ctx.store.selectedIds = [b.id];
+    const d = openExportDialog(ctx);
+    await flush();
+    const caps = [...d.el.querySelectorAll('.export-section')].find((x) => x.textContent.includes('Captions file'));
+    const scope = [...d.el.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'selection'));
+    expect(scope.value).toBe('all');
+    expect(caps.hidden).toBe(false);
+    scope.value = 'selection';
+    scope.dispatchEvent(new Event('change'));
+    expect(caps.hidden).toBe(true);
+    // Only the captions file checked: nothing is left to export for the selected clip.
+    const check = (title) => [...d.el.querySelectorAll('.export-section')].find((x) => x.querySelector('.export-section-title').textContent === title).querySelector('.export-check');
+    if (check('Video file').checked) check('Video file').click();
+    scope.value = 'all';
+    scope.dispatchEvent(new Event('change'));
+    if (!check('Captions file (.srt)').checked) check('Captions file (.srt)').click();
+    const exportBtn = [...d.el.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Export');
+    expect(exportBtn.disabled).toBe(false);
+    scope.value = 'selection';
+    scope.dispatchEvent(new Event('change'));
+    expect(exportBtn.disabled).toBe(true);
+    d.close();
+  });
+
+  it('holds Export and explains when a WAV would be too long for its format', async () => {
+    const p = createProject({ name: 'Trip' });
+    p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: 7 * 3600 * US }));
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    const d = openExportDialog(ctxWith(p));
+    await flush();
+    const check = (title) => [...d.el.querySelectorAll('.export-section')].find((x) => x.querySelector('.export-section-title').textContent === title).querySelector('.export-check');
+    const exportBtn = [...d.el.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Export');
+    if (!check('Audio file').checked) check('Audio file').click();
+    expect(exportBtn.disabled).toBe(true);
+    expect(d.el.textContent).toMatch(/WAV file can hold at most about 6 hours/);
+    const format = [...d.el.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'm4a'));
+    format.value = 'm4a';
+    format.dispatchEvent(new Event('change'));
+    expect(exportBtn.disabled).toBe(false);
+    d.close();
+  });
+
   it('picks which timeline to export when the project has several', async () => {
     const { ensureTimelines, addTimeline } = await import('../src/model/timelines.js');
     const p = createProject({ name: 'Trip' });
@@ -185,9 +235,39 @@ describe('export dialog with several files', () => {
       expect(d.el.querySelector('.dialog-title').textContent).toBe('Export canceled');
       expect([...d.el.querySelectorAll('.export-file-name')].map((x) => x.textContent)).toEqual(['Trip.mp4']);
       expect(d.el.textContent).toContain('The audio file was canceled.');
-      expect(button(d, 'Download')).toBeTruthy();
+      expect(button(d, 'Download').getAttribute('aria-label')).toBe('Download Trip.mp4');
       d.close();
     } finally {
+      exportProject.mockReset();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('downloads nothing when the dialog is closed while the last file is being finished', async () => {
+    let finish = null;
+    exportProject.mockImplementation(async (project, library, settings, { kind }) => {
+      if (kind === 'video') return video;
+      // Finishing the file doesn't look at the signal: it completes after the dialog closed.
+      await new Promise((r) => (finish = r));
+      return { kind: 'audio', blob: new Blob(['wav']), fileName: 'Trip.wav', duration: 2 * US, elapsed: 1, release: () => released.push('audio') };
+    });
+    const clicks = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      released.length = 0;
+      const d = await twoJobs();
+      button(d, 'Export').click();
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      d.close();
+      finish();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(clicks).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(60_000);
+      expect(released.sort()).toEqual(['audio', 'video']);
+    } finally {
+      vi.useRealTimers();
       exportProject.mockReset();
       vi.restoreAllMocks();
     }

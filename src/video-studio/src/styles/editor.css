@@ -493,6 +493,12 @@ puter-user-menu::part(apps-panel) {
   outline: none;
 }
 
+/* The keyboard focus ring sits on the preview, so a focused tile stands out from a hovered or chosen one. */
+.tile:focus-visible .tile-preview {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
 .tile-label {
   font-size: 11.5px;
   white-space: nowrap;
@@ -510,6 +516,11 @@ puter-user-menu::part(apps-panel) {
   color: var(--accent-text);
   padding: 0 2px;
   margin-top: -4px;
+}
+
+.tile-sub::before,
+.tile-badge::before {
+  content: attr(data-text);
 }
 
 .tile-sub.missing,
@@ -1049,6 +1060,8 @@ puter-user-menu::part(apps-panel) {
   min-width: 200px;
   max-width: 320px;
   max-height: calc(100vh - 16px);
+  /* The visible height: on phones 100vh includes the part under the browser's toolbars. */
+  max-height: calc(100dvh - 16px);
   overflow-y: auto;
   padding: 4px;
   border-radius: var(--radius);
@@ -1111,6 +1124,13 @@ puter-user-menu::part(apps-panel) {
 /* Disabled items stay dimmer than enabled ones, shortcut included. */
 .menu-item:disabled .menu-shortcut {
   color: inherit;
+}
+
+/* Touch screens without a keyboard: keyboard shortcuts in menus would only be clutter. */
+@media (hover: none) and (pointer: coarse) {
+  .menu-key {
+    display: none;
+  }
 }
 
 .menu-sep {

@@ -188,6 +188,16 @@ p {
 
 .btn.block {
   width: 100%;
+  /* A full-width label that doesn't fit (a narrow sidebar or panel) wraps instead of running past the edges. */
+  height: auto;
+  min-height: 32px;
+  padding-block: 4px;
+  white-space: normal;
+  text-align: center;
+}
+
+.btn.small.block {
+  min-height: 28px;
 }
 
 .icon-btn {

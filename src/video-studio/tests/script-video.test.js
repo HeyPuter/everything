@@ -314,6 +314,24 @@ describe('script to video: generating', () => {
     expect(svc.calls.words).toBe(0);
   });
 
+  it('takes what an earlier run made from reuse, one picture and voice per scene', async () => {
+    const svc = fakeServices();
+    const reuse = new Map();
+    const twins = [SCENES[0], { ...SCENES[0] }];
+    const first = await generateScenes(twins, { voice: 'polly', captions: 'clean-caption' }, svc, { reuse });
+    expect(svc.calls.image).toHaveLength(2);
+    expect(svc.calls.speech).toHaveLength(2);
+    const again = await generateScenes(twins, { voice: 'polly', captions: 'clean-caption' }, svc, { reuse });
+    expect(svc.calls.image).toHaveLength(2);
+    expect(svc.calls.speech).toHaveLength(2);
+    expect(again.assets.map((a) => a.id)).toEqual(first.assets.map((a) => a.id));
+    expect(new Set(again.layout.pictures.map((c) => c.assetId)).size).toBe(2);
+    // Another voice is made anew.
+    await generateScenes(twins, { voice: 'nova', captions: 'clean-caption' }, svc, { reuse });
+    expect(svc.calls.speech).toHaveLength(4);
+    expect(svc.calls.image).toHaveLength(2);
+  });
+
   it('stops when cancelled and fails when nothing could be made', async () => {
     const ac = new AbortController();
     const svc = fakeServices();

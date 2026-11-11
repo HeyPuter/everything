@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { Player } from '../src/engine/player.js';
 import { evaluate } from '../src/engine/scene.js';
+import { addClip } from '../src/model/timeline.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
 const players = [];
@@ -88,6 +89,39 @@ describe('preview playback through transitions', () => {
     expect(e.el.paused).toBe(true);
     expect(e.el.currentTime).toBeCloseTo(9.999, 3);
     expect(e.gain.gain.value).toBe(0);
+  });
+
+  it('holds the last frame of a clip that runs past the end of its media instead of replaying it', () => {
+    const p = fixture(); // 'vid' is 10 s long; the clip asks for 12 s of it (a shorter file replaced it)
+    const [a] = onMain(p, clip('video', 0, 12));
+    const { entries, frame } = setup(p);
+    frame(s(9.9));
+    expect(entries.get(a.id).el.paused).toBe(false);
+    for (const t of [10.1, 10.5, 11, 11.5]) frame(s(t));
+    const e = entries.get(a.id);
+    // Playing on at the media's end would start the element over from its first frame.
+    expect(e.el.paused).toBe(true);
+    expect(e.el.plays).toBe(1);
+    expect(e.el.currentTime).toBeCloseTo(9.999, 3);
+  });
+
+  it('keeps the sound of a clip that runs past the end of its file quiet instead of replaying it', () => {
+    const p = fixture(); // 'aud' is 30 s long
+    const a = clip('audio', 0, 10, { in: s(25) });
+    addClip(p, a, { ripple: false });
+    const { entries, frame } = setup(p);
+    frame(s(4));
+    const e = entries.get(a.id);
+    e.el.duration = 30;
+    expect(e.el.paused).toBe(false);
+    frame(s(5.5));
+    const seeks = e.el.seeks;
+    for (const t of [6, 7, 8]) frame(s(t));
+    expect(e.el.paused).toBe(true);
+    expect(e.el.plays).toBe(1);
+    expect(e.el.currentTime).toBeCloseTo(29.999, 3);
+    // Held there, not sought again every frame.
+    expect(e.el.seeks).toBe(seeks);
   });
 });
 
@@ -181,3 +215,78 @@ describe('starting playback', () => {
     expect(player._heldTime(performance.now())).toBe(null);
   });
 });
+
+describe('losing the GPU context', () => {
+  it('draws the frame again once the context is restored', () => {
+    const p = fixture();
+    onMain(p, clip('image', 0, 5));
+    const { player } = setup(p);
+    player.playing = false;
+    const invalidate = vi.spyOn(player, 'invalidate').mockImplementation(() => {});
+    player.canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    player.dispose();
+    player.canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('jumping while playing', () => {
+  it('plays on from where Home, End or a marker jump put the playhead', () => {
+    const p = fixture();
+    onMain(p, clip('image', 0, 10));
+    const { player } = setup(p);
+    player.playing = false;
+    vi.spyOn(player, 'invalidate').mockImplementation(() => {});
+    vi.spyOn(player, 'renderFrame').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => 0);
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      player.store.seek(s(4));
+      player.play();
+      now = 1500;
+      player._tick();
+      expect(player.store.time).toBe(s(4.5));
+      // Home while playing.
+      player.store.seek(0);
+      now = 1700;
+      player._tick();
+      expect(player.playing).toBe(true);
+      expect(player.store.time).toBe(s(0.2));
+      // End while playing stops there.
+      player.store.seek(s(10));
+      now = 1750;
+      player._tick();
+      expect(player.playing).toBe(false);
+      expect(player.store.time).toBe(s(10));
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+});
+
+describe('warming up the next clip', () => {
+  it('lets the element playing a split clip play on into its second half', () => {
+    const p = fixture();
+    const [, b] = onMain(p, clip('video', 0, 5), clip('video', 5, 5, { in: s(5) }));
+    const { entries, frame } = setup(p);
+    for (const t of [3.6, 4.2, 4.9]) frame(s(t));
+    // No second element sought to the second half and left waiting.
+    expect(entries.has(b.id)).toBe(false);
+  });
+
+  it('readies the next clip at the first frame its transition shows', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 5, { transition: { id: 'mix', duration: s(2) } }), clip('video', 5, 5, { in: s(3) }));
+    const { entries, frame } = setup(p);
+    frame(s(3));
+    // The transition starts drawing b at 4 s, one second before its start: 2 s into the file.
+    expect(entries.get(b.id).el.currentTime).toBeCloseTo(2, 5);
+    expect(entries.get(b.id).el.paused).toBe(true);
+    for (const t of [4.2, 5.5, 6.5]) frame(s(t));
+    // Once a has left the screen it is not sought back to its start to be readied again.
+    expect(entries.get(a.id).el.currentTime).toBeCloseTo(5.5, 5);
+  });
+});
+

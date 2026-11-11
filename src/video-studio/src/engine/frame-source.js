@@ -10,6 +10,7 @@
  * overwrite each other's canvases.
  */
 import { Input, BlobSource, ALL_FORMATS, CanvasSink } from 'mediabunny';
+import { FRAME_SLACK } from '../lib/time.js';
 
 export class FrameSource {
   /** blobFor(asset): the file to decode (default the library's; the player passes proxies). */
@@ -22,19 +23,52 @@ export class FrameSource {
   }
 
   async _open(asset) {
-    const blob = await this.blobFor(asset);
-    const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
-    const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) {
-      input.dispose();
-      throw new Error('cannot decode');
+    let blob;
+    try {
+      blob = await this.blobFor(asset);
+    } catch (err) {
+      // Reading the file failed (a network error, say): worth trying again later.
+      throw Object.assign(new Error(err?.message || 'read failed'), { retry: true });
     }
-    const h = Math.min(this.height, asset.height || this.height);
-    // Two pooled canvases: one being shown while the next decodes.
-    const sink = new CanvasSink(track, { height: h, fit: 'contain', poolSize: 2 });
-    // Pairs: four, so the pair on screen survives while the next pair decodes.
-    const pairSink = new CanvasSink(track, { height: h, fit: 'contain', poolSize: 4 });
-    return { input, sink, pairSink };
+    const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+    try {
+      const track = await input.getPrimaryVideoTrack();
+      if (!track || !(await track.canDecode())) throw new Error('cannot decode');
+      const h = Math.min(this.height, asset.height || this.height);
+      // Two pooled canvases: one being shown while the next decodes.
+      const sink = new CanvasSink(track, { height: h, fit: 'contain', poolSize: 2 });
+      // Pairs: four, so the pair on screen survives while the next pair decodes.
+      const pairSink = new CanvasSink(track, { height: h, fit: 'contain', poolSize: 4 });
+      return { input, sink, pairSink };
+    } catch (err) {
+      input.dispose();
+      throw err;
+    }
+  }
+
+  /**
+   * A decoder that could not start or failed. A file that could not be read
+   * is tried again after a pause growing from 2 s to a minute (with a redraw
+   * then); one that cannot be decoded is given up on.
+   */
+  _failed(e, err) {
+    if (e.sink || !err?.retry || this.disposed) {
+      e.failed = true;
+      return;
+    }
+    e.opening = null;
+    e.tries = (e.tries || 0) + 1;
+    const wait = Math.min(60_000, 2000 * 2 ** (e.tries - 1));
+    e.retryAt = Date.now() + wait;
+    clearTimeout(e.timer);
+    e.timer = setTimeout(() => {
+      if (!this.disposed) this.onFrame?.();
+    }, wait);
+  }
+
+  /** Whether the decoder of an entry may be asked for frames now. */
+  _usable(e) {
+    return !e.failed && !(e.retryAt > Date.now());
   }
 
   _entry(asset, sec) {
@@ -50,6 +84,12 @@ export class FrameSource {
     if (!e.sink) {
       e.opening ||= this._open(asset);
       const { input, sink, pairSink } = await e.opening;
+      // Forgotten (or the source disposed) while it opened: close what it opened.
+      if (this.disposed || this.entries.get(asset.id) !== e) {
+        input.dispose();
+        throw new Error('gone');
+      }
+      if (e.sink) return;
       e.input = input;
       e.sink = sink;
       e.pairSink = pairSink;
@@ -70,7 +110,7 @@ export class FrameSource {
 
   request(asset, sec) {
     const e = this._entry(asset, sec);
-    if (e.failed) return;
+    if (!this._usable(e)) return;
     e.want = sec;
     if (!e.busy) this._run(asset, e);
   }
@@ -83,15 +123,16 @@ export class FrameSource {
         const sec = e.want;
         e.want = null;
         if (e.frame && Math.abs(e.frame.sec - sec) < 1e-4) continue;
-        const wrapped = await e.sink.getCanvas(sec);
+        // A frame stamped a hair after sec (millisecond timestamps) is the one meant, as in exports.
+        const wrapped = await e.sink.getCanvas(sec + FRAME_SLACK);
         if (wrapped) {
           // Remember the time asked for so tolerance checks match the request.
           e.frame = { sec, canvas: wrapped.canvas, ts: wrapped.timestamp, version: (e.frame?.version || 0) + 1 };
           this.onFrame?.();
         }
       }
-    } catch {
-      e.failed = true;
+    } catch (err) {
+      this._failed(e, err);
     } finally {
       e.busy = false;
     }
@@ -105,7 +146,7 @@ export class FrameSource {
   pair(asset, sec) {
     const e = this._entry(asset, sec);
     if (covers(e.pair, sec)) return e.pair;
-    if (e.failed) return null;
+    if (!this._usable(e)) return null;
     e.pairWant = sec;
     if (!e.pairBusy) this._runPair(asset, e);
     return null;
@@ -119,7 +160,7 @@ export class FrameSource {
         const sec = e.pairWant;
         e.pairWant = null;
         if (covers(e.pair, sec)) continue;
-        const it = e.pairSink.canvases(sec);
+        const it = e.pairSink.canvases(sec + FRAME_SLACK);
         try {
           const first = await it.next();
           if (first.done) continue;
@@ -131,8 +172,8 @@ export class FrameSource {
         }
         this.onFrame?.();
       }
-    } catch {
-      e.failed = true;
+    } catch (err) {
+      this._failed(e, err);
     } finally {
       e.pairBusy = false;
     }
@@ -143,12 +184,17 @@ export class FrameSource {
     const e = this.entries.get(assetId);
     if (!e) return;
     this.entries.delete(assetId);
-    if (e.input) e.input.dispose();
-    else e.opening?.then(({ input }) => input.dispose()).catch(() => {});
+    clearTimeout(e.timer);
+    // A decoder still opening is closed by _ready once it is open.
+    e.input?.dispose();
   }
 
   dispose() {
-    for (const e of this.entries.values()) e.input?.dispose();
+    this.disposed = true;
+    for (const e of this.entries.values()) {
+      clearTimeout(e.timer);
+      e.input?.dispose();
+    }
     this.entries.clear();
   }
 }
@@ -156,6 +202,5 @@ export class FrameSource {
 /** Whether a decoded pair holds the frame shown at sec (and the one after it). */
 function covers(pair, sec) {
   if (!pair) return false;
-  const eps = 1e-6;
-  return pair.a.ts <= sec + eps && (!pair.b || sec + eps < pair.b.ts);
+  return pair.a.ts <= sec + FRAME_SLACK && (!pair.b || sec + FRAME_SLACK < pair.b.ts);
 }

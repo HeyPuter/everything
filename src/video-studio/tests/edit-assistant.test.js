@@ -7,6 +7,8 @@ import {
   TOOLS, toolSpecs, validateCall, resolveClips, askForEdits, parseActionList, toolCallsFrom, summarize,
   projectBrief, catalogBrief, buildMessages, assistState, normColor, textStyle, stepLabel, HISTORY_LIMIT,
 } from '../src/media/edit-assistant.js';
+import { addTimeline } from '../src/model/timelines.js';
+import { createCompound } from '../src/model/compound.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
 function setup(...mainClips) {
@@ -314,6 +316,50 @@ describe('performing edits', () => {
     expect(mainTrack(store.project).clips[0].speed).toBe(1);
     expect(runner.undo(entry)).toBe(true);
     expect(store.project.markers.map((m) => m.id)).toEqual(['a', 'b', 'user']);
+  });
+
+  it('leaves another timeline or compound clip opened while it listens alone', async () => {
+    const { store, ctx, main } = setup(clip('video', 0, 10));
+    let b;
+    store.update('Add timeline', (p) => {
+      b = addTimeline(p, { name: 'Shorts' });
+    });
+    const a = store.project.timelineId;
+    let open;
+    const findSilences = vi.fn(() => new Promise((r) => (open = () => r([{ start: s(2), end: s(3) }]))));
+    const prepareCaptions = vi.fn(() => new Promise((r) => (open = () => r(() => (store.update('Generate captions', (p) => { p.markers.push({ id: 'cap', time: 0, label: '', color: 'red' }); }), 1)))));
+    const runner = createAssistantRunner(ctx, { findSilences, prepareCaptions });
+    for (const name of ['remove_silences', 'add_captions']) {
+      store.openTimeline(a);
+      open = null;
+      const running = runner.run([{ name, args: {} }]);
+      await vi.waitFor(() => expect(open).toBeTypeOf('function'));
+      // The other timeline, with a clip of its own across the silence that was found on the first.
+      store.openTimeline(b);
+      onMain(store.project, clip('video', 0, 10));
+      const other = JSON.stringify(store.project.tracks);
+      open();
+      const { results, entry } = await running;
+      expect(results[0].ok).toBe(false);
+      expect(results[0].text).toMatch(/another timeline was opened/);
+      expect(entry).toBe(null);
+      expect(JSON.stringify(store.project.tracks)).toBe(other);
+      expect(store.project.markers.some((m) => m.id === 'cap')).toBe(false);
+      store.update('Clear', (p) => { mainTrack(p).clips = []; });
+    }
+    store.openTimeline(a);
+    expect(main().clips[0].duration).toBe(s(10));
+    // A compound clip opened meanwhile counts too.
+    onMain(store.project, clip('video', 10, 5));
+    store.update('Group', (p) => createCompound(p, [main().clips[1].id]));
+    open = null;
+    const running = runner.run([{ name: 'remove_silences', args: {} }]);
+    await vi.waitFor(() => expect(open).toBeTypeOf('function'));
+    store.openCompound(main().clips[1].id);
+    const inside = JSON.stringify(store.project.tracks);
+    open();
+    expect((await running).results[0].text).toMatch(/another timeline was opened/);
+    expect(JSON.stringify(store.project.tracks)).toBe(inside);
   });
 
   it('summarizes what was done for the chat and for follow-up requests', () => {

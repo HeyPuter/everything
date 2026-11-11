@@ -271,6 +271,8 @@ export function openShareDialog(ctx, { deps = {} } = {}) {
       sel.addEventListener('change', async () => {
         try {
           await callOwner('member.role', { uuid: m.uuid, role: sel.value });
+          // A later change that fails goes back to this role, not the one the list was made with.
+          m.role = sel.value;
           announce(`${m.username}: ${ROLE_LABELS[sel.value]}`);
         } catch (err) {
           sel.value = m.role;

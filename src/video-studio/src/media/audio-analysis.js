@@ -50,6 +50,15 @@ export function integratedLoudness(channels, sr) {
   return lufs(mean(gated.length ? gated : abs));
 }
 
+/**
+ * Loudness of a clip's sound as it plays in the project: the mix is stereo
+ * and a mono source plays on both sides, which sounds 3 dB louder than the
+ * mono channel measured alone. Normalization targets are met with this one.
+ */
+export function clipLoudness(channels, sr) {
+  return integratedLoudness(channels.length === 1 ? [channels[0], channels[0]] : channels, sr);
+}
+
 /* ---- Noise profile -------------------------------------------------------------- */
 
 /**

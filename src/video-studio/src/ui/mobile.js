@@ -225,7 +225,11 @@ export function createMobileChrome(ctx, root, { matchMedia: mmImpl } = {}) {
       const now = T.findClip(store.project, id)?.clip;
       if (span === undefined && now) span = hasCurve(now) ? sourceSpan(now) : now.duration * now.speed;
       actions.setSpeed(id, v, { span });
-      if (final) span = undefined;
+      if (final) {
+        // The drag's run ends here (its steps all started from the clip it began with).
+        span = undefined;
+        store.seal?.();
+      }
       seg.set(v);
     } });
     // The box takes any speed the clip allows, past the slider's 10x.

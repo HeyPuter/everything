@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createCompound, breakApart, composeTransform, compoundClips } from '../src/model/compound.js';
-import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength } from '../src/model/timeline.js';
+import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition, deleteClips, MIN_CLIP } from '../src/model/timeline.js';
 import { normalizeProject, makeClip } from '../src/model/project.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
@@ -24,6 +24,25 @@ describe('compound clips', () => {
     expect(comp.sequence.tracks[1].main).toBe(true);
     expect(comp.sequence.tracks[0].clips[0].start).toBe(s(0.5));
     expect(sequenceLength(comp.sequence)).toBe(s(3));
+  });
+
+  it('drops a transition into a clip left outside, which could not be seen or removed', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    setTransition(p, a.id, 'mix', s(1));
+    const first = createCompound(p, [a.id], RIPPLE);
+    expect(first.sequence.tracks[0].clips[0].transition).toBe(null);
+    // Next to a second compound clip, it would have blended into that one's contents.
+    createCompound(p, [b.id], RIPPLE);
+    expect(evaluate(p, s(2)).some((layer) => layer.kind === 'transition')).toBe(false);
+  });
+
+  it('keeps a transition between two clips nested together', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    setTransition(p, a.id, 'mix', s(1));
+    const comp = createCompound(p, [a.id, b.id], RIPPLE);
+    expect(comp.sequence.tracks[0].clips[0].transition).toEqual({ id: 'mix', duration: s(1) });
   });
 
   it('refuses base track clips with other base track clips between them', () => {
@@ -73,6 +92,18 @@ describe('compound clips', () => {
     expect(text.start).toBe(0);
     expect(text.duration).toBe(s(2));
     expect(restored.length).toBe(3);
+  });
+
+  it('leaves out slivers shorter than the shortest clip when broken apart', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const comp = createCompound(p, [a.id, b.id], RIPPLE);
+    // Trimmed to start 10 ms before the cut: 10 ms of A shows.
+    trimClip(p, comp.id, 'start', s(1.99), RIPPLE);
+    const out = breakApart(p, comp.id, RIPPLE);
+    expect(out).toHaveLength(1);
+    expect(out[0].duration).toBe(s(2));
+    expect(allClips(p).every((c) => c.duration >= MIN_CLIP)).toBe(true);
   });
 
   it('composes transforms around the frame center', () => {
@@ -224,6 +255,20 @@ describe('project fields while a compound clip is open', () => {
   });
 });
 
+describe('compound clips on locked tracks', () => {
+  it('are not opened for editing', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const comp = createCompound(p, [a.id, b.id], RIPPLE);
+    mainTrack(p).locked = true;
+    const store = new EditorStore(p);
+    expect(store.openCompound(comp.id)).toBe(false);
+    expect(store.nest).toHaveLength(0);
+    mainTrack(store.project).locked = false;
+    expect(store.openCompound(comp.id)).toBe(true);
+  });
+});
+
 describe('closing a compound clip that got shorter', () => {
   const setup = (toggles) => {
     const p = fixture();
@@ -254,6 +299,65 @@ describe('closing a compound clip that got shorter', () => {
     expect(findClip(store.project, title.id).clip.start).toBe(s(10));
   });
 });
+
+describe('closing a compound clip whose contents got longer or empty', () => {
+  const setup = (toggles, trimOuter = false) => {
+    const p = fixture();
+    const [, x] = onMain(p, clip('video', 0, 5), clip('video', 5, 4), clip('video', 9, 5));
+    const title = clip('text', 10, 1); // over the last clip
+    addClip(p, title, FREE);
+    const comp = createCompound(p, [x.id], RIPPLE);
+    if (trimOuter) trimClip(p, comp.id, 'end', s(8), RIPPLE);
+    const store = new EditorStore(p, { toggles });
+    store.openCompound(comp.id);
+    return { store, title, comp };
+  };
+  const spansOf = (store) => mainTrack(store.project).clips.map((c) => [c.start / 1e6, c.duration / 1e6]);
+  const extend = (store) => {
+    const inner = mainTrack(store.project).clips[0];
+    store.update('Add', (pp) => void addClip(pp, clip('image', 4, 3), { ...store.opts, main: true }));
+    return inner;
+  };
+
+  it('grows to show what was added at the end, rippling the base track', () => {
+    const { store, title, comp } = setup({});
+    extend(store);
+    store.closeCompound();
+    expect(findClip(store.project, comp.id).clip.duration).toBe(s(7));
+    expect(spansOf(store)).toEqual([[0, 5], [5, 7], [12, 5]]);
+    expect(findClip(store.project, title.id).clip.start).toBe(s(13));
+    store.undo();
+    expect(spansOf(store)).toEqual([[0, 5], [5, 4], [9, 5]]);
+  });
+
+  it('grows without ripple too, moving the clips after it later', () => {
+    const { store } = setup({ ripple: false });
+    extend(store);
+    store.closeCompound();
+    expect(spansOf(store)).toEqual([[0, 5], [5, 7], [12, 5]]);
+    expect(noOverlapsIn(store.project)).toBe(true);
+  });
+
+  it('keeps a trim that ended before its end', () => {
+    const { store } = setup({}, true);
+    extend(store);
+    store.closeCompound();
+    expect(spansOf(store)).toEqual([[0, 5], [5, 3], [8, 5]]);
+  });
+
+  it('goes away when everything inside was deleted', () => {
+    const { store, title, comp } = setup({});
+    store.update('Delete', (pp) => deleteClips(pp, allClips(pp).map((c) => c.id), store.opts) > 0);
+    store.closeCompound();
+    expect(findClip(store.project, comp.id)).toBeNull();
+    expect(spansOf(store)).toEqual([[0, 5], [5, 5]]);
+    expect(findClip(store.project, title.id).clip.start).toBe(s(6));
+    store.undo();
+    expect(findClip(store.project, comp.id)).not.toBeNull();
+  });
+});
+
+const noOverlapsIn = (p) => p.tracks.every((t) => t.clips.every((c, i) => !i || c.start >= t.clips[i - 1].start + t.clips[i - 1].duration - 1));
 
 describe('nested compound clips', () => {
   it('applies the inner compound transform before the outer one', () => {

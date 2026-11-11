@@ -293,7 +293,34 @@ export async function frameReference(picture) {
 }
 
 let tempSeq = 0;
-const tempPath = () => `video-studio/.ai-temp/${Date.now().toString(36)}-${(++tempSeq).toString(36)}.mp4`;
+const TEMP_DIR = '.ai-temp';
+// Named by when the generation started, which is how old copies are told apart (see cleanAiTemp).
+const tempPath = () => `video-studio/${TEMP_DIR}/${Date.now().toString(36)}-${(++tempSeq).toString(36)}.mp4`;
+/** Copies being made by generations running in this tab. */
+const tempsInUse = new Set();
+/** A copy left this long ago was abandoned: no generation takes a day. */
+export const TEMP_MAX_AGE = 24 * 60 * 60 * 1000;
+
+/**
+ * Delete the copies Puter wrote for generations that never collected them (the page closed while a clip was being
+ * made): each is a whole paid-for video left in video-studio/.ai-temp. Only copies older than maxAge go, never one a
+ * generation in this tab is still waiting on. backend is the library's (paths under video-studio/). Returns how many
+ * were deleted.
+ */
+export async function cleanAiTemp(backend, { now = Date.now(), maxAge = TEMP_MAX_AGE } = {}) {
+  let removed = 0;
+  for (const item of await backend.list(TEMP_DIR)) {
+    if (item.isDir || tempsInUse.has(`video-studio/${TEMP_DIR}/${item.name}`)) continue;
+    const named = /^([0-9a-z]+)-[0-9a-z]+\.[a-z0-9]+$/.exec(item.name);
+    const started = named ? parseInt(named[1], 36) : NaN;
+    // Puter gives times in seconds.
+    const modified = Number(item.modified) > 0 ? (item.modified < 1e12 ? item.modified * 1000 : item.modified) : NaN;
+    const at = Number.isFinite(started) && started > 0 ? started : modified;
+    if (!Number.isFinite(at) || now - at <= maxAge) continue;
+    await backend.remove(`${TEMP_DIR}/${item.name}`).then(() => removed++, () => {});
+  }
+  return removed;
+}
 
 const defaultTxt2vid = (options) => {
   if (typeof puter === 'undefined' || !puter.ai?.txt2vid) throw new Error('Video generation needs Puter.');
@@ -314,19 +341,24 @@ export async function generateVideo(opts = {}, { txt2vid = defaultTxt2vid, fs = 
   const savedPath = fs?.read ? tempPath() : null;
   const base = { ...opts, prompt, firstFrame: firstFrame || lastFrame, lastFrame: firstFrame ? lastFrame : null };
   let options = txt2vidOptions({ ...base, outputPath: savedPath });
-  let result;
+  if (savedPath) tempsInUse.add(savedPath);
   try {
-    result = await txt2vid(options);
-  } catch (err) {
-    // A folder the service may not write to: asked again without the copy (it is refused before a clip is made).
-    if (!savedPath || !isWriteRefusal(err)) throw new Error(videoErrorMessage(err), { cause: err });
-    options = txt2vidOptions(base);
+    let result;
     try {
       result = await txt2vid(options);
-    } catch (again) {
-      throw new Error(videoErrorMessage(again), { cause: again });
+    } catch (err) {
+      // A folder the service may not write to: asked again without the copy (it is refused before a clip is made).
+      if (!savedPath || !isWriteRefusal(err)) throw new Error(videoErrorMessage(err), { cause: err });
+      options = txt2vidOptions(base);
+      try {
+        result = await txt2vid(options);
+      } catch (again) {
+        throw new Error(videoErrorMessage(again), { cause: again });
+      }
     }
+    const blob = await videoBlobFrom(result, { savedPath: options.puter_output_path || null, fs, fetchFn });
+    return { blob, prompt, options };
+  } finally {
+    if (savedPath) tempsInUse.delete(savedPath);
   }
-  const blob = await videoBlobFrom(result, { savedPath: options.puter_output_path || null, fs, fetchFn });
-  return { blob, prompt, options };
 }

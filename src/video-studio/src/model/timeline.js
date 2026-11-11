@@ -10,7 +10,7 @@
 import { uid } from '../lib/ids.js';
 import { US } from '../lib/time.js';
 import { TRACK_KIND_FOR, makeTrack } from './project.js';
-import { splitKeyframes, shiftKeyframes, scaleKeyframes } from './keyframes.js';
+import { splitKeyframes, shiftKeyframes, scaleKeyframes, keepLastKeyValue } from './keyframes.js';
 import { beatTimes } from './audio.js';
 import { hasCurve, sourceOffset, sourceSpan, sliceCurve, meanSpeed, edgeSpeeds, localAtSource, normalizeCurve, remapKeyframes, curveTable, curveDuration } from './speed-curve.js';
 import { findRamp, rampPoints, addRampAccents, stripRampAccents } from './speed-ramps.js';
@@ -113,6 +113,19 @@ export function sortTrack(track) {
   track.clips.sort((a, b) => a.start - b.start);
 }
 
+/** Put a clip into a sorted track in order (after clips that start at the same time). */
+function insertSorted(track, clip) {
+  const list = track.clips;
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].start <= clip.start) lo = mid + 1;
+    else hi = mid;
+  }
+  list.splice(lo, 0, clip);
+}
+
 export function trackFree(track, start, end, excludeIds = new Set()) {
   for (const c of track.clips) {
     if (excludeIds.has(c.id)) continue;
@@ -183,11 +196,26 @@ export function captureLinks(project) {
   const main = mainTrack(project);
   if (!main) return () => {};
   const before = new Map(main.clips.map((c) => [c.id, c.start]));
+  // Base clips by start, searched by halves (big projects have thousands of each).
+  const bases = [...main.clips].sort((a, b) => a.start - b.start);
+  const hostAt = (t) => {
+    let lo = 0;
+    let hi = bases.length - 1;
+    let found = null;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (bases[mid].start <= t) {
+        found = bases[mid];
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return found && t < clipEnd(found) ? found : null;
+  };
   const links = [];
   for (const t of project.tracks) {
     if (t.main || t.locked) continue;
     for (const c of t.clips) {
-      const host = main.clips.find((m) => c.start >= m.start && c.start < clipEnd(m));
+      const host = hostAt(c.start);
       // Audio only follows when it sits inside its host clip, so a music bed
       // under several clips stays put while sound effects move with the shot.
       if (host && (t.kind !== 'audio' || clipEnd(c) <= clipEnd(host) + 1000)) links.push({ clip: c, host: host.id, track: t });
@@ -195,14 +223,20 @@ export function captureLinks(project) {
   }
   return () => {
     const after = new Map(main.clips.map((c) => [c.id, c.start]));
+    const onTrack = new Map();
+    const moved = new Set();
     for (const { clip, host, track } of links) {
-      // A clip the edit moved to another track (e.g. dropped onto the base track) no longer follows.
-      if (!after.has(host) || !track.clips.includes(clip)) continue;
+      if (!after.has(host)) continue;
       const dt = after.get(host) - before.get(host);
       if (!dt) continue;
+      // A clip the edit moved to another track (e.g. dropped onto the base track) no longer follows.
+      if (!onTrack.has(track)) onTrack.set(track, new Set(track.clips));
+      if (!onTrack.get(track).has(clip)) continue;
       clip.start = Math.max(0, clip.start + dt);
-      sortTrack(track);
+      moved.add(track);
     }
+    // Each track sorted once, not once per clip that moved on it.
+    for (const track of moved) sortTrack(track);
     resolveOverlaps(project);
   };
 }
@@ -278,16 +312,15 @@ export function addClip(project, clip, opts = {}) {
         return { track: main, clip };
       }
       if (trackFree(main, clip.start, clipEnd(clip))) {
-        main.clips.push(clip);
-        sortTrack(main);
+        insertSorted(main, clip);
         return { track: main, clip };
       }
     }
     let track = opts.trackId ? findTrack(project, opts.trackId) : null;
     if (track && (!trackAccepts(track, clip) || track.locked || (track.main && opts.ripple) || !trackFree(track, clip.start, clipEnd(clip)))) track = null;
     if (!track) track = trackWithRoom(project, kind, clip.start, clipEnd(clip));
-    track.clips.push(clip);
-    sortTrack(track);
+    // Tracks are kept sorted; inserting in place is much cheaper than sorting per clip.
+    insertSorted(track, clip);
     return { track, clip };
   });
 }
@@ -300,7 +333,6 @@ export function moveClip(project, id, target, opts = {}) {
   const found = findClip(project, id);
   if (!found || found.track.locked) return false;
   const { clip, track: from } = found;
-  const dt = target.start - clip.start;
   const withIds = new Set(opts.with || []);
   withIds.delete(id);
   const others = [];
@@ -308,30 +340,40 @@ export function moveClip(project, id, target, opts = {}) {
     if (track.locked) continue;
     for (const c of track.clips) if (withIds.has(c.id)) others.push({ clip: c, track });
   }
+  const origStart = clip.start;
+  const otherStarts = others.map((o) => o.clip.start);
+  // The clips move together by one offset, held so the earliest stops at 0 (clamping each
+  // on its own would bunch them up there).
+  const dt = Math.max(Math.round(target.start) - origStart, -Math.min(origStart, ...otherStarts));
+  const sameTrack = target.newTrackAt === undefined && (!target.trackId || target.trackId === from.id);
+  // Asked to move earlier while already held at 0: nothing can move.
+  if (!dt && Math.round(target.start) !== origStart && sameTrack) return false;
   return withRipple(project, opts, () => {
     from.clips.splice(from.clips.indexOf(clip), 1);
     let dest = target.trackId ? findTrack(project, target.trackId) : from;
     if (target.newTrackAt !== undefined) dest = addTrack(project, TRACK_KIND_FOR[clip.type], target.newTrackAt);
     if (!dest || !trackAccepts(dest, clip) || dest.locked) dest = from;
-    clip.start = Math.max(0, Math.round(target.start));
+    clip.start = origStart + dt;
     // Grouped clips move first so they never block the primary clip.
     const moving = new Set([id, ...others.map((o) => o.clip.id)]);
-    for (const o of others) o.clip.start = Math.max(0, o.clip.start + dt);
+    for (const o of others) o.clip.start += dt;
     for (const t of new Set(others.map((o) => o.track))) sortTrack(t);
     if (dest.main && opts.ripple) {
       const index = mainInsertIndex(project, clip.start, clip.id);
       sortTrack(dest);
       dest.clips.splice(index, 0, clip);
+    } else if (!opts.ripple && baseClash(project, dest.main ? clip : null, others)) {
+      // No room on the base track without ripple (for this clip or one moving with it):
+      // put everything back where it was.
+      clip.start = origStart;
+      from.clips.push(clip);
+      sortTrack(from);
+      others.forEach((o, i) => (o.clip.start = otherStarts[i]));
+      for (const t of new Set(others.map((o) => o.track))) sortTrack(t);
+      return false;
     } else if (trackFree(dest, clip.start, clipEnd(clip), moving)) {
       dest.clips.push(clip);
       sortTrack(dest);
-    } else if (dest.main) {
-      // No room on the base track without ripple: put it back.
-      clip.start -= dt;
-      from.clips.push(clip);
-      sortTrack(from);
-      for (const o of others) o.clip.start -= dt;
-      return false;
     } else {
       const alt = trackWithRoom(project, dest.kind, clip.start, clipEnd(clip), moving);
       alt.clips.push(clip);
@@ -340,6 +382,37 @@ export function moveClip(project, id, target, opts = {}) {
     resolveOverlaps(project);
     return true;
   });
+}
+
+/**
+ * Nudge a clip (and opts.with) by d µs on its own track. False when nothing
+ * moved (a base clip with ripple on stays in its slot), so no undo step is made.
+ */
+export function nudgeClips(project, id, d, opts = {}) {
+  const f = findClip(project, id);
+  if (!f) return false;
+  const ids = [id, ...(opts.with || [])];
+  const where = () => {
+    const at = new Map();
+    for (const t of project.tracks) t.clips.forEach((c, i) => at.set(c.id, `${t.id}:${i}:${c.start}`));
+    return ids.map((x) => at.get(x)).join('|');
+  };
+  const before = where();
+  if (!moveClip(project, id, { start: Math.max(0, f.clip.start + d), trackId: f.track.id }, opts)) return false;
+  return where() !== before;
+}
+
+/**
+ * True when the base track would hold overlapping clips after a move without
+ * ripple: extra (a clip about to go onto it) or any clip of others already on it.
+ */
+function baseClash(project, extra, others) {
+  const main = mainTrack(project);
+  if (!main || (!extra && !others.some((o) => o.track === main))) return false;
+  const clips = extra ? [...main.clips, extra] : [...main.clips];
+  clips.sort((a, b) => a.start - b.start);
+  for (let i = 1; i < clips.length; i++) if (clips[i].start < clipEnd(clips[i - 1]) - 1) return true;
+  return false;
 }
 
 /** Earliest/latest the given edge can go, honoring source length and neighbors. */
@@ -519,30 +592,49 @@ export function pasteClips(project, clips, t, opts = {}) {
   const bases = copies.filter(isBase).sort((a, b) => a.src.start - b.src.start);
   let shift = 0;
   let prev = null;
+  // Overlays already on the timeline follow the base clips the pasted ones push along:
+  // linked once for the whole paste (per clip it is slow with thousands of clips).
+  const relink = bases.length && opts.ripple && opts.linkOverlays ? captureLinks(project) : null;
   for (const copy of bases) {
     const c = fresh(copy);
     c.start = prev && opts.ripple ? clipEnd(prev) : Math.max(0, want(copy) + shift);
-    const clip = addClip(project, c, { ...opts, main: true }).clip;
+    const clip = addClip(project, c, { ...opts, main: true, linkOverlays: false }).clip;
     if (!prev) shift = clip.start - want(copy);
     placed.set(copy, clip);
     prev = clip;
   }
+  relink?.();
+  // The pasted base clip each copy sat on (the bases don't overlap), found by halves.
+  const hostOf = (copy) => {
+    let lo = 0;
+    let hi = bases.length - 1;
+    let b = null;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (bases[mid].src.start <= copy.src.start) {
+        b = bases[mid];
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    const audio = TRACK_KIND_FOR[copy.type] === 'audio';
+    return b && copy.src.start < clipEnd(b.src) && (!audio || clipEnd(copy.src) <= clipEnd(b.src) + 1000) ? b : null;
+  };
   for (const copy of copies) {
     if (isBase(copy)) continue;
     const c = fresh(copy);
-    const audio = TRACK_KIND_FOR[c.type] === 'audio';
-    const host = bases.find((b) => copy.src.start >= b.src.start && copy.src.start < clipEnd(b.src) && (!audio || clipEnd(copy.src) <= clipEnd(b.src) + 1000));
+    const host = hostOf(copy);
     c.start = host ? placed.get(host).start + (copy.src.start - host.src.start) : Math.max(0, want(copy) + shift);
     // opts.keepTracks (duplicate): each copy on the track it was copied from, where there is room.
-    placed.set(copy, addClip(project, c, { ...opts, main: false, ...(opts.keepTracks && copy.src._track ? { trackId: copy.src._track } : {}) }).clip);
+    // Adding an overlay leaves the base track as it is, so no ripple.
+    placed.set(copy, addClip(project, c, { ...opts, ripple: false, main: false, ...(opts.keepTracks && copy.src._track ? { trackId: copy.src._track } : {}) }).clip);
   }
   return copies.map((copy) => placed.get(copy));
 }
 
 /**
- * Play a clip at a constant speed. opts.span overrides the source length to
- * keep (a drag keeps the one it began with, so a neighbor that cut the clip
- * short mid-drag doesn't shorten it for good).
+ * Play a clip at a constant speed, keeping the footage it plays (see makeRoom).
+ * opts.span overrides the source length to keep (a drag keeps the one it
+ * began with, so rounding never adds up).
  */
 export function setSpeed(project, id, speed, opts = {}) {
   const found = findClip(project, id);
@@ -551,7 +643,7 @@ export function setSpeed(project, id, speed, opts = {}) {
   const s = Math.min(100, Math.max(0.1, speed));
   const curved = hasCurve(clip);
   const span = opts.span ?? (curved ? sourceSpan(clip) : clip.duration * clip.speed);
-  const duration = fitDuration(track, clip, Math.max(MIN_CLIP, Math.round(span / s)), opts);
+  const duration = Math.max(MIN_CLIP, Math.round(span / s));
   const before = { ...clip };
   // Constant speed replaces a velocity ramp, accents included.
   if (clip.speedRamp) stripRampAccents(clip);
@@ -561,23 +653,40 @@ export function setSpeed(project, id, speed, opts = {}) {
     delete clip.speedCurve;
     clip.speed = s;
     clip.duration = duration;
+    makeRoom(project, track, clip, opts);
   });
   clampTransition(project, clip);
   return true;
 }
 
-/** Without the ripple a faster/slower clip must still fit before its neighbor. */
-function fitDuration(track, clip, duration, opts) {
-  if (opts.ripple && track.main) return duration;
+/**
+ * A clip that got longer (slower) keeps all its footage. Where it would now
+ * run into the next clip on its track: with ripple the base track closes up
+ * by itself; on the base track without ripple the clips after it move later
+ * by the overlap (as a freeze frame makes room); an overlay clip moves to a
+ * free track of its kind (as when it is dropped on an occupied spot).
+ */
+export function makeRoom(project, track, clip, opts) {
+  if (opts.ripple && track.main) return;
   sortTrack(track);
-  const next = track.clips[track.clips.indexOf(clip) + 1];
-  return next ? Math.min(duration, next.start - clip.start) : duration;
+  const i = track.clips.indexOf(clip);
+  const next = track.clips[i + 1];
+  const over = next ? clipEnd(clip) - next.start : 0;
+  if (over <= 1) return;
+  // Said to the caller (a drag starts its next step over, see EditorStore.update).
+  opts.onMakeRoom?.();
+  if (track.main) {
+    for (const c of track.clips.slice(i + 1)) c.start += over;
+    return;
+  }
+  track.clips.splice(i, 1);
+  insertSorted(trackWithRoom(project, track.kind, clip.start, clipEnd(clip), new Set([clip.id])), clip);
 }
 
 /**
  * Give a timed clip a speed curve (points, see model/speed-curve.js), or
  * back to constant 1x with null. The clip keeps the footage it plays, so
- * its timeline length changes (limited by the next clip without ripple).
+ * its timeline length changes (see makeRoom for a clip that runs into the next).
  * opts.span overrides the source length to keep (a drag keeps the one it
  * started with so rounding never accumulates). Keyframes stay on the same
  * moments of the footage. opts.dropRamp takes away a velocity ramp marker
@@ -593,13 +702,14 @@ export function setSpeedCurve(project, id, points, opts = {}) {
   // A different curve preset replaces a velocity ramp; edits keep it (shown as edited).
   if (opts.dropRamp && clip.speedRamp) stripRampAccents(clip);
   const span = opts.span ?? sourceSpan(clip);
-  const duration = fitDuration(track, clip, Math.max(MIN_CLIP, Math.round(curveDuration(pts, span))), opts);
+  const duration = Math.max(MIN_CLIP, Math.round(curveDuration(pts, span)));
   const before = { ...clip };
   withRipple(project, opts, () => {
     clip.speedCurve = pts;
     clip.speed = meanSpeed(pts);
     clip.duration = duration;
     if (clip.keyframes) clip.keyframes = remapKeyframes(clip.keyframes, (t) => localAtSource(clip, sourceOffset(before, t)), duration);
+    makeRoom(project, track, clip, opts);
   });
   clampTransition(project, clip);
   return true;
@@ -725,17 +835,29 @@ export function nextAdjacent(project, id) {
   return null;
 }
 
-/** Longest transition allowed between a clip and its neighbor. */
+/**
+ * Longest transition allowed between a clip and its neighbor. None into a
+ * compound clip: its contents play on tracks of their own (engine/compound.js),
+ * so a transition there would never show.
+ */
 export function maxTransition(project, clip) {
   const next = nextAdjacent(project, clip.id);
-  if (!next) return 0;
+  if (!next || next.type === 'compound' || clip.type === 'compound') return 0;
   return Math.max(0, Math.min(clip.duration, next.duration, 5 * US));
+}
+
+/** Shortest transition; a cut with less room than this takes none. */
+export const MIN_TRANSITION = 100_000;
+
+/** True when a transition can go on the cut after this clip. */
+export function canTransition(project, clip) {
+  return (clip.type === 'video' || clip.type === 'image') && maxTransition(project, clip) >= MIN_TRANSITION;
 }
 
 function clampTransition(project, clip) {
   if (!clip.transition) return;
   const max = maxTransition(project, clip);
-  if (max < 100_000) clip.transition = null;
+  if (max < MIN_TRANSITION) clip.transition = null;
   else clip.transition.duration = Math.min(clip.transition.duration, max);
 }
 
@@ -747,7 +869,7 @@ export function setTransition(project, id, transitionId, duration = 500_000) {
     return true;
   }
   const max = maxTransition(project, found.clip);
-  if (max < 100_000) return false;
+  if (max < MIN_TRANSITION) return false;
   found.clip.transition = { id: transitionId, duration: Math.min(duration, max) };
   return true;
 }
@@ -856,8 +978,22 @@ export function groupMembers(project, id) {
 
 /** Expand a selection so whole groups are included. */
 export function expandGroups(project, ids) {
+  // One pass over the clips (a marquee over thousands of clips runs this on every move).
+  const groupOf = new Map(); // clip id -> its group, or null (and only clips that exist)
+  const members = new Map();
+  for (const c of allClips(project)) {
+    groupOf.set(c.id, c.group || null);
+    if (!c.group) continue;
+    if (!members.has(c.group)) members.set(c.group, []);
+    members.get(c.group).push(c.id);
+  }
   const out = new Set();
-  for (const id of ids) for (const m of groupMembers(project, id)) out.add(m);
+  for (const id of ids) {
+    if (!groupOf.has(id)) continue;
+    const g = groupOf.get(id);
+    if (g) for (const m of members.get(g)) out.add(m);
+    else out.add(id);
+  }
   return [...out];
 }
 
@@ -1117,7 +1253,11 @@ export function removeKeysAt(clip, t, tol = 0) {
     const left = keys.filter((k) => Math.abs(k.t - t) > tol);
     n += keys.length - left.length;
     if (left.length) clip.keyframes[prop] = left;
-    else delete clip.keyframes[prop];
+    else {
+      // The only key goes: its value stays.
+      keepLastKeyValue(clip, prop);
+      delete clip.keyframes[prop];
+    }
   }
   return n;
 }

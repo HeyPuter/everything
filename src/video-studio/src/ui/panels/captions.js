@@ -18,7 +18,7 @@ import { showMenu } from '../menu.js';
 import { prefs, setPref } from '../prefs.js';
 import {
   LANGUAGES, CAPTION_POSITIONS, STT_RATE, groupWords, buildCaptionClips, lineCharsFor, captionCues,
-  parseSubtitles, toSrt, mixdown, transcribeMix, clipsForScope, errorMessage, wrapCaption,
+  parseSubtitles, subtitleText, toSrt, mixdown, transcribeMix, clipsForScope, errorMessage, wrapCaption,
 } from '../../media/transcribe.js';
 import { aiAvailable, synthesize, addSpeechToTimeline } from '../../media/tts.js';
 import { lyricsFromClip, songClips, LYRIC_STYLE } from '../../media/lyrics.js';
@@ -616,7 +616,7 @@ function filesPanel(ctx, opts, save) {
     if (!file) return;
     let cues;
     try {
-      cues = parseSubtitles(await file.text());
+      cues = parseSubtitles(await subtitleText(file));
     } catch {
       cues = [];
     }
@@ -675,12 +675,10 @@ function openTranslate(ctx) {
   const status = h('p.asset-hint', { role: 'status' });
   const go = h('button.btn.primary', { type: 'button' }, icon('languages', 16), 'Translate');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const d = openDialog({ title: 'Translate captions', body: h('div.cap-form', h('p.dialog-text', `${clips.length} caption${clips.length === 1 ? '' : 's'} will be translated with Puter AI.`), lang.el, h('div.field', h('span.field-label', 'Put the translation'), how.el), status), actions: [cancel, go], className: 'small' });
   let abort = null;
-  cancel.addEventListener('click', () => {
-    abort?.abort();
-    d.close();
-  });
+  // However the dialog closes (Cancel, Escape, the X, the backdrop), stop translating.
+  const d = openDialog({ title: 'Translate captions', body: h('div.cap-form', h('p.dialog-text', `${clips.length} caption${clips.length === 1 ? '' : 's'} will be translated with Puter AI.`), lang.el, h('div.field', h('span.field-label', 'Put the translation'), how.el), status), actions: [cancel, go], className: 'small', onClose: () => abort?.abort() });
+  cancel.addEventListener('click', () => d.close());
   go.addEventListener('click', async () => {
     if (abort) return;
     abort = new AbortController();
@@ -689,7 +687,9 @@ function openTranslate(ctx) {
     setPref('translateMode', mode);
     const label = targets.find((l) => l.value === target)?.label || target;
     try {
-      const lines = await translateLines(clips.map((c) => c.text), label, { signal: abort.signal, onProgress: (f) => (status.textContent = `Translating... ${Math.round(f * 100)}%`) });
+      const { signal } = abort;
+      const lines = await translateLines(clips.map((c) => c.text), label, { signal, onProgress: (f) => (status.textContent = `Translating... ${Math.round(f * 100)}%`) });
+      if (signal.aborted) return;
       const byId = new Map(clips.map((c, i) => [c.id, lines[i]]));
       store.update('Translate captions', (p) => {
         if (mode === 'track') {

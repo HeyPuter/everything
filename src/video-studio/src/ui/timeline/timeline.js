@@ -69,6 +69,9 @@ export function createTimeline(ctx) {
   let contentH = 0; // laid-out height of the tracks area, kept so the playhead never forces a layout
   let canvasQueued = false;
   let activeId = null; // roving focus clip
+  // The clip the last mouse press landed on: the press captures the pointer to
+  // the lanes, so the click and dblclick that follow are aimed at them, not the clip.
+  let pressedId = null;
   const clipEls = new Map();
   // Multi-camera clips on screen: their label names the angle at the playhead.
   let multicams = [];
@@ -232,7 +235,7 @@ export function createTimeline(ctx) {
   }
 
   function headerWidth() {
-    return headers.offsetWidth || 92;
+    return headers.offsetWidth || 98;
   }
 
   // ---- Layout -----------------------------------------------------------
@@ -248,6 +251,15 @@ export function createTimeline(ctx) {
     return y - TRACK_GAP + GAP_BOTTOM;
   }
 
+  /** Each row's track name: its own, or "Base track", "Text track 2"... */
+  function trackNames() {
+    const counts = {};
+    return rows.map(({ track }) => {
+      counts[track.kind] = (counts[track.kind] || 0) + 1;
+      return track.name || (track.main ? 'Base track' : `${TRACK_NAME[track.kind]} track ${counts[track.kind]}`);
+    });
+  }
+
   let headerSig = '';
   function renderHeaders(totalH) {
     const anySolo = store.project.tracks.some((t) => t.solo);
@@ -255,10 +267,9 @@ export function createTimeline(ctx) {
     headers.style.height = `${totalH}px`;
     if (sig === headerSig) return;
     headerSig = sig;
-    const counts = {};
-    headers.replaceChildren(...rows.map(({ track, y, h: hgt }) => {
-      counts[track.kind] = (counts[track.kind] || 0) + 1;
-      const name = track.name || (track.main ? 'Base track' : `${TRACK_NAME[track.kind]} track ${counts[track.kind]}`);
+    const names = trackNames();
+    headers.replaceChildren(...rows.map(({ track, y, h: hgt }, i) => {
+      const name = names[i];
       track._label = name;
       const btn = (prop, on, off, labelOn, labelOff) => {
         const b = h('button.icon-btn.small', { type: 'button', 'aria-pressed': String(Boolean(track[prop])), 'aria-label': `${track[prop] ? labelOff : labelOn} ${name}`, 'data-tip': track[prop] ? labelOff : labelOn }, icon(track[prop] ? on : off, 14));
@@ -290,7 +301,7 @@ export function createTimeline(ctx) {
         actions.renameTrack(track.id);
       });
       if (track.main) {
-        const cover = h('button.tl-cover', { type: 'button', 'aria-label': 'Set thumbnail to the frame at the playhead', 'data-tip': 'Use the frame at the playhead as the project thumbnail' }, icon('pencil', 12), h('span', 'Cover'));
+        const cover = h('button.tl-cover', { type: 'button', 'aria-label': 'Cover: use the frame at the playhead as the project thumbnail', 'data-tip': 'Use the frame at the playhead as the project thumbnail' }, icon('pencil', 12), h('span', 'Cover'));
         cover.addEventListener('click', () => {
           store.update('Set thumbnail', (p) => {
             p.cover = { time: store.time };
@@ -331,9 +342,13 @@ export function createTimeline(ctx) {
     return [xToTime(left), xToTime(right)];
   }
 
-  function clipAria(clip, track) {
-    const label = T.clipLabel(store.project, clip);
-    const bits = [`${TYPE_LABEL[clip.type]}: ${label}`, `starts at ${spokenDuration(clip.start)}`, `length ${spokenDuration(clip.duration)}`];
+  /**
+   * A clip's spoken name. It starts with the text shown on the clip (name,
+   * length, badges), so speech input and screen readers match what is seen.
+   */
+  function clipAria(clip, track, e) {
+    const visible = [e.name.textContent, e.dur.textContent, e.badges.textContent].filter(Boolean).join(' ');
+    const bits = [visible, TYPE_LABEL[clip.type], `starts at ${spokenDuration(clip.start)}`, `length ${spokenDuration(clip.duration)}`];
     if (track.main) bits.push('base track');
     if (hasCurve(clip)) bits.push('speed curve');
     else if (clip.speed && clip.speed !== 1) bits.push(`speed ${clip.speed}x`);
@@ -354,7 +369,8 @@ export function createTimeline(ctx) {
       const node = h('div.tl-clip', { role: 'option', tabindex: '-1', 'data-id': clip.id },
         cv,
         cuts,
-        h('div.clip-head', h('span.clip-type', icon(iconForClip(clip), 12)), name, dur, badges),
+        // The spaces are not laid out (flex) but keep the words apart in the clip's text.
+        h('div.clip-head', h('span.clip-type', icon(iconForClip(clip), 12)), name, ' ', dur, ' ', badges),
         kf,
         h('div.clip-trim.l', { 'data-edge': 'start', 'aria-hidden': 'true' }),
         h('div.clip-trim.r', { 'data-edge': 'end', 'aria-hidden': 'true' }),
@@ -372,6 +388,10 @@ export function createTimeline(ctx) {
 
   function render(force = false) {
     renderQueued = false;
+    // The clip with keyboard focus, to keep focus in the timeline if its node goes.
+    const focusedNode = document.activeElement?.closest?.('.tl-clip');
+    const focusedId = focusedNode && tracksEl.contains(focusedNode) ? focusedNode.dataset.id : null;
+    const focusedAt = focusedId ? clipEls.get(focusedId)?.at : null;
     const totalH = computeRows();
     contentH = totalH;
     const dur = store.duration;
@@ -390,27 +410,28 @@ export function createTimeline(ctx) {
     // Track rows (lanes).
     let lanes = tracksEl.querySelectorAll(':scope > .tl-lane');
     if (lanes.length !== rows.length || force || [...lanes].some((l, i) => l.dataset.track !== rows[i].track.id)) {
-      const counts = {};
-      tracksEl.replaceChildren(...rows.map(({ track, y, h: hgt }) => {
-        counts[track.kind] = (counts[track.kind] || 0) + 1;
-        const name = track.main ? 'Base track' : `${TRACK_NAME[track.kind]} track ${counts[track.kind]}`;
-        return h(`div.tl-lane.kind-${track.kind}${track.main ? '.main' : ''}`, { role: 'listbox', 'aria-label': name, 'aria-multiselectable': 'true', 'aria-orientation': 'horizontal', 'data-track': track.id, style: { top: `${y}px`, height: `${hgt}px` } });
-      }));
+      tracksEl.replaceChildren(...rows.map(({ track, y, h: hgt }) => h(`div.tl-lane.kind-${track.kind}${track.main ? '.main' : ''}`, { role: 'listbox', 'aria-multiselectable': 'true', 'aria-orientation': 'horizontal', 'data-track': track.id, style: { top: `${y}px`, height: `${hgt}px` } })));
       lanes = tracksEl.querySelectorAll(':scope > .tl-lane');
       clipEls.forEach((v) => v.node.remove());
     }
+    const names = trackNames();
     rows.forEach((row, i) => {
       const lane = lanes[i];
       lane.style.top = `${row.y}px`;
       lane.style.height = `${row.h}px`;
+      // The same name as its header, a renamed track's own included.
+      const name = names[i];
+      if (lane.getAttribute('aria-label') !== name) lane.setAttribute('aria-label', name);
       lane.classList.toggle('locked', row.track.locked);
       lane.classList.toggle('hidden-track', row.track.hidden);
       for (const clip of row.track.clips) {
         live.add(clip.id);
         const visible = T.clipEnd(clip) >= t0 && clip.start <= t1;
-        if (!visible && !store.selection.has(clip.id) && clip.id !== activeId) continue;
+        // Off-screen clips are only kept while dragged (they move into view with the drag).
+        if (!visible && !drag?.ids?.has(clip.id) && clip.id !== activeId) continue;
         keep.add(clip.id);
         const e = clipEl(clip, row.track);
+        e.at = { track: row.track.id, start: clip.start };
         if (e.node.parentNode !== lane) lane.append(e.node);
         const x = timeToX(clip.start);
         const w = Math.max(2, (clip.duration / US) * pps);
@@ -442,7 +463,7 @@ export function createTimeline(ctx) {
           if (clip.group) badges.push(h('span.badge', { title: 'Grouped' }, icon('group', 10)));
           if (clip.disabled) badges.push(h('span.badge', { title: 'Disabled' }, icon('powerOff', 10)));
           e.badges.replaceChildren(...badges);
-          e.node.setAttribute('aria-label', clipAria(clip, row.track));
+          e.node.setAttribute('aria-label', clipAria(clip, row.track, e));
         }
         if (clip.multicam || e.cutSig) renderCuts(e, clip);
         // Keyframe diamonds for the selected clip.
@@ -459,6 +480,7 @@ export function createTimeline(ctx) {
         if (!live.has(id)) clipEls.delete(id);
       }
     }
+    if (focusedId && document.activeElement !== clipEls.get(focusedId)?.node) keepFocus(focusedId, focusedAt);
     renderTransitions(t0, t1);
     const range = store.project.range;
     rangeEl.hidden = !range;
@@ -469,6 +491,30 @@ export function createTimeline(ctx) {
     ruler.setAttribute('aria-valuemax', String(Math.round(dur / US)));
     queueCanvases();
     notifyView();
+  }
+
+  /**
+   * The focused clip's node was rebuilt or its clip is gone (deleted, cut,
+   * nested, undone): focus it again, or the clip now in its place on its
+   * track, so keyboard users stay in the timeline instead of on the page.
+   */
+  function keepFocus(id, at) {
+    let target = T.findClip(store.project, id) ? id : null;
+    if (!target && at) {
+      const track = T.findTrack(store.project, at.track) || T.mainTrack(store.project);
+      const clips = track?.clips || [];
+      target = (clips.find((c) => T.clipEnd(c) > at.start) || clips.at(-1))?.id || null;
+    }
+    if (!target) {
+      tracksEl.focus({ preventScroll: true });
+      return;
+    }
+    activeId = target;
+    if (!clipEls.get(target)?.node.isConnected) render();
+    const node = clipEls.get(target)?.node;
+    if (!node?.isConnected) return;
+    node.tabIndex = 0;
+    node.focus({ preventScroll: true });
   }
 
   /** Clip name, plus the angle showing at the playhead on a multi-camera clip. */
@@ -483,7 +529,10 @@ export function createTimeline(ctx) {
     for (const clip of multicams) {
       const e = clipEls.get(clip.id);
       const text = clipText(clip);
-      if (e && e.name.textContent !== text) e.name.textContent = text;
+      if (!e || e.name.textContent === text) continue;
+      e.name.textContent = text;
+      const track = T.findClip(store.project, clip.id)?.track;
+      if (track) e.node.setAttribute('aria-label', clipAria(clip, track, e));
     }
   }
 
@@ -512,6 +561,8 @@ export function createTimeline(ctx) {
         const b = clips[i + 1];
         const cut = T.clipEnd(a);
         if (Math.abs(b.start - cut) > 2000) continue;
+        // Only cuts a transition can go on (not next to compound clips or graphics).
+        if (!a.transition && ((a.type !== 'video' && a.type !== 'image') || b.type === 'compound')) continue;
         const id = a.id;
         let chip = trChips.get(id);
         if ((cut < t0 || cut > t1) && store.transition !== id && !(chip && chip === document.activeElement)) continue;
@@ -520,6 +571,7 @@ export function createTimeline(ctx) {
         keep.add(id);
         if (!chip) {
           chip = h('button.tl-transition', { type: 'button' }, icon('transition', 12));
+          chip.addEventListener('pointerdown', (e) => chipDown(e, id));
           chip.addEventListener('click', (e) => {
             e.stopPropagation();
             const clip = T.findClip(store.project, id)?.clip;
@@ -556,12 +608,65 @@ export function createTimeline(ctx) {
     }
   }
 
+  /**
+   * The transition chip sits on the trim grips of the clips either side of
+   * its cut. A click is the chip's; a drag trims the edge on the side it
+   * started (the right clip's start, or the left clip's end), as the grip would.
+   */
+  function chipDown(e, aId) {
+    if (e.button !== 0 || tool === 'split' || drag || touchDrag) return;
+    const a = T.findClip(store.project, aId);
+    const b = a && T.nextAdjacent(store.project, aId);
+    if (!b) return;
+    const p0 = contentPoint(e);
+    const left = p0.x < timeToX(T.clipEnd(a.clip));
+    const id = left ? aId : b.id;
+    const f = T.findClip(store.project, id);
+    // On touch only the selected clip's grips trim (see touchDown).
+    if (f.track.locked || (e.pointerType === 'touch' && !store.selection.has(id))) return;
+    const chip = e.currentTarget;
+    try {
+      chip.setPointerCapture(e.pointerId);
+    } catch {
+      /* the pointer already ended */
+    }
+    const off = () => {
+      chip.removeEventListener('pointermove', move);
+      chip.removeEventListener('pointerup', off);
+      chip.removeEventListener('pointercancel', off);
+    };
+    const move = (ev) => {
+      if (ev.pointerId !== e.pointerId || Math.abs(contentPoint(ev).x - p0.x) < 3) return;
+      off();
+      if (!store.selection.has(id)) store.select(e.altKey ? [id] : T.groupMembers(store.project, id));
+      activeId = id;
+      if (e.pointerType === 'touch') holdTouch(e.pointerId);
+      else tracksEl.setPointerCapture(e.pointerId);
+      startTrim(e, id, left ? 'end' : 'start', p0);
+      drag.move(ev);
+    };
+    chip.addEventListener('pointermove', move);
+    chip.addEventListener('pointerup', off);
+    chip.addEventListener('pointercancel', off);
+  }
+
   function placePlayhead() {
     const t = store.time;
     playhead.style.transform = `translateX(${timeToX(t)}px)`;
     playhead.style.height = `${contentH || 200}px`;
     ruler.setAttribute('aria-valuenow', String(Math.round(t / US)));
     ruler.setAttribute('aria-valuetext', timecode(t, store.fps));
+  }
+
+  // How far the playhead handle reaches right of the playhead line (measured once per resize).
+  let capRight = null;
+  function capReach() {
+    if (capRight === null) {
+      const cap = playhead.querySelector('.tl-playhead-cap');
+      const w = cap.offsetWidth;
+      capRight = w ? w + (parseFloat(getComputedStyle(cap).marginLeft) || 0) : 7;
+    }
+    return capRight;
   }
 
   function drawRulerNow() {
@@ -575,6 +680,7 @@ export function createTimeline(ctx) {
       fps: store.fps,
       markers: store.project.markers,
       range: store.project.range || null,
+      startLabelX: capReach() + 3,
       colors: {
         major: cssVar(el, '--ruler', '#888'),
         minor: cssVar(el, '--border-strong', '#444'),
@@ -786,6 +892,7 @@ export function createTimeline(ctx) {
     const clipNode = e.target.closest('.tl-clip');
     const p = contentPoint(e);
     if (e.button === 2) return; // context menu handles it
+    pressedId = clipNode?.dataset.id ?? null;
     if (!clipNode) {
       // Empty area: seek and start a marquee. Focus stays where the view is.
       // (The browser focuses the lanes again on the mousedown that follows.)
@@ -942,7 +1049,7 @@ export function createTimeline(ctx) {
     const exclude = new Set(moving);
     drag = { type: 'move', ids: exclude, cls: '', move: (ev) => move(ev), last: null };
     const points = T.snapPoints(store.project, { exclude, playhead: store.time });
-    const nodes = moving.map((mid) => clipEls.get(mid)?.node).filter(Boolean);
+    let nodes = [];
     const origStart = clip.start;
     const startRow = rows.find((r) => r.track === track);
     let minStart = origStart;
@@ -956,6 +1063,9 @@ export function createTimeline(ctx) {
       autoScroll(ev); // reads layout, so before the writes below
       if (!moved) {
         moved = true;
+        // Builds the off-screen moving clips too (drag.ids keeps them), then holds them all.
+        render();
+        nodes = moving.map((mid) => clipEls.get(mid)?.node).filter(Boolean);
         drag.cls = 'dragging';
         player.pause();
         nodes.forEach((n) => n.classList.add('dragging'));
@@ -1286,7 +1396,8 @@ export function createTimeline(ctx) {
     const at = (ev) => {
       const r = content.getBoundingClientRect();
       let t = xToTime(ev.clientX - r.left);
-      if (store.toggles.snap && !ev.altKey) {
+      // Alt flips snapping, as when dragging clips, trims and markers.
+      if (store.toggles.snap !== ev.altKey) {
         const pts = T.snapPoints(store.project, {});
         const s = T.snap(t, pts, snapThreshold());
         if (s.snapped) t = s.time;
@@ -1555,8 +1666,8 @@ export function createTimeline(ctx) {
   }
 
   tracksEl.addEventListener('dblclick', (e) => {
-    const node = e.target.closest('.tl-clip');
-    const c = node && T.findClip(store.project, node.dataset.id)?.clip;
+    const id = e.target.closest('.tl-clip')?.dataset.id ?? (e.target === tracksEl ? pressedId : null);
+    const c = id && T.findClip(store.project, id)?.clip;
     if (c?.type === 'compound') actions.openCompound(c.id);
   });
 
@@ -1583,7 +1694,7 @@ export function createTimeline(ctx) {
       e.preventDefault();
       e.stopPropagation();
       const d = (e.key === 'ArrowRight' ? 1 : -1) * fr * (e.shiftKey ? 10 : 1);
-      store.update('Nudge clip', (p) => T.moveClip(p, id, { start: Math.max(0, f.clip.start + d), trackId: f.track.id }, { ...store.opts, with: store.selectedIds }), { coalesce: `nudge:${id}` });
+      store.update('Nudge clip', (p) => T.nudgeClips(p, id, d, { ...store.opts, with: store.selectedIds }), { coalesce: `nudge:${id}` });
       return;
     }
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -1629,6 +1740,9 @@ export function createTimeline(ctx) {
   let pointerFocus = false;
   tracksEl.addEventListener('focus', (e) => {
     if (e.target !== tracksEl) return;
+    // Shift+Tab from a clip lands here on the way out: leave it here, or focus could never leave.
+    // (A click on empty track space still moves focus to a clip.)
+    if (!pointerFocus && e.relatedTarget && tracksEl.contains(e.relatedTarget)) return;
     const sel = store.selectedIds[0];
     const first = sel || T.mainTrack(store.project)?.clips[0]?.id || T.allClips(store.project)[0]?.id;
     if (!first) return;
@@ -1659,16 +1773,16 @@ export function createTimeline(ctx) {
       const target = y !== undefined ? dropTarget(kind, y) : null;
       if (target?.row) trackId = target.row.track.id;
       const main = Boolean(target?.row?.track.main) || (!target && kind === 'video' && T.mainTrack(store.project).clips.length === 0);
-      if (target?.newTrackAt !== undefined) {
-        // A fresh track at that spot.
+      // A fresh track at that spot, made in the same undo step as the clip on it.
+      const mark = target?.newTrackAt !== undefined ? store.beginBatch() : null;
+      if (mark) {
         store.update(`Add ${a.name}`, (p) => {
           const tr = T.addTrack(p, kind, target.newTrackAt);
           trackId = tr.id;
         }, { keepEmptyTracks: true });
-        const last = store.history.undoStack.pop();
-        void last;
       }
-      actions.addAsset(a, { start: t, trackId: main ? undefined : trackId ?? (kind === 'video' ? null : undefined), main });
+      const added = actions.addAsset(a, { start: t, trackId: main ? undefined : trackId ?? (kind === 'video' ? null : undefined), main });
+      if (mark) store.endBatch(mark, added ? `Add ${a.name}` : 'Add track');
       return;
     }
     if (d.kind === 'transition') {
@@ -1678,7 +1792,7 @@ export function createTimeline(ctx) {
       let best = null;
       let bestD = Infinity;
       for (const c of track.clips) {
-        if (!T.nextAdjacent(store.project, c.id)) continue;
+        if (!T.canTransition(store.project, c)) continue;
         const dd = Math.abs(T.clipEnd(c) - t);
         if (dd < bestD) {
           best = c;
@@ -1734,12 +1848,8 @@ export function createTimeline(ctx) {
       if (s.snapped) t = s.time;
     }
     if (e.dataTransfer.files?.length) {
-      const assets = await actions.importFiles([...e.dataTransfer.files]);
-      let at = t;
-      for (const a of assets) {
-        const c = actions.addAsset(a, { start: at });
-        if (c) at = c.start + c.duration;
-      }
+      // One after another from the drop point, as one undo step.
+      actions.addAssets(await actions.importFiles([...e.dataTransfer.files]), { start: t });
       return;
     }
     dropPayload(e.dataTransfer.getData('application/x-video-studio'), { start: t, y: p.y, clipId: e.target.closest?.('.tl-clip')?.dataset.id });
@@ -1781,6 +1891,8 @@ export function createTimeline(ctx) {
       queueRender();
       syncButtons();
     }),
+    // Steps folded together (one undo for several edits) change the Undo label.
+    store.on('history', syncButtons),
     store.on('toggles', syncToggles),
     store.on('nest', () => {
       const depth = store.nest.length;
@@ -1811,6 +1923,7 @@ export function createTimeline(ctx) {
   }
 
   const ro = new ResizeObserver(() => {
+    capRight = null;
     if (centered && updateLead()) {
       render(true);
       centerOn(store.time);

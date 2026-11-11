@@ -14,7 +14,7 @@ import {
   FlacOutputFormat, CanvasSource, AudioSampleSource, AudioSample, Quality, Input, BlobSource, ALL_FORMATS,
   VideoSampleSink, canEncodeVideo, canEncodeAudio,
 } from 'mediabunny';
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 import { projectDuration } from '../model/timeline.js';
 import { Compositor } from './compositor.js';
 import { ensureLuts } from './luts.js';
@@ -65,6 +65,10 @@ export const AUDIO_FORMATS = {
   ogg: { label: 'OGG (Opus)', ext: 'ogg', mime: 'audio/ogg', codec: 'opus' },
   flac: { label: 'FLAC', ext: 'flac', mime: 'audio/flac', codec: 'flac' },
 };
+
+/** Longest sound a WAV export holds: its header counts bytes in 32 bits (4 GB, about 6.2 h of 48 kHz stereo). */
+export const WAV_MAX_US = Math.floor(((Math.floor((0xffffffff - 36) / 4) - 1) / 48000) * 1e6);
+export const WAV_TOO_LONG = 'A WAV file can hold at most about 6 hours of sound. Choose M4A or OGG, or export a shorter part.';
 
 /** Default container for a codec (when the codec is chosen first). */
 export const CODEC_HOME = { avc: 'mp4', hevc: 'mp4', av1: 'mp4', vp9: 'webm' };
@@ -268,7 +272,7 @@ async function preloadFonts(project) {
  * keep the latest sample at or before the wanted time and the one after it
  * (smooth slow motion draws between the two), close the rest.
  */
-class ClipFrames {
+export class ClipFrames {
   constructor(clip, track) {
     this.clip = clip;
     this.track = track;
@@ -304,10 +308,9 @@ class ClipFrames {
       this.cur = await this._pull();
       this.next = await this._pull();
     }
-    // Timeline times are whole microseconds and a clip's speed multiplies their
-    // rounding (3x lands 1-2 us short of a frame); 0.1 ms is far below any frame interval.
-    const eps = 1e-4;
-    while (this.next && this.next.timestamp <= sec + eps) {
+    // Timeline times are whole microseconds (a clip's speed multiplies their rounding)
+    // and some containers round frame times to milliseconds: see FRAME_SLACK.
+    while (this.next && this.next.timestamp <= sec + FRAME_SLACK) {
       this.cur?.close();
       this.cur = this.next;
       this.next = await this._pull();
@@ -598,6 +601,33 @@ async function measureDelay(codec, sampleRate, numberOfChannels) {
 
 const LARGE_OUTPUT = 400 * 1024 * 1024;
 const liveFiles = new Set(); // temp export files still referenced by a result
+const FILE_LOCK = 'video-studio-export:';
+
+/**
+ * Hold a Web Lock named after a temp export file while this tab may still
+ * read it; resolves to a function that lets it go. Other tabs (and later
+ * sessions) only delete files whose lock is free.
+ */
+async function holdFile(name) {
+  if (!navigator.locks?.request) return () => {};
+  let release = null;
+  await new Promise((held) => {
+    navigator.locks.request(FILE_LOCK + name, () => new Promise((r) => {
+      release = r;
+      held();
+    })).catch(() => held());
+  });
+  return () => release?.();
+}
+
+/** Whether a temp export file is a leftover no open tab still uses. */
+async function abandoned(name) {
+  if (liveFiles.has(name)) return false;
+  if (navigator.locks?.request) return navigator.locks.request(FILE_LOCK + name, { ifAvailable: true }, (lock) => Boolean(lock)).catch(() => false);
+  // Without Web Locks, only files from a day ago and more (the name carries the time).
+  const made = Number(/^export-(\d+)-/.exec(name)?.[1]);
+  return !Number.isFinite(made) || Date.now() - made > 24 * 3600 * 1000;
+}
 
 /**
  * Where encoded bytes go: memory for normal sizes, a temporary file in the
@@ -606,13 +636,16 @@ const liveFiles = new Set(); // temp export files still referenced by a result
 async function openTarget(estimated, force) {
   const wantFile = force === 'file' || (force !== 'memory' && estimated > LARGE_OUTPUT);
   if (wantFile && navigator.storage?.getDirectory) {
+    let name = null;
+    let unlock = () => {};
     try {
       const root = await navigator.storage.getDirectory();
       const dir = await root.getDirectoryHandle('video-studio-exports', { create: true });
-      // Leftovers from earlier sessions.
-      for await (const old of dir.keys()) if (!liveFiles.has(old)) await dir.removeEntry(old).catch(() => {});
-      const name = `export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.bin`;
+      // Leftovers from earlier sessions; files another tab is still using stay.
+      for await (const old of dir.keys()) if (await abandoned(old)) await dir.removeEntry(old).catch(() => {});
+      name = `export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.bin`;
       liveFiles.add(name);
+      unlock = await holdFile(name);
       const handle = await dir.getFileHandle(name, { create: true });
       if (handle.createWritable) {
         const writable = await handle.createWritable();
@@ -627,11 +660,16 @@ async function openTarget(estimated, force) {
             await writable.abort?.().catch(() => {});
             await dir.removeEntry(name).catch(() => {});
             liveFiles.delete(name);
+            unlock();
           },
         };
       }
     } catch {
       /* fall back to memory */
+    }
+    if (name) {
+      liveFiles.delete(name);
+      unlock();
     }
   }
   const target = new BufferTarget();
@@ -810,6 +848,8 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
     return { kind: 'audio', blob, release: () => sink?.discard(), fileName: `${base}.${f.ext}`, mimeType: f.mime, frames: 0, duration, elapsed };
   };
   if (!f.codec) {
+    // A longer file's sizes would overflow the header and players would cut it short.
+    if (duration > WAV_MAX_US) throw new Error(WAV_TOO_LONG);
     const totalFrames = Math.round((duration * sampleRate) / US);
     const parts = [wavHeader(totalFrames, channels, sampleRate)];
     for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report })) {

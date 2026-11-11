@@ -177,6 +177,17 @@ export function setKey(keyframes, prop, t, v, easeName = 'linear', tolerance = 0
   return keyframes;
 }
 
+/**
+ * Before the only key of prop is removed: its value becomes the unkeyed
+ * value, so the clip keeps looking the same instead of jumping back to a
+ * value set before it was animated. Text color keys (style.colorR/G/B)
+ * are left to the text inspector, which keeps the color as a whole.
+ */
+export function keepLastKeyValue(clip, prop) {
+  const keys = clip.keyframes?.[prop];
+  if (keys?.length === 1 && !prop.startsWith('style.')) setBaseValue(clip, prop, keys[0].v);
+}
+
 export function removeKey(keyframes, prop, t, tolerance = 0) {
   const keys = keyframes[prop];
   if (!keys) return keyframes;

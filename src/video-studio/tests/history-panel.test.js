@@ -38,4 +38,41 @@ describe('history panel', () => {
     panel.dispose();
     panel.el.remove();
   });
+
+  it('keeps keyboard focus on the chosen step and gives it back on Escape', () => {
+    const store = new EditorStore(fixture());
+    store.update('Rename A', (p) => void (p.name = 'A'), { structural: false });
+    store.update('Rename B', (p) => void (p.name = 'B'), { structural: false });
+    const panel = createHistoryPanel({ store });
+    const opener = Object.assign(document.createElement('button'), { textContent: 'Edit' });
+    document.body.append(opener, panel.el);
+    opener.focus();
+    panel.toggle(true);
+    // Opening puts focus on the current step.
+    expect(document.activeElement.classList.contains('current')).toBe(true);
+    const steps = () => [...panel.el.querySelectorAll('.history-step')];
+    steps()[1].focus();
+    steps()[1].click();
+    expect(store.project.name).toBe('A');
+    // The list was rebuilt; focus stays on the step that was chosen, not the page.
+    expect(document.activeElement).toBe(steps()[1]);
+    expect(document.activeElement.classList.contains('current')).toBe(true);
+    // Up and down move between steps without going to them.
+    const key = (k) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    key('ArrowDown');
+    expect(document.activeElement).toBe(steps()[2]);
+    key('ArrowDown');
+    expect(document.activeElement).toBe(steps()[2]);
+    key('Home');
+    expect(document.activeElement).toBe(steps()[0]);
+    key('ArrowUp');
+    expect(document.activeElement).toBe(steps()[0]);
+    expect(store.project.name).toBe('A');
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(panel.el.hidden).toBe(true);
+    expect(document.activeElement).toBe(opener);
+    panel.dispose();
+    panel.el.remove();
+    opener.remove();
+  });
 });

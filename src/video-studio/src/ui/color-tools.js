@@ -282,9 +282,11 @@ export function sampleAt(px, u, v, radius = 2) {
 /**
  * Eyedropper on the player: the next click on the preview picks the color
  * there (as the clip looks before its HSL step). onPick([r, g, b]) or
- * onCancel() (Escape or a click outside the picture). Returns a cancel function.
+ * onCancel() (Escape or a click outside the picture). alive() false (the
+ * control that started it is gone) or the clip no longer selected ends it
+ * quietly, leaving the next click to the player. Returns a cancel function.
  */
-export function pickFromPlayer(ctx, clipId, { onPick, onCancel } = {}) {
+export function pickFromPlayer(ctx, clipId, { onPick, onCancel, alive } = {}) {
   const canvas = ctx.player?.canvas;
   const stage = canvas?.closest?.('.player-stage');
   if (!stage) {
@@ -294,14 +296,21 @@ export function pickFromPlayer(ctx, clipId, { onPick, onCancel } = {}) {
   stage.classList.add('eyedropper-active');
   announce('Click the preview to pick a color. Press Escape to cancel.');
   let done = false;
+  const offs = [];
   const finish = () => {
     done = true;
     stage.classList.remove('eyedropper-active');
     stage.removeEventListener('pointerdown', down, true);
     document.removeEventListener('keydown', key, true);
+    offs.forEach((off) => off());
   };
+  const stale = () => (alive && !alive()) || (ctx.store && !ctx.store.selectedIds.includes(clipId));
   const down = (e) => {
     if (e.button !== 0) return;
+    if (stale()) {
+      finish();
+      return;
+    }
     e.preventDefault();
     e.stopImmediatePropagation();
     const r = canvas.getBoundingClientRect();
@@ -319,6 +328,10 @@ export function pickFromPlayer(ctx, clipId, { onPick, onCancel } = {}) {
   };
   const key = (e) => {
     if (e.key !== 'Escape') return;
+    if (stale()) {
+      finish();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     finish();
@@ -326,6 +339,11 @@ export function pickFromPlayer(ctx, clipId, { onPick, onCancel } = {}) {
   };
   stage.addEventListener('pointerdown', down, true);
   document.addEventListener('keydown', key, true);
+  // Another clip selected, or this one removed: stop picking.
+  const check = () => {
+    if (!done && stale()) finish();
+  };
+  if (ctx.store?.on) offs.push(ctx.store.on('select', check), ctx.store.on('change', check));
   return () => {
     if (done) return;
     finish();

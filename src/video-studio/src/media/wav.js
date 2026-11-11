@@ -47,6 +47,47 @@ export function wavBytes(channels, sampleRate) {
   return buf;
 }
 
+/** The 44-byte header of a 16-bit PCM WAV file holding frames sample frames. */
+export function wavHeader(frames, numCh, rate) {
+  const dataBytes = frames * numCh * 2;
+  const v = new DataView(new ArrayBuffer(44));
+  const str = (off, s) => {
+    for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i));
+  };
+  str(0, 'RIFF');
+  v.setUint32(4, 36 + dataBytes, true);
+  str(8, 'WAVE');
+  str(12, 'fmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, numCh, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * numCh * 2, true);
+  v.setUint16(32, numCh * 2, true);
+  v.setUint16(34, 16, true);
+  str(36, 'data');
+  v.setUint32(40, dataBytes, true);
+  return new Uint8Array(v.buffer);
+}
+
+/**
+ * Write channels[c][from..to) as interleaved 16-bit samples into out at
+ * index at, for numCh output channels (a missing channel repeats the last
+ * one), as wavBytes does. For writing long files piece by piece after a
+ * wavHeader. Returns the index after the last sample written.
+ */
+export function writePcm16(out, at, channels, from, to, numCh = channels.length) {
+  const frames = Math.max(0, to - from);
+  for (let c = 0; c < numCh; c++) {
+    const src = channels[Math.min(c, channels.length - 1)];
+    for (let i = 0, j = at + c; i < frames; i++, j += numCh) {
+      const s = src[from + i];
+      out[j] = s >= 1 ? 32767 : s <= -1 ? -32768 : s < 0 ? Math.round(s * 32768) : s > 0 ? Math.round(s * 32767) : 0;
+    }
+  }
+  return at + frames * numCh;
+}
+
 /** Same as wavBytes, wrapped in a Blob of type audio/wav. */
 export function encodeWav(channels, sampleRate) {
   return new Blob([wavBytes(channels, sampleRate)], { type: 'audio/wav' });

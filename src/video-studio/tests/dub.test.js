@@ -138,6 +138,26 @@ describe('dub dialog', () => {
     expect(store.history.undoLabel).toBe('Dub into Spanish');
   });
 
+  it('speaks and translates only the captions that show', async () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 10));
+    const off = clip('text', 0, 1, { text: 'Off.', caption: true, disabled: true });
+    const shown = clip('text', 3, 1, { text: 'Shown.', caption: true });
+    addClip(p, off, { ripple: false, linkOverlays: false });
+    addClip(p, shown, { ripple: false, linkOverlays: false });
+    const store = new EditorStore(p);
+    const actions = { importFiles: async (files) => files.map((f, i) => (store.project.assets[`sp${i}`] = { id: `sp${i}`, kind: 'audio', name: f.name, duration: s(1), hasAudio: true })) };
+    const spoken = [];
+    const d = openDubDialog({ store, actions }, { translate: async (lines) => lines.map((l) => `ES ${l}`), speak: async (t) => (spoken.push(t), new Blob(['x'], { type: 'audio/mpeg' })) });
+    d.el.querySelector('[role=switch], input[type=checkbox]')?.click();
+    [...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Dub').click();
+    await vi.waitFor(() => expect(d.el.isConnected).toBe(false));
+    expect(spoken).toEqual(['ES Shown.']);
+    const texts = Object.fromEntries(allClips(store.project).filter((c) => c.type === 'text').map((c) => [c.id, c.text]));
+    expect(texts[off.id]).toBe('Off.');
+    expect(texts[shown.id]).toBe('ES Shown.');
+  });
+
   it('stops dubbing when the dialog is closed with Escape, the close button or the backdrop', async () => {
     for (const how of ['escape', 'x', 'backdrop', 'while adding']) {
       document.body.replaceChildren();

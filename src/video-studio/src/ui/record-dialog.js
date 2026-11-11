@@ -14,7 +14,7 @@ import { prefs, setPref } from './prefs.js';
 import { createTeleprompter } from './teleprompter.js';
 import {
   RESOLUTIONS, cameraSupported, screenSupported, listDevices, openCamera, openMic, openScreen, stopStream, mixStreams,
-  captureErrorMessage, VideoRecorder, extForVideoMime,
+  captureErrorMessage, VideoRecorder, extForVideoMime, nextTakeNumber,
 } from '../media/capture.js';
 import '../styles/audio.css';
 import '../styles/panels.css';
@@ -45,6 +45,14 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   let tick = 0;
   let opening = 0;
   const recorder = new VideoRecorder();
+  // The camera or the shared screen went away mid-take (unplugged, sharing stopped): keep what was recorded.
+  recorder.onInterrupted = () => {
+    if (state !== 'recording' && state !== 'paused') return;
+    const camera = opts.mode === 'camera';
+    stopRecording().then(() => {
+      if (open && camera) showError('The camera stopped. Connect it and try again.');
+    });
+  };
 
   const message = h('div.vo-message', { role: 'alert', hidden: true });
   const video = h('video.rec-preview', { muted: true, playsInline: true, autoplay: true, 'aria-label': 'Recording preview' });
@@ -366,7 +374,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     }
     status.replaceChildren(h('span.spinner'), 'Saving the recording...');
     const base = opts.mode === 'camera' ? 'Camera' : 'Screen';
-    const n = Object.values(store.project.assets).filter((a) => new RegExp(`^${base} recording \\d+`).test(a.name)).length + 1;
+    const n = nextTakeNumber(store.project.assets, `${base} recording`);
     const file = new File([blob], `${base} recording ${n}.${extForVideoMime(blob.type)}`, { type: blob.type });
     const at = store.time;
     try {

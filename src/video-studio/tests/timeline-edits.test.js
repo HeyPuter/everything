@@ -198,6 +198,41 @@ describe('pasteClips', () => {
     expect(pasted.find((c) => c.type === 'text').start).toBe(s(8));
   });
 
+  it('moves titles already on the base clips the paste pushes along, once', () => {
+    const p = fixture();
+    const [a, b, c] = onMain(p, clip('video', 0, 2), clip('video', 2, 3), clip('video', 5, 4));
+    const onC = clip('text', 6, 1);
+    const onA = clip('text', 0.5, 1);
+    addClip(p, onC, FREE);
+    addClip(p, onA, FREE);
+    const items = [a, b].map((x) => ({ ...structuredClone(x), _main: true }));
+    pasteClips(p, items, s(5), RIPPLE);
+    expect(c.start).toBe(s(10));
+    expect(onC.start).toBe(s(11));
+    expect(onA.start).toBe(s(0.5));
+    expect(noOverlaps(p)).toBe(true);
+    // With overlay linking off they stay where they are.
+    const q = fixture();
+    const [qa, , qc] = onMain(q, clip('video', 0, 2), clip('video', 2, 3), clip('video', 5, 4));
+    const title = clip('text', 6, 1);
+    addClip(q, title, FREE);
+    pasteClips(q, [{ ...structuredClone(qa), _main: true }], s(5), { ripple: true, linkOverlays: false });
+    expect(qc.start).toBe(s(7));
+    expect(title.start).toBe(s(6));
+  });
+
+  it('pastes thousands of clips in one go, keeping every track in order', () => {
+    const p = fixture();
+    const src = [];
+    for (let i = 0; i < 2000; i++) src.push({ ...clip('image', i, 1), _main: true }, { ...clip('text', i + 0.25, 0.5), _main: false });
+    const pasted = pasteClips(p, src, 0, RIPPLE);
+    expect(pasted).toHaveLength(4000);
+    expect(mainTrack(p).clips).toHaveLength(2000);
+    expect(pasted.filter((c) => c.type === 'text').every((t, i) => t.start === s(i + 0.25))).toBe(true);
+    for (const t of p.tracks) expect(t.clips.every((c, i) => !i || c.start >= t.clips[i - 1].start)).toBe(true);
+    expect(noOverlaps(p)).toBe(true);
+  });
+
   it('skips clips whose media is no longer in the project', () => {
     const p = fixture();
     const orphan = clip('video', 0, 2, { assetId: 'gone' });
@@ -221,16 +256,41 @@ describe('setSpeed', () => {
     expect(c.keyframes.x.map((k) => k.t)).toEqual([s(2), s(8)]);
   });
 
-  it('ripples base clips with ripple but stops at the neighbor without it', () => {
+  it('ripples base clips with ripple, and without it moves the clips after it by the overlap', () => {
     const p = fixture();
-    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const [a, b, c] = onMain(p, clip('video', 0, 2), clip('video', 2, 2), clip('video', 10, 2));
     setSpeed(p, a.id, 0.5, RIPPLE);
-    expect(spans(mainTrack(p))).toEqual([[0, 4], [4, 2]]);
-    setSpeed(p, b.id, 0.25, FREE);
-    expect(b.duration).toBe(s(8));
-    setSpeed(p, a.id, 0.1, FREE); // would be 20 s, but B starts at 4 s
-    expect(a.duration).toBe(s(4));
+    expect(spans(mainTrack(p))).toEqual([[0, 4], [4, 2], [6, 2]]);
+    setSpeed(p, b.id, 0.25, FREE); // 8 s long: runs 2 s into C, which moves along
+    expect(spans(mainTrack(p))).toEqual([[0, 4], [4, 8], [12, 2]]);
+    setSpeed(p, a.id, 0.1, FREE); // 20 s: every clip after it moves 16 s later
+    expect(a.duration).toBe(s(20));
     expect(a.speed).toBe(0.1);
+    expect([b.start, c.start]).toEqual([s(20), s(28)]);
+    expect(noOverlaps(p)).toBe(true);
+  });
+
+  it('never loses footage when a clip is slowed down next to another and back', () => {
+    const p = fixture();
+    // An overlay with a neighbor right after it on its track.
+    const o = clip('video', 0, 2);
+    const n = clip('video', 2, 2, { assetId: 'silent' });
+    addClip(p, o, FREE);
+    addClip(p, n, { ...FREE, trackId: trackOf(p, o.id).id });
+    expect(trackOf(p, n.id)).toBe(trackOf(p, o.id));
+    setSpeed(p, o.id, 0.5, RIPPLE);
+    expect(o.duration).toBe(s(4));
+    // It moved to a free track rather than cutting into its neighbor, which stays put.
+    expect(trackOf(p, o.id)).not.toBe(trackOf(p, n.id));
+    expect(n.start).toBe(s(2));
+    setSpeed(p, o.id, 1, RIPPLE);
+    expect(o.duration).toBe(s(2));
+    expect(noOverlaps(p)).toBe(true);
+    // On the base track without ripple the same: all of the footage comes back.
+    const [a] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    setSpeed(p, a.id, 0.5, FREE);
+    setSpeed(p, a.id, 1, FREE);
+    expect(a.duration).toBe(s(2));
   });
 
   it('clamps speed to 0.1x..100x and ignores clips without a source', () => {

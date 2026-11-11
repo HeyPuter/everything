@@ -247,6 +247,7 @@ export class ReviewPage {
     this.activeId = null;
     this.t = 0;
     this._linkTries = 0;
+    if (!force) this.composer?.release();
     this.versionSelect.value = String(n);
     this.strip.setAttribute('aria-valuemax', String(Math.round(this.duration / 1e6)));
     this.durEl.textContent = reviewTimecode(this.duration, this.fps);
@@ -291,6 +292,11 @@ export class ReviewPage {
       v.addEventListener(type, fn);
       this._disposers.push(() => v.removeEventListener(type, fn));
     };
+    // A seek made before the video could take one (a comment on another version, a renewed link) is made now:
+    // the timecode said the comment's frame while the picture stayed on the first.
+    on('loadedmetadata', () => {
+      if (this.t > 0) this.seek(this.t);
+    });
     on('loadeddata', () => {
       this.videoState.hidden = true;
       this._linkTries = 0;
@@ -571,6 +577,17 @@ export class ReviewPage {
         pin.held = true;
         pinHere();
         text.focus();
+      },
+      /**
+       * Another version is shown: a time pinned on the last one may be past this one's end, or another moment, so
+       * the pin follows the frame shown again (the words stay).
+       */
+      release() {
+        pin.held = false;
+        pin.end = null;
+        rangeBox.checked = false;
+        err.textContent = '';
+        pinHere();
       },
     };
   }

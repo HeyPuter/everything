@@ -143,6 +143,9 @@ describe('.cube parsing', () => {
     expect(lut.data).toHaveLength(8 * 3);
     expect(lutName(lut, 'x.cube')).toBe('Warm look');
     expect(lutName({ title: '' }, 'Film Emulation.CUBE')).toBe('Film Emulation');
+    // A # inside the quoted title is part of it, not a comment.
+    expect(parseCube(`TITLE "Look #2" # by hand\n${cube3(2, (r, g, b) => [r, g, b])}`).title).toBe('Look #2');
+    expect(parseCube(`TITLE Plain # note\n${cube3(2, (r, g, b) => [r, g, b])}`).title).toBe('Plain');
   });
 
   it('orders entries red fastest and interpolates trilinearly', () => {

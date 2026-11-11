@@ -184,7 +184,8 @@ export function clipLayer(project, clip, t, trackIndex) {
     if (clip.type === 'video') {
       const { time, held } = sourceTimeForTransition(clip, t, asset);
       layer.sourceTime = time;
-      // In a transition before the media's start or past its end: the picture holds still.
+      // Before the media's start or past its end (in a transition, or a clip longer than what is
+      // left of its media): the picture holds still.
       if (held) layer.held = true;
     }
     // Slower than 1x with smooth slow motion on: draw in-between frames (engine/slow-motion.js).
@@ -249,7 +250,7 @@ function withParent(layer, parent, t, project) {
 
 /**
  * Source time that may run past the clip edges during a transition, clamped
- * to the media: { time, held }, held when the clamp stops it outside the clip.
+ * to the media: { time, held }, held when the clamp stops it.
  */
 function sourceTimeForTransition(clip, t, asset) {
   if (clip.freeze) return { time: clip.in, held: false };
@@ -257,7 +258,7 @@ function sourceTimeForTransition(clip, t, asset) {
   const raw = clip.in + sourceOffset(clip, t - clip.start);
   const max = asset?.duration ? asset.duration - 1000 : Infinity;
   const time = Math.max(0, Math.min(raw, max));
-  return { time, held: time !== raw && (t < clip.start || t >= clipEnd(clip)) };
+  return { time, held: time !== raw };
 }
 
 /**
@@ -354,16 +355,32 @@ export function binaryClipAt(clips, t) {
 
 /** Video clips whose frames may be needed in [t, t + ahead] (for preloading). */
 export function upcomingVideoClips(project, t, ahead) {
+  return upcomingVideoStarts(project, t, ahead).map((u) => u.clip);
+}
+
+/**
+ * The same clips as upcomingVideoClips, each as { clip, prev, from, sourceTime }:
+ * prev the clip before it on its track (or null), from the timeline time it
+ * is first drawn at and sourceTime the source time (us) shown then, a
+ * transition's lead-in included.
+ */
+export function upcomingVideoStarts(project, t, ahead) {
   project = expandProject(project);
   const out = [];
   for (const track of project.tracks) {
     if (track.kind !== 'video' || track.hidden) continue;
-    for (const c of track.clips) {
+    const clips = track.clips;
+    for (let i = 0; i < clips.length; i++) {
+      const c = clips[i];
       if (c.type !== 'video') continue;
       const pad = c.transition ? c.transition.duration : 0;
-      const prev = track.clips[track.clips.indexOf(c) - 1];
+      const prev = clips[i - 1] || null;
       const lead = prev?.transition ? prev.transition.duration : 0;
-      if (c.start - lead <= t + ahead && clipEnd(c) + pad > t) out.push(c);
+      if (c.start - lead <= t + ahead && clipEnd(c) + pad > t) {
+        // A transition into it starts drawing it half the transition before its start (see evaluate).
+        const into = prev?.transition && Math.abs(c.start - clipEnd(prev)) <= 2000 ? clipEnd(prev) - prev.transition.duration / 2 : c.start;
+        out.push({ clip: c, prev, from: into, sourceTime: sourceTimeForTransition(c, into, project.assets[c.assetId]).time });
+      }
     }
   }
   return out;

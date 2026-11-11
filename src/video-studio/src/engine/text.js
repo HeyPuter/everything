@@ -15,7 +15,7 @@ import { drawSticker, STICKER_SIZE, isAnimatedSticker, stickerColor } from './st
 import { drawAvatar } from './avatars.js';
 import { poseKey } from './avatar-motion.js';
 import { caseOf, applyCase } from '../model/text-style.js';
-import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds } from './text-layout.js';
+import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds, bidiPositions } from './text-layout.js';
 import { glyphState, animKey, animMargin } from './text-anim.js';
 import { bubbleGeometry, drawBubble, hasBubble } from './bubbles.js';
 import { fontsVersion, onFontsChange } from './font-registry.js';
@@ -29,6 +29,14 @@ export function fontString(style, size) {
   const css = FONT_CSS.get(style.font) || `'${style.font.replace(/'/g, '')}', sans-serif`;
   return `${style.italic ? 'italic ' : ''}${style.bold ? '700' : '400'} ${size}px ${css}`;
 }
+
+/** Letters a typewriter reveal shows (line breaks do not count), Infinity for all. */
+function revealedChars(text, reveal) {
+  return reveal < 1 ? Math.floor([...text.replace(/\n/g, '')].length * reveal) : Infinity;
+}
+
+/** Largest text raster side, in pixels. */
+const MAX_RASTER = 8192;
 
 function makeCanvas(w, h) {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
@@ -117,8 +125,7 @@ function layoutText(clip, scale, opts = {}) {
   // Highlighted words (model/text-marks.js) are drawn glyph by glyph in the highlight color.
   const marks = clip.marks?.length ? new Set(clip.marks) : null;
   const perGlyph = Boolean(anim) || arc !== 0 || Boolean(marks);
-  let revealCount = Infinity;
-  if (reveal < 1) revealCount = Math.floor([...text.replace(/\n/g, '')].length * reveal);
+  const revealCount = revealedChars(text, reveal);
 
   let runs;
   let totals = null;
@@ -138,7 +145,10 @@ function layoutText(clip, scale, opts = {}) {
   } else {
     const gl = lines.map((line, i) => {
       const x0 = xFor(i);
-      const glyphs = glyphsFor(line, font, spacing).map((g) => ({ ...g, cx: x0 + g.x + g.w / 2 }));
+      const logical = glyphsFor(line, font, spacing);
+      // Right-to-left letters are placed from the right, as the line is drawn whole.
+      const xs = bidiPositions(logical);
+      const glyphs = logical.map((g, k) => ({ ...g, cx: x0 + (xs ? xs[k] : g.x) + g.w / 2 }));
       return { y: offY + lineH * (i + 0.5), x0, w: widths[i], glyphs };
     });
     totals = indexGlyphs(gl);
@@ -209,9 +219,11 @@ function layoutText(clip, scale, opts = {}) {
   if (hasBubble(style.bubble)) bub = bubbleGeometry(style.bubble, contentW, contentH, size, (style.bubbleStrokeWidth || 0) * scale);
   const padX = Math.ceil(Math.max(deco, bgPad + 1, bub ? Math.max(bub.reach.l, bub.reach.r) + 1 : 0));
   const padY = Math.ceil(Math.max(deco, bgPad + 1, bub ? Math.max(bub.reach.t, bub.reach.b) + 1 : 0));
-  const w = Math.min(8192, Math.ceil(contentW + padX * 2));
-  const h = Math.min(8192, Math.ceil(contentH + padY * 2));
-  return { style, size, font, spacing, scale, lineH, runs, totals, contentW, contentH, padX, padY, bgPad, w, h, color: opts.color || style.color };
+  const fullW = Math.ceil(contentW + padX * 2);
+  const fullH = Math.ceil(contentH + padY * 2);
+  const w = Math.min(MAX_RASTER, fullW);
+  const h = Math.min(MAX_RASTER, fullH);
+  return { style, size, font, spacing, scale, lineH, runs, totals, contentW, contentH, padX, padY, bgPad, w, h, fullW, fullH, color: opts.color || style.color };
 }
 
 /** Run each visible run with ctx transformed so (x, y) is where its text starts. */
@@ -401,7 +413,15 @@ function drawText(ctx, L) {
  *  extra: { anim: [{ id, phase, p }], color }  per-frame animation state
  */
 export function rasterizeText(clip, reveal, scale, measureOnly = false, extra = {}) {
-  const L = layoutText(clip, scale, { reveal, anim: extra.anim, color: extra.color });
+  const opts = { reveal, anim: extra.anim, color: extra.color };
+  let L = layoutText(clip, scale, opts);
+  // Too big for one raster (a long line drawn large): draw it smaller rather than cut it off,
+  // so it keeps its size and place on screen (the compositor stretches it to its box).
+  const over = Math.max(L.fullW, L.fullH) / MAX_RASTER;
+  if (over > 1) {
+    scale = (scale / over) * 0.995;
+    L = layoutText(clip, scale, opts);
+  }
   if (measureOnly) return { width: L.w, height: L.h, projW: L.w / scale, projH: L.h / scale };
   const canvas = makeCanvas(L.w, L.h);
   const ctx = canvas.getContext('2d');
@@ -490,7 +510,7 @@ export class TextCache {
     let base = null;
     if (clip.type === 'text') {
       this._ensureFont(clip.style);
-      const reveal = layer.reveal < 1 ? Math.floor(layer.reveal * [...clip.text].length) : -1;
+      const reveal = layer.reveal < 1 ? revealedChars(applyCase(clip.text, caseOf(clip.style)), layer.reveal) : -1;
       base = `${clip.text}|${JSON.stringify(clip.style)}|${reveal}|${bucket}|${this.fontEpoch}|${fontsVersion()}|${layer.textColor || ''}|${clip.marks?.join(',') || ''}`;
       const anim = layer.textAnim?.length ? animKey(layer.textAnim, e?.base === base ? e.totals : null) : '';
       sig = `${base}|${anim}`;

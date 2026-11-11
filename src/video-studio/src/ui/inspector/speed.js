@@ -10,7 +10,7 @@
  */
 import { h, announce } from '../../lib/dom.js';
 import { propSection, uidFor, secs, tabSet, note } from './common.js';
-import { switchField, segmented } from '../controls.js';
+import { switchField, segmented, parseNumber } from '../controls.js';
 import { hasCurve, sourceSpan } from '../../model/speed-curve.js';
 import { SMOOTH_SLOW_MODES, normalizeSmoothSlow, slowsDown } from '../../model/slow-motion.js';
 import { speedCurvePanel } from './speed-curve.js';
@@ -186,12 +186,24 @@ function constantPanel(view) {
     range.setAttribute('aria-valuetext', `${fmt(s)} times`);
     commit(s, false);
   });
+  // Keys held on the slider make one undo step, ended on key up, as a drag does.
+  let keyRun = false;
+  range.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) keyRun = true;
+  });
+  const endKeyRun = () => {
+    if (!keyRun) return;
+    keyRun = false;
+    if (view.clip) commit(view.clip.speed, true);
+  };
+  range.addEventListener('keyup', endKeyRun);
+  range.addEventListener('blur', endKeyRun);
   range.addEventListener('change', () => {
     dragging = false;
-    commit(posToSpeed(Number(range.value)), true);
+    commit(posToSpeed(Number(range.value)), !keyRun);
   });
   const commitNum = () => {
-    const raw = parseFloat(num.value);
+    const raw = parseNumber(num.value);
     if (!Number.isFinite(raw) || raw <= 0) {
       num.value = fmt(view.clip.speed);
       return;

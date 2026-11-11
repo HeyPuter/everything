@@ -24,8 +24,11 @@ import { createClipEffectActions } from './clip-effects-actions.js';
 
 /** Copies of clips for the clipboard, marked with whether they were on the base track. */
 function clipBoard(project, ids) {
+  // One pass over the tracks (a search per id is slow for thousands of clips).
+  const at = new Map();
+  for (const track of project.tracks) for (const clip of track.clips) at.set(clip.id, { clip, track });
   return ids
-    .map((id) => T.findClip(project, id))
+    .map((id) => at.get(id))
     .filter(Boolean)
     .map(({ clip, track }) => ({ ...structuredClone(clip), _main: Boolean(track.main), _track: track.id }));
 }
@@ -55,31 +58,42 @@ export function createActions(ctx) {
     return ok ? clip : null;
   }
 
-  const actions = {
-    /** Import local files into the project's media library. Returns the new assets. */
-    async importFiles(files, { addToTimeline = false, folder = null, origin } = {}) {
-      const list = [...files];
-      const assets = [];
-      for (const file of list) {
-        try {
-          const asset = await ctx.library.importFile(file, origin ? { origin } : undefined);
-          // Into the media bin folder being viewed (see model/bins.js).
-          if (folder && store.project.bins?.some((b) => b.id === folder)) asset.folder = folder;
-          assets.push(asset);
-        } catch (err) {
-          console.error(err);
-          toast(importErrorText(file, err), { kind: 'error' });
-        }
+  /** The import itself (see actions.importFiles). */
+  async function importFilesNow(files, { addToTimeline = false, folder = null, origin } = {}) {
+    const list = [...files];
+    const assets = [];
+    for (const file of list) {
+      try {
+        const asset = await ctx.library.importFile(file, { ...(origin ? { origin } : {}), onNote: (text) => toast(text, { kind: 'info', duration: 8000 }) });
+        // Into the media bin folder being viewed (see model/bins.js).
+        if (folder && store.project.bins?.some((b) => b.id === folder)) asset.folder = folder;
+        assets.push(asset);
+      } catch (err) {
+        console.error(err);
+        toast(importErrorText(file, err), { kind: 'error' });
       }
-      if (!assets.length) return [];
-      store.update(assets.length === 1 ? `Import ${assets[0].name}` : `Import ${assets.length} files`, (p) => {
-        for (const a of assets) p.assets[a.id] = a;
-      }, { structural: false });
-      // Several files go one after another, starting at the playhead.
-      let at = store.time;
-      if (addToTimeline) for (const a of assets) at = T.clipEnd(actions.addAsset(a, { start: at }) || { start: at, duration: 0 });
-      announce(assets.length === 1 ? `Imported ${assets[0].name}` : `Imported ${assets.length} files`);
-      return assets;
+    }
+    if (!assets.length) return [];
+    store.update(assets.length === 1 ? `Import ${assets[0].name}` : `Import ${assets.length} files`, (p) => {
+      for (const a of assets) p.assets[a.id] = a;
+    }, { structural: false });
+    // Several files go one after another from the playhead, as one undo step.
+    if (addToTimeline) actions.addAssets(assets, { start: store.time });
+    announce(assets.length === 1 ? `Imported ${assets[0].name}` : `Imported ${assets.length} files`);
+    return assets;
+  }
+
+  const actions = {
+    /**
+     * Import local files into the project's media library. Returns the new assets.
+     * Leaving the editor waits for imports in progress (ctx.imports), so they are saved.
+     */
+    importFiles(files, opts) {
+      const job = importFilesNow(files, opts);
+      const imports = (ctx.imports ||= new Set());
+      imports.add(job);
+      job.finally(() => imports.delete(job)).catch(() => {});
+      return job;
     },
 
     /** Register an asset produced in the app (recording, speech, sound effect). */
@@ -121,7 +135,7 @@ export function createActions(ctx) {
      * (or opts.start), in the given order, as a single undo step.
      */
     addAssets(assets, opts = {}) {
-      const before = store.history.undoStack.length;
+      const mark = store.beginBatch();
       const added = [];
       let start = opts.start ?? at();
       for (const a of assets) {
@@ -130,12 +144,9 @@ export function createActions(ctx) {
         added.push(clip);
         start = T.clipEnd(clip);
       }
-      // Fold the per-asset steps into the first one, so one undo removes them all.
-      if (store.history.undoStack.length > before + 1) {
-        const first = store.history.undoStack[before];
-        store.history.undoStack.splice(before);
-        store.history.undoStack.push({ ...first, label: `Add ${added.length} clips` });
-      }
+      // Fold the per-asset steps into one, so one undo removes them all (found by
+      // identity, so it also works when a full history drops its oldest steps).
+      if (added.length > 1) store.endBatch(mark, `Add ${added.length} clips`);
       if (added.length > 1) {
         store.select(added.map((c) => c.id));
         announce(`Added ${added.length} clips`);
@@ -161,13 +172,13 @@ export function createActions(ctx) {
         if (rounded !== s.fps) patch.fps = rounded;
       }
       if (!Object.keys(patch).length) return;
+      // The add is the step just recorded; it and this become one step under its name.
       const entry = store.history.undoStack.at(-1);
+      const mark = { top: store.history.undoStack.at(-2) || null, undos: store.history.undos };
       store.update('Match media', (p) => {
         Object.assign(p.settings, patch);
       }, { structural: false });
-      if (entry) {
-        store.history.undoStack.pop();
-      }
+      if (entry) store.endBatch(mark, entry.label);
     },
 
     /** Add a text clip in a style preset's or word-art effect's look. */
@@ -237,14 +248,14 @@ export function createActions(ctx) {
       let clipId = opts.clipId;
       if (!clipId) {
         const s = store.selected;
-        if (s && T.nextAdjacent(p, s.clip.id)) clipId = s.clip.id;
+        if (s && T.canTransition(p, s.clip)) clipId = s.clip.id;
       }
       if (!clipId) {
         const main = T.mainTrack(p);
         let best = null;
         let bestD = Infinity;
         for (const c of main.clips) {
-          if (!T.nextAdjacent(p, c.id)) continue;
+          if (!T.canTransition(p, c)) continue;
           const d = Math.abs(T.clipEnd(c) - at());
           if (d < bestD) {
             best = c;
@@ -267,7 +278,7 @@ export function createActions(ctx) {
     applyTransitionToAll(transitionId, duration = defaultLength.transition()) {
       store.update('Apply transition to all', (p) => {
         const main = T.mainTrack(p);
-        for (const c of main.clips) if (T.nextAdjacent(p, c.id)) T.setTransition(p, c.id, transitionId, duration);
+        for (const c of main.clips) if (T.canTransition(p, c)) T.setTransition(p, c.id, transitionId, duration);
       });
     },
 
@@ -540,6 +551,7 @@ export function createActions(ctx) {
         return;
       }
       let target = Object.values(store.project.assets).find((a) => a.reversedOf === asset.id);
+      let mark = null;
       if (!target) {
         const { reverseFile } = await import('../media/reverse.js');
         const ac = new AbortController();
@@ -553,10 +565,13 @@ export function createActions(ctx) {
           const file = await reverseFile(blob, asset.name, { signal: ac.signal, onProgress: (p) => (bar.style.width = `${Math.round(p * 100)}%`) });
           const [made] = await actions.importFiles([file]);
           if (!made) return;
+          // Importing the reversed copy is the step just recorded. It, marking the copy as
+          // this file played backwards and switching the clip over become one undo step
+          // (nothing else can run in between: no await from here on).
+          mark = { top: store.history.undoStack.at(-2) || null, undos: store.history.undos };
           store.update('Reverse', (p) => {
             p.assets[made.id].reversedOf = asset.id;
           }, { structural: false });
-          store.history.undoStack.pop();
           target = store.project.assets[made.id];
         } catch (err) {
           if (err?.name !== 'AbortError') toast(err?.message || "Couldn't reverse this clip.", { kind: 'error' });
@@ -566,14 +581,15 @@ export function createActions(ctx) {
           d.close();
         }
       }
-      actions.editClip(id, 'Reverse', (c) => {
+      const ok = actions.editClip(id, 'Reverse', (c) => {
         c.in = mirrorIn(asset, target);
         c.assetId = target.id;
         c.reversed = true;
         // A speed curve plays backwards too, so the reversed clip mirrors the original's timing.
         if (c.speedCurve) c.speedCurve = mirrorCurve(c.speedCurve);
       });
-      announce('Clip reversed');
+      if (mark) store.endBatch(mark, 'Reverse');
+      if (ok) announce('Clip reversed');
     },
 
     /** Swap the media of a clip, keeping its timing, effects and keyframes. */
@@ -620,7 +636,8 @@ export function createActions(ctx) {
 
     /** span: the source length to keep (a drag keeps the one it began with). */
     setSpeed(id, speed, { span } = {}) {
-      store.update('Change speed', (p) => T.setSpeed(p, id, speed, { ...store.opts, ...(span !== undefined ? { span } : {}) }), { coalesce: `speed:${id}` });
+      // A drag (span given) applies each speed to the clip as it was when the drag began.
+      store.update('Change speed', (p, moved) => T.setSpeed(p, id, speed, { ...store.opts, ...(span !== undefined ? { span } : {}), onMakeRoom: moved }), { coalesce: `speed:${id}`, fromRunStart: span !== undefined });
     },
 
     /**
@@ -628,7 +645,7 @@ export function createActions(ctx) {
      * drag into one undo step; span keeps the source length the drag began with.
      */
     setSpeedCurve(id, points, { label = 'Speed curve', key = null, span, dropRamp = false } = {}) {
-      return store.update(label, (p) => T.setSpeedCurve(p, id, points, { ...store.opts, ...(span !== undefined ? { span } : {}), dropRamp }), key ? { coalesce: `${key}:${id}` } : {});
+      return store.update(label, (p, moved) => T.setSpeedCurve(p, id, points, { ...store.opts, ...(span !== undefined ? { span } : {}), dropRamp, onMakeRoom: moved }), key ? { coalesce: `${key}:${id}`, fromRunStart: span !== undefined } : {});
     },
 
     /** Move the selected clips by whole frames (negative: earlier), as one undo step per run of presses. */
@@ -637,7 +654,7 @@ export function createActions(ctx) {
       const lead = ids.map((id) => T.findClip(store.project, id)).find(Boolean);
       if (!lead) return false;
       const d = Math.round((frames * US) / store.fps);
-      return store.update('Nudge clip', (p) => T.moveClip(p, lead.clip.id, { start: Math.max(0, lead.clip.start + d), trackId: lead.track.id }, { ...store.opts, with: ids }), { coalesce: `nudge:${ids.join(',')}` });
+      return store.update('Nudge clip', (p) => T.nudgeClips(p, lead.clip.id, d, { ...store.opts, with: ids }), { coalesce: `nudge:${ids.join(',')}` });
     },
 
     /** Velocity ramp (curve plus accent) in one undo step; null removes it. */

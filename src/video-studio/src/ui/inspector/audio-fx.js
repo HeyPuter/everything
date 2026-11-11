@@ -13,7 +13,7 @@ import { US } from '../../lib/time.js';
 import { valueAt } from '../../model/keyframes.js';
 import { segmented } from '../controls.js';
 import { toast } from '../dialog.js';
-import { slider, propSection, uidFor } from './common.js';
+import { slider, propSection, uidFor, restoreFocus } from './common.js';
 import { CHANNEL_MODES, LOUDNESS_TARGETS, NORMALIZE_LIMIT_DB, defaultAudioFx, ensureAudioFx, loudnessGain } from '../../model/audio.js';
 
 const fmtDb = (db) => `${db > 0 ? '+' : db < 0 ? '−' : ''}${Math.abs(db).toFixed(1)} dB`;
@@ -56,6 +56,7 @@ function runBusy(btn, status, label, fn) {
       btn.removeAttribute('aria-busy');
       status.textContent = '';
       status.hidden = true;
+      restoreFocus(btn);
     }
   };
 }
@@ -86,6 +87,7 @@ function fxSection(view, { key, title, children, description, onEnable, open = t
       } finally {
         sw.disabled = false;
         status.hidden = true;
+        restoreFocus(sw);
       }
       view.edit(title, (c) => {
         Object.assign(ensureAudioFx(c)[key], patch || {}, { on: true });
@@ -137,7 +139,7 @@ export function normalizeSection(view) {
   const measure = h('button.btn.small', { type: 'button' }, icon('audioLines', 14), measureLabel);
   const measureLoudness = async () => {
     const { kit, snd } = await clipSound(view);
-    const lufs = kit.integratedLoudness(snd.channels, snd.sampleRate);
+    const lufs = kit.clipLoudness(snd.channels, snd.sampleRate);
     if (lufs === null) throw new Error('This clip is silent, so there is nothing to normalize.');
     return Math.round(lufs * 10) / 10;
   };

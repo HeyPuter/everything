@@ -3,6 +3,7 @@ import { propLabel, animatableProps, moveKey, setEase, deleteKey, curveRange, cr
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { fixture, clip, onMain, s } from './helpers.js';
+import { removeKeysAt } from '../src/model/timeline.js';
 
 const keyed = () => {
   const c = clip('video', 0, 4);
@@ -39,6 +40,23 @@ describe('keyframe panel helpers', () => {
     expect(deleteKey(c, 'adjust.exposure', s(1))).toBe(true);
     expect(c.keyframes['adjust.exposure']).toBeUndefined();
     expect(deleteKey(c, 'x', s(7))).toBe(false);
+  });
+
+  it('keeps the value when the only key of a property is deleted', () => {
+    const c = clip('video', 0, 4);
+    c.keyframes = { scale: [{ t: s(1), v: 1.6, ease: 'linear' }], opacity: [{ t: 0, v: 1, ease: 'linear' }, { t: s(2), v: 0.4, ease: 'linear' }] };
+    expect(deleteKey(c, 'scale', s(1))).toBe(true);
+    expect(c.transform.scale).toBe(1.6);
+    // With other keys left, the unkeyed value is not touched.
+    expect(deleteKey(c, 'opacity', s(2))).toBe(true);
+    expect(c.opacity).toBe(1);
+    expect(deleteKey(c, 'opacity', 0)).toBe(true);
+    expect(c.opacity).toBe(1);
+    // The same from the timeline's keyframe menu (every property keyed at that time).
+    c.keyframes = { x: [{ t: s(1), v: 0.3, ease: 'linear' }], 'adjust.exposure': [{ t: s(1), v: 25, ease: 'linear' }] };
+    expect(removeKeysAt(c, s(1))).toBe(2);
+    expect(c.transform.x).toBe(0.3);
+    expect(c.adjust.exposure).toBe(25);
   });
 
   it('pads the curve range, and gives flat curves room', () => {

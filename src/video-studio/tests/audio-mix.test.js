@@ -5,6 +5,7 @@ import { US } from '../src/lib/time.js';
 import { createProject, makeTrack, makeClip } from '../src/model/project.js';
 import { loadDsp, dspReady } from '../src/media/dsp.js';
 import { mixChunks, renderAudio, wavHeader, encodeWav, pcm16, mixClipInto } from '../src/engine/audio-mix.js';
+import { integratedLoudness, clipLoudness } from '../src/media/audio-analysis.js';
 
 /** Synthetic decoded source: fn(i) gives sample i, delivered in blocks of 1000 frames. */
 function synth(rate, seconds, fn, nch = 1) {
@@ -181,5 +182,86 @@ describe('WAV encoding', () => {
     const blob = encodeWav([new Float32Array(10), new Float32Array(10)], 44100);
     expect(blob.size).toBe(44 + 40);
     expect(blob.type).toBe('audio/wav');
+  });
+});
+
+describe('loudness normalization', () => {
+  it('brings a normalized mono clip to its target in the stereo mix', async () => {
+    const sr = 48000;
+    const amp = 0.1;
+    const tone = (i) => amp * Math.sin((2 * Math.PI * 997 * i) / sr);
+    const n = sr * 3;
+    const mono = Float32Array.from({ length: n }, (_, i) => tone(i));
+    for (const [nch, measured] of [[1, clipLoudness([mono], sr)], [2, clipLoudness([mono, mono], sr)]]) {
+      const clip = makeClip('audio', { assetId: 'a', start: 0, duration: 3 * US });
+      clip.audioFx = { normalize: { on: true, target: -14, loudness: measured } };
+      const { p, openSource } = project([clip], { a: synth(sr, 3, (i) => tone(i), nch) });
+      const out = await renderAudio(p, null, { sampleRate: sr, channels: 2, openSource });
+      expect(integratedLoudness(out.channels, sr), `${nch} channel source`).toBeCloseTo(-14, 0);
+    }
+  });
+});
+
+describe('voice effects in the mix', () => {
+  it('keeps pitch-shifted voices in sync with the picture on average', async () => {
+    const sr = 48000;
+    // Clicks at different points of the shifter's cycle; its delay wobbles around a mean.
+    const clicks = Array.from({ length: 9 }, (_, k) => Math.round((0.2 + k * 0.37) * sr));
+    const click = (i) => {
+      for (const c of clicks) if (i >= c && i < c + 48) return 0.8 * Math.sin((Math.PI * (i - c)) / 48);
+      return 0;
+    };
+    for (const id of ['low', 'high', 'giant', 'squeaky']) {
+      const clip = makeClip('audio', { assetId: 'a', start: 1 * US, duration: 4 * US });
+      clip.audioFx = { voice: { id, params: {} } };
+      const { p, openSource } = project([clip], { a: synth(sr, 5, click, 2) });
+      const { channels } = await renderAudio(p, null, { sampleRate: sr, channels: 2, openSource });
+      let off = 0;
+      for (const c of clicks) {
+        // Energy centroid of the click's echo in the mix, against where it belongs.
+        const at = sr + c + 24;
+        let sum = 0;
+        let weighted = 0;
+        for (let i = at - 0.05 * sr; i < at + 0.12 * sr; i++) {
+          const v = channels[0][i] ** 2;
+          sum += v;
+          weighted += v * (i - at);
+        }
+        off += weighted / sum / sr / clicks.length;
+      }
+      expect(Math.abs(off), id).toBeLessThan(0.008);
+    }
+  });
+});
+
+describe('limiting a loud mix', () => {
+  it('turns loud overlapping sound down instead of clipping it', async () => {
+    const sr = 48000;
+    const n = sr * 4;
+    const tone = (f) => (i) => 0.6 * Math.sin((2 * Math.PI * f * i) / sr);
+    const a = makeClip('audio', { assetId: 'a', start: 0, duration: 4 * US });
+    const b = makeClip('audio', { assetId: 'b', start: 0, duration: 4 * US });
+    const { p, openSource } = project([a], { a: synth(sr, 4, tone(440)), b: synth(sr, 4, tone(660)) });
+    p.tracks.push({ ...makeTrack('audio'), clips: [b] });
+    p.assets.b = { id: 'b', kind: 'audio', name: 'b', hasAudio: true, duration: 60 * US };
+    const { channels } = await renderAudio(p, null, { sampleRate: sr, channels: 2, openSource });
+    const out = channels[0];
+    expect(out.length).toBe(n);
+    for (const v of out) expect(Math.abs(v)).toBeLessThanOrEqual(0.9 + 1e-6);
+    // The two tones come out clean: clipping them made distortion only 26 dB down.
+    const goertzel = (f) => {
+      const c = 2 * Math.cos((2 * Math.PI * f) / sr);
+      let s1 = 0;
+      let s2 = 0;
+      for (let i = sr; i < 3 * sr; i++) {
+        const s = out[i] + c * s1 - s2;
+        s2 = s1;
+        s1 = s;
+      }
+      return s1 * s1 + s2 * s2 - c * s1 * s2;
+    };
+    const tones = goertzel(440) + goertzel(660);
+    const products = [220, 880, 1100, 1320, 1540, 1760, 1980, 2200].reduce((sum, f) => sum + goertzel(f), 0);
+    expect(10 * Math.log10(products / tones)).toBeLessThan(-40);
   });
 });

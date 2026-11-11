@@ -13,6 +13,7 @@ import { TEXT_PRESETS } from '../model/catalog.js';
 import { MIN_CLIP, clipEnd } from '../model/timeline.js';
 import { sourceMapper, sourceSpan, localAtSource } from '../model/speed-curve.js';
 import { audibleClips, gainAt } from '../engine/scene.js';
+import { expandProject } from '../engine/compound.js';
 import { encodeWav } from './wav.js';
 
 export const LANGUAGES = [
@@ -204,13 +205,23 @@ export function speechRegions(samples, sampleRate, { minPause = 0.3, minLength =
 
 // ---- Subtitle files ---------------------------------------------------------
 
-const TIME = /(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/;
+// Some SubRip writers leave out the milliseconds ("00:00:01 --> 00:00:03").
+const TIME = /(?:(\d+):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?/;
 
 function parseTime(s) {
   const m = TIME.exec(s);
   if (!m) return null;
-  const [, hh, mm, ss, frac] = m;
+  const [, hh, mm, ss, frac = '0'] = m;
   return Number(hh || 0) * 3600 + Number(mm) * 60 + Number(ss) + Number(frac.padEnd(3, '0')) / 1000;
+}
+
+/** { start, end } (seconds) of a cue timing line, or null when the line isn't one. */
+function parseTiming(line) {
+  if (!line.includes('-->')) return null;
+  const [a, b] = line.split('-->');
+  const start = parseTime(a);
+  const end = parseTime(b);
+  return start === null || end === null ? null : { start, end };
 }
 
 // Tags in cues: SubRip and WebVTT formatting, HTML left over from converted files
@@ -235,24 +246,53 @@ function cleanCueText(lines) {
     .join('\n');
 }
 
+/**
+ * Text of a subtitle file (a Blob): UTF-8, UTF-16 (Windows tools write it,
+ * usually with a byte order mark), or Windows-1252 when the bytes aren't UTF-8.
+ */
+export async function subtitleText(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const [a, b] = bytes;
+  if ((a === 0xff && b === 0xfe) || (a > 0 && b === 0)) return new TextDecoder('utf-16le').decode(bytes);
+  if ((a === 0xfe && b === 0xff) || (a === 0 && b > 0)) return new TextDecoder('utf-16be').decode(bytes);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
 /** Parse SubRip (.srt) or WebVTT (.vtt) text into [{ start, end, text }] (seconds). */
 export function parseSubtitles(text) {
-  const blocks = String(text || '')
+  const lines = String(text || '')
     .replace(/^﻿/, '')
     .replace(/\r\n?/g, '\n')
-    .split(/\n[ \t]*\n/);
+    .split('\n');
   const cues = [];
-  for (const block of blocks) {
-    const lines = block.split('\n');
-    const i = lines.findIndex((l) => l.includes('-->'));
-    if (i < 0) continue;
-    const [a, b] = lines[i].split('-->');
-    const start = parseTime(a);
-    const end = parseTime(b);
-    if (start === null || end === null || end <= start) continue;
-    const body = cleanCueText(lines.slice(i + 1));
-    if (body) cues.push({ start, end, text: body });
+  let cur = null; // { start, end, lines } of the cue being read
+  const close = () => {
+    if (cur && cur.end > cur.start) {
+      const body = cleanCueText(cur.lines);
+      if (body) cues.push({ start: cur.start, end: cur.end, text: body });
+    }
+    cur = null;
+  };
+  for (const line of lines) {
+    if (!line.trim()) {
+      // A blank line ends a cue; outside one it separates headers, notes and styles.
+      close();
+      continue;
+    }
+    const timing = parseTiming(line);
+    if (timing) {
+      // A timing line inside a cue: the file left out the blank line, and the
+      // line before it is the next cue's number, not text.
+      if (cur && /^\d+$/.test(cur.lines.at(-1)?.trim() || '')) cur.lines.pop();
+      close();
+      cur = { ...timing, lines: [] };
+    } else if (cur) cur.lines.push(line);
   }
+  close();
   return cues.sort((x, y) => x.start - y.start);
 }
 
@@ -324,18 +364,28 @@ export function buildCaptionClips(cues, { presetId = 'subtitle', position = 'bot
   return clips;
 }
 
-/** Cues (seconds) for the caption clips in a project, in time order. */
+/** Whether a clip is a caption that shows in the video (not turned off, not on a hidden track). */
+export const shownCaption = (track, clip) => clip.type === 'text' && Boolean(clip.caption) && !clip.disabled && !track.hidden;
+
+/**
+ * The caption clips that show in a project, in time order. Captions inside
+ * compound clips are placed (and cut) where the compound shows them.
+ */
+export function shownCaptions(project) {
+  const out = [];
+  for (const t of expandProject(project).tracks) for (const c of t.clips) if (shownCaption(t, c)) out.push(c);
+  return out.sort((a, b) => a.start - b.start);
+}
+
+/** Cues (seconds) for the caption clips that show in a project, in time order. */
 export function captionCues(project) {
   const out = [];
   // An export slice (model/slice.js) keeps captions that cross its edges whole; cut them there.
   const stop = project.end ?? Infinity;
-  for (const t of project.tracks) {
-    for (const c of t.clips) {
-      if (c.type !== 'text' || !c.caption) continue;
-      const start = Math.max(0, c.start);
-      const end = Math.min(clipEnd(c), stop);
-      if (end > start) out.push({ start: start / US, end: end / US, text: c.text });
-    }
+  for (const c of shownCaptions(project)) {
+    const start = Math.max(0, c.start);
+    const end = Math.min(clipEnd(c), stop);
+    if (end > start) out.push({ start: start / US, end: end / US, text: c.text });
   }
   return out.sort((a, b) => a.start - b.start);
 }

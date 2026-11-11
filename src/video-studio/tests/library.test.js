@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Library, AutoSaver } from '../src/storage/library.js';
+import { Library, AutoSaver, STALL_MS } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { EditorStore } from '../src/model/store.js';
 import { createProject } from '../src/model/project.js';
@@ -7,7 +7,10 @@ import { createProject } from '../src/model/project.js';
 // Media probing needs real decoders; these tests only need its answers.
 vi.mock('../src/media/probe.js', async (importOriginal) => ({
   ...(await importOriginal()),
+  // SVG pictures are drawn into PNG files, which jsdom can't do.
+  storableFile: vi.fn(async (file) => (/\.svg$/.test(file.name) ? new File([new Uint8Array([9, 9])], file.name.replace(/svg$/, 'png'), { type: 'image/png' }) : file)),
   probe: vi.fn(async (file) => {
+    if (/\.mts$/.test(file.name)) return { kind: 'video', duration: 2_000_000, width: 640, height: 360, fps: 30, hasAudio: false, hasVideo: true, soundUnsupported: true };
     if (!/\.(mp4|mp3|png)$/.test(file.name)) throw new Error(`${file.name} is not a video, audio or image file.`);
     return { kind: file.name.endsWith('.mp3') ? 'audio' : file.name.endsWith('.png') ? 'image' : 'video', duration: 2_000_000, width: 640, height: 360, fps: 30, hasAudio: true, hasVideo: true };
   }),
@@ -63,6 +66,13 @@ describe('Library projects', () => {
     expect((await lib.listProjects()).map((x) => x.id).sort()).toEqual([p.id, copy.id].sort());
   });
 
+  it('gives each duplicate a name of its own', async () => {
+    const p = await lib.createProject({ name: 'Trip' });
+    const names = [];
+    for (let i = 0; i < 3; i++) names.push((await lib.duplicateProject(p.id)).name);
+    expect(names).toEqual(['Trip copy', 'Trip copy 2', 'Trip copy 3']);
+  });
+
   it('names new projects with the lowest free number, counting the Trash', async () => {
     expect(await lib.nextProjectName()).toBe('Project 1');
     const p1 = await lib.createProject({ name: await lib.nextProjectName() });
@@ -104,6 +114,26 @@ describe('Library projects', () => {
     const list = await fresh.listProjects();
     expect(list.map((x) => x.id)).toEqual([p.id]);
     expect(json(backend, 'index.json').map((x) => x.id)).toEqual([p.id]);
+  });
+
+  it('does not rebuild the list from the project files when it could not be read', async () => {
+    const a = await lib.createProject({ name: 'A' });
+    const b = await lib.createProject({ name: 'B' });
+    const index = backend.files.get('index.json');
+    // Offline for a moment: the list and one project file can't be read.
+    const read = backend.readJSON;
+    backend.readJSON = async (path) => {
+      if (path === 'index.json' || path === `projects/${b.id}.json`) throw new Error('Simulated network failure');
+      return read(path);
+    };
+    const fresh = new Library(backend);
+    await expect(fresh.listProjects()).rejects.toThrow('Simulated network failure');
+    expect(backend.files.get('index.json')).toBe(index);
+    // A rebuild (the list is damaged) that can't read a project file stops instead of dropping it.
+    backend.files.set('index.json', '{"oops');
+    await expect(fresh.listProjects()).rejects.toThrow('Simulated network failure');
+    backend.readJSON = read;
+    expect((await fresh.listProjects()).map((p) => p.id).sort()).toEqual([a.id, b.id].sort());
   });
 
   it('keeps the file name as the project id, so a rebuilt index opens the right file', async () => {
@@ -265,6 +295,71 @@ describe('project claims', () => {
     }
   });
 
+  it('opens for editing from the file as it is once the claim is held', async () => {
+    vi.stubGlobal('navigator', { ...navigator, locks: fakeLocks() });
+    try {
+      const lib = new Library(memoryBackend());
+      const p = await lib.createProject({ name: 'Late' });
+      // An AI result finishing for this project lands in its file between the read and the claim.
+      const claim = lib.claimProject.bind(lib);
+      vi.spyOn(lib, 'claimProject').mockImplementation(async (id) => {
+        const saved = await lib.openProject(id);
+        saved.assets.a_late = { id: 'a_late', kind: 'image', name: 'late.png', hash: 'hl', ext: 'png', width: 2, height: 2, added: 1 };
+        await lib.saveProject(saved);
+        return claim(id);
+      });
+      const { project, claim: held } = await lib.openForEditing(p.id);
+      expect(held.held).toBe(true);
+      expect(project.assets.a_late?.name).toBe('late.png');
+      held.release();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not claim a project in the Trash, and lets go when the file is gone after claiming', async () => {
+    vi.stubGlobal('navigator', { ...navigator, locks: fakeLocks() });
+    try {
+      const lib = new Library(memoryBackend());
+      const t = await lib.createProject({ name: 'Trashed' });
+      await lib.trashProject(t.id);
+      const res = await lib.openForEditing(t.id);
+      expect(res.claim).toBeNull();
+      expect(res.project.deletedAt).toBeTruthy();
+      const g = await lib.createProject({ name: 'Gone' });
+      const claim = lib.claimProject.bind(lib);
+      vi.spyOn(lib, 'claimProject').mockImplementation(async (id) => {
+        lib.backend.files.delete(`projects/${id}.json`);
+        return claim(id);
+      });
+      await expect(lib.openForEditing(g.id)).rejects.toThrow(/could not be found/);
+      lib.claimProject.mockRestore();
+      expect((await lib.claimProject(g.id)).held).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('opens for editing with one read of the file, and lets go of a project in the Trash at once', async () => {
+    vi.stubGlobal('navigator', { ...navigator, locks: fakeLocks() });
+    try {
+      const lib = new Library(memoryBackend());
+      const p = await lib.createProject({ name: 'Big' });
+      const reads = vi.spyOn(lib, 'openProject');
+      const { claim } = await lib.openForEditing(p.id);
+      expect(reads).toHaveBeenCalledTimes(1);
+      claim.release();
+      const t = await lib.createProject({ name: 'Trashed' });
+      await lib.trashProject(t.id);
+      expect((await lib.openForEditing(t.id)).claim).toBeNull();
+      const again = await lib.claimProject(t.id);
+      expect(again.held).toBe(true);
+      again.release();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('lets every project open where the browser has no locks', async () => {
     const lib = new Library(memoryBackend());
     const a = await lib.claimProject('p1');
@@ -312,6 +407,23 @@ describe('Library media', () => {
     await lib.importFile(first);
     await lib.flushUploads();
     expect(backend.writes).toBe(writes);
+  });
+
+  it('stores an SVG picture drawn as PNG and keeps its name', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend);
+    const asset = await lib.importFile(new File(['<svg xmlns="http://www.w3.org/2000/svg"/>'], 'logo.svg', { type: 'image/svg+xml' }));
+    expect(asset).toMatchObject({ kind: 'image', name: 'logo.svg', ext: 'png' });
+    await lib.flushUploads();
+    expect((await backend.readBlob(`media/${asset.hash}.png`)).type).toBe('image/png');
+  });
+
+  it('says when a video comes in without sound because its sound can\'t be decoded here', async () => {
+    const lib = new Library(memoryBackend());
+    const notes = [];
+    const asset = await lib.importFile(new File([new Uint8Array([5])], 'CLIP0001.mts', { type: 'model/vnd.mts' }), { onNote: (t) => notes.push(t) });
+    expect(asset).toMatchObject({ kind: 'video', hasAudio: false, ext: 'mts', mime: 'video/mp2t' });
+    expect(notes).toEqual(["CLIP0001.mts: its sound can't be played in this browser, so it was added without sound."]);
   });
 
   it('rejects files that are not media', async () => {
@@ -412,6 +524,80 @@ describe('Library media', () => {
   });
 });
 
+describe('Library media cache', () => {
+  async function setup() {
+    const cache = memoryBackend();
+    const lib = new Library(memoryBackend(), { cache });
+    const add = async (p, name, bytes) => {
+      const a = await lib.addMediaBlob({ kind: 'image', name, ext: 'png', mime: 'image/png', width: 2, height: 2 }, new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+      p.assets[a.id] = a;
+      return a;
+    };
+    const a = createProject({ name: 'A' });
+    const b = createProject({ name: 'B' });
+    const onlyA = await add(a, 'only-a.png', [1]);
+    const shared = await add(a, 'shared.png', [2]);
+    b.assets[shared.id] = { ...shared };
+    await lib.saveProject(a);
+    await lib.saveProject(b);
+    lib.releaseMedia();
+    return { lib, cache, a, b, onlyA, shared };
+  }
+  const cached = (cache) => [...cache.files.keys()].filter((k) => k.startsWith('media/')).sort();
+
+  it('drops cached copies of media only a project deleted for good used', async () => {
+    const { lib, cache, a, onlyA, shared } = await setup();
+    expect(cached(cache)).toEqual([lib.mediaPath(onlyA), lib.mediaPath(shared)].sort());
+    await lib.trashProject(a.id);
+    await lib.emptyTrash();
+    await lib.cacheCleanup;
+    expect(cached(cache)).toEqual([lib.mediaPath(shared)]);
+    // The media itself stays in storage.
+    expect(lib.backend.files.has(lib.mediaPath(onlyA))).toBe(true);
+  });
+
+  it('keeps cached copies when another project could not be read', async () => {
+    const { lib, cache, a, b } = await setup();
+    lib.backend.files.set(`projects/${b.id}.json`, '{"oops');
+    const before = cached(cache);
+    await lib.trashProject(a.id);
+    await lib.deleteProject(a.id);
+    await lib.cacheCleanup;
+    expect(cached(cache)).toEqual(before);
+  });
+
+  it('reports and clears the cache, keeping files the open project has in memory', async () => {
+    const { lib, cache, onlyA, shared } = await setup();
+    expect(await lib.cacheUsage()).toMatchObject({ files: 2 });
+    await lib.mediaBlob(shared);
+    expect(await lib.clearCache()).toBe(1);
+    expect(cached(cache)).toEqual([lib.mediaPath(shared)]);
+    // Read again from storage when needed.
+    expect(await lib.mediaBlob(onlyA)).toBeTruthy();
+  });
+});
+
+describe('Library LUTs', () => {
+  const cube = (title) => new File([`TITLE "${title}"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n${title.length % 2} 1 1\n`], `${title}.cube`);
+
+  it('keeps the LUT list when it could not be read before an import', async () => {
+    const backend = memoryBackend();
+    await new Library(backend).importLut(cube('Warm'));
+    const lib = new Library(backend);
+    const read = backend.readJSON;
+    backend.readJSON = async (path) => {
+      if (path === 'luts/index.json') throw new Error('Simulated network failure');
+      return read(path);
+    };
+    // The color panel shows no LUTs meanwhile, and an import can't replace the list.
+    expect(await lib.listLuts()).toEqual([]);
+    await expect(lib.importLut(cube('Cold'))).rejects.toThrow('Simulated network failure');
+    backend.readJSON = read;
+    await lib.importLut(cube('Cold'));
+    expect((await new Library(backend).listLuts()).map((x) => x.name).sort()).toEqual(['Cold', 'Warm']);
+  });
+});
+
 describe('AutoSaver', () => {
   let backend;
   let lib;
@@ -507,6 +693,74 @@ describe('AutoSaver', () => {
     expect(saved()).toBe('third');
     expect(store.dirty).toBe(false);
     expect(saver.status).toBe('saved');
+  });
+
+  it('never has two saves of the project in flight, so an older one cannot land last', async () => {
+    // Project writes wait until the test lets each one finish, in any order.
+    const pending = [];
+    const write = backend.writeJSON;
+    backend.writeJSON = (path, value) => {
+      if (!path.startsWith('projects/')) return write(path, value);
+      return new Promise((resolve) => pending.push({ name: value.name, finish: () => write(path, value).then(resolve) }));
+    };
+    const finish = async (name) => {
+      const i = pending.findIndex((w) => w.name === name);
+      expect(i).toBeGreaterThanOrEqual(0);
+      await pending.splice(i, 1)[0].finish();
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    edit('a');
+    saver.save();
+    await vi.advanceTimersByTimeAsync(0);
+    edit('b');
+    // Save now (Ctrl+S) and leaving both ask while the first save runs.
+    saver.save();
+    saver.flush();
+    await finish('a');
+    expect(pending.map((w) => w.name)).toEqual(['b']);
+    edit('c');
+    saver.save();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pending.map((w) => w.name)).toEqual(['b']);
+    await finish('b');
+    await finish('c');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(saved()).toBe('c');
+    expect(store.dirty).toBe(false);
+  });
+
+  it('lets the editor be left when a save never answers, without a second write or a false Saved', async () => {
+    quiet();
+    // The project write hangs (a stalled connection) until the test lets it finish.
+    const pending = [];
+    const write = backend.writeJSON;
+    backend.writeJSON = (path, value) => {
+      if (!path.startsWith('projects/')) return write(path, value);
+      return new Promise((resolve) => pending.push({ name: value.name, finish: () => write(path, value).then(resolve) }));
+    };
+    edit('stuck');
+    const leaving = saver.flush();
+    const outcome = leaving.then(() => 'left', (err) => err.message);
+    await vi.advanceTimersByTimeAsync(STALL_MS + 10);
+    // Leaving is told the edits aren't saved, so it can ask instead of hanging.
+    expect(await outcome).toMatch(/taking too long/);
+    expect(saver.status).toBe('error');
+    expect(store.dirty).toBe(true);
+    // Edits meanwhile don't start another write beside the stalled one.
+    edit('later');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pending.map((w) => w.name)).toEqual(['stuck']);
+    expect(saver.status).toBe('error');
+    await expect(saver.flush()).rejects.toThrow(/taking too long/);
+    // It lands at last: confirmed, then the newer edit is saved after it.
+    await pending.shift().finish();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(pending.map((w) => w.name)).toEqual(['later']);
+    await pending.shift().finish();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(saved()).toBe('later');
+    expect(saver.status).toBe('saved');
+    expect(store.dirty).toBe(false);
   });
 
   it('flush() saves right away and is a no-op when nothing changed', async () => {

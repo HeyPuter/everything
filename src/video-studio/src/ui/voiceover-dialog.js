@@ -14,6 +14,7 @@ import { createTeleprompter } from './teleprompter.js';
 import {
   recordingSupported, listMicrophones, openMicrophone, stopStream, micErrorMessage, LevelMeter, VoiceRecorder, extForMime,
 } from '../media/voiceover.js';
+import { nextTakeNumber } from '../media/capture.js';
 import '../styles/audio.css';
 
 let open = null;
@@ -40,6 +41,13 @@ export function openVoiceoverDialog(ctx) {
   let opening = 0; // newest microphone request; older ones are stopped when they arrive
   let closed = false;
   const recorder = new VoiceRecorder();
+  // The microphone went away mid-take (unplugged, access revoked): keep what was recorded.
+  recorder.onInterrupted = () => {
+    if (state !== 'recording') return;
+    stopRecording().then(() => {
+      if (!closed) showError('The microphone stopped. Connect it and try again.');
+    });
+  };
 
   const message = h('div.vo-message', { role: 'alert' });
   const micSelect = h('select#vo-mic.select', { 'aria-describedby': 'vo-mic-hint' }, h('option', { value: '' }, 'Default microphone'));
@@ -257,7 +265,7 @@ export function openVoiceoverDialog(ctx) {
       return;
     }
     status.textContent = 'Adding recording...';
-    const n = Object.values(store.project.assets).filter((a) => /^Voiceover \d+/.test(a.name)).length + 1;
+    const n = nextTakeNumber(store.project.assets, 'Voiceover');
     const file = new File([blob], `Voiceover ${n}.${extForMime(blob.type)}`, { type: blob.type });
     try {
       const [asset] = await actions.importFiles([file]);

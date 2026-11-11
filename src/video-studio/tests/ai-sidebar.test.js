@@ -8,7 +8,7 @@ import { addTimeline } from '../src/model/timelines.js';
 import { createCompound } from '../src/model/compound.js';
 import { createAgent, requestMessages, userContent, userText, suggestions, SYSTEM_PROMPT, MAX_ROUNDS } from '../src/media/ai-agent.js';
 import { TOOLS, toolSpecs, changesProject, costly, describeCall, mediaBrief, projectSnapshot } from '../src/media/ai-tools.js';
-import { txt2vidOptions, fitSeconds, videoAspectFor, generateVideo, videoBlobFrom, videoErrorMessage, modelForFrames, estimateCents, formatCents, modelSummary, VIDEO_MODELS, DEFAULT_VIDEO_MODEL } from '../src/media/ai-video.js';
+import { txt2vidOptions, fitSeconds, videoAspectFor, generateVideo, cleanAiTemp, videoBlobFrom, videoErrorMessage, modelForFrames, estimateCents, formatCents, modelSummary, VIDEO_MODELS, DEFAULT_VIDEO_MODEL } from '../src/media/ai-video.js';
 import { txt2imgOptions, IMAGE_MODELS } from '../src/media/imagegen.js';
 import { attachmentKind, attachmentProblem, attachmentsIntro } from '../src/media/ai-attach.js';
 import { aiChatStream, friendlyAiError } from '../src/media/ai-chat.js';
@@ -145,6 +145,41 @@ describe('AI video generation', () => {
     expect(out.blob.type).toBe('video/mp4');
   });
 
+  it('cleans up copies left by generations the page closed on, never one still in use', async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const stamp = (t) => `${t.toString(36)}-1.mp4`;
+    const items = [
+      { name: stamp(now - 2 * DAY), isDir: false },
+      { name: stamp(now - 60 * 60 * 1000), isDir: false },
+      { name: 'odd name.mp4', isDir: false, modified: Math.floor((now - 3 * DAY) / 1000) },
+      { name: 'unknown.mp4', isDir: false },
+      { name: 'folder', isDir: true, modified: 1 },
+    ];
+    const backend = { list: vi.fn(async (dir) => (dir === '.ai-temp' ? items : [])), remove: vi.fn(async () => {}) };
+    expect(await cleanAiTemp(backend, { now })).toBe(2);
+    expect(backend.remove.mock.calls.map((c) => c[0])).toEqual([`.ai-temp/${stamp(now - 2 * DAY)}`, '.ai-temp/odd name.mp4']);
+    // A generation still running in this tab: its copy is left alone however late the cleanup runs.
+    let finish;
+    let saved;
+    const fs = { read: vi.fn(async () => new Blob(['mp4'], { type: 'video/mp4' })), delete: vi.fn(async () => {}) };
+    const txt2vid = vi.fn((o) => {
+      saved = o.puter_output_path;
+      return new Promise((r) => (finish = () => r({ src: 'https://p.example/c.mp4' })));
+    });
+    const running = generateVideo({ prompt: 'waves' }, { txt2vid, fs, fetchFn: vi.fn() });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    const mine = { name: saved.split('/').pop(), isDir: false };
+    backend.list.mockResolvedValue([mine]);
+    backend.remove.mockClear();
+    expect(await cleanAiTemp(backend, { now: now + 3 * DAY })).toBe(0);
+    finish();
+    await running;
+    // Once collected it is no longer in use (and was deleted by the generation itself).
+    expect(fs.delete).toHaveBeenCalledWith(saved);
+    expect(await cleanAiTemp(backend, { now: now + 3 * DAY })).toBe(1);
+  });
+
   it('reads data URIs and explains failures in plain words', async () => {
     const blob = await videoBlobFrom({ src: 'data:video/mp4;base64,AAAA' });
     expect(blob.type).toBe('video/mp4');
@@ -275,6 +310,33 @@ describe('AI sidebar tools', () => {
     expect((await runner.run('generate_transition', { after_clip: b.id })).content).toMatch(/no video or image clip follows/);
   });
 
+  it('keeps what it makes within the timeline and an image within an hour', async () => {
+    const { store, ctx } = setup(clip('video', 0, 4));
+    const { runner } = runnerFor(ctx);
+    const pic = await runner.run('generate_image', { prompt: 'x', place: 'overlay', start: 1e9, duration: 1e9 });
+    const made = findClip(store.project, pic.target.ids[0]).clip;
+    expect(made.start).toBe(s(4));
+    expect(made.duration).toBe(s(3600));
+    const voice = await runner.run('add_voiceover', { text: 'x', start: -5 });
+    expect(findClip(store.project, voice.target.ids[0]).clip.start).toBe(0);
+    const added = await runner.run('add_media_to_timeline', { media: made.assetId, place: 'end', duration: 1e9 });
+    expect(findClip(store.project, added.target.ids[0]).clip.duration).toBe(s(3600));
+  });
+
+  it('refuses media ids that are only names every object has', async () => {
+    const { store, ctx } = setup(clip('video', 0, 4));
+    const { runner, services } = runnerFor(ctx);
+    const before = JSON.stringify(store.project);
+    for (const media of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      const r = await runner.run('add_media_to_timeline', { media });
+      expect(r.ok).toBe(false);
+      expect(r.content).toMatch(/there is no media/);
+      expect((await runner.run('generate_video', { prompt: 'x', first_frame: media })).ok).toBe(false);
+    }
+    expect(JSON.stringify(store.project)).toBe(before);
+    expect(services.generateVideo).not.toHaveBeenCalled();
+  });
+
   it('keeps a video that finishes after Stop in the media library only', async () => {
     const { store, ctx, main } = setup(clip('video', 0, 4));
     let stopped = false;
@@ -356,6 +418,108 @@ describe('AI sidebar tools', () => {
         expect(project.tracks).toEqual(saved.tracks);
       }
     }
+  });
+
+  describe('a result that finishes after its editor was left', () => {
+    /** A project file the left editor's runner saves into, and a way to finish its video. */
+    async function leftBehind() {
+      const { store, ctx } = setup(clip('video', 0, 4));
+      store.project.name = 'Trip';
+      let file = structuredClone(store.project);
+      ctx.library.openProject = vi.fn(async () => structuredClone(file));
+      ctx.library.saveProject = vi.fn(async (p) => {
+        file = structuredClone(p);
+      });
+      let open;
+      let stopped = false;
+      const { runner } = runnerFor(ctx, { generateVideo: vi.fn(() => new Promise((r) => (open = () => r(video())))) });
+      const running = runner.run('generate_video', { prompt: 'fox' }, { note: () => {}, stopped: () => stopped });
+      await vi.waitFor(() => expect(open).toBeTypeOf('function'));
+      runner.close();
+      stopped = true;
+      return {
+        ctx,
+        file: () => file,
+        edit: (fn) => {
+          const p = structuredClone(file);
+          fn(p);
+          file = p;
+        },
+        finish: async () => {
+          open();
+          expect(await running).toEqual({ skipped: true });
+        },
+      };
+    }
+    const made = (p) => Object.values(p.assets).filter((a) => a.origin === 'ai-video');
+    const realLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+    afterEach(() => {
+      if (realLocks) Object.defineProperty(navigator, 'locks', realLocks);
+      else delete navigator.locks;
+    });
+
+    it('never writes over edits saved while it reads the project', async () => {
+      const t = await leftBehind();
+      // The project, opened again (in another tab, say), is saved with an edit just after the late result read it.
+      const read = t.ctx.library.openProject.getMockImplementation();
+      t.ctx.library.openProject.mockImplementationOnce(async (id) => {
+        const copy = await read(id);
+        t.edit((p) => (p.name = 'Trip, edited'));
+        return copy;
+      });
+      await t.finish();
+      await vi.waitFor(() => expect(t.ctx.library.saveProject).toHaveBeenCalled());
+      expect(t.file().name).toBe('Trip, edited');
+      expect(made(t.file())).toHaveLength(1);
+    });
+
+    it('goes to the editor open on the project in another tab, not into the file it will save over', async () => {
+      // Another tab holds the project.
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: vi.fn(async (name, opts, cb) => (opts?.ifAvailable ? cb(null) : new Promise(() => {}))) } });
+      const t = await leftBehind();
+      const other = new BroadcastChannel('video-studio:ai-results');
+      const got = [];
+      other.onmessage = (e) => {
+        if (e.data?.type !== 'result' || e.data.projectId !== t.file().id) return;
+        got.push(e.data.asset);
+        other.postMessage({ type: 'taken', nonce: e.data.nonce });
+      };
+      await t.finish();
+      await vi.waitFor(() => expect(got).toHaveLength(1));
+      expect(got[0].origin).toBe('ai-video');
+      await new Promise((r) => setTimeout(r, 50));
+      expect(t.ctx.library.saveProject).not.toHaveBeenCalled();
+      other.close();
+    });
+
+    it('waits for another tab to let the project go when that tab does not take it', async () => {
+      let free;
+      const freed = new Promise((r) => (free = r));
+      let held = true;
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: vi.fn(async (name, opts, cb) => {
+        if (opts?.ifAvailable && held) return cb(null);
+        if (held) await freed;
+        return cb({ name });
+      }) } });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const t = await leftBehind();
+        const finishing = t.finish();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await finishing;
+        expect(t.ctx.library.saveProject).not.toHaveBeenCalled();
+        // The other tab saves an edit and closes the project.
+        t.edit((p) => (p.name = 'Trip, edited'));
+        held = false;
+        free();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.waitFor(() => expect(t.ctx.library.saveProject).toHaveBeenCalled());
+        expect(t.file().name).toBe('Trip, edited');
+        expect(made(t.file())).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it('keeps what was made in the media only when another timeline was opened meanwhile', async () => {
@@ -497,12 +661,35 @@ describe('AI sidebar conversation', () => {
     const agent = createAgent({ chat, runTool: runner.run, describe: describeIt, approve: async () => true, settings: () => ({ approval: 'never' }) });
     const pending = agent.send('go', () => {});
     await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    // The request was given the signal Stop aborts, so Puter stops writing (and charging for) the reply.
+    expect(chat.mock.calls[0][1].signal.aborted).toBe(false);
     agent.stop();
+    expect(chat.mock.calls[0][1].signal.aborted).toBe(true);
     const out = await pending;
     expect(out.stopped).toBe(true);
     expect(out.steps.map((st) => st.status)).toEqual(['skipped', 'skipped']);
     expect(agent.messages.filter((m) => m.role === 'tool')).toHaveLength(2);
     release(video());
+  });
+
+  it('tells the model about an undo of a reply that was stopped after its changes', async () => {
+    const { chat, sent } = scripted([call('add_text', { text: 'hi' }, 'k1')]);
+    let hang = false;
+    const model = vi.fn((m, o) => (hang ? (async function* () { await new Promise(() => {}); })() : chat(m, o)));
+    const agent = createAgent({ chat: model, runTool: async () => { hang = true; return { ok: true, content: 'Done: added', changed: true }; }, describe: describeIt, approve: async () => true, settings: () => ({ approval: 'never' }) });
+    const pending = agent.send('add a title', () => {});
+    await vi.waitFor(() => expect(model).toHaveBeenCalledTimes(2));
+    // Noted while the reply runs: nothing goes between a call and the model's next request.
+    const roles = agent.messages.map((m) => m.role);
+    agent.note('(The user then undid the changes in this reply.)');
+    expect(agent.messages.map((m) => m.role)).toEqual(roles);
+    agent.stop();
+    expect((await pending).stopped).toBe(true);
+    hang = false;
+    await agent.send('now a red one', () => {});
+    const last = sent.at(-1);
+    expect(last.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool', 'assistant', 'user']);
+    expect(last[4].content).toMatch(/did not finish[\s\S]*undid the changes/);
   });
 
   it('reports a failed request and can try again where it left off', async () => {
@@ -578,6 +765,60 @@ describe('AI sidebar conversation', () => {
     for await (const p of aiChatStream([], {}, whole)) got.push(p);
     expect(got[1].input).toEqual({ __unreadable: 'nope{' });
   });
+
+  it('asks Puter for Claude itself, several calls a reply, and a prompt cache', async () => {
+    let seen = null;
+    const sdk = { ai: { chat: async (messages, options) => { seen = { messages, options }; return { message: { content: 'ok' } }; } } };
+    const t = [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'one' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'split', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'a', content: 'Done' },
+      { role: 'assistant', content: 'Split.' },
+      { role: 'user', content: 'two' },
+    ];
+    for await (const _ of aiChatStream(t, { model: 'claude-opus-5-5', tools: [{ type: 'function', function: { name: 'split' } }] }, sdk)) void _;
+    expect(seen.options).toMatchObject({ provider: 'claude', parallelToolCalls: true });
+    // The instructions, the end of the finished turn and the newest message are cache breakpoints.
+    expect(seen.messages[0].content[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
+    expect(seen.messages[4].content.at(-1).cache_control).toEqual({ type: 'ephemeral' });
+    expect(seen.messages[5].content.at(-1).cache_control).toEqual({ type: 'ephemeral' });
+    expect(JSON.stringify(seen.messages).match(/cache_control/g)).toHaveLength(3);
+    // The transcript given is left as it was.
+    expect(t[5].content).toBe('two');
+    // A tool result is sent in Claude's own shape, which keeps its breakpoint.
+    for await (const _ of aiChatStream(t.slice(0, 4), { model: 'claude-opus-5-5' }, sdk)) void _;
+    expect(seen.messages[3]).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: 'Done', cache_control: { type: 'ephemeral' } }] });
+    expect(seen.options.provider).toBe('claude');
+    // Other models are not pinned.
+    for await (const _ of aiChatStream(t, { model: 'gpt-5' }, sdk)) void _;
+    expect(seen.options.provider).toBeUndefined();
+    // Nor are their messages reshaped: Claude's cache marks and tool-result shape are for Claude only.
+    expect(seen.messages).toBe(t);
+  });
+
+  it('ends the stream and Puter\'s request when the assistant is stopped', async () => {
+    const ctl = new AbortController();
+    let options = null;
+    let ended = false;
+    const sdk = { ai: { chat: async (_m, o) => { options = o; return { [Symbol.asyncIterator]() { return this; }, next: () => new Promise(() => {}), return: async () => { ended = true; return { done: true }; } }; } } };
+    const it = aiChatStream([{ role: 'user', content: 'hi' }], { signal: ctl.signal }, sdk)[Symbol.asyncIterator]();
+    const next = it.next();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(options.signal).toBe(ctl.signal);
+    ctl.abort();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ended).toBe(true);
+    void next;
+  });
+
+  it('says the credits ran out when Puter ends a reply for that', async () => {
+    const sdk = { ai: { chat: async () => (async function* () { yield { text: 'Half' }; yield { type: 'usage', usage: { output_tokens: 3 }, metadata: { usage_limited: true } }; })() } };
+    const parts = [];
+    await expect((async () => { for await (const p of aiChatStream([], { maxTokens: 3 }, sdk)) parts.push(p); })()).rejects.toThrow(/ran out of AI credits/);
+    expect(parts).toEqual([{ type: 'text', text: 'Half' }]);
+    expect(friendlyAiError(Object.assign(new Error('Your Puter account ran out of AI credits, so the reply stopped.'), { code: 'insufficient_funds' }))).toBe('Your Puter AI allowance has run out for now.');
+  });
 });
 
 describe('AI sidebar panel', () => {
@@ -641,7 +882,57 @@ describe('AI sidebar panel', () => {
     panel.el.querySelector('.ai-undo').click();
     expect(main().clips).toHaveLength(2);
     expect(panel.el.querySelector('.ai-foot-summary').textContent).toBe('1 change undone');
-    expect(panel.messages.at(-1).content).toMatch(/undid the changes in this reply/);
+    expect(panel.messages.at(-1).content).toMatch(/undid the changes you made for "add a fox shot"/);
+  });
+
+  it('names the request whose changes were undone, even while a later reply runs', async () => {
+    const sent = [];
+    let release;
+    const replies = [
+      () => [call('set_speed', { clips: ['first'], speed: 2 })],
+      () => [{ type: 'text', text: 'Faster.' }],
+      () => new Promise((r) => (release = () => r([{ type: 'text', text: 'Here is an idea.' }]))),
+      () => [{ type: 'text', text: 'Ok.' }],
+    ];
+    const chat = (messages) => {
+      sent.push(structuredClone(messages));
+      const next = replies.shift();
+      return (async function* () {
+        for (const part of await next()) yield part;
+      })();
+    };
+    const { panel, main } = mount([], { chat });
+    panel.open();
+    panel.send('speed it up');
+    await vi.waitFor(() => expect(panel.el.querySelector('.ai-undo')).toBeTruthy());
+    panel.send('suggest a title');
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    // Undo on the first reply while the second is still being written.
+    panel.el.querySelector('.ai-undo').click();
+    expect(main().clips[0].speed).toBe(1);
+    release();
+    await vi.waitFor(() => expect(panel.busy).toBe(false));
+    panel.send('thanks');
+    await vi.waitFor(() => expect(sent).toHaveLength(4));
+    const told = sent[3].filter((m) => m.role === 'assistant').map((m) => m.content).join('\n');
+    expect(told).toMatch(/undid the changes you made for "speed it up"/);
+    expect(told).not.toMatch(/in this reply/);
+  });
+
+  it('says a video finished after New chat came from the cleared chat, not that it was stopped', async () => {
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    let finish;
+    const generateVideo = vi.fn(() => new Promise((r) => (finish = () => r(video()))));
+    const { panel } = mount([[call('generate_video', { prompt: 'A fox' })]], { services: { generateVideo, picture: vi.fn(), frame: vi.fn() } });
+    panel.settings.approval = 'never';
+    panel.open();
+    panel.send('make a fox');
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    panel.newChat();
+    finish();
+    const toasts = () => [...document.querySelectorAll('.toast-text')].map((t) => t.textContent);
+    await vi.waitFor(() => expect(toasts().join()).toMatch(/has finished/));
+    expect(toasts()).toContain('The video still being made when you started a new chat has finished. It is in your media.');
   });
 
   it('keeps Undo off once something else was done after the reply', async () => {
@@ -751,5 +1042,41 @@ describe('AI sidebar panel', () => {
     expect(Array.isArray(user.content) ? user.content[1].text : user.content).toMatch(new RegExp(`media ${asset.id} image "cat.png"`));
     expect(user.content[2].type).toBe('image');
     expect(panel.el.querySelector('.ai-user-files')).toBeTruthy();
+  });
+
+  it('takes back a message of only files when none of them could be added', async () => {
+    const readFile = vi.fn(async (file) => ({ name: file.name, kind: 'image', size: file.size, blocks: [] }));
+    const { panel, ctx, chat } = mount([[{ type: 'text', text: 'Nice photo.' }]], { readFile });
+    ctx.library.importFile = vi.fn(async () => {
+      throw new Error('IMG_0001.heic could not be read.');
+    });
+    panel.open();
+    panel.attach([new File(['img'], 'IMG_0001.heic', { type: 'image/heic' })]);
+    panel.send();
+    await vi.waitFor(() => expect(ctx.library.importFile).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(chat).not.toHaveBeenCalled();
+    // No message that went nowhere is left in the chat.
+    expect(panel.el.querySelector('.ai-msg.ai-user')).toBe(null);
+    expect(panel.el.querySelector('.ai-empty')).toBeTruthy();
+    expect([...document.querySelectorAll('.toast')].some((t) => /could not be read/.test(t.textContent))).toBe(true);
+  });
+
+  it('sends nothing into a new chat started while the files were being added', async () => {
+    const readFile = vi.fn(async (file) => ({ name: file.name, kind: 'image', size: file.size, blocks: [] }));
+    const { panel, ctx, chat } = mount([[{ type: 'text', text: 'Nice photo.' }]], { readFile });
+    const importFile = ctx.library.importFile.bind(ctx.library);
+    let release;
+    ctx.library.importFile = vi.fn((...a) => new Promise((r) => (release = () => r(importFile(...a)))));
+    panel.open();
+    panel.attach([new File(['img'], 'cat.png', { type: 'image/png' })]);
+    panel.send('animate my cat');
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    panel.newChat();
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(chat).not.toHaveBeenCalled();
+    expect(panel.el.querySelector('.ai-msg')).toBe(null);
+    expect(panel.messages).toEqual([]);
   });
 });

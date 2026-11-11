@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
-import { mainTrack, findClip, allClips } from '../src/model/timeline.js';
+import { mainTrack, findClip, allClips, deleteClips, addClip } from '../src/model/timeline.js';
 import { TEXT_PRESETS } from '../src/model/catalog.js';
 import { fixture, clip, onMain, spans, kinds, trackOf, s } from './helpers.js';
 import { createCompound } from '../src/model/compound.js';
@@ -377,7 +377,105 @@ describe('keyframes', () => {
   });
 });
 
+describe('speed drags', () => {
+  const layout = (p) => JSON.stringify(p.tracks.map((t) => [t.kind, t.main, t.clips.map((c) => [c.id, c.start, c.duration, c.speed, c.in])]));
+
+  it('leave the timeline as the final speed alone would, after dipping slower and back', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 2), clip('video', 6, 2));
+    store.setToggle('ripple', false);
+    const t = clip('text', 2.5, 1);
+    addClip(store.project, t, { ripple: false });
+    const [a] = main().clips;
+    const before = layout(store.project);
+    const span = a.duration * a.speed;
+    // 1x -> 0.5x (the clips after it move later to make room) -> 1x.
+    for (const v of [0.8, 0.5, 0.7, 1]) actions.setSpeed(a.id, v, { span });
+    store.seal();
+    expect(layout(store.project)).toBe(before);
+    expect(store.history.undoStack).toHaveLength(1);
+    // Ending slower: exactly one slowing from the start.
+    for (const v of [0.5, 0.25, 0.5]) actions.setSpeed(a.id, v, { span });
+    store.seal();
+    expect(spans(main())).toEqual([[0, 4], [4, 2], [8, 2]]);
+    store.undo();
+    expect(layout(store.project)).toBe(before);
+  });
+
+  it('bring back an overlay that moved to a free track mid-drag', () => {
+    const { store, actions } = setup(clip('video', 0, 10));
+    const o = clip('video', 0, 2);
+    const n = clip('video', 2, 2, { assetId: 'silent' });
+    addClip(store.project, o, { ripple: false });
+    addClip(store.project, n, { ripple: false, trackId: trackOf(store.project, o.id).id });
+    const before = layout(store.project);
+    const span = o.duration;
+    actions.setSpeed(o.id, 0.5, { span });
+    expect(trackOf(store.project, o.id)).not.toBe(trackOf(store.project, n.id));
+    actions.setSpeed(o.id, 1, { span });
+    store.seal();
+    expect(layout(store.project)).toBe(before);
+    expect(trackOf(store.project, o.id)).toBe(trackOf(store.project, n.id));
+  });
+
+  it('keep one run through a pause in the drag', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 2));
+    store.setToggle('ripple', false);
+    const [a] = main().clips;
+    const before = layout(store.project);
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    actions.setSpeed(a.id, 0.5, { span: s(2) });
+    now += 5000; // the pointer rests
+    actions.setSpeed(a.id, 1, { span: s(2) });
+    store.seal();
+    clock.mockRestore();
+    expect(layout(store.project)).toBe(before);
+  });
+
+  it('of a speed curve start from the clip as it was too', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 2));
+    store.setToggle('ripple', false);
+    const [a] = main().clips;
+    const before = layout(store.project);
+    const pts = (v) => [{ t: 0, v }, { t: 1, v }];
+    actions.setSpeedCurve(a.id, pts(0.5), { key: 'speed-curve', span: s(2) });
+    actions.setSpeedCurve(a.id, pts(1), { key: 'speed-curve', span: s(2) });
+    store.seal();
+    const after = JSON.parse(layout(store.project));
+    expect(after[0][2].slice(1).map((c) => c.slice(0, 2))).toEqual(JSON.parse(before)[0][2].slice(1).map((c) => c.slice(0, 2)));
+    expect(main().clips[1].start).toBe(s(2));
+  });
+});
+
+describe('nudging', () => {
+  it('records no undo step when nothing can move', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 2));
+    // With ripple a base clip stays in its slot.
+    store.select(main().clips[0].id);
+    expect(actions.nudgeSelected(1)).toBe(false);
+    expect(store.history.canUndo()).toBe(false);
+    // Without ripple it moves (into the gap after it) and that is a step.
+    store.setToggle('ripple', false);
+    store.select(main().clips[1].id);
+    expect(actions.nudgeSelected(1)).toBe(true);
+    expect(store.history.undoLabel).toBe('Nudge clip');
+  });
+});
+
 describe('importing files', () => {
+  it('puts several files on the timeline as one undo step', async () => {
+    const { store } = setup();
+    let n = 0;
+    const library = { importFile: async (file) => ({ id: `f${n++}`, kind: 'image', name: file.name, width: 100, height: 100 }) };
+    const ctx = { store, player: null, library };
+    ctx.actions = createActions(ctx);
+    await ctx.actions.importFiles([new File(['x'], 'a.png'), new File(['y'], 'b.png'), new File(['z'], 'c.png')], { addToTimeline: true });
+    expect(mainTrack(store.project).clips.map((c) => c.assetId)).toEqual(['f0', 'f1', 'f2']);
+    store.undo();
+    expect(mainTrack(store.project).clips).toEqual([]);
+    expect(Object.keys(store.project.assets)).toContain('f2');
+  });
+
   it('names the file in an import error that does not', async () => {
     const { store } = setup();
     const library = {
@@ -400,6 +498,59 @@ describe('importing files', () => {
 });
 
 describe('reverse', () => {
+  const reversedLibrary = (extra = {}) => ({
+    mediaBlob: async () => new Blob(['v']),
+    importFile: async (f) => ({ id: 'rev', kind: 'video', name: f.name, duration: s(10), hasAudio: true, width: 1920, height: 1080 }),
+    ...extra,
+  });
+
+  it('is one undo step, the reversed copy included, and undoes and redoes cleanly', async () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: reversedLibrary() };
+    ctx.actions = createActions(ctx);
+    await ctx.actions.reverseClip(a.id);
+    expect(findClip(store.project, a.id).clip.assetId).toBe('rev');
+    expect(store.project.assets.rev.reversedOf).toBe('vid');
+    expect(store.history.undoStack.map((e) => e.label)).toEqual(['Reverse']);
+    expect(store.undo()).toBe('Reverse');
+    expect(findClip(store.project, a.id).clip.assetId).toBe('vid');
+    expect(store.project.assets.rev).toBeUndefined();
+    expect(store.history.canUndo()).toBe(false);
+    store.redo();
+    expect(findClip(store.project, a.id).clip.assetId).toBe('rev');
+    expect(store.project.assets.rev.reversedOf).toBe('vid');
+    // Back and forth again uses the reversed copy already made, one step each.
+    await ctx.actions.reverseClip(a.id);
+    await ctx.actions.reverseClip(a.id);
+    expect(store.history.undoStack.map((e) => e.label)).toEqual(['Reverse', 'Reverse', 'Reverse']);
+    document.body.replaceChildren();
+  });
+
+  it('keeps the reversed copy as one Reverse step when the clip is deleted while it reverses', async () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const library = reversedLibrary({
+      mediaBlob: async () => {
+        store.update('Delete clip', (pp) => deleteClips(pp, [a.id], store.opts) > 0);
+        return new Blob(['v']);
+      },
+    });
+    const ctx = { store, player: null, library };
+    ctx.actions = createActions(ctx);
+    await ctx.actions.reverseClip(a.id);
+    // The copy stays in the media (with its undo step); Undo takes it away, then the delete.
+    expect(store.history.undoStack.map((e) => e.label)).toEqual(['Delete clip', 'Reverse']);
+    store.undo();
+    expect(store.project.assets.rev).toBeUndefined();
+    expect(findClip(store.project, a.id)).toBeNull();
+    store.undo();
+    expect(findClip(store.project, a.id)).not.toBeNull();
+    document.body.replaceChildren();
+  });
+
   it('closes the progress dialog when the reversed file cannot be saved', async () => {
     const p = fixture();
     const [a] = onMain(p, clip('video', 0, 4));

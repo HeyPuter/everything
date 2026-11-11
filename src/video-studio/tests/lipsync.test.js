@@ -63,6 +63,21 @@ describe('voice analysis for lip sync', () => {
     expect(mean(a.open, 1.4, 1.7)).toBeLessThan(0.05);
   });
 
+  it('keeps the mouth closed for a recording of only room noise or hum', () => {
+    const hum = (seconds, gain) => Float32Array.from({ length: Math.round(seconds * SR) }, (_, i) => gain * Math.sin((2 * Math.PI * 180 * i) / SR));
+    for (const quietOnly of [hiss(2, 0.002), hum(2, 0.004), hum(2, 0.2), new Float32Array(2 * SR).fill(0.01)]) {
+      const a = analyzeVoice(quietOnly, SR);
+      expect(Math.max(...a.open)).toBeLessThan(0.05);
+      expect(a.beats).toEqual([]);
+    }
+    // A voice over that room noise still moves the mouth, and only while it speaks.
+    const room = hiss(1.7, 0.002);
+    const noisy = concat(silence(0.5), vowel(0.6), silence(0.6)).map((v, i) => v + room[i]);
+    const a = analyzeVoice(noisy, SR);
+    expect(mean(a.open, 0, 0.4)).toBeLessThan(0.05);
+    expect(mean(a.open, 0.65, 1.0)).toBeGreaterThan(0.5);
+  });
+
   it('tells bright vowels (wide lips) from dark ones (rounded lips)', () => {
     const a = analyzeVoice(concat(vowel(0.5, { F1: 300, F2: 2400 }), silence(0.3), vowel(0.5, { F1: 350, F2: 650 })), SR);
     expect(mean(a.wide, 0.15, 0.45)).toBeGreaterThan(mean(a.round, 0.15, 0.45));

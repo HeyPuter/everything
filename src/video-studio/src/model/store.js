@@ -14,7 +14,7 @@
  */
 import { Emitter } from '../lib/emitter.js';
 import { History } from './history.js';
-import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength, rippleResize } from './timeline.js';
+import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength, rippleResize, makeRoom } from './timeline.js';
 import { switchTimeline } from './timelines.js';
 
 /** Projects up to this much JSON keep a copy to roll back a failed step of a drag to. */
@@ -77,7 +77,8 @@ export class EditorStore extends Emitter {
    */
   openCompound(id) {
     const f = findClip(this.project, id);
-    if (!f || f.clip.type !== 'compound') return false;
+    // A clip on a locked track can't be edited, inside or out.
+    if (!f || f.clip.type !== 'compound' || f.track.locked) return false;
     const outer = this.project;
     const c = f.clip;
     this.nest.push({ outer, history: this.history, id, time: this.time });
@@ -105,12 +106,23 @@ export class EditorStore extends Emitter {
         const cc = findClip(p, frame.id)?.clip;
         if (!cc) return false;
         const ripple = rippleResize(p, frame.id, this.opts);
+        // Showing its contents to their end, it follows that end (as nested timelines do in
+        // other editors); trimmed shorter, it keeps its trim and only shrinks to what is left.
+        const toEnd = cc.in + cc.duration >= sequenceLength(cc.sequence) - 1;
         cc.sequence = { tracks: structuredClone(inner.tracks) };
         adoptProjectFields(p, inner);
         const len = sequenceLength(cc.sequence);
+        const f = findClip(p, frame.id);
+        if (!len) {
+          // Everything inside was deleted: the clip goes too (not a 1-frame leftover).
+          f.track.clips.splice(f.index, 1);
+          ripple();
+          return;
+        }
         cc.in = Math.min(cc.in, Math.max(0, len - MIN_CLIP));
-        cc.duration = Math.max(MIN_CLIP, Math.min(cc.duration, len - cc.in));
+        cc.duration = Math.max(MIN_CLIP, toEnd ? len - cc.in : Math.min(cc.duration, len - cc.in));
         ripple();
+        makeRoom(p, f.track, cc, this.opts);
       });
     }
     this._afterSwap(t);
@@ -159,11 +171,17 @@ export class EditorStore extends Emitter {
   /**
    * Apply an edit. fn(project) mutates the project; return false to cancel
    * (nothing is recorded). opts.coalesce merges consecutive edits with the
-   * same key (slider drags) into one undo step.
+   * same key (slider drags) into one undo step. With opts.fromRunStart an
+   * edit of the run starts again from the project as it was before the run
+   * when an earlier edit of the run moved other clips (fn calls its second
+   * argument to say so): a speed drag that made room for a slower clip and
+   * comes back leaves nothing behind. Such a run lasts until seal() or
+   * another edit, however long the pointer rests.
    */
   update(label, fn, opts = {}) {
     const now = performance.now();
-    const merge = opts.coalesce && this._coalesce && this._coalesce.key === opts.coalesce && now - this._coalesce.at < 1200;
+    const sameRun = opts.coalesce && this._coalesce && this._coalesce.key === opts.coalesce;
+    const merge = sameRun && (opts.fromRunStart || now - this._coalesce.at < 1200);
     const before = merge ? null : structuredClone(this.project);
     // A merged step records no snapshot, but still needs one to roll back to (JSON is the cheap
     // copy). Copying a very big project on every step of a drag would slow the drag down, so
@@ -177,9 +195,14 @@ export class EditorStore extends Emitter {
     const cancel = () => {
       if (before || rollback) restoreInto(this.project, before || JSON.parse(rollback));
     };
+    // The run's undo step holds the project from before the run.
+    // (Only then: copying a big project on every step would slow the drag down.)
+    const start = merge && opts.fromRunStart && this._coalesce.movedOthers ? this.history.undoStack.at(-1)?.snapshot : null;
+    let movedOthers = false;
     let result;
     try {
-      result = fn(this.project);
+      if (start) restoreInto(this.project, structuredClone(start));
+      result = fn(this.project, () => (movedOthers = true));
     } catch (err) {
       cancel();
       throw err;
@@ -197,6 +220,7 @@ export class EditorStore extends Emitter {
     }
     if (before) this.history.push(before, label);
     this._coalesce = !opts.coalesce ? null : merge ? Object.assign(this._coalesce, { at: now }) : { key: opts.coalesce, at: now };
+    if (this._coalesce) this._coalesce.movedOthers = movedOthers;
     this.project.modified = Date.now();
     this.revision++;
     // Drop selected ids that no longer exist.

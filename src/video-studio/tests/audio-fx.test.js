@@ -254,6 +254,27 @@ describe('time stretching', () => {
     for (let i = 0; i < 20000; i += 37) expect(b[i]).toBeCloseTo(a[i], 5);
   });
 
+  it.each([2, 1.5, 0.75, 0.5])('speed %s keeps the sound where the speed puts it', (speed) => {
+    // Clicks at many points of the grain cycle: the sound around each lands at its time / speed.
+    const clicks = Array.from({ length: 12 }, (_, k) => Math.round((0.3 + k * 0.53) * SR));
+    const src = new Float32Array(7 * SR);
+    for (const c of clicks) for (let i = 0; i < 48; i++) src[c + i] = 0.8 * Math.sin((Math.PI * i) / 48);
+    const [out] = stretchBuffer([src], SR, speed);
+    let off = 0;
+    for (const c of clicks) {
+      const at = (c + 24) / speed;
+      let sum = 0;
+      let weighted = 0;
+      for (let i = Math.round(at - 0.06 * SR); i < at + 0.1 * SR; i++) {
+        sum += out[i] ** 2;
+        weighted += out[i] ** 2 * (i - at);
+      }
+      off += weighted / sum / SR / clicks.length;
+    }
+    // Anchoring grains by their start put it 7 to 26 ms off.
+    expect(Math.abs(off)).toBeLessThan(0.0065);
+  });
+
   it('speed 1 reproduces the source', () => {
     const src = sine(440, 0.5, 0.5);
     const [out] = stretchBuffer([src], SR, 1);

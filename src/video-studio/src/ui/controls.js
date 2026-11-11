@@ -9,6 +9,20 @@ import { icon } from '../lib/icons.js';
 let seq = 0;
 const nextId = (p) => `${p}-${++seq}`;
 
+/**
+ * A number typed in a box: a decimal comma counts as a decimal point (when
+ * both appear, the last one is the decimal mark) and a typographic minus as
+ * a minus. NaN when there is no number.
+ */
+export function parseNumber(text) {
+  let s = String(text ?? '').trim().replace(/−/g, '-');
+  const comma = s.lastIndexOf(',');
+  const dot = s.lastIndexOf('.');
+  if (comma > dot) s = `${s.slice(0, comma).replace(/[.,]/g, '')}.${s.slice(comma + 1)}`;
+  else if (comma >= 0) s = s.replace(/,/g, '');
+  return parseFloat(s);
+}
+
 function pct(input) {
   const min = Number(input.min);
   const max = Number(input.max);
@@ -43,7 +57,19 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
     pct(range);
     emit(Number(range.value), false);
   });
-  range.addEventListener('change', () => emit(Number(range.value), true));
+  // Keys held on the slider (each press fires change) also make one undo step, ended on key up.
+  let keyRun = false;
+  range.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) keyRun = true;
+  });
+  const endKeyRun = () => {
+    if (!keyRun) return;
+    keyRun = false;
+    emit(last, true);
+  };
+  range.addEventListener('keyup', endKeyRun);
+  range.addEventListener('blur', endKeyRun);
+  range.addEventListener('change', () => emit(Number(range.value), !keyRun));
   // The slider's current range (it can change), or the wider limits from setLimits().
   const limit = (v) => Math.min(Number(range.dataset.hardMax ?? range.max), Math.max(Number(range.dataset.hardMin ?? range.min), v));
   const show = (v) => {
@@ -55,14 +81,23 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
    * Commit a value from the number box, then show what was stored. A value
    * that changes nothing (Enter again, an arrow at the end of the range) is no edit.
    */
-  const commit = (v) => {
-    if (!unchanged?.(v)) emit(v, true);
+  const commit = (v, final = true) => {
+    const change = !unchanged?.(v);
+    if (change) emit(v, final);
     const stored = read?.();
     if (Number.isFinite(stored)) last = stored;
     show(last);
+    return change;
+  };
+  // Arrow keys held down step the value as one edit (one undo step), ended on key up or blur.
+  let stepping = false;
+  const endSteps = () => {
+    if (!stepping) return;
+    stepping = false;
+    onInput?.(last, true);
   };
   const commitNum = () => {
-    const raw = parseFloat(num.value);
+    const raw = parseNumber(num.value);
     if (!Number.isFinite(raw)) {
       num.value = fmt(last);
       return;
@@ -77,9 +112,13 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const delta = (e.key === 'ArrowUp' ? 1 : -1) * Number(step) * (e.shiftKey ? 10 : 1);
-      commit(limit(Number((last + delta).toFixed(Math.max(dec, 6)))));
+      if (commit(limit(Number((last + delta).toFixed(Math.max(dec, 6)))), false)) stepping = true;
     }
   });
+  num.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') endSteps();
+  });
+  num.addEventListener('blur', endSteps);
   let kf = null;
   let kfBtn = null;
   if (keyframe) {

@@ -66,6 +66,61 @@ export function lineGlyphs(line, measureSpaced, measurePlain) {
   return out;
 }
 
+// Letters of right-to-left scripts (Hebrew, Arabic, Syriac, Thaana, NKo, ...) and of left-to-right ones.
+const RTL_CHAR = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+const LTR_CHAR = /[0-9A-Za-z\u00C0-\u024F\u0370-\u052F\u1E00-\u1FFF]/;
+
+/**
+ * Left edges, in drawing order, of a line's glyphs (from lineGlyphs, in the
+ * order they are typed) when the line holds right-to-left letters: a line
+ * that starts with one is laid out from the right, with its Hebrew or Arabic
+ * runs right to left and Latin words and numbers inside it left to right;
+ * right-to-left words inside a left-to-right line read right to left too
+ * (a simple form of the Unicode bidi rules). Returns null for a line without
+ * right-to-left letters, whose glyph x positions stand as they are.
+ */
+export function bidiPositions(glyphs) {
+  const n = glyphs.length;
+  if (!glyphs.some((g) => RTL_CHAR.test(g.ch))) return null;
+  const type = glyphs.map((g) => (RTL_CHAR.test(g.ch) ? 'R' : LTR_CHAR.test(g.ch) ? 'L' : 'N'));
+  const base = type.find((t) => t !== 'N');
+  // Spaces and punctuation between two runs of one direction join them, else follow the line.
+  const prev = new Array(n);
+  let last = null;
+  for (let i = 0; i < n; i++) {
+    prev[i] = last;
+    if (type[i] !== 'N') last = type[i];
+  }
+  let next = null;
+  for (let i = n - 1; i >= 0; i--) {
+    if (type[i] === 'N') type[i] = prev[i] && prev[i] === next ? next : base;
+    else next = type[i];
+  }
+  const xs = new Array(n);
+  let total = 0;
+  for (const g of glyphs) total += g.adv;
+  let cursor = base === 'R' ? total : 0;
+  for (let i = 0; i < n;) {
+    let j = i;
+    let w = 0;
+    while (j < n && type[j] === type[i]) w += glyphs[j++].adv;
+    const left = base === 'R' ? cursor - w : cursor;
+    let pos = type[i] === 'R' ? left + w : left;
+    for (let k = i; k < j; k++) {
+      if (type[i] === 'R') {
+        pos -= glyphs[k].adv;
+        xs[k] = pos;
+      } else {
+        xs[k] = pos;
+        pos += glyphs[k].adv;
+      }
+    }
+    cursor = base === 'R' ? left : left + w;
+    i = j;
+  }
+  return xs;
+}
+
 /** Word and letter indices for glyphs across lines (spaces get no index). */
 export function indexGlyphs(lines) {
   let ci = 0;
