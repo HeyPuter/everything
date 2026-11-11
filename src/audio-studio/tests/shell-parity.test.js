@@ -247,3 +247,21 @@ describe('workspace overflow button', () => {
     Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
   });
 });
+
+describe('theme contrast', () => {
+  it('keeps faint text readable (4.5:1) on panels in both themes', async () => {
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/tokens.css`, 'utf8');
+    const block = (sel) => css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+    const token = (b, name) => b.match(new RegExp(`${name}: (#[0-9a-f]{6});`))[1];
+    const lum = (hex) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+    for (const sel of [":root[data-theme-resolved='dark']", ":root[data-theme-resolved='light']"]) {
+      const b = block(sel);
+      for (const bg of ['--bg-panel', '--bg-panel-alt']) expect(ratio(token(b, '--text-faint'), token(b, bg))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
