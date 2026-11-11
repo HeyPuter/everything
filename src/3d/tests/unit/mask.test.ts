@@ -142,3 +142,21 @@ describe('mask shape keys across topology edits', () => {
     expect(at20[1].points[0].co[0]).toBeCloseTo(0.25, 6);
   });
 });
+
+describe('mask render key', () => {
+  it('changes with the spline feather settings (the compositor re-rasterizes)', async () => {
+    const { maskKey } = await import('../../src/mask/raster');
+    const m = newMask('MA', 'Mask');
+    const layer = newLayer('L');
+    m.layers.push(layer);
+    const sp = G.squareSpline(0.5, 0.5, 0.1);
+    for (const p of sp.points) p.weight = 0.05;
+    layer.splines.push(sp);
+    const k0 = maskKey(m, 1);
+    sp.offset_mode = 'SMOOTH';
+    const k1 = maskKey(m, 1);
+    expect(k1).not.toBe(k0);
+    sp.weight_interpolation = 'EASE';
+    expect(maskKey(m, 1)).not.toBe(k1);
+  });
+});
