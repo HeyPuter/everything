@@ -260,3 +260,29 @@ test('clip: replacing the document while tracking stops the job instead of writi
   for (let i = 1; i < r.frames.length; i++) expect(r.frames[i] - r.frames[i - 1]).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('sequencer: pasting an effect whose input was deleted skips it with a warning', async ({ page }) => {
+  const errors = await videoWorkspace(page);
+  const r = await page.evaluate(() => {
+    const app = (window as any).app;
+    app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 1, length: 20 }, { invoke: false });
+    const ed = app.doc.scene.sequence_editor;
+    app.run('sequencer.effect_strip_add', { type: 'GAUSSIAN_BLUR', frame_start: 1, channel: 2, length: 20 }, { invoke: false });
+    for (const s of ed.strips) s.select = s.type === 'GAUSSIAN_BLUR';
+    app.run('sequencer.copy', {}, { invoke: false });
+    // with its input still there the effect pastes
+    const kept = app.run('sequencer.paste', {}, { invoke: false });
+    const afterKept = ed.strips.length;
+    // delete the input (its effects go with it), then paste again
+    for (const s of ed.strips) s.select = s.type === 'COLOR';
+    app.run('sequencer.delete', {}, { invoke: false });
+    const res = app.run('sequencer.paste', {}, { invoke: false });
+    return { kept, afterKept, res, left: app.doc.scene.sequence_editor.strips.length, report: app.reports.at(-1)?.message };
+  });
+  expect(r.kept).toBe('FINISHED');
+  expect(r.afterKept).toBe(3);
+  expect(r.res).toBe('CANCELLED');
+  expect(r.left).toBe(0);
+  expect(r.report).toMatch(/inputs no longer exist/);
+  await expectNoErrors(errors);
+});

@@ -562,8 +562,19 @@ const ops: Operator[] = [
     poll: () => !!clipboard,
     exec: (c, p) => {
       const list = seqList();
+      // effects need their inputs: copied along, or still in the editor (repeat for effect chains)
+      let strips = clipboard!.strips;
+      for (let changed = true; changed; ) {
+        const names = new Set(strips.map((x) => x.name));
+        const ok = strips.filter((x) => !S.inputCount(x.type) || [x.input_1, x.input_2].every((n) => !n || names.has(n) || !!S.findStrip(seqEditor().strips, n)));
+        changed = ok.length !== strips.length;
+        strips = ok;
+      }
+      const skipped = clipboard!.strips.length - strips.length;
+      if (skipped) app.report('WARNING', `Skipped ${skipped} effect strip${skipped === 1 ? '' : 's'} whose inputs no longer exist`);
+      if (!strips.length) return 'CANCELLED';
       deselectAll(list);
-      const copies = duplicate(list, clipboard!.strips);
+      const copies = duplicate(list, strips);
       if (!p.keep_offset) for (const s of copies) S.translateStrip(s, c.doc.scene.frame_current - clipboard!.frame);
       S.updateEffectRanges(list);
       S.resolveOverlap(list, copies, toolSettings().overlap_mode, seqEditor());
