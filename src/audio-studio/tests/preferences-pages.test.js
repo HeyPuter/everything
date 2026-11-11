@@ -142,6 +142,8 @@ describe('behavior behind the new options', () => {
   it('reads pitch analysis settings', () => {
     expect(pitchSettings(prefsOf({}), 48000)).toEqual({ n: 2048, fmin: 50, fmax: 2000 });
     expect(pitchSettings(prefsOf({}), 96000).n).toBe(4096);
+    // 192 kHz needs 8192 points for lags down to 50 Hz (a 4096 window stopped at 94 Hz).
+    expect(pitchSettings(prefsOf({}), 192000).n).toBe(8192);
     expect(pitchSettings(prefsOf({ pitchWindow: 8192, pitchMinHz: 80, pitchMaxHz: 90 }), 48000)).toEqual({ n: 8192, fmin: 80, fmax: 160 });
   });
 
