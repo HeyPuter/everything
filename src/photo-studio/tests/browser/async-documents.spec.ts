@@ -56,3 +56,9 @@ test('clicking the close button of an unsaved document twice asks once and close
   await expect.poll(() => page.evaluate(() => window.photoStudio.sessions.map((s) => s.doc.name))).toEqual(['first']);
   await expect(dialog).toBeHidden();
 });
+
+test('a feature whose code cannot be loaded is reported in plain words', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.run(async () => void (await import(/* @vite-ignore */ `/src/features/missing-${Date.now()}.ts`))));
+  await expect(page.locator('#status')).toHaveText(/could not be loaded/);
+  await expect(page.locator('#status')).not.toHaveText(/https?:|\.ts/);
+});

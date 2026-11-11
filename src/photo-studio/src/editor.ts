@@ -15,7 +15,7 @@ import { commands, findCommand, overlays, tools, type Tool } from './app/registr
 import { brushSizeStep, eventShortcut, platformShortcut } from './app/shortcuts';
 import { watchOptionTips } from './app/option-tips';
 import { svg } from './app/icons';
-import { startIdleWork } from './app/lazy';
+import { loadError, startIdleWork } from './app/lazy';
 import { emitActivity } from './app/activity';
 import { rulerTicks, rulerUnitScale } from './ui/rulers';
 import { DocumentView, WindowManager } from './app/views';
@@ -355,7 +355,9 @@ export class Editor {
     this.root.setAttribute('aria-busy', 'true');
     try {
       await task();
-    } catch (error) {
+    } catch (thrown) {
+      // Code a task imports itself (not through `lazy`) can fail to load too.
+      const error = loadError(thrown);
       // Messages for the user are plain Errors; anything else is a bug and
       // keeps its stack in the console.
       if (error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError || error instanceof SyntaxError) console.error(error);
