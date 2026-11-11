@@ -207,4 +207,41 @@ describe('type editing session', () => {
     expect(doc.get(id).text).toBe('Wait\u2026 and \u2013 then\u2026 the end');
     expect(s.selectedText()).toBe('Wait\u2026 and \u2013 then\u2026');
   });
+
+  it('the view scrolls to keep the caret visible (Find, typing and arrow keys past the window edge)', async () => {
+    const { lastFind, findNext } = await import('../src/features/type/find.js');
+    const view = app.editor.view;
+    // A caret already in view does not move the view.
+    const s = edit(add('visible'), 0);
+    await Promise.resolve();
+    const pan0 = [view.panX, view.panY];
+    key(s, 'ArrowRight');
+    s.insert('x');
+    await Promise.resolve();
+    expect([view.panX, view.panY]).toEqual(pan0);
+    // Select All in a story running past the window keeps the view.
+    const long = add('word\n'.repeat(300), { kind: 'area', width: 300, height: 9000 });
+    const sl = edit(long, 0);
+    await Promise.resolve();
+    const pan1 = [view.panX, view.panY];
+    sl.selectAll();
+    await Promise.resolve();
+    expect([view.panX, view.panY]).toEqual(pan1);
+    // Cmd+End there scrolls to the caret.
+    key(sl, 'End', { ctrlKey: true });
+    await Promise.resolve();
+    expect(view.panY).toBeLessThan(pan1[1]);
+    // A match far outside the window is scrolled into view.
+    const far = createText('a needle far away', 3000, 2500);
+    doc.transact('Add', () => doc.insert(far, app.editor.targetLayer().id));
+    Object.assign(lastFind, { query: 'needle', matchCase: false, wholeWord: false, includeLocked: false, includeHidden: false, backwards: false, current: null });
+    expect(findNext(app)).toBe('found');
+    expect(app.typeSession.id).toBe(far.id);
+    await Promise.resolve();
+    const p = view.toScreen(3000 + 20, 2500);
+    expect(p.x).toBeGreaterThan(0);
+    expect(p.x).toBeLessThan(view.width);
+    expect(p.y).toBeGreaterThan(0);
+    expect(p.y).toBeLessThan(view.height);
+  });
 });

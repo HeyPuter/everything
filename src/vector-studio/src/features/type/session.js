@@ -93,6 +93,8 @@ export class TextSession {
     this.composing = null;
     this.blinkOn = true;
     this.ended = false;
+    this.revealQueued = false;
+    this.keepView = false;
     this.input = hiddenInput(app);
     this.unsub = this.doc.on('change', () => this.#docChanged());
     editor.textEdit = { id, caret, anchor };
@@ -166,6 +168,16 @@ export class TextSession {
     this.editor.textEdit = { id: this.id, caret: this.caret, anchor: this.anchor };
     this.#startBlink();
     this.#placeInput();
+    // Once the caret settles (callers often place it in steps): keep it in view.
+    if (!this.revealQueued) {
+      this.revealQueued = true;
+      queueMicrotask(() => {
+        this.revealQueued = false;
+        const keep = this.keepView;
+        this.keepView = false;
+        if (!keep && !this.ended && this.#reveal()) this.#placeInput();
+      });
+    }
     this.editor.emit('overlay');
     this.app.dock?.update();
     this.app.emit('text-selection', this);
@@ -195,6 +207,31 @@ export class TextSession {
     this.burst++;
     this.lastKind = null;
     this.sync();
+  }
+
+  /** Scroll the view just enough to show the caret (typing, arrow keys or Find past the edge of the window). */
+  #reveal() {
+    const n = this.node();
+    const lay = this.layout();
+    const view = this.editor.view;
+    if (!n || !lay || view.width < 80 || view.height < 80) return false;
+    const c = caretPosition(lay, this.caret);
+    const margin = 32;
+    let dx = 0;
+    let dy = 0;
+    for (const p of [c.top, c.bottom]) {
+      const d = apply(n.transform, p.x, p.y);
+      const q = view.toScreen(d.x, d.y);
+      if (!Number.isFinite(q.x) || !Number.isFinite(q.y)) return false;
+      if (q.x + dx < margin) dx = margin - q.x;
+      else if (q.x + dx > view.width - margin) dx = view.width - margin - q.x;
+      if (q.y + dy < margin) dy = margin - q.y;
+      else if (q.y + dy > view.height - margin) dy = view.height - margin - q.y;
+    }
+    if (!dx && !dy) return false;
+    view.set({ panX: view.panX + dx, panY: view.panY + dy });
+    this.editor.viewChanged();
+    return true;
   }
 
   #placeInput() {
@@ -318,19 +355,23 @@ export class TextSession {
     this.goalU = goal;
   }
 
+  // Selecting a whole word, paragraph or story does not scroll the view to its end.
   selectAll() {
     const n = this.node();
+    this.keepView = true;
     this.setSelection(0, n ? n.text.length : 0);
   }
 
   selectWord(i) {
     const [a, b] = wordAt(this.node().text, i);
+    this.keepView = true;
     this.setSelection(a, b);
   }
 
   selectParagraph(i) {
     const text = this.node().text;
     const pr = paragraphRanges(text)[paragraphIndexAt(text, i)];
+    this.keepView = true;
     this.setSelection(pr.start, Math.min(text.length, pr.end + (text[pr.end] === '\n' ? 1 : 0)));
   }
 
