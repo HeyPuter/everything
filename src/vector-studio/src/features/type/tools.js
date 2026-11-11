@@ -59,8 +59,8 @@ export class TypeTool extends Tool {
   }
 
   deactivate() {
+    this.#dropDrag();
     this.endEditing();
-    this.drag = null;
   }
 
   commit() {
@@ -68,8 +68,15 @@ export class TypeTool extends Tool {
   }
 
   cancel() {
-    this.drag = null;
+    this.#dropDrag();
     this.overlay();
+  }
+
+  /** Abandon a drag; a start bracket drag puts the type back where it was. */
+  #dropDrag() {
+    const d = this.drag;
+    this.drag = null;
+    if (d?.kind === 'bracket') d.tx.cancel();
   }
 
   // ---- editing lifecycle ----

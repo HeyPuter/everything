@@ -51,4 +51,27 @@ describe('type editing session', () => {
       expect(i).not.toBe(2);
     }
   });
+
+  it('Escape or a cancelled pointer while dragging a path type bracket restores it and leaves no open transaction', () => {
+    const pt = (x, y) => ({ x, y, ix: x, iy: y, ox: x, oy: y });
+    const t = createText('Along', 100, 300, { kind: 'path', pathAnchors: [pt(100, 300), pt(500, 300)], pathClosed: false, pathOptions: { effect: 'rainbow', align: 'baseline', start: 0 } });
+    doc.transact('Add', () => doc.insert(t, app.editor.targetLayer().id));
+    app.setTool('type');
+    app.editor.select([t.id]);
+    const ev = (x, y) => {
+      const p = app.editor.view.toScreen(x, y);
+      return { x, y, sx: p.x, sy: p.y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', native: {} };
+    };
+    const tool = app.tool;
+    tool.onPointerDown(ev(100, 300));
+    tool.onPointerMove(ev(160, 300));
+    expect(doc.get(t.id).pathOptions.start).toBeGreaterThan(0);
+    tool.cancel();
+    expect(doc.tx).toBeNull();
+    expect(doc.get(t.id).pathOptions.start).toBe(0);
+    tool.onPointerDown(ev(100, 300));
+    tool.onPointerMove(ev(160, 300));
+    app.setTool('selection');
+    expect(doc.tx).toBeNull();
+  });
 });
