@@ -55,6 +55,32 @@ describe('extract audio', () => {
     expect(out.seconds).toBeCloseTo(1, 3);
   });
 
+  it('writes long recordings piece by piece without losing or moving a sample', async () => {
+    // 80 s of stereo at 8 kHz is more than one 2 MB piece of the file; samples ramp so any slip shows.
+    const n = RATE * 80;
+    const ramp = (i, c) => ((i % 20000) / 20000) * (c ? -0.5 : 0.5);
+    const open = async () => ({
+      sampleRate: RATE,
+      async *read() {
+        for (let at = 0; at < n; at += 999) {
+          const len = Math.min(999, n - at);
+          yield { timestamp: at / RATE, sampleRate: RATE, channels: [0, 1].map((c) => Float32Array.from({ length: len }, (_, k) => ramp(at + k, c))) };
+        }
+      },
+      close() {},
+    });
+    const clip = makeClip('video', { assetId: 'a', in: 0.25 * US, duration: 79 * US });
+    const out = await extractClipAudio(open, { id: 'a', name: 'Long.mp4' }, clip);
+    const wav = await read(out.file);
+    const first = 0.25 * RATE;
+    expect(wav.channels[0].length).toBe(79 * RATE);
+    expect(out.file.size).toBe(44 + 79 * RATE * 4);
+    for (let i = 0; i < wav.channels[0].length; i += 997) {
+      expect(wav.channels[0][i]).toBeCloseTo(ramp(first + i, 0), 3);
+      expect(wav.channels[1][i]).toBeCloseTo(ramp(first + i, 1), 3);
+    }
+  });
+
   it('returns null without sound', async () => {
     const clip = makeClip('video', { assetId: 'a', duration: US });
     expect(await extractClipAudio(opener({ silent: true }), { id: 'a' }, clip)).toBe(null);
