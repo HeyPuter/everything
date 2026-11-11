@@ -363,7 +363,7 @@ function timePanel(s: Strip): Child {
     frameField(`seq-ch-${oid(s)}`, 'Channel', s.channel, (v, final) => {
       s.channel = Math.max(1, Math.min(128, v));
       if (final) resolveOverlap(seqList(), [s], toolSettings().overlap_mode, seqEditor());
-    }),
+    }, s.lock),
     frameField(`seq-start-${oid(s)}`, 'Start', finalStart(s), (v, final) => {
       translateStrip(s, v - finalStart(s));
       if (final) resolveOverlap(seqList(), [s], toolSettings().overlap_mode, seqEditor());

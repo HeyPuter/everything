@@ -103,5 +103,13 @@ test('sequencer: dragging the Channel field resolves overlaps only where the dra
   expect(a.channel).toBeGreaterThan(4);
   // the strip kept its time (passing the occupied channels used to shuffle it to frame -15)
   expect(a.frame_start).toBe(1);
+  // a locked strip's channel cannot be changed either
+  await page.locator('.seq-sb-head').first().scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    const w = window as any;
+    w.app.doc.scene.sequence_editor.strips.find((s: any) => s.name === 'A').lock = true;
+    w.app.changed('doc');
+  });
+  await expect(page.locator('.num-field[data-id^="seq-ch-"]').first()).toHaveClass(/disabled/);
   await expectNoErrors(errors);
 });
