@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, canvasClick, idle, openImage, tool } from './helpers';
+import { boot, canvasClick, canvasDrag, idle, openImage, tool } from './helpers';
 
 // Document switching and closing while asynchronous work is in progress, and
 // the dialogs those flows show.
@@ -168,6 +168,42 @@ test('switching documents commits a Type Mask into the document it was typed in'
     { name: 'first', selection: false, label: expect.not.stringMatching(/Type Mask/) },
     { name: 'second', selection: true, label: 'Type Mask' },
   ]);
+});
+
+test('Remove tool strokes waiting to be applied stay with their document when another one opens', async ({ page }) => {
+  // Gray with a red spot to remove.
+  await page.evaluate(async () => {
+    const c = new OffscreenCanvas(120, 90);
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#808080';
+    g.fillRect(0, 0, 120, 90);
+    g.fillStyle = '#ff0000';
+    g.fillRect(40, 30, 12, 8);
+    const { openFile } = await import('/src/features/files/open.ts');
+    await openFile(window.photoStudio, await c.convertToBlob({ type: 'image/png' }), 'painted.png');
+  });
+  await idle(page);
+  await tool(page, 'Remove Tool');
+  await page.evaluate(() => (window.photoStudio.settings.removeEach = false));
+  await page.evaluate(() => window.photoStudio.setTool(window.photoStudio.tool));
+  await canvasDrag(page, [[38, 34], [54, 34]]);
+  await idle(page);
+  await expect(page.locator('#remove-apply')).toBeVisible();
+  await openImage(page, 100, 80, '#00ff00', 'other.png');
+  // The new document has nothing to apply, and Enter does not edit it.
+  await expect(page.locator('#remove-apply')).toHaveCount(0);
+  await expect(page.locator('#overlay .retouch-stroke')).toHaveCount(0);
+  await page.locator('#viewport').focus();
+  await page.keyboard.press('Enter');
+  await idle(page);
+  expect((await histories(page)).other).toEqual([]);
+  // Back in the painted document the strokes are there to apply.
+  await page.locator('.document-tab', { hasText: 'painted' }).click();
+  await idle(page);
+  await expect(page.locator('#remove-apply')).toBeVisible();
+  await page.locator('#remove-apply').click();
+  await idle(page);
+  expect(await histories(page)).toEqual({ painted: ['Remove Tool'], other: [] });
 });
 
 test('a document is not closed under a running task', async ({ page }) => {
