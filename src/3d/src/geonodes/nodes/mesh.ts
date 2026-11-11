@@ -129,14 +129,15 @@ gn(
         off = ctx.vector('Offset');
       const endPoints = prop(ctx.node, 'mode') === 'END_POINTS';
       let count = ctx.int('Count');
+      let delta = off;
       if (endPoints && prop(ctx.node, 'count_mode') === 'RESOLUTION') {
+        // edges of exactly the resolution's length towards the end point (the last one may stop short of it)
         const len = Math.hypot(off[0] - start[0], off[1] - start[1], off[2] - start[2]);
         const res = Math.max(1e-4, ctx.float('Resolution'));
         count = Math.floor(len / res) + 1;
-      }
+        delta = len > 0 ? (off.map((x, i) => ((x - start[i]) / len) * res) as [number, number, number]) : [0, 0, 0];
+      } else if (endPoints) delta = count > 1 ? (off.map((x, i) => (x - start[i]) / (count - 1)) as [number, number, number]) : [0, 0, 0];
       if (count < 1) return { Mesh: GeometrySet.empty() };
-      let delta = off;
-      if (endPoints) delta = count > 1 ? (off.map((x, i) => (x - start[i]) / (count - 1)) as [number, number, number]) : [0, 0, 0];
       return {
         Mesh: new GeometrySet(lineMesh(Math.min(count, 1e7), start, delta)),
       };

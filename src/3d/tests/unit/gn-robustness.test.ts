@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Geometry nodes: evaluation cache invalidation and edge cases of individual nodes.
 import { describe, it, expect } from 'vitest';
-import { setup, node, link, run, env, attr, type T } from './gnmesh-harness';
+import { setup, node, link, run, env, attr, positions, type T } from './gnmesh-harness';
 import type { NodeData } from '../../src/data/types';
 import { addNode, connect, ctxOf } from '../../src/nodes/tree';
 import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/types';
@@ -223,5 +223,13 @@ describe('modifier signature', () => {
     expect(sig()).toBe(before);
     grid.inputs['Vertices X'] = 7;
     expect(sig()).not.toBe(before);
+  });
+});
+
+describe('mesh primitives', () => {
+  it('Mesh Line by resolution spaces points by exactly the resolution', () => {
+    const t = setup();
+    const line = node(t, 'GeometryNodeMeshLine', { 'Start Location': [0, 0, 0], Offset: [1, 0, 0], Resolution: 0.3 }, { mode: 'END_POINTS', count_mode: 'RESOLUTION' });
+    expect(positions(run(t, line, 'Mesh').geometry).map((p) => p[0])).toEqual([0, 0.3, 0.6, 0.9]);
   });
 });
