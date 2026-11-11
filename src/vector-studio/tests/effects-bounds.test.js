@@ -30,7 +30,8 @@ describe('visual bounds of a clipping group', () => {
     const doc = VDocument.create({ width: 400, height: 400 });
     const layer = doc.layers()[0].id;
     const art = createPath(rectangle(100, 100, 150, 150), true, { fill: solid('#3366cc') });
-    const clip = createPath(rectangle(120, 120, 100, 100), true, {});
+    // Unstroked, as Make Clipping Mask leaves it (a stroked clipping path draws its stroke and adds it to the bounds).
+    const clip = createPath(rectangle(120, 120, 100, 100), true, { stroke: null });
     const g = createGroup([art.id, clip.id], { clip: true, effects: [{ type: 'dropShadow', x: 30, y: 30, blur: 5, opacity: 1, color: '#000000' }] });
     doc.transact('Make', () => doc.insert(g, layer, Infinity, [{ ...art, parent: g.id }, { ...clip, parent: g.id }]));
     const b = visualBounds(doc, doc.get(g.id));

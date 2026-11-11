@@ -390,3 +390,23 @@ describe('active artboard follows the selection', () => {
     expect(events).toBe(2);
   });
 });
+
+describe('visual bounds of a clip group', () => {
+  it('include the clipping path stroke and the group effects', async () => {
+    const { visualBounds } = await import('../src/model/geometry.js');
+    const doc = VDocument.create();
+    const layer = doc.layers()[0];
+    const art = createPath(rectangle(0, 0, 200, 200), true);
+    const mask = createPath(rectangle(50, 50, 100, 100), true, { fill: null, stroke: { type: 'solid', color: '#0000ff' }, strokeWidth: 4, strokeJoin: 'round' });
+    const g = createGroup([art.id, mask.id], { clip: true });
+    doc.transact('Setup', () => doc.insert(g, layer.id, Infinity, [{ ...art, parent: g.id }, { ...mask, parent: g.id }]));
+    expect(visualBounds(doc, doc.get(g.id))).toEqual({ x: 48, y: 48, w: 104, h: 104 });
+    doc.transact('Shadow', () => doc.update(g.id, { effects: [{ type: 'dropShadow', x: 3, y: 4, blur: 5 }] }));
+    // 4 (stroke half width 2) + shadow reach 5 + 2 * 5.
+    expect(visualBounds(doc, doc.get(g.id))).toEqual({ x: 33, y: 33, w: 134, h: 134 });
+    // An unstroked clipping path: just its area.
+    doc.transact('Plain', () => doc.update(mask.id, { stroke: null }));
+    doc.transact('No shadow', () => doc.update(g.id, { effects: [] }));
+    expect(visualBounds(doc, doc.get(g.id))).toEqual({ x: 50, y: 50, w: 100, h: 100 });
+  });
+});
