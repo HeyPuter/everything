@@ -46,7 +46,19 @@ export interface GAttr {
   width: number;
   /** an inactive UV map (stored in MeshData.uv_layers_extra) */
   uvMap?: boolean;
+  /** a built-in MeshData layer carried like a generic attribute (sculpt mask, face sets, UV pins, …) */
+  builtin?: (typeof BUILTIN_LAYERS)[number][0];
 }
+
+/** Built-in per-element layers that Edit Mode carries through topology changes as generic attributes. */
+const BUILTIN_LAYERS = [
+  ['sculpt_mask', 'POINT', 'FLOAT'],
+  ['sculpt_face_set', 'FACE', 'INT'],
+  ['hide_poly', 'FACE', 'BOOLEAN'],
+  ['uv_hide', 'FACE', 'BOOLEAN'],
+  ['uv_pin', 'CORNER', 'BOOLEAN'],
+  ['uv_select', 'CORNER', 'BOOLEAN'],
+] as const;
 
 export class MeshEdit {
   pos: number[] = [];
@@ -461,11 +473,17 @@ export class MeshEdit {
     const nc = me.indices.length;
     const loose = me.loose_edges;
     const uvExtra: MeshAttribute[] = (me.uv_layers_extra ?? []).filter((u) => u.data.length === nc * 2).map((u) => ({ name: u.name, domain: 'CORNER', data_type: 'FLOAT2', data: u.data }));
-    for (const a of [...(me.attributes ?? []), ...uvExtra]) {
+    const rec = me as unknown as Record<string, MeshAttribute['data'] | undefined>;
+    const builtins = new Map<MeshAttribute, GAttr['builtin']>();
+    for (const [key, domain, data_type] of BUILTIN_LAYERS) {
+      const data = rec[key];
+      if (data) builtins.set({ name: key, domain, data_type, data }, key);
+    }
+    for (const a of [...(me.attributes ?? []), ...uvExtra, ...builtins.keys()]) {
       const width = attrWidth(a.data_type);
       if (a.data.length !== attrDomainSize(me, a.domain) * width) continue;
       const k = this.gattrs.length;
-      this.gattrs.push({ name: a.name, domain: a.domain, data_type: a.data_type, width, uvMap: uvExtra.includes(a) || undefined });
+      this.gattrs.push({ name: a.name, domain: a.domain, data_type: a.data_type, width, uvMap: uvExtra.includes(a) || undefined, builtin: builtins.get(a) });
       this.vgen.push(a.domain === 'POINT' ? Array.from(a.data) : []);
       const emap = new Map<string, number[]>();
       if (a.domain === 'EDGE') {
@@ -524,7 +542,16 @@ export class MeshEdit {
       }
       return { name: g.name, domain: g.domain, data_type: g.data_type, data };
     });
-    me.attributes = all.filter((_, k) => !this.gattrs[k].uvMap);
+    const attrs = all.filter((_, k) => !this.gattrs[k].uvMap && !this.gattrs[k].builtin);
+    if (attrs.length || me.attributes) me.attributes = attrs;
+    const rec = me as unknown as Record<string, MeshAttribute['data'] | undefined>;
+    this.gattrs.forEach((g, k) => {
+      if (!g.builtin) return;
+      const data = all[k].data;
+      // new faces without a template get the first face set rather than the invalid id 0
+      if (g.builtin === 'sculpt_face_set') for (let i = 0; i < data.length; i++) if (!data[i]) data[i] = 1;
+      rec[g.builtin] = data;
+    });
     const uvs = all.filter((_, k) => this.gattrs[k].uvMap).map((a) => ({ name: a.name, data: a.data as Float32Array }));
     if (uvs.length || me.uv_layers_extra) me.uv_layers_extra = uvs;
   }

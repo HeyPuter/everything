@@ -51,6 +51,37 @@ describe('MeshEdit', () => {
     expect(signedVolume(m)).toBeCloseTo(8, 5);
   });
 
+  it('keeps the sculpt mask, face sets, hidden faces and UV pins through topology changes', () => {
+    const { me } = cubeEdit();
+    me.sculpt_mask = Float32Array.from({ length: 8 }, (_, i) => i / 8);
+    me.sculpt_face_set = Int32Array.from({ length: 6 }, (_, i) => i + 1);
+    me.hide_poly = Uint8Array.from({ length: 6 }, (_, i) => (i === 5 ? 1 : 0));
+    me.uv_pin = Uint8Array.from({ length: 24 }, (_, i) => (i < 4 ? 1 : 0));
+    const m = MeshEdit.from(me);
+    selectFace(m, (c) => c[2] > 0.9);
+    extrudeRegion(m);
+    m.write(me);
+    const nf = me.offsets.length - 1;
+    expect(me.sculpt_mask?.length).toBe(me.positions.length / 3);
+    expect(Array.from(me.sculpt_mask!.subarray(0, 8))).toEqual(Array.from({ length: 8 }, (_, i) => Math.fround(i / 8)));
+    expect(me.sculpt_face_set?.length).toBe(nf);
+    expect(Array.from(me.sculpt_face_set!.subarray(0, 6))).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(me.sculpt_face_set!.every((x) => x >= 1)).toBe(true);
+    expect(me.hide_poly?.length).toBe(nf);
+    expect(me.hide_poly![5]).toBe(1);
+    expect(me.uv_pin?.length).toBe(me.indices.length);
+    expect(Array.from(me.uv_pin!.subarray(0, 4))).toEqual([1, 1, 1, 1]);
+    expect(me.attributes ?? []).toEqual([]);
+    // deleting a face keeps the remaining faces' sets in order
+    const m2 = MeshEdit.from(me);
+    m2.sel = m2.sel.map(() => 0);
+    for (const v of m2.faces[0].verts) m2.sel[v] = 1;
+    deleteGeometry(m2, 'FACE');
+    m2.write(me);
+    expect(me.sculpt_face_set?.length).toBe(me.offsets.length - 1);
+    expect(me.sculpt_face_set![0]).toBe(2);
+  });
+
   it('extrudes a face region with walls', () => {
     const { m } = cubeEdit();
     selectFace(m, (c) => c[2] > 0.9);
