@@ -13,7 +13,8 @@ import { decodeIco, pickIcoEntry } from '../../imaging/codecs/ico';
 import { sniffImageFormat, type ImageFormat } from '../../imaging/codecs/sniff';
 import { applyOrientation } from '../../imaging/codecs/orientation';
 import { readPngDpi, readPngIcc } from '../../imaging/codecs/png-chunks';
-import { readJpegDensity, readJpegIcc } from '../../imaging/codecs/jpeg-markers';
+import { readJpegDensity, readJpegIcc, readJpegInfo } from '../../imaging/codecs/jpeg-markers';
+import { checkSize } from '../../imaging/codecs/bytes';
 import { decodePng16, rgba16To8 } from './png';
 import { decodeApng, isApng } from '../../imaging/codecs/apng';
 import { framesFromLayers } from '../../model/animation';
@@ -189,6 +190,7 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
       // Unconverted samples: tag the document only when the profile is usable.
       return { image: { width: deep.width, height: deep.height, data: rgba16To8(deep.data16) }, deep: { data: deep.data16, depth: 16 }, icc: keep ? icc : undefined, dpi, notice: icc && !keep ? 'The embedded color profile is not an RGB matrix profile and was not applied.' : undefined };
   }
+  checkBrowserImage(bytes);
   const blob = new Blob([bytes.slice()], { type: png ? 'image/png' : 'image/jpeg' });
   void name;
   // createImageBitmap applies EXIF orientation itself ('from-image'), so the
@@ -197,6 +199,37 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
 }
 
 class CancelOpen extends Error {}
+
+/** Pixel size from the header of a PNG, GIF, JPEG or WebP file (undefined when
+ * the header is not found), so oversized images are refused before the
+ * browser decodes them. */
+export function browserImageSize(b: Uint8Array): { width: number; height: number } | undefined {
+  const format = sniffImageFormat(b);
+  const be32 = (o: number) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
+  const le24 = (o: number) => b[o] | (b[o + 1] << 8) | (b[o + 2] << 16);
+  const tag = (o: number) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
+  if (format === 'png' && b.length >= 24 && tag(12) === 'IHDR') return { width: be32(16), height: be32(20) };
+  if (format === 'gif') return { width: b[6] | (b[7] << 8), height: b[8] | (b[9] << 8) };
+  if (format === 'jpeg')
+    try {
+      const info = readJpegInfo(b);
+      return { width: info.width, height: info.height };
+    } catch {
+      return undefined;
+    }
+  if (format === 'webp' && b.length >= 30) {
+    const chunk = tag(12);
+    if (chunk === 'VP8X') return { width: le24(24) + 1, height: le24(27) + 1 };
+    if (chunk === 'VP8 ') return { width: (b[26] | (b[27] << 8)) & 0x3fff, height: (b[28] | (b[29] << 8)) & 0x3fff };
+    if (chunk === 'VP8L') return { width: (le24(21) & 0x3fff) + 1, height: ((le24(22) >> 6) & 0x3fff) + 1 };
+  }
+  return undefined;
+}
+/** Refuse a PNG, GIF, JPEG or WebP file beyond the document limits from its header. */
+export function checkBrowserImage(bytes: Uint8Array) {
+  const size = browserImageSize(bytes);
+  if (size) checkSize(size.width, size.height, documentLimits);
+}
 
 /** Decode a browser-supported image into straight 8-bit RGBA. With `raw`, the
  * samples stay in the file's own color space (for ICC-tagged documents). */
@@ -230,6 +263,7 @@ export async function decodeFile(blob: Blob, name: string, opts: DecodeOptions =
   if (!Object.values(browserTypes).includes(blob.type) && blob.type !== 'image/heic')
     throw new Error('Open a PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF, ICO, TGA, Netpbm, SVG, PSD, PSB or .photo file.');
   if (blob.type === 'image/svg+xml') return { image: await rasterizeSvg(blob) };
+  checkBrowserImage(head);
   return { image: await decodeBrowserImage(blob) };
 }
 

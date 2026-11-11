@@ -12,7 +12,7 @@ import { gridFromImage } from '../../model/tiles';
 import { readRgbProfile } from '../../color/profile';
 import { sniffImageFormat } from '../../imaging/codecs/sniff';
 import { convertToSrgb, documentProfile, floatTo16 } from '../files/color';
-import { decodeBrowserImage, decodeFile, inMemoryFile } from '../files/open';
+import { checkBrowserImage, decodeBrowserImage, decodeFile, inMemoryFile } from '../files/open';
 import { addRGBA, addSamples, documentSamples, layerSamples, type Samples } from './render';
 import { computeStack } from './stack-client';
 import { rescaleFrame, rescaleTransform } from './frame-math';
@@ -93,6 +93,7 @@ export async function contentsFromFile(e: Editor, parent: PhotoDocument, into: A
   const head = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
   const mime = browserImages[sniffImageFormat(head)];
   if (mime) {
+    checkBrowserImage(head);
     const id = await into.add(new Blob([file], { type: mime }));
     const { width, height } = into.dimensions(id);
     return { id: crypto.randomUUID(), name: title, width, height, composite: id, source: id, sourceName: name, colorSpace: 'srgb' };
