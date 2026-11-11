@@ -19,7 +19,7 @@ import { hitTest } from '../src/render/hit.js';
 import { exportSVG } from '../src/features/io/svg-export.js';
 import { expandAppearance } from '../src/ops/expand-appearance.js';
 import { effectMenuSpec } from '../src/features/effects/index.js';
-import { docRasterSettings, setDocRasterSettings, rasterizeObjects, rasterizeObjectDialog } from '../src/features/effects/raster.js';
+import { docRasterSettings, setDocRasterSettings, rasterizeObjects, rasterizeObjectDialog, rasterizeLayer } from '../src/features/effects/raster.js';
 import { flattenSelection, faceColor, compositeOver, blendColors, maxVectorFaces } from '../src/features/effects/flatten.js';
 import { warpIconPath } from '../src/features/effects/icons.js';
 import { WARP_STYLES } from '../src/model/warp.js';
@@ -376,6 +376,48 @@ describe('rasterizing', () => {
     expect(img.width).toBe(236);
     doc.undo();
     expect(doc.get(id)).toBeTruthy();
+  });
+
+  it('keeps the Rasterize effect pixel grid on the artwork when its layer is cut at the screen edge', async () => {
+    const { doc, id } = await setup();
+    const node = doc.get(id);
+    // Record where the low-resolution pixels land on the layer (the last drawImage).
+    const draws = [];
+    const recCtx = () => ({ setTransform() {}, fillRect() {}, getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {}, drawImage: (...a) => draws.push(a) });
+    const RealOC = globalThis.OffscreenCanvas;
+    globalThis.OffscreenCanvas = class {
+      constructor(w, h) {
+        this.width = w;
+        this.height = h;
+      }
+      getContext() {
+        return recCtx();
+      }
+    };
+    const gridOrigins = [];
+    try {
+      const vb = visualBounds(doc, node);
+      // 800% zoom, a 72 ppi effect: 8 device pixels per raster pixel. The view pans by 3 px while the layer stays clamped at x = -96.
+      for (const pan of [-900, -897]) {
+        const transform = { a: 8, b: 0, c: 0, d: 8, e: pan, f: -500 };
+        const layer = { canvas: { width: 600, height: 600 } };
+        const out = { canvas: {}, ctx: recCtx() };
+        out.ctx.drawImage = (...a) => draws.push(a);
+        draws.length = 0;
+        rasterizeLayer(layer, { resolution: 72, background: 'transparent', antialias: true }, 8, { acquire: () => out }, { transform, doc, node, x: -96, y: -96 });
+        const last = draws[draws.length - 1];
+        // Device x of the grid line nearest the object's left edge.
+        const lineX = -96 + last[5];
+        const objX = 8 * vb.x + pan;
+        gridOrigins.push((((objX - lineX) % 8) + 8) % 8);
+        expect(last[7]).toBe(last[3] * 8);
+      }
+    } finally {
+      globalThis.OffscreenCanvas = RealOC;
+    }
+    // The grid moves with the artwork, so the object's edge sits at the same place in its cell.
+    expect(gridOrigins[0]).toBeCloseTo(0, 6);
+    expect(gridOrigins[1]).toBeCloseTo(0, 6);
   });
 
   it('Object > Rasterize on artwork with nothing visible says so instead of blaming an edit', async () => {
