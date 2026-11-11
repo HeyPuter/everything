@@ -511,7 +511,8 @@ function bridgePair(m: MeshEdit, A: { verts: number[]; closed: boolean }, B: { v
   }
   const twist = o.twist ?? 0;
   const bvRaw = best.rev ? [...B.verts].reverse() : B.verts;
-  const bv = A.verts.map((_, i) => bvRaw[(i + best.off + twist + n * 4) % n]);
+  // any twist (the operator allows ±1000) wraps around the loop
+  const bv = A.verts.map((_, i) => bvRaw[(((i + best.off + twist) % n) + n) % n]);
   if (o.merge) {
     // merge the loops at a point between them
     const t = o.mergeFactor ?? 0.5;

@@ -582,6 +582,20 @@ describe('bridge and triangulate options', () => {
     expect(mm.vcount).toBe(8);
     expect(mm.p(0)[2]).toBeCloseTo(1);
   });
+  it('bridges with a large negative twist', () => {
+    const plain = twoRings();
+    bridgeLoops(plain, {});
+    for (const twist of [-40, -3, 5, 43]) {
+      const m = twoRings();
+      expect(bridgeLoops(m, { twist })).toBe(true);
+      expect(m.faces.length).toBe(8);
+      for (const f of m.faces) expect(f.verts.every((v) => Number.isInteger(v) && v >= 0 && v < m.vcount)).toBe(true);
+    }
+    // a twist by whole turns is no twist
+    const turned = twoRings();
+    bridgeLoops(turned, { twist: -16 });
+    expect(turned.faces.map((f) => f.verts)).toEqual(plain.faces.map((f) => f.verts));
+  });
   it('triangulates quads with fixed and alternate splits', () => {
     const a = cube();
     selectFaces(a, (c) => c[2] > 0.9);
