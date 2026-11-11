@@ -951,7 +951,9 @@ class PDFRenderer {
   async group(ctx, node) {
     const op = node.opacity ?? 1;
     const blend = BLEND_PDF[node.blendMode];
-    if ((op >= 1 && !blend) || this.opts.pdfx === 'x1a') {
+    // Isolate Blending and Knockout Group need a transparency group of their own, like on the canvas.
+    const own = node.type === 'group' && (node.isolate || node.knockout);
+    if ((op >= 1 && !blend && !own) || this.opts.pdfx === 'x1a') {
       if (op < 1 || blend) this.warnings.add('Some transparency could not be flattened and prints opaque.');
       await this.children(ctx, node);
       return;
@@ -962,7 +964,7 @@ class PDFRenderer {
     if (!inner.ops.length) return;
     const b = inflate(visualBounds(this.doc, node) || ctx.cull, 2);
     const resId = this.w.add(inner.res.dict());
-    const form = this.w.addStream(`/Type /XObject /Subtype /Form /BBox [${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}] /Group << /S /Transparency /CS ${this.spaceRef} /I true >> /Resources ${resId} 0 R`, inner.ops.join(''));
+    const form = this.w.addStream(`/Type /XObject /Subtype /Form /BBox [${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}] /Group << /S /Transparency /CS ${this.spaceRef} /I true${node.knockout ? ' /K true' : ''} >> /Resources ${resId} 0 R`, inner.ops.join(''));
     const res = ctx.res;
     const gs = this.extGState(op, op, node.blendMode);
     ctx.ops.push(`q\n${gs ? `/${res.name(res.ext, 'GS', gs)} gs\n` : ''}/${res.name(res.xobject, 'Fm', form)} Do\nQ\n`);

@@ -152,6 +152,31 @@ describe('clip groups in PDF export', () => {
   });
 });
 
+describe('transparency groups in PDF export', () => {
+  it('writes Isolate Blending and Knockout Group groups as isolated and knockout transparency groups', async () => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    const layer = doc.layers()[0].id;
+    const kids = (color) => [createPath(rectangle(10, 10, 70, 70), true, { fill: { type: 'solid', color: '#ffff00' }, stroke: null }), createPath(rectangle(40, 40, 70, 70), true, { fill: { type: 'solid', color }, stroke: null, blendMode: 'multiply', opacity: 0.6 })];
+    const a = kids('#00ffff');
+    const b = kids('#ff00ff');
+    const c = kids('#00ff00');
+    doc.transact('build', () => {
+      doc.insert(createGroup(a.map((k) => k.id), { isolate: true }), layer, Infinity, a);
+      doc.insert(createGroup(b.map((k) => k.id), { knockout: true }), layer, Infinity, b);
+      doc.insert(createGroup(c.map((k) => k.id)), layer, Infinity, c);
+    });
+    doc.repairParents();
+    const { bytes } = await writePDF(doc, [doc.artboards[0]], { compress: false });
+    const forms = streams(bytes).filter((st) => /\/Subtype \/Form/.test(st.dict));
+    const form = (color) => forms.find((f) => f.data.includes(color));
+    // The multiply blends only with the group's own contents.
+    expect(form('0 1 1 rg').dict).toMatch(/\/Group << \/S \/Transparency [^>]*\/I true >>/);
+    expect(form('1 0 1 rg').dict).toMatch(/\/I true \/K true >>/);
+    // A plain group stays inline.
+    expect(form('0 1 0 rg')).toBeUndefined();
+  });
+});
+
 describe('document bleed in PDF export', () => {
   it('uses the document bleed per side with Use Document Bleed Settings', async () => {
     const doc = sampleDoc();
