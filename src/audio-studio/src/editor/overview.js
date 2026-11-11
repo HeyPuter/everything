@@ -63,7 +63,9 @@ export class Overview {
 
   #total() {
     const t = this.host.timeline();
-    return Math.max(t.length, t.view.end, 1);
+    // A fixed scale where the host knows how far its view can reach, so a short file's
+    // overview does not stretch while zooming.
+    return Math.max(t.length, t.view.end, this.host.viewMax?.() || 0, 1);
   }
 
   #x(frame) {

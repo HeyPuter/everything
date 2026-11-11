@@ -273,3 +273,19 @@ describe('pasting stereo into a 5.1 file', () => {
     expect(at(ins, 3)).toEqual([0.4, 0, 0, 0.4, 0.4, 0.4].map(Math.fround));
   });
 });
+
+describe('overview scale for short files', () => {
+  it('keeps the same scale while zooming', async () => {
+    const { doc, view } = await makeView({ frames: 24000 });
+    const o = view.overview;
+    o.resize(1000, 20);
+    const endX = () => {
+      o.placePlayhead(doc.length);
+      return o.playhead.style.transform;
+    };
+    const zoomedOut = endX();
+    expect(zoomedOut).toBe('translateX(500px)');
+    doc.setView(0, 12000);
+    expect(endX()).toBe(zoomedOut);
+  });
+});
