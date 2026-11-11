@@ -37,6 +37,17 @@ function errorScreen(title, message, retry) {
   root.replaceChildren(h('main#main.splash', icon('cloudOff', 32), h('h1.splash-title', title), h('p.splash-sub', message), retry ? h('button.btn.primary', { type: 'button', onclick: retry }, 'Try again') : null));
 }
 
+/** A part of the app failed to load: say so, with a reload (which also picks up a new version). */
+function cantLoad(err, what) {
+  console.error(err);
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  toast(offline ? `Couldn't open ${what} while offline. Connect and try again.` : `Couldn't open ${what}. Reload the page and try again.`, {
+    kind: 'error',
+    duration: 12000,
+    action: { label: 'Reload', onClick: () => location.reload() },
+  });
+}
+
 function showHome() {
   view?.dispose?.();
   if (/#(project|review)=/.test(location.hash)) history.replaceState(null, '', `${location.pathname}${location.search}`);
@@ -81,16 +92,26 @@ async function openProject(id, files) {
       return;
     }
   }
-  const { Editor } = await import('./ui/editor.js');
-  view = new Editor(root, {
-    library,
-    project,
-    claim,
-    account,
-    onExit: () => showHome(),
-    onNewProject: () => createProject({ ratio: 'original' }),
-    onOpenProject: (other) => openProject(other),
-  });
+  try {
+    const { Editor } = await import('./ui/editor.js');
+    view = new Editor(root, {
+      library,
+      project,
+      claim,
+      account,
+      onExit: () => showHome(),
+      onNewProject: () => createProject({ ratio: 'original' }),
+      onOpenProject: (other) => openProject(other),
+    });
+  } catch (err) {
+    // The editor's code didn't load (offline, or the app was updated meanwhile) or couldn't start:
+    // back to Home rather than "Opening project..." for good, and let another tab open it.
+    claim.release();
+    view = null;
+    cantLoad(err, 'the editor');
+    showHome();
+    return;
+  }
   history.replaceState(null, '', `#project=${encodeURIComponent(id)}`);
   if (files?.length) {
     const assets = await view.ctx.actions.importFiles(files);
@@ -228,7 +249,15 @@ async function openReview(link) {
   }
   view?.dispose?.();
   loading('Opening review...');
-  const { ReviewPage } = await import('./ui/review/review-page.js');
+  let ReviewPage;
+  try {
+    ({ ReviewPage } = await import('./ui/review/review-page.js'));
+  } catch (err) {
+    view = null;
+    cantLoad(err, 'the review');
+    showHome();
+    return;
+  }
   view = new ReviewPage(root, {
     puter: typeof puter !== 'undefined' ? puter : null,
     account,
