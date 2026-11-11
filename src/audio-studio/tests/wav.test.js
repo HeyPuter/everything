@@ -39,6 +39,14 @@ describe('wav', () => {
     expect(r.channels[0].length).toBe(64);
     expect(r.markers.map((m) => m.start)).toEqual([10, 20]);
   });
+  it('reads 20-bit samples stored in 3-byte containers', async () => {
+    const blob = encodeWav({ sampleRate: 48000, channels: [Float32Array.of(0.5, -0.25, 0)], bitDepth: 24, dither: false });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    new DataView(bytes.buffer).setUint16(34, 20, true); // bits per sample: 20, block align stays 3
+    const r = parseWav(bytes.buffer);
+    expect(Array.from(r.channels[0])).toEqual([0.5, -0.25, 0]);
+    expect(r.bitDepth).toBe(24);
+  });
   it('rejects non-WAV data', () => {
     expect(() => parseWav(new ArrayBuffer(64))).toThrow();
   });
