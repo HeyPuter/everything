@@ -113,9 +113,37 @@ impl SmoothParams {
     }
 }
 
+/// Below this distance of a section's poles from DC (|1 + a1 + a2|, or from
+/// Nyquist, |1 - a1 + a2|) f32 cannot resolve its coefficients: a 10 Hz shelf
+/// at 192 kHz has 1 + a1 + a2 near 1e-7, under the f32 step at 2 (1.2e-7).
+/// Sections above it (bells and shelves from about 60 Hz at 48 kHz, 240 Hz at
+/// 192 kHz) keep the f32 path unchanged.
+const ILL_CONDITIONED: f64 = 1e-4;
+
+/// Whether a section needs double-precision coefficients and state.
+#[inline]
+fn ill_conditioned(k: &Coefs) -> bool {
+    let w = &k.wide;
+    k.wide_ok() && ((1.0 + w[3] + w[4]).abs() < ILL_CONDITIONED || (1.0 - w[3] + w[4]).abs() < ILL_CONDITIONED)
+}
+
+/// A section's coefficients in double precision: the designed values when
+/// they are current, else the f32 ones.
+#[inline]
+fn wide_coefs(k: &Coefs) -> (f64, f64, f64, f64, f64) {
+    if k.wide_ok() {
+        let w = &k.wide;
+        (w[0], w[1], w[2], w[3], w[4])
+    } else {
+        (k.b0 as f64, k.b1 as f64, k.b2 as f64, k.a1 as f64, k.a2 as f64)
+    }
+}
+
 /// A bank of biquad stages run in series on every channel. Stages that are
 /// off are skipped entirely. The state lives here (not in util::Biquad) so the
-/// inner loop keeps it in registers.
+/// inner loop keeps it in registers. Sections whose poles sit very close to
+/// DC or Nyquist (ill_conditioned) run in double precision with their
+/// designed coefficients even outside Ultra-Quiet.
 pub(crate) struct Cascade {
     pub coefs: Vec<Coefs>,
     pub on: Vec<bool>,
@@ -123,11 +151,22 @@ pub(crate) struct Cascade {
     state: Vec<Vec<(f32, f32)>>,
     /// Ultra-quiet: double-precision state per [channel][stage] while on.
     wide: Option<Vec<Vec<(f64, f64)>>>,
+    /// Double-precision state per [channel][stage] of ill-conditioned sections.
+    deep: Vec<Vec<(f64, f64)>>,
+    /// Per stage: whether its state currently lives in `deep`.
+    deep_on: Vec<bool>,
 }
 
 impl Cascade {
     pub fn new(channels: usize, stages: usize) -> Cascade {
-        Cascade { coefs: vec![Coefs::IDENTITY; stages], on: vec![false; stages], state: vec![vec![(0.0, 0.0); stages]; channels], wide: None }
+        Cascade {
+            coefs: vec![Coefs::IDENTITY; stages],
+            on: vec![false; stages],
+            state: vec![vec![(0.0, 0.0); stages]; channels],
+            wide: None,
+            deep: vec![vec![(0.0, 0.0); stages]; channels],
+            deep_on: vec![false; stages],
+        }
     }
 
     /// Switches double-precision filtering (Ultra-Quiet) on or off; clears the state on a change.
@@ -160,8 +199,7 @@ impl Cascade {
                 if !on[s] {
                     continue;
                 }
-                let k = coefs[s];
-                let (b0, b1, b2, a1, a2) = (k.b0 as f64, k.b1 as f64, k.b2 as f64, k.a1 as f64, k.a2 as f64);
+                let (b0, b1, b2, a1, a2) = wide_coefs(&coefs[s]);
                 let (mut z1, mut z2) = *st;
                 for v in acc[..len].iter_mut() {
                     let i = *v;
@@ -184,13 +222,40 @@ impl Cascade {
             Self::run_precise(&self.coefs, &self.on, w, buf, frames, at, len);
             return;
         }
-        for (c, ch) in self.state.iter_mut().enumerate() {
+        // Move a section's state between f32 and f64 when it changes precision.
+        for s in 0..self.coefs.len() {
+            let deep = self.on[s] && ill_conditioned(&self.coefs[s]);
+            if deep != self.deep_on[s] {
+                for (st, dp) in self.state.iter_mut().zip(self.deep.iter_mut()) {
+                    if deep {
+                        dp[s] = (st[s].0 as f64, st[s].1 as f64);
+                    } else {
+                        st[s] = (dp[s].0 as f32, dp[s].1 as f32);
+                    }
+                }
+                self.deep_on[s] = deep;
+            }
+        }
+        for (c, (ch, dch)) in self.state.iter_mut().zip(self.deep.iter_mut()).enumerate() {
             if (c + 1) * frames > buf.len() {
                 break;
             }
             let x = &mut buf[c * frames + at..c * frames + at + len];
             for (s, st) in ch.iter_mut().enumerate() {
                 if !self.on[s] {
+                    continue;
+                }
+                if self.deep_on[s] {
+                    let (b0, b1, b2, a1, a2) = wide_coefs(&self.coefs[s]);
+                    let (mut z1, mut z2) = dch[s];
+                    for v in x.iter_mut() {
+                        let i = *v as f64;
+                        let y = b0 * i + z1;
+                        z1 = b1 * i - a1 * y + z2;
+                        z2 = b2 * i - a2 * y;
+                        *v = y as f32;
+                    }
+                    dch[s] = (if z1.is_finite() { z1 } else { 0.0 }, if z2.is_finite() { z2 } else { 0.0 });
                     continue;
                 }
                 let k = self.coefs[s];
@@ -213,6 +278,7 @@ impl Cascade {
                 *st = (0.0, 0.0);
             }
         }
+        self.deep.iter_mut().flatten().for_each(|st| *st = (0.0, 0.0));
         if let Some(w) = &mut self.wide {
             w.iter_mut().flatten().for_each(|st| *st = (0.0, 0.0));
         }
@@ -221,6 +287,9 @@ impl Cascade {
     /// Resets only the state of stage `s` (when its structure changes).
     pub fn reset_stage(&mut self, s: usize) {
         for ch in &mut self.state {
+            ch[s] = (0.0, 0.0);
+        }
+        for ch in &mut self.deep {
             ch[s] = (0.0, 0.0);
         }
         if let Some(w) = &mut self.wide {
@@ -236,6 +305,10 @@ impl Cascade {
             for st in ch {
                 *st = (sanitize(st.0), sanitize(st.1));
             }
+        }
+        let tiny = |v: f64| if v.abs() < 1e-30 { 0.0 } else { v };
+        for st in self.deep.iter_mut().flatten() {
+            *st = (tiny(st.0), tiny(st.1));
         }
     }
 

@@ -55,7 +55,11 @@ pub fn chan(buf: &mut [f32], c: usize, frames: usize) -> &mut [f32] {
     &mut buf[c * frames..(c + 1) * frames]
 }
 
-/// Biquad coefficients, normalised so a0 = 1.
+/// Biquad coefficients, normalised so a0 = 1. `wide` keeps the designed
+/// values in double precision [b0, b1, b2, a1, a2]: filters with poles very
+/// close to DC (a few Hz at high sample rates) need more than f32 resolution
+/// (see filter::Cascade). Code that edits the f32 fields leaves `wide`
+/// stale, which Cascade detects (Coefs::wide_ok).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Coefs {
     pub b0: f32,
@@ -63,6 +67,7 @@ pub struct Coefs {
     pub b2: f32,
     pub a1: f32,
     pub a2: f32,
+    pub wide: [f64; 5],
 }
 
 impl Default for Coefs {
@@ -72,10 +77,35 @@ impl Default for Coefs {
 }
 
 impl Coefs {
-    pub const IDENTITY: Coefs = Coefs { b0: 1.0, b1: 0.0, b2: 0.0, a1: 0.0, a2: 0.0 };
+    pub const IDENTITY: Coefs = Coefs { b0: 1.0, b1: 0.0, b2: 0.0, a1: 0.0, a2: 0.0, wide: [1.0, 0.0, 0.0, 0.0, 0.0] };
 
-    fn norm(b0: f64, b1: f64, b2: f64, a0: f64, a1: f64, a2: f64) -> Coefs {
-        Coefs { b0: (b0 / a0) as f32, b1: (b1 / a0) as f32, b2: (b2 / a0) as f32, a1: (a1 / a0) as f32, a2: (a2 / a0) as f32 }
+    /// Coefficients from double-precision values already normalised (a0 = 1).
+    pub fn from_wide(w: [f64; 5]) -> Coefs {
+        Coefs { b0: w[0] as f32, b1: w[1] as f32, b2: w[2] as f32, a1: w[3] as f32, a2: w[4] as f32, wide: w }
+    }
+
+    pub fn norm(b0: f64, b1: f64, b2: f64, a0: f64, a1: f64, a2: f64) -> Coefs {
+        Coefs::from_wide([b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0])
+    }
+
+    /// Whether `wide` still matches the f32 coefficients (to within f32
+    /// rounding), i.e. they were not edited on their own since.
+    pub fn wide_ok(&self) -> bool {
+        let near = |w: f64, v: f32| (w - v as f64).abs() <= 1e-6 * w.abs().max(1.0);
+        let w = &self.wide;
+        near(w[0], self.b0) && near(w[1], self.b1) && near(w[2], self.b2) && near(w[3], self.a1) && near(w[4], self.a2)
+    }
+
+    /// Multiplies the numerator (the section's gain) by `s`; the f32 values
+    /// are scaled in f32 as before.
+    pub fn scale(&mut self, s: f64) {
+        let sf = s as f32;
+        self.b0 *= sf;
+        self.b1 *= sf;
+        self.b2 *= sf;
+        for w in &mut self.wide[..3] {
+            *w *= s;
+        }
     }
 
     fn w(rate: f32, f: f32) -> (f64, f64) {
@@ -182,7 +212,19 @@ impl Coefs {
     pub fn allpass1(rate: f32, f: f32) -> Coefs {
         let k = (std::f64::consts::PI * (f as f64).clamp(1.0, rate as f64 * 0.4999) / rate as f64).tan();
         let a = (k - 1.0) / (k + 1.0);
-        Coefs { b0: a as f32, b1: 1.0, b2: 0.0, a1: a as f32, a2: 0.0 }
+        Coefs::from_wide([a, 1.0, 0.0, a, 0.0])
+    }
+
+    /// Magnitude response at `f` Hz (linear) of the double-precision design.
+    #[cfg(test)]
+    pub fn magnitude_wide(&self, f: f32, rate: f32) -> f32 {
+        let w = 2.0 * std::f64::consts::PI * f as f64 / rate as f64;
+        let k = &self.wide;
+        let (c1, s1) = (w.cos(), -w.sin());
+        let (c2, s2) = ((2.0 * w).cos(), -(2.0 * w).sin());
+        let (nr, ni) = (k[0] + k[1] * c1 + k[2] * c2, k[1] * s1 + k[2] * s2);
+        let (dr, di) = (1.0 + k[3] * c1 + k[4] * c2, k[3] * s1 + k[4] * s2);
+        ((nr * nr + ni * ni) / (dr * dr + di * di).max(1e-30)).sqrt() as f32
     }
 
     /// Magnitude response at `f` Hz (linear).

@@ -176,3 +176,60 @@ describe('Loudness channel weights', () => {
     expect(read(8, 3)).toBe(-Infinity);
   });
 });
+
+describe('Filters with poles very close to DC', () => {
+  /** Steady-state gain (dB) of a mono effect slot at f, measured over whole cycles. */
+  async function gainDb(id, values, rate, f) {
+    const { getEffect, defaults, slotSpec } = await import('../src/effects/index.js');
+    const def = getEffect(id);
+    const spec = slotSpec(def, { ...defaults(def), ...values }, { rate });
+    const x = instance();
+    const h = x.fx_new(def.kind, rate, 1);
+    spec.params.forEach((v, i) => x.fx_set(h, i, v));
+    x.fx_reset(h);
+    const N = 8192;
+    const total = Math.round((rate * 4) / N) * N;
+    const buf = x.mem_alloc(N * 4);
+    let e = 0;
+    let ein = 0;
+    for (let at = 0; at < total; at += N) {
+      const v = new Float32Array(x.memory.buffer, buf, N);
+      for (let i = 0; i < N; i++) v[i] = 0.1 * Math.sin((2 * Math.PI * f * (at + i)) / rate);
+      x.fx_process(h, buf, N);
+      const o = new Float32Array(x.memory.buffer, buf, N);
+      if (at < total / 2) continue;
+      for (let i = 0; i < N; i++) {
+        e += o[i] ** 2;
+        ein += (0.1 * Math.sin((2 * Math.PI * f * (at + i)) / rate)) ** 2;
+      }
+    }
+    return {
+      got: 10 * Math.log10(e / ein),
+      want: def.response({ ...defaults(def), ...values }, Float64Array.of(f), rate)[0],
+    };
+  }
+
+  it('follow their design: a 10 Hz shelf at 192 kHz and a 60 Hz notch at 48 kHz', async () => {
+    for (const ultraQuiet of [false, true]) {
+      for (const f of [15, 30, 60]) {
+        const { got, want } = await gainDb(
+          'parametricEq',
+          { lsOn: true, lsFreq: 10, lsGain: 12, ultraQuiet },
+          192000,
+          f,
+        );
+        expect(got, `${f} Hz`).toBeCloseTo(want, 1);
+      }
+    }
+    const notch = {
+      width: 1,
+      band1On: true,
+      band1Freq: 60,
+      band1Gain: -30,
+      band2On: false,
+      ultraQuiet: false,
+    };
+    const { got, want } = await gainDb('notchFilter', notch, 48000, 60);
+    expect(Math.abs(got - want)).toBeLessThan(0.5);
+  });
+});

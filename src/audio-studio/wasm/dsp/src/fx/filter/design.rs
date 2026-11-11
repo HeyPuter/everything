@@ -187,13 +187,13 @@ fn bilinear(b: [f64; 3], a: [f64; 3]) -> Coefs {
     let na0 = a[0] + a[1] + a[2];
     let na1 = 2.0 * (a[0] - a[2]);
     let na2 = a[0] - a[1] + a[2];
-    Coefs { b0: (nb0 / na0) as f32, b1: (nb1 / na0) as f32, b2: (nb2 / na0) as f32, a1: (na1 / na0) as f32, a2: (na2 / na0) as f32 }
+    Coefs::from_wide([nb0 / na0, nb1 / na0, nb2 / na0, na1 / na0, na2 / na0])
 }
 
 /// Bilinear transform of a first-order analog section (b0 + b1 s) / (a0 + a1 s).
 fn bilinear1(b: [f64; 2], a: [f64; 2]) -> Coefs {
     let na0 = a[0] + a[1];
-    Coefs { b0: ((b[0] + b[1]) / na0) as f32, b1: ((b[0] - b[1]) / na0) as f32, b2: 0.0, a1: ((a[0] - a[1]) / na0) as f32, a2: 0.0 }
+    Coefs::from_wide([(b[0] + b[1]) / na0, (b[0] - b[1]) / na0, 0.0, (a[0] - a[1]) / na0, 0.0])
 }
 
 fn warp(f: f32, rate: f32) -> f64 {
@@ -272,10 +272,7 @@ pub fn design(proto: &Proto, mode: Mode, chebyshev_even_ripple: Option<f64>, rat
         None => 1.0,
     };
     if n > 0 && g > 1e-20 {
-        let s = (target / g) as f32;
-        out[0].b0 *= s;
-        out[0].b1 *= s;
-        out[0].b2 *= s;
+        out[0].scale(target / g);
     }
     n
 }
