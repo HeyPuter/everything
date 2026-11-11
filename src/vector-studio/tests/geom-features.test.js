@@ -12,6 +12,7 @@ import { shapeBuilderPlan, splitPathAt, joinEnds } from '../src/features/geometr
 import { addMidpoints, removeAnchorsKeepingShape, fitPolygon } from '../src/features/geometry/anchors.js';
 import { recognizeShape, gridCells, cleanUpTargets, outlineStroke, divideBelow, simplifySubpaths, addAnchorPoints, strokeParams } from '../src/features/geometry/path-ops.js';
 import { geometryLeaves, nodeFromSubpaths } from '../src/features/geometry/nodes-io.js';
+import { MAX_DASHES } from '../src/features/geometry/stroke-params.js';
 import { makeBlend, replaceSpine } from '../src/features/artboards/blend.js';
 import { liveDef } from '../src/model/live.js';
 
@@ -368,6 +369,23 @@ describe('path commands', () => {
     // Butt caps draw nothing for zero-length dashes; an all-zero pattern stays solid.
     expect(strokeParams({ ...p, strokeCap: 'butt' }).slice(6)).toEqual([0, 20]);
     expect(strokeParams({ ...p, dash: [0, 0] }).slice(6)).toEqual([0, 0]);
+  });
+
+  it('Outline Stroke caps the number of dashes so a tiny dash cannot freeze the app', async () => {
+    const p = createPath([anchor(0, 0), anchor(100, 0)], false, { fill: null, stroke: solid('#0000ff'), strokeWidth: 1, dash: [0.0001, 0.0001] });
+    const { doc, editor, app, layer } = setup([p]);
+    editor.select([p.id]);
+    await outlineStroke(app);
+    const dashes = doc.get(doc.get(layer.id).children[0]);
+    expect(dashes.type).toBe('compound');
+    expect(dashes.children.length).toBeGreaterThan(MAX_DASHES * 0.9);
+    expect(dashes.children.length).toBeLessThanOrEqual(MAX_DASHES + 1);
+    // The pattern keeps its proportions; patterns within the limit are unchanged.
+    const subs = [{ anchors: p.anchors, closed: false }];
+    const [d1, d2] = strokeParams(p, null, subs).slice(6);
+    expect(d1).toBeCloseTo(d2, 9);
+    expect(d1 + d2).toBeCloseTo(100 / MAX_DASHES, 6);
+    expect(strokeParams({ ...p, dash: [3, 2] }, null, subs).slice(6)).toEqual([3, 2]);
   });
 
   it('Divide Objects Below cuts the objects under the selected path', async () => {

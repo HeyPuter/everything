@@ -119,7 +119,7 @@ export function offsetPath(subs, fx, info) {
 export function outlineStroke(subs, fx, info) {
   const n = info.node;
   if (!n || !(n.strokeWidth > 0) || !n.stroke) return subs;
-  const params = strokeParams(n);
+  const params = strokeParams(n, null, subs);
   return byPaint(n, subs, (group, paint) => {
     if (paint) return group;
     const r = engineResult(OP.STROKE, [{ subpaths: group, filled: Boolean(n.fill), evenodd: n.fillRule === 'evenodd' }], params, { pending: info.pending });

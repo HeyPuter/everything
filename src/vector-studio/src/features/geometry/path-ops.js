@@ -139,7 +139,7 @@ export async function outlineStroke(app, { label = 'Outline Stroke', expandFill 
   const snap = snapshot(doc, nodes);
   const strokes = nodes.map((n) => drawnStroke(app, doc, n));
   const results = await withBusy(app, label, () =>
-    Promise.all(nodes.map((n, i) => runGeom(OP.STROKE, [strokes[i].shape], strokeParams(n, strokes[i].pattern), { tol: 0.01 }))),
+    Promise.all(nodes.map((n, i) => runGeom(OP.STROKE, [strokes[i].shape], strokeParams(n, strokes[i].pattern, strokes[i].shape.subpaths), { tol: 0.01 }))),
   );
   if (!unchangedSince(doc, snap)) return false;
   const ids = [];

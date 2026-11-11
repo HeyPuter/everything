@@ -16,6 +16,7 @@ import { freeDistort, freeDistortMapping, puckerBloat, roughen, zigzag, tweak, t
 import { convertToShape, cropMarks, CROP_MARK_PAINT } from '../src/features/effects/geom/shapes.js';
 import { scribble, SCRIBBLE_PRESETS } from '../src/features/effects/geom/scribble.js';
 import { offsetPath, outlineStroke, pathfinderCombine, pathfinderOnShape } from '../src/features/effects/geom/engine.js';
+import { MAX_DASHES } from '../src/features/geometry/stroke-params.js';
 
 beforeAll(async () => {
   installCanvasStub();
@@ -295,6 +296,13 @@ describe('engine effects', () => {
     const out = outlineStroke([{ anchors: line(0, 0, 100, 0), closed: false }], {}, { node, pending: () => {} });
     expect(out).toHaveLength(5);
     for (const s of out) expect(area([s])).toBeCloseTo(Math.PI * 25, 0);
+  });
+
+  it('outlines a pattern of tiny dashes coarser instead of freezing', () => {
+    const node = { type: 'path', stroke: blue, strokeWidth: 1, dash: [0.0001, 0.0001], fill: null };
+    const out = outlineStroke([{ anchors: line(0, 0, 100, 0), closed: false }], {}, { node, pending: () => {} });
+    expect(out.length).toBeGreaterThan(1000);
+    expect(out.length).toBeLessThanOrEqual(MAX_DASHES + 1);
   });
 
   it('combines group items with the pathfinder style rules', () => {

@@ -264,7 +264,7 @@ export async function flattenSelection(editor, opts, deps = {}) {
   for (const n of leaves) {
     if (liveStrokes.has(n.id)) continue;
     const subs = geomEffectsOf(n) ? effectiveSubpaths(doc, n) : n.type === 'path' ? [{ anchors: n.anchors, closed: n.closed }] : n.children.map((c) => doc.get(c)).filter((c) => c?.anchors).map((c) => ({ anchors: c.anchors, closed: c.closed }));
-    const recs = await run(OP.STROKE, [{ subpaths: subs, filled: Boolean(n.fill), evenodd: n.fillRule === 'evenodd' }], strokeParams(n));
+    const recs = await run(OP.STROKE, [{ subpaths: subs, filled: Boolean(n.fill), evenodd: n.fillRule === 'evenodd' }], strokeParams(n, null, subs));
     strokeOutlines.set(n.id, subpathsOfRecords(recs));
   }
   const art = collectArtwork(doc, ids, strokeOutlines, { textOutlines: opts.textOutlines || null, liveStrokes });
