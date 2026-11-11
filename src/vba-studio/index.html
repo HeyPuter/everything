@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="VBA Studio — run VBA-inspired macros against an in-browser worksheet. Original interpreter for Everything office apps."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <link rel="apple-touch-icon" href="icon-128.png" />
+    <title>VBA Studio</title>
+    <script>
+      (function () {
+        var theme;
+        try {
+          theme = (JSON.parse(localStorage.getItem('vba-studio.settings.v1')) || {}).theme;
+        } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <img src="icon-128.png" alt="" width="28" height="28" />
+          <h1>VBA Studio</h1>
+        </div>
+        <div class="segmented" role="group" aria-label="Colour theme">
+          <button type="button" data-theme="light">Light</button>
+          <button type="button" data-theme="dark">Dark</button>
+          <button type="button" data-theme="system">System</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel">
+          <h2>Macro</h2>
+          <textarea id="editor" spellcheck="false" aria-label="VBA-inspired macro source"></textarea>
+          <div class="actions">
+            <button type="button" class="btn" id="run">Run (Ctrl+Enter)</button>
+            <button type="button" class="btn secondary" id="reset">Reset sample</button>
+          </div>
+          <pre id="output" role="status" aria-live="polite"></pre>
+        </section>
+        <section class="panel">
+          <h2>Worksheet host</h2>
+          <div class="grid-wrap" id="sheet"></div>
+        </section>
+      </main>
+
+      <details class="help">
+        <summary>About this VBA subset</summary>
+        <p>
+          This is an <strong>original</strong> VBA-<em>inspired</em> interpreter answering
+          <a href="https://github.com/HeyPuter/everything/issues/25">#25</a> — not Microsoft Visual Basic
+          for Applications, and not a redistributed Office binary. Supported today: <code>Sub</code>,
+          <code>Dim</code>, <code>For/Next</code>, <code>If/Then/Else</code>, <code>MsgBox</code>,
+          <code>Range("A1").Value</code>, arithmetic, and <code>&amp;</code> concatenation.
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
