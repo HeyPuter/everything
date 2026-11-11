@@ -69,3 +69,39 @@ test('sequencer: stopping playback silences an echo modifier at once', async ({ 
   expect(await page.evaluate(() => (window as any).rms())).toBeLessThan(0.001);
   await expectNoErrors(errors);
 });
+
+test('sequencer: dragging the Channel field resolves overlaps only where the drag ends', async ({ page }) => {
+  const errors = await videoWorkspace(page);
+  await page.evaluate(async () => {
+    const w = window as any;
+    const S = await w.imp('/src/sequencer/strips.ts');
+    w.app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 1, length: 20 }, { invoke: false });
+    const ed = w.app.doc.scene.sequence_editor;
+    ed.strips[0].name = 'A';
+    ed.active_strip = 'A';
+    for (const [name, ch] of [['B', 2], ['C', 3]] as const) {
+      const s = S.newStrip('COLOR', name, ch, 5, 20);
+      s.select = false;
+      ed.strips.push(s);
+    }
+    w.app.pushUndo('Setup');
+    w.app.changed('doc');
+  });
+  const tl = page.locator('.seq-main').last();
+  await tl.hover();
+  await page.keyboard.press('n');
+  await page.locator('.sb-tab', { hasText: /^Strip$/ }).last().click();
+  const field = page.locator('.num-field[data-id^="seq-ch-"]').first();
+  await field.scrollIntoViewIfNeeded();
+  const b = (await field.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  // slowly, so the value passes channels 2 and 3 (occupied) on the way
+  for (let i = 1; i <= 24; i++) await page.mouse.move(b.x + b.width / 2 + i, b.y + b.height / 2);
+  await page.mouse.up();
+  const a = await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((s: any) => s.name === 'A'));
+  expect(a.channel).toBeGreaterThan(4);
+  // the strip kept its time (passing the occupied channels used to shuffle it to frame -15)
+  expect(a.frame_start).toBe(1);
+  await expectNoErrors(errors);
+});

@@ -36,9 +36,9 @@ function color(owner: Record<string, unknown>, key: string, label: string, alpha
   );
 }
 
-function frameField(id: string, label: string, value: number, set: (v: number) => void, disabled = false) {
+function frameField(id: string, label: string, value: number, set: (v: number, final: boolean) => void, disabled = false) {
   return splitRow(label, numberField({ id, value, int: true, disabled, set: (v, final) => {
-    set(Math.round(v));
+    set(Math.round(v), !!final);
     afterEdit();
     app.changed('doc');
     if (final) {
@@ -359,13 +359,14 @@ function sourcePanel(s: Strip): Child {
 function timePanel(s: Strip): Child {
   const effectRange = !!inputCount(s.type);
   return panel('seq-time', 'Time', () => [
-    frameField(`seq-ch-${oid(s)}`, 'Channel', s.channel, (v) => {
+    // overlaps are resolved where a drag ends, not on the channels / frames it passes
+    frameField(`seq-ch-${oid(s)}`, 'Channel', s.channel, (v, final) => {
       s.channel = Math.max(1, Math.min(128, v));
-      resolveOverlap(seqList(), [s], toolSettings().overlap_mode, seqEditor());
+      if (final) resolveOverlap(seqList(), [s], toolSettings().overlap_mode, seqEditor());
     }),
-    frameField(`seq-start-${oid(s)}`, 'Start', finalStart(s), (v) => {
+    frameField(`seq-start-${oid(s)}`, 'Start', finalStart(s), (v, final) => {
       translateStrip(s, v - finalStart(s));
-      resolveOverlap(seqList(), [s], toolSettings().overlap_mode, seqEditor());
+      if (final) resolveOverlap(seqList(), [s], toolSettings().overlap_mode, seqEditor());
     }, effectRange || s.lock),
     frameField(`seq-dur-${oid(s)}`, 'Duration', finalDuration(s), (v) => setRightHandle(s, finalStart(s) + Math.max(1, v)), effectRange || s.lock),
     frameField(`seq-end-${oid(s)}`, 'End', finalEnd(s), (v) => setRightHandle(s, v), effectRange || s.lock),
