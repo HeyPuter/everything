@@ -1372,7 +1372,8 @@ export function createTimeline(ctx) {
     const at = (ev) => {
       const r = content.getBoundingClientRect();
       let t = xToTime(ev.clientX - r.left);
-      if (store.toggles.snap && !ev.altKey) {
+      // Alt flips snapping, as when dragging clips, trims and markers.
+      if (store.toggles.snap !== ev.altKey) {
         const pts = T.snapPoints(store.project, {});
         const s = T.snap(t, pts, snapThreshold());
         if (s.snapped) t = s.time;

@@ -247,6 +247,27 @@ describe('timeline on phones', () => {
   });
 });
 
+describe('scrubbing the ruler', () => {
+  it('snaps to clip edges, with Alt flipping snapping either way', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const { store, tl } = mountTimeline(p);
+    const ruler = tl.el.querySelector('.tl-ruler');
+    const near = 16 + 2 * tl.pps + 3; // 3 px past the cut at 2 s
+    const scrub = (altKey) => {
+      ruler.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: near, pointerId: 1, button: 0, altKey }));
+      ruler.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: near, pointerId: 1 }));
+      return store.time;
+    };
+    expect(scrub(false)).toBe(s(2));
+    expect(scrub(true)).not.toBe(s(2));
+    store.setToggle('snap', false);
+    expect(scrub(false)).not.toBe(s(2));
+    expect(scrub(true)).toBe(s(2));
+    tl.dispose();
+  });
+});
+
 describe('timeline keyboard focus', () => {
   it('stays in the timeline when the focused clip is deleted or undone away', () => {
     const p = fixture();
