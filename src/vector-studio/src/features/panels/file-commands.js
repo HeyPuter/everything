@@ -16,7 +16,7 @@ import { memoryBackend } from '../files/backends.js';
 import { hashKey } from '../files/recent.js';
 import { formatBytes, relativeTime } from '../files/naming.js';
 
-import { serializeDocument, parseDocument } from '../files/format.js';
+import { serializeDocument, parseDocument, documentId } from '../files/format.js';
 import { renderThumbnail } from '../files/thumbnail.js';
 import { familyInfo } from '../type/fonts.js';
 
@@ -32,7 +32,8 @@ export function localStore(app) {
 
 async function encodeDoc(doc) {
   const thumb = await renderThumbnail(doc, { size: 192 }).catch(() => null);
-  const bytes = await serializeDocument(doc, { thumbnail: thumb });
+  // Templates and versions are content only: documents made from them get their own identity.
+  const bytes = await serializeDocument(doc, { thumbnail: thumb, id: null });
   return { bytes, thumb };
 }
 
@@ -99,10 +100,30 @@ async function saveAsTemplate(app) {
 
 // ---- Versions ----
 
-/** The storage key for an editor's file: its path, file name or document name. */
+/**
+ * The storage key for an editor's versions: its cloud path, its file
+ * handle, its shared document, or else the document's own identity, which
+ * its saved files carry (so documents saved as downloads under the same
+ * name never share a history).
+ */
 export function versionKey(editor) {
   const f = editor.file;
-  return hashKey(f?.path ? `puter:${f.path}` : f?.handleId ? `local:${f.handleId}` : `name:${f?.name || editor.doc.root.name}`);
+  if (f?.path) return hashKey(`puter:${f.path}`);
+  if (f?.handleId) return hashKey(`local:${f.handleId}`);
+  if (f?.kind === 'shared' && f.room) return hashKey(`shared:${f.server || ''}:${f.room}`);
+  return hashKey(`doc:${documentId(editor.doc)}`);
+}
+
+/**
+ * Before documents had an identity, versions of files without a cloud path
+ * or file handle were kept under their file name. A file from then (one
+ * without an identity) still lists those versions, and takes a copy of them
+ * once it is saved with its new identity.
+ */
+export function legacyKeyFor(editor) {
+  const f = editor.file;
+  if (editor.doc.fileId || f?.kind !== 'import' || f.format !== 'native' || !f.name) return null;
+  return hashKey(`name:${f.name}`);
 }
 
 export class VersionStore {
@@ -144,6 +165,31 @@ export class VersionStore {
     return (await parseDocument(bytes)).doc;
   }
 
+  /** Copy the versions kept under `from` into `to` (newest kept within the limit). */
+  adopt(from, to) {
+    return this.#run(async () => {
+      const old = await this.list(from);
+      if (!old.length || from === to) return 0;
+      const mine = await this.list(to);
+      const have = new Set(mine.map((v) => v.id));
+      const copied = [];
+      for (const v of old) {
+        if (have.has(v.id)) continue;
+        const blob = await this.store.readBlob(`versions/${from}/${v.id}.vstudio`);
+        if (!blob) continue;
+        await this.store.writeBlob(`versions/${to}/${v.id}.vstudio`, blob);
+        copied.push(v);
+      }
+      const list = [...copied, ...mine].sort((a, b) => a.time - b.time);
+      while (list.length > this.limit) {
+        const drop = list.shift();
+        await this.store.remove(`versions/${to}/${drop.id}.vstudio`);
+      }
+      await this.store.writeJSON(`versions/${to}/index.json`, list);
+      return copied.length;
+    });
+  }
+
   remove(key, id) {
     return this.#run(async () => {
       await this.store.remove(`versions/${key}/${id}.vstudio`);
@@ -167,7 +213,10 @@ async function versionHistoryDialog(app) {
   const ed = app.editor;
   const versions = app.versions;
   const key = versionKey(ed);
-  let list = (await versions.list(key)).slice().reverse();
+  // A file from before documents had an identity also lists the versions kept under its name.
+  const legacy = ed.doc.legacyVersionKey;
+  const listed = async (k) => (k ? (await versions.list(k)).map((v) => ({ ...v, key: k })) : []);
+  let list = [...(await listed(key)), ...(await listed(legacy))].sort((a, b) => b.time - a.time);
   let selected = list[0]?.id || null;
   const listEl = h('ul.vh-list', { role: 'listbox', tabindex: '0', 'aria-label': 'Versions' });
   const preview = h('div.vh-preview', { 'aria-live': 'polite' });
@@ -219,26 +268,26 @@ async function versionHistoryDialog(app) {
       }
     });
   action(restoreBtn, async () => {
-    const doc = await versions.read(key, selected);
+    const doc = await versions.read(list.find((x) => x.id === selected)?.key || key, selected);
     restoreDocumentContent(ed, doc);
     app.notify('Restored the version. Undo returns to the current content.', { polite: true });
     close?.(true);
   });
   action(copyBtn, async () => {
-    const doc = await versions.read(key, selected);
     const v = list.find((x) => x.id === selected);
+    const doc = await versions.read(v?.key || key, selected);
     doc.nodes.set('root', { ...doc.root, name: `${ed.name.replace(/\.[^.]+$/, '')} (${new Date(v.time).toLocaleString()})` });
     close?.(true);
     app.addDocument(doc);
   });
   action(delBtn, async () => {
-    await versions.remove(key, selected);
+    await versions.remove(list.find((x) => x.id === selected)?.key || key, selected);
     list = list.filter((v) => v.id !== selected);
     selected = list[0]?.id || null;
   });
   action(saveBtn, async () => {
     const entry = await versions.add(key, ed.doc, { name: ed.name, label: 'Saved manually' });
-    list.unshift(entry);
+    list.unshift({ ...entry, key });
     selected = entry.id;
   });
   render();
@@ -437,14 +486,28 @@ export function registerFileCommands(app) {
 
   // Keep a version every time a document is saved.
   const watched = new WeakSet();
+  const keep = async (ed) => {
+    const doc = ed.doc;
+    const key = versionKey(ed);
+    // A file from before documents had an identity now has one: it takes its versions along.
+    if (doc.legacyVersionKey) {
+      await app.versions.adopt(doc.legacyVersionKey, key);
+      doc.legacyVersionKey = null;
+    }
+    await app.versions.add(key, doc, { name: ed.name });
+  };
   const watch = (ed) => {
     if (!ed || watched.has(ed)) return;
     watched.add(ed);
     ed.doc.on('saved', () => {
       const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
-      idle(() => app.versions.add(versionKey(ed), ed.doc, { name: ed.name }).catch((err) => console.warn('Could not keep a version', err)));
+      idle(() => keep(ed).catch((err) => console.warn('Could not keep a version', err)));
     });
   };
+  app.on('file-opened', (ed) => {
+    const legacy = ed && legacyKeyFor(ed);
+    if (legacy) ed.doc.legacyVersionKey = legacy;
+  });
   app.on('active-editor', (ed) => {
     watch(ed);
     if (ed) syncColorPanelMode(app, ed);

@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createPath, createText, createImage } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { bootAppWithFeatures } from './helpers.js';
 import { memoryBackend } from '../src/features/files/backends.js';
-import { TemplateStore, VersionStore, versionKey, restoreDocumentContent, cleanInfo, splitList, fontsUsed, packageEntries } from '../src/features/panels/file-commands.js';
+import { TemplateStore, VersionStore, versionKey, legacyKeyFor, restoreDocumentContent, cleanInfo, splitList, fontsUsed, packageEntries } from '../src/features/panels/file-commands.js';
 import { systemInfo, systemInfoText } from '../src/features/panels/help-commands.js';
+import { serializeDocument } from '../src/features/files/format.js';
+import { hashKey } from '../src/features/files/recent.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 async function openDialogEl() {
@@ -130,6 +132,93 @@ describe('Version history', () => {
     expect(dlg.open).toBe(true);
     dlg.querySelector('.dialog-close').click();
     await done;
+  });
+});
+
+/** Saves in this browser download the file (no cloud, no File System Access): capture the bytes. */
+function captureDownloads() {
+  const blobs = [];
+  const orig = URL.createObjectURL;
+  URL.createObjectURL = (blob) => {
+    blobs.push(blob);
+    return 'blob:x';
+  };
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  return {
+    blobs,
+    restore() {
+      click.mockRestore();
+      URL.createObjectURL = orig;
+    },
+  };
+}
+const versionsSettle = () => new Promise((r) => setTimeout(r, 400));
+
+describe('Version history of downloaded documents', () => {
+  it('documents saved under the same file name keep separate histories, which follow the file', async () => {
+    const { app, ed, add } = await setup();
+    add(createPath(rectangle(0, 0, 10, 10), true));
+    const other = app.newDocument({ name: 'Poster' });
+    const dl = captureDownloads();
+    try {
+      expect(await app.files.service.save(ed)).toBe(true);
+      expect(await app.files.service.save(other)).toBe(true);
+      expect(ed.file).toMatchObject({ kind: 'download', name: 'Poster.vstudio' });
+      expect(other.file).toMatchObject({ kind: 'download', name: 'Poster.vstudio' });
+      await versionsSettle();
+      expect(versionKey(ed)).not.toBe(versionKey(other));
+      expect((await app.versions.list(versionKey(ed))).length).toBe(1);
+      expect((await app.versions.list(versionKey(other))).length).toBe(1);
+      // Opening the downloaded file again (another day, a renamed copy) finds its history.
+      const reopened = await app.files.service.openBytes(new Uint8Array(await dl.blobs[0].arrayBuffer()), { name: 'Poster (1).vstudio' });
+      expect(versionKey(reopened)).toBe(versionKey(ed));
+      // Save a Copy gives the copy its own identity.
+      await app.files.service.saveAs(ed, { copy: true });
+      const copy = await app.files.service.openBytes(new Uint8Array(await dl.blobs.at(-1).arrayBuffer()), { name: 'Poster copy.vstudio' });
+      expect(versionKey(copy)).not.toBe(versionKey(ed));
+    } finally {
+      dl.restore();
+    }
+  });
+
+  it('a file from before documents had an identity lists its old versions and keeps them once saved', async () => {
+    const { app, ed } = await setup();
+    // Versions kept by older releases under the file name.
+    const legacy = hashKey('name:Old.vstudio');
+    const old = await app.versions.add(legacy, ed.doc, { name: 'Old.vstudio' });
+    const bytes = await serializeDocument(ed.doc, { id: null });
+    const opened = await app.files.service.openBytes(bytes, { name: 'Old.vstudio' });
+    expect(opened.doc.legacyVersionKey).toBe(legacy);
+    const done = app.commands.run('file.versionHistory');
+    const dlg = await openDialogEl();
+    expect(dlg.querySelectorAll('.vh-row').length).toBe(1);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Restore').click();
+    await done;
+    expect(opened.doc.undoLabel).toBe('Restore Version');
+    // Saving gives the file an identity and takes the old versions along.
+    const dl = captureDownloads();
+    try {
+      await app.files.service.save(opened);
+      await versionsSettle();
+    } finally {
+      dl.restore();
+    }
+    expect(opened.doc.legacyVersionKey).toBe(null);
+    const ids = (await app.versions.list(versionKey(opened))).map((v) => v.id);
+    expect(ids.length).toBe(2);
+    expect(ids[0]).toBe(old.id);
+    // A document with an identity never picks up versions kept under a name.
+    expect(legacyKeyFor(opened)).toBe(null);
+  });
+
+  it('templates and versions do not pass on the identity of the document they came from', async () => {
+    const { app, ed } = await setup();
+    versionKey(ed);
+    expect(ed.doc.fileId).toBeTruthy();
+    const entry = await app.userTemplates.save(ed.doc, 'Mine');
+    expect((await app.userTemplates.load(entry.id, 'Untitled-5')).fileId).toBe(null);
+    const v = await app.versions.add(versionKey(ed), ed.doc);
+    expect((await app.versions.read(versionKey(ed), v.id)).fileId).toBe(null);
   });
 });
 

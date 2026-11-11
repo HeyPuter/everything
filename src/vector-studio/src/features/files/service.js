@@ -18,7 +18,7 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
-import { serializeDocument, parseDocument, FileFormatError, toBytes, isGzip, gunzip, canCompress } from './format.js';
+import { serializeDocument, parseDocument, documentId, newFileId, FileFormatError, toBytes, isGzip, gunzip, canCompress } from './format.js';
 import { renderThumbnail } from './thumbnail.js';
 import { NATIVE_EXT, NATIVE_MIME, baseName, ensureExtension, extensionOf, fileKind, joinPath, stripExtension, suggestFileName, uniqueName } from './naming.js';
 import { classifyError, errorText, saveErrorDialog, sleep } from './errors.js';
@@ -68,11 +68,13 @@ export class FileService {
 
   // ---- encoding ----
 
-  async encode(editor, { thumbnail = true } = {}) {
+  async encode(editor, { thumbnail = true, copy = false } = {}) {
     const doc = editor.doc;
     const rev = doc.revision;
     const thumb = thumbnail ? await renderThumbnail(doc) : null;
-    const bytes = await serializeDocument(doc, { thumbnail: thumb });
+    // A saved file carries the document's identity (its version history follows it); a copy gets its own.
+    const id = copy ? newFileId() : documentId(doc);
+    const bytes = await serializeDocument(doc, { thumbnail: thumb, id });
     return { bytes, thumb, rev };
   }
 
@@ -284,7 +286,7 @@ export class FileService {
       }
     }
 
-    const enc = await this.encode(editor);
+    const enc = await this.encode(editor, { copy });
     if (this.cloud) return this.#saveAsCloud(editor, enc, suggested, { copy });
     if (fsAccessAvailable()) return this.#saveAsHandle(editor, enc, suggested, { copy });
     downloadBytes(enc.bytes, suggested);

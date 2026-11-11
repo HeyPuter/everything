@@ -88,17 +88,37 @@ function usedAssets(json) {
   return out;
 }
 
-/** The JSON object written to disk. */
-export function documentData(doc, { thumbnail = null, savedAt = Date.now(), app = 'Vector Studio' } = {}) {
+const FILE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The document's file identity: a random id written into every file saved
+ * from it (meta.id) and read back on open, so a document keeps its version
+ * history wherever its file goes (downloads, renamed copies).
+ */
+export function documentId(doc) {
+  if (!doc.fileId) doc.fileId = newFileId();
+  return doc.fileId;
+}
+
+export function newFileId() {
+  return globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * The JSON object written to disk. `id` is the file identity to embed:
+ * the document's own by default, null for none (templates, versions).
+ */
+export function documentData(doc, { thumbnail = null, savedAt = Date.now(), app = 'Vector Studio', id = doc.fileId } = {}) {
   const json = doc.toJSON();
   json.assets = usedAssets(json);
   json.meta = { app, saved: new Date(savedAt).toISOString(), thumbnail: thumbnail || null };
+  if (id) json.meta.id = id;
   return json;
 }
 
 /** Serialize a document to file bytes (gzip by default). */
-export async function serializeDocument(doc, { thumbnail = null, compress = true, savedAt } = {}) {
-  const bytes = encoder.encode(JSON.stringify(documentData(doc, { thumbnail, savedAt })));
+export async function serializeDocument(doc, { thumbnail = null, compress = true, savedAt, id } = {}) {
+  const bytes = encoder.encode(JSON.stringify(documentData(doc, { thumbnail, savedAt, ...(id !== undefined ? { id } : {}) })));
   if (!compress || !canCompress()) return bytes;
   return gzip(bytes);
 }
@@ -268,9 +288,11 @@ export async function parseDocument(input) {
   } catch (err) {
     throw new FileFormatError(`The document could not be read: ${err?.message || err}`, 'damaged');
   }
+  const meta = json.meta && typeof json.meta === 'object' ? json.meta : {};
+  doc.fileId = typeof meta.id === 'string' && FILE_ID.test(meta.id) ? meta.id : null;
   return {
     doc,
-    meta: json.meta && typeof json.meta === 'object' ? json.meta : {},
+    meta,
     version: Number(json.version ?? 0),
     migrated,
     repaired: checked.repaired,
