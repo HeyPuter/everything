@@ -7,7 +7,7 @@ import { app, operators, registerOperators } from '../app/app';
 import { openMenu } from '../ui/menu';
 import { activeView3D } from '../editors/view3d/view3d';
 import { uid, newImage, newMaterial } from '../data/defaults';
-import type { ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } from '../data/types';
+import type { DocumentData, ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
 import { encodeImage, imageCanvas, imageTexture, primeImage, touchImage } from '../render/images';
 import { renderContext } from '../render/context';
@@ -165,23 +165,45 @@ export function addPaintSlot(
 
 let saving: Promise<void> = Promise.resolve();
 
-/** Encode the canvas into the image bytes (async), then push the undo step. */
+/**
+ * Store the painted canvas in the image bytes and push the undo step. The step is pushed right
+ * away (Ctrl+Z straight after a stroke must undo that stroke, and later operations must stack on
+ * top of it); the canvas is captured now too and its PNG bytes are filled into the step (and the
+ * live image, unless undo / redo replaced it meanwhile) once the encoding is done.
+ */
 export function commitImage(img: Img, label: string | null): Promise<void> {
-  touchImage(img);
+  const live0 = app.doc.images[img.id] ?? img;
+  touchImage(live0);
+  const rev = live0.revision;
+  // toBlob copies the canvas pixels synchronously, so later strokes cannot leak into these bytes
+  const encoded = encodeImage(live0);
+  encoded.catch(() => {});
+  if (label) app.pushUndo(label);
+  const step = label ? (app.undo.mark() as { doc?: DocumentData } | null) : null;
   saving = saving.then(async () => {
-    const live = app.doc.images[img.id];
-    if (!live) return;
+    let bytes: Uint8Array;
     try {
-      const bytes = await encodeImage(live);
-      live.bytes = bytes;
-      live.mime = 'image/png';
-      live.source = 'FILE';
-      // keep the cached canvas (pixels are already current) instead of decoding the bytes again
-      touchImage(live);
+      bytes = await encoded;
     } catch (e) {
       app.report('ERROR', `Could not store painted image: ${e instanceof Error ? e.message : String(e)}`);
+      return;
     }
-    if (label) app.pushUndo(label);
+    const store = (im: Img) => {
+      im.bytes = bytes;
+      im.mime = 'image/png';
+      im.source = 'FILE';
+    };
+    const stepImg = step?.doc?.images[img.id];
+    if (stepImg) store(stepImg);
+    const live = app.doc.images[img.id];
+    if (live === live0) {
+      store(live);
+      // keep the cached canvas (pixels are already current) instead of decoding the bytes again
+      touchImage(live);
+    } else if (live && live.revision === rev) {
+      // redone to this step before the bytes were ready: decode them
+      store(live);
+    }
     app.changed('doc');
   });
   return saving;

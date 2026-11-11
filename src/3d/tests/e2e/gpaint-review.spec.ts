@@ -88,3 +88,48 @@ test('the Grease Pencil brush ring hides when the pointer leaves the viewport', 
   await expect(ring).toHaveCount(1);
   await expectNoErrors(errors);
 });
+
+test('Ctrl+Z right after a texture paint stroke undoes that stroke', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'SELECT' }, { invoke: false });
+    a.run('object.delete', {}, { invoke: false });
+    a.run('mesh.primitive_uv_sphere_add', { radius: 3 }, { invoke: false });
+    a.run('object.mode_set', { mode: 'TEXTURE_PAINT' }, { invoke: false });
+    a.run('paint.add_texture_paint_slot', { name: 'Paint', width: 2048, height: 2048 }, { invoke: false });
+    a.doc.scene.tool_settings.unified_paint.color = [1, 0, 0];
+  });
+  await page.waitForTimeout(300);
+  // red pixels of the paint image once its canvas is current
+  const red = () =>
+    ev(page, async () => {
+      const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const { imageCanvas, imageReady } = await import('/src/render/images.ts' as string);
+      const img = Object.values(a.doc.images as Record<string, { name: string }>).find((i) => i.name === 'Paint');
+      if (!img) return -1;
+      for (let k = 0; k < 100 && !imageReady(img); k++) await new Promise((r) => setTimeout(r, 30));
+      const d = imageCanvas(img).getContext('2d').getImageData(0, 0, 2048, 2048).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 80) n++;
+      return n;
+    });
+  const top = () => ev(page, () => (window as any).app.undo.topLabel); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const { x, y } = await viewportCenter(page);
+  await page.mouse.move(x - 50, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(x - 50 + i * 10, y);
+  await page.mouse.up();
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await top()).toBe('Add Texture Paint Slot');
+  expect(await red()).toBe(0);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  expect(await top()).toBe('Texture Paint');
+  await expect.poll(red).toBeGreaterThan(1000);
+  await page.waitForTimeout(500);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await red()).toBe(0);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(red).toBeGreaterThan(1000);
+  await expectNoErrors(errors);
+});
