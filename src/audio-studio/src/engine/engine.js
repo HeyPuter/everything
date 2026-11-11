@@ -298,6 +298,9 @@ export class Engine extends Emitter {
 
   setLoop(loop) {
     loop = wholeLoop(loop);
+    // Past the new loop's end the mixer jumps to its start on the next block:
+    // the interpolated playhead follows rather than wrapping from the old position.
+    if (this.playing && loop && loop.end > loop.start && this.lastPos.frame >= loop.end) this.lastPos = { frame: loop.start, time: this.ctx?.currentTime ?? 0 };
     this.range.loop = loop;
     this.node?.port.postMessage({ type: 'loop', loop });
     if (this.playing) this.#feed();

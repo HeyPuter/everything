@@ -294,9 +294,9 @@ export class App extends Emitter {
     if (emit) this.emit('transport', 'stopped');
   }
 
+  /** Loop playback follows the selection; without one it loops the whole content, as when it starts. */
   #updateLoop() {
-    const sel = this.active?.selection;
-    if (sel && sel.end > sel.start) engine.setLoop({ start: sel.start, end: sel.end });
+    if (this.active) engine.setLoop(this.loopRange(this.active));
   }
 
   /** Time Display preferences as the `music` options of lib/time.js. */
