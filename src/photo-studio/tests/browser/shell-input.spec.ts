@@ -84,3 +84,36 @@ test('two fingers pinch to zoom and pan without painting; one finger still paint
   await idle(page);
   expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(['Brush Tool']);
 });
+
+test('dock buttons keep the keyboard focus, and Escape closes an icon panel', async ({ page }) => {
+  const strip = page.locator('[data-strip-panel]').first();
+  const id = await strip.getAttribute('data-strip-panel');
+  await strip.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.dock-drawer')).toBeVisible();
+  // The strip was rebuilt; the focus stays on the same panel's button.
+  await expect(page.locator(`[data-strip-panel="${id}"]`)).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dock-drawer')).toBeHidden();
+  await expect(page.locator(`[data-strip-panel="${id}"]`)).toBeFocused();
+  // Escape from inside the drawer closes it too.
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.dock-drawer')).toBeVisible();
+  await page.locator('.dock-drawer [data-drawer-close]').focus();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dock-drawer')).toBeHidden();
+  await expect(page.locator(`[data-strip-panel="${id}"]`)).toBeFocused();
+  // Its close button hands the focus back to the strip as well.
+  await page.keyboard.press('Enter');
+  await page.locator('.dock-drawer [data-drawer-close]').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.dock-drawer')).toBeHidden();
+  await expect(page.locator(`[data-strip-panel="${id}"]`)).toBeFocused();
+  // A tab chosen with Enter keeps the focus too.
+  const tab = page.locator('[data-panel-tab][aria-selected="false"]').first();
+  const tabId = await tab.getAttribute('data-panel-tab');
+  await tab.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator(`[data-panel-tab="${tabId}"]`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator(`[data-panel-tab="${tabId}"]`)).toBeFocused();
+});
