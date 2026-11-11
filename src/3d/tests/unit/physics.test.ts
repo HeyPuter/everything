@@ -161,6 +161,21 @@ describe('cloth', () => {
     expect(len).toBeLessThan(0.2 * 1.25);
   });
 
+  it('stays put (not NaN) at speed 0, pinned vertices following the object', () => {
+    caches.clear();
+    const doc = emptyDocument();
+    const ob = addMesh(doc, 'Cloth', grid(6, 6, 2), [0, 0, 2]);
+    const mod = newModifier('CLOTH', uid('md'), []) as ClothModifier;
+    mod.settings.time_scale = 0;
+    ob.modifiers.push(mod);
+    const g = new Depsgraph(doc);
+    evalAt(g, doc, 1);
+    const rest = g.get(ob.id)!.mesh!.positions.slice();
+    evalAt(g, doc, 20);
+    const p = g.get(ob.id)!.mesh!.positions;
+    for (let i = 0; i < p.length; i++) expect(p[i]).toBeCloseTo(rest[i], 5);
+  });
+
   it('collides with a collision object', () => {
     caches.clear();
     const doc = emptyDocument();

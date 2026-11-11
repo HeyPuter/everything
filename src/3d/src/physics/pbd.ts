@@ -451,6 +451,13 @@ export function stepFrame(
     const ms = P.massScale ? Math.max(0.01, P.massScale[i] ?? 1) : 1;
     w[i] = pin >= 0.999 ? 0 : (baseW / ms) * (1 - Math.min(1, pin));
   }
+  if (!(h > 0)) {
+    // no time passes (speed 0): the free vertices stay where they are, pinned ones follow the
+    // object (stepping with a zero time step divided by zero and turned the mesh into NaN)
+    for (let i = 0; i < n; i++)
+      if (w[i] === 0) for (let c = 0; c < 3; c++) x[i * 3 + c] = targets1[i * 3 + c];
+    return;
+  }
   const lambda = new Float64Array(topo.a.length);
   const normals = new Float64Array(x.length);
   const f = new Float64Array(3);
