@@ -604,3 +604,19 @@ test('a tooltip goes away with Esc and fits a phone-width window', async ({ page
   expect(t.x + t.width).toBeLessThanOrEqual(320);
   await expectNoErrors(errors);
 });
+
+test('Space and Enter on a keyboard-focused button press it instead of running shortcuts', async ({ page }) => {
+  const errors = await openApp(page);
+  const btn = page.locator('.topbar .tb-assistant');
+  const open = () => page.evaluate(() => !(document.querySelector('.assistant-dock') as HTMLElement | null)?.hidden);
+  const before = await open();
+  await btn.focus();
+  await page.keyboard.press('Space');
+  expect(await page.evaluate(() => (window as any).app.playing)).toBe(false);
+  await expect.poll(open).toBe(!before);
+  await btn.focus();
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => (window as any).app.playing)).toBe(false);
+  await expect.poll(open).toBe(before);
+  await expectNoErrors(errors);
+});

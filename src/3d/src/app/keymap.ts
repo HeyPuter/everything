@@ -176,6 +176,12 @@ function isTyping(e: KeyboardEvent) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || !!t.closest?.('.cm-editor, .text-editor-input, puter-user-menu'));
 }
 
+/** A button-like control with the keyboard focus (mouse-clicked buttons drop their focus, see installKeyboard). */
+function isFocusedControl(t: EventTarget | null) {
+  const el = t as HTMLElement | null;
+  return !!el && el === document.activeElement && !!el.matches?.('button, a[href], summary, [role="button"], [role="tab"], [role="checkbox"], [role="switch"], [role="radio"]');
+}
+
 type EditorKeys = { keymaps?: string[]; onKey?(e: KeyboardEvent): boolean };
 const modsOf = (e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }) => (e.ctrlKey || e.metaKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0);
 let lastPress: { name: string; mods: number; time: number } | null = null;
@@ -314,6 +320,8 @@ export function installKeyboard() {
           e.preventDefault();
           return;
         }
+      // Space / Enter on a control that has the keyboard focus press that control (Space would start playback)
+      if ((e.key === ' ' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey && !e.altKey && isFocusedControl(e.target)) return;
       const area = app.hoverArea ?? app.activeArea;
       const editor = area?.editor as EditorKeys | undefined;
       if (editor?.onKey?.(e)) {
