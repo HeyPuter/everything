@@ -124,6 +124,38 @@ describe('export dialog', () => {
     d2.close();
   });
 
+  it('offers the captions file only when the part being exported has captions', async () => {
+    const p = createProject({ name: 'Trip' });
+    const a = makeClip('image', { assetId: 'a', duration: 2 * US });
+    const b = makeClip('image', { assetId: 'a', start: 2 * US, duration: 2 * US });
+    p.tracks[0].clips.push(a, b);
+    p.tracks.unshift({ id: 'tt', kind: 'text', locked: false, hidden: false, muted: false, clips: [makeClip('text', { text: 'Hi', caption: true, duration: US })] });
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    const ctx = ctxWith(p);
+    ctx.store.selectedIds = [b.id];
+    const d = openExportDialog(ctx);
+    await flush();
+    const caps = [...d.el.querySelectorAll('.export-section')].find((x) => x.textContent.includes('Captions file'));
+    const scope = [...d.el.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'selection'));
+    expect(scope.value).toBe('all');
+    expect(caps.hidden).toBe(false);
+    scope.value = 'selection';
+    scope.dispatchEvent(new Event('change'));
+    expect(caps.hidden).toBe(true);
+    // Only the captions file checked: nothing is left to export for the selected clip.
+    const check = (title) => [...d.el.querySelectorAll('.export-section')].find((x) => x.querySelector('.export-section-title').textContent === title).querySelector('.export-check');
+    if (check('Video file').checked) check('Video file').click();
+    scope.value = 'all';
+    scope.dispatchEvent(new Event('change'));
+    if (!check('Captions file (.srt)').checked) check('Captions file (.srt)').click();
+    const exportBtn = [...d.el.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Export');
+    expect(exportBtn.disabled).toBe(false);
+    scope.value = 'selection';
+    scope.dispatchEvent(new Event('change'));
+    expect(exportBtn.disabled).toBe(true);
+    d.close();
+  });
+
   it('picks which timeline to export when the project has several', async () => {
     const { ensureTimelines, addTimeline } = await import('../src/model/timelines.js');
     const p = createProject({ name: 'Trip' });

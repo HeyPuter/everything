@@ -131,8 +131,9 @@ export function openExportDialog(ctx) {
   };
   let project = source();
   let duration = projectDuration(project);
-  const hasSound = audibleClips(full).length > 0;
-  const hasCaptions = captionCues(full).length > 0;
+  // Sound and captions of the part being exported (a range or a selection may have none).
+  const hasSound = () => audibleClips(project).length > 0;
+  let hasCaptions = captionCues(project).length > 0;
   if (!BITRATE_LEVELS.some((l) => l.value === s.bitrate)) s.bitrate = DEFAULT_SETTINGS.bitrate;
   if (!signedIn(ctx)) s.destination = 'device';
   if (!s.video && !s.audio) s.video = true;
@@ -203,6 +204,7 @@ export function openExportDialog(ctx) {
     s.scope = v;
     project = source();
     duration = projectDuration(project);
+    hasCaptions = captionCues(project).length > 0;
     update();
   });
   scope.row.hidden = scopeOptions.length < 2;
@@ -291,11 +293,10 @@ export function openExportDialog(ctx) {
     s.gif = v;
     update();
   }, [gifWidth.row, gifFps.row, gifLoop.row, gifHint]);
-  const capSection = checkSection('Captions file (.srt)', s.captions && hasCaptions, (v) => {
+  const capSection = checkSection('Captions file (.srt)', s.captions, (v) => {
     s.captions = v;
     update();
   }, [h('p.export-hint', 'Saves the captions as a subtitle file next to the video.')]);
-  capSection.el.hidden = !hasCaptions;
 
   const form = h('form.export-form', { novalidate: true }, nameRow, destRow, timelineSel.row, scope.row, videoSection.el, audioSection.el, gifSection.el, capSection.el);
   form.addEventListener('submit', (e) => {
@@ -356,13 +357,15 @@ export function openExportDialog(ctx) {
     bitrate.el.title = `${(bps / 1e6).toFixed(1)} Mbps`;
     const codecLabel = VIDEO_CODECS.find((c) => c.value === s.codec)?.label;
     // The container's sound codecs may not be encodable here (MOV needs AAC).
-    const noSound = Boolean(s.video && s.includeAudio && hasSound && caps && !audioCodecFor(s.format, caps.audio));
+    const sound = hasSound();
+    const noSound = Boolean(s.video && s.includeAudio && sound && caps && !audioCodecFor(s.format, caps.audio));
     if (caps && !caps.video.length) codecNote.textContent = 'This browser cannot encode video. Audio export still works.';
     else if (noSound) codecNote.replaceChildren(icon('alert', 14), `This browser cannot encode sound for ${CONTAINERS[s.format].label}. Choose another format, or turn off Export audio.`);
     else codecNote.textContent = `${size.width} x ${size.height}, ${codecLabel}, about ${(bps / 1e6).toFixed(1)} Mbps`;
-    audioSwitch.disabled = !hasSound;
-    audioRow.classList.toggle('disabled', !hasSound);
-    if (!hasSound) audioHint.textContent = 'This project has no sound yet.';
+    audioSwitch.disabled = !sound;
+    audioRow.classList.toggle('disabled', !sound);
+    capSection.el.hidden = !hasCaptions;
+    if (!sound) audioHint.textContent = s.scope === 'all' ? 'This project has no sound yet.' : 'The part being exported has no sound.';
     else audioHint.textContent = s.video ? 'Also saves the sound as a separate file.' : 'Audio only: exports just the sound.';
     destHint.textContent = s.destination === 'puter' ? 'Saved to the Videos folder in your Puter account.' : 'Downloaded by your browser.';
     const gifW = Math.min(s.gifWidth, projW);
