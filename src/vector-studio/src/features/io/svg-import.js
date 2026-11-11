@@ -1622,7 +1622,7 @@ class Importer {
    * The import in time slices: yields to the event loop every ~12 ms so the
    * page stays responsive, reporting progress (0..1) by element count.
    */
-  async runAsync({ onProgress, slice = 12 } = {}) {
+  async runAsync({ onProgress, signal, slice = 12 } = {}) {
     const total = Math.max(1, this.svg.getElementsByTagName('*').length);
     const gen = this.runGen();
     let t0 = now();
@@ -1632,6 +1632,7 @@ class Importer {
       if (now() - t0 > slice) {
         onProgress?.(Math.min(1, this.count / total));
         await nextTask();
+        signal?.throwIfAborted();
         t0 = now();
       }
     }
@@ -1766,9 +1767,9 @@ export function svgToDocument(text, { name = 'Untitled' } = {}) {
   return documentFrom(convertSVG(text), name);
 }
 
-/** svgToDocument in time slices, for large files; opts.onProgress(0..1). */
-export async function svgToDocumentAsync(text, { name = 'Untitled', onProgress } = {}) {
-  return documentFrom(await convertSVGAsync(text, { onProgress }), name);
+/** svgToDocument in time slices, for large files; opts.onProgress(0..1), opts.signal stops it (AbortError). */
+export async function svgToDocumentAsync(text, { name = 'Untitled', onProgress, signal } = {}) {
+  return documentFrom(await convertSVGAsync(text, { onProgress, signal }), name);
 }
 
 function documentFrom(r, name) {
@@ -1802,9 +1803,9 @@ export function svgToNodes(text) {
   return nodesFrom(convertSVG(text));
 }
 
-/** svgToNodes in time slices, for large files; opts.onProgress(0..1). */
-export async function svgToNodesAsync(text, { onProgress } = {}) {
-  return nodesFrom(await convertSVGAsync(text, { onProgress }));
+/** svgToNodes in time slices, for large files; opts.onProgress(0..1), opts.signal stops it (AbortError). */
+export async function svgToNodesAsync(text, { onProgress, signal } = {}) {
+  return nodesFrom(await convertSVGAsync(text, { onProgress, signal }));
 }
 
 function nodesFrom(r) {

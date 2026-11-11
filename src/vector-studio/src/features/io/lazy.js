@@ -27,8 +27,8 @@ export { placeFile, placeSVG, placeText, imageNodeData, reportWarnings, svgToNod
  */
 export async function importSvgDocument(app, text, { name } = {}) {
   const docName = name ? String(name).replace(/\.svgz?$/i, '') : 'Untitled';
-  const doc = await withProgress(app, 'Importing SVG', (onProgress) => svgToDocumentAsync(text, { name: docName, onProgress }));
-  if (doc.importWarnings?.length) setTimeout(() => reportWarnings(app, doc.importWarnings), 300);
+  const doc = await withProgress(app, 'Importing SVG', (onProgress, signal) => svgToDocumentAsync(text, { name: docName, onProgress, signal }), { cancelable: true });
+  if (doc?.importWarnings?.length) setTimeout(() => reportWarnings(app, doc.importWarnings), 300);
   return doc;
 }
 
@@ -120,7 +120,8 @@ export function clipboardSVG(data, mark) {
 /** Open an SVG file as a new document (used when the files module is not installed). */
 export async function openSVGFile(app, file) {
   const text = await file.text();
-  const doc = await withProgress(app, 'Importing SVG', (onProgress) => svgToDocumentAsync(text, { name: String(file.name || 'Untitled').replace(/\.svgz?$/i, ''), onProgress }));
+  const doc = await withProgress(app, 'Importing SVG', (onProgress, signal) => svgToDocumentAsync(text, { name: String(file.name || 'Untitled').replace(/\.svgz?$/i, ''), onProgress, signal }), { cancelable: true });
+  if (!doc) return null;
   app.addDocument(doc, { file: null });
   reportWarnings(app, doc.importWarnings);
   return doc;

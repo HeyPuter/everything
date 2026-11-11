@@ -112,7 +112,8 @@ export async function placeImage(app, editor, blob, { point, name = '', select =
  */
 export async function placeSVG(app, editor, text, { point, name = '', select = true } = {}) {
   if (!targetParent(app, editor)) return null;
-  const r = await withProgress(app, 'Importing SVG', (onProgress) => svgToNodesAsync(text, { onProgress }));
+  const r = await withProgress(app, 'Importing SVG', (onProgress, signal) => svgToNodesAsync(text, { onProgress, signal }), { cancelable: true });
+  if (!r) return null;
   return placeImported(app, editor, r, { point, name, select, empty: 'The SVG has no visible artwork.' });
 }
 

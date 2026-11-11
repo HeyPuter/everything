@@ -254,6 +254,32 @@ body.io-busy .canvas-host {
   font-variant-numeric: tabular-nums;
 }
 
+.io-progress-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.io-progress-cancel {
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.io-progress-cancel:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.io-progress-cancel:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+
 @media (max-width: 760px) {
   .io-progress {
     bottom: 16px;

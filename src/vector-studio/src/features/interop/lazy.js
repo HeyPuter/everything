@@ -272,7 +272,7 @@ export async function openForeign(app, bytes, { name, format }) {
         pages = choice.pages;
         textMode = choice.textMode;
       }
-      return await withProgress(app, 'Opening PDF', (onProgress) => pdfToDocument(info.doc, { name: docName, pages, families: fams, textMode, onProgress }));
+      return await withProgress(app, 'Opening PDF', (onProgress, signal) => pdfToDocument(info.doc, { name: docName, pages, families: fams, textMode, onProgress, signal }), { cancelable: true });
     }
     if (format === 'eps') {
       await preparePostScript(bytes);
