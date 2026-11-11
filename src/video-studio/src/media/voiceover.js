@@ -3,6 +3,7 @@
  * an AnalyserNode, and a MediaRecorder wrapper that picks a container the
  * browser can record (WebM/Opus in Chromium and Firefox, MP4/AAC in Safari).
  */
+import { watchStop, finishRecorder } from './capture.js';
 
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm'];
 
@@ -113,6 +114,7 @@ export class VoiceRecorder {
     // Timeslices keep memory steady and lose little if the tab crashes.
     this.recorder.start(1000);
     this.startedAt = performance.now();
+    watchStop(this);
   }
 
   get recording() {
@@ -124,26 +126,15 @@ export class VoiceRecorder {
     return this.recorder ? (performance.now() - this.startedAt) / 1000 : 0;
   }
 
+  /** Resolves with what was recorded, also when the recorder already stopped by itself (microphone unplugged). */
   stop() {
-    const rec = this.recorder;
-    if (!rec || rec.state === 'inactive') return Promise.resolve(null);
-    return new Promise((resolve) => {
-      rec.onstop = () => {
-        const type = rec.mimeType || this.chunks[0]?.type || 'audio/webm';
-        resolve(new Blob(this.chunks, { type }));
-        this.chunks = [];
-      };
-      rec.stop();
-    });
+    return finishRecorder(this, (rec) => rec.mimeType || this.chunks[0]?.type || 'audio/webm');
   }
 
   cancel() {
     const rec = this.recorder;
-    if (rec && rec.state !== 'inactive') {
-      rec.onstop = null;
-      rec.stop();
-    }
-    this.chunks = [];
     this.recorder = null;
+    if (rec && rec.state !== 'inactive') rec.stop();
+    this.chunks = [];
   }
 }

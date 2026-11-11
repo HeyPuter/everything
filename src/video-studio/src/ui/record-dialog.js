@@ -45,6 +45,14 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   let tick = 0;
   let opening = 0;
   const recorder = new VideoRecorder();
+  // The camera or the shared screen went away mid-take (unplugged, sharing stopped): keep what was recorded.
+  recorder.onInterrupted = () => {
+    if (state !== 'recording' && state !== 'paused') return;
+    const camera = opts.mode === 'camera';
+    stopRecording().then(() => {
+      if (open && camera) showError('The camera stopped. Connect it and try again.');
+    });
+  };
 
   const message = h('div.vo-message', { role: 'alert', hidden: true });
   const video = h('video.rec-preview', { muted: true, playsInline: true, autoplay: true, 'aria-label': 'Recording preview' });

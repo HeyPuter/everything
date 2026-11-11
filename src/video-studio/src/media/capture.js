@@ -154,6 +154,7 @@ export class VideoRecorder {
     this.startedAt = performance.now();
     this.pausedFor = 0;
     this.pausedAt = 0;
+    watchStop(this);
   }
 
   get state() {
@@ -180,27 +181,42 @@ export class VideoRecorder {
     return Math.max(0, (now - this.startedAt - this.pausedFor) / 1000);
   }
 
+  /** Resolves with what was recorded, also when the recorder already stopped by itself. */
   stop() {
-    const rec = this.recorder;
-    if (!rec || rec.state === 'inactive') return Promise.resolve(null);
-    return new Promise((resolve) => {
-      rec.onstop = () => {
-        const type = (rec.mimeType || this.chunks[0]?.type || 'video/webm').split(';')[0];
-        resolve(new Blob(this.chunks, { type }));
-        this.chunks = [];
-        this.recorder = null;
-      };
-      rec.stop();
-    });
+    return finishRecorder(this, (rec) => (rec.mimeType || this.chunks[0]?.type || 'video/webm').split(';')[0]);
   }
 
   cancel() {
     const rec = this.recorder;
-    if (rec && rec.state !== 'inactive') {
-      rec.onstop = null;
-      rec.stop();
-    }
-    this.chunks = [];
     this.recorder = null;
+    if (rec && rec.state !== 'inactive') rec.stop();
+    this.chunks = [];
   }
+}
+
+/**
+ * Note when a recorder stops: the camera, screen or microphone it records
+ * can end on its own (unplugged, sharing stopped, access revoked), and the
+ * recorder then stops by itself. owner.onInterrupted() is called then.
+ */
+export function watchStop(owner) {
+  const rec = owner.recorder;
+  owner.stopping = false;
+  owner.stopped = new Promise((resolve) => rec.addEventListener('stop', resolve, { once: true }));
+  rec.addEventListener('stop', () => {
+    if (owner.recorder === rec && !owner.stopping) owner.onInterrupted?.();
+  }, { once: true });
+}
+
+/** Stop a recorder (when it is still running) and resolve the Blob of what it recorded. */
+export async function finishRecorder(owner, typeOf) {
+  const rec = owner.recorder;
+  if (!rec) return null;
+  owner.stopping = true;
+  if (rec.state !== 'inactive') rec.stop();
+  await owner.stopped;
+  const blob = new Blob(owner.chunks, { type: typeOf(rec) });
+  owner.chunks = [];
+  if (owner.recorder === rec) owner.recorder = null;
+  return blob;
 }

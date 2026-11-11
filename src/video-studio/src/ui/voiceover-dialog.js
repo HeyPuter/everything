@@ -40,6 +40,13 @@ export function openVoiceoverDialog(ctx) {
   let opening = 0; // newest microphone request; older ones are stopped when they arrive
   let closed = false;
   const recorder = new VoiceRecorder();
+  // The microphone went away mid-take (unplugged, access revoked): keep what was recorded.
+  recorder.onInterrupted = () => {
+    if (state !== 'recording') return;
+    stopRecording().then(() => {
+      if (!closed) showError('The microphone stopped. Connect it and try again.');
+    });
+  };
 
   const message = h('div.vo-message', { role: 'alert' });
   const micSelect = h('select#vo-mic.select', { 'aria-describedby': 'vo-mic-hint' }, h('option', { value: '' }, 'Default microphone'));
