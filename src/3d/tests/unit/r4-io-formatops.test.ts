@@ -2,6 +2,7 @@
 // Per-format import / export operators run from scripts: they write and read the session file
 // store by path, synchronously, under their scripting names and property names.
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 (globalThis as unknown as { requestAnimationFrame: (f: () => void) => number }).requestAnimationFrame = (f) => setTimeout(f, 0) as unknown as number;
 
@@ -211,4 +212,33 @@ describe('content options', () => {
     expect(types.filter((t) => t === 'CAMERA' || t === 'LIGHT')).toEqual([]);
     expect(Object.values(app.doc.collections).some((c) => c.name === 'all')).toBe(true);
   });
+});
+
+describe('damaged files', () => {
+  it('say the file is damaged instead of showing the reader internals', () => {
+    const fx = (n: string) => new Uint8Array(readFileSync(`${process.cwd()}/tests/fixtures/formats/${n}`));
+    const cases: [string, string, number, string][] = [
+      ['ref_scene.fbx', 'wm.fbx_import', 7, 'FBX'],
+      ['ref_scene.usdc', 'wm.usd_import', 21, 'Universal Scene Description'],
+      ['ref_scene.abc', 'wm.alembic_import', 217, 'Alembic'],
+    ];
+    for (const [name, op, at, label] of cases) {
+      const bytes = fx(name);
+      bytes[at] = 255;
+      vfsWrite(`/tmp/${name}`, bytes);
+      const before = Object.keys(app.doc.objects).length;
+      app.run(op, { filepath: `/tmp/${name}` }, { invoke: false });
+      const msgs = app.reports.slice(-2);
+      expect(msgs[1].type).toBe('ERROR');
+      expect(msgs[1].message).toContain(`"${name}" is damaged or is not a valid ${label} file`);
+      // the technical detail stays in the Info log
+      expect(msgs[0].type).toBe('INFO');
+      expect(msgs[0].message).toMatch(/reader: /);
+      expect(Object.keys(app.doc.objects).length).toBe(before);
+    }
+    // readable reader messages are kept as they are
+    vfsWrite('/tmp/cut.fbx', fx('ref_scene.fbx').slice(0, 2000));
+    app.run('wm.fbx_import', { filepath: '/tmp/cut.fbx' }, { invoke: false });
+    expect(app.reports.at(-1)!.message).toContain('The FBX file is truncated');
+  }, 30000);
 });

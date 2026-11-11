@@ -218,6 +218,19 @@ export function importPaths(p: Record<string, unknown>): string[] {
 // ---------------------------------------------------------------------------
 // import
 
+/** Reader failures that only make sense to a developer (a damaged file tripping the parser). */
+const INTERNAL_ERROR = /outside the bounds|is not a function|Cannot read propert|is not iterable|Invalid (typed )?array length|is not defined|Maximum call stack|in JSON at position|Unexpected (token|end of JSON)/;
+
+/** A clear message for a file the reader could not make sense of; the details go to the console and Info log. */
+function readerError(def: FormatDef, name: string, e: unknown): unknown {
+  const msg = e instanceof Error ? e.message : String(e);
+  const internal = e instanceof TypeError || e instanceof RangeError || e instanceof SyntaxError || INTERNAL_ERROR.test(msg);
+  if (!internal || (e instanceof Error && e.name === 'AbortError')) return e;
+  console.warn(`Import of "${name}" failed:`, e);
+  app.report('INFO', `${def.label} reader: ${msg}`);
+  return new Error(`"${name}" is damaged or is not a valid ${def.label.replace(/\s*\(.*\)$/, '')} file`);
+}
+
 function importExec(def: FormatDef, p: Record<string, unknown>): OpResult {
   const paths = importPaths(p);
   if (!paths.length) {
@@ -232,9 +245,21 @@ function importExec(def: FormatDef, p: Record<string, unknown>): OpResult {
       app.report('ERROR', `Cannot read "${path}": no such file in this session (pick it with File ▸ Import, or write it first)`);
       return 'CANCELLED';
     }
-    const src: ImportSource = { path, name: baseOf(path), bytes, resources: storedCompanions(def, path, bytes) };
-    const r = def.importData!(src, options);
-    if (r instanceof Promise) pending.push(r);
+    let src: ImportSource | undefined;
+    let r: ReturnType<NonNullable<FormatDef['importData']>>;
+    try {
+      // (finding companions already parses the file)
+      src = { path, name: baseOf(path), bytes, resources: storedCompanions(def, path, bytes) };
+      r = def.importData!(src, options);
+    } catch (e) {
+      throw readerError(def, baseOf(path), e);
+    }
+    if (r instanceof Promise)
+      pending.push(
+        r.catch((e) => {
+          throw readerError(def, baseOf(path), e);
+        }),
+      );
     else app.report('INFO', `Imported "${src.name}"`);
   }
   if (pending.length) {
