@@ -33,3 +33,25 @@ describe('SVG pictures', () => {
     expect(() => svgForRaster('<html></html>')).toThrow(/damaged/);
   });
 });
+
+describe('pictures the browser cannot open', () => {
+  it('says so in plain words instead of the decoder error', async () => {
+    const { probe } = await import('../src/media/probe.js');
+    const had = globalThis.createImageBitmap;
+    globalThis.createImageBitmap = async () => {
+      throw new DOMException('The source image could not be decoded.', 'InvalidStateError');
+    };
+    try {
+      await expect(probe(new File([new Uint8Array(64)], 'IMG_0001.HEIC', { type: 'image/heic' }))).rejects.toThrow(/can't be opened.*HEIC/);
+    } finally {
+      globalThis.createImageBitmap = had;
+    }
+  });
+});
+
+describe('empty files', () => {
+  it('says the file is empty', async () => {
+    const { probe } = await import('../src/media/probe.js');
+    await expect(probe(new File([], 'clip.mp4', { type: 'video/mp4' }))).rejects.toThrow('This file is empty.');
+  });
+});

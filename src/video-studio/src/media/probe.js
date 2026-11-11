@@ -96,7 +96,12 @@ export async function storableFile(file) {
 
 async function probeImage(file) {
   if (typeof createImageBitmap === 'function' && !isSvg(file)) {
-    const bmp = await createImageBitmap(file);
+    let bmp;
+    try {
+      bmp = await createImageBitmap(file);
+    } catch {
+      throw new Error("This picture can't be opened. It may be damaged, or in a format this browser doesn't support (such as HEIC).");
+    }
     const out = { width: bmp.width, height: bmp.height };
     bmp.close?.();
     return out;
@@ -147,6 +152,7 @@ async function probeWithElement(file, kind) {
 export async function probe(file) {
   const kind = guessKind(file);
   if (!kind) throw new Error(`${file.name || 'This file'} is not a video, audio or image file.`);
+  if (!file.size) throw new Error('This file is empty.');
   if (kind === 'image') {
     const { width, height } = await probeImage(file);
     return { kind, width, height, duration: 0, fps: 0, hasAudio: false, hasVideo: false };
