@@ -150,23 +150,46 @@ function mergeFacesAroundVertex(m: MeshEdit, v: number, faces: number[]): { vert
 
 /** Dissolve selected edges: merge the two faces on each edge. */
 function dissolveEdges(m: MeshEdit, useVerts: boolean) {
-  let changed = true;
   const selEdges = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
+  // faces keep their slot while merging (merged-away faces become null, merged faces are appended),
+  // and the edge → faces map is updated per merge instead of rebuilt (linear, not O(edges × mesh))
+  const faces: (EFace | null)[] = m.faces.slice();
+  const ef = new Map<string, number[]>();
+  const link = (fi: number) => {
+    const vs = faces[fi]!.verts;
+    for (let i = 0; i < vs.length; i++) {
+      const k = edgeKey(vs[i], vs[(i + 1) % vs.length]);
+      (ef.get(k) ?? ef.set(k, []).get(k)!).push(fi);
+    }
+  };
+  const unlink = (fi: number) => {
+    const vs = faces[fi]!.verts;
+    for (let i = 0; i < vs.length; i++) {
+      const k = edgeKey(vs[i], vs[(i + 1) % vs.length]);
+      const l = ef.get(k);
+      if (!l) continue;
+      const rest = l.filter((x) => x !== fi);
+      if (rest.length) ef.set(k, rest);
+      else ef.delete(k);
+    }
+  };
+  for (let fi = 0; fi < faces.length; fi++) link(fi);
+  let changed = true;
   while (changed) {
     changed = false;
-    const ef = m.edgeFaces();
     for (const k of selEdges) {
       const l = ef.get(k);
-      if (!l || l.length !== 2 || l[0][0] === l[1][0]) continue;
-      const [fa, ia] = l[0],
-        [fb] = l[1];
-      const A = m.faces[fa],
-        B = m.faces[fb];
-      const a = A.verts[ia],
-        b = A.verts[(ia + 1) % A.verts.length];
-      // A: ... a b ... ; B contains b a
+      if (!l || l.length !== 2 || l[0] === l[1]) continue;
+      const [fa, fb] = l;
+      const A = faces[fa]!,
+        B = faces[fb]!;
       const na = A.verts.length,
         nb = B.verts.length;
+      let ia = -1;
+      for (let i = 0; i < na && ia < 0; i++) if (edgeKey(A.verts[i], A.verts[(i + 1) % na]) === k) ia = i;
+      const a = A.verts[ia],
+        b = A.verts[(ia + 1) % na];
+      // A: ... a b ... ; B contains b a
       const jb = B.verts.indexOf(b);
       if (B.verts[(jb + 1) % nb] !== a) continue;
       const verts: number[] = [],
@@ -183,14 +206,16 @@ function dissolveEdges(m: MeshEdit, useVerts: boolean) {
         uvs.push(B.uvs[j * 2], B.uvs[j * 2 + 1]);
       }
       if (new Set(verts).size !== verts.length) continue;
-      const nf = m.makeFace(verts, A, uvs);
-      m.faces = m.faces.filter((_, i) => i !== fa && i !== fb);
-      m.faces.push(nf);
+      unlink(fa);
+      unlink(fb);
+      faces[fa] = faces[fb] = null;
+      faces.push(m.makeFace(verts, A, uvs));
+      link(faces.length - 1);
       selEdges.delete(k);
       changed = true;
-      break;
     }
   }
+  m.faces = faces.filter((f): f is EFace => !!f);
   if (useVerts) {
     // remove 2-valence vertices left in the middle of straight runs
     const vf = m.vertexFaces();
