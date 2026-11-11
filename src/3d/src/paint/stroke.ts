@@ -305,7 +305,26 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     handler.update?.();
     if (method === 'ANCHORED') v.drawSvg();
   };
+  // other pointers (a second finger, the palm, the mouse next to a pen) neither join the stroke
+  // nor end it, and their presses do not start another stroke meanwhile
+  const own = (ev: PointerEvent) => ev.pointerId === e.pointerId;
+  const release = (ev: PointerEvent) => {
+    if (own(ev)) up();
+  };
+  const press = (ev: PointerEvent) => {
+    if (own(ev)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+  };
+  const unlisten = () => {
+    removeEventListener('pointermove', move, true);
+    removeEventListener('pointerup', release, true);
+    removeEventListener('pointercancel', release, true);
+    removeEventListener('pointerdown', press, true);
+    removeKeyHook();
+  };
   const move = (ev: PointerEvent) => {
+    if (!own(ev)) return;
     // the release was lost (the window lost focus mid-stroke): end the stroke here instead of
     // painting with the button up (and holding on to the keyboard)
     if (ev.buttons === 0 && ev.pointerType !== 'touch') return up();
@@ -331,10 +350,7 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     ev.preventDefault();
     ev.stopPropagation();
     // cancel: drop everything this stroke did
-    removeEventListener('pointermove', move, true);
-    removeEventListener('pointerup', up, true);
-    removeEventListener('pointercancel', up, true);
-    removeKeyHook();
+    unlisten();
     if (raf) cancelAnimationFrame(raf);
     if (airTimer) clearInterval(airTimer);
     lineState.a = lineState.b = null;
@@ -346,10 +362,7 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     v.drawSvg();
   };
   const up = () => {
-    removeEventListener('pointermove', move, true);
-    removeEventListener('pointerup', up, true);
-    removeEventListener('pointercancel', up, true);
-    removeKeyHook();
+    unlisten();
     if (raf) cancelAnimationFrame(raf);
     if (airTimer) clearInterval(airTimer);
     process();
@@ -386,7 +399,8 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     return;
   }
   addEventListener('pointermove', move, true);
-  addEventListener('pointerup', up, true);
-  addEventListener('pointercancel', up, true);
+  addEventListener('pointerup', release, true);
+  addEventListener('pointercancel', release, true);
+  addEventListener('pointerdown', press, true);
   keyInputHooks.unshift(keyHook);
 }

@@ -238,3 +238,34 @@ test('a long Draw stroke places each sample once (Surface placement)', async ({ 
   expect(rays).toBeLessThan(n * 3);
   await expectNoErrors(errors);
 });
+
+test.describe('touch', () => {
+  test.use({ hasTouch: true });
+
+  test('a second finger neither joins nor ends a Draw stroke', async ({ page }) => {
+    const errors = await openApp(page);
+    await emptyGP(page);
+    const { x, y } = await viewportCenter(page);
+    const cdp = await page.context().newCDPSession(page);
+    // CDP: touchStart / touchMove list the active points, touchEnd the released ones
+    const touch = (type: string, pts: [number, number, number][]) => cdp.send('Input.dispatchTouchEvent', { type: type as 'touchStart', touchPoints: pts.map(([px, py, id]) => ({ x: px, y: py, id })) });
+    await touch('touchStart', [[x - 100, y, 0]]);
+    for (let i = 1; i <= 5; i++) await touch('touchMove', [[x - 100 + i * 10, y, 0]]);
+    await touch('touchStart', [[x - 50, y, 0], [x + 100, y + 150, 1]]);
+    for (let i = 1; i <= 3; i++) await touch('touchMove', [[x - 50 + i * 10, y, 0], [x + 100 + i * 10, y + 150, 1]]);
+    await touch('touchEnd', [[x + 130, y + 150, 1]]);
+    for (let i = 4; i <= 8; i++) await touch('touchMove', [[x - 50 + i * 10, y, 0]]);
+    await touch('touchEnd', [[x + 30, y, 0]]);
+    await page.waitForTimeout(100);
+    const d = await ev(page, () => {
+      const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const g = a.doc.grease_pencils[a.activeObject.data];
+      const dr = g.drawings[g.layers[g.active_layer_index].frames[0].drawing];
+      return { strokes: dr.offsets.length - 1, pos: Array.from(dr.position) as number[] };
+    });
+    expect(d.strokes).toBe(1);
+    // the stroke runs left to right along the first finger (no jumps to the second one)
+    for (let i = 1; i < d.pos.length / 3; i++) expect(d.pos[i * 3]).toBeGreaterThan(d.pos[i * 3 - 3]);
+    await expectNoErrors(errors);
+  });
+});
