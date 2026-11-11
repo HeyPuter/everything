@@ -99,3 +99,13 @@ describe('tile cache', () => {
     expect(c.bytes).toBe(0);
   });
 });
+
+describe('spectrogram shader', () => {
+  it('shows the loudest bin a pixel spans, so narrow high tones stay visible', async () => {
+    // On a log axis one pixel near the top covers many bins; sampling only the
+    // pixel centre dropped tones between centres (a 6 kHz sine vanished).
+    const { FS } = await import('../src/spectral/renderer.js');
+    expect(FS).toMatch(/dFdy\(vUv\.y\)/);
+    expect(FS).toMatch(/v = max\(v, texture\(uTex/);
+  });
+});

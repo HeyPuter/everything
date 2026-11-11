@@ -15,7 +15,7 @@ void main() {
   gl_Position = vec4(mix(uX.x, uX.y, corner.x), corner.y * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-const FS = `#version 300 es
+export const FS = `#version 300 es
 precision highp float;
 in vec2 vUv;
 uniform sampler2D uTex;
@@ -28,10 +28,32 @@ uniform float uHi;
 uniform float uFloor;
 uniform vec2 uRange;   // min dB, max dB
 out vec4 color;
+// Bin (texel x) at a height in the lane: 0 bottom, 1 top.
+float binAt(float y) {
+  float f = uLog > 0.5 ? uLo * pow(uHi / uLo, y) : mix(uLo, uHi, y);
+  return clamp(f / uNyq, 0.0, 1.0) * (uBins - 1.0);
+}
 void main() {
-  float f = uLog > 0.5 ? uLo * pow(uHi / uLo, vUv.y) : mix(uLo, uHi, vUv.y);
-  float bin = clamp(f / uNyq, 0.0, 1.0) * (uBins - 1.0);
-  float v = texture(uTex, vec2((bin + 0.5) / uBins, vUv.x)).r;
+  // A pixel can span many bins (high frequencies on a log axis, or a large
+  // FFT): show the loudest of them so narrow tones do not vanish between
+  // pixel centres.
+  float dy = 0.5 * abs(dFdy(vUv.y));
+  float b0 = binAt(vUv.y - dy);
+  float b1 = binAt(vUv.y + dy);
+  float v;
+  if (b1 - b0 <= 1.0) {
+    v = texture(uTex, vec2((binAt(vUv.y) + 0.5) / uBins, vUv.x)).r;
+  } else {
+    float first = floor(b0 + 0.5);
+    float count = floor(b1 + 0.5) - first;
+    float step = max(1.0, count / 32.0);
+    v = 0.0;
+    for (int i = 0; i <= 32; i++) {
+      float b = first + float(i) * step;
+      if (b > first + count) break;
+      v = max(v, texture(uTex, vec2((b + 0.5) / uBins, vUv.x)).r);
+    }
+  }
   float db = uFloor * (1.0 - v);
   float t = clamp((db - uRange.x) / (uRange.y - uRange.x), 0.0, 1.0);
   color = texture(uLut, vec2(t, 0.5));
