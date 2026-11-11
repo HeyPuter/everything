@@ -9,6 +9,20 @@ import { icon } from '../lib/icons.js';
 let seq = 0;
 const nextId = (p) => `${p}-${++seq}`;
 
+/**
+ * A number typed in a box: a decimal comma counts as a decimal point (when
+ * both appear, the last one is the decimal mark) and a typographic minus as
+ * a minus. NaN when there is no number.
+ */
+export function parseNumber(text) {
+  let s = String(text ?? '').trim().replace(/−/g, '-');
+  const comma = s.lastIndexOf(',');
+  const dot = s.lastIndexOf('.');
+  if (comma > dot) s = `${s.slice(0, comma).replace(/[.,]/g, '')}.${s.slice(comma + 1)}`;
+  else if (comma >= 0) s = s.replace(/,/g, '');
+  return parseFloat(s);
+}
+
 function pct(input) {
   const min = Number(input.min);
   const max = Number(input.max);
@@ -62,7 +76,7 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
     show(last);
   };
   const commitNum = () => {
-    const raw = parseFloat(num.value);
+    const raw = parseNumber(num.value);
     if (!Number.isFinite(raw)) {
       num.value = fmt(last);
       return;

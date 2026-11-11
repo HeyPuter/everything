@@ -10,7 +10,7 @@
  */
 import { h, announce } from '../../lib/dom.js';
 import { propSection, uidFor, secs, tabSet, note } from './common.js';
-import { switchField, segmented } from '../controls.js';
+import { switchField, segmented, parseNumber } from '../controls.js';
 import { hasCurve, sourceSpan } from '../../model/speed-curve.js';
 import { SMOOTH_SLOW_MODES, normalizeSmoothSlow, slowsDown } from '../../model/slow-motion.js';
 import { speedCurvePanel } from './speed-curve.js';
@@ -191,7 +191,7 @@ function constantPanel(view) {
     commit(posToSpeed(Number(range.value)), true);
   });
   const commitNum = () => {
-    const raw = parseFloat(num.value);
+    const raw = parseNumber(num.value);
     if (!Number.isFinite(raw) || raw <= 0) {
       num.value = fmt(view.clip.speed);
       return;

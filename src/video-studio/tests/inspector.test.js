@@ -698,6 +698,10 @@ describe('number boxes', () => {
     num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(clip(env.v1.id).speed).toBe(100);
     expect(num.value).toBe('100');
+    // A decimal comma (European keyboards and phone keypads) is a decimal point.
+    num.value = '1,5';
+    num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(clip(env.v1.id).speed).toBe(1.5);
   });
 
   it('unchanged values and resets at the defaults add no undo steps', () => {
