@@ -598,7 +598,10 @@ button.project-open:focus-visible .project-cover {
   grid-auto-columns: minmax(180px, 1fr);
   gap: 14px;
   overflow-x: auto;
-  padding-bottom: 6px;
+  /* Room for a focused card's ring, which the scroller would clip; the margin keeps the cards in place. */
+  padding: 3px 3px 6px;
+  margin: -3px -3px 0;
+  scroll-padding-inline: 3px;
   scroll-snap-type: x proximity;
 }
 
@@ -653,6 +656,12 @@ button.project-open:focus-visible .project-cover {
 .tpl-card:hover .tpl-thumb,
 .tpl-card:focus-visible .tpl-thumb {
   border-color: var(--accent);
+}
+
+/* The keyboard focus ring sits on the picture, so a focused card stands out from a hovered one. */
+.tpl-card:focus-visible .tpl-thumb {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 
 .tpl-canvas {

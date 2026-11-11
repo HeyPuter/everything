@@ -493,6 +493,12 @@ puter-user-menu::part(apps-panel) {
   outline: none;
 }
 
+/* The keyboard focus ring sits on the preview, so a focused tile stands out from a hovered or chosen one. */
+.tile:focus-visible .tile-preview {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
 .tile-label {
   font-size: 11.5px;
   white-space: nowrap;

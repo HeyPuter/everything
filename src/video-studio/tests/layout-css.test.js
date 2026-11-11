@@ -9,8 +9,9 @@ const css = (name) => readFileSync(resolve(import.meta.dirname, '../src/styles',
 /** The declarations of the first rule whose selector is exactly sel. */
 function rule(source, sel) {
   const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const m = new RegExp(`(^|\\})\\s*${esc}\\s*\\{([^}]*)\\}`, 'm').exec(source);
-  return m ? m[2] : '';
+  // Preceded by the end of another rule (or comments after it), so a selector list's last line doesn't count.
+  const m = new RegExp(`(?:^|\\})\\s*(?:/\\*[\\s\\S]*?\\*/\\s*)*${esc}\\s*\\{([^}]*)\\}`).exec(source);
+  return m ? m[1] : '';
 }
 
 /** Evaluate a grid track minimum like "min(200px, 50%)" for a container height. */
@@ -113,5 +114,16 @@ describe('buttons', () => {
     expect(block).toMatch(/height:\s*auto/);
     expect(block).toMatch(/min-height:\s*32px/);
     expect(rule(base, '.btn.small.block')).toMatch(/min-height:\s*28px/);
+  });
+});
+
+describe('focus rings', () => {
+  it('mark a focused media tile or template card differently from a hovered one', () => {
+    const ring = /outline:\s*2px solid var\(--focus\)/;
+    // Hover only changes the border color; focus adds the ring.
+    expect(rule(css('editor.css'), '.tile:focus-visible .tile-preview')).toMatch(ring);
+    expect(rule(css('home.css'), '.tpl-card:focus-visible .tpl-thumb')).toMatch(ring);
+    // The template strip scrolls sideways: it leaves room so the ring isn't clipped.
+    expect(rule(css('home.css'), '.tpl-strip')).toMatch(/padding:\s*3px/);
   });
 });
