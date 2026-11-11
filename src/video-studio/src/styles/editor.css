@@ -1055,6 +1055,8 @@ puter-user-menu::part(apps-panel) {
   min-width: 200px;
   max-width: 320px;
   max-height: calc(100vh - 16px);
+  /* The visible height: on phones 100vh includes the part under the browser's toolbars. */
+  max-height: calc(100dvh - 16px);
   overflow-y: auto;
   padding: 4px;
   border-radius: var(--radius);

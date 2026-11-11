@@ -127,3 +127,13 @@ describe('focus rings', () => {
     expect(rule(css('home.css'), '.tpl-strip')).toMatch(/padding:\s*3px/);
   });
 });
+
+describe('menus', () => {
+  it('fit the visible height on phones, with a fallback for older browsers', () => {
+    const decl = rule(css('editor.css'), '.menu');
+    const heights = [...decl.matchAll(/max-height:\s*([^;]+);/g)].map((m) => m[1]);
+    // The later declaration wins where dvh is understood.
+    expect(heights).toEqual(['calc(100vh - 16px)', 'calc(100dvh - 16px)']);
+  });
+
+});
