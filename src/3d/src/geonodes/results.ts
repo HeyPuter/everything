@@ -21,6 +21,9 @@ export interface GnResult {
 
 export const gnResults = new Map<string, GnResult>();
 
+/** Messages of each modifier's last evaluation, by `${object id}/${modifier id}` (several modifiers per object). */
+export const gnMessages = new Map<string, Pick<GnResult, 'warnings' | 'warningKinds'>>();
+
 /** Viewer path: which object/modifier shows the active viewer of its tree. */
 export const viewerState: {
   objectId: string | null;

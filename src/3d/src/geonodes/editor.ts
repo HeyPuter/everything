@@ -16,7 +16,7 @@ import type { ModifierBase, NodeData, NodeGroupData, NodeTreeData, ObjectData, S
 import { VIEWER, isActiveViewer } from './nodes/output';
 import { captureItems, captureIn, captureOut, type CaptureItem } from './nodes/geometry';
 import { itemListUI, registerItemNode, type ItemListDef, type NodeItem } from './nodes/items';
-import { gnResults, viewerState } from './results';
+import { gnMessages, viewerState } from './results';
 import { setModifierNameHook } from './modifier';
 import { interfaceSocketType } from '../nodes/registry';
 import { button } from '../ui/widgets';
@@ -187,8 +187,8 @@ registerNodeEditorProvider({
   nodeWarnings: (e, node) => {
     const ed = e as GeometryNodeEditor;
     const { ob, mod } = editorGroup(ed);
-    const r = ob && mod ? gnResults.get(ob.id) : undefined;
-    if (!r || r.modifierId !== mod!.id) return undefined;
+    const r = ob && mod ? gnMessages.get(`${ob.id}/${mod.id}`) : undefined;
+    if (!r) return undefined;
     const key = [ob!.id, mod!.id, ...ed.path.map((p) => p.node), node.id].join('/');
     const messages = r.warnings.get(key);
     if (!messages?.length) return undefined;

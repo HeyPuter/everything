@@ -14,7 +14,7 @@ import { attributeField } from './inputs';
 import { Field, ConstField } from './field';
 import { storeOn } from './nodes/geometry';
 import { isActiveViewer, VIEWER } from './nodes/output';
-import { gnResults, viewerState, resultListeners } from './results';
+import { gnResults, gnMessages, viewerState, resultListeners } from './results';
 import { viewerItems, viewerItemIn, viewerAttr } from './nodes/vieweritems';
 import { fieldTypeOfEnum, type Domain, type FieldType } from './types';
 import { hasDomain } from './nodes/common';
@@ -270,6 +270,9 @@ export function pruneModifierCaches(doc: DocumentData) {
   for (const ob of Object.values(doc.objects)) for (const m of ob.modifiers ?? []) if (m.type === 'NODES') live.add(`${ob.id}/${m.id}`);
   for (const k of caches.keys()) if (!live.has(k)) caches.delete(k);
   for (const [id, r] of gnResults) if (!live.has(`${id}/${r.modifierId}`)) gnResults.delete(id);
+  // messages of disabled modifiers or modifiers without a group are stale
+  for (const ob of Object.values(doc.objects)) for (const m of ob.modifiers ?? []) if (m.type === 'NODES' && (m.show_viewport === false || !nodeGroupOf(doc, m))) live.delete(`${ob.id}/${m.id}`);
+  for (const k of gnMessages.keys()) if (!live.has(k)) gnMessages.delete(k);
 }
 
 const VIEWER_COLOR = '.viewer_color';
@@ -354,6 +357,7 @@ registerModifier({
       ms: performance.now() - t0,
       executed: r.log.executed,
     });
+    gnMessages.set(`${ctx.ob.id}/${m.id}`, { warnings: r.log.warnings, warningKinds: r.log.kinds });
     for (const fn of resultListeners) fn();
     return out;
   },
