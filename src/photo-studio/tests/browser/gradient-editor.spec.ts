@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { boot, openImage } from './helpers';
+import { boot, openImage, tool } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -33,4 +33,13 @@ test('gradient stops can be selected, moved and deleted from the keyboard', asyn
   await page.keyboard.press('Delete');
   await expect(editor.locator('[data-stop^="color:"]')).toHaveCount(2);
   await editor.getByRole('button', { name: 'Cancel' }).click();
+});
+
+test('a gradient opacity of 0 becomes the 1% minimum, not 100%', async ({ page }) => {
+  await tool(page, 'Gradient Tool');
+  const field = page.locator('#gradient-opacity');
+  await field.fill('0');
+  await field.press('Tab');
+  await expect(field).toHaveValue('1');
+  expect(await page.evaluate(async () => (await import('/src/features/effects/state.ts')).effectsState.tool.opacity)).toBe(0.01);
 });

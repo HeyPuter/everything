@@ -132,7 +132,12 @@ export const gradientTool: Tool = {
     );
     const on = (sel: string, f: (t: HTMLInputElement) => void) => el.querySelector<HTMLInputElement>(sel)?.addEventListener('change', (ev) => f(ev.target as HTMLInputElement));
     on('#gradient-mode', (t) => (o.mode = t.value as BlendMode));
-    on('#gradient-opacity', (t) => (o.opacity = Math.max(0.01, Math.min(1, Number(t.value) / 100 || 1))));
+    on('#gradient-opacity', (t) => {
+      // Out-of-range entries clamp to 1–100%; a blank or invalid entry keeps the opacity. The field shows what applies.
+      const v = Number(t.value);
+      if (t.value.trim() !== '' && Number.isFinite(v)) o.opacity = Math.max(0.01, Math.min(1, v / 100));
+      t.value = String(Math.round(o.opacity * 100));
+    });
     on('#gradient-reverse', (t) => (o.reverse = t.checked));
     on('#gradient-dither', (t) => (o.dither = t.checked));
     on('#gradient-transparency', (t) => (o.transparency = t.checked));
