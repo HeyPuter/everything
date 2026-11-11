@@ -258,12 +258,14 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
       last = q;
       return;
     }
-    const step = Math.max(1, ((handler.radiusPx() * spacing) / 100) * (st.use_pressure_spacing ? Math.max(0.1, lastRaw) : 1));
+    let step = Math.max(1, ((handler.radiusPx() * spacing) / 100) * (st.use_pressure_spacing ? Math.max(0.1, lastRaw) : 1));
     const dx = q.x - last.x,
       dy = q.y - last.y;
     const len = Math.hypot(dx, dy);
     if (len < step) return;
-    const n = Math.min(200, Math.floor(len / step));
+    // a very fast move gets at most 200 dabs, spread over all of it instead of stopping short
+    if (len / step > 200) step = len / 200;
+    const n = Math.floor(len / step);
     for (let i = 1; i <= n; i++) {
       const t = (i * step) / len;
       handler.dab(jitterDab({ x: last.x + dx * t, y: last.y + dy * t, pressure: pr, first: false, sizeFactor: dabSize() }));

@@ -28,15 +28,17 @@ export function replayDabs(samples: ReplaySample[], spacing: number, radiusPx: n
   if (!samples.length) return [];
   const out: ReplaySample[] = [samples[0]];
   if (spacing <= 0) return samples.slice();
-  const step = Math.max(1, (radiusPx * spacing) / 100);
+  const minStep = Math.max(1, (radiusPx * spacing) / 100);
   let last = samples[0];
   for (let i = 1; i < samples.length; i++) {
     const q = samples[i];
     const dx = q.x - last.x,
       dy = q.y - last.y;
     const len = Math.hypot(dx, dy);
-    if (len < step) continue;
-    const n = Math.min(500, Math.floor(len / step));
+    if (len < minStep) continue;
+    // at most 500 dabs per sample, spread over the whole segment
+    const step = Math.max(minStep, len / 500);
+    const n = Math.floor(len / step);
     for (let k = 1; k <= n; k++) {
       const t = (k * step) / len;
       out.push({ x: last.x + dx * t, y: last.y + dy * t, pressure: last.pressure + (q.pressure - last.pressure) * t });

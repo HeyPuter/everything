@@ -29,3 +29,26 @@ describe('vertex paint on a mesh without faces', () => {
     }
   });
 });
+
+describe('very fast strokes', () => {
+  it('spread their dabs over the whole move instead of stopping short', async () => {
+    const { playStroke, runStroke } = await import('../../src/paint/stroke');
+    const { replayDabs } = await import('../../src/greasepencil/strokereplay');
+    const el = document.createElement('div');
+    const view = { el, local: (e: { clientX: number; clientY: number }) => ({ x: e.clientX, y: e.clientY }), drawSvg() {} };
+    const xs: number[] = [];
+    // radius 5 px at 10 % spacing: a dab per pixel, 1000 px in one move
+    const ok = playStroke(view, [{ x: 0, y: 0 }, { x: 1000, y: 0 }], (e) => {
+      runStroke(view, e, { spacing: () => 10, radiusPx: () => 5, dab: (d) => xs.push(d.x), end: () => {} });
+      return true;
+    });
+    expect(ok).toBe(true);
+    expect(xs.length).toBeGreaterThan(100);
+    expect(xs.length).toBeLessThanOrEqual(201);
+    expect(xs[xs.length - 1]).toBeGreaterThan(995);
+    // the scripted Grease Pencil replay too
+    const dabs = replayDabs([{ x: 0, y: 0, pressure: 1 }, { x: 5000, y: 0, pressure: 1 }], 10, 5);
+    expect(dabs.length).toBeLessThanOrEqual(501);
+    expect(dabs[dabs.length - 1].x).toBeGreaterThan(4990);
+  });
+});
