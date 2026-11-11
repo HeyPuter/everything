@@ -235,6 +235,12 @@ export function barycentric(s: MeshSession, tri: number, p: Vector3): [number, n
 // ---------------------------------------------------------------------------
 // operators
 
+/** Smoothing and dirt need faces (the neighbours of a vertex come from them). */
+function noFaces() {
+  app.report('WARNING', 'The mesh has no faces');
+  return 'CANCELLED' as const;
+}
+
 function vpaintPoll() {
   return app.doc.mode === 'VERTEX_PAINT' && !!activeMeshData();
 }
@@ -278,7 +284,8 @@ registerOperators([
     description: 'Smooth colors across vertices',
     poll: vpaintPoll,
     exec: () => {
-      const s = meshSession()!;
+      const s = meshSession();
+      if (!s) return noFaces();
       editColors((_me, cols) => {
         const nb = s.neighbors;
         const src = cols.slice();
@@ -347,7 +354,8 @@ registerOperators([
     ],
     poll: vpaintPoll,
     exec: (_ctx, p) => {
-      const s = meshSession()!;
+      const s = meshSession();
+      if (!s) return noFaces();
       editColors((_me, cols) => dirtyColors(s, cols, p.blur_strength as number, p.blur_iterations as number, p.clean_angle as number, p.dirt_angle as number, !!p.dirt_only));
     },
   },
