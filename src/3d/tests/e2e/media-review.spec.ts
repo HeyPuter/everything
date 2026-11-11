@@ -328,3 +328,32 @@ test('sequencer: building proxies leaves the preview frame cache alone', async (
   expect(r.after).toBe(r.before);
   await expectNoErrors(errors);
 });
+
+test('sequencer: a narrow (phone-width) timeline frames the scene range', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const errors = await videoWorkspace(page);
+  // the assistant panel would take most of a phone screen
+  await page.evaluate(() => ([...document.querySelectorAll('button.as-icon-btn')].find((b) => /Close/.test(b.getAttribute('data-tip') ?? b.textContent ?? '')) as HTMLElement | undefined)?.click());
+  await page.waitForTimeout(300);
+  const tl = page.locator('.seq-main').last();
+  await tl.hover();
+  // the timeline is first laid out only a few pixels wide, then gets its width
+  await page.evaluate(() => ((window as any).app.hoverArea.editor.fitted = false));
+  await page.setViewportSize({ width: 200, height: 844 });
+  await page.waitForTimeout(300);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  await tl.hover();
+  const v = await page.evaluate(() => {
+    const app = (window as any).app;
+    const e = app.hoverArea.editor;
+    const sc = app.doc.scene;
+    const ch = e.el.querySelector('.seq-ch').getBoundingClientRect().width;
+    return { span: e.ppf * (sc.frame_end - sc.frame_start + 1), W: e.W, ch, area: e.el.getBoundingClientRect().width };
+  });
+  // the scene's frames fill most of the visible timeline (it used to be fitted to a 50 px width: ~1/40 of it)
+  expect(v.W).toBeGreaterThan(150);
+  expect(v.span).toBeGreaterThan(v.W * 0.6);
+  expect(v.span).toBeLessThanOrEqual(v.W);
+  await expectNoErrors(errors);
+});

@@ -885,7 +885,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
 
   private fitFrames(a: number, b: number) {
     const W = Math.max(50, this.W);
-    const margin = 30;
+    // narrow timelines keep a proportionally smaller margin (a fixed 30 px left nothing at 50 px)
+    const margin = Math.min(30, W * 0.1);
     this.ppf = Math.max(0.01, Math.min(400, (W - margin * 2) / Math.max(1, b - a)));
     this.x0 = a - margin / this.ppf;
   }
@@ -938,7 +939,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       c.style.height = `${H}px`;
     }
     if (!this.fitted) {
-      this.fitted = true;
+      // an area still being laid out can be a few pixels wide: fit again once it has a usable width
+      this.fitted = W >= 120;
       const sc = app.doc.scene;
       this.fitFrames(sc.frame_start, sc.frame_end);
       this.drawChannels();
