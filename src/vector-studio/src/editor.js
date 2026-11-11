@@ -441,9 +441,19 @@ export class Editor extends Emitter {
     this.emit('view');
   }
 
+  /**
+   * Room (CSS px) Fit Artboard and Fit All leave around the art: 48 px, and
+   * 16 px clear of chrome floating over the canvas (`overlayInsets`, set by the app).
+   */
+  fitMargin() {
+    const over = this.overlayInsets?.() || {};
+    const m = (side) => Math.max(48, (over[side] || 0) + 16);
+    return { top: m('top'), right: m('right'), bottom: m('bottom'), left: m('left') };
+  }
+
   fitArtboard(index = this.activeArtboard) {
     const a = this.artboard(index);
-    if (a) this.view.fit(a, 48);
+    if (a) this.view.fit(a, this.fitMargin());
     this.viewChanged();
   }
 
@@ -452,7 +462,7 @@ export class Editor extends Emitter {
     for (const a of this.doc.artboards) {
       r = r ? { x: Math.min(r.x, a.x), y: Math.min(r.y, a.y), w: Math.max(r.x + r.w, a.x + a.w) - Math.min(r.x, a.x), h: Math.max(r.y + r.h, a.y + a.h) - Math.min(r.y, a.y) } : { ...a };
     }
-    if (r) this.view.fit(r, 48);
+    if (r) this.view.fit(r, this.fitMargin());
     this.viewChanged();
   }
 

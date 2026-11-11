@@ -105,10 +105,18 @@ export class CanvasView {
       c.style.height = `${h}px`;
     }
     this.layerPool.resize(this.art.width, this.art.height);
-    if (first && w > 10 && h > 10) {
+    // The first fit can come before the chrome around the canvas (rulers, status bar, panels) is laid out:
+    // until the view is zoomed or moved, fit again when the canvas resizes.
+    const fitted = this.autoFit;
+    const untouched = fitted && center && view.zoom === fitted.zoom && view.rotation === fitted.rotation && Math.hypot(center.x - fitted.x, center.y - fitted.y) * view.zoom < 0.5;
+    if ((first || untouched) && w > 10 && h > 10) {
       this.editor.viewInitialized = true;
       this.editor.fitArtboard();
-    } else if (center) view.centerOn(center.x, center.y);
+      this.autoFit = { ...view.toDoc(w / 2, h / 2), zoom: view.zoom, rotation: view.rotation };
+    } else if (center) {
+      view.centerOn(center.x, center.y);
+      if (!untouched) this.autoFit = null;
+    }
     this.snapshot = null;
     this.invalidate();
     // Rulers and other view-dependent chrome follow the new size.

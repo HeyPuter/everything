@@ -297,6 +297,7 @@ export class App extends Emitter {
   addDocument(doc, { file = null, activate = true } = {}) {
     const editor = new Editor(doc, { file, prefs: this.prefs });
     editor.style = { ...editor.style };
+    editor.overlayInsets = () => this.canvasOverlayInsets?.() || null;
     this.editors.push(editor);
     editor.on('selection', () => {
       this.#onEditorEvent(editor);
