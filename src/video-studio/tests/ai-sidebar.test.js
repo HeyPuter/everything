@@ -275,6 +275,20 @@ describe('AI sidebar tools', () => {
     expect((await runner.run('generate_transition', { after_clip: b.id })).content).toMatch(/no video or image clip follows/);
   });
 
+  it('refuses media ids that are only names every object has', async () => {
+    const { store, ctx } = setup(clip('video', 0, 4));
+    const { runner, services } = runnerFor(ctx);
+    const before = JSON.stringify(store.project);
+    for (const media of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      const r = await runner.run('add_media_to_timeline', { media });
+      expect(r.ok).toBe(false);
+      expect(r.content).toMatch(/there is no media/);
+      expect((await runner.run('generate_video', { prompt: 'x', first_frame: media })).ok).toBe(false);
+    }
+    expect(JSON.stringify(store.project)).toBe(before);
+    expect(services.generateVideo).not.toHaveBeenCalled();
+  });
+
   it('keeps a video that finishes after Stop in the media library only', async () => {
     const { store, ctx, main } = setup(clip('video', 0, 4));
     let stopped = false;

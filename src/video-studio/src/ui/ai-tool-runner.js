@@ -37,6 +37,9 @@ const fail = (content) => ({ ok: false, content: `Error: ${content}` });
 const str = (v, max = 2000) => (typeof v === 'string' ? v.trim().slice(0, max) : typeof v === 'number' ? String(v) : '');
 const num = (v) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN);
 const span = (c) => `${secs(c.start)}-${secs(c.start + c.duration)}`;
+// A media id the model names, looked up as the project's own: "constructor" or "toString" found Object's and put a
+// clip of no length on the timeline.
+const mediaById = (project, id) => (id && Object.hasOwn(project.assets || {}, id) ? project.assets[id] : null);
 const elapsed = (ms) => {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -110,7 +113,7 @@ export function createAiToolRunner(ctx, services = {}) {
     if (s.toLowerCase() === 'playhead') return { picture: await svc.frame(store.time), from: `the frame at ${secs(store.time)}` };
     const [id, at = ''] = s.split('@');
     const p = store.project;
-    const asset = p.assets[id];
+    const asset = mediaById(p, id);
     if (asset) {
       if (asset.kind === 'audio') throw new Error(`media ${id} is audio, not a picture`);
       // A media item is drawn through a stand-in clip of its own.
@@ -464,7 +467,7 @@ export function createAiToolRunner(ctx, services = {}) {
     },
 
     add_media_to_timeline(a) {
-      const asset = store.project.assets[str(a.media, 80)];
+      const asset = mediaById(store.project, str(a.media, 80));
       if (!asset) return fail(`there is no media ${str(a.media, 80) || '(none named)'} in the library (call list_media)`);
       const duration = Number.isFinite(num(a.duration)) ? Math.round(Math.max(0.2, num(a.duration)) * US) : 0;
       const mark = store.beginBatch();
