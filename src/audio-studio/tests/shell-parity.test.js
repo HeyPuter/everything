@@ -265,3 +265,34 @@ describe('theme contrast', () => {
     }
   });
 });
+
+describe('popup menu focus', () => {
+  it('returns focus to the opening button or the previous focus on Escape and Tab', async () => {
+    const app = await makeApp();
+    const { openMenu } = await import('../src/ui/menubar.js');
+    const btn = document.createElement('button');
+    const field = document.createElement('input');
+    document.body.replaceChildren(btn, field);
+    const items = [{ type: 'cmd', label: 'One', enabled: true, run: () => {} }, { type: 'sub', label: 'More', items: [{ type: 'cmd', label: 'Two', enabled: true, run: () => {} }] }];
+    const key = (key) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    btn.focus();
+    openMenu(app, items, { x: 0, y: 0, anchor: btn });
+    expect(document.activeElement.textContent).toContain('One');
+    key('Escape');
+    expect(document.querySelector('.menu')).toBe(null);
+    expect(document.activeElement).toBe(btn);
+    // Tab from a submenu closes the whole menu and goes back to the button too.
+    openMenu(app, items, { x: 0, y: 0, anchor: btn });
+    key('ArrowDown');
+    key('ArrowRight');
+    expect(document.activeElement.textContent).toContain('Two');
+    key('Tab');
+    expect(document.querySelector('.menu')).toBe(null);
+    expect(document.activeElement).toBe(btn);
+    // A context menu (no button) goes back to what had focus.
+    field.focus();
+    openMenu(app, items, { x: 0, y: 0 });
+    key('Escape');
+    expect(document.activeElement).toBe(field);
+  });
+});

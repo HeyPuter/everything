@@ -193,12 +193,17 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         e.preventDefault();
         close('escape');
         if (parentMenu) parentMenu.refocus();
+        else restoreFocus(api);
         break;
-      case 'Tab':
+      case 'Tab': {
         e.preventDefault();
         close('tab');
         parentMenu?.closeAll?.();
+        let root = api;
+        while (root.parentMenu) root = root.parentMenu;
+        restoreFocus(root);
         break;
+      }
       case 'Enter':
       case ' ':
         e.preventDefault();
@@ -252,6 +257,7 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
     el: menu,
     close,
     parentMenu,
+    anchor,
     returnFocus,
     child: null,
     refocus: () => {
@@ -271,6 +277,13 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
   // 'keep' leaves focus where it is (a search field that keeps taking typing).
   else if (focus !== 'keep') menu.focus({ preventScroll: true });
   return api;
+}
+
+/** After a menu is dismissed: back to the button that opened it, else to what had focus before. */
+function restoreFocus(root) {
+  if (document.activeElement && document.activeElement !== document.body && document.activeElement.isConnected) return;
+  const back = root.anchor?.isConnected ? root.anchor : root.returnFocus;
+  if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true });
 }
 
 /** The application menu bar. */
