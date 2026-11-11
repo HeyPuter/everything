@@ -23,6 +23,26 @@ describe('version store', () => {
     const list = await s.list('d');
     expect(list.map((v) => v.name)).toEqual(['Auto 3', 'Auto 2', 'Named']);
   });
+  it('leaves nothing behind when browser storage cannot take a version', async () => {
+    // Storage that is full: single writes of version entries fail, and a
+    // write of several records stores all of them or none.
+    class Full extends MemoryStore {
+      async put<T>(store: 'versions' | 'blobs' | 'recovery' | 'thumbs', key: string, value: T) {
+        if (store === 'versions') throw new DOMException('Storage is full', 'QuotaExceededError');
+        return super.put(store, key, value);
+      }
+      async putAll(writes: { store: 'versions' | 'blobs' | 'recovery' | 'thumbs'; key: string; value: unknown }[]) {
+        if (writes.some((w) => w.store === 'versions')) throw new DOMException('Storage is full', 'QuotaExceededError');
+        return super.putAll(writes);
+      }
+    }
+    for (const store of [new Full(), Object.assign(new Full(), { putAll: undefined })]) {
+      const s = new VersionStore(store);
+      await expect(s.add(meta('d', 'Big', 'auto', 1), new Blob(['project bytes']))).rejects.toThrow('Storage is full');
+      expect(await store.keys('blobs')).toEqual([]);
+      expect(await s.list('d')).toEqual([]);
+    }
+  });
   it('renames (making a version named) and removes versions with their projects', async () => {
     const store = new MemoryStore();
     const s = new VersionStore(store);

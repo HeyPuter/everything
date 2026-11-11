@@ -23,8 +23,23 @@ export class VersionStore {
    * document are removed oldest first; named versions are never pruned. */
   async add(entry: Omit<VersionEntry, 'id' | 'time' | 'size'> & { time?: number }, project: Blob, keep = 30): Promise<VersionEntry> {
     const full: VersionEntry = { ...entry, id: crypto.randomUUID(), time: entry.time ?? Date.now(), size: project.size };
-    await this.store.put('blobs', full.id, project);
-    await this.store.put('versions', full.id, full);
+    // The project and its entry are written together: a failed write (browser
+    // storage full) must not leave a project that no version lists, taking up
+    // space nothing can free.
+    if (this.store.putAll)
+      await this.store.putAll([
+        { store: 'blobs', key: full.id, value: project },
+        { store: 'versions', key: full.id, value: full },
+      ]);
+    else {
+      await this.store.put('blobs', full.id, project);
+      try {
+        await this.store.put('versions', full.id, full);
+      } catch (error) {
+        await this.store.delete('blobs', full.id).catch(() => {});
+        throw error;
+      }
+    }
     const automatic = (await this.list(full.docId)).filter((v) => v.kind !== 'named');
     for (const old of automatic.slice(Math.max(1, keep))) await this.remove(old.id);
     return full;
