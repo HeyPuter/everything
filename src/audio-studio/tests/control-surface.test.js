@@ -104,3 +104,32 @@ describe('control surface ports', () => {
     delete navigator.requestMIDIAccess;
   });
 });
+
+describe('control surface learn', () => {
+  it('stops waiting for a control once the Learn button is gone', async () => {
+    localStorage.clear();
+    const inputs = new Map([['a', { id: 'a', name: 'Desk', state: 'connected', onmidimessage: null }]]);
+    Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => ({ inputs, outputs: new Map(), onstatechange: null }), configurable: true });
+    const { App } = await import('../src/app.js');
+    const { installControlSurface } = await import('../src/control-surface/index.js');
+    const app = new App();
+    app.syncGraph = () => {};
+    const ran = [];
+    app.commands.register({ id: 'transport.play', label: 'Play', run: () => ran.push('play') });
+    installControlSurface(app);
+    app.prefs.set('controlSurface', { enabled: true, input: '', output: '', protocol: 'mcu', mappings: {} });
+    await new Promise((r) => setTimeout(r, 0));
+    const port = inputs.get('a');
+    // While the button is shown, the next control is learned instead of performed.
+    const learned = app.controlSurface.learn(() => true);
+    port.onmidimessage({ data: [0x90, 94, 127] });
+    expect(await learned).toBe('note:0:94');
+    expect(ran).toEqual([]);
+    // Preferences closed while waiting: the control works as usual and nothing is learned.
+    const stale = app.controlSurface.learn(() => false);
+    port.onmidimessage({ data: [0x90, 94, 127] });
+    expect(await stale).toBe(null);
+    expect(ran).toEqual(['play']);
+    delete navigator.requestMIDIAccess;
+  });
+});

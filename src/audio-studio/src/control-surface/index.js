@@ -83,6 +83,8 @@ export function installControlSurface(app) {
   function onMessage(data) {
     const msg = decodeMidi(data);
     if (!msg) return;
+    // The Learn button went away (Preferences closed): stop waiting and use the control as usual.
+    if (learning && !learning.alive()) learning.cancel();
     if (learning && (msg.type === 'noteon' || msg.type === 'cc' || msg.type === 'pitchbend')) {
       const done = learning;
       learning = null;
@@ -181,14 +183,18 @@ export function installControlSurface(app) {
         return false;
       }
     },
-    /** Waits for the next control the user moves; resolves its mapping key (or null on cancel). */
-    learn() {
+    /**
+     * Waits for the next control the user moves; resolves its mapping key (or
+     * null on cancel, or once `alive()` turns false).
+     */
+    learn(alive = () => true) {
       return new Promise((resolve) => {
-        learning = (msg) => resolve(mappingKey(msg));
-        this.cancelLearn = () => {
+        const cancel = () => {
           learning = null;
           resolve(null);
         };
+        learning = Object.assign((msg) => resolve(mappingKey(msg)), { alive, cancel });
+        this.cancelLearn = cancel;
       });
     },
     cancelLearn() {},
@@ -264,7 +270,8 @@ function learnTable(app, cur, save, render) {
         learnBtn.addEventListener('click', async () => {
           learnBtn.textContent = 'Move a control...';
           learnBtn.classList.add('capturing');
-          const k = await cs.learn();
+          const k = await cs.learn(() => learnBtn.isConnected);
+          if (!learnBtn.isConnected) return;
           if (!k) return render();
           const mappings = Object.fromEntries(Object.entries(surfaceSettings(app.prefs).mappings).filter(([mk, mt]) => mk !== k && mt !== t.id));
           mappings[k] = t.id;
