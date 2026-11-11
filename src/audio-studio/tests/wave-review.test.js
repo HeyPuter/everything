@@ -321,3 +321,38 @@ describe('undo across a sample rate conversion', () => {
     expect(doc.view).toMatchObject({ start: 192000, end: 288000 });
   });
 });
+
+describe('Move Playhead to Previous/Next', () => {
+  it('stops at markers and selection edges next to the playhead', async () => {
+    const { app, doc } = await makeView();
+    doc.apply('Markers', {
+      ...doc.state,
+      markers: [createMarker({ start: 1000 }), createMarker({ start: 1001 })],
+    });
+    doc.setCursor(1000);
+    await app.commands.run('transport.next');
+    expect(doc.cursor).toBe(1001);
+    // Stopped: a stop 10 ms behind the playhead is not skipped.
+    doc.setCursor(1480);
+    await app.commands.run('transport.previous');
+    expect(doc.cursor).toBe(1001);
+    await app.commands.run('transport.previous');
+    expect(doc.cursor).toBe(1000);
+  });
+
+  it('skips a stop just passed while playing', async () => {
+    const { app, doc } = await makeView();
+    doc.apply('Markers', { ...doc.state, markers: [createMarker({ start: 1000 })] });
+    const playing = vi.spyOn(app.engine, 'playing', 'get').mockReturnValue(true);
+    const position = vi.spyOn(app.engine, 'position', 'get').mockReturnValue(1480);
+    const seek = vi.spyOn(app.engine, 'seek').mockImplementation(() => {});
+    try {
+      await app.commands.run('transport.previous');
+      expect(seek).toHaveBeenCalledWith(0);
+    } finally {
+      playing.mockRestore();
+      position.mockRestore();
+      seek.mockRestore();
+    }
+  });
+});

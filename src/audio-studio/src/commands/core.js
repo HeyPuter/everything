@@ -738,7 +738,9 @@ export function installCoreCommands(app) {
       enabled: anyDoc,
       run: () => {
         const doc = app.active;
-        const at = app.playhead - doc.sampleRate * 0.05;
+        // While playing, a stop just passed (within 50 ms) is skipped so pressing Previous again
+        // goes on to the one before it; when stopped the playhead sits exactly on its stop.
+        const at = app.engine.playing ? app.playhead - doc.sampleRate * 0.05 : app.playhead;
         const stops = [0, ...(doc.state?.markers || []).flatMap((m) => [m.start, m.start + m.duration])];
         if (doc.hasSelection) stops.push(doc.selection.start, doc.selection.end);
         const prev = stops.filter((f) => f < at).sort((a, b) => b - a)[0] ?? 0;
@@ -752,7 +754,7 @@ export function installCoreCommands(app) {
       enabled: anyDoc,
       run: () => {
         const doc = app.active;
-        const at = app.playhead + 1;
+        const at = app.playhead;
         const stops = [doc.length, ...(doc.state?.markers || []).flatMap((m) => [m.start, m.start + m.duration])];
         if (doc.hasSelection) stops.push(doc.selection.start, doc.selection.end);
         const next = stops.filter((f) => f > at).sort((a, b) => a - b)[0] ?? doc.length;
