@@ -157,6 +157,53 @@ describe('collaboration worker access', () => {
     expect(content(c.doc)).toEqual(content(a.doc));
   });
 
+  it('an edit whose record was skipped while it was still being written is not lost', async () => {
+    const net = network();
+    const { room, client: a } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    const b = await joinClient(net, bob, room, { invite: token });
+    // Alice's edit is large, so its commit writes a file before the record: hold that write.
+    const write = net.puter.fs.write;
+    let release;
+    const held = new Promise((r) => (release = r));
+    net.puter.fs.write = async function (path, ...rest) {
+      if (path.endsWith('/r-1.json')) await held;
+      return write.call(this, path, ...rest);
+    };
+    const layer = a.doc.layers()[0].id;
+    a.doc.transact('Add', () => a.doc.insert(rect('slow', 0, 0, { name: 'x'.repeat(70000) }), layer));
+    const sending = a.session.sending;
+    for (let i = 0; i < 20 && Number(net.puter.kv.data.get(`vs:${room}:seq`)) !== 1; i++) await new Promise((r) => setTimeout(r, 1));
+    // Bob has waited long enough for record 1 and skips it.
+    b.session.hole = { seq: 1, since: Date.now() - 30_000 };
+    await b.session.sync();
+    expect(b.session.seq).toBe(1);
+    expect(net.puter.kv.data.get(`vs:${room}:log:1`)).toMatchObject({ skipped: true });
+    release();
+    await sending;
+    await settle(a, b);
+    expect(b.doc.has('slow')).toBe(true);
+    expect(content(a.doc)).toEqual(content(b.doc));
+  });
+
+  it('a viewer cannot skip a record that is still being written', async () => {
+    const net = network();
+    const { room } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'viewer' });
+    await net.service.call(cam, { op: 'join', room, invite: token });
+    // A commit took number 1 and has not written its record yet; number 2 is done.
+    await net.puter.kv.incr(`vs:${room}:seq`);
+    await net.service.call(alice, { op: 'commit', room, batch: { id: 'b2', nodes: [{ id: 'root', set: { units: 'mm' } }] } });
+    const res = await net.service.call(cam, { op: 'sync', room, since: 0, skip: 1 });
+    expect(res.records).toEqual([]);
+    expect(net.puter.kv.data.has(`vs:${room}:log:1`)).toBe(false);
+    // Long after the later edit, the hole is skipped for the viewer too.
+    const later = new DocService(net.puter, { now: () => Date.now() + 25_000 });
+    const res2 = await later.call(cam, { op: 'sync', room, since: 0, skip: 1 });
+    expect(res2.records.map((r) => r.seq)).toEqual([1, 2]);
+    expect(res2.records[0].skipped).toBe(true);
+  });
+
   it('presence returns the roster with a ticket signed by the room key', async () => {
     const net = network();
     const { room } = await shareNew(net);
