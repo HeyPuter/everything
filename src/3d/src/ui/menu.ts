@@ -66,6 +66,7 @@ export function anyPopupOpen() {
 }
 
 export function closeMenus() {
+  popoverMenuMark = -1;
   clearTimeout(submenuTimer);
   while (stack.length) {
     const m = stack.pop()!;
@@ -80,6 +81,26 @@ export function closeMenus() {
 
 export function onMenusClosed(fn: () => void) {
   closeCallbacks.push(fn);
+}
+
+/**
+ * Set while the open menu belongs to a popover (a dropdown inside it): closing the menu returns to
+ * the popover. Index of the menu's own entries in closeCallbacks.
+ */
+let popoverMenuMark = -1;
+
+/** Close the open menus; a dropdown opened inside a popover leaves the popover open. */
+function closeMenuStack() {
+  if (popoverMenuMark < 0 || !document.querySelector('.popup-layer > .popover')) return closeMenus();
+  clearTimeout(submenuTimer);
+  while (stack.length) {
+    const m = stack.pop()!;
+    clearRoot(m.el);
+    m.el.remove();
+  }
+  const cbs = closeCallbacks.splice(popoverMenuMark);
+  popoverMenuMark = -1;
+  cbs.forEach((f) => f());
 }
 
 /**
@@ -218,7 +239,7 @@ function activate(m: OpenMenu, item: MenuItem, e?: MouseEvent) {
     openSubmenu(m, item);
     return;
   }
-  if (!item.keepOpen) closeMenus();
+  if (!item.keepOpen) closeMenuStack();
   if (item.action) item.action();
   else if (item.op) app.run(item.op, item.props ?? {}, { event: e ? { x: e.clientX, y: e.clientY } : undefined });
   if (item.keepOpen) redrawMenus();
@@ -419,7 +440,11 @@ export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLE
     capturing.push(items);
     return null;
   }
-  closeMenus();
+  // a dropdown inside a popover opens over it and closes back to it
+  if (at instanceof HTMLElement && at.closest('.popup-layer > .popover')) {
+    if (stack.length) closeMenuStack();
+    popoverMenuMark = closeCallbacks.length;
+  } else closeMenus();
   let x: number, y: number;
   if (at instanceof HTMLElement) {
     const r = at.getBoundingClientRect();
@@ -644,8 +669,13 @@ function renderPie(title: string) {
 export function openPopover(anchor: HTMLElement | { x: number; y: number }, render: () => Child, opts: { width?: number; className?: string } = {}) {
   // collecting menu items (captureMenuItems) never opens popovers
   if (capturing) return { el: document.createElement('div'), redraw: () => {} };
-  closeMenus();
+  // a button inside a popover (e.g. a colour swatch in the shading popover) opens its popover on
+  // top: the parent stays open; anything else replaces what is open
+  const parent = anchor instanceof HTMLElement ? (anchor.closest('.popup-layer > .popover') as HTMLElement | null) : null;
+  if (parent) for (const c of popoverChildren(parent)) closePopover(c);
+  else closeMenus();
   const el = document.createElement('div');
+  if (parent) popoverParent.set(el, parent);
   el.className = `popover ${opts.className ?? ''}`;
   if (opts.width) el.style.width = `${opts.width}px`;
   ensureLayer().append(el);
@@ -662,27 +692,57 @@ export function openPopover(anchor: HTMLElement | { x: number; y: number }, rend
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
   const unsub = app.subscribe(() => el.isConnected && draw());
-  onMenusClosed(() => unsub());
   // close when the pointer leaves the popover by a margin
   const leave = (e: PointerEvent) => {
     if (!el.isConnected) return removeEventListener('pointermove', leave);
     if (document.activeElement && el.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === 'INPUT') return;
     if (dragging) return;
+    // the pointer is over a dropdown menu (opened from this popover) or a popover opened from this one
+    if ((e.target as Element | null)?.closest?.('.popup-layer > .menu')) return;
+    const over = (e.target as Element | null)?.closest?.('.popup-layer > .popover') as HTMLElement | null;
+    if (over && over !== el && isPopoverInside(over, el)) return;
     const b = el.getBoundingClientRect();
     const anchorRect = anchor instanceof HTMLElement ? anchor.getBoundingClientRect() : null;
     const inAnchor = anchorRect && e.clientX >= anchorRect.left - 4 && e.clientX <= anchorRect.right + 4 && e.clientY >= anchorRect.top - 4 && e.clientY <= anchorRect.bottom + 4;
     const m = 60;
     if (!inAnchor && (e.clientX < b.left - m || e.clientX > b.right + m || e.clientY < b.top - m || e.clientY > b.bottom + m)) {
       removeEventListener('pointermove', leave);
-      closeMenus();
+      // a nested popover goes back to its parent; a top-level one closes everything
+      if (parent?.isConnected) closePopover(el);
+      else closeMenus();
     }
   };
+  const cleanup = () => {
+    unsub();
+    removeEventListener('pointermove', leave);
+    if (anchor instanceof HTMLElement) anchor.classList.remove('menu-open');
+  };
+  popoverCleanup.set(el, cleanup);
+  onMenusClosed(cleanup);
   addEventListener('pointermove', leave);
-  if (anchor instanceof HTMLElement) {
-    anchor.classList.add('menu-open');
-    onMenusClosed(() => anchor.classList.remove('menu-open'));
-  }
+  if (anchor instanceof HTMLElement) anchor.classList.add('menu-open');
   return { el, redraw: draw };
+}
+
+/** Popovers opened from buttons inside another popover, and their parent. */
+const popoverParent = new WeakMap<HTMLElement, HTMLElement>();
+const popoverCleanup = new WeakMap<HTMLElement, () => void>();
+
+function isPopoverInside(el: HTMLElement, ancestor: HTMLElement) {
+  for (let p = popoverParent.get(el); p; p = popoverParent.get(p)) if (p === ancestor) return true;
+  return false;
+}
+
+function popoverChildren(parent: HTMLElement): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('.popup-layer > .popover')].filter((p) => popoverParent.get(p) === parent);
+}
+
+/** Close one popover (and the popovers opened from it), leaving the others open. */
+function closePopover(el: HTMLElement) {
+  for (const c of popoverChildren(el)) closePopover(c);
+  popoverCleanup.get(el)?.();
+  clearRoot(el);
+  el.remove();
 }
 
 let dragging = false;
@@ -869,7 +929,7 @@ export function menuKey(e: KeyboardEvent): boolean {
   if (m.el.classList.contains('search-popup') || m.el.classList.contains('prompt-popup')) return false;
   const actionable = m.items.map((it, i) => (!it.separator && !it.heading && !it.custom ? i : -1)).filter((i) => i >= 0);
   if (e.key === 'Escape') {
-    closeMenus();
+    closeMenuStack();
     return true;
   }
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -931,6 +991,10 @@ export function pointerDownOutsideMenus(target: EventTarget | null) {
   if (capturing) return false;
   if (!stack.length && !document.querySelector('.popup-layer > .popover')) return false;
   const t = target as HTMLElement;
+  if (popoverMenuMark >= 0 && stack.length && t?.closest?.('.popover') && !t.closest('.menu')) {
+    closeMenuStack();
+    return false;
+  }
   if (t?.closest?.('.menu, .popover, .pie')) return false;
   closeMenus();
   return true;

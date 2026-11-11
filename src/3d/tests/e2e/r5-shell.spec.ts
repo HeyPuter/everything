@@ -309,6 +309,53 @@ test('menu buttons that open on press also open from the keyboard', async ({ pag
   await expectNoErrors(errors);
 });
 
+test('a dropdown or colour picker opened inside a popover opens over it and closes back to it', async ({ page }) => {
+  const errors = await openApp(page);
+  const v = (await page.locator('.area[data-editor="VIEW_3D"]').first().boundingBox())!;
+  await page.mouse.move(v.x + v.width / 2, v.y + v.height / 2);
+  await page.evaluate(async () => {
+    const { activeView3D } = await import('/src/editors/view3d/view3d.ts');
+    activeView3D()!.shading.color_type = 'SINGLE';
+    (window as any).app.changed('ui');
+  });
+  await page.locator('.area[data-editor="VIEW_3D"] .area-header button[data-tip^="Shading"]').first().click();
+  const pop = page.locator('.popup-layer > .popover');
+  await expect(pop).toHaveCount(1);
+  // the studio light dropdown
+  const dd = pop.locator('.enum-menu').first();
+  const ddBox = (await dd.boundingBox())!;
+  await dd.click();
+  const menu = page.locator('.popup-layer > .menu');
+  await expect(menu).toHaveCount(1);
+  const mBox = (await menu.boundingBox())!;
+  expect(Math.abs(mBox.x - ddBox.x)).toBeLessThan(4);
+  expect(mBox.y).toBeGreaterThan(ddBox.y);
+  await expect(pop).toHaveCount(1);
+  // picking an entry keeps the popover
+  await menu.locator('.menu-item').nth(1).click();
+  await expect(menu).toHaveCount(0);
+  await expect(pop).toHaveCount(1);
+  // Esc in a dropdown closes just the dropdown; Esc again closes the popover
+  await dd.click();
+  await expect(menu).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(pop).toHaveCount(1);
+  // the single colour's swatch: the picker opens next to it, over the shading popover
+  const sw = pop.first().locator('.color-swatch').first();
+  const swBox = (await sw.boundingBox())!;
+  await sw.click();
+  await expect(page.locator('.popup-layer > .popover')).toHaveCount(2);
+  const picker = (await page.locator('.popup-layer > .popover.cp-pop').boundingBox())!;
+  expect(Math.abs(picker.y - (swBox.y + swBox.height))).toBeLessThan(8);
+  // moving into the picker keeps both; Esc closes everything
+  await page.mouse.move(picker.x + picker.width / 2, picker.y + picker.height / 2, { steps: 4 });
+  await expect(page.locator('.popup-layer > .popover')).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.popup-layer > .popover')).toHaveCount(0);
+  await expectNoErrors(errors);
+});
+
 test('a phone-width window starts with the assistant closed, and the button still opens it', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 700 });
   const errors = await openApp(page);
