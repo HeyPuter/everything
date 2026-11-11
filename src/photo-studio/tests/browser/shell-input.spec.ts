@@ -183,3 +183,19 @@ test('shortcuts wait while a brush stroke is being drawn', async ({ page }) => {
   await page.keyboard.press('e');
   expect(await page.evaluate(() => window.photoStudio.tool)).toBe('eraser');
 });
+
+test('a swatch chosen from the keyboard keeps the focus', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.dock.show('swatches'));
+  const swatch = page.locator('[data-panel="swatches"] [data-swatch]').nth(2);
+  const color = await swatch.getAttribute('data-swatch');
+  await swatch.focus();
+  await page.keyboard.press('Enter');
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.color)).toBe(color);
+  await expect(page.locator('[data-panel="swatches"] [data-swatch]').nth(2)).toBeFocused();
+  // Later edits leave the swatches (and the focus) alone too.
+  const before = await page.locator('[data-panel="swatches"] [data-swatch]').nth(2).elementHandle();
+  await page.evaluate(() => window.photoStudio.runCommand('select.all'));
+  await idle(page);
+  expect(await page.evaluate((b) => b!.isConnected, before)).toBe(true);
+});
