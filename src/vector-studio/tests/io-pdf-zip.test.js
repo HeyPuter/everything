@@ -177,6 +177,30 @@ describe('transparency groups in PDF export', () => {
   });
 });
 
+describe('gradient opacity in PDF export', () => {
+  const fade = (a, b) => ({ type: 'linear', angle: 0, stops: [{ offset: 0, color: '#ff0000', opacity: a }, { offset: 1, color: '#ff0000', opacity: b }] });
+  const pdfOf = async (fill, opts = {}) => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    doc.transact('build', () => doc.insert(createPath(rectangle(10, 10, 100, 100), true, { fill, stroke: null }), doc.layers()[0].id));
+    return latin1((await writePDF(doc, [doc.artboards[0]], { compress: false, ...opts })).bytes);
+  };
+
+  it('fades a gradient whose stops differ in opacity through a soft mask', async () => {
+    const s = await pdfOf(fade(1, 0));
+    // The mask is the same shading in gray, from opaque to clear, not one average opacity for the whole fill.
+    expect(s).toMatch(/\/SMask << \/Type \/Mask \/S \/Luminosity \/G \d+ 0 R >>/);
+    expect(s).toMatch(/\/ShadingType 2 \/ColorSpace \/DeviceGray [^]*\/C0 \[1\] \/C1 \[0\]/);
+    expect(s).not.toMatch(/\/ca 0\.5/);
+  });
+
+  it('keeps a uniform stop opacity as a constant alpha, and PDF/X-1a opaque', async () => {
+    const uniform = await pdfOf(fade(0.5, 0.5));
+    expect(uniform).toContain('/ca 0.5');
+    expect(uniform).not.toContain('/SMask');
+    expect(await pdfOf(fade(1, 0), { pdfx: 'x1a' })).not.toContain('/SMask');
+  });
+});
+
 describe('document bleed in PDF export', () => {
   it('uses the document bleed per side with Use Document Bleed Settings', async () => {
     const doc = sampleDoc();

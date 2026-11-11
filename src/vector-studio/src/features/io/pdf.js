@@ -11,7 +11,8 @@
  *   layers with opacity or blending become transparency-group form XObjects.
  * - Gradients: axial/radial shadings with stitching functions (fills paint
  *   the shading inside a clip; strokes use a shading pattern). Stop opacity
- *   is approximated by the average stop opacity.
+ *   that varies across a fill is a soft mask; on strokes it is approximated
+ *   by the average stop opacity.
  * - Freeform gradients: fills draw the blend as an image inside the shape
  *   (turned with the object); strokes and type paint with a tiling pattern
  *   holding the same image.
@@ -394,15 +395,15 @@ class PDFRenderer {
     return id;
   }
 
-  /** Function object for gradient stops (exponential or stitching). */
-  stopFunction(stops) {
+  /** Function object for gradient stops (exponential or stitching); `values` gives a stop's color components. */
+  stopFunction(stops, values = (st) => this.colorValues(st.color)) {
     const s = [...stops].sort((a, b) => a.offset - b.offset).map((x) => ({ ...x, offset: Math.max(0, Math.min(1, x.offset)) }));
     if (s[0].offset > 0) s.unshift({ ...s[0], offset: 0 });
     if (s[s.length - 1].offset < 1) s.push({ ...s[s.length - 1], offset: 1 });
     for (let i = 1; i < s.length; i++) if (s[i].offset <= s[i - 1].offset) s[i].offset = Math.min(1, s[i - 1].offset + 1e-4);
-    const col = (hex) => `[${this.colorValues(hex).map((v) => pdfNum(v)).join(' ')}]`;
+    const col = (st) => `[${values(st).map((v) => pdfNum(v)).join(' ')}]`;
     const fns = [];
-    for (let i = 0; i + 1 < s.length; i++) fns.push(`<< /FunctionType 2 /Domain [0 1] /C0 ${col(s[i].color)} /C1 ${col(s[i + 1].color)} /N 1 >>`);
+    for (let i = 0; i + 1 < s.length; i++) fns.push(`<< /FunctionType 2 /Domain [0 1] /C0 ${col(s[i])} /C1 ${col(s[i + 1])} /N 1 >>`);
     if (fns.length === 1) return fns[0];
     const bounds = s.slice(1, -1).map((x) => pdfNum(x.offset, 5));
     return `<< /FunctionType 3 /Domain [0 1] /Functions [${fns.join(' ')}] /Bounds [${bounds.join(' ')}] /Encode [${fns.map(() => '0 1').join(' ')}] >>`;
@@ -412,12 +413,13 @@ class PDFRenderer {
    * Shading object for a gradient paint: { id, frame }. Elliptical radial
    * gradients are defined around the origin and placed by `frame` (a
    * matrix to concatenate before painting), like the canvas renderer.
+   * With `alpha`, the shading is gray: the stops' opacities (for a soft mask).
    */
-  shadingFor(paint, node) {
+  shadingFor(paint, node, alpha = false) {
     const b = nodeBounds(this.doc, node) || { x: 0, y: 0, w: 1, h: 1 };
     const g = gradientGeometry(paint, b);
     // Midpoints become extra stops: PDF functions interpolate linearly.
-    const fn = this.stopFunction(expandStops(paint.stops));
+    const fn = this.stopFunction(expandStops(paint.stops), alpha ? (st) => [Math.max(0, Math.min(1, st.opacity ?? 1))] : undefined);
     let frame = null;
     let coords;
     if (paint.type === 'radial' && isElliptical(paint)) {
@@ -432,7 +434,7 @@ class PDFRenderer {
       const fo = focalPoint(paint, g, 1);
       coords = `[${this.f(g.x1 + fo.x)} ${this.f(g.y1 + fo.y)} ${this.f(fo.r)} ${this.f(g.x1)} ${this.f(g.y1)} ${this.f(Math.max(g.r, 1e-4))}]`;
     } else coords = `[${this.f(g.x1)} ${this.f(g.y1)} ${this.f(g.x2)} ${this.f(g.y2)}]`;
-    const body = `<< /ShadingType ${paint.type === 'radial' ? 3 : 2} /ColorSpace ${this.spaceRef} /Coords ${coords} /Function ${fn} /Extend [true true] >>`;
+    const body = `<< /ShadingType ${paint.type === 'radial' ? 3 : 2} /ColorSpace ${alpha ? '/DeviceGray' : this.spaceRef} /Coords ${coords} /Function ${fn} /Extend [true true] >>`;
     let id = this.shadingCache.get(body);
     if (!id) {
       id = this.w.add(body);
@@ -445,6 +447,23 @@ class PDFRenderer {
   shadeOps(res, paint, node) {
     const sh = this.shadingFor(paint, node);
     return `${sh.frame ? `${sh.frame.map((v) => this.f(v)).join(' ')} cm\n` : ''}/${res.name(res.shading, 'Sh', sh.id)} sh\n`;
+  }
+
+  /**
+   * A gradient fill whose stops differ in opacity: a luminosity soft mask
+   * holding the same shading in gray (each stop's opacity as its level)
+   * inside `clip`. Returns an ExtGState id, or null when the opacity is the
+   * same everywhere (it then goes into the constant alpha) or PDF/X-1a
+   * forbids transparency.
+   */
+  gradientMask(paint, node, clip) {
+    if (!varyingAlpha(paint) || this.opts.pdfx === 'x1a') return null;
+    const b = inflate(nodeBounds(this.doc, node) || { x: 0, y: 0, w: 1, h: 1 }, 1);
+    const res = new Resources();
+    const sh = this.shadingFor(paint, node, true);
+    const ops = `${clip}${sh.frame ? `${sh.frame.map((v) => this.f(v)).join(' ')} cm\n` : ''}/${res.name(res.shading, 'Sh', sh.id)} sh\n`;
+    const group = this.w.addStream(`/Type /XObject /Subtype /Form /BBox [${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}] /Group << /S /Transparency /CS /DeviceGray >> /Resources ${this.w.add(res.dict())} 0 R`, ops);
+    return this.w.add(`<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G ${group} 0 R >> >>`);
   }
 
   gradientAlpha(paint) {
@@ -646,7 +665,9 @@ class PDFRenderer {
     const path = this.pathOps(subpaths);
     if (!path) return;
     const op = node.opacity ?? 1;
-    const fa = op * this.paintAlpha(fill);
+    // Stop opacities that vary across a gradient fill go into a soft mask instead of the constant alpha.
+    const fillMasked = (fill?.type === 'linear' || fill?.type === 'radial') && varyingAlpha(fill) && this.opts.pdfx !== 'x1a';
+    const fa = op * (fillMasked ? 1 : this.paintAlpha(fill));
     const sa = op * this.paintAlpha(stroke);
     let out = 'q\n';
     const gs = this.extGState(fill ? fa : 1, stroke ? sa : 1, node.blendMode, node);
@@ -660,7 +681,8 @@ class PDFRenderer {
         if (!img) return `${this.colorOps(res, averageColor(fill))}\n${path}${evenOdd ? 'f*' : 'f'}\n`;
         return `q\n${path}${W} n\n${img.m.map((v) => this.f(v)).join(' ')} cm\n/${res.name(res.xobject, 'Im', img.id)} Do\nQ\n`;
       }
-      return `q\n${path}${W} n\n${this.shadeOps(res, fill, node)}Q\n`;
+      const mask = fillMasked ? this.gradientMask(fill, node, `${path}${W} n\n`) : null;
+      return `q\n${mask ? `/${res.name(res.ext, 'GS', mask)} gs\n` : ''}${path}${W} n\n${this.shadeOps(res, fill, node)}Q\n`;
     };
     const strokeColor = () => {
       if (stroke.type === 'solid') return `${this.colorOps(res, stroke, true)}\n`;
@@ -1218,6 +1240,12 @@ const PROCESS_BARS = {
   '#c0c0c0': [0, 0, 0, 0.25],
   '#404040': [0, 0, 0, 0.75],
 };
+
+/** True when a gradient's stops differ in opacity. */
+function varyingAlpha(paint) {
+  const ops = (paint?.stops || []).map((st) => st.opacity ?? 1);
+  return ops.some((o) => Math.abs(o - ops[0]) > 1e-3);
+}
 
 function makeCanvas(w, h) {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
