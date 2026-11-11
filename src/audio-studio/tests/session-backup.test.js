@@ -91,6 +91,38 @@ describe('session backups (mock OPFS)', () => {
     ctl2.destroy();
   });
 
+  it('writes the media again after a failed write instead of keeping an empty file', async () => {
+    const root = new MemDir();
+    const store = new SessionBackupStore(async () => root);
+    const app = fakeApp();
+    let t = Date.now();
+    const ctl = installSessionBackup(app, { store, tab: 'tab1', now: () => t++ });
+    const doc = sessionWithClip();
+    app.documents.push(doc);
+    // The first media write runs out of storage space.
+    const write = store.writeMedia.bind(store);
+    let fail = true;
+    store.writeMedia = async (key, rate, channels) => {
+      if (!fail) return write(key, rate, channels);
+      const media = await (await root.getDirectoryHandle(BACKUP_DIR, { create: true })).getDirectoryHandle('media', { create: true });
+      const file = await media.getFileHandle(`${key}.wav`, { create: true });
+      file.createWritable = async () => ({ write: async () => Promise.reject(Object.assign(new Error('Quota'), { name: 'QuotaExceededError' })), close: async () => {}, abort: async () => {} });
+      return write(key, rate, channels);
+    };
+    await ctl.run();
+    expect(app.notify).toHaveBeenCalledTimes(1);
+    expect(await store.list()).toHaveLength(0);
+    // Space is available again: the next backup must hold the audio.
+    fail = false;
+    doc.apply('Volume', S.updateTrack(doc.state, doc.state.tracks[0].id, { volume: -3 }));
+    await ctl.run();
+    const [m] = await store.list();
+    expect((await store.readMedia(m.media[0].key)).size).toBe(44 + 4800 * 2 * 4);
+    const restored = await ctl.restore(m);
+    expect(restored.pool.get(restored.state.clips[0].sourceId).channels[0].length).toBe(4800);
+    ctl.destroy();
+  });
+
   it('keeps at most the configured number of backups and deletes unused media', async () => {
     const root = new MemDir();
     const store = new SessionBackupStore(async () => root);

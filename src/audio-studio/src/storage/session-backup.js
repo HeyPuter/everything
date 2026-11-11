@@ -109,8 +109,15 @@ export class SessionBackupStore {
 
   /** Writes one source revision (Channel objects) as float WAV. */
   async writeMedia(key, sampleRate, channels) {
-    const file = await (await this.#media()).getFileHandle(`${key}.wav`, { create: true });
-    const out = await file.createWritable();
+    const media = await this.#media();
+    const file = await media.getFileHandle(`${key}.wav`, { create: true });
+    let out;
+    try {
+      out = await file.createWritable();
+    } catch (err) {
+      await media.removeEntry(`${key}.wav`).catch(() => {});
+      throw err;
+    }
     try {
       const nch = channels.length;
       const frames = channels[0]?.length ?? 0;
@@ -129,6 +136,9 @@ export class SessionBackupStore {
       await out.close();
     } catch (err) {
       await out.abort?.().catch(() => {});
+      // Creating the handle made an empty file: remove it, or hasMedia() would
+      // report this revision as written and every later backup would lack its audio.
+      await media.removeEntry(`${key}.wav`).catch(() => {});
       throw err;
     }
   }
