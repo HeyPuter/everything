@@ -37,3 +37,27 @@ describe('PDF images too large to decode', () => {
     expect(() => decodeCCITT(new Uint8Array(4), { K: -1, columns: 100000, rows: 100000 })).toThrow(/too large/);
   });
 });
+
+describe('PostScript programs that allocate without bound', () => {
+  const eps = (body) => enc(`%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 200 100\n%%EndComments\n${body}\n%%EOF\n`);
+
+  it('huge strings and arrays are VMerrors a program can catch', async () => {
+    const { interpretEPS } = await import('../src/features/interop/ps/eps.js');
+    const r = interpretEPS(eps('{ 2000000000 array } stopped { 0 1 0 setrgbcolor } if { 2000000000 string } stopped { 10 10 50 50 rectfill } if'), { families: ['Inter'] });
+    const [rect] = [...r.nodes.values()];
+    expect(rect.fill.color).toBe('#00ff00');
+  });
+
+  it('keeping many large arrays stops at the memory budget', async () => {
+    const { interpretEPS } = await import('../src/features/interop/ps/eps.js');
+    const r = interpretEPS(eps('10 10 50 50 rectfill { 1000000 array } loop'), { families: ['Inter'] });
+    expect(r.nodes.size).toBe(1);
+    expect(r.warnings.join(' ')).toMatch(/VMerror in array/);
+  });
+
+  it('an endless begin loop stops at the dictionary stack limit', async () => {
+    const { interpretEPS } = await import('../src/features/interop/ps/eps.js');
+    const r = interpretEPS(eps('{ 10 dict begin } stopped pop countdictstack 260 lt { 10 10 50 50 rectfill } if'), { families: ['Inter'] });
+    expect(r.nodes.size).toBe(1);
+  });
+});
