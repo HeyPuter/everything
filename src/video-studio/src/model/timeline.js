@@ -666,7 +666,7 @@ export function setSpeed(project, id, speed, opts = {}) {
  * by the overlap (as a freeze frame makes room); an overlay clip moves to a
  * free track of its kind (as when it is dropped on an occupied spot).
  */
-function makeRoom(project, track, clip, opts) {
+export function makeRoom(project, track, clip, opts) {
   if (opts.ripple && track.main) return;
   sortTrack(track);
   const i = track.clips.indexOf(clip);

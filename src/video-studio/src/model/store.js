@@ -14,7 +14,7 @@
  */
 import { Emitter } from '../lib/emitter.js';
 import { History } from './history.js';
-import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength, rippleResize } from './timeline.js';
+import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength, rippleResize, makeRoom } from './timeline.js';
 import { switchTimeline } from './timelines.js';
 
 /** Projects up to this much JSON keep a copy to roll back a failed step of a drag to. */
@@ -106,12 +106,17 @@ export class EditorStore extends Emitter {
         const cc = findClip(p, frame.id)?.clip;
         if (!cc) return false;
         const ripple = rippleResize(p, frame.id, this.opts);
+        // Showing its contents to their end, it follows that end (as nested timelines do in
+        // other editors); trimmed shorter, it keeps its trim and only shrinks to what is left.
+        const toEnd = cc.in + cc.duration >= sequenceLength(cc.sequence) - 1;
         cc.sequence = { tracks: structuredClone(inner.tracks) };
         adoptProjectFields(p, inner);
         const len = sequenceLength(cc.sequence);
+        const f = findClip(p, frame.id);
         cc.in = Math.min(cc.in, Math.max(0, len - MIN_CLIP));
-        cc.duration = Math.max(MIN_CLIP, Math.min(cc.duration, len - cc.in));
+        cc.duration = Math.max(MIN_CLIP, toEnd ? len - cc.in : Math.min(cc.duration, len - cc.in));
         ripple();
+        makeRoom(p, f.track, cc, this.opts);
       });
     }
     this._afterSwap(t);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createCompound, breakApart, composeTransform, compoundClips } from '../src/model/compound.js';
-import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition } from '../src/model/timeline.js';
+import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition, deleteClips } from '../src/model/timeline.js';
 import { normalizeProject, makeClip } from '../src/model/project.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
@@ -287,6 +287,54 @@ describe('closing a compound clip that got shorter', () => {
     expect(findClip(store.project, title.id).clip.start).toBe(s(10));
   });
 });
+
+describe('closing a compound clip whose contents got longer or empty', () => {
+  const setup = (toggles, trimOuter = false) => {
+    const p = fixture();
+    const [, x] = onMain(p, clip('video', 0, 5), clip('video', 5, 4), clip('video', 9, 5));
+    const title = clip('text', 10, 1); // over the last clip
+    addClip(p, title, FREE);
+    const comp = createCompound(p, [x.id], RIPPLE);
+    if (trimOuter) trimClip(p, comp.id, 'end', s(8), RIPPLE);
+    const store = new EditorStore(p, { toggles });
+    store.openCompound(comp.id);
+    return { store, title, comp };
+  };
+  const spansOf = (store) => mainTrack(store.project).clips.map((c) => [c.start / 1e6, c.duration / 1e6]);
+  const extend = (store) => {
+    const inner = mainTrack(store.project).clips[0];
+    store.update('Add', (pp) => void addClip(pp, clip('image', 4, 3), { ...store.opts, main: true }));
+    return inner;
+  };
+
+  it('grows to show what was added at the end, rippling the base track', () => {
+    const { store, title, comp } = setup({});
+    extend(store);
+    store.closeCompound();
+    expect(findClip(store.project, comp.id).clip.duration).toBe(s(7));
+    expect(spansOf(store)).toEqual([[0, 5], [5, 7], [12, 5]]);
+    expect(findClip(store.project, title.id).clip.start).toBe(s(13));
+    store.undo();
+    expect(spansOf(store)).toEqual([[0, 5], [5, 4], [9, 5]]);
+  });
+
+  it('grows without ripple too, moving the clips after it later', () => {
+    const { store } = setup({ ripple: false });
+    extend(store);
+    store.closeCompound();
+    expect(spansOf(store)).toEqual([[0, 5], [5, 7], [12, 5]]);
+    expect(noOverlapsIn(store.project)).toBe(true);
+  });
+
+  it('keeps a trim that ended before its end', () => {
+    const { store } = setup({}, true);
+    extend(store);
+    store.closeCompound();
+    expect(spansOf(store)).toEqual([[0, 5], [5, 3], [8, 5]]);
+  });
+});
+
+const noOverlapsIn = (p) => p.tracks.every((t) => t.clips.every((c, i) => !i || c.start >= t.clips[i - 1].start + t.clips[i - 1].duration - 1));
 
 describe('nested compound clips', () => {
   it('applies the inner compound transform before the outer one', () => {
