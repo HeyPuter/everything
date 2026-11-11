@@ -230,3 +230,38 @@ describe('losing the GPU context', () => {
     expect(invalidate).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('jumping while playing', () => {
+  it('plays on from where Home, End or a marker jump put the playhead', () => {
+    const p = fixture();
+    onMain(p, clip('image', 0, 10));
+    const { player } = setup(p);
+    player.playing = false;
+    vi.spyOn(player, 'invalidate').mockImplementation(() => {});
+    vi.spyOn(player, 'renderFrame').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => 0);
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      player.store.seek(s(4));
+      player.play();
+      now = 1500;
+      player._tick();
+      expect(player.store.time).toBe(s(4.5));
+      // Home while playing.
+      player.store.seek(0);
+      now = 1700;
+      player._tick();
+      expect(player.playing).toBe(true);
+      expect(player.store.time).toBe(s(0.2));
+      // End while playing stops there.
+      player.store.seek(s(10));
+      now = 1750;
+      player._tick();
+      expect(player.playing).toBe(false);
+      expect(player.store.time).toBe(s(10));
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+});

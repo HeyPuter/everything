@@ -51,8 +51,10 @@ export class Player extends Emitter {
     }
     this.offs = [
       store.on('change', () => this.invalidate()),
-      store.on('time', () => {
+      store.on('time', ({ time }) => {
         if (!this.playing) this.invalidate();
+        // A jump made elsewhere while playing (Home, End, next edit): play on from there.
+        else if (!this._ownSeek) this._restartClock(time);
       }),
       // Color LUTs load in the background and redraw when ready.
       store.on('change', () => this._loadLuts()),
@@ -265,6 +267,24 @@ export class Player extends Emitter {
     return t;
   }
 
+  /** Seek the store as the playback clock moves (not a jump made by the user). */
+  _clockSeek(t) {
+    this._ownSeek = true;
+    try {
+      this.store.seek(t);
+    } finally {
+      this._ownSeek = false;
+    }
+  }
+
+  /** Run the playback clock on from time t. */
+  _restartClock(t) {
+    this.timeStart = t;
+    this.clockStart = performance.now();
+    this._holdClock();
+    this.invalidate();
+  }
+
   _tick() {
     this.raf = 0;
     if (this.playing) {
@@ -276,12 +296,12 @@ export class Player extends Emitter {
         this.timeStart = this._startAt();
         this.clockStart = performance.now();
         this._holdClock();
-        this.store.seek(this.timeStart);
+        this._clockSeek(this.timeStart);
       } else if (t >= end) {
-        this.store.seek(end);
+        this._clockSeek(end);
         this.pause();
       } else {
-        this.store.seek(t);
+        this._clockSeek(t);
       }
     }
     if (this.dirty || this.playing) {
