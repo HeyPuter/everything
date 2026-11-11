@@ -212,6 +212,16 @@ describe('video basic', () => {
     expect(clip(env.v1.id).transform).toMatchObject({ rotation: 0, flipH: false, scale: 1 });
   });
 
+  it('keeps keyboard focus after removing the clip filter', () => {
+    env.ctx.actions.addFilter('vivid', { toClip: clip(env.v1.id) });
+    expect(clip(env.v1.id).filter?.id).toBe('vivid');
+    const remove = env.el.querySelector('[aria-label="Remove filter"]');
+    remove.focus();
+    remove.click();
+    expect(clip(env.v1.id).filter).toBeFalsy();
+    expect(document.activeElement.textContent).toBe('Browse filters');
+  });
+
   it('crop keeps part of the picture', () => {
     drag(range('Left'), [60]);
     drag(range('Right'), [60]);
