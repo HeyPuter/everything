@@ -168,6 +168,24 @@ describe('blend interpolation', () => {
     expect(blendStepCount(doc, { spacing: 'smooth' }, a, b)).toBe(10);
   });
 
+  it('blends gradients smoothly into solid colors and gradients with other stops', () => {
+    const lin = (stops) => ({ type: 'linear', angle: 0, stops: stops.map(([offset, color]) => ({ offset, color, opacity: 1 })) });
+    const two = lin([[0, '#ff0000'], [1, '#0000ff']]);
+    const three = lin([[0, '#000000'], [0.5, '#ffffff'], [1, '#000000']]);
+    // Different stop counts: both are read at the stops of either, so the middle step is a mix.
+    const mid = lerpPaint(two, three, 0.5);
+    expect(mid.stops.map((s) => s.offset)).toEqual([0, 0.5, 1]);
+    expect(mid.stops.map((s) => s.color)).toEqual(['#800000', '#c080c0', '#000080']);
+    expect(lerpPaint(two, three, 0.01).stops[0].color).toBe('#fc0000');
+    // A solid color (or none) turns into the gradient gradually instead of switching halfway.
+    const fromSolid = lerpPaint(solid('#00ff00'), two, 0.5);
+    expect(fromSolid.type).toBe('linear');
+    expect(fromSolid.stops.map((s) => s.color)).toEqual(['#808000', '#008080']);
+    expect(lerpPaint(two, solid('#00ff00'), 0.25).stops[0].color).toBe('#bf4000');
+    const fromNone = lerpPaint(null, two, 0.25);
+    expect(fromNone.stops.map((s) => [s.color, s.opacity])).toEqual([['#ff0000', 0.25], ['#0000ff', 0.25]]);
+  });
+
   it('makes, renders, expands and releases a blend', () => {
     const { doc, add, layer } = setup();
     const a = add(rectangle(0, 0, 10, 10), { fill: solid('#ff0000') });

@@ -29,6 +29,7 @@ import { nodeBounds, transformPatches } from '../../model/geometry.js';
 import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb } from '../../lib/color.js';
 import { multiply, scale, translate, rotate } from '../../lib/matrix.js';
 import { pathSampler } from '../../model/path-sampler.js';
+import { isGradient, sampleStops } from '../../model/gradients.js';
 
 export const DEFAULT_BLEND = Object.freeze({ spacing: 'smooth', steps: 5, distance: 20, orientation: 'page', easing: 'linear', easeAmount: 0.5, easeColor: true, colorMode: 'rgb' });
 
@@ -150,7 +151,22 @@ export function lerpColor(a, b, t, mode = 'rgb') {
   return rgbToHex({ r: Math.round(lerp(p.r, q.r, t)), g: Math.round(lerp(p.g, q.g, t)), b: Math.round(lerp(p.b, q.b, t)) });
 }
 
-/** Interpolate two paints. None blends as the other color fading out; mismatched kinds switch halfway. */
+/** A gradient's stops sampled at the given offsets (so two gradients can blend stop by stop). */
+function stopsAt(stops, offsets) {
+  return offsets.map((offset) => ({ offset, ...sampleStops(stops, offset) }));
+}
+
+/** A gradient shaped like `like` in one solid color (none: like's colors, transparent), for blending with it. */
+function flatGradient(paint, like) {
+  if (!paint) return { ...like, stops: like.stops.map((s) => ({ offset: s.offset, color: s.color, opacity: 0 })) };
+  return { ...like, stops: like.stops.map((s) => ({ offset: s.offset, color: paint.color, opacity: paint.opacity ?? 1 })) };
+}
+
+/**
+ * Interpolate two paints. None blends as the other color fading out; a solid color
+ * or none blends into a gradient as a gradient of that color; gradients with
+ * different stops blend at the stops of both; other mismatched kinds switch halfway.
+ */
 export function lerpPaint(a, b, t, mode = 'rgb') {
   if (!a && !b) return null;
   if (a?.type === 'solid' && b?.type === 'solid') {
@@ -162,6 +178,12 @@ export function lerpPaint(a, b, t, mode = 'rgb') {
   }
   if (!a && b?.type === 'solid') return { ...b, opacity: lerp(0, b.opacity ?? 1, t) };
   if (a?.type === 'solid' && !b) return { ...a, opacity: lerp(a.opacity ?? 1, 0, t) };
+  if (isGradient(b) && (!a || a.type === 'solid') && b.stops?.length) return lerpPaint(flatGradient(a, b), b, t, mode);
+  if (isGradient(a) && (!b || b.type === 'solid') && a.stops?.length) return lerpPaint(a, flatGradient(b, a), t, mode);
+  if (a && b && a.type === b.type && isGradient(a) && a.stops?.length && b.stops?.length && a.stops.length !== b.stops.length) {
+    const offsets = [...new Set([...a.stops, ...b.stops].map((s) => s.offset))].sort((x, y) => x - y);
+    return lerpPaint({ ...a, stops: stopsAt(a.stops, offsets) }, { ...b, stops: stopsAt(b.stops, offsets) }, t, mode);
+  }
   if (a && b && a.type === b.type && (a.type === 'linear' || a.type === 'radial') && a.stops.length === b.stops.length) {
     const sa = [...a.stops].sort((x, y) => x.offset - y.offset);
     const sb = [...b.stops].sort((x, y) => x.offset - y.offset);
