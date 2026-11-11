@@ -184,12 +184,17 @@ describe('instances', () => {
     const join = node(t, 'GeometryNodeJoinGeometry');
     link(t, outer, 'Instances', join, 'Geometry');
     link(t, node(t, 'GeometryNodeVolumeCube', { 'Resolution X': 4, 'Resolution Y': 4, 'Resolution Z': 4 }), 'Volume', join, 'Geometry');
+    // an attribute of the outer instances reaches the nested ones
+    const st = node(t, 'GeometryNodeStoreNamedAttribute', { Name: 'outer' }, { data_type: 'FLOAT', domain: 'INSTANCE' });
+    link(t, join, 'Geometry', st, 'Geometry');
+    link(t, node(t, 'GeometryNodeInputIndex'), 'Index', st, 'Value');
     const re = node(t, 'GeometryNodeRealizeInstances', { 'Realize All': false, Depth: 0 });
-    link(t, join, 'Geometry', re, 'Geometry');
+    link(t, st, 'Geometry', re, 'Geometry');
     const g = run(t, re).geometry;
     // the outer level is realized: its references were the 2 inner instances
     expect(g.instances?.count).toBe(6);
     expect(g.volume?.grids.length).toBe(1);
+    expect(attr(g, 'outer', 'INSTANCE')).toEqual([0, 0, 1, 1, 2, 2]);
   });
 
   it('Instance on Points keeps point attributes of several components and of source instances', () => {

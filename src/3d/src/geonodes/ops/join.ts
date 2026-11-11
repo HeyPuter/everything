@@ -312,19 +312,19 @@ export function transformGeometry(g: GeometrySet, m: ArrayLike<number>): Geometr
 // ---------------------------------------------------------------------------
 // Realize instances
 
-/** Propagate instance-domain attributes onto the point domain of realized geometry. */
+/** Propagate instance-domain attributes onto the point domain of realized geometry (instance domain of nested instances). */
 function withInstanceAttrs(g: GeometrySet, inst: InstancesComponent, i: number): GeometrySet {
   if (!inst.attrs.size) return g;
   return g.map((c) => {
-    if (c.kind === 'INSTANCES') return c;
     const out = c.copy();
-    const n = c.kind === 'MESH' ? c.vertCount : c.kind === 'POINTS' ? c.count : c.pointCount;
+    const n = c.kind === 'MESH' ? c.vertCount : c.kind === 'POINTS' ? c.count : c.kind === 'CURVES' ? c.pointCount : c.count;
+    const domain = c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT';
     for (const [name, a] of inst.attrs) {
       if (name === 'position' || out.attrs.has(name)) continue;
       const comps = dataComps(a.type);
       const data = allocData(a.type, n);
       for (let v = 0; v < n; v++) for (let k = 0; k < comps; k++) data[v * comps + k] = a.data[i * comps + k];
-      out.attrs.set(name, { domain: 'POINT', type: a.type, data });
+      out.attrs.set(name, { domain, type: a.type, data });
     }
     return out;
   });
