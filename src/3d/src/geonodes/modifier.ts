@@ -11,7 +11,7 @@ import { evalMeshToGeometry, geometryToEvalMesh, curveDataToCurves, materialSlot
 import { curveObjectModifierInput } from './curves/curvedata';
 import { greasePencilGeometry } from './curves/gpdata';
 import { attributeField } from './inputs';
-import { Field, ConstField } from './field';
+import { Field, ConstField, detectDomain } from './field';
 import { storeOn } from './nodes/geometry';
 import { isActiveViewer, VIEWER } from './nodes/output';
 import { gnResults, gnMessages, viewerState, resultListeners } from './results';
@@ -258,7 +258,12 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
       const gv = gs ? root.inputValue(vn, gs) : undefined;
       viewer = gv instanceof GeometrySet ? gv : GeometrySet.empty();
       const dom = String(vn.props.domain ?? 'AUTO');
-      const pick = (c: Component): Domain => (dom !== 'AUTO' && hasDomain(c, dom as Domain) ? (dom as Domain) : c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT');
+      // Auto: the domain the viewed field's inputs live on (Face Area on faces …), else points
+      const pick = (c: Component, f: Field): Domain => {
+        if (dom !== 'AUTO' && hasDomain(c, dom as Domain)) return dom as Domain;
+        const d = dom === 'AUTO' ? detectDomain(f, c) : null;
+        return d && hasDomain(c, d) ? d : c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT';
+      };
       // extra values of the viewer, each stored as its own attribute
       for (const it of viewerItems(vn)) {
         const s = socks.find((x) => x.identifier === viewerItemIn(it));
@@ -266,14 +271,14 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
         const t = fieldTypeOfEnum(String(it.data_type ?? 'FLOAT'));
         const v = root.inputValue(vn, s);
         const f = v instanceof Field ? v : new ConstField(t, (v ?? 0) as number);
-        viewer = viewer.map((c: Component) => storeOn(c, (viewerDomain = pick(c)), viewerAttr(it), t, f));
+        viewer = viewer.map((c: Component) => storeOn(c, (viewerDomain = pick(c, f)), viewerAttr(it), t, f));
       }
       if (vs && root.links(vn.id, 'Value').length) {
         const t = fieldTypeOfEnum(vn.props.data_type ?? 'FLOAT');
         const v = root.inputValue(vn, vs);
         const f = v instanceof Field ? v : new ConstField(t, (v ?? 0) as number);
         viewer = viewer.map((c: Component) => {
-          const d: Domain = dom !== 'AUTO' && hasDomain(c, dom as Domain) ? (dom as Domain) : c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT';
+          const d = pick(c, f);
           viewerDomain = d;
           return storeOn(c, d, '.viewer', t, f);
         });

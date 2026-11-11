@@ -32,6 +32,8 @@ export function allocField(type: FieldType, n: number): AttrArray {
 
 export abstract class Field {
   constructor(public readonly type: FieldType) {}
+  /** domain this input field's values naturally live on in a component (null: none), for automatic domains */
+  domainHint?: (comp: Component) => Domain | null;
   protected abstract compute(ctx: FieldContext): Evaluated;
   /** evaluate with per-context caching (fields shared by several consumers are computed once) */
   eval(ctx: FieldContext): Evaluated {
@@ -296,3 +298,33 @@ export function countSelected(sel: Uint8Array | null, n: number) {
 }
 
 export const isField = (v: unknown): v is Field => v instanceof Field;
+
+/** Give an input field its natural domain (see `detectDomain`). */
+export function withDomainHint<F extends Field>(f: F, hint: (comp: Component) => Domain | null): F {
+  f.domainHint = hint;
+  return f;
+}
+
+/**
+ * Domain a field is naturally evaluated on in a component (as the Viewer's automatic domain): the
+ * common natural domain of the inputs it reads; null when an input has none or they disagree.
+ */
+export function detectDomain(f: Field, comp: Component): Domain | null {
+  if (comp.kind === 'INSTANCES') return 'INSTANCE';
+  let out: Domain | null = null;
+  const seen = new Set<Field>();
+  const visit = (x: Field): boolean => {
+    if (seen.has(x)) return true;
+    seen.add(x);
+    if (x instanceof ConstField) return true;
+    if (x.domainHint) {
+      const d = x.domainHint(comp);
+      if (!d || (out && out !== d)) return false;
+      out = d;
+      return true;
+    }
+    if (x instanceof FnField) return x.inputs.every(visit);
+    return false;
+  };
+  return visit(f) ? out : null;
+}

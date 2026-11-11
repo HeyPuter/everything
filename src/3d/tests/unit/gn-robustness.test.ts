@@ -368,3 +368,42 @@ describe('results', () => {
     expect(gnResults.has('obA')).toBe(false);
   });
 });
+
+describe('viewer', () => {
+  /** Domain the viewer shows `socket` of `node` on (Auto domain). */
+  function viewedDomain(type: string, socket: string, extra?: (t: T, n: NodeData) => NodeData) {
+    const t = setup();
+    const grid = node(t, 'GeometryNodeMeshGrid');
+    link(t, grid, 'Mesh', t.out, 'Geometry');
+    const viewer = node(t, 'GeometryNodeViewer', {}, { viewer_active: true, domain: 'AUTO', data_type: 'FLOAT' });
+    link(t, grid, 'Mesh', viewer, 'Geometry');
+    let src = node(t, type);
+    if (extra) src = extra(t, src);
+    link(t, src, extra ? 'Value' : socket, viewer, 'Value');
+    const m = { id: 'md', name: 'GN', type: 'NODES', node_group: t.group.id } as unknown as ModifierBase;
+    return evaluateGroup(t.group, m, env(t.doc), GeometrySet.empty(), 'in', `viewer/${type}`, true).viewerDomain;
+  }
+
+  it('Auto shows a field on the domain its inputs live on', () => {
+    expect(viewedDomain('GeometryNodeInputMeshFaceArea', 'Area')).toBe('FACE');
+    expect(viewedDomain('GeometryNodeInputMeshEdgeNeighbors', 'Face Count')).toBe('EDGE');
+    expect(viewedDomain('GeometryNodeInputPosition', 'Position')).toBe('POINT');
+    // flat-shaded grid: normals vary per face
+    expect(viewedDomain('GeometryNodeInputNormal', 'Normal')).toBe('FACE');
+    // the index has no domain of its own
+    expect(viewedDomain('GeometryNodeInputIndex', 'Index')).toBe('POINT');
+    // math on the face area stays on faces; mixing with positions falls back to points
+    const math = (with2: boolean) => (t: T, area: NodeData) => {
+      const m = node(t, 'ShaderNodeMath', {}, { operation: 'ADD' });
+      link(t, area, 'Area', m, 'Value');
+      if (with2) {
+        const sep = node(t, 'ShaderNodeSeparateXYZ');
+        link(t, node(t, 'GeometryNodeInputPosition'), 'Position', sep, 'Vector');
+        link(t, sep, 'X', m, 'Value_001');
+      }
+      return m;
+    };
+    expect(viewedDomain('GeometryNodeInputMeshFaceArea', 'Area', math(false))).toBe('FACE');
+    expect(viewedDomain('GeometryNodeInputMeshFaceArea', 'Area', math(true))).toBe('POINT');
+  });
+});

@@ -2,7 +2,7 @@
 // Neighbors, Edge Vertices, Is Face Planar, Is Edge Smooth, Mesh Island and Shortest Edge Paths.
 import './fdata';
 import { gn } from './defs';
-import { Field, allocField, evalFull, makeContext, type Evaluated, type FieldContext } from '../field';
+import { Field, allocField, evalFull, makeContext, withDomainHint, type Evaluated, type FieldContext } from '../field';
 import { adaptDomain, readAttribute, type MeshComponent, type MeshTopology } from '../geometry';
 import { indexField } from '../inputs';
 import { cornerNormals, faceNormals, smoothFlags } from '../meshutil';
@@ -10,6 +10,8 @@ import type { Domain, FieldType } from '../types';
 
 const zeros = (type: FieldType): Evaluated => ({ data: allocField(type, 1), single: true });
 const mesh = (ctx: FieldContext): MeshComponent | null => (ctx.comp.kind === 'MESH' ? ctx.comp : null);
+/** A mesh field whose values naturally live on `d` (the Viewer's automatic domain). */
+const on = (d: Domain, f: Field) => withDomainHint(f, (c) => (c.kind === 'MESH' ? d : null));
 
 /** Field computed per element of the context from the mesh (null result: zeros). */
 class MeshField extends Field {
@@ -190,23 +192,23 @@ cornerNode(
 
 gn('GeometryNodeInputMeshEdgeNeighbors', 'input', {
   exec: () => ({
-    'Face Count': new MeshField('INT', (m, c) => {
+    'Face Count': on('EDGE', new MeshField('INT', (m, c) => {
       const t = m.topology();
       const n = new Int32Array(t.edgeCount);
       for (let e = 0; e < t.edgeCount; e++) n[e] = t.edgeFaceOffsets[e + 1] - t.edgeFaceOffsets[e];
       return onDomain(m, c, n, 'INT', 'EDGE');
-    }),
+    })),
   }),
 });
 
 gn('GeometryNodeInputMeshFaceNeighbors', 'input', {
   exec: () => ({
-    'Vertex Count': new MeshField('INT', (m, c) => {
+    'Vertex Count': on('FACE', new MeshField('INT', (m, c) => {
       const n = new Int32Array(m.faceCount);
       for (let f = 0; f < m.faceCount; f++) n[f] = m.faceOffsets[f + 1] - m.faceOffsets[f];
       return onDomain(m, c, n, 'INT', 'FACE');
-    }),
-    'Face Count': new MeshField('INT', (m, c) => {
+    })),
+    'Face Count': on('FACE', new MeshField('INT', (m, c) => {
       const t = m.topology();
       const n = new Int32Array(m.faceCount);
       for (let f = 0; f < m.faceCount; f++)
@@ -215,24 +217,24 @@ gn('GeometryNodeInputMeshFaceNeighbors', 'input', {
           n[f] += t.edgeFaceOffsets[e + 1] - t.edgeFaceOffsets[e] - 1;
         }
       return onDomain(m, c, n, 'INT', 'FACE');
-    }),
+    })),
   }),
 });
 
 gn('GeometryNodeInputMeshVertexNeighbors', 'input', {
   exec: () => ({
-    'Vertex Count': new MeshField('INT', (m, c) => {
+    'Vertex Count': on('POINT', new MeshField('INT', (m, c) => {
       const t = m.topology();
       const n = new Int32Array(m.vertCount);
       for (let v = 0; v < m.vertCount; v++) n[v] = t.vertEdgeOffsets[v + 1] - t.vertEdgeOffsets[v];
       return onDomain(m, c, n, 'INT', 'POINT');
-    }),
-    'Face Count': new MeshField('INT', (m, c) => {
+    })),
+    'Face Count': on('POINT', new MeshField('INT', (m, c) => {
       const t = m.topology();
       const n = new Int32Array(m.vertCount);
       for (let v = 0; v < m.vertCount; v++) n[v] = t.vertFaceOffsets[v + 1] - t.vertFaceOffsets[v];
       return onDomain(m, c, n, 'INT', 'POINT');
-    }),
+    })),
   }),
 });
 
