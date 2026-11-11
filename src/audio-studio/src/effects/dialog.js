@@ -224,7 +224,9 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   } }, icon('save', 15));
   const favBtn = app.favorites
     ? h('button.icon-btn', { type: 'button', 'aria-label': 'Save settings as a favorite', title: 'Save settings as a favorite', onclick: () => {
-        askName('Favorite name:', def.name, (name) => {
+        askName('Favorite name:', def.name, (text) => {
+          const name = String(text || '').trim();
+          if (!name) throw new Error('Enter a favorite name.');
           app.favorites.addEffect(name, def.id, values);
           announce(`Favorite ${name} saved`);
         });

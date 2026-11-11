@@ -6,6 +6,8 @@ import { effectsRackPanel, rackFor } from '../src/effects/rack-panel.js';
 import { Channel } from '../src/audio/channel.js';
 import { AudioFile } from '../src/model/audio-file.js';
 import { fakeApp, filled } from './fx-helpers.js';
+import { openEffectDialog } from '../src/effects/dialog.js';
+import { getEffect } from '../src/effects/registry.js';
 
 const pointer = (type, x, y) =>
   new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
@@ -180,5 +182,34 @@ describe('Effects Rack levels', () => {
     type(2, ' ');
     expect(rackFor(doc).mix).toBeCloseTo(0.4);
     panel.el.remove();
+  });
+});
+
+describe('effect dialog favorites', () => {
+  it('asks for a name instead of saving a favorite without one', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(480, 0.1))],
+    });
+    app.active = doc;
+    const saved = [];
+    app.favorites = { addEffect: (name) => saved.push(name) };
+    const done = openEffectDialog(app, getEffect('amplify'), { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    dlg.querySelector('[aria-label="Save settings as a favorite"]').click();
+    const bar = dlg.querySelector('.fx-namebar');
+    const input = bar.querySelector('input');
+    input.value = '   ';
+    [...bar.querySelectorAll('button')].find((b) => b.textContent === 'Save').click();
+    expect(saved).toEqual([]);
+    expect(bar.querySelector('.fx-name-error').textContent).toBe('Enter a favorite name.');
+    input.value = ' Louder ';
+    [...bar.querySelectorAll('button')].find((b) => b.textContent === 'Save').click();
+    expect(saved).toEqual(['Louder']);
+    expect(bar.hidden).toBe(true);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    expect(await done).toBe(null);
   });
 });
