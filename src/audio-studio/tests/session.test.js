@@ -171,6 +171,20 @@ describe('clip edits', () => {
     expect(S.addClipsOnTop(s, [])).toBe(s);
   });
 
+  it('ripple deletes time in selected clips only', () => {
+    let s = base(1);
+    const t0 = s.tracks[0].id;
+    const a = S.createClip({ trackId: t0, sourceId: 'x', start: 0, length: 300 });
+    const b = S.createClip({ trackId: t0, sourceId: 'x', start: 400, length: 100 });
+    const c = S.createClip({ trackId: t0, sourceId: 'x', start: 600, length: 100 });
+    s = S.addClips(s, [a, b, c]);
+    const r = S.rippleDeleteTime(s, 100, 200, { ids: [a.id, b.id] });
+    const parts = r.clips.filter((x) => x.sourceId === 'x').map((x) => [x.id === a.id, x.start, x.length]);
+    expect(parts).toEqual([[true, 0, 100], [false, 100, 100], [false, 300, 100], [false, 600, 100]]);
+    expect(S.findClip(r, b.id).start).toBe(300);
+    expect(S.findClip(r, c.id).start).toBe(600);
+  });
+
   it('ripple deleting overlapping clips closes the time they cover only once', () => {
     let s = base(1);
     const t0 = s.tracks[0].id;

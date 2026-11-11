@@ -562,8 +562,11 @@ export function rippleDeleteTime(state, a, b, { trackIds = null, ids = null } = 
   if (b <= a) return state;
   const cut = b - a;
   let s = removeTimeFromClips(state, a, b, { ids, trackIds });
-  const trackSet = trackIds ? new Set(trackIds) : ids ? new Set(state.clips.filter((c) => ids.includes(c.id)).map((c) => c.trackId)) : null;
-  const idSet = ids ? new Set(s.clips.filter((c) => state.clips.some((o) => o.id === c.id && ids.includes(o.id)) || !state.clips.some((o) => o.id === c.id)).map((c) => c.id)) : null;
+  const chosen = ids ? new Set(ids) : null;
+  const trackSet = trackIds ? new Set(trackIds) : ids ? new Set(state.clips.filter((c) => chosen.has(c.id)).map((c) => c.trackId)) : null;
+  // The chosen clips and the parts split from them (new ids).
+  const before = ids ? new Set(state.clips.map((c) => c.id)) : null;
+  const idSet = ids ? new Set(s.clips.filter((c) => chosen.has(c.id) || !before.has(c.id)).map((c) => c.id)) : null;
   s = {
     ...s,
     clips: s.clips.map((c) => {
