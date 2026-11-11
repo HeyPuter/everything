@@ -81,3 +81,44 @@ describe('recent files', () => {
     expect(session.recentFiles().some((e) => e.name === 'big.p3d')).toBe(false);
   });
 });
+
+describe('project files with missing parts', () => {
+  const p3d = (obj: unknown) => {
+    const enc = new TextEncoder().encode(JSON.stringify(obj));
+    const off = (12 + enc.length + 7) & ~7;
+    const b = new Uint8Array(off + 8);
+    const dv = new DataView(b.buffer);
+    dv.setUint32(0, 0x00443350, true);
+    dv.setUint32(4, 1, true);
+    dv.setUint32(8, enc.length, true);
+    b.set(enc, 12);
+    return b;
+  };
+
+  it('fills in missing tables, scene settings and object fields', async () => {
+    const { decodeDocument } = await import('../../src/io/native');
+    const { Depsgraph } = await import('../../src/eval/depsgraph');
+    const { doc } = decodeDocument(p3d({ doc: { scene: { name: 'S' }, objects: { ob_a: { name: 'Empty', type: 'EMPTY', data: null } } } }));
+    expect(doc.scene.name).toBe('S');
+    expect(doc.scene.render.resolution_x).toBeGreaterThan(0);
+    expect(doc.collections[doc.scene.collection]).toBeTruthy();
+    expect(doc.object_order).toEqual(['ob_a']);
+    expect(doc.objects.ob_a.location).toEqual([0, 0, 0]);
+    expect(doc.objects.ob_a.id).toBe('ob_a');
+    expect(() => new Depsgraph(doc).evaluate(doc)).not.toThrow();
+    // a file whose objects are not a table is rejected
+    expect(() => decodeDocument(p3d({ doc: { scene: {}, objects: [] } }))).toThrow('does not contain a scene');
+  });
+
+  it('keeps everything a complete file has', async () => {
+    const { decodeDocument, encodeDocument } = await import('../../src/io/native');
+    const src = startupDocument();
+    src.scene.frame_end = 77;
+    const { doc } = decodeDocument(encodeDocument(src));
+    expect(doc.scene.frame_end).toBe(77);
+    expect(doc.scene.collection).toBe(src.scene.collection);
+    expect(doc.scene.world).toBe(src.scene.world);
+    expect(doc.object_order).toEqual(src.object_order);
+    expect(Object.keys(doc.collections).sort()).toEqual(Object.keys(src.collections).sort());
+  });
+});

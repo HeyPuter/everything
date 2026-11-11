@@ -3,7 +3,7 @@
 // Typed arrays inside the document are stored as {"$buf": index, "$type": "Float32Array"} and
 // their bytes are appended to the binary section (8-byte aligned).
 import type { DocumentData } from '../data/types';
-import { defaultRender } from '../data/defaults';
+import { defaultRender, emptyDocument, newObject } from '../data/defaults';
 
 const MAGIC = 0x00443350; // 'P3D\0' little endian
 export const FORMAT_VERSION = 1;
@@ -100,13 +100,29 @@ export function decodeDocument(bytes: Uint8Array): { doc: DocumentData; extra: R
   });
   void offset;
   offset = 0;
-  if (!parsed?.doc?.scene || !parsed.doc.objects) throw new Error('The file does not contain a scene.');
+  const isRecord = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v);
+  if (!isRecord(parsed?.doc?.scene) || !isRecord(parsed.doc.objects)) throw new Error('The file does not contain a scene.');
   const { doc, ...extra } = parsed;
   return { doc: migrate(doc), extra };
 }
 
 /** Fill in fields added after a file was written. */
 export function migrate(doc: DocumentData): DocumentData {
+  // data-block tables and scene settings missing from the file get their defaults
+  const base = emptyDocument() as unknown as Record<string, unknown>;
+  const d = doc as unknown as Record<string, unknown>;
+  for (const k of Object.keys(base)) if (k !== 'brushes' && k !== 'object_order' && (d[k] === undefined || d[k] === null)) d[k] = base[k];
+  for (const sc of [doc.scene, ...Object.values(doc.scenes ?? {})]) {
+    if (!sc || typeof sc !== 'object') continue;
+    for (const [k, v] of Object.entries(base.scene as object)) if (k !== 'id' && k !== 'world') (sc as unknown as Record<string, unknown>)[k] ??= structuredClone(v);
+    if (sc.world === undefined) sc.world = doc.worlds[(base.scene as DocumentData['scene']).world!] ? (base.scene as DocumentData['scene']).world : null;
+    // the scene's master collection must exist
+    if (!doc.collections[sc.collection]) {
+      const master = (base.collections as DocumentData['collections'])[(base.scene as DocumentData['scene']).collection];
+      sc.collection = master.id;
+      doc.collections[master.id] = master;
+    }
+  }
   doc.brushes ??= {};
   doc.texts ??= {};
   doc.particles ??= {};
@@ -122,7 +138,10 @@ export function migrate(doc: DocumentData): DocumentData {
   // scenes are data-blocks with ids (files from before multiple scenes have one scene without)
   if (doc.scene) doc.scene.id ??= `sc_${Math.random().toString(36).slice(2, 10)}`;
   for (const [id, sc] of Object.entries(doc.scenes ?? {})) sc.id = id;
-  for (const ob of Object.values(doc.objects)) {
+  for (const [id, ob] of Object.entries(doc.objects)) {
+    ob.id ??= id;
+    const filled = newObject(typeof ob.name === 'string' ? ob.name : 'Object', ob.type ?? 'EMPTY', ob.data ?? null) as unknown as Record<string, unknown>;
+    for (const [k, v] of Object.entries(filled)) (ob as unknown as Record<string, unknown>)[k] ??= v;
     ob.particle_systems ??= [];
     ob.custom ??= {};
     ob.constraints ??= [];
