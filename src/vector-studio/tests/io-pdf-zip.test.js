@@ -136,6 +136,22 @@ describe('PDF export', () => {
   });
 });
 
+describe('clip groups in PDF export', () => {
+  it('keeps the alignment of a clipping path\'s stroke', async () => {
+    const doc = VDocument.create({ width: 120, height: 120 });
+    const layer = doc.layers()[0].id;
+    const content = createPath(rectangle(0, 0, 120, 120), true, { fill: { type: 'solid', color: '#ff0000' }, stroke: null });
+    const mask = createPath(ellipse(20, 20, 80, 80), true, { fill: null, stroke: { type: 'solid', color: '#0000ff' }, strokeWidth: 10, strokeAlign: 'inside' });
+    doc.transact('build', () => doc.insert(createGroup([content.id, mask.id], { clip: true }), layer, Infinity, [content, mask]));
+    doc.repairParents();
+    const { bytes } = await writePDF(doc, [doc.artboards[0]], { compress: false });
+    const page = streams(bytes).find((st) => /0 0 1 RG/.test(st.data)).data;
+    // An inside stroke is a double-width stroke inside a clip to the shape (a centered 10pt stroke would spill outside).
+    expect(page).toMatch(/W n\n20 w [^]*0 0 1 RG/);
+    expect(page).not.toMatch(/\n10 w /);
+  });
+});
+
 describe('document bleed in PDF export', () => {
   it('uses the document bleed per side with Use Document Bleed Settings', async () => {
     const doc = sampleDoc();

@@ -884,7 +884,7 @@ class PDFRenderer {
       for (const k of kids.slice(0, -1)) await this.node(ctx, k);
       ctx.ops.push('Q\n');
       if (!mask.hidden && mask.stroke && mask.strokeWidth > 0 && (mask.type === 'path' || mask.type === 'compound')) {
-        this.paintGeometry(ctx, { ...mask, opacity: 1 }, this.subpathsOf(mask), { fill: null });
+        this.paintGeometry(ctx, { ...mask, opacity: 1 }, this.subpathsOf(mask), { fill: null, strokeAlign: mask.strokeAlign || 'center' });
       }
       return;
     }
