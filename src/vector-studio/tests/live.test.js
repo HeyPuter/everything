@@ -166,3 +166,14 @@ describe('geometry effects', () => {
     }
   });
 });
+
+describe('live kind lookup cache', () => {
+  it('finds a kind registered after a node was first looked up', () => {
+    const n = createPath(rectangle(0, 0, 10, 10), true, { fill: null });
+    const tagged = { ...n, cacheProbe: true };
+    expect(isLive(tagged)).toBe(false);
+    registerLive('cacheProbe', { test: (x) => Boolean(x.cacheProbe), generate: () => [] });
+    expect(isLive(tagged)).toBe(true);
+    expect(isLive(n)).toBe(false);
+  });
+});
