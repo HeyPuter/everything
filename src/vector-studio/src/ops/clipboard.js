@@ -142,11 +142,14 @@ export function paste(editor, mode = 'center') {
       // Paste and Paste in Place follow the drawing mode (behind the selection, inside a path).
       ({ parentId, index } = editor.drawTarget());
     } else if ((mode === 'front' || mode === 'back') && sel.length) {
-      const anchorId = mode === 'front' ? sel[sel.length - 1] : sel[0];
-      const node = doc.get(anchorId);
+      let node = doc.get(mode === 'front' ? sel[sel.length - 1] : sel[0]);
+      // A subpath of a compound path (Direct Selection) stands for its compound: only paths go inside one.
+      while (doc.get(node.parent)?.type === 'compound') node = doc.get(node.parent);
       parentId = node.parent;
       const parent = doc.get(parentId);
-      index = parent.children.indexOf(anchorId) + (mode === 'front' ? 1 : 0);
+      index = parent.children.indexOf(node.id) + (mode === 'front' ? 1 : 0);
+      // In front of a clipping path stays below it, so it keeps clipping (the last child clips).
+      if (parent.clip && index === parent.children.length) index--;
     } else if (mode === 'back') index = 0;
     // Never into a locked or hidden layer (pasted artwork would be invisible or uneditable).
     if (doc.isLocked(parentId) || doc.isHidden(parentId)) {
