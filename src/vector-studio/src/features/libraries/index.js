@@ -16,6 +16,11 @@ export function install(app) {
   app.registerPanel(LibrariesPanel);
   // Signing in or out switches where libraries are kept.
   app.on('user', () => app.libraries.load(true));
+  // Edits wait briefly to be written together: write them before the page goes away.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') app.libraries.flush(null, { hiding: true });
+  });
+  window.addEventListener('pagehide', () => app.libraries.flush(null, { hiding: true }));
   app.on('started', () => {
     const host = app.canvasHost;
     if (!host) return;
