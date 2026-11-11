@@ -168,3 +168,21 @@ describe('instances', () => {
     expect(b.max[1] - b.min[1]).toBeCloseTo(2);
   });
 });
+
+describe('modifier inputs', () => {
+  it('converts a modifier input value when its socket type changes', async () => {
+    const { syncModifierInputs } = await import('../../src/geonodes/editor');
+    const t = setup();
+    t.tree.interface!.push(
+      { in_out: 'INPUT', name: 'A', socket_type: 'NodeSocketFloat', identifier: 'Socket_2' } as never,
+      { in_out: 'INPUT', name: 'B', socket_type: 'NodeSocketInt', identifier: 'Socket_3' } as never,
+      { in_out: 'INPUT', name: 'C', socket_type: 'NodeSocketColor', identifier: 'Socket_4' } as never,
+      { in_out: 'INPUT', name: 'D', socket_type: 'NodeSocketObject', identifier: 'Socket_5' } as never,
+      { in_out: 'INPUT', name: 'E', socket_type: 'NodeSocketVector', identifier: 'Socket_6' } as never,
+    );
+    // values kept from Vector, Object, Vector, Float and Color sockets
+    const m = { Socket_2: [1, 2, 3], Socket_3: 'ob_x', Socket_4: [1, 2, 3], Socket_5: 2, Socket_6: [0.5, 0.25, 0, 1] } as unknown as ModifierBase;
+    syncModifierInputs(m, t.group);
+    expect([m.Socket_2, m.Socket_3, m.Socket_4, m.Socket_5, m.Socket_6]).toEqual([1, 0, [1, 2, 3, 1], null, [0.5, 0.25, 0]]);
+  });
+});

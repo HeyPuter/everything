@@ -56,6 +56,18 @@ export function syncModifierInputs(m: ModifierBase, g: NodeGroupData | undefined
     if (it.in_out !== 'INPUT') continue;
     const { type } = interfaceSocketType(it.socket_type);
     if (type === 'GEOMETRY') continue;
+    const cur = m[it.identifier];
+    if (cur !== undefined && cur !== null) {
+      // a value kept from before the socket's type changed: convert it (or fall back to the default)
+      const nums = Array.isArray(cur) ? cur.filter((x): x is number => typeof x === 'number') : null;
+      const n = typeof cur === 'number' ? cur : typeof cur === 'boolean' ? Number(cur) : nums?.length ? nums[0] : undefined;
+      if (type === 'FLOAT' || type === 'INT') m[it.identifier] = n === undefined ? undefined : type === 'INT' ? Math.round(n) : n;
+      else if (type === 'BOOLEAN') m[it.identifier] = n === undefined ? undefined : n !== 0;
+      else if (type === 'VECTOR' || type === 'ROTATION') m[it.identifier] = nums && nums.length >= 3 ? nums.slice(0, 3) : n === undefined ? undefined : [n, n, n];
+      else if (type === 'RGBA') m[it.identifier] = nums && nums.length >= 3 ? [nums[0], nums[1], nums[2], nums[3] ?? 1] : n === undefined ? undefined : [n, n, n, 1];
+      else if (typeof cur !== 'string') m[it.identifier] = undefined;
+      else if (type !== 'STRING' && type !== 'MENU' && !['OBJECT', 'COLLECTION', 'MATERIAL', 'IMAGE', 'FONT', 'SOUND'].includes(type)) m[it.identifier] = undefined;
+    }
     if (m[it.identifier] === undefined) {
       const d = it.default_value;
       m[it.identifier] = Array.isArray(d)
