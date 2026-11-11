@@ -99,3 +99,27 @@ describe('undo history memory', () => {
     expect(v.history.length).toBe(65);
   });
 });
+
+describe('curve size ceiling', () => {
+  it('a curve whose bevel would not fit shows an error instead of crashing the evaluation', async () => {
+    await import('../../src/modes/curve/curve');
+    await import('../../src/modes/curve/bevel');
+    expect(app.run('curve.primitive_bezier_curve_add')).toBe('FINISHED');
+    const ob = app.activeObject!;
+    const cu = app.doc.curves[ob.data!];
+    const p0 = cu.splines[0].bezier_points[0];
+    cu.splines[0].bezier_points = Array.from({ length: 2000 }, (_, i) => ({ ...p0, co: [i, 0, 0], handle_left: [i - 0.3, 0, 0], handle_right: [i + 0.3, 0, 0] }));
+    cu.resolution_u = 1024;
+    cu.splines[0].resolution_u = 1024;
+    cu.bevel_depth = 0.1;
+    cu.bevel_resolution = 4;
+    app.changed('doc');
+    expect(() => app.graph.evaluate(app.doc)).not.toThrow();
+    const ev = app.graph.get(ob.id)!;
+    expect(ev.error).toMatch(/Curve would make/);
+    cu.resolution_u = cu.splines[0].resolution_u = 4;
+    app.graph.evaluate(app.doc);
+    expect(app.graph.get(ob.id)!.error).toBeUndefined();
+    expect(app.graph.get(ob.id)!.mesh!.positions.length).toBeGreaterThan(0);
+  });
+});

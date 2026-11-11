@@ -6,6 +6,7 @@ import { buildMesh, type PolyFace } from '../mesh/mesh';
 import { ShapeUtils, Vector2 } from 'three';
 import { textToCurves } from './text';
 import { knotSpec, basisAt, samples as nurbsSamples } from '../surface/nurbs';
+import { ensureMeshSize } from '../mesh/limits';
 
 export interface SampledSpline {
   points: Vec3[];
@@ -257,6 +258,13 @@ export function trimSampled(s: SampledSpline, start: number, end: number, mapSta
 
 export function curveToMesh(cu: CurveData, isText = false, shape: CurveShapeOptions = {}): EvalMesh {
   const splines = shape.splines ?? (isText ? textToCurves(cu) : cu.splines);
+  {
+    // estimate before sampling: points along the splines times the bevel/profile ring
+    let samples = 0;
+    for (const s of splines) samples += splineSegments(s) * Math.max(1, shape.resolution ?? (s.resolution_u || cu.resolution_u)) + 1;
+    const ring = shape.profile && shape.profile.length >= 2 ? shape.profile.length : cu.bevel_depth > 0 ? Math.max(4, (Math.max(0, cu.bevel_resolution) + 2) * 2) : cu.extrude > 0 ? 2 : 1;
+    ensureMeshSize(isText ? 'Text' : 'Curve', ring > 1 ? samples * ring * 4 : 0, samples * ring);
+  }
   const sampled = splines.map((s) => sampleSpline(shape.resolution ? { ...s, resolution_u: shape.resolution } : s, shape.resolution ?? cu.resolution_u));
   const positions: number[] = [],
     faces: PolyFace[] = [];
