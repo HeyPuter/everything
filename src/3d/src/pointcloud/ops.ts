@@ -158,6 +158,14 @@ onAppReady(() => {
         if (!m || !pc) continue;
         const me = newMeshData(ob.name, { positions: new Float32Array(m.positions), offsets: new Uint32Array([0]), indices: new Uint32Array(0), uvs: new Float32Array(0), normals: new Float32Array(0) });
         me.materials = [...pc.materials];
+        // the point attributes become vertex attributes (colors as color attributes)
+        const n = m.positions.length / 3;
+        if (n === pointCount(pc))
+          for (const a of pc.attributes) {
+            if (isInternal(a.name) || a.name === 'position' || a.data.length !== n * dataComps(a.data_type)) continue;
+            if (a.data_type === 'FLOAT_COLOR') me.color_attributes.push({ name: a.name, domain: 'POINT', data: Float32Array.from(a.data) });
+            else (me.attributes ??= []).push({ name: a.name, domain: 'POINT', data_type: a.data_type, data: a.data.slice() });
+          }
         doc.meshes[me.id] = me;
         const target = p.keep_original ? cloneObjectShallow(doc, ob) : ob;
         target.type = 'MESH';

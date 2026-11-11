@@ -18,8 +18,9 @@ import { transformSubmenu, mirrorSubmenu, snapSubmenu, mirrorMenuItems } from '.
 import { toolsByMode, COMMON_TOOLS } from '../editors/view3d/toolbar';
 import type { MenuItem } from '../ui/menu';
 import { dataComps } from '../geonodes/types';
-import { newObject } from '../data/defaults';
-import { addObjectToScene } from '../ops/object';
+import { uid } from '../data/defaults';
+import { uniqueName } from '../ops/object';
+import { cloneShared } from '../data/cow';
 import { transformModes } from '../modes/transformmodes';
 import { startValueModal } from '../modes/valuemodal';
 import { applySelectAction, randomSelection, duplicatePoints, radii, newPointCloud, pointCloudOf, pointCount, selection, setAttr, setSelection, subsetPoints, uniquePointCloudName, SELECTION } from './data';
@@ -164,13 +165,17 @@ registerOperators([
       npc.attributes = moved.attributes;
       npc.materials = [...pc.materials];
       ctx.doc.pointclouds![npc.id] = npc;
-      const nob = newObject(ob.name, 'POINTCLOUD', npc.id);
-      nob.parent = ob.parent;
-      nob.matrix_parent_inverse = ob.matrix_parent_inverse ? [...ob.matrix_parent_inverse] : ob.matrix_parent_inverse;
+      // a copy of the object (transforms, delta transforms, rotation mode, modifiers, collections),
+      // as mesh Separate makes
+      const nob = cloneShared(ob);
+      nob.id = uid('ob');
+      nob.name = uniqueName(ctx.doc, ob.name);
+      nob.data = npc.id;
+      nob.modifiers = nob.modifiers.map((md) => ({ ...md, id: uid('md') }));
+      ctx.doc.objects[nob.id] = nob;
+      ctx.doc.object_order.push(nob.id);
+      for (const c of Object.values(ctx.doc.collections)) if (c.objects.includes(ob.id)) c.objects.push(nob.id);
       const active = ob.id;
-      addObjectToScene(ctx.doc, nob, { location: [...ob.location], rotation: [...ob.rotation_euler] });
-      nob.scale = [...ob.scale];
-      nob.rotation_mode = ob.rotation_mode;
       // stay in Edit Mode on the original object
       nob.select = false;
       ctx.doc.objects[active].select = true;
