@@ -12,7 +12,7 @@ import {
   REMOVAL_DEFAULT, REGION_TYPES, MAX_REGIONS, defaultRegion, addRegion, removeRegion, regionProp, regionHasShape, clearRegionKeys, REGION_KEYED,
 } from '../../model/removal.js';
 import { segmented, sliderField, switchField } from '../controls.js';
-import { slider, propSection, createScope, note, toggle } from './common.js';
+import { slider, propSection, createScope, note, toggle, keepFocus } from './common.js';
 import { removeEdit, REMOVE_TOOLS } from '../remove-edit-state.js';
 import { followRegion } from '../removal-track.js';
 import { toast } from '../dialog.js';
@@ -95,38 +95,42 @@ export function removeTab(view) {
   const empty = h('p.insp-empty', 'Paint over an object, logo or watermark on the preview, or drag a box around it with the Box tool. It is filled in from the picture around it.');
   const full = note(`A clip can have up to ${MAX_REGIONS} regions.`);
 
+  // Rows are rebuilt after each change; focus goes back to the same control of the region.
+  const control = (i, act) => () => listEl.children[i]?.querySelector(`[data-act="${act}"]`);
   function rowFor(r, i) {
     const t = typeOf(r.type);
     const selected = i === sel();
     const keyed = REGION_KEYED.some((k) => view.clip?.keyframes?.[regionProp(i, k)]?.length);
     const name = `${i + 1}. ${t.label}${regionHasShape({ ...r, hidden: false }) ? '' : ' (empty)'}`;
-    const pick = h('button.mask-row-main', { type: 'button', 'aria-pressed': String(selected), 'aria-label': `Region ${i + 1}, ${t.label}${r.hidden ? ', hidden' : ''}${keyed ? ', follows motion' : ''}` },
+    const pick = h('button.mask-row-main', { type: 'button', dataset: { act: 'pick' }, 'aria-pressed': String(selected), 'aria-label': `Region ${i + 1}, ${t.label}${r.hidden ? ', hidden' : ''}${keyed ? ', follows motion' : ''}` },
       h('span.mask-row-icon', icon(t.icon, 16)), h('span.mask-row-name', name), keyed ? h('span.mask-row-mode', 'Moves') : null);
-    pick.addEventListener('click', () => {
+    pick.addEventListener('click', () => keepFocus(() => {
       removeEdit.set({ index: i, tool: r.type === 'rectangle' ? 'box' : removeEdit.tool === 'box' ? 'brush' : removeEdit.tool });
       tools.set(removeEdit.tool);
       render(true);
-    });
-    const btn = (name, label, fn) => {
-      const b = h('button.icon-btn.small', { type: 'button', 'aria-label': `${label} region ${i + 1}`, 'data-tip': label }, icon(name, 14));
+    }, control(i, 'pick')));
+    const btn = (name, label, act, fn) => {
+      const b = h('button.icon-btn.small', { type: 'button', 'aria-label': `${label} region ${i + 1}`, 'data-tip': label, dataset: { act } }, icon(name, 14));
       b.addEventListener('click', fn);
       return b;
     };
-    const eye = btn(r.hidden ? 'eyeOff' : 'eye', r.hidden ? 'Show' : 'Hide', () => {
+    const eye = btn(r.hidden ? 'eyeOff' : 'eye', r.hidden ? 'Show' : 'Hide', 'eye', () => keepFocus(() => {
       view.edit(r.hidden ? 'Show removal region' : 'Hide removal region', (c) => {
         const x = c.removal?.regions?.[i];
         if (!x) return false;
         if (x.hidden) delete x.hidden;
         else x.hidden = true;
       });
-    });
+    }, control(i, 'eye')));
     eye.setAttribute('aria-pressed', String(Boolean(r.hidden)));
-    const del = btn('trash', 'Delete', () => {
-      view.edit('Delete removal region', (c) => removeRegion(c, i));
-      removeEdit.set({ index: Math.max(0, i - 1) });
+    const del = btn('trash', 'Delete', 'delete', () => keepFocus(() => {
+      const s = sel();
+      if (!view.edit('Delete removal region', (c) => removeRegion(c, i))) return;
+      // Another region stays selected; the deleted one hands over to the one above it.
+      removeEdit.set({ index: s === i ? Math.max(0, i - 1) : s > i ? s - 1 : s });
       announce('Region deleted');
       render(true);
-    });
+    }, control(i, 'delete'), control(i - 1, 'delete'), () => newBtn));
     return h(`div.mask-row${selected ? '.selected' : ''}${r.hidden ? '.is-hidden' : ''}`, { role: 'listitem' }, pick, h('div.mask-row-tools', eye, del));
   }
 

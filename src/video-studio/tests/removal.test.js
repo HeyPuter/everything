@@ -501,6 +501,34 @@ describe('remove panel', () => {
     expect(clip().removal).toEqual({ ...REMOVAL_DEFAULT, regions: [] });
   });
 
+  it('keeps keyboard focus and the selected region through list changes', () => {
+    for (let i = 0; i < 3; i++) button('New painted region').click();
+    const [a, b, c] = clip().removal.regions.map((r) => r.id);
+    const types = () => clip().removal.regions.map((r) => r.id);
+    const press = (label) => {
+      const b = env.el.querySelector(`[aria-label^="${label}"]`);
+      b.focus();
+      b.click();
+    };
+    press('Region 2,');
+    expect(document.activeElement?.getAttribute('aria-label')).toMatch(/^Region 2,/);
+    press('Hide region 2');
+    expect(clip().removal.regions[1].hidden).toBe(true);
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Show region 2');
+    // Deleting another region keeps region 2 (now 1) selected.
+    press('Delete region 1');
+    expect(types()).toEqual([b, c]);
+    expect(removeEdit.index).toBe(0);
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Delete region 1');
+    press('Delete region 2');
+    expect(types()).toEqual([b]);
+    expect(removeEdit.index).toBe(0);
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Delete region 1');
+    press('Delete region 1');
+    expect(types()).toEqual([]);
+    expect(document.activeElement?.textContent.trim()).toBe('New painted region');
+  });
+
   it('offers follow motion only on video clips', () => {
     button('New painted region').click();
     expect(button('Follow motion').disabled).toBe(true);
