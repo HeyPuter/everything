@@ -56,7 +56,8 @@ export function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel
   const d = openDialog({ title, body: h('p.dialog-text', message), actions: [no, ok], labelledBody: true, className: 'small' });
   ok.addEventListener('click', () => d.close(true));
   no.addEventListener('click', () => d.close(false));
-  ok.focus();
+  // Enter takes the safe choice when the action destroys something (delete forever, leave unsaved).
+  (danger ? no : ok).focus();
   return d.result.then((v) => v === true);
 }
 
