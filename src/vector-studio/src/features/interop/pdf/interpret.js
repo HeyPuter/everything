@@ -1088,8 +1088,8 @@ export class Interpreter {
 
   imageAsset(img) {
     if (img.kind === 'unsupported') {
-      this.warn(`Images in ${img.codec} format cannot be shown and were replaced by gray boxes.`);
-      return { placeholder: true, width: img.width, height: img.height, label: `${what} image` };
+      this.warn(img.tooLarge ? 'Images too large to import were replaced by gray boxes.' : `Images in ${img.codec} format cannot be shown and were replaced by gray boxes.`);
+      return { placeholder: true, width: img.width, height: img.height, label: img.tooLarge ? 'Image too large to import' : `${img.codec} image` };
     }
     const id = uid('img');
     this.images.push({ id, img });

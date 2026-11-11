@@ -12,6 +12,7 @@ import { PDFDict, PDFStream, Name } from './primitives.js';
 import { decodeStream } from './filters.js';
 import { parseColorSpace, defaultDecode, DEVICE_SPACES } from './colors.js';
 import { filtersOf } from './filters.js';
+import { imageSizeOk } from '../codec/limits.js';
 
 // ---------------------------------------------------------------- codecs loaded on demand
 
@@ -188,8 +189,9 @@ function softMaskGray(xref, smask) {
   const d = smask.dict;
   const w = d.num('Width', 0);
   const h = d.num('Height', 0);
+  if (!imageSizeOk(w, h)) return null;
   const r = samplesOf(smask, { width: w, height: h });
-  if (r.image || !w || !h) return null;
+  if (r.image) return null;
   const bpc = r.bpc || d.num('BitsPerComponent', 8) || 8;
   const s = readSamples(r.bytes, w, h, r.comps || 1, bpc).filter((_, i) => !r.comps || i % r.comps === 0);
   const max = (1 << bpc) - 1;
@@ -208,13 +210,14 @@ function softMaskGray(xref, smask) {
  *   { kind: 'rgba', width, height, data: Uint8ClampedArray }
  *   { kind: 'jpeg', width, height, bytes, alpha?: { width, height, gray } }
  *   { kind: 'deferred', width, height, codecs } (load the codecs, then decode again)
- *   { kind: 'unsupported', width, height, codec }
+ *   { kind: 'unsupported', width, height, codec } (or tooLarge: true for images too large to decode)
  */
 export function decodeImage(xref, stream, resources, { fillRGB = [0, 0, 0] } = {}) {
   const dict = stream.dict;
   let width = Math.max(0, Math.floor(dict.num('Width', 0)));
   let height = Math.max(0, Math.floor(dict.num('Height', 0)));
   if (!width || !height) return null;
+  if (!imageSizeOk(width, height)) return { kind: 'unsupported', width, height, tooLarge: true };
   const st = stream instanceof PDFStream ? stream : new PDFStream(dict, stream.raw);
   const missing = missingCodecs(st);
   if (missing.length) return { kind: 'deferred', width, height, codecs: missing };

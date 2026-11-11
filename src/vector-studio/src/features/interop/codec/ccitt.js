@@ -12,6 +12,7 @@
  * reads as 1-bit DeviceGray. Damaged data ends the image: rows that could
  * not be decoded stay white.
  */
+import { MAX_IMAGE_PIXELS } from './limits.js';
 
 // Run-length codes as [run, code bits]. Terminating codes (0-63), make-up codes (64-1728)
 // and the extended make-up codes shared by both colors (1792-2560).
@@ -154,6 +155,7 @@ export function decodeCCITT(bytes, opts = {}) {
   const K = opts.K ?? 0;
   const columns = Math.max(1, opts.columns ?? 1728);
   const maxRows = opts.rows > 0 ? opts.rows : Infinity;
+  if (columns * (Number.isFinite(maxRows) ? maxRows : 1) > MAX_IMAGE_PIXELS) throw new Error('The fax image is too large');
   const blackIs1 = Boolean(opts.blackIs1);
   const byteAlign = Boolean(opts.byteAlign);
   const endOfBlock = opts.endOfBlock !== false;
@@ -165,7 +167,7 @@ export function decodeCCITT(bytes, opts = {}) {
   let ref = [columns, columns];
   let cur = [];
   for (let y = 0; y < maxRows; y++) {
-    if (br.done) break;
+    if (br.done || (y + 1) * columns > MAX_IMAGE_PIXELS) break;
     if (byteAlign && K < 0) br.align();
     let twoD = K < 0;
     if (K >= 0) {
