@@ -83,3 +83,19 @@ describe('preferences in two tabs', () => {
     setPref('shortcuts', {});
   });
 });
+
+describe('theme in two tabs', () => {
+  it('follows a theme chosen in another tab', async () => {
+    const { setTheme, onThemeChange } = await import('../src/ui/prefs.js');
+    setTheme('dark');
+    const seen = [];
+    const off = onThemeChange((t) => seen.push(t));
+    localStorage.setItem('video-studio:theme', 'light');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'video-studio:theme' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.dataset.themeResolved).toBe('light');
+    expect(seen).toEqual(['light']);
+    off();
+    setTheme('dark');
+  });
+});

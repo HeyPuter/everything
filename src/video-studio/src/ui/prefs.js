@@ -41,12 +41,6 @@ export function setPref(key, value) {
   }
 }
 
-// Another tab changed preferences: read them again next time.
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => {
-    if (e.key === KEY || e.key === null) cache = null;
-  });
-}
 
 // Theme lives under its own key so index.html can apply it before first paint.
 const THEME_KEY = 'video-studio:theme';
@@ -96,3 +90,12 @@ export function onThemeChange(fn) {
 media?.addEventListener?.('change', () => {
   if (getTheme() === 'system') applyTheme('system');
 });
+
+// Another tab changed preferences or the theme: read the preferences again next time, and
+// switch to the new theme here too.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY || e.key === null) cache = null;
+    if (e.key === THEME_KEY || e.key === null) applyTheme();
+  });
+}
