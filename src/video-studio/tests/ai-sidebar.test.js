@@ -578,6 +578,37 @@ describe('AI sidebar conversation', () => {
     for await (const p of aiChatStream([], {}, whole)) got.push(p);
     expect(got[1].input).toEqual({ __unreadable: 'nope{' });
   });
+
+  it('asks Puter for Claude itself, several calls a reply, and a prompt cache', async () => {
+    let seen = null;
+    const sdk = { ai: { chat: async (messages, options) => { seen = { messages, options }; return { message: { content: 'ok' } }; } } };
+    const t = [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'one' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'split', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'a', content: 'Done' },
+      { role: 'assistant', content: 'Split.' },
+      { role: 'user', content: 'two' },
+    ];
+    for await (const _ of aiChatStream(t, { model: 'claude-opus-5-5', tools: [{ type: 'function', function: { name: 'split' } }] }, sdk)) void _;
+    expect(seen.options).toMatchObject({ provider: 'claude', parallelToolCalls: true });
+    // The instructions, the end of the finished turn and the newest message are cache breakpoints.
+    expect(seen.messages[0].content[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
+    expect(seen.messages[4].content.at(-1).cache_control).toEqual({ type: 'ephemeral' });
+    expect(seen.messages[5].content.at(-1).cache_control).toEqual({ type: 'ephemeral' });
+    expect(JSON.stringify(seen.messages).match(/cache_control/g)).toHaveLength(3);
+    // The transcript given is left as it was.
+    expect(t[5].content).toBe('two');
+    // A tool result is sent in Claude's own shape, which keeps its breakpoint.
+    for await (const _ of aiChatStream(t.slice(0, 4), { model: 'claude-opus-5-5' }, sdk)) void _;
+    expect(seen.messages[3]).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: 'Done', cache_control: { type: 'ephemeral' } }] });
+    expect(seen.options.provider).toBe('claude');
+    // Other models are not pinned.
+    for await (const _ of aiChatStream(t, { model: 'gpt-5' }, sdk)) void _;
+    expect(seen.options.provider).toBeUndefined();
+    // Nor are their messages reshaped: Claude's cache marks and tool-result shape are for Claude only.
+    expect(seen.messages).toBe(t);
+  });
 });
 
 describe('AI sidebar panel', () => {
