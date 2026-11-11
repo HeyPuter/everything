@@ -28,8 +28,8 @@ export type Session = {
   seed: number;
   live?: { layerId: string; filters: LiveFilter[]; index: number; mask?: TileGrid; newMask?: TileGrid };
 };
-export { filterState, isLiveLayer, type FadeInfo } from './state';
-import { filterState, isLiveLayer } from './state';
+export { filterState, isLiveLayer, liveRect, type FadeInfo } from './state';
+import { filterState, isLiveLayer, liveRect } from './state';
 
 let keys = 0;
 export const randomSeed = () => (Math.random() * 0xffffffff) >>> 0;
@@ -65,7 +65,8 @@ function load(s: Session) {
  * bounds grown by the filter's reach (with slack so slider drags rarely reload). */
 function regionFor(s: Session, entries: StackEntry[], slack: boolean): IRect {
   const canvas = canvasRect(s.e.doc);
-  if (s.live || !s.selBounds) return canvas;
+  if (s.live) return s.rect;
+  if (!s.selBounds) return canvas;
   const m = stackMargin(entries);
   if (m === undefined) return canvas;
   return intersectRect(grow(s.selBounds, slack ? Math.ceil(m * 1.5) + 32 : m), canvas) ?? canvas;
@@ -111,7 +112,7 @@ export async function openSession(e: Editor, opId: string, params: ParamValues, 
     // A selection made before the first masked filter becomes the filter mask.
     const sel = selectionGrid(doc, e.assets.tiles);
     if (!editing && !layer.liveMask && sel && selectionBounds(doc, sel)) mask = newMask = sel;
-    const s: Session = { e, target: { kind: 'pixels', layer, grid: layer.pixels! }, base: layer.liveSource, rect: canvasRect(doc), key: '', selection: null, selBounds: null, seed: filters[index].seed, live: { layerId: layer.id, filters, index, mask, newMask } };
+    const s: Session = { e, target: { kind: 'pixels', layer, grid: layer.pixels! }, base: layer.liveSource, rect: liveRect(doc, layer.liveSource), key: '', selection: null, selBounds: null, seed: filters[index].seed, live: { layerId: layer.id, filters, index, mask, newMask } };
     load(s);
     return s;
   }
