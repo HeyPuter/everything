@@ -277,6 +277,10 @@ export class TreeEval {
     const h = hash(s);
     this.visiting.delete(node.id);
     this.sigMemo.set(node.id, h);
+    // a node still feeding the tree unchanged keeps its cached result, even when a cache hit
+    // downstream means it is not evaluated (so editing a node later does not redo its inputs)
+    const cached = this.cache.get(`${this.path}/${node.id}`);
+    if (cached && cached.sig === h) cached.used = this.log.generation;
     return h;
   }
 
@@ -464,8 +468,8 @@ export class TreeEval {
 }
 
 /**
- * Drop cache entries that have not been used for a while. Entries upstream of a cache hit are not
- * visited, so they are kept for some generations to keep re-editing a mid-tree node cheap.
+ * Drop cache entries that have not been used for a while (entries of nodes that are still part of
+ * the tree are marked used by their signature; group internals upstream of a cache hit are not).
  */
 export function pruneCache(cache: NodeCache, generation: number, keep = 24) {
   for (const [k, e] of cache) if (e.used < generation - keep) cache.delete(k);

@@ -25,6 +25,24 @@ function geoGroup(id: string): NodeGroupData {
 }
 
 describe('evaluation cache', () => {
+  it('keeps the results of unchanged inputs through a long playback', () => {
+    const t = setup();
+    const grid = node(t, 'GeometryNodeMeshGrid');
+    const sub = node(t, 'GeometryNodeSubdivideMesh', { Level: 1 });
+    link(t, grid, 'Mesh', sub, 'Mesh');
+    const comb = node(t, 'ShaderNodeCombineXYZ');
+    link(t, node(t, 'GeometryNodeInputSceneTime'), 'Seconds', comb, 'Z');
+    const sp = node(t, 'GeometryNodeSetPosition');
+    link(t, sub, 'Mesh', sp, 'Geometry');
+    link(t, comb, 'Vector', sp, 'Offset');
+    link(t, sp, 'Geometry', t.out, 'Geometry');
+    // the grid is upstream of the cached Subdivide Mesh on every frame
+    for (let f = 1; f <= 40; f++) run(t, sp, 'Geometry', undefined, { key: 'playback', frame: f });
+    sub.inputs.Level = 2;
+    // only Subdivide Mesh and Set Position run again
+    expect(run(t, sp, 'Geometry', undefined, { key: 'playback', frame: 40 }).log.executed).toBe(2);
+  });
+
   it('re-evaluates a group node when a group nested inside its group changes', () => {
     const t = setup();
     const inner = geoGroup('ng_inner');
