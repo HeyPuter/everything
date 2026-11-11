@@ -1100,6 +1100,7 @@ export class Outliner implements Editor {
     const finish = (ev: PointerEvent | null) => {
       removeEventListener('pointermove', move, true);
       removeEventListener('pointerup', up, true);
+      removeEventListener('pointercancel', cancel, true);
       removeEventListener('keydown', key, true);
       this.boxEl.hidden = true;
       if (!ev) return done?.('CANCELLED');
@@ -1108,6 +1109,8 @@ export class Outliner implements Editor {
       done?.('FINISHED');
     };
     const up = (ev: PointerEvent) => finish(ev);
+    // the browser took the touch over (scrolling the list): no box, no click
+    const cancel = () => finish(null);
     const key = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') {
         ev.stopPropagation();
@@ -1116,6 +1119,7 @@ export class Outliner implements Editor {
     };
     addEventListener('pointermove', move, true);
     addEventListener('pointerup', up, true);
+    addEventListener('pointercancel', cancel, true);
     addEventListener('keydown', key, true);
   }
 

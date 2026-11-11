@@ -217,3 +217,21 @@ test('the colour picker shows its value bar and cursor, and dragging the bar set
   expect(after[0]).toBeGreaterThan(before[0]);
   await expectNoErrors(errors);
 });
+
+test('an outliner box selection the browser cancels (touch scrolling) selects nothing later', async ({ page }) => {
+  const errors = await openApp(page);
+  const list = (await page.locator('.outliner .ol-list').first().boundingBox())!;
+  const sel = () => page.evaluate(() => Object.values((window as any).app.doc.objects as Record<string, { name: string; select: boolean }>).filter((o) => o.select).map((o) => o.name).sort());
+  const before = await sel();
+  // press on the empty space under the rows, drag up over them, then the browser cancels
+  const x = list.x + list.width / 2,
+    y = list.y + list.height - 6;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, list.y + 4, { steps: 4 });
+  await page.evaluate(() => dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1 })));
+  await expect(page.locator('.outliner .ol-box')).toBeHidden();
+  await page.mouse.up();
+  expect(await sel()).toEqual(before);
+  await expectNoErrors(errors);
+});
