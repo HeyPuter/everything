@@ -59,6 +59,11 @@ export class Player extends Emitter {
       onLutLoaded(() => this.invalidate()),
       onCutoutReady(() => this.invalidate()),
     ];
+    // The GPU can drop the context (sleep, driver reset); once the compositor has rebuilt its
+    // resources, draw again, or a paused preview stays black until something changes.
+    const onRestored = () => this.invalidate();
+    canvas.addEventListener?.('webglcontextrestored', onRestored);
+    this.offs.push(() => canvas.removeEventListener?.('webglcontextrestored', onRestored));
     if (proxies) {
       this.offs.push(proxies.on('change', ({ hash, removed } = {}) => {
         if (removed) this._forgetProxies(hash);

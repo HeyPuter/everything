@@ -181,3 +181,18 @@ describe('starting playback', () => {
     expect(player._heldTime(performance.now())).toBe(null);
   });
 });
+
+describe('losing the GPU context', () => {
+  it('draws the frame again once the context is restored', () => {
+    const p = fixture();
+    onMain(p, clip('image', 0, 5));
+    const { player } = setup(p);
+    player.playing = false;
+    const invalidate = vi.spyOn(player, 'invalidate').mockImplementation(() => {});
+    player.canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    player.dispose();
+    player.canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+});
