@@ -278,3 +278,23 @@ describe('damaged project files', () => {
     expect(() => decodeDocument(newer)).toThrow('newer version');
   });
 });
+
+describe('session follow-ups', () => {
+  it('Recover Last Session keeps the current work as an auto save first', async () => {
+    const { installFakeIndexedDb } = await import('./support/fakeidb');
+    installFakeIndexedDb();
+    vi.resetModules();
+    const appMod = await import('../../src/app/app');
+    appMod.setApp(new appMod.App(startupDocument()));
+    const files = await import('../../src/io/files');
+    const native = await import('../../src/io/native');
+    await import('../../src/scripting/wmops');
+    await native.saveRecovery(native.encodeDocument(startupDocument()), 'last.p3d');
+    const reasons: string[] = [];
+    files.fileEvents.beforeReplace = (r) => void reasons.push(r);
+    appMod.app.run('wm.recover_last_session', {}, { invoke: false });
+    await vi.waitFor(() => expect(appMod.app.filename).toBe('last.p3d'));
+    expect(reasons).toEqual(['Before Recovering the Last Session']);
+  }, 60000);
+
+});
