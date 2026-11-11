@@ -167,3 +167,21 @@ test('the viewport comes back after the graphics context is restored', async ({ 
   expect(r.px.slice(0, 3).some((c) => c > 60)).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('the viewport follows a device pixel ratio change (window moved to another display)', async ({ page }) => {
+  const errors = await openApp(page);
+  const size = page.viewportSize()!;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: size.width, height: size.height, deviceScaleFactor: 2, mobile: false });
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { renderContext } = await import('/src/render/context.ts' as string);
+        const eng = renderContext.engine;
+        return { dpr: eng.dpr, ratio: Math.round((eng.canvas.width / eng.canvas.clientWidth) * 10) / 10 };
+      }),
+    )
+    .toEqual({ dpr: 2, ratio: 2 });
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+  await expectNoErrors(errors);
+});

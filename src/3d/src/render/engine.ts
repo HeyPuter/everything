@@ -116,6 +116,8 @@ export class RenderEngine {
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
+    // a window moved to a display with another pixel density changes the ratio but not the size
+    if (Math.min(2, window.devicePixelRatio || 1) !== this.dpr) this.resize();
     for (const cb of this.frameCallbacks) cb();
     let animating = false;
     for (const v of this.viewports) if (v.visible() && v.animating?.()) animating = true;
