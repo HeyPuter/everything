@@ -27,7 +27,8 @@ export function effectTab(view) {
   const render = () => {
     const c = view.clip;
     if (!c) return;
-    if (pick.select.value !== c.effect && document.activeElement !== pick.select) pick.select.value = c.effect;
+    // Also while focused: setting the value of a native select does not close it or move focus.
+    if (pick.select.value !== c.effect) pick.select.value = c.effect;
     if (c.effect === shown) return;
     shown = c.effect;
     scoped.reset();

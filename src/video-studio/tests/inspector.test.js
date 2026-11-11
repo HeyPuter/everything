@@ -125,6 +125,27 @@ describe('inspector layout', () => {
   });
 });
 
+describe('pickers follow undo while they have focus', () => {
+  it('the filter and effect pickers of filter and effect clips', () => {
+    env.store.select(env.filt.id);
+    let sel = field('Filter').querySelector('select');
+    sel.focus();
+    sel.value = 'noir';
+    sel.dispatchEvent(new Event('change'));
+    expect(clip(env.filt.id).filter).toBe('noir');
+    env.store.undo();
+    expect(clip(env.filt.id).filter).toBe('vivid');
+    expect(sel.value).toBe('vivid');
+    env.store.select(env.fx.id);
+    sel = field('Effect').querySelector('select');
+    sel.focus();
+    sel.value = 'glitch';
+    sel.dispatchEvent(new Event('change'));
+    env.store.undo();
+    expect(sel.value).toBe('blur');
+  });
+});
+
 describe('top tabs that do not fit', () => {
   afterEach(() => closeMenus());
 

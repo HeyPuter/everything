@@ -82,7 +82,8 @@ export function filterClipTab(view) {
   });
   view.bind(() => {
     const c = view.clip;
-    if (c && pick.select.value !== c.filter && document.activeElement !== pick.select) pick.select.value = c.filter;
+    // Also while focused: setting the value of a native select does not close it or move focus.
+    if (c && pick.select.value !== c.filter) pick.select.value = c.filter;
   });
   return h('div', propSection('Filter', [pick.el, intensity.el], {
     onReset: () => view.edit('Reset filter', (c) => {

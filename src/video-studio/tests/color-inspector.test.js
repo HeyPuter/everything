@@ -409,6 +409,23 @@ describe('presets and the Color assets tab', () => {
     document.querySelectorAll('dialog, .toasts').forEach((d) => d.remove());
   });
 
+  it('the LUT picker follows undo while it has focus', async () => {
+    const luts = [{ id: 'lut1', name: 'Warm', kind: '3d', size: 33 }];
+    env.ctx.library = { listLuts: async () => luts, on: () => () => {} };
+    env.store.select(env.v2.id);
+    env.store.select(env.v1.id);
+    await new Promise((r) => setTimeout(r, 0));
+    const sel = [...env.el.querySelectorAll('.insp-row')].find((r) => r.textContent.startsWith('Look')).querySelector('select');
+    sel.focus();
+    sel.value = 'lut1';
+    sel.dispatchEvent(new Event('change'));
+    expect(clip(env.v1.id).grade.lut.id).toBe('lut1');
+    env.store.undo();
+    expect(clip(env.v1.id).grade?.lut ?? null).toBe(null);
+    expect(sel.value).toBe('');
+    expect(field('Intensity').hidden).toBe(true);
+  });
+
   it('adds color layers from drag data, validating it', () => {
     env.ctx.actions.addAdjustment({ start: 6 * US, name: 'Dropped', adjust: { exposure: 500, nope: 3 }, grade: { lut: { id: 'bad id!' }, hsl: { red: { h: 5 } } } });
     const c = env.store.selected.clip;
