@@ -271,3 +271,31 @@ test('with online access turned off the assistant says so and reaches nothing', 
   expect(asked).toEqual([]);
   await expect(page.locator('.as-input')).toHaveValue('hello');
 });
+
+test('New Chat during a reply stops it and keeps its changes one undo step', async ({ page }) => {
+  await openApp(page);
+  await page.evaluate(() => {
+    let n = 0;
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      n++;
+      if (n === 1) {
+        yield { type: 'tool', id: 'a', name: 'run_script', input: { description: 'Add a cube', code: 'bpy.ops.mesh.primitive_cube_add({location: [3, 0, 0]});' } };
+        yield { type: 'tool', id: 'b', name: 'run_script', input: { description: 'Add a sphere', code: 'bpy.ops.mesh.primitive_uv_sphere_add({location: [-3, 0, 0]});' } };
+        return;
+      }
+      await new Promise(() => {}); // still thinking
+    };
+  });
+  const history = () => page.evaluate(() => (window as any).app.undo.history.map((h: { label: string }) => h.label)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const before = (await history()).length;
+  await page.locator('.as-input').fill('build');
+  await page.locator('.as-input').press('Enter');
+  await expect(page.locator('.as-step.done')).toHaveCount(2);
+  await page.getByRole('button', { name: 'New chat' }).click();
+  await expect(page.locator('.assistant')).not.toHaveClass(/\bbusy\b/);
+  await expect(page.locator('.as-empty')).toBeVisible();
+  await expect.poll(async () => (await history()).slice(before)).toEqual(['Assistant: build']);
+  // one Undo takes the whole reply back
+  await page.evaluate(() => (window as any).app.undoStep()); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect((await objectNames(page)).sort()).toEqual(['Camera', 'Cube', 'Light']);
+});

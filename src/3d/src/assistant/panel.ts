@@ -564,7 +564,20 @@ export class AssistantPanel {
     return { el: node, body, text: null, steps: null, stepEls: new Map(), foot };
   }
 
-  private async run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
+  /** A reply that may still be winding down after New Chat stopped it. */
+  private inFlight: Promise<void> | null = null;
+
+  private run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>): Promise<void> {
+    // A reply New Chat stopped folds its changes into its undo step when it ends: the next one starts after that.
+    const before = this.inFlight;
+    const p = (before ? before.then(() => this.runTurn(request, go)) : this.runTurn(request, go)).finally(() => {
+      if (this.inFlight === p) this.inFlight = null;
+    });
+    this.inFlight = p;
+    return p;
+  }
+
+  private async runTurn(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
     const mark = app.undo.mark();
     const turn = this.newTurn();
     this.turn = turn;
@@ -605,11 +618,11 @@ export class AssistantPanel {
       res = { stopped: false, error: e as Error, steps: [] };
     }
     turn.el.removeAttribute('aria-busy');
-    if (this.turn !== turn) return;
-    if (turn.text) this.renderText(turn.text);
-    // Everything this message changed becomes one undo step.
+    // Everything this message changed becomes one undo step, also when New Chat stopped it.
     const label = `Assistant: ${short(request, 40)}`;
     const changed = !!mark && !app.undo.isCurrent(mark) && app.undo.squash(mark, label);
+    if (this.turn !== turn) return;
+    if (turn.text) this.renderText(turn.text);
     const after = app.undo.mark();
     if (res.stopped) turn.foot.append(el('span', { class: 'as-meta' }, 'Stopped.'));
     if (res.error) {
