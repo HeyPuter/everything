@@ -239,6 +239,14 @@ describe('buildCaptionClips', () => {
     p.tracks.unshift({ id: 't1', kind: 'text', locked: false, hidden: false, muted: false, clips });
     expect(captionCues(p)).toEqual([{ start: 0, end: 1, text: 'x' }, { start: 1, end: 2, text: 'y' }]);
   });
+  it('leaves captions that are turned off or on a hidden track out of the cues', () => {
+    const p = createProject();
+    const [a, b, c] = buildCaptionClips([{ start: 0, end: 1, text: 'shown' }, { start: 1, end: 2, text: 'off' }, { start: 2, end: 3, text: 'hidden' }]);
+    b.disabled = true;
+    p.tracks.unshift({ id: 't1', kind: 'text', locked: false, hidden: false, muted: false, clips: [a, b] });
+    p.tracks.unshift({ id: 't2', kind: 'text', locked: false, hidden: true, muted: false, clips: [c] });
+    expect(captionCues(p).map((x) => x.text)).toEqual(['shown']);
+  });
 });
 
 describe('Generate captions in the Captions tab', () => {

@@ -363,14 +363,17 @@ export function buildCaptionClips(cues, { presetId = 'subtitle', position = 'bot
   return clips;
 }
 
-/** Cues (seconds) for the caption clips in a project, in time order. */
+/** Whether a clip is a caption that shows in the video (not turned off, not on a hidden track). */
+export const shownCaption = (track, clip) => clip.type === 'text' && Boolean(clip.caption) && !clip.disabled && !track.hidden;
+
+/** Cues (seconds) for the caption clips that show in a project, in time order. */
 export function captionCues(project) {
   const out = [];
   // An export slice (model/slice.js) keeps captions that cross its edges whole; cut them there.
   const stop = project.end ?? Infinity;
   for (const t of project.tracks) {
     for (const c of t.clips) {
-      if (c.type !== 'text' || !c.caption) continue;
+      if (!shownCaption(t, c)) continue;
       const start = Math.max(0, c.start);
       const end = Math.min(clipEnd(c), stop);
       if (end > start) out.push({ start: start / US, end: end / US, text: c.text });

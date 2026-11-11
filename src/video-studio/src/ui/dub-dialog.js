@@ -8,7 +8,7 @@ import { h, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { makeClip } from '../model/project.js';
 import * as T from '../model/timeline.js';
-import { LANGUAGES, captionCues } from '../media/transcribe.js';
+import { LANGUAGES, captionCues, shownCaption } from '../media/transcribe.js';
 import { translateLines } from '../media/transcript.js';
 import { TTS_VOICES, aiAvailable, synthesize, speechFile } from '../media/tts.js';
 import { makeDub, placeSpeech } from '../media/dub.js';
@@ -72,7 +72,8 @@ export function openDubDialog(ctx, { translate = translateLines, speak = synthes
     return null;
   }
   const captionClips = [];
-  for (const t of store.project.tracks) for (const c of t.clips) if (c.type === 'text' && c.caption) captionClips.push(c);
+  // The same captions as the cues (the ones that show), so lines and clips stay paired.
+  for (const t of store.project.tracks) for (const c of t.clips) if (shownCaption(t, c)) captionClips.push(c);
   captionClips.sort((a, b) => a.start - b.start);
   const cues = captionCues(store.project);
   if (!cues.length) {
