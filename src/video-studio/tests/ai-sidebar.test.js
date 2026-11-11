@@ -385,6 +385,108 @@ describe('AI sidebar tools', () => {
     }
   });
 
+  describe('a result that finishes after its editor was left', () => {
+    /** A project file the left editor's runner saves into, and a way to finish its video. */
+    async function leftBehind() {
+      const { store, ctx } = setup(clip('video', 0, 4));
+      store.project.name = 'Trip';
+      let file = structuredClone(store.project);
+      ctx.library.openProject = vi.fn(async () => structuredClone(file));
+      ctx.library.saveProject = vi.fn(async (p) => {
+        file = structuredClone(p);
+      });
+      let open;
+      let stopped = false;
+      const { runner } = runnerFor(ctx, { generateVideo: vi.fn(() => new Promise((r) => (open = () => r(video())))) });
+      const running = runner.run('generate_video', { prompt: 'fox' }, { note: () => {}, stopped: () => stopped });
+      await vi.waitFor(() => expect(open).toBeTypeOf('function'));
+      runner.close();
+      stopped = true;
+      return {
+        ctx,
+        file: () => file,
+        edit: (fn) => {
+          const p = structuredClone(file);
+          fn(p);
+          file = p;
+        },
+        finish: async () => {
+          open();
+          expect(await running).toEqual({ skipped: true });
+        },
+      };
+    }
+    const made = (p) => Object.values(p.assets).filter((a) => a.origin === 'ai-video');
+    const realLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+    afterEach(() => {
+      if (realLocks) Object.defineProperty(navigator, 'locks', realLocks);
+      else delete navigator.locks;
+    });
+
+    it('never writes over edits saved while it reads the project', async () => {
+      const t = await leftBehind();
+      // The project, opened again (in another tab, say), is saved with an edit just after the late result read it.
+      const read = t.ctx.library.openProject.getMockImplementation();
+      t.ctx.library.openProject.mockImplementationOnce(async (id) => {
+        const copy = await read(id);
+        t.edit((p) => (p.name = 'Trip, edited'));
+        return copy;
+      });
+      await t.finish();
+      await vi.waitFor(() => expect(t.ctx.library.saveProject).toHaveBeenCalled());
+      expect(t.file().name).toBe('Trip, edited');
+      expect(made(t.file())).toHaveLength(1);
+    });
+
+    it('goes to the editor open on the project in another tab, not into the file it will save over', async () => {
+      // Another tab holds the project.
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: vi.fn(async (name, opts, cb) => (opts?.ifAvailable ? cb(null) : new Promise(() => {}))) } });
+      const t = await leftBehind();
+      const other = new BroadcastChannel('video-studio:ai-results');
+      const got = [];
+      other.onmessage = (e) => {
+        if (e.data?.type !== 'result' || e.data.projectId !== t.file().id) return;
+        got.push(e.data.asset);
+        other.postMessage({ type: 'taken', nonce: e.data.nonce });
+      };
+      await t.finish();
+      await vi.waitFor(() => expect(got).toHaveLength(1));
+      expect(got[0].origin).toBe('ai-video');
+      await new Promise((r) => setTimeout(r, 50));
+      expect(t.ctx.library.saveProject).not.toHaveBeenCalled();
+      other.close();
+    });
+
+    it('waits for another tab to let the project go when that tab does not take it', async () => {
+      let free;
+      const freed = new Promise((r) => (free = r));
+      let held = true;
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: vi.fn(async (name, opts, cb) => {
+        if (opts?.ifAvailable && held) return cb(null);
+        if (held) await freed;
+        return cb({ name });
+      }) } });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const t = await leftBehind();
+        const finishing = t.finish();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await finishing;
+        expect(t.ctx.library.saveProject).not.toHaveBeenCalled();
+        // The other tab saves an edit and closes the project.
+        t.edit((p) => (p.name = 'Trip, edited'));
+        held = false;
+        free();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.waitFor(() => expect(t.ctx.library.saveProject).toHaveBeenCalled());
+        expect(t.file().name).toBe('Trip, edited');
+        expect(made(t.file())).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('keeps what was made in the media only when another timeline was opened meanwhile', async () => {
     const { store, ctx, main } = setup(clip('image', 0, 3));
     let open;

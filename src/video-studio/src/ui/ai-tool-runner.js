@@ -66,6 +66,88 @@ export async function framePicture(ctx, t) {
 /** The runners of open editors by project id, for results that finish after their editor was left. */
 const openRunners = new Map();
 
+/** Where tabs hand each other results for a project one of them has open. */
+const RESULTS_CHANNEL = 'video-studio:ai-results';
+/** How long another tab has to say it took a result. */
+export const LATE_ANSWER_MS = 1500;
+/** How often a result waiting for another tab to let its project go tries again. */
+export const LATE_RETRY_MS = 3000;
+const resultsChannel = () => (typeof BroadcastChannel === 'function' ? new BroadcastChannel(RESULTS_CHANNEL) : null);
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Offer a result to the other tabs; true when an editor open on the project took it. */
+async function offerToTabs(projectId, asset) {
+  const channel = resultsChannel();
+  if (!channel) return false;
+  const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  try {
+    return await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), LATE_ANSWER_MS);
+      channel.onmessage = (e) => {
+        if (e.data?.type === 'taken' && e.data.nonce === nonce) {
+          clearTimeout(timer);
+          resolve(true);
+        }
+      };
+      channel.postMessage({ type: 'result', projectId, asset, nonce });
+    });
+  } finally {
+    channel.close();
+  }
+}
+
+/**
+ * Run fn() holding the project's claim (Library.claimProject's lock), so no editor has it open meanwhile; resolves
+ * fn's result, or null when an editor (in any tab) has it open now. Without locks, just runs fn().
+ */
+async function withProjectClaim(projectId, fn) {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+  if (!locks?.request) return fn();
+  return locks.request(`video-studio:project:${projectId}`, { ifAvailable: true }, (lock) => (lock ? fn() : null));
+}
+
+/** Add an asset to a saved project file, writing only over the file it read (else reading it again). */
+async function addToSavedProject(library, projectId, asset) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const saved = await library.openProject(projectId);
+    if (Object.hasOwn(saved.assets || {}, asset.id)) return;
+    const read = JSON.stringify(saved);
+    saved.assets = { ...saved.assets, [asset.id]: asset };
+    // Saved by someone else since it was read: their version is the one to add to.
+    if (JSON.stringify(await library.openProject(projectId)) !== read) continue;
+    await library.saveProject(saved);
+    return;
+  }
+  throw new Error('The project kept changing while the result was being added.');
+}
+
+/**
+ * A result finished after its editor was left (the "late save"): into an editor open on the project in this tab,
+ * else into the saved file while no editor has it open (holding its claim), else into the editor of the tab that
+ * has it open. An editor holding the
+ * project would save its own copy over the file (or the file over its newer edits), so while one does and doesn't
+ * take the result, it waits and tries again (waiting() is called once).
+ */
+export async function deliverLate(library, projectId, asset, { waiting } = {}) {
+  for (let told = false; ; ) {
+    const open = openRunners.get(projectId);
+    if (open) return open.add(asset);
+    const done = await withProjectClaim(projectId, async () => {
+      if (openRunners.get(projectId)) return false;
+      await addToSavedProject(library, projectId, asset);
+      return true;
+    });
+    if (done) return;
+    // Open in another tab (or opening in this one): that editor takes it.
+    if (done === null && (await offerToTabs(projectId, asset))) return;
+    if (done === null && !told) {
+      told = true;
+      waiting?.();
+    }
+    await pause(LATE_RETRY_MS);
+  }
+}
+
 /**
  * createAiToolRunner(ctx, services) -> { run(name, args, control), videoSeconds(name, args), close() }
  * services replace the slow or paid steps (tests): generateVideo(opts),
@@ -93,6 +175,16 @@ export function createAiToolRunner(ctx, services = {}) {
   let closed = false;
   const self = { add: (asset) => actions.registerAsset(asset) };
   if (project.id) openRunners.set(project.id, self);
+  // Results finished for this project in another tab, whose editor was left there.
+  const results = project.id ? resultsChannel() : null;
+  if (results) {
+    results.onmessage = (e) => {
+      const m = e.data;
+      if (closed || m?.type !== 'result' || m.projectId !== project.id || !m.asset?.id) return;
+      if (!Object.hasOwn(store.project.assets || {}, m.asset.id)) self.add(m.asset);
+      results.postMessage({ type: 'taken', nonce: m.nonce });
+    };
+  }
 
   // ---- Clips and pictures ----------------------------------------------------
 
@@ -263,16 +355,15 @@ export function createAiToolRunner(ctx, services = {}) {
     return { skipped: true };
   }
 
-  /** Made after the editor was left: into the editor open on the project again, else into its saved file. */
+  /**
+   * Made after the editor was left: into an editor open on the project (this tab or another), else into its saved
+   * file, never over edits saved since (see deliverLate).
+   */
   async function keepLeft(asset, what) {
     try {
-      const open = openRunners.get(project.id);
-      if (open) open.add(asset);
-      else {
-        const saved = await ctx.library.openProject(project.id);
-        saved.assets[asset.id] = asset;
-        await ctx.library.saveProject(saved);
-      }
+      await deliverLate(ctx.library, project.id, asset, {
+        waiting: () => toast(`The ${what} you were making for ${project.name} has finished. It goes into that project when the other tab that has it open closes it.`, { kind: 'info', duration: 8000 }),
+      });
       toast(`The ${what} you were making for ${project.name} has finished. It is in that project's media.`, { kind: 'success', duration: 8000 });
     } catch (err) {
       console.error(err);
@@ -522,6 +613,7 @@ export function createAiToolRunner(ctx, services = {}) {
       closed = true;
       project.name = store.project.name || project.name;
       if (openRunners.get(project.id) === self) openRunners.delete(project.id);
+      results?.close();
     },
   };
 }
