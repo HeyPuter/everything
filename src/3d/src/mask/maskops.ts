@@ -486,6 +486,9 @@ const ops: Operator[] = [
       }
       if (!n) return 'CANCELLED';
       for (const [l, pts] of before) remapShapeKeys(l, pts);
+      // the active spline follows the moved splines; the layers they left keep a valid one
+      for (const l of m.layers) l.active_spline = Math.min(l.active_spline, l.splines.length - 1);
+      dest.active_spline = dest.splines.length - 1;
       m.active_layer_index = target;
       done();
     },

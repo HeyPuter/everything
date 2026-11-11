@@ -168,3 +168,24 @@ test('sequencer: a mask modifier using an effect of its own strip renders (no en
   expect(warnings).toEqual([]);
   await expectNoErrors(errors);
 });
+
+test('mask: moving the active spline to another layer keeps both layers with a valid active spline', async ({ page }) => {
+  const errors = await videoWorkspace(page, 'Masking');
+  const box = (await page.locator('.clip-root').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('Alt+n');
+  const r = await page.evaluate(() => {
+    const app = (window as any).app;
+    app.run('mask.primitive_circle_add', { size: 0.2, location: [0.3, 0.5] }, { invoke: false });
+    app.run('mask.primitive_square_add', { size: 0.2, location: [0.7, 0.5] }, { invoke: false });
+    // the square (active, selected) goes to a new layer
+    app.run('mask.move_to_layer', { layer: -1 }, { invoke: false });
+    const m = Object.values(app.doc.masks)[0] as any;
+    return m.layers.map((l: any) => [l.splines.length, l.active_spline]);
+  });
+  expect(r).toEqual([
+    [1, 0],
+    [1, 0],
+  ]);
+  await expectNoErrors(errors);
+});
