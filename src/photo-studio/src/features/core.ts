@@ -11,7 +11,7 @@ import { escapeXML } from '../model/assets';
 import { formatShortcut, isMac } from '../app/shortcuts';
 import { appIcon } from '../app/shell';
 import { compositeRGBA, hexRgb, layerRGBA, nextLayerName, pixelTarget, rasterizeLayer, commitTarget } from './pixels';
-import { assertEditable, selectedRoots, groupLayers } from '../model/layers';
+import { assertEditable, selectedRoots, groupLayers, mergeVisibleStack } from '../model/layers';
 import { hasMask } from '../model/masks';
 import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
@@ -785,8 +785,7 @@ async function mergeVisible(e: Editor, stamp: boolean) {
     return;
   }
   e.command('Merge Visible', (d) => {
-    const hidden = d.layers.filter((x) => !x.visible);
-    d.layers = [...hidden, l];
+    d.layers = mergeVisibleStack(d.layers, l);
   });
   e.selected = l.id;
   e.update();

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { layer, newDocument, allLayers } from '../src/model/document';
 import {
   groupLayers,
+  mergeVisibleStack,
   moveLayers,
   reorderLayers,
   selectedRoots,
@@ -104,6 +105,20 @@ describe('layer organization', () => {
       history.execute('Too deep', (d) => moveLayers(d, new Set([a.id]), parent.id, 'inside')),
     ).toThrow();
     expect(history.document).toBe(doc);
+  });
+});
+describe('Merge Visible', () => {
+  it('keeps hidden layers, also inside visible groups, below or above the merged layer', () => {
+    const named = (kind: 'pixel' | 'group', name: string, visible = true) => Object.assign(layer(kind, name, 10, 10), { visible });
+    const g = named('group', 'G');
+    g.children = [named('pixel', 'Inner', false), named('pixel', 'B'), named('pixel', 'InnerTop', false)];
+    const hiddenGroup = named('group', 'HiddenGroup', false);
+    hiddenGroup.children = [named('pixel', 'Child')];
+    const merged = named('pixel', 'Merged');
+    const out = mergeVisibleStack([named('pixel', 'Low', false), named('pixel', 'A'), g, hiddenGroup], merged);
+    expect(out.map((l) => l.name)).toEqual(['Low', 'Inner', 'Merged', 'InnerTop', 'HiddenGroup']);
+    expect(out[4].children.map((l) => l.name)).toEqual(['Child']);
+    expect(mergeVisibleStack([named('pixel', 'H', false)], merged).map((l) => l.name)).toEqual(['H', 'Merged']);
   });
 });
 describe('shared transforms', () => {

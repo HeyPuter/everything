@@ -104,3 +104,21 @@ export function reorderLayers(doc: PhotoDocument, ids: ReadonlySet<string>, up: 
     }
   }
 }
+/** The layer stack after Merge Visible: `merged` replaces the visible layers.
+ * Hidden layers survive, also those inside visible groups (which are merged
+ * away), and stay below or above the merged layer as they were stacked
+ * relative to the topmost visible layer. */
+export function mergeVisibleStack(layers: Layer[], merged: Layer): Layer[] {
+  const hidden: Layer[] = [];
+  let below = -1;
+  const walk = (list: Layer[]) => {
+    for (const l of list) {
+      if (!l.visible) hidden.push(l);
+      else if (l.kind === 'group') walk(l.children);
+      else below = hidden.length;
+    }
+  };
+  walk(layers);
+  if (below < 0) below = hidden.length;
+  return [...hidden.slice(0, below), merged, ...hidden.slice(below)];
+}
