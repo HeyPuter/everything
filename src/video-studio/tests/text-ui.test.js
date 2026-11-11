@@ -131,6 +131,26 @@ describe('text details', () => {
     expect(document.activeElement).toBe(button('Pick key words'));
   });
 
+  it('highlighted words stay on their words while the text is edited', () => {
+    env.store.update('Mark', (p) => {
+      T.findClip(p, env.text.id).clip.marks = [1];
+    }, { structural: false });
+    const ta = env.el.querySelector('.insp-textarea');
+    ta.focus();
+    for (const v of ['O Hello world', 'Oh Hello world']) {
+      ta.value = v;
+      ta.dispatchEvent(new Event('input'));
+    }
+    expect(clip().marks).toEqual([2]);
+    ta.value = 'world';
+    ta.dispatchEvent(new Event('input'));
+    ta.dispatchEvent(new Event('change'));
+    expect(clip().marks).toEqual([0]);
+    env.store.undo();
+    expect(clip().text).toBe('Hello world');
+    expect(clip().marks).toEqual([1]);
+  });
+
   it('a keyed text color does not change with the playhead off the clip', () => {
     env.store.seek(2 * US);
     button('Add keyframe for color').click();

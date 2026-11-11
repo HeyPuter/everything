@@ -28,6 +28,7 @@ import { bubbleTab } from './text-bubble.js';
 import { effectsTab } from './text-effects.js';
 import { lookCanvas } from '../text-thumbs.js';
 import { wordsOf, pickKeywords } from '../../model/text-marks.js';
+import { remapMarks } from '../../model/find-replace.js';
 
 const fontCss = (id) => FONTS.find((f) => f.id === id)?.css || `'${id.replace(/'/g, '')}', sans-serif`;
 
@@ -46,6 +47,12 @@ function textBox(view) {
   ta.value = view.clip.text;
   ta.addEventListener('input', () => {
     view.edit('Edit text', (c) => {
+      // Highlighted words follow their words (word indexes shift as words come and go).
+      if (c.marks?.length) {
+        const marks = remapMarks(c.marks, c.text, ta.value);
+        if (marks.length) c.marks = marks;
+        else delete c.marks;
+      }
       c.text = ta.value;
     }, { key: 'text', final: false });
   });
