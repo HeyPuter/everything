@@ -5,7 +5,7 @@ import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { openPopover } from '../ui/menu';
 import { numberField, enumMenu, enumRow, checkbox } from '../ui/widgets';
-import type { Keyframe } from '../data/types';
+import type { Keyframe, SceneData } from '../data/types';
 import { keyingSetItems } from '../anim/keyingsets';
 
 /** Playback options kept for the session. */
@@ -139,6 +139,25 @@ function timeJumpPopover(): Child {
   ];
 }
 
+/** Set the start or end of the scene (or preview) range; the other end follows so start ≤ end. */
+export function setRange(s: SceneData, which: 'start' | 'end', v: number) {
+  if (s.use_preview_range) {
+    if (which === 'start') {
+      s.frame_preview_start = v;
+      if (v > (s.frame_preview_end ?? s.frame_end)) s.frame_preview_end = v;
+    } else {
+      s.frame_preview_end = v;
+      if (v < (s.frame_preview_start ?? s.frame_start)) s.frame_preview_start = v;
+    }
+  } else if (which === 'start') {
+    s.frame_start = v;
+    if (v > s.frame_end) s.frame_end = v;
+  } else {
+    s.frame_end = v;
+    if (v < s.frame_start) s.frame_start = v;
+  }
+}
+
 const tbtn = (ic: string, tip: string, onclick: () => void, on = false) => h('button', { key: tip, class: { 'hdr-toggle': true, on }, 'data-tip': tip, onclick }, icon(ic));
 
 /** Header controls shared by the Timeline, Dope Sheet and Sequencer: playback options, auto keying, transport, frames. */
@@ -222,14 +241,16 @@ export function playbackFooter(extra: Child = null, keying = false): Child {
         label: 'Start',
         value: s.use_preview_range ? (s.frame_preview_start ?? s.frame_start) : s.frame_start,
         int: true,
-        set: (v, f) => (s.use_preview_range ? (s.frame_preview_start = v) : (s.frame_start = v), app.changed('doc'), f && app.pushUndo('Frame Start')),
+        min: 0,
+        set: (v, f) => (setRange(s, 'start', v), app.changed('doc'), f && app.pushUndo('Frame Start')),
       }),
       numberField({
         id: 'anim-end',
         label: 'End',
         value: s.use_preview_range ? (s.frame_preview_end ?? s.frame_end) : s.frame_end,
         int: true,
-        set: (v, f) => (s.use_preview_range ? (s.frame_preview_end = v) : (s.frame_end = v), app.changed('doc'), f && app.pushUndo('Frame End')),
+        min: 0,
+        set: (v, f) => (setRange(s, 'end', v), app.changed('doc'), f && app.pushUndo('Frame End')),
       }),
     ),
   );

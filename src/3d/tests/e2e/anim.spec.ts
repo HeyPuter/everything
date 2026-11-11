@@ -496,3 +496,28 @@ test('playback continues from a frame set while playing and after undo', async (
   await page.evaluate(() => (window as any).app.run('screen.animation_play')); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
+
+test('timeline range fields keep start at or before end', async ({ page }) => {
+  const errors = await openApp(page);
+  const typeInto = async (id: string, text: string) => {
+    await page.locator(`.area[data-editor="TIMELINE"] [data-id="${id}"]`).first().dblclick();
+    const input = page.locator('input.editing');
+    await expect(input).toBeVisible();
+    await input.fill(text);
+    await input.press('Enter');
+    await expect(input).toHaveCount(0);
+  };
+  const range = () => page.evaluate(() => { const s = (window as any).app.doc.scene; return [s.frame_start, s.frame_end, s.frame_preview_start, s.frame_preview_end]; }); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await typeInto('anim-start', '300');
+  expect((await range()).slice(0, 2)).toEqual([300, 300]);
+  await typeInto('anim-end', '20');
+  expect((await range()).slice(0, 2)).toEqual([20, 20]);
+  await typeInto('anim-start', '-5');
+  expect((await range()).slice(0, 2)).toEqual([0, 20]);
+  // the preview range behaves the same
+  await page.locator('.area[data-editor="TIMELINE"] .tl-preview').first().click();
+  await typeInto('anim-end', '30');
+  await typeInto('anim-start', '40');
+  expect((await range()).slice(2)).toEqual([40, 40]);
+  await expectNoErrors(errors);
+});
