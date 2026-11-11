@@ -495,7 +495,14 @@ export class Home {
 
   /** Script to video: the new project opens when it is ready. */
   async scriptToVideo() {
-    const m = await import('./script-video.js');
+    let m;
+    try {
+      m = await import('./script-video.js');
+    } catch (err) {
+      console.error(err);
+      toast("Couldn't open Script to video. Check your connection and try again.", { kind: 'error' });
+      return;
+    }
     const env = { library: this.library, account: this.account };
     if (!m.aiReady(env)) {
       m.needAiDialog(this.account, 'Script to video');
