@@ -11,6 +11,7 @@ import { fakeApp, filled } from './fx-helpers.js';
 import { openEffectDialog } from '../src/effects/dialog.js';
 import { getEffect } from '../src/effects/registry.js';
 import { installPreviewEditor } from '../src/editor/preview-editor.js';
+import { installFavorites, favoritesPanel, saveFavorites } from '../src/effects/favorites.js';
 
 const pointer = (type, x, y) =>
   new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
@@ -356,5 +357,47 @@ describe('effect view layouts', () => {
       /\.gen-columns > \.fx-group:has\(\.gen-comps\) \{\s*flex: 1 1 100%;\s*min-width: 0;/,
     );
     expect(block).toMatch(/\.gen-comps \{\s*overflow-x: auto;/);
+  });
+});
+
+describe('Favorites panel', () => {
+  it('redraws on selection changes only when they change what a favorite can do', () => {
+    const app = fakeApp();
+    installFavorites(app);
+    app.commands.register({
+      id: 'test.needsSel',
+      label: 'Needs Selection',
+      enabled: (a) => Boolean(a.active?.hasSelection),
+      run: () => {},
+    });
+    saveFavorites(app.prefs, [
+      {
+        id: 'f1',
+        name: 'Needs Selection',
+        shortcut: '',
+        action: { type: 'command', command: 'test.needsSel' },
+      },
+    ]);
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 1000,
+      channels: [Channel.fromSamples(filled(1000, 0.1))],
+    });
+    doc.on('change', (e) => app.emit('doc-change', doc, e));
+    app.active = doc;
+    const panel = favoritesPanel(app);
+    document.body.append(panel.el);
+    const row = () => panel.el.querySelector('tbody tr');
+    const first = row();
+    expect(first.title).toMatch(/Not available/);
+    doc.setSelection(100, 200);
+    const second = row();
+    expect(second).not.toBe(first);
+    expect(second.title).not.toMatch(/Not available/);
+    // Moving the selection changes nothing for the favorite: the rows stay as they are.
+    doc.setSelection(100, 300);
+    doc.setSelection(150, 400);
+    expect(row()).toBe(second);
+    panel.el.remove();
   });
 });
