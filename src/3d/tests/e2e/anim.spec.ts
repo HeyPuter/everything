@@ -603,3 +603,33 @@ test('jump to keyframe passes keys between frames', async ({ page }) => {
   expect(await jump(false)).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('motion paths sample negative frames exactly and keep the current subframe', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { keyProperty } = await import('/src/anim/keyframes.ts');
+    const { prefs } = await import('/src/app/prefs.ts');
+    const ob = app.activeObject;
+    // x follows the frame number
+    ob.location[0] = -10;
+    keyProperty(app.doc, ob, 'location', 0, -10);
+    ob.location[0] = 300;
+    keyProperty(app.doc, ob, 'location', 0, 300);
+    app.doc.actions[ob.animation_data.action].fcurves[0].keyframe_points.forEach((k: { interpolation: string }) => (k.interpolation = 'LINEAR'));
+    app.run('object.select_all', { action: 'DESELECT' }, { invoke: false });
+    ob.select = true;
+    app.flush();
+    const was = prefs.use_negative_frames;
+    prefs.use_negative_frames = false;
+    app.setFrame(3, 0.5);
+    ob.animation_visualization = { type: 'RANGE', frame_start: -5, frame_end: 5, frame_before: 10, frame_after: 10, frame_step: 1, show_frame_numbers: false, show_keyframe_highlight: true };
+    app.run('object.paths_calculate', { display_type: 'RANGE', range: 'MANUAL' }, { invoke: false });
+    prefs.use_negative_frames = was;
+    const mp = ob.motion_path;
+    return { xs: mp.points.filter((_: number, i: number) => i % 3 === 0).map((x: number) => Math.round(x * 100) / 100), frame: [app.doc.scene.frame_current, app.doc.scene.frame_subframe] };
+  });
+  expect(r.xs).toEqual([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]);
+  expect(r.frame).toEqual([3, 0.5]);
+  await expectNoErrors(errors);
+});
