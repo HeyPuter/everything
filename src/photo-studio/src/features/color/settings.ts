@@ -26,10 +26,13 @@ import { INTENT_LABELS } from './proof';
 const LOAD = 'load';
 const intentOptions = () => INTENTS.map((i) => [i, INTENT_LABELS[i]] as [string, string]);
 
-/** Show a form whose selects may contain "Load…"; loading re-opens the form. */
+/** Show a form whose selects may contain "Load…"; loading re-opens the form
+ * with the values chosen so far (and the loaded profile in its field). */
 async function formWithLoad(title: string, build: () => Parameters<typeof formDialog>, onLoad: (field: string, ref: string) => void, live?: (form: HTMLFormElement) => void) {
+  let kept: Record<string, string> | undefined;
   for (;;) {
     const args = build();
+    if (kept) args[1] = args[1].map((f) => (f.name in kept! && kept![f.name] !== LOAD ? { ...f, value: kept![f.name] } : f));
     const pending = formDialog(...args);
     const form = document.querySelector<HTMLFormElement>('#dialog form');
     if (form && live) live(form);
@@ -37,9 +40,13 @@ async function formWithLoad(title: string, build: () => Parameters<typeof formDi
     if (!v) return null;
     const field = Object.keys(v).find((k) => v[k] === LOAD);
     if (!field) return v;
+    kept = v;
     try {
       const got = await pickIccFile();
-      if (got) onLoad(field, got.ref);
+      if (got) {
+        onLoad(field, got.ref);
+        delete kept[field];
+      }
     } catch (error) {
       document.querySelector<HTMLElement>('#status')!.textContent = error instanceof Error ? error.message : String(error);
     }
