@@ -27,4 +27,13 @@ describe('Puter AI requests', () => {
     // Unset, Puter allows one tool call per reply: every scene read costs a round trip.
     expect(calls[0].options.parallelToolCalls).toBe(true);
   });
+
+  it('asks Anthropic first for Claude models', async () => {
+    const calls = stubPuter();
+    await drain([{ role: 'user', content: 'hi' }], { model: 'claude-opus-5-5' });
+    // Unpinned, Puter may route to a reseller with none of the conversation in its prompt cache.
+    expect(calls[0].options.provider).toBe('claude');
+    await drain([{ role: 'user', content: 'hi' }], { model: 'gpt-5' });
+    expect(calls[1].options.provider).toBeUndefined();
+  });
 });
