@@ -305,3 +305,61 @@ describe('copy and paste objects', () => {
     expect(app.doc.metaballs[pasted.data!]).toBeTruthy();
   });
 });
+
+describe('delete a scene', () => {
+  const byName = (n: string) => Object.values(app.doc.objects).find((o) => o.name === n);
+  it('removes the objects and collections only it used, keeps referenced ones, and undo brings them back', async () => {
+    await import('../../src/scenes/ops');
+    const { activateScene } = await import('../../src/scenes/scenes');
+    const first = app.doc.scene;
+    const cols0 = Object.keys(app.doc.collections).length;
+    expect(app.run('scene.new', { type: 'FULL_COPY' }, { invoke: false })).toBe('FINISHED');
+    const copyScene = app.doc.scene;
+    expect(byName('Cube.001')).toBeTruthy();
+    const copyCol = Object.values(app.doc.collections).find((c) => c.name === 'Collection.001')!;
+    expect(copyCol).toBeTruthy();
+    // an empty of the first scene instances the copied collection: that collection stays
+    activateScene(app.doc, first.id!);
+    const inst = newObject('Inst', 'EMPTY', null);
+    addObjectToScene(app.doc, inst, { location: [0, 0, 0] });
+    inst.instance_type = 'COLLECTION';
+    inst.instance_collection = copyCol.id;
+    activateScene(app.doc, copyScene.id!);
+    app.pushUndo('setup');
+    expect(app.run('scene.delete', {}, { invoke: false })).toBe('FINISHED');
+    expect(app.doc.scene).toBe(first);
+    // Cube.001 / Camera.001 / Light.001 are in the instanced collection: kept with it
+    expect(app.doc.collections[copyCol.id]).toBeTruthy();
+    expect(byName('Cube.001')).toBeTruthy();
+    // without the instance they go
+    app.undoStep();
+    expect(Object.values(app.doc.objects).length).toBe(7);
+    const inst2 = byName('Inst')!;
+    inst2.instance_collection = null;
+    inst2.instance_type = 'NONE';
+    app.pushUndo('no instance');
+    expect(app.run('scene.delete', {}, { invoke: false })).toBe('FINISHED');
+    expect(Object.values(app.doc.objects).map((o) => o.name).sort()).toEqual(['Camera', 'Cube', 'Inst', 'Light']);
+    expect(Object.keys(app.doc.collections).length).toBe(cols0);
+    expect(app.doc.object_order.every((id) => app.doc.objects[id])).toBe(true);
+    // undo restores the scene and everything in it
+    app.undoStep();
+    expect(byName('Cube.001')).toBeTruthy();
+    expect(Object.values(app.doc.collections).some((c) => c.name === 'Collection.001')).toBe(true);
+  });
+
+  it('keeps an object a library override refers to', async () => {
+    await import('../../src/scenes/ops');
+    const { activateScene } = await import('../../src/scenes/scenes');
+    const first = app.doc.scene;
+    app.run('scene.new', { type: 'FULL_COPY' }, { invoke: false });
+    const copyScene = app.doc.scene;
+    const light = byName('Light.001')!;
+    activateScene(app.doc, first.id!);
+    (byName('Cube') as unknown as { override_library: unknown }).override_library = { reference: light.id };
+    activateScene(app.doc, copyScene.id!);
+    expect(app.run('scene.delete', {}, { invoke: false })).toBe('FINISHED');
+    expect(byName('Light.001')).toBeTruthy();
+    expect(byName('Cube.001')).toBeUndefined();
+  });
+});

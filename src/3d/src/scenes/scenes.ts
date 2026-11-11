@@ -323,17 +323,70 @@ export function deleteScene(doc: DocumentData, id: ID): boolean {
   const removed = doc.scenes![id];
   delete doc.scenes![id];
   for (const s of allScenes(doc)) if (s.background_set === id) s.background_set = null;
-  // objects of the deleted scene's master collection that nothing else links
-  const linked = new Set<ID>();
-  for (const c of Object.values(doc.collections)) for (const o of c.objects) linked.add(o);
-  for (const s of Object.values(doc.scenes ?? {})) for (const o of s.master_collection?.objects ?? []) linked.add(o);
-  const gone = new Set((removed.master_collection?.objects ?? []).filter((o) => !linked.has(o) && doc.objects[o]));
-  for (const o of gone) delete doc.objects[o];
-  if (gone.size) {
-    doc.object_order = doc.object_order.filter((o) => !gone.has(o));
-    for (const ob of Object.values(doc.objects)) if (ob.parent && gone.has(ob.parent)) ob.parent = null;
-  }
+  removeSceneContent(doc, removed);
   return true;
+}
+
+/**
+ * Remove the collections and objects only a deleted scene used. Anything still linked into another
+ * scene, or referenced by what stays (collection instances, parents, modifier / constraint targets,
+ * library overrides, node trees, …) is kept, together with its whole collection tree.
+ */
+function removeSceneContent(doc: DocumentData, removed: SceneData) {
+  const master = removed.master_collection;
+  if (!master) return;
+  // collections of the other scenes
+  const keptCols = new Set<ID>();
+  for (const m of allSceneMasters(doc)) for (const c of collectionTree(doc, m.id, m)) keptCols.add(c);
+  const candCols = new Set([...collectionTree(doc, removed.collection, master)].filter((c) => c !== removed.collection && !keptCols.has(c) && doc.collections[c]));
+  const candObs = new Set<ID>();
+  for (const o of master.objects) if (doc.objects[o]) candObs.add(o);
+  for (const c of candCols) for (const o of doc.collections[c].objects) if (doc.objects[o]) candObs.add(o);
+  // linked into a collection that stays
+  for (const c of Object.values(doc.collections)) if (!candCols.has(c.id)) for (const o of c.objects) candObs.delete(o);
+  for (const m of allSceneMasters(doc)) for (const o of m.objects) candObs.delete(o);
+  if (!candCols.size && !candObs.size) return;
+  // what stays refers to ids as string values anywhere in its data
+  const refs = new Set<string>();
+  const seen = new WeakSet<object>();
+  const scan = (v: unknown) => {
+    if (typeof v === 'string') {
+      if (candCols.has(v) || candObs.has(v)) refs.add(v);
+      return;
+    }
+    if (!v || typeof v !== 'object' || ArrayBuffer.isView(v) || seen.has(v)) return;
+    seen.add(v);
+    if (Array.isArray(v)) for (const x of v) scan(x);
+    else for (const x of Object.values(v)) scan(x);
+  };
+  const keepCollection = (c: ID, queue: unknown[]) => {
+    for (const t of collectionTree(doc, c)) {
+      if (!candCols.delete(t)) continue;
+      queue.push(doc.collections[t]);
+      for (const o of doc.collections[t].objects) if (candObs.delete(o)) queue.push(doc.objects[o]);
+    }
+  };
+  // everything outside the candidates (and outside the deleted scene) counts
+  for (const [key, table] of Object.entries(doc)) {
+    // (the object order lists every object without referring to it)
+    if (key === 'objects' || key === 'collections' || key === 'object_order') continue;
+    scan(table);
+  }
+  for (const o of Object.values(doc.objects)) if (!candObs.has(o.id)) scan(o);
+  for (const c of Object.values(doc.collections)) if (!candCols.has(c.id)) scan(c);
+  // a kept object or collection keeps what it refers to, in turn
+  while (refs.size) {
+    const queue: unknown[] = [];
+    for (const r of refs) {
+      if (candCols.has(r)) keepCollection(r, queue);
+      else if (candObs.delete(r)) queue.push(doc.objects[r]);
+    }
+    refs.clear();
+    for (const q of queue) scan(q);
+  }
+  for (const c of candCols) delete doc.collections[c];
+  for (const o of candObs) delete doc.objects[o];
+  if (candObs.size) doc.object_order = doc.object_order.filter((o) => !candObs.has(o));
 }
 
 /** Rename a scene (names are unique; sequencer Scene strips follow the new name). */
