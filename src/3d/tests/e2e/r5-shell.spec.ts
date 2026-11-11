@@ -464,3 +464,23 @@ test('with online access off the page does not fetch the Puter SDK; with it on t
   expect(hits.length).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('the default layout at phone width keeps the Properties editor readable', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  const errors = await openApp(page);
+  const props = (await page.locator('.area[data-editor="PROPERTIES"]').boundingBox())!;
+  expect(props.width).toBeGreaterThanOrEqual(150);
+  const view = (await page.locator('.area[data-editor="VIEW_3D"]').boundingBox())!;
+  expect(view.width).toBeGreaterThanOrEqual(150);
+  // the Location X value is shown, not clipped away
+  const value = page.locator('.properties .num-field[data-id$=".location.0"] .num-value').first();
+  expect((await value.boundingBox())!.width).toBeGreaterThan(12);
+  // the divider between them sits where they meet and still drags (the Properties side wider)
+  const edgeX = view.x + view.width + 1;
+  await page.mouse.move(edgeX, view.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(edgeX - 30, view.y + 200, { steps: 3 });
+  await page.mouse.up();
+  expect((await page.locator('.area[data-editor="PROPERTIES"]').boundingBox())!.width).toBeGreaterThan(props.width + 20);
+  await expectNoErrors(errors);
+});

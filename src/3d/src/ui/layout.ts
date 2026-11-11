@@ -15,16 +15,34 @@ export type Side = 'LEFT' | 'RIGHT' | 'UP' | 'DOWN';
 /** Pixel gap between neighbouring areas (the divider). */
 export const GAP = 2;
 
+/** Below this screen width (a phone) side-by-side areas keep a usable width (see splitFirst). */
+export const NARROW_SCREEN = 640;
+const NARROW_MIN = 200;
+
+/**
+ * Size of a split's first part (`len`: the split's width or height). In a narrow screen neither of
+ * two side-by-side areas is squeezed below NARROW_MIN px (e.g. the Properties column of the
+ * default layout on a phone); the stored ratio is kept, so wider windows are unchanged.
+ */
+export function splitFirst(n: Split, len: number, narrow: boolean, gap = GAP): number {
+  const avail = len - gap;
+  const a = Math.round(avail * n.ratio);
+  if (!narrow || n.split !== 'h') return a;
+  const min = Math.min(NARROW_MIN, Math.floor(avail * 0.45));
+  return Math.max(min, Math.min(avail - min, a));
+}
+
 /** Rectangles of all areas for a screen of `w`×`h` pixels (same rounding as the screen layout). */
 export function areaRects(n: LayoutNode, w: number, h: number, gap = GAP): Map<string, Rect> {
   const out = new Map<string, Rect>();
+  const narrow = w < NARROW_SCREEN;
   const place = (n: LayoutNode, x: number, y: number, w: number, hh: number) => {
     if ('area' in n) {
       out.set(n.area.id, { x, y, w, h: hh });
       return;
     }
     if (n.split === 'h') {
-      const wa = Math.round((w - gap) * n.ratio);
+      const wa = splitFirst(n, w, narrow, gap);
       place(n.a, x, y, wa, hh);
       place(n.b, x + wa + gap, y, w - wa - gap, hh);
     } else {
@@ -223,10 +241,11 @@ export interface LayoutEdge {
 /** All edges of a layout of `w`×`h` pixels (same rounding as the screen layout). */
 export function layoutEdges(root: LayoutNode, w: number, h: number, gap = GAP): LayoutEdge[] {
   const out: LayoutEdge[] = [];
+  const narrow = w < NARROW_SCREEN;
   const rec = (n: LayoutNode, x: number, y: number, ww: number, hh: number) => {
     if ('area' in n) return;
     if (n.split === 'h') {
-      const wa = Math.round((ww - gap) * n.ratio);
+      const wa = splitFirst(n, ww, narrow, gap);
       out.push({ node: n, dir: 'h', pos: x + wa + gap / 2, from: y, to: y + hh, start: x, size: ww });
       rec(n.a, x, y, wa, hh);
       rec(n.b, x + wa + gap, y, ww - wa - gap, hh);

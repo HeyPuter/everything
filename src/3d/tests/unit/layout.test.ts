@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { areaRects, splitLayout, joinLayout, swapLayout, neighbourOn, removeFromLayout, treeFromRects, leaves, sharedSide, sanitizeLayout } from '../../src/ui/layout';
+import { areaRects, splitLayout, joinLayout, swapLayout, neighbourOn, removeFromLayout, treeFromRects, leaves, sharedSide, sanitizeLayout, layoutEdges } from '../../src/ui/layout';
 import type { LayoutNode, AreaState } from '../../src/ui/screen';
 
 const A = (id: string): LayoutNode => ({ area: { id, type: 'VIEW_3D' } });
@@ -108,5 +108,28 @@ describe('layouts read from files', () => {
     expect(sanitizeLayout(H(0.5, A('a'), A('a')))).toBeNull();
     expect(sanitizeLayout(null)).toBeNull();
     expect(sanitizeLayout('Layout')).toBeNull();
+  });
+});
+
+describe('phone-width screens', () => {
+  // the default layout: [3D view over timeline | outliner over properties]
+  const def = () => H(0.822, V(0.925, A('view'), A('time')), V(0.18, A('out'), A('props')));
+
+  it('keep side-by-side areas usable without changing the stored ratios', () => {
+    const l = def();
+    const r = areaRects(l, 375, 650);
+    expect(r.get('props')!.w).toBeGreaterThanOrEqual(150);
+    expect(r.get('view')!.w + r.get('props')!.w + 2).toBe(375);
+    expect((l as { ratio: number }).ratio).toBe(0.822);
+    // stacked areas (the timeline height) are left alone
+    expect(r.get('time')!.h).toBe(areaRects(l, 1440, 650).get('time')!.h);
+    // the edge sits where the areas meet
+    const e = layoutEdges(l, 375, 650).find((x) => x.dir === 'h')!;
+    expect(e.pos).toBe(r.get('view')!.w + 1);
+  });
+
+  it('leave wide screens exactly as before', () => {
+    const r = areaRects(def(), 1440, 900);
+    expect(r.get('view')!.w).toBe(Math.round(1438 * 0.822));
   });
 });

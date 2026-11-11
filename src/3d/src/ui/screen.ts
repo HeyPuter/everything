@@ -6,7 +6,7 @@ import { openMenu, captureMenuItems, type MenuItem } from './menu';
 import { regionSizes, setRegionSizes } from './regionscale';
 import { app, type ChangeKind, type AreaLike } from '../app/app';
 import { prefs } from '../app/prefs';
-import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, layoutEdges, edgeNear, edgeRatio, alignedEdges, type Side, type LayoutEdge } from './layout';
+import { GAP, NARROW_SCREEN, splitFirst, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, layoutEdges, edgeNear, edgeRatio, alignedEdges, type Side, type LayoutEdge } from './layout';
 
 export { areaRects, type Side, type LayoutEdge };
 
@@ -600,6 +600,7 @@ export class Screen {
     if (!this.layout) return;
     const W = this.el.clientWidth,
       H = this.el.clientHeight;
+    const narrow = W < NARROW_SCREEN;
     this.dividers.forEach((d) => d.remove());
     this.dividers = [];
     const place = (n: LayoutNode, x: number, y: number, w: number, hgt: number) => {
@@ -611,7 +612,7 @@ export class Screen {
         return;
       }
       if (n.split === 'h') {
-        const wa = Math.round((w - GAP) * n.ratio);
+        const wa = splitFirst(n, w, narrow);
         place(n.a, x, y, wa, hgt);
         place(n.b, x + wa + GAP, y, w - wa - GAP, hgt);
         this.addDivider(n, 'h', x + wa, y, GAP, hgt);
