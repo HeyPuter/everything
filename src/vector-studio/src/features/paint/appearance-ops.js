@@ -220,7 +220,12 @@ export function moveItem(editor, from, to) {
     items.splice(to, 0, it);
     return items;
   });
-  if (ok && editor.appearanceTarget?.index === from) setAppearanceTarget(editor, to);
+  // The picked item stays picked: it moves along, or shifts when an item moves past it.
+  const t = editor.appearanceTarget?.index;
+  if (ok && t != null) {
+    const next = t === from ? to : from < t && t <= to ? t - 1 : to <= t && t < from ? t + 1 : t;
+    if (next !== t) setAppearanceTarget(editor, next);
+  }
   return ok;
 }
 

@@ -398,8 +398,7 @@ export class AppearancePanel extends Panel {
     if (!st?.owners.length || j < 0 || j >= st.items.length) return;
     moveItem(this.app.editor, i, j);
     this.expanded = new Set([...this.expanded].map((k) => (k === i ? j : k === j ? i : k)));
-    this.selectedRow = `item:${j}`;
-    this.update(true);
+    this.pick(`item:${j}`);
     this.list.querySelector(`[data-row="item:${j}"]`)?.focus();
   }
 
@@ -609,7 +608,8 @@ export class AppearancePanel extends Panel {
     if (at === f) return;
     moveItem(this.app.editor, f, at);
     this.expanded.clear();
-    this.selectedRow = `item:${at}`;
+    // The dragged row is highlighted, so it is the one the paint panels edit.
+    this.pick(`item:${at}`);
   }
 
   contentsRow(st, i, rows) {

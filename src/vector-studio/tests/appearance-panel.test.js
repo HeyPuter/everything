@@ -106,6 +106,49 @@ describe('Appearance panel: fills and strokes', () => {
     expect(ed.doc.get(id).stroke).toBe(null);
   });
 
+  it('keeps the paint panels on the highlighted item after a drag reorders the stack', async () => {
+    const { ed, add, panel } = await paintSetup();
+    const id = add({ fill: solid('#ff0000'), stroke: solid('#0000ff'), strokeWidth: 2 });
+    ed.select([id]);
+    const p = panel('appearance');
+    // Two extra fills on top: [fill*, stroke*, A, B], B picked.
+    p.pick('item:1');
+    p.addPaint('fill');
+    applyStyle(ed, { fill: solid('#00ff00') }, 'Fill Color');
+    p.addPaint('fill');
+    applyStyle(ed, { fill: solid('#ff00ff') }, 'Fill Color');
+    expect(kinds(ed.doc.get(id))).toEqual(['fill*', 'stroke*', 'fill', 'fill']);
+    p.update();
+    // Drag A (item 2) below the object's own fill (the bottom row).
+    p.dropItem('item:2', 0, true);
+    expect(kinds(ed.doc.get(id))).toEqual(['fill', 'fill*', 'stroke*', 'fill']);
+    p.update();
+    expect(p.selectedRow).toBe('item:0');
+    // The Color panel now edits the dragged (highlighted) fill A.
+    applyStyle(ed, { fill: solid('#ffff00') }, 'Fill Color');
+    const items = stackItems(ed.doc.get(id));
+    expect(items[0].fill).toEqual(solid('#ffff00'));
+    expect(items[3].fill).toEqual(solid('#ff00ff'));
+  });
+
+  it('keeps the picked item when another item moves past it', async () => {
+    const { ed, add, panel } = await paintSetup();
+    const { moveItem, targetedItem } = await import('../src/features/paint/appearance-ops.js');
+    const id = add({ fill: solid('#ff0000'), stroke: solid('#0000ff'), strokeWidth: 2 });
+    ed.select([id]);
+    const p = panel('appearance');
+    p.pick('item:1');
+    p.addPaint('fill');
+    applyStyle(ed, { fill: solid('#00ff00') }, 'Fill Color');
+    // Picked: the extra fill at 2. Moving the base fill from 0 to 2 shifts it to 1.
+    moveItem(ed, 0, 2);
+    expect(targetedItem(ed)?.index).toBe(1);
+    expect(targetedItem(ed).item.fill).toEqual(solid('#00ff00'));
+    // And moving it back shifts it up again.
+    moveItem(ed, 2, 0);
+    expect(targetedItem(ed)?.index).toBe(2);
+  });
+
   it('gives a picked item its own effects and opacity', async () => {
     const { app, ed, add, panel } = await paintSetup();
     const id = add({ fill: solid('#ff0000'), stroke: solid('#0000ff'), strokeWidth: 2 });
