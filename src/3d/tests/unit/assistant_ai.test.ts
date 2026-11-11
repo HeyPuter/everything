@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { puterChat, withCacheBreakpoints, type ChatMessage } from '../../src/assistant/ai';
-import { requestMessages } from '../../src/assistant/agent';
+import { createAgent, requestMessages } from '../../src/assistant/agent';
 
 type G = { puter?: unknown };
 
@@ -104,5 +104,32 @@ describe('Puter AI requests', () => {
     }
     // Dropping the oldest turn on every round changed where the request starts, and so every round rewrote the prompt cache.
     expect(starts.size).toBeLessThanOrEqual(3);
+  });
+
+  it('aborts the request when the user presses Stop', async () => {
+    let signal: AbortSignal | undefined;
+    let ended = false;
+    (globalThis as G).puter = {
+      ai: {
+        chat: async (_m: unknown, o: Record<string, unknown>) => {
+          signal = o.signal as AbortSignal;
+          // A stream that sends nothing for a long while (a long tool call being written).
+          return {
+            [Symbol.asyncIterator]() { return this; },
+            next: () => new Promise(() => {}),
+            return: async () => { ended = true; return { done: true, value: undefined }; },
+          };
+        },
+      },
+    };
+    const agent = createAgent({ chat: puterChat, tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => '', model: () => 'claude-opus-5-5' });
+    const res = agent.send('build', () => {});
+    while (!signal) await new Promise((r) => setTimeout(r, 1));
+    expect(signal.aborted).toBe(false);
+    agent.stop();
+    expect((await res).stopped).toBe(true);
+    // Puter's SDK aborts its HTTP request on the signal; the stream is ended too.
+    expect(signal.aborted).toBe(true);
+    expect(ended).toBe(true);
   });
 });

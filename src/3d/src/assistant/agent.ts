@@ -190,7 +190,8 @@ export function createAgent(o: AgentOptions) {
         let attempt = 0;
         for (;;) {
           try {
-            const iter = o.chat(req, { model: o.model(), tools: o.tools(), maxTokens: MAX_OUTPUT_TOKENS })[Symbol.asyncIterator]();
+            // Stop aborts the request too, so the service stops working (and charging) on it.
+            const iter = o.chat(req, { model: o.model(), tools: o.tools(), maxTokens: MAX_OUTPUT_TOKENS, signal: aborter.signal })[Symbol.asyncIterator]();
             for (;;) {
               const next = await Promise.race([iter.next(), stopSignal]);
               if (next === STOP) { Promise.resolve(iter.return?.()).catch(() => {}); break; }
