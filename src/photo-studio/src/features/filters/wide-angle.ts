@@ -149,7 +149,7 @@ class Workspace {
     window.addEventListener('resize', this.onResize);
     d.querySelector('.lq-props')!.addEventListener('change', (ev) => {
       const t = ev.target as HTMLInputElement;
-      const v = Number(t.value);
+      const v = t.value.trim() === '' ? NaN : Number(t.value);
       if (t.dataset.view === 'preview') this.preview = t.checked;
       else if (t.dataset.view === 'constraints') this.showConstraints = t.checked;
       else if (t.dataset.view === 'mesh') this.showMesh = t.checked;
@@ -160,12 +160,17 @@ class Workspace {
       } else if (t.dataset.opt === 'model') {
         this.model = t.value;
         this.solve();
-      } else if (Number.isFinite(v) && t.dataset.opt) {
+      } else if (t.dataset.opt) {
         const clamp = (lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-        if (t.dataset.opt === 'focal') this.focal = clamp(1, 200);
-        else if (t.dataset.opt === 'crop') this.crop = clamp(0.1, 10);
-        else if (t.dataset.opt === 'scale') this.scale = clamp(50, 150);
-        this.solve();
+        if (Number.isFinite(v)) {
+          if (t.dataset.opt === 'focal') this.focal = clamp(1, 200);
+          else if (t.dataset.opt === 'crop') this.crop = clamp(0.1, 10);
+          else if (t.dataset.opt === 'scale') this.scale = clamp(50, 150);
+          this.solve();
+        }
+        // A cleared or out-of-range entry shows the value in use.
+        const cur = ({ focal: this.focal, crop: this.crop, scale: this.scale } as Record<string, number>)[t.dataset.opt];
+        if (cur !== undefined) t.value = String(cur);
       }
       this.draw();
     });

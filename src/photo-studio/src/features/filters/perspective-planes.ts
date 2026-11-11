@@ -163,13 +163,20 @@ class Workspace {
     });
     d.querySelector('.lq-props')!.addEventListener('change', (ev) => {
       const t = ev.target as HTMLInputElement;
-      const v = Number(t.value);
-      if (!Number.isFinite(v)) return;
-      if (t.dataset.opt === 'size') this.size = Math.max(1, Math.min(2000, v));
-      else if (t.dataset.opt === 'hardness') this.hardness = Math.max(0, Math.min(1, v / 100));
-      else if (t.dataset.opt === 'opacity') this.opacity = Math.max(0.01, Math.min(1, v / 100));
-      else if (t.dataset.opt === 'grid') this.grid = Math.max(1, Math.min(40, Math.round(v)));
-      else if (t.dataset.opt === 'paste-size' && this.floating) this.floating.w = Math.max(0.01, Math.min(1, v / 100));
+      // A cleared or invalid entry keeps the value in use.
+      const v = t.value.trim() === '' ? NaN : Number(t.value);
+      if (Number.isFinite(v)) {
+        if (t.dataset.opt === 'size') this.size = Math.max(1, Math.min(2000, v));
+        else if (t.dataset.opt === 'hardness') this.hardness = Math.max(0, Math.min(1, v / 100));
+        else if (t.dataset.opt === 'opacity') this.opacity = Math.max(0.01, Math.min(1, v / 100));
+        else if (t.dataset.opt === 'grid') this.grid = Math.max(1, Math.min(40, Math.round(v)));
+        else if (t.dataset.opt === 'paste-size' && this.floating) this.floating.w = Math.max(0.01, Math.min(1, v / 100));
+      }
+      // Show the value in use (clamped).
+      const shown: Record<string, number | undefined> = { size: this.size, hardness: this.hardness * 100, opacity: this.opacity * 100, grid: this.grid, 'paste-size': this.floating && this.floating.w * 100 };
+      const cur = shown[t.dataset.opt ?? ''];
+      if (cur !== undefined) t.value = String(Math.round(cur));
+      else if (t.dataset.opt === 'paste-size') t.value = String(Math.max(1, Math.min(100, Number.isFinite(v) ? Math.round(v) : 50)));
       this.draw();
     });
     d.querySelector('.lq-props')!.addEventListener('click', (ev) => {
