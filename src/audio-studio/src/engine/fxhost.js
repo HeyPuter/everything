@@ -15,6 +15,20 @@
 const MAX_FRAMES = 8192;
 const READOUT_MAX = 64;
 
+/**
+ * A parameter value as handed to the processor, kept inside limits that depend
+ * on the sample rate. Multiband Compressor (kind 33): a low or mid crossover
+ * at the processor's ceiling (0.45 x rate / 1.21, / 1.1) trips a rounding
+ * error in its crossover ordering that aborts the WASM module (at 44.1 kHz a
+ * low crossover from 16.4 kHz up), so those two stay just below it.
+ */
+export function processorParam(kind, index, value, rate) {
+  if (kind === 33 && index < 2) {
+    return Math.min(value, (rate * 0.45 * 0.999) / (index === 0 ? 1.21 : 1.1));
+  }
+  return value;
+}
+
 export class FxHost {
   constructor(instance, rate) {
     this.x = instance.exports;
@@ -57,7 +71,7 @@ export class FxHost {
       const p = spec.params || [];
       for (let i = 0; i < p.length; i++) {
         if (s.params[i] !== p[i]) {
-          this.x.fx_set(s.handle, i, p[i]);
+          this.x.fx_set(s.handle, i, processorParam(spec.kind, i, p[i], this.rate));
           s.params[i] = p[i];
         }
       }
