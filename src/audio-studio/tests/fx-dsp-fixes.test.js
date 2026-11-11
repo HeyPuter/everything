@@ -122,3 +122,27 @@ describe('Chorus feedback', () => {
     }
   });
 });
+
+describe('Phaser tail', () => {
+  it('reports the ring-out of strong feedback, matching the definition', async () => {
+    const { getEffect, defaults, slotSpec, effectTail } = await import('../src/effects/index.js');
+    const def = getEffect('phaser');
+    const x = instance();
+    for (const extra of [
+      {},
+      { feedback: 85 },
+      { stages: 12, depth: 100, upperFreq: 300, feedback: -90 },
+    ]) {
+      for (const rate of [8000, 44100, 192000]) {
+        const values = { ...defaults(def), ...extra };
+        const h = x.fx_new(72, rate, 2);
+        slotSpec(def, values).params.forEach((v, i) => x.fx_set(h, i, v));
+        const js = effectTail(def, values, rate);
+        expect(Math.abs(x.fx_tail(h) - js), JSON.stringify(extra)).toBeLessThanOrEqual(
+          Math.max(2, js * 1e-5),
+        );
+        x.fx_free(h);
+      }
+    }
+  });
+});

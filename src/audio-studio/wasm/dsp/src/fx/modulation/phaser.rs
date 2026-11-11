@@ -7,6 +7,7 @@
 //! 6 feedback %, 7 mix %, 8 output gain dB.
 
 use super::fsin;
+use crate::fx::delay::feedback_tail;
 use crate::fx::util::{db_to_gain, sanitize, PI};
 use crate::fx::{Effect, Smooth};
 
@@ -142,15 +143,40 @@ impl Effect for Phaser {
         self.count = 0;
     }
 
+    /// Until the feedback loop rings down by 60 dB, at least the 50 ms the
+    /// stages ring on their own. Each pass round the loop loses the feedback
+    /// amount and takes the stages' group delay, longest at the lowest break
+    /// frequency of the sweep: 1 / tan(pi f / rate) frames per stage.
     fn tail(&self) -> u32 {
-        // All-pass ringing is short; a fixed 50 ms covers feedback decay.
-        (self.rate as f64 * 0.05).round() as u32
+        let rate = self.rate as f64;
+        let lower = (self.upper * (-MAX_OCTAVES * self.depth).exp2()).max(20.0) as f64;
+        let k = (std::f64::consts::PI * lower.clamp(10.0, rate * 0.45) / rate).tan();
+        let pass = self.stages as f64 / k;
+        (rate * 0.05).round().max(feedback_tail(pass, self.fb.abs() as f64, self.rate) as f64) as u32
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::fx::testutil::*;
+
+    #[test]
+    fn tail_lasts_until_strong_feedback_rings_down() {
+        let rate = 48000.0;
+        let mut fx = make(72, rate, 1);
+        for (i, v) in [(0, 12.0), (2, 100.0), (5, 300.0), (6, -90.0), (7, 100.0)] {
+            fx.set_param(i, v);
+        }
+        fx.reset();
+        let tail = fx.tail() as usize;
+        assert!(tail > 24000, "{tail}");
+        let mut x = sine(150.0, rate, 24000, 0.5);
+        x.extend(std::iter::repeat(0.0).take(tail + 48000));
+        let y = run_mono(fx.as_mut(), &x);
+        let peak = |s: &[f32]| s.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        let ratio = peak(&y[24000 + tail..]) / peak(&y[..24000]);
+        assert!(ratio < 1e-3, "{ratio}");
+    }
 
     fn gain_at(f: f32, upper: f32) -> f32 {
         // Static phaser (no sweep) with two stages: each shifts 90 degrees at
