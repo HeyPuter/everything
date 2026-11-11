@@ -112,3 +112,17 @@ describe('East Asian paragraph options in the panel', () => {
     expect(app.commands.get('type.mojikumi.basic').checked(app)).toBe(true);
   });
 });
+
+describe('vertical presentation forms', () => {
+  it('vertical type draws stops, brackets and ellipses in their vertical forms and turns the prolonged sound mark', () => {
+    const text = 'カード「例」、です。…';
+    const v = layoutText(createText(text, 0, 0, { kind: 'area', vertical: true, width: 40, height: 400, char: { ...createText('', 0, 0).char, ...CHAR } }));
+    expect(v.chars.disp.join('')).toBe('カード﹁例﹂︑です︒︙');
+    expect(v.chars.rot?.[1]).toBe(1);
+    expect(v.text).toBe(text);
+    // Horizontal type keeps the characters as typed.
+    const h = layoutText(createText(text, 0, 0, { char: { ...createText('', 0, 0).char, ...CHAR } }));
+    expect(h.chars.disp.join('')).toBe(text);
+    expect(h.chars.rot).toBeNull();
+  });
+});

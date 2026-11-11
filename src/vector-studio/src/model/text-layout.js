@@ -19,7 +19,7 @@
 import { styledRuns, paragraphRanges, paraAt, baseStyle, clusterAt } from './text-runs.js';
 import { flattenPath, pathBounds } from './bezier.js';
 import { hyphenationOf, hyphenPoints } from './hyphenate.js';
-import { kinsokuAllows, hangsOut, applyMojikumi, isCJKChar } from './cjk.js';
+import { kinsokuAllows, hangsOut, applyMojikumi, isCJKChar, VERTICAL_FORMS, TURNS_IN_VERTICAL } from './cjk.js';
 
 // ---- font hooks and caches ----
 
@@ -486,9 +486,10 @@ function measureChars(node, text, vertical, tm = TYPE_METRICS) {
         if (ch !== SHY) prev = null;
         continue;
       }
+      if (vertical && VERTICAL_FORMS.has(d.c)) out.disp[i] = d.c = VERTICAL_FORMS.get(d.c);
       const w = (width100(st, key, d.c) * size) / 100;
       out.gw[i] = w * hs;
-      if (vertical && st.verticalRoman && !isCJKChar(d.c) && !isSpace(ch)) {
+      if (vertical && ((st.verticalRoman && !isCJKChar(d.c) && !isSpace(ch)) || TURNS_IN_VERTICAL.has(d.c))) {
         // Turned sideways: the glyph's width runs down the column.
         (out.rot || (out.rot = zeros(n)))[i] = 1;
         out.adv[i] = w * hs + track;
