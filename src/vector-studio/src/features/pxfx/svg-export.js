@@ -83,7 +83,17 @@ function rasterMarkup(node, w, depth) {
   return `${w.nl(depth)}<image${w.nameId(node.name)} x="${w.n(p.x)}" y="${w.n(p.y)}" width="${w.n(r.w)}" height="${w.n(r.h)}" preserveAspectRatio="none" xlink:href="${url}"${w.commonAttrs({ ...node, effects: [], isolate: false })}/>`;
 }
 
-/** A filter's markup as a definition with the given id, in the export's coordinates. */
+/** Elements a filter definition may hold: the filter primitives and their parts. */
+const FILTER_PARTS = new Set(
+  'feBlend feColorMatrix feComponentTransfer feComposite feConvolveMatrix feDiffuseLighting feDisplacementMap feDistantLight feDropShadow feFlood feFuncA feFuncB feFuncG feFuncR feGaussianBlur feImage feMerge feMergeNode feMorphology feOffset fePointLight feSpecularLighting feSpotLight feTile feTurbulence'.split(' '),
+);
+
+/**
+ * A filter's markup as a definition with the given id, in the export's
+ * coordinates. Filters come from imported files and shared documents, so
+ * only filter primitives go out: no scripts, event handlers or links to
+ * anything but the export's own elements and embedded images.
+ */
 export function filterDefMarkup(markup, id, ox = 0, oy = 0) {
   if (typeof DOMParser !== 'undefined' && typeof XMLSerializer !== 'undefined') {
     const xml = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">${markup}</svg>`, 'image/svg+xml');
@@ -92,8 +102,15 @@ export function filterDefMarkup(markup, id, ox = 0, oy = 0) {
       el.setAttribute('id', id);
       // Drop attributes of other vocabularies (editor labels); they would need their namespaces.
       const strip = (n) => {
-        for (const a of [...n.attributes]) if (a.prefix && a.prefix !== 'xlink' && a.prefix !== 'xmlns') n.removeAttributeNode(a);
-        for (const c of n.children) strip(c);
+        for (const a of [...n.attributes]) {
+          const foreign = a.prefix && a.prefix !== 'xlink' && a.prefix !== 'xmlns';
+          const link = a.localName === 'href' && !/^\s*(#|data:image\/)/i.test(a.value);
+          if (foreign || link || /^on/i.test(a.localName)) n.removeAttributeNode(a);
+        }
+        for (const c of [...n.children]) {
+          if (FILTER_PARTS.has(c.localName)) strip(c);
+          else c.remove();
+        }
       };
       strip(el);
       const shift = (n, ax, ay) => {
@@ -115,6 +132,8 @@ export function filterDefMarkup(markup, id, ox = 0, oy = 0) {
         .replace(/\s+xmlns(:\w+)?="[^"]*"/g, '');
     }
   }
+  // Without a parser to clean it, markup that could run anything is left out.
+  if (/<(?!\/?(filter|fe)\w*[\s/>])|\son\w+\s*=|javascript:/i.test(markup)) return `<filter id="${id}"/>`;
   return markup.replace(/\s+xmlns="[^"]*"/, '').replace(/\sid="[^"]*"/, '').replace(/^<filter/, `<filter id="${id}"`);
 }
 

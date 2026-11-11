@@ -198,4 +198,13 @@ describe('document filters', () => {
     expect(out).toContain('y="15"');
     expect(out).toMatch(/<fePointLight x="20" y="35" z="10"\/>/);
   });
+
+  it('writes only filter primitives into exports: no scripts, event handlers or script links', () => {
+    const src = `<filter xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" id="a" onload="alert(1)"><script>alert(2)</script><foreignObject><div>x</div></foreignObject><feGaussianBlur stdDeviation="2" onclick="alert(3)"/><feImage xlink:href="javascript:alert(4)"/><feImage href="#shape" result="s"/><feComponentTransfer><feFuncA type="linear" slope="0.5"/></feComponentTransfer><a href="javascript:alert(5)"><feFlood/></a></filter>`;
+    const out = filterDefMarkup(src, 'f1');
+    expect(out).not.toMatch(/alert|script|onload|onclick|foreignObject|<a[\s>]/i);
+    expect(out).toContain('<feGaussianBlur stdDeviation="2"/>');
+    expect(out).toContain('href="#shape"');
+    expect(out).toContain('<feFuncA type="linear" slope="0.5"/>');
+  });
 });
