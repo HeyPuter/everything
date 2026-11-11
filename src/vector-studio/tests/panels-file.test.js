@@ -82,6 +82,25 @@ describe('Version history', () => {
     expect(doc.has(id)).toBe(true);
   });
 
+  it('keeps every version when saves land at the same time', async () => {
+    const { ed, doc } = await setup();
+    const backend = memoryBackend();
+    // A slow index read (as with real storage) lets the saves overlap.
+    const readJSON = backend.readJSON;
+    backend.readJSON = async (path) => {
+      const value = await readJSON(path);
+      await new Promise((r) => setTimeout(r, 5));
+      return value;
+    };
+    const store = new VersionStore(backend, 3);
+    const key = versionKey(ed);
+    await Promise.all([store.add(key, doc), store.add(key, doc), store.add(key, doc), store.add(key, doc)]);
+    const list = await store.list(key);
+    expect(list.length).toBe(3);
+    // Pruned versions leave no orphaned files behind.
+    expect([...backend.files.keys()].filter((k) => k.endsWith('.vstudio')).length).toBe(3);
+  });
+
   it('saving a document keeps a version that the dialog lists', async () => {
     const { app, ed, doc } = await setup();
     doc.markSaved();

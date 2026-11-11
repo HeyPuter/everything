@@ -109,6 +109,14 @@ export class VersionStore {
   constructor(store, limit = VERSION_LIMIT) {
     this.store = store;
     this.limit = limit;
+    this.queue = Promise.resolve();
+  }
+
+  /** Index updates run one at a time, so saves that land together never drop each other's entries. */
+  #run(fn) {
+    const next = this.queue.then(fn, fn);
+    this.queue = next.catch(() => {});
+    return next;
   }
 
   async list(key) {
@@ -118,14 +126,16 @@ export class VersionStore {
   async add(key, doc, { name = '', label = '' } = {}) {
     const { bytes, thumb } = await encodeDoc(doc);
     const entry = { id: uid('ver'), time: Date.now(), size: bytes.length, name, label, thumb };
-    await this.store.writeBlob(`versions/${key}/${entry.id}.vstudio`, new Blob([bytes]));
-    const list = [...(await this.list(key)), entry];
-    while (list.length > this.limit) {
-      const old = list.shift();
-      await this.store.remove(`versions/${key}/${old.id}.vstudio`);
-    }
-    await this.store.writeJSON(`versions/${key}/index.json`, list);
-    return entry;
+    return this.#run(async () => {
+      await this.store.writeBlob(`versions/${key}/${entry.id}.vstudio`, new Blob([bytes]));
+      const list = [...(await this.list(key)), entry];
+      while (list.length > this.limit) {
+        const old = list.shift();
+        await this.store.remove(`versions/${key}/${old.id}.vstudio`);
+      }
+      await this.store.writeJSON(`versions/${key}/index.json`, list);
+      return entry;
+    });
   }
 
   async read(key, id) {
@@ -134,9 +144,11 @@ export class VersionStore {
     return (await parseDocument(bytes)).doc;
   }
 
-  async remove(key, id) {
-    await this.store.remove(`versions/${key}/${id}.vstudio`);
-    await this.store.writeJSON(`versions/${key}/index.json`, (await this.list(key)).filter((v) => v.id !== id));
+  remove(key, id) {
+    return this.#run(async () => {
+      await this.store.remove(`versions/${key}/${id}.vstudio`);
+      await this.store.writeJSON(`versions/${key}/index.json`, (await this.list(key)).filter((v) => v.id !== id));
+    });
   }
 }
 
