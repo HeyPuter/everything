@@ -70,6 +70,15 @@ describe('Solidify options', () => {
 });
 
 describe('Weld, Mask and Triangulate options', () => {
+  it('Weld keeps loose edges, following their merged ends', () => {
+    const c = cube();
+    const nv = c.positions.length / 3;
+    // a loose edge from a copy of the last vertex to a far one, and one that collapses entirely
+    const m = { ...c, positions: Float32Array.from([...c.positions, ...c.positions.slice((nv - 1) * 3, nv * 3), 3, 0, 0]), looseEdges: new Uint32Array([nv, nv + 1, nv - 1, nv]) } as EvalMesh;
+    const out = run('WELD', m, { merge_threshold: 0.001 });
+    expect(out.positions.length / 3).toBe(nv + 1);
+    expect(Array.from(out.looseEdges ?? [])).toEqual([nv - 1, nv]);
+  });
   it('collapses only short edges in connected mode and respects a vertex group', () => {
     const g = newMeshData('g', prim.grid(2, 1, 2)) as unknown as EvalMesh;
     // squeeze the middle column so its edges to the left column are short

@@ -582,7 +582,20 @@ export function weld(m: EvalMesh, threshold: number, onlyLoose = false, canMerge
     }
     if (verts.length >= 3) b.addFace(verts, uvs, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
   }
-  return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
+  const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
+  if (!m.looseEdges?.length) return out;
+  // loose edges follow their merged ends (collapsed and repeated ones go)
+  const loose: number[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i + 1 < m.looseEdges.length; i += 2) {
+    const a = remap[m.looseEdges[i]],
+      c = remap[m.looseEdges[i + 1]];
+    const k = a < c ? `${a}:${c}` : `${c}:${a}`;
+    if (a < 0 || c < 0 || a === c || seen.has(k)) continue;
+    seen.add(k);
+    loose.push(a, c);
+  }
+  return loose.length ? { ...out, looseEdges: Uint32Array.from(loose) } : out;
 }
 
 // ---------------------------------------------------------------------------
