@@ -14,23 +14,38 @@ const DEFAULTS = {
 
 let cache = null;
 
+/** What is stored now (another tab may have written since this one read). */
+function stored() {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY) || '{}');
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+
 export function prefs() {
   if (cache) return cache;
-  try {
-    cache = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') };
-  } catch {
-    cache = { ...DEFAULTS };
-  }
+  cache = { ...DEFAULTS, ...stored() };
   return cache;
 }
 
 export function setPref(key, value) {
   prefs()[key] = value;
   try {
-    localStorage.setItem(KEY, JSON.stringify(cache));
+    // Write only this key over what is stored, so a change made in another tab since
+    // (custom shortcuts, preferences) isn't put back by this tab's older copy.
+    localStorage.setItem(KEY, JSON.stringify({ ...stored(), [key]: value }));
   } catch {
     /* private mode or quota: preferences just do not persist */
   }
+}
+
+// Another tab changed preferences: read them again next time.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY || e.key === null) cache = null;
+  });
 }
 
 // Theme lives under its own key so index.html can apply it before first paint.

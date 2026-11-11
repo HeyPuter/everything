@@ -59,3 +59,27 @@ describe('preferences', () => {
     d.close();
   });
 });
+
+describe('preferences in two tabs', () => {
+  it("don't put back another tab's older settings when this tab changes one", async () => {
+    const { prefs } = await import('../src/ui/prefs.js');
+    setPref('leftW', 400);
+    expect(prefs().leftW).toBe(400);
+    // Another tab customizes a shortcut and a preference meanwhile.
+    const KEY = 'video-studio:prefs';
+    const other = { ...JSON.parse(localStorage.getItem(KEY)), shortcuts: { split: ['S'] }, imageDuration: 7 };
+    localStorage.setItem(KEY, JSON.stringify(other));
+    // This tab then resizes a panel.
+    setPref('leftW', 420);
+    const saved = JSON.parse(localStorage.getItem(KEY));
+    expect(saved.leftW).toBe(420);
+    expect(saved.shortcuts).toEqual({ split: ['S'] });
+    expect(saved.imageDuration).toBe(7);
+    // Told about the other tab's change, this tab reads it.
+    window.dispatchEvent(new StorageEvent('storage', { key: KEY }));
+    expect(prefs().imageDuration).toBe(7);
+    expect(pref('imageDuration')).toBe(7);
+    setPref('imageDuration', undefined);
+    setPref('shortcuts', {});
+  });
+});
