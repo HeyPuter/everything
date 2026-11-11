@@ -463,3 +463,50 @@ test('texture painting leaves a UDIM tiled image intact', async ({ page }) => {
   expect(r).toEqual({ source: 'TILED', tiles: 2, bytes: 0, report: 'Painting on UDIM tiled images is not supported yet' });
   await expectNoErrors(errors);
 });
+
+test('vertex painting a face corner attribute blends each corner from its own color', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'SELECT' }, { invoke: false });
+    a.run('object.delete', {}, { invoke: false });
+    a.run('mesh.primitive_cube_add', { size: 4 }, { invoke: false });
+    const me = a.doc.meshes[a.activeObject.data];
+    const data = new Float32Array(me.indices.length * 4);
+    for (let f = 0; f + 1 < me.offsets.length; f++) for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) data.set([f / 10, f / 10, f / 10, 1], c * 4);
+    me.color_attributes = [{ name: 'Col', domain: 'CORNER', data }];
+    me.active_color_index = 0;
+    a.run('object.mode_set', { mode: 'VERTEX_PAINT' }, { invoke: false });
+    const b = a.doc.brushes.brush_vertpaint;
+    b.strength = 0.5;
+    b.radius = 400;
+    a.doc.scene.tool_settings.unified_paint.size = 400;
+    a.doc.scene.tool_settings.unified_paint.color = [1, 1, 1];
+  });
+  await page.waitForTimeout(200);
+  const { x, y } = await viewportCenter(page);
+  await page.mouse.move(x - 10, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 10, y, { steps: 3 });
+  await page.mouse.up();
+  const r = await ev(page, () => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const me = a.doc.meshes[a.activeObject.data];
+    const d = me.color_attributes[0].data as Float32Array;
+    // painted vertices: their corners should still differ (each face its own grey)
+    let painted = 0,
+      flattened = 0;
+    for (let v = 0; v < me.positions.length / 3; v++) {
+      const greys: number[] = [];
+      for (let c = 0; c < me.indices.length; c++) if (me.indices[c] === v) greys.push(+d[c * 4].toFixed(3));
+      const f0 = me.offsets.findIndex((o: number, f: number) => f + 1 < me.offsets.length && me.indices.slice(o, me.offsets[f + 1]).includes(v));
+      if (greys[0] === +(f0 / 10).toFixed(3) && greys.every((g, i) => i === 0 || g !== greys[0])) continue;
+      painted++;
+      if (new Set(greys).size === 1) flattened++;
+    }
+    return { painted, flattened };
+  });
+  expect(r.painted).toBeGreaterThan(0);
+  expect(r.flattened).toBe(0);
+  await expectNoErrors(errors);
+});

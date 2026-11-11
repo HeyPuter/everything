@@ -87,6 +87,8 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBr
   const jit = colorJitterOn(ts.unified_paint as ColorJitter) ? colorJitterer(ts.unified_paint as ColorJitter, seededRandom((Date.now() ^ (Math.random() * 1e9)) >>> 0)) : null;
   const mode = (b.blend ?? 'MIX') as BlendMode;
   const orig = vertexColors(me, oldData === a.data ? { ...a, data: a.data.slice() } : { ...a, data: oldData });
+  const origCorners = a.domain === 'CORNER' ? (oldData === a.data ? a.data.slice() : oldData) : null;
+  const tmpC = [0, 0, 0, 1];
   const cur = vertexColors(me, a);
   const strokeAlpha = new Float32Array(s.nv);
   const scratch = {};
@@ -135,7 +137,18 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBr
           strokeAlpha[vi] = sa;
           blendColor(mode, orig.subarray(vi * 4, vi * 4 + 4), color, sa, tmp);
           cur.set(tmp, vi * 4);
-          writeVertex(s, a, vi, tmp, gpu);
+          if (origCorners) {
+            // face corner colors: each corner blends from its own color
+            const o = s.vf.offsets,
+              C = s.vf.corners;
+            for (let j = o[vi]; j < o[vi + 1]; j++) {
+              const c = C[j];
+              blendColor(mode, origCorners.subarray(c * 4, c * 4 + 4), color, sa, tmpC);
+              a.data.set(tmpC, c * 4);
+              if (gpu) gpu.set(tmpC, c * 4);
+              s.markColorDirty(c, c);
+            }
+          } else writeVertex(s, a, vi, tmp, gpu);
         }
       } else if (tool === 'BLUR' || tool === 'AVERAGE' || tool === 'SMEAR') {
         const prev = new Float32Array(n * 4);
