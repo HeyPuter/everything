@@ -15,7 +15,7 @@ import { drawSticker, STICKER_SIZE, isAnimatedSticker, stickerColor } from './st
 import { drawAvatar } from './avatars.js';
 import { poseKey } from './avatar-motion.js';
 import { caseOf, applyCase } from '../model/text-style.js';
-import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds } from './text-layout.js';
+import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds, bidiPositions } from './text-layout.js';
 import { glyphState, animKey, animMargin } from './text-anim.js';
 import { bubbleGeometry, drawBubble, hasBubble } from './bubbles.js';
 import { fontsVersion, onFontsChange } from './font-registry.js';
@@ -145,7 +145,10 @@ function layoutText(clip, scale, opts = {}) {
   } else {
     const gl = lines.map((line, i) => {
       const x0 = xFor(i);
-      const glyphs = glyphsFor(line, font, spacing).map((g) => ({ ...g, cx: x0 + g.x + g.w / 2 }));
+      const logical = glyphsFor(line, font, spacing);
+      // Right-to-left letters are placed from the right, as the line is drawn whole.
+      const xs = bidiPositions(logical);
+      const glyphs = logical.map((g, k) => ({ ...g, cx: x0 + (xs ? xs[k] : g.x) + g.w / 2 }));
       return { y: offY + lineH * (i + 0.5), x0, w: widths[i], glyphs };
     });
     totals = indexGlyphs(gl);

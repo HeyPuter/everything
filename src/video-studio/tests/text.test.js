@@ -4,7 +4,7 @@ import { normTextExtras, caseOf, applyCase, COLOR_KEYS, textColorAt, hexToRgb, r
 import { TEXT_PRESETS, TEXT_EFFECTS, applyTextEffect, findTextLook } from '../src/model/text-presets.js';
 import { ANIMATIONS } from '../src/model/catalog.js';
 import { BUBBLES, bubbleGeometry, drawBubble, hasBubble, shade } from '../src/engine/bubbles.js';
-import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds, MAX_ARC } from '../src/engine/text-layout.js';
+import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds, MAX_ARC, bidiPositions } from '../src/engine/text-layout.js';
 import { TEXT_ANIMS, stagger, glyphState, activeWord, animKey, scrambleChar, hash01, isGlyphAnim, animMargin } from '../src/engine/text-anim.js';
 import { applyAnimations, clipLayer } from '../src/engine/scene.js';
 import { TextCache } from '../src/engine/text.js';
@@ -412,6 +412,32 @@ describe('text raster cache', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('right-to-left text drawn letter by letter', () => {
+  // Every glyph 10 wide: left edges in drawing order, read back as the text seen from left to right.
+  const glyphs = (text) => lineGlyphs(text, (str) => [...str].length * 10, () => 10);
+  const seen = (text) => {
+    const g = glyphs(text);
+    const xs = bidiPositions(g) || g.map((x) => x.x);
+    return g.map((x, i) => [xs[i], x.ch]).sort((a, b) => a[0] - b[0]).map((x) => x[1]).join('');
+  };
+
+  it('leaves left-to-right lines as they are', () => {
+    expect(bidiPositions(glyphs('Hello 2026'))).toBe(null);
+  });
+
+  it('reads Hebrew from the right, keeping numbers and Latin words left to right', () => {
+    // Shown from the left: the number, then the second word, then the first.
+    expect(seen('שלום עולם 2026')).toBe('2026 םלוע םולש');
+    expect(seen('אבג ABC דה')).toBe('הד ABC גבא');
+    const xs = bidiPositions(glyphs('אב'));
+    expect(xs).toEqual([10, 0]);
+  });
+
+  it('reads a Hebrew word inside an English line right to left', () => {
+    expect(seen('Say שלום now')).toBe('Say םולש now');
   });
 });
 
