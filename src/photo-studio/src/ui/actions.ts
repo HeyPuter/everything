@@ -4,6 +4,7 @@ import { hasMask } from '../model/masks';
 import type { Editor } from '../editor';
 import { assertEditable, groupLayers, reorderLayers, selectedRoots } from '../model/layers';
 import { placeDuplicateArtboards } from '../model/artboard';
+import { releaseBackground } from '../model/housekeeping';
 import { Renderer } from '../renderer/renderer';
 import {
   allLayers,
@@ -100,6 +101,8 @@ function cloneLayer(l: Layer): Layer {
     delete item.psdId;
   }
   copy.name += ' copy';
+  // A document has one Background; its copy is an ordinary layer.
+  if (copy.background) releaseBackground(copy);
   return copy;
 }
 export async function performAction(e: Editor, action: string): Promise<void> {
