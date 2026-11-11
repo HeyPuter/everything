@@ -203,6 +203,47 @@ describe('graphs in the document', () => {
     expect(document.querySelector('.graph-data')).toBeNull();
   });
 
+  it('the Graph Data window follows undo, and edits stay with their own document', async () => {
+    const g = makeGraph(app);
+    const doc = app.editor.doc;
+    app.graphData.show(g.id);
+    const win = document.querySelector('.graph-data');
+    const cell = (r, c) => win.querySelector(`input[data-r="${r}"][data-c="${c}"]`);
+    cell(1, 1).value = '9';
+    cell(1, 1).dispatchEvent(new Event('input'));
+    app.graphData.apply();
+    expect(doc.get(g.id).live.data[1][1]).toBe('9');
+    // Undo takes the graph back to 3: the window shows that, so a later Apply does not redo it.
+    doc.undo();
+    expect(cell(1, 1).value).toBe('3');
+    cell(2, 1).value = '7';
+    cell(2, 1).dispatchEvent(new Event('input'));
+    app.graphData.apply();
+    expect(doc.get(g.id).live.data[1][1]).toBe('3');
+    expect(doc.get(g.id).live.data[2][1]).toBe('7');
+    // Unapplied edits are kept through other changes to the document.
+    cell(3, 1).value = '1';
+    cell(3, 1).dispatchEvent(new Event('input'));
+    doc.transact('Rect', () => doc.insert(createPath(rectangle(0, 0, 5, 5), true), app.editor.targetLayer().id));
+    expect(cell(3, 1).value).toBe('1');
+    // Switching to another document applies to the graph the window was editing.
+    const first = app.editor;
+    app.newDocument();
+    expect(app.editor).not.toBe(first);
+    app.graphData.apply();
+    expect(doc.get(g.id).live.data[3][1]).toBe('1');
+    expect(doc.undoLabel).toBe('Graph Data');
+    // Deleting the graph closes a window without edits.
+    first.doc.transact('Delete', () => first.doc.remove(g.id));
+    expect(document.querySelector('.graph-data')).toBeNull();
+    // Without edits, switching to a document with no graph selected closes the window.
+    first.doc.undo();
+    app.activate(first);
+    app.graphData.show(g.id);
+    app.newDocument();
+    expect(document.querySelector('.graph-data')).toBeNull();
+  });
+
   it('Graph Type changes the type and options with a preview', async () => {
     const g = makeGraph(app);
     app.editor.select([g.id]);
