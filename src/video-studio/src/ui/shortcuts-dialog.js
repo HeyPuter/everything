@@ -62,6 +62,11 @@ export function askKeepCustom(count, layoutLabel) {
   return d.result.then((v) => (v === 'keep' || v === 'discard' ? v : null));
 }
 
+/** Shortcut specs written in text ("Mod+B splits") as the keys read on this keyboard ("⌘B", "Ctrl+B"). */
+export function keyLabels(text) {
+  return text.replace(/\b(?:(?:Mod|Ctrl|Alt|Shift)\+)+[A-Z0-9]\b/g, (spec) => shortcutLabel(spec));
+}
+
 let dialogSeq = 0;
 
 export function openShortcutsDialog(commands) {
@@ -105,7 +110,7 @@ export function openShortcutsDialog(commands) {
   });
   const renderLayout = () => {
     layoutSeg.set(commands.layout);
-    layoutDesc.textContent = commands.layouts.find((l) => l.id === commands.layout)?.description || '';
+    layoutDesc.textContent = keyLabels(commands.layouts.find((l) => l.id === commands.layout)?.description || '');
   };
   const layoutRow = h('div.shortcut-layout', h('span.field-label', 'Layout'), layoutSeg.el, layoutDesc);
 
@@ -201,6 +206,7 @@ export function openShortcutsDialog(commands) {
       status.textContent = `${cmd.label}: ${shortcutLabel(spec)}`;
       announce(status.textContent);
       renderAll();
+      refocus(cmd.id, cmd.keys.indexOf(spec));
     };
     recording = { id: cmd.id, chip, label, onKey };
     document.addEventListener('keydown', onKey, true);
