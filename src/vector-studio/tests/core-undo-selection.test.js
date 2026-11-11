@@ -208,3 +208,53 @@ describe('Duplicate', () => {
     expect(doc.get(copy).anchors[0].x).toBe(doc.get(a).anchors[0].x + 1);
   });
 });
+
+describe('object commands with a compound subpath direct-selected', () => {
+  let app;
+  let ed;
+  let doc;
+  let compound;
+  let outer;
+  let other;
+  beforeEach(async () => {
+    app = bootApp();
+    ed = app.newDocument();
+    doc = ed.doc;
+    const add = (x, size) => {
+      const p = createPath(rectangle(x, x, size, size), true);
+      doc.transact('Rect', () => doc.insert(p, ed.targetLayer().id));
+      return p.id;
+    };
+    outer = add(0, 100);
+    const inner = add(25, 50);
+    other = add(200, 10);
+    ed.select([outer, inner]);
+    await app.commands.run('object.compoundMake');
+    [compound] = ed.selection;
+  });
+
+  it('Group groups the whole compound path', async () => {
+    ed.selectAnchors(outer, [0]);
+    ed.select([other], { add: true });
+    await app.commands.run('object.group');
+    const [g] = ed.selection;
+    expect(doc.get(g).children).toEqual([compound, other]);
+    expect(doc.get(compound).children.every((id) => doc.get(id).type === 'path')).toBe(true);
+  });
+
+  it('Make Clipping Mask and Make Compound Path take the whole compound path', async () => {
+    ed.select([other]);
+    ed.selectAnchors(outer, [0], { add: true });
+    await app.commands.run('object.clipMake');
+    const [clip] = ed.selection;
+    expect(doc.get(clip).children).toEqual([compound, other]);
+    await app.commands.run('edit.undo');
+    ed.selectAnchors(outer, [0]);
+    ed.select([other], { add: true });
+    await app.commands.run('object.compoundMake');
+    const [made] = ed.selection;
+    expect(doc.has(compound)).toBe(false);
+    expect(doc.get(made).children).toHaveLength(3);
+    expect(doc.get(made).children.every((id) => doc.get(id).type === 'path')).toBe(true);
+  });
+});

@@ -165,9 +165,24 @@ function deleteAnchors(doc, path, indices) {
   });
 }
 
+/**
+ * Selected objects for commands that build or move containers: a subpath of
+ * a compound path (Direct Selection) stands for its compound path, since
+ * only paths can go inside one. Back to front, without repeats.
+ */
+function wholeObjects(doc, ids) {
+  const out = new Set();
+  for (const id of ids) {
+    let n = doc.get(id);
+    while (n && doc.get(n.parent)?.type === 'compound') n = doc.get(n.parent);
+    if (n) out.add(n.id);
+  }
+  return doc.sortByPaintOrder(out);
+}
+
 export function group(editor) {
   const { doc } = editor;
-  const ids = editor.topSelection();
+  const ids = wholeObjects(doc, editor.topSelection());
   if (!ids.length) return;
   doc.transact('Group', () => {
     // The group goes where the topmost selected object was.
@@ -241,7 +256,7 @@ export function arrange(editor, how) {
 /** Move the selection to another layer (Object > Arrange > Send to Current Layer). */
 export function sendToLayer(editor, layerId) {
   const { doc } = editor;
-  const ids = editor.topSelection();
+  const ids = wholeObjects(doc, editor.topSelection());
   doc.transact('Send to Current Layer', () => {
     for (const id of ids) doc.move(id, layerId);
   });
@@ -326,7 +341,7 @@ export function showAll(editor) {
 /** Make Clipping Mask: the topmost selected object clips the others. */
 export function makeClipMask(editor) {
   const { doc } = editor;
-  const ids = editor.topSelection();
+  const ids = wholeObjects(doc, editor.topSelection());
   if (ids.length < 2) throw new UserError('Select at least two objects: the topmost one becomes the clipping path.');
   const mask = doc.get(ids[ids.length - 1]);
   if (!['path', 'compound', 'text', 'group'].includes(mask.type)) throw new UserError('The clipping path must be a path, compound path, group or text.');
@@ -370,13 +385,14 @@ export function makeCompound(editor) {
     else if (n.type === 'compound') for (const c of n.children) paths.push(doc.get(c));
     else if (n.type === 'group') for (const c of n.children) collect(doc.get(c));
   };
-  for (const id of editor.topSelection()) collect(doc.get(id));
+  const sel = wholeObjects(doc, editor.topSelection());
+  for (const id of sel) collect(doc.get(id));
   if (paths.length < 1) return;
-  const topPaint = doc.get(editor.topSelection()[editor.topSelection().length - 1]);
+  const topPaint = doc.get(sel[sel.length - 1]);
   doc.transact('Make Compound Path', () => {
     const style = { ...pickPaint(paths[0]) };
     if (topPaint && (topPaint.type === 'path' || topPaint.type === 'compound')) Object.assign(style, pickPaint(topPaint));
-    const top = doc.get(editor.topSelection()[editor.topSelection().length - 1]);
+    const top = doc.get(sel[sel.length - 1]);
     const parent = doc.get(top.parent);
     const index = parent.children.indexOf(top.id) + 1;
     const c = createCompound([], style, { fillRule: 'nonzero' });
