@@ -62,3 +62,51 @@ describe('voxel remesh size', () => {
     expect(() => voxelRemesh(pos, tris, 0.0001)).toThrow(/too small/);
   });
 });
+
+describe('vertex color operators on a face corner color attribute', () => {
+  beforeEach(() => {
+    setApp(new App(startupDocument()));
+    app.run('object.select_all', { action: 'SELECT' });
+    app.run('object.delete');
+    app.run('mesh.primitive_cube_add');
+    const me = app.doc.meshes[app.activeObject!.data!];
+    // every face its own grey level (corners of a vertex differ)
+    const nc = me.indices.length;
+    const data = new Float32Array(nc * 4);
+    for (let f = 0; f + 1 < me.offsets.length; f++)
+      for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) data.set([f / 10, f / 10, f / 10, 1], c * 4);
+    me.color_attributes = [{ name: 'Col', domain: 'CORNER', data }];
+    me.active_color_index = 0;
+    app.run('object.mode_set', { mode: 'VERTEX_PAINT' });
+  });
+
+  const faceGreys = () => {
+    const me = app.doc.meshes[app.activeObject!.data!];
+    const a = me.color_attributes[0];
+    return Array.from({ length: me.offsets.length - 1 }, (_, f) => +a.data[me.offsets[f] * 4].toFixed(3));
+  };
+
+  it('invert and levels keep the colors of each corner apart', () => {
+    expect(app.run('paint.vertex_color_invert')).toBe('FINISHED');
+    expect(faceGreys()).toEqual([1, 0.9, 0.8, 0.7, 0.6, 0.5]);
+    expect(app.run('paint.vertex_color_levels', { offset: 0, gain: 0.5 })).toBe('FINISHED');
+    expect(faceGreys()).toEqual([0.5, 0.45, 0.4, 0.35, 0.3, 0.25]);
+  });
+
+  it('Set Color with a vertex selection mask leaves the other corners alone', () => {
+    const me = app.doc.meshes[app.activeObject!.data!];
+    me.use_paint_mask_vertex = true;
+    me.select_vert = new Uint8Array(me.positions.length / 3);
+    me.select_vert[0] = 1;
+    app.doc.scene.tool_settings.unified_paint.color = [1, 0, 0];
+    const before = faceGreys();
+    expect(app.run('paint.vertex_color_set')).toBe('FINISHED');
+    const a = me.color_attributes[0];
+    for (let f = 0; f + 1 < me.offsets.length; f++)
+      for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) {
+        const v = me.indices[c];
+        if (v === 0) expect(Array.from(a.data.slice(c * 4, c * 4 + 3))).toEqual([1, 0, 0]);
+        else expect(+a.data[c * 4].toFixed(3)).toBe(before[f]);
+      }
+  });
+});

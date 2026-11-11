@@ -245,19 +245,30 @@ function vpaintPoll() {
   return app.doc.mode === 'VERTEX_PAINT' && !!activeMeshData();
 }
 
-export function editColors(fn: (me: MeshData, cols: Float32Array, a: ColorAttribute) => void) {
+/**
+ * Edit the active color attribute through a per-vertex view. `pointwise` operations (each color
+ * changed on its own) work on the face corners directly, so a corner attribute keeps the different
+ * colors a vertex has on its faces; otherwise only the corners of changed vertices are written.
+ */
+export function editColors(fn: (me: MeshData, cols: Float32Array, a: ColorAttribute) => void, pointwise = false) {
   const { me } = activeMeshData()!;
   const a = ensureColorAttribute(me);
   cow(a, 'data');
   const nv = me.positions.length / 3;
-  const cols = vertexColors(me, a);
   const allowed = paintFilter(me).verts;
+  if (pointwise && a.domain === 'CORNER') {
+    const before = allowed ? a.data.slice() : null;
+    fn(me, a.data, a);
+    if (allowed && before) for (let c = 0; c < me.indices.length; c++) if (!allowed[me.indices[c]]) a.data.set(before.subarray(c * 4, c * 4 + 4), c * 4);
+    return;
+  }
+  const cols = vertexColors(me, a);
   const before = allowed ? cols.slice() : null;
   fn(me, cols, a);
   // selection masks / hidden vertices keep their colors
   if (allowed && before) for (let v = 0; v < nv; v++) if (!allowed[v]) for (let k = 0; k < 4; k++) cols[v * 4 + k] = before[v * 4 + k];
   if (a.domain === 'POINT') a.data.set(cols.subarray(0, nv * 4));
-  else for (let c = 0; c < me.indices.length; c++) a.data.set(cols.subarray(me.indices[c] * 4, me.indices[c] * 4 + 4), c * 4);
+  else for (let c = 0; c < me.indices.length; c++) if (!allowed || allowed[me.indices[c]]) a.data.set(cols.subarray(me.indices[c] * 4, me.indices[c] * 4 + 4), c * 4);
 }
 
 registerOperators([
@@ -275,7 +286,7 @@ registerOperators([
           cols[i + 2] = c[2];
           cols[i + 3] = 1;
         }
-      });
+      }, true);
     },
   },
   {
@@ -309,7 +320,7 @@ registerOperators([
     exec: () =>
       editColors((_me, cols) => {
         for (let i = 0; i < cols.length; i += 4) for (let c = 0; c < 3; c++) cols[i + c] = 1 - cols[i + c];
-      }),
+      }, true),
   },
   {
     idname: 'paint.vertex_color_dirt',
