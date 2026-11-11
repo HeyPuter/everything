@@ -452,6 +452,26 @@ describe('review page (reviewer flow)', () => {
     page.dispose();
   });
 
+  it('shows the comment\'s frame when it is on a version whose video is still loading', async () => {
+    const { page } = await opened('commenter', { versions: 2 });
+    const c = await page.session.addComment({ version: 1, text: 'On v1', t: 4_000_000 });
+    // As in a browser: a new source has no frames until its metadata has loaded.
+    let ready = 4;
+    Object.defineProperty(page.video, 'readyState', { configurable: true, get: () => ready });
+    const src = page.video.getAttribute('src');
+    page.video._time = 0;
+    ready = 0;
+    page.seekToComment(page.session.comments.get(c.id));
+    await until(() => page.version === 1 && page.video.getAttribute('src') !== src);
+    await until(() => page.t === 4_000_000);
+    expect(page.video.currentTime).toBe(0);
+    ready = 1;
+    page.video.dispatchEvent(new Event('loadedmetadata'));
+    expect(page.video.currentTime).toBeCloseTo(4.02, 5);
+    expect(page.t).toBe(4_000_000);
+    page.dispose();
+  });
+
   it('shows why a link does not work', async () => {
     const env = await setup();
     const pub = await publish(env);

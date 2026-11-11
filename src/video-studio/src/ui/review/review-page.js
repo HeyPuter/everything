@@ -291,6 +291,11 @@ export class ReviewPage {
       v.addEventListener(type, fn);
       this._disposers.push(() => v.removeEventListener(type, fn));
     };
+    // A seek made before the video could take one (a comment on another version, a renewed link) is made now:
+    // the timecode said the comment's frame while the picture stayed on the first.
+    on('loadedmetadata', () => {
+      if (this.t > 0) this.seek(this.t);
+    });
     on('loadeddata', () => {
       this.videoState.hidden = true;
       this._linkTries = 0;
