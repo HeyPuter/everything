@@ -56,13 +56,21 @@ export function adjustTab(ctx) {
     return b;
   };
 
+  /** Redraw the tiles, keeping keyboard focus on the same tile. */
+  const redraw = () => {
+    const had = layout.el.contains(document.activeElement) ? document.activeElement : null;
+    layout.refresh();
+    if (had && !had.isConnected) (layout.el.querySelector(`.tile[aria-label="${CSS.escape(had.getAttribute('aria-label') || '')}"]`) || layout.el.querySelector('.tile'))?.focus();
+  };
+
   /** Apply to the selected clip, or add a color layer at the playhead. */
   const use = (name, setup, applyToClip) => {
     const clip = target();
     if (clip) applyToClip(clip);
     else actions.addAdjustment({ name, adjust: setup.adjust, grade: setup.grade });
-    layout.refresh();
+    redraw();
   };
+  let shownLut = null; // the selected clip's LUT the tiles show
 
   function renderLayer() {
     const t = tile({
@@ -80,6 +88,7 @@ export function adjustTab(ctx) {
 
   function renderLuts(q) {
     const clip = target();
+    shownLut = clip?.grade?.lut?.id ?? null;
     const list = luts.filter((e) => !q || e.name.toLowerCase().includes(q));
     if (!luts.length) {
       return emptyState('palette', 'No LUTs yet', 'Import .cube look-up tables (1D or 3D) from your grading tools or camera maker. They are kept in your library for every project.', importBtn());
@@ -140,7 +149,11 @@ export function adjustTab(ctx) {
     layout.refresh();
   }).catch(() => {});
   const offs = [
-    store.on('select', () => layout.category !== 'layer' && layout.refresh()),
+    store.on('select', () => layout.category !== 'layer' && redraw()),
+    // A LUT applied, removed or undone elsewhere shows on the tiles.
+    store.on('change', () => {
+      if (layout.el.isConnected && layout.category === 'luts' && (target()?.grade?.lut?.id ?? null) !== shownLut) redraw();
+    }),
     onPresetsChanged(() => layout.category === 'presets' && layout.refresh()),
     library?.on?.('luts', (list) => {
       luts = list;

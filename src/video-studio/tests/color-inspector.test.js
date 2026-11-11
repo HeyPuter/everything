@@ -266,6 +266,32 @@ describe('presets and the Color assets tab', () => {
     panel.dispose();
   });
 
+  it('shows the LUT the selected clip uses after undo and edits elsewhere', async () => {
+    const luts = [{ id: 'lut1', name: 'Warm', kind: '3d', size: 33 }, { id: 'lut2', name: 'Cool', kind: '3d', size: 33 }];
+    env.ctx.library = { listLuts: async () => luts, on: () => () => {} };
+    const panel = colorAssets(env.ctx);
+    document.body.append(panel.el);
+    await Promise.resolve();
+    await Promise.resolve();
+    [...panel.el.querySelectorAll('.asset-cat')].find((b) => b.textContent === 'LUTs').click();
+    const pressed = () => [...panel.el.querySelectorAll('.tile[aria-pressed=true] .tile-label')].map((t) => t.textContent);
+    expect(pressed()).toEqual([]);
+    const warm = panel.el.querySelector('.tile[aria-label="Apply LUT Warm to clip"]');
+    warm.focus();
+    warm.click();
+    expect(clip(env.v1.id).grade.lut.id).toBe('lut1');
+    expect(pressed()).toEqual(['Warm']);
+    env.store.undo();
+    expect(pressed()).toEqual([]);
+    // Focus stays on the same tile while the grid is redrawn.
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Apply LUT Warm to clip');
+    // Picked in the details panel.
+    applyLut(env.ctx, env.v1.id, luts[1]);
+    expect(pressed()).toEqual(['Cool']);
+    panel.dispose();
+    panel.el.remove();
+  });
+
   it('adds color layers from drag data, validating it', () => {
     env.ctx.actions.addAdjustment({ start: 6 * US, name: 'Dropped', adjust: { exposure: 500, nope: 3 }, grade: { lut: { id: 'bad id!' }, hsl: { red: { h: 5 } } } });
     const c = env.store.selected.clip;
