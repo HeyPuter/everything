@@ -149,3 +149,45 @@ describe('Stretch and Pitch on 5.1 files', () => {
     }
   });
 });
+
+describe('Noise Reduction (process) on 5.1 files', () => {
+  it('reduces the noise in every channel and keeps each aligned', async () => {
+    const { captureNoisePrint } = await import('../src/effects/defs/restoration.js');
+    const { dsp } = await import('../src/audio/dsp.js');
+    const d = await dsp();
+    const rate = 48000;
+    const n = rate;
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296 - 0.5) * 0.1;
+    const hiss = () => Float32Array.from({ length: n }, rnd);
+    const tones = Array.from({ length: 6 }, (_, c) => sine(n, 500 + 150 * c, rate, 0.3));
+    const src = tones.map((t) => {
+      const h = hiss();
+      return t.map((v, i) => v + h[i]);
+    });
+    const print = await captureNoisePrint(d, Array.from({ length: 6 }, hiss), rate);
+    const def = getEffect('noiseReduction');
+    const outs = await def.process({
+      channels: src,
+      rate,
+      values: { reduction: 100, reduceBy: 30 },
+      doc: { noisePrint: print },
+    });
+    expect(outs).toHaveLength(6);
+    outs.forEach((y, c) => {
+      expect(y.length).toBe(n);
+      let dot = 0;
+      let tt = 0;
+      let err = 0;
+      let noise = 0;
+      for (let i = n / 4; i < n - 8000; i++) {
+        dot += y[i] * tones[c][i];
+        tt += tones[c][i] ** 2;
+        err += (y[i] - tones[c][i]) ** 2;
+        noise += (src[c][i] - tones[c][i]) ** 2;
+      }
+      expect(dot / tt).toBeGreaterThan(0.9);
+      expect(err).toBeLessThan(noise * 0.5);
+    });
+  });
+});
