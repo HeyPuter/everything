@@ -105,6 +105,25 @@ describe('Next Object Above and Below', () => {
     await app.commands.run('select.nextBelow');
     expect([...ed.selection]).toEqual([ids[0]]);
   });
+
+  it('never select a sublayer', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const layer = ed.targetLayer().id;
+    const a = createPath(rectangle(0, 0, 10, 10), true);
+    const b = createPath(rectangle(20, 0, 10, 10), true);
+    doc.transact('Setup', () => {
+      doc.insert(a, layer);
+      doc.insert(b, insertLayer(doc, layer).id);
+    });
+    ed.select([a.id]);
+    await app.commands.run('select.nextAbove');
+    expect([...ed.selection]).toEqual([a.id]);
+    // Send to Current Layer then has nothing invalid to move.
+    await app.commands.run('object.sendToLayer');
+    expect(doc.get(a.id).parent).toBe(layer);
+  });
 });
 
 describe('Arrange', () => {

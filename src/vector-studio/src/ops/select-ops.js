@@ -107,7 +107,7 @@ export function selectObjects(editor, what) {
   editor.select(out);
 }
 
-/** Next object above/below the current one in stacking order (within its parent), skipping hidden and locked ones. */
+/** Next object above/below the current one in stacking order (within its parent), skipping hidden and locked ones and sublayers. */
 export function selectNext(editor, dir) {
   const { doc } = editor;
   const sel = editor.topSelection();
@@ -118,7 +118,7 @@ export function selectNext(editor, dir) {
   const kids = parent.children;
   for (let i = kids.indexOf(id) + dir; i >= 0 && i < kids.length; i += dir) {
     const next = doc.get(kids[i]);
-    if (next && !next.hidden && !next.locked) {
+    if (next && !next.hidden && !next.locked && next.type !== 'layer') {
       editor.select([next.id]);
       return;
     }
