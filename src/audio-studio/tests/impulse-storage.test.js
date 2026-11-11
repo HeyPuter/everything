@@ -1,6 +1,6 @@
 // Loaded convolution impulses are kept on the device and restored after a reload.
 import { describe, it, expect, beforeEach } from 'vitest';
-import { setImpulseBackend, memoryBackend, saveImpulse, storedImpulses, restoreImpulses, forgetImpulse, MAX_KEPT } from '../src/storage/impulses.js';
+import { setImpulseBackend, memoryBackend, idbBackend, saveImpulse, storedImpulses, restoreImpulses, forgetImpulse, MAX_KEPT } from '../src/storage/impulses.js';
 import { loadedImpulse, loadedImpulseNames } from '../src/effects/defs/reverb-impulses.js';
 import { convolutionImpulse, LOADED_IMPULSE } from '../src/effects/defs/reverb.js';
 import { getEffect, defaults } from '../src/effects/index.js';
@@ -9,6 +9,7 @@ import { Channel } from '../src/audio/channel.js';
 import { AudioFile } from '../src/model/audio-file.js';
 import { fakeApp, filled } from './fx-helpers.js';
 import '../src/effects/views/index.js';
+import { abortingIndexedDB, settleWithin } from './helpers/aborting-idb.js';
 
 const ir = (n, k = 1) => ({ rate: 24000, channels: [Float32Array.from({ length: n }, (_, i) => (i === 0 ? k : Math.exp(-i / 200) * Math.sin(i)))] });
 
@@ -29,6 +30,18 @@ describe('stored impulses', () => {
     expect(convolutionImpulse(v, 48000).ir[0]).toBe(1);
     await forgetImpulse(`room${MAX_KEPT + 1}.wav`);
     expect((await storedImpulses()).length).toBe(MAX_KEPT - 1);
+  });
+
+  it('settles when an IndexedDB transaction aborts (storage full) instead of hanging', async () => {
+    const saved = globalThis.indexedDB;
+    globalThis.indexedDB = abortingIndexedDB();
+    try {
+      setImpulseBackend(idbBackend());
+      expect(await settleWithin(saveImpulse('a.wav', ir(10)))).toEqual({ value: false });
+      expect(await settleWithin(storedImpulses())).toEqual({ value: [] });
+    } finally {
+      globalThis.indexedDB = saved;
+    }
   });
 
   it('never throws when the storage fails', async () => {
