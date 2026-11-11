@@ -145,3 +145,29 @@ describe('art history strokes', () => {
     expect(differ.length).toBeGreaterThan(0);
   });
 });
+
+describe('pressure strokes', () => {
+  it('places every dab on the stroke when the pen rests while pressure drops', () => {
+    const store = new TileStore();
+    const dabs: [number, number][] = [];
+    const session = new StrokeSession(store, emptyGrid(4), {
+      tip: { size: 20, hardness: 1, spacing: 0.25, roundness: 1, angle: 0 },
+      dynamics: { pressureSize: true },
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'custom', dab: (x, y) => dabs.push([x, y]), pixel: (_x, _y, _a, cur, out) => out.set(cur) },
+    });
+    session.addPoint(10, 10, 1);
+    session.addPoint(14, 10, 0.1);
+    // The pen rests while pressure keeps dropping, then moves on.
+    session.addPoint(14, 10, 0.05);
+    session.addPoint(14, 10, 0.05);
+    session.addPoint(20, 10, 0.05);
+    expect(dabs.length).toBeGreaterThan(2);
+    for (const [x, y] of dabs) {
+      expect(x).toBeGreaterThanOrEqual(10);
+      expect(x).toBeLessThanOrEqual(20);
+      expect(y).toBe(10);
+    }
+  });
+});
