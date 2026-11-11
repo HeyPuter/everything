@@ -517,6 +517,17 @@ describe('new document values', () => {
     expect(parsePresetForm({ ...base, units: 'furlongs' }).value.units).toBe('pt');
   });
 
+  it('states the limits in the chosen units, rounded so both ends are allowed', () => {
+    expect(parsePresetForm({ ...base, width: '0', units: 'pt' }).message).toBe('Width must be between 1 pt and 16383 pt.');
+    expect(parsePresetForm({ ...base, width: '9000', units: 'mm' }).message).toBe('Width must be between 0.4 mm and 5779.5 mm.');
+    expect(parsePresetForm({ ...base, height: '300', units: 'in' }).message).toBe('Height must be between 0.02 in and 227.54 in.');
+    expect(parsePresetForm({ ...base, width: '0', units: 'px' }).message).toBe('Width must be between 1 px and 16383 px.');
+    expect(parsePresetForm({ ...base, units: 'cm', bleed: { ...base.bleed, top: '3' } }).message).toBe('Bleed must be between 0 cm and 2.54 cm.');
+    // The stated ends are themselves accepted.
+    expect(parsePresetForm({ ...base, width: '5779.5', height: '0.4', units: 'mm' }).ok).toBe(true);
+    expect(parsePresetForm({ ...base, width: '227.54', height: '0.02', units: 'in' }).ok).toBe(true);
+  });
+
   it('handles orientation and preset lists', () => {
     expect(orientationOf(10, 20)).toBe('portrait');
     expect(orientationOf(20, 10)).toBe('landscape');

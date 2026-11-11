@@ -143,6 +143,21 @@ describe('Document Setup type options', () => {
     await done;
     expect(app.editor.doc.root.typeOptions).toMatchObject({ language: 'fr', double: '«»', quotes: true });
   });
+
+  it('states size limits in the chosen units', async () => {
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const done = app.commands.run('file.documentSetup');
+    const d = await waitDialog();
+    const units = d.querySelector('#ds-units');
+    units.value = 'mm';
+    units.dispatchEvent(new Event('change'));
+    d.querySelector('#ds-w').value = '0';
+    button('OK').click();
+    expect(d.querySelector('.form-error').textContent).toBe('Width must be between 0.4 mm and 5779.5 mm.');
+    button('Cancel').click();
+    await done;
+  });
 });
 
 describe('SVG export styling and ids', () => {
