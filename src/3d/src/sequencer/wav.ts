@@ -88,15 +88,30 @@ export function encodeWav(channels: Float32Array[], rate: number, format: WavFor
 
 /** Min/max peaks of a signal in `buckets` slices (waveform display). */
 export function peaks(data: Float32Array, buckets: number): Float32Array {
+  return mixPeaks([data], buckets);
+}
+
+/** Min/max peaks of the mono mix of channels (mixed on the fly: no mono copy of the whole sound). */
+export function mixPeaks(channels: Float32Array[], buckets: number): Float32Array {
   const out = new Float32Array(buckets * 2);
-  const per = data.length / buckets;
+  const n = channels[0]?.length ?? 0;
+  const k = 1 / Math.max(1, channels.length);
+  const [c0, c1] = channels;
+  const per = n / buckets;
   for (let b = 0; b < buckets; b++) {
     const s = Math.floor(b * per),
-      e = Math.max(s + 1, Math.floor((b + 1) * per));
+      e = Math.min(n, Math.max(s + 1, Math.floor((b + 1) * per)));
     let lo = 0,
       hi = 0;
-    for (let i = s; i < e && i < data.length; i++) {
-      const v = data[i];
+    for (let i = s; i < e; i++) {
+      let v: number;
+      if (channels.length === 1) v = c0[i];
+      else if (channels.length === 2) v = (c0[i] + c1[i]) * k;
+      else {
+        v = 0;
+        for (const c of channels) v += c[i];
+        v *= k;
+      }
       if (v < lo) lo = v;
       if (v > hi) hi = v;
     }

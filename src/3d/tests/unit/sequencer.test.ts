@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as S from '../../src/sequencer/strips';
 import * as B from '../../src/sequencer/blend';
-import { encodeWav, soundSegment, peaks, panGains } from '../../src/sequencer/wav';
+import { encodeWav, soundSegment, peaks, mixPeaks, panGains } from '../../src/sequencer/wav';
 import type { Strip, BlendType } from '../../src/sequencer/types';
 
 const ed = () => S.newSequenceEditor();
@@ -496,5 +496,18 @@ describe('audio', () => {
     expect(panGains(0)).toEqual([1, 1]);
     expect(panGains(1)).toEqual([0, 1]);
     expect(panGains(-0.5)).toEqual([1, 0.5]);
+  });
+
+  it('peaks of several channels are the peaks of their mono mix', () => {
+    const n = 1000;
+    const l = new Float32Array(n).map((_, i) => Math.sin(i * 0.37)),
+      r = new Float32Array(n).map((_, i) => Math.cos(i * 0.11) * 0.5),
+      third = new Float32Array(n).map((_, i) => ((i % 13) - 6) / 10);
+    for (const chans of [[l, r], [l, r, third]]) {
+      const mono = new Float32Array(n).map((_, i) => chans.reduce((s, c) => s + c[i], 0) / chans.length);
+      const a = mixPeaks(chans, 37),
+        b = peaks(mono, 37);
+      for (let i = 0; i < a.length; i++) expect(a[i]).toBeCloseTo(b[i], 5);
+    }
   });
 });

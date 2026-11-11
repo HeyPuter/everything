@@ -1,7 +1,7 @@
 // Media decoding and caches, keyed by the (shared, immutable) media byte arrays so they survive
 // undo snapshots: images → ImageBitmap, movies → <video> seeking with a frame cache (or live
 // playback while the timeline plays), sounds → AudioBuffer + waveform peaks, movie thumbnails.
-import { peaks } from './wav';
+import { mixPeaks } from './wav';
 
 const MIME_BY_EXT: Record<string, string> = {
   png: 'image/png',
@@ -402,13 +402,9 @@ const peakCache = new WeakMap<AudioBuffer, Float32Array>();
 export function soundPeaks(buf: AudioBuffer): Float32Array {
   let p = peakCache.get(buf);
   if (!p) {
-    const n = buf.length;
-    const mono = new Float32Array(n);
-    for (let c = 0; c < buf.numberOfChannels; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < n; i++) mono[i] += d[i] / buf.numberOfChannels;
-    }
-    p = peaks(mono, Math.max(1, Math.ceil(buf.duration * PEAKS_PER_SECOND)));
+    const chans: Float32Array[] = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+    p = mixPeaks(chans, Math.max(1, Math.ceil(buf.duration * PEAKS_PER_SECOND)));
     peakCache.set(buf, p);
   }
   return p;
