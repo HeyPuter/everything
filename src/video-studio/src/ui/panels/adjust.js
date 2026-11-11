@@ -39,9 +39,9 @@ function setupPreview(ctx, setup, cache) {
     loadLut(id, ctx.library).then((got) => {
       if (!got) return;
       gradePreview(setup, canvas);
-      cache?.set(key, canvas);
+      if (canvas.drawn) cache?.set(key, canvas);
     });
-  } else cache?.set(key, canvas);
+  } else if (canvas.drawn) cache?.set(key, canvas);
   return canvas;
 }
 

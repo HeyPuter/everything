@@ -113,6 +113,8 @@ function personMatte() {
 }
 
 function engine() {
+  // A renderer whose WebGL context was lost (and not given back) is replaced.
+  if (shared && shared.comp.lost) shared = null;
   if (shared !== null) return shared;
   try {
     const canvas = document.createElement('canvas');
@@ -137,6 +139,20 @@ function mediaLayer(id, extra = {}) {
   return { kind: 'media', clip: { id }, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, blur: 0, reveal: 1, blend: 'normal', width: W * 2, height: H * 2, crop: { l: 0, t: 0, r: 0, b: 0 }, adjust: DEFAULT_ADJUST, filter: null, ...extra };
 }
 
+/**
+ * Render layers with the shared renderer; a lost context gets one new
+ * renderer to try with. Returns the renderer that drew them, or null.
+ */
+function renderShared(layers, time) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const e = engine();
+    if (!e) return null;
+    if (e.comp.render(layers, { settings: { background: { type: 'color', color: '#000000' } }, time }) !== false) return e;
+    shared = null;
+  }
+  return null;
+}
+
 /** Render a look into ctx2d now (and cache it). */
 function drawLook(ctx2d, kind, id, progress, time) {
   const key = `${kind}:${id}:${progress}:${time}`;
@@ -145,19 +161,19 @@ function drawLook(ctx2d, kind, id, progress, time) {
     ctx2d.drawImage(hit, 0, 0);
     return;
   }
-  const e = engine();
-  if (!e) {
-    ctx2d.fillStyle = '#333';
-    ctx2d.fillRect(0, 0, W, H);
-    return;
-  }
   let layers;
   if (kind === 'transition') layers = [{ kind: 'transition', id, progress, from: mediaLayer('a'), to: mediaLayer('b') }];
   else if (kind === 'filter') layers = [mediaLayer('a', { filter: id ? { id, intensity: 100 } : null })];
   else if (kind === 'effect') layers = effectLayers(id, time);
   else if (kind === 'stack') layers = [mediaLayer('p', { effects: stacks.get(id) || [], fxTime: time * 1e6, fxDur: 2e6 })];
   else layers = [mediaLayer('a')];
-  e.comp.render(layers, { settings: { background: { type: 'color', color: '#000000' } }, time });
+  const e = renderShared(layers, time);
+  if (!e) {
+    // No picture (no WebGL, or its context lost): a placeholder that is not kept.
+    ctx2d.fillStyle = '#333';
+    ctx2d.fillRect(0, 0, W, H);
+    return;
+  }
   ctx2d.drawImage(e.canvas, 0, 0);
   // Keep a copy so re-rendering the grid is cheap.
   const keep = document.createElement('canvas');
@@ -242,8 +258,7 @@ export function stackPreview(effects, key, opts) {
 export function animatePreview(canvas, kind, id) {
   let raf = 0;
   let start = 0;
-  const e = engine();
-  if (!e) return () => {};
+  if (!engine()) return () => {};
   const ctx2d = canvas.getContext('2d');
   const frame = (now) => {
     // A tile replaced while hovered never gets pointerleave.
@@ -257,8 +272,8 @@ export function animatePreview(canvas, kind, id) {
     if (kind === 'transition') layers = [{ kind: 'transition', id, progress: (t % 1.6) / 1.6, from: mediaLayer('a'), to: mediaLayer('b') }];
     else if (kind === 'filter') layers = [{ kind: 'transition', id: 'wipe-right', progress: 0.5 - 0.42 * Math.cos(t * 2.2), from: mediaLayer('a'), to: mediaLayer('a', { filter: { id, intensity: 100 } }) }];
     else layers = effectLayers(id, t);
-    e.comp.render(layers, { settings: { background: { type: 'color', color: '#000000' } }, time: t });
-    ctx2d.drawImage(e.canvas, 0, 0);
+    const e = renderShared(layers, t);
+    if (e) ctx2d.drawImage(e.canvas, 0, 0);
     raf = requestAnimationFrame(frame);
   };
   raf = requestAnimationFrame(frame);
@@ -294,8 +309,9 @@ export function hoverAnimate(tileEl, kind, id) {
 
 /**
  * Preview of a color setup (adjust values and grade) on the sample scene,
- * drawn into canvas (a new one when omitted). Not cached: LUT previews are
- * redrawn once their table has loaded.
+ * drawn into canvas (a new one when omitted; canvas.drawn tells whether it
+ * shows the look). Not cached: LUT previews are redrawn once their table has
+ * loaded.
  */
 export function gradePreview({ adjust = DEFAULT_ADJUST, grade = null } = {}, canvas = null) {
   const out = canvas || document.createElement('canvas');
@@ -304,12 +320,13 @@ export function gradePreview({ adjust = DEFAULT_ADJUST, grade = null } = {}, can
   out.className = 'tile-canvas';
   out.setAttribute('aria-hidden', 'true');
   const ctx2d = out.getContext('2d');
-  const e = ctx2d ? engine() : null;
+  const e = ctx2d ? renderShared([mediaLayer('a', { adjust: { ...DEFAULT_ADJUST, ...adjust }, grade })], 0.6) : null;
+  // drawn: false when there was no picture to show (callers do not keep it).
+  out.drawn = Boolean(e);
   if (!e) {
     ctx2d?.fillRect(0, 0, W, H);
     return out;
   }
-  e.comp.render([mediaLayer('a', { adjust: { ...DEFAULT_ADJUST, ...adjust }, grade })], { settings: { background: { type: 'color', color: '#000000' } }, time: 0.6 });
   ctx2d.drawImage(e.canvas, 0, 0);
   return out;
 }
