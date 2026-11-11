@@ -185,3 +185,17 @@ test('Text Editor: typing in a long text redraws only the line it changes', asyn
   expect(await shown()).toBe(await ta.inputValue());
   await expectNoErrors(errors);
 });
+
+test('Text Editor: Find Next selects the match after letters that change length in lower case', async ({ page }) => {
+  const errors = await openApp(page);
+  await scripting(page, 'TEXT');
+  await run(page, 'text.new');
+  await run(page, 'text.insert', { text: 'İİ abc ABC' });
+  await page.evaluate(() => (document.querySelector('.te-input') as HTMLTextAreaElement).setSelectionRange(3, 6));
+  await run(page, 'text.find_set_selected');
+  // 'İ' is one character but two in lower case: the match used to land two characters late
+  expect(await sel(page)).toEqual([7, 10]);
+  await run(page, 'text.find');
+  expect(await sel(page)).toEqual([3, 6]);
+  await expectNoErrors(errors);
+});

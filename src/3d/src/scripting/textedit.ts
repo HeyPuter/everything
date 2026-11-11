@@ -787,14 +787,21 @@ export class TextEditor implements Editor {
     this.toggleSidebar(true);
   }
 
-  private matchAt(from: number, backwards = false): [number, number] | null {
-    const q = this.findText;
-    if (!q) return null;
-    const hay = settings.matchCase ? this.ta.value : this.ta.value.toLowerCase();
-    const needle = settings.matchCase ? q : q.toLowerCase();
-    let i = backwards ? hay.lastIndexOf(needle, from) : hay.indexOf(needle, from);
-    if (i < 0 && settings.wrapAround && !settings.findAll) i = backwards ? hay.lastIndexOf(needle) : hay.indexOf(needle);
-    return i < 0 ? null : [i, i + q.length];
+  /** The search text as a pattern (lower-casing the text instead moves offsets: 'İ' becomes two characters). */
+  private findPattern(): RegExp | null {
+    return this.findText ? new RegExp(this.findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), settings.matchCase ? 'g' : 'gi') : null;
+  }
+
+  private matchAt(from: number): [number, number] | null {
+    const re = this.findPattern();
+    if (!re) return null;
+    re.lastIndex = from;
+    let m = re.exec(this.ta.value);
+    if (!m && settings.wrapAround && !settings.findAll) {
+      re.lastIndex = 0;
+      m = re.exec(this.ta.value);
+    }
+    return m ? [m.index, m.index + m[0].length] : null;
   }
 
   findNext() {
@@ -812,17 +819,17 @@ export class TextEditor implements Editor {
 
   /** All Data-Blocks: open the next text (in name order, wrapping) that contains the search text. */
   private findInOtherTexts(): boolean {
-    const q = settings.matchCase ? this.findText : this.findText.toLowerCase();
-    if (!q) return false;
+    const re = this.findPattern();
+    if (!re) return false;
     const texts = Object.values(app.doc.texts).sort((a, b) => a.name.localeCompare(b.name));
     const cur = texts.findIndex((t) => t.id === this.textId);
     for (let k = 1; k <= texts.length; k++) {
       const t = texts[(cur + k) % texts.length];
-      const body = settings.matchCase ? t.body : t.body.toLowerCase();
-      const i = body.indexOf(q);
-      if (i < 0) continue;
+      re.lastIndex = 0;
+      const m = re.exec(t.body);
+      if (!m) continue;
       if (t.id !== this.textId) this.setText(t.id);
-      requestAnimationFrame(() => this.setCaret(i, i + q.length));
+      requestAnimationFrame(() => this.setCaret(m.index, m.index + m[0].length));
       return true;
     }
     return false;
@@ -842,8 +849,7 @@ export class TextEditor implements Editor {
   replaceAll() {
     const t = this.text;
     if (!t || !this.findText) return;
-    const flags = settings.matchCase ? 'g' : 'gi';
-    const re = new RegExp(this.findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+    const re = this.findPattern()!;
     const count = (this.ta.value.match(re) ?? []).length;
     if (!count) {
       app.report('WARNING', `Text not found: ${this.findText}`);
