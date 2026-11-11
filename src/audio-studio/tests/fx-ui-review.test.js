@@ -551,3 +551,43 @@ describe('effect dialog meters', () => {
     }
   });
 });
+
+describe('effect dialog name prompts', () => {
+  it('replace each other instead of leaving the first one listening', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(480, 0.1))],
+    });
+    app.active = doc;
+    const saved = [];
+    app.favorites = { addEffect: (name) => saved.push(name) };
+    const added = vi.spyOn(window, 'addEventListener');
+    const removed = vi.spyOn(window, 'removeEventListener');
+    const keyHandlers = (spy) =>
+      spy.mock.calls
+        .filter(([type, , capture]) => type === 'keydown' && capture === true)
+        .map(([, fn]) => fn);
+    const done = openEffectDialog(app, getEffect('amplify'), { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    dlg.querySelector('[aria-label="Save settings as a preset"]').click();
+    dlg.querySelector('[aria-label="Save settings as a favorite"]').click();
+    const [first, second] = keyHandlers(added);
+    expect(keyHandlers(removed)).toContain(first);
+    expect(keyHandlers(removed)).not.toContain(second);
+    const bar = dlg.querySelector('.fx-namebar');
+    expect(bar.querySelector('.fx-label').textContent).toBe('Favorite name:');
+    // Escape closes the favorite prompt.
+    bar
+      .querySelector('input')
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(bar.hidden).toBe(true);
+    expect(keyHandlers(removed)).toContain(second);
+    added.mockRestore();
+    removed.mockRestore();
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await done;
+    expect(saved).toEqual([]);
+  });
+});

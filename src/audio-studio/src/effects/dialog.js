@@ -40,12 +40,15 @@ export function paramControls(def, getValues, onSet, opts = {}) {
  * Returns a function that dismisses the prompt.
  */
 export function inlinePrompt(bar, { label, value = '', onSave, returnFocus }) {
+  // A new prompt in the same bar replaces the open one (and its key handler).
+  bar.fxPromptDismiss?.();
   const input = h('input.input', { type: 'text', value, 'aria-label': label.replace(/:$/, '') });
   const error = h('span.fx-name-error', { role: 'alert' });
   let open = true;
   const done = (refocus = true) => {
     if (!open) return;
     open = false;
+    if (bar.fxPromptDismiss === dismiss) bar.fxPromptDismiss = null;
     window.removeEventListener('keydown', keys, true);
     bar.hidden = true;
     bar.replaceChildren();
@@ -72,7 +75,9 @@ export function inlinePrompt(bar, { label, value = '', onSave, returnFocus }) {
   bar.hidden = false;
   input.focus();
   input.select();
-  return () => done(false);
+  const dismiss = () => done(false);
+  bar.fxPromptDismiss = dismiss;
+  return dismiss;
 }
 
 /** Input and output level bars (L/R each) fed while the dialog is open. */
