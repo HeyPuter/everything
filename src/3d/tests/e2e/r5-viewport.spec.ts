@@ -467,3 +467,22 @@ test('Esc and right-click cancel a Measure drag', async ({ page }) => {
   expect(await rulers()).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('instances get their own matrices in the instanced batches', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async () => {
+    const { renderContext } = await import('/src/render/context.ts' as string);
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const sync = renderContext.sync;
+    const cube = Object.values(a.doc.objects).find((o: any) => o.name === 'Cube') as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const ev0 = a.graph.get(cube.id);
+    const instances = [0, 1, 2].map((i) => ({ mesh: ev0.mesh, matrix: [2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, i * 3, 1, -i, 1] }));
+    const so = { id: 'x', root: new (sync.scene.constructor as any)(), geomVersion: 0, helperKey: '', ev: { ...ev0, mesh: { ...ev0.mesh, instances } } }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    sync['syncInstances'](a.doc, so.ev, so);
+    const im = so.root.children[0].children[0];
+    return { count: im.count, m: Array.from(im.instanceMatrix.array as Float32Array) };
+  });
+  expect(r.count).toBe(3);
+  expect(r.m).toEqual([0, 1, 2].flatMap((i) => [2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, i * 3, 1, -i, 1]));
+  await expectNoErrors(errors);
+});

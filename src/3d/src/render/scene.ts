@@ -475,7 +475,8 @@ export class SceneSync {
     const g = new Group();
     g.matrixAutoUpdate = false;
     // group identical meshes into InstancedMesh batches
-    const batches = new Map<unknown, { geo: BufferGeometry; mats: Matrix4[] }>();
+    // matrices are copied straight into the instance buffers (no Matrix4 per instance)
+    const batches = new Map<unknown, { geo: BufferGeometry; mats: number[][] }>();
     for (const it of inst) {
       let geo: BufferGeometry | null = null;
       let keyObj: unknown = it.mesh;
@@ -493,12 +494,13 @@ export class SceneSync {
         b = { geo, mats: [] };
         batches.set(keyObj, b);
       }
-      b.mats.push(new Matrix4().fromArray(it.matrix));
+      b.mats.push(it.matrix);
     }
     for (const b of batches.values()) {
       this.useGeometry(b.geo);
       const im = new InstancedMesh(b.geo, undefined as unknown as Material, b.mats.length);
-      b.mats.forEach((m, i) => im.setMatrixAt(i, m));
+      const arr = im.instanceMatrix.array as Float32Array;
+      b.mats.forEach((m, i) => arr.set(m.length === 16 ? m : IDENTITY16, i * 16));
       im.instanceMatrix.needsUpdate = true;
       im.userData.id = ev.id;
       im.userData.instanced = true;
@@ -511,6 +513,8 @@ export class SceneSync {
     void doc;
   }
 }
+
+const IDENTITY16 = new Matrix4().elements;
 
 /** Bone display geometries / materials are built per rebuild: free them. */
 function disposeBones(bones: Group) {
