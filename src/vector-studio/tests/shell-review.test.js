@@ -110,3 +110,62 @@ describe('form dialog validation', () => {
     expect(await p).toEqual({ n: 3, a: 0 });
   });
 });
+
+describe('layers panel rename', () => {
+  async function setup() {
+    const { bootApp } = await import('./helpers.js');
+    const { createPath } = await import('../src/model/nodes.js');
+    const { rectangle } = await import('../src/model/shapes.js');
+    const app = bootApp();
+    const ed = app.newDocument({ name: 'Rename' });
+    const doc = ed.doc;
+    const layer = doc.layers()[0];
+    let id;
+    doc.transact('Build', () => {
+      const p = createPath(rectangle(0, 0, 10, 10), true);
+      doc.insert(p, layer.id);
+      id = p.id;
+    });
+    const panel = app.dock.panels.get('layers');
+    app.dock.showTab('layers');
+    panel.ensureBuilt();
+    panel.setOpen(layer.id, true);
+    panel.update();
+    return { app, doc, id, panel };
+  }
+  const startRename = (panel, id) => {
+    const row = () => panel.tree.querySelector(`#lrow-${CSS.escape(id)}`);
+    row().click();
+    row().querySelector('.lr-name').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    // The panel refresh that follows the click's selection change.
+    panel.update();
+    return panel.tree.querySelector('.lr-rename');
+  };
+  const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+
+  it('keeps the name field through the refresh after the double-click and commits once on Enter', async () => {
+    const { doc, id, panel } = await setup();
+    const input = startRename(panel, id);
+    expect(input?.isConnected).toBe(true);
+    expect(document.activeElement).toBe(input);
+    input.value = 'Alpha';
+    key(input, 'Enter');
+    input.dispatchEvent(new Event('blur'));
+    expect(doc.get(id).name).toBe('Alpha');
+    expect(doc.undoLabel).toBe('Rename');
+    doc.undo();
+    expect(doc.get(id).name || '').toBe('');
+    expect(doc.undoLabel).toBe('Build');
+  });
+
+  it('Escape cancels even when the field then loses focus', async () => {
+    const { doc, id, panel } = await setup();
+    const input = startRename(panel, id);
+    input.value = 'Beta';
+    key(input, 'Escape');
+    input.dispatchEvent(new Event('blur'));
+    expect(doc.get(id).name || '').toBe('');
+    expect(doc.undoLabel).toBe('Build');
+    expect(panel.tree.querySelector('.lr-rename')).toBe(null);
+  });
+});
