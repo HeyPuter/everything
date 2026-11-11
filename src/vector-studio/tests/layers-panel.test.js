@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { bootApp } from './helpers.js';
 import { createPath, createGroup } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
@@ -154,5 +154,73 @@ describe('layers panel clipping mask button', () => {
     expect(g).toMatchObject({ type: 'group', clip: true });
     expect(g.children.at(-1)).toBe(ids.clip);
     expect(g.children).toContain(ids.a);
+  });
+});
+
+describe('layers panel clicks and Shift ranges', () => {
+  const rowOf = (panel, id) => panel.tree.querySelector(`#lrow-${CSS.escape(id)}`);
+
+  it('keeps the rows in place when the tree takes focus, so the first click lands', () => {
+    const { layer, ids, panel } = setup();
+    panel.setOpen(layer.id, true);
+    const before = rowOf(panel, ids.a);
+    panel.tree.dispatchEvent(new FocusEvent('focus'));
+    expect(rowOf(panel, ids.a)).toBe(before);
+  });
+
+  it('holds off the settled-thumbnail redraw while a row is pressed', () => {
+    vi.useFakeTimers();
+    try {
+      const { layer, ids, panel } = setup();
+      panel.setOpen(layer.id, true);
+      const before = rowOf(panel, ids.a);
+      panel.viewport.dispatchEvent(new Event('pointerdown'));
+      panel.deferThumbs();
+      vi.advanceTimersByTime(1000);
+      expect(rowOf(panel, ids.a)).toBe(before);
+      window.dispatchEvent(new Event('pointerup'));
+      vi.advanceTimersByTime(1000);
+      expect(rowOf(panel, ids.a)).not.toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Shift-click on an object row selects every object row from the last one clicked', () => {
+    const { ed, layer, ids, panel } = setup();
+    panel.setOpen(layer.id, true);
+    // Rows run top-first: clip group, c, b, a.
+    panel.selectRow(ed.doc.get(ids.c), {});
+    panel.selectRow(ed.doc.get(ids.a), { shiftKey: true });
+    expect(new Set(ed.selection)).toEqual(new Set([ids.a, ids.b, ids.c]));
+    // A new Shift-click re-ranges from the same anchor.
+    panel.selectRow(ed.doc.get(ids.clip), { shiftKey: true });
+    expect(new Set(ed.selection)).toEqual(new Set([ids.clip, ids.c]));
+  });
+
+  it('Shift-click on the target square still adds just that object', () => {
+    const { ed, layer, ids, panel } = setup();
+    panel.setOpen(layer.id, true);
+    panel.selectRow(ed.doc.get(ids.c), {});
+    panel.selectRow(ed.doc.get(ids.a), { shiftKey: true }, { range: false });
+    expect(new Set(ed.selection)).toEqual(new Set([ids.a, ids.c]));
+  });
+
+  it('Shift-click on a layer row picks the range from the last picked layer, replacing the picks', async () => {
+    const { layerPicks } = await import('../src/ops/layer-ops.js');
+    const { ed, doc, panel } = setup();
+    const made = [];
+    doc.transact('Layers', () => {
+      for (const name of ['B', 'C', 'D', 'E']) made.push(doc.addLayer(name).id);
+    });
+    panel.update();
+    const [b, c, d, e] = made;
+    panel.pickLayer(doc.get(b), {});
+    panel.pickLayer(doc.get(d), { shiftKey: true });
+    expect(new Set(layerPicks(ed))).toEqual(new Set([b, c, d]));
+    panel.pickLayer(doc.get(e), { shiftKey: true });
+    expect(new Set(layerPicks(ed))).toEqual(new Set([b, c, d, e]));
+    panel.pickLayer(doc.get(c), { shiftKey: true });
+    expect(new Set(layerPicks(ed))).toEqual(new Set([b, c]));
   });
 });

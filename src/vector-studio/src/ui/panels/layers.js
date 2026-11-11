@@ -57,7 +57,8 @@ function thumbnail(doc, node, { defer = null, size: THUMB = 20 } = {}) {
   drawNode(ctx, doc, { ...node, hidden: false }, { hairline: 1 / s, scale: s * dpr });
   let el;
   try {
-    el = Object.assign(document.createElement('img'), { src: canvas.toDataURL(), alt: '', width: THUMB, height: THUMB });
+    // Not draggable on its own, so dragging from a thumbnail drags its row.
+    el = Object.assign(document.createElement('img'), { src: canvas.toDataURL(), alt: '', width: THUMB, height: THUMB, draggable: false });
   } catch {
     return null;
   }
@@ -142,7 +143,18 @@ export class LayersPanel extends Panel {
     this.viewport = h('div.layers-viewport', this.spacer, this.tree);
     this.viewport.addEventListener('scroll', () => this.renderRows());
     this.tree.addEventListener('keydown', (e) => this.onKey(e));
-    this.tree.addEventListener('focus', () => this.renderRows());
+    // Rows must not be rebuilt while a button is held on them: a row replaced between
+    // mousedown and mouseup gets no click, and one replaced at the start of a drag cannot
+    // be dragged. (Focusing the tree on mousedown used to rebuild them; the focus ring is CSS.)
+    this.pressed = false;
+    this.viewport.addEventListener('pointerdown', () => {
+      this.pressed = true;
+      // A drag whose row was rebuilt never gets its dragend.
+      this.dragState = null;
+    });
+    const release = () => (this.pressed = false);
+    window.addEventListener('pointerup', release, true);
+    window.addEventListener('pointercancel', release, true);
     this.countEl = h('span.layers-count');
     const footer = h(
       'div.layers-footer',
@@ -172,6 +184,11 @@ export class LayersPanel extends Panel {
       clearTimeout(this.thumbTimer);
       this.thumbTimer = setTimeout(() => {
         if (!this.el.isConnected) return;
+        // Wait for a click or drag on the rows to finish before replacing them.
+        if (this.pressed || this.dragState) {
+          this.deferThumbs();
+          return;
+        }
         this.thumbsSettled = true;
         try {
           this.renderRows();
@@ -384,7 +401,7 @@ export class LayersPanel extends Panel {
     const target = h('span.lr-target', { 'aria-hidden': 'true' });
     target.classList.toggle('on', isSel);
     target.classList.toggle('partial', !isSel && selectedIn.has(n.id));
-    const selBox = h('button.lr-select', { type: 'button', tabindex: '-1', 'aria-label': `Select ${defaultLabel(n)}`, onclick: (e) => (e.stopPropagation(), this.selectRow(n, e)) }, target);
+    const selBox = h('button.lr-select', { type: 'button', tabindex: '-1', 'aria-label': `Select ${defaultLabel(n)}`, onclick: (e) => (e.stopPropagation(), this.selectRow(n, e, { range: false })) }, target);
     row.append(h('span.lr-colorbar'), eye, lock, h('span.lr-indent'), twisty, thumb, name, selBox);
     row.addEventListener('click', (e) => {
       this.focusIndex = index;
@@ -426,7 +443,9 @@ export class LayersPanel extends Panel {
       const zone = row.dataset.drop;
       delete row.dataset.drop;
       if (!this.dragState) return;
-      this.dropOn(this.dragState.ids, n, zone);
+      const { ids } = this.dragState;
+      this.dragState = null;
+      this.dropOn(ids, n, zone);
     });
     return row;
   }
@@ -548,7 +567,10 @@ export class LayersPanel extends Panel {
     if (e.metaKey || e.ctrlKey) {
       if (picks.has(n.id) && picks.size > 1) picks.delete(n.id);
       else picks.add(n.id);
-    } else if (e.shiftKey && this.lastPick && picks.has(this.lastPick)) {
+    } else if (e.shiftKey) {
+      // The range runs from the last picked layer, else from the active layer, which then anchors it.
+      if (!this.lastPick || !picks.has(this.lastPick)) this.lastPick = ed.activeLayerId;
+      picks.clear();
       const layerRows = this.rows.filter((r) => r.node.type === 'layer').map((r) => r.id);
       const a = layerRows.indexOf(this.lastPick);
       const b = layerRows.indexOf(n.id);
@@ -627,11 +649,18 @@ export class LayersPanel extends Panel {
     this.update();
   }
 
-  selectRow(n, e) {
+  /**
+   * Select a row's artwork. Cmd/Ctrl-click adds or removes it; Shift-click on a
+   * row (not its target square) selects every object row from the last one
+   * clicked to this one.
+   */
+  selectRow(n, e, { range = true } = {}) {
     const ed = this.app.editor;
     const doc = ed.doc;
     if (doc.isLocked(n.id) || doc.isHidden(n.id)) return;
+    if (range && e?.shiftKey && !e.metaKey && !e.ctrlKey && n.type !== 'layer' && this.selectRange(n)) return;
     const add = e?.shiftKey || e?.metaKey || e?.ctrlKey;
+    if (n.type !== 'layer' && !e?.shiftKey) this.rangeAnchor = n.id;
     if (n.type === 'layer') {
       // Selecting a layer's target selects everything on it.
       const ids = n.children.filter((c) => !doc.get(c)?.locked && !doc.get(c)?.hidden);
@@ -643,6 +672,27 @@ export class LayersPanel extends Panel {
       return;
     }
     ed.select([n.id], { toggle: add, add });
+  }
+
+  /** Select the object rows from the range anchor to n; false when there is no usable anchor. */
+  selectRange(n) {
+    const ed = this.app.editor;
+    const doc = ed.doc;
+    const ids = this.rows.map((r) => r.id);
+    // The anchor is the last row clicked while it stays selected, else the topmost selected row.
+    const anchor = ed.selection.has(this.rangeAnchor) ? this.rangeAnchor : ids.find((id) => ed.selection.has(id));
+    const a = ids.indexOf(anchor);
+    const b = ids.indexOf(n.id);
+    if (a < 0 || b < 0) return false;
+    const picked = new Set(
+      ids.slice(Math.min(a, b), Math.max(a, b) + 1).filter((id) => {
+        const x = doc.get(id);
+        return x && x.type !== 'layer' && !doc.isLocked(id) && !doc.isHidden(id);
+      }),
+    );
+    // An open group and its contents both in the range: the group stands for them.
+    ed.select([...picked].filter((id) => !doc.ancestors(id).some((p) => picked.has(p.id))));
+    return true;
   }
 
   rename(row, n) {
