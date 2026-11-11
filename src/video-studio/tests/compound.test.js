@@ -243,6 +243,20 @@ describe('project fields while a compound clip is open', () => {
   });
 });
 
+describe('compound clips on locked tracks', () => {
+  it('are not opened for editing', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const comp = createCompound(p, [a.id, b.id], RIPPLE);
+    mainTrack(p).locked = true;
+    const store = new EditorStore(p);
+    expect(store.openCompound(comp.id)).toBe(false);
+    expect(store.nest).toHaveLength(0);
+    mainTrack(store.project).locked = false;
+    expect(store.openCompound(comp.id)).toBe(true);
+  });
+});
+
 describe('closing a compound clip that got shorter', () => {
   const setup = (toggles) => {
     const p = fixture();

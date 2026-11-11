@@ -440,6 +440,11 @@ export function createOrganizeActions(ctx) {
       }
     },
     openCompound(id = store.selected?.clip.id) {
+      const f = id && T.findClip(store.project, id);
+      if (f?.clip.type === 'compound' && f.track.locked) {
+        toast('Unlock the track to edit this compound clip.', { kind: 'info' });
+        return;
+      }
       ctx.player?.pause?.();
       if (store.openCompound(id)) announce(`Editing ${store.compoundName}. Use Back to return.`);
     },

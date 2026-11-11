@@ -77,7 +77,8 @@ export class EditorStore extends Emitter {
    */
   openCompound(id) {
     const f = findClip(this.project, id);
-    if (!f || f.clip.type !== 'compound') return false;
+    // A clip on a locked track can't be edited, inside or out.
+    if (!f || f.clip.type !== 'compound' || f.track.locked) return false;
     const outer = this.project;
     const c = f.clip;
     this.nest.push({ outer, history: this.history, id, time: this.time });
