@@ -204,30 +204,42 @@ async function versionHistoryDialog(app) {
     e.preventDefault();
     select(list[Math.max(0, Math.min(list.length - 1, j))].id);
   });
-  restoreBtn.addEventListener('click', async () => {
+  // Each action runs once at a time; failures (a version that is gone, storage errors) are reported.
+  const action = (btn, fn) =>
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try {
+        await fn();
+      } catch (err) {
+        app.notify(err?.message || 'Something went wrong.', { error: true });
+      } finally {
+        btn.disabled = false;
+        render();
+      }
+    });
+  action(restoreBtn, async () => {
     const doc = await versions.read(key, selected);
     restoreDocumentContent(ed, doc);
     app.notify('Restored the version. Undo returns to the current content.', { polite: true });
     close?.(true);
   });
-  copyBtn.addEventListener('click', async () => {
+  action(copyBtn, async () => {
     const doc = await versions.read(key, selected);
     const v = list.find((x) => x.id === selected);
     doc.nodes.set('root', { ...doc.root, name: `${ed.name.replace(/\.[^.]+$/, '')} (${new Date(v.time).toLocaleString()})` });
     close?.(true);
     app.addDocument(doc);
   });
-  delBtn.addEventListener('click', async () => {
+  action(delBtn, async () => {
     await versions.remove(key, selected);
     list = list.filter((v) => v.id !== selected);
     selected = list[0]?.id || null;
-    render();
   });
-  saveBtn.addEventListener('click', async () => {
+  action(saveBtn, async () => {
     const entry = await versions.add(key, ed.doc, { name: ed.name, label: 'Saved manually' });
     list.unshift(entry);
     selected = entry.id;
-    render();
   });
   render();
   return app.dialogs.open({

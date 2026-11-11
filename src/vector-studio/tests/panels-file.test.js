@@ -113,6 +113,24 @@ describe('Version history', () => {
     dlg.querySelector('.dialog-close').click();
     await done;
   });
+
+  it('reports a version that can no longer be read instead of failing silently', async () => {
+    const { app, ed, doc } = await setup();
+    const entry = await app.versions.add(versionKey(ed), doc);
+    await app.versions.store.remove(`versions/${versionKey(ed)}/${entry.id}.vstudio`);
+    const notes = [];
+    app.notify = (msg, opts) => notes.push([msg, opts]);
+    const done = app.commands.run('file.versionHistory');
+    const dlg = await openDialogEl();
+    const restore = [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Restore');
+    restore.click();
+    for (let i = 0; i < 50 && !notes.length; i++) await tick();
+    expect(notes[0]).toEqual(['This version is no longer available.', { error: true }]);
+    expect(restore.disabled).toBe(false);
+    expect(dlg.open).toBe(true);
+    dlg.querySelector('.dialog-close').click();
+    await done;
+  });
 });
 
 describe('Document color mode', () => {
