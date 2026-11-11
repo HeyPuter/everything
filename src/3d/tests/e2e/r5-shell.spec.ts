@@ -581,3 +581,26 @@ test('uncaught errors are reported once in the status bar and still reach the co
   expect(errors.filter((e) => /r5 boom/.test(e)).length).toBe(20);
   expect(errors.some((e) => /r5 rejected/.test(e))).toBe(true);
 });
+
+test('a tooltip goes away with Esc and fits a phone-width window', async ({ page }) => {
+  const errors = await openApp(page);
+  const b = (await page.locator('.topbar .tb-assistant').boundingBox())!;
+  await page.mouse.move(b.x + 5, b.y + 5);
+  await expect(page.locator('.tooltip')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.tooltip')).toHaveCount(0);
+  await page.setViewportSize({ width: 320, height: 600 });
+  await page.evaluate(() => {
+    const el = document.createElement('button');
+    el.className = 'r5-tip';
+    el.dataset.tip = `A long tooltip\n${'words that go on '.repeat(20)}`;
+    Object.assign(el.style, { position: 'fixed', left: '10px', top: '300px', width: '40px', height: '20px', zIndex: '5000' });
+    document.body.append(el);
+  });
+  await page.mouse.move(20, 310);
+  await expect(page.locator('.tooltip')).toHaveCount(1);
+  const t = (await page.locator('.tooltip').boundingBox())!;
+  expect(t.x).toBeGreaterThanOrEqual(0);
+  expect(t.x + t.width).toBeLessThanOrEqual(320);
+  await expectNoErrors(errors);
+});

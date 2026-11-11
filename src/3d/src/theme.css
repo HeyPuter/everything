@@ -1517,7 +1517,7 @@ input.num-field.editing {
 
 .tooltip {
   position: fixed;
-  max-width: 360px;
+  max-width: min(360px, calc(100vw - 8px));
   background: var(--g-1d, #1a1b1c);
   border: 1px solid var(--g-33, #303133);
   border-radius: 4px;

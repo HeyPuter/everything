@@ -860,6 +860,13 @@ export function installTooltips(root: HTMLElement) {
     clearTimeout(tipTimer);
     hideTip();
   });
+  // a key (Esc, a shortcut) or scrolling puts the tooltip away, as a click does
+  const dismiss = () => {
+    clearTimeout(tipTimer);
+    hideTip();
+  };
+  addEventListener('keydown', dismiss, { capture: true, passive: true });
+  addEventListener('wheel', dismiss, { capture: true, passive: true });
 }
 
 /** Extra tooltip content for an element: an optional title (when it has no tip text) and lines (e.g. the data path). */
