@@ -1,7 +1,7 @@
 // Changing, applying, saving and reverting preferences. Every preference with a runtime
 // effect is pushed out by an "apply hook" so modules react without polling.
 import { app } from '../app/app';
-import { prefs, savePrefs, defaultPreferences, readStoredPrefs, type Preferences } from '../app/prefs';
+import { prefs, savePrefs, defaultPreferences, readStoredPrefs, mergeStoredPrefs, type Preferences } from '../app/prefs';
 import { keyconfigSaving, saveKeyconfig, revertKeyconfig, factoryKeyconfig } from './keyconfig';
 
 type Hook = (p: Preferences) => void;
@@ -70,9 +70,7 @@ export function saveAllPrefs(report = true) {
 }
 
 export function revertPrefs() {
-  const stored = readStoredPrefs() ?? {};
-  const d = defaultPreferences();
-  Object.assign(prefs, d, stored, { duplicate: { ...d.duplicate, ...(stored.duplicate ?? {}) } });
+  Object.assign(prefs, mergeStoredPrefs(defaultPreferences(), readStoredPrefs()));
   revertKeyconfig();
   for (const s of stores) s.revert();
   dirty = false;
