@@ -100,6 +100,9 @@ export function convertVal(v: Val, from: SocketType, to: SocketType): Val {
 
 const isMulti = (s: SocketDef) => !!s.multiInput;
 
+/** Message of a node given a field in an input that takes a single value (the editor draws such links red). */
+export const fieldInputMessage = (socketName: string) => `Input "${socketName}" does not support fields`;
+
 /** Node fields that only affect how the editor draws a node, not what it computes. */
 const UI_ONLY = new Set(['location', 'width', 'select', 'hide', 'color', 'use_custom_color', 'parent', 'hidden_sockets', 'open_panels', 'hide_options', 'viewer_shortcut', 'show_preview']);
 
@@ -387,7 +390,7 @@ export class TreeEval {
       if (v instanceof Field) {
         const c = constOf(v);
         if (c !== undefined) return c as Val;
-        self.warn(node, `Input "${s.name}" does not support fields`);
+        self.warn(node, fieldInputMessage(s.name));
         return coerce(node.inputs[s.identifier] ?? socketDefault(s), s.type);
       }
       return v;

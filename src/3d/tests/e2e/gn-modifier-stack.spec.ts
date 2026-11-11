@@ -107,3 +107,35 @@ test('a viewer inside a node group opened in the editor is shown', async ({ page
   await expect(page.locator(`[data-node="${n}"] .gn-viewer-body`)).toHaveText(/Viewing/);
   await expectNoErrors(errors);
 });
+
+test('a field linked into a single-value input is flagged on the node and its link', async ({ page }) => {
+  const { errors } = await geometryEditor(page);
+  const ids = await page.evaluate(async () => {
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const tree = a.hoverArea.editor.tree();
+    const ctx = ctxOf(a.doc, tree);
+    const go = tree.nodes.find((n: { type: string }) => n.type === 'NodeGroupOutput');
+    const grid = addNode(tree, 'GeometryNodeMeshGrid', [0, 0]);
+    const index = addNode(tree, 'GeometryNodeInputIndex', [-250, 0]);
+    const value = addNode(tree, 'FunctionNodeInputInt', [-250, -150], { integer: 4 });
+    tree.links = tree.links.filter((l: { to_node: string }) => l.to_node !== go.id);
+    connect(ctx, grid.id, 'Mesh', go.id, tree.interface.find((i: { in_out: string }) => i.in_out === 'OUTPUT').identifier);
+    const bad = connect(ctx, index.id, 'Index', grid.id, 'Vertices X');
+    const good = connect(ctx, value.id, 'Integer', grid.id, 'Vertices Y');
+    a.changed('doc');
+    return { grid: grid.id, bad: bad.id, good: good.id };
+  });
+  await page.waitForTimeout(400);
+  await expect(page.locator(`[data-node="${ids.grid}"] .nd-warn-icon`)).toHaveAttribute('data-tip', /Input "Vertices X" does not support fields/);
+  const flags = await page.evaluate(async (ids) => {
+    const { providers } = await import('/src/nodes/editor/context.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const ed = a.hoverArea.editor;
+    const link = (id: string) => ed.tree().links.find((l: { id: string }) => l.id === id);
+    const p = providers.get('GEOMETRY')!;
+    return [p.linkError!(ed, link(ids.bad)), p.linkError!(ed, link(ids.good))];
+  }, ids);
+  expect(flags).toEqual([true, false]);
+  await expectNoErrors(errors);
+});

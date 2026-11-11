@@ -2,7 +2,7 @@
 // geometry node group, compositor) and draws the tree-specific part of the header; group
 // editing (Tab) is handled generically by the editor through a path of group ids.
 import type { Child } from '../../ui/h';
-import type { NodeData, NodeTreeData } from '../../data/types';
+import type { LinkData, NodeData, NodeTreeData } from '../../data/types';
 import type { TreeType } from '../types';
 import type { EditorTypeId } from '../../ui/screen';
 
@@ -41,6 +41,8 @@ export interface NodeEditorProvider {
   optionsPanels?(ed: unknown): Child;
   /** messages reported by a node when the tree was last evaluated (shown on its header) */
   nodeWarnings?(ed: unknown, node: NodeData): { messages: string[]; kind: 'ERROR' | 'WARNING' | 'INFO' } | undefined;
+  /** whether the last evaluation rejected what a link carries (e.g. a field into a single-value input): drawn red */
+  linkError?(ed: unknown, link: LinkData): boolean;
 }
 
 export const providers = new Map<string, NodeEditorProvider>();

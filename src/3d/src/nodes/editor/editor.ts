@@ -731,7 +731,7 @@ export class NodeEditor implements Editor {
       const st = linkStatus(ctx, l);
       const hl = sel.has(l.from_node) || sel.has(l.to_node);
       let color = this.showOverlays && this.overlays.wireColors ? (SOCKET_COLORS[a.socket.type] ?? '#9a9b9c') : '#9a9b9c';
-      if (!st.valid) color = '#df3e36';
+      if (!st.valid || this.provider.linkError?.(this, l)) color = '#df3e36';
       else if (l.is_muted) color = '#b94640';
       const [x1, y1] = this.toScreen(a.x, a.y),
         [x2, y2] = this.toScreen(b.x, b.y);

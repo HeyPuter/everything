@@ -6,7 +6,7 @@ import { icon } from '../ui/icons';
 import { app, registerOperators } from '../app/app';
 import { registerEditor, type Area } from '../ui/screen';
 import { NodeEditor } from '../nodes/editor/editor';
-import { registerNodeEditorProvider } from '../nodes/editor/context';
+import { registerNodeEditorProvider, type NodeEditorProvider } from '../nodes/editor/context';
 import { dataBlockSelector } from '../editors/properties/tabs';
 import { newNodeGroup, uid } from '../data/defaults';
 import { newModifier } from '../eval/modifiers';
@@ -18,6 +18,7 @@ import { captureItems, captureIn, captureOut, type CaptureItem } from './nodes/g
 import { itemListUI, registerItemNode, type ItemListDef, type NodeItem } from './nodes/items';
 import { gnMessages, viewerState } from './results';
 import { setModifierNameHook, groupTrees } from './modifier';
+import { fieldInputMessage } from './evaluator';
 import { interfaceSocketType } from '../nodes/registry';
 import { button } from '../ui/widgets';
 import type { NodeDrawContext } from '../nodes/types';
@@ -162,7 +163,7 @@ function newGroupFor(ed: GeometryNodeEditor) {
   changed(m ? 'New Geometry Node Group' : 'New Geometry Nodes Modifier');
 }
 
-registerNodeEditorProvider({
+const geometryProvider: NodeEditorProvider = {
   id: 'GEOMETRY',
   label: 'Geometry Node Editor',
   icon: 'editor_geometry',
@@ -194,6 +195,16 @@ registerNodeEditorProvider({
     if (!messages?.length) return undefined;
     const kinds = messages.map((m) => r.warningKinds?.get(`${key}\n${m}`) ?? 'WARNING');
     return { messages, kind: kinds.includes('ERROR') ? 'ERROR' : kinds.includes('WARNING') ? 'WARNING' : 'INFO' };
+  },
+  // a field linked into an input taking a single value (reported by the node when evaluated)
+  linkError: (e, l) => {
+    const ed = e as GeometryNodeEditor;
+    const tree = ed.tree();
+    const to = tree ? nodeById(tree, l.to_node) : undefined;
+    if (!tree || !to) return false;
+    const s = nodeSockets(to, ctxOf(app.doc, tree)).inputs.find((x) => x.identifier === l.to_socket);
+    const w = s ? geometryProvider.nodeWarnings?.(ed, to) : undefined;
+    return !!s && !!w?.messages.includes(fieldInputMessage(s.name));
   },
   // Ctrl Shift click / node.link_viewer: link the node to the viewer
   linkViewer: (ed, node, socket) => linkToViewer(ed as NodeEditor, node, socket),
@@ -263,7 +274,8 @@ registerNodeEditorProvider({
       ),
     );
   },
-});
+};
+registerNodeEditorProvider(geometryProvider);
 
 registerEditor({
   id: 'GEOMETRY',
