@@ -36,3 +36,25 @@ test('arrow keys move the caret on screen through right-to-left text', async ({ 
   await page.keyboard.press('ArrowLeft');
   expect(await caret(page)).toMatchObject({ anchor: 4, focus: 4 });
 });
+
+test('an IME composition is one undo step and ends the redo history', async ({ page }) => {
+  await canvasClick(page, 100, 100);
+  await page.keyboard.type('ab cd');
+  // Undo the last word, then compose over a selection of "ab".
+  await page.keyboard.press('Meta+z');
+  expect((await caret(page)).text).toBe('ab ');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Shift+ArrowRight');
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
+  await cdp.send('Input.imeSetComposition', { text: 'にほ', selectionStart: 2, selectionEnd: 2 });
+  await cdp.send('Input.insertText', { text: '日本' });
+  await expect.poll(async () => (await caret(page)).text).toBe('日本 ');
+  // Redo has nothing left to bring back: the composition replaced it.
+  await page.keyboard.press('Meta+Shift+z');
+  expect((await caret(page)).text).toBe('日本 ');
+  // One undo restores the selected "ab".
+  await page.keyboard.press('Meta+z');
+  expect(await caret(page)).toMatchObject({ text: 'ab ', anchor: 0, focus: 2 });
+});

@@ -60,7 +60,8 @@ export type Session = {
   undo: Snapshot[];
   redo: Snapshot[];
   lastKind?: string;
-  composing?: { start: number; length: number };
+  // IME composition in progress; `before` is the state it is undone to.
+  composing?: { start: number; length: number; before: Snapshot };
 };
 export let session: Session | undefined;
 // Unnarrowed accessor for code that awaits between checks.
@@ -717,10 +718,17 @@ function inputElement(e: Editor): HTMLTextAreaElement {
     } else insert(e, v);
   });
   el.addEventListener('compositionstart', () => {
-    if (!session) return;
-    const [a, b] = ordered(session);
-    if (a !== b) removeRange(e, a, b);
-    session.composing = { start: session.focus, length: 0 };
+    const s = session;
+    if (!s) return;
+    const before = { data: s.data, anchor: s.anchor, focus: s.focus };
+    // Composing over a selection replaces it; the whole replacement is one undo step.
+    const [a, b] = ordered(s);
+    if (a !== b) {
+      s.data = { ...s.data, content: deleteRange(s.data.content, a, b) };
+      s.anchor = s.focus = a;
+      render(e);
+    }
+    s.composing = { start: s.focus, length: 0, before };
   });
   el.addEventListener('compositionupdate', (ev) => {
     const s = session;
@@ -736,11 +744,15 @@ function inputElement(e: Editor): HTMLTextAreaElement {
     const s = session;
     if (!s?.composing) return;
     const data = (ev as CompositionEvent).data ?? '';
-    const { start, length } = s.composing;
+    const { start, length, before } = s.composing;
     s.composing = undefined;
-    // Record the composed text as one undoable insertion.
-    const before = { ...s.data, content: replaceRange(s.data.content, start, start + length, '') };
-    s.undo.push({ data: before, anchor: start, focus: start });
+    // Record the composed text as one undoable insertion (a new edit, so redo ends).
+    if (data || before.anchor !== before.focus) {
+      s.undo.push(before);
+      if (s.undo.length > 200) s.undo.shift();
+      s.redo = [];
+    }
+    s.lastKind = undefined;
     s.data = { ...s.data, content: replaceRange(s.data.content, start, start + length, data, s.caretStyle) };
     s.anchor = s.focus = start + data.length;
     el.value = '';
