@@ -73,8 +73,8 @@ gn(
         Geometry: geometry,
       };
     },
-    sig: (n: NodeData, env) => {
-      const id = n.inputs.Object as string | null;
+    sig: (_n: NodeData, env, ref) => {
+      const id = ref('Object');
       return `${id ? env.objectSig(id) : ''}|${Array.from(env.selfWorld)
         .map((x) => x.toFixed(5))
         .join(',')}`;
@@ -168,8 +168,8 @@ gn(
         Instances: new GeometrySet(undefined, undefined, undefined, new InstancesComponent(new Float32Array(toSelf), new Int32Array([0]), [ref])),
       };
     },
-    sig: (n, env) => {
-      const cid = n.inputs.Collection as string | null;
+    sig: (_n, env, ref) => {
+      const cid = ref('Collection');
       if (!cid) return '';
       return `${env
         .collectionObjects(cid)

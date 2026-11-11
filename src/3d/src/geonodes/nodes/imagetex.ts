@@ -192,8 +192,8 @@ geoNode(
       });
     },
     implicit: { Vector: positionField },
-    sig: (n, env) => {
-      const id = n.inputs.Image as string | null;
+    sig: (_n, env, ref) => {
+      const id = ref('Image');
       const img = id ? env.doc.images[id] : undefined;
       return img ? `${keyOf(img)}|${imageReady(img) ? 1 : 0}` : '';
     },

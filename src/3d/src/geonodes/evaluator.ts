@@ -256,11 +256,21 @@ export class TreeEval {
       s += `|g${g ? hash(groupTreesJson(this.env.doc, g.tree)) : ''}`;
     }
     const ex = geoExecs[node.type];
-    if (ex?.sig) s += `|${ex.sig(node, this.env)}`;
+    if (ex?.sig) s += `|${ex.sig(node, this.env, (id) => this.refInput(node, id))}`;
     const h = hash(s);
     this.visiting.delete(node.id);
     this.sigMemo.set(node.id, h);
     return h;
+  }
+
+  /** Data-block id or path a node input refers to (a linked input is evaluated), for the signatures of nodes reading data outside the tree. */
+  private refInput(node: NodeData, id: string): string | null {
+    let v: Val = node.inputs[id] as Val;
+    if (this.links(node.id, id).length) {
+      const s = findSocket(node, id, false, this.sctx);
+      v = s ? this.inputValue(node, s) : undefined;
+    }
+    return typeof v === 'string' && v ? v : null;
   }
 
   // -------------------------------------------------------------------------

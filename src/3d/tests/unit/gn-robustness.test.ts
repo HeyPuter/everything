@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 // Geometry nodes: evaluation cache invalidation and edge cases of individual nodes.
 import { describe, it, expect } from 'vitest';
-import { setup, node, link, run } from './gnmesh-harness';
+import { setup, node, link, run, env } from './gnmesh-harness';
 import { addNode, connect, ctxOf } from '../../src/nodes/tree';
-import type { NodeGroupData, NodeTreeData } from '../../src/data/types';
+import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/types';
+import { evaluateGroup } from '../../src/geonodes/modifier';
+import { GeometrySet, identity } from '../../src/geonodes/geometry';
 
 /** A group with one geometry input and one geometry output. */
 function geoGroup(id: string): NodeGroupData {
@@ -45,5 +47,32 @@ describe('evaluation cache', () => {
     expect(run(t, go, 'Socket_1', undefined, { key: 'nested' }).geometry.mesh!.positions[2]).toBeCloseTo(0.5);
     tr.inputs.Translation = [0, 0, 5];
     expect(run(t, go, 'Socket_1', undefined, { key: 'nested' }).geometry.mesh!.positions[2]).toBeCloseTo(4.5);
+  });
+
+  it('re-evaluates Object Info when the object linked from the modifier input moves', () => {
+    const t = setup();
+    t.tree.interface!.push({ in_out: 'INPUT', name: 'Object', socket_type: 'NodeSocketObject', identifier: 'Socket_2' } as never);
+    t.doc.objects.obX = { id: 'obX', name: 'X' } as never;
+    const info = node(t, 'GeometryNodeObjectInfo');
+    link(t, t.gin, 'Socket_2', info, 'Object');
+    const cube = node(t, 'GeometryNodeMeshCube');
+    const tr = node(t, 'GeometryNodeTransform');
+    link(t, cube, 'Mesh', tr, 'Geometry');
+    link(t, info, 'Location', tr, 'Translation');
+    link(t, tr, 'Geometry', t.out, 'Geometry');
+    const m = { id: 'md', name: 'GN', type: 'NODES', node_group: t.group.id, Socket_2: 'obX' } as unknown as ModifierBase;
+    let x = 1;
+    const e = () => ({
+      ...env(t.doc),
+      objectWorld: () => {
+        const w = identity();
+        w[12] = x;
+        return w;
+      },
+      objectSig: () => `moved ${x}`,
+    });
+    expect(evaluateGroup(t.group, m, e(), GeometrySet.empty(), 'in', 'objinfo', false).geometry.mesh!.positions[0]).toBeCloseTo(0.5);
+    x = 3;
+    expect(evaluateGroup(t.group, m, e(), GeometrySet.empty(), 'in', 'objinfo', false).geometry.mesh!.positions[0]).toBeCloseTo(2.5);
   });
 });
