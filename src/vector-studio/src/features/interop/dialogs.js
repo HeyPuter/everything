@@ -72,7 +72,9 @@ function pagePreview(count, render, { onChange } = {}) {
     onChange?.(current);
   };
   const go = (i) => {
-    const n = Math.max(0, Math.min(count - 1, i));
+    // Typed page numbers may be fractional or empty: the nearest page.
+    const n = Math.max(0, Math.min(count - 1, Math.round(i) || 0));
+    input.value = n + 1;
     if (n === current && holder.firstChild) return;
     current = n;
     show();
