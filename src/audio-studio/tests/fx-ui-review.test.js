@@ -11,7 +11,12 @@ import { fakeApp, filled } from './fx-helpers.js';
 import { openEffectDialog } from '../src/effects/dialog.js';
 import { getEffect } from '../src/effects/registry.js';
 import { installPreviewEditor } from '../src/editor/preview-editor.js';
-import { installFavorites, favoritesPanel, saveFavorites } from '../src/effects/favorites.js';
+import {
+  installFavorites,
+  favoritesPanel,
+  saveFavorites,
+  newFavoriteDialog,
+} from '../src/effects/favorites.js';
 import { generateNoiseCommand, NOISE_DEF } from '../src/effects/generate-ui.js';
 import { savePreset, userPresets } from '../src/effects/presets.js';
 
@@ -468,6 +473,22 @@ describe('generator presets', () => {
     sel.dispatchEvent(new Event('change'));
     expect(sel.value).toBe('Brown Rumble');
     expect(del.disabled).toBe(true);
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    expect(await run).toBe(null);
+  });
+});
+
+describe('New Favorite', () => {
+  it('offers only effects that change the audio', async () => {
+    await import('../src/effects/index.js');
+    const app = fakeApp();
+    installFavorites(app);
+    const run = newFavoriteDialog(app);
+    const dlg = [...document.querySelectorAll('.dialog')].at(-1);
+    const ids = [...dlg.querySelectorAll('select[aria-label="Effect"] option')].map((o) => o.value);
+    expect(ids).toContain('amplify');
+    expect(getEffect('loudnessMeter')).toBeTruthy();
+    expect(ids).not.toContain('loudnessMeter');
     dlg.querySelector('.dialog-head .icon-btn').click();
     expect(await run).toBe(null);
   });

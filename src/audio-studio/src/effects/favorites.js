@@ -290,7 +290,8 @@ export async function newFavoriteDialog(app) {
   const effectSel = h(
     'select.select',
     { 'aria-label': 'Effect' },
-    groupedEffects().map((g) => h('optgroup', { label: g.label }, g.defs.map((d) => h('option', { value: d.id }, d.name)))),
+    // Measuring effects (Loudness Meter) leave the audio unchanged: nothing to save.
+    groupedEffects((d) => !d.measureOnly).map((g) => h('optgroup', { label: g.label }, g.defs.map((d) => h('option', { value: d.id }, d.name)))),
   );
   const shortcut = shortcutField(app, '', null);
   const error = h('div.fx-name-error', { role: 'alert' });
