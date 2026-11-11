@@ -3,12 +3,15 @@
 import { preEvaluateHooks } from '../eval/depsgraph';
 import { setPhysicsDoc } from './state';
 import { rigidBodyHook } from './rigidbody';
+import { cacheMemory, frameOf } from './common';
 import './cloth';
 import './particles';
 import './fluid';
 
 preEvaluateHooks.push((graph, doc) => {
   setPhysicsDoc(doc);
+  // cached frames far from this one are dropped first when memory runs short
+  cacheMemory.frame = frameOf(graph);
   rigidBodyHook(graph, doc);
 });
 

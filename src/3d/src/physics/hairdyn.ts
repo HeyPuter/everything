@@ -163,6 +163,7 @@ export function hairWithDynamics(ob: ObjectData, m: ModifierBase, psys: Particle
   const f = frameOf(ctx.graph);
   if (f <= pc.frame_start) return null;
   const ft = Math.min(f, pc.frame_end);
+  cache.rewindFor(ft);
   let out = cache.frames.get(ft);
   if (!out) {
     const sctx: SimContext = { doc, graph: ctx.graph };

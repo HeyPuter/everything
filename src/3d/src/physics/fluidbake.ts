@@ -8,7 +8,7 @@ import type { DocumentData, ObjectData } from '../data/types';
 import { statusWidgets } from '../ui/statuswidgets';
 import { h } from '../ui/h';
 import { icon } from '../ui/icons';
-import { caches, freeCache, startBudget, type FrameCache } from './common';
+import { budgetExceeded, cacheMemory, caches, freeCache, startBudget, type FrameCache } from './common';
 import { computeNoise, defaultDomainSettings, fluidCacheKey, guideFieldFor, type FluidFrame, type FluidLive, type FluidModifier } from './fluid';
 import { buildLiquidSurface, fluidShared, secondaryEnabled, stepSecondaryLayer, type LiquidFrame, type LiquidLive } from './liquid';
 import { baseEvalMesh } from '../eval/depsgraph';
@@ -173,6 +173,13 @@ function nextLayer(m: FluidModifier, j: FluidJob): boolean {
   return true;
 }
 
+/** Baked frames stay in memory: a data bake that no longer fits stops with a report. */
+function overBudget(j: FluidJob): boolean {
+  if (j.layer !== 'data' || j.frame > j.end || !budgetExceeded()) return false;
+  app.report('ERROR', `Fluid bake stopped at frame ${j.frame - 1}: the baked frames would need more than ${Math.round(cacheMemory.budget / 1048576)} MB of memory (lower the resolution or the frame range)`);
+  return true;
+}
+
 /** Run a whole job now (scripts, tests). */
 function runSync(doc: DocumentData, ob: ObjectData, m: FluidModifier, j: FluidJob): number {
   let frames = 0;
@@ -180,9 +187,11 @@ function runSync(doc: DocumentData, ob: ObjectData, m: FluidModifier, j: FluidJo
   startBudget(Infinity);
   try {
     for (;;) {
-      for (; j.frame <= j.end; j.frame++) {
+      while (j.frame <= j.end) {
         if (!stepFrame(doc, ob, m, j)) break;
         frames++;
+        j.frame++;
+        if (overBudget(j)) break;
       }
       finishLayer(m, j, j.frame > j.end);
       if (j.frame <= j.end || !nextLayer(m, j)) break;
@@ -226,6 +235,10 @@ function runAsync(ob: ObjectData, m: FluidModifier, j: FluidJob, label: string) 
           break;
         }
         j.frame++;
+        if (overBudget(j)) {
+          failed = true;
+          break;
+        }
       }
     } catch (e) {
       failed = true;

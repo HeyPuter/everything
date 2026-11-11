@@ -6,6 +6,7 @@ import type { Depsgraph } from '../eval/depsgraph';
 import { localMatrix, toMatrix4 } from '../eval/transform';
 import { evaluateFCurve } from '../anim/fcurve';
 import { objectCurves } from '../anim/slots';
+import { physicsState } from './runtime';
 
 // ---------------------------------------------------------------------------
 // Deterministic hashing / random numbers
@@ -162,10 +163,114 @@ export interface CacheInfo {
   outdated: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Memory budget of the in-memory frame caches
+
+const MB = 1 << 20;
+
+/** A fixed share of the device's memory (when the browser tells it), at most 1 GB. */
+function defaultBudget(): number {
+  const dm = typeof navigator !== 'undefined' ? (navigator as { deviceMemory?: number }).deviceMemory : undefined;
+  return dm ? Math.max(256 * MB, Math.min(1024 * MB, (dm * 1024 * MB) / 4)) : 1024 * MB;
+}
+
+export const cacheMemory = {
+  /** bytes the cached frames of all simulations may take together */
+  budget: defaultBudget(),
+  /** the frame being evaluated: cached frames far from it are dropped first */
+  frame: 1,
+  /** baked frames alone are over the budget (they are never dropped) */
+  onOverflow: null as ((bytes: number) => void) | null,
+};
+
+/** Approximate memory of a cached frame (typed arrays and numbers, a few levels deep). */
+export function frameBytes(v: unknown, depth = 0): number {
+  if (ArrayBuffer.isView(v)) return v.byteLength;
+  if (typeof v === 'number') return 8;
+  if (!v || typeof v !== 'object' || depth > 3) return 0;
+  let n = 0;
+  for (const x of Array.isArray(v) ? v : Object.values(v)) n += frameBytes(x, depth + 1);
+  return n;
+}
+
+/** Frames of a cache, keeping count of their memory; adding frames keeps all caches within the budget. */
+export class FrameMap<T> extends Map<number, T> {
+  bytes = 0;
+  private sizes = new Map<number, number>();
+  owner: FrameCache<T, unknown> | null = null;
+
+  set(k: number, v: T) {
+    // Map's constructor may call set before the fields exist
+    if (!this.sizes) return super.set(k, v);
+    const b = frameBytes(v);
+    this.bytes += b - (this.sizes.get(k) ?? 0);
+    this.sizes.set(k, b);
+    super.set(k, v);
+    if (this.owner) enforceBudget(this.owner as FrameCache<unknown, unknown>);
+    return this;
+  }
+
+  delete(k: number) {
+    this.bytes -= this.sizes.get(k) ?? 0;
+    this.sizes.delete(k);
+    return super.delete(k);
+  }
+
+  clear() {
+    this.bytes = 0;
+    this.sizes?.clear();
+    if (this.owner) this.owner.evicted = false;
+    super.clear();
+  }
+}
+
+/** Memory of the cached frames of every simulation. */
+export function cachedBytes(): number {
+  let n = 0;
+  for (const c of caches.values()) n += c.frames instanceof FrameMap ? c.frames.bytes : 0;
+  return n;
+}
+
+/** Whether the cached frames are over the memory budget (bakes stop when they are). */
+export const budgetExceeded = () => cachedBytes() > cacheMemory.budget;
+
+/**
+ * Drop cached frames farthest from the current frame until the caches fit in the budget again.
+ * Baked caches, the frames a solver steps from and the frames around the current one are kept;
+ * nothing is dropped while a bake runs (the bake checks the budget itself).
+ */
+function enforceBudget(adding: FrameCache<unknown, unknown>) {
+  let total = cachedBytes();
+  if (total <= cacheMemory.budget || physicsState.baking) return;
+  const cur = cacheMemory.frame;
+  const drop: { c: FrameCache<unknown, unknown>; k: number; d: number }[] = [];
+  for (const c of caches.values()) {
+    if (c.baked || !(c.frames instanceof FrameMap)) continue;
+    // the frame being added is one past `last` (the solver's state)
+    const top = c === adding ? c.last + 1 : c.last;
+    for (const k of c.frames.keys()) {
+      if (k >= c.last - 2 && k <= top) continue;
+      if (k === c.start || Math.abs(k - cur) <= 2) continue;
+      drop.push({ c, k, d: Math.abs(k - cur) });
+    }
+  }
+  drop.sort((a, b) => b.d - a.d);
+  // a little below the budget, so that sorting does not happen for every new frame
+  const target = cacheMemory.budget * 0.9;
+  for (const { c, k } of drop) {
+    if (total <= target) break;
+    const before = c.frames.bytes;
+    c.frames.delete(k);
+    c.evicted = true;
+    total -= before - c.frames.bytes;
+  }
+  if (total > cacheMemory.budget) cacheMemory.onOverflow?.(total);
+}
+
 /** Generic per-frame cache. `frames` holds output states; `live` the resumable solver state. */
 export class FrameCache<T, L = unknown> {
   hash = '';
-  frames = new Map<number, T>();
+  private _frames = this.adopt(new FrameMap<T>());
   /** last frame stepped (live state corresponds to this frame) */
   last = -Infinity;
   live: L | null = null;
@@ -174,12 +279,45 @@ export class FrameCache<T, L = unknown> {
   baked = false;
   label = '';
   touched = 0;
+  /** frames were dropped to save memory (frames before `last` may be missing) */
+  evicted = false;
+
+  get frames(): FrameMap<T> {
+    return this._frames;
+  }
+  set frames(m: Map<number, T>) {
+    if (m instanceof FrameMap) this._frames = this.adopt(m);
+    else {
+      const fm = this.adopt(new FrameMap<T>());
+      fm.owner = null;
+      for (const [k, v] of m) fm.set(k, v);
+      fm.owner = this as FrameCache<T, unknown>;
+      this._frames = fm;
+    }
+  }
+
+  private adopt(m: FrameMap<T>) {
+    m.owner = this as FrameCache<T, unknown>;
+    return m;
+  }
 
   reset(hash: string) {
     this.hash = hash;
     this.frames.clear();
     this.last = -Infinity;
     this.live = null;
+    this.evicted = false;
+  }
+
+  /**
+   * Before evaluating frame `f`: when it was dropped to save memory, start the solver over (the
+   * frames are simulated again from the start; other cached frames stay until they are replaced).
+   */
+  rewindFor(f: number) {
+    if (this.evicted && !this.baked && f < this.last && !this.frames.has(f)) {
+      this.live = null;
+      this.last = -Infinity;
+    }
   }
 
   /** Nearest cached frame at or before `f` (for display while catching up). */

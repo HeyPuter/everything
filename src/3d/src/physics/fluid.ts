@@ -1226,6 +1226,7 @@ export function evaluateDomain(ob: ObjectData, m: FluidModifier, mesh: EvalMesh,
   const f = fluidFrameAt(m, frameOf(ctx.graph));
   const sctx: SimContext = { doc, graph: ctx.graph };
   const replay = cacheType(m.domain_settings) === 'REPLAY';
+  cache.rewindFor(f);
   if (!cache.frames.has(f) && mayStepData(key, m) && !(pc.is_baked && !replay)) {
     if (!cache.live || cache.last < pc.frame_start) {
       const s = { ...defaultDomainSettings(), ...m.domain_settings };

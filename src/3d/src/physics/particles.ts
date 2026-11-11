@@ -590,6 +590,7 @@ export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleS
   if (!usable && cache.hash !== hash) cache.reset(hash);
   const f = Math.min(Math.max(frameOf(ctx.graph), pc.frame_start), pc.frame_end);
   const sctx: SimContext = { doc, graph: ctx.graph };
+  cache.rewindFor(f);
   if (!cache.frames.has(f)) {
     if (!cache.live || cache.last < pc.frame_start) {
       cache.frames.clear();

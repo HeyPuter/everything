@@ -118,6 +118,7 @@ export function runMeshSim(kind: string, mesh: EvalMesh, m: ModifierBase, ctx: M
   if (!usable && cache.hash !== hash) cache.reset(hash);
   if (f <= pc.frame_start) return mesh;
   const ft = Math.min(f, pc.frame_end);
+  cache.rewindFor(ft);
   let out = cache.frames.get(ft);
   if (!out) {
     const sctx: SimContext = { doc, graph: ctx.graph };

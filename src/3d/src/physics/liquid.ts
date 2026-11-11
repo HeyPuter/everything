@@ -279,6 +279,7 @@ export function evaluateLiquid(ob: ObjectData, m: FluidModifier, mesh: EvalMesh,
   const f = F.frameAt(m, frameOf(ctx.graph));
   const sctx: SimContext = { doc, graph: ctx.graph };
   const replay = cacheType(m.domain_settings) === 'REPLAY';
+  cache.rewindFor(f);
   if (!cache.frames.has(f) && mayStepData(key, m) && !(pc.is_baked && !replay)) {
     if (!cache.live || cache.last < pc.frame_start || !('grid' in (cache.live as object))) {
       const s = { ...F.domainDefaults(), ...m.domain_settings };

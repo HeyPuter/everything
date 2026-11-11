@@ -176,3 +176,25 @@ test('a physics engine that fails to download is reported, not thrown', async ({
   expect(reports[0]).toMatch(/physics engine could not be loaded/);
   await expectNoErrors(errors.filter((e) => !/Failed to load resource/.test(e)));
 });
+
+test('a bake that does not fit in the cache memory budget stops with a report', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { cacheMemory } = await import('/src/physics/common.ts');
+    const was = cacheMemory.budget;
+    app.run('object.modifier_add', { type: 'CLOTH' }, { invoke: false });
+    const mod = app.activeObject.modifiers.find((m: { type: string }) => m.type === 'CLOTH');
+    // room for a few frames of the cube's cloth
+    cacheMemory.budget = 8 * 4 * 3 * 5;
+    try {
+      app.run('ptcache.bake_all', { bake: true }, { invoke: false });
+    } finally {
+      cacheMemory.budget = was;
+    }
+    return { baked: mod.point_cache.is_baked, errors: app.reports.filter((x: { type: string }) => x.type === 'ERROR').map((x: { message: string }) => x.message) };
+  });
+  expect(r.baked).toBe(false);
+  expect(r.errors.join()).toMatch(/Bake stopped at frame \d+/);
+  await expectNoErrors(errors);
+});

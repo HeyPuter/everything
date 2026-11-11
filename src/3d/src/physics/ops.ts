@@ -9,7 +9,7 @@ import { newModifier } from '../eval/modifiers';
 import { applyMatrixToObject, toMatrix4 } from '../eval/transform';
 import { keyingTarget, ensureFCurve, rotationPath } from '../anim/keyframes';
 import { insertKeyframe } from '../anim/fcurve';
-import { caches, freeCache, objectWorldAt, startBudget } from './common';
+import { budgetExceeded, cacheMemory, caches, freeCache, objectWorldAt, startBudget } from './common';
 import { freeRigidBodyLive, loadRapier, rapierLoaded, rigidBodyMatrix, simulateRigidBodies, RB_CACHE } from './rigidbody';
 import { meshSimKey } from './meshsim';
 import { RBC_TYPES, rbcDefaults } from './rbjoints';
@@ -91,6 +91,7 @@ function bakeCaches(doc: DocumentData, owners: CacheOwner[]): number {
   const cur = doc.scene.frame_current,
     sub = doc.scene.frame_subframe;
   physicsState.baking = true;
+  let stopped = 0;
   try {
     for (const o of owners) o.pc.is_baked = false;
     startBudget(Infinity);
@@ -98,11 +99,21 @@ function bakeCaches(doc: DocumentData, owners: CacheOwner[]): number {
       doc.scene.frame_current = f;
       doc.scene.frame_subframe = 0;
       app.graph.evaluate(doc);
+      // baked frames are kept in memory: stop (rather than run out of memory) when they don't fit
+      if (budgetExceeded() && f < end) {
+        stopped = f;
+        break;
+      }
     }
   } finally {
     physicsState.baking = false;
     doc.scene.frame_current = cur;
     doc.scene.frame_subframe = sub;
+  }
+  if (stopped) {
+    app.report('ERROR', `Bake stopped at frame ${stopped}: the baked frames would need more than ${Math.round(cacheMemory.budget / 1048576)} MB of memory (lower the resolution or the frame range); the frames so far stay as an unbaked cache`);
+    app.graph.evaluate(doc);
+    return -1;
   }
   for (const o of owners) o.pc.is_baked = true;
   app.graph.evaluate(doc);
@@ -531,7 +542,7 @@ registerOperators([
       return withRapier([o], () => {
         const t = performance.now();
         const n = bakeCaches(ctx.doc, [o]);
-        app.report('INFO', `Baked ${o.label}: ${n} frames in ${((performance.now() - t) / 1000).toFixed(2)} s`);
+        if (n >= 0) app.report('INFO', `Baked ${o.label}: ${n} frames in ${((performance.now() - t) / 1000).toFixed(2)} s`);
       });
     },
   },
@@ -548,6 +559,10 @@ registerOperators([
       const c = caches.get(o.key);
       if (!c?.frames.size) {
         app.report('WARNING', 'Nothing is cached yet: play the animation or calculate to a frame first');
+        return 'CANCELLED';
+      }
+      if (c.evicted) {
+        app.report('ERROR', 'Some cached frames were dropped to save memory, so the cache is incomplete: use Bake instead');
         return 'CANCELLED';
       }
       o.pc.is_baked = true;
@@ -589,7 +604,7 @@ registerOperators([
       return withRapier(owners, () => {
         const t = performance.now();
         const n = bakeCaches(ctx.doc, owners);
-        app.report('INFO', `Baked ${owners.length} simulation${owners.length === 1 ? '' : 's'} (${n} frames) in ${((performance.now() - t) / 1000).toFixed(2)} s`);
+        if (n >= 0) app.report('INFO', `Baked ${owners.length} simulation${owners.length === 1 ? '' : 's'} (${n} frames) in ${((performance.now() - t) / 1000).toFixed(2)} s`);
       });
     },
   },

@@ -670,6 +670,7 @@ export function surfaceState(ob: ObjectData, m: DynamicPaintModifier, sf: DPSurf
   const usable = pc.is_baked && cache.frames.size > 0 && cache.frames.values().next().value?.length === size;
   if (!usable && cache.hash !== hash) cache.reset(hash);
   const f = Math.max(pc.frame_start, Math.min(frameOf(ctx.graph), pc.frame_end));
+  cache.rewindFor(f);
   let out = cache.frames.get(f);
   if (out) return out.length === size ? out : null;
   const sctx: SimContext = { doc, graph: ctx.graph };

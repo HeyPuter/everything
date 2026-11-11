@@ -441,6 +441,11 @@ export function simulateRigidBodies(doc: DocumentData, ft: number, graph: Depsgr
   if (!w) return true;
   const cache = rigidBodyCache();
   if (cache.frames.has(ft)) return true;
+  if (cache.evicted && ft < cache.last) {
+    // the frame was dropped to save memory: simulate again from the start
+    freeRigidBodyLive();
+    cache.last = -Infinity;
+  }
   if (!RAPIER) {
     void loadRapier();
     return false;
