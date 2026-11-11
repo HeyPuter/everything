@@ -27,3 +27,26 @@ describe('shortcut reset', () => {
     expect(app.prefs.get('shortcuts').open).toEqual([]);
   });
 });
+
+describe('shortcuts dialog capture', () => {
+  it('shows "Press keys…" on the clicked shortcut and keeps focus on it', async () => {
+    const { shortcutsDialog } = await import('../src/ui/shortcuts-dialog.js');
+    const store = {};
+    const app = { prefs: { get: (k) => store[k], set: (k, v) => (store[k] = v) } };
+    app.commands = new CommandRegistry(app);
+    app.commands.register([{ id: 'edit.copy', label: 'Copy', shortcut: 'Mod+C', run() {} }]);
+    const done = shortcutsDialog(app);
+    const search = document.querySelector('.sc-search');
+    search.value = 'copy';
+    search.dispatchEvent(new Event('input'));
+    const chip = () => document.querySelector('.sc-row[data-id="edit.copy"] .sc-chip:not(.sc-add)');
+    chip().click();
+    expect(chip().textContent).toBe('Press keys…');
+    expect(document.activeElement).toBe(chip());
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    document.querySelectorAll('.dialog-backdrop').forEach((d) => d.remove());
+    void done;
+  });
+});
