@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Scientific Studio — matrices, solvers, plots, command console. MATLAB-inspired." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Scientific Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand"><img src="icon-128.png" width="28" height="28" alt="" /><h1>Scientific Studio</h1></header>
+      <main class="layout">
+        <section class="panel">
+          <label>Command console
+            <input id="cmd" type="text" value="eye 3" spellcheck="false" />
+          </label>
+          <button class="btn" id="run" type="button">Run</button>
+          <pre id="out"></pre>
+        </section>
+        <section class="panel">
+          <canvas id="plot" width="520" height="280" aria-label="Plot canvas"></canvas>
+        </section>
+      </main>
+      <details class="help"><summary>DOCUMENTED vs LIVE</summary>
+        <p>
+          MATLAB (DOCUMENTED) includes LIVE toolboxes and MATLAB Runtime licensing.
+          This v0 runs local matrix ops, a simple linear solver, plot sampling, and a tiny console —
+          no fabricated LIVE MATLAB engine.
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
