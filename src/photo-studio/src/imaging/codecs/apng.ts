@@ -189,6 +189,9 @@ function decodeApngImpl(bytes: Uint8Array, maxFrames: number, maxBytes: number):
   const plte = chunks.find((c) => c.type === 'PLTE')?.data;
   const trns = chunks.find((c) => c.type === 'tRNS')?.data;
   if (colorType === 3 && !plte) throw new CodecError('Indexed PNG without a palette.');
+  // tRNS for gray and RGB images names one transparent color (16-bit fields).
+  const key =
+    trns && colorType === 2 && trns.length >= 6 ? [dv(trns).getUint16(0), dv(trns).getUint16(2), dv(trns).getUint16(4)] : trns && colorType === 0 && trns.length >= 2 ? [dv(trns).getUint16(0)] : undefined;
   const plays = dv(actl).getUint32(4);
 
   type Pending = { ctl: Uint8Array; data: Uint8Array[] };
@@ -241,22 +244,36 @@ function decodeApngImpl(bytes: Uint8Array, maxFrames: number, maxBytes: number):
       for (let x = 0; x < rect.width; x++) {
         let r: number, g: number, b: number, a: number;
         const s = x * channels;
-        if (colorType === 6) [r, g, b, a] = [row[s], row[s + 1], row[s + 2], row[s + 3]];
-        else if (colorType === 2) {
-          [r, g, b] = [row[s], row[s + 1], row[s + 2]];
-          a = trns && trns.length >= 6 && dv(trns).getUint16(0) === r && dv(trns).getUint16(2) === g && dv(trns).getUint16(4) === b ? 0 : 255;
+        if (colorType === 6) {
+          r = row[s];
+          g = row[s + 1];
+          b = row[s + 2];
+          a = row[s + 3];
+        } else if (colorType === 2) {
+          r = row[s];
+          g = row[s + 1];
+          b = row[s + 2];
+          a = key && key[0] === r && key[1] === g && key[2] === b ? 0 : 255;
         } else if (colorType === 3) {
           const i = row[s];
-          [r, g, b] = [plte![i * 3] ?? 0, plte![i * 3 + 1] ?? 0, plte![i * 3 + 2] ?? 0];
+          r = plte![i * 3] ?? 0;
+          g = plte![i * 3 + 1] ?? 0;
+          b = plte![i * 3 + 2] ?? 0;
           a = trns && i < trns.length ? trns[i] : 255;
-        } else if (colorType === 4) [r, g, b, a] = [row[s], row[s], row[s], row[s + 1]];
-        else {
+        } else if (colorType === 4) {
           r = g = b = row[s];
-          a = trns && trns.length >= 2 && dv(trns).getUint16(0) === r ? 0 : 255;
+          a = row[s + 1];
+        } else {
+          r = g = b = row[s];
+          a = key && key[0] === r ? 0 : 255;
         }
         const q = ((rect.y + y) * width + rect.x + x) * 4;
-        if (blend === 0 || a === 255) canvas.set([r, g, b, a], q);
-        else if (a) {
+        if (blend === 0 || a === 255) {
+          canvas[q] = r;
+          canvas[q + 1] = g;
+          canvas[q + 2] = b;
+          canvas[q + 3] = a;
+        } else if (a) {
           // Source-over in straight alpha.
           const da = canvas[q + 3] / 255,
             sa = a / 255,
