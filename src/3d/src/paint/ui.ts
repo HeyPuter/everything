@@ -1776,7 +1776,9 @@ export function brushStroke(v: View3D, e: PointerEvent, live = true): boolean {
     const mb = brushById('brush_mask');
     const cur = activeBrush('SCULPT');
     if (mb) {
-      lastStrokeStarted = sculptStroke(v, e, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
+      const start = (ev: PointerEvent) => sculptStroke(v, ev, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
+      lastStrokeStarted = start(e);
+      if (!lastStrokeStarted && live) startOnSurface(v, e, start);
       return true;
     }
   }
@@ -1789,7 +1791,10 @@ export function brushStroke(v: View3D, e: PointerEvent, live = true): boolean {
     }
     lastStrokeStarted = vertexPaintStroke(v, e, sb);
   } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') lastStrokeStarted = faceSetStroke(v, e, activeBrush('SCULPT')!) !== false;
-  else if (mode === 'SCULPT') lastStrokeStarted = sculptStroke(v, e);
+  else if (mode === 'SCULPT') {
+    lastStrokeStarted = sculptStroke(v, e);
+    if (!lastStrokeStarted && live) startOnSurface(v, e, (ev) => sculptStroke(v, ev));
+  }
   else if (mode === 'VERTEX_PAINT') lastStrokeStarted = vertexPaintStroke(v, e);
   else if (mode === 'WEIGHT_PAINT') {
     const am = activeMeshData();
@@ -1800,6 +1805,38 @@ export function brushStroke(v: View3D, e: PointerEvent, live = true): boolean {
     lastStrokeStarted = weightPaintStroke(v, e);
   } else lastStrokeStarted = texturePaintStroke(v, e);
   return true;
+}
+
+/**
+ * A sculpt stroke pressed off the mesh starts once the pointer reaches the surface while the button
+ * is still held (as in Blender), so a stroke can begin outside the silhouette.
+ */
+function startOnSurface(v: View3D, e: PointerEvent, start: (ev: PointerEvent) => boolean) {
+  const p = v.local(e);
+  const s0 = meshSession();
+  if (!s0 || s0.raycast(v, p.x, p.y)) return;
+  const stop = () => {
+    removeEventListener('pointermove', move, true);
+    removeEventListener('pointerup', stop, true);
+    removeEventListener('pointercancel', stop, true);
+    removeEventListener('keydown', key, true);
+  };
+  const key = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') stop();
+  };
+  const move = (ev: PointerEvent) => {
+    if (ev.pointerId !== e.pointerId) return;
+    if (!(ev.buttons & 1) || app.doc.mode !== 'SCULPT' || app.modal || strokeActive()) return stop();
+    const q = v.local(ev);
+    const s = meshSession();
+    if (!s?.raycast(v, q.x, q.y)) return;
+    stop();
+    start(ev);
+  };
+  addEventListener('pointermove', move, true);
+  addEventListener('pointerup', stop, true);
+  addEventListener('pointercancel', stop, true);
+  addEventListener('keydown', key, true);
 }
 
 /** Whether the last `brushStroke` call actually started a stroke (it hit the mesh). */
