@@ -185,3 +185,20 @@ describe('pasting into some channels', () => {
     expect(Array.from(mid.channels[1].toArray())).toEqual([5, 6, 7, 8]);
   });
 });
+
+describe('time ruler at sample-level zoom', () => {
+  it('still labels ticks when the view spans less than a millisecond', async () => {
+    const { rulerTicks } = await import('../src/editor/time-ruler.js');
+    const { rulerLabel } = await import('../src/lib/time.js');
+    // 16 frames at 48 kHz (the deepest zoom) across 657 px.
+    const t0 = 204576 / 48000;
+    const { step, ticks } = rulerTicks(t0, t0 + 16 / 48000, 657);
+    expect(ticks.length).toBeGreaterThan(2);
+    const labels = ticks.map((s) => rulerLabel(s, step));
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(rulerLabel(3599.50005, 0.00005)).toBe('59:59.50005');
+    // Coarser steps keep their labels.
+    expect(rulerLabel(12.25, 0.01)).toBe('12.25');
+    expect(rulerLabel(1.5, 1)).toBe('1.5');
+  });
+});
