@@ -72,6 +72,8 @@ export function installFakeIndexedDb(): FakeIdb {
                 put: (v: unknown, k: string) => op(() => void os.set(k, v), true),
                 get: (k: string) => op(() => os.get(k), false),
                 delete: (k: string) => op(() => void os.delete(k), true),
+                getAll: () => op(() => [...os.values()], false),
+                getAllKeys: () => op(() => [...os.keys()], false),
               }),
             };
           },

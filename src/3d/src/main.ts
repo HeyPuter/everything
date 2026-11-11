@@ -40,7 +40,7 @@ import './ops/wm';
 import './ops/data';
 import './io/files';
 import { onFileStatus, scheduleAutosave, autosave, projectUiState } from './io/files';
-import { loadRecovery, decodeDocument } from './io/native';
+import { claimRecovery, decodeDocument } from './io/native';
 import { setMode } from './ops/object';
 import { loadFonts } from './io/fonts';
 import { registerModules } from './modules';
@@ -124,7 +124,8 @@ const startRevision = app.revision;
 const factoryStartup = new URLSearchParams(location.search).has('factory-startup');
 // (startup work such as the font loading re-evaluates without being an edit: edits leave undo steps)
 const untouched = () => app.revision === startRevision || !app.undo.canUndo;
-const recovered = (factoryStartup ? Promise.resolve(null) : loadRecovery())
+// every tab auto saves into its own slot; a fresh tab takes over the one a closed tab left
+const recovered = claimRecovery(!factoryStartup, untouched)
   .then((rec) => {
     if (!rec || !untouched()) return;
     try {

@@ -3,7 +3,7 @@
 // (File ▸ Recover ▸ Auto Save…). Everything lives in IndexedDB; failures degrade to no-ops.
 import { app, onAppReady } from '../app/app';
 import { prefs, formatDate } from '../app/prefs';
-import { encodeDocument, decodeDocument } from './native';
+import { encodeDocument, decodeDocument, otherRecoveries, readRecovery } from './native';
 import { projectUiState, fileEvents } from './files';
 
 import { bumpRecent, MAX_RECENT, type RecentEntry } from './recentlist';
@@ -17,6 +17,8 @@ export interface Snapshot {
   size: number;
   /** why it was taken (e.g. "Before New File"); timed auto saves have none */
   reason?: string;
+  /** the last auto save of another tab that was closed or crashed */
+  recovery?: boolean;
 }
 
 const DB = 'p3d-session';
@@ -194,15 +196,18 @@ export function loadStartupFile(): boolean {
 let lastSnapshotRevision = -1;
 let lastSnapshotTime = Date.now();
 
+const storedSnapshots = async () => (await get<Snapshot[]>(KV, 'snapshots')) ?? [];
+
+/** Auto saves to offer, newest first (with the sessions other closed or crashed tabs left). */
 export async function listSnapshots(): Promise<Snapshot[]> {
-  const list = (await get<Snapshot[]>(KV, 'snapshots')) ?? [];
-  return [...list].sort((a, b) => b.time - a.time);
+  const tabs = (await otherRecoveries()).map((e): Snapshot => ({ key: e.key, name: e.name, time: e.time, size: e.bytes.length, reason: 'Another tab', recovery: true }));
+  return [...(await storedSnapshots()), ...tabs].sort((a, b) => b.time - a.time);
 }
 
 export async function takeSnapshot(reason?: string) {
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
   const name = app.filename;
-  const list = await listSnapshots();
+  const list = (await storedSnapshots()).sort((a, b) => b.time - a.time);
   const key = `snapshot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const next: Snapshot[] = [{ key, name, time: Date.now(), size: bytes.length, reason }, ...list];
   // at most MAX_SNAPSHOTS, and within the size budget (the newest always stays)
@@ -217,7 +222,7 @@ export async function takeSnapshot(reason?: string) {
 }
 
 export async function openSnapshot(s: Snapshot): Promise<boolean> {
-  const bytes = await get<Uint8Array>(FILES, s.key);
+  const bytes = s.recovery ? (await readRecovery(s.key))?.bytes : await get<Uint8Array>(FILES, s.key);
   if (!bytes) {
     app.report('ERROR', 'This auto save is no longer available');
     return false;

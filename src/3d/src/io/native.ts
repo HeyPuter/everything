@@ -176,35 +176,164 @@ function write(db: IDBDatabase, fn: (s: IDBObjectStore) => void): Promise<void> 
   });
 }
 
-export async function saveRecovery(bytes: Uint8Array, name: string) {
+// Every tab keeps its own recovery slot ("autosave:<id>"), held with a Web Lock while the tab is
+// open. A slot whose lock is free belongs to a tab that was closed or crashed: the next tab that
+// starts takes over the newest one (as a single tab always did), other tabs' live slots are never
+// read or overwritten, and the remaining stale slots are offered in File ▸ Recover ▸ Auto Save.
+// Without Web Locks there is one shared slot ("autosave"), as before.
+
+export interface RecoveryEntry {
+  key: string;
+  bytes: Uint8Array;
+  name: string;
+  time: number;
+}
+
+interface LockManagerLike {
+  request(name: string, opts: { ifAvailable: boolean }, cb: (lock: unknown) => unknown): Promise<unknown>;
+  query(): Promise<{ held?: { name?: string }[] }>;
+}
+
+const SHARED_KEY = 'autosave';
+/** stale slots kept for Recover ▸ Auto Save besides the one a tab takes over */
+const MAX_STALE = 4;
+const TAB_KEY = 'p3d-recovery-slot';
+let recoveryKey = SHARED_KEY;
+let claimed: Promise<unknown> | null = null;
+const lockName = (key: string) => `p3d-recovery:${key}`;
+const lockManager = (): LockManagerLike | null => (typeof navigator !== 'undefined' && (navigator as unknown as { locks?: LockManagerLike }).locks) || null;
+
+/** Hold the lock of a slot for the lifetime of the tab; null when another tab holds it, else a release function. */
+function holdSlot(locks: LockManagerLike, key: string): Promise<(() => void) | null> {
+  return new Promise((res) => {
+    locks
+      .request(lockName(key), { ifAvailable: true }, (lock) => {
+        if (!lock) return void res(null);
+        return new Promise<void>((release) => res(release));
+      })
+      .catch(() => res(null));
+  });
+}
+
+async function readEntries(): Promise<RecoveryEntry[]> {
   const db = await openDb();
   try {
-    await write(db, (s) => s.put({ bytes, name, time: Date.now() }, 'autosave'));
+    return await new Promise<RecoveryEntry[]>((res, rej) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const keys = tx.objectStore(STORE).getAllKeys();
+      const values = tx.objectStore(STORE).getAll();
+      tx.oncomplete = () => res((values.result as Omit<RecoveryEntry, 'key'>[]).map((v, i) => ({ ...v, key: String(keys.result[i]) })).filter((e) => e.key === SHARED_KEY || e.key.startsWith(`${SHARED_KEY}:`)));
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error);
+    });
   } finally {
     db.close();
   }
 }
 
-export async function loadRecovery(): Promise<{ bytes: Uint8Array; name: string; time: number } | null> {
+/** Slots of closed or crashed tabs (not this tab's), newest first. */
+async function staleEntries(locks: LockManagerLike): Promise<RecoveryEntry[]> {
+  const entries = await readEntries();
+  const held = new Set(((await locks.query().catch(() => ({}) as { held?: { name?: string }[] })).held ?? []).map((l) => l.name));
+  return entries.filter((e) => e.key !== recoveryKey && !held.has(lockName(e.key))).sort((a, b) => b.time - a.time);
+}
+
+/**
+ * Pick this tab's recovery slot at startup. With `adopt`, the newest slot left by a closed tab is
+ * taken over and returned for recovery (a reloaded tab gets its own back first); `stillWanted`
+ * is asked right before, so a session that will not be loaded is kept for Recover ▸ Auto Save.
+ */
+export function claimRecovery(adopt = true, stillWanted: () => boolean = () => true): Promise<Omit<RecoveryEntry, 'key'> | null> {
+  const locks = lockManager();
+  if (!locks || typeof indexedDB === 'undefined') return adopt ? loadRecovery() : Promise.resolve(null);
+  const run = (async () => {
+    let previous: string | null = null;
+    try {
+      previous = sessionStorage.getItem(TAB_KEY);
+    } catch {
+      // storage blocked
+    }
+    const stale = adopt ? await staleEntries(locks).catch(() => [] as RecoveryEntry[]) : [];
+    stale.sort((a, b) => Number(b.key === previous) - Number(a.key === previous));
+    let adopted: RecoveryEntry | null = null;
+    if (stillWanted())
+      for (const e of stale) {
+        const release = await holdSlot(locks, e.key);
+        if (!release) continue;
+        // the tab changed something meanwhile: its work wins and the session stays on offer
+        if (!stillWanted()) release();
+        else adopted = e;
+        break;
+      }
+    if (adopted) recoveryKey = adopted.key;
+    else {
+      recoveryKey = `${SHARED_KEY}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      await holdSlot(locks, recoveryKey);
+    }
+    try {
+      sessionStorage.setItem(TAB_KEY, recoveryKey);
+    } catch {
+      // storage blocked
+    }
+    // keep a few stale slots to offer; older ones go
+    const rest = stale.filter((e) => e !== adopted).slice(MAX_STALE);
+    if (rest.length) {
+      const db = await openDb();
+      await write(db, (s) => rest.forEach((e) => s.delete(e.key)))
+        .catch(() => {})
+        .finally(() => db.close());
+    }
+    return adopted ? { bytes: adopted.bytes, name: adopted.name, time: adopted.time } : null;
+  })();
+  claimed = run.catch(() => null);
+  return run.catch(() => null);
+}
+
+/** Recovery slots of other tabs that were closed or crashed (for File ▸ Recover ▸ Auto Save). */
+export async function otherRecoveries(): Promise<RecoveryEntry[]> {
+  const locks = lockManager();
+  if (!locks || typeof indexedDB === 'undefined') return [];
+  await claimed;
+  return staleEntries(locks).catch(() => []);
+}
+
+export async function readRecovery(key: string): Promise<Omit<RecoveryEntry, 'key'> | null> {
   try {
     const db = await openDb();
-    const v = await new Promise<{ bytes: Uint8Array; name: string; time: number } | undefined>((res, rej) => {
+    const v = await new Promise<Omit<RecoveryEntry, 'key'> | undefined>((res, rej) => {
       const tx = db.transaction(STORE, 'readonly');
-      const r = tx.objectStore(STORE).get('autosave');
+      const r = tx.objectStore(STORE).get(key);
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
-    });
-    db.close();
+    }).finally(() => db.close());
     return v ?? null;
   } catch {
     return null;
   }
 }
 
+export async function saveRecovery(bytes: Uint8Array, name: string) {
+  // the slot is known once startup picked it
+  await claimed;
+  const db = await openDb();
+  try {
+    await write(db, (s) => s.put({ bytes, name, time: Date.now() }, recoveryKey));
+  } finally {
+    db.close();
+  }
+}
+
+/** This tab's auto saved session (Recover Last Session). */
+export async function loadRecovery(): Promise<{ bytes: Uint8Array; name: string; time: number } | null> {
+  await claimed;
+  return readRecovery(recoveryKey);
+}
+
 export async function clearRecovery() {
+  await claimed;
   try {
     const db = await openDb();
-    await write(db, (s) => s.delete('autosave')).finally(() => db.close());
+    await write(db, (s) => s.delete(recoveryKey)).finally(() => db.close());
   } catch {
     // ignore
   }

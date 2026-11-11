@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // File operations: modified state, save targets and hostile/odd input files.
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 (globalThis as unknown as { requestAnimationFrame: (f: () => void) => number }).requestAnimationFrame = (f) => setTimeout(f, 0) as unknown as number;
 
@@ -218,5 +218,46 @@ describe('user asset libraries', () => {
     const n = app.reports.length;
     await lib.saveLibrary(id, true);
     expect(app.reports.length).toBe(n);
+  });
+});
+
+describe('per-tab recovery slots', () => {
+  it('takes over the newest slot of a closed tab, keeps a few others and leaves live tabs alone', async () => {
+    const { installFakeIndexedDb } = await import('./support/fakeidb');
+    const idb = installFakeIndexedDb();
+    // Web Locks: "held" are the locks of other open tabs
+    const held = new Set<string>(['p3d-recovery:autosave:live']);
+    const locks = {
+      request: async (name: string, _o: unknown, cb: (l: unknown) => unknown) => {
+        if (held.has(name)) return cb(null);
+        held.add(name);
+        return cb({ name });
+      },
+      query: async () => ({ held: [...held].map((name) => ({ name })) }),
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    const store = (idb.stores.get('p3d-recovery') ?? new Map()).get('files') as Map<string, unknown> | undefined;
+    const files = store ?? new Map<string, unknown>();
+    if (!store) idb.stores.set('p3d-recovery', new Map([['files', files]]));
+    files.clear();
+    files.set('autosave:live', { bytes: new Uint8Array([9]), name: 'live.p3d', time: 100 });
+    for (let i = 0; i < 7; i++) files.set(`autosave:old${i}`, { bytes: new Uint8Array([i]), name: `old${i}.p3d`, time: i });
+    vi.resetModules();
+    const native = await import('../../src/io/native');
+    // the tab was edited before the stored session arrived: nothing is taken over
+    expect(await native.claimRecovery(true, () => false)).toBeNull();
+    vi.resetModules();
+    const fresh = await import('../../src/io/native');
+    const got = await fresh.claimRecovery(true);
+    expect(got?.name).toBe('old6.p3d');
+    // the live tab's slot is untouched and not offered; at most four stale ones were kept, older ones went
+    const others = await fresh.otherRecoveries();
+    expect(others.map((e) => e.name).sort()).toEqual(['old3.p3d', 'old4.p3d', 'old5.p3d']);
+    expect(files.has('autosave:live')).toBe(true);
+    // this tab writes into the slot it took over
+    await fresh.saveRecovery(new Uint8Array([42]), 'mine.p3d');
+    expect((files.get('autosave:old6') as { name: string }).name).toBe('mine.p3d');
+    expect((files.get('autosave:live') as { name: string }).name).toBe('live.p3d');
+    Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true });
   });
 });
