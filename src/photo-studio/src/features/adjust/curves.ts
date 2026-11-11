@@ -336,7 +336,7 @@ export function curvesEditor(body: HTMLElement, host: AdjustHost<'curves'>) {
       const startY = ev.clientY;
       const [dx, dy] = host.e.docPoint(ev.clientX, ev.clientY);
       const s = await host.source();
-      const color = s && sampleAt(s.image, dx, dy);
+      const color = s && sampleAt(s.image, dx - (s.x ?? 0), dy - (s.y ?? 0));
       if (!color) return;
       const c = chan();
       if (c.mode === 'pencil') setMode('points');

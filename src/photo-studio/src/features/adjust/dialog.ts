@@ -191,6 +191,8 @@ function restore(e: Editor) {
 
 const sourceFor = (src: TargetPixels): SourceImage => ({
   image: src.image,
+  x: src.area.x,
+  y: src.area.y,
   hist: histograms(src.image, src.cover ? { width: src.image.width, height: src.image.height, data: src.cover } : undefined),
 });
 

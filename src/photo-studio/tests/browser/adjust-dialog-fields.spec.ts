@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { boot, openImage, start } from './helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { boot, client, idle, openImage, selectRect, start } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -75,5 +75,38 @@ test('Gradient Map stop fields ignore blank entries', async ({ page }) => {
   await expect(location).toHaveValue('100');
   await expect(dialog.locator('.adj-stop')).toHaveCount(2);
   await expect(dialog.locator('.adj-stop[data-i="1"]')).toHaveAttribute('aria-label', /at 100%/);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+});
+
+async function openHalves(page: Page) {
+  await page.evaluate(async () => {
+    const c = new OffscreenCanvas(200, 100);
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#202020';
+    g.fillRect(0, 0, 100, 100);
+    g.fillStyle = '#606060';
+    g.fillRect(100, 0, 100, 100);
+    const blob = await c.convertToBlob({ type: 'image/png' });
+    const { openFile } = await import('/src/features/files/open.ts');
+    await openFile(window.photoStudio, blob, 'halves.png');
+  });
+  await idle(page);
+}
+
+test('Curves on-image adjustment samples the tone under the pointer inside a selection', async ({ page }) => {
+  await openHalves(page);
+  await selectRect(page, { x: 100, y: 0, width: 100, height: 100 });
+  await start(page, 'adjust.curves');
+  const dialog = page.locator('dialog.adj-dialog[open]');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'On-image adjustment' }).click();
+  const [x, y] = await client(page, 150, 50);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y - 20, { steps: 4 });
+  await page.mouse.up();
+  // A point was added at the sampled tone (0x60 = 96) and raised.
+  await expect(dialog.getByRole('spinbutton', { name: 'Input', exact: true })).toHaveValue('96');
+  await expect(dialog.getByRole('spinbutton', { name: 'Output', exact: true })).toHaveValue('106');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 });
