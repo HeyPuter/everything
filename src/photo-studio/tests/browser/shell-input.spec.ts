@@ -260,3 +260,20 @@ test('the toolbar and the options bar keep the keyboard focus when they redraw',
   await idle(page);
   await expect(page.locator('#brush-size')).toBeFocused();
 });
+
+test('document tabs switch documents from the keyboard', async ({ page }) => {
+  await openImage(page, 120, 90, '#336699', 'second.png');
+  await page.evaluate(() => window.photoStudio.setTool('move'));
+  const name = () => page.evaluate(() => window.photoStudio.doc.name);
+  expect(await name()).toBe('second');
+  const layers = await page.evaluate(() => JSON.stringify(window.photoStudio.sessions.map((s) => s.doc.layers.map((l) => l.transform))));
+  await page.locator('.document-tab.focused').focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(name).toBe('shell');
+  await expect(page.locator('.document-tab.focused')).toBeFocused();
+  await page.keyboard.press('End');
+  await expect.poll(name).toBe('second');
+  await expect(page.locator('.document-tab.focused')).toBeFocused();
+  // The arrows switched tabs; they did not nudge a layer with the Move tool.
+  expect(await page.evaluate(() => JSON.stringify(window.photoStudio.sessions.map((s) => s.doc.layers.map((l) => l.transform))))).toBe(layers);
+});

@@ -760,6 +760,21 @@ export class Editor {
         return;
       }
     });
+    // Document tabs from the keyboard: arrows (Home, End) move to another
+    // document's tab and show it, Enter or Space shows the focused one. The keys
+    // stay here, so arrows never also nudge a layer.
+    this.root.addEventListener('keydown', (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLElement>('.document-tab[data-view]');
+      if (!tab || (e.target as HTMLElement).closest('.tab-close') || e.metaKey || e.ctrlKey || e.altKey || !['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter', ' '].includes(e.key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const tabs = [...tab.parentElement!.querySelectorAll<HTMLElement>('.document-tab[data-view]')];
+      const at = tabs.indexOf(tab);
+      const next = e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs.at(-1)! : e.key === 'ArrowLeft' ? tabs[(at - 1 + tabs.length) % tabs.length] : e.key === 'ArrowRight' ? tabs[(at + 1) % tabs.length] : tab;
+      const v = this.views.find((x) => x.id === next.dataset.view);
+      if (!v) return;
+      void this.activateView(v).then(() => this.root.querySelector<HTMLElement>(`.document-tab[data-view="${CSS.escape(v.id)}"]`)?.focus({ preventScroll: true }));
+    });
     this.root.addEventListener('change', (e) => {
       const t = e.target as HTMLInputElement;
       if (t.id === 'transform-proportions') this.transform.proportional = t.checked;
