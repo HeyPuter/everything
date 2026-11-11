@@ -120,8 +120,18 @@ export function unwrapUV(t: Topology, selection: number[], padding: number, pins
         const pin = pins.get(c);
         if (pin) pinned.set(cornerNode.get(c)!, pin);
       }
-    let pinSpan = 0;
-    for (const a of pinned.values()) for (const b of pinned.values()) pinSpan = Math.max(pinSpan, Math.hypot(a[0] - b[0], a[1] - b[1]));
+    // extent of the pins (bounding-box diagonal: linear, where all pairs were quadratic in the pin count)
+    let u0 = Infinity,
+      v0 = Infinity,
+      u1 = -Infinity,
+      v1 = -Infinity;
+    for (const [u, v] of pinned.values()) {
+      u0 = Math.min(u0, u);
+      v0 = Math.min(v0, v);
+      u1 = Math.max(u1, u);
+      v1 = Math.max(v1, v);
+    }
+    const pinSpan = pinned.size ? Math.hypot(u1 - u0, v1 - v0) : 0;
     const usePins = pinned.size >= 2 && pinSpan > 1e-9;
     const pinA = boundary[0][0];
     let pinB = pinA,
