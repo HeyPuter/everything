@@ -636,6 +636,8 @@ export function distribute(editor, edge, { spacing = null, key = null, previewBo
   const ids = editor.topSelection();
   if (ids.length < (spacing != null ? 2 : 3)) return;
   const items = ids.map((id) => ({ id, b: previewBounds ? visualBounds(doc, doc.get(id)) : nodeBounds(doc, doc.get(id)) })).filter((i) => i.b);
+  // Objects without bounds (empty groups) take no part.
+  if (items.length < (spacing != null ? 2 : 3)) return;
   const horizontal = ['left', 'hcenter', 'right', 'hspace'].includes(edge);
   const pos = (b) => {
     if (edge === 'left' || edge === 'hspace') return b.x;
@@ -655,9 +657,9 @@ export function distribute(editor, edge, { spacing = null, key = null, previewBo
       const total = items.reduce((s, i) => s + size(i.b), 0);
       const gap = spacing != null ? spacing : (end - start - total) / (items.length - 1);
       let cursor = start;
-      if (spacing != null && key) {
+      const ki = key ? items.findIndex((i) => i.id === key) : -1;
+      if (spacing != null && ki >= 0) {
         // Lay out around the key object, which stays put.
-        const ki = items.findIndex((i) => i.id === key);
         cursor = (horizontal ? items[ki].b.x : items[ki].b.y) - items.slice(0, ki).reduce((s, i) => s + size(i.b) + gap, 0);
       }
       for (const it of items) {

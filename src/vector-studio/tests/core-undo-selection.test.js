@@ -366,3 +366,24 @@ describe('nudging a Direct Selection marquee selection', () => {
     expect(doc.get(a)).toBe(cur);
   });
 });
+
+describe('Distribute', () => {
+  it('ignores objects without bounds instead of failing', async () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const { createGroup } = await import('../src/model/nodes.js');
+    const groups = [createGroup([]), createGroup([]), createGroup([])];
+    const p = createPath(rectangle(0, 0, 10, 10), true);
+    doc.transact('Setup', () => [...groups, p].forEach((n) => doc.insert(n, ed.targetLayer().id)));
+    const errors = [];
+    const notify = app.notify;
+    app.notify = (m, o) => (o?.error && errors.push(m), notify.call(app, m, o));
+    ed.select(groups.map((g) => g.id));
+    for (const edge of ['hcenter', 'hspace']) await app.commands.run(`distribute.${edge}`);
+    ed.select([...groups.map((g) => g.id), p.id]);
+    for (const edge of ['hcenter', 'hspace']) await app.commands.run(`distribute.${edge}`);
+    expect(errors).toEqual([]);
+    expect(doc.get(p.id).anchors[0].x).toBe(0);
+  });
+});
