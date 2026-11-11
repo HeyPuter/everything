@@ -12,6 +12,7 @@ import {
   cropDocument,
   defaultFilters,
   layer,
+  MAX_LAYERS,
   newDocument,
   resizeDocument,
   type Layer,
@@ -409,8 +410,8 @@ export async function performAction(e: Editor, action: string): Promise<void> {
       const roots = e.selectedLayers;
       if (!roots.length) break;
       assertEditable(e.doc, roots);
-      if (allLayers(e.doc.layers).length + allLayers(roots).length > 200)
-        throw new Error('A document can contain up to 200 layers.');
+      if (allLayers(e.doc.layers).length + allLayers(roots).length > MAX_LAYERS)
+        throw new Error(`A document can contain up to ${MAX_LAYERS} layers.`);
       const copies = roots.map(cloneLayer);
       e.command('Duplicate layers', (d) => {
         roots.forEach((l, i) => {
