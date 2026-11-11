@@ -108,5 +108,16 @@ describe('DXF files with extreme values', () => {
     expect(paths(r)).toHaveLength(1);
     expect(r.warnings).toContain('The drawing has too much content: only part of it was imported.');
   });
+
+  it('splines with many control points convert in linear time', async () => {
+    const n = 20000;
+    const knots = [0, 0, 0, 0, ...Array.from({ length: n - 4 }, (_, i) => i + 1), n - 3, n - 3, n - 3, n - 3];
+    const pairs = [[8, '0'], [71, 3], ...knots.map((k) => [40, k]), ...Array.from({ length: n }, (_, i) => [[10, i], [20, i % 7]]).flat()];
+    const [path] = paths(await convert(dxf([['ENTITIES', ent('SPLINE', pairs)]])));
+    // One cubic Bezier per knot span, starting and ending at the clamped end points.
+    expect(path.anchors).toHaveLength(n - 2);
+    expect(path.anchors[0]).toMatchObject({ x: 0, y: 0 });
+    expect(path.anchors[n - 3]).toMatchObject({ x: n - 1, y: -((n - 1) % 7) || 0 });
+  });
 });
 

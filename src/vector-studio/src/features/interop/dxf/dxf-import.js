@@ -239,21 +239,48 @@ function deBoor(k, x, U, P, p) {
 }
 
 /** Insert knot u once (Boehm). */
-function insertKnot(U, P, p, u) {
-  let k = p;
-  while (k < U.length - p - 2 && U[k + 1] <= u) k++;
-  const Q = [];
-  for (let i = 0; i <= P.length; i++) {
-    if (i <= k - p) Q.push(P[i]);
-    else if (i > k) Q.push(P[i - 1]);
-    else {
-      const den = U[i + p] - U[i];
-      const a = den ? (u - U[i]) / den : 0;
-      Q.push(P[i].map((v, c) => (1 - a) * P[i - 1][c] + a * v));
+/**
+ * The Bezier segments (p + 1 points each) of a non-rational B-spline with
+ * clamped knots: knot insertion span by span (Piegl and Tiller, algorithm
+ * A5.6), linear in the number of control points. Null when the knots are
+ * not clamped, decrease, or repeat more than p times inside.
+ */
+function bezierSegments(U, P, p) {
+  const m = U.length - 1;
+  const eq = (a, b) => Math.abs(a - b) < 1e-12;
+  for (let i = 0; i < m; i++) if (U[i + 1] < U[i]) return null;
+  for (let i = 1; i <= p; i++) if (!eq(U[i], U[0]) || !eq(U[m - i], U[m])) return null;
+  const lerp = (al, q1, q0) => [al * q1[0] + (1 - al) * q0[0], al * q1[1] + (1 - al) * q0[1]];
+  const segs = [];
+  const alphas = [];
+  let Q = P.slice(0, p + 1);
+  let a = p;
+  let b = p + 1;
+  while (b < m) {
+    const i = b;
+    while (b < m && eq(U[b + 1], U[b])) b++;
+    const mult = b - i + 1;
+    if (mult > p && b < m) return null;
+    const next = b < m ? new Array(p + 1) : null;
+    if (mult < p) {
+      const numer = U[b] - U[a];
+      for (let j = p; j > mult; j--) alphas[j - mult - 1] = numer / (U[a + j] - U[a]);
+      const r = p - mult;
+      for (let j = 1; j <= r; j++) {
+        const s = mult + j;
+        for (let k = p; k >= s; k--) Q[k] = lerp(alphas[k - s], Q[k], Q[k - 1]);
+        if (next) next[r - j] = Q[p];
+      }
+    }
+    segs.push(Q);
+    if (next) {
+      for (let k = p - mult; k <= p; k++) next[k] = P[b - p + k];
+      Q = next;
+      a = b;
+      b++;
     }
   }
-  const NU = [...U.slice(0, k + 1), u, ...U.slice(k + 1)];
-  return { U: NU, P: Q };
+  return segs;
 }
 
 /** A spline entity as a subpath. */
@@ -285,38 +312,20 @@ function splineSub(rec) {
     s.closed = closed;
     return s;
   }
-  if (!rational && validKnots && p <= 3) {
-    // Raise every interior knot to multiplicity p: the control polygon becomes Bezier segments.
-    let U = knots.slice();
-    let P = ctrl.map((c) => c.slice());
-    const lo = U[p];
-    const hi = U[U.length - p - 1];
-    const interior = [...new Set(U.slice(p + 1, U.length - p - 1))].filter((u) => u > lo && u < hi);
-    for (const u of interior) {
-      let mult = U.filter((x) => Math.abs(x - u) < 1e-12).length;
-      while (mult < p) {
-        ({ U, P } = insertKnot(U, P, p, u));
-        mult++;
+  const segs = !rational && validKnots && p <= 3 ? bezierSegments(knots, ctrl, p) : null;
+  if (segs) {
+    const s = new Sub(ctrl[0][0], ctrl[0][1]);
+    for (const q of segs) {
+      if (p === 3) s.curve(q[1], q[2], q[3]);
+      else {
+        // Quadratic to cubic.
+        const c1 = [q[0][0] + (2 / 3) * (q[1][0] - q[0][0]), q[0][1] + (2 / 3) * (q[1][1] - q[0][1])];
+        const c2 = [q[2][0] + (2 / 3) * (q[1][0] - q[2][0]), q[2][1] + (2 / 3) * (q[1][1] - q[2][1])];
+        s.curve(c1, c2, q[2]);
       }
     }
-    // Clamp unclamped ends by evaluating the end points.
-    const start = deBoor(p, lo, U, P, p);
-    const s = new Sub(start[0], start[1]);
-    const segs = Math.round((P.length - 1) / p);
-    if (Math.abs(U[0] - lo) < 1e-12 && Math.abs(U[U.length - 1] - hi) < 1e-12 && segs * p === P.length - 1) {
-      for (let k = 0; k < segs; k++) {
-        const q = P.slice(k * p, k * p + p + 1);
-        if (p === 3) s.curve(q[1], q[2], q[3]);
-        else {
-          // Quadratic to cubic.
-          const c1 = [q[0][0] + (2 / 3) * (q[1][0] - q[0][0]), q[0][1] + (2 / 3) * (q[1][1] - q[0][1])];
-          const c2 = [q[2][0] + (2 / 3) * (q[1][0] - q[2][0]), q[2][1] + (2 / 3) * (q[1][1] - q[2][1])];
-          s.curve(c1, c2, q[2]);
-        }
-      }
-      s.closed = closed;
-      return s;
-    }
+    s.closed = closed;
+    return s;
   }
   // Rational, higher degree or unusual knots: sample and fit.
   const U = validKnots ? knots : (() => {
@@ -331,9 +340,10 @@ function splineSub(rec) {
   const hi = U[U.length - p - 1];
   const pts = [];
   const N = Math.max(32, ctrl.length * 12);
+  // The parameter only grows: the knot span search continues from the previous sample's span.
+  let k = p;
   for (let i = 0; i <= N; i++) {
     const x = lo + ((hi - lo) * i) / N;
-    let k = p;
     while (k < U.length - p - 2 && U[k + 1] <= x) k++;
     const v = deBoor(k, Math.min(x, hi - 1e-12), U, H, p);
     pts.push({ x: v[0] / (v[2] || 1), y: v[1] / (v[2] || 1) });
