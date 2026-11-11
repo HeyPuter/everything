@@ -405,6 +405,11 @@ export async function offsetPathDialog(app) {
   doc.transact('Offset Path', () => {
     ids = apply(v, records);
   });
+  if (!ids.length) {
+    // A negative offset larger than the shape leaves nothing to insert.
+    app.notify(`An offset of ${formatLength(v.offset, doc.root.units || 'pt')} leaves nothing of the selected ${nodes.length > 1 ? 'paths' : 'path'}.`);
+    return false;
+  }
   editor.select(ids);
   return true;
 }

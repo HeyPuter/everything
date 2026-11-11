@@ -153,4 +153,15 @@ describe('path commands on live objects', () => {
     expect(doc.get(r).children).toEqual([src.id]);
     expect(app.notify).toHaveBeenLastCalledWith(expect.stringMatching(/^Divide Objects Below works on paths\. Expand the .*repeat first/));
   });
+
+  it('Offset Path says so when the offset removes the whole shape', async () => {
+    const { ed, doc, plain, layer } = setup();
+    app.dialogs.form = vi.fn(async () => ({ offset: -15, joins: 'miter', miter: 4, preview: false }));
+    ed.select([plain]);
+    const before = doc.get(layer).children.slice();
+    expect(await offsetPathDialog(app)).toBe(false);
+    expect(doc.get(layer).children).toEqual(before);
+    expect([...ed.selection]).toEqual([plain]);
+    expect(app.notify).toHaveBeenCalledWith('An offset of -15 pt leaves nothing of the selected path.');
+  });
 });
