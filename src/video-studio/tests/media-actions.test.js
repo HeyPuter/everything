@@ -38,6 +38,28 @@ describe('media housekeeping', () => {
   });
 });
 
+describe('relinking a video that has a reversed copy', () => {
+  it('keeps the pair linked when the same file is chosen again', () => {
+    const p = fixture();
+    p.assets.vid.hash = 'hv';
+    addAsset(p, { id: 'rev', kind: 'video', duration: s(10), hash: 'hr', reversedOf: 'vid' });
+    swapAsset(p, 'vid', { id: 'vid2', kind: 'video', name: 'v.mp4', hash: 'hv', duration: s(10) });
+    expect(p.assets.rev.reversedOf).toBe('vid2');
+    swapAsset(p, 'rev', { id: 'rev2', kind: 'video', name: 'v reversed.mp4', hash: 'hr', duration: s(10) });
+    expect(p.assets.rev2.reversedOf).toBe('vid2');
+  });
+
+  it('lets go of the reversed copy when the video is replaced by another file', () => {
+    const p = fixture();
+    p.assets.vid.hash = 'hv';
+    addAsset(p, { id: 'rev', kind: 'video', duration: s(10), hash: 'hr', reversedOf: 'vid' });
+    swapAsset(p, 'vid', { id: 'other', kind: 'video', name: 'other.mp4', hash: 'ho', duration: s(10) });
+    expect(p.assets.rev.reversedOf).not.toBe('other');
+    swapAsset(p, 'rev', { id: 'x', kind: 'video', name: 'x.mp4', hash: 'hx', duration: s(10) });
+    expect(p.assets.x.reversedOf).toBeUndefined();
+  });
+});
+
 describe('replacing a video with a photo', () => {
   it('turns its video clips into photo clips and drops the clips that played its sound', () => {
     const p = fixture();

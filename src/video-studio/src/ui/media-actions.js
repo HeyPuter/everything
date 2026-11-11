@@ -42,7 +42,10 @@ function soundClips(project, assetId) {
  */
 export function swapAsset(project, oldId, asset) {
   const old = project.assets[oldId];
-  project.assets[asset.id] = { ...asset, ...(old?.folder ? { folder: old.folder } : {}) };
+  // The same file chosen again (relinking a missing one): a reversed copy and its original stay paired.
+  const same = Boolean(old?.hash && asset.hash === old.hash && oldId !== asset.id);
+  project.assets[asset.id] = { ...asset, ...(old?.folder ? { folder: old.folder } : {}), ...(same && old.reversedOf ? { reversedOf: old.reversedOf } : {}) };
+  if (same) for (const a of Object.values(project.assets)) if (a.reversedOf === oldId) a.reversedOf = asset.id;
   const toImage = asset.kind === 'image' && old?.kind !== 'image';
   if (toImage && oldId !== asset.id) {
     const sound = new Set(soundClips(project, oldId).map((c) => c.id));
