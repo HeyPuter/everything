@@ -187,5 +187,54 @@ describe('home project list', () => {
     }
     expect(reads).toHaveBeenCalledTimes(1);
   });
+
+  it('reads covers as their cards come near the screen, not all at once', async () => {
+    const watched = [];
+    globalThis.IntersectionObserver = class {
+      constructor(cb) {
+        this.cb = cb;
+        this.els = new Set();
+        watched.push(this);
+      }
+      observe(el) {
+        this.els.add(el);
+      }
+      unobserve(el) {
+        this.els.delete(el);
+      }
+      disconnect() {
+        this.els.clear();
+      }
+      show(els) {
+        this.cb(els.map((target) => ({ target, isIntersecting: true })));
+      }
+    };
+    try {
+      const lib = new Library(memoryBackend());
+      for (let i = 0; i < 30; i++) {
+        const p = await lib.createProject({ name: `P${i}` });
+        await lib.saveCover(p.id, new Blob(['jpg'], { type: 'image/jpeg' }));
+      }
+      const reads = vi.spyOn(lib, 'coverBlob');
+      mount(lib);
+      await settle();
+      expect(reads).not.toHaveBeenCalled();
+      const io = watched.at(-1);
+      expect(io.els.size).toBe(30);
+      io.show([...root.querySelectorAll('.project-cover')].slice(0, 6));
+      await settle();
+      expect(reads).toHaveBeenCalledTimes(6);
+      expect(root.querySelectorAll('.project-cover img')).toHaveLength(6);
+      // A search draws new cards: the ones read already come from memory, the others wait again.
+      const search = root.querySelector('.home-search');
+      search.value = 'p1';
+      search.dispatchEvent(new Event('input'));
+      await settle();
+      expect(root.querySelectorAll('.project-card')).toHaveLength(11);
+      expect(io.els.size).toBe(11 - root.querySelectorAll('.project-cover img').length);
+    } finally {
+      delete globalThis.IntersectionObserver;
+    }
+  });
 });
 

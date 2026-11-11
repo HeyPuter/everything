@@ -217,6 +217,8 @@ export class Home {
   }
 
   renderView() {
+    // Cards drawn before are gone: stop waiting to load their covers.
+    this.coverObserver?.disconnect();
     this.renderNav();
     const titles = { home: 'Video Studio', templates: 'Templates', trash: 'Trash' };
     document.title = this.view === 'home' ? 'Video Studio' : `${titles[this.view]} - Video Studio`;
@@ -343,6 +345,7 @@ export class Home {
 
   renderGrid() {
     if (!this.grid) return;
+    this.coverObserver?.disconnect();
     if (!this.loaded) {
       this.grid.replaceChildren(h('div.home-loading', { role: 'status' }, h('div.spinner'), 'Loading projects...'));
       return;
@@ -364,8 +367,30 @@ export class Home {
 
   cover(p) {
     const cover = h('div.project-cover', h('span.cover-fallback', icon('film', 22)));
-    this.loadCover(p.id, cover);
+    this.watchCover(p.id, cover);
     return cover;
+  }
+
+  /**
+   * Load a cover once its card is close to being scrolled into view: with
+   * many projects, reading every cover at once (a download each from the
+   * cloud) would hold up the ones on screen.
+   */
+  watchCover(id, el) {
+    if (this.coverUrls.has(id) || this.noCover.has(id) || typeof IntersectionObserver !== 'function') {
+      this.loadCover(id, el);
+      return;
+    }
+    this.coverIds ||= new WeakMap();
+    this.coverIds.set(el, id);
+    this.coverObserver ||= new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        this.coverObserver.unobserve(e.target);
+        this.loadCover(this.coverIds.get(e.target), e.target);
+      }
+    }, { root: this.mainEl, rootMargin: '400px 0px' });
+    this.coverObserver.observe(el);
   }
 
   card(p) {
@@ -698,6 +723,7 @@ export class Home {
 
   dispose() {
     window.removeEventListener('hashchange', this.onHash);
+    this.coverObserver?.disconnect();
     for (const u of this.coverUrls.values()) URL.revokeObjectURL(u);
   }
 }
