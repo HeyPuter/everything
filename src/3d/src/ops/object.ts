@@ -15,6 +15,7 @@ import { activeView3D } from '../editors/view3d/view3d';
 import { openMenu, promptText } from '../ui/menu';
 import { newConstraint } from '../eval/constraints';
 import { modeHandlers } from './modes';
+import { sceneObjects } from '../scenes/scenes';
 import { curvePoints, edgeChains, surfaceCenter, translateCurve, volumeCenter } from '../object/core';
 import { defaultPoseBone } from '../eval/armature';
 import { newModifier } from '../eval/modifiers';
@@ -944,8 +945,10 @@ registerOperators([
     props: [{ id: 'select', label: 'Select', type: 'bool', default: true }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
+      // objects of other scenes stay as they are
+      const inScene = sceneObjects(ctx.doc, ctx.doc.scene);
       for (const o of Object.values(ctx.doc.objects))
-        if (o.hide) {
+        if (o.hide && inScene.has(o.id)) {
           o.hide = false;
           if (p.select) o.select = true;
         }

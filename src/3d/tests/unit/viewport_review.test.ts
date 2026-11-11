@@ -268,3 +268,24 @@ describe('join', () => {
     }
   });
 });
+
+describe('show hidden objects with several scenes', () => {
+  it('only reveals (and selects) objects of the current scene', async () => {
+    const { newScene, activateScene } = await import('../../src/scenes/scenes');
+    const { duplicateObject } = await import('../../src/ops/object');
+    const { uniqueName } = await import('../../src/ops/object');
+    const first = app.doc.scene;
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    cube.hide = true;
+    cube.select = false;
+    const sc = newScene(app.doc, 'FULL_COPY', { duplicateObject, uniqueName: (d, b, k) => uniqueName(d, b, k ?? 'objects') });
+    app.graph.evaluate(app.doc, false);
+    expect(app.doc.scene).toBe(sc);
+    run('object.hide_view_clear');
+    expect(cube.hide).toBe(true);
+    expect(cube.select).toBe(false);
+    const copy = Object.values(app.doc.objects).find((o) => o.name === 'Cube.001')!;
+    expect(copy.hide).toBe(false);
+    activateScene(app.doc, first.id!);
+  });
+});
