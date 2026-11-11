@@ -9,6 +9,7 @@ import { visibilityPieces, type Piece } from './core/visibility';
 import { compositeOver } from './core/raster';
 import { lineCamera, lineObjects, materialAttrs, inCollection } from './scene';
 import { compileModules, shadeStrokes } from './modules';
+import { autoRunBlocked } from '../prefs/autorun';
 
 /** Pixels per line style thickness unit for a frame height. */
 export function thicknessScale(r: { line_thickness_mode?: string; line_thickness?: number }, frameHeight: number): number {
@@ -37,7 +38,15 @@ export async function renderLineLayer(f: Pick<FrameLineContext, 'camera' | 'widt
     seed: doc.scene.frame_current,
   };
   let sets = drawingSets(input);
-  if (fs.mode === 'SCRIPT') {
+  // Style modules are code that comes with the project: they run only where registered scripts would.
+  const modules = fs.mode === 'SCRIPT' ? (fs.modules ?? []).filter((m) => m.use && m.script).length : 0;
+  const blocked = modules ? autoRunBlocked() : null;
+  if (blocked) {
+    const msg = `${modules} line style module(s) not run, drawing the line sets instead: ${blocked}`;
+    // once, not for every frame of an animation
+    if (app.reports.at(-1)?.message !== msg) app.report('WARNING', msg);
+  }
+  if (fs.mode === 'SCRIPT' && !blocked) {
     // style modules declare their own line sets, styles and stroke shaders
     const c = compileModules(fs, (id) => doc.texts[id] ?? null);
     for (const e of c.errors) app.report('ERROR', e);

@@ -17,17 +17,25 @@ export function globMatch(pattern: string, name: string): boolean {
 let opened = 0;
 fileEvents.opened.push(() => void opened++);
 
+/**
+ * Why scripts that come with the project may not run (Preferences ▸ Save & Load ▸ Auto Run Scripts and its
+ * excluded paths), or null when they may. The one trust rule for project code: registered texts and line
+ * style modules alike.
+ */
+export function autoRunBlocked(): string | null {
+  const excluded = (prefs.autoexec_paths ?? []).find((pat) => pat.trim() && globMatch(pat.trim(), app.filename ?? ''));
+  if (excluded) return `"${app.filename}" matches the excluded path "${excluded}"`;
+  if (!prefs.use_scripts_auto_execute) return 'Auto Run Scripts is off (Preferences ▸ Save & Load)';
+  return null;
+}
+
 export async function runRegisteredTexts(): Promise<number> {
   const project = opened;
   const texts = Object.values(app.doc.texts ?? {}).filter((t) => t.use_module && t.language !== 'text');
   if (!texts.length) return 0;
-  const excluded = (prefs.autoexec_paths ?? []).find((pat) => pat.trim() && globMatch(pat.trim(), app.filename ?? ''));
-  if (excluded) {
-    app.report('WARNING', `${texts.length} registered script(s) not run: "${app.filename}" matches the excluded path "${excluded}"`);
-    return 0;
-  }
-  if (!prefs.use_scripts_auto_execute) {
-    app.report('WARNING', `${texts.length} registered script(s) not run: Auto Run Scripts is off (Preferences ▸ Save & Load)`);
+  const blocked = autoRunBlocked();
+  if (blocked) {
+    app.report('WARNING', `${texts.length} registered script(s) not run: ${blocked}`);
     return 0;
   }
   let n = 0;
