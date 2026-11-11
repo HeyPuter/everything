@@ -3,6 +3,7 @@ import {
   TILE,
   TileStore,
   allMask,
+  computeBounds,
   emptyGrid,
   gridFromImage,
   packGrid,
@@ -47,6 +48,37 @@ describe('tile grids', () => {
     expect(readMask(store, all, { x: 5000, y: -5, width: 2, height: 1 }).data).toEqual(new Uint8Array([255, 255]));
     const hole = writeRect(store, all, 0, 0, { width: 2, height: 1, data: new Uint8Array([0, 128]) });
     expect(readMask(store, hole, { x: 0, y: 0, width: 3, height: 1 }).data).toEqual(new Uint8Array([0, 128, 255]));
+  });
+  it('finds tight content bounds of sparse, opaque and mask tiles', () => {
+    // Reference: every covered pixel, scanned the slow way.
+    const brute = (d: Uint8ClampedArray, c: number) => {
+      let x0 = TILE, y0 = TILE, x1 = -1, y1 = -1;
+      for (let y = 0; y < TILE; y++)
+        for (let x = 0; x < TILE; x++)
+          if (d[(y * TILE + x) * c + c - 1]) {
+            x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+          }
+      return x1 < 0 ? null : { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
+    };
+    let seed = 7;
+    const rand = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+    for (const c of [1, 4] as const)
+      for (let n = 0; n < 40; n++) {
+        const store = new TileStore();
+        const d = new Uint8ClampedArray(TILE * TILE * c);
+        // Mostly a few scattered pixels or rectangles; sometimes everything.
+        if (n % 10 === 0) d.fill(255);
+        else
+          for (let k = Math.floor(rand() * 6); k > 0; k--) {
+            const x = Math.floor(rand() * TILE), y = Math.floor(rand() * TILE);
+            const w = 1 + Math.floor(rand() * (TILE - x) * (n % 3 ? 0.1 : 1)), h = 1 + Math.floor(rand() * (TILE - y) * 0.5);
+            for (let yy = y; yy < Math.min(TILE, y + h); yy++) for (let xx = x; xx < x + w; xx++) d[(yy * TILE + xx) * c + c - 1] = 1 + (k % 255);
+          }
+        // Color without coverage never counts.
+        if (c === 4) d[0] = 9;
+        const grid = { ...emptyGrid(c), tiles: { '0,0': store.add(d) } };
+        expect(computeBounds(store, grid)).toEqual(brute(d, c));
+      }
   });
   it('round trips packed grids', async () => {
     const store = new TileStore();

@@ -86,19 +86,27 @@ function tileEmpty(d: TileData, fill = 0) {
   return true;
 }
 // Coverage lives in the alpha byte for RGBA tiles and the only byte for masks.
+// Each row is scanned from both ends and stops at the first covered pixel, so
+// opaque tiles cost two reads per row instead of a full scan.
 function tileContentBounds(d: TileData, channels: 1 | 4): IRect | null {
   let x0 = TILE,
     y0 = TILE,
     x1 = -1,
     y1 = -1;
+  const a = channels - 1;
   for (let y = 0; y < TILE; y++) {
-    let row = y * TILE * channels + channels - 1;
-    for (let x = 0; x < TILE; x++, row += channels)
-      if (d[row]) {
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        y1 = y;
+    const row = y * TILE * channels + a;
+    let first = 0;
+    while (first < TILE && !d[row + first * channels]) first++;
+    if (first === TILE) continue;
+    if (first < x0) x0 = first;
+    if (y < y0) y0 = y;
+    y1 = y;
+    // Only pixels right of the widest row so far can extend the bounds.
+    for (let x = TILE - 1; x > x1 && x >= first; x--)
+      if (d[row + x * channels]) {
+        x1 = x;
+        break;
       }
   }
   return x1 < 0 ? null : { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
