@@ -16,6 +16,16 @@ export function rethrowAsCodecError(e: unknown, what: string): never {
   throw new CodecError(`The ${what} file is damaged or unsupported (${detail}).`);
 }
 
+// Size limits a caller can impose so an image too large to use is refused
+// from its header, before any pixel memory is allocated.
+export type SizeLimits = { maxSide?: number; maxPixels?: number };
+export function checkSize(width: number, height: number, limits: SizeLimits | undefined) {
+  if (!limits) return;
+  const { maxSide = Infinity, maxPixels = Infinity } = limits;
+  if (width > maxSide || height > maxSide || width * height > maxPixels)
+    throw new CodecError(`This image is ${width} × ${height} pixels, beyond the ${maxSide < Infinity ? `${maxSide} pixel per side` : ''}${maxSide < Infinity && maxPixels < Infinity ? ' or ' : ''}${maxPixels < Infinity ? `${Math.round(maxPixels / 1e6)} megapixel` : ''} limit.`);
+}
+
 let crcTable: Uint32Array | undefined;
 // CRC-32 (ISO 3309 / ITU-T V.42), as used by PNG and zlib.
 export function crc32(bytes: Uint8Array, start = 0, end = bytes.length, seed = 0): number {

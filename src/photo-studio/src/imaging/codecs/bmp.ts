@@ -2,7 +2,7 @@
 // BITMAPINFOHEADER / BITMAPV4HEADER / BITMAPV5HEADER documentation and the
 // OS/2 BITMAPCOREHEADER layout. ICO/CUR entries reuse `decodeDib`.
 import type { RGBA8 } from '../types';
-import { ByteWriter, CodecError, rethrowAsCodecError } from './bytes';
+import { ByteWriter, CodecError, checkSize, rethrowAsCodecError, type SizeLimits } from './bytes';
 
 export type BmpDecodeResult = {
   width: number;
@@ -22,17 +22,17 @@ export type BmpDecodeResult = {
   icc?: Uint8Array;
 };
 
-export function decodeBmp(bytes: Uint8Array): BmpDecodeResult {
+export function decodeBmp(bytes: Uint8Array, limits?: SizeLimits): BmpDecodeResult {
   try {
-    return decodeBmpImpl(bytes);
+    return decodeBmpImpl(bytes, limits);
   } catch (e) {
     rethrowAsCodecError(e, 'BMP');
   }
 }
-function decodeBmpImpl(bytes: Uint8Array): BmpDecodeResult {
+function decodeBmpImpl(bytes: Uint8Array, limits?: SizeLimits): BmpDecodeResult {
   if (bytes.length < 26 || bytes[0] !== 0x42 || bytes[1] !== 0x4d) throw new CodecError('Not a BMP file.');
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  return decodeDib(bytes, 14, { pixelOffset: dv.getUint32(10, true) });
+  return decodeDib(bytes, 14, { pixelOffset: dv.getUint32(10, true), limits });
 }
 
 const ctz = (m: number) => {
@@ -53,7 +53,7 @@ function maskLut(mask: number): { shift: number; lut: Uint8Array } | null {
   return { shift: shift + (bits - n), lut };
 }
 
-export function decodeDib(bytes: Uint8Array, at: number, opts: { pixelOffset?: number; icon?: boolean } = {}): BmpDecodeResult {
+export function decodeDib(bytes: Uint8Array, at: number, opts: { pixelOffset?: number; icon?: boolean; limits?: SizeLimits } = {}): BmpDecodeResult {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (at + 12 > bytes.length) throw new CodecError('Bitmap header is truncated.');
   const hs = dv.getUint32(at, true);
@@ -104,6 +104,7 @@ export function decodeDib(bytes: Uint8Array, at: number, opts: { pixelOffset?: n
   let height = Math.abs(rawHeight);
   if (opts.icon) height >>= 1;
   if (width <= 0 || height <= 0 || width * height > 2 ** 28) throw new CodecError('Bitmap dimensions are invalid.');
+  checkSize(width, height, opts.limits);
 
   const palette = new Uint8Array(1024);
   let paletteSize = 0;

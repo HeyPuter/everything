@@ -1,7 +1,7 @@
 // Netpbm PBM/PGM/PPM (plain P1-P3 and raw P4-P6) and PAM (P7), from the
 // netpbm format documentation (pbm(5), pgm(5), ppm(5), pam(5)).
 import type { RGBA8 } from '../types';
-import { ByteWriter, CodecError, rethrowAsCodecError } from './bytes';
+import { ByteWriter, CodecError, checkSize, rethrowAsCodecError, type SizeLimits } from './bytes';
 
 export type NetpbmFormat = 'pbm' | 'pgm' | 'ppm' | 'pam';
 export type NetpbmDecodeResult = {
@@ -19,14 +19,14 @@ export type NetpbmDecodeResult = {
 
 const isSpace = (c: number) => c === 32 || c === 9 || c === 10 || c === 13 || c === 11 || c === 12;
 
-export function decodeNetpbm(bytes: Uint8Array): NetpbmDecodeResult {
+export function decodeNetpbm(bytes: Uint8Array, limits?: SizeLimits): NetpbmDecodeResult {
   try {
-    return decodeNetpbmImpl(bytes);
+    return decodeNetpbmImpl(bytes, limits);
   } catch (e) {
     rethrowAsCodecError(e, 'Netpbm');
   }
 }
-function decodeNetpbmImpl(bytes: Uint8Array): NetpbmDecodeResult {
+function decodeNetpbmImpl(bytes: Uint8Array, limits?: SizeLimits): NetpbmDecodeResult {
   if (bytes.length < 3 || bytes[0] !== 0x50 || bytes[1] < 0x31 || bytes[1] > 0x37) throw new CodecError('Not a Netpbm file.');
   const kind = bytes[1] - 0x30;
   let p = 2;
@@ -86,6 +86,7 @@ function decodeNetpbmImpl(bytes: Uint8Array): NetpbmDecodeResult {
     if (kind >= 4) p++;
   }
   if (width * height > 2 ** 28) throw new CodecError('Netpbm image is too large.');
+  checkSize(width, height, limits);
   const ascii = kind <= 3;
   const n = width * height * channels;
   const samples = maxval > 255 ? new Uint16Array(n) : new Uint8Array(n);

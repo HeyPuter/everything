@@ -2,7 +2,7 @@
 // Specification, version 2.0" (1989): color-mapped, true-color and grayscale
 // images, raw or run-length encoded, any origin corner.
 import type { RGBA8 } from '../types';
-import { ByteWriter, CodecError, rethrowAsCodecError, asciiAt } from './bytes';
+import { ByteWriter, CodecError, checkSize, rethrowAsCodecError, asciiAt, type SizeLimits } from './bytes';
 
 export type TgaDecodeResult = {
   width: number;
@@ -17,14 +17,14 @@ export type TgaDecodeResult = {
   id?: string;
 };
 
-export function decodeTga(bytes: Uint8Array): TgaDecodeResult {
+export function decodeTga(bytes: Uint8Array, limits?: SizeLimits): TgaDecodeResult {
   try {
-    return decodeTgaImpl(bytes);
+    return decodeTgaImpl(bytes, limits);
   } catch (e) {
     rethrowAsCodecError(e, 'TGA');
   }
 }
-function decodeTgaImpl(bytes: Uint8Array): TgaDecodeResult {
+function decodeTgaImpl(bytes: Uint8Array, limits?: SizeLimits): TgaDecodeResult {
   if (bytes.length < 18) throw new CodecError('Not a TGA file.');
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const idLength = bytes[0];
@@ -42,6 +42,7 @@ function decodeTgaImpl(bytes: Uint8Array): TgaDecodeResult {
   if (![1, 2, 3].includes(base) || (imageType > 3 && imageType < 9) || imageType > 11 || cmapType > 1)
     throw new CodecError('Not a supported TGA image type.');
   if (!width || !height) throw new CodecError('TGA has no dimensions.');
+  checkSize(width, height, limits);
   const validDepth = base === 1 ? depth === 8 || depth === 16 : base === 3 ? depth === 8 || depth === 16 : [15, 16, 24, 32].includes(depth);
   if (!validDepth) throw new CodecError(`${depth}-bit TGA images of type ${imageType} are not supported.`);
   let p = 18;

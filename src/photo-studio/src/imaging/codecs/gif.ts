@@ -1,7 +1,7 @@
 // GIF87a/GIF89a reader and writer from the GIF89a specification (CompuServe
 // 1990) plus the NETSCAPE2.0 looping extension.
 import { checkCancelled, type Progress, type RGBA8 } from '../types';
-import { ByteWriter, CodecError, rethrowAsCodecError, asciiAt } from './bytes';
+import { ByteWriter, CodecError, checkSize, rethrowAsCodecError, asciiAt, type SizeLimits } from './bytes';
 import { lzwDecode, lzwEncode } from './lzw';
 import { buildPalette, mapToPalette, type Quantizer } from './quantize';
 
@@ -28,20 +28,21 @@ export type GifDecodeResult = {
   comments: string[];
 };
 
-export function decodeGif(bytes: Uint8Array, opts: { maxFrames?: number } = {}): GifDecodeResult {
+export function decodeGif(bytes: Uint8Array, opts: { maxFrames?: number; limits?: SizeLimits } = {}): GifDecodeResult {
   try {
     return decodeGifImpl(bytes, opts);
   } catch (e) {
     rethrowAsCodecError(e, 'GIF');
   }
 }
-function decodeGifImpl(bytes: Uint8Array, opts: { maxFrames?: number } = {}): GifDecodeResult {
+function decodeGifImpl(bytes: Uint8Array, opts: { maxFrames?: number; limits?: SizeLimits } = {}): GifDecodeResult {
   const sig = asciiAt(bytes, 0, 6);
   if (sig !== 'GIF89a' && sig !== 'GIF87a') throw new CodecError('Not a GIF file.');
   const u16 = (o: number) => bytes[o] | (bytes[o + 1] << 8);
   const width = u16(6);
   const height = u16(8);
   if (!width || !height) throw new CodecError('GIF has no dimensions.');
+  checkSize(width, height, opts.limits);
   const packed = bytes[10];
   let p = 13;
   let globalPalette: Uint8Array | null = null;

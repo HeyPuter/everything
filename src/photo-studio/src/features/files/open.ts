@@ -89,6 +89,10 @@ function orient<T extends Uint16Array | Float32Array>(data: T, w: number, h: num
   return out;
 }
 
+// Documents hold at most 8192 pixels per side and 24 megapixels; larger files
+// are refused from their headers rather than after decoding every pixel.
+const documentLimits = { maxSide: 8192, maxPixels: 24_000_000 };
+
 async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOptions): Promise<DecodedFile> {
   const format = sniffImageFormat(bytes);
   if (format === 'ico' || format === 'cur') {
@@ -98,7 +102,7 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
     const image = best.rgba ?? (await decodeBrowserImage(new Blob([best.png!.slice()], { type: 'image/png' })));
     return { image, notice: res.entries.length > 1 ? `Opened the ${best.width}×${best.height} image of ${res.entries.length}.` : undefined };
   }
-  const d = decodeImage(bytes);
+  const d = decodeImage(bytes, { limits: documentLimits, firstOnly: opts.pages === 'first' });
   if (!d) throw new Error('Unsupported image format.');
   assertSize(d.width, d.height);
   const notes = d.notes.filter((n) => !/first was opened/.test(n));

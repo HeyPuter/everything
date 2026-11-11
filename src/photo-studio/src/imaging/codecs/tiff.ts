@@ -3,7 +3,7 @@
 // 16/24-bit floats) and the BigTIFF proposal (64-bit offsets, version 43).
 import { deflate, inflate, inflateRaw } from 'pako';
 import { checkCancelled, type Progress, type RGBA8 } from '../types';
-import { ByteWriter, CodecError, rethrowAsCodecError, latin1String } from './bytes';
+import { ByteWriter, CodecError, checkSize, rethrowAsCodecError, latin1String, type SizeLimits } from './bytes';
 import { lzwDecode, lzwEncode } from './lzw';
 
 export type TiffSampleFormat = 'uint' | 'int' | 'float';
@@ -62,6 +62,8 @@ export type TiffDecodeOptions = {
   // Reported per strip/tile of the page being decoded; cancellation throws
   // CancelledError (also for later pages).
   progress?: Progress;
+  // Pages beyond these sizes are refused before their pixels are decoded.
+  limits?: SizeLimits;
 };
 
 const TYPE_SIZE = [0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8, 4, 0, 0, 8, 8, 8];
@@ -190,7 +192,7 @@ function decodeTiffImpl(bytes: Uint8Array, opts: TiffDecodeOptions = {}): TiffDe
     seen.add(ifdAt);
     const { entries, next } = readIfd(r, ifdAt);
     try {
-      pages.push(decodePage(r, entries, opts.progress));
+      pages.push(decodePage(r, entries, opts.progress, opts.limits));
     } catch (err) {
       if (!pages.length || (err as Error).name === 'CancelledError') throw err;
       warnings.push(`Page ${pages.length + warnings.length + 1}: ${(err as Error).message}`);
@@ -314,7 +316,7 @@ function half(v: number): number {
 
 type SampleBuffer = Uint8Array | Uint16Array | Uint32Array | Float32Array;
 
-function decodePage(r: Reader, ifd: Map<number, Entry>, progress?: Progress): TiffPage {
+function decodePage(r: Reader, ifd: Map<number, Entry>, progress?: Progress, limits?: SizeLimits): TiffPage {
   const num = (tag: number, def: number) => {
     const e = ifd.get(tag);
     return e ? r.value(e.type, e.offset) : def;
@@ -323,6 +325,7 @@ function decodePage(r: Reader, ifd: Map<number, Entry>, progress?: Progress): Ti
   const height = num(257, 0);
   if (!width || !height) throw new CodecError('TIFF page has no dimensions.');
   if (width * height > 2 ** 28) throw new CodecError('TIFF page is too large.');
+  checkSize(width, height, limits);
   const spp = num(277, 1);
   const bpsList = values(r, ifd.get(258));
   const bits = bpsList[0] ?? 1;
