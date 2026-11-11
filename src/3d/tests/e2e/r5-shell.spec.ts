@@ -108,3 +108,22 @@ test('Enter over the 3D view does not click the last button clicked with the mou
   await expect.poll(mods).toContain('CLOTH');
   await expectNoErrors(errors);
 });
+
+test('Esc in a text field drops the typed text instead of committing it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.properties [data-tab="OBJECT"]').first().click();
+  const name = page.locator('.properties .id-row .text-field input').first();
+  await expect(name).toHaveValue('Cube');
+  await name.click();
+  await name.fill('Typo');
+  await name.press('Escape');
+  await expect(name).not.toBeFocused();
+  expect(await page.evaluate(() => (window as any).app.activeObject.name)).toBe('Cube');
+  await expect(name).toHaveValue('Cube');
+  // Enter still commits
+  await name.click();
+  await name.fill('Box');
+  await name.press('Enter');
+  expect(await page.evaluate(() => (window as any).app.activeObject.name)).toBe('Box');
+  await expectNoErrors(errors);
+});

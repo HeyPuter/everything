@@ -572,7 +572,11 @@ export function textField(id: string, value: string, set: (v: string) => void, o
       onchange: opts.live ? null : (e: Event) => set((e.target as HTMLInputElement).value),
       onkeydown: (e: KeyboardEvent) => {
         e.stopPropagation();
-        if (!e.isComposing && (e.key === 'Enter' || e.key === 'Escape')) (e.target as HTMLInputElement).blur();
+        if (e.isComposing || (e.key !== 'Enter' && e.key !== 'Escape')) return;
+        const input = e.target as HTMLInputElement;
+        // Esc cancels: put the value back so leaving the field doesn't commit the typed text
+        if (e.key === 'Escape' && !opts.live) input.value = value;
+        input.blur();
       },
     }),
   );
