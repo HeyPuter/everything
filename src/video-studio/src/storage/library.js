@@ -320,6 +320,28 @@ export class Library extends Emitter {
   }
 
   /**
+   * Open a project for the editor: { project, claim }. The file is read once
+   * this tab holds the claim, so anything written into it before that (an AI
+   * result finishing for it writes only while holding the claim) is in the
+   * copy the editor saves back; claiming first keeps it to one read. A
+   * project in the Trash comes back unclaimed (claim null). When another tab
+   * has it open (claim.held false) that tab saves over it anyway.
+   */
+  async openForEditing(id) {
+    const claim = await this.claimProject(id);
+    let project;
+    try {
+      project = await this.openProject(id);
+    } catch (err) {
+      claim.release();
+      throw err;
+    }
+    if (!project.deletedAt) return { project, claim };
+    claim.release();
+    return { project, claim: null };
+  }
+
+  /**
    * Claim a project while the editor has it open, so another tab of this
    * browser opening it too can warn first. Resolves { held, release() }:
    * held is false when another tab has it open (this one then takes over

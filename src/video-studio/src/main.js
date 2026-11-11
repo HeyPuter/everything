@@ -64,8 +64,10 @@ async function openProject(id, files) {
   view?.dispose?.();
   loading('Opening project...');
   let project;
+  let claim;
   try {
-    project = await library.openProject(id);
+    // Read once claimed: something written into the file meanwhile stays (see openForEditing).
+    ({ project, claim } = await library.openForEditing(id));
   } catch (err) {
     toast(err?.message || "Couldn't open the project.", { kind: 'error' });
     showHome();
@@ -78,7 +80,6 @@ async function openProject(id, files) {
     return;
   }
   // Open in another tab too: edits in both would overwrite each other, so ask first.
-  const claim = await library.claimProject(id);
   if (!claim.held) {
     const ok = await confirmDialog({
       title: 'Project open in another tab',

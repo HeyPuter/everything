@@ -295,6 +295,71 @@ describe('project claims', () => {
     }
   });
 
+  it('opens for editing from the file as it is once the claim is held', async () => {
+    vi.stubGlobal('navigator', { ...navigator, locks: fakeLocks() });
+    try {
+      const lib = new Library(memoryBackend());
+      const p = await lib.createProject({ name: 'Late' });
+      // An AI result finishing for this project lands in its file between the read and the claim.
+      const claim = lib.claimProject.bind(lib);
+      vi.spyOn(lib, 'claimProject').mockImplementation(async (id) => {
+        const saved = await lib.openProject(id);
+        saved.assets.a_late = { id: 'a_late', kind: 'image', name: 'late.png', hash: 'hl', ext: 'png', width: 2, height: 2, added: 1 };
+        await lib.saveProject(saved);
+        return claim(id);
+      });
+      const { project, claim: held } = await lib.openForEditing(p.id);
+      expect(held.held).toBe(true);
+      expect(project.assets.a_late?.name).toBe('late.png');
+      held.release();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not claim a project in the Trash, and lets go when the file is gone after claiming', async () => {
+    vi.stubGlobal('navigator', { ...navigator, locks: fakeLocks() });
+    try {
+      const lib = new Library(memoryBackend());
+      const t = await lib.createProject({ name: 'Trashed' });
+      await lib.trashProject(t.id);
+      const res = await lib.openForEditing(t.id);
+      expect(res.claim).toBeNull();
+      expect(res.project.deletedAt).toBeTruthy();
+      const g = await lib.createProject({ name: 'Gone' });
+      const claim = lib.claimProject.bind(lib);
+      vi.spyOn(lib, 'claimProject').mockImplementation(async (id) => {
+        lib.backend.files.delete(`projects/${id}.json`);
+        return claim(id);
+      });
+      await expect(lib.openForEditing(g.id)).rejects.toThrow(/could not be found/);
+      lib.claimProject.mockRestore();
+      expect((await lib.claimProject(g.id)).held).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('opens for editing with one read of the file, and lets go of a project in the Trash at once', async () => {
+    vi.stubGlobal('navigator', { ...navigator, locks: fakeLocks() });
+    try {
+      const lib = new Library(memoryBackend());
+      const p = await lib.createProject({ name: 'Big' });
+      const reads = vi.spyOn(lib, 'openProject');
+      const { claim } = await lib.openForEditing(p.id);
+      expect(reads).toHaveBeenCalledTimes(1);
+      claim.release();
+      const t = await lib.createProject({ name: 'Trashed' });
+      await lib.trashProject(t.id);
+      expect((await lib.openForEditing(t.id)).claim).toBeNull();
+      const again = await lib.claimProject(t.id);
+      expect(again.held).toBe(true);
+      again.release();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('lets every project open where the browser has no locks', async () => {
     const lib = new Library(memoryBackend());
     const a = await lib.claimProject('p1');
