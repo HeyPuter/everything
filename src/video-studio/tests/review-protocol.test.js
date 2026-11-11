@@ -132,6 +132,12 @@ describe('review time', () => {
     expect(m.map((x) => [x.ids, x.at, x.count, x.resolved])).toEqual([[['a'], 0, 1, false], [['b', 'c'], 0.5, 2, false]]);
     expect(m[1].width).toBeCloseTo(0.1, 6);
     expect(stripMarkers(cs, 0)).toEqual([]);
+    // Points merged together stay a point, not a range bar between them.
+    const points = stripMarkers([{ id: 'p', t: 2_000_000 }, { id: 'q', t: 2_100_000 }], 10_000_000);
+    expect(points.map((x) => [x.ids, x.width])).toEqual([[['p', 'q'], 0]]);
+    // A point after a range ends no earlier than the range does.
+    const after = stripMarkers([{ id: 'r', t: 2_000_000, end: 4_000_000 }, { id: 's', t: 2_050_000 }], 10_000_000);
+    expect(after[0].width).toBeCloseTo(0.2, 6);
   });
 });
 
