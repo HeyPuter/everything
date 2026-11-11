@@ -123,3 +123,29 @@ describe('Normalize', () => {
     expect(peak(both.state.channels[1])).toBeCloseTo(1, 4);
   });
 });
+
+describe('Stretch and Pitch on 5.1 files', () => {
+  it('stretches every channel instead of silencing the ones after the first two', async () => {
+    const rate = 48000;
+    const n = rate / 2;
+    const src = Array.from({ length: 6 }, (_, c) => sine(n, 300 + 100 * c, rate, 0.3));
+    const state = {
+      sampleRate: rate,
+      channels: src.map((a) => Channel.fromSamples(a)),
+      markers: [],
+    };
+    const def = getEffect('stretchPitch');
+    for (const algorithm of [0, 1, 2]) {
+      const values = { ...defaults(def), algorithm, stretch: 150 };
+      const { state: next, length } = await renderEffect({ def, values, state, start: 0, end: n });
+      expect(length).toBe(next.channels[0].length);
+      next.channels.forEach((c) => {
+        const out = c.toArray(0, length);
+        expect(out.length).toBe(length);
+        const mid = out.subarray(length / 4, (3 * length) / 4);
+        const rms = Math.sqrt(mid.reduce((s, v) => s + v * v, 0) / mid.length);
+        expect(rms).toBeGreaterThan(0.1);
+      });
+    }
+  });
+});

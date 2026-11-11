@@ -28,10 +28,32 @@ export const pitchRatio = (semitones = 0, cents = 0) => 2 ** ((semitones + cents
 
 /**
  * Runs an offline time/pitch job (fx/pitch/mod.rs tp_new) over whole
- * channels, streaming input in chunks so memory stays bounded.
+ * channels, streaming input in chunks so memory stays bounded. The processor
+ * takes one or two channels: wider files (5.1) run the first two as the
+ * stereo pair and every further channel on its own, all fitted to the pair's
+ * output length.
  * @returns {Promise<Float32Array[]>}
  */
-export async function runTimePitch(dsp, channels, rate, { mode, precision = 1, stretch = 1, pitch = 1, flags = 0, curve = null }, { onProgress, signal } = {}) {
+export async function runTimePitch(dsp, channels, rate, job, { onProgress, signal } = {}) {
+  if (channels.length <= 2) return timePitchJob(dsp, channels, rate, job, { onProgress, signal });
+  const groups = [channels.slice(0, 2), ...channels.slice(2).map((c) => [c])];
+  const out = [];
+  for (let k = 0; k < groups.length; k++) {
+    const progress = onProgress && ((f) => onProgress((k + f) / groups.length));
+    const part = await timePitchJob(dsp, groups[k], rate, job, { onProgress: progress, signal });
+    for (const c of part) {
+      if (!out.length || c.length === out[0].length) out.push(c);
+      else {
+        const fit = new Float32Array(out[0].length);
+        fit.set(c.subarray(0, fit.length));
+        out.push(fit);
+      }
+    }
+  }
+  return out;
+}
+
+async function timePitchJob(dsp, channels, rate, { mode, precision = 1, stretch = 1, pitch = 1, flags = 0, curve = null }, { onProgress, signal } = {}) {
   const x = dsp.x;
   const ch = Math.min(2, channels.length);
   const len = channels[0].length;
@@ -86,8 +108,7 @@ export async function runTimePitch(dsp, channels, rate, { mode, precision = 1, s
     }
     return a;
   });
-  // Mono files processed as mono; anything wider is not expected here.
-  return channels.length > ch ? [...out, ...channels.slice(ch).map(() => new Float32Array(outLen))] : out;
+  return out;
 }
 
 /** Points of a spline (eased) envelope, sampled densely so straight segments follow the curve the graph draws. */
