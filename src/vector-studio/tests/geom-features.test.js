@@ -306,6 +306,22 @@ describe('path commands', () => {
     expect(stroke.stroke).toBe(null);
   });
 
+  it('Outline Stroke keeps the dots of a dotted line (zero-length dashes with round caps)', async () => {
+    const p = createPath([anchor(0, 0), anchor(100, 0)], false, { fill: null, stroke: solid('#0000ff'), strokeWidth: 10, strokeCap: 'round', dash: [0, 20] });
+    const { doc, editor, app, layer } = setup([p]);
+    editor.select([p.id]);
+    await outlineStroke(app);
+    const dots = doc.get(doc.get(layer.id).children[0]);
+    expect(dots.type).toBe('compound');
+    expect(dots.fill.color).toBe('#0000ff');
+    const kids = dots.children.map((c) => doc.get(c));
+    expect(kids).toHaveLength(5);
+    for (const k of kids) expect(areaOf(k.anchors)).toBeCloseTo(Math.PI * 25, 0);
+    // Butt caps draw nothing for zero-length dashes; an all-zero pattern stays solid.
+    expect(strokeParams({ ...p, strokeCap: 'butt' }).slice(6)).toEqual([0, 20]);
+    expect(strokeParams({ ...p, dash: [0, 0] }).slice(6)).toEqual([0, 0]);
+  });
+
   it('Divide Objects Below cuts the objects under the selected path', async () => {
     const below = createPath(rectangle(0, 0, 100, 100), true, { fill: solid('#ff0000') });
     const cutter = createPath(rectangle(50, -10, 100, 120), true, { fill: solid('#000000') });
