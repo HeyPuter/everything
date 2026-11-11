@@ -248,6 +248,15 @@ export function createTimeline(ctx) {
     return y - TRACK_GAP + GAP_BOTTOM;
   }
 
+  /** Each row's track name: its own, or "Base track", "Text track 2"... */
+  function trackNames() {
+    const counts = {};
+    return rows.map(({ track }) => {
+      counts[track.kind] = (counts[track.kind] || 0) + 1;
+      return track.name || (track.main ? 'Base track' : `${TRACK_NAME[track.kind]} track ${counts[track.kind]}`);
+    });
+  }
+
   let headerSig = '';
   function renderHeaders(totalH) {
     const anySolo = store.project.tracks.some((t) => t.solo);
@@ -255,10 +264,9 @@ export function createTimeline(ctx) {
     headers.style.height = `${totalH}px`;
     if (sig === headerSig) return;
     headerSig = sig;
-    const counts = {};
-    headers.replaceChildren(...rows.map(({ track, y, h: hgt }) => {
-      counts[track.kind] = (counts[track.kind] || 0) + 1;
-      const name = track.name || (track.main ? 'Base track' : `${TRACK_NAME[track.kind]} track ${counts[track.kind]}`);
+    const names = trackNames();
+    headers.replaceChildren(...rows.map(({ track, y, h: hgt }, i) => {
+      const name = names[i];
       track._label = name;
       const btn = (prop, on, off, labelOn, labelOff) => {
         const b = h('button.icon-btn.small', { type: 'button', 'aria-pressed': String(Boolean(track[prop])), 'aria-label': `${track[prop] ? labelOff : labelOn} ${name}`, 'data-tip': track[prop] ? labelOff : labelOn }, icon(track[prop] ? on : off, 14));
@@ -390,19 +398,18 @@ export function createTimeline(ctx) {
     // Track rows (lanes).
     let lanes = tracksEl.querySelectorAll(':scope > .tl-lane');
     if (lanes.length !== rows.length || force || [...lanes].some((l, i) => l.dataset.track !== rows[i].track.id)) {
-      const counts = {};
-      tracksEl.replaceChildren(...rows.map(({ track, y, h: hgt }) => {
-        counts[track.kind] = (counts[track.kind] || 0) + 1;
-        const name = track.main ? 'Base track' : `${TRACK_NAME[track.kind]} track ${counts[track.kind]}`;
-        return h(`div.tl-lane.kind-${track.kind}${track.main ? '.main' : ''}`, { role: 'listbox', 'aria-label': name, 'aria-multiselectable': 'true', 'aria-orientation': 'horizontal', 'data-track': track.id, style: { top: `${y}px`, height: `${hgt}px` } });
-      }));
+      tracksEl.replaceChildren(...rows.map(({ track, y, h: hgt }) => h(`div.tl-lane.kind-${track.kind}${track.main ? '.main' : ''}`, { role: 'listbox', 'aria-multiselectable': 'true', 'aria-orientation': 'horizontal', 'data-track': track.id, style: { top: `${y}px`, height: `${hgt}px` } })));
       lanes = tracksEl.querySelectorAll(':scope > .tl-lane');
       clipEls.forEach((v) => v.node.remove());
     }
+    const names = trackNames();
     rows.forEach((row, i) => {
       const lane = lanes[i];
       lane.style.top = `${row.y}px`;
       lane.style.height = `${row.h}px`;
+      // The same name as its header, a renamed track's own included.
+      const name = names[i];
+      if (lane.getAttribute('aria-label') !== name) lane.setAttribute('aria-label', name);
       lane.classList.toggle('locked', row.track.locked);
       lane.classList.toggle('hidden-track', row.track.hidden);
       for (const clip of row.track.clips) {

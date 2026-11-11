@@ -195,6 +195,22 @@ describe('timeline on phones', () => {
   });
 });
 
+describe('timeline lanes', () => {
+  it('are named like their track headers, renamed tracks included', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 2));
+    T.addClip(p, clip('text', 0, 1), { ripple: false });
+    const { store, tl } = mountTimeline(p);
+    const lanes = () => [...tl.el.querySelectorAll('.tl-lane')].map((l) => l.getAttribute('aria-label'));
+    expect(lanes()).toEqual(['Text track 1', 'Base track']);
+    store.update('Rename track', (pp) => T.renameTrack(pp, pp.tracks[0].id, 'Titles'), { structural: false });
+    tl.render();
+    expect(lanes()).toEqual(['Titles', 'Base track']);
+    expect(tl.el.querySelector('.tl-header').getAttribute('aria-label')).toBe('Titles');
+    tl.dispose();
+  });
+});
+
 describe('timeline drops', () => {
   it('undoes media dropped above the tracks without leaving its new track behind', () => {
     const p = fixture();
