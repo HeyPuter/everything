@@ -6,7 +6,7 @@
  */
 import { shapePathOf, tracePath } from './draw.js';
 import { hasIn, hasOut } from '../model/bezier.js';
-import { nodeBounds, localCorners, frameToDoc } from '../model/geometry.js';
+import { nodeBounds, localCorners, frameToDoc, rectsIntersect } from '../model/geometry.js';
 import { layoutText } from '../model/text-layout.js';
 import { multiply } from '../lib/matrix.js';
 import { liveDef } from '../model/live.js';
@@ -425,11 +425,19 @@ export function drawOverlay(ctx, editor, colors) {
   // thousands of objects stays a handful of draw calls.
   if (editor.viewOptions.edges && !editor.textEdit && !editor.dragPreview) {
     const batch = new OverlayBatch();
+    // Selected objects off screen add nothing (anchor squares reach a few pixels past their points;
+    // in direct mode handles reach out to their control points).
+    const visible = editor.view.visibleRect(ANCHOR_SIZE + HANDLE_RADIUS);
+    const onScreen = (n) => {
+      const b = mode === 'direct' ? hullBounds(doc, n) : nodeBounds(doc, n);
+      return !b || rectsIntersect(b, visible);
+    };
     for (const id of editor.selection) {
       const node = doc.get(id);
-      if (!node || doc.isHidden(id)) continue;
+      if (!node || !onScreen(node) || doc.isHidden(id)) continue;
       const color = layerColor(editor, id);
       for (const leaf of highlightLeaves(doc, node)) {
+        if (!onScreen(leaf)) continue;
         if (leaf.type === 'path' || leaf.type === 'compound') {
           const p = shapePathOf(doc, leaf);
           if (p) batch.outline(p, color);
@@ -450,7 +458,7 @@ export function drawOverlay(ctx, editor, colors) {
     for (const id of editor.anchors.keys()) {
       if (editor.selection.has(id)) continue;
       const n = doc.get(id);
-      if (n) drawPathAnchors(ctx, editor, n, layerColor(editor, id), mode, batch);
+      if (n && onScreen(n)) drawPathAnchors(ctx, editor, n, layerColor(editor, id), mode, batch);
     }
     batch.flushOutlines(ctx, editor.view);
     batch.flushAnchors(ctx);
@@ -481,6 +489,33 @@ export function drawOverlay(ctx, editor, colors) {
   drawAlignmentGuides(ctx, editor, colors);
   tool?.drawOverlay?.(ctx, editor, colors);
   drawFeedback(ctx, editor);
+}
+
+const hullCache = new WeakMap();
+
+/** Bounds of a path's or compound's anchors and control points (other objects: their bounds). */
+function hullBounds(doc, node) {
+  if (node.type !== 'path' && node.type !== 'compound') return nodeBounds(doc, node);
+  let b = hullCache.get(node);
+  if (b !== undefined) return b;
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  const add = (anchors) => {
+    for (const a of anchors || []) {
+      x0 = Math.min(x0, a.x, a.ix ?? a.x, a.ox ?? a.x);
+      y0 = Math.min(y0, a.y, a.iy ?? a.y, a.oy ?? a.y);
+      x1 = Math.max(x1, a.x, a.ix ?? a.x, a.ox ?? a.x);
+      y1 = Math.max(y1, a.y, a.iy ?? a.y, a.oy ?? a.y);
+    }
+  };
+  if (node.type === 'path') add(node.anchors);
+  else for (const c of node.children) add(doc.get(c)?.anchors);
+  b = Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+  // Compounds change with their children: only paths (immutable on their own) are cached.
+  if (node.type === 'path') hullCache.set(node, b);
+  return b;
 }
 
 function anchorOfText(node) {
