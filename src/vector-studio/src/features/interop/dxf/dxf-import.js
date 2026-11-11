@@ -903,8 +903,9 @@ function meshEdges(e, flags) {
       }
     }
   } else {
-    const M = Math.max(1, gn(e, 71, 0));
-    const N = Math.max(1, gn(e, 72, 0));
+    // The vertex counts come from the header: rows past the vertices the file has are empty.
+    const N = Math.min(Math.max(1, gn(e, 72, 0)), Math.max(1, verts.length));
+    const M = Math.min(Math.max(1, gn(e, 71, 0)), Math.ceil(verts.length / N) || 1);
     const at = (i, j) => verts[i * N + j];
     for (let i = 0; i < M; i++) {
       for (let j = 0; j < N; j++) {

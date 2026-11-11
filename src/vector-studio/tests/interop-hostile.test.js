@@ -119,5 +119,15 @@ describe('DXF files with extreme values', () => {
     expect(path.anchors[0]).toMatchObject({ x: 0, y: 0 });
     expect(path.anchors[n - 3]).toMatchObject({ x: n - 1, y: -((n - 1) % 7) || 0 });
   });
+
+  it('polygon meshes whose header counts more vertices than the file has draw what is there', async () => {
+    const v = (x, y) => ent('VERTEX', [[8, '0'], [10, x], [20, y], [70, 64]]);
+    const text = dxf([['ENTITIES', [ent('POLYLINE', [[8, '0'], [66, 1], [70, 16], [71, 1e9], [72, 1e9]]), v(0, 0), v(10, 0), v(0, 10), '0\nSEQEND'].join('\n')]]);
+    // Read as one row of three vertices: two edges.
+    expect(paths(await convert(text))).toHaveLength(2);
+    const huge = dxf([['ENTITIES', [ent('POLYLINE', [[8, '0'], [66, 1], [70, 16], [71, 1e9], [72, 2]]), v(0, 0), v(10, 0), v(0, 10), v(10, 10), v(0, 20), v(10, 20), '0\nSEQEND'].join('\n')]]);
+    // Three rows of two, as the vertices allow: 3 + 4 edges.
+    expect(paths(await convert(huge))).toHaveLength(7);
+  });
 });
 
