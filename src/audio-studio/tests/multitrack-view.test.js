@@ -350,6 +350,10 @@ describe('session properties', () => {
     loop.dispatchEvent(new Event('change'));
     expect(S.findClip(doc.state, clip.id).loop).toBe(true);
     expect(el.textContent).toContain('Stretch');
+    expect([...el.querySelectorAll('.prop-row')].find((r) => r.textContent.startsWith('Stretch')).textContent).toBe('StretchOff');
+    doc.apply('Stretch', S.updateClips(doc.state, [clip.id], { stretch: { mode: 'rendered', ratio: 1.25, semitones: -3, formants: false, sourceId: clip.sourceId } }));
+    const stretched = sessionPropertySection(app, doc);
+    expect([...stretched.querySelectorAll('.prop-row')].find((r) => r.textContent.startsWith('Stretch')).textContent).toBe('StretchRendered, 125% -3 st');
     const name = el.querySelector('input[aria-label="Track name"]');
     name.value = 'Lead';
     name.dispatchEvent(new Event('change'));

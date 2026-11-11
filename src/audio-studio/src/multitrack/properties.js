@@ -8,6 +8,7 @@ import { parseTime } from '../lib/time.js';
 import { formatGain } from './levels.js';
 import { METRONOME_SOUNDS, DEFAULT_METRONOME_SOUND } from './metronome-sounds.js';
 import { TIME_FORMATS } from '../lib/time.js';
+import { stretchOf, stretchActive } from '../model/clip-stretch.js';
 
 const COLOR_NAMES = ['Green', 'Blue', 'Amber', 'Red', 'Violet', 'Cyan', 'Pink', 'Lime', 'Orange', 'Indigo', 'Olive', 'Slate'];
 const CURVES = [
@@ -20,6 +21,14 @@ function curveValue(c) {
   if (c === 2) return '2';
   if (c === 0) return '0';
   return c > 0 ? '0.5' : 'custom';
+}
+
+/** A clip's stretch as shown in the Properties panel: "Realtime, 125% +2 st" or "Off". */
+function stretchText(c) {
+  const st = stretchOf(c);
+  if (!stretchActive(st)) return 'Off';
+  const pitch = st.semitones ? ` ${st.semitones > 0 ? '+' : ''}${st.semitones} st` : '';
+  return `${st.mode === 'rendered' ? 'Rendered' : 'Realtime'}, ${Math.round(st.ratio * 1000) / 10}%${pitch}`;
 }
 
 export function sessionPropertySection(app, doc) {
@@ -91,7 +100,7 @@ export function sessionPropertySection(app, doc) {
         row('Fade Out', fout, foutId),
         row('Fade Out Shape', foutCurve, foutCurveId),
         row('Crossfade', xf, xfId),
-        text('Stretch', 'Off'),
+        text('Stretch', stretchText(c)),
         text('Remix', c.remix?.segments?.length ? `${c.remix.segments.length} segment${c.remix.segments.length === 1 ? '' : 's'}, target ${fmt(c.remix.target)}` : 'Off'),
         h('div.prop-checks', check('Loop', c.loop, (v) => set(v ? 'Loop Clip' : 'Unloop Clip', { loop: v })), check('Lock in Time', c.locked, (v) => set(v ? 'Lock Clip' : 'Unlock Clip', { locked: v })), check('Mute', c.mute, (v) => set(v ? 'Mute Clip' : 'Unmute Clip', { mute: v }))),
       ),
