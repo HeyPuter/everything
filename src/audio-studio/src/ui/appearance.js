@@ -127,9 +127,11 @@ export function appearanceVars(prefs, theme = resolvedTheme(), base = () => '') 
       '--cti': b,
     });
     // White text sits on these fills: dark-theme accents are deepened to keep it readable.
-    const fill = theme === 'light' ? b : fillForWhiteText(b);
+    // In the light theme only accents below 4.5:1 change; the others keep their own colors.
+    const keep = theme === 'light' && whiteContrast(b) >= 4.5;
+    const fill = keep ? b : fillForWhiteText(b);
     vars['--accent-fill'] = fill;
-    vars['--accent-fill-hover'] = theme === 'light' ? strong : mixColors(fill, '#000000', 0.1);
+    vars['--accent-fill-hover'] = keep ? strong : mixColors(fill, '#000000', 0.1);
   }
   const bright = brightnessOf(prefs);
   if (bright) {

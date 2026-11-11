@@ -20,14 +20,26 @@ describe('accent fills', () => {
     );
   });
 
-  it('deepens every other accent in the dark theme and keeps light-theme fills as the accent', () => {
+  it('keeps white text at 4.5:1 on every accent fill in both themes', () => {
     for (const a of ACCENTS.filter((x) => x.id !== 'blue')) {
-      const dark = appearanceVars(prefs({ accentColor: a.id }), 'dark');
-      expect(dark['--accent']).toBe(a.dark);
-      expect(whiteContrast(dark['--accent-fill'])).toBeGreaterThanOrEqual(4.5);
-      expect(whiteContrast(dark['--accent-fill-hover'])).toBeGreaterThanOrEqual(4.5);
+      for (const theme of ['dark', 'light']) {
+        const vars = appearanceVars(prefs({ accentColor: a.id }), theme);
+        expect(vars['--accent']).toBe(a[theme]);
+        expect(whiteContrast(vars['--accent-fill'])).toBeGreaterThanOrEqual(4.5);
+        expect(whiteContrast(vars['--accent-fill-hover'])).toBeGreaterThanOrEqual(4.5);
+      }
+      // Light-theme accents that already pass keep their own fill and hover colors.
       const light = appearanceVars(prefs({ accentColor: a.id }), 'light');
-      expect(light['--accent-fill']).toBe(a.light);
+      if (whiteContrast(a.light) >= 4.5) {
+        expect(light['--accent-fill']).toBe(a.light);
+        expect(light['--accent-fill-hover']).toBe(light['--accent-strong']);
+      } else expect(light['--accent-fill']).not.toBe(a.light);
     }
+    // The default (blue) light theme fills with the accent tokens themselves.
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/tokens.css`, 'utf8');
+    const light = css.slice(css.indexOf(":root[data-theme-resolved='light']"));
+    const token = (name) => light.match(new RegExp(`${name}: (#[0-9a-f]{6});`))[1];
+    expect(whiteContrast(token('--accent'))).toBeGreaterThanOrEqual(4.5);
+    expect(whiteContrast(token('--accent-strong'))).toBeGreaterThanOrEqual(4.5);
   });
 });
