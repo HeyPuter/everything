@@ -149,11 +149,55 @@ export class MeshSampler {
   }
 
   /** Ray parity inside test along +X. */
-  inside(x: number, y: number, z: number): boolean {
+  /** triangles bucketed by their extent in the YZ plane, so inside() only tests those under a point */
+  private yz: { y0: number; z0: number; cs: number; g: number; start: Uint32Array; items: Uint32Array } | null = null;
+
+  private yzBuckets() {
+    if (this.yz) return this.yz;
     const P = this.mesh.positions,
       T = this.tris;
+    const nt = T.length / 3;
+    const y0 = this.min[1],
+      z0 = this.min[2];
+    const g = Math.max(1, Math.min(256, Math.ceil(Math.sqrt(nt / 2))));
+    const cs = Math.max(this.max[1] - y0, this.max[2] - z0, 1e-12) / g;
+    const cell = (v: number, o: number) => Math.max(0, Math.min(g - 1, Math.floor((v - o) / cs)));
+    const range = (t: number) => {
+      const a = T[t * 3] * 3,
+        b = T[t * 3 + 1] * 3,
+        c = T[t * 3 + 2] * 3;
+      return [
+        cell(Math.min(P[a + 1], P[b + 1], P[c + 1]), y0),
+        cell(Math.max(P[a + 1], P[b + 1], P[c + 1]), y0),
+        cell(Math.min(P[a + 2], P[b + 2], P[c + 2]), z0),
+        cell(Math.max(P[a + 2], P[b + 2], P[c + 2]), z0),
+      ];
+    };
+    const start = new Uint32Array(g * g + 1);
+    for (let t = 0; t < nt; t++) {
+      const [ya, yb, za, zb] = range(t);
+      for (let iz = za; iz <= zb; iz++) for (let iy = ya; iy <= yb; iy++) start[iz * g + iy + 1]++;
+    }
+    for (let i = 0; i < g * g; i++) start[i + 1] += start[i];
+    const items = new Uint32Array(start[g * g]);
+    const fill = start.slice(0, g * g);
+    for (let t = 0; t < nt; t++) {
+      const [ya, yb, za, zb] = range(t);
+      for (let iz = za; iz <= zb; iz++) for (let iy = ya; iy <= yb; iy++) items[fill[iz * g + iy]++] = t * 3;
+    }
+    return (this.yz = { y0, z0, cs, g, start, items });
+  }
+
+  inside(x: number, y: number, z: number): boolean {
+    // a ray along +x can only cross triangles whose YZ extent holds the point (none outside the bounds)
+    if (!(y >= this.min[1] && y <= this.max[1] && z >= this.min[2] && z <= this.max[2])) return false;
+    const P = this.mesh.positions,
+      T = this.tris;
+    const B = this.yzBuckets();
+    const bucket = Math.max(0, Math.min(B.g - 1, Math.floor((z - B.z0) / B.cs))) * B.g + Math.max(0, Math.min(B.g - 1, Math.floor((y - B.y0) / B.cs)));
     let crossings = 0;
-    for (let t = 0; t < T.length; t += 3) {
+    for (let q = B.start[bucket]; q < B.start[bucket + 1]; q++) {
+      const t = B.items[q];
       const a = T[t] * 3,
         b = T[t + 1] * 3,
         c = T[t + 2] * 3;
@@ -398,19 +442,19 @@ function gridSamples(sampler: MeshSampler, s: DistributionSettings, seed: number
   const P = sampler.mesh.positions;
   const T = sampler.tris;
   const w = [0, 0, 0];
-  for (let k = 0; k < nz; k++)
-    for (let j = 0; j < ny; j++)
-      for (let i = 0; i < nx; i++) {
-        // hexagonal grids shift every other row by half a cell
-        const hx = s.hexagonal_grid && (j + k) % 2 ? d / 2 : 0;
-        const x = mn[0] + i * d + hx,
-          y = mn[1] + j * d,
-          z = mn[2] + k * d;
-        const id = i + j * nx + k * nx * ny;
-        const jx = (rand01(seed, id, 31) - 0.5) * d * rnd,
-          jy = (rand01(seed, id, 32) - 0.5) * d * rnd,
-          jz = (rand01(seed, id, 33) - 0.5) * d * rnd;
-        if (from === 'VOLUME') {
+  if (from === 'VOLUME') {
+    for (let k = 0; k < nz; k++)
+      for (let j = 0; j < ny; j++)
+        for (let i = 0; i < nx; i++) {
+          // hexagonal grids shift every other row by half a cell
+          const hx = s.hexagonal_grid && (j + k) % 2 ? d / 2 : 0;
+          const x = mn[0] + i * d + hx,
+            y = mn[1] + j * d,
+            z = mn[2] + k * d;
+          const id = i + j * nx + k * nx * ny;
+          const jx = (rand01(seed, id, 31) - 0.5) * d * rnd,
+            jy = (rand01(seed, id, 32) - 0.5) * d * rnd,
+            jz = (rand01(seed, id, 33) - 0.5) * d * rnd;
           const inside = sampler.inside(x + jx, y + jy, z + jz);
           if (inside === !!s.invert_grid) continue;
           const sm = newSample();
@@ -418,34 +462,60 @@ function gridSamples(sampler: MeshSampler, s: DistributionSettings, seed: number
           sm.py = y + jy;
           sm.pz = z + jz;
           out.push(sm);
-          continue;
         }
-        // faces: the closest surface point when it is within half a cell
-        let best = Infinity,
-          bt = -1,
-          bu = 0,
-          bv = 0;
-        for (let t = 0; t < T.length; t += 3) {
-          closestBary(P, T[t] * 3, T[t + 1] * 3, T[t + 2] * 3, x, y, z, w);
-          const qx = P[T[t] * 3] * w[0] + P[T[t + 1] * 3] * w[1] + P[T[t + 2] * 3] * w[2],
-            qy = P[T[t] * 3 + 1] * w[0] + P[T[t + 1] * 3 + 1] * w[1] + P[T[t + 2] * 3 + 1] * w[2],
-            qz = P[T[t] * 3 + 2] * w[0] + P[T[t + 1] * 3 + 2] * w[1] + P[T[t + 2] * 3 + 2] * w[2];
+    return out;
+  }
+  // faces: each grid point takes the closest surface point when it is within half a cell. Only the
+  // grid points near a triangle can be within half a cell of it, so each triangle visits those
+  // (testing every triangle for every grid point took minutes on dense meshes).
+  const near = new Map<number, { dd: number; t: number; u: number; v: number }>();
+  const reach = d * 0.5 * 1.001 + 1e-9;
+  const cl = (v: number, n: number) => Math.max(0, Math.min(n - 1, v));
+  for (let t = 0; t < T.length; t += 3) {
+    const a = T[t] * 3,
+      b = T[t + 1] * 3,
+      c = T[t + 2] * 3;
+    const lo = [0, 1, 2].map((q) => Math.min(P[a + q], P[b + q], P[c + q]) - reach),
+      hi = [0, 1, 2].map((q) => Math.max(P[a + q], P[b + q], P[c + q]) + reach);
+    const k0 = cl(Math.ceil((lo[2] - mn[2]) / d), nz),
+      k1 = cl(Math.floor((hi[2] - mn[2]) / d), nz),
+      j0 = cl(Math.ceil((lo[1] - mn[1]) / d), ny),
+      j1 = cl(Math.floor((hi[1] - mn[1]) / d), ny);
+    for (let k = k0; k <= k1; k++)
+      for (let j = j0; j <= j1; j++) {
+        const hx = s.hexagonal_grid && (j + k) % 2 ? d / 2 : 0;
+        const i0 = cl(Math.ceil((lo[0] - mn[0] - hx) / d), nx),
+          i1 = cl(Math.floor((hi[0] - mn[0] - hx) / d), nx);
+        for (let i = i0; i <= i1; i++) {
+          const x = mn[0] + i * d + hx,
+            y = mn[1] + j * d,
+            z = mn[2] + k * d;
+          closestBary(P, a, b, c, x, y, z, w);
+          const qx = P[a] * w[0] + P[b] * w[1] + P[c] * w[2],
+            qy = P[a + 1] * w[0] + P[b + 1] * w[1] + P[c + 1] * w[2],
+            qz = P[a + 2] * w[0] + P[b + 2] * w[1] + P[c + 2] * w[2];
           const dd = (qx - x) ** 2 + (qy - y) ** 2 + (qz - z) ** 2;
-          if (dd < best) {
-            best = dd;
-            bt = t / 3;
-            bu = w[1];
-            bv = w[2];
-          }
+          const id = i + j * nx + k * nx * ny;
+          const cur = near.get(id);
+          if (!cur) near.set(id, { dd, t: t / 3, u: w[1], v: w[2] });
+          else if (dd < cur.dd) Object.assign(cur, { dd, t: t / 3, u: w[1], v: w[2] });
         }
-        if (bt < 0 || Math.sqrt(best) > d * 0.5) continue;
-        const sm = newSample();
-        sampler.evalTri(bt, bu, bv, sm);
-        sm.px += jx;
-        sm.py += jy;
-        sm.pz += jz;
-        out.push(sm);
       }
+  }
+  // grid order, as before
+  for (const id of [...near.keys()].sort((p, q) => p - q)) {
+    const hit = near.get(id)!;
+    if (Math.sqrt(hit.dd) > d * 0.5) continue;
+    const jx = (rand01(seed, id, 31) - 0.5) * d * rnd,
+      jy = (rand01(seed, id, 32) - 0.5) * d * rnd,
+      jz = (rand01(seed, id, 33) - 0.5) * d * rnd;
+    const sm = newSample();
+    sampler.evalTri(hit.t, hit.u, hit.v, sm);
+    sm.px += jx;
+    sm.py += jy;
+    sm.pz += jz;
+    out.push(sm);
+  }
   return out;
 }
 
