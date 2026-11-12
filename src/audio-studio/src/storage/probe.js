@@ -37,7 +37,10 @@ export function probeAudio(head, size, tail = null) {
       if (cid === 'fmt ' && o + 24 <= head.length) fmt = { channels: dv.getUint16(o + 10, true), sampleRate: dv.getUint32(o + 12, true), blockAlign: dv.getUint16(o + 20, true), bits: dv.getUint16(o + 22, true) };
       if (cid === 'data') {
         if (!fmt) break;
-        const bytes = csize === 0xffffffff && ds64 != null ? ds64 : Math.min(csize, size - o - 8);
+        let bytes = csize === 0xffffffff && ds64 != null ? ds64 : Math.min(csize, size - o - 8);
+        // A recording cut off before its header was finished: size 0 with the audio running
+        // to the end of the file (as parseWav reads it), unless another chunk follows.
+        if (csize === 0 && !/^[\x20-\x7e]{4}$/.test(str(head, o + 8, 4))) bytes = size - o - 8;
         return { format: 'WAV', sampleRate: fmt.sampleRate, channels: fmt.channels, bitDepth: fmt.bits, duration: bytes / (fmt.blockAlign || 1) / fmt.sampleRate };
       }
       o += 8 + csize + (csize & 1);

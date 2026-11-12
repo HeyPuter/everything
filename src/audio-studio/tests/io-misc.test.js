@@ -146,6 +146,18 @@ describe('file probing and decoding', () => {
     w.write([tone(22050), tone(22050)], 22050);
     return new Uint8Array(await w.finish().arrayBuffer());
   }
+  it('reads the duration of a WAV recording whose data size was never written', async () => {
+    const wav = await bytesOf(WavWriter, { meta: {} });
+    const dataAt = 36;
+    expect(String.fromCharCode(...wav.subarray(dataAt, dataAt + 4))).toBe('data');
+    new DataView(wav.buffer).setUint32(dataAt + 4, 0, true);
+    expect(probeAudio(wav.subarray(0, 4096), wav.length).duration).toBe(1);
+    // A genuinely empty data chunk followed by another chunk stays empty.
+    const markers = [{ start: 0, name: 'A' }];
+    const w = new WavWriter({ sampleRate: 22050, channels: 2, frames: 0, markers });
+    const empty = new Uint8Array(await w.finish().arrayBuffer());
+    expect(probeAudio(empty, empty.length).duration).toBe(0);
+  });
   it('reads durations from WAV, AIFF, MP3 and Ogg headers', async () => {
     const wav = await bytesOf(WavWriter);
     expect(probeAudio(wav.subarray(0, 4096), wav.length)).toMatchObject({ format: 'WAV', sampleRate: 22050, channels: 2, bitDepth: 16, duration: 1 });
