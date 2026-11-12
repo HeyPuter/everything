@@ -31,6 +31,10 @@ export class CollabManager extends Emitter {
     this.deployServer = deployServer;
     this.sessions = new Map(); // editor -> session
     this.membersCache = new Map(); // session -> { at, data }
+    // A new window on a shared document works with its session too (comments, Save, roles).
+    app.on('active-editor', (editor) => {
+      if (editor && !editor.collab) editor.collab = this.sessionOf(editor);
+    });
     app.on('closed', (editor) => {
       // Another window still shows the document: it keeps the session.
       const other = this.sessions.has(editor) && app.editors.find((e) => e.doc === editor.doc);
@@ -62,8 +66,13 @@ export class CollabManager extends Emitter {
     return { call: (input) => call(this.puter, server, input) };
   }
 
+  /** The session of a shared document, from any window showing it. */
   sessionOf(editor) {
-    return (editor && this.sessions.get(editor)) || null;
+    if (!editor) return null;
+    const own = this.sessions.get(editor);
+    if (own) return own;
+    for (const [e, s] of this.sessions) if (e.doc === editor.doc) return s;
+    return null;
   }
 
   // ---- sharing ----
@@ -172,7 +181,7 @@ export class CollabManager extends Emitter {
     this.sessions.delete(editor);
     for (const off of session.offs || []) off();
     session.close({ leave });
-    editor.collab = null;
+    for (const e of [editor, ...this.app.editors.filter((x) => x.doc === editor.doc)]) e.collab = null;
     editor.collabFollow = null;
     editor.doc.readOnly = false;
     this.emit('change', editor);

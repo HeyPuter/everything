@@ -293,4 +293,33 @@ describe('a shared document shown in two windows', () => {
     expect(owner.doc.get('fromSecond')).toBeTruthy();
     session.close();
   });
+
+  it('saves and comments in the second window as in the first, instead of treating it as a personal file', async () => {
+    const { bootAppWithFeatures } = await import('./helpers.js');
+    const { network, shareNew, settle, alice, bob, SERVER } = await import('./collab-helpers.js');
+    const { memoryOutbox } = await import('../src/features/collab/outbox.js');
+    const net = network();
+    const { room, client: owner } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    const app = await bootAppWithFeatures({ user: bob });
+    app.collab.transportFor = () => net.transport(bob);
+    app.collab.deployServer = async () => SERVER;
+    app.collab.outbox = memoryOutbox();
+    app.collab.sessionOptions = { timers: false };
+    const first = await app.collab.open({ server: SERVER, room, invite: token });
+    const session = app.collab.sessionOf(first);
+    await app.commands.run('window.newWindow');
+    const second = app.editor;
+    expect(app.collab.sessionOf(second)).toBe(session);
+    expect(second.collab).toBe(session);
+    // Save sends what is pending (no Save As dialog for a personal copy).
+    expect(await app.commands.run('file.save', { editor: second })).toBe(true);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(second.file.kind).toBe('shared');
+    // A comment made there reaches the others.
+    app.comments.addThread('Hello from the second window', { x: 10, y: 10 });
+    await settle({ session }, owner);
+    expect(JSON.stringify(owner.doc.comments)).toContain('Hello from the second window');
+    session.close();
+  });
 });
