@@ -112,7 +112,7 @@ export function isSimilarity(m: Mat3, eps = 1e-9) {
   return Math.abs(Math.abs(a) - Math.abs(d)) < eps && Math.abs(Math.abs(b) - Math.abs(c)) < eps && Math.abs(a * b + c * d) < eps;
 }
 
-type Prepared = { video?: boolean; pixels?: TileGrid; live?: { source: TileGrid; mask?: TileGrid }; mask?: TileGrid; legacyMask?: boolean; toPixel?: boolean; transform?: boolean; fitCanvas?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } };
+type Prepared = { keepVectorMask?: boolean; video?: boolean; pixels?: TileGrid; live?: { source: TileGrid; mask?: TileGrid }; mask?: TileGrid; legacyMask?: boolean; toPixel?: boolean; transform?: boolean; fitCanvas?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } };
 /** Precompute new pixels for every leaf layer under a document matrix.
  * Pixel layers and their masks are rearranged or resampled; embedded objects
  * keep their transform for rotations and take a frame for mirror images
@@ -128,8 +128,10 @@ export async function prepareLayers(e: Editor, leaves: Layer[], m: Mat3, docAfte
   const skipped: string[] = [];
   for (const l of leaves) {
     const p: Prepared = {};
-    // Imported masks (PSD pixel masks) become mask grids that turn with the layer.
-    const mask = l.maskGrid ?? (hasMask(l) ? await legacyMaskToGrid(e, l) : undefined);
+    // Imported masks (PSD pixel masks) become mask grids that turn with the
+    // layer. Unlinked masks stay where they are when only layers turn.
+    const mask = !canvasOp && l.maskUnlinked ? undefined : (l.maskGrid ?? (hasMask(l) ? await legacyMaskToGrid(e, l) : undefined));
+    if (!canvasOp && l.vectorMask?.unlinked) p.keepVectorMask = true;
     if (mask) p.mask = transformMaskGrid(store, mask, m, method, docAfter);
     if (mask && !l.maskGrid) p.legacyMask = true;
     if (l.kind === 'pixel') {
@@ -176,7 +178,7 @@ export function applyPrepared(d: PhotoDocument, prepared: Map<string, Prepared>,
     if (p.frame) setFrame(d, l, p.frame.quad, p.frame.mesh, assets);
     if (p.toPixel) toPixelLayer(l, undefined);
     // Vector mask geometry follows its rasterized mask.
-    if (l.vectorMask) mapMaskPoints(l.vectorMask.mask, (x, y) => {
+    if (l.vectorMask && !p.keepVectorMask) mapMaskPoints(l.vectorMask.mask, (x, y) => {
       const q = applyMat3(m, x, y);
       return [q.x, q.y];
     });
