@@ -19,6 +19,7 @@ import {
 } from '../../model/preferences';
 import { colorSettings, saveColorSettings, type ColorSettings } from '../color/profiles';
 import { memorySection } from '../workspace/system-info';
+import { keepFocus } from '../../ui/keep-focus';
 
 let lastPage: PageId = 'general';
 const RESTART_NOTE = 'Reload Photo Studio for this change to take effect.';
@@ -59,7 +60,8 @@ export function openPreferences(e: Editor, page?: PageId) {
     (e.preferences as Record<string, unknown>)[key] = v;
     if (def.restart && v !== (before as Record<string, unknown>)[key]) restartNeeded = true;
     changed();
-    render();
+    // The page redraws; the control just changed from the keyboard keeps the focus.
+    keepFocus(content, render);
   };
 
   function control(s: SettingDef): string {

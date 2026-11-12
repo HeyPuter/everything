@@ -212,3 +212,19 @@ test('the keyboard can move through the shortcut editor, record a shortcut and c
   await expect(dialog).toBeHidden();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('photo-studio-shortcuts') ?? '{}')['edit.undo'])).toBe('Alt+Shift+U');
 });
+
+test('a preference changed from the keyboard keeps the focus', async ({ page }) => {
+  await start(page, 'edit.preferences');
+  const dialog = page.getByRole('dialog', { name: 'Preferences' });
+  const toggle = dialog.locator('#pref-general-animatedZoom');
+  const was = await toggle.isChecked();
+  await toggle.focus();
+  await page.keyboard.press('Space');
+  await expect(dialog.locator('#pref-general-animatedZoom')).toBeFocused();
+  expect(await dialog.locator('#pref-general-animatedZoom').isChecked()).toBe(!was);
+  // Tab carries on to the next setting rather than the top of the window.
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('.prefs-content'))).toBe(true);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toBeHidden();
+});
