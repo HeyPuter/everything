@@ -142,6 +142,8 @@ async function channelOptions(e: Editor, id: string) {
     syncMultichannel(e.assets.tiles, d);
   });
 }
+/** The current layer has content whose transparency can be loaded. */
+const hasTransparency = (e: Editor) => !!e.layer && e.layer.kind !== 'group' && e.layer.kind !== 'adjustment';
 async function loadChannel(e: Editor, id: string, op: ReturnType<typeof selectionOp>) {
   const doc = e.doc;
   const area = canvasRect(doc);
@@ -316,11 +318,11 @@ export function installView(e: Editor) {
     {
       id: 'select.load',
       label: 'Load Selection…',
-      enabled: (e) => !!e.doc.channels?.length || e.selectedIds.size > 0,
+      enabled: (e) => !!e.doc.channels?.length || hasTransparency(e),
       run: async (e) => {
         const options: [string, string][] = [
           ...(e.doc.channels ?? []).map((c) => [c.id, c.name] as [string, string]),
-          ...(e.layer?.kind === 'pixel' ? [[`layer:${e.layer.id}`, `${e.layer.name} Transparency`] as [string, string]] : []),
+          ...(hasTransparency(e) ? [[`layer:${e.layer!.id}`, `${e.layer!.name} Transparency`] as [string, string]] : []),
         ];
         if (!options.length) return;
         const v = await formDialog('Load Selection', [
@@ -333,7 +335,8 @@ export function installView(e: Editor) {
         let m;
         if (v.channel.startsWith('layer:')) {
           const l = findLayer(e.doc.layers, v.channel.slice(6))!;
-          const img = readRGBA(e.assets.tiles, l.pixels!, area);
+          // Type, shapes, fills and embedded images are rendered first.
+          const img = l.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, area) : await (await import('./pixels')).layerRGBA(e, l);
           m = { width: area.width, height: area.height, data: new Uint8Array(area.width * area.height).map((_, i) => img.data[i * 4 + 3]) };
         } else m = readMask(e.assets.tiles, e.doc.channels!.find((c) => c.id === v.channel)!.grid, area);
         if (v.invert === 'yes') for (let i = 0; i < m.data.length; i++) m.data[i] = 255 - m.data[i];
