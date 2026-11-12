@@ -405,8 +405,11 @@ describe('automation writing', () => {
     const lane = S.findTrack(doc.state, id).automation.volume;
     expect(doc.history.entries.length).toBe(steps + 1);
     expect(doc.history.undoLabel).toBe('Write Automation');
-    expect(lane[0]).toEqual({ t: 1000, v: -3 });
-    expect(lane[lane.length - 1]).toEqual({ t: 30000, v: -9 });
+    // Recorded from the first move to the release, back to the track's own level on either side.
+    expect(lane[0]).toEqual({ t: 999, v: 0 });
+    expect(lane[1]).toEqual({ t: 1000, v: -3 });
+    expect(lane[lane.length - 2]).toEqual({ t: 30000, v: -9 });
+    expect(lane[lane.length - 1]).toEqual({ t: 30001, v: 0 });
     expect(S.findTrack(doc.state, id).volume).toBe(0);
   });
 
@@ -429,10 +432,13 @@ describe('automation writing', () => {
     c.commit(40000);
     delete app.engine.playing;
     const lane = S.findTrack(doc.state, id).automation.volume;
-    expect(lane[0]).toEqual({ t: 1000, v: -3 });
+    expect(lane[1]).toEqual({ t: 1000, v: -3 });
     expect(lane).toContainEqual({ t: 5000, v: -6 });
     expect(lane).toContainEqual({ t: 20000, v: -12 });
-    expect(lane[lane.length - 1]).toEqual({ t: 25000, v: -15 });
+    expect(lane[lane.length - 2]).toEqual({ t: 25000, v: -15 });
+    // Between and after the touches the track is back at its own level.
+    expect(S.envelopeValue(lane, 12000)).toBe(0);
+    expect(lane[lane.length - 1]).toEqual({ t: 25001, v: 0 });
   });
 
   it('sets a keyframe at the playhead when stopped with automation', () => {

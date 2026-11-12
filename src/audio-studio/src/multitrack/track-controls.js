@@ -129,12 +129,17 @@ export class TrackControls {
       const track = findTrack(state, pass.trackId);
       if (!track) continue;
       let lane = track.automation[pass.param];
+      const fallback = track[pass.param];
       pass.segments.forEach((seg, i) => {
         const last = i === pass.segments.length - 1;
         const end = last && !pass.done ? Math.max(pass.lastT, Math.round(stopFrame ?? pass.lastT)) : seg.points[seg.points.length - 1].t;
         const pts = seg.points.slice();
         if (last && !pass.done && end > pts[pts.length - 1].t) pts.push({ t: end, v: pass.value });
-        lane = writeEnvelopeRange(lane, seg.t0, end, pts);
+        // Outside the pass the lane keeps what it played (or the track's own value), rather than
+        // ramping from the old points to the new ones.
+        const before = seg.t0 > 0 ? [{ t: seg.t0 - 1, v: envelopeValue(lane, seg.t0 - 1, fallback) }] : [];
+        const after = { t: end + 1, v: envelopeValue(lane, end + 1, fallback) };
+        lane = writeEnvelopeRange(lane, seg.t0 - before.length, end + 1, [...before, ...pts, after]);
       });
       state = setAutomation(state, pass.trackId, pass.param, lane);
     }

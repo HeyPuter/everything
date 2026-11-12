@@ -626,3 +626,55 @@ describe('bouncing with an equal-power pan law', () => {
     }
   });
 });
+
+describe('recording automation', () => {
+  it('leaves the lane before and after a Write, Latch or Touch pass as it was', async () => {
+    const { Emitter } = await import('../src/lib/emitter.js');
+    const { TrackControls } = await import('../src/multitrack/track-controls.js');
+    for (const lane0 of [
+      [],
+      [
+        { t: 0, v: -3 },
+        { t: 10000, v: -3 },
+      ],
+    ]) {
+      for (const mode of ['write', 'latch', 'touch']) {
+        const doc = new Session({ name: 'A.asesx', tracks: 1, sampleRate: 1000 });
+        const t = doc.state.tracks[0];
+        doc.apply(
+          'Setup',
+          S.setAutomation(
+            S.updateTrack(doc.state, t.id, { mode, volume: -1 }),
+            t.id,
+            'volume',
+            lane0,
+          ),
+        );
+        const app = new Emitter();
+        app.engine = { playing: true };
+        app.active = doc;
+        app.playhead = 0;
+        app.syncGraph = () => {};
+        const tc = new TrackControls(app, doc);
+        tc.begin();
+        app.playhead = 1000;
+        tc.set(t.id, 'volume', -6, 'input');
+        app.playhead = 2000;
+        tc.set(t.id, 'volume', -10, 'input');
+        app.playhead = 2500;
+        tc.set(t.id, 'volume', -10, 'change');
+        tc.commit(5000);
+        const lane = S.findTrack(doc.state, t.id).automation.volume;
+        const old = lane0.length ? -3 : -1;
+        const at = (f) => S.envelopeValue(lane, f, -1);
+        // Before the first move (Latch, Touch) the lane plays what it did.
+        expect(at(500)).toBeCloseTo(old, 6);
+        expect(at(1500)).toBeCloseTo(-6, 6);
+        expect(at(2200)).toBeCloseTo(-10, 6);
+        // Touch returns to the lane on release; Write and Latch hold until playback stops.
+        expect(at(3000)).toBeCloseTo(mode === 'touch' ? old : -10, 6);
+        expect(at(7000)).toBeCloseTo(old, 6);
+      }
+    }
+  });
+});

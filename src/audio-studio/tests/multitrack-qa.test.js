@@ -343,8 +343,10 @@ describe('automation while recording', () => {
     delete app.engine.playing;
     const lane = S.findTrack(doc.state, id).automation.volume;
     expect(doc.history.undoLabel).toBe('Write Automation');
-    expect(lane[0]).toEqual({ t: RATE, v: 0 });
-    expect(lane[lane.length - 1]).toEqual({ t: RATE * 3, v: -6 });
+    expect(lane[0]).toEqual({ t: RATE - 1, v: 0 });
+    expect(lane[1]).toEqual({ t: RATE, v: 0 });
+    expect(lane[lane.length - 2]).toEqual({ t: RATE * 3, v: -6 });
+    expect(lane[lane.length - 1]).toEqual({ t: RATE * 3 + 1, v: 0 });
   });
 });
 
