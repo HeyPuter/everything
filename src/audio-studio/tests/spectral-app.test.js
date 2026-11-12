@@ -125,6 +125,36 @@ describe('spectral feature', () => {
     app.setTool('time');
   });
 
+  it('repairs Diagnostics results in full while a spectral selection exists', async () => {
+    await import('../src/effects/index.js');
+    const { diagnosticsPanel } = await import('../src/diagnostics/panel.js');
+    const { setDiagnosticsWorker } = await import('../src/diagnostics/scan.js');
+    setDiagnosticsWorker(null);
+    const x = tone(330, 0.3, RATE);
+    for (const at of [10000, 30000]) {
+      x[at] += 0.6;
+      x[at + 1] -= 0.4;
+      x[at + 2] += 0.3;
+    }
+    const clicky = new AudioFile({ name: 'clicks.wav', sampleRate: RATE, channels: [Channel.fromSamples(x)] });
+    app.addDocument(clicky);
+    const view = new WaveformView(app, clicky);
+    document.body.append(view.el);
+    // A spectral selection away from the clicks (a high band, early on).
+    app.spectral.set(clicky, { channels: [true], shapes: [{ type: 'rect', t0: 1000, t1: 3000, f0: 15000, f1: 20000 }] });
+    const p = diagnosticsPanel(app);
+    p.select('declicker');
+    const button = (re) => [...p.el.querySelectorAll('button')].find((b) => re.test(b.textContent));
+    button(/^Scan File$/).click();
+    await expect.poll(() => button(/^Repair All$/)?.disabled, { timeout: 5000 }).toBe(false);
+    button(/^Repair All$/).click();
+    await expect.poll(() => p.el.querySelector('.diag-caption').textContent, { timeout: 5000 }).toMatch(/done/);
+    const y = clicky.state.channels[0].toArray();
+    for (const at of [10000, 30000]) expect(Math.abs(y[at] - 0.3 * Math.sin((2 * Math.PI * 330 * at) / RATE))).toBeLessThan(0.1);
+    view.el.remove();
+    app.activate(doc);
+  });
+
   it('zooms the frequency axis', async () => {
     const { docState } = await import('../src/spectral/state.js');
     app.prefs.set('spectralLog', false);

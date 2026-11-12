@@ -152,6 +152,8 @@ export function diagnosticsPanel(app) {
   );
 
   // ----------------------------------------------------------------- scan
+  /** Results are acted on in full, even inside a spectral selection (which would mask the repairs). */
+  const commit = (doc, label, state) => (app.spectral?.applyRaw ? app.spectral.applyRaw(doc, label, state) : doc.apply(label, state));
   const audioDoc = () => (app.active?.kind === 'audio' ? app.active : null);
   const meta = () => DIAGNOSTICS.find((d) => d.id === effectId);
   const setProgress = (f) => {
@@ -243,7 +245,7 @@ export function diagnosticsPanel(app) {
       }
       applying = true;
       try {
-        doc.apply(label, next);
+        commit(doc, label, next);
       } finally {
         applying = false;
       }
@@ -273,7 +275,7 @@ export function diagnosticsPanel(app) {
     const noun = m.noun[0].toUpperCase() + m.noun.slice(1);
     applying = true;
     try {
-      doc.apply(`${getEffect(result.effect).name}: Mark ${list.length} ${m.noun}${list.length === 1 ? '' : 's'}`, markProblems(doc.state, list, noun));
+      commit(doc, `${getEffect(result.effect).name}: Mark ${list.length} ${m.noun}${list.length === 1 ? '' : 's'}`, markProblems(doc.state, list, noun));
     } finally {
       applying = false;
     }
