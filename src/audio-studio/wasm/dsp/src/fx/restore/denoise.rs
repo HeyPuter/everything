@@ -10,10 +10,21 @@ use super::spectral::{fmax, bin_hz, focus_weight, power, power_scale, MinStats};
 use crate::fx::util::{db_to_gain, Stft};
 use crate::fx::{Effect, Smooth};
 
+/// FFT size at 44.1 and 48 kHz.
 pub const FFT: usize = 2048;
+
+/// FFT size at `rate`: 2048 points from 44.1 kHz up, halved per octave below
+/// 48 kHz (down to 256 at 8 kHz) so a frame lasts about as long at every rate.
+/// A fixed 2048 points made 8 kHz frames a quarter second long, too long to
+/// see the gaps between words, and speech was taken for noise.
+pub fn fft_size(rate: f32) -> usize {
+    let below = (-(rate / 48000.0).log2().round()).clamp(0.0, 3.0) as usize;
+    FFT >> below
+}
 
 pub struct DeNoise {
     rate: f32,
+    fft: usize,
     amount: f32,
     focus: u32,
     gain: Smooth,
@@ -27,15 +38,17 @@ pub struct DeNoise {
 
 impl DeNoise {
     pub fn new(rate: f32, channels: usize) -> DeNoise {
-        let bins = FFT / 2 + 1;
-        let hop = FFT / 4;
+        let fft = fft_size(rate);
+        let bins = fft / 2 + 1;
+        let hop = fft / 4;
         let window = (1.5 * rate / hop as f32) as usize;
         let mut d = DeNoise {
             rate,
+            fft,
             amount: 40.0,
             focus: 0,
             gain: Smooth::new(1.0, rate, 20.0),
-            stft: Stft::new(FFT, 4, channels),
+            stft: Stft::new(fft, 4, channels),
             stats: (0..channels).map(|_| MinStats::new(bins, window).warmup(4)).collect(),
             prev_clean: vec![vec![0.0; bins]; channels],
             p: vec![0.0; bins],
@@ -48,7 +61,7 @@ impl DeNoise {
 
     fn update_floor(&mut self) {
         for k in 0..self.gmin.len() {
-            let w = focus_weight(self.focus, bin_hz(k, FFT, self.rate));
+            let w = focus_weight(self.focus, bin_hz(k, self.fft, self.rate));
             self.gmin[k] = db_to_gain(-0.4 * self.amount * w);
         }
     }
@@ -70,7 +83,7 @@ impl Effect for DeNoise {
     }
 
     fn process(&mut self, buf: &mut [f32], channels: usize, frames: usize) {
-        let scale = power_scale(FFT);
+        let scale = power_scale(self.fft);
         let (stats, prev, p, gmin) = (&mut self.stats, &mut self.prev_clean, &mut self.p, &self.gmin);
         let off = self.amount <= 0.0;
         let noise_only = self.noise_only;
@@ -144,6 +157,43 @@ mod tests {
     }
 
     use crate::fx::testutil::*;
+
+    #[test]
+    fn keeps_short_syllables_at_low_rates() {
+        // Voiced syllables (a gliding 140 Hz voice, 180 ms every 300 ms) over
+        // hiss: the gaps show the noise floor, so at 8 and 16 kHz the voice
+        // passes as it does at 48 kHz.
+        for rate in [8000.0f32, 16000.0, 48000.0] {
+            let n = (6.0 * rate) as usize;
+            let hiss = noise(n, 0.01, 4);
+            let mut voice = vec![0.0f32; n];
+            let mut ph = 0.0f64;
+            for (i, v) in voice.iter_mut().enumerate() {
+                let t = i as f64 / rate as f64;
+                let cyc = t % 0.3;
+                let env = if cyc < 0.18 { (std::f64::consts::PI * cyc / 0.18).sin().powi(2) } else { 0.0 };
+                let f0 = 140.0 * (1.0 + 0.1 * (std::f64::consts::TAU * 0.7 * t).sin());
+                ph += f0 / rate as f64;
+                let mut s = 0.0;
+                let mut k = 1.0;
+                while k * f0 < 3000.0 {
+                    s += (std::f64::consts::TAU * k * ph).sin() / k;
+                    k += 1.0;
+                }
+                *v = (0.05 * env * s) as f32;
+            }
+            let mut fx = make(132, rate, 1);
+            fx.set_param(0, 40.0);
+            fx.reset();
+            let lat = fx.latency() as usize;
+            assert_eq!(lat, super::fft_size(rate));
+            let mut x: Vec<f32> = (0..n).map(|i| voice[i] + hiss[i]).collect();
+            x.extend(std::iter::repeat(0.0).take(lat));
+            let y = run_mono(fx.as_mut(), &x);
+            let (dot, vv) = (n / 2..n).fold((0.0f64, 0.0f64), |(d, e), i| (d + (y[i + lat] * voice[i]) as f64, e + (voice[i] * voice[i]) as f64));
+            assert!(dot / vv > 0.8, "{rate} Hz: voice gain {}", dot / vv);
+        }
+    }
 
     #[test]
     fn reduces_noise_and_keeps_signal() {

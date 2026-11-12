@@ -69,6 +69,45 @@ describe('DeNoise and DeReverb processing focus', () => {
   }
 });
 
+describe('DeNoise at low sample rates', () => {
+  it('reports its latency at every rate and keeps speech at 8 kHz', async () => {
+    const { getEffect, defaults, effectLatency } = await import('../src/effects/index.js');
+    const def = getEffect('denoise');
+    const x = instance();
+    for (const rate of [8000, 11025, 16000, 22050, 32000, 44100, 48000, 96000, 192000]) {
+      const h = x.fx_new(132, rate, 2);
+      expect(x.fx_latency(h), `${rate} Hz`).toBe(effectLatency(def, defaults(def), rate));
+      x.fx_free(h);
+    }
+    // Voiced syllables (180 ms every 300 ms) over hiss at 8 kHz.
+    const rate = 8000;
+    const n = rate * 6;
+    const hiss = noise(n, 0.01, 4);
+    const voice = new Float32Array(n);
+    let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      const cyc = t % 0.3;
+      const env = cyc < 0.18 ? Math.sin((Math.PI * cyc) / 0.18) ** 2 : 0;
+      ph += (140 * (1 + 0.1 * Math.sin(2 * Math.PI * 0.7 * t))) / rate;
+      let s = 0;
+      for (let k = 1; k <= 12; k++) s += Math.sin(2 * Math.PI * k * ph) / k;
+      voice[i] = 0.05 * env * s;
+    }
+    const lat = effectLatency(def, defaults(def), rate);
+    const input = new Float32Array(n + lat);
+    for (let i = 0; i < n; i++) input[i] = voice[i] + hiss[i];
+    const y = runMono(132, [[0, 40]], input, rate);
+    let dot = 0;
+    let vv = 0;
+    for (let i = n / 2; i < n; i++) {
+      dot += y[i + lat] * voice[i];
+      vv += voice[i] * voice[i];
+    }
+    expect(dot / vv).toBeGreaterThan(0.8);
+  });
+});
+
 describe('Multiband Compressor crossovers', () => {
   it('takes crossovers at and beyond the ceiling at every sample rate', () => {
     for (const rate of [8000, 11025, 22050, 44100, 48000, 88200, 176400, 192000]) {

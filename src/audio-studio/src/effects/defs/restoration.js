@@ -169,7 +169,8 @@ registerEffect({
     preset('Air Conditioner Rumble', { amount: 60, focus: 1, gain: 0 }),
     preset('High Frequency Fizz', { amount: 50, focus: 3, gain: 0 }),
   ],
-  latency: () => 2048,
+  // fx/restore/denoise.rs fft_size: 2048 points from 44.1 kHz up, halved per octave below 48 kHz.
+  latency: (v, rate) => 2048 >> Math.min(3, Math.max(0, -Math.round(Math.log2(rate / 48000)))),
 });
 
 // ------------------------------------------------------------------- DeReverb
