@@ -28,6 +28,12 @@ function spArea(sp) {
 }
 const area = (rec) => Math.abs(rec.subpaths.reduce((s, sp) => s + spArea(sp), 0));
 const anchors = (rec) => rec.subpaths.map((sp) => sp.anchors.length);
+/** A regular polygon of radius 100 with n corners. */
+const regular = (n) =>
+  Array.from({ length: n }, (_, i) => {
+    const t = (i / n) * Math.PI * 2;
+    return anchor(100 * Math.cos(t), 100 * Math.sin(t));
+  });
 
 describe('codec', () => {
   it('round-trips shapes through encode and decode', () => {
@@ -206,6 +212,41 @@ describe('cutting, erasing, strokes and offsets', () => {
     expect(area(r)).toBeCloseTo(10000 + 4000 + Math.PI * 100, -1);
     const [inset] = g.run(OP.OFFSET, [sh(ellipse(0, 0, 100, 100))], [-10, 1, 4]);
     expect(area(inset)).toBeCloseTo(Math.PI * 1600, -1);
+  });
+
+  it('offsets and outlines strokes wider than the curves they follow', () => {
+    // Insetting a circle by more than its radius leaves nothing (it used to come back whole).
+    expect(g.run(OP.OFFSET, [sh(ellipse(0, 0, 10, 10))], [-10, 0, 4])[0].subpaths).toHaveLength(0);
+    expect(g.run(OP.OFFSET, [sh(ellipse(0, 0, 10, 10))], [-6, 1, 4])[0].subpaths).toHaveLength(0);
+    const [small] = g.run(OP.OFFSET, [sh(ellipse(0, 0, 10, 10))], [-4, 1, 4]);
+    expect(area(small)).toBeCloseTo(Math.PI, 1);
+    // Outsetting past a small round hole fills it.
+    const rev = (a) => a.reverse().map((p) => ({ ...p, ix: p.ox, iy: p.oy, ox: p.ix, oy: p.iy }));
+    const hole = { anchors: rev(ellipse(45, 45, 10, 10)), closed: true };
+    const square = { anchors: rectangle(0, 0, 100, 100), closed: true };
+    const holed = { subpaths: [square, hole], filled: true };
+    expect(g.run(OP.OFFSET, [holed], [6, 1, 4])[0].subpaths).toHaveLength(1);
+    expect(g.run(OP.OFFSET, [holed], [4, 1, 4])[0].subpaths).toHaveLength(2);
+    // A stroke wider than the circle's diameter outlines to a solid disk, like it draws.
+    const [disk] = g.run(OP.STROKE, [sh(ellipse(0, 0, 10, 10))], [30, 0, 0, 4, 0, 0]);
+    expect(disk.subpaths).toHaveLength(1);
+    expect(area(disk)).toBeCloseTo(Math.PI * 400, -1);
+    // A stroke narrower than the circle keeps the stroker's exact outline (two 4-anchor rings).
+    const [ring8] = g.run(OP.STROKE, [sh(ellipse(0, 0, 10, 10))], [8, 0, 0, 4, 0, 0]);
+    expect(anchors(ring8)).toEqual([4, 4]);
+    // Polygons with round joins too.
+    const poly = regular(200);
+    expect(g.run(OP.OFFSET, [sh(poly)], [-150, 1, 4])[0].subpaths).toHaveLength(0);
+    const [ring] = g.run(OP.OFFSET, [sh(poly)], [-60, 1, 4]);
+    expect(ring.subpaths).toHaveLength(1);
+  });
+
+  it('insets a dense polygon far past its size without stalling', () => {
+    // Miter joins on 500 short segments used to take about 40 seconds.
+    const poly = regular(500);
+    const t = performance.now();
+    expect(g.run(OP.OFFSET, [sh(poly)], [-200, 0, 4])[0].subpaths).toHaveLength(0);
+    expect(performance.now() - t).toBeLessThan(20000);
   });
 
   it('simplifies a smooth dense circle back to few anchors', () => {
