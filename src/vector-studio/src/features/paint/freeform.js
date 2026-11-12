@@ -232,21 +232,43 @@ export function setFreeformMode(paint, mode) {
 // ---- rendering ----
 
 const RASTER = 128;
-const rasterCache = new WeakMap();
+// Rasters by paint and shape, least recently used first: objects sharing one paint (applied to a
+// selection, a swatch) differ in proportions, so one entry per paint would be redrawn per object.
+const RASTER_CACHE_MAX = 256;
+const rasterCache = new Map();
+const paintIds = new WeakMap();
+let nextPaintId = 1;
 
 function makeCanvas(w, h) {
   if (typeof document !== 'undefined') return Object.assign(document.createElement('canvas'), { width: w, height: h });
   return new OffscreenCanvas(w, h);
 }
 
+/** Proportions within about 2% share a raster (the blend differs by far less than a raster pixel). */
+function rasterAspect(aspect) {
+  return Math.exp(Math.round(Math.log(aspect) / 0.02) * 0.02);
+}
+
+/** A margin past the frame rounded up to a power of two (so objects of similar size share a raster). */
+export function rasterPad(p) {
+  return p > 0 ? 2 ** Math.ceil(Math.log2(p)) : 0;
+}
+
 /**
  * A canvas of the blend over `rect` (bounds-fraction space, may reach past
- * 0..1 for strokes), cached per paint.
+ * 0..1 for strokes), cached.
  */
 export function freeformRaster(paint, aspect, rect = [0, 0, 1, 1]) {
-  const key = `${aspect.toFixed(4)}|${rect.map((v) => v.toFixed(4)).join()}`;
-  const hit = rasterCache.get(paint);
-  if (hit && hit.key === key) return hit.canvas;
+  aspect = rasterAspect(aspect);
+  let id = paintIds.get(paint);
+  if (!id) paintIds.set(paint, (id = nextPaintId++));
+  const key = `${id}|${aspect.toFixed(4)}|${rect.map((v) => v.toFixed(4)).join()}`;
+  const hit = rasterCache.get(key);
+  if (hit) {
+    rasterCache.delete(key);
+    rasterCache.set(key, hit);
+    return hit;
+  }
   const w = Math.max(8, Math.round(RASTER * Math.min(1, Math.sqrt(aspect))));
   const h = Math.max(8, Math.round(RASTER * Math.min(1, 1 / Math.sqrt(aspect))));
   const canvas = makeCanvas(w, h);
@@ -256,7 +278,8 @@ export function freeformRaster(paint, aspect, rect = [0, 0, 1, 1]) {
   if (!img?.data) return null;
   img.data.set(freeformPixels(paint, w, h, aspect, rect));
   ctx.putImageData(img, 0, 0);
-  rasterCache.set(paint, { key, canvas });
+  rasterCache.set(key, canvas);
+  if (rasterCache.size > RASTER_CACHE_MAX) rasterCache.delete(rasterCache.keys().next().value);
   return canvas;
 }
 
@@ -275,8 +298,8 @@ export function freeformStyle(ctx, doc, node, paint, seg = null) {
   if (!f) return averageColor(paint);
   // Strokes reach past the frame: cover them too.
   const pad = Math.max(0, node.strokeWidth || 0) + 1;
-  const pu = pad / f.w;
-  const pv = pad / f.h;
+  const pu = rasterPad(pad / f.w);
+  const pv = rasterPad(pad / f.h);
   const canvas = freeformRaster(paint, f.w / f.h, [-pu, -pv, 1 + pu, 1 + pv]);
   const pattern = canvas && ctx.createPattern?.(canvas, 'no-repeat');
   if (!pattern || typeof DOMMatrix === 'undefined' || !pattern.setTransform) return averageColor(paint);

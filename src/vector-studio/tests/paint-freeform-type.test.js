@@ -10,6 +10,7 @@ import { apply, invert, multiply } from '../src/lib/matrix.js';
 import { exportSVG } from '../src/features/io/svg-export.js';
 import {
   installFreeform,
+  freeformRaster,
   freeformStyle,
   freeformFrame,
   framePoint,
@@ -127,6 +128,32 @@ describe('Freeform gradients on type', () => {
     } finally {
       HTMLCanvasElement.prototype.getContext = getContext;
       HTMLCanvasElement.prototype.toDataURL = toDataURL;
+    }
+  });
+});
+
+describe('Freeform gradient rasters', () => {
+  it('are kept for each shape when several objects share one paint', () => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function () {
+      return {
+        createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+        putImageData() {},
+      };
+    };
+    try {
+      const paint = { ...ff };
+      const wide = freeformRaster(paint, 2, [-0.01, -0.02, 1.01, 1.02]);
+      const tall = freeformRaster(paint, 0.5, [-0.02, -0.01, 1.02, 1.01]);
+      expect(tall).not.toBe(wide);
+      // Drawing the first object again reuses its raster instead of recomputing the blend.
+      expect(freeformRaster(paint, 2, [-0.01, -0.02, 1.01, 1.02])).toBe(wide);
+      // Nearly the same proportions share one.
+      expect(freeformRaster(paint, 2.005, [-0.01, -0.02, 1.01, 1.02])).toBe(wide);
+      // Another paint has its own.
+      expect(freeformRaster({ ...ff }, 2, [-0.01, -0.02, 1.01, 1.02])).not.toBe(wide);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
     }
   });
 });
