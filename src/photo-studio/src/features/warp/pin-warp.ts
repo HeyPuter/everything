@@ -9,7 +9,7 @@ import type { CanvasPointer } from '../../app/pointer';
 import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { findLayer } from '../../model/document';
-import { setLayerPixels } from '../../model/pixel-layer';
+import { carryMask, setLayerPixels } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
 import type { PinFrame } from '../../model/pin-warp';
 import type { RGBA8 } from '../../imaging/types';
@@ -523,9 +523,19 @@ class PinWarpSession extends WarpSession<Snap> {
     if (!this.image) {
       const store = this.e.assets.tiles;
       const grid = image ? gridFromImage(store, image, out.x, out.y) : gridFromImage(store, { width: 1, height: 1, data: new Uint8ClampedArray(4) });
+      // A linked layer mask bends with the pixels.
+      const before = this.layer;
+      const src = this.source;
+      const rect = { x: Math.round(this.M[2]), y: Math.round(this.M[5]), width: src.width, height: src.height };
+      const mask =
+        before?.maskGrid && !before.maskUnlinked
+          ? carryMask(store, before.maskGrid, rect, (img) => (out.width > 0 && out.height > 0 ? { image: renderTriangles(img, { src: rest, dst, tris, order }, out, 'bilinear'), x: out.x, y: out.y } : undefined))
+          : undefined;
       this.e.command('Pin Warp', (d) => {
         const l = findLayer(d.layers, id);
-        if (l) setLayerPixels(l, grid, d);
+        if (!l) return;
+        setLayerPixels(l, grid, d);
+        if (mask) l.maskGrid = mask;
       });
       return;
     }
