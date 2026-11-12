@@ -81,7 +81,7 @@ export function decorateSvg(node, xml, { nl, minify }) {
   if (node.overprintFill) attrs.push('data-overprint-fill="true"');
   if (node.overprintStroke) attrs.push('data-overprint-stroke="true"');
   if (node.notes && !minify) attrs.push(`data-notes="${escapeXml(node.notes)}"`);
-  if (node.imageMap && node.imageMap !== 'none' && node.url) attrs.push(`data-image-map="${node.imageMap}"`);
+  if (node.imageMap && node.imageMap !== 'none' && node.url) attrs.push(`data-image-map="${escapeXml(node.imageMap)}"`);
   let out = xml;
   if (attrs.length) out = out.replace(/<([a-zA-Z][\w:-]*)/, (m) => `${m} ${attrs.join(' ')}`);
   if (node.url && /^(https?:|mailto:|#|\/)/i.test(node.url)) out = `${nl}<a href="${escapeXml(node.url)}">${out}${nl}</a>`;

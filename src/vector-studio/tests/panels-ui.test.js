@@ -99,6 +99,9 @@ describe('Attributes panel', () => {
   it('decorates markup only for meaningful values', () => {
     expect(decorateSvg({}, '<path d="M0 0"/>', { nl: '\n' })).toBe('<path d="M0 0"/>');
     expect(decorateSvg({ url: 'javascript:alert(1)' }, '<path/>', { nl: '' })).toBe('<path/>');
+    // A value from a damaged or hostile file cannot add attributes (event handlers) to the markup.
+    const out = decorateSvg({ url: 'https://example.com', imageMap: 'rect" onload="alert(1)' }, '<path/>', { nl: '' });
+    expect(out).toBe('<a href="https://example.com"><path data-image-map="rect&quot; onload=&quot;alert(1)"/></a>');
   });
 });
 
