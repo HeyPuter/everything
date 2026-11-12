@@ -1,5 +1,5 @@
 import type { Editor } from '../editor';
-import { commands, interactiveOnly, registerCommand, registerPanel, type Panel } from '../app/registry';
+import { commands, findCommand, interactiveOnly, registerCommand, registerPanel, type Panel } from '../app/registry';
 import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
 import { formDialog } from '../ui/dialog';
@@ -106,7 +106,8 @@ export async function playAction(e: Editor, action: Action, from = 0) {
     for (let i = from; i < action.steps.length; i++) {
       const s = action.steps[i];
       if (!s.enabled) continue;
-      const c = commands.get(s.command);
+      // Steps recorded before a command was renamed run the current one.
+      const c = findCommand(s.command);
       if (!c) throw new Error(`The command “${s.command}” is not available.`);
       // Imported action files can name any command.
       if (interactiveOnly(c.id)) throw new Error(`Actions cannot run “${c.label.replace(/…$/, '')}”.`);
@@ -144,7 +145,7 @@ function stopRecording(e: Editor) {
   e.dock.update();
 }
 function label(id: string) {
-  return commands.get(id)?.label ?? id;
+  return findCommand(id)?.label ?? id;
 }
 
 const actionsPanel: Panel = {
