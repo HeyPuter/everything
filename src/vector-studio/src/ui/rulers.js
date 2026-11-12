@@ -137,10 +137,12 @@ export function createRulers(app, host) {
     const up = (ev) => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
       ed.alignmentGuides = null;
-      // Released over the rulers, the panels or the status bar: no guide.
+      // Released over the rulers, the panels or the status bar, or the system took the touch:
+      // no guide.
       const inside = ev.clientX > canvasRect.left && ev.clientY > canvasRect.top && ev.clientX < canvasRect.right && ev.clientY < canvasRect.bottom;
-      if (pos != null && inside) {
+      if (pos != null && inside && ev.type === 'pointerup') {
         ed.doc.transact('Add Guide', () => ed.doc.updateRoot({ guides: [...(ed.doc.root.guides || []), { axis, pos }] }));
         if (!ed.viewOptions.guides) ed.setViewOption('guides', true);
       }
@@ -148,10 +150,19 @@ export function createRulers(app, host) {
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
   };
   // The top ruler makes horizontal guides (constant y); the left one vertical guides.
-  top.addEventListener('pointerdown', startGuide('y'));
-  left.addEventListener('pointerdown', startGuide('x'));
+  for (const [el, axis] of [
+    [top, 'y'],
+    [left, 'x'],
+  ]) {
+    el.addEventListener('pointerdown', startGuide(axis));
+    // Touch screens move a finger's press to the nearest element that takes
+    // clicks (the document tabs, the canvas); a mouse listener makes the thin
+    // rulers count as one, so a finger on a ruler drags out a guide.
+    el.addEventListener('mousedown', () => {});
+  }
   corner.addEventListener('dblclick', () => app.editor && app.editor.setViewOption('rulers', true));
 
   return {

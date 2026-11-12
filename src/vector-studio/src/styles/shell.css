@@ -674,6 +674,8 @@ body:has(.app.hide-panels) .tool-tearoff {
 
 .has-rulers .ruler {
   display: block;
+  /* A finger dragging out a guide must not scroll or zoom the page instead. */
+  touch-action: none;
 }
 
 .ruler-top {
