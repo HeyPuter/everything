@@ -145,6 +145,18 @@ export function stepProblem(app, step) {
   return 'A step is damaged.';
 }
 
+/**
+ * Applies effect `def` with `values` like its menu item would with those settings: on
+ * success the effect becomes the command Edit > Repeat runs (its dialog opens again, holding
+ * these settings, now its last-used ones; Repeat Without Dialog reapplies them).
+ */
+export async function runEffectRepeatable(app, def, values) {
+  const ok = await app.runEffect(def.id, { values: normalizeValues(def, values) });
+  const id = `fx.${def.id}`;
+  if (ok && app.commands?.get(id)?.repeatable) app.lastCommand = { id, args: {} };
+  return ok;
+}
+
 /** Replays steps on the active audio file, one undo step each. Resolves false when a step could not run. */
 export async function runSteps(app, steps) {
   for (const step of steps) {
@@ -163,8 +175,7 @@ export async function runSteps(app, steps) {
       return false;
     }
     if (step.type === 'effect') {
-      const def = getEffect(step.effect);
-      if (!(await app.runEffect(def.id, { values: normalizeValues(def, step.values) }))) return false;
+      if (!(await runEffectRepeatable(app, getEffect(step.effect), step.values))) return false;
     } else {
       if (!app.commands.isEnabled(step.command, step.args)) {
         app.notify(`${app.commands.label(step.command).replace(/\.\.\.$/, '')} is not available for the selection at that step.`, { error: true });
