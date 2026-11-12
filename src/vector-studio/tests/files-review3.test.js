@@ -376,3 +376,37 @@ describe('opening shared documents', () => {
     for (const s of app.collab.sessions.values()) s.close({ leave: false });
   });
 });
+
+describe('revert', () => {
+  it('reverts every window showing the document', async () => {
+    const { serializeDocument } = await import('../src/features/files/format.js');
+    const { VDocument } = await import('../src/model/document.js');
+    const app = await bootAppWithFeatures({ env: 'app', user: { username: 'u' } });
+    const saved = VDocument.create({ name: 'Logo' });
+    const bytes = await serializeDocument(saved);
+    app.puter = { fs: { read: async () => new Blob([bytes]) } };
+    app.dialogs.confirm = async () => true;
+    const first = await app.files.service.openPath('/u/Logo.vstudio');
+    await app.commands.run('window.newWindow');
+    const second = app.editor;
+    expect(second.doc).toBe(first.doc);
+    first.doc.transact('Add', () =>
+      first.doc.insert(createPath(rectangle(0, 0, 10, 10), true), first.doc.layers()[0].id),
+    );
+    app.activate(first);
+    const reverted = await app.files.service.revert(first);
+    const windows = app.editors.filter((e) => e.file?.path === '/u/Logo.vstudio');
+    expect(windows).toHaveLength(2);
+    // Both show the saved document; neither keeps the discarded change to save over the file later.
+    for (const w of windows) {
+      expect(w.doc).toBe(reverted.doc);
+      expect(w.doc.dirty).toBe(false);
+      expect(paths(w.doc)).toBe(0);
+    }
+    expect(app.editor).toBe(reverted);
+    const other = windows.find((w) => w !== reverted);
+    expect(other.name).toBe('Logo.vstudio:2');
+    // The window it came from keeps its place in the tab order.
+    expect(app.editors.indexOf(other)).toBe(app.editors.indexOf(reverted) + 1);
+  });
+});

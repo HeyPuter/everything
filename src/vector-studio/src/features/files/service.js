@@ -746,7 +746,23 @@ export class FileService {
       await this.app.dialogs.alert({ title: 'Could Not Revert', message: err.message });
       return false;
     }
-    return this.replaceDocument(editor, parsed.doc, f);
+    // Every window showing the document shows the saved one (none keeps the discarded changes to
+    // save over the file later); the window reverted from is replaced last, so it stays active.
+    const others = this.app.editors.filter((e) => e !== editor && e.doc === editor.doc);
+    const replaced = new Map();
+    for (const o of others) replaced.set(o, await this.replaceDocument(o, parsed.doc, f));
+    const ed = await this.replaceDocument(editor, parsed.doc, f);
+    replaced.set(editor, ed);
+    // Windows keep their names ("Logo.vstudio:2"), now counted from the replaced first window.
+    for (const [o, w] of replaced) {
+      const n = o.windowOf && /:(\d+)$/.exec(o.name)?.[1];
+      if (!n) continue;
+      const base = replaced.get(o.windowOf) || o.windowOf;
+      w.windowOf = base;
+      Object.defineProperty(w, 'name', { get: () => `${base.name}:${n}`, configurable: true });
+    }
+    this.app.renderTabs();
+    return ed;
   }
 
   /** Swap the document shown in a tab, keeping its place in the tab order and its view. */
