@@ -264,3 +264,33 @@ describe('scripts', () => {
     expect(await run).toMatchObject({ ok: true, value: 'Ada' });
   });
 });
+
+describe('a shared document shown in two windows', () => {
+  it('keeps sharing edits after the window it was opened in is closed', async () => {
+    const { bootAppWithFeatures } = await import('./helpers.js');
+    const { network, shareNew, settle, rect, alice, bob, SERVER } =
+      await import('./collab-helpers.js');
+    const { memoryOutbox } = await import('../src/features/collab/outbox.js');
+    const net = network();
+    const { room, client: owner } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    const app = await bootAppWithFeatures({ user: bob });
+    app.collab.transportFor = () => net.transport(bob);
+    app.collab.deployServer = async () => SERVER;
+    app.collab.outbox = memoryOutbox();
+    app.collab.sessionOptions = { timers: false };
+    const first = await app.collab.open({ server: SERVER, room, invite: token });
+    await app.commands.run('window.newWindow');
+    const second = app.editor;
+    expect(second).not.toBe(first);
+    expect(second.doc).toBe(first.doc);
+    await app.closeDocument(first);
+    const session = app.collab.sessionOf(second);
+    expect(session).toBeTruthy();
+    const L = second.doc.root.children[0];
+    second.doc.transact('Add', () => second.doc.insert(rect('fromSecond', 5, 5), L));
+    await settle({ session }, owner);
+    expect(owner.doc.get('fromSecond')).toBeTruthy();
+    session.close();
+  });
+});

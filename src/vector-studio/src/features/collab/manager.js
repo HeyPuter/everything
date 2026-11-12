@@ -31,7 +31,12 @@ export class CollabManager extends Emitter {
     this.deployServer = deployServer;
     this.sessions = new Map(); // editor -> session
     this.membersCache = new Map(); // session -> { at, data }
-    app.on('closed', (editor) => this.detach(editor, { leave: true }));
+    app.on('closed', (editor) => {
+      // Another window still shows the document: it keeps the session.
+      const other = this.sessions.has(editor) && app.editors.find((e) => e.doc === editor.doc);
+      if (other) this.#handOver(editor, other);
+      else this.detach(editor, { leave: true });
+    });
   }
 
   get puter() {
@@ -110,6 +115,24 @@ export class CollabManager extends Emitter {
     this.sessions.set(editor, session);
     editor.collab = session;
     session.bind(editor);
+    this.#wire(editor, session);
+  }
+
+  /** Move a session to another window showing the same document (the one it was in closed). */
+  #handOver(from, to) {
+    const session = this.sessions.get(from);
+    for (const off of session.offs || []) off();
+    this.sessions.delete(from);
+    from.collab = null;
+    from.collabFollow = null;
+    this.sessions.set(to, session);
+    to.collab = session;
+    session.editor = to;
+    this.#wire(to, session);
+  }
+
+  /** The app's reactions to a session shown in `editor`. */
+  #wire(editor, session) {
     this.applyRole(editor);
     const offs = [
       session.on('role', (role, prev) => {
