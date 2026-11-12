@@ -157,6 +157,18 @@ export function markersPanel(app) {
     view.selectMarker(null, { add: true });
   };
 
+  /** Marks the selected rows in place: rebuilding thousands of rows is slow. */
+  const markRows = () => {
+    const rows = [...body.querySelectorAll('tr[data-id]')];
+    for (const row of rows) {
+      const on = selected.has(row.dataset.id);
+      row.setAttribute('aria-selected', String(on));
+      row.tabIndex = on ? 0 : -1;
+    }
+    if (rows.length && !rows.some((r) => r.tabIndex === 0)) rows[0].tabIndex = 0;
+    updateButtons();
+  };
+
   const select = (m, e, visible) => {
     const d = doc();
     const before = [...selected].join();
@@ -188,9 +200,9 @@ export function markersPanel(app) {
       }
     }
     showOnRuler();
-    // Re-render only when the selection changed, so the second click of a
-    // double-click lands on the same row and the double-click reaches it.
-    if ([...selected].join() !== before) render();
+    // Rows are marked in place (not rebuilt), so the second click of a double-click lands
+    // on the same row and the double-click reaches it.
+    if ([...selected].join() !== before) markRows();
     body.querySelector(`tr[data-id="${m.id}"]`)?.focus();
   };
 
@@ -247,7 +259,7 @@ export function markersPanel(app) {
             else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) {
               for (const x of markers) selected.add(x.id);
               showOnRuler();
-              render();
+              markRows();
             } else return;
             e.preventDefault();
             e.stopPropagation();
@@ -375,7 +387,7 @@ export function markersPanel(app) {
     if (next.length === selected.size && next.every((id) => selected.has(id))) return;
     selected.clear();
     for (const id of next) selected.add(id);
-    render();
+    markRows();
   });
   app.on('prefs', (key) => TIME_DISPLAY_KEYS.has(key) && render());
   render();

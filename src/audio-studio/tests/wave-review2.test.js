@@ -289,6 +289,26 @@ describe('Markers panel', () => {
     view.destroy();
   });
 
+  it('marks a new selection without rebuilding the rows', async () => {
+    const { rows, view } = await panelWith();
+    const before = rows();
+    rows()[2].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    rows()[2].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true }),
+    );
+    expect(rows()).toEqual(before);
+    expect(rows().map((r) => r.getAttribute('aria-selected'))).toEqual([
+      'false',
+      'false',
+      'true',
+      'true',
+      'false',
+      'false',
+    ]);
+    expect(rows().map((r) => r.tabIndex)).toEqual([-1, -1, 0, 0, -1, -1]);
+    view.destroy();
+  });
+
   it('keeps its rows through edits that leave the markers alone', async () => {
     const { doc, rows, view } = await panelWith();
     const first = rows()[0];
