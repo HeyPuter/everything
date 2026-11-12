@@ -35,7 +35,7 @@ const NON_ART = new Set(['title', 'desc', 'metadata', 'defs', 'style', 'script']
 const INHERITED = [
   'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin',
   'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'color', 'font-family', 'font-size', 'font-weight',
-  'font-style', 'letter-spacing', 'text-anchor', 'visibility', 'clip-rule', 'text-decoration', 'marker-start',
+  'font-style', 'letter-spacing', 'text-anchor', 'visibility', 'clip-rule', 'text-decoration', 'writing-mode', 'text-orientation', 'marker-start',
   'marker-mid', 'marker-end', 'vector-effect', 'white-space', 'xml:lang',
 ];
 const NON_INHERITED = ['baseline-shift', 'opacity', 'display', 'clip-path', 'mask', 'filter', 'mix-blend-mode', 'stop-color', 'stop-opacity', 'overflow', 'transform', 'transform-origin', 'transform-box', 'mask-type'];
@@ -1709,6 +1709,13 @@ class Importer {
         ...(runs.some((r) => Object.keys(r).length > 1) ? { runs } : {}),
       });
       ids.push(this.add(node));
+    }
+    // Vertical writing (writing-mode tb / vertical-rl): one column becomes vertical type running down from (x, y).
+    if (/^(tb|tb-rl|vertical-rl|vertical-lr)$/.test(String(st['writing-mode'] || '').trim()) && ids.length === 1 && items.length === 1) {
+      const n = this.nodes.get(ids[0]);
+      // Latin letters lie sideways in a column, as browsers set them (text-orientation: mixed), unless asked upright.
+      const upright = String(st['text-orientation'] || '').trim() === 'upright';
+      if (!n.text.includes('\n')) this.nodes.set(n.id, { ...n, vertical: true, char: { ...n.char, verticalRoman: !upright }, para: { ...n.para, align: 'left' } });
     }
     const onPath = this.textPathOf(el);
     if (onPath) {

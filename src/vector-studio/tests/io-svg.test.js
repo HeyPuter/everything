@@ -920,3 +920,17 @@ describe('SVG type on a path export', () => {
     }
   });
 });
+
+describe('SVG vertical writing', () => {
+  it('imports writing-mode columns as vertical type', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+      <text x="40" y="20" font-size="20" writing-mode="tb">VERTICAL</text>
+      <g style="writing-mode: vertical-rl"><text x="120" y="20" font-size="20" style="text-orientation: upright">縦書きABC</text></g>
+      <text x="10" y="190" font-size="20">Across</text>
+    </svg>`);
+    const [tb, upright, across] = doc.leaves();
+    expect(tb).toMatchObject({ vertical: true, x: 40, y: 20, text: 'VERTICAL', char: { verticalRoman: true } });
+    expect(upright).toMatchObject({ vertical: true, char: { verticalRoman: false } });
+    expect(across.vertical).toBeFalsy();
+  });
+});
