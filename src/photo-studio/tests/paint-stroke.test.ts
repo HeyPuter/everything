@@ -80,3 +80,31 @@ describe('smudge', () => {
     expect([...readRGBA(store, s.commit(), { x: 90, y: 20, width: 1, height: 1 }).data]).toEqual([0, 0, 255, 255]);
   });
 });
+
+describe('live reads for custom targets', () => {
+  it('see the paint earlier dabs of the stroke left', () => {
+    const store = new TileStore();
+    const seen: number[] = [];
+    let n = 0;
+    const s = new StrokeSession(store, emptyGrid(4), {
+      tip: { size: 10, hardness: 1, spacing: 0.25, roundness: 1, angle: 0 },
+      opacity: 1,
+      flow: 1,
+      target: {
+        kind: 'custom',
+        dab: (_cx, _cy, _size, read) => {
+          // The second dab reads the pixel the first one painted, across a tile edge.
+          if (n++ === 1) {
+            const px = new Uint8ClampedArray(4);
+            read(255, 20, px);
+            seen.push(...px);
+          }
+        },
+        pixel: (_x, _y, _a, _cur, out) => out.set([255, 0, 0, 255]),
+      },
+    });
+    s.addPoint(255, 20);
+    s.addPoint(262, 20);
+    expect(seen).toEqual([255, 0, 0, 255]);
+  });
+});

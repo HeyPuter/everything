@@ -70,10 +70,14 @@ export type PaintTarget =
       // current pixel and writes the new value. `alpha` is tip coverage times
       // selection and flow; the engine applies no opacity cap.
       kind: 'custom';
-      dab?: (cx: number, cy: number, size: number) => void;
+      // `read` gives pixels as the stroke has left them so far (neighbours
+      // for tools whose effect builds up, such as Blur and Sharpen).
+      dab?: (cx: number, cy: number, size: number, read: LiveReader) => void;
       pixel: (x: number, y: number, alpha: number, current: Uint8ClampedArray, out: Uint8ClampedArray) => void;
       preserveAlpha?: boolean;
     };
+/** Writes the RGBA at (x, y) into `out`; false where there are no pixels. */
+export type LiveReader = (x: number, y: number, out: Uint8ClampedArray) => boolean;
 export type StrokeOptions = {
   tip: BrushTip;
   dynamics?: BrushDynamics;
@@ -237,6 +241,8 @@ export class StrokeSession {
       w = { id: this.store.add(work), base, work, cov: new Float32Array(TILE * TILE) };
       this.working.set(key, w);
       this.preview.tiles[key] = w.id;
+      // Live reads must see the new working copy.
+      this.liveTx = NaN;
       // Grow the preview bounds to whole tiles so the renderer's texture covers new paint.
       const tileRect = { x: tx * TILE, y: ty * TILE, width: TILE, height: TILE };
       if (!this.original.fill) this.preview.bounds = unionRect(this.preview.bounds, tileRect);
@@ -275,7 +281,7 @@ export class StrokeSession {
     const c = this.channels;
     const px = this.scratch,
       src = this.scratch2;
-    if (target.kind === 'custom') target.dab?.(cx, cy, size);
+    if (target.kind === 'custom') target.dab?.(cx, cy, size, this.readLive);
     for (let ty = Math.floor((y0 - gy) / TILE); ty <= Math.floor((y1 - 1 - gy) / TILE); ty++)
       for (let tx = Math.floor((x0 - gx) / TILE); tx <= Math.floor((x1 - 1 - gx) / TILE); tx++) {
         const w = this.workingTile(tx, ty);
@@ -423,6 +429,36 @@ export class StrokeSession {
       }
     return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   }
+  // The last tile `readLive` looked up (neighbouring reads mostly share it).
+  private liveKey = '';
+  private liveTile: Uint8ClampedArray | null = null;
+  private liveTx = NaN;
+  private liveTy = NaN;
+  private readLive: LiveReader = (x, y, out) => {
+    const lx = x - this.original.x,
+      ly = y - this.original.y;
+    const tx = Math.floor(lx / TILE),
+      ty = Math.floor(ly / TILE);
+    if (tx !== this.liveTx || ty !== this.liveTy) {
+      this.liveTx = tx;
+      this.liveTy = ty;
+      this.liveKey = tileKey(tx, ty);
+      const w = this.working.get(this.liveKey);
+      const id = this.original.tiles[this.liveKey];
+      this.liveTile = w ? w.work : id ? this.store.get(id) : null;
+    }
+    const d = this.liveTile;
+    if (!d) {
+      out[0] = out[1] = out[2] = out[3] = 0;
+      return false;
+    }
+    const i = ((ly - ty * TILE) * TILE + (lx - tx * TILE)) * 4;
+    out[0] = d[i];
+    out[1] = d[i + 1];
+    out[2] = d[i + 2];
+    out[3] = d[i + 3];
+    return true;
+  };
   /** Finish the stroke: drop unchanged/empty working tiles and compute bounds. */
   commit(): TileGrid {
     const grid: TileGrid = { ...this.original, tiles: { ...this.original.tiles } };

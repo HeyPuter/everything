@@ -391,3 +391,36 @@ for (const id of ['brush', 'healing-brush', 'spot-healing', 'quick-mask']) {
     expect(after[1]).toMatchObject({ name: 'second', steps: before[1], quick: false });
   });
 }
+
+test('the Blur tool builds up while scrubbing within one stroke', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    // Dark on the left half, light on the right.
+    const data = new Uint8ClampedArray(200 * 120 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set((i / 4) % 200 < 100 ? [20, 20, 20, 255] : [235, 235, 235, 255], i);
+    const l = newPixelLayer('Edge', e.doc, gridFromImage(e.assets.tiles, { width: 200, height: 120, data }));
+    e.command('New Layer', (d) => d.layers.push(l));
+    e.selected = l.id;
+    e.settings.blurStrength = 50;
+    e.setTool('blur-tool');
+    e.activeTool!.brush!.set(e, { size: 30, hardness: 0.8, smoothing: 0 });
+  });
+  await idle(page);
+  const edge = () =>
+    page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { readRGBA } = await import('/src/model/tiles.ts');
+      const d = readRGBA(e.assets.tiles, e.doc.layers.at(-1)!.pixels!, { x: 99, y: 60, width: 2, height: 1 }).data;
+      return d[4] - d[0];
+    });
+  await canvasDrag(page, [[100, 30], [100, 90]], 20);
+  const once = await edge();
+  await undo(page);
+  await canvasDrag(page, [[100, 30], [100, 90], [100, 30], [100, 90], [100, 30], [100, 90]], 20);
+  const scrubbed = await edge();
+  expect(once).toBeLessThan(215);
+  expect(scrubbed).toBeLessThan(once - 30);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Blur Tool');
+});

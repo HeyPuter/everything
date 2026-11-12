@@ -23,7 +23,7 @@ import {
   type SampleMode,
 } from './clone-source/state';
 import { bindSampleOptions, sampleOptions } from './clone-source/options';
-import type { PaintTarget } from '../engine/paint';
+import type { LiveReader, PaintTarget } from '../engine/paint';
 import { SmudgeFinger } from '../engine/smudge';
 import { TILE, tileKey, readRGBA, writeRect, type TileGrid } from '../model/tiles';
 import { canvasRect, selectionGrid } from '../model/selection';
@@ -167,7 +167,6 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
       return;
     }
     const strength = Number(e.settings[`${kind}Strength`] ?? 50) / 100;
-    const sample = gridSampler(e, target.grid);
     const t = new Uint8ClampedArray(4);
     if (kind === 'smudge') {
       // The tip carries the colors it passes over along the stroke.
@@ -178,38 +177,37 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
         pixel: (x, y, alpha, cur, out) => finger.pixel(x, y, alpha, cur, out),
       };
     }
+    // The 3x3 average reads the pixels as the stroke has left them, so the
+    // effect builds up while scrubbing. Dabs overlap about 1/spacing times;
+    // each applies the share that makes one pass about the chosen strength.
+    const b = brushFor(`${kind}-tool`);
+    const share = 1 - Math.pow(1 - Math.min(1, strength), Math.min(1, Math.max(0.01, b.spacing)));
+    const opacity = b.opacity;
+    let read: LiveReader | undefined;
     return {
-      kind: 'process',
+      kind: 'custom',
       preserveAlpha: true,
-      process: (x, y, base, out) => {
-        // 3x3 alpha-weighted average from the pre-stroke layer.
-        let r = 0, g = 0, b = 0, a = 0;
+      dab: (_cx, _cy, _size, live) => (read = live),
+      pixel: (x, y, alpha, cur, out) => {
+        out[0] = cur[0];
+        out[1] = cur[1];
+        out[2] = cur[2];
+        out[3] = cur[3];
+        let r = 0, g = 0, bl = 0, a = 0;
         for (let j = -1; j <= 1; j++)
           for (let i = -1; i <= 1; i++) {
-            sample(x + i, y + j, t);
+            if (!read!(x + i, y + j, t)) continue;
             const w = t[3];
             r += t[0] * w;
             g += t[1] * w;
-            b += t[2] * w;
+            bl += t[2] * w;
             a += w;
           }
-        if (!a) {
-          out.set(base);
-          return;
-        }
-        r /= a;
-        g /= a;
-        b /= a;
-        if (kind === 'blur') {
-          out[0] = base[0] + (r - base[0]) * strength;
-          out[1] = base[1] + (g - base[1]) * strength;
-          out[2] = base[2] + (b - base[2]) * strength;
-        } else {
-          out[0] = base[0] + (base[0] - r) * strength * 2;
-          out[1] = base[1] + (base[1] - g) * strength * 2;
-          out[2] = base[2] + (base[2] - b) * strength * 2;
-        }
-        out[3] = base[3];
+        if (!a) return;
+        const k = Math.min(1, alpha * opacity * share) * (kind === 'blur' ? 1 : -2);
+        out[0] = cur[0] + (r / a - cur[0]) * k;
+        out[1] = cur[1] + (g / a - cur[1]) * k;
+        out[2] = cur[2] + (bl / a - cur[2]) * k;
       },
     };
   };
