@@ -84,13 +84,21 @@ export function createShell(app, root) {
     }
     docTitle.textContent = app.active ? `${app.active.name}${app.active.dirty ? ' *' : ''}` : '';
     document.title = app.active ? `${app.active.name}${app.active.dirty ? ' *' : ''} - Audio Studio` : 'Audio Studio';
+    workspaceTabs.hidden = app.layoutMode !== 'desktop';
+    workspaceMore.hidden = app.layoutMode !== 'desktop';
     // Workspace tabs.
     const names = tabNames(app);
     const current = app.prefs.get('workspace');
     if (!names.includes(current)) names.push(current);
+    // Rebuilt only when the workspaces change (refreshes come with every status
+    // message and playback change), keeping keyboard focus on the same tab.
+    const tabsKey = JSON.stringify([names, current]);
+    if (tabsKey === workspaceTabs.dataset.key) return;
+    workspaceTabs.dataset.key = tabsKey;
+    const had = workspaceTabs.contains(document.activeElement) ? document.activeElement : null;
     workspaceTabs.replaceChildren(
       ...names.flatMap((n) => {
-        const tab = h('button.workspace-tab', { type: 'button', role: 'tab', 'aria-selected': String(n === current), onclick: () => app.setWorkspace(n) }, n);
+        const tab = h('button.workspace-tab', { type: 'button', role: 'tab', 'aria-selected': String(n === current), dataset: { name: n }, onclick: () => app.setWorkspace(n) }, n);
         if (n !== current) return [tab];
         // The current workspace carries a menu to reset, save or edit workspaces.
         const menuBtn = h('button.icon-btn.workspace-menu-btn', { type: 'button', 'aria-label': `${n} workspace menu`, title: 'Workspace menu', 'aria-haspopup': 'menu' }, icon('menu', 14));
@@ -101,8 +109,13 @@ export function createShell(app, root) {
         return [tab, menuBtn];
       }),
     );
-    workspaceTabs.hidden = app.layoutMode !== 'desktop';
-    workspaceMore.hidden = app.layoutMode !== 'desktop';
+    if (had) {
+      const tabs = [...workspaceTabs.querySelectorAll('.workspace-tab')];
+      const same = had.classList.contains('workspace-menu-btn')
+        ? workspaceTabs.querySelector('.workspace-menu-btn')
+        : tabs.find((t) => t.dataset.name === had.dataset.name);
+      (same || workspaceTabs.querySelector('[aria-selected=true]'))?.focus({ preventScroll: true });
+    }
   };
   const refreshStatus = () => {
     status.textContent = app.statusMessage || '';

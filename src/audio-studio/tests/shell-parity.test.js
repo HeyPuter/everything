@@ -256,6 +256,35 @@ describe('toolbar and panel buttons', () => {
   });
 });
 
+describe('workspace tabs and keyboard focus', () => {
+  it('keeps focus on a workspace tab through status messages, playback and workspace changes', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
+    createShell(app, root);
+    const frame = () => new Promise((r) => requestAnimationFrame(r));
+    await frame();
+    const tab = (name) => [...root.querySelectorAll('.workspace-tab')].find((t) => t.textContent === name);
+    const radio = tab('Radio Production');
+    radio.focus();
+    app.setStatus('Saved');
+    app.emit('transport', 'playing');
+    await frame();
+    expect(document.activeElement).toBe(radio);
+    radio.click();
+    await frame();
+    expect(app.prefs.get('workspace')).toBe('Radio Production');
+    expect(document.activeElement).toBe(tab('Radio Production'));
+    expect(document.activeElement.getAttribute('aria-selected')).toBe('true');
+    root.querySelector('.workspace-menu-btn').focus();
+    app.setWorkspace('Default');
+    await frame();
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Default workspace menu');
+  });
+});
+
 describe('theme contrast', () => {
   it('keeps faint text readable (4.5:1) on panels in both themes', async () => {
     const fs = await import('node:fs');
