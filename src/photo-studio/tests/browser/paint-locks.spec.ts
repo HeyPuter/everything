@@ -123,3 +123,31 @@ for (const [id, label] of [
     expect(result.left).toEqual([255]);
   });
 }
+
+test('Magic Eraser fills locked transparency with the background color', async ({ page }) => {
+  await lockedHalf(page);
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.background = '#00ff00';
+    e.setTool('magic-eraser');
+  });
+  await canvasClick(page, 50, 75);
+  const result = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    const l = e.doc.layers[0];
+    const at = (x: number) => [...readRGBA(e.assets.tiles, l.pixels!, { x, y: 75, width: 1, height: 1 }).data];
+    return { left: at(50), right: at(150), history: e.history.labels.at(-1) };
+  });
+  expect(result).toEqual({ left: [0, 255, 0, 255], right: [0, 0, 0, 0], history: 'Magic Eraser' });
+});
+
+test('Background Eraser explains that locked transparency stops it', async ({ page }) => {
+  await lockedHalf(page);
+  await page.evaluate(() => window.photoStudio.setTool('background-eraser'));
+  const before = await page.evaluate(() => window.photoStudio.history.labels.length);
+  await canvasDrag(page, [[50, 75], [90, 75]], 8);
+  await expect(page.locator('#status')).toHaveText('Unlock transparent pixels to use the Background Eraser.');
+  expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(before);
+  expect((await alphas(page)).left).toEqual([255]);
+});

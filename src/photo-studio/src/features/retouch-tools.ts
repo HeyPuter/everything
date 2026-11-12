@@ -28,6 +28,7 @@ import { TILE, tileKey, readRGBA, writeRect, type TileGrid } from '../model/tile
 import { canvasRect, selectionGrid } from '../model/selection';
 import { readMask } from '../model/tiles';
 import { wandMask } from './selection';
+import { layerLock } from '../model/locks';
 
 // Sampling helpers over a committed (immutable) grid or a composite snapshot.
 function gridSampler(e: Editor, grid: TileGrid) {
@@ -297,7 +298,14 @@ function sampledColor(e: Editor, target: PixelTarget & { kind: 'pixels' }) {
   return { sample, ref: [t[0], t[1], t[2]] };
 }
 function backgroundEraserTarget(e: Editor, target: PixelTarget): PaintTarget | undefined {
-  if (target.kind !== 'pixels') return;
+  if (target.kind !== 'pixels') {
+    e.message('The Background Eraser works on pixel layers.');
+    return;
+  }
+  if (layerLock(e.doc.layers, target.layer.id, 'transparency')) {
+    e.message('Unlock transparent pixels to use the Background Eraser.');
+    return;
+  }
   const tol = Number(e.settings.bgTolerance ?? 50) * 2.55;
   const mode = (e.settings.bgSampling as string) ?? 'once';
   const ref = mode === 'swatch' ? hexRgb(e.background) : sampledColor(e, target).ref;
@@ -386,9 +394,12 @@ export function installRetouchTools(_e: Editor) {
         const sel = selectionGrid(e.doc, e.assets.tiles);
         const cover = sel ? readMask(e.assets.tiles, sel, area).data : undefined;
         const img = readRGBA(e.assets.tiles, target.grid, area);
+        // With transparency locked the region takes the background color instead.
+        const fill = layerLock(e.doc.layers, target.layer.id, 'transparency') ? hexRgb(e.background) : undefined;
         for (let i = 0; i < region.data.length; i++) {
           const k = (region.data[i] / 255) * (cover ? cover[i] / 255 : 1);
-          img.data[i * 4 + 3] *= 1 - k;
+          if (!fill) img.data[i * 4 + 3] *= 1 - k;
+          else if (k) for (let c = 0; c < 3; c++) img.data[i * 4 + c] += (fill[c] - img.data[i * 4 + c]) * k;
         }
         commitTarget(e, target, writeRect(e.assets.tiles, target.grid, 0, 0, img), 'Magic Eraser');
       },
