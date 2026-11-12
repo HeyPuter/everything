@@ -90,7 +90,8 @@ function syncBatchSteps() {
       document: async (e) => {
         const current = allActions().find((x) => x.action.id === action.id)?.action;
         if (!current) throw new Error(`The action “${action.name}” no longer exists.`);
-        if (!(await playAction(e, current))) throw new Error(`The action “${current.name}” stopped.`);
+        // The batch lists the file with the reason the action stopped.
+        if (!(await playAction(e, current))) throw new Error(`The action “${current.name}” stopped${stopReason ? `: ${stopReason}` : '.'}`);
       },
     });
 }
@@ -99,6 +100,8 @@ let recording: Action | undefined;
 let playing = false;
 // Set by the Stop button while an action plays; playback ends before the next step.
 let stopRequested = false;
+// Why the last played action stopped (a batch reports it per file).
+let stopReason = '';
 // Insert Stop adds a step that pauses playback with a message.
 export const STOP_STEP = 'actions.stop-step';
 type StopArg = { message: string; allowContinue: boolean };
@@ -131,10 +134,13 @@ function dialogArg(arg: unknown) {
   const params = arg && typeof arg === 'object' ? (arg as { params?: unknown }).params : undefined;
   return params && typeof params === 'object' ? { initial: params } : undefined;
 }
+/** Why the last played action stopped ('' when it finished). */
+export const lastStopReason = () => stopReason;
 /** Replay an action's enabled steps; returns false if a step failed. */
 export async function playAction(e: Editor, action: Action, from = 0) {
   playing = true;
   stopRequested = false;
+  stopReason = '';
   takeDialogCancelled();
   // Enables the Stop button.
   e.dock?.update();
@@ -143,11 +149,13 @@ export async function playAction(e: Editor, action: Action, from = 0) {
       const s = action.steps[i];
       if (!s.enabled) continue;
       if (stopRequested) {
+        stopReason = 'Stop was pressed.';
         e.message(`Stopped “${action.name}”.`);
         return false;
       }
       if (s.command === STOP_STEP) {
         if (!(await pauseAt(action, s.arg))) {
+          stopReason = 'Stop was pressed.';
           e.message(`Stopped “${action.name}”.`);
           return false;
         }
@@ -166,13 +174,15 @@ export async function playAction(e: Editor, action: Action, from = 0) {
       await c.run(e, s.dialog ? dialogArg(s.arg) : s.arg);
       // Cancelling a step's dialog stops the action, as Stop does.
       if (takeDialogCancelled()) {
-        e.message(`Stopped “${action.name}”: ${c.label.replace(/…$/, '')} was cancelled.`);
+        stopReason = `${c.label.replace(/…$/, '')} was cancelled.`;
+        e.message(`Stopped “${action.name}”: ${stopReason}`);
         return false;
       }
     }
     return true;
   } catch (error) {
-    e.message(`Action stopped: ${error instanceof Error ? error.message : String(error)}`);
+    stopReason = error instanceof Error ? error.message : String(error);
+    e.message(`Action stopped: ${stopReason}`);
     return false;
   } finally {
     playing = false;

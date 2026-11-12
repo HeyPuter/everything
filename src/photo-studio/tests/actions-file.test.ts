@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { playAction, readActionSets } from '../src/features/actions';
+import { installActions, playAction, readActionSets } from '../src/features/actions';
 import { registerCommand, renamedCommands } from '../src/app/registry';
 import type { Editor } from '../src/editor';
 
@@ -49,5 +49,13 @@ describe('playing actions', () => {
     expect(messages).toEqual([]);
     expect(ok).toBe(true);
     expect(ran).toEqual([{ params: { radius: 2 } }]);
+  });
+  it('a batch that runs an action reports why the action stopped on a file', async () => {
+    installActions({ dock: { update() {} } } as unknown as Editor);
+    const { batchSteps } = await import('../src/features/files/automate-steps');
+    const step = batchSteps.get('action:a-dup-desat')!;
+    const { e } = editor();
+    // Duplicate Layer is not registered here, so the action cannot run.
+    await expect(step.document!(e)).rejects.toThrow('The action “Desaturated Copy” stopped: The command “layer.duplicate” is not available.');
   });
 });
