@@ -245,7 +245,9 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
   dialog.querySelector('.export-stage')!.addEventListener('click', (ev) => (ev.currentTarget as HTMLElement).classList.toggle('actual'));
 
   return new Promise<void>((resolve) => {
+    let closed = false;
     const close = () => {
+      closed = true;
       clearTimeout(timer);
       generation++;
       dialog.close();
@@ -259,18 +261,21 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     });
     dialog.querySelector('[data-act="cancel"]')!.addEventListener('click', close);
     const finish = async (puter: boolean) => {
-      const buttons = dialog.querySelectorAll<HTMLButtonElement>('.export-actions button');
+      // Cancel stays available: closing the dialog abandons the export.
+      const buttons = dialog.querySelectorAll<HTMLButtonElement>('.export-actions button:not([data-act="cancel"])');
       buttons.forEach((b) => (b.disabled = true));
       busy.hidden = false;
       busy.textContent = 'Encoding…';
       try {
         const out = await encode();
+        if (closed) return;
         saveSettings(s);
         const name = exportFileName(exportBaseName(doc), s.format);
         // The export is noted in the document's provenance record either way.
         const { withProvenance } = await import('../provenance/export');
         const [w, h] = outputSize(baseW, baseH, s);
         const bytes = await withProvenance(e.session, out.bytes, name, provenance, { prompts: e.preferences.provenancePrompts, width: s.canvasWidth || w, height: s.canvasHeight || h });
+        if (closed) return;
         const blob = bytesBlob(bytes, out.mime);
         close();
         if (puter) {
