@@ -651,7 +651,9 @@ class SVGWriter {
     const nl = this.nl(depth);
     const isLayer = node.type === 'layer';
     const id = isLayer ? this.nameId(node.name || 'Layer') : this.nameId(node.name);
-    const dataName = isLayer && !this.o.minify && node.name && sanitizeId(node.name) !== node.name ? ` data-name="${escapeXml(node.name)}"` : '';
+    let dataName = isLayer && !this.o.minify && node.name && sanitizeId(node.name) !== node.name ? ` data-name="${escapeXml(node.name)}"` : '';
+    // Marks the group as a layer, so opening the file again restores the layers.
+    if (isLayer && !this.o.minify) dataName += ' data-layer=""';
     if (node.type === 'group' && node.clip && kids.length) {
       const mask = kids[kids.length - 1];
       const cp = this.clipDef(mask);

@@ -766,8 +766,7 @@ describe('SVG masks with gray levels', () => {
     });
     const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 200, h: 100 } });
     const back = svgToDocument(svg);
-    // (The exported layer comes back as a group.)
-    const nodes = back.get(back.layers()[0].children[0]).children.map((id) => back.get(id));
+    const nodes = back.layers()[0].children.map((id) => back.get(id));
     expect(nodes.map((n) => [n.type, n.opacityMask.clip, n.opacityMask.invert])).toEqual([['path', false, false], ['path', true, true]]);
     // The full-size backdrop is not part of the art; the art keeps its place (transform baked in).
     const artPaths = nodes[0].opacityMask.art.nodes.filter((n) => n.type === 'path');
@@ -857,5 +856,33 @@ describe('SVG text on a path', () => {
     expect(end).toMatchObject({ kind: 'path', pathOptions: { start: 0 }, para: { align: 'right' } });
     expect(lost.kind).toBe('point');
     expect(doc.importWarnings).toEqual(['Text on a path was imported as straight text.']);
+  });
+});
+
+describe('SVG layers round trip', () => {
+  it('export marks layers and import restores them, names and order included', () => {
+    const doc = VDocument.create({ width: 100, height: 100 });
+    const [first] = doc.layers();
+    doc.transact('layers', () => {
+      doc.update(first.id, { name: 'Back ground' });
+      const top = { ...doc.layers()[0], id: 'L2', name: 'Ink', children: [] };
+      doc.insert(top, 'root');
+      doc.insert(createPath(rectangle(0, 0, 10, 10), true, { fill: { type: 'solid', color: '#ff0000' }, stroke: null }), first.id);
+      doc.insert(createPath(rectangle(5, 5, 10, 10), true, { fill: { type: 'solid', color: '#0000ff' }, stroke: null }), 'L2');
+    });
+    const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 100, h: 100 } });
+    expect(svg.match(/data-layer=""/g)).toHaveLength(2);
+    const back = svgToDocument(svg);
+    const layers = back.layers();
+    expect(layers.map((l) => l.name)).toEqual(['Back ground', 'Ink']);
+    expect(layers.map((l) => l.children.map((id) => back.get(id).type))).toEqual([['path'], ['path']]);
+    // A second round trip is stable (no extra group per trip).
+    expect(exportSVG(back, { rect: { x: 0, y: 0, w: 100, h: 100 } })).toBe(svg);
+    // Placed, each layer becomes a named group.
+    const placed = svgToNodes(svg);
+    const root = placed.nodes.find((n) => n.id === placed.root);
+    expect(root.children.map((id) => placed.nodes.find((n) => n.id === id).name)).toEqual(['Back ground', 'Ink']);
+    // Minified output for the web stays free of the marker.
+    expect(exportSVG(doc, { rect: { x: 0, y: 0, w: 100, h: 100 }, minify: true })).not.toContain('data-layer');
   });
 });

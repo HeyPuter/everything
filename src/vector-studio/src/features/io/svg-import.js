@@ -1898,7 +1898,7 @@ class Importer {
     const ctx = { ctm, style: rootStyle, vw: this.vw, vh: this.vh, useStack: new Set() };
     // Editor layers (top-level groups marked as layers) become document layers.
     const kids = [...svg.children];
-    const isLayer = (el) => el.localName === 'g' && (el.getAttributeNS?.(INK, 'groupmode') === 'layer' || el.getAttribute('inkscape:groupmode') === 'layer');
+    const isLayer = (el) => el.localName === 'g' && (el.hasAttribute('data-layer') || el.getAttributeNS?.(INK, 'groupmode') === 'layer' || el.getAttribute('inkscape:groupmode') === 'layer');
     const layered = kids.some(isLayer);
     const layers = [];
     let loose = null;
@@ -2040,7 +2040,16 @@ export async function svgToNodesAsync(text, { onProgress, signal } = {}) {
 }
 
 function nodesFrom(r) {
-  const top = r.layers.flatMap((l) => l.ids);
+  // Placed artwork from several layers keeps each layer as a named group.
+  const layered = r.layers.filter((l) => l.ids.length);
+  const top =
+    layered.length > 1
+      ? layered.map((l) => {
+          const g = createGroup(l.ids, { name: l.name });
+          r.nodes.set(g.id, g);
+          return g.id;
+        })
+      : r.layers.flatMap((l) => l.ids);
   if (!top.length) return { nodes: [], root: null, assets: {}, bounds: null, warnings: r.warnings };
   const nodes = r.nodes;
   let rootId;
