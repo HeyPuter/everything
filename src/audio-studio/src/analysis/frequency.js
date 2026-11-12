@@ -462,6 +462,8 @@ export function frequencyPanel(app) {
       schedule();
     }),
   ];
+  // Colours come from the theme: repaint when it changes (also while stopped).
+  window.addEventListener('themechange', () => schedule());
   const ro = new ResizeObserver(() => schedule());
   ro.observe(plot);
   void offs;

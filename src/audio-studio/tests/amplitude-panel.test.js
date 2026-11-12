@@ -101,3 +101,33 @@ describe('Amplitude Statistics panel', () => {
     expect(caption()).not.toMatch(/a\.wav/);
   });
 });
+
+describe('Amplitude Statistics theme', () => {
+  it('repaints the RMS histogram when the theme changes', async () => {
+    let fills = 0;
+    const ctx = new Proxy(
+      {},
+      {
+        get: (t, k) => (k in t ? t[k] : k === 'fillRect' ? () => fills++ : () => {}),
+        set: (t, k, v) => ((t[k] = v), true),
+      },
+    );
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = () => ctx;
+    try {
+      const { app } = setup();
+      // A panel that opens on the RMS Histogram tab.
+      app.prefs.set('amplitudeTab', 'histogram');
+      const fresh = amplitudePanel(app);
+      const plot = fresh.el.querySelector('.rms-hist');
+      Object.defineProperty(plot, 'clientWidth', { value: 400 });
+      Object.defineProperty(plot, 'clientHeight', { value: 200 });
+      await fresh.scan(false);
+      fills = 0;
+      window.dispatchEvent(new CustomEvent('themechange'));
+      expect(fills).toBeGreaterThan(0);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
+    }
+  });
+});

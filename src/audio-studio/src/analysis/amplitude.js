@@ -312,6 +312,8 @@ export function amplitudePanel(app) {
     drawHist();
   });
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => drawHist()).observe(histPlot);
+  // Colours come from the theme: repaint when it changes.
+  window.addEventListener('themechange', () => drawHist());
 
   async function scan(selectionOnly) {
     const doc = app.active;

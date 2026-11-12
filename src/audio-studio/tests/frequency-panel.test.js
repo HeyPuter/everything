@@ -252,3 +252,26 @@ describe('Frequency Analysis readout', () => {
     }
   });
 });
+
+describe('Frequency Analysis theme', () => {
+  it('repaints the plot when the theme changes while stopped', async () => {
+    const points = [];
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = () => recordingContext(points);
+    try {
+      const { panel } = setup();
+      const plot = panel.el.querySelector('.freq-plot');
+      Object.defineProperty(plot, 'clientWidth', { value: 642 });
+      Object.defineProperty(plot, 'clientHeight', { value: 300 });
+      panel.show();
+      await new Promise((r) => setTimeout(r, 300));
+      points.length = 0;
+      window.dispatchEvent(new CustomEvent('themechange'));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(points.length).toBeGreaterThan(0);
+      panel.hide();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
+    }
+  });
+});
