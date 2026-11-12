@@ -162,6 +162,14 @@ send.call(port, { type: 'log', level: 'log', text: 'still running' });`;
   expect(await page.evaluate(() => window.photoStudio.busy)).toBe(false);
 });
 
+test('an uncaught error with a huge message is reported briefly', async ({ page }) => {
+  const out = await runSource(page, "setTimeout(() => { throw new Error('y'.repeat(200000)); }, 0);\nawait studio.sleep(2000);", 'Thrower');
+  expect(out.at(-1)).toMatch(/^error: “Thrower” failed.*: (Uncaught )?Error: y+/);
+  expect(out.at(-1)!.length).toBeLessThan(4200);
+  const status = await page.evaluate(() => document.querySelector('#toast')?.textContent?.length ?? 0);
+  expect(status).toBeLessThan(4200);
+});
+
 test('runs a sample script with its form', async ({ page }) => {
   await expect.poll(() => page.evaluate(async () => (await import('/src/features/scripting/store.ts')).listScripts().filter((s) => s.sample).length), { timeout: 20_000 }).toBeGreaterThanOrEqual(6);
   await menu(page, 'File', 'Scripts', 'Add Watermark');

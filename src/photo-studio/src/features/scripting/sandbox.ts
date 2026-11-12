@@ -74,7 +74,7 @@ export class ScriptSandbox {
   private onWindowMessage = (ev: MessageEvent) => {
     if (!this.frame || ev.source !== this.frame.contentWindow) return;
     const m = ev.data as { type?: string; message?: string; line?: number };
-    if (m?.type === 'worker-error') this.end({ status: 'failed', message: String(m.message ?? 'The script could not run.').replace(/^Uncaught /, ''), line: Math.max(0, Number(m.line) - this.lineOffset) });
+    if (m?.type === 'worker-error') this.end({ status: 'failed', message: String(m.message ?? 'The script could not run.').replace(/^Uncaught /, '').slice(0, LOG_CHARS), line: Math.max(0, Number(m.line) - this.lineOffset) });
   };
   private lineOffset = 0;
   constructor(
