@@ -168,6 +168,54 @@ test('a review link opens the review view; reviewers comment but cannot edit', a
   await ctxR.close();
 });
 
+/** The owner shares a new document and a second person joins it as an editor. */
+async function twoPeople(browser: import('@playwright/test').Browser, baseURL: string | undefined) {
+  const env = environment();
+  const peers = relay();
+  const opts = { baseURL, viewport: { width: 1280, height: 800 } };
+  const ctxA = await browser.newContext(opts),
+    ctxB = await browser.newContext(opts);
+  const a = await person(env, peers, ctxA, owner);
+  await openImage(a.page, 320, 240, '#4070a0', 'shared.png');
+  await a.page.evaluate(() => void window.photoStudio.runCommand('file.invite-to-edit'));
+  await a.page.getByRole('button', { name: 'Start Sharing' }).click();
+  const access = a.page.locator('dialog .collab-dialog');
+  await expect(access).toBeVisible({ timeout: 60_000 });
+  await access.locator('select[name="role"]').selectOption('editor');
+  await access.getByRole('button', { name: 'Create Link' }).click();
+  const link = new URL(await access.getByRole('textbox', { name: 'Invitation link' }).inputValue());
+  await access.getByRole('button', { name: 'Done' }).click();
+  const b = await person(env, peers, ctxB, editor, link.pathname + link.hash);
+  await expect.poll(async () => (await sharedState(b.page))?.role, { timeout: 60_000 }).toBe('editor');
+  return { a, b, close: () => Promise.all([ctxA.close(), ctxB.close()]) };
+}
+
+test('a person who switches to another document leaves no cursor, layer or selection outline behind', async ({ browser }, info) => {
+  test.setTimeout(240_000);
+  const { a, b, close } = await twoPeople(browser, info.project.use.baseURL);
+  // B selects an area and points at the canvas: A sees the cursor and the outlines.
+  await b.page.evaluate(() => window.photoStudio.runCommand('select.all'));
+  await idle(b.page);
+  await b.page.mouse.move(500, 400);
+  const overlay = a.page.locator('#overlay');
+  await expect(overlay.locator('.collab-cursor')).toHaveCount(1, { timeout: 30_000 });
+  await expect(overlay.locator('rect[stroke-dasharray]')).not.toHaveCount(0);
+  // B switches to a local document without leaving the canvas (as with a keyboard shortcut).
+  await openImage(b.page, 200, 150, '#806040', 'local.png');
+  await expect(overlay.locator('.collab-cursor')).toHaveCount(0, { timeout: 30_000 });
+  await expect(overlay.locator('rect[stroke-dasharray]')).toHaveCount(0);
+  // And comes back: the shared document is theirs again.
+  await b.page.evaluate(async () => {
+    const e = window.photoStudio;
+    await e.switchSession(e.sessions.find((s) => s.doc.name.startsWith('shared'))!);
+  });
+  await b.page.mouse.move(520, 420);
+  await expect(overlay.locator('.collab-cursor')).toHaveCount(1, { timeout: 30_000 });
+  expect(a.errors).toEqual([]);
+  expect(b.errors).toEqual([]);
+  await close();
+});
+
 test('the Comment tool puts the cursor in the new comment, even when the panel was closed', async ({ page }) => {
   await boot(page);
   await openImage(page, 320, 240, '#808080', 'local.png');

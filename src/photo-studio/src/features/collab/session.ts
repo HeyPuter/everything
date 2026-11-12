@@ -102,9 +102,19 @@ export class CollabSession implements SharedHandle {
   }
   pointer(x: number | undefined, y: number | undefined) {
     this.cursor = x === undefined || y === undefined ? null : [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+    this.away = false;
     this.client.setPresence(this.presence());
   }
+  // Another document is shown in this browser: others see no cursor or outlines.
+  private away = false;
+  hidden() {
+    if (this.away) return;
+    this.away = true;
+    this.cursor = null;
+    this.client.setPresence({ cursor: null });
+  }
   changed() {
+    this.away = false;
     this.client.setPresence(this.presence());
     if (this.following && !this.applying) {
       const e = this.e;
@@ -310,18 +320,19 @@ const active = (e: Editor) => {
 function install(e: Editor) {
   if (installed) return;
   installed = true;
+  const all = () => [...shared.values()].filter((x): x is CollabSession => x instanceof CollabSession);
   e.pointerHooks.push((ed, p) => active(ed)?.pointer(p?.x, p?.y));
   e.viewHooks.push((ed) => active(ed)?.changed());
   e.onUpdate((ed) => {
     const cs = active(ed);
     cs?.changed();
+    for (const other of all()) if (other !== cs) other.hidden();
     renderBar(ed);
     document.documentElement.classList.toggle('review-mode', !!cs?.review);
     // A layer comp shown in the review view stays shown as the document updates.
     if (cs?.review && reviewComp) queueMicrotask(() => void showComp(ed, reviewComp));
   });
   e.el('#viewport').addEventListener('pointerleave', () => active(e)?.pointer(undefined, undefined));
-  const all = () => [...shared.values()].filter((x): x is CollabSession => x instanceof CollabSession);
   window.addEventListener('online', () => {
     for (const cs of all()) {
       cs.client.flush();
