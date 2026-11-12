@@ -189,7 +189,7 @@ const paragraphLength = (p: Paragraph) => p.runs.reduce((n, r) => n + r.text.len
 
 export function fromPlainText(text: string, style: CharStyle = defaultCharStyle(), paragraph: ParagraphStyle = defaultParagraphStyle()): TextContent {
   return {
-    paragraphs: text.split('\n').map((t) => ({ runs: [{ text: t, style: cloneChar(style) }], style: { ...paragraph } })),
+    paragraphs: text.replace(/\r\n?/g, '\n').split('\n').map((t) => ({ runs: [{ text: t, style: cloneChar(style) }], style: { ...paragraph } })),
   };
 }
 // Replaces all text, keeping the first character and paragraph styles.

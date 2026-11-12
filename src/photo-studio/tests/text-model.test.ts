@@ -147,6 +147,12 @@ describe('insert and delete', () => {
     expect(st.vertical || '').toBe('');
     expect(charStyleOfRange(out, 4, 5).features).toBe('smcp');
   });
+  it('plain text with Windows or old Mac line ends makes clean paragraphs', () => {
+    // Data set values from CSV files can carry CRLF or CR inside quoted fields.
+    const c = setPlainText(base(), 'one\r\ntwo\rthree');
+    expect(c.paragraphs.map((p) => p.runs.map((r) => r.text).join(''))).toEqual(['one', 'two', 'three']);
+    expect(plainText(fromPlainText('a\r\nb'))).toBe('a\nb');
+  });
   it('setPlainText keeps the first styles', () => {
     const c = setPlainText(applyCharStyle(base(), 0, 11, { family: 'Caveat' }), 'x\ny');
     expect(c.paragraphs.length).toBe(2);
