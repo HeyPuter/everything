@@ -148,4 +148,18 @@ describe('browser-decoded images beyond the document limits', () => {
     const { checkBrowserFile } = await import('../src/features/files/open');
     await expect(checkBrowserFile(new Blob([file]))).rejects.toThrow('This image is 6000 × 6000 pixels');
   });
+
+  it('says plainly when the browser has no HEIC decoder', async () => {
+    const g = globalThis as { createImageBitmap?: unknown };
+    const saved = g.createImageBitmap;
+    // What Chromium reports for a HEIC file.
+    g.createImageBitmap = () => Promise.reject(new DOMException('The source image could not be decoded.', 'InvalidStateError'));
+    try {
+      await expect(decodeFile(new Blob([heif('heic', 400, 300)]), 'IMG_0001.HEIC')).rejects.toThrow('This browser cannot decode HEIC images. Convert the file to JPEG or PNG and open that.');
+      // Other formats keep the browser's own message.
+      await expect(decodeFile(new Blob([heif('avif', 400, 300)]), 'photo.avif')).rejects.toThrow('The source image could not be decoded.');
+    } finally {
+      g.createImageBitmap = saved;
+    }
+  });
 });

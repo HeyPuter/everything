@@ -278,7 +278,13 @@ export async function decodeFile(blob: Blob, name: string, opts: DecodeOptions =
     throw new Error('Open a PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF, ICO, TGA, Netpbm, SVG, PSD, PSB or .photo file.');
   if (blob.type === 'image/svg+xml') return { image: await rasterizeSvg(blob) };
   await checkBrowserFile(blob);
-  return { image: await decodeBrowserImage(blob) };
+  try {
+    return { image: await decodeBrowserImage(blob) };
+  } catch (error) {
+    // Chromium and Firefox have no HEIC decoder.
+    if (blob.type === 'image/heic' && error instanceof DOMException) throw new Error('This browser cannot decode HEIC images. Convert the file to JPEG or PNG and open that.');
+    throw error;
+  }
 }
 
 const resolution = (dpi: number): PhotoDocument['resolution'] => ({
