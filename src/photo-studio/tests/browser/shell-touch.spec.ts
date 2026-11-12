@@ -144,3 +144,20 @@ test('settings the browser cannot store still apply, and the message says they w
   await prefs.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(status).toHaveText(/^Preferences changed\. .*could not store/);
 });
+
+test.describe('on a 375×812 phone', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+  test('Portrait & Restore fits its footer without scrolling sideways', async ({ page }) => {
+    await start(page, 'filter.portrait-restore');
+    const dialog = page.locator('dialog.pr-workspace[open]');
+    await expect(dialog.locator('.pr-ok')).toBeVisible();
+    expect(await dialog.evaluate((d) => d.scrollWidth - d.clientWidth)).toBe(0);
+    const box = (await dialog.boundingBox())!;
+    for (const b of await dialog.locator('.rw-footer button, .rw-footer summary').all()) {
+      const r = (await b.boundingBox())!;
+      expect(r.x + r.width).toBeLessThanOrEqual(box.x + box.width);
+    }
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  });
+});

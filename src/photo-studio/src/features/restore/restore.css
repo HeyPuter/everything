@@ -67,4 +67,7 @@ dialog.pr-workspace { width: min(1320px, calc(100vw - 32px)); height: min(880px,
   .pr-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(220px, 1fr) auto; overflow-y: auto; }
   .pr-list { border-right: 0; border-bottom: 1px solid var(--line); max-height: 160px; }
   .pr-side { border-left: 0; border-top: 1px solid var(--line); }
+  /* Presets, Reset All, Cancel and OK fit across a phone. */
+  .pr-workspace .rw-footer { padding: 10px 12px; gap: 6px; }
+  .pr-workspace .rw-footer button { min-width: 0; }
 }
