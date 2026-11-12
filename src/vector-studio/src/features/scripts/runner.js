@@ -189,6 +189,30 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
       clearTimeout(timer);
       left = Math.max(0, left - (Date.now() - since));
     };
+    const hold = () => {
+      if (!asking++) pause();
+    };
+    const release = () => {
+      if (!--asking && !done) resume();
+    };
+    /** While a menu command runs, the time its own dialogs (Move..., Offset Path...) are open does not count either. */
+    const watchDialogs = () => {
+      let held = false;
+      const sync = () => {
+        const open = Boolean(document.querySelector('dialog[open]'));
+        if (open === held) return;
+        held = open;
+        if (open) hold();
+        else release();
+      };
+      const observer = new MutationObserver(sync);
+      observer.observe(document.body, { childList: true });
+      sync();
+      return () => {
+        observer.disconnect();
+        if (held) release();
+      };
+    };
     resume();
     const onMessage = async (e) => {
       if (e.source !== frame.contentWindow) return;
@@ -200,7 +224,8 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
       } else if (m.__vs === 'call') {
         let reply;
         const asks = ASKS_USER.has(m.method);
-        if (asks && !asking++) pause();
+        if (asks) hold();
+        const unwatch = m.method === 'command' ? watchDialogs() : null;
         try {
           const fn = api[m.method];
           if (!fn) throw new Error(`Unknown API "${m.method}".`);
@@ -208,7 +233,8 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
         } catch (err) {
           reply = { __vs: 'reply', id: m.id, error: err?.message || String(err) };
         }
-        if (asks && !--asking && !done) resume();
+        unwatch?.();
+        if (asks) release();
         if (!done) frame.contentWindow?.postMessage(reply, '*');
       } else if (m.__vs === 'done') {
         finish(m.error ? { ok: false, error: m.error } : { ok: true, value: m.value });
