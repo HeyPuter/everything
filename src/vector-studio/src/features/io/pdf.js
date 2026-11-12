@@ -40,7 +40,13 @@
  */
 import { gradientGeometry, nodeBounds, visualBounds, rectsIntersect, inflate } from '../../model/geometry.js';
 import { textPieces, decoRects } from './text-segments.js';
-import { segmentCount, segmentPoints, isLine } from '../../model/bezier.js';
+import {
+  segmentCount,
+  segmentPoints,
+  isLine,
+  zeroLength,
+  capsShowDots,
+} from '../../model/bezier.js';
 import { hexToRgb } from '../../lib/color.js';
 import { dataUrlToBytes, sniffMime, jpegInfo } from './image-info.js';
 import { nodeArrowOutlines, strokedAnchors, effectiveDash, outlineSubpaths } from './outlines.js';
@@ -642,13 +648,18 @@ class PDFRenderer {
 
   // ---- geometry ----
 
-  pathOps(subpaths) {
+  /** Path construction operators; with `caps` a zero-length subpath is a tiny segment so its caps paint. */
+  pathOps(subpaths, caps = false) {
     const f = (v) => this.f(v);
     let out = '';
     for (const sp of subpaths) {
       const a = sp.anchors;
       if (!a.length) continue;
       out += `${f(a[0].x)} ${f(a[0].y)} m\n`;
+      if (caps && zeroLength(a)) {
+        out += `${f(a[0].x + Math.max(0.001, Math.abs(a[0].x) * 5e-7))} ${f(a[0].y)} l\n`;
+        continue;
+      }
       const n = segmentCount(a, sp.closed);
       for (let i = 0; i < n; i++) {
         const c = segmentPoints(a, i);
@@ -676,7 +687,8 @@ class PDFRenderer {
   /** Draw fill and stroke of a shape-like geometry with a node's paint. */
   paintGeometry(ctx, node, subpaths, { evenOdd = false, fill = node.fill, stroke = node.strokeWidth > 0 ? node.stroke : null, strokeAlign = 'center', arrows = [], strokeSubpaths = null } = {}) {
     const res = ctx.res;
-    const path = this.pathOps(subpaths);
+    const caps = Boolean(stroke) && capsShowDots(node);
+    const path = this.pathOps(subpaths, caps);
     if (!path) return;
     const op = node.opacity ?? 1;
     // Stop opacities that vary across a gradient go into a soft mask instead of the constant alpha.
@@ -709,7 +721,7 @@ class PDFRenderer {
       const pat = this.w.add(`<< /Type /Pattern /PatternType 2 /Shading ${sh.id} 0 R /Matrix [${m.map((v) => this.f(v)).join(' ')}] >>`);
       return `/Pattern CS /${res.name(res.pattern, 'P', pat)} SCN\n`;
     };
-    const strokePath = strokeSubpaths ? this.pathOps(strokeSubpaths) : path;
+    const strokePath = strokeSubpaths ? this.pathOps(strokeSubpaths, caps) : path;
     const doStroke = (scale = 1) => {
       if (!stroke) return '';
       const ops = `${this.strokeState(node, scale)}${strokeColor()}${strokePath}S\n`;

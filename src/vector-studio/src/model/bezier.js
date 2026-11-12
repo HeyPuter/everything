@@ -34,6 +34,24 @@ export function segmentCount(anchors, closed) {
   return closed ? anchors.length : anchors.length - 1;
 }
 
+/**
+ * Whether a subpath has no length (every anchor and handle on its first point). Stroked with round
+ * or square caps it shows as a dot or a square, as in SVG; canvas and PDF viewers skip such a
+ * subpath, so renderers trace it as a tiny segment along the x axis, the direction SVG gives the caps.
+ */
+export function zeroLength(anchors) {
+  const { x, y } = anchors[0];
+  for (const a of anchors) {
+    if (a.x !== x || a.y !== y || a.ix !== x || a.iy !== y || a.ox !== x || a.oy !== y) return false;
+  }
+  return true;
+}
+
+/** Whether a node's stroke caps show on a zero-length subpath. */
+export function capsShowDots(node) {
+  return node.strokeCap === 'round' || node.strokeCap === 'square';
+}
+
 export function isLine(c) {
   return (
     Math.abs(c[2] - c[0]) < EPS && Math.abs(c[3] - c[1]) < EPS && Math.abs(c[4] - c[6]) < EPS && Math.abs(c[5] - c[7]) < EPS

@@ -12,7 +12,7 @@
  * drawArtwork() is shared by the screen renderer and raster export, so what
  * you see is what PNG/JPEG export produces.
  */
-import { segmentCount, segmentPoints, isLine } from '../model/bezier.js';
+import { segmentCount, segmentPoints, isLine, zeroLength, capsShowDots } from '../model/bezier.js';
 import { gradientGeometry, localGradientGeometry, nodeBounds, visualBounds, rectsIntersect } from '../model/geometry.js';
 import { layoutText, cssFont, glyphPlacements, extraPlacements, drawsAsSegments, riseOf, textHooks, decorationRects } from '../model/text-layout.js';
 import { expandStops, focalPoint } from '../model/gradients.js';
@@ -27,10 +27,19 @@ import { rasterEffects, compositeWithEffects, regionPool, deviceRegion, effectsM
 const pathCache = new WeakMap();
 const compoundCache = new WeakMap();
 
-/** Append an anchor list to a Path2D (or any object with the canvas path API). */
-export function tracePath(p, anchors, closed) {
+/**
+ * Append an anchor list to a Path2D (or any object with the canvas path API). With `caps` (round or
+ * square stroke caps) a zero-length subpath becomes a tiny segment, so its caps draw a dot.
+ */
+export function tracePath(p, anchors, closed, caps = false) {
   if (!anchors.length) return p;
   p.moveTo(anchors[0].x, anchors[0].y);
+  if (caps && zeroLength(anchors)) {
+    const { x, y } = anchors[0];
+    // Long enough to stay a segment in the 32-bit floats canvas paths are stored in.
+    p.lineTo(x + Math.max(1e-4, Math.abs(x) * 5e-7), y);
+    return p;
+  }
   const n = segmentCount(anchors, closed);
   for (let i = 0; i < n; i++) {
     const c = segmentPoints(anchors, i);
@@ -44,7 +53,7 @@ export function tracePath(p, anchors, closed) {
 export function pathOf(node) {
   let p = pathCache.get(node);
   if (!p) {
-    p = tracePath(new Path2D(), node.anchors, node.closed);
+    p = tracePath(new Path2D(), node.anchors, node.closed, capsShowDots(node));
     pathCache.set(node, p);
   }
   return p;
@@ -56,7 +65,8 @@ export function compoundPathOf(doc, node) {
   const hit = compoundCache.get(node);
   if (hit && hit.kids.length === kids.length && hit.kids.every((k, i) => k === kids[i])) return hit.path;
   const p = new Path2D();
-  for (const k of kids) tracePath(p, k.anchors, k.closed);
+  const caps = capsShowDots(node);
+  for (const k of kids) tracePath(p, k.anchors, k.closed, caps);
   compoundCache.set(node, { kids, path: p });
   return p;
 }
@@ -232,7 +242,8 @@ export function renderPathOf(doc, node) {
   const hit = effectPathCache.get(node);
   if (hit && hit.subs === subs) return hit.path;
   const p = new Path2D();
-  for (const s of subs) tracePath(p, s.anchors, s.closed);
+  const caps = capsShowDots(node);
+  for (const s of subs) tracePath(p, s.anchors, s.closed, caps);
   effectPathCache.set(node, { subs, path: p });
   return p;
 }
@@ -265,10 +276,12 @@ function paintedParts(doc, node) {
   const subs = effectiveSubpaths(doc, node);
   const hit = partsCache.get(node);
   if (hit && hit.subs === subs) return hit.parts;
-  const parts = paintParts(node, subs)?.map((p) => ({
-    node: { ...node, ...p.style },
-    path: p.subpaths.reduce((path, s) => tracePath(path, s.anchors, s.closed), new Path2D()),
-  }));
+  const parts = paintParts(node, subs)?.map((p) => {
+    const part = { ...node, ...p.style };
+    const caps = capsShowDots(part);
+    const path = p.subpaths.reduce((acc, s) => tracePath(acc, s.anchors, s.closed, caps), new Path2D());
+    return { node: part, path };
+  });
   partsCache.set(node, { subs, parts: parts || null });
   return parts || null;
 }
