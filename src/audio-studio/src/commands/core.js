@@ -607,7 +607,7 @@ export function installCoreCommands(app) {
         doc.apply('Silence', E.silenceRange(doc.state, doc.selection.start, doc.selection.end, doc.channelMask));
       },
     },
-    { id: 'fx.applyLast', label: (a) => (a.lastCommand ? `Repeat ${C.label(a.lastCommand.id)}` : 'Repeat Last Effect'), enabled: (a) => Boolean(a.lastCommand), run: () => C.run('edit.repeatNoDialog') },
+    { id: 'fx.applyLast', label: (a) => (a.lastCommand ? `Repeat ${String(C.label(a.lastCommand.id)).replace(/(\.\.\.|\u2026)$/, '')}` : 'Repeat Last Effect'), enabled: (a) => Boolean(a.lastCommand), run: () => C.run('edit.repeatNoDialog') },
 
     // ---------------------------------------------------------------- View
     {

@@ -260,6 +260,13 @@ describe('keyboard commands', () => {
     expect(seen).toEqual([false, false, true]);
   });
 
+  it('names the repeated effect without a dialog ellipsis in Repeat Last Effect', async () => {
+    const app = await fullApp();
+    app.commands.register({ id: 'x.dlg', label: 'Amplify...', repeatable: true, run: () => {} });
+    await app.commands.run('x.dlg');
+    expect(app.commands.label('fx.applyLast')).toBe('Repeat Amplify');
+  });
+
   it('helpers: documents, FFT sizes and recent entries', () => {
     expect(cycleDocument(['a', 'b', 'c'], 'c', 1)).toBe('a');
     expect(cycleDocument(['a', 'b', 'c'], 'a', -1)).toBe('c');
