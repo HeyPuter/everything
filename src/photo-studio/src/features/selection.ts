@@ -186,6 +186,13 @@ export function marqueeRect(start: [number, number], p: Pick<CanvasPointer, 'x' 
   }
   return { x: Math.min(x0, x0 + w), y: Math.min(y0, y0 + h), width: Math.abs(w), height: Math.abs(h) };
 }
+/** The whole pixels a rectangular marquee selects: each edge snaps to the
+ * nearest pixel boundary, as the preview shows it. */
+export function marqueePixels(r: { x: number; y: number; width: number; height: number }) {
+  const x = Math.round(r.x),
+    y = Math.round(r.y);
+  return { x, y, width: Math.round(r.x + r.width) - x, height: Math.round(r.y + r.height) - y };
+}
 const marqueeStyle = (e: Editor): MarqueeStyle => ({ style: e.settings.marqueeStyle, width: e.settings.marqueeW, height: e.settings.marqueeH });
 export function finishShape(e: Editor, op: SelectionOp, mask: Mask8 | null, label: string) {
   const feather = Number(e.settings.selectionFeather ?? 0);
@@ -236,7 +243,7 @@ function marqueeTool(id: string, label: string, icon: string, shape: 'rect' | 'e
       const W = e.doc.width,
         H = e.doc.height;
       const aa = e.settings.antiAlias !== false;
-      const mask = shape === 'ellipse' ? rasterizePolygon(ellipsePoints(r.x, r.y, r.width, r.height), W, H, aa) : rectMask(e, { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
+      const mask = shape === 'ellipse' ? rasterizePolygon(ellipsePoints(r.x, r.y, r.width, r.height), W, H, aa) : rectMask(e, marqueePixels(r));
       finishShape(e, d.op, mask, shape === 'ellipse' ? 'Elliptical Marquee' : 'Rectangular Marquee');
     },
     overlay: (e) => {
