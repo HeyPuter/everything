@@ -410,3 +410,19 @@ describe('revert', () => {
     expect(app.editors.indexOf(other)).toBe(app.editors.indexOf(reverted) + 1);
   });
 });
+
+describe('templates', () => {
+  it('replacing a template removes the replaced file', async () => {
+    const { memoryBackend } = await import('../src/features/files/backends.js');
+    const { TemplateStore } = await import('../src/features/panels/file-commands.js');
+    const { VDocument } = await import('../src/model/document.js');
+    const backend = memoryBackend();
+    const store = new TemplateStore(backend);
+    const doc = VDocument.create({ name: 'Card' });
+    await store.save(doc, 'Card');
+    const entry = await store.save(doc, 'Card');
+    expect((await store.list()).map((t) => t.id)).toEqual([entry.id]);
+    const blobs = [...backend.files.keys()].filter((k) => k.endsWith('.vstudio'));
+    expect(blobs).toEqual([`templates/${entry.id}.vstudio`]);
+  });
+});

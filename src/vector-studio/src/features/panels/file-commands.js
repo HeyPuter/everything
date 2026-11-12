@@ -72,9 +72,12 @@ export class TemplateStore {
     const a = doc.artboards[0] || { w: 612, h: 792 };
     const entry = { id: uid('tpl'), name, savedAt: Date.now(), width: a.w, height: a.h, artboards: doc.artboards.length, thumb };
     await this.store.writeBlob(`templates/${entry.id}.vstudio`, new Blob([bytes]));
-    const list = (await this.list()).filter((t) => t.name !== name);
+    const all = await this.list();
+    const list = all.filter((t) => t.name !== name);
     list.push(entry);
     await this.store.writeJSON('templates/index.json', list);
+    // The template replaced (same name) leaves no file behind.
+    for (const old of all) if (old.name === name) await this.store.remove(`templates/${old.id}.vstudio`).catch(() => {});
     return entry;
   }
 
