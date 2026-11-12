@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { initializeCanvas, readPsd, writePsd } from 'ag-psd';
 import { appendPsdChannels, splitPsdChannels } from '../src/model/psd-extra-channels';
 import { validatePsdHeader } from '../src/model/psd-header';
+import { readPsdImageResource } from '../src/model/psd-resources';
 import { addChannels, channelResources, flatPsd } from './psd-channel-builders';
 
 // Node has no canvas; the codec only needs image data buffers here.
@@ -101,5 +102,20 @@ describe('PSD alpha and spot channels', () => {
       expect(Array.from(split.bytes.subarray(split.bytes.length - imageData.length))).toEqual(Array.from(imageData));
       expect(new DataView(split.bytes.buffer).getUint16(12)).toBe(4);
     }
+  });
+
+  it('marks the transparency channel with alpha identifiers, and reads them', () => {
+    const ids = (psd: Uint8Array) => {
+      const r = readPsdImageResource(psd, 1053)!;
+      return Array.from({ length: r.length / 4 }, (_, i) => new DataView(r.buffer, r.byteOffset).getUint32(i * 4));
+    };
+    const channels = [{ name: 'Sky', data: selection }, { name: 'Soft', data: soft }];
+    // Readers that follow these take channel 3 for transparency only when listed as 0.
+    expect(ids(appendPsdChannels(flatPsd({ width: W, height: H, depth: 8, compression: 1, planes: [...rgb, plane(() => 255)] }), channels))).toEqual([0, 1, 2]);
+    expect(ids(appendPsdChannels(flatPsd({ width: W, height: H, depth: 8, compression: 1, planes: rgb }), channels))).toEqual([1, 2]);
+    // Unnamed, a lone fourth channel listed with a nonzero identifier is a saved selection.
+    const id = (n: number[]) => [...'8BIM'].map((c) => c.charCodeAt(0)).concat([0x04, 0x1d, 0, 0, 0, 0, 0, n.length * 4], n.flatMap((x) => [0, 0, 0, x]));
+    expect(splitPsdChannels(flatPsd({ width: W, height: H, depth: 8, compression: 0, planes: [...rgb, soft], resources: id([7]) }))!.extras.map((c) => c.name)).toEqual(['Alpha 1']);
+    expect(splitPsdChannels(flatPsd({ width: W, height: H, depth: 8, compression: 0, planes: [...rgb, soft], resources: id([0]) }))).toBeUndefined();
   });
 });

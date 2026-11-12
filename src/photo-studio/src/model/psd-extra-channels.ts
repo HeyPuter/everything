@@ -59,6 +59,15 @@ function resourceData(b: Uint8Array, [start, end]: [number, number], id: number)
   }
 }
 
+// Alpha identifiers (1053): one per extra channel, 0 for the merged image's
+// transparency. The surest sign of which extra channel is transparency.
+function alphaIdentifiers(b: Uint8Array, s: Sections): number[] | undefined {
+  const data = resourceData(b, s.resources, 1053);
+  if (!data) return;
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return Array.from({ length: data.length >> 2 }, (_, i) => v.getUint32(i * 4));
+}
+
 function channelNames(b: Uint8Array, s: Sections): string[] | undefined {
   const unicode = resourceData(b, s.resources, 1045);
   if (unicode) {
@@ -146,7 +155,13 @@ export function splitPsdChannels(bytes: Uint8Array, maxBytes = Infinity): PsdCha
   // The alpha channel names list every extra channel; one more channel is the
   // transparency of the merged image. Without names, a negative layer count
   // (or a lone fourth channel) marks transparency.
-  const transparency = names ? s.channels - 3 - names.length >= 1 : s.channels === 4 || (s.layerCount ?? 0) < 0;
+  const ids = alphaIdentifiers(bytes, s);
+  const transparency =
+    ids && ids.length <= s.channels - 3
+      ? ids.includes(0) || s.channels - 3 - ids.length >= 1
+      : names
+        ? s.channels - 3 - names.length >= 1
+        : s.channels === 4 || (s.layerCount ?? 0) < 0;
   const keep = transparency ? 4 : 3;
   const count = s.channels - keep;
   if (count <= 0) return;
@@ -234,7 +249,7 @@ function resourceRecord(id: number, data: number[]): number[] {
   return [0x38, 0x42, 0x49, 0x4d, id >> 8, id & 255, 0, 0, n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255, ...data, ...(n & 1 ? [0] : [])];
 }
 // Resources that describe the extra channels; replaced when channels are written.
-export const channelResourceIds = [1006, 1007, 1045, 1077];
+export const channelResourceIds = [1006, 1007, 1045, 1053, 1077];
 
 /** Add channels to the merged image of a written PSD/PSB (after its color and
  * transparency channels), with resources naming them. `data` is 8-bit. */
@@ -300,7 +315,10 @@ export function appendPsdChannels(bytes: Uint8Array, channels: PsdExtraChannel[]
     const opacity = Math.round((c.opacity ?? (c.spot ? 1 : 0.5)) * 100);
     return [0, 0, ...rgb(c.color).flatMap((x) => [x >> 8, x & 255]), 0, 0, 0, opacity, c.spot ? 2 : 0];
   })];
-  const added = Uint8Array.from([...resourceRecord(1006, pascal), ...resourceRecord(1045, unicode), ...resourceRecord(1077, display)]);
+  // Identifiers tell readers which extra channel is transparency (0), as the
+  // format defines them; without them some take the last channel for it.
+  const identifiers = [...(s.channels > 3 ? [0] : []), ...channels.map((_, i) => i + 1)].flatMap(be32);
+  const added = Uint8Array.from([...resourceRecord(1006, pascal), ...resourceRecord(1045, unicode), ...resourceRecord(1053, identifiers), ...resourceRecord(1077, display)]);
   const resources = kept.reduce((n, k) => n + k.length, 0) + added.length;
   const out = new Uint8Array(start + resources + (s.imageData - end) + section.length);
   out.set(bytes.subarray(0, start));

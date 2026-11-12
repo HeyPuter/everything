@@ -91,10 +91,10 @@ export function decodePsdImageResources(bytes: Uint8Array) {
 // edits; cached thumbnails and writer information must not describe old pixels.
 // Retain all of them in the native asset, but do not replay them into a new PSD.
 // Layer-link/selection interoperability is a separate, still pending feature.
-// Alpha channel names and display (1006, 1007, 1045, 1077) describe the
+// Alpha channel names, identifiers and display (1006, 1007, 1045, 1053, 1077) describe the
 // channels written with the document's own channels.
 const regeneratedResources = new Set([
-  1000, 1003, 1005, 1006, 1007, 1024, 1026, 1033, 1036, 1039, 1041, 1045, 1057, 1069, 1072, 1077,
+  1000, 1003, 1005, 1006, 1007, 1024, 1026, 1033, 1036, 1039, 1041, 1045, 1053, 1057, 1069, 1072, 1077,
 ]);
 export function restorePsdImageResources(
   bytes: Uint8Array,
