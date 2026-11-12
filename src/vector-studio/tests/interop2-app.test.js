@@ -61,6 +61,32 @@ describe('EPS export options', () => {
     // The document itself keeps its transparency.
     expect([...ed.doc.nodes.values()].some((n) => n.opacity === 0.5)).toBe(true);
   });
+
+  it('outlines type the standard fonts lack when text is kept as text', async () => {
+    const { createText } = await import('../src/model/nodes.js');
+    const ed = app.newDocument({ width: 200, height: 100 });
+    const latin = createText('Hello', 10, 30);
+    const cjk = createText('こんにちは', 10, 70);
+    ed.doc.transact('x', () => [latin, cjk].forEach((n) => ed.doc.insert(n, ed.targetLayer().id)));
+    const asked = [];
+    app.textOutlines = (n) => {
+      asked.push(n.id);
+      const anchors = [0, 1, 2, 3].map((i) => ({ x: 10 + (i % 2) * 20, y: 50 + (i >> 1) * 20 }));
+      const fill = { type: 'solid', color: '#000000' };
+      return [{ fill, stroke: null, strokeWidth: 0, subpaths: [{ anchors, closed: true }] }];
+    };
+    const notes = [];
+    app.notify = (msg) => notes.push(msg);
+    const { renderFile } = await import('../src/features/io/jobs.js');
+    const options = { level: 3, preview: 'none', textOutlines: false, flattener: 'none' };
+    const blob = await renderFile(app, ed, 'eps', { artboard: 0 }, options);
+    const text = await blob.text();
+    expect(asked).toEqual([cjk.id]);
+    // The Latin type stays text; the other is outlined, with a note saying so, never "?".
+    expect(text).toMatch(/\(Hello\) show/);
+    expect(text).not.toMatch(/\(\?+\) show/);
+    expect(notes.join(' ')).toMatch(/converted to outlines/);
+  });
 });
 
 describe('DXF export with images', () => {
