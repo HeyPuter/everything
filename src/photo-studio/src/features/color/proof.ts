@@ -19,7 +19,7 @@ import {
   type Profile,
   type Lut3D,
 } from '../../color/color-management';
-import { colorSettings, docGrayProfile, docProfile, ensureProfile, pickIccFile, profileChoices, profileFromRef, profileName, profileReady } from './profiles';
+import { colorSettings, docCmykRef, docGrayProfile, docProfile, ensureProfile, pickIccFile, profileBase64, profileChoices, profileFromRef, profileName, profileReady } from './profiles';
 import { composeLut, duotoneLut } from './convert';
 import { compositeRGBA } from '../pixels';
 import { mapLut, plateGray, simulateVision, VISION_LABELS, type Plate, type VisionKind } from '../../color/vision';
@@ -106,14 +106,25 @@ function duotoneInks(doc: PhotoDocument): DuotoneInk[] {
 }
 function displayKey(doc: PhotoDocument, st: ProofState) {
   const duo = doc.mode === 'duotone' && doc.modeData?.inks?.length ? JSON.stringify([doc.modeData.inks, doc.modeData.profile]) : '';
-  const proof = st.on ? JSON.stringify(st.setup) : '';
+  const proof = st.on ? JSON.stringify(proofSetupFor(doc, st.setup)) : '';
   if (!duo && !proof) return '';
   return `${docProfile(doc).key}|${doc.bitsPerChannel ?? 8}|${duo}|${proof}`;
+}
+/** The setup as applied to `doc`. A CMYK document proofed on its own press
+ * is separated relative colorimetric, as its pixels were made (converted
+ * back from its inks), so a perceptual or saturation intent does not
+ * compress the already printable colors a second time. */
+function proofSetupFor(doc: PhotoDocument, setup: ProofSetup): ProofSetup {
+  if (doc.mode !== 'cmyk' || (setup.kind !== 'cmyk' && setup.kind !== 'plate') || setup.intent === 'relative') return setup;
+  const own = docCmykRef(doc);
+  const same = setup.ref === own || (!setup.ref.startsWith('builtin:') && !own.startsWith('builtin:') && profileBase64(setup.ref) === profileBase64(own));
+  return same ? { ...setup, intent: 'relative' } : setup;
 }
 export function displayLut(doc: PhotoDocument, st: ProofState): Lut3D | null {
   const key = displayKey(doc, st);
   if (!key) return null;
   if (lutCache?.key === key) return lutCache.lut;
+  const setup = proofSetupFor(doc, st.setup);
   const dp = docProfile(doc);
   const srgb = builtinProfile('srgb');
   const base = doc.mode === 'duotone' && doc.modeData?.inks?.length ? duotoneLut(dp, docGrayProfile(doc), duotoneInks(doc)) : null;
@@ -129,14 +140,14 @@ export function displayLut(doc: PhotoDocument, st: ProofState): Lut3D | null {
     const toSrgb = cachedTransform(dp, srgb, 'relative');
     const kind = st.setup.vision ?? 'deutan';
     lut = mapLut(base ? composeLut(base, toSrgb) : bakeLut3D(toSrgb, 33), (rgb, out) => void simulateVision(kind, rgb, out));
-  } else if (st.on && st.setup.kind === 'plate') {
-    lut = plateLut(dp, profileFromRef(st.setup.ref), st.setup, base);
+  } else if (st.on && setup.kind === 'plate') {
+    lut = plateLut(dp, profileFromRef(setup.ref), setup, base);
   } else if (st.on) {
-    const { transform } = createProofTransform(dp, profileFromRef(st.setup.ref), srgb, {
-      intent: st.setup.intent,
-      bpc: st.setup.bpc,
-      simulatePaper: st.setup.paper,
-      simulateBlackInk: st.setup.ink,
+    const { transform } = createProofTransform(dp, profileFromRef(setup.ref), srgb, {
+      intent: setup.intent,
+      bpc: setup.bpc,
+      simulatePaper: setup.paper,
+      simulateBlackInk: setup.ink,
     });
     lut = base ? composeLut(base, transform) : bakeLut3D(transform, 33);
   } else lut = composeLut(base!, cachedTransform(dp, srgb, 'relative'));
