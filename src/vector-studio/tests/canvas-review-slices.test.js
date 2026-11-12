@@ -48,4 +48,26 @@ describe('Escape during a slice drag', () => {
     expect(redrawn).toBe(true);
     app.setTool('selection');
   });
+
+  it('Slice Selection: resize cursors follow the handles in a rotated view', () => {
+    const ed = app.newDocument({ width: 200, height: 100 });
+    ed.view.set({ width: 800, height: 600, zoom: 1, panX: 300, panY: 300 });
+    ed.view.rotateView(90);
+    const doc = ed.doc;
+    doc.transact('s', () => addSlice(doc, { kind: 'user', x: 10, y: 10, w: 40, h: 20 }));
+    app.setTool('slice-select');
+    const t = app.tool;
+    t.onPointerDown(ev(ed, 20, 20));
+    t.onPointerUp(ev(ed, 20, 20));
+    const cursors = [];
+    const set = app.setCanvasCursor;
+    app.setCanvasCursor = (c) => cursors.push(c);
+    try {
+      t.onHover(ev(ed, 50, 20)); // the east handle, below the slice on screen
+    } finally {
+      app.setCanvasCursor = set;
+    }
+    expect(cursors.at(-1)).toBe('ns-resize');
+    app.setTool('selection');
+  });
 });
