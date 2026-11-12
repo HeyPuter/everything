@@ -37,9 +37,13 @@ export type Run = (src: RGBA8, p: ParamValues, ctx: OperationContext, progress?:
 export type OpDef = Omit<ImageOperation, 'apply'> & {
   run: Run;
   support?: (p: ParamValues, ctx: OperationContext) => number;
+  // Reach of the transparent-pixel fill the filter reads (fillTransparent
+  // with a reach). A selection crop grows by it only when fully transparent
+  // pixels lie within the normal crop: elsewhere the fill changes nothing.
+  fillReach?: (p: ParamValues, ctx: OperationContext) => number;
 };
 export function defineOp(op: OpDef): ImageOperation {
-  const { run, support, ...meta } = op;
+  const { run, support, fillReach, ...meta } = op;
   return {
     ...meta,
     apply(src, params, ctx, progress) {
@@ -49,7 +53,8 @@ export function defineOp(op: OpDef): ImageOperation {
       checkCancelled(progress);
       const p = sanitize(meta.params, params);
       let out: RGBA8;
-      const crop = sel && support ? cropRect(sel, Math.ceil(support(p, ctx))) : null;
+      let crop = sel && support ? cropRect(sel, Math.ceil(support(p, ctx))) : null;
+      if (crop && crop.width && fillReach && hasTransparentIn(src, crop)) crop = cropRect(sel!, Math.ceil(support!(p, ctx)) + Math.ceil(fillReach(p, ctx)));
       if (crop && crop.width === 0) out = copyImage(src);
       else if (crop && sel && crop.width * crop.height < 0.8 * src.width * src.height) {
         const subSrc = cropImage(src, crop), subSel = cropMask(sel, crop);
@@ -90,6 +95,13 @@ export function cropRect(sel: Mask8, margin: number): IRect {
   x0 = Math.max(0, x0 - margin); y0 = Math.max(0, y0 - margin);
   x1 = Math.min(w - 1, x1 + margin); y1 = Math.min(h - 1, y1 + margin);
   return { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
+}
+/** True when a pixel inside `r` is fully transparent. */
+export function hasTransparentIn(src: RGBA8, r: IRect): boolean {
+  const d = src.data;
+  for (let y = r.y; y < r.y + r.height; y++)
+    for (let j = (y * src.width + r.x) * 4 + 3, end = j + r.width * 4; j < end; j += 4) if (d[j] === 0) return true;
+  return false;
 }
 export function cropImage(src: RGBA8, r: IRect): RGBA8 {
   const data = new Uint8ClampedArray(r.width * r.height * 4);
@@ -297,8 +309,15 @@ export function linearFilterRGBA(src: RGBA8, filter: PlaneFilter, progress?: Pro
 // detection, embossing) run on the result so transparent areas, often stored
 // as black, do not leak into visible edges. Returns `src` itself when nothing
 // is fully transparent.
-export function fillTransparent(src: RGBA8): RGBA8 {
+//
+// With `reach`, only transparent pixels within that many pixels (8-connected
+// steps) of a visible one are filled, ring by ring from the average of the
+// already filled neighbors. That fill depends on nothing farther away, so a
+// filter that reads `reach` pixels around each visible pixel gives the same
+// result on a crop grown by twice its reach (selections) as on the whole image.
+export function fillTransparent(src: RGBA8, reach?: number): RGBA8 {
   if (!hasTransparent(src)) return src;
+  if (reach !== undefined) return fillNear(src, Math.max(0, Math.ceil(reach)));
   const { width: w0, height: h0, data: d } = src;
   type Level = { w: number; h: number; c: Float32Array };
   // Each level stores r, g, b, weight.
@@ -363,6 +382,70 @@ export function fillTransparent(src: RGBA8): RGBA8 {
     if (d[j + 3] === 0) {
       o[j] = base[j]; o[j + 1] = base[j + 1]; o[j + 2] = base[j + 2];
     }
+  return out;
+}
+
+function fillNear(src: RGBA8, reach: number): RGBA8 {
+  const { width: w, height: h, data: d } = src, n = w * h;
+  const out = copyImage(src), o = out.data;
+  if (reach <= 0) return out;
+  // Chessboard distance to the nearest visible pixel (two chamfer passes),
+  // capped past the reach; ring k holds the pixels at distance k.
+  const cap = Math.min(reach + 1, 65535);
+  const dist = new Uint16Array(n);
+  for (let i = 0; i < n; i++) dist[i] = d[i * 4 + 3] > 0 ? 0 : cap;
+  for (let y = 0; y < h; y++)
+    for (let x = 0, i = y * w; x < w; x++, i++) {
+      let v = dist[i];
+      if (!v) continue;
+      if (x > 0 && dist[i - 1] + 1 < v) v = dist[i - 1] + 1;
+      if (y > 0) {
+        const u = i - w;
+        if (dist[u] + 1 < v) v = dist[u] + 1;
+        if (x > 0 && dist[u - 1] + 1 < v) v = dist[u - 1] + 1;
+        if (x + 1 < w && dist[u + 1] + 1 < v) v = dist[u + 1] + 1;
+      }
+      dist[i] = v;
+    }
+  const count = new Int32Array(reach + 2);
+  for (let y = h - 1; y >= 0; y--)
+    for (let x = w - 1, i = y * w + x; x >= 0; x--, i--) {
+      let v = dist[i];
+      if (v) {
+        if (x + 1 < w && dist[i + 1] + 1 < v) v = dist[i + 1] + 1;
+        if (y + 1 < h) {
+          const u = i + w;
+          if (dist[u] + 1 < v) v = dist[u] + 1;
+          if (x + 1 < w && dist[u + 1] + 1 < v) v = dist[u + 1] + 1;
+          if (x > 0 && dist[u - 1] + 1 < v) v = dist[u - 1] + 1;
+        }
+        dist[i] = v;
+      }
+      if (v <= reach) count[v]++;
+    }
+  if (count[0] === 0) return out;
+  // Pixels in ring order; each takes the average of its neighbors in earlier
+  // rings, which are final by then.
+  const start = new Int32Array(reach + 2);
+  for (let k = 1; k <= reach; k++) start[k + 1] = start[k] + count[k];
+  const order = new Int32Array(start[reach + 1]);
+  for (let i = 0; i < n; i++) {
+    const v = dist[i];
+    if (v > 0 && v <= reach) order[start[v]++] = i;
+  }
+  for (let t = 0; t < order.length; t++) {
+    const i = order[t], k = dist[i], x = i % w, y = (i - x) / w;
+    let r = 0, g = 0, b = 0, m = 0;
+    for (let yy = Math.max(0, y - 1); yy <= Math.min(h - 1, y + 1); yy++)
+      for (let xx = Math.max(0, x - 1); xx <= Math.min(w - 1, x + 1); xx++) {
+        const q = yy * w + xx;
+        if (dist[q] >= k) continue;
+        r += o[q * 4]; g += o[q * 4 + 1]; b += o[q * 4 + 2];
+        m++;
+      }
+    const j = i * 4;
+    o[j] = r / m; o[j + 1] = g / m; o[j + 2] = b / m;
+  }
   return out;
 }
 

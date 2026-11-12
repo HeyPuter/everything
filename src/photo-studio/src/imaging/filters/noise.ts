@@ -21,6 +21,7 @@ import {
   sub,
   tick,
 } from './common';
+import type { OperationContext, ParamValues } from '../types';
 
 export const addNoise = defineOp({
   id: 'add-noise',
@@ -110,6 +111,7 @@ export const despeckle = defineOp({
   id: 'despeckle',
   label: 'Despeckle',
   category: 'Noise',
+  // The blur reaches 2 pixels; the gradient reads 1 pixel of a 1-pixel fill.
   support: () => 3,
   params: [],
   immediate: true,
@@ -117,7 +119,8 @@ export const despeckle = defineOp({
     const { width: w, height: h, data: d } = src;
     const K = new Float32Array([1, 4, 6, 4, 1].map((v) => v / 16));
     const soft = linearFilterRGBA(src, (pl, t, ww, hh, pr) => separablePlane(pl, t, ww, hh, K, K, pr), sub(progress, 0, 0.7));
-    const L = lumaPlane(fillTransparent(src));
+    // The gradient reads one pixel around each visible one.
+    const L = lumaPlane(fillTransparent(src, 1));
     const out = copyImage(src), o = out.data, b = soft.data;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -136,6 +139,8 @@ export const despeckle = defineOp({
   },
 });
 
+const noiseReach = (p: ParamValues, ctx: OperationContext) => px(ctx, 3 * (0.6 + num(p, 'strength') * 0.25) + 12 * (num(p, 'color') / 100) + 3) + 8;
+
 // Luma is smoothed with an edge-preserving bilateral filter whose range width
 // shrinks as "preserve details" grows; chroma (where most sensor noise lives)
 // gets a plain blur; optional unsharp masking restores luma detail.
@@ -143,7 +148,8 @@ export const reduceNoise = defineOp({
   id: 'reduce-noise',
   label: 'Reduce Noise',
   category: 'Noise',
-  support: (p, ctx) => px(ctx, 3 * (0.6 + num(p, 'strength') * 0.25) + 12 * (num(p, 'color') / 100) + 3) + 8,
+  support: noiseReach,
+  fillReach: noiseReach,
   params: [
     { key: 'strength', label: 'Strength', type: 'number', min: 0, max: 10, step: 1, default: 6 },
     { key: 'preserve', label: 'Preserve Details', type: 'number', min: 0, max: 100, step: 1, default: 60, unit: '%' },
@@ -155,7 +161,7 @@ export const reduceNoise = defineOp({
     const n = w * h;
     const strength = num(p, 'strength'), preserve = num(p, 'preserve') / 100;
     const color = num(p, 'color') / 100, sharp = num(p, 'sharpen') / 100;
-    const work = fillTransparent(src), wd = work.data;
+    const work = fillTransparent(src, noiseReach(p, ctx)), wd = work.data;
     let Y = lumaPlane(work);
     const Cb = new Float32Array(n), Cr = new Float32Array(n);
     for (let i = 0, j = 0; i < n; i++, j += 4) {

@@ -55,28 +55,49 @@ const margins: Record<string, (p: ParamValues) => number> = {
   'shape-blur': (p) => n(p, 'radius') + 1,
   'hsb-hsl': () => 0,
 };
+// Filters that fill fully transparent pixels from visible neighbors within
+// this reach (mirroring each operation's fillReach). Next to transparent
+// pixels they read that much further.
+const fillReaches: Record<string, (p: ParamValues) => number> = {
+  'reduce-noise': (p) => margins['reduce-noise'](p),
+  'advanced-sharpen': (p) => margins['advanced-sharpen'](p),
+  emboss: (p) => margins.emboss(p),
+  'find-edges': () => 1,
+  'trace-contour': () => 1,
+  'oil-paint': (p) => margins['oil-paint'](p),
+};
 /** Reach of one filter in pixels at `scale`, or undefined when it is not local. */
 export function filterMargin(id: string, params: ParamValues, scale = 1): number | undefined {
   const m = margins[renamedFilters[id] ?? id];
   return m ? Math.ceil(m(params) * scale) + 1 : undefined;
 }
 export type MarginEntry = { id: string; params: ParamValues; enabled?: boolean };
-/** Combined reach of a filter stack (margins add up), undefined if any is global. */
-export function stackMargin(entries: MarginEntry[], scale = 1): number | undefined {
+/** Combined reach of a filter stack (margins add up), undefined if any is
+ * global. `fill` adds the transparent-pixel fill of the filters that have one. */
+export function stackMargin(entries: MarginEntry[], scale = 1, fill = false): number | undefined {
   let total = 0;
   for (const e of entries) {
     if (e.enabled === false) continue;
     if (e.id === GALLERY_ID) {
-      const inner = stackMargin(galleryEffects(e.params), scale);
+      const inner = stackMargin(galleryEffects(e.params), scale, fill);
       if (inner === undefined) return undefined;
       total += inner;
       continue;
     }
     const m = filterMargin(e.id, e.params, scale);
     if (m === undefined) return undefined;
-    total += m;
+    const f = fill ? fillReaches[renamedFilters[e.id] ?? e.id] : undefined;
+    total += m + (f ? Math.ceil(f(e.params) * scale) : 0);
   }
   return total;
+}
+/** Margin around a selection that a stack needs: the larger fill margin only
+ * when `transparentWithin(normal margin)` finds fully transparent pixels there. */
+export function selectionMargin(entries: MarginEntry[], transparentWithin: (margin: number) => boolean, scale = 1): number | undefined {
+  const m = stackMargin(entries, scale);
+  if (m === undefined) return undefined;
+  const wide = stackMargin(entries, scale, true)!;
+  return wide > m && transparentWithin(m) ? wide : m;
 }
 
 export type GalleryEffect = { id: string; params: ParamValues; enabled: boolean };

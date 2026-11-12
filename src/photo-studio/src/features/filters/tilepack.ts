@@ -147,3 +147,19 @@ export function mergeTiles(store: TileStore, grid: TileGrid, result: TileResult)
   next.bounds = bounds;
   return next;
 }
+
+/** True when a pixel of an RGBA grid inside document rect `r` is fully transparent. */
+export function gridHasTransparent(store: TileStore, grid: TileGrid, r: IRect): boolean {
+  const x0 = r.x - grid.x, y0 = r.y - grid.y, x1 = x0 + r.width, y1 = y0 + r.height;
+  for (let ty = Math.floor(y0 / TILE); ty * TILE < y1; ty++)
+    for (let tx = Math.floor(x0 / TILE); tx * TILE < x1; tx++) {
+      const id = grid.tiles[tileKey(tx, ty)];
+      const t = id ? store.get(id) : undefined;
+      if (!t) return true;
+      const ax = Math.max(x0, tx * TILE) - tx * TILE, bx = Math.min(x1, (tx + 1) * TILE) - tx * TILE;
+      const ay = Math.max(y0, ty * TILE) - ty * TILE, by = Math.min(y1, (ty + 1) * TILE) - ty * TILE;
+      for (let y = ay; y < by; y++)
+        for (let j = (y * TILE + ax) * 4 + 3, end = (y * TILE + bx) * 4; j < end; j += 4) if (t[j] === 0) return true;
+    }
+  return false;
+}
