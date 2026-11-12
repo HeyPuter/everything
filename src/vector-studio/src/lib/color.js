@@ -154,6 +154,22 @@ const NAMED = {
   skyblue: '#87ceeb', royalblue: '#4169e1', slategray: '#708090', dimgray: '#696969', whitesmoke: '#f5f5f5',
 };
 
+/** A CSS color channel: `none` is 0, a percentage is of `full`; NaN when unreadable. */
+function cssNumber(v, full) {
+  if (v == null) return NaN;
+  if (v === 'none') return 0;
+  return v.endsWith('%') ? (parseFloat(v) * full) / 100 : Number(v);
+}
+
+/** A CSS hue in degrees (plain number, deg, turn, rad or grad). */
+function cssHue(v) {
+  if (v === 'none') return 0;
+  const m = /^([-+.\de]+)(deg|turn|rad|grad)?$/.exec(v || '');
+  if (!m) return NaN;
+  const n = Number(m[1]);
+  return m[2] === 'turn' ? n * 360 : m[2] === 'rad' ? (n * 180) / Math.PI : m[2] === 'grad' ? n * 0.9 : n;
+}
+
 export function parseCssColor(input) {
   if (input == null) return null;
   const s = String(input).trim().toLowerCase();
@@ -167,17 +183,20 @@ export function parseCssColor(input) {
   let m = s.match(/^rgba?\(([^)]+)\)$/);
   if (m) {
     const parts = m[1].split(/[\s,/]+/).filter(Boolean);
-    const ch = (v) => (v.endsWith('%') ? (parseFloat(v) * 255) / 100 : parseFloat(v));
-    const alpha = parts[3] != null ? (parts[3].endsWith('%') ? parseFloat(parts[3]) / 100 : parseFloat(parts[3])) : 1;
-    return { hex: rgbToHex({ r: ch(parts[0]), g: ch(parts[1]), b: ch(parts[2]) }), alpha };
+    const [r, g, b] = [0, 1, 2].map((i) => cssNumber(parts[i], 255));
+    const alpha = parts[3] != null ? clamp(cssNumber(parts[3], 1), 0, 1) : 1;
+    // A malformed color (missing or unreadable channels) is not a color at all.
+    if (parts.length < 3 || ![r, g, b, alpha].every(Number.isFinite)) return null;
+    return { hex: rgbToHex({ r, g, b }), alpha };
   }
   m = s.match(/^hsla?\(([^)]+)\)$/);
   if (m) {
     const parts = m[1].split(/[\s,/]+/).filter(Boolean);
-    const h = parseFloat(parts[0]);
-    const sat = parseFloat(parts[1]) / 100;
-    const l = parseFloat(parts[2]) / 100;
-    const alpha = parts[3] != null ? (parts[3].endsWith('%') ? parseFloat(parts[3]) / 100 : parseFloat(parts[3])) : 1;
+    const h = cssHue(parts[0]);
+    const sat = clamp(cssNumber(parts[1], 100), 0, 100) / 100;
+    const l = clamp(cssNumber(parts[2], 100), 0, 100) / 100;
+    const alpha = parts[3] != null ? clamp(cssNumber(parts[3], 1), 0, 1) : 1;
+    if (parts.length < 3 || ![h, sat, l, alpha].every(Number.isFinite)) return null;
     const v = l + sat * Math.min(l, 1 - l);
     const sv = v ? 2 * (1 - l / v) : 0;
     return { hex: rgbToHex(hsbToRgb({ h, s: sv * 100, v: v * 100 })), alpha };
