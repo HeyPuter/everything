@@ -66,3 +66,17 @@ test('a changed Color Table entry announces its new color', async ({ page }) => 
   await page.locator('.color-table-dialog button[type=submit]').click();
   await page.waitForFunction(() => window.photoStudio.doc.modeData?.palette?.[0] === '#ff0000');
 });
+
+test('changing the Duotone type keeps the keyboard focus on the Type field', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.runCommand('image.mode-grayscale'));
+  await page.waitForFunction(() => window.photoStudio.doc.mode === 'grayscale' && !window.photoStudio.busy);
+  await page.evaluate(() => void window.photoStudio.runCommand('image.mode-duotone'));
+  const type = page.locator('.duotone-dialog .duo-type');
+  await type.focus();
+  await type.selectOption('3');
+  await expect(page.locator('.duotone-dialog .duo-ink')).toHaveCount(3);
+  // The dialog redraws its inks; focus used to fall back to the page.
+  await expect(page.locator('.duotone-dialog .duo-type')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.duotone-dialog')).toHaveCount(0);
+});

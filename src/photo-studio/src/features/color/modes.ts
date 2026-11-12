@@ -352,6 +352,8 @@ async function duotoneDialog(e: Editor) {
         list = list.slice(0, n);
         while (list.length < n) list.push({ ...DEFAULT_INKS[list.length] });
         render();
+        // The form was rebuilt: keep the keyboard on the Type field.
+        dialog.querySelector<HTMLSelectElement>('.duo-type')?.focus();
         preview();
       }
     });
