@@ -680,6 +680,18 @@ export class GroupSelectionTool extends Tool {
     this.overlay();
   }
 
+  /** Escape, a pointer cancel or a second finger puts a moved selection back. */
+  cancel() {
+    const d = this.drag;
+    this.drag = null;
+    d?.session?.cancel();
+    this.overlay();
+  }
+
+  deactivate() {
+    this.cancel();
+  }
+
   drawOverlay(ctx, editor) {
     DirectSelectionTool.prototype.drawOverlay.call(this, ctx, editor);
   }

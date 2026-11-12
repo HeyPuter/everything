@@ -66,6 +66,20 @@ describe('a canceled press (pointercancel, Escape, a second finger) ends cleanly
     app.setTool('selection');
   });
 
+  it('Group Selection: a canceled move is undone and leaves no transaction open', () => {
+    app.setTool('group-selection');
+    const input = app.input;
+    const steps = doc.undoStack.length;
+    input.down(ptr(200, 100));
+    input.move(ptr(220, 130));
+    input.move(ptr(240, 160));
+    input.cancel(ptr(240, 160));
+    expect(doc.tx).toBeFalsy();
+    expect(doc.undoStack.length).toBe(steps);
+    expect(doc.get(id).anchors[0]).toMatchObject({ x: 100, y: 100 });
+    app.setTool('selection');
+  });
+
   it('Pencil: Escape mid-stroke drops the stroke and its preview', () => {
     app.setTool('pencil');
     const input = app.input;
