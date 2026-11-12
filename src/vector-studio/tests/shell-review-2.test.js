@@ -98,3 +98,33 @@ describe('submenus opened by hovering', () => {
     m.close();
   });
 });
+
+describe('task bar width', () => {
+  it('drops its button labels when it is wider than the canvas, and shows them again when it fits', async () => {
+    const { app } = await appWithRect();
+    const bar = app.taskbar;
+    let room = 300;
+    // Labelled buttons need 600px; icon-only ones 280px.
+    Object.defineProperty(bar, 'scrollWidth', {
+      configurable: true,
+      get: () => (bar.classList.contains('compact') ? 280 : 600),
+    });
+    Object.defineProperty(bar, 'clientWidth', {
+      configurable: true,
+      get: () => Math.min(room, bar.scrollWidth),
+    });
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 40));
+    expect(bar.hidden).toBe(false);
+    expect(bar.classList.contains('compact')).toBe(true);
+    const labelled = [...bar.querySelectorAll('.tb-btn')].find((b) =>
+      b.querySelector('.icon + span'),
+    );
+    expect(labelled.dataset.tip).toBe(labelled.textContent.trim());
+    room = 900;
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 40));
+    expect(bar.classList.contains('compact')).toBe(false);
+    expect(labelled.dataset.tip).toBeUndefined();
+  });
+});
