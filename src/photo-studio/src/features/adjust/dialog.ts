@@ -25,6 +25,7 @@ import { cancelPick, picking, pickPoint, sampleAt, type SourceImage } from './so
 import { adjustInWorker, operationInWorker } from './worker-client';
 import { h, slider, checkbox, select } from './ui';
 import { svg } from '../../app/icons';
+import { noteDialogCancelled } from '../action-settings';
 
 const PREVIEW_ID = 'adjust-dialog-preview';
 
@@ -259,7 +260,7 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   refresh();
   const ok = await shell.result;
   restore(e);
-  if (!ok) return;
+  if (!ok) return noteDialogCancelled();
   const adj = structuredClone(adjustment());
   await applyToLayer(e, label, (image, rect) => adjustInWorker(image, adj, placement(rect)));
   recordStep(e, `adjust.${kind}`, { params: structuredClone(adj.params) });
@@ -340,7 +341,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
   refresh();
   const ok = await shell.result;
   restore(e);
-  if (!ok) return;
+  if (!ok) return noteDialogCancelled();
   const v = { ...values };
   await applyToLayer(e, op.label.replace(/…$/, ''), (image) => operationInWorker(image, op.id, v, context()));
   recordStep(e, op.id, { params: v });

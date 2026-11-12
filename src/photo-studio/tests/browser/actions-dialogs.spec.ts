@@ -1,5 +1,6 @@
 // Dialog commands in recorded actions: confirmed settings are recorded and
-// replayed without the dialog, and cancelled dialogs are not recorded.
+// replayed without the dialog, cancelled dialogs are not recorded and stop
+// playback, and the Stop button stops playback.
 import { test, expect, type Page } from '@playwright/test';
 import { boot, idle, layerPixel, openImage, run, start } from './helpers';
 
@@ -102,4 +103,31 @@ test('a cancelled dialog is not recorded', async ({ page }) => {
   }
   await run(page, 'actions.stop');
   expect(await recordedSteps(page)).toEqual([]);
+});
+
+test('cancelling a step dialog during playback stops the action', async ({ page }) => {
+  await openImage(page, 40, 30, '#808080', 'a.png');
+  await loadAction(page, 'Ask First', [{ command: 'layer.new', dialog: true }, { command: 'image.flip-horizontal' }]);
+  await startPlay(page);
+  const d = page.locator('dialog[open]', { hasText: 'New Layer' });
+  await d.getByRole('button', { name: 'Cancel' }).click();
+  await idle(page);
+  await expect(page.locator('#status')).toHaveText('Stopped “Ask First”: Layer was cancelled.');
+  expect(await page.evaluate(() => window.photoStudio.history.labels.some((l) => /Flip/.test(l)))).toBe(false);
+});
+
+test('the Stop button stops an action that is playing', async ({ page }) => {
+  await openImage(page, 1200, 900, '#808080', 'big.png');
+  const blur = { command: 'filter.apply.gaussian-blur', arg: { params: { radius: 40 } } };
+  await loadAction(page, 'Slow', Array.from({ length: 40 }, () => blur));
+  await startPlay(page);
+  await expect(page.getByRole('button', { name: 'Stop playing' })).toBeEnabled();
+  // The panel redraws after every step, so click the button as it is now.
+  await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-actions-stop]:not([disabled])')!.click());
+  await idle(page);
+  await expect(page.locator('#status')).toHaveText('Stopped “Slow”.');
+  const blurs = await page.evaluate(() => window.photoStudio.history.labels.filter((l) => /Gaussian/.test(l)).length);
+  expect(blurs).toBeGreaterThan(0);
+  expect(blurs).toBeLessThan(40);
+  await expect(page.getByRole('button', { name: 'Stop recording' })).toBeDisabled();
 });

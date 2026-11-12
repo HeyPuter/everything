@@ -10,6 +10,7 @@ import { galleryDialog } from './gallery';
 import { fade } from './fade';
 import { convertForLiveFilters, toggleLiveMask } from './live';
 import { installWideAngle } from './wide-angle';
+import { noteDialogCancelled } from '../action-settings';
 
 export { liquify } from './liquify';
 export { perspectivePlanes } from './perspective-planes';
@@ -48,7 +49,7 @@ export async function runFilter(e: Editor, opId: string, arg?: unknown) {
   } else {
     // { initial } opens the dialog with those settings (a played action step with its dialog on).
     const initial = (arg as { initial?: unknown } | undefined)?.initial;
-    await filterDialog(e, opId, initial && typeof initial === 'object' ? { initial: initial as ParamValues } : {});
+    if (!(await filterDialog(e, opId, initial && typeof initial === 'object' ? { initial: initial as ParamValues } : {}))) noteDialogCancelled();
   }
 }
 export function editLive(e: Editor, layerId: string, index: number, id: string) {

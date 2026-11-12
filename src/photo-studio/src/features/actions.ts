@@ -4,6 +4,7 @@ import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
 import { formDialog } from '../ui/dialog';
 import { registerBatchStep } from './files/automate-steps';
+import { takeDialogCancelled } from './action-settings';
 
 // Actions record command IDs (with their arguments) and replay them. Commands
 // that accept an argument object apply it without a dialog when the step's
@@ -95,6 +96,8 @@ function syncBatchSteps() {
 let selected: { set: string; action?: string; step?: number } = { set: sets[0]?.id ?? '' };
 let recording: Action | undefined;
 let playing = false;
+// Set by the Stop button while an action plays; playback ends before the next step.
+let stopRequested = false;
 
 export function allActions() {
   return sets.flatMap((s) => s.actions.map((a) => ({ set: s, action: a })));
@@ -106,10 +109,18 @@ function dialogArg(arg: unknown) {
 /** Replay an action's enabled steps; returns false if a step failed. */
 export async function playAction(e: Editor, action: Action, from = 0) {
   playing = true;
+  stopRequested = false;
+  takeDialogCancelled();
+  // Enables the Stop button.
+  e.dock?.update();
   try {
     for (let i = from; i < action.steps.length; i++) {
       const s = action.steps[i];
       if (!s.enabled) continue;
+      if (stopRequested) {
+        e.message(`Stopped “${action.name}”.`);
+        return false;
+      }
       // Steps recorded before a command was renamed run the current one.
       const c = findCommand(s.command);
       if (!c) throw new Error(`The command “${s.command}” is not available.`);
@@ -121,6 +132,11 @@ export async function playAction(e: Editor, action: Action, from = 0) {
       // A step with its dialog on opens the dialog, showing the recorded
       // settings ({ initial }) where the command has any.
       await c.run(e, s.dialog ? dialogArg(s.arg) : s.arg);
+      // Cancelling a step's dialog stops the action, as Stop does.
+      if (takeDialogCancelled()) {
+        e.message(`Stopped “${action.name}”: ${c.label.replace(/…$/, '')} was cancelled.`);
+        return false;
+      }
     }
     return true;
   } catch (error) {
@@ -128,7 +144,9 @@ export async function playAction(e: Editor, action: Action, from = 0) {
     return false;
   } finally {
     playing = false;
+    stopRequested = false;
     e.update();
+    e.dock?.update();
   }
 }
 function find(): { set?: ActionSet; action?: Action } {
@@ -164,6 +182,12 @@ const actionsPanel: Panel = {
   mount: (e, el) => {
     el.addEventListener('click', (ev) => {
       const t = ev.target as HTMLElement;
+      // Stop runs here, not as a command: commands wait while an action plays.
+      if (t.closest('[data-actions-stop]')) {
+        if (playing) stopRequested = true;
+        else if (recording) stopRecording(e);
+        return;
+      }
       const toggle = t.closest<HTMLElement>('[data-step-toggle]');
       if (toggle) {
         const { action } = find();
@@ -229,7 +253,7 @@ const actionsPanel: Panel = {
         }</div>`,
       )
       .join('');
-    el.innerHTML = `<div class="actions-list">${html}</div><div class="layer-footer"><button data-command="actions.stop" aria-label="Stop recording" title="Stop playing/recording" ${recording ? '' : 'disabled'}>${svg('square', 14)}</button><button data-command="actions.record" class="${recording ? 'recording' : ''}" aria-label="Begin recording" title="Begin recording" ${find().action && !recording ? '' : 'disabled'}>${svg('circle-dot', 14)}</button><button data-command="actions.play" aria-label="Play selection" title="Play selection" ${find().action && !recording ? '' : 'disabled'}>${svg('play', 14)}</button><button data-command="actions.new-set" aria-label="Create new set" title="Create new set">${svg('folder-plus', 14)}</button><button data-command="actions.new" aria-label="Create new action" title="Create new action">${svg('plus', 14)}</button><button data-command="actions.delete" aria-label="Delete" title="Delete">${svg('trash-2', 14)}</button></div>`;
+    el.innerHTML = `<div class="actions-list">${html}</div><div class="layer-footer"><button data-actions-stop aria-label="${playing ? 'Stop playing' : 'Stop recording'}" title="Stop playing/recording" ${recording || playing ? '' : 'disabled'}>${svg('square', 14)}</button><button data-command="actions.record" class="${recording ? 'recording' : ''}" aria-label="Begin recording" title="Begin recording" ${find().action && !recording ? '' : 'disabled'}>${svg('circle-dot', 14)}</button><button data-command="actions.play" aria-label="Play selection" title="Play selection" ${find().action && !recording ? '' : 'disabled'}>${svg('play', 14)}</button><button data-command="actions.new-set" aria-label="Create new set" title="Create new set">${svg('folder-plus', 14)}</button><button data-command="actions.new" aria-label="Create new action" title="Create new action">${svg('plus', 14)}</button><button data-command="actions.delete" aria-label="Delete" title="Delete">${svg('trash-2', 14)}</button></div>`;
     void e;
   },
   menu: () => ['actions.new', 'actions.new-set', 'actions.duplicate', 'actions.delete', '-', 'actions.play', 'actions.record', 'actions.stop', '-', 'actions.insert-menu-item', '-', 'actions.export', 'actions.import', 'actions.reset'],
