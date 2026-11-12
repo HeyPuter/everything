@@ -320,6 +320,11 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
     master.gain = 1;
     master.volumeEnv = dbEnvelopeToGain(m.automation.volume);
   }
+  // Muting the master silences the mix (after its effects, so they keep their state).
+  if (m.mute) {
+    master.gain = 0;
+    delete master.volumeEnv;
+  }
   // A mono master folds the mix to mono (both outputs carry it).
   if (m.channels === 1) master.mono = true;
   const graph = { rate: state.sampleRate, tracks, master };

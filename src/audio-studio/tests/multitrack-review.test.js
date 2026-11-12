@@ -296,3 +296,22 @@ describe('master track header', () => {
     expect(view.headers.get(doc.state.tracks[0].id).el.querySelector('.mt-tb-solo')).not.toBe(null);
   });
 });
+
+describe('master mute', () => {
+  it('silences the mix', () => {
+    const doc = new Session({ name: 'M.asesx', sampleRate: RATE, tracks: 1 });
+    const src = doc.addSource({
+      name: 'dc.wav',
+      channels: [Channel.fromSamples(new Float32Array(1000).fill(0.5))],
+    });
+    let st = S.addClips(doc.state, [
+      S.createClip({ trackId: doc.state.tracks[0].id, sourceId: src, length: 1000 }),
+    ]);
+    expect(renderState(st, doc.pool, null, 500)[0][100]).toBeCloseTo(0.5);
+    st = S.updateTrack(st, st.master.id, { mute: true });
+    expect(renderState(st, doc.pool, null, 500)[0][100]).toBe(0);
+    // With master volume automation too.
+    st = S.updateTrack(st, st.master.id, { automation: { volume: [{ t: 0, v: 0 }], pan: [] } });
+    expect(renderState(st, doc.pool, null, 500)[0][100]).toBe(0);
+  });
+});
