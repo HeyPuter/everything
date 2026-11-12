@@ -9,7 +9,6 @@ import { relativeTime } from '../../persistence/versions';
 import { documentThumbnail } from '../versions/thumbs';
 import { onRecentChange, onRecentNoted, openRecent, recentEntries, thumbKey, type RecentEntry } from './recent';
 import { PRESETS, defaultSpec, specFromPreset } from '../../model/document-presets';
-import { createDocument } from './new-document';
 import { sentNote } from '../assistant/settings';
 
 // A few common starting points; File → New lists every preset.
@@ -71,7 +70,12 @@ function renderPresets(e: Editor) {
   section.addEventListener('click', (ev) => {
     const id = (ev.target as HTMLElement).closest<HTMLElement>('[data-preset]')?.dataset.preset;
     const preset = PRESETS.find((p) => p.id === id);
-    if (preset) void e.run(() => createDocument(e, { ...specFromPreset(preset, e.preferences, defaultSpec()), name: 'Untitled' }));
+    if (preset)
+      void e.run(async () => {
+        // The New Document module loads on demand (prefetched when idle).
+        const { createDocument } = await import('./new-document');
+        await createDocument(e, { ...specFromPreset(preset, e.preferences, defaultSpec()), name: 'Untitled' });
+      });
   });
   host.querySelector('.start-head')?.after(section);
 }
@@ -136,7 +140,10 @@ function renderDescribe(e: Editor) {
       if (chosen) {
         const { openFile } = await import('./open');
         if (!(await openFile(e, chosen, chosen.name))) return;
-      } else await createDocument(e, { ...defaultSpec(), name: 'Untitled' });
+      } else {
+        const { createDocument } = await import('./new-document');
+        await createDocument(e, { ...defaultSpec(), name: 'Untitled' });
+      }
       text.value = '';
       file = undefined;
       show();
