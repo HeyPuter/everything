@@ -16,7 +16,7 @@ import { iconButton } from '../widgets.js';
 import { defaultLabel } from '../../model/nodes.js';
 import { drawNode } from '../../render/draw.js';
 import { visualBounds } from '../../model/geometry.js';
-import { addLayerAbove, layerPicks } from '../../ops/layer-ops.js';
+import { addLayerAbove, insertLayer, layerPicks } from '../../ops/layer-ops.js';
 import { layerObjects } from '../../ops/select-ops.js';
 
 const thumbCache = new WeakMap();
@@ -235,10 +235,8 @@ export class LayersPanel extends Panel {
     const doc = ed.doc;
     doc.transact(sub ? 'New Sublayer' : 'New Layer', () => {
       if (sub) {
-        const parent = doc.get(ed.activeLayerId);
-        const layer = doc.addLayer();
-        doc.move(layer.id, parent.id);
-        doc.update(layer.id, { name: `Layer ${doc.layers().length + countSublayers(doc) }` });
+        const parent = doc.layerOf(ed.activeLayerId) || doc.layers().at(-1);
+        const layer = insertLayer(doc, parent.id);
         this.expanded.add(parent.id);
         ed.activeLayerId = layer.id;
       } else {
@@ -784,15 +782,6 @@ export class LayersPanel extends Panel {
     e.preventDefault();
     e.stopPropagation();
   }
-}
-
-function countSublayers(doc) {
-  let n = 0;
-  doc.walk((x) => {
-    if (x.type === 'layer' && x.parent !== 'root') n++;
-    return x.type === 'layer';
-  });
-  return n;
 }
 
 function typeIcon(n) {

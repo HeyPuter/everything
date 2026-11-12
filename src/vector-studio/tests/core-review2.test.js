@@ -228,3 +228,24 @@ describe('Layers panel Delete button', () => {
     expect(doc.layers()).toHaveLength(3);
   });
 });
+
+describe('new layer names', () => {
+  it('never repeat a name already used by a layer or sublayer', async () => {
+    const { app, ed, doc, layer } = setup();
+    const panel = app.dock.panels.get('layers');
+    panel.ensureBuilt();
+    panel.newLayer(true);
+    ed.activeLayerId = layer.id;
+    panel.newLayer(false);
+    ed.activeLayerId = layer.id;
+    await app.commands.run('layer.new');
+    panel.newLayer(true);
+    const names = [];
+    doc.walk((n) => {
+      if (n.type === 'layer') names.push(n.name);
+      return n.type === 'layer';
+    });
+    expect(names).toHaveLength(5);
+    expect(new Set(names).size).toBe(5);
+  });
+});

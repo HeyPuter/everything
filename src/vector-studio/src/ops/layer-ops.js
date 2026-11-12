@@ -92,7 +92,7 @@ export function addLayerAbove(doc, layerId, name) {
     );
   }
   const idx = doc.root.children.indexOf(active?.id);
-  return doc.addLayer(name, idx < 0 ? Infinity : idx + 1);
+  return doc.addLayer(name || nextLayerName(doc), idx < 0 ? Infinity : idx + 1);
 }
 
 /** Copies of nodes, each placed right above its original. Returns the copies' ids (back to front). */

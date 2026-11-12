@@ -9,7 +9,7 @@ import { multiply, rotate, scale, shear, translate } from '../lib/matrix.js';
 import { transformNodes, transformPatches, selectionBounds, selectionFrame, frameToDoc, frameMatrix } from '../model/geometry.js';
 import { reflectAcross } from '../tools/transform-tools.js';
 import { createPath } from '../model/nodes.js';
-import { addLayerAbove, duplicateNodes } from '../ops/layer-ops.js';
+import { addLayerAbove, duplicateNodes, nextLayerName } from '../ops/layer-ops.js';
 
 const hasDoc = (app) => Boolean(app.editor);
 const hasSel = (app) => Boolean(app.editor?.selection.size);
@@ -394,7 +394,7 @@ export function registerCoreCommands(app) {
         const v = await a.dialogs.form({
           title: 'Layer Options',
           fields: [
-            { key: 'name', label: 'Name', type: 'text', value: `Layer ${e.doc.layers().length + 1}` },
+            { key: 'name', label: 'Name', type: 'text', value: nextLayerName(e.doc) },
             { key: 'color', label: 'Color', type: 'color', value: '#4f80ff' },
             { key: 'locked', label: 'Lock', type: 'checkbox', value: false },
             { key: 'hidden', label: 'Hide', type: 'checkbox', value: false },
