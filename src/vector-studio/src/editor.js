@@ -15,6 +15,7 @@ import { Emitter } from './lib/emitter.js';
 import { Viewport } from './render/viewport.js';
 import { DEFAULT_STYLE, createGroup } from './model/nodes.js';
 import { selectionBounds, selectionFrame, nodeBounds } from './model/geometry.js';
+import { liveDef } from './model/live.js';
 
 export const DEFAULT_VIEW_OPTIONS = {
   mode: 'preview', // preview | outline
@@ -339,6 +340,8 @@ export class Editor extends Emitter {
     while (n && n.parent && n.id !== stop) {
       const p = this.doc.get(n.parent);
       if (!p || p.type === 'layer' || p.type === 'root' || p.id === stop) break;
+      // Live objects opened for editing (an envelope's contents) select their children.
+      if (p.type === 'group' && p.live && liveDef(p)?.selectContents) break;
       n = p;
     }
     return n;

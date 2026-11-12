@@ -31,6 +31,9 @@
  *                                           optional, with ownSpace: map a document
  *                                           transform into that space; the node gets
  *                                           `patch`, its children `matrix`
+ *     selectContents: true                  optional: the Selection tool picks the
+ *                                           object's children instead of the object
+ *                                           (an envelope whose contents are edited)
  *     highlight: 'bounds'                   optional: the selection highlight
  *                                           outlines the object's box instead of
  *                                           its source children

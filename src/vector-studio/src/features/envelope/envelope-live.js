@@ -526,5 +526,6 @@ registerLive(KIND, {
 registerLive('envelopeContents', {
   ...COMMON,
   test: editingContents,
+  selectContents: true,
   transformParams: (node, m) => ({ live: transformLive(node.live, m) }),
 });

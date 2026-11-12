@@ -244,6 +244,45 @@ describe('Envelope commands', () => {
     expect(hitTest(doc, 120, 190, 1).id).toBe(a);
   });
 
+  it('while editing contents the Selection tool selects and moves the content object, not the envelope', async () => {
+    const { app, ed, doc, a } = await setup();
+    const p = app.commands.run('envelope.makeMesh');
+    await tick();
+    button(openDlg(), 'OK').click();
+    await p;
+    const env = envOf(ed);
+    app.setTool('selection');
+    const click = (x, y) => {
+      const s = ed.view.toScreen(x, y);
+      app.tool.onPointerDown({ x, y, sx: s.x, sy: s.y, shift: false, alt: false });
+      app.tool.onPointerUp({ x, y, sx: s.x, sy: s.y, shift: false, alt: false });
+    };
+    ed.clearSelection();
+    click(120, 190);
+    expect([...ed.selection]).toEqual([env.id]);
+    app.commands.run('envelope.editContents');
+    ed.clearSelection();
+    click(120, 190);
+    expect([...ed.selection]).toEqual([a]);
+    // Edit Envelope still finds the envelope from its selected content.
+    expect(app.commands.get('envelope.editContents').label(app)).toBe('Edit Envelope');
+    // Dragging moves just that content object; the envelope keeps its shape.
+    const mesh = doc.get(env.id).live.mesh;
+    const s0 = ed.view.toScreen(120, 190);
+    const s1 = ed.view.toScreen(130, 190);
+    app.tool.onPointerDown({ x: 120, y: 190, sx: s0.x, sy: s0.y, shift: false, alt: false });
+    app.tool.onPointerMove({ x: 130, y: 190, sx: s1.x, sy: s1.y, shift: false, alt: false });
+    app.tool.onPointerUp({ x: 130, y: 190, sx: s1.x, sy: s1.y, shift: false, alt: false });
+    // (Snapping may round the distance.)
+    expect(doc.get(a).anchors[0].x).toBeGreaterThan(102);
+    expect(doc.get(env.id).live.mesh).toEqual(mesh);
+    // Back to editing the envelope: a click picks the envelope again.
+    app.commands.run('envelope.editContents');
+    ed.clearSelection();
+    click(125, 190);
+    expect([...ed.selection]).toEqual([env.id]);
+  });
+
   it('Envelope Options edits the options with a live preview', async () => {
     const { app, ed, doc } = await setup();
     const p = app.commands.run('envelope.makeMesh');
