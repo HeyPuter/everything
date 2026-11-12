@@ -285,3 +285,14 @@ describe('bouncing to a new track', () => {
     }
   });
 });
+
+describe('master track header', () => {
+  it('has no Solo button (soloing the master does nothing)', async () => {
+    const { app, doc } = await appWithSession();
+    const view = app.documentKinds.get('session').view(app, doc);
+    const master = view.headers.get(doc.state.master.id);
+    expect(master.el.querySelector('.mt-tb-mute')).not.toBe(null);
+    expect(master.el.querySelector('.mt-tb-solo')).toBe(null);
+    expect(view.headers.get(doc.state.tracks[0].id).el.querySelector('.mt-tb-solo')).not.toBe(null);
+  });
+});

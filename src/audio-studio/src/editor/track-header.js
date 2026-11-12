@@ -56,7 +56,8 @@ export class TrackHeader {
     const toggle = (key, label, text, title) =>
       h(`button.mt-tb.mt-tb-${key}`, { type: 'button', 'aria-pressed': 'false', 'aria-label': label, title, onclick: () => controls().toggle(this.id, key) }, text);
     this.mute = toggle('mute', 'Mute', 'M', 'Mute');
-    this.solo = toggle('solo', 'Solo', 'S', 'Solo');
+    // The master is never soloed (it carries the whole mix), as in the Mixer.
+    this.solo = isMaster ? null : toggle('solo', 'Solo', 'S', 'Solo');
     this.arm = isMaster || isBus ? null : toggle('arm', 'Arm for recording', 'R', 'Arm for Record');
     this.monitor = isMaster || isBus ? null : h('button.mt-tb.mt-tb-monitor', { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Monitor input', title: 'Monitor Input', onclick: () => controls().toggle(this.id, 'monitor') }, icon('monitor-input', 12));
 
