@@ -7,12 +7,28 @@
  * it and Esc returns to the Selection tool.
  */
 import { Tool, fmt } from '../../tools/tool.js';
+import { resizeCursorFor } from '../../tools/selection.js';
 import { SnapIndex, snapBox, snapPoint } from '../../tools/snap.js';
 import { collectOriginals, transformFromOriginals, nodeBounds } from '../../model/geometry.js';
 import { translate } from '../../lib/matrix.js';
 import { artworkOnArtboard, addArtboard, updateArtboard, duplicateArtboard, boardHandles, resizeRect, moveArtboard, deleteArtboard } from './artboard-ops.js';
 
-const RESIZE_CURSORS = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
+/** Outline a document rect on the overlay: four screen corners, so it stays true in a rotated view. */
+function strokeDocRect(ctx, view, r) {
+  const pts = [
+    view.toScreen(r.x, r.y),
+    view.toScreen(r.x + r.w, r.y),
+    view.toScreen(r.x + r.w, r.y + r.h),
+    view.toScreen(r.x, r.y + r.h),
+  ];
+  ctx.beginPath();
+  for (const [i, p] of pts.entries()) {
+    if (i) ctx.lineTo(Math.round(p.x) + 0.5, Math.round(p.y) + 0.5);
+    else ctx.moveTo(Math.round(p.x) + 0.5, Math.round(p.y) + 0.5);
+  }
+  ctx.closePath();
+  ctx.stroke();
+}
 
 /** Whether the Artboard tool moves and copies artwork with the artboard (persisted preference). */
 export function moveArtworkEnabled(app) {
@@ -86,7 +102,8 @@ export class ArtboardTool extends Tool {
 
   onHover(e) {
     const handle = this.handleAt(e.sx, e.sy);
-    if (handle) this.setCursor(RESIZE_CURSORS[handle]);
+    // The resize cursor follows the handle's direction on screen (the view may be rotated).
+    if (handle) this.setCursor(resizeCursorFor(this.editor, this.editor.artboard(), handle));
     else if (this.editor.artboardAt(e.x, e.y) >= 0) this.setCursor(e.alt ? 'copy' : 'var(--cursor-move)');
     else this.setCursor('crosshair');
   }
@@ -279,21 +296,17 @@ export class ArtboardTool extends Tool {
     const accent = colors.selection;
     doc.artboards.forEach((a, i) => {
       if (i === editor.activeArtboard) return;
-      const p = view.toScreen(a.x, a.y);
-      const q = view.toScreen(a.x + a.w, a.y + a.h);
       ctx.strokeStyle = accent;
       ctx.globalAlpha = 0.55;
       ctx.setLineDash([]);
-      ctx.strokeRect(Math.round(p.x) + 0.5, Math.round(p.y) + 0.5, Math.round(q.x - p.x), Math.round(q.y - p.y));
+      strokeDocRect(ctx, view, a);
     });
     ctx.globalAlpha = 1;
     const a = editor.artboard();
     if (a) {
-      const p = view.toScreen(a.x, a.y);
-      const q = view.toScreen(a.x + a.w, a.y + a.h);
       ctx.strokeStyle = accent;
       ctx.setLineDash([4, 3]);
-      ctx.strokeRect(Math.round(p.x) + 0.5, Math.round(p.y) + 0.5, Math.round(q.x - p.x), Math.round(q.y - p.y));
+      strokeDocRect(ctx, view, a);
       ctx.setLineDash([]);
       for (const h of Object.values(boardHandles(a))) {
         const s = view.toScreen(h.x, h.y);
@@ -304,12 +317,9 @@ export class ArtboardTool extends Tool {
     }
     const d = this.drag;
     if (d?.kind === 'draw' && d.moved) {
-      const r = this.drawRect(d);
-      const p = view.toScreen(r.x, r.y);
-      const q = view.toScreen(r.x + r.w, r.y + r.h);
       ctx.strokeStyle = accent;
       ctx.setLineDash([4, 3]);
-      ctx.strokeRect(Math.round(p.x) + 0.5, Math.round(p.y) + 0.5, Math.round(q.x - p.x), Math.round(q.y - p.y));
+      strokeDocRect(ctx, view, this.drawRect(d));
     }
     ctx.restore();
   }
