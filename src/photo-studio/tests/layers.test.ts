@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { layer, newDocument, allLayers } from '../src/model/document';
 import {
+  arrangeLayers,
   groupLayers,
   mergeVisibleStack,
   moveLayers,
@@ -230,5 +231,37 @@ describe('creating and releasing clipping masks', () => {
     expect(clipped(doc)).toEqual([false, true, true, false, false]);
     toggleClipping(doc, doc.layers[4].id);
     expect(clipped(doc)).toEqual([false, true, true, false, true]);
+  });
+});
+
+describe('arranging layers', () => {
+  function fixture() {
+    const doc = newDocument(40, 30);
+    doc.layers = ['Background', 'A', 'B', 'C', 'D'].map((n) => layer('solid', n, 40, 30));
+    makeBackground(doc.layers[0]);
+    return doc;
+  }
+  const names = (doc: ReturnType<typeof newDocument>) => doc.layers.map((l) => l.name);
+  const pick = (doc: ReturnType<typeof newDocument>, ...n: string[]) => doc.layers.filter((l) => n.includes(l.name));
+  it('Send to Back stops above the Background', () => {
+    const doc = fixture();
+    arrangeLayers(doc, pick(doc, 'C', 'D'), 'back');
+    expect(names(doc)).toEqual(['Background', 'C', 'D', 'A', 'B']);
+  });
+  it('Send Backward never moves a layer below the Background or past another selected layer', () => {
+    const doc = fixture();
+    arrangeLayers(doc, pick(doc, 'A', 'B'), 'backward');
+    expect(names(doc)).toEqual(['Background', 'A', 'B', 'C', 'D']);
+    arrangeLayers(doc, pick(doc, 'A', 'C'), 'backward');
+    expect(names(doc)).toEqual(['Background', 'A', 'C', 'B', 'D']);
+  });
+  it('Bring Forward keeps the order of selected layers at the top', () => {
+    const doc = fixture();
+    arrangeLayers(doc, pick(doc, 'C', 'D'), 'forward');
+    expect(names(doc)).toEqual(['Background', 'A', 'B', 'C', 'D']);
+    arrangeLayers(doc, pick(doc, 'A', 'B'), 'forward');
+    expect(names(doc)).toEqual(['Background', 'C', 'A', 'B', 'D']);
+    arrangeLayers(doc, pick(doc, 'A', 'B'), 'front');
+    expect(names(doc)).toEqual(['Background', 'C', 'D', 'A', 'B']);
   });
 });

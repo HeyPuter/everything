@@ -11,7 +11,7 @@ import { escapeXML } from '../model/assets';
 import { formatShortcut, isMac } from '../app/shortcuts';
 import { appIcon } from '../app/shell';
 import { compositeRGBA, hexRgb, layerRGBA, nextLayerName, pixelTarget, rasterizeLayer, commitTarget } from './pixels';
-import { assertEditable, selectedRoots, groupLayers, mergeVisibleStack, toggleClipping } from '../model/layers';
+import { assertEditable, selectedRoots, groupLayers, mergeVisibleStack, toggleClipping, arrangeLayers } from '../model/layers';
 import { hasMask } from '../model/masks';
 import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
@@ -458,15 +458,7 @@ function revealAll(e: Editor) {
 function arrange(e: Editor, where: 'front' | 'forward' | 'backward' | 'back') {
   const roots = e.selectedLayers;
   assertEditable(e.doc, roots, 'position');
-  e.command('Arrange Layers', (d) => {
-    for (const r of where === 'front' || where === 'backward' ? roots : [...roots].reverse()) {
-      const list = containerOf(d.layers, r.id)!;
-      const i = list.findIndex((l) => l.id === r.id);
-      const [item] = list.splice(i, 1);
-      const to = where === 'front' ? list.length : where === 'back' ? 0 : where === 'forward' ? Math.min(list.length, i + 1) : Math.max(0, i - 1);
-      list.splice(to, 0, item);
-    }
-  });
+  e.command('Arrange Layers', (d) => arrangeLayers(d, roots, where));
 }
 async function layerVia(e: Editor, cut: boolean) {
   const l = e.layer;

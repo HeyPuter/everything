@@ -128,6 +128,30 @@ export function reorderLayers(doc: PhotoDocument, ids: ReadonlySet<string>, up: 
     }
   }
 }
+/** Layer → Arrange. Selected layers keep their order among themselves (a
+ * selected layer never passes another), and none goes below the Background. */
+export function arrangeLayers(doc: PhotoDocument, roots: Layer[], where: 'front' | 'forward' | 'backward' | 'back') {
+  const selected = new Set(roots.map((l) => l.id));
+  const lists = new Set(roots.map((l) => containerOf(doc.layers, l.id)!));
+  for (const list of lists) {
+    const floor = list[0]?.background ? 1 : 0;
+    const picked = list.filter((l) => selected.has(l.id) && !l.background);
+    if (where === 'front' || where === 'back') {
+      const rest = list.filter((l) => !picked.includes(l));
+      rest.splice(where === 'front' ? rest.length : floor, 0, ...picked);
+      list.splice(0, list.length, ...rest);
+      continue;
+    }
+    const up = where === 'forward';
+    const indices = list.map((_, i) => i);
+    if (up) indices.reverse();
+    for (const i of indices) {
+      const j = i + (up ? 1 : -1);
+      if (j < floor || j >= list.length || !picked.includes(list[i]) || selected.has(list[j].id)) continue;
+      [list[i], list[j]] = [list[j], list[i]];
+    }
+  }
+}
 /** The layer stack after Merge Visible: `merged` replaces the visible layers.
  * Hidden layers survive, also those inside visible groups (which are merged
  * away), and stay below or above the merged layer as they were stacked
