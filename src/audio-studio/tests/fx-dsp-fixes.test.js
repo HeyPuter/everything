@@ -96,6 +96,34 @@ describe('Non-finite input', () => {
   });
 });
 
+describe('Denormals after the audio stops', () => {
+  it('feedback delays and reverbs ring down to zero, not to denormal numbers', () => {
+    const x = instance();
+    // Echo, Analog Delay, Flanger, Chorus/Flanger, Studio Reverb, Reverb, Full Reverb.
+    for (const kind of [61, 62, 71, 73, 80, 81, 82]) {
+      const h = x.fx_new(kind, RATE, 2);
+      x.fx_reset(h);
+      const n = 128;
+      const buf = x.mem_alloc(2 * n * 4);
+      let denormals = 0;
+      // Half a second of loud noise, then 40 s of silence.
+      for (let b = 0; b < 375 * 40.5; b++) {
+        const v = new Float32Array(x.memory.buffer, buf, 2 * n);
+        if (b < 188) v.set(noise(2 * n, 0.9, b + 1));
+        else v.fill(0);
+        x.fx_process(h, buf, n);
+        if (b < 375 * 30) continue;
+        for (const s of new Float32Array(x.memory.buffer, buf, 2 * n)) {
+          if (s !== 0 && Math.abs(s) < 1.1754944e-38) denormals++;
+        }
+      }
+      expect(denormals, `kind ${kind}`).toBe(0);
+      x.mem_free(buf, 2 * n * 4);
+      x.fx_free(h);
+    }
+  });
+});
+
 describe('DeNoise at low sample rates', () => {
   it('reports its latency at every rate and keeps speech at 8 kHz', async () => {
     const { getEffect, defaults, effectLatency } = await import('../src/effects/index.js');
