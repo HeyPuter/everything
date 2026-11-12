@@ -192,6 +192,17 @@ describe('EPS export', () => {
     expect(warnings.join(' ')).toMatch(/no transparency/);
   });
 
+  it('reports opacity masks it cannot keep', async () => {
+    const doc = sampleDoc();
+    const id = doc.layers()[0].children[0];
+    const m = createPath(rectangle(0, 0, 10, 10), true, { fill: { type: 'solid', color: '#808080' }, stroke: null });
+    doc.transact('m', () => doc.update(id, { opacityMask: { art: { root: m.id, nodes: [m] }, transform: [1, 0, 0, 1, 0, 0], clip: true } }));
+    const { warnings } = await writeEPS(doc, { rect: doc.artboards[0] });
+    expect(warnings.join(' ')).toMatch(/opacity masks were not kept/);
+    // Without a mask there is nothing to report.
+    expect((await writeEPS(sampleDoc(), { rect: doc.artboards[0] })).warnings.join(' ')).not.toMatch(/masks/);
+  });
+
   it('wraps a TIFF preview in a binary EPS header', () => {
     const tiff = Uint8Array.from([0x49, 0x49, 42, 0, 1, 2, 3]);
     const bin = dosEPS('%!PS\n', tiff);

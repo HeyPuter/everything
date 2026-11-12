@@ -314,6 +314,8 @@ class Translator {
           const e = eg instanceof PDFDict && a[0] instanceof Name ? eg.get(a[0].name) : null;
           if (e instanceof PDFDict) {
             if ((e.has('ca') && e.get('ca') < 1) || (e.has('CA') && e.get('CA') < 1) || (e.has('BM') && e.name('BM') !== 'Normal')) this.warnings.add('PostScript has no transparency: opacity and blending modes were not kept.');
+            const sm = e.get('SMask');
+            if (sm && !(sm instanceof Name && sm.name === 'None')) this.warnings.add('PostScript has no transparency: opacity masks were not kept, so masked artwork shows in full.');
             if (e.has('LW')) this.emit(`${num(e.get('LW'))} w`);
           }
           break;
