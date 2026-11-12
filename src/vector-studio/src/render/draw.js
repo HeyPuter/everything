@@ -763,6 +763,33 @@ function drawTextMasked(ctx, doc, kids, mask, opts) {
   regionPool.release(layer);
 }
 
+let probe = null;
+
+/**
+ * Whether a clip group's clipping path `mask` covers a document point, as drawChildren clips:
+ * paths by their area, groups by the union of their parts, type by its glyphs. Glyph shapes are
+ * known only to the canvas, so the mask is painted over one pixel spanning `tol` around the point.
+ */
+export function clipCovers(doc, mask, x, y, tol = 1) {
+  if (!probe) {
+    const c =
+      typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(1, 1)
+        : Object.assign(document.createElement('canvas'), { width: 1, height: 1 });
+    probe = c.getContext('2d', { willReadFrequently: true });
+  }
+  probe.setTransform(1, 0, 0, 1, 0, 0);
+  if (!maskHasText(doc, mask)) {
+    const path = clipPathOf(doc, mask);
+    return !path || probe.isPointInPath(path, x, y, mask.fillRule || 'nonzero');
+  }
+  const s = 1 / Math.max(tol, 1e-3);
+  probe.clearRect(0, 0, 1, 1);
+  probe.setTransform(s, 0, 0, s, 0.5 - x * s, 0.5 - y * s);
+  fillMask(probe, doc, mask, { hairline: 0 });
+  return probe.getImageData(0, 0, 1, 1).data[3] > 0;
+}
+
 /** Clip region for a mask node (path, compound, or text as its glyph boxes). */
 function clipPathOf(doc, node) {
   if (node.type === 'path' || node.type === 'compound') return shapePathOf(doc, node);

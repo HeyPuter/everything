@@ -5,7 +5,7 @@
  * isPointInStroke on the cached Path2D objects, after a cheap bounds reject,
  * so clicking matches what is drawn (curves, joins, fill rule).
  */
-import { shapePathOf, renderPathOf } from './draw.js';
+import { shapePathOf, renderPathOf, clipCovers } from './draw.js';
 import { liveDef, liveArtwork } from '../model/live.js';
 import { visualBounds, nodeBounds, rectsIntersect, inflate, unionRect } from '../model/geometry.js';
 import { flattenPath } from '../model/bezier.js';
@@ -127,7 +127,7 @@ function firstLeaf(doc, node) {
   return null;
 }
 
-function clipContains(doc, group, x, y) {
+function clipContains(doc, group, x, y, tol) {
   const mask = doc.get(group.children[group.children.length - 1]);
   if (!mask) return true;
   if (mask.type === 'path' || mask.type === 'compound') {
@@ -135,7 +135,10 @@ function clipContains(doc, group, x, y) {
     return hctx().isPointInPath(path, x, y, mask.fillRule || 'nonzero');
   }
   const b = nodeBounds(doc, mask);
-  return b ? x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h : true;
+  if (!b) return true;
+  if (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) return false;
+  // Type and groups clip to their glyphs and parts, not their bounding box.
+  return mask.type === 'text' || mask.type === 'group' ? clipCovers(doc, mask, x, y, tol) : true;
 }
 
 /**
@@ -190,10 +193,11 @@ function layerStackHit(doc, layer, x, y, tol, opts) {
 function hitChildren(doc, container, x, y, tol, opts) {
   const kids = container.children;
   if (container.type === 'group' && container.clip && kids.length) {
-    if (!clipContains(doc, container, x, y)) {
-      // The clipping path's own outline is still clickable.
+    if (!clipContains(doc, container, x, y, tol)) {
+      // The clipping path's own outline is still clickable (type only on its glyphs, tested above).
       const mask = doc.get(kids[kids.length - 1]);
-      if (mask && !mask.hidden && !mask.locked && hitNode(doc, mask, x, y, tol, { outline: true })) return mask;
+      const pickable = mask && mask.type !== 'text' && !mask.hidden && !mask.locked;
+      if (pickable && hitNode(doc, mask, x, y, tol, { outline: true })) return mask;
       return null;
     }
   }
