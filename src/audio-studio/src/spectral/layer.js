@@ -171,8 +171,17 @@ export class SpectralLayer {
   /** Frees textures and the GL context (re-created on the next draw). */
   release() {
     this.cache.clear();
-    this.renderer?.dispose();
-    this.renderer = null;
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer = null;
+      // Disposing loses the canvas' WebGL context, and a canvas keeps that lost
+      // context for good: the next renderer needs a new canvas.
+      const fresh = h('canvas.spec-gl', { 'aria-hidden': 'true' });
+      fresh.hidden = this.canvas.hidden;
+      fresh.style.cssText = this.canvas.style.cssText;
+      this.canvas.replaceWith(fresh);
+      this.canvas = fresh;
+    }
     this.needs = true;
   }
 

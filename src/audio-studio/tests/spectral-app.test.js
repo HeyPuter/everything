@@ -179,6 +179,55 @@ describe('spectral feature', () => {
     }
   });
 
+  it('draws again after the display is hidden and shown or the file is switched away and back', async () => {
+    // A stand-in WebGL2 context per canvas; losing it (as dispose does) is permanent for that canvas.
+    const contexts = new WeakMap();
+    const fakeGl = () => {
+      let lost = false;
+      return new Proxy(
+        {},
+        {
+          get(t, k) {
+            if (k === 'getExtension') return (name) => (name === 'WEBGL_lose_context' ? { loseContext: () => (lost = true) } : null);
+            if (k === 'isContextLost') return () => lost;
+            if (k === 'getParameter') return () => 4096;
+            if (k === 'getShaderParameter' || k === 'getProgramParameter') return () => (lost ? null : true);
+            if (k === 'getUniformLocation') return () => (lost ? null : {});
+            if (typeof k === 'string' && /^[A-Z_0-9]+$/.test(k)) return 1;
+            return () => (lost ? null : {});
+          },
+        },
+      );
+    };
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (type) {
+      if (type !== 'webgl2') return null;
+      if (!contexts.has(this)) contexts.set(this, fakeGl());
+      return contexts.get(this);
+    };
+    const view = new WaveformView(app, doc);
+    document.body.append(view.el);
+    try {
+      const layer = view.layers.find((l) => l.id === 'spectral');
+      const draw = () => {
+        layer.layout({ y: 100, width: 600, height: 200, dpr: 1 });
+        layer.draw({});
+        return layer.renderer?.available === true;
+      };
+      expect(draw()).toBe(true);
+      app.prefs.set('spectralDisplay', false);
+      app.prefs.set('spectralDisplay', true);
+      expect(draw()).toBe(true);
+      expect(view.el.contains(layer.canvas)).toBe(true);
+      layer.release();
+      expect(draw()).toBe(true);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
+      view.destroy();
+      view.el.remove();
+    }
+  });
+
   it('zooms the frequency axis', async () => {
     const { docState } = await import('../src/spectral/state.js');
     app.prefs.set('spectralLog', false);
