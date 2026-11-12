@@ -170,3 +170,23 @@ describe('keyboard shortcuts dialog', () => {
     expect(app.toolKeys.get('d')).toBeUndefined();
   });
 });
+
+describe('color picker hex field', () => {
+  it('Escape in the hex field closes the paint popover and returns to its button', async () => {
+    const { installCanvasStub } = await import('./helpers.js');
+    installCanvasStub();
+    const { openPopover, closePopover } = await import('../src/ui/popover.js');
+    const { createColorPicker } = await import('../src/ui/color-picker.js');
+    const anchor = document.createElement('button');
+    document.body.append(anchor);
+    const picker = createColorPicker({ value: '#ff0000' });
+    openPopover(anchor, picker.el, { label: 'Fill color' });
+    const hex = picker.el.querySelector('.cp-hex');
+    hex.focus();
+    hex.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('.popover')).toBe(null);
+    expect(document.activeElement).toBe(anchor);
+    closePopover();
+    anchor.remove();
+  });
+});
