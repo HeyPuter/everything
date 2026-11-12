@@ -77,3 +77,24 @@ describe('popup menu Escape', () => {
     expect(document.activeElement).toBe(app.canvasHost);
   });
 });
+
+describe('submenus opened by hovering', () => {
+  it('keep focus on their row, and Right moves into the open submenu', async () => {
+    const { openMenu } = await import('../src/ui/menubar.js');
+    const run = () => {};
+    const items = [
+      { type: 'cmd', label: 'One', enabled: true, run },
+      { type: 'sub', label: 'More', items: [{ type: 'cmd', label: 'Inner', enabled: true, run }] },
+    ];
+    const m = openMenu({}, items, { x: 10, y: 10 });
+    const row = m.el.querySelectorAll('.menu-item')[1];
+    row.dispatchEvent(new Event('pointerenter'));
+    const menus = document.querySelectorAll('.menu');
+    expect(menus.length).toBe(2);
+    expect(document.activeElement).toBe(row);
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(document.querySelectorAll('.menu').length).toBe(2);
+    expect(document.activeElement.textContent).toContain('Inner');
+    m.close();
+  });
+});

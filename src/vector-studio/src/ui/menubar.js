@@ -125,7 +125,11 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
     row._item = item;
     if (isSub) {
       const openSub = (focusFirst) => {
-        if (submenu?.row === row) return;
+        if (submenu?.row === row) {
+          // Already open from hovering: the keyboard moves into it.
+          if (focusFirst) submenu.focusFirst();
+          return;
+        }
         closeSub();
         const r = row.getBoundingClientRect();
         row.setAttribute('aria-expanded', 'true');
@@ -139,7 +143,11 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         });
         submenu.row = row;
       };
-      row.addEventListener('pointerenter', () => openSub(false));
+      // Hovering opens the submenu and keeps focus on its row, so Right or Enter moves into it.
+      row.addEventListener('pointerenter', () => {
+        row.focus();
+        openSub(false);
+      });
       row.addEventListener('click', () => openSub(true));
       row._open = openSub;
     } else {
@@ -293,12 +301,13 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
       close('activate');
       parentMenu?.closeAll?.();
     },
+    focusFirst: () => (focusable()[0] || menu).focus(),
     onNavigate: null,
   };
   if (parentMenu) parentMenu.child = api;
   if (focus === 'first') (focusable()[0] || menu).focus();
   else if (focus === 'last') (focusable().slice(-1)[0] || menu).focus();
-  else menu.focus({ preventScroll: true });
+  else if (!parentMenu) menu.focus({ preventScroll: true });
   return api;
 }
 
