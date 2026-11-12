@@ -242,7 +242,10 @@ export class ScriptHost {
   }
   /** One edit of a document as a history step (combined later when grouping). */
   private async edit(id: unknown, label: string, fn: (d: PhotoDocument) => void) {
-    await this.use(id);
+    const s = await this.use(id);
+    // A shared document this person cannot change refuses the edit: say so.
+    const refused = s.history.refusal;
+    if (refused) fail(refused);
     let error: unknown;
     this.e.command(label, (d) => {
       try {
@@ -403,6 +406,7 @@ export class ScriptHost {
         const x = num(dx, 'dx', -1e5, 1e5),
           y = num(dy, 'dy', -1e5, 1e5);
         if (!x && !y) return this.info(s, l.id);
+        if (s.history.refusal) fail(s.history.refusal);
         e.selectLayers([l.id]);
         e.transform.nudge(x, y);
         return this.info(this.session(id), l.id);

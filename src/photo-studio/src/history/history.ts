@@ -27,6 +27,11 @@ export class History {
     this.states = [{ label: '', doc: document }];
     this.opened = document;
   }
+  /** Why edits are refused (a shared document the person may only view or
+   * comment on), or undefined when they are recorded. */
+  get refusal(): string | undefined {
+    return undefined;
+  }
   /** Record an edit. With `coalesce`, an edit repeating the label of the
    * latest step replaces that step's result (frame selection, for example),
    * and drops the step when it returns to the state before it. */

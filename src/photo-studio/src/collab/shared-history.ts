@@ -39,6 +39,9 @@ export class SharedHistory extends History {
     if (this.recent.at(-1) !== doc) this.recent.push(doc);
     if (this.recent.length > 30) this.recent.shift();
   }
+  override get refusal() {
+    return this.binding.canEdit ? undefined : this.binding.refusal();
+  }
   override execute(label: string, edit: (doc: PhotoDocument) => void, coalesce = false) {
     if (!this.binding.canEdit) {
       this.binding.refuse();
@@ -157,8 +160,11 @@ export class SharedBinding {
   get canEdit() {
     return this.client.canEdit && !this.closed;
   }
+  refusal() {
+    return this.closed ? 'This document is no longer shared.' : this.client.canComment ? 'You can comment on this shared document but not change it.' : 'You can view this shared document but not change it.';
+  }
   refuse() {
-    this.o.onMessage?.(this.closed ? 'This document is no longer shared.' : this.client.canComment ? 'You can comment on this shared document but not change it.' : 'You can view this shared document but not change it.');
+    this.o.onMessage?.(this.refusal());
   }
   get undoCount() {
     return this.entries.length;
