@@ -144,7 +144,7 @@ export class SharedBinding {
   ) {
     const p = client.project;
     // Only this person's edits are tracked; merging is controlled with stopCapturing.
-    this.undoManager = new Y.UndoManager([p.doc, p.layers], { trackedOrigins: new Set([ORIGIN.local]), captureTimeout: 2 ** 31 });
+    this.undoManager = new Y.UndoManager([p.doc, p.layers], { trackedOrigins: new Set([ORIGIN.local]), captureTimeout: 2 ** 31, deleteFilter: (item) => this.mayRemove(item) });
     this.history = new SharedHistory(initial);
     this.history.binding = this;
     this.shown = initial;
@@ -277,13 +277,49 @@ export class SharedBinding {
     const stack = kind === 'undo' ? um.undoStack : um.redoStack;
     if (!stack.length) return false;
     const rest = stack.splice(0, stack.length - 1);
+    this.touched.clear();
+    this.popping = stack[0];
     um.stopCapturing();
     try {
       return (kind === 'undo' ? um.undo() : um.redo()) !== null;
     } finally {
+      this.popping = undefined;
       stack.unshift(...rest);
       um.stopCapturing();
     }
+  }
+  // Layers this person added that others have changed since: undoing the
+  // addition keeps them (with everything in them), so Undo never removes
+  // other people's work. Worked out once per Undo or Redo.
+  private touched = new Map<Y.Map<unknown>, boolean>();
+  private popping?: { insertions: Parameters<typeof Y.isDeleted>[0] };
+  private mayRemove(item: Y.Item) {
+    const layers = this.client.project.layers as unknown as Y.AbstractType<unknown>;
+    let entry: Y.AbstractType<unknown> | null = null;
+    for (let at: Y.Item | null = item; at; at = at.parent instanceof Y.AbstractType ? at.parent._item : null) {
+      if (at.parent === layers) {
+        // Only when this step added the layer; its other edits undo as usual.
+        if (this.popping && Y.isDeleted(this.popping.insertions, at.id)) entry = at.content instanceof Y.ContentType ? at.content.type : null;
+        break;
+      }
+    }
+    if (!(entry instanceof Y.Map)) return true;
+    let others = this.touched.get(entry);
+    if (others === undefined) {
+      const me = this.client.ydoc.clientID;
+      const foreign = (map: Y.Map<unknown>): boolean => {
+        for (const it of map._map.values()) {
+          if (it.deleted) continue;
+          if (it.id.client !== me) return true;
+          const v = it.content instanceof Y.ContentType ? it.content.type : null;
+          if (v instanceof Y.Map && foreign(v)) return true;
+        }
+        return false;
+      };
+      others = foreign(entry);
+      this.touched.set(entry, others);
+    }
+    return !others;
   }
   /** A step whose changes others have all replaced: Yjs dropped its stack
    * item, so its history entry goes too. */
