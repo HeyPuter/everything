@@ -1,7 +1,9 @@
 /**
  * Print: renders the chosen artboards as inline SVG pages into a print-only
  * container and calls window.print(). @media print CSS hides the app so
- * only the artwork prints; the container is removed afterwards.
+ * only the artwork prints; the container is removed afterwards. The SVG
+ * goes into the app's own page, so it is written without the document's
+ * scripts and event handlers.
  */
 import { exportSVG } from './svg-export.js';
 
@@ -14,7 +16,7 @@ export function buildPrintRoot(doc, indices, { fit = false, outlines = null } = 
     if (!a) continue;
     const page = document.createElement('div');
     page.className = 'io-print-page';
-    const svg = exportSVG(doc, { rect: { x: a.x, y: a.y, w: a.w, h: a.h }, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, idPrefix: `p${i}-` });
+    const svg = exportSVG(doc, { rect: { x: a.x, y: a.y, w: a.w, h: a.h }, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, scripts: false, idPrefix: `p${i}-` });
     page.innerHTML = svg;
     const el = page.querySelector('svg');
     if (el) {
@@ -119,7 +121,7 @@ export function buildLayoutRoot(doc, pages, { layers = 'printable', outlines = n
       const key = `${t.rect.x},${t.rect.y},${t.rect.w},${t.rect.h}`;
       let art = cache.get(key);
       if (art === undefined) {
-        art = exportSVG(source, { rect: t.rect, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, idPrefix: `p${i}t${k}-` });
+        art = exportSVG(source, { rect: t.rect, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, scripts: false, idPrefix: `p${i}t${k}-` });
         cache.set(key, art);
       }
       // The artwork's own <svg> becomes a nested viewport at its place on the page; it clips to its viewBox.

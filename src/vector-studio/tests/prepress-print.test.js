@@ -100,6 +100,28 @@ describe('separations and output', () => {
     expect(els[0].querySelector('filter feComponentTransfer')).toBeTruthy();
   });
 
+  it('never puts the document\'s scripts or event handlers into the app\'s page', async () => {
+    const { app, ed, doc } = await setup();
+    const { install } = await import('../src/features/svg-interactivity/index.js');
+    install({ registerPanel() {} });
+    const { buildPrintRoot, buildLayoutRoot } = await import('../src/features/io/print.js');
+    const p = createPath(rectangle(0, 0, 5, 5), true, { fill: { type: 'solid', color: '#ff0000' }, stroke: null, svgEvents: { onload: 'window.hacked = 1', onmouseover: 'x()' } });
+    doc.transact('e', () => {
+      doc.insert(p, ed.targetLayer().id);
+      doc.updateRoot({ svgScripts: ['https://example.com/x.js'], svgScript: 'window.hacked = 2' });
+    });
+    const st = normalizePrint({});
+    const pages = printJob(doc, { ...st, which: 'all' });
+    const roots = [(await buildPrintOutput(app, ed, pages, st)).root, buildPrintRoot(doc, [0]), buildLayoutRoot(doc, pages)];
+    for (const root of roots) {
+      expect(root.querySelector('path')).toBeTruthy();
+      expect(root.querySelector('script')).toBeNull();
+      expect(root.innerHTML).not.toMatch(/\son\w+=/);
+    }
+    // Exported files still carry them.
+    expect(await app.exporters.svg(ed, {})).toContain('onload="window.hacked = 1"');
+  });
+
   it('writes the artwork once and reuses it for further copies', async () => {
     const { app, ed, doc } = await setup();
     const st = normalizePrint({ copies: 3, collate: true });

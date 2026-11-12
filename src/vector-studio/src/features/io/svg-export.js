@@ -694,6 +694,8 @@ function plainInstance(doc, n) {
  *   textMode    'text' | 'outlines' (needs `outlines`: Map id -> subpaths)
  *   background  optional color for a full-size background rectangle
  *   symbols     write symbol instances as <use> of shared <symbol> definitions
+ *   scripts     false leaves out the document's scripts and event handlers
+ *               (SVG Interactivity), for SVG the app itself puts in its page
  *   title, idPrefix, writeIds (object names as ids, default true), cull
  */
 export function exportSVG(source, opts) {
@@ -722,7 +724,7 @@ export function exportSVG(source, opts) {
   if (title) out += `${nl}${o.minify ? '' : '  '}<title>${escapeXml(title)}</title>`;
   if (info && !o.minify) out += metadataXml(info, title);
   for (const hook of svgExportHooks.head) {
-    const extra = hook(doc);
+    const extra = hook(doc, o);
     if (extra) out += `${nl}${o.minify ? '' : '  '}${extra}`;
   }
   if (w.defs.length) out += `${nl}${o.minify ? '' : '  '}<defs>${w.defs.join('')}${nl}${o.minify ? '' : '  '}</defs>`;

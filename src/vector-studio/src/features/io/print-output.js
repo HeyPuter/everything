@@ -222,7 +222,7 @@ export async function buildPrintOutput(app, editor, pages, st, { outlines = null
           if (url) urls.push(url);
           art = { url };
         } else {
-          art = { svg: exportSVG(printView(doc, st.layers), { rect: t.rect, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, idPrefix: `p${i}t${k}-` }) };
+          art = { svg: exportSVG(printView(doc, st.layers), { rect: t.rect, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, scripts: false, idPrefix: `p${i}t${k}-` }) };
         }
         cache.set(key, art);
         onProgress?.(++done);
