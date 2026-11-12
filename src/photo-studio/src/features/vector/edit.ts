@@ -21,7 +21,9 @@ export function reshape(l: Layer, box: { x?: number; y?: number; width?: number;
   const mask = shapeDocMask(l);
   const b = vectorBounds(mask);
   if (!b) return;
-  const w = Math.max(0, box.width ?? b.width), h = Math.max(0, box.height ?? b.height);
+  // A zero size would flatten the shape for good (a flat side cannot be scaled back).
+  const w = box.width !== undefined && box.width > 0 ? box.width : b.width;
+  const h = box.height !== undefined && box.height > 0 ? box.height : b.height;
   const x = box.x ?? b.x, y = box.y ?? b.y;
   const sx = b.width ? w / b.width : 1, sy = b.height ? h / b.height : 1;
   const live = docLive(l);

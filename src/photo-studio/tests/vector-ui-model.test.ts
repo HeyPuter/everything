@@ -73,6 +73,16 @@ describe('shape layers from the tools', () => {
     reshape(l, { x: 10, y: 10, width: 50, height: 100 });
     expect(vectorBounds(shapeDocMask(l))).toEqual({ x: 10, y: 10, width: 50, height: 100 });
   });
+  it('a width or height of zero is refused instead of flattening the shape for good', () => {
+    const d = doc();
+    const l = shapeLayer(d, 'Ellipse', { paths: [closedPath(ellipseKnots(0, 0, 100, 50))] }, solid, undefined);
+    reshape(l, { width: 0 });
+    reshape(l, { height: -5 });
+    expect(vectorBounds(shapeDocMask(l))).toEqual({ x: 0, y: 0, width: 100, height: 50 });
+    const r = roundRect(d);
+    reshape(r, { width: 0, x: 50 });
+    expect(vectorBounds(shapeDocMask(r))).toEqual({ x: 50, y: 30, width: 120, height: 80 });
+  });
   it('builds strokes for no-fill shapes and keeps dashes valid', () => {
     const s = buildStroke({ ...defaultStroke(), type: 'none' }, false, false)!;
     expect(s.enabled).toBe(false);
