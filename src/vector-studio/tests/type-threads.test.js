@@ -294,3 +294,44 @@ describe('smart punctuation on a threaded frame', () => {
     expect(doc.get(b.id).text).toBe('');
   });
 });
+
+describe('Check Spelling on a threaded frame', () => {
+  it('with only a later frame selected, Selected Text Objects checks the story', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const { createSpeller, setSpeller } = await import('../src/features/type/spell-dict.js');
+    const { openCheckSpelling } = await import('../src/features/type/spelling.js');
+    const dir = path.resolve(import.meta.dirname, '../public/dictionaries');
+    setSpeller(createSpeller({ aff: fs.readFileSync(path.join(dir, 'en-US.aff'), 'utf8'), dic: fs.readFileSync(path.join(dir, 'en-US.dic'), 'utf8') }));
+    // Another object, first in the document, has a misspelling too: the dialog opens on the whole document
+    // and shows it first, but switching to Selected Text Objects must check the selection, not that object.
+    const other = frame(0, 400, 'another mispeled word');
+    const a = frame(0, 0, 'the qick fox');
+    const b = frame(400, 0, '');
+    app.editor.select([a.id, b.id]);
+    app.commands.run('type.thread.create');
+    app.editor.select([b.id]);
+    const done = openCheckSpelling(app);
+    const dlg = await new Promise((resolve) => {
+      const look = () => {
+        const d = document.querySelector('dialog[open] #sp-scope');
+        if (d && !/Loading/.test(document.querySelector('dialog[open] .sp-status').textContent)) resolve(d.closest('dialog'));
+        else setTimeout(look, 5);
+      };
+      look();
+    });
+    const scope = dlg.querySelector('#sp-scope');
+    expect(dlg.querySelector('.sp-status').textContent).toBe('Not in the dictionary: \u201cmispeled\u201d');
+    expect(scope.querySelector('option[value=sel]').disabled).toBe(false);
+    scope.value = 'sel';
+    scope.dispatchEvent(new Event('change'));
+    expect(dlg.querySelector('.sp-status').textContent).toBe('Not in the dictionary: “qick”');
+    // Ignore: the other text object is not part of the selection.
+    [...dlg.querySelectorAll('button')].find((x) => x.textContent === 'Ignore').click();
+    expect(dlg.querySelector('.sp-status').textContent).toMatch(/complete/);
+    expect(doc.get(other.id).text).toBe('another mispeled word');
+    [...dlg.querySelectorAll('button')].find((x) => x.textContent === 'Done').click();
+    await done;
+    app.setTool('select');
+  });
+});
