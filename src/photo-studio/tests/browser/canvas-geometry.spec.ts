@@ -114,7 +114,8 @@ test('Rotate Canvas carries paths, masks, guides, variables, frame offsets, comp
   expect(knots(s.path)).toEqual([[190, 100], [190, 110], [180, 110], [180, 100]]);
   expect(knots(s.workPath)).toEqual([[50, 200], [50, 210], [40, 210], [40, 200]]);
   expect(s.guides).toEqual([{ orientation: 'horizontal', position: 50 }, { orientation: 'vertical', position: 180 }]);
-  expect(s.samplers?.map((p) => [p.x, p.y].map(Math.round))).toEqual([[180, 10]]);
+  // A sampler names a pixel: pixel (10, 20) lands on pixel (199 − 20, 10).
+  expect(s.samplers?.map((p) => [p.x, p.y].map(Math.round))).toEqual([[179, 10]]);
   expect(s.bounds).toEqual({ x: 150, y: 20, width: 20, height: 40 });
   expect(s.live).toBe(1);
   const offset = await page.evaluate(() => {
