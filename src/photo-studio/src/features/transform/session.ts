@@ -586,7 +586,7 @@ export class TransformSession {
     switch (d.op) {
       case 'move': {
         let m = translate(delta.x, delta.y);
-        if (this.e.preferences.snap && !p.alt && this.target.kind === 'layer') {
+        if (this.e.transform.snapping && !p.alt && this.target.kind === 'layer') {
           const b = quadBounds(mapQuad(m, s.quad));
           const layer = this.layer;
           const snapped = snapTranslation({ ...b, rotation: 0 }, snapTargets(this.base, layer ? [layer] : [], snapOptions(this.e)), 6 / this.e.zoom);
