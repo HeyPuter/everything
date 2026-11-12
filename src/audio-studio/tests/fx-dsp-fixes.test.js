@@ -69,6 +69,33 @@ describe('DeNoise and DeReverb processing focus', () => {
   }
 });
 
+describe('Non-finite input', () => {
+  it('a NaN or infinite sample does not stay in feedback delays and reverbs', () => {
+    const x = instance();
+    // Echo, Analog Delay, Chorus, Flanger, Chorus/Flanger, Studio Reverb, Reverb, Full Reverb.
+    for (const kind of [61, 62, 70, 71, 73, 80, 81, 82]) {
+      const h = x.fx_new(kind, RATE, 2);
+      x.fx_reset(h);
+      const n = 128;
+      const buf = x.mem_alloc(2 * n * 4);
+      let finite = true;
+      for (let b = 0; b < 400; b++) {
+        const v = new Float32Array(x.memory.buffer, buf, 2 * n);
+        v.set(noise(2 * n, 0.2, b + 1));
+        if (b === 10) {
+          v[3] = NaN;
+          v[n + 5] = Infinity;
+        }
+        x.fx_process(h, buf, n);
+        if (!new Float32Array(x.memory.buffer, buf, 2 * n).every(Number.isFinite)) finite = false;
+      }
+      expect(finite, `kind ${kind}`).toBe(true);
+      x.mem_free(buf, 2 * n * 4);
+      x.fx_free(h);
+    }
+  });
+});
+
 describe('DeNoise at low sample rates', () => {
   it('reports its latency at every rate and keeps speech at 8 kHz', async () => {
     const { getEffect, defaults, effectLatency } = await import('../src/effects/index.js');

@@ -109,6 +109,12 @@ pub extern "C" fn fx_process(h: u32, buf: u32, frames: u32) {
     let s = unsafe { &mut *(h as *mut Slot) };
     let n = s.channels as u32 * frames;
     let b = unsafe { crate::slice_mut(buf, n) };
+    // A NaN or infinite input sample (a damaged float file) would circulate in
+    // feedback delays and reverbs for good, so the rest of the output came out
+    // NaN; it is processed as silence instead. Finite input is untouched.
+    for v in b.iter_mut() {
+        *v = if v.is_finite() { *v } else { 0.0 };
+    }
     s.fx.process(b, s.channels, frames as usize);
 }
 
