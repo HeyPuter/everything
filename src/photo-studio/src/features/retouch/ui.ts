@@ -1,6 +1,7 @@
 // Small shared pieces of the retouching tools' option bars and overlays.
 import type { Editor } from '../../editor';
 import { brushFor, cursor } from '../paint';
+import { bindNumberField } from '../paint-tools/fields';
 
 export const ants = (d: string, z: number, extra = '') =>
   `<g class="marching" stroke-width="${1 / z}" fill="none" ${extra}><path d="${d}" class="ants-white"/><path d="${d}" class="ants-black" stroke-dasharray="${4 / z} ${4 / z}"/></g>`;
@@ -19,8 +20,5 @@ export function sizeKeys(e: Editor, id: string, ev: KeyboardEvent) {
 }
 export const sizeField = (id: string) => `<label>Size <input id="retouch-size" type="number" min="1" max="2500" value="${Math.round(brushFor(id).size)}" aria-label="Brush size (px)"> px</label>`;
 export const bindSize = (el: HTMLElement, id: string) =>
-  el.querySelector<HTMLInputElement>('#retouch-size')?.addEventListener('change', (ev) => {
-    const v = Number((ev.target as HTMLInputElement).value);
-    if (Number.isFinite(v)) brushFor(id).size = Math.max(1, Math.min(2500, v));
-  });
+  bindNumberField(el, '#retouch-size', () => brushFor(id).size, (v) => (brushFor(id).size = Math.max(1, Math.min(2500, v))));
 

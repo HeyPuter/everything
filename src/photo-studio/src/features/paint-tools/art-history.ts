@@ -14,6 +14,7 @@ import { commitTarget, pixelTarget, previewTarget, type PixelTarget } from '../p
 import { historySourceDoc } from '../history-tools';
 import { blendModes } from '../../imaging/blend/modes';
 import type { PaintMode } from '../../engine/paint';
+import { bindNumberField } from './fields';
 
 const ID = 'art-history';
 type Drag = { session?: StrokeSession; target?: Extract<PixelTarget, { kind: 'pixels' }>; color: [number, number, number]; last?: [number, number]; travelled: number; seed: number; queue: [number, number][]; done: boolean; source?: TileGrid };
@@ -96,8 +97,8 @@ export function artHistoryTool(): Tool {
     bindOptions: ({ e, el }) => {
       bindBrushOptions(e, el, ID);
       el.querySelector<HTMLSelectElement>('#art-style')?.addEventListener('change', (ev) => (e.settings.artStyle = (ev.target as HTMLSelectElement).value));
-      el.querySelector<HTMLInputElement>('#art-area')?.addEventListener('change', (ev) => (e.settings.artArea = Number((ev.target as HTMLInputElement).value)));
-      el.querySelector<HTMLInputElement>('#art-tolerance')?.addEventListener('change', (ev) => (e.settings.artTolerance = Number((ev.target as HTMLInputElement).value)));
+      bindNumberField(el, '#art-area', () => area(e), (v) => (e.settings.artArea = Math.max(0, Math.min(500, v))));
+      bindNumberField(el, '#art-tolerance', () => tolerance(e), (v) => (e.settings.artTolerance = Math.max(0, Math.min(100, v))));
     },
     hover: (e, p) => cursor(e, ID, p),
     // [ and ] size, Alt+right-drag size and hardness, number keys opacity.

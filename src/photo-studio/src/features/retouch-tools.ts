@@ -28,7 +28,8 @@ import { SmudgeFinger } from '../engine/smudge';
 import { TILE, tileKey, readRGBA, writeRect, type TileGrid } from '../model/tiles';
 import { canvasRect, selectionGrid } from '../model/selection';
 import { readMask } from '../model/tiles';
-import { wandMask } from './selection';
+import { bindTolerance, wandMask } from './selection';
+import { bindNumberField } from './paint-tools/fields';
 import { layerLock } from '../model/locks';
 
 // Sampling helpers over a committed (immutable) grid or a composite snapshot.
@@ -259,7 +260,7 @@ function withOptions(tool: Tool, extra: (e: Editor) => string, bind: (e: Editor,
 }
 const strengthField = (key: string) => (e: Editor) => `<label>Strength <input id="tool-strength" type="number" min="1" max="100" value="${Number(e.settings[key] ?? 50)}">%</label>`;
 const bindStrength = (key: string) => (e: Editor, el: HTMLElement) =>
-  el.querySelector<HTMLInputElement>('#tool-strength')?.addEventListener('change', (ev) => (e.settings[key] = Math.max(1, Math.min(100, Number((ev.target as HTMLInputElement).value) || 50))));
+  bindNumberField(el, '#tool-strength', () => Number(e.settings[key] ?? 50), (v) => (e.settings[key] = Math.max(1, Math.min(100, v))));
 const toneFields = (sponge: boolean) => (e: Editor) =>
   sponge
     ? `<label>Mode <select id="sponge-mode"><option value="desaturate">Desaturate</option><option value="saturate" ${e.settings.spongeMode === 'saturate' ? 'selected' : ''}>Saturate</option></select></label><label>Flow <input id="tone-exposure" type="number" min="1" max="100" value="${Number(e.settings.toneExposure ?? 50)}">%</label>`
@@ -267,7 +268,7 @@ const toneFields = (sponge: boolean) => (e: Editor) =>
 const bindTone = (e: Editor, el: HTMLElement) => {
   el.querySelector<HTMLSelectElement>('#tone-range')?.addEventListener('change', (ev) => (e.settings.toneRange = (ev.target as HTMLSelectElement).value));
   el.querySelector<HTMLSelectElement>('#sponge-mode')?.addEventListener('change', (ev) => (e.settings.spongeMode = (ev.target as HTMLSelectElement).value));
-  el.querySelector<HTMLInputElement>('#tone-exposure')?.addEventListener('change', (ev) => (e.settings.toneExposure = Math.max(1, Math.min(100, Number((ev.target as HTMLInputElement).value) || 50))));
+  bindNumberField(el, '#tone-exposure', () => Number(e.settings.toneExposure ?? 50), (v) => (e.settings.toneExposure = Math.max(1, Math.min(100, v))));
   el.querySelector<HTMLInputElement>('#protect-tones')?.addEventListener('change', (ev) => (e.settings.protectTones = (ev.target as HTMLInputElement).checked));
 };
 
@@ -349,13 +350,13 @@ export function installRetouchTools(_e: Editor) {
       (e) => `<label>Sampling <select id="bg-sampling"><option value="continuous" ${e.settings.bgSampling === 'continuous' ? 'selected' : ''}>Continuous</option><option value="once" ${(e.settings.bgSampling ?? 'once') === 'once' ? 'selected' : ''}>Once</option><option value="swatch" ${e.settings.bgSampling === 'swatch' ? 'selected' : ''}>Background Swatch</option></select></label><label>Tolerance <input id="bg-tolerance" type="number" min="0" max="100" value="${Number(e.settings.bgTolerance ?? 50)}">%</label>`,
       (e, el) => {
         el.querySelector<HTMLSelectElement>('#bg-sampling')?.addEventListener('change', (ev) => (e.settings.bgSampling = (ev.target as HTMLSelectElement).value));
-        el.querySelector<HTMLInputElement>('#bg-tolerance')?.addEventListener('change', (ev) => (e.settings.bgTolerance = Number((ev.target as HTMLInputElement).value)));
+        bindNumberField(el, '#bg-tolerance', () => Number(e.settings.bgTolerance ?? 50), (v) => (e.settings.bgTolerance = Math.max(0, Math.min(100, v))));
       },
     ),
     withOptions(
       strokeTool('color-replacement', 'Color Replacement Tool', 'color-replace', 'brush', 'B', 'Color Replacement', {}, colorReplaceTarget),
       (e) => `<label>Tolerance <input id="replace-tolerance" type="number" min="0" max="100" value="${Number(e.settings.replaceTolerance ?? 30)}">%</label>`,
-      (e, el) => el.querySelector<HTMLInputElement>('#replace-tolerance')?.addEventListener('change', (ev) => (e.settings.replaceTolerance = Number((ev.target as HTMLInputElement).value))),
+      (e, el) => bindNumberField(el, '#replace-tolerance', () => Number(e.settings.replaceTolerance ?? 30), (v) => (e.settings.replaceTolerance = Math.max(0, Math.min(100, v)))),
     ),
     {
       id: 'magic-eraser',
@@ -367,7 +368,7 @@ export function installRetouchTools(_e: Editor) {
       options: (e) =>
         `<label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label>`,
       bindOptions: ({ e, el }) => {
-        el.querySelector<HTMLInputElement>('#tolerance')?.addEventListener('change', (ev) => (e.tolerance = Math.max(0, Math.min(255, Number((ev.target as HTMLInputElement).value) || 0))));
+        bindTolerance(e, el);
         el.querySelector<HTMLInputElement>('#wand-contiguous')?.addEventListener('change', (ev) => (e.settings.contiguous = (ev.target as HTMLInputElement).checked));
         el.querySelector<HTMLInputElement>('#wand-all')?.addEventListener('change', (ev) => (e.settings.sampleAllLayers = (ev.target as HTMLInputElement).checked));
       },

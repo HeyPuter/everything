@@ -8,13 +8,14 @@ import { pixelTarget, previewTarget, commitTarget, hexRgb, type PixelTarget } fr
 import { selectionGrid, canvasRect } from '../model/selection';
 import { layerLock } from '../model/locks';
 import { readMask, readRGBA, writeRect } from '../model/tiles';
-import { wandMask } from './selection';
+import { bindTolerance, wandMask } from './selection';
 import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
 import { blendModes } from '../imaging/blend/modes';
 import { brushPreviewShown } from './view-extras';
 import { patternPreviewOn } from './view-modes';
 import { iconCursor } from './preferences/cursors';
+import { bindNumberField } from './paint-tools/fields';
 
 export type BrushSettings = BrushTip & {
   opacity: number;
@@ -78,17 +79,12 @@ ${id === 'pencil' ? '' : `<label>Flow <input id="brush-flow" type="number" min="
 }
 export function bindBrushOptions(e: Editor, el: HTMLElement, id: string) {
   const s = brushFor(id);
-  const num = (sel: string, f: (v: number) => void) =>
-    el.querySelector<HTMLInputElement>(sel)?.addEventListener('change', (ev) => {
-      const v = Number((ev.target as HTMLInputElement).value);
-      if (Number.isFinite(v)) f(v);
-      e.options();
-    });
-  num('#brush-size', (v) => (s.size = Math.max(1, Math.min(5000, v))));
-  num('#brush-hardness', (v) => (s.hardness = Math.max(0, Math.min(1, v / 100))));
-  num('#brush-opacity', (v) => (s.opacity = Math.max(0.01, Math.min(1, v / 100))));
-  num('#brush-flow', (v) => (s.flow = Math.max(0.01, Math.min(1, v / 100))));
-  num('#brush-smoothing', (v) => (s.smoothing = Math.max(0, Math.min(1, v / 100))));
+  const num = (sel: string, get: () => number, set: (v: number) => void) => bindNumberField(el, sel, get, set, () => e.options());
+  num('#brush-size', () => s.size, (v) => (s.size = Math.max(1, Math.min(5000, v))));
+  num('#brush-hardness', () => s.hardness * 100, (v) => (s.hardness = Math.max(0, Math.min(1, v / 100))));
+  num('#brush-opacity', () => s.opacity * 100, (v) => (s.opacity = Math.max(0.01, Math.min(1, v / 100))));
+  num('#brush-flow', () => s.flow * 100, (v) => (s.flow = Math.max(0.01, Math.min(1, v / 100))));
+  num('#brush-smoothing', () => s.smoothing * 100, (v) => (s.smoothing = Math.max(0, Math.min(1, v / 100))));
   el.querySelector<HTMLSelectElement>('#brush-mode')?.addEventListener('change', (ev) => (s.mode = (ev.target as HTMLSelectElement).value as PaintMode));
   const toggle = (sel: string, f: () => void) => el.querySelector<HTMLButtonElement>(sel)?.addEventListener('click', () => {
     f();
@@ -352,8 +348,8 @@ export function installPaint(_e: Editor) {
         `<label>Fill <select id="bucket-source"><option value="foreground">Foreground</option><option value="background" ${e.settings.bucketSource === 'background' ? 'selected' : ''}>Background</option></select></label><label>Opacity <input id="bucket-opacity" type="number" min="1" max="100" value="${Math.round(Number(e.settings.bucketOpacity ?? 1) * 100)}">%</label><label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>All Layers</label>`,
       bindOptions: ({ e, el }) => {
         el.querySelector<HTMLSelectElement>('#bucket-source')?.addEventListener('change', (ev) => (e.settings.bucketSource = (ev.target as HTMLSelectElement).value));
-        el.querySelector<HTMLInputElement>('#bucket-opacity')?.addEventListener('change', (ev) => (e.settings.bucketOpacity = Math.max(0.01, Math.min(1, Number((ev.target as HTMLInputElement).value) / 100))));
-        el.querySelector<HTMLInputElement>('#tolerance')?.addEventListener('change', (ev) => (e.tolerance = Math.max(0, Math.min(255, Number((ev.target as HTMLInputElement).value) || 0))));
+        bindNumberField(el, '#bucket-opacity', () => Number(e.settings.bucketOpacity ?? 1) * 100, (v) => (e.settings.bucketOpacity = Math.max(0.01, Math.min(1, v / 100))));
+        bindTolerance(e, el);
         el.querySelector<HTMLInputElement>('#wand-contiguous')?.addEventListener('change', (ev) => (e.settings.contiguous = (ev.target as HTMLInputElement).checked));
         el.querySelector<HTMLInputElement>('#wand-all')?.addEventListener('change', (ev) => (e.settings.sampleAllLayers = (ev.target as HTMLInputElement).checked));
       },

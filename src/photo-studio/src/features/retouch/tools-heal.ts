@@ -52,13 +52,11 @@ import {
 } from '../clone-source/state';
 import { bindSampleOptions, sampleOptions } from '../clone-source/options';
 import { ants, bindCheck, bindSize, checkbox, sizeField, sizeKeys } from './ui';
+import { bindNumberField } from '../paint-tools/fields';
 
 const hardnessField = (id: string) => `<label>Hardness <input id="retouch-hardness" type="number" min="0" max="100" value="${Math.round(brushFor(id).hardness * 100)}" aria-label="Brush hardness (%)">%</label>`;
 const bindHardness = (el: HTMLElement, id: string) =>
-  el.querySelector<HTMLInputElement>('#retouch-hardness')?.addEventListener('change', (ev) => {
-    const v = Number((ev.target as HTMLInputElement).value);
-    if (Number.isFinite(v)) brushFor(id).hardness = Math.max(0, Math.min(1, v / 100));
-  });
+  bindNumberField(el, '#retouch-hardness', () => brushFor(id).hardness * 100, (v) => (brushFor(id).hardness = Math.max(0, Math.min(1, v / 100))));
 const select = (id: string, label: string, value: string, options: [string, string][]) =>
   `<label>${label} <select id="${id}">${options.map(([v, l]) => `<option value="${v}" ${v === value ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
 const bindSelect = (e: Editor, el: HTMLElement, id: string, key: string, after?: () => void) =>
@@ -68,11 +66,8 @@ const bindSelect = (e: Editor, el: HTMLElement, id: string, key: string, after?:
   });
 const numberField = (id: string, label: string, value: number, min: number, max: number, unit = '') =>
   `<label>${label} <input id="${id}" type="number" min="${min}" max="${max}" value="${value}">${unit}</label>`;
-const bindNumber = (e: Editor, el: HTMLElement, id: string, key: string, min: number, max: number) =>
-  el.querySelector<HTMLInputElement>(`#${id}`)?.addEventListener('change', (ev) => {
-    const v = Number((ev.target as HTMLInputElement).value);
-    if (Number.isFinite(v)) e.settings[key] = Math.max(min, Math.min(max, v));
-  });
+const bindNumber = (e: Editor, el: HTMLElement, id: string, key: string, min: number, max: number, fallback: number) =>
+  bindNumberField(el, `#${id}`, () => Number(e.settings[key] ?? fallback), (v) => (e.settings[key] = Math.max(min, Math.min(max, v))));
 const strokePath = (pts: Pt[]) => (pts.length === 1 ? `M${pts[0][0]} ${pts[0][1]}l0.01 0` : pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join(''));
 const strokeSvg = (pts: Pt[], size: number, cls = 'retouch-stroke') => `<path d="${strokePath(pts)}" class="${cls}" stroke-width="${size}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
 
@@ -604,8 +599,8 @@ const patchTool = regionTool(
           e.options();
         }),
       );
-      bindNumber(e, el, 'patch-structure', 'patchStructure', 1, 7);
-      bindNumber(e, el, 'patch-color', 'patchColor', 0, 10);
+      bindNumber(e, el, 'patch-structure', 'patchStructure', 1, 7, 4);
+      bindNumber(e, el, 'patch-color', 'patchColor', 0, 10, 3);
       bindCheck(e, el, 'patch-all', 'patchSampleAll');
     },
   },
@@ -626,8 +621,8 @@ const contextMoveTool = regionTool(
       ])}${structureColor(e, 'contextMove')}${checkbox('cm-all', 'Sample All Layers', !!e.settings['context-moveSampleAll'])}`,
     bindOptions: ({ e, el }) => {
       bindSelect(e, el, 'cm-mode', 'contextMoveMode');
-      bindNumber(e, el, 'contextMove-structure', 'contextMoveStructure', 1, 7);
-      bindNumber(e, el, 'contextMove-color', 'contextMoveColor', 0, 10);
+      bindNumber(e, el, 'contextMove-structure', 'contextMoveStructure', 1, 7, 4);
+      bindNumber(e, el, 'contextMove-color', 'contextMoveColor', 0, 10, 3);
       bindCheck(e, el, 'cm-all', 'context-moveSampleAll');
     },
   },
@@ -647,8 +642,8 @@ const redEyeTool: Tool = {
   cursor: () => 'crosshair',
   options: (e) => `${numberField('red-pupil', 'Pupil Size', Number(e.settings.redPupil ?? 50), 1, 100, '%')}${numberField('red-darken', 'Darken Amount', Number(e.settings.redDarken ?? 50), 1, 100, '%')}`,
   bindOptions: ({ e, el }) => {
-    bindNumber(e, el, 'red-pupil', 'redPupil', 1, 100);
-    bindNumber(e, el, 'red-darken', 'redDarken', 1, 100);
+    bindNumber(e, el, 'red-pupil', 'redPupil', 1, 100, 50);
+    bindNumber(e, el, 'red-darken', 'redDarken', 1, 100, 50);
   },
   pointerDown: (_e, p) => {
     redDrag = { start: [p.x, p.y], last: [p.x, p.y] };

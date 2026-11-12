@@ -18,6 +18,7 @@ import { compositeRGBA, layerRGBA } from './pixels';
 import { formDialog } from '../ui/dialog';
 import { border, contract, expand, feather, grow, similar, smooth } from '../imaging/segment/mask-ops';
 import { svg } from '../app/icons';
+import { bindNumberField } from './paint-tools/fields';
 
 // ----- Rasterizing selection shapes -----
 /** Anti-aliased polygon coverage via 4x vertical supersampling of scanlines. */
@@ -144,8 +145,13 @@ export function bindSelectionOptions(e: Editor, el: HTMLElement) {
       e.options();
     }),
   );
-  el.querySelector<HTMLInputElement>('#sel-feather')?.addEventListener('change', (ev) => (e.settings.selectionFeather = Math.max(0, Number((ev.target as HTMLInputElement).value) || 0)));
+  bindNumberField(el, '#sel-feather', () => Number(e.settings.selectionFeather ?? 0), (v) => (e.settings.selectionFeather = Math.max(0, Math.min(1000, v))));
   el.querySelector<HTMLInputElement>('#sel-aa')?.addEventListener('change', (ev) => (e.settings.antiAlias = (ev.target as HTMLInputElement).checked));
+}
+
+/** The Magic Wand tolerance field (shared by the bucket and erasers). */
+export function bindTolerance(e: Editor, el: HTMLElement) {
+  bindNumberField(el, '#tolerance', () => e.tolerance, (v) => (e.tolerance = Math.max(0, Math.min(255, Math.round(v)))));
 }
 
 // ----- Marquee and lasso tools -----
@@ -210,8 +216,8 @@ function marqueeTool(id: string, label: string, icon: string, shape: 'rect' | 'e
     bindOptions: ({ e, el }) => {
       bindSelectionOptions(e, el);
       el.querySelector<HTMLSelectElement>('#marquee-style')?.addEventListener('change', (ev) => (e.settings.marqueeStyle = (ev.target as HTMLSelectElement).value));
-      el.querySelector<HTMLInputElement>('#marquee-w')?.addEventListener('change', (ev) => (e.settings.marqueeW = Number((ev.target as HTMLInputElement).value) || 1));
-      el.querySelector<HTMLInputElement>('#marquee-h')?.addEventListener('change', (ev) => (e.settings.marqueeH = Number((ev.target as HTMLInputElement).value) || 1));
+      bindNumberField(el, '#marquee-w', () => Number(e.settings.marqueeW ?? 1), (v) => (e.settings.marqueeW = Math.max(1, v)));
+      bindNumberField(el, '#marquee-h', () => Number(e.settings.marqueeH ?? 1), (v) => (e.settings.marqueeH = Math.max(1, v)));
     },
     pointerDown: (e, p) => {
       const op = selectionOp(e, p);
@@ -383,7 +389,7 @@ const wandTool: Tool = {
     optionsFor(e, `<label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label>`),
   bindOptions: ({ e, el }) => {
     bindSelectionOptions(e, el);
-    el.querySelector<HTMLInputElement>('#tolerance')?.addEventListener('change', (ev) => (e.tolerance = Math.max(0, Math.min(255, Number((ev.target as HTMLInputElement).value) || 0))));
+    bindTolerance(e, el);
     el.querySelector<HTMLInputElement>('#wand-contiguous')?.addEventListener('change', (ev) => (e.settings.contiguous = (ev.target as HTMLInputElement).checked));
     el.querySelector<HTMLInputElement>('#wand-all')?.addEventListener('change', (ev) => (e.settings.sampleAllLayers = (ev.target as HTMLInputElement).checked));
   },
