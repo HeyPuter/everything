@@ -190,3 +190,21 @@ describe('color picker hex field', () => {
     anchor.remove();
   });
 });
+
+describe('color picker hex field input', () => {
+  it('goes back to the current color when the text is not a color', async () => {
+    const { installCanvasStub } = await import('./helpers.js');
+    installCanvasStub();
+    const { createColorPicker } = await import('../src/ui/color-picker.js');
+    const seen = [];
+    const picker = createColorPicker({ value: '#ff0000', onInput: (v) => seen.push(v) });
+    const hex = picker.el.querySelector('.cp-hex');
+    hex.value = 'zzz';
+    hex.dispatchEvent(new Event('change'));
+    expect(hex.value).toBe('FF0000');
+    expect(seen).toEqual([]);
+    hex.value = ' 00ff00 ';
+    hex.dispatchEvent(new Event('change'));
+    expect(seen).toEqual(['#00ff00']);
+  });
+});
