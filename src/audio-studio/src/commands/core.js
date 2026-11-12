@@ -143,7 +143,9 @@ export function installCoreCommands(app) {
   const C = app.commands;
   const markersOf = (args) => {
     const doc = audio(app);
-    const ids = args?.ids?.length ? args.ids : app.selectedMarkerIds?.() || [];
+    // The Markers panel's selection; without that panel (it is created when first shown),
+    // the markers selected on the editor's time ruler.
+    const ids = args?.ids?.length ? args.ids : app.selectedMarkerIds?.() || [...(app.currentView?.()?.selectedMarkers || [])];
     return doc ? doc.state.markers.filter((m) => ids.includes(m.id)) : [];
   };
 

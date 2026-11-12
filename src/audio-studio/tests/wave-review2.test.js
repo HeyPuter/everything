@@ -168,3 +168,20 @@ describe('gain HUD', () => {
     view.destroy();
   });
 });
+
+describe('markers selected on the ruler', () => {
+  it('are what the marker commands act on when the Markers panel is not open', async () => {
+    const { createMarker } = await import('../src/model/markers.js');
+    const { app, doc, view } = await makeView();
+    const a = createMarker({ start: 100, name: 'A' });
+    const b = createMarker({ start: 200, name: 'B' });
+    doc.apply('Markers', { ...doc.state, markers: [a, b] });
+    expect(app.selectedMarkerIds).toBe(undefined);
+    expect(app.commands.isEnabled('marker.deleteSelected')).toBe(false);
+    view.selectMarker(a.id);
+    expect(app.commands.isEnabled('marker.deleteSelected')).toBe(true);
+    await app.commands.run('marker.deleteSelected');
+    expect(doc.state.markers.map((m) => m.name)).toEqual(['B']);
+    view.destroy();
+  });
+});
