@@ -81,3 +81,17 @@ describe('dock keyboard focus', () => {
     root.remove();
   });
 });
+
+describe('panel menu', () => {
+  it('shows the current key of Maximize Frame after it is remapped', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    let items = null;
+    const app = { openMenu: (list) => (items = list), commands: { shortcutLabel: (id) => (id === 'window.maximize' ? 'F5' : '') } };
+    const dock = new Dock(app, root, registry(['editor', 'files']));
+    dock.setLayout({ t: 'group', tabs: ['editor', 'files'], a: 'editor' });
+    root.querySelector('.panel-menu-btn').click();
+    expect(items.find((it) => it.label === 'Maximize Frame').shortcut).toBe('F5');
+    root.remove();
+  });
+});

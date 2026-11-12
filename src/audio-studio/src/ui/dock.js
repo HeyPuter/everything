@@ -344,7 +344,14 @@ export class Dock extends Emitter {
         for (const t of g.tabs.slice()) this.closePanel(t);
       } },
       { type: 'sep' },
-      { type: 'cmd', label: this.maximized === g ? 'Restore Frame Size' : 'Maximize Frame', shortcut: '`', enabled: true, run: () => this.toggleMaximize(g) },
+      {
+        type: 'cmd',
+        label: this.maximized === g ? 'Restore Frame Size' : 'Maximize Frame',
+        // The key Window > Maximize Frame has now (it can be remapped).
+        shortcut: this.app.commands?.shortcutLabel('window.maximize') ?? '`',
+        enabled: true,
+        run: () => this.toggleMaximize(g),
+      },
     ];
     const r = anchor.getBoundingClientRect();
     this.app.openMenu(items, { x: r.left, y: r.bottom + 2, anchor, label: `${this.#title(id)} panel menu` });
