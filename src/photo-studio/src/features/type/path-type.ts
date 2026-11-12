@@ -17,7 +17,7 @@ import { prepareFonts } from '../../imaging/text/fonts';
 import { targetPath, textPathHooks } from '../vector/state';
 import { selectHooks } from '../vector/select-hooks';
 import { modal, fieldChecked, fieldValue } from '../files/ui';
-import { editLayers, session, updateData } from './session';
+import { editLayers, editMark, revertToMark, session, updateData } from './session';
 import { editable, layerMatrix, layoutOf, localBounds, localScale, ppiOf, replaceLayer, toDoc, toLocal } from './text-utils';
 
 // ------------------------------------------------------------ cursors
@@ -298,6 +298,7 @@ async function blockOptions(e: Editor) {
     if (session) updateData(e, () => d, 'block-options');
     else e.preview(previewData(e, id, d));
   };
+  const mark = session ? editMark() : undefined;
   const result = await modal({
     title: 'Block Text Options',
     submit: 'OK',
@@ -309,8 +310,9 @@ async function blockOptions(e: Editor) {
     },
   });
   if (!result) {
-    if (session) updateData(e, () => data, 'block-options');
-    else e.preview(e.doc);
+    // Cancelled while editing: the preview goes, and leaves no undo step.
+    if (mark) revertToMark(e, mark);
+    if (!session) e.preview(e.doc);
     return;
   }
   const next = read(result.form);
@@ -352,6 +354,7 @@ async function pathOptions(e: Editor) {
     if (session) updateData(e, () => d, 'path-options');
     else e.preview(previewData(e, id, d));
   };
+  const mark = session ? editMark() : undefined;
   const result = await modal({
     title: area ? 'Area Type Options' : 'Path Type Options',
     submit: 'OK',
@@ -368,8 +371,9 @@ async function pathOptions(e: Editor) {
     },
   });
   if (!result) {
-    if (session) updateData(e, () => data, 'path-options');
-    else e.preview(e.doc);
+    // Cancelled while editing: the preview goes, and leaves no undo step.
+    if (mark) revertToMark(e, mark);
+    if (!session) e.preview(e.doc);
     return;
   }
   const next = read(result.form);
