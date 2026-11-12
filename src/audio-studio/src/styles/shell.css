@@ -5,7 +5,9 @@
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  /* Clear of notches and of the home indicator (the bottom panel's tabs and controls on phones). */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
   background: var(--bg-app);
 }
 

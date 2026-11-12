@@ -315,6 +315,15 @@ describe('shortcut keys in button labels', () => {
   });
 });
 
+describe('safe areas', () => {
+  it('keeps the app clear of the home indicator as well as notches', async () => {
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/shell.css`, 'utf8');
+    const app = css.slice(css.indexOf('.app {'), css.indexOf('}', css.indexOf('.app {')));
+    expect(app).toMatch(/padding: env\(safe-area-inset-top\) env\(safe-area-inset-right\) env\(safe-area-inset-bottom\)\s+env\(safe-area-inset-left\);/);
+  });
+});
+
 describe('forced colors', () => {
   it('redraws focus, current tabs and selected items with system colors', async () => {
     const fs = await import('node:fs');
