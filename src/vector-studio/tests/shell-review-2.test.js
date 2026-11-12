@@ -379,3 +379,18 @@ describe('panels hidden with Tab', () => {
     expect(app.dock.flyoutId).toBe('color');
   });
 });
+
+describe('imported settings', () => {
+  it('apply an imported shortcut set right away', async () => {
+    const { app } = await appWithRect();
+    const { applySettings } = await import('../src/features/panels/edit-commands.js');
+    applySettings(app, {
+      shortcutSets: {
+        active: 'Mine',
+        sets: { Mine: { commands: { 'object.group': 'Mod+Alt+Shift+9' }, tools: { pen: 'Q' } } },
+      },
+    });
+    expect(app.commands.get('object.group').shortcut).toBe('Mod+Alt+Shift+9');
+    expect(app.toolKeys.get('q')).toBe('pen');
+  });
+});

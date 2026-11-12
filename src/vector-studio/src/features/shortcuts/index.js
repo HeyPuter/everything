@@ -1,6 +1,7 @@
 /**
  * Customizable keyboard shortcuts: Edit > Keyboard Shortcuts edits tool and
- * command shortcuts in named sets; the active set applies at startup.
+ * command shortcuts in named sets; the active set applies at startup and
+ * when settings are imported.
  */
 import './styles.css';
 import { keyboardShortcutsDialog } from './dialog.js';
@@ -13,4 +14,6 @@ export function install(app) {
   if (ref) app.commands.register({ ...ref, label: 'Shortcut Reference', shortcut: undefined, defaultShortcut: undefined });
   // Feature modules register commands until start, and panels register theirs on 'started'.
   app.on('started', () => applyChanges(app, activeChanges(app.prefs)));
+  // Edit > My Settings > Import: an imported shortcut set applies right away.
+  app.on('settings-imported', (values) => 'shortcutSets' in values && applyChanges(app, activeChanges(app.prefs)));
 }
