@@ -74,3 +74,19 @@ test('View > Snap is remembered after a reload', async ({ page }) => {
   await run(page, 'view.snap');
   expect(await page.evaluate(() => window.photoStudio.transform.snapping)).toBe(true);
 });
+
+test('a negative linked height flips only vertically', async ({ page }) => {
+  await openImage(page, 200, 100, '#808080');
+  await run(page, 'edit.free-transform');
+  await page.locator('#ts-h').fill('-100');
+  await page.locator('#ts-h').press('Tab');
+  const p = await page.evaluate(() => (window.photoStudio.modal as unknown as { params: { sx: number; sy: number } }).params);
+  expect([p.sx, p.sy]).toEqual([1, -1]);
+  await expect(page.locator('#ts-w')).toHaveValue('100');
+  // A linked width keeps that flip and scales both sides.
+  await page.locator('#ts-w').fill('50');
+  await page.locator('#ts-w').press('Tab');
+  const q = await page.evaluate(() => (window.photoStudio.modal as unknown as { params: { sx: number; sy: number } }).params);
+  expect([q.sx, q.sy]).toEqual([0.5, -0.5]);
+  await page.keyboard.press('Escape');
+});

@@ -875,14 +875,16 @@ export class TransformSession {
     const linked = () => this.e.settings.transformLink !== false;
     field('ts-x', (p, n) => (p.x = n));
     field('ts-y', (p, n) => (p.y = n));
+    // A linked side keeps its own direction: a negative entry flips only the
+    // side typed into.
     field('ts-w', (p, n) => {
       if (!n) return;
-      if (linked()) p.sy = (p.sy / p.sx) * (n / 100);
+      if (linked()) p.sy = (Math.sign(p.sy) || 1) * Math.abs((p.sy / p.sx) * (n / 100));
       p.sx = n / 100;
     });
     field('ts-h', (p, n) => {
       if (!n) return;
-      if (linked()) p.sx = (p.sx / p.sy) * (n / 100);
+      if (linked()) p.sx = (Math.sign(p.sx) || 1) * Math.abs((p.sx / p.sy) * (n / 100));
       p.sy = n / 100;
     });
     field('ts-angle', (p, n) => (p.rotation = n));
