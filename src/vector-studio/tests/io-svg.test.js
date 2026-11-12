@@ -934,3 +934,17 @@ describe('SVG vertical writing', () => {
     expect(across.vertical).toBeFalsy();
   });
 });
+
+describe('SVG with absurd sizes', () => {
+  it('never makes an artboard the canvas cannot show', () => {
+    const sized = svgToDocument('<svg xmlns="http://www.w3.org/2000/svg" width="1e30" height="1e30" viewBox="0 0 100 50"><rect width="50" height="50"/></svg>');
+    expect(sized.artboards[0]).toMatchObject({ x: 0, y: 0, w: 100, h: 50 });
+    expect(nodeBounds(sized, sized.leaves()[0]).w).toBe(50);
+    expect(sized.importWarnings).toContain("The drawing's size was too large and was ignored.");
+    const unsized = svgToDocument('<svg xmlns="http://www.w3.org/2000/svg"><rect x="-1e25" width="1e30" height="1e30"/></svg>');
+    const a = unsized.artboards[0];
+    expect(Math.max(Math.abs(a.x), Math.abs(a.y), a.w, a.h)).toBeLessThanOrEqual(1e6);
+    // Large but real drawings keep their size.
+    expect(svgToDocument('<svg xmlns="http://www.w3.org/2000/svg" width="50000" height="20000"/>').artboards[0]).toMatchObject({ w: 50000, h: 20000 });
+  });
+});

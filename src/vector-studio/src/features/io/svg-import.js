@@ -41,6 +41,8 @@ const INHERITED = [
 const NON_INHERITED = ['baseline-shift', 'opacity', 'display', 'clip-path', 'mask', 'filter', 'mix-blend-mode', 'stop-color', 'stop-opacity', 'overflow', 'transform', 'transform-origin', 'transform-box', 'mask-type'];
 const PRESENTATION = [...INHERITED, ...NON_INHERITED.filter((p) => p !== 'transform')];
 const PRESENTATION_SET = new Set(PRESENTATION);
+/** The largest artboard side an imported drawing gets (about 350 m in points); larger sizes are damaged or hostile. */
+const MAX_ARTBOARD = 1e6;
 const SHAPE_TAGS = new Set(['path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon']);
 
 const BASE_STYLE = {
@@ -1897,6 +1899,12 @@ class Importer {
       } else if (W == null) W = (H * vb[2]) / vb[3];
       else if (H == null) H = (W * vb[3]) / vb[2];
     }
+    // Absurd sizes (a damaged or hostile file) would make an artboard the canvas cannot show: use the viewBox's size instead.
+    if (W > MAX_ARTBOARD || H > MAX_ARTBOARD) {
+      this.warn('The drawing\'s size was too large and was ignored.');
+      if (hasVb && vb[2] <= MAX_ARTBOARD && vb[3] <= MAX_ARTBOARD) [W, H] = [vb[2], vb[3]];
+      else W = H = null;
+    }
     const sized = W != null && H != null;
     this.vw = hasVb ? vb[2] : W || 100;
     this.vh = hasVb ? vb[3] : H || 100;
@@ -1955,6 +1963,10 @@ class Importer {
         const bottom = b.y + b.h;
         artboard = b.x >= 0 && b.y >= 0 ? { x: 0, y: 0, w: Math.ceil(right), h: Math.ceil(bottom) } : { x: Math.floor(b.x), y: Math.floor(b.y), w: Math.ceil(b.w), h: Math.ceil(b.h) };
       } else artboard = { x: 0, y: 0, w: W || 612, h: H || 792 };
+    }
+    if (artboard.w > MAX_ARTBOARD || artboard.h > MAX_ARTBOARD || !(Math.abs(artboard.x) <= MAX_ARTBOARD) || !(Math.abs(artboard.y) <= MAX_ARTBOARD)) {
+      this.warn('The artwork is too large for an artboard; the artboard covers part of it.');
+      artboard = { x: Math.max(-MAX_ARTBOARD, Math.min(MAX_ARTBOARD, artboard.x || 0)), y: Math.max(-MAX_ARTBOARD, Math.min(MAX_ARTBOARD, artboard.y || 0)), w: Math.min(MAX_ARTBOARD, artboard.w), h: Math.min(MAX_ARTBOARD, artboard.h) };
     }
     return { artboard, layers, nodes: this.nodes, assets: this.assets, warnings: [...this.warnings] };
   }
