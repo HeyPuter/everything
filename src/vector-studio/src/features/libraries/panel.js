@@ -459,9 +459,20 @@ export class LibrariesPanel extends Panel {
       input.remove();
       if (!file) return;
       try {
-        const lib = await this.store.importLibrary(JSON.parse(await file.text()));
+        let data;
+        try {
+          data = JSON.parse(await file.text());
+        } catch {
+          throw new Error('This file is not a Vector Studio library.');
+        }
+        const stats = {};
+        const lib = await this.store.importLibrary(data, stats);
         this.choose(lib.id);
-        this.app.notify(`Imported ${lib.name}.`, { polite: true });
+        const plural = (n) => (n === 1 ? '1 damaged graphic was' : `${n} damaged graphics were`);
+        const notes = [`Imported ${lib.name}.`];
+        if (stats.repaired) notes.push(`${plural(stats.repaired)} repaired.`);
+        if (stats.skipped) notes.push(`${plural(stats.skipped)} left out.`);
+        this.app.notify(notes.join(' '), { polite: true });
       } catch (err) {
         this.app.notify(err?.message || 'Could not import the library.', { error: true });
       }
