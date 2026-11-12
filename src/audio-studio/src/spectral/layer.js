@@ -97,6 +97,7 @@ export class SpectralLayer {
     for (const el of [this.canvas, this.over, this.divider, this.ruler, this.rulerHit, this.settingsBtn, this.readout]) el.hidden = !on;
     if (!on) {
       this.rect = null;
+      clearTimeout(this.pitchTimer);
       this.release();
     }
     this.view.layout?.();
@@ -462,6 +463,7 @@ export class SpectralLayer {
   }
 
   async #computePitch(key) {
+    if (!this.rect) return;
     const doc = this.doc;
     const v = doc.view;
     const { n, fmin, fmax } = pitchSettings(this.app.prefs, doc.sampleRate);

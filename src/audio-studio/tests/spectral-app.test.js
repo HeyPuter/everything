@@ -155,6 +155,30 @@ describe('spectral feature', () => {
     app.activate(doc);
   });
 
+  it('does not analyse pitch after the display is hidden', async () => {
+    const view = new WaveformView(app, doc);
+    document.body.append(view.el);
+    const layer = view.layers.find((l) => l.id === 'spectral');
+    const failures = [];
+    const onFail = (err) => failures.push(err);
+    process.on('unhandledRejection', onFail);
+    try {
+      app.prefs.set('spectralPitch', true);
+      layer.layout({ y: 100, width: 600, height: 200, dpr: 1 });
+      layer.draw({});
+      // Hidden before the pitch analysis (120 ms after a draw) starts.
+      app.prefs.set('spectralDisplay', false);
+      await new Promise((r) => setTimeout(r, 250));
+      expect(failures).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onFail);
+      app.prefs.set('spectralPitch', false);
+      app.prefs.set('spectralDisplay', true);
+      view.destroy();
+      view.el.remove();
+    }
+  });
+
   it('zooms the frequency axis', async () => {
     const { docState } = await import('../src/spectral/state.js');
     app.prefs.set('spectralLog', false);
