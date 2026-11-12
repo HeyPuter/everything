@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { layer, newDocument } from '../../src/model/document';
-import { boot, compositePixel, historyLabels, idle, menu, openProject, run } from './helpers';
+import { readFileSync } from 'node:fs';
+import { boot, compositePixel, historyLabels, idle, menu, openImage, openProject, run } from './helpers';
 
 async function loadFixture(page: Page) {
   const doc = newDocument(320, 240, 'Poster');
@@ -130,4 +131,24 @@ test('a GPU adapter request that never answers does not leave the editor busy', 
   expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.kind))).toEqual(['solid', 'image']);
   expect(await compositePixel(page, 70, 60)).toEqual([0, 0, 255, 255]);
   expect(await compositePixel(page, 25, 35)).toEqual([255, 0, 0, 255]);
+});
+
+test('placed PSD files and projects are recognized by their contents whatever their extension', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 200, 150);
+  const psd = Array.from(readFileSync('tests/fixtures/layer-order.psd'));
+  const placed = await page.evaluate(async (psd) => {
+    const e = window.photoStudio;
+    const { openFile } = await import('/src/features/files/open.ts');
+    const { serialize } = await import('/src/model/serialization.ts');
+    const project = await serialize(e.doc, e.assets);
+    await openFile(e, new File([new Uint8Array(psd)], 'downloaded.png', { type: 'image/png' }), 'downloaded.png', true);
+    await openFile(e, new File([project], 'project-copy.bin'), 'project-copy.bin', true);
+    return e.doc.layers.map((l) => [l.name, l.kind, !!l.embed]);
+  }, psd);
+  expect(placed).toEqual([
+    ['Background', 'pixel', false],
+    ['downloaded', 'image', true],
+    ['project-copy', 'image', true],
+  ]);
 });
