@@ -81,4 +81,20 @@ describe('Transform Again', () => {
     expect(readMask(store, mask, { x: 35, y: 10, width: 1, height: 1 }).data[0]).toBe(255);
     expect(readMask(store, mask, { x: 5, y: 10, width: 1, height: 1 }).data[0]).toBe(0);
   });
+  it('keeps Live Filters and moves their source with the pixels', async () => {
+    const store = new TileStore();
+    const img: RGBA8 = { width: 40, height: 20, data: new Uint8ClampedArray(40 * 20 * 4) };
+    for (let i = 0; i < 40 * 20; i++) img.data.set(i % 40 < 20 ? [0, 0, 255, 255] : [255, 0, 0, 255], i * 4);
+    const doc = newDocument(40, 20, 'Again');
+    const l = newPixelLayer('Layer', doc, gridFromImage(store, img));
+    l.liveSource = gridFromImage(store, img);
+    l.liveFilters = [{ id: 'gaussian-blur', params: { radius: 1 } }] as never;
+    doc.layers = [l];
+    const e = editor(doc, store);
+    recordTransform({ matrix: about(rotateM(180), 20, 10) });
+    await transformAgain(e as unknown as Editor);
+    const after = e.doc.layers[0];
+    expect(after.liveFilters).toHaveLength(1);
+    expect([...readRGBA(store, after.liveSource!, { x: 35, y: 10, width: 1, height: 1 }).data]).toEqual([0, 0, 255, 255]);
+  });
 });

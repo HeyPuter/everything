@@ -10,7 +10,7 @@ import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { findLayer, type Layer, type PhotoDocument } from '../../model/document';
 import { layerLock } from '../../model/locks';
-import { carryMask, clearToPixelLayer, setLayerPixels } from '../../model/pixel-layer';
+import { carryMask, clearToPixelLayer, setLayerPixels, setLivePixels } from '../../model/pixel-layer';
 import { transformVideo } from '../../model/video-layer';
 import { mapMaskPoints } from '../../model/paths';
 import { gridDocBounds, gridFromImage, gridTileIds, readMask, readRGBA, type TileGrid } from '../../model/tiles';
@@ -300,12 +300,28 @@ export class TransformSession {
         return [p.x, p.y];
       });
     }
+    // Live Filters stay: their source (and filter mask) follow the content and
+    // the cached result is the transformed one until the next filter edit.
+    let live: { source: TileGrid; mask?: TileGrid } | undefined;
+    if (before?.kind === 'pixel' && before.liveFilters && before.liveSource) {
+      const r = this.render(readRGBA(store, before.liveSource, rect), 1, method, true);
+      live = {
+        source: r ? gridFromImage(store, r.image, r.rect.x, r.rect.y) : gridFromImage(store, { width: 1, height: 1, data: new Uint8ClampedArray(4) }),
+        mask: before.liveMask
+          ? carryMask(store, before.liveMask, rect, (img) => {
+              const out = this.render(img, 1, method, true);
+              return out && { image: out.image, x: out.rect.x, y: out.rect.y };
+            })
+          : undefined,
+      };
+    }
     this.e.command(label, (d) => {
       const l = findLayer(d.layers, id);
       if (!l) return;
       if (l.kind === 'image') toPixelLayer(l, mask);
       if (video && l.video) l.video = transformVideo(l.video, rectToQuad(rect, quad));
-      setLayerPixels(l, grid, d);
+      if (live) setLivePixels(l, grid, d, live.source, live.mask);
+      else setLayerPixels(l, grid, d);
       if (linked) l.maskGrid = linked;
       if (vector && l.vectorMask) l.vectorMask = { ...l.vectorMask, mask: vector };
     });

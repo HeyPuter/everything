@@ -394,7 +394,7 @@ export async function transformAgain(e: Editor) {
   const affine = isAffine(t.matrix);
   const params = affine ? paramsFromAffine(t.matrix, { x: 0, y: 0, width: 1, height: 1 }, { x: 0, y: 0 }) : undefined;
   const similar = !!params && !t.unitMesh && Math.abs(params.skewX) < 1e-6 && Math.abs(Math.abs(params.sx) - Math.abs(params.sy)) < 1e-6 && params.sy > 0;
-  const updates = new Map<string, { pixels?: TileGrid; mask?: TileGrid; vectorMask?: boolean; video?: boolean; toPixel?: boolean; transform?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } }>();
+  const updates = new Map<string, { pixels?: TileGrid; live?: { source: TileGrid; mask?: TileGrid }; mask?: TileGrid; vectorMask?: boolean; video?: boolean; toPixel?: boolean; transform?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } }>();
   const skipped: string[] = [];
   const warpedVideo: string[] = [];
   for (const l of allLayers(roots).filter((l) => l.kind !== 'group')) {
@@ -439,7 +439,21 @@ export async function transformAgain(e: Editor) {
             return out && { image: out.image, x: out.rect.x, y: out.rect.y };
           })
         : undefined;
-    updates.set(l.id, { pixels: r ? gridFromImage(store, r.image, r.rect.x, r.rect.y) : emptyGrid(4), mask, vectorMask: !!l.vectorMask && !l.vectorMask.unlinked && !mesh, video: !!l.video });
+    // Live Filters stay: their source and filter mask follow the content.
+    let live: { source: TileGrid; mask?: TileGrid } | undefined;
+    if (l.kind === 'pixel' && l.liveFilters && l.liveSource) {
+      const s = render(readRGBA(store, l.liveSource, rect));
+      live = {
+        source: s ? gridFromImage(store, s.image, s.rect.x, s.rect.y) : emptyGrid(4),
+        mask: l.liveMask
+          ? carryMask(store, l.liveMask, rect, (img) => {
+              const out = render(img);
+              return out && { image: out.image, x: out.rect.x, y: out.rect.y };
+            })
+          : undefined,
+      };
+    }
+    updates.set(l.id, { pixels: r ? gridFromImage(store, r.image, r.rect.x, r.rect.y) : emptyGrid(4), mask, vectorMask: !!l.vectorMask && !l.vectorMask.unlinked && !mesh, video: !!l.video, live });
   }
   if (warpedVideo.length) e.message(`Video layers cannot be warped (skipped: ${warpedVideo.join(', ')}); rasterize them first.`);
   if (!updates.size) {
@@ -471,7 +485,8 @@ export async function transformAgain(e: Editor) {
       if (u.frame) setFrame(d, l, u.frame.quad, u.frame.mesh, e.assets);
       if (u.toPixel) toPixelLayer(l, undefined);
       if (u.video && l.video) l.video = transformVideo(l.video, t.matrix);
-      if (u.pixels) setLayerPixels(l, u.pixels, d);
+      if (u.pixels && u.live) setLivePixels(l, u.pixels, d, u.live.source, u.live.mask);
+      else if (u.pixels) setLayerPixels(l, u.pixels, d);
       else if (u.transform) moveTransform(l, t.matrix);
       if (u.mask) l.maskGrid = u.mask;
       if (u.vectorMask && l.vectorMask) {
