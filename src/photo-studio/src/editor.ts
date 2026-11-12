@@ -882,10 +882,7 @@ export class Editor {
       const input = e.target as HTMLInputElement;
       const files = Array.from(input.files ?? []);
       input.value = '';
-      void this.run(async () => {
-        const { openFiles } = await import('./features/files/open');
-        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })));
-      });
+      this.openWhenFree(files, false);
     };
     const viewport = this.el('#viewport');
     const workspace = this.el('.workspace');
@@ -904,10 +901,7 @@ export class Editor {
       const files = Array.from(e.dataTransfer.files);
       // Dropping onto the canvas places files into the open document.
       const place = this.hasDocument && !!(e.target as HTMLElement).closest('#viewport');
-      void this.run(async () => {
-        const { openFiles } = await import('./features/files/open');
-        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })), place);
-      });
+      this.openWhenFree(files, place);
     });
     viewport.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -927,6 +921,23 @@ export class Editor {
       }
     });
     this.setTheme(this.preferences.theme);
+  }
+  /** Open (or place) dropped or picked files; while a task runs they wait
+   * for it, so they are neither lost nor mixed into its edits. */
+  private openWhenFree(files: File[], place: boolean) {
+    if (!files.length) return;
+    const open = () =>
+      this.run(async () => {
+        const { openFiles } = await import('./features/files/open');
+        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })), place && this.hasDocument);
+      });
+    if (!this.busy) return void open();
+    const names = files.length === 1 ? files[0].name : `${files.length} files`;
+    this.message(`${names} ${files.length === 1 ? 'opens' : 'open'} when the current task finishes.`);
+    void (async () => {
+      while (this.busy) await this.idle;
+      await open();
+    })();
   }
   canvasContextMenu() {
     const items: string[] = [];

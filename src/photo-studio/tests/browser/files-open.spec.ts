@@ -67,3 +67,21 @@ test('a large SVG opens scaled to fit the document limits without distortion', a
   await idle(page);
   expect(await page.evaluate(() => [window.photoStudio.doc.width, window.photoStudio.doc.height])).toEqual([8192, 1024]);
 });
+
+test('files dropped while a task runs open when it finishes', async ({ page }) => {
+  await boot(page);
+  const bytes = Array.from(await png(page, '#0a0'));
+  // A task that holds the editor until the test lets it finish.
+  await page.evaluate(() => void window.photoStudio.run(() => new Promise<void>((r) => ((window as unknown as { finish: () => void }).finish = r))));
+  await page.evaluate((bytes) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([new Uint8Array(bytes)], 'dropped.png', { type: 'image/png' }));
+    document.querySelector('.workspace')!.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  }, bytes);
+  await expect(page.locator('#status')).toHaveText('dropped.png opens when the current task finishes.');
+  expect(await fileNames(page)).toEqual([undefined]);
+  await page.evaluate(() => (window as unknown as { finish: () => void }).finish());
+  await expect.poll(() => fileNames(page)).toEqual(['dropped.png']);
+  await idle(page);
+  await expect(page.locator('#status')).toHaveText('Opened dropped.png');
+});
