@@ -751,19 +751,23 @@ async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: st
   // Merging rewrites the bottom layer and deletes the others.
   assertEditable(doc, layers);
   if (layerLock(doc.layers, keepId, 'pixels')) throw new Error('Unlock the selected layers and their groups first.');
-  // A clipped layer keeps its clipping when its base is merged with it
-  // (the layer directly below it in the same stack); the bottom one draws alone.
+  // A clipped layer keeps its clipping when its base (the nearest unclipped
+  // layer below it in the same stack) is merged with it. Otherwise it draws
+  // alone: merging two layers clipped to the same base must not clip the
+  // upper one to the lower one.
+  const ids = new Set(layers.map((l) => l.id));
   const clippedOnto = (l: Layer, i: number) => {
     if (!i || !l.clipped) return false;
     const list = containerOf(doc.layers, l.id)!;
-    return list[list.indexOf(l) - 1]?.id === layers[i - 1].id;
+    let k = list.indexOf(l) - 1;
+    while (k > 0 && list[k].clipped) k--;
+    return k >= 0 && ids.has(list[k].id);
   };
   const bottom = layers.find((l) => l.id === keepId)!;
   const blend = keepBlend && bottom.blend !== 'pass through' ? bottom.blend : 'normal';
   const temp = { ...doc, layers: layers.map((l, i) => ({ ...l, clipped: clippedOnto(l, i), ...(l === bottom && blend !== 'normal' ? { blend: 'normal' as const } : {}) })) };
   const img = await compositeRGBA(e, temp);
   const grid = gridFromImage(e.assets.tiles, img);
-  const ids = new Set(layers.map((l) => l.id));
   e.command(label, (d) => {
     const keep = findLayer(d.layers, keepId)!;
     const list = containerOf(d.layers, keepId)!;
