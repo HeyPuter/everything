@@ -92,6 +92,9 @@ async function newAudioDialog(app, { title = 'New Audio File', name } = {}) {
   return { name: nameInput.value.trim() || 'Untitled', sampleRate: Number(rate.value), channels: Number(channels.value), bitDepth: Number(bits.value) };
 }
 
+/** Longest silence Insert Silence adds (s): far beyond real use, short of what stalls the tab. */
+export const MAX_INSERT_SECONDS = 24 * 3600;
+
 async function durationDialog(app, title, label) {
   const doc = audio(app);
   const input = h('input.input', { type: 'text', value: app.formatTime(doc.sampleRate, doc.sampleRate), 'aria-label': label, style: { width: '160px' } });
@@ -107,6 +110,10 @@ async function durationDialog(app, title, label) {
   const frames = parseTime(input.value, doc.sampleRate, app.prefs.get('timeFormat'), app.timeOptions());
   if (!Number.isFinite(frames) || frames <= 0) {
     app.notify('Enter a duration greater than zero.', { error: true });
+    return null;
+  }
+  if (frames > MAX_INSERT_SECONDS * doc.sampleRate) {
+    app.notify('Enter a duration of 24 hours or less.', { error: true });
     return null;
   }
   return frames;
@@ -379,7 +386,8 @@ export function installCoreCommands(app) {
       run: async (a, args) => {
         const doc = audio(app);
         // args.seconds (a recorded favorite) inserts without asking.
-        const frames = args?.seconds > 0 ? Math.round(args.seconds * doc.sampleRate) : await durationDialog(app, 'Insert Silence', 'Duration');
+        const seconds = Math.min(MAX_INSERT_SECONDS, args?.seconds);
+        const frames = seconds > 0 ? Math.round(seconds * doc.sampleRate) : await durationDialog(app, 'Insert Silence', 'Duration');
         if (!frames) return;
         const at = doc.hasSelection ? doc.selection.start : doc.cursor;
         doc.apply('Insert Silence', E.insertSilence(doc.state, at, frames), { selection: { start: at, end: at + frames } });

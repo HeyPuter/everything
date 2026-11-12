@@ -348,3 +348,26 @@ describe('timecode ruler ticks', () => {
     }
   });
 });
+
+describe('Insert Silence', () => {
+  it('refuses durations over 24 hours instead of stalling the page', async () => {
+    const { app, doc, view } = await makeView();
+    const notes = [];
+    app.notify = (msg) => notes.push(msg);
+    const insert = async (text) => {
+      const done = app.commands.run('edit.insertSilence');
+      const input = document.querySelector('[aria-label="Duration"]');
+      input.value = text;
+      document.querySelector('.dialog-foot .btn.primary').click();
+      await done;
+    };
+    await insert('99999999');
+    expect(notes.pop()).toBe('Enter a duration of 24 hours or less.');
+    expect(doc.length).toBe(48000);
+    await insert('2');
+    expect(doc.length).toBe(48000 * 3);
+    await app.commands.run('edit.insertSilence', { seconds: 1e9 });
+    expect(doc.length).toBe(48000 * 3 + 48000 * 24 * 3600);
+    view.destroy();
+  });
+});
