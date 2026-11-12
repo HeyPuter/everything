@@ -246,3 +246,37 @@ describe('styles on a threaded frame', () => {
     expect(currentStyleState(app, 'para').id).toBe(id);
   });
 });
+
+describe('converting threaded frames', () => {
+  it('Convert to Point Type leaves threaded frames alone, and placeholder text goes into the story', async () => {
+    const a = frame(0, 0, STORY);
+    const b = frame(400, 0, '');
+    app.editor.select([a.id, b.id]);
+    app.commands.run('type.thread.create');
+    const before = doc.get(a.id);
+    app.editor.select([a.id, b.id]);
+    await app.commands.run('type.convertToPoint');
+    expect(doc.get(a.id).kind).toBe('area');
+    expect(doc.get(a.id).text).toBe(before.text);
+    expect(threadFrames(doc, doc.get(a.id))).toHaveLength(2);
+    // Fill with Placeholder Text with only the second frame selected fills the story, not the empty follower.
+    doc.transact('Empty', () => doc.update(a.id, { text: '' }));
+    app.editor.select([b.id]);
+    await app.commands.run('type.loremIpsum');
+    expect(doc.get(b.id).text).toBe('');
+    // As much as fills both frames, no more.
+    const lay = layoutText(doc.get(b.id));
+    expect(doc.get(a.id).text.length).toBeGreaterThan(0);
+    expect(lay.story.overflow).toBe(false);
+    expect(lay.lines.length).toBeGreaterThan(0);
+    expect(doc.get(a.id).text.split(' ').length).toBeLessThan(60);
+    // While editing the story: the fill stops where the last frame is full.
+    doc.transact('Empty', () => doc.update(a.id, { text: 'Start' }));
+    app.setTool('type');
+    const s = app.tool.editText(a.id);
+    s.setSelection(5, 5);
+    await app.commands.run('type.loremIpsum');
+    expect(doc.get(a.id).text.length).toBeGreaterThan(5);
+    expect(layoutText(doc.get(b.id)).story.overflow).toBe(false);
+  });
+});

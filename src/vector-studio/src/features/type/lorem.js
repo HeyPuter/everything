@@ -17,10 +17,15 @@ export function loremWords(n) {
   return s;
 }
 
+/** Whether a layout's text overflows: for a threaded frame, whether the story overflows its last frame. */
+export function overflows(lay) {
+  return lay.story ? lay.story.overflow : lay.overflow;
+}
+
 /** Placeholder text that fills an area (or path) without overflowing; point type gets a short phrase. */
 export function fillPlaceholder(node) {
   if (node.kind !== 'area' && node.kind !== 'path') return 'Lorem ipsum';
-  const fits = (n) => !layoutText({ ...node, text: loremWords(n), runs: undefined, paras: undefined }).overflow;
+  const fits = (n) => !overflows(layoutText({ ...node, text: loremWords(n), runs: undefined, paras: undefined }));
   if (!fits(1)) return loremWords(1);
   let lo = 1;
   let hi = 2;
