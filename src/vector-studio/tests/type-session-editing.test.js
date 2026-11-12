@@ -274,4 +274,38 @@ describe('type editing session', () => {
     doc.undo();
     expect(doc.get(id).text).toBe('HelloA');
   });
+
+  it('dragging after a double or triple click extends the selection by whole words or paragraphs', async () => {
+    const { caretPosition } = await import('../src/model/text-layout.js');
+    const id = add('one two three\nfour five\nsix', { char: { fontSize: 20 } });
+    const s = edit(id, 0);
+    const at = (i) => {
+      const c = caretPosition(s.layout(), i);
+      const x = c.x + 1;
+      const y = c.y - 5;
+      const p = app.editor.view.toScreen(x, y);
+      return { x, y, sx: p.x, sy: p.y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', native: { buttons: 1 } };
+    };
+    const tool = app.tool;
+    // Double-click "two", drag into "three": both words; back into "one": "one two".
+    tool.onDoubleClick(at(5));
+    expect(s.range()).toEqual([4, 7]);
+    tool.onHover(at(10));
+    expect(s.range()).toEqual([4, 13]);
+    tool.onHover(at(1));
+    expect([s.anchor, s.caret]).toEqual([7, 0]);
+    // Releasing the button ends the drag.
+    tool.onHover({ ...at(10), native: { buttons: 0 } });
+    tool.onHover(at(10));
+    expect([s.anchor, s.caret]).toEqual([7, 0]);
+    // Triple-click in the first paragraph, drag into the second: both paragraphs.
+    tool.onPointerDown(at(5));
+    tool.onPointerUp(at(5));
+    tool.onDoubleClick(at(5));
+    tool.onPointerDown(at(5));
+    expect(s.range()).toEqual([0, 14]);
+    tool.onPointerMove(at(16));
+    expect(s.range()).toEqual([0, 24]);
+    tool.onPointerUp(at(16));
+  });
 });

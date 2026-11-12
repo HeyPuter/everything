@@ -365,17 +365,24 @@ export class TextSession {
     this.setSelection(0, n ? n.text.length : 0);
   }
 
+  /** [start, end) of the word, or of the paragraph with its break, at index i. */
+  unitAt(i, unit) {
+    const text = this.node().text;
+    if (unit === 'word') return wordAt(text, i);
+    const pr = paragraphRanges(text)[paragraphIndexAt(text, i)];
+    return [pr.start, Math.min(text.length, pr.end + (text[pr.end] === '\n' ? 1 : 0))];
+  }
+
   selectWord(i) {
-    const [a, b] = wordAt(this.node().text, i);
+    const [a, b] = this.unitAt(i, 'word');
     this.keepView = true;
     this.setSelection(a, b);
   }
 
   selectParagraph(i) {
-    const text = this.node().text;
-    const pr = paragraphRanges(text)[paragraphIndexAt(text, i)];
+    const [a, b] = this.unitAt(i, 'paragraph');
     this.keepView = true;
-    this.setSelection(pr.start, Math.min(text.length, pr.end + (text[pr.end] === '\n' ? 1 : 0)));
+    this.setSelection(a, b);
   }
 
   /** Caret index under a document point. */

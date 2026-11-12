@@ -225,6 +225,13 @@ export class TypeTool extends Tool {
   }
 
   onHover(e) {
+    if (this.drag?.hover) {
+      if (e.native?.buttons & 1) {
+        this.onPointerMove(e);
+        return;
+      }
+      this.drag = null;
+    }
     if (this.bracketAt(e)) {
       this.setCursor('ew-resize');
       return;
@@ -282,7 +289,7 @@ export class TypeTool extends Tool {
       else if (e.shift) s.setSelection(s.anchor, i);
       else s.setSelection(i, i);
       s.focus();
-      this.drag = clicks === 1 ? { kind: 'select' } : null;
+      this.drag = clicks === 1 ? { kind: 'select' } : this.#unitDrag(s, clicks >= 3 ? 'paragraph' : 'word');
       return;
     }
     const text = this.textAt(e);
@@ -306,15 +313,29 @@ export class TypeTool extends Tool {
       const s = this.session;
       s.selectWord(s.indexAt(e.x, e.y));
       s.focus();
+      this.drag = this.#unitDrag(s, 'word', true);
       return;
     }
     const text = this.textAt(e);
     if (text) {
       const s = this.editText(text.id, e);
-      if (s) s.selectWord(s.indexAt(e.x, e.y));
+      if (s) {
+        s.selectWord(s.indexAt(e.x, e.y));
+        this.drag = this.#unitDrag(s, 'word', true);
+      }
       return;
     }
     this.onPointerDown(e);
+  }
+
+  /**
+   * Dragging after a double or triple click extends the selection by whole
+   * words or paragraphs. The press of a double-click reaches the tool as a
+   * double-click only, so its drag arrives as hover moves with the button down.
+   */
+  #unitDrag(s, unit, hover = false) {
+    const [a, b] = s.range();
+    return { kind: 'select', unit, a, b, hover };
   }
 
   onPointerMove(e) {
@@ -324,6 +345,12 @@ export class TypeTool extends Tool {
       const s = this.session;
       if (!s) return;
       const i = s.indexAt(e.x, e.y);
+      if (d.unit) {
+        const [ua, ub] = s.unitAt(i, d.unit);
+        const [anchor, caret] = ua < d.a ? [d.b, ua] : [d.a, Math.max(ub, d.b)];
+        if (anchor !== s.anchor || caret !== s.caret) s.setSelection(anchor, caret);
+        return;
+      }
       if (i !== s.caret) s.setSelection(s.anchor, i);
       return;
     }
