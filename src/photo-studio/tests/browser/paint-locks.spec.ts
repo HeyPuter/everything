@@ -102,3 +102,24 @@ test('History Brush keeps locked transparent pixels transparent', async ({ page 
   expect(result.right).toEqual([0]);
   expect(result.left).toEqual([255]);
 });
+
+for (const [id, label] of [
+  ['healing-brush', 'Healing Brush'],
+  ['spot-healing', 'Spot Healing Brush'],
+] as const) {
+  test(`${label} keeps locked transparent pixels transparent`, async ({ page }) => {
+    await lockedHalf(page);
+    await page.evaluate(async (id) => {
+      const e = window.photoStudio;
+      e.setTool(id);
+      const { brushFor } = await import('/src/features/paint.ts');
+      Object.assign(brushFor(id), { size: 30 });
+    }, id);
+    if (id === 'healing-brush') await canvasClick(page, 50, 75, ['Alt']);
+    await canvasDrag(page, [[90, 75], [130, 75]], 12);
+    const result = await alphas(page);
+    expect(result.history).toBe(label);
+    expect(result.right).toEqual([0]);
+    expect(result.left).toEqual([255]);
+  });
+}
