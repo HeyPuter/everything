@@ -2,7 +2,7 @@ import type { Editor } from '../editor';
 import { registerCommand, registerOverlay, registerPanel, type Panel } from '../app/registry';
 import { formDialog } from '../ui/dialog';
 import { readMask, readRGBA, emptyGrid, gridTileIds, writeRect, TILE, tileKey, type TileGrid } from '../model/tiles';
-import { tileHolders } from '../app/session';
+import { tileHolders, type DocumentSession } from '../app/session';
 import { applySelection, canvasRect, selectionGrid } from '../model/selection';
 import { commitSelectionMask, selectionOp } from './selection';
 import { escapeXML } from '../model/assets';
@@ -204,9 +204,30 @@ export function installView(e: Editor) {
     return `<path d="${d}" class="pixel-grid" stroke-width="${1 / e.zoom}"/>`;
   });
   registerOverlay('quick-mask', quickMaskOverlay);
+  // Quick Mask belongs to one document: switching documents sets it aside
+  // and brings back the other document's own.
+  const parked = new Map<DocumentSession, TileGrid>();
+  let shown: DocumentSession | undefined;
+  e.onUpdate((e) => {
+    const s = e.session;
+    if (s === shown) return;
+    const was = !!e.settings.quickMask;
+    if (shown && e.settings.quickMask) parked.set(shown, e.settings.quickMask as TileGrid);
+    delete e.settings.quickMask;
+    delete e.settings.quickMaskPreview;
+    const back = parked.get(s);
+    if (back) e.settings.quickMask = back;
+    parked.delete(s);
+    shown = s;
+    if (!was && !back) return;
+    e.root.querySelector('.quick-mask-button')?.setAttribute('aria-pressed', String(!!back));
+    e.overlay();
+  });
+  e.closeHooks.push((s) => parked.delete(s));
   // Painting in Quick Mask makes tiles no document refers to until it ends.
   tileHolders.push(() => {
     const ids = gridTileIds(e.settings.quickMask as TileGrid | undefined);
+    for (const grid of parked.values()) gridTileIds(grid, ids);
     return gridTileIds(e.settings.quickMaskPreview as TileGrid | undefined, ids);
   });
   const toggle = (key: 'showGrid' | 'snap' | 'guidesLocked' | 'showPixelGrid') => () => {

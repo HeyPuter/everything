@@ -246,3 +246,34 @@ test('painting refuses a layer inside a hidden group', async ({ page }) => {
   await expect(page.locator('#status')).toHaveText('The target layer is in a hidden group. Show the group to paint on it.');
   expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(before);
 });
+
+test('Quick Mask stays with the document it was turned on in', async ({ page }) => {
+  // beforeEach opened gray.png; open a second document and turn Quick Mask on there.
+  await openImage(page, 300, 100, '#404040', 'second.png');
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  const show = (name: string) =>
+    page.evaluate(async (name) => {
+      const e = window.photoStudio;
+      const s = e.sessions.find((x) => x.doc.name === name)!;
+      await e.showView(e.viewsOf(s).at(-1)!);
+    }, name);
+  const state = () =>
+    page.evaluate(() => ({
+      doc: window.photoStudio.doc.name,
+      quickMask: !!window.photoStudio.settings.quickMask,
+      pressed: document.querySelector('.quick-mask-button')!.getAttribute('aria-pressed'),
+    }));
+  await show('gray');
+  await idle(page);
+  expect(await state()).toEqual({ doc: 'gray', quickMask: false, pressed: 'false' });
+  await show('second');
+  await idle(page);
+  expect(await state()).toEqual({ doc: 'second', quickMask: true, pressed: 'true' });
+  // Leaving it in the second document never turns the first into a selection.
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await show('gray');
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.includes('Quick Mask'))).toBe(false);
+});
