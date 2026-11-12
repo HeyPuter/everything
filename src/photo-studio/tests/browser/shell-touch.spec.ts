@@ -176,3 +176,17 @@ test.describe('on a 375×812 phone, Layer Style', () => {
     await page.keyboard.press('Escape');
   });
 });
+
+test('New Document opened offline explains the missing color profiles and still creates a document', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.route('**/src/features/color/profiles.ts*', (r) => r.abort('internetdisconnected'));
+  await start(page, 'file.new');
+  const dialog = page.getByRole('dialog', { name: 'New Document' });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('#status')).toHaveText(/could not be loaded\. Check the connection/);
+  const before = await page.evaluate(() => window.photoStudio.sessions.length);
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.photoStudio.sessions.length)).toBe(before + 1);
+  expect(errors).toEqual([]);
+});

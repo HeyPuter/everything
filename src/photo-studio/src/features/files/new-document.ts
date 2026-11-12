@@ -30,6 +30,7 @@ import { builtinAspects } from '../view-modes';
 import { hexRgb } from '../pixels';
 import { formDialog } from '../../ui/dialog';
 import { emitAppEvent } from '../../app/app-events';
+import { loadError } from '../../app/lazy';
 
 const RECENT_KEY = 'photo-studio-new-recent';
 const SAVED_KEY = 'photo-studio-new-presets';
@@ -182,6 +183,11 @@ export function newDocumentWindow(e: Editor): Promise<boolean> {
     form.addEventListener('change', (ev) => {
       if ((ev.target as HTMLElement).getAttribute('name') === 'mode') fill();
     });
+  }).catch((error) => {
+    // Offline: the document is created in the working space; say why the
+    // other profiles are missing instead of failing silently.
+    const shown = loadError(error);
+    e.message(shown instanceof Error ? shown.message : String(shown));
   });
 
   function presetCard(id: string, name: string, w: number, h: number, unit: NewUnit, ppi: number, extra = '', removable = false, bg = 'white') {
