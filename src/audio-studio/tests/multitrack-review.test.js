@@ -315,3 +315,30 @@ describe('master mute', () => {
     expect(renderState(st, doc.pool, null, 500)[0][100]).toBe(0);
   });
 });
+
+describe('typed track levels', () => {
+  it('ignores empty text instead of jumping to 0 dB or centre', async () => {
+    const { parseGain, parsePan } = await import('../src/multitrack/levels.js');
+    expect(parseGain('')).toBeNaN();
+    expect(parseGain('  dB ')).toBeNaN();
+    expect(parsePan(' ')).toBeNaN();
+    expect(parseGain('-6 dB')).toBe(-6);
+    expect(parseGain('-∞')).toBe(S.SILENT_DB);
+    expect(parsePan('L30')).toBe(-30);
+    expect(parsePan('C')).toBe(0);
+  });
+
+  it('keeps the volume when the track header readout is cleared', async () => {
+    const { app, doc } = await appWithSession();
+    const t = doc.state.tracks[0];
+    doc.apply('Volume', S.updateTrack(doc.state, t.id, { volume: -18 }));
+    const view = app.documentKinds.get('session').view(app, doc);
+    document.body.replaceChildren(view.el);
+    const num = view.headers.get(t.id).volNum;
+    num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const input = view.headers.get(t.id).el.querySelector('input.hot-edit');
+    input.value = '';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(S.findTrack(doc.state, t.id).volume).toBe(-18);
+  });
+});
