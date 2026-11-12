@@ -316,3 +316,24 @@ describe('isolating a layer', () => {
     expect([...ed.selection].map((id) => doc.get(id).type)).not.toContain('layer');
   });
 });
+
+describe('Paste Remembers Layers in isolation mode', () => {
+  it('pastes into the isolated group, not back into the remembered layer', async () => {
+    const { createGroup } = await import('../src/model/nodes.js');
+    const { app, ed, doc, layer, add } = setup(await bootAppWithFeatures());
+    app.prefs.set('pasteRemembersLayers', true);
+    const a = add(0);
+    const g = createGroup([]);
+    doc.transact('G', () => doc.insert(g, layer.id));
+    add(30, g.id);
+    ed.select([a]);
+    await app.commands.run('edit.copy');
+    ed.select([g.id]);
+    await app.commands.run('object.isolate');
+    expect(ed.isolation).toBe(g.id);
+    await app.commands.run('edit.paste', { internal: true });
+    const pasted = [...ed.selection];
+    expect(pasted).toHaveLength(1);
+    expect(doc.get(pasted[0]).parent).toBe(g.id);
+  });
+});

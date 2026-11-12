@@ -172,8 +172,14 @@ export function paste(editor, mode = 'center') {
       const idMap = new Map();
       let i = index;
       for (const item of items) {
-        // Paste Remembers Layers: a hook may send the item back to the layer it came from.
-        const into = mode === 'front' || mode === 'back' ? null : clipboardHooks.reduce((r, hk) => r || hk.targetLayer?.(doc, data, item) || null, null);
+        // Paste Remembers Layers: a hook may send the item back to the layer it came from (not in isolation mode).
+        const into =
+          mode === 'front' || mode === 'back' || editor.isolation
+            ? null
+            : clipboardHooks.reduce(
+                (r, hk) => r || hk.targetLayer?.(doc, data, item) || null,
+                null,
+              );
         const node = into ? doc.importSubtree(item, into, Infinity, idMap) : doc.importSubtree(item, parentId, i, idMap);
         if (Number.isFinite(i)) i++;
         ids.push(node.id);
