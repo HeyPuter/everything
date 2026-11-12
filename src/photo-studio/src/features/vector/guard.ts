@@ -33,8 +33,16 @@ export function guardTool(t: Tool): Tool {
     pointerUp: (e, p) => run(t.pointerUp, e, p) as Promise<void> | void,
     doubleClick: (e, p) => void run(t.doubleClick, e, p),
     keyDown: (e, ev) => {
-      // Editing keys need settled state; drop them while commits are pending.
-      if ((queued || commitsSettled()) && /^(Backspace|Delete|Arrow|Enter|Escape)/.test(ev.key)) return true;
+      if (queued || commitsSettled()) {
+        // Nudges wait their turn, so fast or repeated arrow presses all land
+        // (a vector mask commit rasterizes asynchronously).
+        if (ev.key.startsWith('Arrow') && !ev.metaKey && !ev.ctrlKey && t.keyDown) {
+          void run((ev: KeyboardEvent) => t.keyDown!(e, ev), ev);
+          return true;
+        }
+        // Other editing keys need settled state; drop them while commits are pending.
+        if (/^(Backspace|Delete|Enter|Escape)/.test(ev.key)) return true;
+      }
       return t.keyDown?.(e, ev) ?? false;
     },
   };
