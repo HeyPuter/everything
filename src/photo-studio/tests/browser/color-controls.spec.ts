@@ -94,3 +94,24 @@ test('double-clicking a channel opens Channel Options and renames it', async ({ 
   await page.evaluate(() => window.photoStudio.runCommand('edit.undo'));
   await expect.poll(() => page.evaluate(() => window.photoStudio.doc.channels?.map((c) => c.name))).toEqual(['Alpha 1']);
 });
+
+test('new channels get a name no other channel has', async ({ page }) => {
+  const names = () => page.evaluate(() => window.photoStudio.doc.channels?.map((c) => c.name));
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await e.runCommand('channel.new');
+    await e.runCommand('channel.new');
+    e.settings.activeChannel = e.doc.channels![0].id;
+    await e.runCommand('channel.delete');
+    await e.runCommand('channel.new');
+  });
+  // Used to be Alpha 2 twice.
+  expect(await names()).toEqual(['Alpha 2', 'Alpha 1']);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await e.runCommand('select.all');
+    void e.runCommand('select.save');
+  });
+  await expect(page.locator('#dialog[open] input[name=name]')).toHaveValue('Alpha 3');
+  await page.locator('#dialog[open] #cancel-dialog').click();
+});

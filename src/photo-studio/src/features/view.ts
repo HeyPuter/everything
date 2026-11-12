@@ -107,6 +107,13 @@ const channelsPanel: Panel = {
   },
   menu: () => ['channel.new', 'channel.duplicate', 'channel.delete', 'channel.options', '-', 'select.save', 'select.load'],
 };
+/** "Alpha n" with the smallest n no channel of the document uses. */
+function nextAlphaName(doc: { channels?: { name: string }[] }) {
+  const used = new Set((doc.channels ?? []).map((c) => c.name));
+  let n = 1;
+  while (used.has(`Alpha ${n}`)) n++;
+  return `Alpha ${n}`;
+}
 /** Rename an alpha or ink channel (ink channels also choose their color). */
 async function channelOptions(e: Editor, id: string) {
   const ch = e.doc.channels?.find((c) => c.id === id);
@@ -264,13 +271,13 @@ export function installView(e: Editor) {
       label: 'Save Selection…',
       enabled: (e) => !!e.doc.selection,
       run: async (e) => {
-        const n = (e.doc.channels?.length ?? 0) + 1;
-        const v = await formDialog('Save Selection', [{ name: 'name', label: 'Name', value: `Alpha ${n}` }], 'OK');
+        const name = nextAlphaName(e.doc);
+        const v = await formDialog('Save Selection', [{ name: 'name', label: 'Name', value: name }], 'OK');
         if (!v) return;
         const sel = selectionGrid(e.doc, e.assets.tiles)!;
         const grid = sel.fill ? writeRect(e.assets.tiles, emptyGrid(1), 0, 0, readMask(e.assets.tiles, sel, canvasRect(e.doc))) : sel;
         e.command('Save Selection', (d) => {
-          d.channels = [...(d.channels ?? []), { id: crypto.randomUUID(), name: v.name || `Alpha ${n}`, grid }];
+          d.channels = [...(d.channels ?? []), { id: crypto.randomUUID(), name: v.name.trim() || name, grid }];
         });
       },
     },
@@ -312,9 +319,9 @@ export function installView(e: Editor) {
       label: 'New Channel',
       enabled: (e) => e.hasDocument,
       run: (e) => {
-        const n = (e.doc.channels?.length ?? 0) + 1;
+        const name = nextAlphaName(e.doc);
         e.command('New Channel', (d) => {
-          d.channels = [...(d.channels ?? []), { id: crypto.randomUUID(), name: `Alpha ${n}`, grid: emptyGrid(1) }];
+          d.channels = [...(d.channels ?? []), { id: crypto.randomUUID(), name, grid: emptyGrid(1) }];
         });
       },
     },
