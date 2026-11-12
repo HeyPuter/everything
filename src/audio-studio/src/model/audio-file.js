@@ -161,6 +161,20 @@ export class AudioFile extends Emitter {
     else if (this.baseBitDepth !== undefined) this.info.bitDepth = this.baseBitDepth;
   }
 
+  /**
+   * Clears the undo history. Audio kept from processed ranges (a crop of a processed file)
+   * then gets buffers of its own, so the rest of those ranges can be freed.
+   */
+  clearHistory() {
+    const saved = this.state === this.savedState;
+    const state = this.state;
+    const channels = state.channels.map((c) => c.compact());
+    this.history.clear();
+    if (channels.every((c, i) => c === state.channels[i])) return;
+    this.history.amend({ ...state, channels });
+    if (saved) this.savedState = this.state;
+  }
+
   rename(name) {
     this.name = name;
     this.emit('change', { kind: 'rename' });

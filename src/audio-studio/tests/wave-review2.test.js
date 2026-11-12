@@ -449,3 +449,43 @@ describe('Markers panel rows', () => {
     view.destroy();
   });
 });
+
+describe('Clear History', () => {
+  const retained = (state) => {
+    const buffers = new Set(
+      state.channels.flatMap((c) => c.pieces.map((p) => p.block.data.buffer)),
+    );
+    return [...buffers].reduce((n, b) => n + b.byteLength, 0);
+  };
+
+  it('lets go of processed audio a crop left behind', () => {
+    const n = 48000 * 60;
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [0, 1].map(() => Channel.fromSamples(ramp(n))),
+    });
+    doc.apply('Gain', E.gainRange(doc.state, 0, n, 0.5));
+    doc.apply('Crop', E.cropRange(doc.state, 1000, 25000));
+    const kept = doc.state.channels.map((c) => c.toArray());
+    expect(retained(doc.state)).toBe(n * 4 * 2);
+    doc.markSaved();
+    doc.clearHistory();
+    expect(retained(doc.state)).toBe(24000 * 4 * 2);
+    expect(doc.state.channels.map((c) => c.toArray())).toEqual(kept);
+    expect(doc.history.entries).toHaveLength(1);
+    expect(doc.dirty).toBe(false);
+  });
+
+  it('leaves audio that uses most of its buffer as it is', () => {
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(ramp(480000))],
+    });
+    doc.apply('Delete', E.deleteRange(doc.state, 0, 48000));
+    const state = doc.state;
+    doc.clearHistory();
+    expect(doc.state).toBe(state);
+  });
+});
