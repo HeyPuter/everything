@@ -38,6 +38,8 @@ export function escapeXml(s) {
 
 function shortHex(hex, minify) {
   const h = String(hex || '#000000').toLowerCase();
+  // Colors come from document files: anything but a plain color is escaped so it cannot add markup.
+  if (!/^#[0-9a-f]{3,8}$/.test(h)) return escapeXml(h);
   if (minify && /^#([0-9a-f])\1([0-9a-f])\2([0-9a-f])\3$/.test(h)) return `#${h[1]}${h[3]}${h[5]}`;
   return h;
 }
@@ -180,8 +182,8 @@ class SVGWriter {
     if (s.opacity < 1) out += ` stroke-opacity="${this.n(s.opacity)}"`;
     const w = node.strokeWidth * widthScale;
     if (Math.abs(w - 1) > 1e-9) out += ` stroke-width="${this.n(w)}"`;
-    if (node.strokeCap && node.strokeCap !== 'butt') out += ` stroke-linecap="${node.strokeCap}"`;
-    if (node.strokeJoin && node.strokeJoin !== 'miter') out += ` stroke-linejoin="${node.strokeJoin}"`;
+    if (node.strokeCap && node.strokeCap !== 'butt') out += ` stroke-linecap="${escapeXml(node.strokeCap)}"`;
+    if (node.strokeJoin && node.strokeJoin !== 'miter') out += ` stroke-linejoin="${escapeXml(node.strokeJoin)}"`;
     else if ((node.miterLimit ?? 10) !== 4) out += ` stroke-miterlimit="${this.n(node.miterLimit ?? 10)}"`;
     const dash = effectiveDash(node);
     if (dash) {
@@ -478,7 +480,7 @@ class SVGWriter {
   /** Font attributes for a text style. */
   fontAttrs(st, size) {
     let a = ` font-family="${escapeXml(this.fontFamily(st.fontFamily))}" font-size="${this.n(size ?? st.fontSize)}"`;
-    if ((st.fontWeight || 400) !== 400) a += ` font-weight="${st.fontWeight}"`;
+    if ((st.fontWeight || 400) !== 400) a += ` font-weight="${escapeXml(st.fontWeight)}"`;
     if (st.fontStyle === 'italic') a += ' font-style="italic"';
     // OpenType features: a class with font-feature-settings (no presentation attribute exists for it).
     const ff = cssFeatureSettings(st);

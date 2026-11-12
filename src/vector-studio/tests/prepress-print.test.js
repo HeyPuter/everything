@@ -122,6 +122,33 @@ describe('separations and output', () => {
     expect(await app.exporters.svg(ed, {})).toContain('onload="window.hacked = 1"');
   });
 
+  it('keeps markup smuggled in through document values out of print pages and exports', async () => {
+    const { app, ed, doc } = await setup();
+    const evil = '" onload="window.hacked = 1';
+    const p = createPath(rectangle(0, 0, 5, 5), true, { fill: { type: 'solid', color: `#ff0000${evil}` }, stroke: { type: 'solid', color: '#000000' }, strokeWidth: 2, strokeCap: `round${evil}`, strokeJoin: `bevel${evil}` });
+    doc.transact('e', () => doc.insert(p, ed.targetLayer().id));
+    const svg = await app.exporters.svg(ed, {});
+    const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    expect(parsed.querySelector('parsererror')).toBeNull();
+    expect([...parsed.querySelectorAll('*')].some((el) => [...el.attributes].some((a) => /^on/i.test(a.name)))).toBe(false);
+    const { buildPrintRoot, setPrintSvg } = await import('../src/features/io/print.js');
+    const st = normalizePrint({});
+    const pages = printJob(doc, { ...st, which: 'all' });
+    for (const root of [(await buildPrintOutput(app, ed, pages, st)).root, buildPrintRoot(doc, [0])]) {
+      expect(root.querySelector('path')).toBeTruthy();
+      expect([...root.querySelectorAll('*')].some((el) => [...el.attributes].some((a) => /^on/i.test(a.name)))).toBe(false);
+    }
+    // Whatever a writer lets through, print pages are inert.
+    const el = document.createElement('div');
+    setPrintSvg(el, '<svg xmlns="http://www.w3.org/2000/svg"><image href="x.png" onerror="window.hacked = 1"/><script>window.hacked = 2</script><a href="javascript:alert(1)"><rect width="5" height="5"/></a><foreignObject><img src="x" onerror="1"></foreignObject></svg>');
+    expect(el.querySelector('image').getAttribute('onerror')).toBeNull();
+    expect(el.querySelector('script, foreignObject, img')).toBeNull();
+    expect(el.querySelector('a').getAttribute('href')).toBeNull();
+    expect(el.querySelector('svg').namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(el.querySelector('rect')).toBeTruthy();
+    expect(window.hacked).toBeUndefined();
+  });
+
   it('writes the artwork once and reuses it for further copies', async () => {
     const { app, ed, doc } = await setup();
     const st = normalizePrint({ copies: 3, collate: true });
