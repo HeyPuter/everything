@@ -541,8 +541,22 @@ export class FileService {
     );
   }
 
+  /** Run an open of one file once at a time: a second click while it loads gets the same tab. */
+  #openOnce(key, fn) {
+    this.opening ||= new Map();
+    const busy = this.opening.get(key);
+    if (busy) return busy;
+    const job = fn().finally(() => this.opening.delete(key));
+    this.opening.set(key, job);
+    return job;
+  }
+
   /** Open a file from the Puter cloud by path. */
-  async openPath(path, { name = baseName(path), item = null } = {}) {
+  openPath(path, opts = {}) {
+    return this.#openOnce(`puter:${path}`, () => this.#openPath(path, opts));
+  }
+
+  async #openPath(path, { name = baseName(path), item = null } = {}) {
     const existing = this.findOpen({ kind: 'puter', path });
     if (existing) {
       this.app.activate(existing);
@@ -663,7 +677,12 @@ export class FileService {
   }
 
   /** Reopen an entry from the recent list. */
-  async openRecent(entry) {
+  openRecent(entry) {
+    if (entry.kind !== 'local') return this.#openRecent(entry);
+    return this.#openOnce(`local:${entry.handleId}`, () => this.#openRecent(entry));
+  }
+
+  async #openRecent(entry) {
     if (entry.kind === 'puter') return this.openPath(entry.path, { name: entry.name });
     if (entry.kind === 'local') {
       const handle = await this.handles.get(entry.handleId);

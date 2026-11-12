@@ -329,3 +329,21 @@ describe('scripts and tabs', () => {
     await expect(third.command('object.group')).rejects.toThrow(/closed/);
   });
 });
+
+describe('opening', () => {
+  it('a file clicked twice quickly opens in one tab', async () => {
+    const { serializeDocument } = await import('../src/features/files/format.js');
+    const { VDocument } = await import('../src/model/document.js');
+    const app = await bootAppWithFeatures();
+    const bytes = await serializeDocument(VDocument.create({ name: 'Logo' }));
+    app.puter = { fs: { read: async () => new Blob([bytes]) } };
+    const count = app.editors.length;
+    const [a, b] = await Promise.all([
+      app.files.service.openPath('/u/Logo.vstudio'),
+      app.files.service.openPath('/u/Logo.vstudio'),
+    ]);
+    expect(a).toBeTruthy();
+    expect(b).toBe(a);
+    expect(app.editors.length).toBe(count + 1);
+  });
+});
