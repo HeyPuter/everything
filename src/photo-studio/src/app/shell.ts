@@ -1,8 +1,10 @@
 import { svg } from './icons';
+import { labelDialogsOnOpen } from '../ui/dialog';
 
 /** Static workspace chrome. Menus, tools, panels and options are filled in by
  * their controllers from the registries. */
 export function appShell(root: HTMLElement) {
+  labelDialogsOnOpen();
   root.innerHTML = `
 <header class="topbar">
   <div class="brand" title="Photo Studio" aria-label="Photo Studio">${appIcon(22)}</div>
