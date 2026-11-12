@@ -26,6 +26,9 @@ describe('Export File dialog', () => {
     await tick(10);
     const name = $('.io-name');
     expect(name.value).toBe('Podcast.wav');
+    // The name is selected without its extension, so typing keeps ".wav".
+    expect(document.activeElement).toBe(name);
+    expect([name.selectionStart, name.selectionEnd]).toEqual([0, 7]);
     // Without Puter only "This device" can be chosen.
     expect($('select[aria-label=Location]').value).toBe('download');
     expect($('.io-export').textContent).toContain('48000 Hz Stereo, 24-bit');
