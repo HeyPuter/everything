@@ -150,6 +150,11 @@ export class History {
   get redoLabels() {
     return this.states.slice(this.index + 1).map((s) => s.label);
   }
+  /** Label of the edit that made the oldest retained state: empty while it
+   * is the opened document, otherwise the latest step history dropped. */
+  get baseLabel() {
+    return this.states[0].label;
+  }
   /** Labels of the edits up to the current state. */
   get labels() {
     return this.states.slice(1, this.index + 1).map((s) => s.label);

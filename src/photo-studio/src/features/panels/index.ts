@@ -46,7 +46,11 @@ const historyPanel: Panel = {
     const done = e.history.labels,
       undone = e.history.redoLabels;
     const rows = [
-      `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0">${svg('image', 14)}<span>${escapeXML(e.doc.name)}</span></button>`,
+      // Once older steps are dropped, the first row is the result of the
+      // latest dropped step rather than the opened document.
+      e.history.baseLabel
+        ? `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0" title="Earlier steps are no longer kept">${svg('history', 14)}<span>${escapeXML(e.history.baseLabel)}</span></button>`
+        : `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0">${svg('image', 14)}<span>${escapeXML(e.doc.name)}</span></button>`,
       ...done.map((l, i) => `<button class="history-row ${i === done.length - 1 ? 'current' : ''}" data-history="${i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
       ...undone.map((l, i) => `<button class="history-row undone" data-history="${done.length + i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
     ];

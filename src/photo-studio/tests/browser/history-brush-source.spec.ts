@@ -14,6 +14,14 @@ test('the History Brush restores the opened image after history drops old steps'
     await run(page, 'edit.fill-foreground');
   }
   expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(3);
+  // The History panel's first row names the latest dropped step, not the
+  // opened document it no longer returns to.
+  const rows = await page.evaluate(() => {
+    window.photoStudio.dock.show('history');
+    window.photoStudio.update();
+    return [...document.querySelectorAll('#history .history-entries .history-row')].map((r) => r.textContent);
+  });
+  expect(rows).toEqual(['Fill', 'Fill', 'Fill', 'Fill']);
   expect(await compositePixel(page, 60, 40)).toEqual([0, 255, 255, 255]);
   await page.evaluate(() => window.photoStudio.setTool('history-brush'));
   await canvasDrag(page, [[50, 40], [70, 40]]);
