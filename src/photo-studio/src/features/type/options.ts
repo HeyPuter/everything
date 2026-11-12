@@ -45,9 +45,14 @@ export function familyStyles(family?: string): { weight: number; italic: boolean
 const fontCss = (family: string) => `"${family.replace(/"/g, '')}", sans-serif`;
 
 let picker: HTMLElement | undefined;
+// The open picker's outside-click listener, removed however the picker closes
+// (a stale one would close the next picker on its first click).
+let outsideListener: ((ev: PointerEvent) => void) | undefined;
 function closePicker() {
   picker?.remove();
   picker = undefined;
+  if (outsideListener) document.removeEventListener('pointerdown', outsideListener, true);
+  outsideListener = undefined;
 }
 export function openFontPicker(e: Editor, anchor: HTMLElement, onPick: (family: string) => void, current?: string) {
   if (picker) return closePicker();
@@ -110,13 +115,10 @@ export function openFontPicker(e: Editor, anchor: HTMLElement, onPick: (family: 
     onPick(b.dataset.family!);
   });
   pop.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'center' });
-  const outside = (ev: PointerEvent) => {
-    if (!pop.contains(ev.target as Node) && ev.target !== anchor && !anchor.contains(ev.target as Node)) {
-      closePicker();
-      document.removeEventListener('pointerdown', outside, true);
-    }
+  outsideListener = (ev: PointerEvent) => {
+    if (!pop.contains(ev.target as Node) && ev.target !== anchor && !anchor.contains(ev.target as Node)) closePicker();
   };
-  document.addEventListener('pointerdown', outside, true);
+  document.addEventListener('pointerdown', outsideListener, true);
 }
 
 // Picks a family keeping the closest available weight and italic.
