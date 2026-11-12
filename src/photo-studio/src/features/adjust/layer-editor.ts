@@ -15,7 +15,9 @@ import { kindEditors, kindIcon } from './editors';
 import { belowSource, cancelPick, pickPoint, sampleAt } from './source';
 import { h } from './ui';
 
-type Mounted = { session: string; layerId: string; json: string; root: HTMLElement; footer: () => void };
+// `dirty`: the editor shows values that were previewed or refused but never
+// stored, so it must be rebuilt from the layer rather than re-attached.
+type Mounted = { session: string; layerId: string; json: string; root: HTMLElement; footer: () => void; dirty?: boolean };
 let mounted: Mounted | undefined;
 
 export function replaceLayer(layers: Layer[], id: string, fn: (l: Layer) => Layer): Layer[] {
@@ -24,7 +26,7 @@ export function replaceLayer(layers: Layer[], id: string, fn: (l: Layer) => Laye
 
 export function mountLayerEditor(e: Editor, el: HTMLElement, l: Layer) {
   const json = JSON.stringify(l.adjustment);
-  if (mounted && mounted.session === e.session.id && mounted.layerId === l.id && mounted.json === json) {
+  if (mounted && mounted.session === e.session.id && mounted.layerId === l.id && mounted.json === json && !mounted.dirty) {
     el.append(mounted.root);
     mounted.footer();
     return;
@@ -56,17 +58,24 @@ export function mountLayerEditor(e: Editor, el: HTMLElement, l: Layer) {
     change(commit) {
       const spec = adjustmentSpec({ kind, params: host.params } as Adjustment);
       if (!commit) {
+        state.dirty = true;
         const doc: PhotoDocument = { ...e.doc, layers: replaceLayer(e.doc.layers, id, (x) => ({ ...x, adjustment: spec })) };
         e.preview(doc);
         return;
       }
       if (!current()) return;
       if (layerLock(e.doc.layers, id, 'all')) {
+        // Refused: the editor goes back to the stored settings.
+        const stored = specAdjustment(current()!.adjustment);
+        if (stored) host.params = stored.params as typeof host.params;
+        state.dirty = false;
+        host.rerender();
         e.message('Unlock this layer to edit it.');
         e.update();
         return;
       }
       state.json = JSON.stringify(spec);
+      state.dirty = false;
       e.command(`Modify ${ADJUSTMENT_LABELS[kind]} Layer`, (d) => {
         const t = findLayer(d.layers, id);
         if (t) t.adjustment = spec;
