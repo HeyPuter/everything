@@ -105,7 +105,12 @@ export class CanvasInput {
     if (e.button === 2) return; // context menu
     if (e.pointerType === 'touch') {
       this.longPressed = false;
-      this.pendingTouch = { e, x: e.clientX, y: e.clientY, timer: setTimeout(() => this.#flushTouch(), TOUCH_SETTLE_MS) };
+      this.pendingTouch = {
+        e,
+        x: e.clientX,
+        y: e.clientY,
+        timer: setTimeout(() => this.#settleTouch(), TOUCH_SETTLE_MS),
+      };
       this.longPressTimer = setTimeout(() => this.#longPress(e), LONG_PRESS_MS);
       return;
     }
@@ -113,12 +118,35 @@ export class CanvasInput {
   }
 
   /** Start the deferred one-finger tool press (it moved, lifted or waited long enough). */
-  #flushTouch() {
+  #flushTouch(dragged = false) {
     const p = this.pendingTouch;
     if (!p) return;
     clearTimeout(p.timer);
     this.pendingTouch = null;
-    if (this.pointers.has(p.e.pointerId) || this.lifting === p.e.pointerId) this.#startTool(p.e);
+    if (this.pointers.has(p.e.pointerId) || this.lifting === p.e.pointerId)
+      this.#startTool(p.e, dragged);
+  }
+
+  /**
+   * The finger rested without moving: start the press, unless it may be the
+   * second tap of a double-tap, which waits to see whether it lifts (a
+   * double-tap) or drags (a press).
+   */
+  #settleTouch() {
+    const p = this.pendingTouch;
+    if (!p) return;
+    if (this.#isDoubleClick(p.e, this.toEvent(p.e))) p.timer = 0;
+    else this.#flushTouch();
+  }
+
+  /** A second press within 400 ms and 6 px of the last click. */
+  #isDoubleClick(e, ev) {
+    // Time of the press itself: a deferred touch press starts the tool later.
+    const now = e.timeStamp || performance.now();
+    return (
+      now - this.lastClick.t < 400 &&
+      Math.hypot(ev.sx - this.lastClick.x, ev.sy - this.lastClick.y) < 6
+    );
   }
 
   #clearTouchTimers() {
@@ -142,18 +170,21 @@ export class CanvasInput {
     this.#openContextMenu(e);
   }
 
-  #startTool(e) {
+  /** `dragged`: a deferred touch press that started because the finger moved. */
+  #startTool(e, dragged = false) {
     const tool = this.currentTool();
     if (!tool) return;
     const ev = this.toEvent(e);
     // Double-click detection that works for pen and touch as well as mouse.
-    // Time of the press itself: a deferred touch press starts the tool later.
-    const now = e.timeStamp || performance.now();
-    const dbl = now - this.lastClick.t < 400 && Math.hypot(ev.sx - this.lastClick.x, ev.sy - this.lastClick.y) < 6;
-    this.lastClick = { t: dbl ? 0 : now, x: ev.sx, y: ev.sy };
+    let dbl = this.#isDoubleClick(e, ev);
+    // A second touch press that drags before lifting is a drag, not a double-tap,
+    // unless the tool drags from a double-tap (word selection in type).
+    const tapDrag = dbl && dragged && !!tool.doubleTapDrags?.(ev);
+    if (dragged && !tapDrag) dbl = false;
+    this.lastClick = { t: dbl ? 0 : e.timeStamp || performance.now(), x: ev.sx, y: ev.sy };
     this.active = { id: e.pointerId, tool, last: e };
     if (dbl) {
-      this.active = null;
+      if (!tapDrag) this.active = null;
       tool.onDoubleClick(ev);
       return;
     }
@@ -169,7 +200,7 @@ export class CanvasInput {
       const start = p || this.touchStart;
       if (p && p.e.pointerId === e.pointerId && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) {
         this.touchStart = { x: p.x, y: p.y };
-        this.#flushTouch();
+        this.#flushTouch(true);
       }
       if (this.longPressTimer && start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > TOUCH_SLOP) {
         clearTimeout(this.longPressTimer);

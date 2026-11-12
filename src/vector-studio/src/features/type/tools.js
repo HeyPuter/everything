@@ -328,6 +328,11 @@ export class TypeTool extends Tool {
     this.onPointerDown(e);
   }
 
+  /** Touch: a double-tap that drags on type selects by whole words. */
+  doubleTapDrags(e) {
+    return this.insideEdited(e) || !!this.textAt(e);
+  }
+
   /**
    * Dragging after a double or triple click extends the selection by whole
    * words or paragraphs. The press of a double-click reaches the tool as a
