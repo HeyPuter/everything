@@ -188,11 +188,14 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         return;
       }
       const s = brushFor(id);
-      const paint = makeTarget ? makeTarget(e, target) : paintTargetFor(e, id, target);
+      let paint = makeTarget ? makeTarget(e, target) : paintTargetFor(e, id, target);
       if (!paint) {
         active = undefined;
         return;
       }
+      // Locked transparency holds for every tool, whatever its own target asks.
+      if (target.kind === 'pixels' && paint.kind !== 'mask' && !paint.preserveAlpha && layerLock(e.doc.layers, target.layer.id, 'transparency'))
+        paint = { ...paint, preserveAlpha: true };
       const sel = target.kind === 'quick-mask' ? null : selectionGrid(e.doc, e.assets.tiles);
       a.target = target;
       a.session = new StrokeSession(e.assets.tiles, target.grid, {
