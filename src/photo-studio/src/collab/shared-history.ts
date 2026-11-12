@@ -348,8 +348,14 @@ export class SharedBinding {
     if (this.fetching) return;
     this.fetching = true;
     try {
-      await this.client.fetchTiles(missing.tiles);
-      for (const [id, ref] of missing.assets) await this.client.fetchAsset(id, ref);
+      let arrived = await this.client.fetchTiles(missing.tiles);
+      for (const [id, ref] of missing.assets) {
+        await this.client.fetchAsset(id, ref);
+        arrived++;
+      }
+      // Nothing came (content not uploaded yet, or never): wait before asking
+      // again instead of asking in a loop.
+      if (!arrived) throw new Error('Not available yet.');
       this.fetchDelay = 500;
       this.fetching = false;
       this.client.project.invalidate();
@@ -357,9 +363,13 @@ export class SharedBinding {
     } catch {
       this.fetching = false;
       // Not uploaded yet, or offline: try again a little later.
-      this.fetchDelay = Math.min(15_000, this.fetchDelay * 2);
-      setTimeout(() => !this.closed && this.project(false), this.fetchDelay);
+      this.retryLater();
     }
+  }
+  /** Try downloading missing content again after a while. */
+  retryLater() {
+    this.fetchDelay = Math.min(15_000, this.fetchDelay * 2);
+    setTimeout(() => !this.closed && this.project(false), this.fetchDelay);
   }
   /** Resolves once queued steps are written into the shared document. */
   async idle() {
