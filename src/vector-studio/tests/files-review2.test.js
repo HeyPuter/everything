@@ -53,6 +53,92 @@ describe('damaged documents', () => {
   });
 });
 
+describe('damaged object settings', () => {
+  it('leaves out settings of the wrong kind so damaged objects draw and select', async () => {
+    const { bootAppWithFeatures } = await import('./helpers.js');
+    const { createPath, createText } = await import('../src/model/nodes.js');
+    const { rectangle } = await import('../src/model/shapes.js');
+    const src = VDocument.create({ name: 'Damaged' });
+    const L = src.layers()[0].id;
+    const ids = {};
+    src.transact('Add', () => {
+      for (const k of ['effects', 'effects2', 'stops', 'dash', 'dash2'])
+        ids[k] = src.insert(createPath(rectangle(0, 0, 10, 10), true), L).id;
+      ids.text = src.insert(
+        createText('Hello there', 0, 40, { runs: [{ len: 5, fontWeight: 700 }, { len: 6 }] }),
+        L,
+      ).id;
+    });
+    const data = JSON.parse(JSON.stringify(src.toJSON()));
+    const n = data.nodes;
+    n[ids.effects].effects = true;
+    n[ids.effects2].effects = [
+      'x',
+      null,
+      { type: 'dropShadow', x: 2, y: 2, blur: 2, color: '#000000', opacity: 0.5 },
+    ];
+    n[ids.stops].fill = { type: 'linear', stops: {} };
+    n[ids.dash].dash = 'x';
+    n[ids.dash2].dash = [4, null, 2];
+    n[ids.text].para.align = {};
+    n[ids.text].para.indentFirst = [true];
+    n[ids.text].char.fontSize = 'big';
+    n[ids.text].runs = [null, { len: 5, fontWeight: 'x' }];
+    n.root.guides = [null, { axis: 'x', pos: 10 }];
+    const { doc } = await parseDocument(new TextEncoder().encode(JSON.stringify(data)));
+    expect(doc.get(ids.effects).effects).toBeUndefined();
+    expect(doc.get(ids.effects2).effects.map((e) => e.type)).toEqual(['dropShadow']);
+    expect(doc.get(ids.stops).fill).toBeUndefined();
+    expect(doc.get(ids.dash).dash).toBeUndefined();
+    expect(doc.get(ids.dash2).dash).toEqual([4, 2]);
+    const t = doc.get(ids.text);
+    expect(t.para.align).toBeUndefined();
+    expect(t.para.indentFirst).toBeUndefined();
+    expect(t.char.fontSize).toBeUndefined();
+    expect(t.runs).toEqual([{ len: 5 }]);
+    expect(doc.root.guides).toEqual([{ axis: 'x', pos: 10 }]);
+    // The repaired document draws, selects and shows its settings.
+    const app = await bootAppWithFeatures();
+    const ed = app.addDocument(doc);
+    const view = app.views.get(ed);
+    expect(() => {
+      view.renderNow();
+      ed.select(doc.get(L).children);
+      view.renderNow();
+      app.refreshChrome();
+    }).not.toThrow();
+  });
+
+  it('keeps every setting of an intact document as it is', async () => {
+    const { createPath, createText } = await import('../src/model/nodes.js');
+    const { rectangle } = await import('../src/model/shapes.js');
+    const src = VDocument.create({ name: 'Intact' });
+    const L = src.layers()[0].id;
+    src.transact('Add', () => {
+      src.insert(
+        createPath(rectangle(0, 0, 10, 10), true, {
+          dash: [3, 1],
+          effects: [{ type: 'dropShadow', x: 1 }],
+          fill: {
+            type: 'radial',
+            stops: [
+              { offset: 0, color: '#ff0000' },
+              { offset: 1, color: '#0000ff' },
+            ],
+          },
+        }),
+        L,
+      );
+      src.insert(createText('Hi', 0, 40, { runs: [{ len: 1, fontWeight: 700 }, { len: 1 }] }), L);
+    });
+    const data = JSON.parse(JSON.stringify(src.toJSON()));
+    const { validateData } = await import('../src/features/files/format.js');
+    const out = validateData(data);
+    expect(out.repaired).toBe(0);
+    for (const id of Object.keys(data.nodes)) expect(out.data.nodes[id]).toBe(data.nodes[id]);
+  });
+});
+
 describe('recovery copies', () => {
   it('never forgets other copies when the list of copies cannot be read for a moment', async () => {
     const { RecoveryStore } = await import('../src/features/files/recovery.js');
