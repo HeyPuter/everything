@@ -280,3 +280,17 @@ describe('converting threaded frames', () => {
     expect(layoutText(doc.get(b.id)).story.overflow).toBe(false);
   });
 });
+
+describe('smart punctuation on a threaded frame', () => {
+  it('with only a later frame selected, Smart Punctuation fixes the story', async () => {
+    const { applySmartPunctuation } = await import('../src/features/type/smart-punctuation.js');
+    const a = frame(0, 0, '"quoted" text');
+    const b = frame(400, 0, '');
+    app.editor.select([a.id, b.id]);
+    app.commands.run('type.thread.create');
+    app.editor.select([b.id]);
+    applySmartPunctuation(app, { quotes: true }, 'selection');
+    expect(doc.get(a.id).text).toBe('“quoted” text');
+    expect(doc.get(b.id).text).toBe('');
+  });
+});

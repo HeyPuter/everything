@@ -17,6 +17,7 @@ import { nodeBounds, rectsIntersect } from '../../model/geometry.js';
 import { multiply } from '../../lib/matrix.js';
 import { loadSpeller, loadedSpeller, dictionaryKey, DICTIONARIES } from './spell-dict.js';
 import { selectedTextNodes } from './outlines.js';
+import { headOf } from './thread-model.js';
 
 export const DEFAULT_SPELL_OPTIONS = Object.freeze({
   repeated: true, // flag a word typed twice in a row
@@ -224,7 +225,8 @@ function scopeNodes(app, selectedOnly) {
   const doc = ed.doc;
   const s = app.typeSession && !app.typeSession.ended ? app.typeSession : null;
   let nodes;
-  if (selectedOnly) nodes = s ? [s.node()].filter(Boolean) : selectedTextNodes(ed);
+  // A selected threaded frame stands for its story, held by the thread's first frame.
+  if (selectedOnly) nodes = s ? [s.node()].filter(Boolean) : [...new Map(selectedTextNodes(ed).map((n) => headOf(doc, n)).map((n) => [n.id, n])).values()];
   else nodes = doc.leaves().filter((n) => n.type === 'text');
   return nodes.filter((n) => n.text && !doc.isLocked(n.id) && !doc.isHidden(n.id)).map((n) => n.id);
 }
