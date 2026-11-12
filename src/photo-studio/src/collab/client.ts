@@ -533,6 +533,11 @@ export class RoomClient {
         receive: (kind, data, ticket) => this.receive(kind, data, ticket),
         changed: () => void this.checkIn().catch(() => {}),
         stranger: () => this.soonCheckIn(),
+        // A closed tab may not get to say goodbye; a session still here
+        // shows again with its next presence (at least every 3 seconds).
+        unlinked: (session) => {
+          if (this.people.delete(session)) this.o.onPeople?.();
+        },
         linked: () => {
           this.o.onPeople?.();
           if (this.lastPresence) this.sendPresence(true);

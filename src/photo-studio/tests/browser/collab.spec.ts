@@ -216,6 +216,26 @@ test('a person who switches to another document leaves no cursor, layer or selec
   await close();
 });
 
+test('a person whose peer link closes stops being shown at once', async ({ browser }, info) => {
+  test.setTimeout(240_000);
+  const { a, b, close } = await twoPeople(browser, info.project.use.baseURL);
+  await b.page.mouse.move(500, 400);
+  const overlay = a.page.locator('#overlay');
+  await expect(overlay.locator('.collab-cursor')).toHaveCount(1, { timeout: 30_000 });
+  await expect(a.page.locator('.collab-bar .collab-avatar')).toHaveCount(2);
+  // The tab goes away without a farewell (closing it gives no time to sign
+  // one): only its links close.
+  await b.page.evaluate(async () => {
+    const { sharedOf } = await import('/src/features/collab/state.ts');
+    (sharedOf(window.photoStudio.session) as unknown as { client: { peers: { close(): void } } }).client.peers.close();
+  });
+  // Well before the 15-second expiry of a silent person.
+  await expect(overlay.locator('.collab-cursor')).toHaveCount(0, { timeout: 5_000 });
+  await expect(a.page.locator('.collab-bar .collab-avatar')).toHaveCount(1);
+  expect(a.errors).toEqual([]);
+  await close();
+});
+
 test('the Comment tool puts the cursor in the new comment, even when the panel was closed', async ({ page }) => {
   await boot(page);
   await openImage(page, 320, 240, '#808080', 'local.png');
