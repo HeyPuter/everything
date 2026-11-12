@@ -315,6 +315,18 @@ describe('shortcut keys in button labels', () => {
   });
 });
 
+describe('forced colors', () => {
+  it('redraws focus, current tabs and selected items with system colors', async () => {
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/base.css`, 'utf8');
+    const block = css.slice(css.indexOf('@media (forced-colors: active) {'));
+    expect(block).toMatch(/\.menu-item:focus,\s*\.menu-item:hover \{\s*forced-color-adjust: none;\s*background: Highlight;/);
+    expect(block).toMatch(/\.menu-item\[aria-disabled='true'\],[^{]*\{\s*color: GrayText;/);
+    expect(block).toMatch(/\.panel-tab\[aria-selected='true'\]::after \{\s*forced-color-adjust: none;\s*background: Highlight;/);
+    expect(block).toMatch(/\.icon-btn\[aria-pressed='true'\],[^{]*\.data-table tbody tr\[aria-selected='true'\] \{\s*forced-color-adjust: none;\s*background: SelectedItem;/);
+  });
+});
+
 describe('theme contrast', () => {
   it('keeps faint text readable (4.5:1) on panels in both themes', async () => {
     const fs = await import('node:fs');

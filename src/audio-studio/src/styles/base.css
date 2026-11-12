@@ -584,3 +584,50 @@ input[type='range'].slider::-moz-range-thumb {
     animation: none !important;
   }
 }
+
+/* Forced colors (Windows High Contrast): backgrounds and bars that mark the
+   focused menu item, the current tab and pressed or selected items are
+   replaced by system colors, so those states are drawn with system colors. */
+@media (forced-colors: active) {
+  .menu-item:focus,
+  .menu-item:hover {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .menu-item[aria-disabled='true'],
+  .menu-item[aria-disabled='true'] .menu-shortcut {
+    color: GrayText;
+  }
+
+  .menu-item[aria-disabled='true']:hover,
+  .menu-item[aria-disabled='true']:focus {
+    background: Canvas;
+    color: GrayText;
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  .panel-tab[aria-selected='true']::after {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+
+  .workspace-tab[aria-selected='true'],
+  .prefs-tab[aria-selected='true'] {
+    text-decoration: underline 2px;
+    text-underline-offset: 4px;
+  }
+
+  .icon-btn[aria-pressed='true'],
+  .icon-btn.on,
+  .mode-btn.on,
+  [role='radio'][aria-checked='true'],
+  [role='option'][aria-selected='true'],
+  .data-table tbody tr[aria-selected='true'] {
+    forced-color-adjust: none;
+    background: SelectedItem;
+    color: SelectedItemText;
+  }
+}
