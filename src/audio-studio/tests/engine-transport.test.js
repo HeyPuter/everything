@@ -117,6 +117,18 @@ describe('engine transport', () => {
     expect(store.sources.get('gone').size).toBe(0);
   });
 
+  it('stops playback when the graph changes to another sample rate', async () => {
+    const { e, sent } = fakeEngine();
+    e.graph = { rate: 48000, tracks: [], master: { gain: 1 } };
+    await e.play({ from: 0 });
+    e.setGraph({ rate: 48000, tracks: [], master: { gain: 1 } }, new Map());
+    expect(e.playing).toBe(true);
+    // Convert Sample Type to 44.1 kHz during playback.
+    e.setGraph({ rate: 44100, tracks: [], master: { gain: 1 } }, new Map());
+    expect(e.playing).toBe(false);
+    expect(sent.map((m) => m.type)).toContain('stop');
+  });
+
   it('applies a latency mode chosen during playback once playback stops', async () => {
     const { e } = fakeEngine();
     const made = [];

@@ -288,6 +288,10 @@ export class Engine extends Emitter {
    * Channel[]; chunks already sent for unchanged keys are reused.
    */
   setGraph(graph, sources) {
+    // The context runs at one rate and the mixer does not convert: audio at
+    // another rate (Convert Sample Type during playback, or undoing it) would
+    // play at the wrong speed and pitch, so playback stops.
+    if (this.playing && graph.rate && this.ctx && graph.rate !== this.ctx.sampleRate) this.stop();
     this.graph = graph;
     this.sources = sources;
     for (const key of [...this.sent.keys()]) {
