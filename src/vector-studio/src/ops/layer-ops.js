@@ -308,13 +308,27 @@ export function othersAllSet(doc, keepIds, key) {
   return others.length > 0 && others.every((l) => l[key]);
 }
 
-/** Template on or off for layers: a template is locked, does not print and dims its images. */
+/**
+ * Template on or off for layers: a template is locked, does not print and dims its images. Turning
+ * it off brings back the lock and print settings the layer had before (kept in `templatePrev`).
+ */
 export function setTemplate(doc, ids, on) {
   for (const id of ids) {
     const l = doc.get(id);
-    if (l?.type !== 'layer') continue;
-    doc.update(id, on ? { template: true, locked: true, print: false } : { template: false, locked: false, print: true });
+    if (l?.type !== 'layer' || Boolean(l.template) === on) continue;
+    if (on) {
+      doc.update(id, { template: true, locked: true, print: false, templatePrev: templatePrevOf(l) });
+    } else {
+      const prev = l.templatePrev || {};
+      const back = { locked: Boolean(prev.locked), print: prev.print ?? true };
+      doc.update(id, { template: false, ...back, templatePrev: undefined });
+    }
   }
+}
+
+/** The settings a layer about to become a template gets back when it stops being one. */
+export function templatePrevOf(layer) {
+  return { locked: Boolean(layer.locked), print: layer.print ?? true };
 }
 
 /** The layer each top-level id lives in, by name (for Paste Remembers Layers). */

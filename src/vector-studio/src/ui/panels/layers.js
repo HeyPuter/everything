@@ -16,7 +16,7 @@ import { iconButton } from '../widgets.js';
 import { defaultLabel } from '../../model/nodes.js';
 import { drawNode } from '../../render/draw.js';
 import { visualBounds } from '../../model/geometry.js';
-import { addLayerAbove, insertLayer, layerPicks } from '../../ops/layer-ops.js';
+import { addLayerAbove, insertLayer, layerPicks, templatePrevOf } from '../../ops/layer-ops.js';
 import { layerObjects } from '../../ops/select-ops.js';
 
 const thumbCache = new WeakMap();
@@ -556,6 +556,12 @@ export class LayersPanel extends Panel {
         print: v.template ? false : Boolean(v.print),
         outline: !v.preview,
         dimImages: v.dim ? Math.max(0, Math.min(100, v.dimImages)) : 0,
+        // Turning Template off from the menu later brings back the settings from before it.
+        templatePrev: becameTemplate
+          ? templatePrevOf(cur)
+          : v.template
+            ? cur.templatePrev
+            : undefined,
       }),
     );
     for (const id of [...ed.selection]) if (doc.isHidden(id) || doc.isLocked(id)) ed.selection.delete(id);

@@ -1,6 +1,6 @@
 // Editing core leftovers from the first review wave.
 import { describe, it, expect } from 'vitest';
-import { bootApp } from './helpers.js';
+import { bootApp, bootAppWithFeatures } from './helpers.js';
 import { createPath, createCompound } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 
@@ -23,5 +23,47 @@ describe('Reverse Path Direction', () => {
     expect(first(a.id)).not.toEqual(a0);
     expect(first(a.id)).toEqual(first(b.id).map(([x, y]) => [x - 20, y]));
     expect(first(b.id)).not.toEqual(b0);
+  });
+});
+
+describe('Template layers', () => {
+  it('turning Template off brings back the lock and print settings from before', async () => {
+    const { app, ed, doc, layer } = setup(await bootAppWithFeatures());
+    const run = (id) => app.commands.run(id);
+    ed.activeLayerId = layer.id;
+    // Locked before it became a template: stays locked after.
+    doc.transact('t', () => doc.update(layer.id, { locked: true }));
+    await run('layers.template');
+    expect(doc.get(layer.id)).toMatchObject({ template: true, locked: true, print: false });
+    await run('layers.template');
+    expect(doc.get(layer.id)).toMatchObject({ template: false, locked: true, print: true });
+    expect(doc.get(layer.id).templatePrev).toBeUndefined();
+    // Unlocked and nonprinting before: unlocked and nonprinting after.
+    doc.transact('t', () => doc.update(layer.id, { locked: false, print: false }));
+    await run('layers.template');
+    expect(doc.get(layer.id)).toMatchObject({ template: true, locked: true });
+    await run('layers.template');
+    expect(doc.get(layer.id)).toMatchObject({ template: false, locked: false, print: false });
+    // Undo goes back to the template, Redo off it again.
+    doc.undo();
+    expect(doc.get(layer.id)).toMatchObject({ template: true, locked: true });
+    doc.redo();
+    expect(doc.get(layer.id)).toMatchObject({ template: false, locked: false });
+  });
+
+  it('a layer made a template in Layer Options comes back unlocked from the Template command', async () => {
+    const { app, ed, doc, layer } = setup(await bootAppWithFeatures());
+    const panel = app.dock.panels.get('layers');
+    panel.ensureBuilt();
+    const cur = doc.get(layer.id);
+    app.dialogs.form = async (spec) => ({
+      ...Object.fromEntries(spec.fields.map((f) => [f.key, f.value])),
+      template: true,
+    });
+    await panel.layerOptions(cur);
+    expect(doc.get(layer.id)).toMatchObject({ template: true, locked: true, print: false });
+    ed.activeLayerId = layer.id;
+    await app.commands.run('layers.template');
+    expect(doc.get(layer.id)).toMatchObject({ template: false, locked: false, print: true });
   });
 });

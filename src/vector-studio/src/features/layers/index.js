@@ -81,7 +81,9 @@ export function install(app) {
             template: Boolean(v.template),
             locked: Boolean(v.locked || v.template),
             hidden: !v.show,
-            ...(v.template ? { print: false } : {}),
+            ...(v.template
+              ? { print: false, templatePrev: { locked: Boolean(v.locked), print: true } }
+              : {}),
           });
           id = layer.id;
         });
