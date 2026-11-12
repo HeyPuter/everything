@@ -185,3 +185,35 @@ describe('markers selected on the ruler', () => {
     view.destroy();
   });
 });
+
+describe('history jumps across a sample rate conversion', () => {
+  it('keep the view, playhead and selection at the same times', () => {
+    const n = 480000;
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(ramp(n))],
+    });
+    // Convert to 24 kHz, as Convert Sample Type does, then crop to the first second.
+    doc.view = { ...doc.view, start: 24000, end: 48000 };
+    doc.apply('Convert Sample Type', {
+      ...doc.state,
+      sampleRate: 24000,
+      channels: [Channel.fromSamples(ramp(n / 2))],
+    });
+    doc.apply('Crop', E.cropRange(doc.state, 0, 48000));
+    doc.setView(24000, 48000);
+    doc.setCursor(36000);
+    doc.setSelection(30000, 42000);
+    // The History panel jumps back past both steps: 1.5 s stays 1.5 s.
+    doc.history.goTo(0);
+    expect([doc.view.start, doc.view.end, doc.cursor]).toEqual([48000, 96000, 72000]);
+    expect([doc.selection.start, doc.selection.end]).toEqual([60000, 84000]);
+    doc.history.goTo(2);
+    expect([doc.view.start, doc.view.end, doc.cursor]).toEqual([24000, 48000, 36000]);
+    // Single steps scale as before.
+    doc.history.undo();
+    doc.history.undo();
+    expect(doc.cursor).toBe(72000);
+  });
+});
