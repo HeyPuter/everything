@@ -618,9 +618,16 @@ export class GroupSelectionTool extends Tool {
     this.status();
   }
 
+  /** The object under the pointer; in isolation mode only the isolated object or what is inside it. */
+  hitAt(e) {
+    const editor = this.editor;
+    const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
+    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { filter });
+  }
+
   onHover(e) {
     const editor = this.editor;
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3));
+    const hit = this.hitAt(e);
     const id = hit?.id || null;
     if (editor.hover !== id) {
       editor.hover = id;
@@ -630,19 +637,19 @@ export class GroupSelectionTool extends Tool {
 
   onPointerDown(e) {
     const editor = this.editor;
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3));
+    const hit = this.hitAt(e);
     if (!hit) {
       if (!e.shift) editor.clearSelection();
       this.drag = { kind: 'marquee', x0: e.x, y0: e.y, x: e.x, y: e.y, add: e.shift };
       return;
     }
-    // Repeated clicks on the same leaf walk up one group at a time.
+    // Repeated clicks on the same leaf walk up one group at a time, up to an isolated group.
     let target = hit;
     if (this.last && this.last.leaf === hit.id && editor.selection.has(this.last.current)) {
       const cur = editor.doc.get(this.last.current);
       const parent = cur && editor.doc.get(cur.parent);
-      if (parent && parent.type === 'group') target = parent;
-      else target = cur;
+      const up = parent?.type === 'group' && cur.id !== editor.isolation && editor.inIsolation(parent.id);
+      target = up ? parent : cur;
     }
     this.last = { leaf: hit.id, current: target.id };
     editor.select([target.id], { add: e.shift || target !== hit });
@@ -675,7 +682,7 @@ export class GroupSelectionTool extends Tool {
     const editor = this.editor;
     if (d.kind === 'marquee') {
       const { r, opts } = marqueeRegion(editor, d);
-      const hits = marqueeHits(editor.doc, r, opts);
+      const hits = marqueeHits(editor.doc, r, opts).filter((n) => editor.inIsolation(n.id));
       editor.select(hits.map((n) => n.id), d.add ? { toggle: true } : {});
     } else if (d.session) d.session.commit();
     this.overlay();

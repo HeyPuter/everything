@@ -1,7 +1,7 @@
 // Editing core leftovers from the first review wave.
 import { describe, it, expect } from 'vitest';
 import { bootApp, bootAppWithFeatures } from './helpers.js';
-import { createPath, createCompound } from '../src/model/nodes.js';
+import { createPath, createCompound, createGroup } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 
 function setup(app = bootApp()) {
@@ -86,5 +86,66 @@ describe('Layers panel rename', () => {
     expect(doc.get(layer.id).name).toBe('Layer 1');
     rename('Sketch');
     expect(doc.get(layer.id).name).toBe('Sketch');
+  });
+});
+
+describe('Group Selection in isolation mode', () => {
+  function nested() {
+    const { app, ed, doc, layer } = setup();
+    const a = createPath(rectangle(0, 0, 10, 10), true, {
+      fill: { type: 'solid', color: '#000000' },
+    });
+    const b = createPath(rectangle(20, 0, 10, 10), true, {
+      fill: { type: 'solid', color: '#000000' },
+    });
+    const out = createPath(rectangle(100, 0, 10, 10), true, {
+      fill: { type: 'solid', color: '#000000' },
+    });
+    const inner = createGroup([]);
+    const outer = createGroup([]);
+    doc.transact('t', () => {
+      doc.insert(outer, layer.id);
+      doc.insert(inner, outer.id);
+      doc.insert(a, inner.id);
+      doc.insert(b, inner.id);
+      doc.insert(out, outer.id);
+    });
+    ed.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
+    app.setTool('group-selection');
+    const click = (x, y) => {
+      const s = ed.view.toScreen(x, y);
+      const e = { x, y, sx: s.x, sy: s.y, shift: false, alt: false, mod: false, button: 0 };
+      app.tool.onPointerDown(e);
+      app.tool.onPointerUp(e);
+    };
+    return { app, ed, doc, a, b, out, inner, outer, click };
+  }
+
+  it('climbs no higher than the isolated group', () => {
+    const { ed, a, inner, outer, click } = nested();
+    ed.isolation = inner.id;
+    click(5, 5);
+    expect([...ed.selection]).toEqual([a.id]);
+    click(5, 5);
+    expect(ed.selection.has(inner.id)).toBe(true);
+    click(5, 5);
+    expect(ed.selection.has(outer.id)).toBe(false);
+    expect([...ed.selection].every((id) => ed.inIsolation(id))).toBe(true);
+  });
+
+  it('does not pick objects outside the isolated group', () => {
+    const { app, ed, a, b, inner, click } = nested();
+    ed.isolation = inner.id;
+    click(105, 5);
+    expect(ed.selection.size).toBe(0);
+    // A marquee over everything takes only what is inside.
+    const at = (x, y) => {
+      const s = ed.view.toScreen(x, y);
+      return { x, y, sx: s.x, sy: s.y, shift: false, alt: false, mod: false, button: 0 };
+    };
+    app.tool.onPointerDown(at(-5, -5));
+    app.tool.onPointerMove(at(120, 20));
+    app.tool.onPointerUp(at(120, 20));
+    expect([...ed.selection].sort()).toEqual([a.id, b.id].sort());
   });
 });
