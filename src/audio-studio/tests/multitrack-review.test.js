@@ -598,3 +598,31 @@ describe('touch in the multitrack editor', () => {
     expect(c.length).toBeLessThan(clip.length);
   });
 });
+
+describe('bouncing with an equal-power pan law', () => {
+  it('sounds the same on the new track as before', async () => {
+    const { app, doc } = await appWithSession();
+    app.prefs.set('panLaw', 'equalPower');
+    app.prefs.set('panLawDb', -3);
+    const law = { mode: 'equalPower', centerDb: -3 };
+    const t = doc.state.tracks[0];
+    const src = doc.addSource({
+      name: 'dc.wav',
+      channels: [Channel.fromSamples(new Float32Array(RATE).fill(0.5))],
+    });
+    const c = S.createClip({ trackId: t.id, sourceId: src, start: 0, length: 2000 });
+    doc.apply('Setup', S.updateTrack(S.addClips(doc.state, [c]), t.id, { pan: -40 }));
+    const heard = renderState(doc.state, doc.pool, law, 2000).map((ch) => ch[1000]);
+    for (const cmd of ['mt.bounceTrack', 'mt.bounceClips', 'mt.bounceTime']) {
+      doc.selectTrack(t.id);
+      doc.selectClips([c.id]);
+      doc.setSelection(0, 2000);
+      await app.commands.run(cmd);
+      const only = S.updateClips(doc.state, [c.id], { mute: true });
+      const out = renderState(only, doc.pool, law, 2000).map((ch) => ch[1000]);
+      expect(out[0]).toBeCloseTo(heard[0], 4);
+      expect(out[1]).toBeCloseTo(heard[1], 4);
+      doc.history.undo();
+    }
+  });
+});

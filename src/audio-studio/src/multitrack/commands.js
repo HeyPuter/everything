@@ -28,7 +28,6 @@ import { stretcherFor, stretchIdle, firstStretch, stretchedClips } from './stret
 import { remixIdle } from './remix.js';
 import { remixCommands } from './remix-commands.js';
 import { withProgress } from '../effects/progress.js';
-import { panGains } from '../engine/mixcore.js';
 
 // Speech alignment precisions (the alignment code itself loads on first use).
 const ALIGN_PRECISIONS = [
@@ -1059,13 +1058,10 @@ export function installMultitrackCommands(app) {
         const trackId = clips[0].trackId;
         const graphClips = new Set(clips.map((c) => c.id));
         // Render only these clips through clip gain, fades and envelopes (not the track): the
-        // merged clip still plays through the track's EQ, polarity and pan, so they stay out. The
-        // track's centre pan would apply the pan law's centre level once more, so it is undone.
-        const law = app.prefs.get('panLaw') === 'equalPower' ? { mode: 'equalPower', centerDb: app.prefs.get('panLawDb') } : null;
-        const volume = -20 * Math.log10(panGains(0, law)[0] || 1);
-        const dry = { volume, pan: 0, fx: [], mode: 'off', mute: false, solo: false, output: 'master', invert: false, eq: { on: false, values: {} }, sends: [] };
+        // merged clip still plays through the track's EQ, polarity and pan, so they stay out.
+        const dry = { volume: 0, pan: 0, fx: [], mode: 'off', mute: false, solo: false, output: 'master', invert: false, eq: { on: false, values: {} }, sends: [] };
         const tmp = { ...doc.state, tracks: doc.state.tracks.map((t) => (t.id === trackId ? { ...t, ...dry } : t)) };
-        const data = await renderSession(app, doc, { state: tmp, start: a, end: b, clipIds: graphClips, trackId, label: 'Merging clips' });
+        const data = await renderSession(app, doc, { state: tmp, start: a, end: b, clipIds: graphClips, trackId, master: false, label: 'Merging clips' });
         const file = renderedDoc(app, doc, data, `${clips[0].name} Merged`);
         app.addDocument(file, { activate: false });
         app.activate(doc);
