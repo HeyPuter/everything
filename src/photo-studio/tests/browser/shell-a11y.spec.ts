@@ -317,3 +317,20 @@ test('command search keeps the highlighted result in view and tells screen reade
   await expect(page.locator('.command-search')).toHaveCount(0);
   await expect(page.locator('#viewport')).toBeFocused();
 });
+
+test('a command chosen from the menu bar gives the focus back, also through the dialog it opens', async ({ page }) => {
+  await page.locator('#viewport').focus();
+  // From the keyboard: Image → Duplicate…, then Escape in its dialog.
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Image', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await page.locator('.menubar-entry.open [data-command="image.duplicate"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Duplicate Image' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#viewport')).toBeFocused();
+  // With the pointer: the arrows afterwards reach the canvas, not the closed menu.
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Select', exact: true }).click();
+  await page.locator('.menubar-entry.open [data-command="select.all"]').click();
+  await idle(page);
+  await expect(page.locator('#viewport')).toBeFocused();
+});

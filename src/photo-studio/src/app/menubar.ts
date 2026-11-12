@@ -97,6 +97,9 @@ function renderItems(items: Resolved[]): string {
 
 export class MenuBar {
   private open = -1;
+  // Where the focus was before it entered the menu bar: a command run from a
+  // menu gives it back there, so a dialog it opens returns the focus there too.
+  private returnFocus?: HTMLElement;
   constructor(
     private e: Editor,
     private el: HTMLElement,
@@ -131,6 +134,10 @@ export class MenuBar {
       this.activate(item);
     });
     el.addEventListener('keydown', (ev) => this.key(ev));
+    el.addEventListener('focusin', (ev) => {
+      const from = ev.relatedTarget;
+      if (from instanceof HTMLElement && !el.contains(from)) this.returnFocus = from;
+    });
     // Menus opened with the pointer do not take focus; Escape must still close them
     // (and must not reach the canvas, where it would deselect).
     // The arrows move into such a menu, as they do in one opened from the keyboard.
@@ -157,6 +164,9 @@ export class MenuBar {
     if (item.getAttribute('aria-disabled') === 'true') return;
     const id = item.dataset.command!;
     this.close();
+    const back = this.returnFocus;
+    if (back?.isConnected) back.focus({ preventScroll: true });
+    else if (document.activeElement instanceof HTMLElement && this.el.contains(document.activeElement)) document.activeElement.blur();
     void this.e.runCommand(id);
   }
   show(i: number) {
