@@ -39,6 +39,13 @@ export function remapIdRefs(node, idMap) {
 }
 
 const HISTORY_LIMIT = 200;
+/**
+ * Node versions the undo history may hold in all (each step keeps the
+ * nodes it changed): Select All edits of a 10,000-object document take
+ * about 5 MB per step, so 200 of them would take a gigabyte. Older steps go
+ * first; the latest one is always kept.
+ */
+const HISTORY_NODE_BUDGET = 500000;
 
 const { get: mapGet, values: mapValues, entries: mapEntries, forEach: mapForEach } = Map.prototype;
 
@@ -495,6 +502,7 @@ export class VDocument extends Emitter {
       last.time = Date.now();
       last.rev = this.revision = this.#nextRevision();
       this.#justCommitted(last);
+      this.#trimHistory();
       this.emit('transaction', { label: tx.label, before: tx.before, after });
       this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
       this.emit('history');
@@ -513,13 +521,28 @@ export class VDocument extends Emitter {
       rev: this.#nextRevision(),
     };
     this.undoStack.push(record);
-    while (this.undoStack.length > (this.historyLimit || HISTORY_LIMIT)) this.undoStack.shift();
     this.redoStack.length = 0;
+    this.#trimHistory();
     this.revision = record.rev;
     this.#justCommitted(record);
     this.emit('transaction', { label: tx.label, before: tx.before, after });
     this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
     this.emit('history');
+  }
+
+  /** Drop the oldest undo steps beyond the step limit or the node budget (redo steps are gone after a commit). */
+  #trimHistory() {
+    const stack = this.undoStack;
+    while (stack.length > (this.historyLimit || HISTORY_LIMIT)) stack.shift();
+    const budget = this.historyNodeBudget || HISTORY_NODE_BUDGET;
+    let nodes = 0;
+    for (let i = stack.length - 1; i >= 0; i--) {
+      nodes += stack[i].before.size;
+      if (nodes > budget && i < stack.length - 1) {
+        stack.splice(0, i + 1);
+        break;
+      }
+    }
   }
 
   /**
@@ -529,10 +552,14 @@ export class VDocument extends Emitter {
    */
   #fresh = null;
 
+  #freshCount = 0;
+
   #justCommitted(record) {
     this.#fresh = record;
+    // (The callback holds a number, not the record, so a dropped step is freed right away.)
+    const n = ++this.#freshCount;
     queueMicrotask(() => {
-      if (this.#fresh === record) this.#fresh = null;
+      if (this.#freshCount === n) this.#fresh = null;
     });
   }
 

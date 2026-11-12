@@ -115,3 +115,31 @@ describe('Redo selection for commands that select after their step', () => {
     expect([...ed.selection].sort()).toEqual([a, b].sort());
   });
 });
+
+describe('undo history memory', () => {
+  it('drops the oldest steps once the history holds too many node versions', async () => {
+    const { VDocument } = await import('../src/model/document.js');
+    const doc = VDocument.create();
+    const L = doc.layers()[0].id;
+    const ids = [];
+    doc.transact('Build', () => {
+      for (let i = 0; i < 100; i++)
+        ids.push(doc.insert(createPath(rectangle(i, 0, 1, 1), true), L).id);
+    });
+    doc.historyNodeBudget = 1000;
+    // Each step changes all 100 objects: about 10 such steps fit in the budget.
+    for (let k = 0; k < 30; k++)
+      doc.transact('Edit', () => ids.forEach((id) => doc.update(id, { opacity: k / 30 })));
+    expect(doc.undoStack.length).toBeLessThanOrEqual(10);
+    expect(doc.undoStack.length).toBeGreaterThanOrEqual(9);
+    // Small steps still keep the usual depth.
+    for (let k = 0; k < 50; k++) doc.transact('Small', () => doc.update(ids[0], { name: `n${k}` }));
+    expect(doc.undoStack.length).toBeGreaterThan(50);
+    // The latest step is always kept, however large.
+    doc.historyNodeBudget = 10;
+    doc.transact('Edit', () => ids.forEach((id) => doc.update(id, { opacity: 1 })));
+    expect(doc.undoStack.map((r) => r.label)).toEqual(['Edit']);
+    expect(doc.undo()).toBe(true);
+    expect(doc.get(ids[0]).opacity).not.toBe(1);
+  });
+});
