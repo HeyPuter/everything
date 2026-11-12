@@ -262,4 +262,16 @@ describe('type editing session', () => {
     expect(styleAt(doc.get(id), 4).fontWeight).toBe(700);
     expect(styleAt(doc.get(id), 2).fontWeight).toBe(400);
   });
+
+  it('typing after leaving and re-entering the same text is a separate undo step', () => {
+    const id = add('Hello');
+    let s = edit(id, 5);
+    s.insert('A');
+    app.getTool('type').endEditing();
+    s = edit(id, 0);
+    s.insert('B');
+    expect(doc.get(id).text).toBe('BHelloA');
+    doc.undo();
+    expect(doc.get(id).text).toBe('HelloA');
+  });
 });

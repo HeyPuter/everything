@@ -46,6 +46,9 @@ export function pastedText(t) {
 const reduceMotion = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let textarea = null;
+// Undo coalescing keys start past every earlier session's, so typing after
+// leaving and re-entering the same text never merges into the previous step.
+let burstBase = 0;
 
 function hiddenInput(app) {
   if (textarea && textarea.isConnected) return textarea;
@@ -88,7 +91,7 @@ export class TextSession {
     this.created = created;
     this.pending = null;
     this.goalU = null;
-    this.burst = 0;
+    this.burst = burstBase += 1e6;
     this.lastKind = null;
     this.composing = null;
     this.blinkOn = true;
