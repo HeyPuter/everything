@@ -57,3 +57,35 @@ for (const viewport of [{ width: 1024, height: 768 }, { width: 768, height: 1024
     });
   });
 }
+
+test.describe('with touch', () => {
+  test.use({ viewport: { width: 1024, height: 768 }, hasTouch: true });
+  test('a long press opens the context menu a right click would; a tap or a drag does not', async ({ page }) => {
+    const cdp = await page.context().newCDPSession(page);
+    const row = page.locator('.layer-row').first();
+    const box = (await row.boundingBox())!;
+    const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+    const touch = async (hold: number, dy = 0) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      if (dy) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + dy }] });
+      await page.waitForTimeout(hold);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    const menu = page.locator('.context-menu');
+    // A tap selects as before, without a menu.
+    await touch(50);
+    await page.waitForTimeout(700);
+    await expect(menu).toHaveCount(0);
+    // A drag that moves is not a long press.
+    await touch(800, 30);
+    await expect(menu).toHaveCount(0);
+    const before = await page.evaluate(() => window.photoStudio.history.position);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    await expect(menu).toBeVisible();
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    // Lifting the finger over the menu does not run the item under it.
+    await page.waitForTimeout(300);
+    await expect(menu).toBeVisible();
+    expect(await page.evaluate(() => window.photoStudio.history.position)).toBe(before);
+  });
+});
