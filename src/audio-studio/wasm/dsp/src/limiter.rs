@@ -14,8 +14,15 @@ pub struct Limiter {
     release: f32,
     tp: TruePeak,
     delay: Vec<Vec<f32>>,
-    need: Vec<f32>,   // ring of required gains for the min window
-    mins: Vec<f32>,   // ring of sliding minima for the average
+    // Monotonic deque (ring) of (frame, required gain) for the sliding
+    // minimum over the last look + 1 frames: O(1) per frame instead of a
+    // scan of the whole window.
+    dq_idx: Vec<u64>,
+    dq_val: Vec<f32>,
+    dq_head: usize,
+    dq_len: usize,
+    t: u64,
+    mins: Vec<f32>, // ring of sliding minima for the average
     min_sum: f64,
     pos: usize,
     g: f32,
@@ -33,7 +40,11 @@ impl Limiter {
             release: 1.0 - (-1.0 / (rate * release_ms.max(1.0) / 1000.0)).exp(),
             tp: TruePeak::new(channels),
             delay: vec![vec![0.0; look + 1]; channels],
-            need: vec![1.0; look + 1],
+            dq_idx: vec![0; look + 2],
+            dq_val: vec![0.0; look + 2],
+            dq_head: 0,
+            dq_len: 0,
+            t: 0,
             mins: vec![1.0; look + 1],
             min_sum: (look + 1) as f64,
             pos: 0,
@@ -57,9 +68,22 @@ impl Limiter {
             }
             self.tp.advance();
             let need = if peak > self.ceiling { self.ceiling / peak } else { 1.0 };
-            self.need[self.pos] = need;
-            // Sliding minimum over the last n required gains (n is small).
-            let m = self.need.iter().copied().fold(1.0f32, f32::min);
+            // Sliding minimum over the last n required gains. Every gain is
+            // at most 1, so the window's initial 1.0 entries never change it.
+            let cap = self.dq_idx.len();
+            while self.dq_len > 0 && self.dq_val[(self.dq_head + self.dq_len - 1) % cap] >= need {
+                self.dq_len -= 1;
+            }
+            let slot = (self.dq_head + self.dq_len) % cap;
+            self.dq_idx[slot] = self.t;
+            self.dq_val[slot] = need;
+            self.dq_len += 1;
+            while self.dq_idx[self.dq_head] + n as u64 <= self.t {
+                self.dq_head = (self.dq_head + 1) % cap;
+                self.dq_len -= 1;
+            }
+            self.t += 1;
+            let m = self.dq_val[self.dq_head];
             self.min_sum += m as f64 - self.mins[self.pos] as f64;
             self.mins[self.pos] = m;
             let avg = (self.min_sum / n as f64) as f32;
@@ -104,6 +128,66 @@ pub extern "C" fn lim_process(h: u32, buf: u32, frames: u32) {
 mod tests {
     use super::*;
     use crate::loudness::Meter;
+
+    /// The sliding minimum as a scan of the whole window (the previous
+    /// implementation), for comparison.
+    fn reference(rate: f32, channels: usize, ceiling: f32, look_ms: f32, release_ms: f32, gain: f32, buf: &mut [f32], frames: usize) {
+        let mut l = Limiter::new(rate, channels, ceiling, look_ms, release_ms, gain);
+        let n = l.look + 1;
+        let mut need_ring = vec![1.0f32; n];
+        for i in 0..frames {
+            let mut peak = 0.0f32;
+            for c in 0..channels {
+                let x = buf[c * frames + i] * l.gain;
+                buf[c * frames + i] = x;
+                peak = peak.max(l.tp.push(c, x)).max(x.abs());
+            }
+            l.tp.advance();
+            need_ring[l.pos] = if peak > l.ceiling { l.ceiling / peak } else { 1.0 };
+            let m = need_ring.iter().copied().fold(1.0f32, f32::min);
+            l.min_sum += m as f64 - l.mins[l.pos] as f64;
+            l.mins[l.pos] = m;
+            let avg = (l.min_sum / n as f64) as f32;
+            l.g = if avg < l.g { avg } else { l.g + (avg - l.g) * l.release };
+            let g = l.g.min(avg);
+            let read = (l.pos + 1) % n;
+            for c in 0..channels {
+                let d = &mut l.delay[c];
+                d[l.pos] = buf[c * frames + i];
+                buf[c * frames + i] = d[read] * g;
+            }
+            l.pos = read;
+        }
+    }
+
+    #[test]
+    fn sliding_minimum_matches_a_full_window_scan() {
+        let mut seed = 7u32;
+        let mut rnd = || {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            seed as f32 / 4294967296.0 - 0.5
+        };
+        for &(rate, channels, ceiling, look, release, gain) in
+            &[(48000.0, 2, 0.89, 12.0, 80.0, 2.0), (44100.0, 1, 0.5, 0.0, 10.0, 4.0), (8000.0, 2, 1.2, 50.0, 300.0, 3.0), (192000.0, 2, 0.95, 5.0, 50.0, 1.5)]
+        {
+            let frames = 20000;
+            let buf: Vec<f32> = (0..frames * channels).map(|i| rnd() * if (i / 3000) % 2 == 0 { 0.2 } else { 2.0 }).collect();
+            let mut a = buf.clone();
+            let mut b = buf.clone();
+            let mut l = Limiter::new(rate, channels, ceiling, look, release, gain);
+            // In blocks, as JavaScript feeds it.
+            for chunk in [(0, 7000), (7000, frames)] {
+                let len = chunk.1 - chunk.0;
+                let mut part: Vec<f32> = (0..channels).flat_map(|c| a[c * frames + chunk.0..c * frames + chunk.1].to_vec()).collect();
+                l.process(&mut part, len);
+                for c in 0..channels {
+                    a[c * frames + chunk.0..c * frames + chunk.1].copy_from_slice(&part[c * len..(c + 1) * len]);
+                }
+            }
+            reference(rate, channels, ceiling, look, release, gain, &mut b, frames);
+            assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()), "{rate} {look}");
+        }
+    }
 
     #[test]
     fn limits_true_peak_and_preserves_quiet_signal() {
