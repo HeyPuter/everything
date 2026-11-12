@@ -51,6 +51,27 @@ export function spectrumBars(db, rate, fft, toHz, count) {
   return out;
 }
 
+/**
+ * The latest `size` output frames for a live spectrum. A mixer tap holds
+ * fewer frames than the largest FFT sizes, so the start of the window comes
+ * from earlier taps, moved along by the frames played since (`m.frame`);
+ * after a seek or a gap they move by a whole tap. `hist` is the state
+ * returned by the previous call (null to start over).
+ */
+export function liveWindow(hist, m, size) {
+  const n = m.L.length;
+  if (n >= size) return { L: m.L.subarray(n - size), R: m.R.subarray(n - size), frame: m.frame };
+  if (!hist || hist.L.length !== size || !hist.own) hist = { L: new Float32Array(size), R: new Float32Array(size), frame: null, own: true };
+  const step = hist.frame === null ? n : Math.round(m.frame - hist.frame);
+  const shift = step > 0 && step <= n ? step : n;
+  for (const [h, x] of [[hist.L, m.L], [hist.R, m.R]]) {
+    h.copyWithin(0, shift);
+    h.set(x, size - n);
+  }
+  hist.frame = m.frame;
+  return hist;
+}
+
 /** (L + R) / 2 sample by sample. */
 function midOf(L, R) {
   const out = new Float32Array(L.length);
@@ -99,6 +120,7 @@ export function frequencyPanel(app) {
   let visible = false;
   let raf = 0;
   let live = null; // { L: dB[], R: dB[], rate, fft }
+  let tapHist = null; // the latest output frames (see liveWindow)
   let still = null; // computed from the document when stopped
   let holds = new Array(HOLD_COLORS.length).fill(null);
   let scanRange = null; // set by Scan until the selection or document changes
@@ -125,11 +147,10 @@ export function frequencyPanel(app) {
     const { fft, window, channel } = prefs();
     const a = analyzer(fft, window);
     if (!a) return;
-    const n = Math.min(fft, m.L.length);
-    const frame = (x) => a.frame(x.subarray(x.length - n));
-    const L = frame(m.L);
-    const R = frame(m.R);
-    const M = channel === 'mid' ? a.frame(midOf(m.L.subarray(m.L.length - n), m.R.subarray(m.R.length - n))) : null;
+    tapHist = liveWindow(tapHist, m, fft);
+    const L = a.frame(tapHist.L);
+    const R = a.frame(tapHist.R);
+    const M = channel === 'mid' ? a.frame(midOf(tapHist.L, tapHist.R)) : null;
     if (live && live.fft === fft) {
       for (const [prev, next] of [[live.L, L], [live.R, R], [live.M, M]]) {
         if (!prev || !next) continue;
@@ -428,6 +449,7 @@ export function frequencyPanel(app) {
     app.on('transport', (s) => {
       if (s === 'stopped') {
         live = null;
+        tapHist = null;
         recompute();
       }
       schedule();
