@@ -323,3 +323,52 @@ describe('a shared document shown in two windows', () => {
     session.close();
   });
 });
+
+describe('a document shown in two windows', () => {
+  async function twoWindows() {
+    const { bootAppWithFeatures } = await import('./helpers.js');
+    const { createPath } = await import('../src/model/nodes.js');
+    const { rectangle } = await import('../src/model/shapes.js');
+    const app = await bootAppWithFeatures({ env: 'app', user: { username: 'u' } });
+    const files = new Map();
+    app.puter = {
+      fs: {
+        write: async (path, blob) => {
+          files.set(path, new Uint8Array(await blob.arrayBuffer()));
+          return { path, name: path.split('/').pop() };
+        },
+      },
+      ui: {
+        showSaveFilePicker: async (blob, name) => {
+          const path = `/u/Other/${name}`;
+          files.set(path, new Uint8Array(await blob.arrayBuffer()));
+          return { path, name };
+        },
+      },
+    };
+    app.prefs.set('filesSaveDialog', 'puter');
+    const doc = VDocument.create({ name: 'Logo' });
+    const first = app.addDocument(doc, {
+      file: { kind: 'puter', path: '/u/Logo.vstudio', name: 'Logo.vstudio' },
+    });
+    await app.commands.run('window.newWindow');
+    const second = app.editor;
+    const add = () =>
+      doc.transact('Add', () =>
+        doc.insert(createPath(rectangle(0, 0, 10, 10), true), doc.layers()[0].id),
+      );
+    return { app, files, doc, first, second, add };
+  }
+
+  it('saves to the file chosen with Save As in the other window', async () => {
+    const { app, files, doc, first, second, add } = await twoWindows();
+    add();
+    expect(await app.files.service.saveAs(first)).toBe(true);
+    expect(first.file.path).toBe('/u/Other/Logo.vstudio');
+    add();
+    expect(await app.files.service.save(second)).toBe(true);
+    const { doc: back } = await parseDocument(files.get('/u/Other/Logo.vstudio'));
+    expect(back.get(doc.layers()[0].id).children).toHaveLength(2);
+    expect(files.has('/u/Logo.vstudio')).toBe(false);
+  });
+});

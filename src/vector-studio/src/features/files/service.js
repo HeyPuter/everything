@@ -253,7 +253,8 @@ export class FileService {
       this.#remember(file, enc.thumb);
       return;
     }
-    editor.file = file;
+    // Every window showing the document now saves to this file.
+    for (const ed of new Set([editor, ...this.app.editors])) if (ed.doc === doc) ed.file = file;
     doc.savedRevision = enc.rev;
     doc.emit('saved');
     this.#remember(file, enc.thumb);
