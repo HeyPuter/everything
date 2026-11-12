@@ -65,10 +65,14 @@ describe('out-of-office color reaches the DOM', () => {
 });
 
 describe('out-of-office stylesheet builds the away look from that color', () => {
+  // Normalize CRLF → LF so these selectors still match when git checks the
+  // stylesheet out with core.autocrlf=true (Windows). Index and CI keep LF;
+  // without this, indexOf/toMatch against "\n" find nothing and the suite fails
+  // even though the rules themselves are fine.
   const css = readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/styles/views.css'),
     'utf8',
-  );
+  ).replace(/\r\n/g, '\n');
   // The shared rule that paints the hatched "away" fill, up to its closing brace.
   const rule = css.slice(
     css.indexOf('.chip.is-ooo,\n.allday-chip.is-ooo,\n.tevent.is-ooo {'),
