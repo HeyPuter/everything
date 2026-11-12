@@ -260,7 +260,15 @@ export function arrange(editor, how) {
 /** Move the selection to another layer (Object > Arrange > Send to Current Layer). */
 export function sendToLayer(editor, layerId) {
   const { doc } = editor;
-  const ids = wholeObjects(doc, editor.topSelection());
+  if (doc.isLocked(layerId) || doc.isHidden(layerId))
+    throw new UserError(
+      'The current layer is locked or hidden: unlock and show it, or pick another layer.',
+    );
+  // Objects already on the layer keep their place in its stacking order.
+  const ids = wholeObjects(doc, editor.topSelection()).filter(
+    (id) => doc.get(id)?.parent !== layerId,
+  );
+  if (!ids.length) return;
   doc.transact('Send to Current Layer', () => {
     for (const id of ids) doc.move(id, layerId);
   });

@@ -249,3 +249,38 @@ describe('new layer names', () => {
     expect(new Set(names).size).toBe(5);
   });
 });
+
+describe('Send to Current Layer', () => {
+  it('leaves objects already on the layer in place and moves the others to its top', async () => {
+    const { app, ed, doc, layer, add } = setup();
+    const a = add(0);
+    const b = add(20);
+    let other;
+    doc.transact('Other', () => (other = doc.addLayer('Other')));
+    const c = add(40, other.id);
+    ed.select([a, c]);
+    ed.activeLayerId = layer.id;
+    await app.commands.run('object.sendToLayer');
+    expect(doc.get(layer.id).children).toEqual([a, b, c]);
+    // Nothing to move: no undo step.
+    const steps = doc.undoStack.length;
+    ed.select([a]);
+    ed.activeLayerId = layer.id;
+    await app.commands.run('object.sendToLayer');
+    expect(doc.get(layer.id).children).toEqual([a, b, c]);
+    expect(doc.undoStack.length).toBe(steps);
+  });
+
+  it('refuses a locked current layer', async () => {
+    const { app, ed, doc, add } = setup();
+    const a = add(0);
+    let other;
+    doc.transact('Other', () => (other = doc.addLayer('Other')));
+    doc.transact('Lock', () => doc.update(other.id, { locked: true }));
+    ed.select([a]);
+    ed.activeLayerId = other.id;
+    await app.commands.run('object.sendToLayer');
+    expect(doc.get(a).parent).not.toBe(other.id);
+    expect(document.querySelector('.toast.error')?.textContent).toMatch(/locked or hidden/);
+  });
+});
