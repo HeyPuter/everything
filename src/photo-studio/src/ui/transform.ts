@@ -161,7 +161,11 @@ export class FreeTransform {
     this.e.el('#viewport').focus({ preventScroll: true });
     return true;
   }
+  /** Work that completes the last committed edit; it runs before anything
+   * else is applied (see TransformSession.followSelection). */
+  beforeApply: (() => void)[] = [];
   apply() {
+    for (const hook of [...this.beforeApply]) hook();
     if (!this.replayingPick) this.abortPicks?.();
     if (this.floatMove) this.endFloat(false);
     const session = this.session;

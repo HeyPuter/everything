@@ -82,7 +82,9 @@ export const MODES: [Mode, string][] = [
   ['warp', 'Warp'],
 ];
 // `float`: the selected pixels of a pixel layer, lifted off the rest of it.
-type Target = { kind: 'layer'; id: string; layerKind: 'pixel' | 'image'; mask?: TileGrid | null; float?: FloatingPixels } | { kind: 'selection' };
+// `selection`: a selection holding all of a pixel layer's content, which
+// is transformed with the whole layer (as a lifted selection would be).
+type Target = { kind: 'layer'; id: string; layerKind: 'pixel' | 'image'; mask?: TileGrid | null; float?: FloatingPixels; selection?: TileGrid } | { kind: 'selection' };
 type State = { quad: Quad; mesh?: MeshGrid; params: AffineParams; warpStyle: string; bend: number; hd: number; vd: number; corners: Set<string> };
 /** A split or merge waiting for a click on the warp. */
 export type SplitAction = 'u' | 'v' | 'both' | 'remove';
@@ -189,7 +191,7 @@ export class TransformSession {
     this.e.modal = this;
     this.hideEdges = this.e.settings.hideSelectionEdges;
     // The outline of a selection being transformed (or lifted) would mislead.
-    if (this.target.kind === 'selection' || this.float) this.e.settings.hideSelectionEdges = true;
+    if (this.target.kind === 'selection' || this.float || (this.target.kind === 'layer' && this.target.selection)) this.e.settings.hideSelectionEdges = true;
     this.e.setTool(SESSION_TOOL);
     this.schedule(true);
     this.e.update();
@@ -325,6 +327,40 @@ export class TransformSession {
       if (linked) l.maskGrid = linked;
       if (vector && l.vectorMask) l.vectorMask = { ...l.vectorMask, mask: vector };
     });
+    // A selection holding all of the content follows it, as when lifted.
+    const held = this.target.selection;
+    if (held) {
+      const src = this.source;
+      this.followSelection(label, () => {
+        // It is fully selected over the content's bounds, so over opaque
+        // content the transformed pixels' alpha is exactly its shape.
+        const shape = opaque(src) ? result : this.render(rgbaFromMask(readMask(store, held, rect)), 1, method, true);
+        return shape ? maskGrid(store, maskFromRGBA(shape.image), shape.rect.x, shape.rect.y) : null;
+      });
+    }
+  }
+  /** Add the transformed selection to the step just committed, right after
+   * the commit (off its critical path). The editor stays busy until then, and
+   * anything that applies pending transforms first (other commands, the
+   * History panel) adds it before going on, so undo and redo always see the
+   * pixels and the selection together. */
+  private followSelection(label: string, build: () => TileGrid | null) {
+    const e = this.e,
+      session = e.session,
+      committed = e.doc;
+    let pending = true;
+    const flush = () => {
+      if (!pending) return;
+      pending = false;
+      const hooks = e.transform.beforeApply;
+      if (hooks.includes(flush)) hooks.splice(hooks.indexOf(flush), 1);
+      if (session.doc !== committed) return;
+      const selection = build();
+      e.command(label, (d) => applySelection(d, selection), { coalesce: true, session });
+    };
+    e.transform.beforeApply.push(flush);
+    if (e.busy) flush();
+    else void e.run(() => new Promise<void>((resolve) => setTimeout(() => (flush(), resolve()), 0)));
   }
 
   // ----- State -----
@@ -1012,6 +1048,11 @@ export class TransformSession {
 }
 
 // ----- Helpers -----
+function opaque(img: RGBA8) {
+  const d = img.data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) return false;
+  return true;
+}
 const round = (v: number) => Math.round(v * 100) / 100;
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 function insideQuad(q: Quad, p: Point) {
@@ -1250,7 +1291,9 @@ export function startSession(e: Editor, opts: StartOptions): TransformSession | 
       e.message('The layer is empty.');
       return;
     }
-    const s = new TransformSession(e, { kind: 'layer', id: l.id, layerKind: 'pixel' }, b, opts.quad ?? rectQuad(b), opts.mode, readRGBA(store, l.pixels!, b));
+    // A selection that holds all of the content (no lift was needed) turns with it.
+    const held = !opts.quad && (e.doc.selection || e.doc.selectionMask) ? (selectionGrid(e.doc, store) ?? undefined) : undefined;
+    const s = new TransformSession(e, { kind: 'layer', id: l.id, layerKind: 'pixel', selection: held }, b, opts.quad ?? rectQuad(b), opts.mode, readRGBA(store, l.pixels!, b));
     s.begin();
     return s;
   }

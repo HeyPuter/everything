@@ -290,3 +290,90 @@ test('the preview of lifted pixels on a half-transparent layer matches the resul
   });
   expect(committed).toEqual(shown);
 });
+
+for (const hole of [false, true])
+test(`a selection holding all of the layer turns with it, as a lifted selection does${hole ? ' (content with a transparent hole)' : ''}`, async ({ page }) => {
+  // Only the blue square is left on the layer (with a hole in its middle).
+  await page.evaluate(async (hole) => {
+    const e = window.photoStudio;
+    const { readRGBA, writeRect, emptyGrid } = await import('/src/model/tiles.ts');
+    const { setLayerPixels } = await import('/src/model/pixel-layer.ts');
+    e.command('Square only', (d) => {
+      const l = d.layers[0];
+      const img = readRGBA(e.assets.tiles, l.pixels!, { x: 20, y: 20, width: 40, height: 30 });
+      if (hole) for (let y = 10; y < 20; y++) img.data.fill(0, (y * 40 + 15) * 4, (y * 40 + 25) * 4);
+      setLayerPixels(l, writeRect(e.assets.tiles, emptyGrid(4), 20, 20, img), d);
+    });
+  }, hole);
+  await idle(page);
+  const transformAll = async (lockTransparency: boolean) => {
+    const steps = await page.evaluate(() => window.photoStudio.history.labels.length);
+    await page.evaluate(async (lock) => {
+      const e = window.photoStudio;
+      const { setPartialLock } = await import('/src/model/locks.ts');
+      e.command('Lock', (d) => setPartialLock(d.layers[0], 'transparency', lock));
+      await e.runCommand('select.all');
+    }, lockTransparency);
+    await idle(page);
+    await run(page, 'edit.free-transform');
+    const lifted = (await session(page))!.float;
+    await page.evaluate(() => {
+      const s = window.photoStudio.modal as Session;
+      s.setReference({ x: 0, y: 0 });
+      s.setParams({ ...s.params, sx: 0.5, sy: 0.75, skewX: 20 });
+    });
+    await page.keyboard.press('Enter');
+    await idle(page);
+    const selection = await page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { readMask } = await import('/src/model/tiles.ts');
+      const m = readMask(e.assets.tiles, e.doc.selectionMask!, { x: 0, y: 0, width: 200, height: 150 });
+      return { bounds: e.doc.selection, data: Array.from(m.data) };
+    });
+    while ((await page.evaluate(() => window.photoStudio.history.labels.length)) > steps) await undo(page);
+    return { lifted, selection };
+  };
+  // Locked transparency always lifts the pixels; otherwise the whole layer
+  // is transformed, which is quicker. The selection must not tell them apart.
+  const whole = await transformAll(false);
+  const lifted = await transformAll(true);
+  expect(whole.lifted).toBe(false);
+  expect(lifted.lifted).toBe(true);
+  expect(whole.selection.bounds).not.toEqual({ x: 0, y: 0, width: 200, height: 150 });
+  expect(whole.selection.bounds).toEqual(lifted.selection.bounds);
+  expect(whole.selection.data).toEqual(lifted.selection.data);
+});
+
+test('undoing right after the commit keeps the transformed selection with its step', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA, writeRect, emptyGrid } = await import('/src/model/tiles.ts');
+    const { setLayerPixels } = await import('/src/model/pixel-layer.ts');
+    e.command('Square only', (d) => {
+      const l = d.layers[0];
+      const img = readRGBA(e.assets.tiles, l.pixels!, { x: 20, y: 20, width: 40, height: 30 });
+      setLayerPixels(l, writeRect(e.assets.tiles, emptyGrid(4), 20, 20, img), d);
+    });
+    await e.runCommand('select.all');
+  });
+  await idle(page);
+  await run(page, 'edit.free-transform');
+  expect((await session(page))!.float).toBe(false);
+  // Commit and go back one step in the same task, as a History panel click
+  // queued behind the commit would.
+  const undone = await page.evaluate(() => {
+    const e = window.photoStudio;
+    const s = e.modal as Session;
+    s.setReference({ x: 0, y: 0 });
+    s.setParams({ ...s.params, sx: 0.5, sy: 0.5 });
+    s.apply();
+    e.transform.apply();
+    e.history.goto(e.history.position - 1);
+    return e.doc.selection;
+  });
+  expect(undone).toEqual({ x: 0, y: 0, width: 200, height: 150 });
+  await idle(page);
+  await redo(page);
+  expect((await page.evaluate(() => window.photoStudio.history.labels)).at(-1)).toBe('Transform');
+  expect(await page.evaluate(() => window.photoStudio.doc.selection)).toEqual({ x: 20, y: 20, width: 20, height: 15 });
+});
