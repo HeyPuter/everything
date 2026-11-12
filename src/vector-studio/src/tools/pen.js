@@ -15,7 +15,7 @@
 import { Tool, tol, constrain45, constrainAngle } from './tool.js';
 import { createPath, pickStyle } from '../model/nodes.js';
 import { anchor, hasIn, hasOut, insertAnchor, nearestOnPath, reverseAnchors, autoSmooth } from '../model/bezier.js';
-import { buildSnapIndex, snapPoint } from './snap.js';
+import { buildSnapIndex, snapPoint, SnapIndex } from './snap.js';
 import { hitTest } from '../render/hit.js';
 import { drawAnchor, layerColor } from '../render/overlay.js';
 import { findAnchorOrHandle, isSmooth } from './direct-selection.js';
@@ -255,7 +255,11 @@ export class PenTool extends Tool {
     }
     if (e.shift) ({ x, y } = constrain45(last.x, last.y, x, y, constrainAngle(this.app)));
     else {
-      const s = snapPoint(editor, x, y, buildSnapIndex(editor, new Set([p.id])));
+      // Alignment guides also line the new anchor up with the anchors already placed (not with the path's changing bounds).
+      const snap = buildSnapIndex(editor, new Set([p.id]));
+      const own = p.anchors.map((a) => ({ x: a.x, y: a.y, kind: 'anchor' }));
+      snap.index = new SnapIndex([...snap.index.points, ...own]);
+      const s = snapPoint(editor, x, y, snap);
       x = s.x;
       y = s.y;
     }
