@@ -83,3 +83,33 @@ test('Shadows/Highlights and Replace Color replay their recorded settings', asyn
   await expect(page.locator('dialog[open]')).toHaveCount(0);
   expect(await layerPixel(page, 5, 5)).toEqual(recorded);
 });
+
+test('a step with its dialog turned on opens the dialog with the recorded settings', async ({ page }) => {
+  await openImage(page, 40, 30, '#808080', 'a.png');
+  await newAction(page, 'Ask');
+  await run(page, 'filter.apply.gaussian-blur', { params: { radius: 7 } });
+  await start(page, 'adjust.brightness-contrast');
+  const dialog = page.locator('dialog.adj-dialog[open]');
+  const num = dialog.getByRole('spinbutton', { name: 'Brightness value' });
+  await num.fill('60');
+  await num.press('Tab');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await idle(page);
+  await run(page, 'actions.stop');
+  // The filter's last-used settings now differ from the recorded ones.
+  await run(page, 'filter.apply.gaussian-blur', { params: { radius: 2 } });
+  // Turn both dialogs on.
+  for (const i of [0, 1]) await page.locator('.actions-list .action-row.step').nth(i).getByRole('button', { name: 'Toggle dialog' }).click();
+  await page.locator('.actions-list .action-row.action', { hasText: 'Ask' }).click();
+  await openImage(page, 40, 30, '#808080', 'b.png');
+  await page.locator('.actions-list .action-row.action', { hasText: 'Ask' }).click();
+  await play(page);
+  const blur = page.locator('dialog.filter-dialog[open]');
+  await expect(blur).toBeVisible();
+  await expect(blur.getByRole('spinbutton').first()).toHaveValue('7');
+  await blur.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('spinbutton', { name: 'Brightness value' })).toHaveValue('60');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await idle(page);
+});

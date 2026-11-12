@@ -45,7 +45,11 @@ export async function runFilter(e: Editor, opId: string, arg?: unknown) {
   if (given || op.immediate) {
     const params = normalizeFor(opId, given ?? defaults(op));
     if (await applyDirect(e, opId, params)) lastUsed.set(opId, params);
-  } else await filterDialog(e, opId);
+  } else {
+    // { initial } opens the dialog with those settings (a played action step with its dialog on).
+    const initial = (arg as { initial?: unknown } | undefined)?.initial;
+    await filterDialog(e, opId, initial && typeof initial === 'object' ? { initial: initial as ParamValues } : {});
+  }
 }
 export function editLive(e: Editor, layerId: string, index: number, id: string) {
   void e.run(async () => {

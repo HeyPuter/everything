@@ -288,8 +288,9 @@ function operationValues(specs: ParamSpec[], given: Record<string, unknown>): Pa
   return out;
 }
 
-/** An operation's dialog; with `given` settings (actions, scripts) it applies them directly. */
-export async function operationDialog(e: Editor, op: { id: string; label: string; params: ParamSpec[] }, extra?: (body: HTMLElement, values: ParamValues, changed: () => void, pick: () => Promise<[number, number, number] | null>) => void, given?: Record<string, unknown>) {
+/** An operation's dialog, starting from `initial` settings when given; with
+ * `given` settings (actions, scripts) it applies them directly instead. */
+export async function operationDialog(e: Editor, op: { id: string; label: string; params: ParamSpec[] }, extra?: (body: HTMLElement, values: ParamValues, changed: () => void, pick: () => Promise<[number, number, number] | null>) => void, given?: Record<string, unknown>, initial?: Record<string, unknown>) {
   const context = (): OperationContext => ({ foreground: hexRgb(e.color), background: hexRgb(e.background), scale: 1 });
   if (given) {
     const v = operationValues(op.params, given);
@@ -301,7 +302,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
   const src = readTarget(e, target);
   if (!src) return e.message('The layer is empty.');
   const shell = openShell(e, op.label.replace(/…$/, ''));
-  const values: ParamValues = Object.fromEntries(op.params.map((p) => [p.key, p.default]));
+  const values: ParamValues = initial ? operationValues(op.params, initial) : Object.fromEntries(op.params.map((p) => [p.key, p.default]));
   const schedule = latest();
   const refresh = () => {
     if (!shell.preview.checked) return;

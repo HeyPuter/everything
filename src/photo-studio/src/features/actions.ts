@@ -99,6 +99,10 @@ let playing = false;
 export function allActions() {
   return sets.flatMap((s) => s.actions.map((a) => ({ set: s, action: a })));
 }
+function dialogArg(arg: unknown) {
+  const params = arg && typeof arg === 'object' ? (arg as { params?: unknown }).params : undefined;
+  return params && typeof params === 'object' ? { initial: params } : undefined;
+}
 /** Replay an action's enabled steps; returns false if a step failed. */
 export async function playAction(e: Editor, action: Action, from = 0) {
   playing = true;
@@ -113,7 +117,9 @@ export async function playAction(e: Editor, action: Action, from = 0) {
       if (interactiveOnly(c.id)) throw new Error(`Actions cannot run “${c.label.replace(/…$/, '')}”.`);
       if (c.enabled && !c.enabled(e)) throw new Error(`“${c.label}” is not available in the current state.`);
       // Steps call commands directly so the busy guard does not skip them.
-      await c.run(e, s.dialog ? undefined : s.arg);
+      // A step with its dialog on opens the dialog, showing the recorded
+      // settings ({ initial }) where the command has any.
+      await c.run(e, s.dialog ? dialogArg(s.arg) : s.arg);
     }
     return true;
   } catch (error) {

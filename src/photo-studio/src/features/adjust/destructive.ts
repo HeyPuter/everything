@@ -10,6 +10,7 @@ import { applyToLayer } from '../pixels';
 import { lazy } from '../../app/lazy';
 import { adjustInWorker } from './worker-client';
 import { deferRecording } from '../filters/record';
+import { specAdjustment } from './spec';
 
 // Image > Adjustments works on pixels, masks and Quick Mask; groups have no
 // pixels, and an adjustment layer only offers its mask.
@@ -36,8 +37,8 @@ function selectionFor(e: Editor, rect: { x: number; y: number; width: number; he
 }
 
 /** Settings given as { params } by an action step or a script. */
-function paramsOf(arg: unknown): Record<string, unknown> | undefined {
-  const p = arg && typeof arg === 'object' ? (arg as { params?: unknown }).params : undefined;
+function paramsOf(arg: unknown, key: 'params' | 'initial' = 'params'): Record<string, unknown> | undefined {
+  const p = arg && typeof arg === 'object' ? (arg as Record<string, unknown>)[key] : undefined;
   return p && typeof p === 'object' && !Array.isArray(p) ? (p as Record<string, unknown>) : undefined;
 }
 
@@ -61,7 +62,11 @@ export function registerDestructiveCommands(e: Editor) {
         const m = await dialogs();
         const given = paramsOf(arg);
         if (given) await m.applyAdjustment(ed, kind, given);
-        else await m.adjustmentDialog(ed, kind, arg && typeof arg === 'object' ? (arg as never) : undefined);
+        else {
+          // { initial } opens the dialog with those settings (a played action step with its dialog on).
+          const initial = paramsOf(arg, 'initial');
+          await m.adjustmentDialog(ed, kind, initial ? (specAdjustment({ kind, params: initial })?.params as never) : undefined);
+        }
       },
       prefetch: kind === 'invert' ? undefined : dialogs.prefetch,
     });
@@ -105,7 +110,7 @@ export function registerDestructiveCommands(e: Editor) {
     id: 'adjust.shadows-highlights',
     label: 'Shadows/Highlights…',
     enabled: canAdjust,
-    run: async (ed, arg) => (await dialogs()).operationDialog(ed, op('adjust.shadows-highlights'), undefined, paramsOf(arg)),
+    run: async (ed, arg) => (await dialogs()).operationDialog(ed, op('adjust.shadows-highlights'), undefined, paramsOf(arg), paramsOf(arg, 'initial')),
     prefetch: dialogs.prefetch,
   });
   deferRecording('adjust.shadows-highlights');
@@ -116,7 +121,7 @@ export function registerDestructiveCommands(e: Editor) {
     enabled: canAdjust,
     run: async (ed, arg) => {
       const m = await dialogs();
-      return m.operationDialog(ed, op('adjust.replace-color'), m.sampledColorControl('color'), paramsOf(arg));
+      return m.operationDialog(ed, op('adjust.replace-color'), m.sampledColorControl('color'), paramsOf(arg), paramsOf(arg, 'initial'));
     },
     prefetch: dialogs.prefetch,
   });
