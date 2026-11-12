@@ -98,6 +98,32 @@ describe('Scientific Filter cutoff handle', () => {
   });
 });
 
+describe('live input spectrum', () => {
+  it('runs at once in a dialog opened while audio plays', async () => {
+    const { liveSpectrum } = await import('../src/effects/views/common.js');
+    await import('../src/multitrack/align.js');
+    const app = fakeApp();
+    app.engine.playing = true;
+    app.engine.position = 2048;
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(8192, 0.5))],
+    });
+    const closers = [];
+    let frames = 0;
+    const spec = liveSpectrum(
+      { app, doc, onClose: (fn) => closers.push(fn) },
+      { size: 1024, onFrame: () => frames++ },
+    );
+    expect(spec.live()).toBe(true);
+    for (let i = 0; i < 3 && !frames; i++) await new Promise((r) => requestAnimationFrame(r));
+    expect(frames).toBeGreaterThan(0);
+    expect(Math.max(...spec.levels)).toBeGreaterThan(-120);
+    closers.forEach((fn) => fn());
+  });
+});
+
 describe('log-scaled value fields', () => {
   const def = {
     id: 'logProbe',
