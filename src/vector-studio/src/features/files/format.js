@@ -84,7 +84,13 @@ function usedAssets(json) {
   if (!ids.length) return json.assets || {};
   const text = JSON.stringify(json.nodes);
   const out = {};
-  for (const id of ids) if (text.includes(JSON.stringify(id))) out[id] = json.assets[id];
+  for (const id of ids) {
+    // An embedded color profile is mentioned by its profile id.
+    const used =
+      text.includes(JSON.stringify(id)) ||
+      (id.startsWith('icc-') && text.includes(JSON.stringify(`icc:${id.slice(4)}`)));
+    if (used) out[id] = json.assets[id];
+  }
   return out;
 }
 
