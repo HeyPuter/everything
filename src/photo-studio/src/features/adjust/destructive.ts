@@ -9,6 +9,7 @@ import { selectionGrid } from '../../model/selection';
 import { applyToLayer } from '../pixels';
 import { lazy } from '../../app/lazy';
 import { adjustInWorker } from './worker-client';
+import { deferRecording } from '../filters/record';
 
 // Image > Adjustments works on pixels, masks and Quick Mask; groups have no
 // pixels, and an adjustment layer only offers its mask.
@@ -34,24 +35,37 @@ function selectionFor(e: Editor, rect: { x: number; y: number; width: number; he
   return sel ? readMask(e.assets.tiles, sel, rect) : undefined;
 }
 
+/** Settings given as { params } by an action step or a script. */
+function paramsOf(arg: unknown): Record<string, unknown> | undefined {
+  const p = arg && typeof arg === 'object' ? (arg as { params?: unknown }).params : undefined;
+  return p && typeof p === 'object' && !Array.isArray(p) ? (p as Record<string, unknown>) : undefined;
+}
+
 /** Apply an adjustment derived from the target pixels themselves. */
 async function analyzed(e: Editor, label: string, make: (src: RGBA8, sel?: ReturnType<typeof selectionFor>) => Adjustment) {
   await applyToLayer(e, label, (src, rect) => adjustInWorker(src, make(src, selectionFor(e, rect))));
 }
 
 export function registerDestructiveCommands(e: Editor) {
-  for (const kind of ADJUSTMENT_KINDS)
+  for (const kind of ADJUSTMENT_KINDS) {
+    // A dialog's settings are recorded when it is confirmed, and settings
+    // given as { params } (actions, scripts) apply without the dialog.
+    if (kind !== 'invert') deferRecording(`adjust.${kind}`);
     registerCommand({
       id: `adjust.${kind}`,
       label: kind === 'invert' ? 'Invert' : `${ADJUSTMENT_LABELS[kind]}…`,
       shortcut: SHORTCUTS[kind],
       enabled: canAdjust,
-      run: async (ed, arg) =>
-        kind === 'invert'
-          ? await applyToLayer(ed, 'Invert', (src) => adjustInWorker(src, { kind: 'invert', params: {} }))
-          : (await dialogs()).adjustmentDialog(ed, kind, arg && typeof arg === 'object' ? (arg as never) : undefined),
+      run: async (ed, arg) => {
+        if (kind === 'invert') return void (await applyToLayer(ed, 'Invert', (src) => adjustInWorker(src, { kind: 'invert', params: {} })));
+        const m = await dialogs();
+        const given = paramsOf(arg);
+        if (given) await m.applyAdjustment(ed, kind, given);
+        else await m.adjustmentDialog(ed, kind, arg && typeof arg === 'object' ? (arg as never) : undefined);
+      },
       prefetch: kind === 'invert' ? undefined : dialogs.prefetch,
     });
+  }
   const auto = (id: string, label: string, mode: 'tone' | 'contrast' | 'color', shortcut: string) =>
     registerCommand({
       id,

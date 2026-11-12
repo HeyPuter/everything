@@ -18,7 +18,8 @@ import { escapeXML } from '../../model/assets';
 import { applyToLayer, hexRgb, layerRGBA, pixelTarget, previewTarget, roundIRect, toRGBA8, type PixelTarget } from '../pixels';
 import { DEFAULT_MATCH, labStats, matchColorLut, type LabStats, type MatchOptions } from './match-color';
 import type { AdjustHost } from './host';
-import { adjustmentSpec } from './compile';
+import { adjustmentSpec, specAdjustment } from './compile';
+import { recordStep } from '../filters/record';
 import { kindEditors } from './editors';
 import { cancelPick, picking, pickPoint, sampleAt, type SourceImage } from './source';
 import { adjustInWorker, operationInWorker } from './worker-client';
@@ -261,6 +262,13 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   if (!ok) return;
   const adj = structuredClone(adjustment());
   await applyToLayer(e, label, (image, rect) => adjustInWorker(image, adj, placement(rect)));
+  recordStep(e, `adjust.${kind}`, { params: structuredClone(adj.params) });
+}
+/** Apply an adjustment with given settings, without its dialog (actions, scripts). */
+export async function applyAdjustment(e: Editor, kind: AdjustmentKind, params: Record<string, unknown>) {
+  const adj = specAdjustment({ kind, params });
+  if (!adj) return;
+  await applyToLayer(e, ADJUSTMENT_LABELS[kind], (image, rect) => adjustInWorker(image, adj, { x: rect.x, y: rect.y, docWidth: e.doc.width, docHeight: e.doc.height }));
 }
 
 // ----- Parameter dialogs (operations that are not adjustment kinds) -----

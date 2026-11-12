@@ -156,6 +156,7 @@ dialog applies `arg` directly instead. For example:
 ```js
 await studio.commands.run('adjust.desaturate');
 await studio.commands.run('filter.apply.gaussian-blur', { params: { radius: 4 } });
+await studio.commands.run('adjust.brightness-contrast', { params: { brightness: 20, contrast: 10 } });
 // Portrait & Restore: list the filters to turn on with their settings.
 await studio.commands.run('filter.portrait-restore', { params: { filters: [{ id: 'restore', enabled: true, params: { dust: 60 } }, { id: 'skin', enabled: true }] } });
 ```
