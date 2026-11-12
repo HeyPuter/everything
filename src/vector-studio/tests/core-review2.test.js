@@ -284,3 +284,22 @@ describe('Send to Current Layer', () => {
     expect(document.querySelector('.toast.error')?.textContent).toMatch(/locked or hidden/);
   });
 });
+
+describe('Layers panel drop into a locked layer', () => {
+  it('leaves the dropped objects unselected, so they cannot be moved while locked', async () => {
+    const { app, ed, doc, add } = setup();
+    const a = add(0);
+    let other;
+    doc.transact('Other', () => (other = doc.addLayer('Other')));
+    doc.transact('Lock', () => doc.update(other.id, { locked: true }));
+    ed.select([a]);
+    const panel = app.dock.panels.get('layers');
+    panel.ensureBuilt();
+    panel.dropOn([a], doc.get(other.id), 'into');
+    expect(doc.get(a).parent).toBe(other.id);
+    expect(ed.selection.has(a)).toBe(false);
+    // Undo brings the object back where it was, selected again.
+    doc.undo();
+    expect(ed.selection.has(a)).toBe(true);
+  });
+});
