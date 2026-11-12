@@ -158,4 +158,32 @@ describe('control surface preferences page', () => {
     expect(app.controlSurface.status.listeners.size).toBe(1);
     expect(ports).toBe(1);
   });
+
+  it('keeps keyboard focus on the control that changed as the page is rebuilt', async () => {
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { installControlSurface } = await import('../src/control-surface/index.js');
+    const app = new App();
+    app.syncGraph = () => {};
+    installControlSurface(app);
+    const mappings = { 'cc:0:7': 'track.volume' };
+    app.prefs.set('controlSurface', { enabled: true, protocol: 'mcu', mappings });
+    const section = app.preferenceSections.find((s) => s.category === 'controlSurface');
+    const page = section.build(app);
+    document.body.replaceChildren(page);
+    const protocol = page.querySelector('select[aria-label=Protocol]');
+    protocol.focus();
+    protocol.value = 'learn';
+    protocol.dispatchEvent(new Event('change'));
+    expect(document.activeElement).not.toBe(protocol);
+    expect(document.activeElement).toBe(page.querySelector('select[aria-label=Protocol]'));
+    // Clearing a mapping turns its Clear button off: focus moves to the Learn button beside it.
+    const clear = page.querySelector('button[aria-label="Clear Selected Track Volume"]');
+    clear.focus();
+    clear.click();
+    expect(app.prefs.get('controlSurface').mappings).toEqual({});
+    expect(document.activeElement.textContent).toBe('Learn');
+    expect(document.activeElement.closest('tr').textContent).toContain('Selected Track Volume');
+    page.remove();
+  });
 });
