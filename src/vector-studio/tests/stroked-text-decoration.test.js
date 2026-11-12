@@ -77,4 +77,26 @@ describe('underline and strikethrough on stroked type', () => {
     expect(rect).toContain('fill="none"');
     expect(rect).toContain('stroke="#ff0000"');
   });
+
+  it('SVG export writes plain bars of stroked type split into pieces as one rectangle per piece', () => {
+    const rect = { x: 0, y: 0, w: 400, h: 200 };
+    const style = { fill: blue, stroke: red, strokeWidth: 2 };
+    // Tracking gives the piece a textLength, which viewers draw glyph by glyph.
+    const tracked = exportSVG(docWith({ strike: true, tracking: 100 }, style).doc, { rect });
+    expect(tracked).toContain('textLength=');
+    expect(tracked).not.toContain('text-decoration');
+    const bars = tracked.match(/<rect [^>]*\/>/g) || [];
+    expect(bars).toHaveLength(1);
+    expect(bars[0]).toContain('stroke="#ff0000"');
+    expect(bars[0]).toContain('fill="#0000ff"');
+    // Filled type without a stroke keeps text-decoration (no seams to show).
+    const filled = exportSVG(docWith({ strike: true, tracking: 100 }, { fill: blue }).doc, {
+      rect,
+    });
+    expect(filled).toContain('text-decoration="line-through"');
+    expect(filled).not.toMatch(/<rect /);
+    // A single stroked piece with no textLength keeps text-decoration too.
+    const single = exportSVG(docWith({ strike: true }, style).doc, { rect });
+    expect(single).toContain('text-decoration="line-through"');
+  });
 });

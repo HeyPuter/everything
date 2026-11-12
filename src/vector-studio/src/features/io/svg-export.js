@@ -558,13 +558,25 @@ class SVGWriter {
       // runs. Scaled pieces need a transform, which a tspan cannot carry.
       const spans = [];
       let preserve = false;
+      // Viewers outline a text-decoration piece by piece (and glyph by glyph
+      // in a textLength piece), so stroked bars split into several pieces
+      // show seams: those bars are written as rectangles, like the canvas.
+      const stroked = (st) => {
+        const stroke = st.stroke === undefined ? node.stroke : st.stroke;
+        return !!stroke && (st.strokeWidth ?? node.strokeWidth) > 0;
+      };
+      const decoPieces = new Map();
+      for (const it of items) {
+        if (it.str && it.deco) decoPieces.set(it.line, (decoPieces.get(it.line) || 0) + 1);
+      }
       for (const it of items) {
         const st = it.style;
         const scaled = it.hs !== 1 || it.vs !== 1;
         const ls = it.track ? ` letter-spacing="${this.n(scaled ? it.track / it.hs : it.track)}"` : '';
         // Spacing the layout set (tracking, kerning pairs) is kept by giving the piece its laid-out length.
         const tl = it.str && it.str.length > 1 && it.span > 0 && (it.track || it.kerned) ? ` textLength="${this.n(scaled ? it.span / it.hs : it.span)}"` : '';
-        const plain = plainDecoration(st);
+        const split = tl || decoPieces.get(it.line) > 1;
+        const plain = plainDecoration(st) && !(it.deco && split && stroked(st));
         if (it.str && !scaled) {
           if (/^\s|\s$|\s{2}/.test(it.str)) preserve = true;
           const dy = Math.abs(it.y - it.base) > 1e-9 ? ` dy="${this.n(it.y - it.base)}"` : '';
