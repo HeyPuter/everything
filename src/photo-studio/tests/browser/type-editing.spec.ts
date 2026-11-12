@@ -97,6 +97,22 @@ test('undoing a style chosen at the caret also stops it applying to typing', asy
   expect(await runs()).toEqual([['abc', false]]);
 });
 
+test('cancelling Warp Text while editing leaves no undo step behind', async ({ page }) => {
+  await canvasClick(page, 100, 100);
+  await page.keyboard.type('ab');
+  await page.evaluate(() => void window.photoStudio.runCommand('type.warp'));
+  const dialog = page.locator('dialog[open] form.type-warp');
+  await dialog.locator('select[name="style"]').selectOption('flag');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!.data.warp?.style)).toBe('flag');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  // The first undo removes the typing, not an invisible warp step.
+  await page.keyboard.press('Meta+z');
+  expect((await caret(page)).text).toBe('');
+  await page.keyboard.press('Meta+Shift+z');
+  expect((await caret(page)).text).toBe('ab');
+});
+
 test('moving text with Mod-drag while editing is undoable and kept on commit', async ({ page }) => {
   await canvasClick(page, 100, 100);
   await page.keyboard.type('Move');

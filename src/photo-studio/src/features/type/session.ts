@@ -488,6 +488,23 @@ export function undoEdit(e: Editor, redo = false) {
   render(e);
 }
 
+// A dialog's live preview while editing that may be cancelled: `editMark`
+// before previewing, `revertToMark` to drop the preview and its undo step.
+export type EditMark = { s: Session; undo: number; redo: Snapshot[]; data: TextLayerData; lastKind?: string };
+export function editMark(): EditMark | undefined {
+  const s = session;
+  return s && { s, undo: s.undo.length, redo: s.redo, data: s.data, lastKind: s.lastKind };
+}
+export function revertToMark(e: Editor, m: EditMark) {
+  const s = session;
+  if (!s || s !== m.s) return;
+  s.undo.length = Math.min(s.undo.length, m.undo);
+  s.redo = m.redo;
+  s.data = m.data;
+  s.lastKind = m.lastKind;
+  render(e);
+}
+
 // Mod-drag: moves the layer being edited (one undo step per drag).
 export function moveBy(e: Editor, dx: number, dy: number, kind: string) {
   const s = session!;

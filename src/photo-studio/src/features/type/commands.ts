@@ -20,7 +20,7 @@ import {
 import { invalidateMeasurements } from '../../imaging/text/layout';
 import { localFontAccessSupported, prepareFonts } from '../../imaging/text/fonts';
 import { forgetFontAvailability, missingFonts } from '../../renderer/text-source';
-import { applyLayer, editLayers, insert, selectedTextLayers, session, startEdit, startNew, updateData, focusInput } from './session';
+import { applyLayer, editLayers, editMark, insert, revertToMark, selectedTextLayers, session, startEdit, startNew, updateData, focusInput } from './session';
 import { editable, forgetLayout, layoutOf, localBounds, ppiOf, replaceLayer } from './text-utils';
 import { refreshFamilies, setAntiAlias, syncTypeOptions } from './options';
 import { contoursToVectorMask } from './shape';
@@ -148,6 +148,7 @@ ${slider('bend', 'Bend')}${slider('horizontal', 'Horizontal Distortion')}${slide
     sync();
     apply(read());
   });
+  const mark = editing ? editMark() : undefined;
   apply(read());
   const result = await new Promise<Warp | null>((resolve) => {
     form.querySelector('[data-warp-cancel]')!.addEventListener('click', () => {
@@ -165,7 +166,9 @@ ${slider('bend', 'Bend')}${slider('horizontal', 'Horizontal Distortion')}${slide
   });
   const finalWarp = result && result.style !== 'none' ? result : undefined;
   if (editing) {
-    if (session) updateData(e, (d) => ({ ...d, warp: result ? finalWarp : start.warp }), 'warp');
+    // Cancelled or unchanged: no undo step is left behind.
+    if (mark && (!result || JSON.stringify(finalWarp ?? null) === JSON.stringify(start.warp ?? null))) revertToMark(e, mark);
+    else if (session) updateData(e, (d) => ({ ...d, warp: finalWarp }), 'warp');
     focusInput(e);
     return;
   }
