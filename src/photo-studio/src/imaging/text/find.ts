@@ -16,10 +16,15 @@ export function findMatches(text: string, query: string, opts: FindOptions = {})
   const h = fold ? hay : text,
     n = fold ? needle : query;
   const out: [number, number][] = [];
-  for (let i = h.indexOf(n); i >= 0; i = h.indexOf(n, i + Math.max(1, n.length))) {
+  for (let i = h.indexOf(n); i >= 0; ) {
     const end = i + n.length;
-    if (opts.wholeWord && (isWordChar(text[i - 1]) || isWordChar(text[end]))) continue;
+    // A rejected candidate may overlap a whole-word match just after it.
+    if (opts.wholeWord && (isWordChar(text[i - 1]) || isWordChar(text[end]))) {
+      i = h.indexOf(n, i + 1);
+      continue;
+    }
     out.push([i, end]);
+    i = h.indexOf(n, i + Math.max(1, n.length));
   }
   return out;
 }
