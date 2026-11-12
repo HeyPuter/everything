@@ -54,8 +54,7 @@ async function pasteMasked(e: Editor, outside: boolean) {
   // Beyond the canvas the mask hides (Into) or reveals (Outside).
   l.maskGrid = writeRect(store, { ...emptyGrid(1), fill: outside ? 255 : 0 }, 0, 0, mask);
   l.maskUnlinked = true;
-  insertAboveSelection(e, l, outside ? 'Paste Outside' : 'Paste Into');
-  e.command('Deselect', (d) => applySelection(d, null));
+  insertAboveSelection(e, l, outside ? 'Paste Outside' : 'Paste Into', (d) => applySelection(d, null));
   e.message(outside ? 'Pasted outside the selection' : 'Pasted into the selection');
 }
 

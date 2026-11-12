@@ -98,6 +98,25 @@ test('paste into masks the pasted pixels by the selection, unlinked', async ({ p
   expect(await compositePixel(page, 125, 70)).toEqual([255, 0, 0, 255]);
 });
 
+// Paste, Paste Into and Paste Outside used to record a separate Deselect
+// step, so one Undo left the pasted layer in place.
+test('each paste is one undo step', async ({ page }) => {
+  await addBox(page, 'Red', '#ff0000', { x: 0, y: 0, width: 60, height: 60 });
+  await selectRect(page, { x: 0, y: 0, width: 60, height: 60 });
+  await run(page, 'edit.copy');
+  for (const id of ['edit.paste', 'edit.paste-into', 'edit.paste-outside']) {
+    await selectRect(page, { x: 150, y: 50, width: 40, height: 40 });
+    const before = await historyLabels(page);
+    await run(page, id);
+    expect(await layerNames(page)).toEqual(['Background', 'Red', 'Layer 1']);
+    expect(await page.evaluate(() => window.photoStudio.doc.selection)).toBeNull();
+    expect((await historyLabels(page)).length).toBe(before.length + 1);
+    await undo(page);
+    expect(await layerNames(page)).toEqual(['Background', 'Red']);
+    expect(await page.evaluate(() => window.photoStudio.doc.selection)).toEqual({ x: 150, y: 50, width: 40, height: 40 });
+  }
+});
+
 test('background layer, isolation, hidden layers and find', async ({ page }) => {
   await page.evaluate(async () => {
     const e = window.photoStudio;

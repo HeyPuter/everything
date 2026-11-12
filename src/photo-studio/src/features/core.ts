@@ -578,8 +578,7 @@ async function paste(e: Editor, inPlace: boolean) {
   const x = inPlace ? item.x : b ? Math.round(b.x + (b.width - item.image.width) / 2) : Math.round((e.doc.width - item.image.width) / 2);
   const y = inPlace ? item.y : b ? Math.round(b.y + (b.height - item.image.height) / 2) : Math.round((e.doc.height - item.image.height) / 2);
   const l = newPixelLayer(nextLayerName(e.doc), e.doc, gridFromImage(e.assets.tiles, item.image, x, y));
-  insertAboveSelection(e, l, 'Paste');
-  e.command('Deselect', (d) => applySelection(d, null));
+  insertAboveSelection(e, l, 'Paste', (d) => applySelection(d, null));
 }
 async function clearSelection(e: Editor, label = 'Clear') {
   if (!e.doc.selection) {
