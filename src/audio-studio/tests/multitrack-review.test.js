@@ -392,3 +392,34 @@ describe('ripple deletes and track automation', () => {
     check(lane, gap.tracks[0].automation.volume, 50, 200);
   });
 });
+
+describe('turning looping off', () => {
+  it('keeps playing the loop where it was, ending with the source', async () => {
+    const { app, doc } = await appWithSession();
+    const ramp = new Float32Array(1000).map((_, i) => i / 1000);
+    const src = doc.addSource({ name: 'r.wav', channels: [Channel.fromSamples(ramp)] });
+    const loop = S.createClip({
+      trackId: doc.state.tracks[0].id,
+      sourceId: src,
+      length: 5000,
+      loop: true,
+      fadeOut: { length: 800, curve: 0 },
+    });
+    doc.apply('Add', S.splitClips(S.addClips(doc.state, [loop]), null, 2500));
+    const right = doc.state.clips.find((c) => c.start === 2500);
+    expect(right.offset).toBe(2500);
+    doc.selectClips([right.id]);
+    await app.commands.run('clip.loop');
+    const c = S.findClip(doc.state, right.id);
+    expect(c.loop).toBe(false);
+    // The loop was half way through the source at 2500: that is where the unlooped clip starts.
+    expect(c.offset).toBe(500);
+    expect(c.length).toBe(500);
+    expect(c.fadeOut.length).toBe(500);
+    const out = renderState(doc.state, doc.pool, null, 3000);
+    expect(out[0][2600]).toBeGreaterThan(0.3);
+    // Undo brings the loop back; looping again keeps the clip as it is.
+    doc.history.undo();
+    expect(S.findClip(doc.state, right.id)).toEqual(right);
+  });
+});

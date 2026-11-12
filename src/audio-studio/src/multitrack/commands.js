@@ -1163,7 +1163,18 @@ export function installMultitrackCommands(app) {
       },
     },
     { id: 'clip.lock', label: 'Lock in Time', enabled: hasClips, checked: allSelected('locked'), run: toggleSelected('locked', 'Lock Clip', 'Unlock Clip') },
-    { id: 'clip.loop', label: 'Loop', enabled: hasClips, checked: allSelected('loop'), run: toggleSelected('loop', 'Loop Clip', 'Unloop Clip') },
+    {
+      id: 'clip.loop',
+      label: 'Loop',
+      enabled: hasClips,
+      checked: allSelected('loop'),
+      run: (a, args) => {
+        const doc = session(app);
+        const clips = clipsArg(doc, args);
+        const v = !clips.every((c) => c.loop);
+        doc.apply(v ? 'Loop Clip' : 'Unloop Clip', S.setClipsLoop(doc.state, clips.map((c) => c.id), v, (id) => doc.sourceLength(id)));
+      },
+    },
     { id: 'clip.mute', label: 'Mute', enabled: hasClips, checked: allSelected('mute'), run: toggleSelected('mute', 'Mute Clip', 'Unmute Clip') },
     { id: 'clip.gain', label: 'Clip Gain...', enabled: hasClips, run: () => clipGainDialog(app, session(app), selected(app)) },
     { id: 'clip.matchLoudness', label: 'Match Clip Loudness...', enabled: hasClips, run: () => matchLoudnessDialog(app, session(app), selected(app)) },

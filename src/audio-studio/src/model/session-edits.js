@@ -521,6 +521,20 @@ export function trimClipsAt(state, ids, edge, frame, sourceLength = () => Infini
   return changed ? { ...state, clips } : state;
 }
 
+/**
+ * Turns looping on or off. A clip that stops looping starts where its loop was
+ * at its start (a looped clip's offset may lie past the source end, e.g. the
+ * right part of a split loop) and ends where its source does.
+ */
+export function setClipsLoop(state, ids, loop, sourceLength = () => Infinity) {
+  return updateClips(state, ids, (c) => {
+    const n = sourceLength(c.sourceId);
+    if (loop || !c.loop || !(n > 0) || !Number.isFinite(n)) return { loop };
+    const next = trimmedClip({ ...c, loop: false, locked: false, offset: c.offset % n }, 'out', clipEnd(c), n);
+    return { ...next, locked: c.locked };
+  });
+}
+
 /** Slips the audio inside a clip by `delta` frames (positive moves the audio right). */
 export function slipClip(state, id, delta, sourceLength = Infinity) {
   const c = findClip(state, id);
