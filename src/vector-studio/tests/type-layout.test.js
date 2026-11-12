@@ -249,6 +249,20 @@ describe('type on a path', () => {
     expect(w1).not.toBeCloseTo(w0);
   });
 
+  it('centered or right-aligned text too long for its path overflows at the end instead of running off the start', () => {
+    for (const align of ['center', 'right']) {
+      const n = createText('a'.repeat(100), 0, 0, { kind: 'path', pathAnchors: anchors, pathOptions: {}, para: { align }, char: { ...CHAR } });
+      const lay = layoutText(n);
+      expect(lay.overflow).toBe(true);
+      const g = glyphPlacements(lay);
+      expect(g[0].m[4]).toBeCloseTo(0);
+      expect(g[g.length - 1].m[4]).toBeLessThan(400);
+    }
+    // Text that fits still aligns.
+    const short = layoutText(createText('aaaa', 0, 0, { kind: 'path', pathAnchors: anchors, pathOptions: {}, para: { align: 'right' }, char: { ...CHAR } }));
+    expect(glyphPlacements(short)[0].m[4]).toBeCloseTo(400 - 22);
+  });
+
   it('type on a closed path runs on past the seam instead of overflowing there', () => {
     // A 400 x 400 square starting at its top-left corner: 1600 long.
     const sq = [

@@ -1842,7 +1842,9 @@ function flowPath(node, text, ch, frame, vertical) {
   const end = frame.closed ? start + L : L;
   let u0 = start;
   const align = para.align || 'left';
-  if (align === 'center' || align === 'justify-center') u0 = start + (end - start - width) / 2;
+  // Text longer than the path starts at the start bracket and overflows at the end, whatever its alignment.
+  if (width > end - start) u0 = start;
+  else if (align === 'center' || align === 'justify-center') u0 = start + (end - start - width) / 2;
   else if (align === 'right' || align === 'justify-right') u0 = end - width;
   const xs = zeros(n + 1);
   for (let k = 0; k <= n; k++) xs[k] = u0 + rel[k] + adj[k];
