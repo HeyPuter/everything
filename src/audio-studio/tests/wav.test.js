@@ -22,6 +22,18 @@ describe('wav', () => {
       ]);
     });
   }
+  it('keeps marker descriptions through a save and reopen', async () => {
+    const markers = [
+      { start: 10, duration: 0, name: 'Intro', description: 'Count-in, café take' },
+      { start: 40, duration: 20, name: 'Verse', description: '' },
+      { start: 80, duration: 0, name: 'Odd', description: 'abc' },
+    ];
+    const blob = encodeWav({ sampleRate: 8000, channels: [tone(100)], bitDepth: 16, dither: false, markers });
+    const r = parseWav(await blob.arrayBuffer());
+    expect(r.markers.map((m) => [m.start, m.duration, m.name, m.description])).toEqual(
+      markers.map((m) => [m.start, m.duration, m.name, m.description]),
+    );
+  });
   it('opens the audio of a file whose cue list or labels are cut off or damaged', async () => {
     const blob = encodeWav({ sampleRate: 8000, channels: [tone(64)], bitDepth: 16, dither: false, markers: [{ start: 10, name: 'A' }, { start: 20, name: 'B' }] });
     const bytes = new Uint8Array(await blob.arrayBuffer());

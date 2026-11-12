@@ -252,6 +252,18 @@ export function buildCue(markers) {
     dv.setUint32(8, i + 1, true);
     sub.set(text, 12);
     subs.push(sub);
+    if (m.description) {
+      // Descriptions travel as "note" sub-chunks, which parseWav reads back.
+      const note = enc.encode(`${m.description}\0`);
+      const nsize = 4 + note.length;
+      const nsub = new Uint8Array(8 + nsize + (nsize & 1));
+      const ndv = new DataView(nsub.buffer);
+      w4(ndv, 0, 'note');
+      ndv.setUint32(4, nsize, true);
+      ndv.setUint32(8, i + 1, true);
+      nsub.set(note, 12);
+      subs.push(nsub);
+    }
     if (m.duration) {
       const lt = new Uint8Array(8 + 20);
       const ld = new DataView(lt.buffer);
