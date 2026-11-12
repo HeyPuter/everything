@@ -23,12 +23,13 @@ export function sessionSnapshots(e: Editor, s: DocumentSession = e.session) {
   }
   return list;
 }
-/** Source state for the History Brush: a snapshot, or the opened state. */
+/** Source state for the History Brush: a snapshot, or the opened state
+ * (also once history has dropped the steps after it). */
 export function historySourceDoc(e: Editor): PhotoDocument {
   const id = e.settings.historySource as string | undefined;
   const snap = sessionSnapshots(e).find((s) => s.id === id);
   if (snap) return snap.doc;
-  return e.history.oldest;
+  return e.history.opened;
 }
 function historyTarget(e: Editor, target: PixelTarget): PaintTarget | undefined {
   if (target.kind !== 'pixels') {

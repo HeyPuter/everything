@@ -12,6 +12,9 @@ export type HistoryMark = { state: State; existing: Set<State>; open: boolean };
 export class History {
   private states: State[];
   private index = 0;
+  // The state the document opened in (or was last reset to); it stays
+  // available after older steps are dropped (History Brush source).
+  opened: PhotoDocument;
   // Applied to every new state, e.g. to bake pending pixel-layer transforms.
   normalize?: (doc: PhotoDocument, before: PhotoDocument) => void;
   // Whether a new edit keeps the states after the current one.
@@ -22,6 +25,7 @@ export class History {
     public limit = 60,
   ) {
     this.states = [{ label: '', doc: document }];
+    this.opened = document;
   }
   /** Record an edit. With `coalesce`, an edit repeating the label of the
    * latest step replaces that step's result (frame selection, for example),
@@ -74,6 +78,7 @@ export class History {
   }
   reset(doc: PhotoDocument) {
     this.document = doc;
+    this.opened = doc;
     this.states = [{ label: '', doc }];
     this.index = 0;
   }
