@@ -198,3 +198,12 @@ describe('Batch Process panel', () => {
     panel.el.remove();
   });
 });
+
+describe('Sound Assistant layout', () => {
+  it('wraps its header in narrow panels instead of pushing Clear Audio Type past the edge', async () => {
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/sound-assistant.css`, 'utf8');
+    // Measured in Chromium at 820 x 1180: the button ended past the panel's right edge.
+    expect(css).toMatch(/\.sa-head \{[^}]*flex-wrap: wrap;/);
+  });
+});
