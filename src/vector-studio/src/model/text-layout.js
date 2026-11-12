@@ -83,6 +83,7 @@ export function invalidateTextLayout() {
   inkCache.clear();
   icfCache = new Map();
   ensured.clear();
+  clearComposeCache();
 }
 
 export function fontGeneration() {
@@ -1486,7 +1487,7 @@ function flowAreaPass(node, text, ch, vertical, frames, wraps, markers, shifts) 
                 const rest = Math.max(1, s.x1 - s.x0 - lineLeft(para, false, null) - (para.indentRight || 0));
                 const width = first ? avail : rest;
                 if (!plan || !plan.has(p) || Math.abs(plan.width - width) > 0.5) {
-                  plan = composeParagraph(text, ch, p, pr.end, Math.max(1, avail), rest, para, hyS, hc);
+                  plan = composeCached(text, ch, p, pr.end, Math.max(1, avail), rest, para, hyS, hc);
                   if (plan) plan.width = width;
                 }
                 step = plan?.get(p) || null;
@@ -1702,6 +1703,150 @@ function composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, 
     const a = B.prev < 0 ? from : cands[B.prev].b;
     plan.set(a, { end: cands[bi].b, hyph: B.hyph });
     bi = B.prev;
+  }
+  return plan;
+}
+
+// ---- every-line composer cache ----
+//
+// Typing re-lays out the whole story, and composing every paragraph again
+// made each keystroke in long every-line text slow. composeParagraph is a pure
+// function of the paragraph's characters, their measurements and styles, the
+// widths, the paragraph's justification and hyphenation settings and the
+// hyphenated lines before it (plus font and hyphenation state, which drop the
+// cache through invalidateTextLayout), so its plan is reused while all of
+// those are equal: the paragraph text and settings key the entry and the
+// measurement arrays are compared one by one. Plans are kept relative to the
+// paragraph's start, so a paragraph moved by an edit before it still hits.
+
+let composeCache = new Map(); // key -> { n, arrays..., plan: [start, end, hyph]* relative }
+let composeChars = 0;
+let composeOn = true;
+const COMPOSE_CACHE_CHARS = 200000; // characters of cached paragraphs (oldest dropped first)
+let styleIds = new WeakMap(); // style object -> id of its settings
+let styleKeys = new Map(); // JSON of a style -> id
+
+function clearComposeCache() {
+  composeCache = new Map();
+  composeChars = 0;
+  styleIds = new WeakMap();
+  styleKeys = new Map();
+}
+
+/** Turn the composer cache off (tests compare layouts with and without it). */
+export function setComposeCache(on) {
+  composeOn = Boolean(on);
+  clearComposeCache();
+}
+
+function styleId(st) {
+  if (!st) return 0;
+  let id = styleIds.get(st);
+  if (id === undefined) {
+    // Paints never change how a paragraph breaks (and can be large).
+    const { fill, stroke, ...rest } = st;
+    const k = JSON.stringify(rest);
+    id = styleKeys.get(k);
+    if (id === undefined) styleKeys.set(k, (id = styleKeys.size + 1));
+    styleIds.set(st, id);
+  }
+  return id;
+}
+
+/** The inputs composeParagraph reads from the measured characters of [from, pe). */
+function composeInputs(ch, from, pe) {
+  const n = pe - from;
+  const sid = new Array(n);
+  let last = null;
+  let lastId = 0;
+  for (let k = 0; k < n; k++) {
+    const st = ch.sty[from + k];
+    if (st !== last) {
+      last = st;
+      lastId = styleId(st);
+    }
+    sid[k] = lastId;
+  }
+  const tcy = ch.tcy ? new Array(n) : null;
+  if (tcy)
+    for (let k = 0; k < n; k++) tcy[k] = ch.tcy[from + k] ? ch.tcy[from + k].s - from - k : 0;
+  return {
+    sid,
+    adv: ch.adv.slice(from, pe),
+    kern: ch.kern.slice(from, pe),
+    manual: ch.manual.slice(from, pe),
+    gw: ch.gw.slice(from, pe),
+    size: ch.size.slice(from, pe),
+    glyph: ch.glyph ? ch.glyph.slice(from, pe) : null,
+    kin: ch.kin ? ch.kin.slice(from, pe) : null,
+    tcy,
+  };
+}
+
+function sameSlice(a, src, from) {
+  if (!a) return src == null;
+  if (!src) return false;
+  for (let k = 0; k < a.length; k++) if (a[k] !== src[from + k]) return false;
+  return true;
+}
+
+function sameInputs(e, ch, from, pe) {
+  if (
+    !sameSlice(e.adv, ch.adv, from) ||
+    !sameSlice(e.kern, ch.kern, from) ||
+    !sameSlice(e.manual, ch.manual, from)
+  )
+    return false;
+  if (!sameSlice(e.gw, ch.gw, from) || !sameSlice(e.size, ch.size, from)) return false;
+  if (!sameSlice(e.glyph, ch.glyph, from) || !sameSlice(e.kin, ch.kin, from)) return false;
+  if (Boolean(e.tcy) !== Boolean(ch.tcy)) return false;
+  if (e.tcy)
+    for (let k = 0; k < e.tcy.length; k++)
+      if (e.tcy[k] !== (ch.tcy[from + k] ? ch.tcy[from + k].s - from - k : 0)) return false;
+  let last = null;
+  let lastId = 0;
+  for (let k = 0; k < e.sid.length; k++) {
+    const st = ch.sty[from + k];
+    if (st !== last) {
+      last = st;
+      lastId = styleId(st);
+    }
+    if (lastId !== e.sid[k]) return false;
+  }
+  return true;
+}
+
+/** composeParagraph, reusing the plan of a paragraph composed from the same inputs. */
+function composeCached(text, ch, from, pe, availFirst, availRest, para, hyS, hyCount0) {
+  if (!composeOn || pe - from < 2)
+    return composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, hyCount0);
+  const key = `${availFirst}|${availRest}|${hyCount0}|${para.align || ''}|${para.burasagari || ''}|${JSON.stringify(para.justification ?? null)}|${hyS ? JSON.stringify(hyS) : ''}|${text.slice(from, pe)}`;
+  const hit = composeCache.get(key);
+  if (hit && sameInputs(hit, ch, from, pe)) {
+    composeCache.delete(key);
+    composeCache.set(key, hit);
+    if (!hit.plan) return null;
+    const plan = new Map();
+    for (let k = 0; k < hit.plan.length; k += 3)
+      plan.set(from + hit.plan[k], { end: from + hit.plan[k + 1], hyph: hit.plan[k + 2] });
+    return plan;
+  }
+  const plan = composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, hyCount0);
+  const e = composeInputs(ch, from, pe);
+  e.n = pe - from;
+  e.plan = null;
+  if (plan) {
+    e.plan = [];
+    for (const [a, st] of plan) e.plan.push(a - from, st.end - from, st.hyph);
+  }
+  if (hit) composeChars -= hit.n;
+  composeCache.delete(key);
+  composeCache.set(key, e);
+  composeChars += e.n;
+  for (const [k, old] of composeCache) {
+    if (composeChars <= COMPOSE_CACHE_CHARS || old === e) break;
+    composeCache.delete(k);
+    composeChars -= old.n;
   }
   return plan;
 }
