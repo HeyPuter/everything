@@ -1092,8 +1092,10 @@ export class MultitrackView {
    * What is under lanes point (x, y): { row, clip, rect, part, param, index, auto }.
    * part: 'empty' | 'body' | 'header' | 'edgeIn' | 'edgeOut' | 'fadeIn' | 'fadeOut' | 'gain' | 'key' | 'line' | 'autoKey' | 'autoLine' | 'auto'
    */
-  hitTest(x, y) {
+  hitTest(x, y, { touch = false } = {}) {
     const row = this.rowAt(y);
+    // A finger covers more than a mouse pointer: touch gets larger grab areas.
+    const near = touch ? 12 : 5;
     if (!row) return { part: 'none', row: null };
     const cy = y + this.scrollY;
     const doc = this.doc;
@@ -1102,18 +1104,21 @@ export class MultitrackView {
       const param = t.type === 'master' ? 'volume' : t.autoParam;
       const pts = t.automation[param];
       for (let i = pts.length - 1; i >= 0; i--) {
-        if (Math.abs(this.xOf(pts[i].t) - x) <= 5 && Math.abs(this.#autoY(row, param, pts[i].v) - y) <= 5) return { part: 'autoKey', row, param, index: i, auto: true };
+        if (Math.abs(this.xOf(pts[i].t) - x) <= near && Math.abs(this.#autoY(row, param, pts[i].v) - y) <= near) return { part: 'autoKey', row, param, index: i, auto: true };
       }
       const v = pts.length ? S.envelopeValue(pts, this.frameAt(x), t[param]) : t[param];
-      if (Math.abs(this.#autoY(row, param, v) - y) <= 4) return { part: 'autoLine', row, param, auto: true };
+      if (Math.abs(this.#autoY(row, param, v) - y) <= (touch ? 10 : 4)) return { part: 'autoLine', row, param, auto: true };
       return { part: 'auto', row, param, auto: true };
     }
     const prefs = this.app.prefs;
     const rects = this.clipRects().filter((r) => r.row === row || r.row.id === row.id).reverse();
     for (const r of rects) {
-      if (x < r.x0 - 2 || x > r.x1 + 2 || y < r.y || y > r.y + r.h) continue;
+      // Clip edges grab from a little outside the clip too; on touch from up to a quarter of the clip inside.
+      const edge = touch ? Math.max(EDGE, Math.min(14, (r.x1 - r.x0) / 4)) : EDGE;
+      if (x < r.x0 - (touch ? edge : 2) || x > r.x1 + (touch ? edge : 2) || y < r.y || y > r.y + r.h) continue;
       const c = r.clip;
       const hit = { row, clip: c, rect: r };
+      if (touch && (x < r.x0 || x > r.x1)) return { ...hit, part: x < r.x0 ? 'edgeIn' : 'edgeOut' };
       const showVol = prefs.get('clipVolumeEnvelopes') !== false;
       const showPan = Boolean(prefs.get('clipPanEnvelopes'));
       // A remixed clip has no stretch handles: its right edge retargets the remix instead.
@@ -1126,8 +1131,8 @@ export class MultitrackView {
         const hx1 = r.x1 - Math.max(this.fadeInset, c.fadeOut.length / this.fpp);
         if (handles) {
           const hx0 = r.x0 + Math.max(this.fadeInset, c.fadeIn.length / this.fpp);
-          if (Math.abs(x - hx0) <= 6) return { ...hit, part: 'fadeIn' };
-          if (Math.abs(x - hx1) <= 6) return { ...hit, part: 'fadeOut' };
+          if (Math.abs(x - hx0) <= (touch ? 12 : 6)) return { ...hit, part: 'fadeIn' };
+          if (Math.abs(x - hx1) <= (touch ? 12 : 6)) return { ...hit, part: 'fadeOut' };
         }
         // The gain readout ends before the fade-out handle (as drawn).
         const pad = 10 + this.fadeInset;
@@ -1141,19 +1146,20 @@ export class MultitrackView {
         const keys = (param, points) => {
           for (let i = points.length - 1; i >= 0; i--) {
             const px = r.x0 + points[i].t / this.fpp;
-            if (Math.abs(px - x) <= 5 && Math.abs(this.#envY(r, param, points[i].v) - y) <= 5) return { ...hit, part: 'key', param, index: i };
+            if (Math.abs(px - x) <= near && Math.abs(this.#envY(r, param, points[i].v) - y) <= near) return { ...hit, part: 'key', param, index: i };
           }
           return null;
         };
         const k = (showVol && keys('volume', c.volumeEnv)) || (showPan && keys('pan', c.panEnv));
         if (k) return k;
       }
-      if (Math.abs(x - r.x0) <= EDGE) return { ...hit, part: 'edgeIn' };
-      if (Math.abs(x - r.x1) <= EDGE) return { ...hit, part: 'edgeOut' };
+      if (Math.abs(x - r.x0) <= edge) return { ...hit, part: 'edgeIn' };
+      if (Math.abs(x - r.x1) <= edge) return { ...hit, part: 'edgeOut' };
       if (r.wh > 14) {
         const t = this.frameAt(x) - c.start;
-        if (showVol && Math.abs(this.#envY(r, 'volume', S.envelopeValue(c.volumeEnv, t, 0)) - y) <= 3) return { ...hit, part: 'line', param: 'volume' };
-        if (showPan && Math.abs(this.#envY(r, 'pan', S.envelopeValue(c.panEnv, t, 0)) - y) <= 3) return { ...hit, part: 'line', param: 'pan' };
+        const lineTol = touch ? 8 : 3;
+        if (showVol && Math.abs(this.#envY(r, 'volume', S.envelopeValue(c.volumeEnv, t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'volume' };
+        if (showPan && Math.abs(this.#envY(r, 'pan', S.envelopeValue(c.panEnv, t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'pan' };
       }
       return { ...hit, part: 'body' };
     }
@@ -1307,7 +1313,7 @@ export class MultitrackView {
       }
       if (e.button !== 0) return;
       const { x, y } = this.#local(e);
-      const hit = this.hitTest(x, y);
+      const hit = this.hitTest(x, y, { touch: e.pointerType === 'touch' });
       if (hit.part === 'none') {
         this.doc.selectClips([]);
         return;

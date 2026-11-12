@@ -542,3 +542,59 @@ describe('selected keyframes', () => {
     expect(S.findClip(doc.state, clip.id).volumeEnv).toHaveLength(2);
   });
 });
+
+describe('touch in the multitrack editor', () => {
+  it('grabs clip edges and keyframes from further away with a finger than with a mouse', async () => {
+    const { app, doc } = await appWithSession();
+    const src = doc.addSource({
+      name: 'dc.wav',
+      channels: [Channel.fromSamples(new Float32Array(RATE * 4).fill(0.25))],
+    });
+    const clip = S.createClip({
+      trackId: doc.state.tracks[0].id,
+      sourceId: src,
+      start: RATE,
+      length: RATE * 2,
+    });
+    doc.apply('Add', S.addClips(doc.state, [clip]));
+    const view = app.documentKinds.get('session').view(app, doc);
+    document.body.replaceChildren(view.el);
+    view.width = 1000;
+    view.height = 600;
+    view.computeRows();
+    doc.setView(0, RATE * 10);
+    const r = view.clipRects()[0];
+    const y = r.wy + r.wh * 0.8;
+    // 10 px inside the right edge: the body for a mouse, the edge for a finger.
+    expect(view.hitTest(r.x1 - 10, y).part).toBe('body');
+    expect(view.hitTest(r.x1 - 10, y, { touch: true }).part).toBe('edgeOut');
+    expect(view.hitTest(r.x0 - 10, r.y + 4, { touch: true }).part).toBe('edgeIn');
+    expect(view.hitTest((r.x0 + r.x1) / 2, y, { touch: true }).part).toBe('body');
+    // A narrow clip keeps most of its body for moving.
+    doc.setView(0, RATE * 100);
+    const n = view.clipRects()[0];
+    expect(n.x1 - n.x0).toBeLessThan(40);
+    expect(view.hitTest((n.x0 + n.x1) / 2, n.wy + n.wh * 0.8, { touch: true }).part).toBe('body');
+    // A finger drag from inside the edge trims the clip.
+    doc.setView(0, RATE * 10);
+    app.prefs.set('snapping', false);
+    view.surface.setPointerCapture = () => {};
+    const pointer = (type, x) =>
+      view.surface.dispatchEvent(
+        Object.assign(new Event(type, { bubbles: true }), {
+          clientX: x,
+          clientY: y,
+          button: 0,
+          pointerId: 3,
+          pointerType: 'touch',
+        }),
+      );
+    pointer('pointerdown', r.x1 - 10);
+    pointer('pointermove', r.x1 - 30);
+    pointer('pointermove', r.x1 - 60);
+    pointer('pointerup', r.x1 - 60);
+    const c = S.findClip(doc.state, clip.id);
+    expect(c.start).toBe(clip.start);
+    expect(c.length).toBeLessThan(clip.length);
+  });
+});
