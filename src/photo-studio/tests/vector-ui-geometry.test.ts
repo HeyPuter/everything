@@ -112,6 +112,22 @@ describe('path editing', () => {
     close(s.distance, 2);
     close(s.t, 0.5);
   });
+  it('hit tests straight segments away from their middle', () => {
+    // A rectangle edge clicked a third of the way along is on the path.
+    const m: VectorMask = { paths: [closedPath(rectKnots(0, 0, 300, 300))] };
+    const s = nearestSegment(m, 100, 0)!;
+    expect(s.segment).toBe(0);
+    close(s.distance, 0);
+    close(s.point[0], 100);
+    close(s.point[1], 0);
+    // The parameter puts an inserted anchor where the edge was clicked.
+    const k = insertKnot(m.paths[0], s.segment, s.t);
+    close(m.paths[0].knots[k].points[2], 100);
+    close(m.paths[0].knots[k].points[3], 0);
+    const near = nearestSegment({ paths: [closedPath(rectKnots(0, 0, 300, 300))] }, 3, 250)!;
+    close(near.distance, 3);
+    close(near.point[1], 250);
+  });
   it('finds filled components with holes', () => {
     const ring = builtinShapes.find((s) => s.id === 'ring')!;
     const m: VectorMask = { paths: customShapePaths(ring, 0, 0, 100, 100) };

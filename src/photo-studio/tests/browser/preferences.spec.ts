@@ -137,3 +137,34 @@ test('unsaved documents are offered for recovery after the page closes', async (
   await idle(page);
   await expect(page.locator('#dialog[open]')).toHaveCount(0);
 });
+
+test('Discard All asks first, naming how many documents are lost, and Go Back keeps them', async ({ page }) => {
+  await openImage(page, 64, 48, '#aa3355', 'first.png');
+  await run(page, 'adjust.invert');
+  await openImage(page, 64, 48, '#3355aa', 'second.png');
+  await run(page, 'adjust.invert');
+  await run(page, 'file.autosave-now');
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer);
+  const dialog = page.locator('#dialog');
+  await expect(dialog.locator('.recovery-item')).toHaveCount(2);
+  await dialog.locator('.recovery-item input').first().uncheck();
+  await dialog.getByRole('button', { name: 'Discard All' }).click();
+  await expect(dialog.getByRole('heading', { name: 'Discard 2 Unsaved Documents?' })).toBeVisible();
+  // The safe choice has focus, so Enter or Space does not discard.
+  await expect(dialog.getByRole('button', { name: 'Go Back' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog.locator('.recovery-item')).toHaveCount(2);
+  await expect(dialog.locator('.recovery-item input').first()).not.toBeChecked();
+  // Escape on the question also goes back.
+  await dialog.getByRole('button', { name: 'Discard All' }).click();
+  await page.keyboard.press('Escape');
+  await expect(dialog.locator('.recovery-item')).toHaveCount(2);
+  await dialog.getByRole('button', { name: 'Discard All' }).click();
+  await dialog.getByRole('button', { name: 'Discard 2 Documents' }).click();
+  await expect(page.locator('#status')).toHaveText('Recovered documents discarded.');
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer);
+  await idle(page);
+  await expect(page.locator('#dialog[open]')).toHaveCount(0);
+});

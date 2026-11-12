@@ -4,7 +4,7 @@ import type { Editor } from '../../editor';
 import type { Layer, PhotoDocument } from '../../model/document';
 import { layerRGBA } from '../pixels';
 import type { IRect, RGBA8 } from '../../imaging/types';
-import { applyMat3, transformImage, transformedBounds, type Mat3 } from '../../imaging/filters/warp';
+import { applyMat3, transformImage, type Mat3 } from '../../imaging/filters/warp';
 import { meshWarp, type MeshGrid } from '../../imaging/filters/mesh';
 import type { Interp } from '../../imaging/filters/sampling';
 import { compose, flip, mapMesh, rectToQuad, rotate90, scaleM, translate, type Quad } from './math';
@@ -36,10 +36,21 @@ export function renderFrame(src: RGBA8, rect: IRect, quad: Quad, mesh: MeshGrid 
     const fast = exactPlacement(src, H);
     if (fast) return fast;
   }
-  let out = transformedBounds(H, src.width, src.height);
+  let out = frameBounds(H, src.width, src.height);
   if (limit) out = intersect(out, limit);
   if (out.width <= 0 || out.height <= 0) return undefined;
   return { image: transformImage(src, H, out, method), rect: out };
+}
+/** Whole-pixel bounds of the transformed source. Corners within rounding
+ * noise of a pixel edge stay on it: a solved homography maps an exact 2x
+ * scale to 19.9999999, which would add a row of faint filter spill. */
+export function frameBounds(m: Mat3, width: number, height: number): IRect {
+  const pts = [applyMat3(m, 0, 0), applyMat3(m, width, 0), applyMat3(m, width, height), applyMat3(m, 0, height)];
+  const xs = pts.map((p) => p.x),
+    ys = pts.map((p) => p.y);
+  const x = Math.floor(Math.min(...xs) + 1e-6),
+    y = Math.floor(Math.min(...ys) + 1e-6);
+  return { x, y, width: Math.ceil(Math.max(...xs) - 1e-6) - x, height: Math.ceil(Math.max(...ys) - 1e-6) - y };
 }
 export function intersect(a: IRect, b: IRect): IRect {
   const x = Math.max(a.x, b.x),

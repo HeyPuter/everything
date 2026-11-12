@@ -165,7 +165,7 @@ export async function commitShape(e: Editor, kind: ShapeKind, paths: SubPath[], 
     const t = drawingTarget(e);
     const mask: VectorMask = { ...t.mask, paths: [...structuredClone(t.mask.paths), ...structuredClone(paths)] };
     if (t.kind === 'work' && !e.doc.workPath?.paths.length) mask.paths[0].operation = 'combine';
-    await commitPathEdit(e, t, mask, t.kind === 'work' && t.mask.paths.length === 0 ? 'Work Path' : `${names[kind]} Tool`);
+    if (!(await commitPathEdit(e, t, mask, t.kind === 'work' && t.mask.paths.length === 0 ? 'Work Path' : `${names[kind]} Tool`))) return;
     const st = vstate(e);
     st.paths = new Set(mask.paths.map((_, i) => i).slice(t.mask.paths.length));
     return;

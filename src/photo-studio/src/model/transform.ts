@@ -2,6 +2,10 @@ import { allLayers, type Layer, type PhotoDocument, type Transform } from './doc
 import { layerLock } from './locks';
 import { multiplyMaskMatrix } from './pixel-mask';
 import { guideLines } from './guides';
+import { mapMaskPoints } from './paths';
+import { carryMask } from './pixel-layer';
+import { parseKey, TILE, type TileGrid, type TileStore } from './tiles';
+import { transformImage, transformedBounds, type Mat3 } from '../imaging/filters/warp';
 
 export type Point = [number, number];
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -192,7 +196,47 @@ export function selectionFrame(roots: Layer[]): Transform | undefined {
   };
 }
 /** A similarity transform preserves rotated rectangles without introducing shear. */
-export function transformSelection(roots: Layer[], before: Transform, after: Transform) {
+/** A moved group carries its linked layer and vector masks (its children
+ * move on their own). Painted masks stay on whole pixels (`gx`, `gy`). */
+export function moveGroupMasks(l: Layer, dx: number, dy: number, gx = Math.round(dx), gy = Math.round(dy)) {
+  if (l.maskGrid && !l.maskUnlinked && (gx || gy)) l.maskGrid = { ...l.maskGrid, x: l.maskGrid.x + gx, y: l.maskGrid.y + gy };
+  if (l.vectorMask && !l.vectorMask.unlinked && (dx || dy)) {
+    const mask = structuredClone(l.vectorMask.mask);
+    mapMaskPoints(mask, (x, y) => [x + dx, y + dy]);
+    l.vectorMask = { ...l.vectorMask, mask };
+  }
+}
+/** A mask grid carried through a document-space matrix; the fill of
+ * reveal-all masks stays outside the stored tiles. */
+export function carryGridMask(store: TileStore, grid: TileGrid, m: Mat3): TileGrid {
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  if (near(m[0], 1) && near(m[1], 0) && near(m[3], 0) && near(m[4], 1) && near(m[6], 0) && near(m[7], 0) && near(m[8], 1) && Number.isInteger(m[2]) && Number.isInteger(m[5]))
+    return { ...grid, x: grid.x + m[2], y: grid.y + m[5] };
+  const keys = Object.keys(grid.tiles);
+  if (!keys.length) return grid;
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity;
+  for (const k of keys) {
+    const [tx, ty] = parseKey(k);
+    x0 = Math.min(x0, tx);
+    y0 = Math.min(y0, ty);
+    x1 = Math.max(x1, tx);
+    y1 = Math.max(y1, ty);
+  }
+  const rect = { x: x0 * TILE + grid.x, y: y0 * TILE + grid.y, width: (x1 - x0 + 1) * TILE, height: (y1 - y0 + 1) * TILE };
+  return carryMask(store, grid, rect, (img) => {
+    const mm: Mat3 = [m[0], m[1], m[0] * rect.x + m[1] * rect.y + m[2], m[3], m[4], m[3] * rect.x + m[4] * rect.y + m[5], 0, 0, 1];
+    const out = transformedBounds(mm, img.width, img.height);
+    return { image: transformImage(img, mm, out, 'bilinear'), x: out.x, y: out.y };
+  });
+}
+/** Move, scale and rotate the selected layers from frame `before` to `after`.
+ * Linked masks of groups follow: moves always (whole pixels for painted
+ * masks), scales and rotations when `store` is given (interactive previews
+ * leave painted masks until the drag ends). */
+export function transformSelection(roots: Layer[], before: Transform, after: Transform, store?: TileStore) {
   if (roots.length === 1 && roots[0].kind !== 'group') {
     roots[0].transform = { ...after };
     return;
@@ -228,6 +272,21 @@ export function transformSelection(roots: Layer[], before: Transform, after: Tra
     if (l.kind === 'group' && l.pixelMask && !l.pixelMask.positionRelativeToLayer)
       l.pixelMask.matrix = multiplyMaskMatrix([scale*c,scale*s,-scale*s,scale*c,
         ax-scale*(bx*c-by*s),ay-scale*(bx*s+by*c)], l.pixelMask.matrix);
+    if (l.kind === 'group') {
+      // A move carries linked group masks on its own; scales and rotations
+      // resample a painted mask (with a store) and map a vector mask.
+      if (scale === 1 && Math.abs(angle) <= 0.001)
+        moveGroupMasks(l, ax - bx, ay - by, Math.round(after.x) - Math.round(before.x), Math.round(after.y) - Math.round(before.y));
+      else {
+        if (store && l.maskGrid && !l.maskUnlinked)
+          l.maskGrid = carryGridMask(store, l.maskGrid, [scale * c, -scale * s, ax - scale * (bx * c - by * s), scale * s, scale * c, ay - scale * (bx * s + by * c), 0, 0, 1]);
+        if (l.vectorMask && !l.vectorMask.unlinked) {
+          const mask = structuredClone(l.vectorMask.mask);
+          mapMaskPoints(mask, map);
+          l.vectorMask = { ...l.vectorMask, mask };
+        }
+      }
+    }
     if (l.kind !== 'group') {
       const t = l.transform;
       const [x, y] = map(t.x + t.width / 2, t.y + t.height / 2);

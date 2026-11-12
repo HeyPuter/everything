@@ -14,7 +14,7 @@ import { installTextStyles } from './styles-panel';
 import { installLanguageCommands } from './language';
 import { installPathType } from './path-type';
 import * as typeSession from './session';
-import { commit, onSessionChange, session } from './session';
+import { commit, focusInput, onSessionChange, session, undoEdit } from './session';
 import { forgetLayout } from './text-utils';
 
 // The Glyphs panel and Find and Replace / Check Spelling load on first use.
@@ -63,8 +63,25 @@ export function installType(e: Editor) {
   installPathType(e);
   // Any other command ends the editing session first, so its edit (or an
   // undo) applies to committed text rather than to the live draft.
+  // Edit › Undo and Redo (menu bar, History menus) step through the text
+  // edits while there are any, as Mod+Z does in the text.
+  const textStep = (id: string) => {
+    const s = session;
+    if (!s || s.composing) return false;
+    return id === 'edit.undo' ? s.undo.length > 0 : id === 'edit.redo' && s.redo.length > 0;
+  };
+  for (const id of ['edit.undo', 'edit.redo']) {
+    const c = commands.get(id);
+    const enabled = c?.enabled;
+    if (c) c.enabled = (e) => textStep(id) || (enabled ? enabled(e) : true);
+  }
   const run = e.runCommand.bind(e);
   e.runCommand = async (id: string, arg?: unknown) => {
+    if (textStep(id)) {
+      undoEdit(e, id === 'edit.redo');
+      focusInput(e);
+      return;
+    }
     if (session && commands.has(id) && !/^(type|window|view|help)\./.test(id)) await commit(e);
     return run(id, arg);
   };

@@ -115,6 +115,14 @@ describe('scripting API host', () => {
     host.finish();
   });
 
+  it('names the requested size and the real limits when a new document is too large', async () => {
+    const e = mockEditor();
+    const host = new ScriptHost(e as unknown as Editor, ui(), 'Test');
+    await expect(host.call('documents.create', [{ width: 100000, height: 50 }])).rejects.toThrow('A 100000 × 50 px document is too large: documents can be up to 8192 px wide or high and up to 24 megapixels.');
+    await expect(host.call('documents.create', [{ width: 6000, height: 6000 }])).rejects.toThrow('A 6000 × 6000 px document is too large');
+    host.finish();
+  });
+
   it('creates and edits layers as one undo step per run', async () => {
     const e = mockEditor();
     const start = e.history.position;
@@ -239,6 +247,9 @@ describe('scripting API host', () => {
     await expect(host.call('constructor', [])).rejects.toThrow('Unknown API method');
     await expect(host.call('layers.create', [id, { kind: 'pixel', opacity: 'high' }])).rejects.toThrow('opacity must be a finite number');
     await expect(host.call('layers.set', [id, 'missing', {}])).rejects.toThrow('no longer exists');
+    // A filled area is limited like a read, before anything is allocated (30000 × 30000 was 3.6 GB).
+    await expect(host.call('layers.create', [id, { fill: '#ff0000', rect: { x: 0, y: 0, width: 6000, height: 6000 } }])).rejects.toThrow('at most 24 megapixels');
+    expect(e.doc.layers).toHaveLength(1);
     await expect(host.call('documents.get', ['nope'])).rejects.toThrow('no longer open');
     await expect(host.call('layers.set', [id, e.doc.layers[0].id, { blendMode: 'sparkle' }])).rejects.toThrow('Unknown blend mode');
     expect(await host.call('ui.form', ['T', [{ name: 'n', type: 'number', value: 3 }, { name: 'c', type: 'checkbox' }]])).toEqual({ n: 3, c: false });
@@ -254,6 +265,36 @@ describe('scripting API host', () => {
     host.finish();
   });
 
+  it('explains arrange requests that cannot work in plain words', async () => {
+    const e = mockEditor();
+    const host = new ScriptHost(e as unknown as Editor, ui(), 'Arrange');
+    const id = e.session.id;
+    const bg = e.doc.layers[0].id;
+    const p = (await host.call('layers.create', [id, { name: 'P' }])) as { id: string };
+    const g = (await host.call('layers.create', [id, { kind: 'group', name: 'G' }])) as { id: string };
+    const inner = (await host.call('layers.create', [id, { kind: 'group', name: 'Inner', inside: g.id }])) as { id: string };
+    await expect(host.call('layers.arrange', [id, g.id, { inside: inner.id }])).rejects.toThrow('“G” cannot be moved inside itself or next to a layer it contains.');
+    await expect(host.call('layers.arrange', [id, g.id, { above: g.id }])).rejects.toThrow('cannot be moved inside itself');
+    await expect(host.call('layers.arrange', [id, p.id, { inside: bg }])).rejects.toThrow('Layers can only be moved inside a group; “Background” is not a group.');
+    await expect(host.call('layers.arrange', [id, p.id, {}])).rejects.toThrow('Arrange takes "top"');
+    await expect(host.call('layers.arrange', [id, p.id, { below: 'gone' }])).rejects.toThrow('The target layer no longer exists.');
+    await host.call('layers.arrange', [id, p.id, { inside: inner.id }]);
+    expect(((await host.call('layers.get', [id, p.id])) as { parentId: string }).parentId).toBe(inner.id);
+    host.finish();
+  });
+  it('keeps the texts of script dialogs to a readable length', async () => {
+    const e = mockEditor();
+    const seen: { fields?: { options?: [string, string][]; value: unknown }[]; prompt?: string } = {};
+    const u = { ...ui(), form: async (_t: string, fields: never) => ((seen.fields = fields), null), prompt: async (_m: string, v: string) => ((seen.prompt = v), null) };
+    const host = new ScriptHost(e as unknown as Editor, u, 'Dialogs');
+    const huge = 'x'.repeat(1_000_000);
+    await host.call('ui.form', ['T', [{ name: 's', type: 'select', options: [huge, [huge, huge]] }, { name: 't', value: huge }]]);
+    expect(Math.max(...seen.fields![0].options!.flat().map((o) => o.length))).toBeLessThanOrEqual(200);
+    expect(String(seen.fields![1].value).length).toBeLessThanOrEqual(10_000);
+    await host.call('ui.prompt', ['Q', huge]);
+    expect(seen.prompt!.length).toBeLessThanOrEqual(10_000);
+    host.finish();
+  });
   it('lists layers top to bottom with children after their group', () => {
     const doc = newDocument(10, 10);
     const a = newPixelLayer('A', doc),

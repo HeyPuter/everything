@@ -73,6 +73,8 @@ export class PeerNetwork {
       changed?: () => void;
       // Links came or went.
       linked?: () => void;
+      // The link to this member's session closed (its tab may be gone).
+      unlinked?: (session: string) => void;
       // A verified member not in our roster tried to link.
       stranger?: () => void;
       now?: () => number;
@@ -203,7 +205,13 @@ export class PeerNetwork {
       clearInterval(heartbeat);
       conn.psSoft?.close();
       this.connections.delete(conn);
-      for (const [id, link] of this.links) if (link === conn) this.links.delete(id);
+      let current = false;
+      for (const [id, link] of this.links)
+        if (link === conn) {
+          this.links.delete(id);
+          current ||= id === authorized;
+        }
+      if (authorized && current && !this.closed) this.o.unlinked?.(authorized);
       if (authorized) this.o.linked?.();
     };
     conn.addEventListener('close', close);

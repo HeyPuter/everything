@@ -2,7 +2,7 @@ import { isVectorGradient } from "../model/vector-gradient";
 import { gradientStop } from "../model/gradient-edit";
 import { hasMask } from '../model/masks';
 import type { Editor } from '../editor';
-import { assertEditable, groupLayers, reorderLayers, selectedRoots } from '../model/layers';
+import { assertEditable, groupLayers, placeDuplicates, reorderLayers, selectedRoots } from '../model/layers';
 import { placeDuplicateArtboards } from '../model/artboard';
 import { releaseBackground } from '../model/housekeeping';
 import { Renderer } from '../renderer/renderer';
@@ -414,10 +414,7 @@ export async function performAction(e: Editor, action: string): Promise<void> {
         throw new Error(`A document can contain up to ${MAX_LAYERS} layers.`);
       const copies = roots.map(cloneLayer);
       e.command('Duplicate layers', (d) => {
-        roots.forEach((l, i) => {
-          const list = containerOf(d.layers, l.id)!;
-          list.splice(list.findIndex((item) => item.id === l.id) + 1, 0, copies[i]);
-        });
+        placeDuplicates(d, roots, copies);
         placeDuplicateArtboards(d, copies);
       });
       e.selectLayers(copies.map((l) => l.id));

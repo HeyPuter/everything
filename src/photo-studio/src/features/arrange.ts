@@ -2,7 +2,7 @@ import type { Editor } from '../editor';
 import { commands, findCommand, registerCommand, tools, panels, type Command } from '../app/registry';
 import { allLayers, findLayer, type Layer } from '../model/document';
 import { linkedPartners } from '../model/links';
-import { transformBounds } from '../model/transform';
+import { moveGroupMasks, transformBounds } from '../model/transform';
 import { assertEditable } from '../model/layers';
 import { escapeXML } from '../model/assets';
 import { eventShortcut, formatShortcut, normalizeShortcut } from '../app/shortcuts';
@@ -20,8 +20,10 @@ function layerBox(l: Layer, e: Editor): Box {
   return transformBounds(l.transform);
 }
 function translate(l: Layer, dx: number, dy: number) {
-  if (l.kind === 'group') for (const c of l.children) translate(c, dx, dy);
-  else {
+  if (l.kind === 'group') {
+    moveGroupMasks(l, dx, dy);
+    for (const c of l.children) translate(c, dx, dy);
+  } else {
     l.transform.x += dx;
     l.transform.y += dy;
   }
@@ -105,7 +107,10 @@ function openSearch(e: Editor) {
   pop.className = 'command-search popover';
   pop.setAttribute('role', 'dialog');
   pop.setAttribute('aria-label', 'Search');
-  pop.innerHTML = `<input type="search" placeholder="Search commands, tools and panels" aria-label="Search commands"><div class="search-results" role="listbox"></div>`;
+  // A combobox: the focus stays in the field and the highlighted result is
+  // its active descendant, so screen readers say each result as it is reached.
+  pop.innerHTML = `<input type="search" placeholder="Search commands, tools and panels" aria-label="Search commands" role="combobox" aria-autocomplete="list" aria-controls="command-search-results" aria-expanded="false"><div class="search-results" id="command-search-results" role="listbox" aria-label="Results"></div>`;
+  const opener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
   document.body.append(pop);
   const input = pop.querySelector('input')!,
     list = pop.querySelector<HTMLElement>('.search-results')!;
@@ -124,8 +129,12 @@ function openSearch(e: Editor) {
       .slice(0, 40);
     active = Math.min(active, Math.max(0, shown.length - 1));
     list.innerHTML = shown
-      .map((i, k) => `<div class="search-item ${k === active ? 'active' : ''}" role="option" aria-selected="${k === active}" data-k="${k}">${svg(i.icon, 14)}<span>${escapeXML(i.label)}</span><small>${i.kind}</small><kbd>${escapeXML(i.detail)}</kbd></div>`)
+      .map((i, k) => `<div class="search-item ${k === active ? 'active' : ''}" role="option" id="command-search-${k}" aria-selected="${k === active}" data-k="${k}">${svg(i.icon, 14)}<span>${escapeXML(i.label)}</span><small>${i.kind}</small><kbd>${escapeXML(i.detail)}</kbd></div>`)
       .join('') || (q ? '<p class="muted">No results</p>' : '<p class="muted">Type to search menus, tools and panels.</p>');
+    input.setAttribute('aria-expanded', String(shown.length > 0));
+    if (shown.length) input.setAttribute('aria-activedescendant', `command-search-${active}`);
+    else input.removeAttribute('aria-activedescendant');
+    list.querySelector('.search-item.active')?.scrollIntoView({ block: 'nearest' });
   };
   const close = () => {
     pop.remove();
@@ -143,10 +152,13 @@ function openSearch(e: Editor) {
     else if (ev.key === 'ArrowUp') active = Math.max(0, active - 1);
     else if (ev.key === 'Enter' && shown[active]) {
       close();
+      // The focus goes back first, so a dialog the command opens returns it there.
+      opener?.focus({ preventScroll: true });
       shown[active].run();
       return;
     } else if (ev.key === 'Escape') {
       close();
+      opener?.focus({ preventScroll: true });
       return;
     } else return;
     ev.preventDefault();
@@ -156,6 +168,7 @@ function openSearch(e: Editor) {
     const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-k]');
     if (!row) return;
     close();
+    opener?.focus({ preventScroll: true });
     shown[Number(row.dataset.k)].run();
   });
   document.addEventListener('pointerdown', outside, true);
@@ -165,10 +178,27 @@ function openSearch(e: Editor) {
 
 // ----- Keyboard shortcut customization -----
 const shortcutKey = 'photo-studio-shortcuts';
+const NOTE = 'This browser could not store them (its storage is full or turned off), so they last until the page is closed.';
 // Shortcuts as registered, recorded before a customization replaces them so
 // a reset or a workspace switch can restore them without reloading.
 const defaultShortcuts = new Map<string, Command['shortcut']>();
+// Shortcuts the browser refused to store (full or blocked storage): they
+// still apply until the page closes.
+let unstored: Record<string, string> | undefined;
+/** Store the custom shortcut set; false when the browser refused it. */
+function storeShortcuts(custom: Record<string, string>) {
+  try {
+    if (Object.keys(custom).length) localStorage.setItem(shortcutKey, JSON.stringify(custom));
+    else localStorage.removeItem(shortcutKey);
+    unstored = undefined;
+    return true;
+  } catch {
+    unstored = { ...custom };
+    return false;
+  }
+}
 export function customShortcuts(): Record<string, string> {
+  if (unstored) return { ...unstored };
   try {
     const v = JSON.parse(localStorage.getItem(shortcutKey) ?? '{}');
     if (v && typeof v === 'object' && !Array.isArray(v)) return Object.fromEntries(Object.entries(v).filter(([, s]) => typeof s === 'string')) as Record<string, string>;
@@ -191,24 +221,15 @@ export function applyCustomShortcuts() {
 }
 /** Replace the custom shortcut set (an empty set restores the defaults). */
 export function setCustomShortcuts(custom: Record<string, string>) {
-  try {
-    if (Object.keys(custom).length) localStorage.setItem(shortcutKey, JSON.stringify(custom));
-    else localStorage.removeItem(shortcutKey);
-  } catch {
-    /* Optional. */
-  }
+  const stored = storeShortcuts(custom);
   applyCustomShortcuts();
+  return stored;
 }
 function shortcutEditor(e: Editor) {
   const d = document.querySelector<HTMLDialogElement>('#dialog')!;
-  let custom: Record<string, string> = {};
-  try {
-    custom = JSON.parse(localStorage.getItem(shortcutKey) ?? '{}');
-  } catch {
-    /* Optional. */
-  }
+  const custom = customShortcuts();
   const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.') || true).sort((a, b) => a.id.localeCompare(b.id));
-  d.innerHTML = `<form method="dialog" class="shortcut-editor"><h2>Keyboard Shortcuts</h2><p class="muted">Click a shortcut field and press the new key combination. Backspace clears it. Conflicts are shown in red.</p><input type="search" class="shortcut-filter" placeholder="Filter" aria-label="Filter commands"><div class="shortcut-table">${list
+  d.innerHTML = `<form method="dialog" class="shortcut-editor"><h2>Keyboard Shortcuts</h2><p class="muted">Click a shortcut field (or press Enter on it) and press the new key combination; Escape stops recording. Backspace clears it. Conflicts are shown in red.</p><input type="search" class="shortcut-filter" placeholder="Filter" aria-label="Filter commands"><div class="shortcut-table">${list
     .map((c) => `<label class="shortcut-entry" data-id="${c.id}"><span>${escapeXML(c.label)} <small class="muted">${escapeXML(c.id)}</small></span><input readonly data-shortcut="${c.id}" value="${escapeXML(Array.isArray(c.shortcut) ? c.shortcut[0] : (c.shortcut ?? ''))}" aria-label="Shortcut for ${escapeXML(c.label)}"></label>`)
     .join('')}</div><div class="dialog-actions"><button type="button" data-reset-shortcuts>Reset to Defaults</button><button type="button" id="cancel-dialog">Cancel</button><button class="primary">OK</button></div></form>`;
   const conflicts = () => {
@@ -221,17 +242,44 @@ function shortcutEditor(e: Editor) {
     });
     for (const group of seen.values()) if (group.length > 1) group.forEach((i) => i.classList.add('conflict'));
   };
-  d.addEventListener('keydown', function capture(ev) {
+  // A field records keys once clicked (or Enter is pressed on it) until
+  // Escape or the focus leaves; otherwise Tab and Escape keep their usual
+  // meaning, so the keyboard can move through the list and close the dialog.
+  const form = d.querySelector('form')!;
+  const record = (t: HTMLInputElement, on: boolean) => {
+    t.classList.toggle('recording', on);
+    t.placeholder = on ? 'Press keys…' : '';
+  };
+  form.addEventListener('pointerdown', (ev) => {
+    const t = ev.target as HTMLInputElement;
+    if (t.dataset?.shortcut) record(t, true);
+  });
+  form.addEventListener('focusout', (ev) => {
+    const t = ev.target as HTMLInputElement;
+    if (t.dataset?.shortcut) record(t, false);
+  });
+  form.addEventListener('keydown', (ev) => {
     const t = ev.target as HTMLInputElement;
     if (!t.dataset?.shortcut) return;
+    const clear = (ev.key === 'Backspace' || ev.key === 'Delete') && !ev.metaKey && !ev.ctrlKey && !ev.altKey;
+    if (!t.classList.contains('recording')) {
+      if (ev.key === 'Enter' || ev.key === ' ') record(t, true);
+      else if (clear) {
+        t.value = '';
+        custom[t.dataset.shortcut] = '';
+        conflicts();
+      } else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
     ev.preventDefault();
     ev.stopPropagation();
     if (['Meta', 'Control', 'Alt', 'Shift'].includes(ev.key)) return;
-    if (ev.key === 'Backspace' && !ev.metaKey && !ev.ctrlKey) t.value = '';
-    else if (ev.key === 'Escape') return;
+    if (ev.key === 'Escape') return record(t, false);
     // Recorded exactly as keyDown will see it: by physical key, so Shift+] or
     // Option+A is stored as itself rather than as "}" or "å", and Ctrl stays Ctrl on a Mac.
-    else t.value = eventShortcut(ev);
+    t.value = ev.key === 'Backspace' && !ev.metaKey && !ev.ctrlKey ? '' : eventShortcut(ev);
     custom[t.dataset.shortcut] = t.value;
     conflicts();
   }, true);
@@ -245,16 +293,11 @@ function shortcutEditor(e: Editor) {
     e.message('Keyboard shortcuts reset to defaults.');
   });
   d.querySelector('#cancel-dialog')!.addEventListener('click', () => d.close());
-  d.querySelector('form')!.onsubmit = (ev) => {
+  form.onsubmit = (ev) => {
     ev.preventDefault();
-    try {
-      localStorage.setItem(shortcutKey, JSON.stringify(custom));
-    } catch {
-      /* Optional. */
-    }
-    applyCustomShortcuts();
+    const stored = setCustomShortcuts(custom);
     d.close();
-    e.message('Keyboard shortcuts updated.');
+    e.message(stored ? 'Keyboard shortcuts updated.' : `Keyboard shortcuts updated. ${NOTE}`);
   };
   conflicts();
   d.showModal();

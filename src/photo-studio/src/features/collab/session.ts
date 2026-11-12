@@ -102,9 +102,19 @@ export class CollabSession implements SharedHandle {
   }
   pointer(x: number | undefined, y: number | undefined) {
     this.cursor = x === undefined || y === undefined ? null : [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+    this.away = false;
     this.client.setPresence(this.presence());
   }
+  // Another document is shown in this browser: others see no cursor or outlines.
+  private away = false;
+  hidden() {
+    if (this.away) return;
+    this.away = true;
+    this.cursor = null;
+    this.client.setPresence({ cursor: null });
+  }
   changed() {
+    this.away = false;
     this.client.setPresence(this.presence());
     if (this.following && !this.applying) {
       const e = this.e;
@@ -145,7 +155,24 @@ export class CollabSession implements SharedHandle {
     this.e.message(`Following ${p.username}. Move the view to stop.`);
     renderBar(this.e);
   }
+  // Presence arrives up to 20 times a second from each person: the overlay,
+  // the top bar and a followed view are drawn once per frame, with the
+  // latest state (a timer stands in for frames in a hidden tab).
+  private drawFrame = 0;
+  private drawTimer = 0;
   peopleChanged() {
+    if (this.drawFrame || this.drawTimer) return;
+    const run = () => {
+      cancelAnimationFrame(this.drawFrame);
+      clearTimeout(this.drawTimer);
+      this.drawFrame = this.drawTimer = 0;
+      this.drawPeople();
+    };
+    this.drawFrame = requestAnimationFrame(run);
+    this.drawTimer = window.setTimeout(run, 100);
+  }
+  drawPeople() {
+    if (shared.get(this.s) !== this) return;
     if (this.following && !this.client.people.has(this.following)) {
       this.following = '';
       this.e.message('The person you followed left.');
@@ -310,18 +337,19 @@ const active = (e: Editor) => {
 function install(e: Editor) {
   if (installed) return;
   installed = true;
+  const all = () => [...shared.values()].filter((x): x is CollabSession => x instanceof CollabSession);
   e.pointerHooks.push((ed, p) => active(ed)?.pointer(p?.x, p?.y));
   e.viewHooks.push((ed) => active(ed)?.changed());
   e.onUpdate((ed) => {
     const cs = active(ed);
     cs?.changed();
+    for (const other of all()) if (other !== cs) other.hidden();
     renderBar(ed);
     document.documentElement.classList.toggle('review-mode', !!cs?.review);
     // A layer comp shown in the review view stays shown as the document updates.
     if (cs?.review && reviewComp) queueMicrotask(() => void showComp(ed, reviewComp));
   });
   e.el('#viewport').addEventListener('pointerleave', () => active(e)?.pointer(undefined, undefined));
-  const all = () => [...shared.values()].filter((x): x is CollabSession => x instanceof CollabSession);
   window.addEventListener('online', () => {
     for (const cs of all()) {
       cs.client.flush();

@@ -8,6 +8,7 @@ import { findLayer } from '../../model/document';
 import { gridDocBounds } from '../../model/tiles';
 import { setPixelResampleMethod } from '../../model/pixel-layer';
 import { lazy, lazyRun, lazyTool, prefetchOnIdle } from '../../app/lazy';
+import { recordsSettings } from '../action-settings';
 import type { Mode, SplitAction } from './session';
 import { currentSession, recordTransform, selectionFrameOf, SESSION_TOOL } from './session-state';
 import { bezierMesh, frameMatrix, samplerInterp, transformQuad, type Quad } from './math';
@@ -151,6 +152,7 @@ export function installTransform(e: Editor) {
   });
 
   const hasTarget = (e: Editor) => !!currentSession() || !!e.layer;
+  for (const id of ['image.rotate-arbitrary', 'image.image-size', 'image.canvas-size']) recordsSettings(id);
   registerCommand(
     {
       id: 'edit.free-transform',
@@ -236,11 +238,11 @@ export function installTransform(e: Editor) {
     { id: 'image.rotate-180', label: '180°', enabled: (e) => e.hasDocument, ...lazyRun(layerOps, (m, e) => m.rotateCanvas(e, 180)) },
     { id: 'image.rotate-cw', label: '90° Clockwise', enabled: (e) => e.hasDocument, ...lazyRun(layerOps, (m, e) => m.rotateCanvas(e, 90)) },
     { id: 'image.rotate-ccw', label: '90° Counter Clockwise', enabled: (e) => e.hasDocument, ...lazyRun(layerOps, (m, e) => m.rotateCanvas(e, -90)) },
-    { id: 'image.rotate-arbitrary', label: 'Arbitrary…', enabled: (e) => e.hasDocument, ...lazyRun(layerOps, (m, e) => m.arbitraryRotation(e)) },
+    { id: 'image.rotate-arbitrary', label: 'Arbitrary…', enabled: (e) => e.hasDocument, ...lazyRun(layerOps, (m, e, arg) => m.arbitraryRotation(e, arg)) },
     { id: 'image.flip-horizontal', label: 'Flip Canvas Horizontal', enabled: (e) => e.hasDocument, ...lazyRun(layerOps, (m, e) => m.flipCanvas(e, true)) },
     { id: 'image.flip-vertical', label: 'Flip Canvas Vertical', enabled: (e) => e.hasDocument, ...lazyRun(layerOps, (m, e) => m.flipCanvas(e, false)) },
-    { id: 'image.image-size', label: 'Image Size…', shortcut: 'Mod+Alt+I', enabled: (e) => e.hasDocument, ...lazyRun(imageSize, (m, e) => m.imageSizeDialog(e)) },
-    { id: 'image.canvas-size', label: 'Canvas Size…', shortcut: 'Mod+Alt+C', enabled: (e) => e.hasDocument, ...lazyRun(canvasSize, (m, e) => m.canvasSizeDialog(e)) },
+    { id: 'image.image-size', label: 'Image Size…', shortcut: 'Mod+Alt+I', enabled: (e) => e.hasDocument, ...lazyRun(imageSize, (m, e, arg) => m.imageSizeDialog(e, arg)) },
+    { id: 'image.canvas-size', label: 'Canvas Size…', shortcut: 'Mod+Alt+C', enabled: (e) => e.hasDocument, ...lazyRun(canvasSize, (m, e, arg) => m.canvasSizeDialog(e, arg)) },
   );
   // The crop tools load when first chosen.
   registerTool(

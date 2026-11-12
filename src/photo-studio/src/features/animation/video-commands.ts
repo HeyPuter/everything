@@ -645,7 +645,8 @@ export async function videoOnionSettings(e: Editor) {
   const v = await formDialog(
     'Onion Skins',
     [
-      { name: 'enabled', label: 'Show onion skins', type: 'checkbox', value: 'yes' },
+      // Shows the current state; checked before onion skins were ever set up.
+      { name: 'enabled', label: 'Show onion skins', type: 'checkbox', value: tlOf(e).onion?.enabled === false ? 'no' : 'yes' },
       { name: 'before', label: 'Frames before', type: 'number', value: o.before, min: 0, max: 8, step: 1 },
       { name: 'after', label: 'Frames after', type: 'number', value: o.after, min: 0, max: 8, step: 1 },
       { name: 'opacity', label: 'Opacity (%)', type: 'number', value: Math.round(o.opacity * 100), min: 5, max: 100, step: 1 },

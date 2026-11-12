@@ -35,6 +35,10 @@ Scripts are programs you install, so they run apart from the app:
 - A script that does not answer for 30 seconds while computing (set another limit
   with a `// @timeout <seconds>` header line) is stopped. **Stop** on the run
   indicator stops a script at its next API call.
+- Photo Studio checks what arrives from the sandbox, not only what the runtime
+  sends: output is shown at up to 1,000 lines a second (lines of up to 4,000
+  characters; the rest is counted), and a script that answers the watchdog without
+  being asked, sends longer lines or floods output is stopped.
 
 ## Writing a script
 
@@ -156,6 +160,7 @@ dialog applies `arg` directly instead. For example:
 ```js
 await studio.commands.run('adjust.desaturate');
 await studio.commands.run('filter.apply.gaussian-blur', { params: { radius: 4 } });
+await studio.commands.run('adjust.brightness-contrast', { params: { brightness: 20, contrast: 10 } });
 // Portrait & Restore: list the filters to turn on with their settings.
 await studio.commands.run('filter.portrait-restore', { params: { filters: [{ id: 'restore', enabled: true, params: { dust: 60 } }, { id: 'skin', enabled: true }] } });
 ```

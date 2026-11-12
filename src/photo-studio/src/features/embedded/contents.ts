@@ -12,7 +12,7 @@ import { gridFromImage } from '../../model/tiles';
 import { readRgbProfile } from '../../color/profile';
 import { sniffImageFormat } from '../../imaging/codecs/sniff';
 import { convertToSrgb, documentProfile, floatTo16 } from '../files/color';
-import { checkBrowserImage, decodeBrowserImage, decodeFile, inMemoryFile } from '../files/open';
+import { checkBrowserFile, decodeBrowserImage, decodeFile, inMemoryFile } from '../files/open';
 import { addRGBA, addSamples, documentSamples, layerSamples, type Samples } from './render';
 import { computeStack } from './stack-client';
 import { rescaleFrame, rescaleTransform } from './frame-math';
@@ -72,7 +72,12 @@ export async function contentsFromFile(e: Editor, parent: PhotoDocument, into: A
   file = await inMemoryFile(file);
   const lower = name.toLowerCase();
   const title = baseName(name);
-  if (lower.endsWith('.photo')) {
+  // The contents decide, as when opening: a PSD or project saved with another
+  // extension is still placed with its layers.
+  const head = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
+  const format = sniffImageFormat(head);
+  const project = head.length >= 8 && new TextDecoder().decode(head.subarray(0, 8)) === 'PHOTO001';
+  if (project || (format === 'unknown' && lower.endsWith('.photo'))) {
     const loaded = await deserialize(file);
     try {
       return { ...(await contentsFromDocument(e, parent, into, loaded.document, loaded.assets, { name: title, project: file })), sourceName: name };
@@ -80,7 +85,7 @@ export async function contentsFromFile(e: Editor, parent: PhotoDocument, into: A
       loaded.assets.clear();
     }
   }
-  if (/\.ps[db]$/.test(lower)) {
+  if (format === 'psd' || format === 'psb' || (format === 'unknown' && !project && /\.ps[db]$/.test(lower))) {
     const { openPsd } = await import('../../model/psd');
     const loaded = await openPsd(file, name, e.engine);
     try {
@@ -90,10 +95,9 @@ export async function contentsFromFile(e: Editor, parent: PhotoDocument, into: A
       loaded.assets.clear();
     }
   }
-  const head = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
-  const mime = browserImages[sniffImageFormat(head)];
+  const mime = browserImages[format];
   if (mime) {
-    checkBrowserImage(head);
+    await checkBrowserFile(file);
     const id = await into.add(new Blob([file], { type: mime }));
     const { width, height } = into.dimensions(id);
     return { id: crypto.randomUUID(), name: title, width, height, composite: id, source: id, sourceName: name, colorSpace: 'srgb' };

@@ -276,3 +276,16 @@ describe('vertical orientation', () => {
     expect(lay.lines[0].x).toBe(100 - 12);
   });
 });
+
+describe('CSS font strings', () => {
+  it('quotes family names that are not plain identifiers or that read as keywords', () => {
+    const f = (family: string) => cssFont({ family, weight: 400, italic: false }, 12);
+    expect(f('Inter')).toBe('400 12px Inter, sans-serif');
+    // A name starting with a digit is not a CSS identifier: unquoted, the whole font is ignored.
+    expect(f('04B_03')).toBe('400 12px "04B_03", sans-serif');
+    // Generic and CSS-wide keywords match in any case.
+    expect(f('Serif')).toBe('400 12px "Serif", sans-serif');
+    expect(f('Inherit')).toBe('400 12px "Inherit", sans-serif');
+    expect(f('--x')).toBe('400 12px "--x", sans-serif');
+  });
+});

@@ -49,6 +49,8 @@
   --muted: #d6d6d6;
   --muted-selected: #ececec;
   --accent: #7db4ff;
+  /* The lighter accent needs more darkening to keep 4.5:1 with white text. */
+  --accent-fill: color-mix(in srgb, var(--accent) 60%, #000);
   --accent-bg: #666;
   --selected: #6a6a6a;
   --row-selected: #4d6c8e;
@@ -126,7 +128,7 @@ input[type='range'] { accent-color: var(--accent); padding: 0; border: 0; backgr
 select { padding-right: 2px; }
 kbd { font-family: inherit; color: var(--muted); font-size: 11px; }
 .primary { background: var(--accent-fill); color: var(--accent-text); border-color: var(--accent-fill); }
-.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-fill) 88%, white); }
+.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-fill) 94%, white); }
 .secondary { border-color: var(--input-line); }
 .icon-button { padding: 2px; min-width: 24px; }
 .icon-button.toggle[aria-pressed='true'], .segmented button[aria-pressed='true'] { background: var(--selected); border-color: var(--input-line); }
@@ -190,7 +192,7 @@ puter-user-menu::part(sign-in) {
   height: 22px; padding: 0 9px; border: 1px solid var(--accent-fill); border-radius: 3px;
   background: var(--accent-fill); color: var(--accent-text); font-size: 12px; white-space: nowrap;
 }
-puter-user-menu::part(sign-in):hover { background: color-mix(in srgb, var(--accent-fill) 88%, white); }
+puter-user-menu::part(sign-in):hover { background: color-mix(in srgb, var(--accent-fill) 94%, white); }
 puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
   background: var(--menu); border-color: var(--line-soft);
   --caret-border: var(--line-soft); --caret-fill: var(--menu);
@@ -272,6 +274,11 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .panel-menu-button[aria-haspopup][aria-expanded='true'] { background: var(--selected); }
 .dock-drawer { position: absolute; right: 100%; top: 0; width: 310px; max-height: 70%; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); box-shadow: -6px 6px 22px #0007; z-index: 20; }
 .dock-drawer .panel-body { overflow: auto; }
+/* Narrow windows have no room left of the dock: the drawer covers the panel
+   column beside the icon strip instead. */
+@media (max-width: 760px) {
+  .dock > .dock-drawer, .dock > .dock-drawer:has(> .log-panel) { right: 0; width: min(310px, calc(100% - 39px)); max-height: 100%; }
+}
 .drawer-title { display: flex; align-items: center; gap: 6px; padding-left: 8px; font-weight: 600; font-size: 11px; }
 .drawer-title .icon { width: 14px; height: 14px; color: var(--muted); }
 .dock-column { width: 300px; display: flex; flex-direction: column; min-height: 0; gap: 2px; }
@@ -287,7 +294,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .panel-menu-button, [data-drawer-close] { width: 26px; padding: 0; border-radius: 0; min-height: 0; }
 .panel-slot { flex: 1; min-height: 0; overflow: auto; }
 .panel-body { min-height: 0; }
-.group-resizer { position: absolute; left: 0; right: 0; bottom: -3px; height: 6px; cursor: ns-resize; z-index: 5; }
+.group-resizer { position: absolute; left: 0; right: 0; bottom: -3px; height: 6px; cursor: ns-resize; z-index: 5; touch-action: none; }
 
 /* Bottom dock (under the canvas) */
 .bottom-dock { flex: none; height: var(--bottom-height, 210px); max-height: calc(100% - 140px); display: flex; flex-direction: column; background: var(--surface); border-top: 1px solid var(--line); position: relative; min-height: 0; }
@@ -1183,6 +1190,7 @@ dialog:has(> .shortcut-editor) { width: min(720px, calc(100vw - 32px)); max-widt
 .channel-thumb.blue { background: linear-gradient(135deg, #004, #66f); }
 .channel-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .channel-name { flex: 1; }
+.channel-row button.channel-name { align-self: stretch; background: none; border: 0; border-radius: 0; min-height: 0; padding: 0; color: inherit; font: inherit; text-align: left; }
 .channel-row button.eye { background: none; border: 0; border-right: 1px solid var(--line); border-radius: 0; min-height: 0; padding: 0; color: inherit; }
 .channel-ink { width: 10px; height: 10px; flex: none; border-radius: 50%; border: 1px solid var(--line-soft); }
 /* 32-bit preview options: the canvas behind stays visible for the live preview. */
@@ -1231,6 +1239,7 @@ dialog:has(> .shortcut-editor) { width: min(720px, calc(100vw - 32px)); max-widt
 .shortcut-table { max-height: 55vh; overflow: auto; display: grid; gap: 2px; margin: 8px 0; }
 .shortcut-entry { display: grid; grid-template-columns: 1fr 150px; gap: 8px; align-items: center; font-size: 11px; }
 .shortcut-entry input.conflict { border-color: #e44; color: #f66; }
+.shortcut-entry input.recording { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .layer-filter { display: flex; gap: 4px; padding: 6px 8px 0; align-items: center; }
 .layer-filter select { flex: 1; min-width: 0; }
 .layer-filter input { width: 80px; }
@@ -1448,6 +1457,8 @@ dialog.gradient-editor { width: min(560px, calc(100vw - 24px)); max-width: none;
   .ls-list { max-height: 160px; }
   .fx-row { grid-template-columns: 96px minmax(60px, 1fr) 54px 18px; }
   .fx-row.fx-check, .fx-row.fx-buttons { padding-left: 0; }
+  /* The contour's Anti-aliased box moves under the picker instead of past the edge. */
+  .fx-row .fx-contour { flex-wrap: wrap; }
 }
 /* ----- transform ----- */
 .ts-frame { stroke: #356faa; fill: none; pointer-events: none; }
@@ -2364,3 +2375,29 @@ html.feature-loading .statusbar::after { content: ''; position: absolute; left: 
 @media (prefers-reduced-motion: reduce) { html.feature-loading .statusbar::after, .panel-loading { animation: none; } }
 .panel-load-error { display: grid; gap: 8px; justify-items: start; padding: 12px 10px; color: var(--muted); }
 .panel-load-error p { margin: 0; line-height: 1.4; }
+
+/* Touch screens: controls of the bars and panels are at least 28 px tall
+   (the 24 px minimum target size, with room for a finger), and the bars grow
+   to hold them. Rules that size a control explicitly still win. */
+@media (pointer: coarse) {
+  #app { grid-template-rows: 36px 40px minmax(0, 1fr) 30px; }
+  #app.options-hidden { grid-template-rows: 36px minmax(0, 1fr) 30px; }
+  button, select, input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='hidden']) { min-height: 28px; }
+  .icon-button { min-width: 28px; }
+  .optionsbar input[type='checkbox'] { width: 18px; height: 18px; }
+  .document-tabs { height: 32px; }
+  .tab-close { width: 26px; min-height: 26px; }
+  .statusbar :is(button, input), #zoom-label.zoom-field { min-height: 26px; }
+  .lock-row .icon-button { min-height: 28px; }
+  /* The small color-chip buttons keep their look; their touch area grows. */
+  .chip-default::after, .chip-swap::after { content: ''; position: absolute; inset: -6px; }
+  .color-chip-pair .chip::after { content: ''; position: absolute; inset: -3px; }
+  #color-hue { width: 24px; }
+  #color-hue::-webkit-slider-thumb { width: 30px; }
+  .property-body h3 button { min-width: 28px; min-height: 28px; }
+  .menu-item { height: 32px; }
+}
+@media (pointer: coarse) and (max-width: 760px) {
+  .menubar-entry > .menu-pop { top: 34px; max-height: calc(100dvh - 42px); }
+  .dock { top: 76px; bottom: 30px; }
+}

@@ -11,7 +11,7 @@ import { commitTarget, hexRgb, pixelTarget } from '../pixels';
 import { commitSelectionMask, featherMask } from '../selection';
 import { cloneMask, commandsToPaths, componentGroups, parseSvgPath, transformMask, type Cmd } from './geometry';
 import { maskCoverage, paintCoverage, selectionToPath, strokeWithBrush } from './raster';
-import { activeKey, clearSelection, setActive, setShapeMask, shapeDocMask, targetLocked, targetPath, vstate, type PathTarget } from './state';
+import { activeKey, clearSelection, nextPathName, setActive, setShapeMask, shapeDocMask, targetLocked, targetPath, vstate, type PathTarget } from './state';
 import { addVectorMask, canAddVectorMask, commitPathEdit, currentPathForMask, deleteVectorMask, rasterizeVectorMask, toggleVectorMask } from './masks';
 import { savePathDialog } from './panel';
 import { saveUserShape, shapeFromMask } from './custom-shapes';
@@ -247,10 +247,10 @@ export function installVectorCommands() {
     label: 'New Path',
     enabled: (e) => e.hasDocument,
     run: (e) => {
-      const n = (e.doc.paths?.length ?? 0) + 1;
+      const name = nextPathName(e.doc);
       const id = crypto.randomUUID();
       e.command('New Path', (d) => {
-        d.paths = [...(d.paths ?? []), { id, name: `Path ${n}`, mask: { paths: [] } }];
+        d.paths = [...(d.paths ?? []), { id, name, mask: { paths: [] } }];
       });
       setActive(e, `path:${id}`);
       e.update();

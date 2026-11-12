@@ -97,6 +97,12 @@ ${field('baselineShift', 'baseline-shift', 'Baseline shift', 'pt', 'type="number
   update: (e, el) => syncCharacter(e, el),
 };
 
+// Field limits given in points, shown in the type unit (factor k), on the
+// fields' 0.5 step grid (the minimum is where the stepper counts from).
+function limits(input: HTMLInputElement, lo: number, hi: number, k: number) {
+  input.min = String(Math.ceil(lo * k * 2) / 2);
+  input.max = String(Math.floor(hi * k * 2) / 2);
+}
 function setValue(el: HTMLInputElement | HTMLSelectElement | null, v: string) {
   if (el && document.activeElement !== el) el.value = v;
 }
@@ -121,6 +127,8 @@ function syncCharacter(e: Editor, el: HTMLElement) {
     const span = el.querySelector(`[data-char="${k}"] + .type-unit`);
     if (span) span.textContent = unit.suffix;
   }
+  // The limits are in points; the field shows the type unit.
+  limits(el.querySelector<HTMLInputElement>('[data-char="size"]')!, 0.5, 1296, unit.k);
   setValue(el.querySelector('[data-char="kerning"]'), c.kerning ?? '');
   setValue(el.querySelector('[data-char="language"]'), c.language ?? '');
   const color = el.querySelector<HTMLInputElement>('[data-color]')!;
@@ -169,7 +177,8 @@ ${pfield('spaceAfter', 'space-after', 'Add space after paragraph')}
       let p: Promise<void> | undefined;
       if (t.matches('[data-hyphenate]')) p = applyParagraph(e, { hyphenate: t.checked });
       else if (t.dataset.para && t.value.trim() !== '' && Number.isFinite(Number(t.value)))
-        p = applyParagraph(e, { [t.dataset.para]: Math.max(-5000, Math.min(5000, Number(t.value))) });
+        // Entered in the type unit, stored in points.
+        p = applyParagraph(e, { [t.dataset.para]: Math.max(-5000, Math.min(5000, Number(t.value) / typeUnit(e).k)) });
       void p?.then(() => refocus(e));
     });
     el.addEventListener('keydown', (ev) => {
@@ -179,7 +188,13 @@ ${pfield('spaceAfter', 'space-after', 'Add space after paragraph')}
   update: (e, el) => {
     const p = styleContext(e).paragraph;
     for (const b of el.querySelectorAll<HTMLElement>('[data-align]')) b.setAttribute('aria-pressed', String(p.align === b.dataset.align));
-    for (const k of ['indentLeft', 'indentRight', 'indentFirst', 'spaceBefore', 'spaceAfter'] as const) setValue(el.querySelector(`[data-para="${k}"]`), fmt(p[k]));
+    const unit = typeUnit(e);
+    for (const k of ['indentLeft', 'indentRight', 'indentFirst', 'spaceBefore', 'spaceAfter'] as const) {
+      const input = el.querySelector<HTMLInputElement>(`[data-para="${k}"]`)!;
+      setValue(input, fmt(typeof p[k] === 'number' ? p[k] * unit.k : undefined));
+      limits(input, -5000, 5000, unit.k);
+      input.nextElementSibling!.textContent = unit.suffix;
+    }
     const h = el.querySelector<HTMLInputElement>('[data-hyphenate]')!;
     h.checked = p.hyphenate === true;
     h.indeterminate = p.hyphenate === undefined;

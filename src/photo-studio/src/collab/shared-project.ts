@@ -40,12 +40,13 @@ export const ORIGIN = {
 } as const;
 
 export const SCHEMA = 1;
-// Document properties every participant keeps for themselves: the selection,
+// Document properties every participant keeps for themselves: the selection
+// and Quick Mask,
 // File → Generate → Image Assets (it writes files to that person's storage)
 // and the 32-bit preview options (display only).
-const PRIVATE_DOC = new Set(['layers', 'selection', 'selectionMask', 'imageAssets', 'hdrPreview']);
+const PRIVATE_DOC = new Set(['layers', 'selection', 'selectionMask', 'quickMask', 'imageAssets', 'hdrPreview']);
 /** This person's own document properties, kept through projection. */
-export type PrivateState = Pick<PhotoDocument, 'selection'> & Partial<Pick<PhotoDocument, 'selectionMask' | 'imageAssets' | 'hdrPreview'>>;
+export type PrivateState = Pick<PhotoDocument, 'selection'> & Partial<Pick<PhotoDocument, 'selectionMask' | 'quickMask' | 'imageAssets' | 'hdrPreview'>>;
 // Layer properties held as per-tile maps.
 export const GRID_KEYS = ['pixels', 'maskGrid', 'liveSource', 'liveMask'] as const;
 const GRID_SET = new Set<string>(GRID_KEYS);
@@ -71,7 +72,7 @@ export function documentTiles(doc: PhotoDocument, into = new Set<string>()) {
     }
     for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x, depth + 1);
   };
-  for (const [k, v] of Object.entries(doc)) if (k !== 'selectionMask') walk(v);
+  for (const [k, v] of Object.entries(doc)) if (k !== 'selectionMask' && k !== 'quickMask') walk(v);
   return into;
 }
 
@@ -345,15 +346,27 @@ export class SharedProject {
     // editor) are not shown.
     const ids = [...this.layers.keys()].filter(isDocumentId);
     for (const id of this.cache.keys()) if (!this.layers.has(id)) this.cache.delete(id);
+    const unreadable: string[] = [];
     for (const id of ids) {
       if (!this.allDirty && !this.dirty.has(id) && this.cache.has(id) && !this.stale.has(id)) continue;
       const entry = this.layers.get(id);
       if (!(entry instanceof Y.Map)) continue;
       this.incomplete = false;
-      this.cache.set(id, this.projectLayer(id, entry));
+      try {
+        this.cache.set(id, this.projectLayer(id, entry));
+      } catch {
+        // Data no editor writes (malformed tile grids, keys or nesting, from
+        // another person): that layer is left out, never the whole document.
+        this.cache.delete(id);
+        this.stale.delete(id);
+        const name = entry.get('p:name');
+        unreadable.push(`layer “${typeof name === 'string' ? name.slice(0, 100) : 'Layer'}”`);
+        continue;
+      }
       if (this.incomplete) this.stale.add(id);
       else this.stale.delete(id);
     }
+    for (let i = ids.length - 1; i >= 0; i--) if (!this.cache.has(ids[i])) ids.splice(i, 1);
     if (this.stale.size) complete = false;
     this.dirty.clear();
     this.allDirty = false;
@@ -391,12 +404,21 @@ export class SharedProject {
     if (!docRegs) {
       this.incomplete = false;
       docRegs = {};
-      for (const [k, v] of this.doc) if (!PRIVATE_DOC.has(k)) docRegs[k] = this.decode(v);
+      this.docDropped = [];
+      for (const [k, v] of this.doc) {
+        if (PRIVATE_DOC.has(k)) continue;
+        try {
+          docRegs[k] = this.decode(v);
+        } catch {
+          this.docDropped.push(`document setting “${k.slice(0, 60)}”`);
+        }
+      }
       if (this.incomplete) complete = false;
       else this.docCache = docRegs;
     }
     const document = { ...structuredCloneShallow(docRegs), selection: local.selection ?? null } as PhotoDocument;
     if (local.selectionMask) document.selectionMask = local.selectionMask;
+    if (local.quickMask) document.quickMask = local.quickMask;
     if (local.imageAssets !== undefined) document.imageAssets = local.imageAssets;
     if (local.hdrPreview !== undefined) document.hdrPreview = local.hdrPreview;
     const build = (parent: string, depth: number, inFrame: boolean): Layer[] =>
@@ -413,11 +435,16 @@ export class SharedProject {
       });
     document.layers = build('', 0, false);
     document.version = 1;
-    const dropped = salvageDocument(document);
+    const dropped = [...this.docDropped, ...unreadable, ...salvageDocument(document, this.shape)];
+    this.shape = { name: document.name, width: document.width, height: document.height };
     this.referencedIds = new Set(documentAssetIds(document));
     return { document, complete, dropped };
   }
   private stale = new Set<string>();
+  // Document settings left out of the cached registers (unreadable).
+  private docDropped: string[] = [];
+  // The name and size last shown, in place of invalid ones.
+  private shape?: Pick<PhotoDocument, 'name' | 'width' | 'height'>;
   /** Project everything again (after tiles arrived). */
   invalidate() {
     this.allDirty = true;

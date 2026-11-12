@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TileStore, allMask, emptyGrid, gridFromImage, readMask, readRGBA, readRect, writeRect, type TileGrid } from '../src/model/tiles';
-import { gridPayload, mergeTiles, readPayload, tileize } from '../src/features/filters/tilepack';
+import { gridHasTransparent, gridPayload, mergeTiles, readPayload, tileize } from '../src/features/filters/tilepack';
 import type { IRect, Mask8, RGBA8 } from '../src/imaging/types';
 
 function noise(w: number, h: number, seed: number, clearEvery = 0): RGBA8 {
@@ -78,5 +78,20 @@ describe('worker tile transfer', () => {
     expect(merged.bounds).toEqual(writeRect(store, empty, 5, 7, img).bounds);
     expect(empty.tiles).toEqual({});
     expect(mergeTiles(store, empty, { channels: 4, tiles: [] })).toBe(empty);
+  });
+});
+
+describe('transparency check behind selection margins', () => {
+  it('finds fully transparent pixels only inside the rectangle, across tiles and outside the content', () => {
+    const store = new TileStore();
+    const img: RGBA8 = { width: 600, height: 300, data: new Uint8ClampedArray(600 * 300 * 4).fill(200) };
+    img.data[(150 * 600 + 520) * 4 + 3] = 0;
+    const grid = gridFromImage(store, img, 10, 20);
+    expect(gridHasTransparent(store, grid, { x: 20, y: 30, width: 400, height: 250 })).toBe(false);
+    expect(gridHasTransparent(store, grid, { x: 300, y: 100, width: 300, height: 100 })).toBe(true);
+    expect(gridHasTransparent(store, grid, { x: 529, y: 169, width: 2, height: 2 })).toBe(true);
+    expect(gridHasTransparent(store, grid, { x: 528, y: 169, width: 2, height: 1 })).toBe(false);
+    // Beyond the layer's content everything is transparent.
+    expect(gridHasTransparent(store, grid, { x: 0, y: 30, width: 15, height: 5 })).toBe(true);
   });
 });

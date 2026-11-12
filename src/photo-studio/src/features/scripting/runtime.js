@@ -38,7 +38,7 @@ const __studioRegister = (() => {
   function receive(ev) {
     const m = ev.data;
     if (!m || typeof m !== 'object') return;
-    if (m.type === 'ping') return send({ type: 'pong' });
+    if (m.type === 'ping') return send({ type: 'pong', n: m.n });
     if (m.type === 'cancel') {
       cancelled = true;
       for (const p of pending.values()) p.reject(new ScriptCancelled());

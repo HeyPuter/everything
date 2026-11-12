@@ -6,7 +6,7 @@ import { layerLock } from '../../model/locks';
 import { svg } from '../../app/icons';
 import { propertiesEditors } from '../panels/properties';
 import type { LiveShape } from '../../model/live-shape';
-import { componentGroups, type PathOp } from './geometry';
+import { componentGroups, fitRadii, type PathOp } from './geometry';
 import { docLive, reshape, setLive, shapeBounds } from './edit';
 import { applyFill, applyStroke, openPaintPopover, specsOf, swatchButton, type FillSpec, type StrokeSpec } from './paint';
 import { shapeDocMask, vstate } from './state';
@@ -77,6 +77,8 @@ function bind(e: Editor, el: HTMLElement, id: string, fill: FillSpec, stroke: St
         if (next.kind === 'rect') {
           if (k === 'radius') next.radii = [v, v, v, v].map((r) => Math.max(0, r)) as [number, number, number, number];
           else if (/^r[0-3]$/.test(k)) next.radii[Number(k[1])] = Math.max(0, v);
+          // Keep the radii the shape can draw, so the fields show the real corners.
+          next.radii = fitRadii(next.width, next.height, next.radii);
         } else if (next.kind === 'triangle' && k === 'triRadius') next.radius = Math.max(0, v);
         else if (next.kind === 'polygon') {
           if (k === 'sides') next.sides = Math.round(Math.max(3, Math.min(100, v)));

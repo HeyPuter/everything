@@ -133,6 +133,26 @@ describe('insert and delete', () => {
     expect(charStyleOfRange(out, 3, 4).weight).toBe(800);
     expect(charStyleOfRange(out, 4, 5).weight).toBe(400);
   });
+  it('pasted formatted text keeps its own optional styles', () => {
+    // Copied plain text has no features, digits or linked style; pasting it into
+    // text that has them must not hand them over.
+    const piece = sliceContent(fromPlainText('abc'), 0, 3);
+    const dest = applyCharStyle(fromPlainText('XY'), 0, 2, { features: 'smcp', digits: 'arabic', charStyle: 'cs1', vertical: 'rotate' });
+    const out = insertContent(dest, 1, piece);
+    expect(plainText(out)).toBe('XabcY');
+    const st = charStyleOfRange(out, 1, 4);
+    expect(st.features || '').toBe('');
+    expect(st.digits || '').toBe('');
+    expect(st.charStyle || '').toBe('');
+    expect(st.vertical || '').toBe('');
+    expect(charStyleOfRange(out, 4, 5).features).toBe('smcp');
+  });
+  it('plain text with Windows or old Mac line ends makes clean paragraphs', () => {
+    // Data set values from CSV files can carry CRLF or CR inside quoted fields.
+    const c = setPlainText(base(), 'one\r\ntwo\rthree');
+    expect(c.paragraphs.map((p) => p.runs.map((r) => r.text).join(''))).toEqual(['one', 'two', 'three']);
+    expect(plainText(fromPlainText('a\r\nb'))).toBe('a\nb');
+  });
   it('setPlainText keeps the first styles', () => {
     const c = setPlainText(applyCharStyle(base(), 0, 11, { family: 'Caveat' }), 'x\ny');
     expect(c.paragraphs.length).toBe(2);

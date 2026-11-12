@@ -143,6 +143,13 @@ export function hasTransparency(data: Uint8ClampedArray | Uint16Array) {
   return false;
 }
 
+/** Whether pixels in a profiled color space are converted to sRGB: always
+ * for formats that cannot carry the profile, whose samples would otherwise be
+ * read as sRGB and show the wrong colors. */
+export function convertsToSrgb(s: Pick<ExportSettings, 'format' | 'convertSrgb'>) {
+  return s.convertSrgb || !formatInfo[s.format].icc;
+}
+
 /** Resample, place, convert and matte the source for the given settings. */
 export function prepareExport(src: SourceImage, s: ExportSettings, ctx: ExportContext): SourceImage {
   const info = formatInfo[s.format];
@@ -156,7 +163,7 @@ export function prepareExport(src: SourceImage, s: ExportSettings, ctx: ExportCo
   const deep = s.depth === 16 && info.deep && data instanceof Uint16Array;
   if (!deep && data instanceof Uint16Array) data = rgba16To8(data);
   else if (deep && data === src.data) data = data.slice();
-  if (ctx.profile && s.convertSrgb) convertToSrgb(data, ctx.profile);
+  if (ctx.profile && convertsToSrgb(s)) convertToSrgb(data, ctx.profile);
   if (!info.alpha || !s.transparency) applyMatte(data, hexColor(s.matte));
   return { width: img.width, height: img.height, data };
 }
@@ -228,7 +235,7 @@ export async function encodeExport(
   browser: (img: SourceImage, mime: string, quality: number) => Promise<Uint8Array> = canvasEncode,
 ): Promise<Uint8Array> {
   const info = formatInfo[s.format];
-  const toSrgb = !ctx.profile || s.convertSrgb;
+  const toSrgb = !ctx.profile || convertsToSrgb(s);
   const icc = s.embedIcc && !toSrgb ? ctx.icc : undefined;
   const text = metadataText(s, ctx.info);
   const rgba8 = () => ({ width: img.width, height: img.height, data: img.data instanceof Uint16Array ? rgba16To8(img.data) : img.data });

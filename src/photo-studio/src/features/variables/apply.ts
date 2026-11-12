@@ -158,18 +158,24 @@ export function placeImage(img: RGBA8, v: PixelVariable): { image: RGBA8; x: num
 
 /** Apply a set to the open document as one undo step. */
 export async function applySet(e: Editor, index: number, label = 'Apply Data Set'): Promise<Applied | undefined> {
-  const set = e.doc.variables?.sets[index];
-  if (!set) return;
-  const before = e.doc;
-  const r = await documentWithSet(e, before, set);
-  if (e.doc !== before) return r;
-  e.command(label, (d) => {
-    d.layers = structuredClone(r.doc.layers);
-    if (r.doc.embeds) d.embeds = structuredClone(r.doc.embeds);
-    if (d.variables) d.variables.current = index;
-  });
-  reportMissing(e, r);
-  return r;
+  // Preparing text and images takes a while; when the document changes
+  // meanwhile (another edit, someone else in a shared document), the set is
+  // prepared again for the document as it is now.
+  for (let tries = 0; tries < 3; tries++) {
+    const before = e.doc;
+    const set = before.variables?.sets[index];
+    if (!set) return;
+    const r = await documentWithSet(e, before, set);
+    if (e.doc !== before) continue;
+    e.command(label, (d) => {
+      d.layers = structuredClone(r.doc.layers);
+      if (r.doc.embeds) d.embeds = structuredClone(r.doc.embeds);
+      if (d.variables) d.variables.current = index;
+    });
+    reportMissing(e, r);
+    return r;
+  }
+  e.message('The data set was not applied: the document kept changing while it was prepared. Try again.');
 }
 
 export function reportMissing(e: Editor, r: Applied) {

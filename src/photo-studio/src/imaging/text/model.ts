@@ -189,7 +189,7 @@ const paragraphLength = (p: Paragraph) => p.runs.reduce((n, r) => n + r.text.len
 
 export function fromPlainText(text: string, style: CharStyle = defaultCharStyle(), paragraph: ParagraphStyle = defaultParagraphStyle()): TextContent {
   return {
-    paragraphs: text.split('\n').map((t) => ({ runs: [{ text: t, style: cloneChar(style) }], style: { ...paragraph } })),
+    paragraphs: text.replace(/\r\n?/g, '\n').split('\n').map((t) => ({ runs: [{ text: t, style: cloneChar(style) }], style: { ...paragraph } })),
   };
 }
 // Replaces all text, keeping the first character and paragraph styles.
@@ -408,7 +408,10 @@ export function insertContent(c: TextContent, index: number, piece: TextContent)
   let pos = index;
   piece.paragraphs.forEach((p, pi) => {
     for (const r of p.runs) {
-      if (r.text) out = applyCharStyle(out, pos, pos + r.text.length, r.style);
+      // Optional keys the piece lacks are cleared, not inherited from the destination.
+      const style: Partial<CharStyle> = { ...r.style };
+      for (const k of optionalCharKeys) if (style[k] === undefined) style[k] = '';
+      if (r.text) out = applyCharStyle(out, pos, pos + r.text.length, style);
       pos += r.text.length;
     }
     if (pi < piece.paragraphs.length - 1) pos++;

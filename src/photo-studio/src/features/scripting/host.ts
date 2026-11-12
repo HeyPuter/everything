@@ -242,7 +242,10 @@ export class ScriptHost {
   }
   /** One edit of a document as a history step (combined later when grouping). */
   private async edit(id: unknown, label: string, fn: (d: PhotoDocument) => void) {
-    await this.use(id);
+    const s = await this.use(id);
+    // A shared document this person cannot change refuses the edit: say so.
+    const refused = s.history.refusal;
+    if (refused) fail(refused);
     let error: unknown;
     this.e.command(label, (d) => {
       try {
@@ -272,13 +275,17 @@ export class ScriptHost {
       },
       'documents.create': async (o) => {
         const opts = isObj(o) ? o : {};
+        // Check the size asked for before clamping, so the message names it.
+        const w = opt(opts.width, (v) => int(v, 'width', 1, 1e9)) ?? 1200,
+          h = opt(opts.height, (v) => int(v, 'height', 1, 1e9)) ?? 800;
+        if (w > 8192 || h > 8192 || w * h > 24_000_000) fail(`A ${w} × ${h} px document is too large: documents can be up to 8192 px wide or high and up to 24 megapixels.`);
         const { createDocument } = await import('../files/new-document');
         const bg = opts.background === undefined ? 'white' : opts.background;
         const background = bg === 'transparent' || bg === 'white' || bg === 'black' ? bg : 'custom';
         await createDocument(e, {
           name: opt(opts.name, (v) => text(v, 'name', 200)) ?? 'Untitled',
-          width: opt(opts.width, (v) => int(v, 'width', 1, 8192)) ?? 1200,
-          height: opt(opts.height, (v) => int(v, 'height', 1, 8192)) ?? 800,
+          width: w,
+          height: h,
           unit: 'px',
           ppi: opt(opts.resolution, (v) => num(v, 'resolution', 1, 10000)) ?? 72,
           ppiUnit: 'ppi',
@@ -399,6 +406,7 @@ export class ScriptHost {
         const x = num(dx, 'dx', -1e5, 1e5),
           y = num(dy, 'dy', -1e5, 1e5);
         if (!x && !y) return this.info(s, l.id);
+        if (s.history.refusal) fail(s.history.refusal);
         e.selectLayers([l.id]);
         e.transform.nudge(x, y);
         return this.info(this.session(id), l.id);
@@ -546,7 +554,7 @@ export class ScriptHost {
       // ----- Dialogs and files -----
       'ui.alert': (m, t) => this.ui.alert(text(m, 'message', 4000), opt(t, (v) => text(v, 'title', 120)) ?? this.label),
       'ui.confirm': (m, t) => this.ui.confirm(text(m, 'message', 4000), opt(t, (v) => text(v, 'title', 120)) ?? this.label),
-      'ui.prompt': (m, v, t) => this.ui.prompt(text(m, 'message', 4000), opt(v, (x) => String(x)) ?? '', opt(t, (x) => text(x, 'title', 120)) ?? this.label),
+      'ui.prompt': (m, v, t) => this.ui.prompt(text(m, 'message', 4000), opt(v, (x) => String(x).slice(0, 10_000)) ?? '', opt(t, (x) => text(x, 'title', 120)) ?? this.label),
       'ui.form': (t, f, o) => {
         const opts = isObj(o) ? o : {};
         return this.ui.form(text(t, 'title', 120), formFields(f), opt(opts.submit, (v) => text(v, 'submit', 40)) ?? 'OK', opt(opts.message, (v) => text(v, 'message', 2000)) ?? '');
@@ -603,6 +611,7 @@ export class ScriptHost {
       if (o.fill !== undefined) {
         const [r, g, b] = color(o.fill, 'fill');
         const area = opt(o.rect, rect) ?? canvasRect(doc);
+        if (area.width * area.height > 24_000_000) fail('Fill at most 24 megapixels at once.');
         const data = new Uint8ClampedArray(area.width * area.height * 4);
         for (let i = 0; i < data.length; i += 4) ((data[i] = r), (data[i + 1] = g), (data[i + 2] = b), (data[i + 3] = 255));
         setLayerPixels(l, writeRect(s.assets.tiles, emptyGrid(4), area.x, area.y, { width: area.width, height: area.height, data }), doc);
@@ -699,9 +708,12 @@ function arrange(d: PhotoDocument, id: string, where: unknown) {
     list.splice(to, 0, l);
     return;
   }
-  if (!isObj(where)) return fail('Arrange takes "top", "bottom", "up", "down" or { above | below | inside: layer }.');
+  if (!isObj(where) || (where.above === undefined && where.below === undefined && where.inside === undefined)) return fail('Arrange takes "top", "bottom", "up", "down" or { above | below | inside: layer }.');
   const [position, target] = where.above !== undefined ? (['above', where.above] as const) : where.below !== undefined ? (['below', where.below] as const) : (['inside', where.inside] as const);
   const targetId = isObj(target) && typeof target.id === 'string' ? target.id : text(target, 'target layer', 100);
+  const to = findLayer(d.layers, targetId) ?? fail('The target layer no longer exists.');
+  if (to.id === id || findLayer(l.children, to.id)) fail(`“${l.name}” cannot be moved inside itself or next to a layer it contains.`);
+  if (position === 'inside' && to.kind !== 'group') fail(`Layers can only be moved inside a group; “${to.name}” is not a group.`);
   moveLayers(d, new Set([id]), targetId, position);
 }
 /** Pixels of a canvas-sized image within a rectangle (clipped to the canvas). */
@@ -777,8 +789,10 @@ function formFields(v: unknown): ScriptField[] {
     const type = (f.type === undefined ? 'text' : text(f.type, 'field type', 20)) as ScriptField['type'];
     if (!types.includes(type)) fail(`Field type must be one of ${types.join(', ')}.`);
     const name = text(f.name, 'field name', 60);
-    const options = type === 'select' ? (Array.isArray(f.options) ? (f.options as unknown[]) : fail(`Select field “${name}” needs options.`)).slice(0, 200).map((o) => (Array.isArray(o) ? ([String(o[0]), String(o[1] ?? o[0])] as [string, string]) : ([String(o), String(o)] as [string, string]))) : undefined;
-    const value = f.value === undefined ? (type === 'checkbox' ? false : type === 'number' || type === 'range' ? (typeof f.min === 'number' ? f.min : 0) : type === 'select' ? (options?.[0]?.[0] ?? '') : type === 'color' ? '#000000' : '') : f.value;
+    const cut = (v: unknown) => String(v).slice(0, 200);
+    const options = type === 'select' ? (Array.isArray(f.options) ? (f.options as unknown[]) : fail(`Select field “${name}” needs options.`)).slice(0, 200).map((o) => (Array.isArray(o) ? ([cut(o[0]), cut(o[1] ?? o[0])] as [string, string]) : ([cut(o), cut(o)] as [string, string]))) : undefined;
+    let value = f.value === undefined ? (type === 'checkbox' ? false : type === 'number' || type === 'range' ? (typeof f.min === 'number' ? f.min : 0) : type === 'select' ? (options?.[0]?.[0] ?? '') : type === 'color' ? '#000000' : '') : f.value;
+    if (typeof value === 'string') value = value.slice(0, 10_000);
     if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') fail(`Field “${name}” has an invalid value.`);
     return {
       name,

@@ -70,7 +70,13 @@ export function validateAnnotations(a: unknown): asserts a is Annotations | unde
 /** Move every annotation point through `map` (canvas resize, crop, rotation). */
 export function mapAnnotations(a: Annotations | undefined, map: (x: number, y: number) => [number, number]) {
   if (!a) return;
-  for (const s of a.samplers ?? []) [s.x, s.y] = map(s.x, s.y);
+  // A sampler names a pixel: map its center and take the pixel it lands in
+  // (the lower one on a boundary), so turns and flips keep the same pixel.
+  for (const s of a.samplers ?? []) {
+    const [x, y] = map(s.x + 0.5, s.y + 0.5);
+    s.x = Math.ceil(x - 1e-9) - 1;
+    s.y = Math.ceil(y - 1e-9) - 1;
+  }
   for (const g of a.counts ?? []) g.points = g.points.map(([x, y]) => map(x, y));
   for (const n of a.notes ?? []) [n.x, n.y] = map(n.x, n.y);
 }

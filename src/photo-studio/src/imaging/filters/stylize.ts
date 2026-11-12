@@ -1,7 +1,7 @@
 // Stylize menu. Filters that compare straight neighbor colors run on a copy
 // whose fully transparent pixels were filled from their neighbors, and keep
 // the source alpha, so transparent black never shows up as a fake edge.
-import { checkCancelled, type Progress, type RGBA8 } from '../types';
+import { checkCancelled, type OperationContext, type ParamValues, type Progress, type RGBA8 } from '../types';
 import {
   bool,
   boxH,
@@ -38,6 +38,7 @@ export const emboss = defineOp({
   label: 'Emboss',
   category: 'Stylize',
   support: (p, ctx) => px(ctx, num(p, 'height')) / 2 + 2,
+  fillReach: (p, ctx) => px(ctx, num(p, 'height')) / 2 + 2,
   params: [
     { key: 'angle', label: 'Angle', type: 'number', min: -180, max: 180, step: 1, default: 135, unit: '°' },
     { key: 'height', label: 'Height', type: 'number', min: 1, max: 100, step: 1, default: 3, unit: 'px' },
@@ -45,8 +46,8 @@ export const emboss = defineOp({
   ],
   run(src, p, ctx, progress) {
     const { width: w, height: h } = src;
-    const work = fillTransparent(src);
     const a = (num(p, 'angle') * Math.PI) / 180, half = px(ctx, num(p, 'height')) / 2;
+    const work = fillTransparent(src, half + 2);
     // Unit vector toward the light; faces that rise toward it turn bright.
     const vx = Math.cos(a) * half, vy = -Math.sin(a) * half, k = num(p, 'amount') / 100;
     const out = newImage(src), o = out.data;
@@ -82,11 +83,12 @@ export const findEdges = defineOp({
   label: 'Find Edges',
   category: 'Stylize',
   support: () => 1,
+  fillReach: () => 1,
   params: [],
   immediate: true,
   run(src) {
     const { width: w, height: h } = src;
-    const work = fillTransparent(src), out = newImage(src), o = out.data;
+    const work = fillTransparent(src, 1), out = newImage(src), o = out.data;
     const mag = new Float32Array(w * h);
     for (let c = 0; c < 3; c++) {
       sobel(channelPlane(work, c), w, h, mag);
@@ -116,13 +118,14 @@ export const traceContour = defineOp({
   label: 'Trace Contour',
   category: 'Stylize',
   support: () => 1,
+  fillReach: () => 1,
   params: [
     { key: 'level', label: 'Level', type: 'number', min: 0, max: 255, step: 1, default: 128 },
     { key: 'edge', label: 'Edge', type: 'select', options: [{ value: 'lower', label: 'Lower' }, { value: 'upper', label: 'Upper' }], default: 'lower' },
   ],
   run(src, p) {
     const { width: w, height: h } = src;
-    const d = fillTransparent(src).data, out = newImage(src), o = out.data;
+    const d = fillTransparent(src, 1).data, out = newImage(src), o = out.data;
     const level = num(p, 'level'), upper = str(p, 'edge') === 'upper';
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++) {
@@ -413,10 +416,10 @@ export const extrude = defineOp({
 // least-varying of its four overlapping quadrants, which flattens texture into
 // brush-like patches while keeping edges. Quadrant means come from trailing
 // box filters (running sums), so cost is independent of the brush size.
-export function kuwahara(src: RGBA8, r: number, progress?: Progress): RGBA8 {
+export function kuwahara(src: RGBA8, r: number, progress?: Progress, reach?: number): RGBA8 {
   const { width: w, height: h } = src;
   const n = w * h;
-  const work = fillTransparent(src);
+  const work = fillTransparent(src, reach);
   const L = lumaPlane(work), L2 = new Float32Array(n), tmp = new Float32Array(n);
   for (let i = 0; i < n; i++) L2[i] = L[i] * L[i];
   const trailing = (pl: Plane) => {
@@ -465,11 +468,14 @@ function checkProgress(progress: Progress | undefined, f: number) {
   progress?.report?.(f);
 }
 
+const oilReach = (p: ParamValues, ctx: OperationContext) => px(ctx, (num(p, 'cleanliness') * 1.05 + 2 * (1 + num(p, 'stylization') * 1.2) + 2) * num(p, 'scale')) + 4;
+
 export const oilPaint = defineOp({
   id: 'oil-paint',
   label: 'Oil Paint',
   category: 'Stylize',
-  support: (p, ctx) => px(ctx, (num(p, 'cleanliness') * 1.05 + 2 * (1 + num(p, 'stylization') * 1.2) + 2) * num(p, 'scale')) + 4,
+  support: oilReach,
+  fillReach: oilReach,
   params: [
     { key: 'stylization', label: 'Stylization', type: 'number', min: 0.1, max: 10, step: 0.1, default: 4 },
     { key: 'cleanliness', label: 'Cleanliness', type: 'number', min: 0, max: 10, step: 0.1, default: 5 },
@@ -483,7 +489,7 @@ export const oilPaint = defineOp({
     const pre = num(p, 'cleanliness') * 0.35 * scale;
     const base = px(ctx, pre) > 0.3 ? gaussianRGBA(src, px(ctx, pre), sub(progress, 0, 0.2)) : src;
     const r = Math.max(1, Math.round(px(ctx, (1 + num(p, 'stylization') * 1.2) * scale)));
-    const out = kuwahara(base, r, sub(progress, 0.2, 0.9));
+    const out = kuwahara(base, r, sub(progress, 0.2, 0.9), oilReach(p, ctx));
     const bristle = num(p, 'bristle');
     if (bristle > 0) {
       // Relief lighting from the painted luminance gives the strokes body.

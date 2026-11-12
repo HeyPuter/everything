@@ -3,17 +3,19 @@ import { registerTool, registerCommand, type Tool } from '../app/registry';
 import type { CanvasPointer } from '../app/pointer';
 import { brushSizeStep } from '../app/shortcuts';
 import { StrokeSession, type BrushTip, type PaintMode, type PaintTarget, type BrushDynamics } from '../engine/paint';
+import { smudgeSpacing } from '../engine/smudge';
 import { pixelTarget, previewTarget, commitTarget, hexRgb, type PixelTarget } from './pixels';
 import { selectionGrid, canvasRect } from '../model/selection';
 import { layerLock } from '../model/locks';
 import { readMask, readRGBA, writeRect } from '../model/tiles';
-import { wandMask } from './selection';
+import { bindTolerance, wandMask } from './selection';
 import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
 import { blendModes } from '../imaging/blend/modes';
 import { brushPreviewShown } from './view-extras';
 import { patternPreviewOn } from './view-modes';
 import { iconCursor } from './preferences/cursors';
+import { bindNumberField } from './paint-tools/fields';
 
 export type BrushSettings = BrushTip & {
   opacity: number;
@@ -50,6 +52,8 @@ type Active = {
   queue: CanvasPointer[];
   smooth?: [number, number];
   last?: [number, number];
+  // Pressure of the latest sample (the smoothing catch-up keeps it).
+  pressure?: number;
   label: string;
   done?: boolean;
   timer?: number;
@@ -75,17 +79,12 @@ ${id === 'pencil' ? '' : `<label>Flow <input id="brush-flow" type="number" min="
 }
 export function bindBrushOptions(e: Editor, el: HTMLElement, id: string) {
   const s = brushFor(id);
-  const num = (sel: string, f: (v: number) => void) =>
-    el.querySelector<HTMLInputElement>(sel)?.addEventListener('change', (ev) => {
-      const v = Number((ev.target as HTMLInputElement).value);
-      if (Number.isFinite(v)) f(v);
-      e.options();
-    });
-  num('#brush-size', (v) => (s.size = Math.max(1, Math.min(5000, v))));
-  num('#brush-hardness', (v) => (s.hardness = Math.max(0, Math.min(1, v / 100))));
-  num('#brush-opacity', (v) => (s.opacity = Math.max(0.01, Math.min(1, v / 100))));
-  num('#brush-flow', (v) => (s.flow = Math.max(0.01, Math.min(1, v / 100))));
-  num('#brush-smoothing', (v) => (s.smoothing = Math.max(0, Math.min(1, v / 100))));
+  const num = (sel: string, get: () => number, set: (v: number) => void) => bindNumberField(el, sel, get, set, () => e.options());
+  num('#brush-size', () => s.size, (v) => (s.size = Math.max(1, Math.min(5000, v))));
+  num('#brush-hardness', () => s.hardness * 100, (v) => (s.hardness = Math.max(0, Math.min(1, v / 100))));
+  num('#brush-opacity', () => s.opacity * 100, (v) => (s.opacity = Math.max(0.01, Math.min(1, v / 100))));
+  num('#brush-flow', () => s.flow * 100, (v) => (s.flow = Math.max(0.01, Math.min(1, v / 100))));
+  num('#brush-smoothing', () => s.smoothing * 100, (v) => (s.smoothing = Math.max(0, Math.min(1, v / 100))));
   el.querySelector<HTMLSelectElement>('#brush-mode')?.addEventListener('change', (ev) => (s.mode = (ev.target as HTMLSelectElement).value as PaintMode));
   const toggle = (sel: string, f: () => void) => el.querySelector<HTMLButtonElement>(sel)?.addEventListener('click', () => {
     f();
@@ -96,16 +95,21 @@ export function bindBrushOptions(e: Editor, el: HTMLElement, id: string) {
   toggle('#airbrush', () => (s.airbrush = !s.airbrush));
   el.querySelector<HTMLButtonElement>('[data-brush-popover]')?.addEventListener('click', (ev) => openBrushPopover(e, id, ev.currentTarget as HTMLElement));
 }
+// Closes the open brush popover (the brush button toggles it); true when it was shown.
+let closePopover: ((refocus?: boolean) => boolean) | undefined;
 function openBrushPopover(e: Editor, id: string, anchor: HTMLElement) {
-  document.querySelector('.brush-popover')?.remove();
+  if (closePopover?.()) return;
   const s = brushFor(id);
   const pop = document.createElement('div');
   pop.className = 'brush-popover popover';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Brush settings');
   pop.innerHTML = `<label>Size <input type="range" min="1" max="1000" value="${s.size}" data-k="size"><output>${Math.round(s.size)} px</output></label><label>Hardness <input type="range" min="0" max="100" value="${s.hardness * 100}" data-k="hardness"><output>${Math.round(s.hardness * 100)}%</output></label><label>Angle <input type="range" min="-180" max="180" value="${s.angle}" data-k="angle"><output>${s.angle}°</output></label><label>Roundness <input type="range" min="1" max="100" value="${s.roundness * 100}" data-k="roundness"><output>${Math.round(s.roundness * 100)}%</output></label><label>Spacing <input type="range" min="1" max="200" value="${s.spacing * 100}" data-k="spacing"><output>${Math.round(s.spacing * 100)}%</output></label><div class="preset-list" role="listbox" aria-label="Brush presets">${brushPresets.map((p, i) => `<button role="option" data-preset="${i}">${escapeXML(p.name)}</button>`).join('')}</div>`;
   document.body.append(pop);
   const r = anchor.getBoundingClientRect();
   pop.style.left = `${r.left}px`;
   pop.style.top = `${r.bottom + 4}px`;
+  pop.querySelector<HTMLInputElement>('input')?.focus();
   pop.addEventListener('input', (ev) => {
     const t = ev.target as HTMLInputElement;
     const v = Number(t.value);
@@ -122,15 +126,30 @@ function openBrushPopover(e: Editor, id: string, anchor: HTMLElement) {
     if (!b) return;
     const p = brushPresets[Number(b.dataset.preset)].tip;
     Object.assign(s, { roundness: 1, angle: 0, spacing: 0.1, airbrush: false, ...p, dynamics: { ...(p.dynamics ?? {}) } });
-    pop.remove();
-    e.options();
+    dismiss(true);
   });
+  const dismiss = (refocus: boolean) => {
+    closePopover = undefined;
+    pop.remove();
+    document.removeEventListener('pointerdown', close, true);
+    e.options();
+    // The options bar was redrawn: return focus to the new brush button.
+    if (refocus) document.querySelector<HTMLElement>(`[data-brush-popover="${id}"]`)?.focus();
+  };
   const close = (ev: Event) => {
-    if (!pop.contains(ev.target as Node) && ev.target !== anchor) {
-      pop.remove();
-      document.removeEventListener('pointerdown', close, true);
-      e.options();
-    }
+    // The brush button's own click toggles the popover.
+    if (!pop.contains(ev.target as Node) && !(ev.target as Element).closest?.('[data-brush-popover]')) dismiss(false);
+  };
+  pop.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    dismiss(true);
+  });
+  closePopover = (refocus = true) => {
+    const shown = pop.isConnected;
+    dismiss(shown && refocus);
+    return shown;
   };
   setTimeout(() => document.addEventListener('pointerdown', close, true));
 }
@@ -147,7 +166,7 @@ function paintTargetFor(e: Editor, id: string, target: PixelTarget): PaintTarget
   return { kind: 'color', rgb: hexRgb(e.color), mode: s.mode, preserveAlpha };
 }
 /** Shared stroke lifecycle for brush-like tools. */
-export function strokeTool(id: string, label: string, icon: string, group: string, key: string, history: string, extra: Partial<Tool> = {}, makeTarget?: (e: Editor, target: PixelTarget) => PaintTarget | undefined): Tool {
+export function strokeTool(id: string, label: string, icon: string, group: string, key: string, history: string, extra: Partial<Tool> = {}, makeTarget?: (e: Editor, target: PixelTarget, p: CanvasPointer) => PaintTarget | undefined): Tool {
   return {
     id,
     label,
@@ -175,6 +194,8 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
       };
     },
     deactivate: (e) => {
+      closePopover?.(false);
+      endStroke(e, id);
       e.screenOverlayContent = '';
       e.screenOverlay();
       delete e.settings.numberKey;
@@ -188,17 +209,20 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         return;
       }
       const s = brushFor(id);
-      const paint = makeTarget ? makeTarget(e, target) : paintTargetFor(e, id, target);
+      let paint = makeTarget ? makeTarget(e, target, p) : paintTargetFor(e, id, target);
       if (!paint) {
         active = undefined;
         return;
       }
+      // Locked transparency holds for every tool, whatever its own target asks.
+      if (target.kind === 'pixels' && paint.kind !== 'mask' && !paint.preserveAlpha && layerLock(e.doc.layers, target.layer.id, 'transparency'))
+        paint = { ...paint, preserveAlpha: true };
       const sel = target.kind === 'quick-mask' ? null : selectionGrid(e.doc, e.assets.tiles);
       a.target = target;
       a.session = new StrokeSession(e.assets.tiles, target.grid, {
         // The mixer brush carries paint in its tip; dabs one pixel apart keep
         // the dragged paint continuous instead of stepping in bands.
-        tip: { ...s, hardness: id === 'pencil' ? 1 : s.hardness, aliased: id === 'pencil', size: s.size, spacing: id === 'mixer-brush' ? Math.min(s.spacing, 1 / Math.max(1, s.size)) : s.spacing },
+        tip: { ...s, hardness: id === 'pencil' ? 1 : s.hardness, aliased: id === 'pencil', size: s.size, spacing: id === 'mixer-brush' ? Math.min(s.spacing, 1 / Math.max(1, s.size)) : id === 'smudge-tool' ? Math.min(s.spacing, smudgeSpacing) : s.spacing },
         dynamics: s.dynamics,
         opacity: s.opacity,
         flow: id === 'pencil' ? 1 : s.flow,
@@ -217,7 +241,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
       for (const q of queue) addSample(e, a, q);
       if (s.airbrush) a.timer = window.setInterval(() => {
         if (a.last) {
-          a.session!.addPoint(a.last[0] + 0.01, a.last[1], 1);
+          a.session!.hold();
           e.preview(previewTarget(e, a.target!, a.session!.grid));
         }
       }, 50);
@@ -249,7 +273,10 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         active.session.cancel();
         clearInterval(active.timer);
         active = undefined;
+        // The Quick Mask preview refers to the cancelled stroke's tiles.
+        delete e.settings.quickMaskPreview;
         e.preview(e.doc);
+        e.overlay();
         return true;
       }
       if (ev.code === 'BracketRight' || ev.code === 'BracketLeft') {
@@ -265,6 +292,14 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
     ...extra,
   };
 }
+/** Another tool or document is taking over mid-stroke: the stroke is stored
+ * in the document it was painted in (a stroke still starting is dropped). */
+function endStroke(e: Editor, id: string) {
+  const a = active;
+  if (!a) return;
+  if (a.session) finish(e, a, id);
+  else active = undefined;
+}
 function addSample(e: Editor, a: Active, p: CanvasPointer) {
   const s = brushFor(e.tool);
   let x = p.x,
@@ -278,6 +313,7 @@ function addSample(e: Editor, a: Active, p: CanvasPointer) {
   }
   a.session!.addPoint(x, y, p.pressure);
   a.last = [x, y];
+  a.pressure = p.pressure;
   e.preview(previewTarget(e, a.target!, a.session!.grid));
 }
 function finish(e: Editor, a: Active, id: string) {
@@ -285,7 +321,7 @@ function finish(e: Editor, a: Active, id: string) {
   active = undefined;
   if (a.last) {
     const p = e.pointerInfo;
-    if (p && brushFor(id).smoothing > 0) a.session!.addPoint(p.x, p.y, 1);
+    if (p && brushFor(id).smoothing > 0) a.session!.addPoint(p.x, p.y, a.pressure ?? 1);
     lastPoint.set(id, a.last);
   }
   const grid = a.session!.commit();
@@ -342,8 +378,8 @@ export function installPaint(_e: Editor) {
         `<label>Fill <select id="bucket-source"><option value="foreground">Foreground</option><option value="background" ${e.settings.bucketSource === 'background' ? 'selected' : ''}>Background</option></select></label><label>Opacity <input id="bucket-opacity" type="number" min="1" max="100" value="${Math.round(Number(e.settings.bucketOpacity ?? 1) * 100)}">%</label><label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>All Layers</label>`,
       bindOptions: ({ e, el }) => {
         el.querySelector<HTMLSelectElement>('#bucket-source')?.addEventListener('change', (ev) => (e.settings.bucketSource = (ev.target as HTMLSelectElement).value));
-        el.querySelector<HTMLInputElement>('#bucket-opacity')?.addEventListener('change', (ev) => (e.settings.bucketOpacity = Math.max(0.01, Math.min(1, Number((ev.target as HTMLInputElement).value) / 100))));
-        el.querySelector<HTMLInputElement>('#tolerance')?.addEventListener('change', (ev) => (e.tolerance = Math.max(0, Math.min(255, Number((ev.target as HTMLInputElement).value) || 0))));
+        bindNumberField(el, '#bucket-opacity', () => Number(e.settings.bucketOpacity ?? 1) * 100, (v) => (e.settings.bucketOpacity = Math.max(0.01, Math.min(1, v / 100))));
+        bindTolerance(e, el);
         el.querySelector<HTMLInputElement>('#wand-contiguous')?.addEventListener('change', (ev) => (e.settings.contiguous = (ev.target as HTMLInputElement).checked));
         el.querySelector<HTMLInputElement>('#wand-all')?.addEventListener('change', (ev) => (e.settings.sampleAllLayers = (ev.target as HTMLInputElement).checked));
       },

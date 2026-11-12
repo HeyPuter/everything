@@ -2,6 +2,7 @@ import {
   allLayers,
   containerOf,
   findLayer,
+  insertLayerAt,
   layer,
   MAX_LAYERS,
   type Layer,
@@ -33,6 +34,28 @@ function assertTree(layers: Layer[], depth = 0, inFrame = false) {
     if (l.frame && inFrame) throw new Error('Frames cannot contain other frames.');
     assertTree(l.children, depth + 1, inFrame || !!l.frame);
   }
+}
+/** Put each copy directly above its original. A copy of a clipping group's
+ * base joins the group (clipped to the original) instead of becoming the
+ * base of the layers clipped to the original. */
+export function placeDuplicates(doc: PhotoDocument, originals: Layer[], copies: Layer[]) {
+  originals.forEach((l, i) => {
+    const list = containerOf(doc.layers, l.id)!;
+    insertLayerAt(list, list.findIndex((item) => item.id === l.id) + 1, copies[i]);
+  });
+}
+/** Create Clipping Mask / Release Clipping Mask on `id`. Releasing a layer
+ * in the middle of a clipping group also releases the clipped layers above
+ * it, which would otherwise clip to the released layer. */
+export function toggleClipping(doc: PhotoDocument, id: string) {
+  const list = containerOf(doc.layers, id);
+  const l = findLayer(doc.layers, id);
+  if (!list || !l) return;
+  if (!l.clipped) {
+    l.clipped = true;
+    return;
+  }
+  for (let i = list.indexOf(l); list[i]?.clipped; i++) delete list[i].clipped;
 }
 // The Background layer stays at the bottom of the stack until it is
 // converted (Layer → New → Layer from Background).
@@ -85,6 +108,12 @@ export function groupLayers(doc: PhotoDocument, ids: ReadonlySet<string>): strin
   const insertion = list.slice(0, topIndex).filter((l) => !roots.includes(l)).length;
   const group = layer('group', 'Group', doc.width, doc.height);
   group.children = roots;
+  // Layers clipped to a base outside the selection: the group takes their
+  // place in the clipping group, so they still show only inside the base.
+  if (roots.every((l) => l.clipped)) {
+    group.clipped = true;
+    for (const l of roots) delete l.clipped;
+  }
   for (const l of roots) list.splice(list.indexOf(l), 1);
   list.splice(insertion, 0, group);
   assertTree(doc.layers);
@@ -102,6 +131,30 @@ export function reorderLayers(doc: PhotoDocument, ids: ReadonlySet<string>, up: 
       const j = i + (up ? 1 : -1);
       if (selected.has(list[i].id) && list[j] && !selected.has(list[j].id) && !list[j].locked && !list[i].background && !list[j].background)
         [list[i], list[j]] = [list[j], list[i]];
+    }
+  }
+}
+/** Layer → Arrange. Selected layers keep their order among themselves (a
+ * selected layer never passes another), and none goes below the Background. */
+export function arrangeLayers(doc: PhotoDocument, roots: Layer[], where: 'front' | 'forward' | 'backward' | 'back') {
+  const selected = new Set(roots.map((l) => l.id));
+  const lists = new Set(roots.map((l) => containerOf(doc.layers, l.id)!));
+  for (const list of lists) {
+    const floor = list[0]?.background ? 1 : 0;
+    const picked = list.filter((l) => selected.has(l.id) && !l.background);
+    if (where === 'front' || where === 'back') {
+      const rest = list.filter((l) => !picked.includes(l));
+      rest.splice(where === 'front' ? rest.length : floor, 0, ...picked);
+      list.splice(0, list.length, ...rest);
+      continue;
+    }
+    const up = where === 'forward';
+    const indices = list.map((_, i) => i);
+    if (up) indices.reverse();
+    for (const i of indices) {
+      const j = i + (up ? 1 : -1);
+      if (j < floor || j >= list.length || !picked.includes(list[i]) || selected.has(list[j].id)) continue;
+      [list[i], list[j]] = [list[j], list[i]];
     }
   }
 }

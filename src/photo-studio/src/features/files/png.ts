@@ -141,45 +141,75 @@ export function decodePng16(png: Uint8Array): Png16 | null {
   const bpp = channels * 2;
   let pos = 0;
   // Adam7 passes (x0, y0, dx, dy); a non-interlaced image is one full pass.
+  // Rows are unfiltered in place (a loop per filter type), then unpacked.
   for (const [x0, y0, dx, dy] of passes) {
     const pw = Math.ceil((width - x0) / dx),
       ph = Math.ceil((height - y0) / dy);
     if (pw <= 0 || ph <= 0) continue;
     const stride = pw * bpp;
-    let prev = new Uint8Array(stride),
-      cur = new Uint8Array(stride);
+    let prev = -1;
     for (let py = 0; py < ph; py++) {
       if (pos + 1 + stride > raw.length) throw new Error('The PNG image data is truncated.');
       const filter = raw[pos++];
-      for (let i = 0; i < stride; i++) {
-        const x = raw[pos + i];
-        const a = i >= bpp ? cur[i - bpp] : 0,
-          b = prev[i],
-          c = i >= bpp ? prev[i - bpp] : 0;
-        cur[i] = (x + (filter === 0 ? 0 : filter === 1 ? a : filter === 2 ? b : filter === 3 ? (a + b) >> 1 : filter === 4 ? paeth(a, b, c) : NaN)) & 255;
-        if (filter > 4) throw new Error('Invalid PNG row filter.');
-      }
-      pos += stride;
+      if (filter > 4) throw new Error('Invalid PNG row filter.');
+      unfilter(raw, pos, prev, stride, bpp, filter);
       const y = y0 + py * dy;
-      for (let px = 0; px < pw; px++) {
-        const s = px * bpp,
-          d = (y * width + x0 + px * dx) * 4;
-        const v = (k: number) => (cur[s + k * 2] << 8) | cur[s + k * 2 + 1];
-        if (channels <= 2) {
-          const g = v(0);
-          out[d] = out[d + 1] = out[d + 2] = g;
-          out[d + 3] = channels === 2 ? v(1) : key && key[0] === g ? 0 : 65535;
-        } else {
-          out[d] = v(0);
-          out[d + 1] = v(1);
-          out[d + 2] = v(2);
-          out[d + 3] = channels === 4 ? v(3) : key && key[0] === out[d] && key[1] === out[d + 1] && key[2] === out[d + 2] ? 0 : 65535;
+      let d = (y * width + x0) * 4;
+      const step = dx * 4,
+        end = pos + stride;
+      if (channels === 4)
+        for (let s = pos; s < end; s += 8, d += step) {
+          out[d] = (raw[s] << 8) | raw[s + 1];
+          out[d + 1] = (raw[s + 2] << 8) | raw[s + 3];
+          out[d + 2] = (raw[s + 4] << 8) | raw[s + 5];
+          out[d + 3] = (raw[s + 6] << 8) | raw[s + 7];
         }
-      }
-      [prev, cur] = [cur, prev];
+      else if (channels === 3)
+        for (let s = pos; s < end; s += 6, d += step) {
+          const r = (raw[s] << 8) | raw[s + 1],
+            g = (raw[s + 2] << 8) | raw[s + 3],
+            b = (raw[s + 4] << 8) | raw[s + 5];
+          out[d] = r;
+          out[d + 1] = g;
+          out[d + 2] = b;
+          out[d + 3] = key && key[0] === r && key[1] === g && key[2] === b ? 0 : 65535;
+        }
+      else
+        for (let s = pos; s < end; s += bpp, d += step) {
+          const g = (raw[s] << 8) | raw[s + 1];
+          out[d] = out[d + 1] = out[d + 2] = g;
+          out[d + 3] = channels === 2 ? (raw[s + 2] << 8) | raw[s + 3] : key && key[0] === g ? 0 : 65535;
+        }
+      prev = pos;
+      pos = end;
     }
   }
   return { width, height, data16: out };
+}
+
+/** Undo a PNG row filter in place: the row starts at `at`, the previous row
+ * of the same pass at `prev` (-1 for the first row, read as zeros). */
+function unfilter(raw: Uint8Array, at: number, prev: number, stride: number, bpp: number, filter: number) {
+  const end = at + stride;
+  if (filter === 1) {
+    for (let i = at + bpp; i < end; i++) raw[i] += raw[i - bpp];
+  } else if (filter === 2) {
+    if (prev >= 0) for (let i = at, j = prev; i < end; i++, j++) raw[i] += raw[j];
+  } else if (filter === 3) {
+    for (let i = at, j = prev; i < end; i++, j++) {
+      const a = i - at >= bpp ? raw[i - bpp] : 0,
+        b = prev >= 0 ? raw[j] : 0;
+      raw[i] += (a + b) >> 1;
+    }
+  } else if (filter === 4) {
+    for (let i = at, j = prev; i < end; i++, j++) {
+      const left = i - at >= bpp;
+      const a = left ? raw[i - bpp] : 0,
+        b = prev >= 0 ? raw[j] : 0,
+        c = left && prev >= 0 ? raw[j - bpp] : 0;
+      raw[i] += paeth(a, b, c);
+    }
+  }
 }
 
 /** Reduce RGBA16 to RGBA8 with rounding. */

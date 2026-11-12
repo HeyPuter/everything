@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filtersA } from '../src/imaging/filters/index-a';
 import { filterMargin } from '../src/features/filters/catalog';
-import { flattenPath, kernelConvolve, shapeKernel } from '../src/imaging/filters/shape-blur';
+import { flattenPath, kernelConvolve, kernelRows, shapeKernel } from '../src/imaging/filters/shape-blur';
 import { linearFilterRGBA, sample, type Plane } from '../src/imaging/filters/common';
 import { fieldSigma, pathSegments, spinArc } from '../src/imaging/filters/gallery-blur';
 import { convertChannels, hsbToRgb, hslToRgb, rgbToHsb, rgbToHsl } from '../src/imaging/filters/channels-hsb';
@@ -58,6 +58,32 @@ describe('shape blur', () => {
           }
         expect(fast[y * w + x]).toBeCloseTo(acc, 2);
       }
+  });
+
+  it('sharing the sums of kernel rows above the image keeps every value bit-identical', () => {
+    // The straightforward row-by-row sum, in the original order of additions.
+    const reference = (src: Plane, w: number, h: number, k: ReturnType<typeof shapeKernel>) => {
+      const r = (k.size - 1) / 2, pw = w + 2 * r, dst = new Float32Array(w * h);
+      const prefix = new Float32Array((pw + 1) * h);
+      for (let y = 0; y < h; y++) {
+        let acc = 0;
+        for (let i = 0; i < pw; i++) prefix[y * (pw + 1) + i + 1] = acc += src[y * w + Math.min(w - 1, Math.max(0, i - r))];
+      }
+      for (let y = 0; y < h; y++)
+        for (const row of kernelRows(k)) {
+          const sy = Math.min(h - 1, Math.max(0, y + row.dy)), p = sy * (pw + 1);
+          for (const [a, b, wt] of row.spans)
+            for (let x = 0; x < w; x++) dst[y * w + x] += wt * (prefix[p + b + r + 1 + x] - prefix[p + a + r + x]);
+          for (const [dx, wt] of row.taps)
+            for (let x = 0; x < w; x++) dst[y * w + x] += wt * src[sy * w + Math.min(w - 1, Math.max(0, x + dx))];
+        }
+      return dst;
+    };
+    for (const [id, radius, w, h] of [['star', 30, 12, 9], ['ring', 7, 40, 25], ['heart', 18, 5, 60], ['star', 3, 1, 1], ['plus', 25, 70, 3]] as const) {
+      const k = shapeKernel(builtinShapes.find((s) => s.id === id)!.d, radius);
+      const src = new Float32Array(w * h).map((_, i) => ((i * 7919) % 257) * 0.731);
+      expect(kernelConvolve(src, new Float32Array(w * h), w, h, k)).toEqual(reference(src, w, h, k));
+    }
   });
 
   it('a single bright pixel spreads into the shape footprint', () => {

@@ -91,3 +91,77 @@ test('a mode conversion does not land in a document opened while it was prepared
   expect(result.a).toBe('rgb');
   await expect(page.locator('#status')).toContainText('nothing was converted');
 });
+
+test('Assign Profile previews profiles but not the "Load profile file…" entry', async ({ page }) => {
+  await page.evaluate(() => void window.photoStudio.runCommand('edit.assign-profile'));
+  await expect(openForm(page).locator('select[name=profile]')).toBeVisible();
+  await page.selectOption('#dialog select[name=profile]', 'builtin:display-p3');
+  await page.selectOption('#dialog select[name=profile]', { label: 'Load profile file…' });
+  await page.evaluate(async () => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await window.photoStudio.renderer.settle();
+  });
+  // Choosing the entry used to preview a profile named "load" and report a damaged embedded profile.
+  expect(await page.locator('#status').textContent()).not.toContain('cannot be used');
+  await page.locator('#dialog #cancel-dialog').click();
+  await page.waitForFunction(() => !window.photoStudio.busy);
+  expect(await page.evaluate(() => window.photoStudio.doc.iccProfile)).toBeUndefined();
+});
+
+test('CMYK to Multichannel keeps the inks of a perceptual CMYK conversion', async ({ page }) => {
+  const mean = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { saveColorSettings, defaultSettings, ensureProfile } = await import('/src/features/color/profiles.ts');
+    const { cachedTransform, bakeLut3D, transformToCMYK, builtinProfile } = await import('/src/color/color-management.ts');
+    const { compositeRGBA } = await import('/src/features/pixels.ts');
+    const { readMask } = await import('/src/model/tiles.ts');
+    saveColorSettings({ ...defaultSettings, intent: 'perceptual' });
+    try {
+      const src = await compositeRGBA(e);
+      for (let p = 0; p < src.width * src.height; p++) src.data.set([(p * 7) % 256, (p * 13) % 256, (p * 29) % 256, 255], p * 4);
+      const { gridFromImage } = await import('/src/model/tiles.ts');
+      const grid = gridFromImage(e.assets.tiles, src);
+      e.command('Fill', (d) => {
+        const l = d.layers[0] as { pixels?: unknown };
+        l.pixels = grid;
+      });
+      const cmyk = await ensureProfile('builtin:generic-coated-cmyk');
+      const inks = transformToCMYK(src, bakeLut3D(cachedTransform(builtinProfile('srgb'), cmyk, 'perceptual', { bpc: true }), 33));
+      await e.runCommand('image.mode-cmyk');
+      await e.runCommand('image.mode-multichannel');
+      const area = { x: 0, y: 0, width: src.width, height: src.height };
+      const spots = e.doc.channels!.filter((c) => c.spot);
+      let total = 0;
+      [inks.c, inks.m, inks.y, inks.k].forEach((plane, k) => {
+        const ch = readMask(e.assets.tiles, spots[k].grid, area).data;
+        for (let p = 0; p < plane.length; p++) total += Math.abs(255 - ch[p] - plane[p]);
+      });
+      return total / (4 * src.width * src.height);
+    } finally {
+      saveColorSettings({ ...defaultSettings });
+    }
+  });
+  // Separating the CMYK document perceptually again moved the inks.
+  expect(mean).toBeLessThan(3);
+});
+
+test('a working CMYK profile loaded from a file is still the working CMYK after a reload', async ({ page }) => {
+  const bytes = await profileBytes(page, 'My Press');
+  await page.evaluate(async (bytes) => {
+    const P = await import('/src/features/color/profiles.ts');
+    const { ref } = P.registerLoadedProfile(new Uint8Array(bytes));
+    P.saveColorSettings({ ...P.colorSettings(), cmyk: ref, intent: 'perceptual' });
+  }, bytes);
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  const after = await page.evaluate(async () => {
+    const P = await import('/src/features/color/profiles.ts');
+    const s = P.colorSettings();
+    const r = { name: P.profileName(s.cmyk), intent: s.intent, listed: P.profileChoices('CMYK').some(([ref]) => ref === s.cmyk) };
+    // Back to the defaults; the stored profile goes with them.
+    P.saveColorSettings({ ...P.defaultSettings });
+    return { ...r, left: localStorage.getItem('photo-studio-color-profile-cmyk') };
+  });
+  // It used to fall back to the generic profile without a word.
+  expect(after).toEqual({ name: 'My Press', intent: 'perceptual', listed: true, left: null });
+});

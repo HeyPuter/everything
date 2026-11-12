@@ -55,6 +55,7 @@ const pad = (n: number) => String(n).padStart(12, '0');
 const BATCH = 1_500_000;
 const PUT_BYTES = 8_000_000;
 const GET_BATCH = 24;
+const GET_LANES = 4;
 
 export class RoomClient {
   readonly project: SharedProject;
@@ -288,6 +289,8 @@ export class RoomClient {
         this.o.onPeople?.();
       }
       Y.applyUpdate(this.ydoc, decode(res.update), ORIGIN.remote);
+      // The worker answers again: deliver what waits for a retry now.
+      if (this.retryTimer !== undefined && !this.flushing) this.flush();
       if (this.status.state === 'offline' || this.status.state === 'connecting') this.setStatus();
     })().finally(() => (this.syncing = undefined));
     return this.syncing;
@@ -332,6 +335,7 @@ export class RoomClient {
       return;
     }
     clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
     this.flushing = (async () => {
       try {
         do {
@@ -458,16 +462,23 @@ export class RoomClient {
   /** Download tiles by content hash into the tile store. */
   async fetchTiles(hashes: Iterable<string>) {
     const list = [...new Set(hashes)].filter((h) => !this.o.tiles.tileFor(h));
+    const wanted = new Set(list);
     let got = 0;
-    for (let i = 0; i < list.length; i += GET_BATCH) {
-      const res = await this.request<{ assets: Record<string, string> }>({ op: 'asset.get', hashes: list.slice(i, i + GET_BATCH) });
-      for (const [h, data] of Object.entries(res.assets)) {
-        if (!list.includes(h)) continue;
-        // A local blob (not yet uploaded) also satisfies a request.
-        this.o.tiles.put(h, await unpackAsset(data, h));
-        got++;
+    // A few batches at a time: a large document needs hundreds of them, and
+    // each waits a round trip to the worker.
+    let next = 0;
+    const lane = async () => {
+      while (next < list.length) {
+        const batch = list.slice(next, (next += GET_BATCH));
+        const res = await this.request<{ assets: Record<string, string> }>({ op: 'asset.get', hashes: batch });
+        for (const [h, data] of Object.entries(res.assets)) {
+          if (!wanted.has(h) || this.o.tiles.tileFor(h)) continue;
+          this.o.tiles.put(h, await unpackAsset(data, h));
+          got++;
+        }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(GET_LANES, Math.ceil(list.length / GET_BATCH)) }, lane));
     // Tiles staged here but not yet delivered.
     for (const h of list)
       if (!this.o.tiles.tileFor(h)) {
@@ -522,6 +533,11 @@ export class RoomClient {
         receive: (kind, data, ticket) => this.receive(kind, data, ticket),
         changed: () => void this.checkIn().catch(() => {}),
         stranger: () => this.soonCheckIn(),
+        // A closed tab may not get to say goodbye; a session still here
+        // shows again with its next presence (at least every 3 seconds).
+        unlinked: (session) => {
+          if (this.people.delete(session)) this.o.onPeople?.();
+        },
         linked: () => {
           this.o.onPeople?.();
           if (this.lastPresence) this.sendPresence(true);
@@ -620,7 +636,8 @@ export class RoomClient {
     await Promise.race([this.settled(), new Promise((r) => setTimeout(r, 3000))]);
     void this.peers?.broadcast('leave', {});
     this.close();
-    await this.request({ op: 'leave', session: this.session }).catch(() => {});
+    // Not awaited: closing a tab never waits for the worker to answer.
+    void this.request({ op: 'leave', session: this.session }).catch(() => {});
   }
   close() {
     this.closed = true;

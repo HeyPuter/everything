@@ -23,11 +23,14 @@ import {
   type SampleMode,
 } from './clone-source/state';
 import { bindSampleOptions, sampleOptions } from './clone-source/options';
-import type { PaintTarget } from '../engine/paint';
+import type { LiveReader, PaintTarget } from '../engine/paint';
+import { SmudgeFinger } from '../engine/smudge';
 import { TILE, tileKey, readRGBA, writeRect, type TileGrid } from '../model/tiles';
 import { canvasRect, selectionGrid } from '../model/selection';
 import { readMask } from '../model/tiles';
-import { wandMask } from './selection';
+import { bindTolerance, wandMask } from './selection';
+import { bindNumberField } from './paint-tools/fields';
+import { layerLock } from '../model/locks';
 
 // Sampling helpers over a committed (immutable) grid or a composite snapshot.
 function gridSampler(e: Editor, grid: TileGrid) {
@@ -84,6 +87,12 @@ const cloneTool = (): Tool => {
     activate: (e) => {
       base.activate?.(e);
       warmSource(e, sampleMode(e, 'clone'));
+    },
+    deactivate: (e, reason) => {
+      // A stroke still preparing its source never starts.
+      clonePreparing = undefined;
+      cloneStroke = undefined;
+      return base.deactivate?.(e, reason);
     },
     pointerDown: async (e, p) => {
       if (p.alt) {
@@ -158,65 +167,47 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
       return;
     }
     const strength = Number(e.settings[`${kind}Strength`] ?? 50) / 100;
-    const sample = gridSampler(e, target.grid);
     const t = new Uint8ClampedArray(4);
     if (kind === 'smudge') {
-      // Smudging drags color from behind the pointer in the stroke direction.
-      let last: [number, number] | undefined;
-      let dir: [number, number] = [0, 0];
+      // The tip carries the colors it passes over along the stroke.
+      const finger = new SmudgeFinger(brushFor('smudge-tool').size, strength);
       return {
-        kind: 'process',
-        process: (x, y, base, out) => {
-          const p = e.pointerInfo;
-          if (p) {
-            if (last) {
-              const dx = p.x - last[0],
-                dy = p.y - last[1];
-              if (dx * dx + dy * dy > 0.25) dir = [dx, dy];
-            }
-            last = [p.x, p.y];
-          }
-          sample(x - dir[0], y - dir[1], t);
-          const k = strength;
-          out[0] = base[0] + (t[0] - base[0]) * k;
-          out[1] = base[1] + (t[1] - base[1]) * k;
-          out[2] = base[2] + (t[2] - base[2]) * k;
-          out[3] = base[3] + (t[3] - base[3]) * k;
-        },
+        kind: 'custom',
+        dab: (cx, cy, size) => finger.dab(cx, cy, size),
+        pixel: (x, y, alpha, cur, out) => finger.pixel(x, y, alpha, cur, out),
       };
     }
+    // The 3x3 average reads the pixels as the stroke has left them, so the
+    // effect builds up while scrubbing. Dabs overlap about 1/spacing times;
+    // each applies the share that makes one pass about the chosen strength.
+    const b = brushFor(`${kind}-tool`);
+    const share = 1 - Math.pow(1 - Math.min(1, strength), Math.min(1, Math.max(0.01, b.spacing)));
+    const opacity = b.opacity;
+    let read: LiveReader | undefined;
     return {
-      kind: 'process',
+      kind: 'custom',
       preserveAlpha: true,
-      process: (x, y, base, out) => {
-        // 3x3 alpha-weighted average from the pre-stroke layer.
-        let r = 0, g = 0, b = 0, a = 0;
+      dab: (_cx, _cy, _size, live) => (read = live),
+      pixel: (x, y, alpha, cur, out) => {
+        out[0] = cur[0];
+        out[1] = cur[1];
+        out[2] = cur[2];
+        out[3] = cur[3];
+        let r = 0, g = 0, bl = 0, a = 0;
         for (let j = -1; j <= 1; j++)
           for (let i = -1; i <= 1; i++) {
-            sample(x + i, y + j, t);
+            if (!read!(x + i, y + j, t)) continue;
             const w = t[3];
             r += t[0] * w;
             g += t[1] * w;
-            b += t[2] * w;
+            bl += t[2] * w;
             a += w;
           }
-        if (!a) {
-          out.set(base);
-          return;
-        }
-        r /= a;
-        g /= a;
-        b /= a;
-        if (kind === 'blur') {
-          out[0] = base[0] + (r - base[0]) * strength;
-          out[1] = base[1] + (g - base[1]) * strength;
-          out[2] = base[2] + (b - base[2]) * strength;
-        } else {
-          out[0] = base[0] + (base[0] - r) * strength * 2;
-          out[1] = base[1] + (base[1] - g) * strength * 2;
-          out[2] = base[2] + (base[2] - b) * strength * 2;
-        }
-        out[3] = base[3];
+        if (!a) return;
+        const k = Math.min(1, alpha * opacity * share) * (kind === 'blur' ? 1 : -2);
+        out[0] = cur[0] + (r / a - cur[0]) * k;
+        out[1] = cur[1] + (g / a - cur[1]) * k;
+        out[2] = cur[2] + (bl / a - cur[2]) * k;
       },
     };
   };
@@ -273,7 +264,7 @@ function withOptions(tool: Tool, extra: (e: Editor) => string, bind: (e: Editor,
 }
 const strengthField = (key: string) => (e: Editor) => `<label>Strength <input id="tool-strength" type="number" min="1" max="100" value="${Number(e.settings[key] ?? 50)}">%</label>`;
 const bindStrength = (key: string) => (e: Editor, el: HTMLElement) =>
-  el.querySelector<HTMLInputElement>('#tool-strength')?.addEventListener('change', (ev) => (e.settings[key] = Math.max(1, Math.min(100, Number((ev.target as HTMLInputElement).value) || 50))));
+  bindNumberField(el, '#tool-strength', () => Number(e.settings[key] ?? 50), (v) => (e.settings[key] = Math.max(1, Math.min(100, v))));
 const toneFields = (sponge: boolean) => (e: Editor) =>
   sponge
     ? `<label>Mode <select id="sponge-mode"><option value="desaturate">Desaturate</option><option value="saturate" ${e.settings.spongeMode === 'saturate' ? 'selected' : ''}>Saturate</option></select></label><label>Flow <input id="tone-exposure" type="number" min="1" max="100" value="${Number(e.settings.toneExposure ?? 50)}">%</label>`
@@ -281,7 +272,7 @@ const toneFields = (sponge: boolean) => (e: Editor) =>
 const bindTone = (e: Editor, el: HTMLElement) => {
   el.querySelector<HTMLSelectElement>('#tone-range')?.addEventListener('change', (ev) => (e.settings.toneRange = (ev.target as HTMLSelectElement).value));
   el.querySelector<HTMLSelectElement>('#sponge-mode')?.addEventListener('change', (ev) => (e.settings.spongeMode = (ev.target as HTMLSelectElement).value));
-  el.querySelector<HTMLInputElement>('#tone-exposure')?.addEventListener('change', (ev) => (e.settings.toneExposure = Math.max(1, Math.min(100, Number((ev.target as HTMLInputElement).value) || 50))));
+  bindNumberField(el, '#tone-exposure', () => Number(e.settings.toneExposure ?? 50), (v) => (e.settings.toneExposure = Math.max(1, Math.min(100, v))));
   el.querySelector<HTMLInputElement>('#protect-tones')?.addEventListener('change', (ev) => (e.settings.protectTones = (ev.target as HTMLInputElement).checked));
 };
 
@@ -289,18 +280,25 @@ const bindTone = (e: Editor, el: HTMLElement) => {
 function colorDistance(a: Uint8ClampedArray | number[], b: Uint8ClampedArray | number[]) {
   return Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
 }
-function sampledColor(e: Editor, target: PixelTarget & { kind: 'pixels' }) {
+// Sampled under the pointer-down point: a touch or pen tap has no hover before it.
+function sampledColor(e: Editor, target: PixelTarget & { kind: 'pixels' }, p: CanvasPointer) {
   const sample = gridSampler(e, target.grid);
   const t = new Uint8ClampedArray(4);
-  const p = e.pointerInfo!;
   sample(p.x, p.y, t);
   return { sample, ref: [t[0], t[1], t[2]] };
 }
-function backgroundEraserTarget(e: Editor, target: PixelTarget): PaintTarget | undefined {
-  if (target.kind !== 'pixels') return;
+function backgroundEraserTarget(e: Editor, target: PixelTarget, p: CanvasPointer): PaintTarget | undefined {
+  if (target.kind !== 'pixels') {
+    e.message('The Background Eraser works on pixel layers.');
+    return;
+  }
+  if (layerLock(e.doc.layers, target.layer.id, 'transparency')) {
+    e.message('Unlock transparent pixels to use the Background Eraser.');
+    return;
+  }
   const tol = Number(e.settings.bgTolerance ?? 50) * 2.55;
   const mode = (e.settings.bgSampling as string) ?? 'once';
-  const ref = mode === 'swatch' ? hexRgb(e.background) : sampledColor(e, target).ref;
+  const ref = mode === 'swatch' ? hexRgb(e.background) : sampledColor(e, target, p).ref;
   const sample = gridSampler(e, target.grid);
   const t = new Uint8ClampedArray(4);
   let current = ref;
@@ -320,10 +318,13 @@ function backgroundEraserTarget(e: Editor, target: PixelTarget): PaintTarget | u
     },
   };
 }
-function colorReplaceTarget(e: Editor, target: PixelTarget): PaintTarget | undefined {
-  if (target.kind !== 'pixels') return;
+function colorReplaceTarget(e: Editor, target: PixelTarget, p: CanvasPointer): PaintTarget | undefined {
+  if (target.kind !== 'pixels') {
+    e.message('The Color Replacement Tool works on pixel layers.');
+    return;
+  }
   const tol = Number(e.settings.replaceTolerance ?? 30) * 2.55;
-  const { ref } = sampledColor(e, target);
+  const { ref } = sampledColor(e, target, p);
   const fg = hexRgb(e.color);
   return {
     kind: 'process',
@@ -353,13 +354,13 @@ export function installRetouchTools(_e: Editor) {
       (e) => `<label>Sampling <select id="bg-sampling"><option value="continuous" ${e.settings.bgSampling === 'continuous' ? 'selected' : ''}>Continuous</option><option value="once" ${(e.settings.bgSampling ?? 'once') === 'once' ? 'selected' : ''}>Once</option><option value="swatch" ${e.settings.bgSampling === 'swatch' ? 'selected' : ''}>Background Swatch</option></select></label><label>Tolerance <input id="bg-tolerance" type="number" min="0" max="100" value="${Number(e.settings.bgTolerance ?? 50)}">%</label>`,
       (e, el) => {
         el.querySelector<HTMLSelectElement>('#bg-sampling')?.addEventListener('change', (ev) => (e.settings.bgSampling = (ev.target as HTMLSelectElement).value));
-        el.querySelector<HTMLInputElement>('#bg-tolerance')?.addEventListener('change', (ev) => (e.settings.bgTolerance = Number((ev.target as HTMLInputElement).value)));
+        bindNumberField(el, '#bg-tolerance', () => Number(e.settings.bgTolerance ?? 50), (v) => (e.settings.bgTolerance = Math.max(0, Math.min(100, v))));
       },
     ),
     withOptions(
       strokeTool('color-replacement', 'Color Replacement Tool', 'color-replace', 'brush', 'B', 'Color Replacement', {}, colorReplaceTarget),
       (e) => `<label>Tolerance <input id="replace-tolerance" type="number" min="0" max="100" value="${Number(e.settings.replaceTolerance ?? 30)}">%</label>`,
-      (e, el) => el.querySelector<HTMLInputElement>('#replace-tolerance')?.addEventListener('change', (ev) => (e.settings.replaceTolerance = Number((ev.target as HTMLInputElement).value))),
+      (e, el) => bindNumberField(el, '#replace-tolerance', () => Number(e.settings.replaceTolerance ?? 30), (v) => (e.settings.replaceTolerance = Math.max(0, Math.min(100, v)))),
     ),
     {
       id: 'magic-eraser',
@@ -371,7 +372,7 @@ export function installRetouchTools(_e: Editor) {
       options: (e) =>
         `<label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label>`,
       bindOptions: ({ e, el }) => {
-        el.querySelector<HTMLInputElement>('#tolerance')?.addEventListener('change', (ev) => (e.tolerance = Math.max(0, Math.min(255, Number((ev.target as HTMLInputElement).value) || 0))));
+        bindTolerance(e, el);
         el.querySelector<HTMLInputElement>('#wand-contiguous')?.addEventListener('change', (ev) => (e.settings.contiguous = (ev.target as HTMLInputElement).checked));
         el.querySelector<HTMLInputElement>('#wand-all')?.addEventListener('change', (ev) => (e.settings.sampleAllLayers = (ev.target as HTMLInputElement).checked));
       },
@@ -386,9 +387,12 @@ export function installRetouchTools(_e: Editor) {
         const sel = selectionGrid(e.doc, e.assets.tiles);
         const cover = sel ? readMask(e.assets.tiles, sel, area).data : undefined;
         const img = readRGBA(e.assets.tiles, target.grid, area);
+        // With transparency locked the region takes the background color instead.
+        const fill = layerLock(e.doc.layers, target.layer.id, 'transparency') ? hexRgb(e.background) : undefined;
         for (let i = 0; i < region.data.length; i++) {
           const k = (region.data[i] / 255) * (cover ? cover[i] / 255 : 1);
-          img.data[i * 4 + 3] *= 1 - k;
+          if (!fill) img.data[i * 4 + 3] *= 1 - k;
+          else if (k) for (let c = 0; c < 3; c++) img.data[i * 4 + c] += (fill[c] - img.data[i * 4 + c]) * k;
         }
         commitTarget(e, target, writeRect(e.assets.tiles, target.grid, 0, 0, img), 'Magic Eraser');
       },

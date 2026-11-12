@@ -1,7 +1,7 @@
 // File → Export → PSD with editable pixel layers: destructive tiles export as
 // their own layer rasters and painted masks as PSD user masks.
 import type { Editor } from '../../editor';
-import { allLayers, type Layer } from '../../model/document';
+import { allLayers, type Layer, type PhotoDocument } from '../../model/document';
 import { isSpatialKind } from '../../imaging/adjust/model';
 import { escapeXML } from '../../model/assets';
 import { gridDocBounds, intersectRect, parseKey, readMask, readRGBA, TILE, unionRect } from '../../model/tiles';
@@ -32,6 +32,15 @@ export function maskGridPlane(e: Editor, l: Layer): ReturnType<ReadPsdMaskGrid> 
   const defaultColor = fill >= 128 ? 255 : 0;
   if (!bounds) return { bounds: { x: 0, y: 0, width: 0, height: 0 }, data: new Uint8Array(), defaultColor };
   return { bounds, data: readMask(e.assets.tiles, grid, bounds).data, defaultColor };
+}
+
+/** Alpha channels (and spot channels, except the inks of a Multichannel
+ * document, whose composite is written instead) as 8-bit planes. */
+function psdChannels(e: Editor, doc: PhotoDocument) {
+  const area = { x: 0, y: 0, width: doc.width, height: doc.height };
+  return (doc.channels ?? [])
+    .filter((c) => !(c.spot && doc.mode === 'multichannel'))
+    .map((c) => ({ name: c.name, data: readMask(e.assets.tiles, c.grid, area).data, color: c.color, opacity: c.opacity, spot: c.spot }));
 }
 
 export async function exportPsd(e: Editor) {
@@ -85,7 +94,7 @@ export async function exportPsd(e: Editor) {
       },
       (id) => e.assets.blob(id),
       (l) => maskGridPlane(e, l),
-      { composite },
+      { composite, channels: psdChannels(e, doc) },
     );
     download(blob, `${doc.name}.psd`);
     e.message(`PSD downloaded with pixel layers, layer masks, clipping and blend modes. Text and adjustments are rasterized; save a .photo project to keep every control.${doc.mode === 'multichannel' ? ' Multichannel documents are written as their RGB composite; the ink channels stay in the .photo project.' : ''}${allLayers(doc.layers).some((l) => l.adjustment && isSpatialKind(l.adjustment.kind)) ? ' Clarity & Dehaze and Grain layers have no PSD equivalent: they are written as empty layers and only the merged image shows their effect.' : ''}`);

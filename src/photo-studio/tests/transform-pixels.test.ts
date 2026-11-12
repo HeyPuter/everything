@@ -44,6 +44,23 @@ describe('exact placement', () => {
   });
 });
 
+describe('frame bounds', () => {
+  it('does not grow a faint extra row or column from rounding noise', () => {
+    // A 2x scale about the corner lands exactly on (20, 20)–(100, 80); the
+    // solved homography carries tiny errors that used to round outward.
+    const src = solid(40, 30, [0, 0, 255, 255]);
+    const r = { x: 20, y: 20, width: 40, height: 30 };
+    for (const [sx, sy] of [[2, 2], [3, 3], [1.5, 2.5], [0.5, 0.5]]) {
+      const quad = mapQuad(about(scaleM(sx, sy), 20, 20), rectQuad(r));
+      const out = renderFrame(src, r, quad, undefined, { method: 'bicubic' })!;
+      expect(out.rect).toEqual({ x: 20, y: 20, width: 40 * sx, height: 30 * sy });
+      // The first and last rows are part of the image, not filter spill.
+      expect(out.image.data[3]).toBeGreaterThan(100);
+      expect(out.image.data[out.image.data.length - 1]).toBeGreaterThan(100);
+    }
+  });
+});
+
 describe('pixel layer baking', () => {
   it('bakes quarter-turn layer transforms losslessly', () => {
     const store = new TileStore();

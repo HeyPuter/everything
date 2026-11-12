@@ -412,8 +412,13 @@ export class Editor {
     startIdleWork();
   }
   message(text: string) {
-    this.el('#status').textContent = text;
+    const status = this.el('#status');
+    status.textContent = text;
     const toast = this.el('#toast');
+    // Both are live regions: only one may speak, or screen readers say each
+    // message twice. The toast speaks when the status bar is hidden, which
+    // only full screen mode does (checked without forcing a layout).
+    toast.setAttribute('aria-hidden', String(this.root.dataset.screenMode !== '2'));
     toast.textContent = text;
     toast.hidden = false;
     clearTimeout(this.toastTimer);
@@ -466,11 +471,13 @@ export class Editor {
       this.transform.apply();
       this.modal?.apply();
     }
-    this.recorder?.(id, arg);
     const outer = this.currentCommand;
     this.currentCommand = this.lastCommand = id;
     try {
       await this.run(async () => {
+        // Recorded only when it runs: a command skipped because another
+        // task is running must not become an action step.
+        this.recorder?.(id, arg);
         await c.run(this, arg);
         emitActivity({ kind: 'command', id: c.id, arg });
       });
@@ -806,11 +813,13 @@ export class Editor {
   pointerHooks: ((e: Editor, p: CanvasPointer | undefined) => void)[] = [];
   // Run after preferences change (features/preferences applies them).
   preferenceHooks: ((e: Editor) => void)[] = [];
+  /** Store the preferences; false when the browser refused (full or blocked storage). */
   savePreferences() {
     try {
       localStorage.setItem(PREFERENCES_KEY, JSON.stringify(this.preferences));
+      return true;
     } catch {
-      /* Optional. */
+      return false;
     }
   }
   /** Save and apply changed preferences. */
@@ -882,10 +891,7 @@ export class Editor {
       const input = e.target as HTMLInputElement;
       const files = Array.from(input.files ?? []);
       input.value = '';
-      void this.run(async () => {
-        const { openFiles } = await import('./features/files/open');
-        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })));
-      });
+      this.openWhenFree(files, false);
     };
     const viewport = this.el('#viewport');
     const workspace = this.el('.workspace');
@@ -904,10 +910,7 @@ export class Editor {
       const files = Array.from(e.dataTransfer.files);
       // Dropping onto the canvas places files into the open document.
       const place = this.hasDocument && !!(e.target as HTMLElement).closest('#viewport');
-      void this.run(async () => {
-        const { openFiles } = await import('./features/files/open');
-        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })), place);
-      });
+      this.openWhenFree(files, place);
     });
     viewport.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -927,6 +930,23 @@ export class Editor {
       }
     });
     this.setTheme(this.preferences.theme);
+  }
+  /** Open (or place) dropped or picked files; while a task runs they wait
+   * for it, so they are neither lost nor mixed into its edits. */
+  private openWhenFree(files: File[], place: boolean) {
+    if (!files.length) return;
+    const open = () =>
+      this.run(async () => {
+        const { openFiles } = await import('./features/files/open');
+        await openFiles(this, files.map((blob) => ({ blob, name: blob.name })), place && this.hasDocument);
+      });
+    if (!this.busy) return void open();
+    const names = files.length === 1 ? files[0].name : `${files.length} files`;
+    this.message(`${names} ${files.length === 1 ? 'opens' : 'open'} when the current task finishes.`);
+    void (async () => {
+      while (this.busy) await this.idle;
+      await open();
+    })();
   }
   canvasContextMenu() {
     const items: string[] = [];
@@ -985,7 +1005,7 @@ export class Editor {
       e.preventDefault();
       if (!this.transform.dragging) {
         const step = e.shiftKey ? 10 : 1;
-        this.transform.nudge(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0);
+        this.transform.nudge(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0, { pixels: true });
       }
       return;
     }

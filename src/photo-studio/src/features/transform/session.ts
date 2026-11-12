@@ -10,10 +10,13 @@ import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { findLayer, type Layer, type PhotoDocument } from '../../model/document';
 import { layerLock } from '../../model/locks';
-import { carryMask, clearToPixelLayer, setLayerPixels } from '../../model/pixel-layer';
+import { carryMask, clearToPixelLayer, setLayerPixels, setLivePixels } from '../../model/pixel-layer';
 import { transformVideo } from '../../model/video-layer';
 import { mapMaskPoints } from '../../model/paths';
-import { gridDocBounds, gridFromImage, readMask, readRGBA, type TileGrid } from '../../model/tiles';
+import { gridDocBounds, gridFromImage, gridTileIds, readMask, readRGBA, type TileGrid } from '../../model/tiles';
+import { tileHolders } from '../../app/session';
+import { hexRgb } from '../pixels';
+import { dropFloat, floatingDocument, floatPart, liftSelection, type FloatingPixels } from './float';
 import { applySelection, maskGrid, selectionBounds, selectionGrid } from '../../model/selection';
 import { snapTargets, snapTranslation } from '../../model/transform';
 import { snapOptions } from '../view-extras';
@@ -78,7 +81,10 @@ export const MODES: [Mode, string][] = [
   ['perspective', 'Perspective'],
   ['warp', 'Warp'],
 ];
-type Target = { kind: 'layer'; id: string; layerKind: 'pixel' | 'image'; mask?: TileGrid | null } | { kind: 'selection' };
+// `float`: the selected pixels of a pixel layer, lifted off the rest of it.
+// `selection`: a selection holding all of a pixel layer's content, which
+// is transformed with the whole layer (as a lifted selection would be).
+type Target = { kind: 'layer'; id: string; layerKind: 'pixel' | 'image'; mask?: TileGrid | null; float?: FloatingPixels; selection?: TileGrid } | { kind: 'selection' };
 type State = { quad: Quad; mesh?: MeshGrid; params: AffineParams; warpStyle: string; bend: number; hd: number; vd: number; corners: Set<string> };
 /** A split or merge waiting for a click on the warp. */
 export type SplitAction = 'u' | 'v' | 'both' | 'remove';
@@ -122,6 +128,12 @@ export class TransformSession {
   private previousTool: string;
   private hideEdges: unknown;
   private ended = false;
+  // Floating selections: the lifted pixels as tiles (drawn while the frame is
+  // a rotated rectangle), the ids of the preview layers, and the tiles the
+  // committed layer keeps.
+  private floatGrid?: TileGrid;
+  private floatIds?: { group: string; rest: string; float: string };
+  private keepTiles?: Set<string>;
 
   constructor(
     private e: Editor,
@@ -139,6 +151,21 @@ export class TransformSession {
     this.previousTool = e.tool === SESSION_TOOL ? 'move' : e.tool;
     if (source) this.setSource(source);
     if (mode === 'warp') this.ensureMesh();
+    const f = this.float;
+    if (f) {
+      this.floatGrid = gridFromImage(e.assets.tiles, f.image, f.rect.x, f.rect.y);
+      this.floatIds = { group: crypto.randomUUID(), rest: crypto.randomUUID(), float: crypto.randomUUID() };
+    }
+  }
+  get float() {
+    return this.target.kind === 'layer' ? this.target.float : undefined;
+  }
+  /** Tiles the session made that no document refers to yet (kept from tile cleanup). */
+  heldTiles(): string[] {
+    const ids = [...this.previewTiles];
+    const f = this.float;
+    if (f) ids.push(...Object.values(f.remaining.tiles), ...Object.values(this.floatGrid?.tiles ?? {}));
+    return ids;
   }
   setSource(src: RGBA8) {
     this.source = src;
@@ -163,7 +190,8 @@ export class TransformSession {
     setCurrentSession(this);
     this.e.modal = this;
     this.hideEdges = this.e.settings.hideSelectionEdges;
-    if (this.target.kind === 'selection') this.e.settings.hideSelectionEdges = true;
+    // The outline of a selection being transformed (or lifted) would mislead.
+    if (this.target.kind === 'selection' || this.float || (this.target.kind === 'layer' && this.target.selection)) this.e.settings.hideSelectionEdges = true;
     this.e.setTool(SESSION_TOOL);
     this.schedule(true);
     this.e.update();
@@ -180,6 +208,13 @@ export class TransformSession {
     this.previewDoc = undefined;
     this.overlayImage = undefined;
     this.retire();
+    const f = this.float;
+    if (f) {
+      // Lifted tiles the committed layer does not use (all of them on cancel).
+      const base = gridTileIds(this.layer?.pixels),
+        keep = this.keepTiles ?? new Set<string>();
+      this.retireTiles([...Object.values(f.remaining.tiles), ...Object.values(this.floatGrid?.tiles ?? {})].filter((id) => !base.has(id) && !keep.has(id)));
+    }
     if (restoreTool && this.e.tool === SESSION_TOOL) this.e.setTool(this.previousTool);
   }
   /** `restoreTool` is false when the session ends because another tool was chosen. */
@@ -205,10 +240,30 @@ export class TransformSession {
     const quad = this.quad,
       mesh = this.mesh,
       rect = this.rect;
-    this.end(restoreTool);
-    recordTransform({ matrix: rectToQuad(rect, quad), unitMesh: mesh ? unitMesh(mesh, rect, quad) : undefined });
     const store = this.e.assets.tiles;
     const label = mesh ? 'Warp' : this.target.kind === 'selection' ? 'Transform Selection' : 'Transform';
+    const f = this.float;
+    if (f && this.target.kind === 'layer') {
+      // The transformed pixels go back over the rest of the layer and the
+      // selection follows them.
+      const method = samplerInterp(this.e.settings.transformInterpolation as string);
+      const grid = dropFloat(store, f, result?.image, result?.rect.x ?? 0, result?.rect.y ?? 0);
+      const shape = this.render(rgbaFromMask(f.selection), 1, method, true);
+      const selection = shape ? maskGrid(store, maskFromRGBA(shape.image), shape.rect.x, shape.rect.y) : null;
+      this.keepTiles = gridTileIds(grid, gridTileIds(selection));
+      this.end(restoreTool);
+      recordTransform({ matrix: rectToQuad(rect, quad), unitMesh: mesh ? unitMesh(mesh, rect, quad) : undefined });
+      const id = this.target.id;
+      this.e.command(label, (d) => {
+        const l = findLayer(d.layers, id);
+        if (!l) return;
+        setLayerPixels(l, grid, d);
+        applySelection(d, selection);
+      });
+      return;
+    }
+    this.end(restoreTool);
+    recordTransform({ matrix: rectToQuad(rect, quad), unitMesh: mesh ? unitMesh(mesh, rect, quad) : undefined });
     if (this.target.kind === 'selection') {
       const grid = result ? maskGrid(store, maskFromRGBA(result.image), result.rect.x, result.rect.y) : null;
       this.e.command(label, (d) => applySelection(d, grid));
@@ -247,15 +302,65 @@ export class TransformSession {
         return [p.x, p.y];
       });
     }
+    // Live Filters stay: their source (and filter mask) follow the content and
+    // the cached result is the transformed one until the next filter edit.
+    let live: { source: TileGrid; mask?: TileGrid } | undefined;
+    if (before?.kind === 'pixel' && before.liveFilters && before.liveSource) {
+      const r = this.render(readRGBA(store, before.liveSource, rect), 1, method, true);
+      live = {
+        source: r ? gridFromImage(store, r.image, r.rect.x, r.rect.y) : gridFromImage(store, { width: 1, height: 1, data: new Uint8ClampedArray(4) }),
+        mask: before.liveMask
+          ? carryMask(store, before.liveMask, rect, (img) => {
+              const out = this.render(img, 1, method, true);
+              return out && { image: out.image, x: out.rect.x, y: out.rect.y };
+            })
+          : undefined,
+      };
+    }
     this.e.command(label, (d) => {
       const l = findLayer(d.layers, id);
       if (!l) return;
       if (l.kind === 'image') toPixelLayer(l, mask);
       if (video && l.video) l.video = transformVideo(l.video, rectToQuad(rect, quad));
-      setLayerPixels(l, grid, d);
+      if (live) setLivePixels(l, grid, d, live.source, live.mask);
+      else setLayerPixels(l, grid, d);
       if (linked) l.maskGrid = linked;
       if (vector && l.vectorMask) l.vectorMask = { ...l.vectorMask, mask: vector };
     });
+    // A selection holding all of the content follows it, as when lifted.
+    const held = this.target.selection;
+    if (held) {
+      const src = this.source;
+      this.followSelection(label, () => {
+        // It is fully selected over the content's bounds, so over opaque
+        // content the transformed pixels' alpha is exactly its shape.
+        const shape = opaque(src) ? result : this.render(rgbaFromMask(readMask(store, held, rect)), 1, method, true);
+        return shape ? maskGrid(store, maskFromRGBA(shape.image), shape.rect.x, shape.rect.y) : null;
+      });
+    }
+  }
+  /** Add the transformed selection to the step just committed, right after
+   * the commit (off its critical path). The editor stays busy until then, and
+   * anything that applies pending transforms first (other commands, the
+   * History panel) adds it before going on, so undo and redo always see the
+   * pixels and the selection together. */
+  private followSelection(label: string, build: () => TileGrid | null) {
+    const e = this.e,
+      session = e.session,
+      committed = e.doc;
+    let pending = true;
+    const flush = () => {
+      if (!pending) return;
+      pending = false;
+      const hooks = e.transform.beforeApply;
+      if (hooks.includes(flush)) hooks.splice(hooks.indexOf(flush), 1);
+      if (session.doc !== committed) return;
+      const selection = build();
+      e.command(label, (d) => applySelection(d, selection), { coalesce: true, session });
+    };
+    e.transform.beforeApply.push(flush);
+    if (e.busy) flush();
+    else void e.run(() => new Promise<void>((resolve) => setTimeout(() => (flush(), resolve()), 0)));
   }
 
   // ----- State -----
@@ -517,7 +622,7 @@ export class TransformSession {
     switch (d.op) {
       case 'move': {
         let m = translate(delta.x, delta.y);
-        if (this.e.preferences.snap && !p.alt && this.target.kind === 'layer') {
+        if (this.e.transform.snapping && !p.alt && this.target.kind === 'layer') {
           const b = quadBounds(mapQuad(m, s.quad));
           const layer = this.layer;
           const snapped = snapTranslation({ ...b, rotation: 0 }, snapTargets(this.base, layer ? [layer] : [], snapOptions(this.e)), 6 / this.e.zoom);
@@ -620,6 +725,10 @@ export class TransformSession {
     if (this.target.kind === 'layer') {
       const l = this.layer;
       if (!l) return;
+      if (this.float) {
+        this.previewFloat(l, this.float, settled);
+        return;
+      }
       let next: Layer;
       if (!this.mesh && isRotatedRect(this.quad) && (this.target.layerKind === 'image' || l.pixels)) {
         // The compositor draws rotated rectangles exactly from the transform.
@@ -653,6 +762,38 @@ export class TransformSession {
       this.overlayImage = r ? { href: tintedURL(r.image), rect: { x: r.rect.x / scale, y: r.rect.y / scale, width: r.image.width / scale, height: r.image.height / scale } } : undefined;
       e.overlay();
     }
+  }
+  /** A floating selection previews as a group standing in for the layer
+   * (see floatingDocument). */
+  private previewFloat(l: Layer, f: FloatingPixels, settled: boolean) {
+    const e = this.e;
+    const plain = floatPart(l);
+    const restBounds = gridDocBounds(f.remaining);
+    const rest: Layer = restBounds
+      ? { ...plain, id: this.floatIds!.rest, pixels: f.remaining, transform: { ...restBounds, rotation: 0 } }
+      : { ...plain, id: this.floatIds!.rest, visible: false };
+    let lifted: Layer;
+    if (!this.mesh && isRotatedRect(this.quad)) {
+      // The compositor draws rotated rectangles exactly from the transform.
+      lifted = { ...plain, id: this.floatIds!.float, pixels: this.floatGrid, transform: quadTransform(this.quad) };
+      this.retire();
+    } else {
+      const src = settled ? this.source : this.small;
+      if (!src) return;
+      const scale = this.previewScale(settled);
+      const r = this.render(src, scale, 'bilinear', false);
+      const old = this.previewTiles;
+      this.previewTiles = [];
+      const grid = r && gridFromImage(e.assets.tiles, r.image);
+      const b = grid && gridDocBounds(grid);
+      if (grid) this.previewTiles = Object.values(grid.tiles);
+      lifted = b
+        ? { ...plain, id: this.floatIds!.float, pixels: grid, transform: { x: r.rect.x / scale + b.x / scale, y: r.rect.y / scale + b.y / scale, width: b.width / scale, height: b.height / scale, rotation: 0 } }
+        : { ...plain, id: this.floatIds!.float, visible: false };
+      this.retireTiles(old);
+    }
+    this.previewDoc = floatingDocument(this.base, l, this.floatIds!.group, rest, lifted);
+    e.preview(this.previewDoc);
   }
   private previewScale(settled: boolean) {
     const b = quadBounds(this.mesh ? meshBounds(this.mesh) : this.quad);
@@ -770,14 +911,16 @@ export class TransformSession {
     const linked = () => this.e.settings.transformLink !== false;
     field('ts-x', (p, n) => (p.x = n));
     field('ts-y', (p, n) => (p.y = n));
+    // A linked side keeps its own direction: a negative entry flips only the
+    // side typed into.
     field('ts-w', (p, n) => {
       if (!n) return;
-      if (linked()) p.sy = (p.sy / p.sx) * (n / 100);
+      if (linked()) p.sy = (Math.sign(p.sy) || 1) * Math.abs((p.sy / p.sx) * (n / 100));
       p.sx = n / 100;
     });
     field('ts-h', (p, n) => {
       if (!n) return;
-      if (linked()) p.sx = (p.sx / p.sy) * (n / 100);
+      if (linked()) p.sx = (Math.sign(p.sx) || 1) * Math.abs((p.sx / p.sy) * (n / 100));
       p.sy = n / 100;
     });
     field('ts-angle', (p, n) => (p.rotation = n));
@@ -800,8 +943,9 @@ export class TransformSession {
     set('ts-bend', this.bend);
     set('ts-hd', this.hd);
     set('ts-vd', this.vd);
-    // The Properties panel shows the bounds the layer will have.
-    if (this.target.kind === 'layer') {
+    // The Properties panel shows the bounds the layer will have (a floating
+    // selection leaves the layer's bounds to the commit).
+    if (this.target.kind === 'layer' && !this.float) {
       const b = quadBounds(this.mesh ? meshBounds(this.mesh) : this.quad);
       for (const [key, v] of Object.entries({ x: b.x, y: b.y, width: b.width, height: b.height })) {
         const f = this.e.root.querySelector<HTMLInputElement>(`[data-property="${key}"]`);
@@ -904,6 +1048,11 @@ export class TransformSession {
 }
 
 // ----- Helpers -----
+function opaque(img: RGBA8) {
+  const d = img.data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) return false;
+  return true;
+}
 const round = (v: number) => Math.round(v * 100) / 100;
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 function insideQuad(q: Quad, p: Point) {
@@ -1076,6 +1225,9 @@ function tintedURL(img: RGBA8) {
   return tintCanvas.toDataURL();
 }
 
+// Tiles of the running session survive tile cleanup until it ends.
+tileHolders.push(() => currentSession()?.heldTiles() ?? []);
+
 // ----- Starting sessions -----
 export type StartOptions = { mode: Mode; quad?: Quad; mesh?: MeshGrid; selection?: boolean };
 /** Begin a session on the selection or the single selected pixel/image layer.
@@ -1114,9 +1266,24 @@ export function startSession(e: Editor, opts: StartOptions): TransformSession | 
     e.message('Show the layer before transforming it.');
     return;
   }
-  if (layerLock(e.doc.layers, l.id, 'position') || layerLock(e.doc.layers, l.id, 'pixels')) {
+  // With a selection, the selected pixels of a pixel layer float and are
+  // transformed on their own (a pixel edit: the layer itself stays in place).
+  const float =
+    l.kind === 'pixel' && !opts.quad
+      ? liftSelection(e.doc, store, l, { preserveAlpha: !!l.background || layerLock(e.doc.layers, l.id, 'transparency'), background: hexRgb(e.background) })
+      : undefined;
+  if (float === null) {
+    e.message('The selected area is empty. Select some of the layer’s pixels to transform them.');
+    return;
+  }
+  if ((!float && layerLock(e.doc.layers, l.id, 'position')) || layerLock(e.doc.layers, l.id, 'pixels')) {
     e.message('Unlock the layer before transforming it.');
     return;
+  }
+  if (float) {
+    const s = new TransformSession(e, { kind: 'layer', id: l.id, layerKind: 'pixel', float }, float.rect, opts.quad ?? rectQuad(float.rect), opts.mode, float.image);
+    s.begin();
+    return s;
   }
   if (l.kind === 'pixel') {
     const b = l.pixels ? gridDocBounds(l.pixels) : null;
@@ -1124,7 +1291,9 @@ export function startSession(e: Editor, opts: StartOptions): TransformSession | 
       e.message('The layer is empty.');
       return;
     }
-    const s = new TransformSession(e, { kind: 'layer', id: l.id, layerKind: 'pixel' }, b, opts.quad ?? rectQuad(b), opts.mode, readRGBA(store, l.pixels!, b));
+    // A selection that holds all of the content (no lift was needed) turns with it.
+    const held = !opts.quad && (e.doc.selection || e.doc.selectionMask) ? (selectionGrid(e.doc, store) ?? undefined) : undefined;
+    const s = new TransformSession(e, { kind: 'layer', id: l.id, layerKind: 'pixel', selection: held }, b, opts.quad ?? rectQuad(b), opts.mode, readRGBA(store, l.pixels!, b));
     s.begin();
     return s;
   }

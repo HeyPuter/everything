@@ -12,6 +12,9 @@ export type HistoryMark = { state: State; existing: Set<State>; open: boolean };
 export class History {
   private states: State[];
   private index = 0;
+  // The state the document opened in (or was last reset to); it stays
+  // available after older steps are dropped (History Brush source).
+  opened: PhotoDocument;
   // Applied to every new state, e.g. to bake pending pixel-layer transforms.
   normalize?: (doc: PhotoDocument, before: PhotoDocument) => void;
   // Whether a new edit keeps the states after the current one.
@@ -22,6 +25,12 @@ export class History {
     public limit = 60,
   ) {
     this.states = [{ label: '', doc: document }];
+    this.opened = document;
+  }
+  /** Why edits are refused (a shared document the person may only view or
+   * comment on), or undefined when they are recorded. */
+  get refusal(): string | undefined {
+    return undefined;
   }
   /** Record an edit. With `coalesce`, an edit repeating the label of the
    * latest step replaces that step's result (frame selection, for example),
@@ -74,6 +83,7 @@ export class History {
   }
   reset(doc: PhotoDocument) {
     this.document = doc;
+    this.opened = doc;
     this.states = [{ label: '', doc }];
     this.index = 0;
   }
@@ -144,6 +154,11 @@ export class History {
   /** Labels of the states after the current one, nearest first. */
   get redoLabels() {
     return this.states.slice(this.index + 1).map((s) => s.label);
+  }
+  /** Label of the edit that made the oldest retained state: empty while it
+   * is the opened document, otherwise the latest step history dropped. */
+  get baseLabel() {
+    return this.states[0].label;
   }
   /** Labels of the edits up to the current state. */
   get labels() {

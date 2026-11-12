@@ -58,6 +58,9 @@ export type Library = {
   // Times of the last rename and the last reorder (see `LibraryItem.moved`).
   named?: string;
   moved?: string;
+  // Stored items this version cannot read (a type added later, for
+  // example): never shown or used, and written back as they were.
+  kept?: unknown[];
 };
 export type LibraryIndex = {
   version: 1;
@@ -68,6 +71,8 @@ export type LibraryIndex = {
   // Deleted library and item IDs (with the time), so a stale copy elsewhere
   // does not bring them back when it syncs.
   deleted: Record<string, string>;
+  // Stored libraries this version cannot read, written back as they were.
+  kept?: unknown[];
 };
 export const emptyIndex = (): LibraryIndex => ({ version: 1, revision: 0, libraries: [], deleted: {} });
 
@@ -277,26 +282,55 @@ export function usableItem(item: LibraryItem): boolean {
   }
 }
 
-export function validLibrary(v: unknown): v is Library {
+/** A library's own fields (its items are checked one by one). */
+function validLibraryFields(v: unknown): v is Library {
   if (!v || typeof v !== 'object') return false;
   const l = v as Library;
-  return str(l.id, 128) && !!l.id && str(l.name, 256) && isTime(l.created) && isTime(l.modified) && (l.named === undefined || isTime(l.named)) && (l.moved === undefined || isTime(l.moved)) && Array.isArray(l.items) && l.items.length <= MAX_ITEMS && l.items.every(validItem);
+  return str(l.id, 128) && !!l.id && str(l.name, 256) && isTime(l.created) && isTime(l.modified) && (l.named === undefined || isTime(l.named)) && (l.moved === undefined || isTime(l.moved)) && Array.isArray(l.items) && l.items.length <= MAX_ITEMS;
 }
-/** A stored index, or undefined when it is not one (callers start empty). */
+export function validLibrary(v: unknown): v is Library {
+  return validLibraryFields(v) && v.items.every(validItem);
+}
+/** A stored index, or undefined when this version cannot read it at all.
+ * Libraries and items it cannot read are kept aside (`kept`), so writing
+ * the index back preserves them (see `storedIndex`). */
 export function validIndex(v: unknown): LibraryIndex | undefined {
   if (!v || typeof v !== 'object') return undefined;
   const x = v as LibraryIndex;
   if (x.version !== 1 || !Number.isInteger(x.revision) || x.revision < 0 || !Array.isArray(x.libraries) || x.libraries.length > MAX_LIBRARIES) return undefined;
-  if (!x.libraries.every(validLibrary)) return undefined;
   const deleted = x.deleted && typeof x.deleted === 'object' && !Array.isArray(x.deleted) ? x.deleted : {};
   // An item ID appears once (older versions could store a replayed item
   // twice): later copies are dropped.
   const seen = new Set<string>();
-  const libraries = x.libraries.map((l) => {
-    const items = l.items.filter((i) => !seen.has(i.id) && !!seen.add(i.id));
-    return items.length === l.items.length ? l : { ...l, items };
-  });
-  return { version: 1, revision: x.revision, ...(typeof x.writer === 'string' ? { writer: x.writer } : {}), libraries, deleted: Object.fromEntries(Object.entries(deleted).filter(([k, t]) => str(k, 128) && isTime(t))) };
+  const keptLibraries: unknown[] = Array.isArray(x.kept) ? [...x.kept] : [];
+  const libraries: Library[] = [];
+  for (const l of x.libraries) {
+    if (!validLibraryFields(l)) {
+      keptLibraries.push(l);
+      continue;
+    }
+    const kept: unknown[] = Array.isArray(l.kept) ? [...l.kept] : [];
+    const items = l.items.filter((i) => {
+      if (!validItem(i)) return void kept.push(i);
+      return !seen.has(i.id) && !!seen.add(i.id);
+    });
+    const { kept: _old, ...rest } = l;
+    libraries.push({ ...rest, items, ...(kept.length ? { kept } : {}) });
+  }
+  return {
+    version: 1,
+    revision: x.revision,
+    ...(typeof x.writer === 'string' ? { writer: x.writer } : {}),
+    libraries,
+    deleted: Object.fromEntries(Object.entries(deleted).filter(([k, t]) => str(k, 128) && isTime(t))),
+    ...(keptLibraries.length ? { kept: keptLibraries } : {}),
+  };
+}
+/** The index as stored: kept items and libraries back in their places. */
+export function storedIndex(index: LibraryIndex): LibraryIndex {
+  const { kept, ...rest } = index;
+  const libraries = index.libraries.map(({ kept: k, ...l }) => (k?.length ? { ...l, items: [...l.items, ...(k as LibraryItem[])] } : l));
+  return { ...rest, libraries: [...libraries, ...((kept ?? []) as Library[])] };
 }
 
 // ----- Single-file export -----
@@ -325,7 +359,8 @@ export async function exportLibraryFile(library: Library, readAsset: (hash: stri
       const blob = await readAsset(h);
       if (blob) assets[h] = { type: blob.type || 'application/octet-stream', data: toBase64(new Uint8Array(await blob.arrayBuffer())) };
     }
-  const file: LibraryFile = { format: LIBRARY_FILE_FORMAT, version: 1, exported: now.toISOString(), library, assets };
+  const { kept: _kept, ...readable } = library;
+  const file: LibraryFile = { format: LIBRARY_FILE_FORMAT, version: 1, exported: now.toISOString(), library: readable, assets };
   return JSON.stringify(file);
 }
 
@@ -338,7 +373,8 @@ export async function importLibraryFile(text: string, hash: (bytes: Uint8Array) 
   } catch {
     throw new Error('This is not a library file.');
   }
-  if (!v || v.format !== LIBRARY_FILE_FORMAT || v.version !== 1 || !validLibrary(v.library)) throw new Error('This is not a library file, or it was made by a newer version.');
+  // The library itself must be intact; damaged items are counted and left out below.
+  if (!v || v.format !== LIBRARY_FILE_FORMAT || v.version !== 1 || !validLibraryFields(v.library)) throw new Error('This is not a library file, or it was made by a newer version.');
   const assets = new Map<string, Blob>();
   for (const [h, a] of Object.entries(v.assets ?? {})) {
     if (!isHash(h) || !a || typeof a.data !== 'string' || typeof a.type !== 'string') continue;
@@ -355,7 +391,7 @@ export async function importLibraryFile(text: string, hash: (bytes: Uint8Array) 
   let skipped = 0;
   const items = v.library.items.filter((i) => {
     // Items whose content did not arrive intact, or whose settings are damaged, are left out.
-    const ok = Object.values(i.assets ?? {}).every((h) => assets.has(h)) && usableItem(i);
+    const ok = validItem(i) && Object.values(i.assets ?? {}).every((h) => assets.has(h)) && usableItem(i);
     if (!ok) skipped++;
     return ok;
   });

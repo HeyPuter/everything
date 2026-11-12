@@ -2,7 +2,7 @@ import type { Editor } from '../editor';
 import { registerCommand, commands, type Command } from '../app/registry';
 import { performAction } from '../ui/actions';
 import { formDialog, information } from '../ui/dialog';
-import { findLayer, containerOf, allLayers, layer, replaceDocument, type Layer, type PhotoDocument, cropDocument } from '../model/document';
+import { findLayer, containerOf, allLayers, insertLayerAt, layer, replaceDocument, type Layer, type PhotoDocument, cropDocument } from '../model/document';
 import { newPixelLayer, setLayerPixels } from '../model/pixel-layer';
 import { gridFromImage, readRGBA, readMask, writeRect, emptyGrid } from '../model/tiles';
 import { canvasRect, selectionGrid, selectionBounds, applySelection } from '../model/selection';
@@ -11,7 +11,7 @@ import { escapeXML } from '../model/assets';
 import { formatShortcut, isMac } from '../app/shortcuts';
 import { appIcon } from '../app/shell';
 import { compositeRGBA, hexRgb, layerRGBA, nextLayerName, pixelTarget, rasterizeLayer, commitTarget } from './pixels';
-import { assertEditable, selectedRoots, groupLayers, mergeVisibleStack } from '../model/layers';
+import { assertEditable, selectedRoots, groupLayers, mergeVisibleStack, toggleClipping, arrangeLayers } from '../model/layers';
 import { hasMask } from '../model/masks';
 import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
@@ -19,6 +19,7 @@ import { makeBackground } from '../model/housekeeping';
 import type { RGBA8 } from '../imaging/types';
 import { layerLock } from '../model/locks';
 import { fillWithPattern } from './effects/commands';
+import { recordsSettings, settingsDialog } from './action-settings';
 
 const hasDoc = (e: Editor) => e.hasDocument;
 const hasLayer = (e: Editor) => !!e.layer;
@@ -37,6 +38,7 @@ export function purgeClipboard() {
 export const copiedImage = (): RGBA8 | undefined => clipboard?.image;
 
 export function installCore(e: Editor) {
+  for (const id of ['layer.new', 'edit.fill']) recordsSettings(id);
   // ----- File -----
   cmd('file.open', 'Open…', () => {
     // Load the decoders while the file picker is open.
@@ -89,7 +91,7 @@ export function installCore(e: Editor) {
   cmd('edit.paste', 'Paste', () => paste(e, false), { shortcut: 'Mod+V' });
   cmd('edit.paste-in-place', 'Paste in Place', () => paste(e, true), { shortcut: 'Mod+Shift+V', enabled: () => !!clipboard });
   cmd('edit.clear', 'Clear', () => clearSelection(e), { shortcut: ['Backspace', 'Delete'], enabled: hasDoc });
-  cmd('edit.fill', 'Fill…', () => fillDialog(e), { shortcut: ['Shift+F5', 'Shift+Backspace'], enabled: hasDoc });
+  cmd('edit.fill', 'Fill…', (_e, arg) => fillDialog(e, arg), { shortcut: ['Shift+F5', 'Shift+Backspace'], enabled: hasDoc });
   cmd('edit.fill-foreground', 'Fill with Foreground Color', () => fillWith(e, hexRgb(e.color), 1, false), { shortcut: 'Alt+Backspace', hidden: true });
   cmd('edit.fill-background', 'Fill with Background Color', () => fillWith(e, hexRgb(e.background), 1, false), { shortcut: 'Mod+Backspace', hidden: true });
   cmd('edit.fill-foreground-preserve', 'Fill with Foreground Color, Preserving Transparency', () => fillWith(e, hexRgb(e.color), 1, true), { shortcut: 'Alt+Shift+Backspace', hidden: true });
@@ -133,8 +135,8 @@ export function installCore(e: Editor) {
   }, { enabled: hasDoc, recordable: false });
 
   // ----- Layer -----
-  cmd('layer.new', 'Layer…', async () => {
-    const v = await formDialog('New Layer', [{ name: 'name', label: 'Name', value: nextLayerName(e.doc) }], 'OK');
+  cmd('layer.new', 'Layer…', async (_e, arg) => {
+    const v = await settingsDialog(e, 'layer.new', arg, 'New Layer', [{ name: 'name', label: 'Name', value: nextLayerName(e.doc) }], 'OK');
     if (!v) return;
     const l = newPixelLayer(v.name || nextLayerName(e.doc), e.doc);
     insertAboveSelection(e, l, 'New Layer');
@@ -188,10 +190,15 @@ export function installCore(e: Editor) {
       e.message('There is no layer below to clip to.');
       return;
     }
-    e.editLayer(l.clipped ? 'Release Clipping Mask' : 'Create Clipping Mask', (x) => {
-      if (x.clipped) delete x.clipped;
-      else x.clipped = true;
-    });
+    if (e.selectedIds.size > 1) {
+      e.message('Select a single layer for this adjustment.');
+      return;
+    }
+    if (layerLock(e.doc.layers, l.id, 'all')) {
+      e.message('Unlock this layer to edit it.');
+      return;
+    }
+    e.command(l.clipped ? 'Release Clipping Mask' : 'Create Clipping Mask', (d) => toggleClipping(d, l.id));
   }, { shortcut: 'Mod+Alt+G', enabled: hasLayer, checked: (e) => !!e.layer?.clipped });
   for (const [id, label, shortcut, where] of [
     ['layer.bring-front', 'Bring to Front', 'Mod+Shift+]', 'front'],
@@ -202,10 +209,12 @@ export function installCore(e: Editor) {
     cmd(id, label, () => arrange(e, where), { shortcut, enabled: hasLayer });
   cmd('layer.hide', 'Hide Layers', () => {
     const ids = [...e.selectedIds];
-    e.command('Hide Layers', (d) => {
+    // Hides every selected layer; when all of them are hidden, shows them.
+    const hide = ids.some((id) => findLayer(e.doc.layers, id)?.visible);
+    e.command(hide ? 'Hide Layers' : 'Show Layers', (d) => {
       for (const id of ids) {
         const l = findLayer(d.layers, id);
-        if (l) l.visible = !l.visible;
+        if (l) l.visible = !hide;
       }
     });
   }, { shortcut: 'Mod+,', enabled: hasLayer });
@@ -453,15 +462,7 @@ function revealAll(e: Editor) {
 function arrange(e: Editor, where: 'front' | 'forward' | 'backward' | 'back') {
   const roots = e.selectedLayers;
   assertEditable(e.doc, roots, 'position');
-  e.command('Arrange Layers', (d) => {
-    for (const r of where === 'front' || where === 'backward' ? roots : [...roots].reverse()) {
-      const list = containerOf(d.layers, r.id)!;
-      const i = list.findIndex((l) => l.id === r.id);
-      const [item] = list.splice(i, 1);
-      const to = where === 'front' ? list.length : where === 'back' ? 0 : where === 'forward' ? Math.min(list.length, i + 1) : Math.max(0, i - 1);
-      list.splice(to, 0, item);
-    }
-  });
+  e.command('Arrange Layers', (d) => arrangeLayers(d, roots, where));
 }
 async function layerVia(e: Editor, cut: boolean) {
   const l = e.layer;
@@ -488,7 +489,8 @@ async function layerVia(e: Editor, cut: boolean) {
   e.command(cut ? 'Layer via Cut' : 'Layer via Copy', (d) => {
     if (remaining) setLayerPixels(findLayer(d.layers, id)!, remaining, d);
     const list = containerOf(d.layers, id)!;
-    list.splice(list.findIndex((x) => x.id === id) + 1, 0, nl);
+    // Above the base of a clipping group the new layer joins the group.
+    insertLayerAt(list, list.findIndex((x) => x.id === id) + 1, nl);
   });
   e.selected = nl.id;
   e.update();
@@ -578,8 +580,7 @@ async function paste(e: Editor, inPlace: boolean) {
   const x = inPlace ? item.x : b ? Math.round(b.x + (b.width - item.image.width) / 2) : Math.round((e.doc.width - item.image.width) / 2);
   const y = inPlace ? item.y : b ? Math.round(b.y + (b.height - item.image.height) / 2) : Math.round((e.doc.height - item.image.height) / 2);
   const l = newPixelLayer(nextLayerName(e.doc), e.doc, gridFromImage(e.assets.tiles, item.image, x, y));
-  insertAboveSelection(e, l, 'Paste');
-  e.command('Deselect', (d) => applySelection(d, null));
+  insertAboveSelection(e, l, 'Paste', (d) => applySelection(d, null));
 }
 async function clearSelection(e: Editor, label = 'Clear') {
   if (!e.doc.selection) {
@@ -602,9 +603,9 @@ async function clearSelection(e: Editor, label = 'Clear') {
     commitTarget(e, target, writeRect(e.assets.tiles, target.grid, b.x, b.y, m), label);
   }
 }
-async function fillDialog(e: Editor) {
+async function fillDialog(e: Editor, arg?: unknown) {
   const contextFill = e.doc.selection ? commands.get('edit.context-fill-apply') : undefined;
-  const v = await formDialog('Fill', [
+  const v = await settingsDialog(e, 'edit.fill', arg, 'Fill', [
     { name: 'contents', label: 'Contents', value: 'foreground', type: 'select', options: [['foreground', 'Foreground Color'], ['background', 'Background Color'], ['black', 'Black'], ['gray', '50% Gray'], ['white', 'White'], ['color', 'Color…'], ['pattern', 'Pattern (current in Patterns panel)'], ...(contextFill ? [['context', 'Context Fill'] as [string, string]] : [])] },
     { name: 'color', label: 'Color (when Contents is Color)', value: e.color, type: 'color' },
     { name: 'opacity', label: 'Opacity (%)', value: 100, type: 'number', min: 1, max: 100 },
@@ -719,6 +720,24 @@ async function mergeDown(e: Editor) {
   if (e.selectedIds.size > 1) return mergeSelected(e);
   const list = containerOf(e.doc.layers, l.id)!;
   const i = list.indexOf(l);
+  // On the base of a clipping group, Merge Down merges the group (Merge
+  // Clipping Mask): merging the base alone into the layer below would widen
+  // the shape the clipped layers show through.
+  let top = i + 1;
+  while (list[top]?.clipped) top++;
+  if (!l.clipped && top > i + 1) {
+    if (!l.visible) {
+      e.message('Show the layer before merging its clipping mask.');
+      return;
+    }
+    if (l.kind === 'adjustment') {
+      e.message('An adjustment layer cannot receive merged pixels.');
+      return;
+    }
+    // Hidden clipped layers stay clipped to the merged layer.
+    await mergeLayers(e, [l, ...list.slice(i + 1, top).filter((c) => c.visible)], l.id, 'Merge Clipping Mask', true);
+    return;
+  }
   if (i === 0) {
     e.message('There is no layer below to merge into.');
     return;
@@ -752,19 +771,23 @@ async function mergeLayers(e: Editor, layers: Layer[], keepId: string, label: st
   // Merging rewrites the bottom layer and deletes the others.
   assertEditable(doc, layers);
   if (layerLock(doc.layers, keepId, 'pixels')) throw new Error('Unlock the selected layers and their groups first.');
-  // A clipped layer keeps its clipping when its base is merged with it
-  // (the layer directly below it in the same stack); the bottom one draws alone.
+  // A clipped layer keeps its clipping when its base (the nearest unclipped
+  // layer below it in the same stack) is merged with it. Otherwise it draws
+  // alone: merging two layers clipped to the same base must not clip the
+  // upper one to the lower one.
+  const ids = new Set(layers.map((l) => l.id));
   const clippedOnto = (l: Layer, i: number) => {
     if (!i || !l.clipped) return false;
     const list = containerOf(doc.layers, l.id)!;
-    return list[list.indexOf(l) - 1]?.id === layers[i - 1].id;
+    let k = list.indexOf(l) - 1;
+    while (k > 0 && list[k].clipped) k--;
+    return k >= 0 && ids.has(list[k].id);
   };
   const bottom = layers.find((l) => l.id === keepId)!;
   const blend = keepBlend && bottom.blend !== 'pass through' ? bottom.blend : 'normal';
   const temp = { ...doc, layers: layers.map((l, i) => ({ ...l, clipped: clippedOnto(l, i), ...(l === bottom && blend !== 'normal' ? { blend: 'normal' as const } : {}) })) };
   const img = await compositeRGBA(e, temp);
   const grid = gridFromImage(e.assets.tiles, img);
-  const ids = new Set(layers.map((l) => l.id));
   e.command(label, (d) => {
     const keep = findLayer(d.layers, keepId)!;
     const list = containerOf(d.layers, keepId)!;

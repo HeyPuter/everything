@@ -241,6 +241,22 @@ describe('document annotations', () => {
     mapAnnotations(a, (x, y) => [y, x]);
     expect(a.samplers![0]).toEqual({ x: 20, y: 10 });
   });
+  it('keeps color samplers on the same pixel when the canvas rotates or flips', () => {
+    // Samplers name a pixel; geometry maps points. A 90° turn of a 100 x 80
+    // canvas maps the point (x, y) to (80 - y, x), the pixel to (79 - y, x).
+    const a: Annotations = { samplers: [{ x: 10, y: 20 }, { x: 99, y: 79 }] };
+    mapAnnotations(a, (x, y) => [80 - y, x]);
+    expect(a.samplers).toEqual([{ x: 59, y: 10 }, { x: 0, y: 99 }]);
+    // Floating point turns used to leave 50.00000000000001 or 79.99999999 behind.
+    const b: Annotations = { samplers: [{ x: 30, y: 20 }] };
+    const c = Math.cos(Math.PI / 2),
+      s = Math.sin(Math.PI / 2);
+    mapAnnotations(b, (x, y) => [c * x - s * y + 100, s * x + c * y]);
+    expect(b.samplers).toEqual([{ x: 79, y: 30 }]);
+    const flip: Annotations = { samplers: [{ x: 0, y: 5 }] };
+    mapAnnotations(flip, (x, y) => [100 - x, y]);
+    expect(flip.samplers).toEqual([{ x: 99, y: 5 }]);
+  });
   it('drops empty collections', () => {
     expect(tidyAnnotations({ samplers: [], notes: [] })).toBeUndefined();
     expect(tidyAnnotations({ samplers: [], counts: sample().counts })).toEqual({ counts: sample().counts });

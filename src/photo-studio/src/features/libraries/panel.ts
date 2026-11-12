@@ -291,8 +291,16 @@ function select(item: LibraryItem) {
 
 function renderBody(e: Editor, el: HTMLElement) {
   const body = el.querySelector<HTMLElement>('.lib-body')!;
+  // Redraws (sync status, edits from other tabs) keep the keyboard on the
+  // item that had it, or on the one that took its place.
+  const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.lib-item');
+  const at = focused && body.contains(focused) ? [...body.querySelectorAll('.lib-item')].indexOf(focused) : -1;
   body.innerHTML = bodyHtml(e);
   fillThumbs(body);
+  if (at >= 0) {
+    const items = [...body.querySelectorAll<HTMLElement>('.lib-item')];
+    (items.find((x) => x.dataset.item === focused!.dataset.item) ?? items[Math.min(at, items.length - 1)])?.focus();
+  }
 }
 export function update(e: Editor, el: HTMLElement) {
   const lib = libraries();

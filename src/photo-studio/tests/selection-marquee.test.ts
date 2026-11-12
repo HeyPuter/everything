@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { marqueeRect } from '../src/features/selection';
+import { marqueePixels, marqueeRect } from '../src/features/selection';
 
 const at = (x: number, y: number, mods: { shift?: boolean; alt?: boolean } = {}) => ({ x, y, shift: !!mods.shift, alt: !!mods.alt });
 
@@ -24,5 +24,13 @@ describe('marquee rectangle', () => {
     expect(marqueeRect([100, 100], at(100, 100, { alt: true }), 'replace', size)).toEqual({ x: 75, y: 80, width: 50, height: 40 });
     // Missing or invalid sizes fall back to one pixel.
     expect(marqueeRect([5, 5], at(5, 5), 'replace', { style: 'size', width: 'x', height: -3 })).toEqual({ x: 5, y: 5, width: 1, height: 1 });
+  });
+});
+
+describe('marquee pixels', () => {
+  it('snaps each edge to the nearest pixel boundary', () => {
+    // 10.6..21.2 covers pixels 11 to 20, not 11 to 21.
+    expect(marqueePixels({ x: 10.6, y: 10.6, width: 10.6, height: 10.6 })).toEqual({ x: 11, y: 11, width: 10, height: 10 });
+    expect(marqueePixels({ x: 10.4, y: 0, width: 10.2, height: 3 })).toEqual({ x: 10, y: 0, width: 11, height: 3 });
   });
 });

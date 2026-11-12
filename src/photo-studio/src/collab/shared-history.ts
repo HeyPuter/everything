@@ -11,6 +11,7 @@ import type { PhotoDocument } from '../model/document';
 import type { Assets } from '../model/assets';
 import { ORIGIN } from './shared-project';
 import type { RoomClient } from './client';
+import { CollabError } from './api';
 
 // One step of this person's history. `items` counts the Undo items it wrote
 // into the shared document (more than one when a paused run continued the
@@ -37,6 +38,9 @@ export class SharedHistory extends History {
   private remember(doc: PhotoDocument) {
     if (this.recent.at(-1) !== doc) this.recent.push(doc);
     if (this.recent.length > 30) this.recent.shift();
+  }
+  override get refusal() {
+    return this.binding.canEdit ? undefined : this.binding.refusal();
   }
   override execute(label: string, edit: (doc: PhotoDocument) => void, coalesce = false) {
     if (!this.binding.canEdit) {
@@ -143,7 +147,7 @@ export class SharedBinding {
   ) {
     const p = client.project;
     // Only this person's edits are tracked; merging is controlled with stopCapturing.
-    this.undoManager = new Y.UndoManager([p.doc, p.layers], { trackedOrigins: new Set([ORIGIN.local]), captureTimeout: 2 ** 31 });
+    this.undoManager = new Y.UndoManager([p.doc, p.layers], { trackedOrigins: new Set([ORIGIN.local]), captureTimeout: 2 ** 31, deleteFilter: (item) => this.mayRemove(item) });
     this.history = new SharedHistory(initial);
     this.history.binding = this;
     this.shown = initial;
@@ -156,8 +160,11 @@ export class SharedBinding {
   get canEdit() {
     return this.client.canEdit && !this.closed;
   }
+  refusal() {
+    return this.closed ? 'This document is no longer shared.' : this.client.canComment ? 'You can comment on this shared document but not change it.' : 'You can view this shared document but not change it.';
+  }
   refuse() {
-    this.o.onMessage?.(this.closed ? 'This document is no longer shared.' : this.client.canComment ? 'You can comment on this shared document but not change it.' : 'You can view this shared document but not change it.');
+    this.o.onMessage?.(this.refusal());
   }
   get undoCount() {
     return this.entries.length;
@@ -276,13 +283,49 @@ export class SharedBinding {
     const stack = kind === 'undo' ? um.undoStack : um.redoStack;
     if (!stack.length) return false;
     const rest = stack.splice(0, stack.length - 1);
+    this.touched.clear();
+    this.popping = stack[0];
     um.stopCapturing();
     try {
       return (kind === 'undo' ? um.undo() : um.redo()) !== null;
     } finally {
+      this.popping = undefined;
       stack.unshift(...rest);
       um.stopCapturing();
     }
+  }
+  // Layers this person added that others have changed since: undoing the
+  // addition keeps them (with everything in them), so Undo never removes
+  // other people's work. Worked out once per Undo or Redo.
+  private touched = new Map<Y.Map<unknown>, boolean>();
+  private popping?: { insertions: Parameters<typeof Y.isDeleted>[0] };
+  private mayRemove(item: Y.Item) {
+    const layers = this.client.project.layers as unknown as Y.AbstractType<unknown>;
+    let entry: Y.AbstractType<unknown> | null = null;
+    for (let at: Y.Item | null = item; at; at = at.parent instanceof Y.AbstractType ? at.parent._item : null) {
+      if (at.parent === layers) {
+        // Only when this step added the layer; its other edits undo as usual.
+        if (this.popping && Y.isDeleted(this.popping.insertions, at.id)) entry = at.content instanceof Y.ContentType ? at.content.type : null;
+        break;
+      }
+    }
+    if (!(entry instanceof Y.Map)) return true;
+    let others = this.touched.get(entry);
+    if (others === undefined) {
+      const me = this.client.ydoc.clientID;
+      const foreign = (map: Y.Map<unknown>): boolean => {
+        for (const it of map._map.values()) {
+          if (it.deleted) continue;
+          if (it.id.client !== me) return true;
+          const v = it.content instanceof Y.ContentType ? it.content.type : null;
+          if (v instanceof Y.Map && foreign(v)) return true;
+        }
+        return false;
+      };
+      others = foreign(entry);
+      this.touched.set(entry, others);
+    }
+    return !others;
   }
   /** A step whose changes others have all replaced: Yjs dropped its stack
    * item, so its history entry goes too. */
@@ -324,7 +367,7 @@ export class SharedBinding {
     let result;
     try {
       // Validated (and repaired where a merge left it invalid) by the projection.
-      result = this.client.project.project({ selection: local.selection, selectionMask: local.selectionMask, imageAssets: local.imageAssets, hdrPreview: local.hdrPreview });
+      result = this.client.project.project({ selection: local.selection, selectionMask: local.selectionMask, quickMask: local.quickMask, imageAssets: local.imageAssets, hdrPreview: local.hdrPreview });
     } catch (error) {
       this.o.onMessage?.(`The shared document contains a change this browser cannot show: ${error instanceof Error ? error.message : String(error)}`);
       return;
@@ -348,8 +391,14 @@ export class SharedBinding {
     if (this.fetching) return;
     this.fetching = true;
     try {
-      await this.client.fetchTiles(missing.tiles);
-      for (const [id, ref] of missing.assets) await this.client.fetchAsset(id, ref);
+      let arrived = await this.client.fetchTiles(missing.tiles);
+      for (const [id, ref] of missing.assets) {
+        await this.client.fetchAsset(id, ref);
+        arrived++;
+      }
+      // Nothing came (content not uploaded yet, or never): wait before asking
+      // again instead of asking in a loop.
+      if (!arrived) throw new Error('Not available yet.');
       this.fetchDelay = 500;
       this.fetching = false;
       this.client.project.invalidate();
@@ -357,9 +406,13 @@ export class SharedBinding {
     } catch {
       this.fetching = false;
       // Not uploaded yet, or offline: try again a little later.
-      this.fetchDelay = Math.min(15_000, this.fetchDelay * 2);
-      setTimeout(() => !this.closed && this.project(false), this.fetchDelay);
+      this.retryLater();
     }
+  }
+  /** Try downloading missing content again after a while. */
+  retryLater() {
+    this.fetchDelay = Math.min(15_000, this.fetchDelay * 2);
+    setTimeout(() => !this.closed && this.project(false), this.fetchDelay);
   }
   /** Resolves once queued steps are written into the shared document. */
   async idle() {
@@ -380,17 +433,33 @@ export class SharedBinding {
  * assets it needs, then a binding that keeps it current. */
 export async function openBinding(client: RoomClient, assets: Assets, o: BindingOptions = {}, progress: (text: string) => void = () => {}) {
   let result = client.project.project({ selection: null });
+  let unavailable = false;
   for (let round = 0; ; round++) {
     const missing = client.project.missing(assets);
     if (result.complete && !missing.tiles.size && !missing.assets.size) break;
-    if (round > 8) throw new Error('Some of the shared document could not be downloaded. Try again shortly.');
     progress(`Downloading ${missing.tiles.size} tile${missing.tiles.size === 1 ? '' : 's'}…`);
-    await client.fetchTiles(missing.tiles);
-    for (const [id, ref] of missing.assets) await client.fetchAsset(id, ref);
+    let arrived = await client.fetchTiles(missing.tiles);
+    for (const [id, ref] of missing.assets)
+      try {
+        await client.fetchAsset(id, ref);
+        arrived++;
+      } catch (error) {
+        if (error instanceof CollabError && error.network) throw error;
+      }
     client.project.invalidate();
     result = client.project.project({ selection: null });
+    // Content someone referred to but has not uploaded (or never will): the
+    // document opens without it rather than not at all, and fills in later.
+    if (!arrived || round >= 8) {
+      unavailable = !result.complete || client.project.missing(assets).tiles.size > 0 || client.project.missing(assets).assets.size > 0;
+      break;
+    }
   }
   const binding = new SharedBinding(client, assets, result.document, o);
   binding.reportDropped(result.dropped);
+  if (unavailable) {
+    o.onMessage?.('Some of the shared document is not available yet. It is shown without it and fills in when it arrives.');
+    binding.retryLater();
+  }
   return binding;
 }

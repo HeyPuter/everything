@@ -158,14 +158,14 @@ export function shapeKernel(d: string, radius: number): ShapeKernel {
 // Each kernel row becomes spans of full-weight pixels (summed through row
 // prefix sums in O(1)) plus the few fractional edge taps, so the cost is about
 // pixels x kernel rows instead of pixels x kernel area.
-type Row = { dy: number; spans: [number, number, number][]; taps: [number, number][] };
-function kernelRows(k: ShapeKernel): Row[] {
+export type KernelRow = { dy: number; spans: [number, number, number][]; taps: [number, number][] };
+export function kernelRows(k: ShapeKernel): KernelRow[] {
   const { size, weights } = k, r = (size - 1) / 2;
   let max = 0;
   for (const v of weights) if (v > max) max = v;
-  const rows: Row[] = [];
+  const rows: KernelRow[] = [];
   for (let ky = 0; ky < size; ky++) {
-    const row: Row = { dy: ky - r, spans: [], taps: [] };
+    const row: KernelRow = { dy: ky - r, spans: [], taps: [] };
     let start = -1;
     for (let kx = 0; kx <= size; kx++) {
       const v = kx < size ? weights[ky * size + kx] : 0;
@@ -200,23 +200,38 @@ export function kernelConvolve(src: Plane, dst: Plane, w: number, h: number, k: 
       prefix[p + i + 1] = acc;
     }
   }
-  for (let y = 0; y < h; y++) {
-    tick(progress, y, h);
+  // Adds one kernel row read from source row `sy` to out[at .. at + w).
+  const addRow = (out: Plane, at: number, row: KernelRow, sy: number) => {
+    const p = sy * (pw + 1), o = sy * w;
+    for (const [a, b, wt] of row.spans) {
+      const ia = p + a + r, ib = p + b + r + 1;
+      for (let x = 0; x < w; x++) out[at + x] += wt * (prefix[ib + x] - prefix[ia + x]);
+    }
+    for (const [dx, wt] of row.taps) {
+      // Columns left of xa and from xb on read the replicated edge pixels.
+      const xa = Math.min(w, Math.max(0, -dx)), xb = Math.max(xa, Math.min(w, w - dx));
+      const left = src[o], right = src[o + w - 1];
+      for (let x = 0; x < xa; x++) out[at + x] += wt * left;
+      for (let x = xa, s = o + xa + dx; x < xb; x++, s++) out[at + x] += wt * src[s];
+      for (let x = xb; x < w; x++) out[at + x] += wt * right;
+    }
+  };
+  // Kernel rows above the image all read the top row and come first in every
+  // output row's sum, so the running sum over them is shared: going up the
+  // image, output row y continues it with the rows that just went above.
+  // Same additions in the same order, so the result is unchanged; at large
+  // radii on small images this skips most of the work.
+  const lead = new Float32Array(w);
+  let led = 0;
+  for (let y = h - 1, done = 0; y >= 0; y--, done++) {
+    tick(progress, done, h);
+    while (led < rows.length && rows[led].dy < -y) addRow(lead, 0, rows[led++], 0);
     const out = y * w;
-    for (let x = 0; x < w; x++) dst[out + x] = 0;
-    for (const row of rows) {
-      let sy = y + row.dy;
-      sy = sy < 0 ? 0 : sy >= h ? h - 1 : sy;
-      const p = sy * (pw + 1), o = sy * w;
-      for (const [a, b, wt] of row.spans) {
-        const ia = p + a + r, ib = p + b + r + 1;
-        for (let x = 0; x < w; x++) dst[out + x] += wt * (prefix[ib + x] - prefix[ia + x]);
-      }
-      for (const [dx, wt] of row.taps)
-        for (let x = 0; x < w; x++) {
-          const sx = x + dx;
-          dst[out + x] += wt * src[o + (sx < 0 ? 0 : sx >= w ? w - 1 : sx)];
-        }
+    dst.set(lead, out);
+    for (let i = led; i < rows.length; i++) {
+      const row = rows[i];
+      const sy = y + row.dy;
+      addRow(dst, out, row, sy < 0 ? 0 : sy >= h ? h - 1 : sy);
     }
   }
   return dst;

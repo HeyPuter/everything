@@ -14,6 +14,7 @@ import { bindBrushOptions, brushFor, strokeTool } from '../paint';
 import { compositeRGBA, hexRgb, rgbHex, type PixelTarget } from '../pixels';
 import { layersBelow } from '../clone-source/state';
 import { escapeXML } from '../../model/assets';
+import { bindNumberField } from './fields';
 
 const ID = 'mixer-brush';
 let brush: MixerBrush | undefined;
@@ -146,9 +147,7 @@ ${field('mixer-wet', 'Wet', pct(e, 'mixerWet', 50), 'Paint picked up from the ca
 function bind(e: Editor, el: HTMLElement) {
   bindBrushOptions(e, el, ID);
   const num = (id: string, key: string) =>
-    el.querySelector<HTMLInputElement>(`#${id}`)?.addEventListener('change', (ev) => {
-      const v = Number((ev.target as HTMLInputElement).value);
-      if (!Number.isFinite(v)) return;
+    bindNumberField(el, `#${id}`, () => pct(e, key, 50), (v) => {
       e.settings[key] = Math.max(0, Math.min(100, v));
       e.settings.mixerPreset = 'custom';
       e.options();

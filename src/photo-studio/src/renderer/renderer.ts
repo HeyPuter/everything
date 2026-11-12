@@ -1162,8 +1162,12 @@ export class Renderer {
       // Shallow knockouts of clipped layers stop at the base.
       if (knocks) this.knockStack.push(this.copyOf(groupBack));
       try {
-        for (const c of clippedRun)
-          [groupBack, groupNext] = await this.drawLayer(c, doc, assets, groupBack, groupNext, true);
+        // Fill fades only the base's own pixels: its full-fill shape still
+        // decides where the clipped layers show.
+        if ((l.fillOpacity ?? 1) < 1) [groupBack, groupNext] = await this.clipToShape(l, clippedRun, doc, assets, groupBack, groupNext);
+        else
+          for (const c of clippedRun)
+            [groupBack, groupNext] = await this.drawLayer(c, doc, assets, groupBack, groupNext, true);
       } finally {
         if (knocks) this.knockStack.pop();
       }
@@ -1186,6 +1190,11 @@ export class Renderer {
    * kept inside the base's shape. */
   private async clipSeparately(base: Layer, run: Layer[], doc: PhotoDocument, assets: Assets, back: Texture, next: Texture): Promise<[Texture, Texture]> {
     [back, next] = await this.drawLayer(base, doc, assets, back, next);
+    return this.clipToShape(base, run, doc, assets, back, next);
+  }
+  /** Draw `run` over `back`, each kept inside the shape of `base` drawn
+   * alone at full opacity and fill (its mask applies; its effects do not). */
+  private async clipToShape(base: Layer, run: Layer[], doc: PhotoDocument, assets: Assets, back: Texture, next: Texture): Promise<[Texture, Texture]> {
     const mark = this.cursor;
     try {
       let shape = this.target(doc.width, doc.height), scratch = this.target(doc.width, doc.height);
@@ -1244,8 +1253,9 @@ export class Renderer {
         this.backend.pass(back, adjusted, await this.mask(actual, assets), u, next, gridMask ?? this.pixelMask(l, assets));
         return [next, back];
       }
-      // Artboards and frames always composite their contents in isolation.
-      if (l.kind === 'group' && l.blend === 'pass through' && !l.artboard && !l.frame) {
+      // Artboards and frames always composite their contents in isolation, and
+      // so does a clipped group (its result is kept inside the base).
+      if (l.kind === 'group' && l.blend === 'pass through' && !l.artboard && !l.frame && !clipped) {
         const plain = l.opacity === 1 && !hasMask(l) && !l.maskGrid && !l.blending?.ranges && !l.blending?.exclude && Object.values(l.filters).every((v) => !v);
         if (plain) return await this.compositeInto(l.children, doc, assets, back, next);
         // Children blend with the backdrop; the group's opacity and mask then

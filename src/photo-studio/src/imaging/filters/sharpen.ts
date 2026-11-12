@@ -1,7 +1,7 @@
 // Sharpen menu: unsharp masking variants. Blurs are alpha-weighted so the
 // straight color they compare against is never darkened by transparency, and
 // alpha is left unchanged so sharpening does not ring the layer's edges.
-import type { Progress, RGBA8 } from '../types';
+import type { OperationContext, ParamValues, Progress, RGBA8 } from '../types';
 import { aperture, apertureConvolve, motionBlurPlane } from './blur';
 import {
   clamp,
@@ -93,13 +93,16 @@ export const sharpenEdges = defineOp({
 
 const smooth01 = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 
+const sharpenReach = (p: ParamValues, ctx: OperationContext) => 3 * px(ctx, num(p, 'radius')) + 4;
+
 // Sharpens luminance only (no color fringes), with a choice of blur model to
 // undo, a soft noise threshold on the detail and tonal fades.
 export const advancedSharpen = defineOp({
   id: 'advanced-sharpen',
   label: 'Advanced Sharpen',
   category: 'Sharpen',
-  support: (p, ctx) => 3 * px(ctx, num(p, 'radius')) + 4,
+  support: sharpenReach,
+  fillReach: sharpenReach,
   params: [
     { key: 'amount', label: 'Amount', type: 'number', min: 0, max: 500, step: 1, default: 150, unit: '%' },
     { key: 'radius', label: 'Radius', type: 'number', min: 0.1, max: 64, step: 0.1, default: 1, unit: 'px' },
@@ -126,7 +129,7 @@ export const advancedSharpen = defineOp({
     o.set(d);
     if (amount === 0) return out;
     const r = px(ctx, num(p, 'radius'));
-    const L = lumaPlane(fillTransparent(src));
+    const L = lumaPlane(fillTransparent(src, sharpenReach(p, ctx)));
     const B = Float32Array.from(L), tmp = new Float32Array(n);
     const remove = str(p, 'remove');
     let blurred: Float32Array;

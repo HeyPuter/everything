@@ -4,7 +4,7 @@ import type { VectorMask } from '../../model/vector';
 import { layerLock } from '../../model/locks';
 import { hasMask } from '../../model/masks';
 import { maskToGrid } from './raster';
-import { activeKey, setActive, targetPath, writeTarget, type PathTarget } from './state';
+import { activeKey, setActive, targetLocked, targetPath, writeTarget, type PathTarget } from './state';
 import { cleanMask } from './geometry';
 
 // Vector mask commits rasterize asynchronously; commits are queued so they land
@@ -15,17 +15,20 @@ export function commitsSettled(): Promise<unknown> | undefined {
   return inflight ? chain : undefined;
 }
 /** Commit edited knots to a target as one history step. Vector masks are
- * rasterized into the layer mask first so both change together. */
-export function commitPathEdit(e: Editor, t: PathTarget, mask: VectorMask, label: string): Promise<void> {
+ * rasterized into the layer mask first so both change together. Resolves to
+ * false when nothing was committed (a locked layer, a removed mask). */
+export function commitPathEdit(e: Editor, t: PathTarget, mask: VectorMask, label: string): Promise<boolean> {
   inflight++;
   const run = chain.then(() => applyPathEdit(e, t, mask, label));
   chain = run.catch(() => undefined);
   return run.finally(() => inflight--);
 }
-async function applyPathEdit(e: Editor, t: PathTarget, mask: VectorMask, label: string) {
+async function applyPathEdit(e: Editor, t: PathTarget, mask: VectorMask, label: string): Promise<boolean> {
+  // Every path tool commits here, so a locked layer's path stays as it is.
+  if (targetLocked(e, t)) return false;
   if (t.kind === 'vmask') {
     const l = findLayer(e.doc.layers, t.id);
-    if (!l?.vectorMask) return;
+    if (!l?.vectorMask) return false;
     const clean = cleanMask(structuredClone(mask));
     const grid = await maskToGrid(e, { ...l.vectorMask.mask, paths: clean.paths });
     e.command(label, (d) => {
@@ -33,10 +36,11 @@ async function applyPathEdit(e: Editor, t: PathTarget, mask: VectorMask, label: 
       const x = findLayer(d.layers, t.id);
       if (x) x.maskGrid = grid;
     });
-    return;
+    return true;
   }
   e.command(label, (d) => writeTarget(d, t, mask));
   if (t.kind === 'work' || t.kind === 'saved') setActive(e, activeKey(t));
+  return true;
 }
 
 // ----- Vector masks -----

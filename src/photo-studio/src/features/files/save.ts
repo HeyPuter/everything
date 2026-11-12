@@ -5,7 +5,7 @@ import { serialize } from '../../model/serialization';
 import { download } from '../../persistence/puter';
 import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles } from './cloud';
 import { openFile } from './open';
-import { noteRecent, setRecentOpener, storedBlob, type RecentSource } from './recent';
+import { noteRecent, removeRecent, setRecentOpener, storedBlob, type RecentSource } from './recent';
 import { emitAppEvent } from '../../app/app-events';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -102,6 +102,11 @@ export function openFromCloud(e: Editor) {
 export async function openRecentEntry(e: Editor, entry: { name: string; source: RecentSource }) {
   const src = entry.source;
   const blob = src.kind === 'puter' ? await cloudRead(src.path) : src.kind === 'stored' ? await storedBlob(src.key) : src.blob;
+  if (!blob) {
+    // Browser data was cleared: the entry would fail every time.
+    removeRecent(e, entry);
+    throw new Error(`${entry.name} is no longer stored in this browser and was removed from Open Recent. Open it again from its location.`);
+  }
   await openFile(e, blob, entry.name, false, { source: src });
 }
 export function installRecentOpener() {

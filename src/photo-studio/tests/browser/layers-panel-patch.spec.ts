@@ -43,3 +43,31 @@ test('unchanged layer rows keep their elements; changed and edited rows are rebu
   const order = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('#layers .layer-row')].map((r) => r.dataset.row));
   expect(order).toEqual(await page.evaluate(() => [...window.photoStudio.doc.layers].reverse().map((l) => l.id)));
 });
+
+test('changing one row leaves the rows after it in place', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 300, 200);
+  for (let i = 0; i < 6; i++) await run(page, 'layer.new-quick');
+  const ids = await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.id));
+  // Count the rows inserted into the list (moved rows are inserted again).
+  await page.evaluate(() => {
+    const w = window as unknown as { __inserted: string[]; __watch: MutationObserver };
+    w.__inserted = [];
+    w.__watch = new MutationObserver((records) => {
+      for (const r of records) r.addedNodes.forEach((n) => n instanceof HTMLElement && n.matches('.layer-row') && w.__inserted.push(n.dataset.row!));
+    });
+    w.__watch.observe(document.querySelector('#layers')!, { childList: true });
+  });
+  const inserted = () => page.evaluate(() => (window as unknown as { __inserted: string[] }).__inserted.splice(0).sort());
+  // The top row (selected) and a row below it change; the rows between and after stay.
+  await page.evaluate((id) => window.photoStudio.selectLayer(id), ids[2]);
+  expect(await inserted()).toEqual([ids[2], ids[6]].sort());
+  await page.evaluate((id) => window.photoStudio.selectLayer(id), ids[5]);
+  expect(await inserted()).toEqual([ids[2], ids[5]].sort());
+  // A visibility change rebuilds only that row.
+  await page.locator(`#layers [data-visibility="${ids[4]}"]`).click();
+  await idle(page);
+  expect(await inserted()).toEqual([ids[4]]);
+  const order = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('#layers .layer-row')].map((r) => r.dataset.row));
+  expect(order).toEqual([...ids].reverse());
+});

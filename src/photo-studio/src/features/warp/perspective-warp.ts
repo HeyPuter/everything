@@ -7,7 +7,7 @@ import type { Editor } from '../../editor';
 import type { CanvasPointer } from '../../app/pointer';
 import { svg } from '../../app/icons';
 import { findLayer } from '../../model/document';
-import { setLayerPixels } from '../../model/pixel-layer';
+import { carryMask, setLayerPixels } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
 import type { IRect, RGBA8 } from '../../imaging/types';
 import { applyMat3, homography, mat3Invert, warpImage, type Mat3, type Point } from '../../imaging/filters/warp';
@@ -379,12 +379,20 @@ class PerspectiveWarpSession extends WarpSession<Snap> {
     const out = this.outRect(1),
       map = this.map(1, 1);
     const image = out && map ? warpImage(this.source, out.width, out.height, map, { method: 'bicubic', offsetX: out.x, offsetY: out.y }) : undefined;
+    const before = this.layer;
     this.end(restoreTool);
     const store = this.e.assets.tiles;
     const grid = image && out ? gridFromImage(store, image, out.x, out.y) : gridFromImage(store, { width: 1, height: 1, data: new Uint8ClampedArray(4) });
+    // A linked layer mask is warped with the pixels.
+    const mask =
+      before?.maskGrid && !before.maskUnlinked
+        ? carryMask(store, before.maskGrid, this.bounds, (img) => (out && map ? { image: warpImage(img, out.width, out.height, map, { method: 'bilinear', offsetX: out.x, offsetY: out.y }), x: out.x, y: out.y } : undefined))
+        : undefined;
     this.e.command('Perspective Warp', (d) => {
       const l = findLayer(d.layers, id);
-      if (l) setLayerPixels(l, grid, d);
+      if (!l) return;
+      setLayerPixels(l, grid, d);
+      if (mask) l.maskGrid = mask;
     });
   }
   /** The warp as a bilinear mesh over the source: document positions of an

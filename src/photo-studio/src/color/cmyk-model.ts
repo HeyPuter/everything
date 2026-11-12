@@ -549,6 +549,8 @@ export function buildCmyk(opts: CmykModelOptions, key = `cmyk:${JSON.stringify(o
   // (shared by A2B2) stretches the printable L* range to 0-100, the usual v2
   // perceptual convention that a B2A0 compression mirrors.
   const nodes = ga ** 4;
+  // Lightness of the darkest printable color of any hue.
+  let darkL = 100;
   const rel = new Float32Array(nodes * 3),
     per = new Float32Array(nodes * 3);
   for (let i = 0; i < nodes; i++) {
@@ -557,7 +559,10 @@ export function buildCmyk(opts: CmykModelOptions, key = `cmyk:${JSON.stringify(o
       y = (Math.floor(i / ga) % ga) / (ga - 1),
       k = (i % ga) / (ga - 1);
     model.labOf(c, m, y, k, lab);
-    if (c + m + y + k <= model.til + 1e-9 && k <= model.kMax + 1e-9) gbd.add(lab);
+    if (c + m + y + k <= model.til + 1e-9 && k <= model.kMax + 1e-9) {
+      gbd.add(lab);
+      if (lab[0] < darkL) darkL = lab[0];
+    }
     encodeLab(lab, 'legacy', enc);
     for (let ch = 0; ch < 3; ch++) rel[i * 3 + ch] = q16(enc[ch]);
     lab[0] = toPerceptual(lab[0]);
@@ -609,8 +614,19 @@ export function buildCmyk(opts: CmykModelOptions, key = `cmyk:${JSON.stringify(o
         for (let k = 0; k < gb; k++) {
           decodeLab([i / (gb - 1), j / (gb - 1), k / (gb - 1)], 'legacy', target);
           target[0] = (100 * i) / (gb - 1);
+          const L0 = target[0];
           if (perceptual) mapPerceptual(target, blackL, gbd);
-          const err = model.separate(target, x, cmy);
+          // Colorimetric: lightness below the darkest printable color clips
+          // to it with hue and chroma kept, so neutral shadows stay neutral
+          // instead of the nearest (darker but colored) overprint winning.
+          else if (L0 < darkL) target[0] = darkL;
+          let err = model.separate(target, x, cmy);
+          if (target[0] !== L0 && !perceptual) {
+            // The gamut table measures the distance to the requested color.
+            model.labOf(x[0], x[1], x[2], x[3], lab);
+            target[0] = L0;
+            err = deltaE76(lab, target);
+          }
           const node = (i * gb + j) * gb + k;
           for (let ch = 0; ch < 4; ch++) out[node * 4 + ch] = q16(x[ch]);
           if (residual) residual[node] = q16(Math.min(1, err / 10));

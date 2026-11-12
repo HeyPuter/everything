@@ -45,9 +45,14 @@ export function familyStyles(family?: string): { weight: number; italic: boolean
 const fontCss = (family: string) => `"${family.replace(/"/g, '')}", sans-serif`;
 
 let picker: HTMLElement | undefined;
+// The open picker's outside-click listener, removed however the picker closes
+// (a stale one would close the next picker on its first click).
+let outsideListener: ((ev: PointerEvent) => void) | undefined;
 function closePicker() {
   picker?.remove();
   picker = undefined;
+  if (outsideListener) document.removeEventListener('pointerdown', outsideListener, true);
+  outsideListener = undefined;
 }
 export function openFontPicker(e: Editor, anchor: HTMLElement, onPick: (family: string) => void, current?: string) {
   if (picker) return closePicker();
@@ -92,16 +97,27 @@ export function openFontPicker(e: Editor, anchor: HTMLElement, onPick: (family: 
     const q = search.value.trim().toLowerCase();
     for (const b of pop.querySelectorAll<HTMLElement>('[data-family]')) b.hidden = !!q && !b.dataset.family!.toLowerCase().includes(q) && !(b.dataset.label ?? '').toLowerCase().includes(q);
   });
-  search.addEventListener('keydown', (ev) => {
+  const shown = () => [...pop.querySelectorAll<HTMLElement>('[data-family]')].filter((b) => !b.hidden);
+  // Keys stay in the picker (no tool shortcuts, no committing the text):
+  // arrows move through the list, Enter picks, Escape closes.
+  pop.addEventListener('keydown', (ev) => {
+    ev.stopPropagation();
+    const list = shown();
+    const at = list.indexOf(document.activeElement as HTMLElement);
     if (ev.key === 'Escape') {
+      ev.preventDefault();
       closePicker();
       if (session) focusInput(e);
+      else anchor.focus();
+    } else if (ev.key === 'Enter' && ev.target === search) {
+      ev.preventDefault();
+      list[0]?.click();
+    } else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      const next = ev.key === 'ArrowDown' ? Math.min(list.length - 1, at + 1) : at - 1;
+      if (next < 0) search.focus();
+      else list[next]?.focus();
     }
-    if (ev.key === 'Enter') {
-      const first = [...pop.querySelectorAll<HTMLElement>('[data-family]')].find((b) => !b.hidden);
-      if (first) first.click();
-    }
-    ev.stopPropagation();
   });
   pop.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-family]');
@@ -110,13 +126,10 @@ export function openFontPicker(e: Editor, anchor: HTMLElement, onPick: (family: 
     onPick(b.dataset.family!);
   });
   pop.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'center' });
-  const outside = (ev: PointerEvent) => {
-    if (!pop.contains(ev.target as Node) && ev.target !== anchor && !anchor.contains(ev.target as Node)) {
-      closePicker();
-      document.removeEventListener('pointerdown', outside, true);
-    }
+  outsideListener = (ev: PointerEvent) => {
+    if (!pop.contains(ev.target as Node) && ev.target !== anchor && !anchor.contains(ev.target as Node)) closePicker();
   };
-  document.addEventListener('pointerdown', outside, true);
+  document.addEventListener('pointerdown', outsideListener, true);
 }
 
 // Picks a family keeping the closest available weight and italic.
@@ -160,7 +173,7 @@ export function typeOptions(e: Editor): string {
 <input id="type-color" type="color" value="${color}" class="type-color ${ch.color ? '' : 'mixed'}" title="Text color" aria-label="Text color">
 ${c.data?.path ? `<button type="button" class="icon-button" data-command="type.path-options" title="${c.data.path.kind === 'area' ? 'Area type options' : 'Path type options'}" aria-label="${c.data.path.kind === 'area' ? 'Area type options' : 'Path type options'}">${svg('spline', 16)}</button>` : `<button type="button" class="icon-button" data-command="type.warp" title="Create warped text" aria-label="Create warped text">${svg('waves', 16)}</button>`}
 <button type="button" class="icon-button" data-command="type.toggle-panels" title="Toggle the Character and Paragraph panels" aria-label="Toggle the Character and Paragraph panels">${svg('case-upper', 16)}</button>
-${editing ? `<span class="divider"></span><button type="button" data-command="type.cancel" class="icon-button" title="Cancel editing (discard changes)" aria-label="Cancel editing">${svg('ban', 16)}</button><button type="button" data-command="type.commit" class="icon-button transform-apply" title="Commit text (Escape or ${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+'}Enter)" aria-label="Commit text">${svg('check', 16)}</button>` : ''}`;
+${editing ? `<span class="type-edit-actions"><span class="divider"></span><button type="button" data-command="type.cancel" class="icon-button" title="Cancel editing (discard changes)" aria-label="Cancel editing">${svg('ban', 16)}</button><button type="button" data-command="type.commit" class="icon-button transform-apply" title="Commit text (Escape or ${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+'}Enter)" aria-label="Commit text">${svg('check', 16)}</button></span>` : ''}`;
 }
 
 export function bindTypeOptions({ e, el }: ToolOptionsContext) {

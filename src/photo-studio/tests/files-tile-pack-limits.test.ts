@@ -45,6 +45,19 @@ describe('tile pack limits', () => {
     expect(Object.keys(empty.tiles)).toHaveLength(0);
   });
 
+  it('writes zlib streams that pako (older builds) and zlib read', async () => {
+    const { inflate } = await import('pako');
+    const { inflateSync } = await import('node:zlib');
+    const store = new TileStore();
+    const data = new Uint8ClampedArray(256 * 256 * 4).map((_, i) => (i * 7) & 255);
+    const grid = gridFromImage(store, { width: 256, height: 256, data });
+    const z = new Uint8Array(await (await packGrid(store, grid)).arrayBuffer());
+    const raw = inflate(z);
+    expect(Buffer.from(inflateSync(z)).equals(Buffer.from(raw))).toBe(true);
+    const length = new DataView(raw.buffer, raw.byteOffset).getUint32(0, true);
+    expect(raw.subarray(4 + length)).toEqual(new Uint8Array(data.buffer));
+  });
+
   it('stops inflating a pack that holds more than its tiles', async () => {
     // One tile announced, 256 MB of zeros stored after it.
     const blob = pack({ v: 1, channels: 1, x: 0, y: 0, fill: 0, keys: ['0,0'] }, new Uint8Array(256 * 2 ** 20));

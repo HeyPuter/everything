@@ -5,7 +5,7 @@
 // register is written again). Projection repairs such combinations the same
 // way in every browser, so the document never stops opening; nothing here is
 // written back to the shared document.
-import type { Layer, PhotoDocument } from '../model/document';
+import { assertSize, type Layer, type PhotoDocument } from '../model/document';
 import { validateDocument } from '../model/serialization';
 
 const LIVE = ['liveSource', 'liveFilters', 'liveMask', 'liveMaskDisabled'] as const;
@@ -47,7 +47,7 @@ const REQUIRED_DOC = new Set(['version', 'name', 'width', 'height', 'layers', 's
  * their (already checked) children, which take their place. Returns what was
  * left out; throws when the document still cannot be shown.
  */
-export function salvageDocument(doc: PhotoDocument): string[] {
+export function salvageDocument(doc: PhotoDocument, fallback?: Pick<PhotoDocument, 'name' | 'width' | 'height'>): string[] {
   try {
     validateDocument(doc);
     return [];
@@ -56,6 +56,29 @@ export function salvageDocument(doc: PhotoDocument): string[] {
   }
   const dropped: string[] = [];
   const record = doc as unknown as Record<string, unknown>;
+  // The name and size cannot be left out: an invalid one takes the value this
+  // browser showed before (or a default), so the document still shows.
+  if (typeof doc.name !== 'string') {
+    doc.name = fallback?.name ?? 'Untitled';
+    dropped.push('document setting “name”');
+  }
+  try {
+    assertSize(doc.width, doc.height);
+  } catch {
+    const side = (v: unknown) => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 8192;
+    const both = side(doc.width) && side(doc.height);
+    for (const k of ['width', 'height'] as const)
+      if (both || !side(doc[k])) {
+        doc[k] = fallback?.[k] ?? (k === 'width' ? 1200 : 800);
+        dropped.push(`document setting “${k}”`);
+      }
+    try {
+      assertSize(doc.width, doc.height);
+    } catch {
+      doc.width = 1200;
+      doc.height = 800;
+    }
+  }
   const valid = (d: unknown) => {
     try {
       validateDocument(d);

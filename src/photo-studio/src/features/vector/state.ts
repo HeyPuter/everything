@@ -282,6 +282,13 @@ export function targetLocked(e: Editor, t: PathTarget) {
   }
   return false;
 }
+/** "Path N" for a new saved path, not already used by one. */
+export function nextPathName(doc: PhotoDocument) {
+  const names = new Set((doc.paths ?? []).map((p) => p.name));
+  let n = (doc.paths?.length ?? 0) + 1;
+  while (names.has(`Path ${n}`)) n++;
+  return `Path ${n}`;
+}
 export function nextName(doc: PhotoDocument, base: string) {
   const names = new Set([...allLayers(doc.layers).map((l) => l.name), ...(doc.paths ?? []).map((p) => p.name)]);
   let n = 1;

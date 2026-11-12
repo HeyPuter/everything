@@ -68,12 +68,15 @@ function toggleSubmenus(item: HTMLElement) {
     sibling.setAttribute('aria-expanded', String(expanded));
     sibling.classList.toggle('open', expanded);
     // Keep a long submenu inside the window: shift it up when it would overflow.
+    // Narrow windows drop submenus below their item inside the scrolling menu
+    // instead; shifted up, one would cover its item and start off the screen.
     const sub = expanded ? sibling.querySelector<HTMLElement>(':scope > .submenu') : null;
     if (sub) {
       sub.style.top = '';
       const r = sub.getBoundingClientRect();
+      const beside = r.left >= sibling.getBoundingClientRect().right - 1 || r.right <= sibling.getBoundingClientRect().left + 1;
       const over = r.bottom - (window.innerHeight - 4);
-      if (over > 0) sub.style.top = `${-5 - Math.min(over, r.top - 4)}px`;
+      if (over > 0 && beside) sub.style.top = `${-5 - Math.min(over, r.top - 4)}px`;
     }
   }
 }
@@ -97,6 +100,9 @@ function renderItems(items: Resolved[]): string {
 
 export class MenuBar {
   private open = -1;
+  // Where the focus was before it entered the menu bar: a command run from a
+  // menu gives it back there, so a dialog it opens returns the focus there too.
+  private returnFocus?: HTMLElement;
   constructor(
     private e: Editor,
     private el: HTMLElement,
@@ -131,15 +137,22 @@ export class MenuBar {
       this.activate(item);
     });
     el.addEventListener('keydown', (ev) => this.key(ev));
+    el.addEventListener('focusin', (ev) => {
+      const from = ev.relatedTarget;
+      if (from instanceof HTMLElement && !el.contains(from)) this.returnFocus = from;
+    });
     // Menus opened with the pointer do not take focus; Escape must still close them
     // (and must not reach the canvas, where it would deselect).
+    // The arrows move into such a menu, as they do in one opened from the keyboard.
     document.addEventListener(
       'keydown',
       (ev) => {
-        if (ev.key !== 'Escape' || this.open < 0 || el.contains(document.activeElement)) return;
+        if (this.open < 0 || el.contains(document.activeElement)) return;
+        if (ev.key === 'Escape') this.close();
+        else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') this.focusMenu(this.open, ev.key === 'ArrowDown' ? 'first' : 'last');
+        else return;
         ev.preventDefault();
         ev.stopPropagation();
-        this.close();
       },
       true,
     );
@@ -154,6 +167,9 @@ export class MenuBar {
     if (item.getAttribute('aria-disabled') === 'true') return;
     const id = item.dataset.command!;
     this.close();
+    const back = this.returnFocus;
+    if (back?.isConnected) back.focus({ preventScroll: true });
+    else if (document.activeElement instanceof HTMLElement && this.el.contains(document.activeElement)) document.activeElement.blur();
     void this.e.runCommand(id);
   }
   show(i: number) {
@@ -187,6 +203,14 @@ export class MenuBar {
     item.classList.add('menu-reveal');
     window.setTimeout(() => item.classList.remove('menu-reveal'), 2400);
     return true;
+  }
+  /** Open menu `i` (wrapping around the menu bar) and focus its first or last item. */
+  private focusMenu(i: number, which: 'first' | 'last') {
+    const count = menuSkeleton.length;
+    const k = (i + count) % count;
+    this.show(k);
+    const items = this.el.querySelectorAll<HTMLElement>('.menubar-entry')[k].querySelectorAll<HTMLElement>(':scope > .menu-pop > .menu-item');
+    (which === 'first' ? items[0] : items[items.length - 1])?.focus();
   }
   close() {
     if (this.open < 0) return;
@@ -224,16 +248,26 @@ export class MenuBar {
     if (!item) return;
     const siblings = [...item.parentElement!.querySelectorAll<HTMLElement>(':scope > .menu-item')];
     const at = siblings.indexOf(item);
+    const inSubmenu = item.parentElement!.classList.contains('submenu');
     if (ev.key === 'ArrowDown') siblings[(at + 1) % siblings.length].focus();
     else if (ev.key === 'ArrowUp') siblings[(at - 1 + siblings.length) % siblings.length].focus();
+    else if (ev.key === 'Home') siblings[0].focus();
+    else if (ev.key === 'End') siblings[siblings.length - 1].focus();
     else if (ev.key === 'ArrowRight' && item.classList.contains('has-submenu')) {
       this.toggleSubmenus(item);
       item.querySelector<HTMLElement>('.submenu > .menu-item')?.focus();
-    } else if (ev.key === 'ArrowLeft' && item.parentElement!.classList.contains('submenu')) {
+    } else if (ev.key === 'ArrowLeft' && inSubmenu) {
       const owner = item.parentElement!.parentElement as HTMLElement;
       owner.classList.remove('open');
       owner.setAttribute('aria-expanded', 'false');
       owner.focus();
+    } else if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') {
+      // Past the end of a menu level, the arrows move to the next or previous menu.
+      this.focusMenu(this.open + (ev.key === 'ArrowRight' ? 1 : -1), 'first');
+    } else if (ev.key === 'Tab') {
+      // Tab leaves the menu bar, so the menu closes behind it.
+      this.close();
+      return;
     } else if (ev.key === 'Enter' || ev.key === ' ') {
       if (item.classList.contains('has-submenu')) {
         this.toggleSubmenus(item);

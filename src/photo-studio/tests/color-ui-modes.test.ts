@@ -29,3 +29,13 @@ describe('mode rules', () => {
     expect(constrainColor(doc('indexed', { palette: ['#000000', '#00ff00', '#ffffff'] }), '#22dd22')).toBe('#00ff00');
   });
 });
+
+describe('mode profiles', () => {
+  it('uses the gray profile a duotone was made with, not the working gray', async () => {
+    const { docGrayProfile } = await import('../src/features/color/profiles');
+    const { builtinProfile } = await import('../src/color/color-management');
+    const inks = [{ name: 'Black', color: '#000000' }, { name: 'Red', color: '#c03020', curve: [[0, 0], [50, 30], [100, 70]] as [number, number][] }];
+    expect(docGrayProfile(doc('duotone', { profile: 'builtin:gray-gamma-18', inks })).key).toBe(builtinProfile('gray-gamma-18').key);
+    expect(docGrayProfile(doc('grayscale', { profile: 'builtin:gray-gamma-18' })).key).toBe(builtinProfile('gray-gamma-18').key);
+  });
+});

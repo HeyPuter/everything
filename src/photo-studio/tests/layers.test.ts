@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { layer, newDocument, allLayers } from '../src/model/document';
 import {
+  arrangeLayers,
   groupLayers,
   mergeVisibleStack,
   moveLayers,
+  placeDuplicates,
+  toggleClipping,
   reorderLayers,
   selectedRoots,
   visibleRows,
@@ -15,6 +18,7 @@ import {
   snapTargets,
 } from '../src/model/transform';
 import { History } from '../src/history/history';
+import { emptyGrid, readMask, TileStore, writeRect } from '../src/model/tiles';
 import { validateDocument } from '../src/model/serialization';
 import { makeBackground } from '../src/model/housekeeping';
 
@@ -168,5 +172,181 @@ describe('shared transforms', () => {
     g.maskAsset = 'bitmap';
     expect(() => transformSelection([g], before, { ...before, x: 50 })).toThrow(/bitmap or painted mask/);
     expect(allLayers([g])).toHaveLength(3);
+  });
+  it('scales and rotates a group’s linked mask grid and vector mask with its layers', () => {
+    const { a, b, doc } = fixture();
+    groupLayers(doc, new Set([a.id, b.id]));
+    const g = doc.layers[0];
+    const store = new TileStore();
+    // Reveal-all mask with a hidden 10 x 10 square at (20, 20).
+    g.maskGrid = { ...writeRect(store, { ...emptyGrid(1), fill: 255 }, 20, 20, { width: 10, height: 10, data: new Uint8Array(100) }) };
+    g.vectorMask = { mask: { paths: [{ closed: true, knots: [{ points: [20, 20, 20, 20, 20, 20] }] }] } } as unknown as typeof g.vectorMask;
+    // Twice the size about the frame's top-left corner.
+    const before = selectionFrame([g])!;
+    transformSelection([g], before, { ...before, width: before.width * 2, height: before.height * 2 }, store);
+    const at = (x: number, y: number) => readMask(store, g.maskGrid!, { x, y, width: 1, height: 1 }).data[0];
+    const map = (x: number, y: number) => [before.x + (x - before.x) * 2, before.y + (y - before.y) * 2];
+    const [cx, cy] = map(25, 25);
+    expect(at(Math.round(cx), Math.round(cy))).toBe(0);
+    expect(at(Math.round(cx) + 30, Math.round(cy))).toBe(255);
+    expect(at(-500, -500)).toBe(255);
+    expect(g.vectorMask!.mask.paths[0].knots[0].points.slice(0, 2)).toEqual(map(20, 20));
+    // Without a store (an interactive preview) the painted mask waits.
+    const grid = g.maskGrid;
+    const now = selectionFrame([g])!;
+    transformSelection([g], now, { ...now, rotation: 90 });
+    expect(g.maskGrid).toBe(grid);
+  });
+});
+
+describe('duplicating layers in a clipping group', () => {
+  // Bottom to top: Base, Clipped (clipped to Base), Top.
+  function fixture() {
+    const doc = newDocument(40, 30);
+    const base = layer('solid', 'Base', 40, 30);
+    const clipped = layer('solid', 'Clipped', 40, 30);
+    clipped.clipped = true;
+    const top = layer('solid', 'Top', 40, 30);
+    doc.layers = [base, clipped, top];
+    return { doc, base, clipped, top };
+  }
+  const copyOf = (l: ReturnType<typeof layer>) => ({ ...structuredClone(l), id: crypto.randomUUID(), name: `${l.name} copy` });
+  const stack = (doc: ReturnType<typeof newDocument>) => doc.layers.map((l) => [l.name, !!l.clipped]);
+  it('a copy of the base joins the group, so the clipped layers keep their base', () => {
+    const { doc, base } = fixture();
+    placeDuplicates(doc, [base], [copyOf(base)]);
+    expect(stack(doc)).toEqual([
+      ['Base', false],
+      ['Base copy', true],
+      ['Clipped', true],
+      ['Top', false],
+    ]);
+  });
+  it('copies of the whole group stay in it and an unclipped top layer stays unclipped', () => {
+    const { doc, base, clipped, top } = fixture();
+    placeDuplicates(doc, [base, clipped, top], [copyOf(base), copyOf(clipped), copyOf(top)]);
+    expect(stack(doc)).toEqual([
+      ['Base', false],
+      ['Base copy', true],
+      ['Clipped', true],
+      ['Clipped copy', true],
+      ['Top', false],
+      ['Top copy', false],
+    ]);
+  });
+});
+
+describe('creating and releasing clipping masks', () => {
+  function fixture() {
+    const doc = newDocument(40, 30);
+    const names = ['Base', 'C1', 'C2', 'C3', 'Top'];
+    doc.layers = names.map((n) => layer('solid', n, 40, 30));
+    for (const l of doc.layers.slice(1, 4)) l.clipped = true;
+    return doc;
+  }
+  const clipped = (doc: ReturnType<typeof newDocument>) => doc.layers.map((l) => !!l.clipped);
+  it('releasing a layer in the middle of a group also releases the clipped layers above it', () => {
+    const doc = fixture();
+    toggleClipping(doc, doc.layers[2].id);
+    expect(clipped(doc)).toEqual([false, true, false, false, false]);
+  });
+  it('releasing the top clipped layer releases only it, and creating clips one layer', () => {
+    const doc = fixture();
+    toggleClipping(doc, doc.layers[3].id);
+    expect(clipped(doc)).toEqual([false, true, true, false, false]);
+    toggleClipping(doc, doc.layers[4].id);
+    expect(clipped(doc)).toEqual([false, true, true, false, true]);
+  });
+});
+
+describe('arranging layers', () => {
+  function fixture() {
+    const doc = newDocument(40, 30);
+    doc.layers = ['Background', 'A', 'B', 'C', 'D'].map((n) => layer('solid', n, 40, 30));
+    makeBackground(doc.layers[0]);
+    return doc;
+  }
+  const names = (doc: ReturnType<typeof newDocument>) => doc.layers.map((l) => l.name);
+  const pick = (doc: ReturnType<typeof newDocument>, ...n: string[]) => doc.layers.filter((l) => n.includes(l.name));
+  it('Send to Back stops above the Background', () => {
+    const doc = fixture();
+    arrangeLayers(doc, pick(doc, 'C', 'D'), 'back');
+    expect(names(doc)).toEqual(['Background', 'C', 'D', 'A', 'B']);
+  });
+  it('Send Backward never moves a layer below the Background or past another selected layer', () => {
+    const doc = fixture();
+    arrangeLayers(doc, pick(doc, 'A', 'B'), 'backward');
+    expect(names(doc)).toEqual(['Background', 'A', 'B', 'C', 'D']);
+    arrangeLayers(doc, pick(doc, 'A', 'C'), 'backward');
+    expect(names(doc)).toEqual(['Background', 'A', 'C', 'B', 'D']);
+  });
+  it('Bring Forward keeps the order of selected layers at the top', () => {
+    const doc = fixture();
+    arrangeLayers(doc, pick(doc, 'C', 'D'), 'forward');
+    expect(names(doc)).toEqual(['Background', 'A', 'B', 'C', 'D']);
+    arrangeLayers(doc, pick(doc, 'A', 'B'), 'forward');
+    expect(names(doc)).toEqual(['Background', 'C', 'A', 'B', 'D']);
+    arrangeLayers(doc, pick(doc, 'A', 'B'), 'front');
+    expect(names(doc)).toEqual(['Background', 'C', 'D', 'A', 'B']);
+  });
+});
+
+describe('grouping clipped layers', () => {
+  function fixture() {
+    const doc = newDocument(40, 30);
+    doc.layers = ['Base', 'C1', 'C2', 'Top'].map((n) => layer('solid', n, 40, 30));
+    doc.layers[1].clipped = doc.layers[2].clipped = true;
+    return doc;
+  }
+  it('a group of clipped layers takes their place in the clipping group', () => {
+    const doc = fixture();
+    const id = groupLayers(doc, new Set([doc.layers[1].id]))!;
+    expect(doc.layers.map((l) => [l.name, !!l.clipped])).toEqual([
+      ['Base', false],
+      ['Group', true],
+      ['C2', true],
+      ['Top', false],
+    ]);
+    expect(doc.layers[1].id).toBe(id);
+    expect(doc.layers[1].children.map((l) => !!l.clipped)).toEqual([false]);
+  });
+  it('a group holding the base keeps its clipped layers clipped inside it', () => {
+    const doc = fixture();
+    groupLayers(doc, new Set(doc.layers.slice(0, 3).map((l) => l.id)));
+    expect(doc.layers.map((l) => [l.name, !!l.clipped])).toEqual([
+      ['Group', false],
+      ['Top', false],
+    ]);
+    expect(doc.layers[0].children.map((l) => !!l.clipped)).toEqual([false, true, true]);
+  });
+});
+
+describe('moving a group with a layer mask', () => {
+  function group() {
+    const g = layer('group', 'G', 100, 60);
+    const c = layer('solid', 'C', 20, 20);
+    c.transform.x = 40;
+    c.transform.y = 20;
+    g.children = [c];
+    g.maskGrid = { channels: 1, x: 0, y: 0, tiles: {}, bounds: { x: 40, y: 20, width: 20, height: 20 } };
+    g.vectorMask = { mask: { paths: [{ open: false, knots: [{ linked: true, points: [40, 20, 40, 20, 40, 20] }] }] } } as never;
+    return g;
+  }
+  it('carries a linked mask along with its contents', () => {
+    const g = group();
+    const before = selectionFrame([g])!;
+    transformSelection([g], before, { ...before, x: before.x - 30, y: before.y + 5 });
+    expect(g.children[0].transform.x).toBe(10);
+    expect([g.maskGrid!.x, g.maskGrid!.y]).toEqual([-30, 5]);
+    expect((g.vectorMask!.mask.paths[0].knots[0] as { points: number[] }).points.slice(0, 2)).toEqual([10, 25]);
+  });
+  it('leaves an unlinked mask in place', () => {
+    const g = group();
+    g.maskUnlinked = true;
+    g.vectorMask!.unlinked = true;
+    const before = selectionFrame([g])!;
+    transformSelection([g], before, { ...before, x: before.x - 30 });
+    expect(g.maskGrid!.x).toBe(0);
+    expect((g.vectorMask!.mask.paths[0].knots[0] as { points: number[] }).points[0]).toBe(40);
   });
 });

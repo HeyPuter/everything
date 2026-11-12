@@ -514,7 +514,9 @@ export function parseChatReply(res: unknown): ChatReply {
   };
   let n = 0;
   for (const c of Array.isArray(msg?.tool_calls) ? (msg!.tool_calls as Record<string, unknown>[]) : []) {
-    const f = (c.function ?? {}) as { name?: unknown; arguments?: unknown };
+    // Malformed entries from a model or route are skipped, not fatal.
+    if (!c || typeof c !== 'object') continue;
+    const f = (c.function && typeof c.function === 'object' ? c.function : {}) as { name?: unknown; arguments?: unknown };
     const name = String(f.name ?? c.name ?? '');
     if (name) calls.push({ id: String(c.id ?? `call_${++n}`), name, args: parse(f.arguments ?? c.input ?? c.arguments) });
   }

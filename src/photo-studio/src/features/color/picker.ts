@@ -184,10 +184,10 @@ export async function pickColor(e: Editor, initial: string, title = 'Color Picke
   const axisValue = (a: Axis) => (a === 'h' ? state.hsb.h : a === 's' ? state.hsb.s : a === 'v' ? state.hsb.b : a === 'r' ? state.rgb[0] : a === 'g' ? state.rgb[1] : a === 'b' ? state.rgb[2] : a === 'L' ? state.lab[0] : a === 'A' ? state.lab[1] : state.lab[2]);
   const printable = (rgb: RGB): RGB => {
     const n = rgb.map((v) => v / 255);
-    // Relative colorimetric without compensation, the same test the warning
-    // uses, so the corrected color is printable by that measure.
-    const c = cachedTransform(doc, cmyk, 'relative').one(n);
-    return cachedTransform(cmyk, doc, 'relative').one(c).map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)) as RGB;
+    // Relative colorimetric with black point compensation, the same round
+    // trip the warning tests, so the corrected color is printable by it.
+    const c = cachedTransform(doc, cmyk, 'relative', { bpc: true }).one(n);
+    return cachedTransform(cmyk, doc, 'relative', { bpc: true }).one(c).map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)) as RGB;
   };
   const commit = (next: PickerState, skip?: string) => {
     state = onlyWeb ? fromRgb(webSafe(next.rgb), next, lab) : next;
@@ -295,8 +295,19 @@ export async function pickColor(e: Editor, initial: string, title = 'Color Picke
     onlyWeb = (ev.target as HTMLInputElement).checked;
     if (onlyWeb) setRgb(webSafe(state.rgb));
   });
-  q('.cp-gamut').addEventListener('click', () => setRgb(printable(state.rgb)));
-  q('.cp-web').addEventListener('click', () => setRgb(webSafe(state.rgb)));
+  // A corrected color hides its warning button: keep the keyboard in the
+  // dialog (on the hex field) instead of losing it to the page.
+  const keepFocus = (b: HTMLElement) => {
+    if (b.hidden && document.activeElement === document.body) q('[data-f="hex"]').focus();
+  };
+  q('.cp-gamut').addEventListener('click', (ev) => {
+    setRgb(printable(state.rgb));
+    keepFocus(ev.currentTarget as HTMLElement);
+  });
+  q('.cp-web').addEventListener('click', (ev) => {
+    setRgb(webSafe(state.rgb));
+    keepFocus(ev.currentTarget as HTMLElement);
+  });
   q('.cp-old').addEventListener('click', () => commit(current));
   q('.cp-add').addEventListener('click', async () => {
     const { addSwatch } = await import('../panels');

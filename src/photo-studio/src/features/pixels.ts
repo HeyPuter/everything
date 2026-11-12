@@ -155,6 +155,10 @@ export async function pixelTarget(e: Editor, opts: { allowMask?: boolean; create
     e.message('The target layer is hidden. Show it to paint on it.');
     return;
   }
+  if (inHiddenGroup(e.doc.layers, l.id)) {
+    e.message('The target layer is in a hidden group. Show the group to paint on it.');
+    return;
+  }
   if (l.kind !== 'pixel') {
     if (layerLock(e.doc.layers, l.id, 'all')) {
       e.message('Unlock this layer to rasterize it.');
@@ -177,6 +181,14 @@ export async function pixelTarget(e: Editor, opts: { allowMask?: boolean; create
   if (l.liveFilters) e.message('Editing pixels rasterizes this layer’s Live Filters (undo restores them).');
   return { kind: 'pixels', layer: l, grid: l.pixels! };
 }
+/** True when a group containing the layer is hidden. */
+function inHiddenGroup(layers: Layer[], id: string, hidden = false): boolean | undefined {
+  for (const l of layers) {
+    if (l.id === id) return hidden;
+    const found = inHiddenGroup(l.children, id, hidden || !l.visible);
+    if (found !== undefined) return found;
+  }
+}
 export function nextLayerName(doc: PhotoDocument) {
   let n = 1;
   const names = new Set(allLayers(doc.layers).map((l) => l.name));
@@ -186,8 +198,11 @@ export function nextLayerName(doc: PhotoDocument) {
 /** Store a new grid for a pixel target as one history step. */
 export function commitTarget(e: Editor, target: PixelTarget, grid: TileGrid, label: string) {
   if (target.kind === 'quick-mask') {
-    e.settings.quickMask = grid;
-    e.update();
+    // A history step of its own, so the stroke undoes.
+    delete e.settings.quickMaskPreview;
+    e.command(label, (d) => {
+      d.quickMask = grid;
+    });
     return;
   }
   const id = target.layer.id;

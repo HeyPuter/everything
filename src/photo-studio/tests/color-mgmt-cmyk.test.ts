@@ -94,6 +94,21 @@ describe('generated CMYK output profiles', { timeout: 120000 }, () => {
     expect(s.p95).toBeLessThan(2);
   });
 
+  it('separates neutrals darker than the press black as a neutral black (relative, no compensation)', () => {
+    for (const p of [coated, builtinProfile('generic-uncoated-cmyk')]) {
+      const toLab = createTransform(p, lab, 'relative'),
+        toCmyk = createTransform(lab, p, 'relative');
+      for (const L of [0, 4, 8]) {
+        const ink = toCmyk.one(encodeLab([L, 0, 0], 'v4'));
+        const [, a, b] = decodeLab(toLab.one(ink), 'v4');
+        // Least squares used to trade neutrality for a slightly darker
+        // blue-violet (C100 M100 Y0 K100 on coated, b* -5 on uncoated).
+        expect(Math.hypot(a, b)).toBeLessThan(1);
+        expect(ink[2]).toBeGreaterThan(0.3);
+      }
+    }
+  });
+
   it('reports progress and can be cancelled while building', () => {
     const seen: number[] = [];
     let calls = 0;

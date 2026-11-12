@@ -201,3 +201,27 @@ test('area type flows inside a closed path; arc text converts point text', async
   expect(px[0]).toBe(255);
   await page.screenshot({ path: test.info().outputPath('type-area-arc.png') });
 });
+
+test('cancelling Path Type Options while editing leaves no undo step behind', async ({ page }) => {
+  await workArc(page);
+  await tool(page, 'Horizontal Type Tool');
+  await canvasClick(page, 92, 148);
+  await page.keyboard.type('Arch');
+  const session = () =>
+    page.evaluate(async () => {
+      const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+      const { plainText } = await import('/src/imaging/text/model.ts');
+      return { text: plainText(s.data.content), start: s.data.path!.start };
+    });
+  const before = await session();
+  await page.evaluate(() => void window.photoStudio.runCommand('type.path-options'));
+  const dialog = page.locator('dialog[open]');
+  await dialog.locator('input[name="start"]').fill('40');
+  await expect.poll(async () => (await session()).start).toBeCloseTo(0.4, 5);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  expect(await session()).toEqual(before);
+  // The first undo removes the typing.
+  await page.keyboard.press('Meta+z');
+  expect((await session()).text).toBe('');
+});

@@ -51,6 +51,7 @@ export async function psdPreviewFingerprint(doc: PhotoDocument) {
     name: _name,
     selection: _selection,
     selectionMask: _selectionMask,
+    quickMask: _quickMask,
     id: _id,
     ...content
   } = doc;

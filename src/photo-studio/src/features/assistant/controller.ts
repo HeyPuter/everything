@@ -169,11 +169,14 @@ export async function ask(active: Editor, request: string) {
     if (reply.kind === 'plan') {
       const ids = (Array.isArray(reply.plan.steps) ? reply.plan.steps : []).map((s) => String((s as { action?: unknown })?.action ?? ''));
       await preload(ids.filter((id) => findCommand(id)).map((id) => findCommand(id)!.id));
+      // Stopped while command settings loaded: nothing more is shown.
+      if (abort.signal.aborted) return;
       const plan = buildPlan(reply.plan, text, planEnv(e));
       // Steps named by label resolve only now: load their settings and check them again.
       const late = plan.steps.filter((s) => (s.input === 'settings' || s.input === 'ai') && !paramCache.has(s.action));
       if (late.length) {
         await preload(late.map((s) => s.action));
+        if (abort.signal.aborted) return;
         const env = planEnv(e);
         for (const s of late) setArgs(s, s.args, env);
         validatePlan(plan, env);

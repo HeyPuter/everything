@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { readActionSets } from '../src/features/actions';
+import { installActions, playAction, readActionSets } from '../src/features/actions';
+import { registerCommand, renamedCommands } from '../src/app/registry';
+import type { Editor } from '../src/editor';
 
 describe('action sets from stored data and files', () => {
   it('rebuilds sets from checked fields and gives imported ones new identifiers', () => {
@@ -30,5 +32,30 @@ describe('action sets from stored data and files', () => {
     expect(sets[0].actions[0].id).toBe('a-trim');
     expect(sets[0].actions[1].id).not.toBe('bad:id');
     expect(readActionSets({ not: 'a list' }, false)).toEqual([]);
+  });
+});
+
+describe('playing actions', () => {
+  const editor = () => {
+    const messages: string[] = [];
+    return { messages, e: { message: (m: string) => messages.push(m), update() {} } as unknown as Editor };
+  };
+  it('replays steps recorded under a command id that was renamed since', async () => {
+    const ran: unknown[] = [];
+    registerCommand({ id: 'test.renamed-to', label: 'Renamed', run: (_e, arg) => void ran.push(arg) });
+    renamedCommands.set('test.renamed-from', 'test.renamed-to');
+    const { e, messages } = editor();
+    const ok = await playAction(e, { id: 'a', name: 'Old', steps: [{ command: 'test.renamed-from', arg: { params: { radius: 2 } }, enabled: true, dialog: false }] });
+    expect(messages).toEqual([]);
+    expect(ok).toBe(true);
+    expect(ran).toEqual([{ params: { radius: 2 } }]);
+  });
+  it('a batch that runs an action reports why the action stopped on a file', async () => {
+    installActions({ dock: { update() {} } } as unknown as Editor);
+    const { batchSteps } = await import('../src/features/files/automate-steps');
+    const step = batchSteps.get('action:a-dup-desat')!;
+    const { e } = editor();
+    // Duplicate Layer is not registered here, so the action cannot run.
+    await expect(step.document!(e)).rejects.toThrow('The action “Desaturated Copy” stopped: The command “layer.duplicate” is not available.');
   });
 });

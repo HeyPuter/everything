@@ -77,6 +77,60 @@ test('each paste is its own undo step', async ({ page }) => {
   expect((await caret(page)).text).toBe('ab');
 });
 
+test('undoing a style chosen at the caret also stops it applying to typing', async ({ page }) => {
+  await canvasClick(page, 100, 100);
+  await page.keyboard.type('ab');
+  const runs = () =>
+    page.evaluate(() => {
+      const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+      return m.currentSession()!.data.content.paragraphs[0].runs.map((r) => [r.text, r.style.fauxBold]);
+    });
+  // Redo brings the caret style back.
+  await page.keyboard.press('Meta+Shift+KeyB');
+  await page.keyboard.press('Meta+z');
+  await page.keyboard.press('Meta+Shift+z');
+  await page.keyboard.type('d');
+  expect(await runs()).toEqual([['ab', false], ['d', true]]);
+  await page.keyboard.press('Meta+z');
+  await page.keyboard.press('Meta+z');
+  await page.keyboard.type('c');
+  expect(await runs()).toEqual([['abc', false]]);
+});
+
+test('cancelling Warp Text while editing leaves no undo step behind', async ({ page }) => {
+  await canvasClick(page, 100, 100);
+  await page.keyboard.type('ab');
+  await page.evaluate(() => void window.photoStudio.runCommand('type.warp'));
+  const dialog = page.locator('dialog[open] form.type-warp');
+  await dialog.locator('select[name="style"]').selectOption('flag');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!.data.warp?.style)).toBe('flag');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  // The first undo removes the typing, not an invisible warp step.
+  await page.keyboard.press('Meta+z');
+  expect((await caret(page)).text).toBe('');
+  await page.keyboard.press('Meta+Shift+z');
+  expect((await caret(page)).text).toBe('ab');
+});
+
+test('Edit › Undo from the menu bar undoes the last typing step, not the whole text', async ({ page }) => {
+  await canvasClick(page, 100, 100);
+  await page.keyboard.type('ab cd');
+  const labels = await page.evaluate(() => window.photoStudio.history.labels);
+  const editMenu = async (label: string) => {
+    await page.getByRole('menubar').getByRole('menuitem', { name: 'Edit', exact: true }).click();
+    await page.locator('.menubar-entry.open > .menu-pop > .menu-item').filter({ has: page.locator(':scope > .menu-label', { hasText: new RegExp(`^${label}$`) }) }).first().click();
+  };
+  await editMenu('Undo');
+  expect(await caret(page)).toMatchObject({ text: 'ab ' });
+  await editMenu('Redo');
+  expect(await caret(page)).toMatchObject({ text: 'ab cd' });
+  // Still editing: typing continues, and the document history is untouched.
+  await page.keyboard.type('e');
+  expect((await caret(page)).text).toBe('ab cde');
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(labels);
+});
+
 test('moving text with Mod-drag while editing is undoable and kept on commit', async ({ page }) => {
   await canvasClick(page, 100, 100);
   await page.keyboard.type('Move');

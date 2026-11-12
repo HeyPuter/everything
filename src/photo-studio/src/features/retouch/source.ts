@@ -3,6 +3,7 @@
 import type { Editor } from '../../editor';
 import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
 import { findLayer } from '../../model/document';
+import { layerLock } from '../../model/locks';
 import { setLayerPixels } from '../../model/pixel-layer';
 import { applySelection, canvasRect, selectionGrid } from '../../model/selection';
 import { readMask, readRGBA, writeRect, type TileGrid } from '../../model/tiles';
@@ -81,6 +82,16 @@ export function writeResult(e: Editor, target: PixelsTarget, rect: IRect, before
     if (cover) for (let i = 0; i < w.data.length; i++) w.data[i] = (w.data[i] * cover.data[i]) / 255;
     out = paintOver(before, after, w);
   } else out = limitToCoverage(before, after, cover);
+  // Locked transparency: the result keeps the layer's alpha.
+  if (layerLock(e.doc.layers, target.layer.id, 'transparency')) {
+    const o = out.data,
+      b = before.data;
+    for (let i = 0; i < o.length; i += 4) {
+      // Pixels the result left empty have no color of their own.
+      if (!o[i + 3]) for (let c = 0; c < 3; c++) o[i + c] = b[i + c];
+      o[i + 3] = b[i + 3];
+    }
+  }
   const grid = writeRect(e.assets.tiles, target.grid, rect.x, rect.y, out);
   if (opts.selection === undefined) commitTarget(e, target, grid, label);
   else commitPixelsAndSelection(e, target, grid, opts.selection, label);

@@ -44,7 +44,8 @@ import { commitSelectionMask } from '../selection';
 import { editable, forgetLayout, insertLayer, layoutOf, localBounds, localScale, ppiOf, replaceLayer, textCoverage, toDoc, toLocal, unwarpLocal } from './text-utils';
 
 // `place`: the layer's placement, which Mod-dragging the text changes.
-type Snapshot = { data: TextLayerData; anchor: number; focus: number; place: Placement };
+// `caretStyle`: a style chosen at a collapsed caret, waiting for typing.
+type Snapshot = { data: TextLayerData; anchor: number; focus: number; place: Placement; caretStyle?: CharStyle };
 type Placement = Pick<Layer, 'transform' | 'textFrame'>;
 export type Session = {
   layerId: string;
@@ -143,7 +144,7 @@ function placement(s: Session): Placement {
   const l = findLayer(s.draft.layers, s.layerId);
   return { transform: l?.transform ?? { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, textFrame: l?.textFrame };
 }
-const snapshot = (s: Session): Snapshot => ({ data: s.data, anchor: s.anchor, focus: s.focus, place: placement(s) });
+const snapshot = (s: Session): Snapshot => ({ data: s.data, anchor: s.anchor, focus: s.focus, place: placement(s), caretStyle: s.caretStyle });
 // Records an undo step unless this edit continues the previous one of the same kind.
 function remember(s: Session, kind?: string) {
   if (kind === undefined || kind !== s.lastKind) {
@@ -411,11 +412,12 @@ export function setSelection(e: Editor, anchor: number, focus: number, keepGoal 
   notify();
 }
 
-export function insert(e: Editor, str: string, kind = 'type') {
+// `forced`: the style the inserted text takes (a glyph from another font).
+export function insert(e: Editor, str: string, kind = 'type', forced?: CharStyle) {
   const s = session!;
   const [a, b] = ordered(s);
   const clean = str.replace(/\r\n?/g, '\n');
-  const style = a === b && s.caretStyle ? s.caretStyle : undefined;
+  const style = forced ?? (a === b && s.caretStyle ? s.caretStyle : undefined);
   let content = replaceRange(s.data.content, a, b, clean, style);
   // Preferences → Type → Missing glyph protection: characters the font lacks
   // are typed in a bundled font that has them.
@@ -481,7 +483,25 @@ export function undoEdit(e: Editor, redo = false) {
   s.data = snap.data;
   s.anchor = snap.anchor;
   s.focus = snap.focus;
+  s.caretStyle = snap.caretStyle;
   s.lastKind = undefined;
+  render(e);
+}
+
+// A dialog's live preview while editing that may be cancelled: `editMark`
+// before previewing, `revertToMark` to drop the preview and its undo step.
+export type EditMark = { s: Session; undo: number; redo: Snapshot[]; data: TextLayerData; lastKind?: string };
+export function editMark(): EditMark | undefined {
+  const s = session;
+  return s && { s, undo: s.undo.length, redo: s.redo, data: s.data, lastKind: s.lastKind };
+}
+export function revertToMark(e: Editor, m: EditMark) {
+  const s = session;
+  if (!s || s !== m.s) return;
+  s.undo.length = Math.min(s.undo.length, m.undo);
+  s.redo = m.redo;
+  s.data = m.data;
+  s.lastKind = m.lastKind;
   render(e);
 }
 
@@ -749,18 +769,68 @@ function inputElement(e: Editor): HTMLTextAreaElement {
       ev.stopPropagation();
     }
   });
+  const typed = (v: string) => {
+    const s = session!;
+    // Preferences → Type → Use smart quotes.
+    if (e.preferences.smartQuotes && /["']/.test(v)) {
+      const [a] = ordered(s);
+      insert(e, curlQuotes(v, plainText(s.data.content).slice(Math.max(0, a - 1), a)));
+    } else insert(e, v);
+  };
+  // Soft keyboards (Android) send most keys as keyCode 229 and describe the
+  // edit only in `beforeinput`; the input is kept empty, so there is nothing
+  // for a native Backspace to delete. Edits are applied from the input type.
+  let handled = false;
+  el.addEventListener('beforeinput', (ev) => {
+    const s = session;
+    handled = false;
+    if (!s || s.composing) return;
+    const ie = ev as InputEvent;
+    if (ie.isComposing) return;
+    switch (ie.inputType) {
+      case 'insertText':
+      case 'insertCompositionText':
+        if (!ie.data) return;
+        typed(ie.data.replace(/\r\n?/g, '\n'));
+        break;
+      case 'insertLineBreak':
+      case 'insertParagraph':
+        insert(e, '\n', 'newline');
+        break;
+      case 'deleteContentBackward':
+        backspace(e, false, false);
+        break;
+      case 'deleteWordBackward':
+        backspace(e, true, false);
+        break;
+      case 'deleteSoftLineBackward':
+      case 'deleteHardLineBackward':
+        backspace(e, false, true);
+        break;
+      case 'deleteContentForward':
+        forwardDelete(e, false);
+        break;
+      case 'deleteWordForward':
+        forwardDelete(e, true);
+        break;
+      default:
+        return;
+    }
+    if (ev.cancelable) ev.preventDefault();
+    // Not cancelable: the input changes anyway; its input event is dropped.
+    else handled = true;
+  });
   el.addEventListener('input', (ev) => {
     if (!session) return;
     const ie = ev as InputEvent;
     if (ie.isComposing || session.composing) return;
     const v = el.value;
     el.value = '';
-    if (!v) return;
-    // Preferences → Type → Use smart quotes.
-    if (e.preferences.smartQuotes && /["']/.test(v)) {
-      const [a] = ordered(session);
-      insert(e, curlQuotes(v, plainText(session.data.content).slice(Math.max(0, a - 1), a)));
-    } else insert(e, v);
+    if (handled) {
+      handled = false;
+      return;
+    }
+    if (v) typed(v);
   });
   el.addEventListener('compositionstart', () => {
     const s = session;

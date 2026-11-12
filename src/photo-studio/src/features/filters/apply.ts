@@ -9,11 +9,11 @@ import { intersectRect, type TileGrid } from '../../model/tiles';
 import type { BlendMode } from '../../imaging/blend';
 import type { IRect, ParamValues } from '../../imaging/types';
 import { hexRgb, pixelTarget, previewTarget, type PixelTarget } from '../pixels';
-import { GALLERY_ID, filterOp, normalizeFor, stackMargin } from './catalog';
+import { GALLERY_ID, filterOp, normalizeFor, selectionMargin } from './catalog';
 import { filterLabel } from './menu';
 import { Lane, isCancel, registerSource, releaseSource } from './client';
 import type { StackContext, StackEntry } from './stack';
-import { gridPayload, mergeTiles, type TileResult } from './tilepack';
+import { gridHasTransparent, gridPayload, mergeTiles, type TileResult } from './tilepack';
 import { progressHud } from './hud';
 
 export type Session = {
@@ -27,6 +27,8 @@ export type Session = {
   selBounds: IRect | null;
   seed: number;
   live?: { layerId: string; filters: LiveFilter[]; index: number; mask?: TileGrid; newMask?: TileGrid };
+  // Last answer of the transparency check behind the selection margin.
+  clear?: { key: string; value: boolean };
 };
 export { filterState, isLiveLayer, liveRect, type FadeInfo } from './state';
 import { filterState, isLiveLayer, liveRect } from './state';
@@ -67,7 +69,16 @@ function regionFor(s: Session, entries: StackEntry[], slack: boolean): IRect {
   const canvas = canvasRect(s.e.doc);
   if (s.live) return s.rect;
   if (!s.selBounds) return canvas;
-  const m = stackMargin(entries);
+  const sel = s.selBounds;
+  // Filters that fill transparent pixels read further only next to them.
+  const m = selectionMargin(entries, (margin) => {
+    if (s.base.channels !== 4) return false;
+    const r = intersectRect(grow(sel, margin), canvas);
+    if (!r) return false;
+    const key = `${r.x},${r.y},${r.width},${r.height}`;
+    if (s.clear?.key !== key) s.clear = { key, value: gridHasTransparent(s.e.assets.tiles, s.base, r) };
+    return s.clear.value;
+  });
   if (m === undefined) return canvas;
   return intersectRect(grow(s.selBounds, slack ? Math.ceil(m * 1.5) + 32 : m), canvas) ?? canvas;
 }
@@ -163,7 +174,6 @@ export function commitSession(s: Session, grid: TileGrid, opId: string, params: 
     filterState.fade = undefined;
   } else {
     const before = s.base;
-    if (s.target.kind === 'quick-mask') e.settings.quickMask = grid;
     commitTargetGrid(e, s.target, grid, label);
     filterState.fade = { doc: e.doc, quick: s.target.kind === 'quick-mask' ? grid : undefined, label, target: s.target, before, after: grid, rect: s.rect };
   }
@@ -171,7 +181,9 @@ export function commitSession(s: Session, grid: TileGrid, opId: string, params: 
 }
 function commitTargetGrid(e: Editor, target: PixelTarget, grid: TileGrid, label: string) {
   if (target.kind === 'quick-mask') {
-    e.update();
+    e.command(label, (d) => {
+      d.quickMask = grid;
+    });
     return;
   }
   const id = target.layer.id;

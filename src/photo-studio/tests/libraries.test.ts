@@ -129,10 +129,11 @@ describe('library model', () => {
 
   it('validates stored indexes', () => {
     expect(validIndex({ version: 2 })).toBeUndefined();
-    expect(validIndex({ version: 1, revision: 1, libraries: [{ id: 'x' }] })).toBeUndefined();
+    // Libraries and items this version cannot read are kept aside, not shown.
+    expect(validIndex({ version: 1, revision: 1, libraries: [{ id: 'x' }] })).toMatchObject({ libraries: [], kept: [{ id: 'x' }] });
     const ok = validIndex({ version: 1, revision: 3, libraries: [lib('L', 'A', [color('a', 'Red', '#ff0000')])], deleted: { z: T0, bad: 5 } });
     expect(ok?.deleted).toEqual({ z: T0 });
-    expect(validIndex({ version: 1, revision: 0, libraries: [lib('L', 'A', [color('a', 'Red', 'red')])] })).toBeUndefined();
+    expect(validIndex({ version: 1, revision: 0, libraries: [lib('L', 'A', [color('a', 'Red', 'red')])] })?.libraries[0]).toMatchObject({ items: [], kept: [color('a', 'Red', 'red')] });
   });
 
   it('exports a library as one file and imports it as a copy with checked assets', async () => {
@@ -185,6 +186,21 @@ describe('library model', () => {
     const got = await importLibraryFile(JSON.stringify(file), sha256Hex);
     expect(got.library.items.map((i) => i.name)).toEqual(good.map((i) => i.name));
     expect(got.skipped).toBe(bad.length + 1);
+  });
+  it('imports a library file with malformed items, leaving them out and counting them', async () => {
+    const malformed = [
+      { id: 'x1', type: 'color', name: 'Bad hex', created: T0, modified: T0, data: { hex: 'red' } },
+      { id: 'x2', type: 'swatch-group', name: 'Newer type', created: T0, modified: T0, data: {} },
+      { id: '', type: 'color', name: 'No id', created: T0, modified: T0, data: { hex: '#000000' } },
+      'not an item',
+    ];
+    const file = { format: 'photo-studio-library', version: 1, exported: T0, library: { ...lib('L', 'Kit', [color('a', 'Red', '#ff0000')]), items: [color('a', 'Red', '#ff0000'), ...malformed, color('b', 'Blue', '#0000ff')] }, assets: {} };
+    // The whole file used to be refused as "not a library file".
+    const got = await importLibraryFile(JSON.stringify(file), sha256Hex);
+    expect(got.library.items.map((i) => i.name)).toEqual(['Red', 'Blue']);
+    expect(got.skipped).toBe(malformed.length);
+    // A file whose library itself is damaged is still refused.
+    await expect(importLibraryFile(JSON.stringify({ ...file, library: { ...file.library, name: 5 } }), sha256Hex)).rejects.toThrow(/not a library file/);
   });
 });
 
@@ -412,5 +428,37 @@ describe('library storage and sync', () => {
     expect(a.status.state).toBe('error');
     expect(a.status.message).toMatch(/damaged/);
     expect((await a.index()).libraries.length).toBe(1);
+  });
+
+  it('keeps items it cannot read (a newer type) and never stores an empty index over unreadable libraries', async () => {
+    // A newer version stored an item type this one does not know, next to ordinary items.
+    const newer = { id: 'n', type: 'swatch-group', name: 'Brand set', created: T0, modified: T0, data: { colors: ['#112233'] } };
+    const stored = { version: 1, revision: 4, libraries: [lib('L', 'Brand', [color('a', 'Red', '#ff0000'), newer as unknown as LibraryItem]), lib('M', 'Other', [color('b', 'Blue', '#0000ff')])], deleted: {} };
+    const store = new MemoryLocalStore();
+    (store as unknown as { state: unknown }).state = { ...(await store.read()), index: structuredClone(stored) };
+    const repo = new LibraryRepository(store, () => undefined);
+    await repo.apply([{ op: 'put-item', library: 'L', item: color('c', 'Green', '#00ff00', 5) }]);
+    const idx = await repo.index();
+    // Everything readable loads (both libraries used to be dropped), the
+    // unknown item is not shown, and it is kept for writing back.
+    expect(idx.libraries.map((l) => [l.name, l.items.map((i) => i.name)])).toEqual([['Brand', ['Red', 'Green']], ['Other', ['Blue']]]);
+    expect(idx.libraries[0].kept).toEqual([newer]);
+    // The shared copy keeps it in place too.
+    const fs = new FakeFs();
+    fs.files.set('libraries/index.json', new Blob([JSON.stringify(stored)]));
+    const a = device(fs);
+    await a.sync();
+    expect(a.status.state).toBe('synced');
+    await a.apply([{ op: 'put-item', library: 'M', item: color('d', 'Gray', '#808080', 9) }]);
+    await a.sync();
+    const written = JSON.parse(await fs.files.get('libraries/index.json')!.text()) as LibraryIndex;
+    expect(written.libraries[0].items).toContainEqual(newer);
+    expect(written.libraries[1].items.map((i) => i.name)).toEqual(['Blue', 'Gray']);
+    // An index this version cannot read at all is never replaced.
+    const future = new MemoryLocalStore();
+    const unreadable = { version: 2, revision: 9, libraries: [{ id: 'X', kind: 'future' }] };
+    (future as unknown as { state: unknown }).state = { ...(await future.read()), index: structuredClone(unreadable) };
+    await expect(new LibraryRepository(future, () => undefined).apply([{ op: 'create-library', library: lib('N', 'New') }])).rejects.toThrow(/newer version/);
+    expect((future as unknown as { state: { index: unknown } }).state.index).toEqual(unreadable);
   });
 });

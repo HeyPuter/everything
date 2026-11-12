@@ -9,7 +9,7 @@
 // layers already inside a clipping group and non-LUT operations preview the
 // exact CPU result instead.
 import type { Editor } from '../../editor';
-import { ADJUSTMENT_LABELS, defaultParams, histograms, type Adjustment, type AdjustmentKind, type AdjustmentParamsMap } from '../../imaging/adjust';
+import { ADJUSTMENT_LABELS, defaultParams, histograms, isSpatialKind, type Adjustment, type AdjustmentKind, type AdjustmentParamsMap } from '../../imaging/adjust';
 import type { IRect, OperationContext, ParamSpec, ParamValues, RGBA8 } from '../../imaging/types';
 import { allLayers, findLayer, layer, type Layer, type PhotoDocument } from '../../model/document';
 import { readMask, readRGBA, writeRect, type TileGrid } from '../../model/tiles';
@@ -18,12 +18,14 @@ import { escapeXML } from '../../model/assets';
 import { applyToLayer, hexRgb, layerRGBA, pixelTarget, previewTarget, roundIRect, toRGBA8, type PixelTarget } from '../pixels';
 import { DEFAULT_MATCH, labStats, matchColorLut, type LabStats, type MatchOptions } from './match-color';
 import type { AdjustHost } from './host';
-import { adjustmentSpec } from './compile';
+import { adjustmentSpec, specAdjustment } from './compile';
+import { recordStep } from '../filters/record';
 import { kindEditors } from './editors';
 import { cancelPick, picking, pickPoint, sampleAt, type SourceImage } from './source';
 import { adjustInWorker, operationInWorker } from './worker-client';
 import { h, slider, checkbox, select } from './ui';
 import { svg } from '../../app/icons';
+import { noteDialogCancelled } from '../action-settings';
 
 const PREVIEW_ID = 'adjust-dialog-preview';
 
@@ -92,7 +94,9 @@ export type Shell = { dialog: HTMLDialogElement; body: HTMLElement; preview: HTM
 export function openShell(e: Editor, title: string, opts: { wide?: boolean } = {}): Shell {
   const shield = h('div', { class: 'adj-shield' });
   const dialog = h('dialog', { class: `adj-dialog ${opts.wide ? 'adj-wide' : ''}`, 'aria-label': title });
-  dialog.innerHTML = `<form method="dialog"><header class="adj-dialog-head"><h2>${escapeXML(title)}</h2></header><div class="adj-dialog-main"><div class="adj-body"></div></div><footer class="adj-dialog-foot dialog-footer"><label class="adj-check"><input type="checkbox" class="adj-preview" checked><span>Preview</span></label><p class="adj-status" aria-live="polite"></p><button type="button" value="cancel" class="secondary adj-cancel">Cancel</button><button type="submit" class="primary" value="ok">OK</button></footer></form>`;
+  // Fields clamp and round their own entries, so the browser's step check
+  // must not block OK (Black & White starts between whole percents).
+  dialog.innerHTML = `<form method="dialog" novalidate><header class="adj-dialog-head"><h2>${escapeXML(title)}</h2></header><div class="adj-dialog-main"><div class="adj-body"></div></div><footer class="adj-dialog-foot dialog-footer"><label class="adj-check"><input type="checkbox" class="adj-preview" checked><span>Preview</span></label><p class="adj-status" aria-live="polite"></p><button type="button" value="cancel" class="secondary adj-cancel">Cancel</button><button type="submit" class="primary" value="ok">OK</button></footer></form>`;
   document.body.append(shield, dialog);
   const body = dialog.querySelector<HTMLElement>('.adj-body')!,
     preview = dialog.querySelector<HTMLInputElement>('.adj-preview')!,
@@ -205,7 +209,11 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   if (!src) return e.message('The layer is empty.');
   const label = ADJUSTMENT_LABELS[kind];
   const shell = openShell(e, label, { wide: kind === 'curves' || kind === 'levels' || kind === 'hue-saturation' || kind === 'gradient-map' });
-  const gpu = target.kind === 'pixels' && !target.layer.clipped;
+  // Clarity & Dehaze and Grain read neighboring pixels: clipped to a masked
+  // layer, the GPU would see the hidden part as transparent while OK adjusts
+  // the pixels under the mask too, so those preview the CPU result.
+  const masked = target.kind === 'pixels' && !!target.layer.maskGrid && !target.layer.maskDisabled;
+  const gpu = target.kind === 'pixels' && !target.layer.clipped && !(masked && isSpatialKind(kind));
   const schedule = latest();
   const source = sourceFor(src);
   const host: AdjustHost<K> = {
@@ -252,21 +260,50 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   refresh();
   const ok = await shell.result;
   restore(e);
-  if (!ok) return;
+  if (!ok) return noteDialogCancelled();
   const adj = structuredClone(adjustment());
   await applyToLayer(e, label, (image, rect) => adjustInWorker(image, adj, placement(rect)));
+  recordStep(e, `adjust.${kind}`, { params: structuredClone(adj.params) });
+}
+/** Apply an adjustment with given settings, without its dialog (actions, scripts). */
+export async function applyAdjustment(e: Editor, kind: AdjustmentKind, params: Record<string, unknown>) {
+  const adj = specAdjustment({ kind, params });
+  if (!adj) return;
+  await applyToLayer(e, ADJUSTMENT_LABELS[kind], (image, rect) => adjustInWorker(image, adj, { x: rect.x, y: rect.y, docWidth: e.doc.width, docHeight: e.doc.height }));
 }
 
 // ----- Parameter dialogs (operations that are not adjustment kinds) -----
 
-export async function operationDialog(e: Editor, op: { id: string; label: string; params: ParamSpec[] }, extra?: (body: HTMLElement, values: ParamValues, changed: () => void, pick: () => Promise<[number, number, number] | null>) => void) {
+/** Settings from an action step or a script, checked against the operation's
+ * parameters; anything missing or out of range falls back to the default. */
+function operationValues(specs: ParamSpec[], given: Record<string, unknown>): ParamValues {
+  const out: ParamValues = {};
+  for (const s of specs) {
+    const v = given[s.key];
+    if (s.type === 'number') out[s.key] = typeof v === 'number' && Number.isFinite(v) ? Math.min(s.max, Math.max(s.min, v)) : s.default;
+    else if (s.type === 'checkbox') out[s.key] = typeof v === 'boolean' ? v : s.default;
+    else if (s.type === 'select') out[s.key] = typeof v === 'string' && s.options.some((o) => o.value === v) ? v : s.default;
+    else if (s.type === 'color') out[s.key] = typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : s.default;
+    else out[s.key] = s.default;
+  }
+  return out;
+}
+
+/** An operation's dialog, starting from `initial` settings when given; with
+ * `given` settings (actions, scripts) it applies them directly instead. */
+export async function operationDialog(e: Editor, op: { id: string; label: string; params: ParamSpec[] }, extra?: (body: HTMLElement, values: ParamValues, changed: () => void, pick: () => Promise<[number, number, number] | null>) => void, given?: Record<string, unknown>, initial?: Record<string, unknown>) {
+  const context = (): OperationContext => ({ foreground: hexRgb(e.color), background: hexRgb(e.background), scale: 1 });
+  if (given) {
+    const v = operationValues(op.params, given);
+    await applyToLayer(e, op.label.replace(/…$/, ''), (image) => operationInWorker(image, op.id, v, context()));
+    return;
+  }
   const target = await pixelTarget(e, { create: false });
   if (!target) return;
   const src = readTarget(e, target);
   if (!src) return e.message('The layer is empty.');
   const shell = openShell(e, op.label.replace(/…$/, ''));
-  const values: ParamValues = Object.fromEntries(op.params.map((p) => [p.key, p.default]));
-  const context = (): OperationContext => ({ foreground: hexRgb(e.color), background: hexRgb(e.background), scale: 1 });
+  const values: ParamValues = initial ? operationValues(op.params, initial) : Object.fromEntries(op.params.map((p) => [p.key, p.default]));
   const schedule = latest();
   const refresh = () => {
     if (!shell.preview.checked) return;
@@ -304,9 +341,10 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
   refresh();
   const ok = await shell.result;
   restore(e);
-  if (!ok) return;
+  if (!ok) return noteDialogCancelled();
   const v = { ...values };
   await applyToLayer(e, op.label.replace(/…$/, ''), (image) => operationInWorker(image, op.id, v, context()));
+  recordStep(e, op.id, { params: v });
 }
 
 /** Sampled-color control for Replace Color: swatch, color field and eyedropper. */

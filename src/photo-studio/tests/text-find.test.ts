@@ -11,6 +11,13 @@ describe('find and replace text', () => {
     expect(findMatches(t, '')).toEqual([]);
     expect(findMatches('aaaa', 'aa')).toEqual([[0, 2], [2, 4]]);
   });
+  it('finds a whole-word match that overlaps a rejected one', () => {
+    // "to be" inside "veto be" is not whole words; the one after it is.
+    expect(findMatches('veto be be', 'o be', { wholeWord: true })).toEqual([]);
+    expect(findMatches('to to be', 'to be', { wholeWord: true })).toEqual([[3, 8]]);
+    expect(findMatches('aa a a', 'a a', { wholeWord: true })).toEqual([[3, 6]]);
+    expect(findMatches('1.5.5', '.5', { wholeWord: true })).toEqual([]);
+  });
   it('finds the next match and wraps around', () => {
     expect(nextMatch('one two one', 'one', 1)).toEqual([8, 11]);
     expect(nextMatch('one two one', 'one', 9)).toEqual([0, 3]);

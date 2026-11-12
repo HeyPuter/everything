@@ -5,8 +5,8 @@ import './scripting.css';
 import type { Editor } from '../../editor';
 import { commands, findCommand } from '../../app/registry';
 import { escapeXML } from '../../model/assets';
-import { allActions, playAction, type Action } from '../actions';
-import { runProcessor, type Input } from '../files/automate';
+import { allActions, lastStopReason, playAction, type Action } from '../actions';
+import { failedNote, runProcessor, type Input } from '../files/automate';
 import { formatInfo } from '../files/encode';
 import { bytesBlob, formatBytes } from '../files/pipeline';
 import { zipStore } from '../files/zip';
@@ -187,7 +187,7 @@ export function openBatchLink(e: Editor, hash: string): Promise<void> {
         id: 'batch-link',
         label: link.name,
         document: async (ed: Editor) => {
-          if (!(await playAction(ed, action))) throw new Error(`The action “${link.name}” stopped.`);
+          if (!(await playAction(ed, action))) throw new Error(`The action “${link.name}” stopped${lastStopReason() ? `: ${lastStopReason()}` : '.'}`);
         },
       };
       const opts = { resize: !!link.fit, w: link.fit?.width ?? 0, h: link.fit?.height ?? 0, enlarge: false, format: link.format, quality: link.quality, srgb: true, steps: [step] };
@@ -197,7 +197,7 @@ export function openBatchLink(e: Editor, hash: string): Promise<void> {
           if (cancelled || !files.length) return;
           const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
           download(bytesBlob(zip, 'application/zip'), `${link.name.replace(/[\\/:*?"<>|]+/g, '_')}.zip`);
-          status.textContent = `Saved ${files.length} file${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}). Drop more photos to run again.`;
+          status.textContent = `Saved ${files.length} file${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''} Drop more photos to run again.`;
         })
         .finally(() => {
           running = false;

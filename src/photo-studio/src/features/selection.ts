@@ -15,9 +15,10 @@ import {
 import { readMask, type TileGrid } from '../model/tiles';
 import type { Mask8 } from '../imaging/types';
 import { compositeRGBA, layerRGBA } from './pixels';
-import { formDialog } from '../ui/dialog';
+import { recordsSettings, settingsDialog } from './action-settings';
 import { border, contract, expand, feather, grow, similar, smooth } from '../imaging/segment/mask-ops';
 import { svg } from '../app/icons';
+import { bindNumberField } from './paint-tools/fields';
 
 // ----- Rasterizing selection shapes -----
 /** Anti-aliased polygon coverage via 4x vertical supersampling of scanlines. */
@@ -144,8 +145,13 @@ export function bindSelectionOptions(e: Editor, el: HTMLElement) {
       e.options();
     }),
   );
-  el.querySelector<HTMLInputElement>('#sel-feather')?.addEventListener('change', (ev) => (e.settings.selectionFeather = Math.max(0, Number((ev.target as HTMLInputElement).value) || 0)));
+  bindNumberField(el, '#sel-feather', () => Number(e.settings.selectionFeather ?? 0), (v) => (e.settings.selectionFeather = Math.max(0, Math.min(1000, v))));
   el.querySelector<HTMLInputElement>('#sel-aa')?.addEventListener('change', (ev) => (e.settings.antiAlias = (ev.target as HTMLInputElement).checked));
+}
+
+/** The Magic Wand tolerance field (shared by the bucket and erasers). */
+export function bindTolerance(e: Editor, el: HTMLElement) {
+  bindNumberField(el, '#tolerance', () => e.tolerance, (v) => (e.tolerance = Math.max(0, Math.min(255, Math.round(v)))));
 }
 
 // ----- Marquee and lasso tools -----
@@ -186,6 +192,13 @@ export function marqueeRect(start: [number, number], p: Pick<CanvasPointer, 'x' 
   }
   return { x: Math.min(x0, x0 + w), y: Math.min(y0, y0 + h), width: Math.abs(w), height: Math.abs(h) };
 }
+/** The whole pixels a rectangular marquee selects: each edge snaps to the
+ * nearest pixel boundary, as the preview shows it. */
+export function marqueePixels(r: { x: number; y: number; width: number; height: number }) {
+  const x = Math.round(r.x),
+    y = Math.round(r.y);
+  return { x, y, width: Math.round(r.x + r.width) - x, height: Math.round(r.y + r.height) - y };
+}
 const marqueeStyle = (e: Editor): MarqueeStyle => ({ style: e.settings.marqueeStyle, width: e.settings.marqueeW, height: e.settings.marqueeH });
 export function finishShape(e: Editor, op: SelectionOp, mask: Mask8 | null, label: string) {
   const feather = Number(e.settings.selectionFeather ?? 0);
@@ -203,8 +216,8 @@ function marqueeTool(id: string, label: string, icon: string, shape: 'rect' | 'e
     bindOptions: ({ e, el }) => {
       bindSelectionOptions(e, el);
       el.querySelector<HTMLSelectElement>('#marquee-style')?.addEventListener('change', (ev) => (e.settings.marqueeStyle = (ev.target as HTMLSelectElement).value));
-      el.querySelector<HTMLInputElement>('#marquee-w')?.addEventListener('change', (ev) => (e.settings.marqueeW = Number((ev.target as HTMLInputElement).value) || 1));
-      el.querySelector<HTMLInputElement>('#marquee-h')?.addEventListener('change', (ev) => (e.settings.marqueeH = Number((ev.target as HTMLInputElement).value) || 1));
+      bindNumberField(el, '#marquee-w', () => Number(e.settings.marqueeW ?? 1), (v) => (e.settings.marqueeW = Math.max(1, v)));
+      bindNumberField(el, '#marquee-h', () => Number(e.settings.marqueeH ?? 1), (v) => (e.settings.marqueeH = Math.max(1, v)));
     },
     pointerDown: (e, p) => {
       const op = selectionOp(e, p);
@@ -236,7 +249,7 @@ function marqueeTool(id: string, label: string, icon: string, shape: 'rect' | 'e
       const W = e.doc.width,
         H = e.doc.height;
       const aa = e.settings.antiAlias !== false;
-      const mask = shape === 'ellipse' ? rasterizePolygon(ellipsePoints(r.x, r.y, r.width, r.height), W, H, aa) : rectMask(e, { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
+      const mask = shape === 'ellipse' ? rasterizePolygon(ellipsePoints(r.x, r.y, r.width, r.height), W, H, aa) : rectMask(e, marqueePixels(r));
       finishShape(e, d.op, mask, shape === 'ellipse' ? 'Elliptical Marquee' : 'Rectangular Marquee');
     },
     overlay: (e) => {
@@ -376,7 +389,7 @@ const wandTool: Tool = {
     optionsFor(e, `<label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label>`),
   bindOptions: ({ e, el }) => {
     bindSelectionOptions(e, el);
-    el.querySelector<HTMLInputElement>('#tolerance')?.addEventListener('change', (ev) => (e.tolerance = Math.max(0, Math.min(255, Number((ev.target as HTMLInputElement).value) || 0))));
+    bindTolerance(e, el);
     el.querySelector<HTMLInputElement>('#wand-contiguous')?.addEventListener('change', (ev) => (e.settings.contiguous = (ev.target as HTMLInputElement).checked));
     el.querySelector<HTMLInputElement>('#wand-all')?.addEventListener('change', (ev) => (e.settings.sampleAllLayers = (ev.target as HTMLInputElement).checked));
   },
@@ -462,8 +475,8 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
 }
 
 // ----- Commands -----
-async function modifyDialog(e: Editor, title: string, label: string, max: number, fn: (m: Mask8, v: number) => Mask8) {
-  const v = await formDialog(title, [{ name: 'value', label, value: 5, type: 'number', min: 0, max }], 'OK');
+async function modifyDialog(e: Editor, id: string, arg: unknown, title: string, label: string, max: number, fn: (m: Mask8, v: number) => Mask8) {
+  const v = await settingsDialog(e, id, arg, title, [{ name: 'value', label, value: 5, type: 'number', min: 0, max }], 'OK');
   if (!v) return;
   const sel = selectionGrid(e.doc, e.assets.tiles);
   if (!sel) return;
@@ -481,6 +494,7 @@ export function installSelection(_e: Editor) {
     wandTool,
   );
   const has = (e: Editor) => !!e.doc.selection;
+  for (const m of ['feather', 'expand', 'contract', 'border', 'smooth']) recordsSettings(`select.modify-${m}`);
   registerCommand(
     { id: 'select.all', label: 'All', shortcut: 'Mod+A', enabled: (e) => e.hasDocument, run: (e) => commitSelectionMask(e, selectAllGrid(), 'replace', 'Select All') },
     { id: 'select.deselect', label: 'Deselect', shortcut: 'Mod+D', enabled: has, run: (e) => commitSelectionMask(e, null, 'replace', 'Deselect') },
@@ -503,11 +517,11 @@ export function installSelection(_e: Editor) {
     },
     // Distance-transform morphology keeps expanded and contracted edges round
     // and exact at any radius.
-    { id: 'select.modify-feather', label: 'Feather…', shortcut: 'Shift+F6', enabled: has, run: (e) => modifyDialog(e, 'Feather Selection', 'Feather Radius (px)', 1000, feather) },
-    { id: 'select.modify-expand', label: 'Expand…', enabled: has, run: (e) => modifyDialog(e, 'Expand Selection', 'Expand By (px)', 500, (m, v) => expand(m, v)) },
-    { id: 'select.modify-contract', label: 'Contract…', enabled: has, run: (e) => modifyDialog(e, 'Contract Selection', 'Contract By (px)', 500, (m, v) => contract(m, v)) },
-    { id: 'select.modify-border', label: 'Border…', enabled: has, run: (e) => modifyDialog(e, 'Border Selection', 'Width (px)', 200, border) },
-    { id: 'select.modify-smooth', label: 'Smooth…', enabled: has, run: (e) => modifyDialog(e, 'Smooth Selection', 'Sample Radius (px)', 500, smooth) },
+    { id: 'select.modify-feather', label: 'Feather…', shortcut: 'Shift+F6', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-feather', arg, 'Feather Selection', 'Feather Radius (px)', 1000, feather) },
+    { id: 'select.modify-expand', label: 'Expand…', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-expand', arg, 'Expand Selection', 'Expand By (px)', 500, (m, v) => expand(m, v)) },
+    { id: 'select.modify-contract', label: 'Contract…', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-contract', arg, 'Contract Selection', 'Contract By (px)', 500, (m, v) => contract(m, v)) },
+    { id: 'select.modify-border', label: 'Border…', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-border', arg, 'Border Selection', 'Width (px)', 200, border) },
+    { id: 'select.modify-smooth', label: 'Smooth…', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-smooth', arg, 'Smooth Selection', 'Sample Radius (px)', 500, smooth) },
     {
       id: 'select.grow',
       label: 'Grow',

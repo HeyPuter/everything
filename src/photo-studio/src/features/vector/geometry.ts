@@ -176,9 +176,13 @@ export function nearestSegment(m: VectorMask, x: number, y: number, paths?: Set<
       let bt = 0, bd = Infinity;
       const line = x1 === x0 && y1 === y0 && x2 === x3 && y2 === y3;
       if (line) {
+        // Project onto the chord. A straight cubic is not evenly parameterized
+        // (its position follows 3t² - 2t³), so convert the chord fraction back
+        // to the curve parameter that reaches the same point.
         const dx = x3 - x0, dy = y3 - y0, l2 = dx * dx + dy * dy;
-        bt = l2 ? Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / l2)) : 0;
-        bd = distAt(bt);
+        const f = l2 ? Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / l2)) : 0;
+        bt = 0.5 - Math.sin(Math.asin(1 - 2 * f) / 3);
+        bd = Math.hypot(x0 + dx * f - x, y0 + dy * f - y);
       } else {
         const steps = 24;
         for (let k = 0; k <= steps; k++) {

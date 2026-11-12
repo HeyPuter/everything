@@ -140,7 +140,7 @@ export async function imageProcessor(e: Editor, batch: boolean) {
           else {
             const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
             download(bytesBlob(zip, 'application/zip'), 'processed-images.zip');
-            e.message(`Processed ${files.length} images (${formatBytes(zip.length)})`);
+            e.message(`Processed ${files.length} images (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
           }
         })
         .catch((error) => {
@@ -216,7 +216,12 @@ async function processAll(e: Editor, inputs: Input[], o: RunOptions, report: (s:
       failures.push(`${input.name}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  if (failures.length) e.message(`${failures.length} file${failures.length > 1 ? 's' : ''} failed. ${failures.slice(0, 3).join(' · ')}`);
+  if (failures.length) e.message(failedNote(failures));
   report(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
-  return files;
+  // Callers add the failures to their own closing message.
+  return Object.assign(files, { failed: failures });
+}
+/** “2 files failed. a.png: … · b.png: …”, or '' when none did. */
+export function failedNote(failures: string[]) {
+  return failures.length ? `${failures.length} file${failures.length > 1 ? 's' : ''} failed. ${failures.slice(0, 3).join(' · ')}` : '';
 }

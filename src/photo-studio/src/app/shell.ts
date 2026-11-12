@@ -1,8 +1,12 @@
 import { svg } from './icons';
+import { labelDialogsOnOpen } from '../ui/dialog';
+import { installLongPress } from './long-press';
 
 /** Static workspace chrome. Menus, tools, panels and options are filled in by
  * their controllers from the registries. */
 export function appShell(root: HTMLElement) {
+  labelDialogsOnOpen();
+  installLongPress();
   root.innerHTML = `
 <header class="topbar">
   <div class="brand" title="Photo Studio" aria-label="Photo Studio">${appIcon(22)}</div>

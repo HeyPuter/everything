@@ -48,6 +48,8 @@ export class DocumentSession {
   collectTiles(extra: Iterable<string> = []) {
     const keep = new Set<string>(extra);
     for (const d of this.history.documents) documentTileIds(d, keep);
+    // The History Brush paints from the opened state after history dropped it.
+    documentTileIds(this.history.opened, keep);
     if (this.saved) documentTileIds(this.saved, keep);
     for (const list of this.retained) for (const d of list()) documentTileIds(d, keep);
     if (this.lastSelection) for (const id of Object.values(this.lastSelection.tiles)) keep.add(id);

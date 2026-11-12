@@ -146,13 +146,19 @@ export class Toolbar {
       if (!item) return;
       this.closeFlyout();
       this.e.setTool(item.dataset.flyoutTool!);
+      // Chosen from the keyboard (a click without a pointer): the focus goes
+      // back to the slot, which the redraw may have replaced.
+      if (ev.detail === 0) this.el.querySelector<HTMLElement>(`[data-slot="${CSS.escape(group)}"]`)?.focus();
     });
     pop.addEventListener('keydown', (ev) => {
       const items = [...pop.querySelectorAll<HTMLElement>('button')];
       const at = items.indexOf(document.activeElement as HTMLElement);
       if (ev.key === 'ArrowDown') items[(at + 1) % items.length].focus();
       else if (ev.key === 'ArrowUp') items[(at - 1 + items.length) % items.length].focus();
-      else if (ev.key === 'Escape') {
+      else if (ev.key === 'Home') items[0].focus();
+      else if (ev.key === 'End') items[items.length - 1].focus();
+      else if (ev.key === 'Escape' || ev.key === 'Tab') {
+        // Tab closes it too, so the flyout never stays open behind the focus.
         this.closeFlyout();
         anchor.focus();
       } else return;

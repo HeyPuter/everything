@@ -6,14 +6,16 @@ import { assertEditable } from '../../model/layers';
 import { carryMask, setLayerPixels, setLivePixels, setPixelResampleMethod } from '../../model/pixel-layer';
 import { transformVideo } from '../../model/video-layer';
 import { emptyGrid, gridDocBounds, gridFromImage, readMask, readRGBA, TILE, writeRect, parseKey, type TileGrid, type TileStore } from '../../model/tiles';
-import { applySelection, selectionGrid } from '../../model/selection';
-import { normalizeAngle, selectionFrame } from '../../model/transform';
-import { formDialog } from '../../ui/dialog';
+import { applySelection, maskGrid, selectionGrid } from '../../model/selection';
+import { layerLock } from '../../model/locks';
+import { dropFloat, liftSelection } from './float';
+import { carryGridMask, normalizeAngle, selectionFrame } from '../../model/transform';
+import { settingsDialog } from '../action-settings';
 import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
 import { applyMat3, type Mat3 } from '../../imaging/filters/warp';
 import { remapCompPositions } from '../../model/layer-comps';
 import { mapMaskPoints } from '../../model/paths';
-import { layerRGBA, legacyMaskToGrid } from '../pixels';
+import { hexRgb, layerRGBA, legacyMaskToGrid } from '../pixels';
 import { hasMask } from '../../model/masks';
 import {
   about,
@@ -110,7 +112,7 @@ export function isSimilarity(m: Mat3, eps = 1e-9) {
   return Math.abs(Math.abs(a) - Math.abs(d)) < eps && Math.abs(Math.abs(b) - Math.abs(c)) < eps && Math.abs(a * b + c * d) < eps;
 }
 
-type Prepared = { video?: boolean; pixels?: TileGrid; live?: { source: TileGrid; mask?: TileGrid }; mask?: TileGrid; legacyMask?: boolean; toPixel?: boolean; transform?: boolean; fitCanvas?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } };
+type Prepared = { keepVectorMask?: boolean; video?: boolean; pixels?: TileGrid; live?: { source: TileGrid; mask?: TileGrid }; mask?: TileGrid; legacyMask?: boolean; toPixel?: boolean; transform?: boolean; fitCanvas?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } };
 /** Precompute new pixels for every leaf layer under a document matrix.
  * Pixel layers and their masks are rearranged or resampled; embedded objects
  * keep their transform for rotations and take a frame for mirror images
@@ -126,8 +128,10 @@ export async function prepareLayers(e: Editor, leaves: Layer[], m: Mat3, docAfte
   const skipped: string[] = [];
   for (const l of leaves) {
     const p: Prepared = {};
-    // Imported masks (PSD pixel masks) become mask grids that turn with the layer.
-    const mask = l.maskGrid ?? (hasMask(l) ? await legacyMaskToGrid(e, l) : undefined);
+    // Imported masks (PSD pixel masks) become mask grids that turn with the
+    // layer. Unlinked masks stay where they are when only layers turn.
+    const mask = !canvasOp && l.maskUnlinked ? undefined : (l.maskGrid ?? (hasMask(l) ? await legacyMaskToGrid(e, l) : undefined));
+    if (!canvasOp && l.vectorMask?.unlinked) p.keepVectorMask = true;
     if (mask) p.mask = transformMaskGrid(store, mask, m, method, docAfter);
     if (mask && !l.maskGrid) p.legacyMask = true;
     if (l.kind === 'pixel') {
@@ -174,7 +178,7 @@ export function applyPrepared(d: PhotoDocument, prepared: Map<string, Prepared>,
     if (p.frame) setFrame(d, l, p.frame.quad, p.frame.mesh, assets);
     if (p.toPixel) toPixelLayer(l, undefined);
     // Vector mask geometry follows its rasterized mask.
-    if (l.vectorMask) mapMaskPoints(l.vectorMask.mask, (x, y) => {
+    if (l.vectorMask && !p.keepVectorMask) mapMaskPoints(l.vectorMask.mask, (x, y) => {
       const q = applyMat3(m, x, y);
       return [q.x, q.y];
     });
@@ -197,6 +201,40 @@ export function exactPivot(cx: number, cy: number) {
   if (Math.abs((x - y) % 1) > 1e-9) y += 0.5;
   return { x, y };
 }
+/** With an active selection and a single pixel layer selected, lift the
+ * selected pixels, place them on the frame `place` gives for their bounds and
+ * put them back (one history step; the selection follows). A pixel edit, so a
+ * locked position does not prevent it. Undefined when this does not apply;
+ * false after explaining why nothing changed. */
+function transformSelectedPixels(e: Editor, roots: Layer[], label: string, place: (rect: IRect) => { quad: Quad; mesh?: MeshGrid }): boolean | undefined {
+  const only = roots.length === 1 ? roots[0] : undefined;
+  if (only?.kind !== 'pixel' || !only.pixels || !(e.doc.selection || e.doc.selectionMask)) return;
+  if (layerLock(e.doc.layers, only.id, 'pixels')) {
+    e.message('Unlock the layer before transforming it.');
+    return false;
+  }
+  const store = e.assets.tiles;
+  const f = liftSelection(e.doc, store, only, { preserveAlpha: !!only.background || layerLock(e.doc.layers, only.id, 'transparency'), background: hexRgb(e.background) });
+  if (f === null) {
+    e.message('The selected area is empty. Select some of the layer’s pixels to transform them.');
+    return false;
+  }
+  if (!f) return;
+  const method = samplerInterp(e.settings.transformInterpolation as string);
+  const { quad, mesh } = place(f.rect);
+  const render = (img: RGBA8) => renderFrame(img, f.rect, quad, mesh, { method, exact: true, doc: e.doc });
+  const r = render(f.image);
+  const grid = dropFloat(store, f, r?.image, r?.rect.x ?? 0, r?.rect.y ?? 0);
+  const shape = render(rgbaFromMask(f.selection));
+  const selection = shape ? maskGrid(store, maskFromRGBA(shape.image), shape.rect.x, shape.rect.y) : null;
+  e.command(label, (d) => {
+    const l = findLayer(d.layers, only.id);
+    if (!l) return;
+    setLayerPixels(l, grid, d);
+    applySelection(d, selection);
+  });
+  return true;
+}
 export async function turnLayers(e: Editor, op: 'rotate-180' | 'rotate-cw' | 'rotate-ccw' | 'flip-horizontal' | 'flip-vertical') {
   const s = currentSession();
   if (s) {
@@ -212,6 +250,15 @@ export async function turnLayers(e: Editor, op: 'rotate-180' | 'rotate-cw' | 'ro
     e.message('Select layers to transform.');
     return;
   }
+  const labels = { 'rotate-180': 'Rotate 180°', 'rotate-cw': 'Rotate 90° Clockwise', 'rotate-ccw': 'Rotate 90° Counter Clockwise', 'flip-horizontal': 'Flip Horizontal', 'flip-vertical': 'Flip Vertical' };
+  const local =
+    op === 'rotate-180' ? rotateM(180) : op === 'rotate-cw' ? rotateM(90) : op === 'rotate-ccw' ? rotateM(-90) : op === 'flip-horizontal' ? scaleM(-1, 1) : scaleM(1, -1);
+  // With a selection, the selected pixels turn about their own center.
+  const floated = transformSelectedPixels(e, roots, labels[op], (r) => {
+    const p = exactPivot(r.x + r.width / 2, r.y + r.height / 2);
+    return { quad: mapQuad(about(local, p.x, p.y), rectQuad(r)) };
+  });
+  if (floated !== undefined) return;
   try {
     assertEditable(e.doc, roots, 'position');
   } catch (error) {
@@ -224,11 +271,8 @@ export async function turnLayers(e: Editor, op: 'rotate-180' | 'rotate-cw' | 'ro
     return;
   }
   const c = exactPivot(frame.x + frame.width / 2, frame.y + frame.height / 2);
-  const local =
-    op === 'rotate-180' ? rotateM(180) : op === 'rotate-cw' ? rotateM(90) : op === 'rotate-ccw' ? rotateM(-90) : op === 'flip-horizontal' ? scaleM(-1, 1) : scaleM(1, -1);
   const m = about(local, c.x, c.y);
   const { prepared, skipped } = await prepareLayers(e, contentLayers(roots), m, e.doc, false);
-  const labels = { 'rotate-180': 'Rotate 180°', 'rotate-cw': 'Rotate 90° Clockwise', 'rotate-ccw': 'Rotate 90° Counter Clockwise', 'flip-horizontal': 'Flip Horizontal', 'flip-vertical': 'Flip Vertical' };
   e.command(labels[op], (d) => applyPrepared(d, prepared, m, e.assets));
   if (skipped.length) e.message(`Rasterize type and shape layers to flip them (skipped: ${skipped.join(', ')}).`);
 }
@@ -315,8 +359,11 @@ export const rotateCanvas = (e: Editor, deg: number) => {
 };
 export const flipCanvas = (e: Editor, horizontal: boolean) =>
   transformCanvas(e, horizontal ? 'Flip Canvas Horizontal' : 'Flip Canvas Vertical', scaleM(horizontal ? -1 : 1, horizontal ? 1 : -1), e.doc.width, e.doc.height);
-export async function arbitraryRotation(e: Editor) {
-  const v = await formDialog(
+export async function arbitraryRotation(e: Editor, arg?: unknown) {
+  const v = await settingsDialog(
+    e,
+    'image.rotate-arbitrary',
+    arg,
     'Rotate Canvas',
     [
       { name: 'angle', label: 'Angle (°)', value: Number(e.settings.arbitraryAngle ?? 0), type: 'number', min: -359.99, max: 359.99, step: 0.01 },
@@ -347,18 +394,25 @@ export async function transformAgain(e: Editor) {
     e.message('Select layers to transform.');
     return;
   }
+  const store = e.assets.tiles;
+  const method = samplerInterp(e.settings.transformInterpolation as string);
+  // With a selection, the selected pixels of a single pixel layer are
+  // transformed again, as Free Transform does.
+  const floated = transformSelectedPixels(e, roots, 'Transform Again', (r) => {
+    const quad = mapQuad(t.matrix, rectQuad(r));
+    return { quad, mesh: t.unitMesh ? meshFromUnit(t.unitMesh, r, quad) : undefined };
+  });
+  if (floated !== undefined) return;
   try {
     assertEditable(e.doc, roots, 'position');
   } catch (error) {
     e.message((error as Error).message);
     return;
   }
-  const store = e.assets.tiles;
-  const method = samplerInterp(e.settings.transformInterpolation as string);
   const affine = isAffine(t.matrix);
   const params = affine ? paramsFromAffine(t.matrix, { x: 0, y: 0, width: 1, height: 1 }, { x: 0, y: 0 }) : undefined;
   const similar = !!params && !t.unitMesh && Math.abs(params.skewX) < 1e-6 && Math.abs(Math.abs(params.sx) - Math.abs(params.sy)) < 1e-6 && params.sy > 0;
-  const updates = new Map<string, { pixels?: TileGrid; mask?: TileGrid; vectorMask?: boolean; video?: boolean; toPixel?: boolean; transform?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } }>();
+  const updates = new Map<string, { pixels?: TileGrid; live?: { source: TileGrid; mask?: TileGrid }; mask?: TileGrid; vectorMask?: boolean; video?: boolean; toPixel?: boolean; transform?: boolean; frame?: { quad: Quad; mesh?: MeshGrid } }>();
   const skipped: string[] = [];
   const warpedVideo: string[] = [];
   for (const l of allLayers(roots).filter((l) => l.kind !== 'group')) {
@@ -403,7 +457,21 @@ export async function transformAgain(e: Editor) {
             return out && { image: out.image, x: out.rect.x, y: out.rect.y };
           })
         : undefined;
-    updates.set(l.id, { pixels: r ? gridFromImage(store, r.image, r.rect.x, r.rect.y) : emptyGrid(4), mask, vectorMask: !!l.vectorMask && !l.vectorMask.unlinked && !mesh, video: !!l.video });
+    // Live Filters stay: their source and filter mask follow the content.
+    let live: { source: TileGrid; mask?: TileGrid } | undefined;
+    if (l.kind === 'pixel' && l.liveFilters && l.liveSource) {
+      const s = render(readRGBA(store, l.liveSource, rect));
+      live = {
+        source: s ? gridFromImage(store, s.image, s.rect.x, s.rect.y) : emptyGrid(4),
+        mask: l.liveMask
+          ? carryMask(store, l.liveMask, rect, (img) => {
+              const out = render(img);
+              return out && { image: out.image, x: out.rect.x, y: out.rect.y };
+            })
+          : undefined,
+      };
+    }
+    updates.set(l.id, { pixels: r ? gridFromImage(store, r.image, r.rect.x, r.rect.y) : emptyGrid(4), mask, vectorMask: !!l.vectorMask && !l.vectorMask.unlinked && !mesh, video: !!l.video, live });
   }
   if (warpedVideo.length) e.message(`Video layers cannot be warped (skipped: ${warpedVideo.join(', ')}); rasterize them first.`);
   if (!updates.size) {
@@ -411,14 +479,32 @@ export async function transformAgain(e: Editor) {
     e.message(skipped.length ? 'Rasterize type and shape layers to repeat a skew, distortion or warp.' : 'Nothing to transform.');
     return;
   }
+  // Linked masks of transformed groups follow their layers.
+  const groups = allLayers(roots).filter((l) => l.kind === 'group');
+  const groupMasks = new Map(groups.filter((g) => g.maskGrid && !g.maskUnlinked).map((g) => [g.id, carryGridMask(store, g.maskGrid!, t.matrix)]));
   e.command('Transform Again', (d) => {
+    for (const { id } of groups) {
+      const g = findLayer(d.layers, id);
+      if (!g) continue;
+      const grid = groupMasks.get(id);
+      if (grid) g.maskGrid = grid;
+      if (g.vectorMask && !g.vectorMask.unlinked) {
+        const mask = structuredClone(g.vectorMask.mask);
+        mapMaskPoints(mask, (x, y) => {
+          const q = applyMat3(t.matrix, x, y);
+          return [q.x, q.y];
+        });
+        g.vectorMask = { ...g.vectorMask, mask };
+      }
+    }
     for (const [id, u] of updates) {
       const l = findLayer(d.layers, id);
       if (!l) continue;
       if (u.frame) setFrame(d, l, u.frame.quad, u.frame.mesh, e.assets);
       if (u.toPixel) toPixelLayer(l, undefined);
       if (u.video && l.video) l.video = transformVideo(l.video, t.matrix);
-      if (u.pixels) setLayerPixels(l, u.pixels, d);
+      if (u.pixels && u.live) setLivePixels(l, u.pixels, d, u.live.source, u.live.mask);
+      else if (u.pixels) setLayerPixels(l, u.pixels, d);
       else if (u.transform) moveTransform(l, t.matrix);
       if (u.mask) l.maskGrid = u.mask;
       if (u.vectorMask && l.vectorMask) {

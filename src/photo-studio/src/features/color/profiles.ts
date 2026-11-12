@@ -49,18 +49,43 @@ export function colorSettings(): ColorSettings {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
     for (const k of Object.keys(defaultSettings) as (keyof ColorSettings)[])
       if (typeof saved[k] === typeof defaultSettings[k]) (settings as Record<string, unknown>)[k] = saved[k];
-    // A stored reference to a loaded profile from an earlier session cannot be
-    // resolved again; fall back to the defaults rather than failing later.
+    // Working spaces loaded from files are kept beside the settings.
+    for (const k of ['rgb', 'cmyk', 'gray'] as const)
+      if (settings[k] === `${STORED}${k}`)
+        try {
+          settings[k] = registerLoadedProfile(decodeIccProfile(localStorage.getItem(profileKey(k)) ?? '')).ref;
+        } catch {
+          /* Missing or damaged: the default below. */
+        }
+    // A reference that cannot be resolved (a loaded profile too large to
+    // keep, for example) falls back to the defaults rather than failing later.
     for (const k of ['rgb', 'cmyk', 'gray'] as const) if (!resolvable(settings[k])) settings[k] = defaultSettings[k];
   } catch {
     /* Settings storage is optional. */
   }
   return settings;
 }
+const STORED = 'stored:';
+const profileKey = (k: string) => `photo-studio-color-profile-${k}`;
 export function saveColorSettings(next: ColorSettings) {
   settings = { ...next };
+  const out: ColorSettings = { ...settings };
+  for (const k of ['rgb', 'cmyk', 'gray'] as const) {
+    const l = loaded.get(out[k]);
+    try {
+      // A profile loaded from a file is stored by its bytes, apart from the
+      // settings, so the next session can use it again (and a profile too
+      // large for browser storage costs only itself).
+      if (l) {
+        localStorage.setItem(profileKey(k), l.base64);
+        out[k] = `${STORED}${k}`;
+      } else localStorage.removeItem(profileKey(k));
+    } catch {
+      /* Optional. */
+    }
+  }
   try {
-    localStorage.setItem(storageKey, JSON.stringify(settings));
+    localStorage.setItem(storageKey, JSON.stringify(out));
   } catch {
     /* Optional. */
   }
@@ -232,7 +257,10 @@ export function docCmykProfile(doc: PhotoDocument): Profile {
   return profileFromRef('builtin:generic-coated-cmyk');
 }
 export function docGrayProfile(doc: PhotoDocument): Profile {
-  const ref = doc.mode === 'grayscale' && doc.modeData?.profile ? doc.modeData.profile : colorSettings().gray;
+  // Duotones keep the gray profile they were made with: their inks apply in
+  // that gray encoding, so the look must not follow the working gray.
+  const own = (doc.mode === 'grayscale' || doc.mode === 'duotone') && doc.modeData?.profile;
+  const ref = own || colorSettings().gray;
   try {
     const p = profileFromRef(ref);
     if (p.colorSpace === 'GRAY') return p;

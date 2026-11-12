@@ -45,7 +45,16 @@ export function sandboxCode(source: string) {
 // Watchdog: the worker answers pings between script statements that await;
 // a script busy for longer than its timeout without awaiting is stopped. Only
 // answers count: a busy loop can still send output and calls without awaiting.
+// Each ping carries a number its answer must repeat, so a script that takes
+// the runtime's channel cannot answer pings it never received.
 const PING_MS = 1000;
+// What the page accepts from a script, whatever the runtime in the sandbox
+// was made to send: output lines a second (more are counted, not shown),
+// characters a line, and API calls waiting at once.
+const LOG_RATE = 1000;
+const LOG_CHARS = 4000;
+const MAX_QUEUED = 10000;
+const LEVELS = new Set(['log', 'info', 'warn', 'error']);
 
 export class ScriptSandbox {
   private frame?: HTMLIFrameElement;
@@ -57,10 +66,15 @@ export class ScriptSandbox {
   private stopping = 0;
   // API calls in progress: the script is waiting on the editor, not stuck.
   private inCall = 0;
+  private queued = 0;
+  private pings: number[] = [];
+  private logWindow = 0;
+  private logCount = 0;
+  private logDropped = 0;
   private onWindowMessage = (ev: MessageEvent) => {
     if (!this.frame || ev.source !== this.frame.contentWindow) return;
     const m = ev.data as { type?: string; message?: string; line?: number };
-    if (m?.type === 'worker-error') this.end({ status: 'failed', message: String(m.message ?? 'The script could not run.').replace(/^Uncaught /, ''), line: Math.max(0, Number(m.line) - this.lineOffset) });
+    if (m?.type === 'worker-error') this.end({ status: 'failed', message: String(m.message ?? 'The script could not run.').replace(/^Uncaught /, '').slice(0, LOG_CHARS), line: Math.max(0, Number(m.line) - this.lineOffset) });
   };
   private lineOffset = 0;
   constructor(
@@ -106,17 +120,22 @@ export class ScriptSandbox {
     this.stopping = window.setTimeout(() => this.end({ status: 'cancelled' }), 2000);
   }
   private tick() {
-    this.port?.postMessage({ type: 'ping' });
+    const n = Math.floor(Math.random() * 2 ** 52);
+    this.pings = [n, ...this.pings].slice(0, 4);
+    this.port?.postMessage({ type: 'ping', n });
     if (this.inCall) this.heard = performance.now();
     const silent = (performance.now() - this.heard) / 1000;
     if (silent > this.timeoutSeconds) this.end({ status: 'timeout', seconds: this.timeoutSeconds });
+    else this.flushDropped();
   }
-  private receive(m: { type?: string; id?: number; method?: string; args?: unknown[]; level?: string; text?: string; message?: string; line?: number; cancelled?: boolean }) {
-    if (!m || typeof m !== 'object') return;
-    if (m.type === 'pong') this.heard = performance.now();
-    else if (m.type === 'call' && typeof m.id === 'number' && typeof m.method === 'string') {
+  private receive(m: { type?: string; id?: number; n?: number; method?: string; args?: unknown[]; level?: string; text?: string; message?: string; line?: number; cancelled?: boolean }) {
+    if (!m || typeof m !== 'object' || !this.finish) return;
+    if (m.type === 'pong') {
+      if (typeof m.n === 'number' && this.pings.includes(m.n)) this.heard = performance.now();
+    } else if (m.type === 'call' && typeof m.id === 'number' && typeof m.method === 'string') {
       const { id, method } = m;
       const args = Array.isArray(m.args) ? m.args : [];
+      if (++this.queued > MAX_QUEUED) return this.end({ status: 'failed', message: `More than ${MAX_QUEUED} API calls are waiting: use await in loops that call the studio API.`, line: 0 });
       // Calls run one at a time, in order, even when a script does not await them.
       this.queue = this.queue.then(async () => {
         if (!this.finish) return;
@@ -131,14 +150,37 @@ export class ScriptSandbox {
           this.inCall--;
           this.heard = performance.now();
         }
-      });
-    } else if (m.type === 'log') this.handlers.log(String(m.level ?? 'log'), String(m.text ?? ''));
+      }).finally(() => this.queued--);
+    } else if (m.type === 'log') this.log(m.level, m.text);
     else if (m.type === 'done') this.end({ status: m.cancelled ? 'cancelled' : 'done' });
-    else if (m.type === 'failed') this.end({ status: 'failed', message: String(m.message ?? 'The script failed.'), line: Number(m.line) || 0 });
+    else if (m.type === 'failed') this.end({ status: 'failed', message: String(m.message ?? 'The script failed.').slice(0, LOG_CHARS), line: Math.max(0, Math.floor(Number(m.line))) || 0 });
+  }
+  private log(level: unknown, text: unknown) {
+    const now = performance.now();
+    if (now - this.logWindow >= 1000) {
+      this.flushDropped();
+      this.logWindow = now;
+      this.logCount = 0;
+    }
+    // Lines longer than the runtime sends, or far more than it lets out,
+    // come from a script working past the runtime: it is stopped at once.
+    if ((typeof text === 'string' && text.length > LOG_CHARS) || this.logCount > LOG_RATE * 20) return this.end({ status: 'failed', message: 'It sent more output than Photo Studio accepts.', line: 0 });
+    if (++this.logCount > LOG_RATE) {
+      this.logDropped++;
+      return;
+    }
+    this.handlers.log(typeof level === 'string' && LEVELS.has(level) ? level : 'log', String(text ?? '').slice(0, LOG_CHARS));
+  }
+  private flushDropped() {
+    if (!this.logDropped) return;
+    const n = this.logDropped;
+    this.logDropped = 0;
+    this.handlers.log('warn', `(${n} more lines were not shown)`);
   }
   private end(outcome: SandboxOutcome) {
     const finish = this.finish;
     if (!finish) return;
+    this.flushDropped();
     this.finish = undefined;
     // Wait for host calls already running (a dialog, an edit) before reporting.
     void this.queue.then(() => {

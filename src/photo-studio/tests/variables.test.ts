@@ -109,3 +109,33 @@ describe('variables and data sets', () => {
     expect(() => validateVariables({ ...v, current: 2 })).toThrow();
   });
 });
+
+describe('applying a data set', () => {
+  it('applies to the document as it is when the set is ready, even if it changed meanwhile', async () => {
+    const { applySet } = await import('../src/features/variables/apply');
+    const { History } = await import('../src/history/history');
+    const start = doc();
+    start.variables!.sets = [{ name: 'Off', values: { sale: false } }];
+    const h = new History(start);
+    const messages: string[] = [];
+    let preparing = 0;
+    const e = {
+      get doc() {
+        return h.document;
+      },
+      // Read when preparing starts: another change lands meanwhile (a person
+      // editing a shared document, for example).
+      get assets() {
+        if (++preparing === 1) h.execute('Rename', (d) => void (d.layers[0].name = 'Renamed meanwhile'));
+        return undefined;
+      },
+      command: (label: string, f: (d: PhotoDocument) => void) => h.execute(label, f),
+      message: (t: string) => messages.push(t),
+    };
+    await applySet(e as never, 0);
+    const out = h.document;
+    expect(out.layers.find((l) => l.id === 'badge')!.visible).toBe(false);
+    expect(out.layers[0].name).toBe('Renamed meanwhile');
+    expect(h.labels.at(-1)).toBe('Apply Data Set');
+  });
+});

@@ -59,6 +59,11 @@ export class ColorControls {
     return this.root.querySelector<T>(selector)!;
   }
   sync(color: string) {
+    // The color these controls just produced comes back through the editor:
+    // keep the exact hue, saturation and brightness rather than re-deriving
+    // them from 8-bit values (the hue drifts at low saturation and black
+    // forgets the saturation).
+    if (color.toLowerCase() === this.hex()) return this.paint();
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255);
     const max = Math.max(r, g, b),
       min = Math.min(r, g, b),

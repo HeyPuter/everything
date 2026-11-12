@@ -15,6 +15,8 @@ import { sessionSnapshots } from '../history-tools';
 import { infoPanel } from '../measure/info';
 import { centerPoint, panToCenter } from '../../app/view-transform';
 
+// The History panel's last markup, to skip redraws that change nothing.
+const historyMarkup = new WeakMap<HTMLElement, string>();
 const historyPanel: Panel = {
   id: 'history',
   title: 'History',
@@ -44,14 +46,23 @@ const historyPanel: Panel = {
     const done = e.history.labels,
       undone = e.history.redoLabels;
     const rows = [
-      `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0">${svg('image', 14)}<span>${escapeXML(e.doc.name)}</span></button>`,
+      // Once older steps are dropped, the first row is the result of the
+      // latest dropped step rather than the opened document.
+      e.history.baseLabel
+        ? `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0" title="Earlier steps are no longer kept">${svg('history', 14)}<span>${escapeXML(e.history.baseLabel)}</span></button>`
+        : `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0">${svg('image', 14)}<span>${escapeXML(e.doc.name)}</span></button>`,
       ...done.map((l, i) => `<button class="history-row ${i === done.length - 1 ? 'current' : ''}" data-history="${i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
       ...undone.map((l, i) => `<button class="history-row undone" data-history="${done.length + i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
     ];
     const snaps = sessionSnapshots(e);
     const source = (e.settings.historySource as string | undefined) ?? '';
     const snapRows = snaps.map((sn) => `<div class="history-snapshot"><button class="history-source" data-history-source="${sn.id}" aria-pressed="${source === sn.id}" title="Set the source for the History Brush" aria-label="Use ${escapeXML(sn.name)} as History Brush source">${svg('history', 13)}</button><button class="history-row" data-snapshot="${sn.id}">${svg('camera', 14)}<span>${escapeXML(sn.name)}</span></button></div>`).join('');
-    el.innerHTML = `${snapRows ? `<div class="history-snapshots">${snapRows}</div>` : ''}<div class="history-entries">${rows.join('')}</div><div class="history-controls"><button data-command="history.snapshot" aria-label="Create new snapshot" title="Create new snapshot">${svg('camera', 15)}</button><button data-command="edit.undo" aria-label="Undo" title="Undo" ${e.history.canUndo ? '' : 'disabled'}>${svg('undo-2', 15)}</button><button data-command="edit.redo" aria-label="Redo" title="Redo" ${e.history.canRedo ? '' : 'disabled'}>${svg('redo-2', 15)}</button></div>`;
+    const html = `${snapRows ? `<div class="history-snapshots">${snapRows}</div>` : ''}<div class="history-entries">${rows.join('')}</div><div class="history-controls"><button data-command="history.snapshot" aria-label="Create new snapshot" title="Create new snapshot">${svg('camera', 15)}</button><button data-command="edit.undo" aria-label="Undo" title="Undo" ${e.history.canUndo ? '' : 'disabled'}>${svg('undo-2', 15)}</button><button data-command="edit.redo" aria-label="Redo" title="Redo" ${e.history.canRedo ? '' : 'disabled'}>${svg('redo-2', 15)}</button></div>`;
+    // Unchanged (an update that is not a history step): keep the list as it
+    // is, scrolled where the user left it.
+    if (historyMarkup.get(el) === html) return;
+    historyMarkup.set(el, html);
+    el.innerHTML = html;
     const list = el.querySelector('.history-entries')!;
     list.querySelector('.current')?.scrollIntoView({ block: 'nearest' });
   },
@@ -125,14 +136,20 @@ const swatchesPanel: Panel = {
   icon: 'swatch-book',
   location: 'dock-top',
   mount: (e, el) => {
+    const remove = (b: HTMLElement) => {
+      const i = Number(b.dataset.index);
+      const focused = b === document.activeElement;
+      swatches.splice(i, 1);
+      saveSwatches();
+      e.dock.update();
+      // The grid is rebuilt: keep the keyboard on the swatch that took its place.
+      if (focused) el.querySelector<HTMLElement>(`[data-index="${Math.min(i, swatches.length - 1)}"]`)?.focus();
+    };
     el.addEventListener('click', (ev) => {
       const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-swatch]');
       if (b) {
-        if (ev.altKey) {
-          swatches.splice(Number(b.dataset.index), 1);
-          saveSwatches();
-          e.dock.update();
-        } else if (ev.metaKey || ev.ctrlKey) e.setBackground(b.dataset.swatch!);
+        if (ev.altKey) remove(b);
+        else if (ev.metaKey || ev.ctrlKey) e.setBackground(b.dataset.swatch!);
         else e.setForeground(b.dataset.swatch!);
         return;
       }
@@ -142,9 +159,20 @@ const swatchesPanel: Panel = {
         e.dock.update();
       }
     });
+    // Keyboard equivalents of the modified clicks: Delete removes a swatch,
+    // Mod+Enter makes it the background color.
+    el.addEventListener('keydown', (ev) => {
+      const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-swatch]');
+      if (!b) return;
+      if (ev.key === 'Delete' || ev.key === 'Backspace' || (ev.key === 'Enter' && ev.altKey)) remove(b);
+      else if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) e.setBackground(b.dataset.swatch!);
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+    });
   },
   update: (e, el) => {
-    const html = `<div class="swatch-grid" role="list">${swatches.map((c, i) => `<button role="listitem" data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${'⌘'}-click: background, Alt-click: delete" aria-label="Swatch ${c}"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
+    const html = `<div class="swatch-grid" role="group" aria-label="Swatches">${swatches.map((c, i) => `<button data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${'⌘'}-click: background, Alt-click or Delete: remove" aria-label="Swatch ${c}" aria-keyshortcuts="Delete"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
     // Updates run after every edit; rebuilding unchanged buttons would cost
     // time and take the keyboard focus off the swatch just chosen.
     if (swatchMarkup.get(el) === html) return;

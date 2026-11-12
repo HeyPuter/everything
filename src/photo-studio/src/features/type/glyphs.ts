@@ -4,9 +4,10 @@
 import type { Editor } from '../../editor';
 import { registerPanel, type Panel } from '../../app/registry';
 import { escapeXML } from '../../model/assets';
-import { BUNDLED_FONTS, ensureFont, findBundled, loadFontFile } from '../../imaging/text/fonts';
+import { BUNDLED_FONTS, ensureFont, findBundled, loadFontFile, prepareFonts } from '../../imaging/text/fonts';
 import { parseFont } from '../../imaging/text/sfnt';
-import { focusInput, insert, onSessionChange, session, startEdit, styleContext } from './session';
+import { focusInput, insert, onSessionChange, ordered, session, startEdit, styleContext } from './session';
+import { charStyleAt, fromPlainText, type CharStyle } from '../../imaging/text/model';
 import { familyList, familyStyles, styleName } from './options';
 import './type-panels.css';
 
@@ -70,7 +71,7 @@ function remember(r: Recent) {
 }
 
 /** Insert a character into the text being edited (or the selected text layer). */
-export async function insertGlyph(e: Editor, ch: string, family?: string) {
+export async function insertGlyph(e: Editor, ch: string, family?: string, face?: { weight: number; italic: boolean }) {
   if (!session) {
     const l = e.layer;
     if (l?.kind !== 'text') {
@@ -81,13 +82,30 @@ export async function insertGlyph(e: Editor, ch: string, family?: string) {
     await startEdit(e, l.id, 'end');
   }
   if (!session) return false;
-  insert(e, ch, 'glyph');
+  // A glyph from another font than the text's is inserted in that font.
+  let style: CharStyle | undefined;
+  if (family) {
+    const s = session;
+    const [a, b] = ordered(s);
+    const base = a === b && s.caretStyle ? s.caretStyle : charStyleAt(s.data.content, a === b ? a : a + 1);
+    const next = { ...base, family, ...(face ?? {}) };
+    if (next.family !== base.family || next.weight !== base.weight || next.italic !== base.italic) {
+      style = next;
+      await prepareFonts({ ...s.data, content: fromPlainText(ch, style) });
+      if (session !== s) return false;
+    }
+  }
+  insert(e, ch, 'glyph', style);
   focusInput(e);
   if (family) remember({ cp: ch.codePointAt(0)!, family });
   return true;
 }
 
 const state = { family: '', italic: false, weight: 400, follow: true, category: 'all' as GlyphCategory, size: 30 };
+// The font a cell inserts in: a recent glyph's own family, else the panel's
+// family (and style, once one was chosen here rather than followed from the text).
+const glyphFont = (c: HTMLElement): [string, { weight: number; italic: boolean } | undefined] =>
+  c.dataset.family ? [c.dataset.family, undefined] : [state.family, state.follow ? undefined : { weight: state.weight, italic: state.italic }];
 const fontCss = (family: string) => `"${family.replace(/"/g, '')}", sans-serif`;
 
 export const glyphsPanel: Panel = {
@@ -130,13 +148,13 @@ export const glyphsPanel: Panel = {
     el.addEventListener('dblclick', (ev) => {
       const c = cell(ev);
       if (!c) return;
-      void insertGlyph(e, String.fromCodePoint(Number(c.dataset.cp)), c.dataset.family ?? state.family).then((ok) => ok && renderRecent(el));
+      void insertGlyph(e, String.fromCodePoint(Number(c.dataset.cp)), ...glyphFont(c)).then((ok) => ok && renderRecent(el));
     });
     el.addEventListener('keydown', (ev) => {
       const c = cell(ev);
       if (c && ev.key === 'Enter') {
         ev.preventDefault();
-        void insertGlyph(e, String.fromCodePoint(Number(c.dataset.cp)), c.dataset.family ?? state.family).then((ok) => ok && renderRecent(el));
+        void insertGlyph(e, String.fromCodePoint(Number(c.dataset.cp)), ...glyphFont(c)).then((ok) => ok && renderRecent(el));
       }
     });
     const info = (ev: Event) => {

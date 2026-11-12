@@ -98,6 +98,45 @@ test('paste into masks the pasted pixels by the selection, unlinked', async ({ p
   expect(await compositePixel(page, 125, 70)).toEqual([255, 0, 0, 255]);
 });
 
+// Paste, Paste Into and Paste Outside used to record a separate Deselect
+// step, so one Undo left the pasted layer in place.
+test('each paste is one undo step', async ({ page }) => {
+  await addBox(page, 'Red', '#ff0000', { x: 0, y: 0, width: 60, height: 60 });
+  await selectRect(page, { x: 0, y: 0, width: 60, height: 60 });
+  await run(page, 'edit.copy');
+  for (const id of ['edit.paste', 'edit.paste-into', 'edit.paste-outside']) {
+    await selectRect(page, { x: 150, y: 50, width: 40, height: 40 });
+    const before = await historyLabels(page);
+    await run(page, id);
+    expect(await layerNames(page)).toEqual(['Background', 'Red', 'Layer 1']);
+    expect(await page.evaluate(() => window.photoStudio.doc.selection)).toBeNull();
+    expect((await historyLabels(page)).length).toBe(before.length + 1);
+    await undo(page);
+    expect(await layerNames(page)).toEqual(['Background', 'Red']);
+    expect(await page.evaluate(() => window.photoStudio.doc.selection)).toEqual({ x: 150, y: 50, width: 40, height: 40 });
+  }
+});
+
+// Hide Layers on a mix of shown and hidden layers toggled each one, so the
+// hidden layers appeared instead of every selected layer being hidden.
+test('Hide Layers hides every selected layer, then shows them all', async ({ page }) => {
+  await addBox(page, 'Red', '#ff0000', { x: 0, y: 0, width: 20, height: 20 });
+  await addBox(page, 'Blue', '#0000ff', { x: 30, y: 0, width: 20, height: 20 });
+  const visible = () => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.visible));
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.command('Hide Blue', (d) => (d.layers[2].visible = false));
+    e.selectLayers(e.doc.layers.slice(1).map((l) => l.id));
+    e.update();
+  });
+  await run(page, 'layer.hide');
+  expect(await visible()).toEqual([true, false, false]);
+  expect((await historyLabels(page)).at(-1)).toBe('Hide Layers');
+  await run(page, 'layer.hide');
+  expect(await visible()).toEqual([true, true, true]);
+  expect((await historyLabels(page)).at(-1)).toBe('Show Layers');
+});
+
 test('background layer, isolation, hidden layers and find', async ({ page }) => {
   await page.evaluate(async () => {
     const e = window.photoStudio;

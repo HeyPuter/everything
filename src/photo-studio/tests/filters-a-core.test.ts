@@ -7,6 +7,8 @@ import {
   boxesForGauss,
   convolve2D,
   fillTransparent,
+  hasTransparentIn,
+  defineOp,
   gaussianPlane,
   gaussianRGBA,
   medianRGBA,
@@ -14,7 +16,9 @@ import {
   minMaxRGBA,
   sanitize,
 } from '../src/imaging/filters/common';
-import { mask8, rgba8, type RGBA8 } from '../src/imaging/types';
+import { defaults, mask8, rgba8, type RGBA8 } from '../src/imaging/types';
+import { filtersA } from '../src/imaging/filters/index-a';
+import { filterMargin, selectionMargin } from '../src/features/filters/catalog';
 import { aperture, apertureConvolve, motionBlurPlane } from '../src/imaging/filters/blur';
 
 function random(w: number, h: number, seed: number, opaque = true): RGBA8 {
@@ -297,4 +301,98 @@ describe('bilateral filter', () => {
       expect(noise).toBeLessThan(sigmaS > 2 ? 1.5 : 3.5);
     });
   }
+});
+
+describe('filters that fill transparent pixels, limited by a selection', () => {
+  it('fillTransparent with a reach fills rings around visible pixels only', () => {
+    const src = rgba8(9, 1);
+    src.data.set([100, 50, 0, 255], 0);
+    const out = fillTransparent(src, 3);
+    for (let x = 1; x <= 3; x++) {
+      expect(Array.from(out.data.slice(x * 4, x * 4 + 4))).toEqual([100, 50, 0, 0]);
+    }
+    expect(Array.from(out.data.slice(16, 20))).toEqual([0, 0, 0, 0]); // beyond the reach
+  });
+
+  // A layer with transparent holes and stripes; the selection sits next to a hole.
+  const W = 120, H = 90;
+  const layer = random(W, H, 9, false);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) layer.data[(y * W + x) * 4 + 3] = (x * 7 + y * 3) % 5 < 2 || (x > 52 && x < 70) ? 0 : 255;
+  const sel = mask8(W, H);
+  for (let y = 40; y < 52; y++) for (let x = 46; x < 62; x++) sel.data[y * W + x] = 255;
+  const ctx = { foreground: [0, 0, 0] as [number, number, number], background: [255, 255, 255] as [number, number, number], seed: 3 };
+  for (const [id, params] of [
+    ['despeckle', {}],
+    ['reduce-noise', { strength: 8, color: 60 }],
+    ['advanced-sharpen', { radius: 2.5, amount: 300 }],
+    ['find-edges', {}],
+    ['trace-contour', { level: 120 }],
+    ['emboss', { height: 6 }],
+    ['oil-paint', { stylization: 2, scale: 1.5 }],
+  ] as const) {
+    it(`${id} matches the whole-layer result inside the selection, also on the session's crop`, () => {
+      const op = filtersA.find((f) => f.id === id)!;
+      const p = { ...defaults(op), ...params };
+      const full = op.apply(layer, p, ctx) as RGBA8;
+      const limited = op.apply(layer, p, { ...ctx, selection: sel }) as RGBA8;
+      // The dialog loads only the selection bounds grown by the filter's
+      // margin, wider here because transparent pixels are near.
+      const m = selectionMargin([{ id, params: p }], (mm) => hasTransparentIn(layer, { x: 46 - mm, y: 40 - mm, width: 16 + 2 * mm, height: 12 + 2 * mm }))!;
+      expect(m).toBeGreaterThanOrEqual(filterMargin(id, p)!);
+      const x0 = 46 - m, y0 = 40 - m, cw = 16 + 2 * m, ch = 12 + 2 * m;
+      const crop = rgba8(cw, ch), csel = mask8(cw, ch);
+      for (let y = 0; y < ch; y++) {
+        crop.data.set(layer.data.subarray(((y + y0) * W + x0) * 4, ((y + y0) * W + x0 + cw) * 4), y * cw * 4);
+        csel.data.set(sel.data.subarray((y + y0) * W + x0, (y + y0) * W + x0 + cw), y * cw);
+      }
+      const cropped = op.apply(crop, p, { ...ctx, selection: csel }) as RGBA8;
+      let visible = 0;
+      for (let y = 40; y < 52; y++)
+        for (let x = 46; x < 62; x++) {
+          const i = (y * W + x) * 4, k = ((y - y0) * cw + x - x0) * 4;
+          if (!layer.data[i + 3]) continue;
+          visible++;
+          expect(Array.from(limited.data.slice(i, i + 4))).toEqual(Array.from(full.data.slice(i, i + 4)));
+          expect(Array.from(cropped.data.slice(k, k + 4))).toEqual(Array.from(full.data.slice(i, i + 4)));
+        }
+      expect(visible).toBeGreaterThan(40);
+    });
+  }
+});
+
+describe('selection margins of filters that fill transparent pixels', () => {
+  it('stay at the normal margin on opaque pixels and grow only next to transparency', () => {
+    for (const [id, params] of [['advanced-sharpen', { radius: 64 }], ['reduce-noise', {}], ['emboss', { height: 20 }], ['find-edges', {}], ['trace-contour', {}], ['oil-paint', {}]] as const) {
+      const p = { ...defaults(filtersA.find((f) => f.id === id)!), ...params };
+      expect(selectionMargin([{ id, params: p }], () => false)).toBe(filterMargin(id, p));
+      expect(selectionMargin([{ id, params: p }], () => true)!).toBeGreaterThan(filterMargin(id, p)!);
+    }
+    // Filters without a fill never ask.
+    expect(selectionMargin([{ id: 'gaussian-blur', params: { radius: 4 } }], () => { throw new Error('asked'); })).toBe(filterMargin('gaussian-blur', { radius: 4 }));
+  });
+
+  it('crop the image by the normal support unless transparent pixels are inside it', () => {
+    const seen: number[] = [];
+    const op = defineOp({
+      id: 'probe', label: 'Probe', category: 'Other', params: [],
+      support: () => 5,
+      fillReach: () => 5,
+      run: (src) => (seen.push(src.width), src),
+    });
+    const W = 100, H = 60;
+    const sel = mask8(W, H);
+    for (let y = 20; y < 30; y++) for (let x = 40; x < 50; x++) sel.data[y * W + x] = 255;
+    const ctx = { foreground: [0, 0, 0] as [number, number, number], background: [255, 255, 255] as [number, number, number], selection: sel };
+    const opaque = rgba8(W, H, [50, 60, 70, 255]);
+    op.apply(opaque, {}, ctx);
+    // A hole outside the normal crop changes nothing; one inside it widens the crop.
+    const far = rgba8(W, H, [50, 60, 70, 255]);
+    far.data[(25 * W + 30) * 4 + 3] = 0;
+    op.apply(far, {}, ctx);
+    const near = rgba8(W, H, [50, 60, 70, 255]);
+    near.data[(25 * W + 37) * 4 + 3] = 0;
+    op.apply(near, {}, ctx);
+    expect(seen).toEqual([20, 20, 30]);
+  });
 });

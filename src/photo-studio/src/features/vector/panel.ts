@@ -4,7 +4,7 @@ import { escapeXML } from '../../model/assets';
 import { svg } from '../../app/icons';
 import { formDialog } from '../../ui/dialog';
 import { maskToSvg } from './geometry';
-import { activeKey, listedPaths, setActive, targetPath, type PathTarget } from './state';
+import { activeKey, listedPaths, nextPathName, setActive, targetPath, type PathTarget } from './state';
 
 // Paths panel: the selected shape layer's path and vector mask, the work path
 // and saved document paths, with the classic footer actions.
@@ -19,17 +19,18 @@ export async function savePathDialog(e: Editor, t: PathTarget) {
     if (v?.name) e.command('Rename Path', (d) => (d.paths!.find((p) => p.id === t.id)!.name = v.name));
     return;
   }
-  const n = (e.doc.paths?.length ?? 0) + 1;
-  const v = await formDialog('Save Path', [{ name: 'name', label: 'Name', value: `Path ${n}` }], 'OK');
+  const name = nextPathName(e.doc);
+  const v = await formDialog('Save Path', [{ name: 'name', label: 'Name', value: name }], 'OK');
   if (!v) return;
   const id = crypto.randomUUID();
   e.command('Save Path', (d) => {
-    d.paths = [...(d.paths ?? []), { id, name: v.name || `Path ${n}`, mask: structuredClone(t.mask) }];
+    d.paths = [...(d.paths ?? []), { id, name: v.name || name, mask: structuredClone(t.mask) }];
     if (t.kind === 'work') delete d.workPath;
   });
   setActive(e, `path:${id}`);
   e.update();
 }
+let lastClick = { key: '', time: 0 };
 export const pathsPanel: Panel = {
   id: 'paths',
   title: 'Paths',
@@ -50,16 +51,19 @@ export const pathsPanel: Panel = {
         return;
       }
       const key = row.dataset.pathKey!;
+      // Double-click saves or renames. Detected from click times because the
+      // first click re-renders the list, so the browser's dblclick never fires.
+      const now = ev.timeStamp;
+      const double = lastClick.key === key && now - lastClick.time < 500;
+      lastClick = double ? { key: '', time: 0 } : { key, time: now };
       setActive(e, key.startsWith('layer:') ? undefined : key);
       e.update();
       // Mod-click (or a click on the thumbnail with Mod) loads the path as a selection.
       if (ev.metaKey || ev.ctrlKey) void e.runCommand('path.make-selection');
-    });
-    el.addEventListener('dblclick', (ev) => {
-      const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-path-key]');
-      if (!row) return;
-      const t = listedPaths(e).find((p) => activeKey(p) === row.dataset.pathKey);
-      if (t && (t.kind === 'work' || t.kind === 'saved')) void savePathDialog(e, t);
+      else if (double) {
+        const t = listedPaths(e).find((p) => activeKey(p) === key);
+        if (t && (t.kind === 'work' || t.kind === 'saved')) void savePathDialog(e, t);
+      }
     });
     el.addEventListener('keydown', (ev) => {
       const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-path-key]');

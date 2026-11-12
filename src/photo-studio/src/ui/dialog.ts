@@ -18,6 +18,38 @@ function field(f: Field) {
     return `<input type="hidden" name="${f.name}" value="no"><input name="${f.name}" type="checkbox" value="yes" ${f.value === 'yes' || f.value === 1 ? 'checked' : ''}>`;
   return `<input name="${f.name}" type="${f.type ?? 'text'}" value="${escapeXML(String(f.value))}" ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''} ${f.step !== undefined ? `step="${f.step}"` : f.type === 'number' ? 'step="any"' : ''} ${f.type === 'color' ? '' : 'required'}>`;
 }
+/** Name a dialog after its heading when it has no label of its own, so screen
+ * readers announce its title as it opens. Runs on every open: the shared
+ * `#dialog` element is reused for many questions. */
+export function labelDialog(d: HTMLDialogElement) {
+  const auto = d.dataset.autoLabel === 'yes';
+  if (!auto && (d.getAttribute('aria-label')?.trim() || d.hasAttribute('aria-labelledby') || d.title)) return;
+  const title = d.querySelector('h1, h2, h3, [role="heading"]')?.textContent?.replace(/\s+/g, ' ').trim();
+  if (title) {
+    d.setAttribute('aria-label', title);
+    d.dataset.autoLabel = 'yes';
+  } else if (auto) {
+    d.removeAttribute('aria-label');
+    delete d.dataset.autoLabel;
+  }
+}
+let dialogsLabelled = false;
+/** Apply `labelDialog` to every dialog the workspace opens. */
+export function labelDialogsOnOpen() {
+  if (dialogsLabelled || typeof HTMLDialogElement === 'undefined') return;
+  dialogsLabelled = true;
+  const proto = HTMLDialogElement.prototype;
+  const showModal = proto.showModal;
+  const show = proto.show;
+  proto.showModal = function (this: HTMLDialogElement) {
+    labelDialog(this);
+    showModal.call(this);
+  };
+  proto.show = function (this: HTMLDialogElement) {
+    labelDialog(this);
+    show.call(this);
+  };
+}
 /** Settle a dialog's promise exactly once: by its own controls, Escape, the
  * element closing, or another dialog taking the element over (the earlier
  * question then counts as cancelled). */

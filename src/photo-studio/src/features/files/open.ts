@@ -15,6 +15,7 @@ import { applyOrientation } from '../../imaging/codecs/orientation';
 import { readPngDpi, readPngIcc } from '../../imaging/codecs/png-chunks';
 import { readJpegDensity, readJpegIcc, readJpegInfo } from '../../imaging/codecs/jpeg-markers';
 import { checkSize } from '../../imaging/codecs/bytes';
+import { heifImageSize } from '../../imaging/codecs/heif';
 import { decodePng16, rgba16To8 } from './png';
 import { decodeApng, isApng } from '../../imaging/codecs/apng';
 import { framesFromLayers, maxFrames } from '../../model/animation';
@@ -205,9 +206,9 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
 
 class CancelOpen extends Error {}
 
-/** Pixel size from the header of a PNG, GIF, JPEG or WebP file (undefined when
- * the header is not found), so oversized images are refused before the
- * browser decodes them. */
+/** Pixel size from the header of a PNG, GIF, JPEG, WebP, AVIF or HEIC file
+ * (undefined when the header is not found), so oversized images are refused
+ * before the browser decodes them. */
 export function browserImageSize(b: Uint8Array): { width: number; height: number } | undefined {
   const format = sniffImageFormat(b);
   const be32 = (o: number) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
@@ -222,6 +223,7 @@ export function browserImageSize(b: Uint8Array): { width: number; height: number
     } catch {
       return undefined;
     }
+  if (format === 'avif' || format === 'heic') return heifImageSize(b);
   if (format === 'webp' && b.length >= 30) {
     const chunk = tag(12);
     if (chunk === 'VP8X') return { width: le24(24) + 1, height: le24(27) + 1 };
@@ -230,10 +232,17 @@ export function browserImageSize(b: Uint8Array): { width: number; height: number
   }
   return undefined;
 }
-/** Refuse a PNG, GIF, JPEG or WebP file beyond the document limits from its header. */
+/** Refuse a PNG, GIF, JPEG, WebP, AVIF or HEIC file beyond the document limits from its header. */
 export function checkBrowserImage(bytes: Uint8Array) {
   const size = browserImageSize(bytes);
   if (size) checkSize(size.width, size.height, documentLimits);
+}
+// JPEG metadata segments (EXIF thumbnails, ICC profiles) and AVIF/HEIC item
+// tables can push the size well past the first few kilobytes.
+const headerBytes = 4 << 20;
+/** checkBrowserImage on the start of a file, read far enough to find the size. */
+export async function checkBrowserFile(blob: Blob) {
+  checkBrowserImage(new Uint8Array(await blob.slice(0, headerBytes).arrayBuffer()));
 }
 
 /** Decode a browser-supported image into straight 8-bit RGBA. With `raw`, the
@@ -268,8 +277,14 @@ export async function decodeFile(blob: Blob, name: string, opts: DecodeOptions =
   if (!Object.values(browserTypes).includes(blob.type) && blob.type !== 'image/heic')
     throw new Error('Open a PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF, ICO, TGA, Netpbm, SVG, PSD, PSB or .photo file.');
   if (blob.type === 'image/svg+xml') return { image: await rasterizeSvg(blob) };
-  checkBrowserImage(head);
-  return { image: await decodeBrowserImage(blob) };
+  await checkBrowserFile(blob);
+  try {
+    return { image: await decodeBrowserImage(blob) };
+  } catch (error) {
+    // Chromium and Firefox have no HEIC decoder.
+    if (blob.type === 'image/heic' && error instanceof DOMException) throw new Error('This browser cannot decode HEIC images. Convert the file to JPEG or PNG and open that.');
+    throw error;
+  }
 }
 
 const resolution = (dpi: number): PhotoDocument['resolution'] => ({

@@ -45,6 +45,27 @@ describe('mode pixel mappings', { timeout: 120000 }, () => {
     expect(levels[255]).toBe(255);
   });
 
+  it('colors converted to CMYK with black point compensation pass the gamut checks', async () => {
+    const { gamutWarning } = await import('../src/color/proof');
+    const cmyk = builtinProfile('generic-coated-cmyk');
+    // A spread of colors: dark, muted, saturated and near white.
+    const src = img(16, 16, (x, y) => [(x * 17) % 256, (y * 17) % 256, ((x + y) * 29) % 256]);
+    const out = cmykMap(srgb, cmyk, 'relative', true)(src);
+    // Image > Mode > CMYK Color (default settings) made these printable: the
+    // gamut warning with the same settings must not flag them.
+    const flagged = gamutWarning(out, srgb, cmyk, 2, true).data.filter((v) => v).length;
+    expect(flagged).toBeLessThanOrEqual(2);
+    for (let i = 0; i < 256; i += 7) {
+      const rgb = px(out, i).slice(0, 3) as [number, number, number];
+      expect(colorInfo(rgb, srgb, { cmykProfile: cmyk }).outOfGamutForCMYK).toBe(false);
+    }
+    // Black itself is printable (as the press's darkest black).
+    expect(colorInfo([0, 0, 0], srgb, { cmykProfile: cmyk }).outOfGamutForCMYK).toBe(false);
+    // Unprintable colors are still flagged.
+    expect(gamutWarning(img(1, 1, () => [0, 0, 255]), srgb, cmyk, 2, true).data[0]).toBe(255);
+    expect(colorInfo([0, 0, 255], srgb, { cmykProfile: cmyk }).outOfGamutForCMYK).toBe(true);
+  });
+
   it('CMYK constrains saturated RGB to printable colors and is stable', () => {
     const cmyk = builtinProfile('generic-coated-cmyk');
     const map = cmykMap(srgb, cmyk, 'relative', true);

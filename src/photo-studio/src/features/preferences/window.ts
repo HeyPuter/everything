@@ -19,6 +19,7 @@ import {
 } from '../../model/preferences';
 import { colorSettings, saveColorSettings, type ColorSettings } from '../color/profiles';
 import { memorySection } from '../workspace/system-info';
+import { keepFocus } from '../../ui/keep-focus';
 
 let lastPage: PageId = 'general';
 const RESTART_NOTE = 'Reload Photo Studio for this change to take effect.';
@@ -59,7 +60,8 @@ export function openPreferences(e: Editor, page?: PageId) {
     (e.preferences as Record<string, unknown>)[key] = v;
     if (def.restart && v !== (before as Record<string, unknown>)[key]) restartNeeded = true;
     changed();
-    render();
+    // The page redraws; the control just changed from the keyboard keeps the focus.
+    keepFocus(content, render);
   };
 
   function control(s: SettingDef): string {
@@ -239,7 +241,7 @@ export function openPreferences(e: Editor, page?: PageId) {
       Object.assign(e.preferences, before);
       saveColorSettings(colorBefore);
       changed();
-    }
+    } else if (!e.savePreferences()) e.message('Preferences changed. This browser could not store them (its storage is full or turned off), so they last until the page is closed.');
     d.close();
     d.remove();
   }

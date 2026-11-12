@@ -3,7 +3,7 @@ import { registerCommand, registerOverlay, registerPanel, type Panel } from '../
 import { formDialog } from '../ui/dialog';
 import { readMask, readRGBA, emptyGrid, gridTileIds, writeRect, TILE, tileKey, type TileGrid } from '../model/tiles';
 import { tileHolders } from '../app/session';
-import { applySelection, canvasRect, selectionGrid } from '../model/selection';
+import { applySelection, canvasRect, maskGrid, selectionGrid } from '../model/selection';
 import { commitSelectionMask, selectionOp } from './selection';
 import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
@@ -16,6 +16,13 @@ import { syncMultichannel, toggleSpotVisibility } from './color/spot-channels';
 // Grid, pixel grid, Quick Mask and the Channels panel (guides: features/guides.ts).
 let lastQuickMaskUrl: { grid: TileGrid; url: string; time: number } | undefined;
 
+/** Same tiles, fill and origin (history copies grids on every edit). */
+function sameGrid(a: TileGrid | undefined, b: TileGrid | undefined) {
+  if (a === b) return true;
+  if (!a || !b || a.fill !== b.fill || a.x !== b.x || a.y !== b.y) return false;
+  const ka = Object.keys(a.tiles);
+  return ka.length === Object.keys(b.tiles).length && ka.every((k) => a.tiles[k] === b.tiles[k]);
+}
 function quickMaskOverlay(e: Editor) {
   const grid = (e.settings.quickMaskPreview as TileGrid | undefined) ?? (e.settings.quickMask as TileGrid | undefined);
   if (!grid) return '';
@@ -74,20 +81,10 @@ const channelsPanel: Panel = {
       }
       e.settings.activeChannel = id;
       e.dock.update();
-    });
-    el.addEventListener('dblclick', async (ev) => {
-      const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-channel]');
-      const ch = e.doc.channels?.find((c) => c.id === row?.dataset.channel);
-      if (!ch) return;
-      // Ink channels also choose the color they print in.
-      const v = await formDialog('Channel Options', [{ name: 'name', label: 'Name', value: ch.name }, ...(ch.spot ? [{ name: 'color', label: 'Ink color', value: ch.color ?? '#000000', type: 'color' }] : [])], 'OK');
-      if (v)
-        e.command('Channel Options', (d) => {
-          const c = d.channels!.find((c) => c.id === ch.id)!;
-          c.name = v.name;
-          if (c.spot && /^#[0-9a-f]{6}$/i.test(v.color ?? '')) c.color = v.color.toLowerCase();
-          syncMultichannel(e.assets.tiles, d);
-        });
+      // A double-click opens Channel Options. The first click redraws the
+      // panel, so the second lands on a new row: count clicks instead of
+      // listening for dblclick on the old one.
+      if (ev.detail === 2) void channelOptions(e, id);
     });
   },
   update: (e, el) => {
@@ -95,28 +92,58 @@ const channelsPanel: Panel = {
     const active = e.settings.activeChannel as string | undefined;
     const composite = doc.layers.length ? '' : '';
     const spots = doc.mode === 'multichannel' ? (doc.channels ?? []).filter((c) => c.spot) : [];
+    // Each row is chosen with its name button (Tab to it, Enter or Space).
+    const name = (id: string, label: string, selected = false) =>
+      `<button type="button" class="channel-name" aria-pressed="${selected || active === id}" title="Select channel; double-click for Channel Options">${escapeXML(label)}</button>`;
     const thumb = (c: (typeof spots)[number]) => `<button class="channel-thumb" aria-label="Load ${escapeXML(c.name)} as selection" title="Click to load as selection"><img src="${gridThumbnail(e.assets.tiles, c.grid, doc.width, doc.height, 34, true)}" alt=""></button>`;
     // Multichannel documents list their ink channels in place of RGB.
     const inkRows = spots
-      .map((c, i) => `<div class="channel-row ${active === c.id ? 'selected' : ''}" data-channel="${escapeXML(c.id)}"><button type="button" class="eye" data-spot-eye="${escapeXML(c.id)}" aria-pressed="${!c.hidden}" aria-label="${c.hidden ? 'Show' : 'Hide'} ${escapeXML(c.name)}" title="${c.hidden ? 'Show' : 'Hide'} channel">${c.hidden ? '' : svg('eye', 14)}</button>${thumb(c)}<span class="channel-ink" style="background:${c.color ?? '#000000'}" aria-hidden="true"></span><span class="channel-name">${escapeXML(c.name)}</span><kbd>⌘${i + 1}</kbd></div>`)
+      .map((c) => `<div class="channel-row ${active === c.id ? 'selected' : ''}" data-channel="${escapeXML(c.id)}"><button type="button" class="eye" data-spot-eye="${escapeXML(c.id)}" aria-pressed="${!c.hidden}" aria-label="${c.hidden ? 'Show' : 'Hide'} ${escapeXML(c.name)}" title="${c.hidden ? 'Show' : 'Hide'} channel">${c.hidden ? '' : svg('eye', 14)}</button>${thumb(c)}<span class="channel-ink" style="background:${c.color ?? '#000000'}" aria-hidden="true"></span>${name(c.id, c.name)}</div>`)
       .join('');
     const rows = spots.length ? inkRows : [
-      ['rgb', 'RGB', 'Mod+2'],
-      ['red', 'Red', 'Mod+3'],
-      ['green', 'Green', 'Mod+4'],
-      ['blue', 'Blue', 'Mod+5'],
+      ['rgb', 'RGB'],
+      ['red', 'Red'],
+      ['green', 'Green'],
+      ['blue', 'Blue'],
     ]
-      .map(([id, name, key]) => `<div class="channel-row ${!active || active === id ? 'selected' : ''}" data-channel="${id}"><span class="eye">${svg('eye', 14)}</span><span class="channel-thumb ${id}"></span><span class="channel-name">${name}</span><kbd>${key.replace('Mod+', '⌘')}</kbd></div>`)
+      .map(([id, label]) => `<div class="channel-row ${!active || active === id ? 'selected' : ''}" data-channel="${id}"><span class="eye">${svg('eye', 14)}</span><span class="channel-thumb ${id}"></span>${name(id, label, !active)}</div>`)
       .join('');
     const alpha = (doc.channels ?? [])
       .filter((c) => !spots.includes(c))
-      .map((c, i) => `<div class="channel-row ${active === c.id ? 'selected' : ''}" data-channel="${escapeXML(c.id)}"><span class="eye"></span>${thumb(c)}<span class="channel-name">${escapeXML(c.name)}</span><kbd>⌘${i + (spots.length ? spots.length + 1 : 6)}</kbd></div>`)
+      .map((c) => `<div class="channel-row ${active === c.id ? 'selected' : ''}" data-channel="${escapeXML(c.id)}"><span class="eye"></span>${thumb(c)}${name(c.id, c.name)}</div>`)
       .join('');
     const quick = e.settings.quickMask ? `<div class="channel-row selected quick-mask-row"><span class="eye">${svg('eye', 14)}</span><span class="channel-thumb"></span><span class="channel-name"><i>Quick Mask</i></span></div>` : '';
+    // Redrawing keeps the keyboard on the control it was on.
+    const f = document.activeElement as HTMLElement | null;
+    const fRow = f && el.contains(f) ? f.closest<HTMLElement>('[data-channel]')?.dataset.channel : undefined;
+    const fKind = f?.matches('[data-spot-eye]') ? '[data-spot-eye]' : f?.matches('.channel-thumb') ? '.channel-thumb' : '.channel-name';
     el.innerHTML = `<div class="channel-list">${rows}${alpha}${quick}${composite}</div><div class="layer-footer"><button data-command="select.load-active-channel" title="Load channel as selection" aria-label="Load channel as selection">${svg('circle-dashed', 16)}</button><button data-command="select.save" title="Save selection as channel" aria-label="Save selection as channel">${svg('mask-add', 16)}</button><button data-command="channel.new" title="Create new channel" aria-label="New channel">${svg('plus', 16)}</button><button data-command="channel.delete" title="Delete channel" aria-label="Delete channel">${svg('trash-2', 16)}</button></div>`;
+    if (fRow) [...el.querySelectorAll<HTMLElement>('[data-channel]')].find((r) => r.dataset.channel === fRow)?.querySelector<HTMLElement>(fKind)?.focus();
   },
-  menu: () => ['channel.new', 'channel.duplicate', 'channel.delete', '-', 'select.save', 'select.load'],
+  menu: () => ['channel.new', 'channel.duplicate', 'channel.delete', 'channel.options', '-', 'select.save', 'select.load'],
 };
+/** "Alpha n" with the smallest n no channel of the document uses. */
+function nextAlphaName(doc: { channels?: { name: string }[] }) {
+  const used = new Set((doc.channels ?? []).map((c) => c.name));
+  let n = 1;
+  while (used.has(`Alpha ${n}`)) n++;
+  return `Alpha ${n}`;
+}
+/** Rename an alpha or ink channel (ink channels also choose their color). */
+async function channelOptions(e: Editor, id: string) {
+  const ch = e.doc.channels?.find((c) => c.id === id);
+  if (!ch) return;
+  const v = await formDialog('Channel Options', [{ name: 'name', label: 'Name', value: ch.name }, ...(ch.spot ? [{ name: 'color', label: 'Ink color', value: ch.color ?? '#000000', type: 'color' }] : [])], 'OK');
+  if (!v || !e.doc.channels?.some((c) => c.id === id)) return;
+  e.command('Channel Options', (d) => {
+    const c = d.channels!.find((c) => c.id === id)!;
+    c.name = v.name.trim() || c.name;
+    if (c.spot && /^#[0-9a-f]{6}$/i.test(v.color ?? '')) c.color = v.color.toLowerCase();
+    syncMultichannel(e.assets.tiles, d);
+  });
+}
+/** The current layer has content whose transparency can be loaded. */
+const hasTransparency = (e: Editor) => !!e.layer && e.layer.kind !== 'group' && e.layer.kind !== 'adjustment';
 async function loadChannel(e: Editor, id: string, op: ReturnType<typeof selectionOp>) {
   const doc = e.doc;
   const area = canvasRect(doc);
@@ -194,6 +221,19 @@ export function installView(e: Editor) {
     return `<path d="${d}" class="pixel-grid" stroke-width="${1 / e.zoom}"/>`;
   });
   registerOverlay('quick-mask', quickMaskOverlay);
+  // The Quick Mask lives in the document (one per document, strokes undo);
+  // tools and filters read it from `e.settings.quickMask`, kept in step here
+  // after every edit, undo, redo and document switch.
+  e.onUpdate((e) => {
+    const grid = e.doc.quickMask;
+    const shown = e.settings.quickMask as TileGrid | undefined;
+    if (sameGrid(grid, shown)) return;
+    if (grid) e.settings.quickMask = grid;
+    else delete e.settings.quickMask;
+    delete e.settings.quickMaskPreview;
+    e.root.querySelector('.quick-mask-button')?.setAttribute('aria-pressed', String(!!grid));
+    e.overlay();
+  });
   // Painting in Quick Mask makes tiles no document refers to until it ends.
   tileHolders.push(() => {
     const ids = gridTileIds(e.settings.quickMask as TileGrid | undefined);
@@ -239,21 +279,25 @@ export function installView(e: Editor) {
       enabled: (e) => e.hasDocument,
       run: (e) => {
         const store = e.assets.tiles;
-        if (e.settings.quickMask) {
-          const grid = e.settings.quickMask as TileGrid;
-          delete e.settings.quickMask;
-          delete e.settings.quickMaskPreview;
-          commitSelectionMask(e, readMask(store, grid, canvasRect(e.doc)), 'replace', 'Quick Mask');
-          e.root.querySelector('.quick-mask-button')?.setAttribute('aria-pressed', 'false');
-          e.update();
+        delete e.settings.quickMaskPreview;
+        const doc = e.doc;
+        if (doc.quickMask) {
+          // Leaving turns the mask into the selection, as one step.
+          const current = selectionGrid(doc, store);
+          const next = maskGrid(store, readMask(store, doc.quickMask, canvasRect(doc)));
+          e.session.lastSelection = current;
+          e.command('Quick Mask', (d) => {
+            delete d.quickMask;
+            applySelection(d, next);
+          });
           return;
         }
-        const sel = selectionGrid(e.doc, store);
-        e.settings.quickMask = sel ?? emptyGrid(1);
-        e.root.querySelector('.quick-mask-button')?.setAttribute('aria-pressed', 'true');
+        const grid = selectionGrid(doc, store) ?? emptyGrid(1);
+        e.command('Edit in Quick Mask Mode', (d) => {
+          d.quickMask = grid;
+        });
         if (!['brush', 'pencil', 'eraser', 'bucket', 'gradient'].includes(e.tool)) e.setTool('brush');
         e.message('Quick Mask: paint with black to remove from the selection, white to add. Press Q to exit.');
-        e.update();
       },
     },
     {
@@ -261,24 +305,24 @@ export function installView(e: Editor) {
       label: 'Save Selection…',
       enabled: (e) => !!e.doc.selection,
       run: async (e) => {
-        const n = (e.doc.channels?.length ?? 0) + 1;
-        const v = await formDialog('Save Selection', [{ name: 'name', label: 'Name', value: `Alpha ${n}` }], 'OK');
+        const name = nextAlphaName(e.doc);
+        const v = await formDialog('Save Selection', [{ name: 'name', label: 'Name', value: name }], 'OK');
         if (!v) return;
         const sel = selectionGrid(e.doc, e.assets.tiles)!;
         const grid = sel.fill ? writeRect(e.assets.tiles, emptyGrid(1), 0, 0, readMask(e.assets.tiles, sel, canvasRect(e.doc))) : sel;
         e.command('Save Selection', (d) => {
-          d.channels = [...(d.channels ?? []), { id: crypto.randomUUID(), name: v.name || `Alpha ${n}`, grid }];
+          d.channels = [...(d.channels ?? []), { id: crypto.randomUUID(), name: v.name.trim() || name, grid }];
         });
       },
     },
     {
       id: 'select.load',
       label: 'Load Selection…',
-      enabled: (e) => !!e.doc.channels?.length || e.selectedIds.size > 0,
+      enabled: (e) => !!e.doc.channels?.length || hasTransparency(e),
       run: async (e) => {
         const options: [string, string][] = [
           ...(e.doc.channels ?? []).map((c) => [c.id, c.name] as [string, string]),
-          ...(e.layer?.kind === 'pixel' ? [[`layer:${e.layer.id}`, `${e.layer.name} Transparency`] as [string, string]] : []),
+          ...(hasTransparency(e) ? [[`layer:${e.layer!.id}`, `${e.layer!.name} Transparency`] as [string, string]] : []),
         ];
         if (!options.length) return;
         const v = await formDialog('Load Selection', [
@@ -291,7 +335,8 @@ export function installView(e: Editor) {
         let m;
         if (v.channel.startsWith('layer:')) {
           const l = findLayer(e.doc.layers, v.channel.slice(6))!;
-          const img = readRGBA(e.assets.tiles, l.pixels!, area);
+          // Type, shapes, fills and embedded images are rendered first.
+          const img = l.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, area) : await (await import('./pixels')).layerRGBA(e, l);
           m = { width: area.width, height: area.height, data: new Uint8Array(area.width * area.height).map((_, i) => img.data[i * 4 + 3]) };
         } else m = readMask(e.assets.tiles, e.doc.channels!.find((c) => c.id === v.channel)!.grid, area);
         if (v.invert === 'yes') for (let i = 0; i < m.data.length; i++) m.data[i] = 255 - m.data[i];
@@ -309,9 +354,9 @@ export function installView(e: Editor) {
       label: 'New Channel',
       enabled: (e) => e.hasDocument,
       run: (e) => {
-        const n = (e.doc.channels?.length ?? 0) + 1;
+        const name = nextAlphaName(e.doc);
         e.command('New Channel', (d) => {
-          d.channels = [...(d.channels ?? []), { id: crypto.randomUUID(), name: `Alpha ${n}`, grid: emptyGrid(1) }];
+          d.channels = [...(d.channels ?? []), { id: crypto.randomUUID(), name, grid: emptyGrid(1) }];
         });
       },
     },
@@ -326,6 +371,12 @@ export function installView(e: Editor) {
           syncMultichannel(e.assets.tiles, d);
         });
       },
+    },
+    {
+      id: 'channel.options',
+      label: 'Channel Options…',
+      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.settings.activeChannel),
+      run: (e) => channelOptions(e, e.settings.activeChannel as string),
     },
     {
       id: 'channel.delete',
