@@ -167,7 +167,7 @@ export class DirectSelectionTool extends Tool {
       this.hookCursor = false;
       this.setCursor('var(--cursor-direct)');
     }
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath')), intoCompound: true });
+    const hit = this.hitAt(e);
     const id = hit?.id || null;
     if (editor.hover !== id) {
       editor.hover = id;
@@ -175,9 +175,16 @@ export class DirectSelectionTool extends Tool {
     }
   }
 
+  /** The path or object under the pointer; in isolation mode only the isolated object or what is inside it. */
+  hitAt(e) {
+    const editor = this.editor;
+    const outline = editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath'));
+    const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
+    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline, intoCompound: true, filter });
+  }
+
   onPointerDown(e) {
     const editor = this.editor;
-    const doc = editor.doc;
     for (const hook of directSelectionHooks) {
       if (e.alt && !hook.acceptsAlt) continue;
       const handler = hook.pointerDown?.(this, e);
@@ -218,7 +225,7 @@ export class DirectSelectionTool extends Tool {
       this.startHandleDrag(e, ah);
       return;
     }
-    const hit = hitTest(doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath')), intoCompound: true });
+    const hit = this.hitAt(e);
     if (hit && !hit.children && !hit.anchors && directSelectHooks.instance?.(this, hit, e)) return;
     if (hit) {
       if (hit.type === 'path') {
@@ -464,7 +471,9 @@ export class DirectSelectionTool extends Tool {
       editor.segmentHits = new Map();
     }
     if (!editor.segmentHits) editor.segmentHits = new Map();
-    const hits = marqueeHits(editor.doc, r, { intoCompound: true, quad });
+    const hits = marqueeHits(editor.doc, r, { intoCompound: true, quad }).filter((n) =>
+      editor.inIsolation(n.id),
+    );
     let any = false;
     for (const n of hits) {
       if (n.type === 'path') {

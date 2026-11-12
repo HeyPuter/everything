@@ -149,3 +149,36 @@ describe('Group Selection in isolation mode', () => {
     expect([...ed.selection].sort()).toEqual([a.id, b.id].sort());
   });
 });
+
+describe('Direct Selection in isolation mode', () => {
+  it('picks and marquee-selects only inside the isolated group', () => {
+    const { app, ed, doc, layer } = setup();
+    const fill = { type: 'solid', color: '#000000' };
+    const a = createPath(rectangle(0, 0, 10, 10), true, { fill });
+    const out = createPath(rectangle(100, 0, 10, 10), true, { fill });
+    const g = createGroup([]);
+    doc.transact('t', () => {
+      doc.insert(g, layer.id);
+      doc.insert(a, g.id);
+      doc.insert(out, layer.id);
+    });
+    ed.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
+    ed.isolation = g.id;
+    app.setTool('direct-selection');
+    const at = (x, y) => {
+      const s = ed.view.toScreen(x, y);
+      return { x, y, sx: s.x, sy: s.y, shift: false, alt: false, mod: false, button: 0 };
+    };
+    app.tool.onPointerDown(at(105, 5));
+    app.tool.onPointerUp(at(105, 5));
+    expect(ed.selection.has(out.id)).toBe(false);
+    app.tool.onPointerDown(at(5, 5));
+    app.tool.onPointerUp(at(5, 5));
+    expect(ed.selection.has(a.id)).toBe(true);
+    // A marquee over both takes only the path inside.
+    app.tool.onPointerDown(at(-5, -5));
+    app.tool.onPointerMove(at(120, 20));
+    app.tool.onPointerUp(at(120, 20));
+    expect([...ed.selection]).toEqual([a.id]);
+  });
+});
