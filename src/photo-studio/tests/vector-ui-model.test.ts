@@ -9,7 +9,8 @@ import { savePsd } from '../src/model/psd';
 import { closedPath, rectKnots, ellipseKnots, liveKnots, corner } from '../src/features/vector/geometry';
 import { setShapeMask, shapeLayer, writeTarget, docLive, translation, sanitizeStroke, shapeDocMask } from '../src/features/vector/state';
 import { reshape, setLive } from '../src/features/vector/edit';
-import { buildStroke, gradientPaint, defaultStroke } from '../src/features/vector/paint';
+import { applyStroke, buildStroke, gradientPaint, defaultStroke, specsOf } from '../src/features/vector/paint';
+import type { Editor } from '../src/editor';
 
 const doc = () => newDocument(400, 300, 'shapes');
 const solid = { rgb: [1, 0, 0] as [number, number, number], space: 'srgb' as const };
@@ -86,6 +87,25 @@ describe('shape layers from the tools', () => {
     const v = { mask: open, reference: { x: 0, y: 0, width: 40, height: 30 }, fill: solid, stroke: buildStroke({ ...defaultStroke(), type: 'color' }, true, false)! };
     sanitizeStroke(v);
     expect(v.stroke.alignment).toBe('center');
+  });
+  it('changing a stroke color keeps its dash offset and miter limit', () => {
+    const d = doc();
+    const stroke = { ...buildStroke({ ...defaultStroke(), type: 'color', dash: 'dashed', width: 4 }, true, false)!, lineDashOffset: { value: 3, units: 'Pixels' as const }, miterLimit: 4 };
+    const l = shapeLayer(d, 'R', { paths: [closedPath(rectKnots(0, 0, 50, 50))] }, solid, stroke);
+    const e = { doc: d } as unknown as Editor;
+    const spec = specsOf(e, l.vector!).stroke;
+    applyStroke(l.vector!, { ...spec, color: '#00ff00' });
+    const s = l.vector!.stroke!;
+    expect(s.color).toEqual({ rgb: [0, 1, 0], space: 'srgb' });
+    expect(s.lineDashOffset).toEqual({ value: 3, units: 'Pixels' });
+    expect(s.miterLimit).toBe(4);
+    expect(s.lineDashSet?.map((v) => v.value)).toEqual([4, 2]);
+    // An odd dash list from a file survives too, and an offset in points becomes pixels.
+    l.vector!.stroke = { ...s, lineDashSet: [4, 2, 1].map((value) => ({ value, units: 'None' as const })), lineDashOffset: { value: 1, units: 'Points' }, resolution: 144 };
+    applyStroke(l.vector!, { ...specsOf(e, l.vector!).stroke, color: '#0000ff' });
+    expect(l.vector!.stroke!.lineDashSet?.map((v) => v.value)).toEqual([4, 2, 1]);
+    expect(l.vector!.stroke!.lineDashOffset).toEqual({ value: 2, units: 'Pixels' });
+    validateVectorShape(l.vector!);
   });
 });
 

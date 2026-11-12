@@ -1,7 +1,7 @@
 import type { Editor } from '../../editor';
 import type { Rect } from '../../model/document';
 import type { VectorShape } from '../../model/vector';
-import type { VectorStroke } from '../../model/vector-stroke';
+import { strokeMeasurePixels, type VectorStroke } from '../../model/vector-stroke';
 import { gradientFrame, isVectorGradient, type VectorGradient } from '../../model/vector-gradient';
 import { isVectorPattern, type VectorPattern } from '../../model/vector-pattern';
 import { vectorColorHex } from '../../color/vector';
@@ -36,7 +36,8 @@ export function dashValues(spec: StrokeSpec): number[] | undefined {
   if (spec.dash === 'solid') return;
   if (spec.dash === 'custom') {
     const v = spec.custom.trim().split(/[\s,]+/).map(Number);
-    return v.length && v.every((n, i) => Number.isFinite(n) && n >= 0 && (n > 0 || i % 2 === 1)) && v.length % 2 === 0 ? v : undefined;
+    // As strokes allow: an odd list repeats, zero lengths only for gaps of an even list.
+    return v.length && v.every((n, i) => Number.isFinite(n) && n >= 0 && (n > 0 || (i % 2 === 1 && v.length % 2 === 0))) && v.some((n) => n > 0) ? v : undefined;
   }
   return dashSets[spec.dash];
 }
@@ -90,6 +91,12 @@ export function applyFill(e: Editor, v: VectorShape, spec: FillSpec, bounds: Rec
 export function applyStroke(v: VectorShape, spec: StrokeSpec) {
   const fillEnabled = v.stroke ? v.stroke.fillEnabled : true;
   const s = buildStroke(spec, fillEnabled, v.mask.paths.some((p) => p.open));
+  // Settings the stroke controls do not show (from opened files) are kept.
+  if (s && v.stroke) {
+    const o = v.stroke.lineDashOffset;
+    s.lineDashOffset = o.units === 'None' ? { ...o } : { value: strokeMeasurePixels(o, v.stroke.resolution), units: 'Pixels' };
+    s.miterLimit = v.stroke.miterLimit;
+  }
   if (s) v.stroke = s;
   else delete v.stroke;
 }
