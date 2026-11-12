@@ -102,3 +102,35 @@ describe('Gradients with end points moved to other objects', () => {
     expect(newPathStyle(app.editor).fill).toEqual({ type: 'linear', angle: 0, stops });
   });
 });
+
+describe('Gradient swatches made from a dragged gradient', () => {
+  it('fit each object they are applied to', async () => {
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const { createSwatchFromFocused } = await import('../src/features/paint/swatches-panel.js');
+    const { addSwatch, findSwatch, paintFromSwatch } =
+      await import('../src/features/paint/swatch-model.js');
+    const { applyStyle } = await import('../src/ops/paint-ops.js');
+    const ed = app.editor;
+    const doc = ed.doc;
+    const add = (node) => (
+      doc.transact('Add', () => doc.insert(node, ed.targetLayer().id)),
+      node.id
+    );
+    const src = add(createPath(rectangle(0, 0, 100, 100), true, { fill: dragged }));
+    const dst = add(createPath(rectangle(400, 300, 200, 100), true, { fill: blue }));
+    ed.select([src]);
+    ed.focusPaint = 'fill';
+    const id = await createSwatchFromFocused(app, { direct: true });
+    expect(findSwatch(doc, id).paint).toEqual({ type: 'linear', angle: 0, stops });
+    ed.select([dst]);
+    applyStyle(ed, { fill: paintFromSwatch(findSwatch(doc, id)) }, 'Apply Swatch');
+    expect(doc.get(dst).fill).toEqual({ type: 'linear', angle: 0, stops });
+    // Swatches saved with end points by earlier versions apply the same way.
+    let old;
+    doc.transact('Add Swatch', () => (old = addSwatch(doc, { name: 'Old', paint: dragged })));
+    expect(paintFromSwatch(findSwatch(doc, old))).toEqual({ type: 'linear', angle: 0, stops });
+    // The source keeps its own placement.
+    expect(doc.get(src).fill).toEqual(dragged);
+  });
+});
