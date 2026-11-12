@@ -279,3 +279,20 @@ test('white text on the accent color (buttons, menu highlights) keeps 4.5:1 cont
     expect(await contrast(), `${theme} button hover`).toBeGreaterThanOrEqual(4.5);
   }
 });
+
+test('the History list stays where it was scrolled when an update adds no step', async ({ page }) => {
+  for (let i = 0; i < 20; i++) await page.evaluate(() => window.photoStudio.runCommand('layer.duplicate'));
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.dock.show('history'));
+  const list = page.locator('[data-panel="history"] .history-entries');
+  await expect(list).toBeVisible();
+  expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await list.evaluate((el) => (el.scrollTop = 0));
+  await page.evaluate(() => window.photoStudio.setForeground('#ff0000'));
+  await idle(page);
+  expect(await list.evaluate((el) => el.scrollTop)).toBe(0);
+  // A new step still brings the current state into view.
+  await page.evaluate(() => window.photoStudio.runCommand('layer.duplicate'));
+  await idle(page);
+  expect(await page.locator('[data-panel="history"] .history-entries').evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+});
