@@ -199,3 +199,30 @@ test('Escape cancels a Quick Mask stroke and its preview', async ({ page }) => {
   expect(state).toEqual({ preview: false, tiles: 0 });
   expect(errors).toEqual([]);
 });
+
+test('the Smudge tool drags color along the stroke', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    // Red on the left half, white on the right.
+    const data = new Uint8ClampedArray(200 * 120 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set((i / 4) % 200 < 100 ? [220, 30, 30, 255] : [255, 255, 255, 255], i);
+    const l = newPixelLayer('Smudge', e.doc, gridFromImage(e.assets.tiles, { width: 200, height: 120, data }));
+    e.command('New Layer', (d) => d.layers.push(l));
+    e.selected = l.id;
+    e.settings.smudgeStrength = 100;
+    e.setTool('smudge-tool');
+    e.activeTool!.brush!.set(e, { size: 20, hardness: 0.8, smoothing: 0 });
+  });
+  await idle(page);
+  await canvasDrag(page, [[90, 60], [170, 60]], 20);
+  const green = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    const row = readRGBA(e.assets.tiles, e.doc.layers.at(-1)!.pixels!, { x: 0, y: 60, width: 200, height: 1 }).data;
+    return [120, 160, 190].map((x) => row[x * 4 + 1]);
+  });
+  // Red reaches the end of the stroke; beyond it the white is untouched.
+  expect(green).toEqual([30, 30, 255]);
+});

@@ -24,6 +24,7 @@ import {
 } from './clone-source/state';
 import { bindSampleOptions, sampleOptions } from './clone-source/options';
 import type { PaintTarget } from '../engine/paint';
+import { SmudgeFinger } from '../engine/smudge';
 import { TILE, tileKey, readRGBA, writeRect, type TileGrid } from '../model/tiles';
 import { canvasRect, selectionGrid } from '../model/selection';
 import { readMask } from '../model/tiles';
@@ -162,28 +163,12 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
     const sample = gridSampler(e, target.grid);
     const t = new Uint8ClampedArray(4);
     if (kind === 'smudge') {
-      // Smudging drags color from behind the pointer in the stroke direction.
-      let last: [number, number] | undefined;
-      let dir: [number, number] = [0, 0];
+      // The tip carries the colors it passes over along the stroke.
+      const finger = new SmudgeFinger(brushFor('smudge-tool').size, strength);
       return {
-        kind: 'process',
-        process: (x, y, base, out) => {
-          const p = e.pointerInfo;
-          if (p) {
-            if (last) {
-              const dx = p.x - last[0],
-                dy = p.y - last[1];
-              if (dx * dx + dy * dy > 0.25) dir = [dx, dy];
-            }
-            last = [p.x, p.y];
-          }
-          sample(x - dir[0], y - dir[1], t);
-          const k = strength;
-          out[0] = base[0] + (t[0] - base[0]) * k;
-          out[1] = base[1] + (t[1] - base[1]) * k;
-          out[2] = base[2] + (t[2] - base[2]) * k;
-          out[3] = base[3] + (t[3] - base[3]) * k;
-        },
+        kind: 'custom',
+        dab: (cx, cy, size) => finger.dab(cx, cy, size),
+        pixel: (x, y, alpha, cur, out) => finger.pixel(x, y, alpha, cur, out),
       };
     }
     return {
