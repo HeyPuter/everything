@@ -113,3 +113,22 @@ test('a step with its dialog turned on opens the dialog with the recorded settin
   await dialog.getByRole('button', { name: 'OK' }).click();
   await idle(page);
 });
+
+test('a command skipped because another is still running is not recorded', async ({ page }) => {
+  await openImage(page, 40, 30, '#204080', 'a.png');
+  await newAction(page, 'Invert');
+  // A second Invert pressed while the first still runs does nothing, so the action must not repeat it.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    void e.runCommand('adjust.invert');
+    void e.runCommand('adjust.invert');
+  });
+  await idle(page);
+  await run(page, 'actions.stop');
+  const recorded = await layerPixel(page, 5, 5);
+  expect(recorded[0]).toBeGreaterThan(200);
+  expect((await recordedSteps(page)).map((s: { command: string }) => s.command)).toEqual(['adjust.invert']);
+  await openImage(page, 40, 30, '#204080', 'b.png');
+  await play(page);
+  expect(await layerPixel(page, 5, 5)).toEqual(recorded);
+});

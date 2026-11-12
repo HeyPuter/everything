@@ -466,11 +466,13 @@ export class Editor {
       this.transform.apply();
       this.modal?.apply();
     }
-    this.recorder?.(id, arg);
     const outer = this.currentCommand;
     this.currentCommand = this.lastCommand = id;
     try {
       await this.run(async () => {
+        // Recorded only when it runs: a command skipped because another
+        // task is running must not become an action step.
+        this.recorder?.(id, arg);
         await c.run(this, arg);
         emitActivity({ kind: 'command', id: c.id, arg });
       });
