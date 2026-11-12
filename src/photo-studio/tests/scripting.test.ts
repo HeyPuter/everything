@@ -115,6 +115,14 @@ describe('scripting API host', () => {
     host.finish();
   });
 
+  it('names the requested size and the real limits when a new document is too large', async () => {
+    const e = mockEditor();
+    const host = new ScriptHost(e as unknown as Editor, ui(), 'Test');
+    await expect(host.call('documents.create', [{ width: 100000, height: 50 }])).rejects.toThrow('A 100000 × 50 px document is too large: documents can be up to 8192 px wide or high and up to 24 megapixels.');
+    await expect(host.call('documents.create', [{ width: 6000, height: 6000 }])).rejects.toThrow('A 6000 × 6000 px document is too large');
+    host.finish();
+  });
+
   it('creates and edits layers as one undo step per run', async () => {
     const e = mockEditor();
     const start = e.history.position;

@@ -272,13 +272,17 @@ export class ScriptHost {
       },
       'documents.create': async (o) => {
         const opts = isObj(o) ? o : {};
+        // Check the size asked for before clamping, so the message names it.
+        const w = opt(opts.width, (v) => int(v, 'width', 1, 1e9)) ?? 1200,
+          h = opt(opts.height, (v) => int(v, 'height', 1, 1e9)) ?? 800;
+        if (w > 8192 || h > 8192 || w * h > 24_000_000) fail(`A ${w} × ${h} px document is too large: documents can be up to 8192 px wide or high and up to 24 megapixels.`);
         const { createDocument } = await import('../files/new-document');
         const bg = opts.background === undefined ? 'white' : opts.background;
         const background = bg === 'transparent' || bg === 'white' || bg === 'black' ? bg : 'custom';
         await createDocument(e, {
           name: opt(opts.name, (v) => text(v, 'name', 200)) ?? 'Untitled',
-          width: opt(opts.width, (v) => int(v, 'width', 1, 8192)) ?? 1200,
-          height: opt(opts.height, (v) => int(v, 'height', 1, 8192)) ?? 800,
+          width: w,
+          height: h,
           unit: 'px',
           ppi: opt(opts.resolution, (v) => num(v, 'resolution', 1, 10000)) ?? 72,
           ppiUnit: 'ppi',
