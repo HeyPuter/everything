@@ -825,3 +825,16 @@ describe('SVG switch', () => {
     expect(doc.leaves().map((n) => n.fill.color)).toEqual(['#00ff00', '#00ff00']);
   });
 });
+
+describe('SVG text positions in em', () => {
+  it('measure em against the element\'s font size', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
+      <text x="10" y="110" font-size="20"><tspan x="10" dy="0">Line one</tspan><tspan x="10" dy="1.2em">Line two</tspan><tspan x="10" dy="1.2em">Line three</tspan></text>
+      <text x="10" y="200" font-size="10"><tspan font-size="30" dx="1em">wide</tspan></text>
+    </svg>`);
+    const [lines, wide] = doc.leaves();
+    expect(lines.text).toBe('Line one\nLine two\nLine three');
+    expect(lines.char.leading).toBe(24);
+    expect(wide.x).toBe(40);
+  });
+});

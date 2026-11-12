@@ -1549,9 +1549,10 @@ class Importer {
     let cx = 0;
     let cy = 0;
     const preserve = el.getAttribute('xml:space') === 'preserve' || /pre/.test(st['white-space'] || '');
-    const first = (attr, ref) => {
+    // em/ex lengths are relative to the element's own font size.
+    const first = (attr, ref, fontSize) => {
       const v = el && attr != null ? String(attr).trim().split(/[\s,]+/)[0] : null;
-      return v ? parseLength(v, { ref, fallback: NaN }) : NaN;
+      return v ? parseLength(v, { ref, fontSize, fallback: NaN }) : NaN;
     };
     const walk = (node, style, isRoot, parentRise = 0) => {
       const nst = isRoot ? style : this.computeStyle(node, style);
@@ -1559,10 +1560,11 @@ class Importer {
       // baseline-shift is not inherited but nested shifts add up (positive = up, like riseOf).
       const rise = isRoot ? 0 : parentRise + baselineShiftOf(nst['baseline-shift'], nst['font-size']);
       if (node.localName === 'textPath') this.warn('Text on a path was imported as straight text.');
-      const x = first(node.getAttribute('x'), ctx.vw);
-      const y = first(node.getAttribute('y'), ctx.vh);
-      const dx = first(node.getAttribute('dx'), ctx.vw);
-      const dy = first(node.getAttribute('dy'), ctx.vh);
+      const fs = nst['font-size'] || 16;
+      const x = first(node.getAttribute('x'), ctx.vw, fs);
+      const y = first(node.getAttribute('y'), ctx.vh, fs);
+      const dx = first(node.getAttribute('dx'), ctx.vw, fs);
+      const dy = first(node.getAttribute('dy'), ctx.vh, fs);
       const penX = cx;
       let positioned = false;
       if (Number.isFinite(x)) (cx = x), (positioned = true);
@@ -1583,7 +1585,7 @@ class Importer {
         chunks.push(chunk);
       }
       // Per-character positions (x="10 30 50"): each positioned character starts a new piece.
-      const list = (name, ref) => String(node.getAttribute(name) || '').trim().split(/[\s,]+/).filter(Boolean).map((v) => parseLength(v, { ref, fallback: NaN }));
+      const list = (name, ref) => String(node.getAttribute(name) || '').trim().split(/[\s,]+/).filter(Boolean).map((v) => parseLength(v, { ref, fontSize: fs, fallback: NaN }));
       const xs = list('x', ctx.vw);
       const ys = list('y', ctx.vh);
       const dxs = list('dx', ctx.vw);
