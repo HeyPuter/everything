@@ -2,6 +2,7 @@ import {
   allLayers,
   containerOf,
   findLayer,
+  insertLayerAt,
   layer,
   MAX_LAYERS,
   type Layer,
@@ -33,6 +34,15 @@ function assertTree(layers: Layer[], depth = 0, inFrame = false) {
     if (l.frame && inFrame) throw new Error('Frames cannot contain other frames.');
     assertTree(l.children, depth + 1, inFrame || !!l.frame);
   }
+}
+/** Put each copy directly above its original. A copy of a clipping group's
+ * base joins the group (clipped to the original) instead of becoming the
+ * base of the layers clipped to the original. */
+export function placeDuplicates(doc: PhotoDocument, originals: Layer[], copies: Layer[]) {
+  originals.forEach((l, i) => {
+    const list = containerOf(doc.layers, l.id)!;
+    insertLayerAt(list, list.findIndex((item) => item.id === l.id) + 1, copies[i]);
+  });
 }
 // The Background layer stays at the bottom of the stack until it is
 // converted (Layer → New → Layer from Background).

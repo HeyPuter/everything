@@ -4,6 +4,7 @@ import {
   groupLayers,
   mergeVisibleStack,
   moveLayers,
+  placeDuplicates,
   reorderLayers,
   selectedRoots,
   visibleRows,
@@ -168,5 +169,42 @@ describe('shared transforms', () => {
     g.maskAsset = 'bitmap';
     expect(() => transformSelection([g], before, { ...before, x: 50 })).toThrow(/bitmap or painted mask/);
     expect(allLayers([g])).toHaveLength(3);
+  });
+});
+
+describe('duplicating layers in a clipping group', () => {
+  // Bottom to top: Base, Clipped (clipped to Base), Top.
+  function fixture() {
+    const doc = newDocument(40, 30);
+    const base = layer('solid', 'Base', 40, 30);
+    const clipped = layer('solid', 'Clipped', 40, 30);
+    clipped.clipped = true;
+    const top = layer('solid', 'Top', 40, 30);
+    doc.layers = [base, clipped, top];
+    return { doc, base, clipped, top };
+  }
+  const copyOf = (l: ReturnType<typeof layer>) => ({ ...structuredClone(l), id: crypto.randomUUID(), name: `${l.name} copy` });
+  const stack = (doc: ReturnType<typeof newDocument>) => doc.layers.map((l) => [l.name, !!l.clipped]);
+  it('a copy of the base joins the group, so the clipped layers keep their base', () => {
+    const { doc, base } = fixture();
+    placeDuplicates(doc, [base], [copyOf(base)]);
+    expect(stack(doc)).toEqual([
+      ['Base', false],
+      ['Base copy', true],
+      ['Clipped', true],
+      ['Top', false],
+    ]);
+  });
+  it('copies of the whole group stay in it and an unclipped top layer stays unclipped', () => {
+    const { doc, base, clipped, top } = fixture();
+    placeDuplicates(doc, [base, clipped, top], [copyOf(base), copyOf(clipped), copyOf(top)]);
+    expect(stack(doc)).toEqual([
+      ['Base', false],
+      ['Base copy', true],
+      ['Clipped', true],
+      ['Clipped copy', true],
+      ['Top', false],
+      ['Top copy', false],
+    ]);
   });
 });
