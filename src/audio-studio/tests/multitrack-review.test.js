@@ -451,3 +451,27 @@ describe('bouncing in a 5.1 session', () => {
     }
   });
 });
+
+describe('inserting 5.1 audio', () => {
+  it('makes a 5.1 track for it in a 5.1 session, a stereo one otherwise', async () => {
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { insertDocs } = await import('../src/multitrack/insert.js');
+    const six = () =>
+      new AudioFile({
+        name: 's.wav',
+        sampleRate: RATE,
+        channels: Array.from({ length: 6 }, () =>
+          Channel.fromSamples(new Float32Array(100).fill(0.1)),
+        ),
+      });
+    for (const [master, want] of [
+      [6, 6],
+      [2, 2],
+    ]) {
+      const { app, doc } = await appWithSession();
+      doc.apply('Mix', { ...doc.state, master: { ...doc.state.master, channels: master } });
+      const [id] = await insertDocs(app, doc, [six()], { trackId: null, at: 0 });
+      expect(S.findTrack(doc.state, S.findClip(doc.state, id).trackId).channels).toBe(want);
+    }
+  });
+});

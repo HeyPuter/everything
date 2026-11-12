@@ -77,6 +77,11 @@ export function newTrack(state, { type = 'audio', channels = 2, name, afterId } 
   return { track, state: S.addTrack(state, track, i >= 0 ? i + 1 : state.tracks.length) };
 }
 
+/** Channels of a new track for audio with `n` channels: 5.1 audio gets a 5.1 track in a 5.1 session. */
+export function trackChannelsFor(state, n) {
+  return n === 6 && state.master.channels === 6 ? 6 : Math.min(2, n);
+}
+
 /** True when [start, end) on the track is free of (unmuted or muted) clips. */
 export function trackIsFree(state, trackId, start, end) {
   return !state.clips.some((c) => c.trackId === trackId && c.start < end && S.clipEnd(c) > start);
@@ -147,7 +152,7 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
     let track = index >= 0 ? audio()[index + p.trackOffset] : null;
     if (!track) {
       const last = state.tracks.filter((x) => x.type === 'audio').pop();
-      const made = newTrack(state, { channels: Math.min(2, p.doc.channelCount), afterId: last?.id });
+      const made = newTrack(state, { channels: trackChannelsFor(state, p.doc.channelCount), afterId: last?.id });
       state = made.state;
       track = made.track;
       if (index < 0 || !audio()[index + p.trackOffset] || audio()[index + p.trackOffset].id !== track.id) index = audio().findIndex((x) => x.id === track.id) - p.trackOffset;

@@ -15,7 +15,7 @@ import { pickLocalFiles, saveDocument, downloadBlob } from '../storage/files.js'
 import { AUDIO_ACCEPT, VIDEO_EXTENSIONS, baseName } from '../audio/decode.js';
 import { videoClip } from '../model/session-video.js';
 import * as puter from '../storage/puter.js';
-import { insertDocs, insertFiles, linkSource, newTrack, channelsAtRate, placementOptions, freeTrackShift, shownAudioTracks } from './insert.js';
+import { insertDocs, insertFiles, linkSource, newTrack, channelsAtRate, placementOptions, freeTrackShift, shownAudioTracks, trackChannelsFor } from './insert.js';
 import { renderSession, renderedDoc, clipsRange } from './render.js';
 import { saveSession, exportSession, sessionZip } from './storage.js';
 import { prepareVideoBytes } from '../video/session-media.js';
@@ -454,7 +454,7 @@ async function pasteClips(app, doc, clip) {
     const sourceId = await linkSource(doc, file);
     let track = audio()[base];
     while (!track) {
-      const made = newTrack(state, { channels: Math.min(2, channels.length) });
+      const made = newTrack(state, { channels: trackChannelsFor(state, channels.length) });
       state = made.state;
       track = audio()[base];
     }
