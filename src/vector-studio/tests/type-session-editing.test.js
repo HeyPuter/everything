@@ -244,4 +244,22 @@ describe('type editing session', () => {
     expect(p.y).toBeGreaterThan(0);
     expect(p.y).toBeLessThan(view.height);
   });
+
+  it('typing or composing over a selection keeps the style of the first selected character', async () => {
+    const { styleAt } = await import('../src/model/text-runs.js');
+    const id = add('ab CD ef', { runs: [{ len: 3 }, { len: 2, fontWeight: 700 }, { len: 3 }] });
+    const s = edit(id, 3);
+    s.setSelection(3, 5);
+    s.insert('X');
+    expect(doc.get(id).text).toBe('ab X ef');
+    expect(styleAt(doc.get(id), 3).fontWeight).toBe(700);
+    s.setSelection(3, 4);
+    s.onCompositionStart({});
+    s.onCompositionUpdate({ data: 'に' });
+    s.onCompositionEnd({ data: '日本' });
+    expect(doc.get(id).text).toBe('ab 日本 ef');
+    expect(styleAt(doc.get(id), 3).fontWeight).toBe(700);
+    expect(styleAt(doc.get(id), 4).fontWeight).toBe(700);
+    expect(styleAt(doc.get(id), 2).fontWeight).toBe(400);
+  });
 });

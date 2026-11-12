@@ -189,9 +189,9 @@ export class TextSession {
   }
 
   /** Overrides for typed text: the neighbor's style plus any pending style from the panels. */
-  insertOverrides(node, at) {
+  insertOverrides(node, at, end = at) {
     if (!this.pending) return null;
-    const { altGlyph, ...inherited } = overridesAt(node, at > 0 ? at - 1 : at); // eslint-disable-line no-unused-vars
+    const { altGlyph, ...inherited } = overridesAt(node, end > at || !at ? at : at - 1); // eslint-disable-line no-unused-vars
     return { ...inherited, ...this.pending };
   }
 
@@ -261,7 +261,7 @@ export class TextSession {
     const coalesce = kind === 'paste' ? null : `type:${this.id}:${this.burst}`;
     const label = kind === 'paste' ? 'Paste' : kind === 'delete' ? 'Clear' : 'Typing';
     const pending = this.pending;
-    const overrides = this.insertOverrides(n, a);
+    const overrides = this.insertOverrides(n, a, b);
     this.doc.transact(label, () => this.doc.update(n.id, replaceRange(n, a, b, text, overrides)), { coalesce });
     this.caret = this.anchor = a + text.length;
     this.goalU = null;
@@ -496,13 +496,19 @@ export class TextSession {
     const [a, b] = this.range();
     this.burst++;
     const n = this.node();
+    let style = null;
     if (a !== b && n) {
+      // Composed text replacing a selection takes the style of its first character.
+      if (!this.pending) {
+        const { altGlyph, ...first } = overridesAt(n, a); // eslint-disable-line no-unused-vars
+        style = first;
+      }
       // Replacing the selection and the composed text are one undo step.
       this.doc.transact('Typing', () => this.doc.update(n.id, replaceRange(n, a, b, '')), { coalesce: `type:${this.id}:${this.burst}` });
       this.caret = this.anchor = a;
       this.sync({ keepPending: true });
     }
-    this.composing = { start: a, len: 0 };
+    this.composing = { start: a, len: 0, style };
   }
 
   onCompositionUpdate(e) {
@@ -510,7 +516,7 @@ export class TextSession {
     const n = this.node();
     if (!c || !n) return;
     const data = e.data || '';
-    this.doc.transact('Typing', () => this.doc.update(n.id, replaceRange(n, c.start, c.start + c.len, data, this.insertOverrides(n, c.start))), { coalesce: `type:${this.id}:${this.burst}` });
+    this.doc.transact('Typing', () => this.doc.update(n.id, replaceRange(n, c.start, c.start + c.len, data, this.insertOverrides(n, c.start) || c.style)), { coalesce: `type:${this.id}:${this.burst}` });
     c.len = data.length;
     this.caret = this.anchor = c.start + c.len;
     this.sync({ keepPending: true });
@@ -523,7 +529,7 @@ export class TextSession {
     this.input.value = '';
     if (!c || !n) return;
     const data = e.data || '';
-    this.doc.transact('Typing', () => this.doc.update(n.id, replaceRange(n, c.start, c.start + c.len, data, this.insertOverrides(n, c.start))), { coalesce: `type:${this.id}:${this.burst}` });
+    this.doc.transact('Typing', () => this.doc.update(n.id, replaceRange(n, c.start, c.start + c.len, data, this.insertOverrides(n, c.start) || c.style)), { coalesce: `type:${this.id}:${this.burst}` });
     this.caret = this.anchor = c.start + data.length;
     this.lastKind = 'typing';
     this.sync();

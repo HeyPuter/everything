@@ -80,6 +80,13 @@ describe('editing ranges', () => {
     expect(p.runs).toEqual([{ len: 4, fontWeight: 700 }, { len: 2 }]);
   });
 
+  it('text typed over a selection takes the style of the first selected character', () => {
+    const n = node('ab CD ef', { runs: [{ len: 3 }, { len: 2, fontWeight: 700 }, { len: 3 }] });
+    const p = replaceRange(n, 3, 5, 'X');
+    expect(p.text).toBe('ab X ef');
+    expect(p.runs).toEqual([{ len: 3 }, { len: 1, fontWeight: 700 }, { len: 3 }]);
+  });
+
   it('inserts with a pending style', () => {
     const n = node('abcd');
     const p = replaceRange(n, 4, 4, 'ef', { fontStyle: 'italic' });
