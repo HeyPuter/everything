@@ -6,7 +6,7 @@
 // confirm no other writer got in between (retrying when one did). Writes are
 // therefore conflict-safe without server-side locking: concurrent edits from
 // two tabs or devices both survive.
-import { applyOps, emptyIndex, referencedAssets, validIndex, type LibraryIndex, type LibraryOp, type QueuedOp } from './model';
+import { applyOps, emptyIndex, referencedAssets, storedIndex, validIndex, type LibraryIndex, type LibraryOp, type QueuedOp } from './model';
 
 export type LocalState = {
   index: LibraryIndex;
@@ -43,6 +43,12 @@ export interface CloudLibraryStore {
   writeAsset(hash: string, blob: Blob): Promise<void>;
 }
 
+const NEWER = 'The libraries in this browser were saved by a newer version of Photo Studio; reload the page to use them.';
+/** A stored index that exists but cannot be read: it must never be replaced. */
+const unreadableIndex = (v: unknown) => {
+  const i = (v as Partial<LocalState> | undefined)?.index;
+  return i !== undefined && i !== null && !validIndex(i);
+};
 function normalizeState(v: unknown): LocalState {
   const s = (v && typeof v === 'object' ? v : {}) as Partial<LocalState>;
   return {
@@ -62,6 +68,7 @@ export class MemoryLocalStore implements LocalLibraryStore {
     return structuredClone(this.state);
   }
   async update<T>(fn: (s: LocalState) => T) {
+    if (unreadableIndex(this.state)) throw new Error(NEWER);
     const next = structuredClone(this.state);
     const result = fn(next);
     this.state = normalizeState(next);
@@ -92,15 +99,19 @@ export class IndexedDbLibraryStore implements LocalLibraryStore {
     });
     return this.db;
   }
-  private async tx<T>(store: string, mode: IDBTransactionMode, body: (s: IDBObjectStore, done: (v: T) => void) => void): Promise<T> {
+  private async tx<T>(store: string, mode: IDBTransactionMode, body: (s: IDBObjectStore, done: (v: T) => void, fail: (e: Error) => void) => void): Promise<T> {
     const db = await this.open();
     return new Promise<T>((resolve, reject) => {
       const t = db.transaction(store, mode);
       let value: T;
-      body(t.objectStore(store), (v) => (value = v));
+      let failure: Error | undefined;
+      body(t.objectStore(store), (v) => (value = v), (e) => {
+        failure = e;
+        t.abort();
+      });
       t.oncomplete = () => resolve(value);
-      t.onerror = () => reject(t.error ?? new Error('Browser storage failed.'));
-      t.onabort = () => reject(t.error ?? new Error('Browser storage failed.'));
+      t.onerror = () => reject(failure ?? t.error ?? new Error('Browser storage failed.'));
+      t.onabort = () => reject(failure ?? t.error ?? new Error('Browser storage failed.'));
     });
   }
   async read() {
@@ -110,13 +121,15 @@ export class IndexedDbLibraryStore implements LocalLibraryStore {
     });
   }
   async update<T>(fn: (s: LocalState) => T) {
-    return this.tx<{ state: LocalState; result: T }>('state', 'readwrite', (s, done) => {
+    return this.tx<{ state: LocalState; result: T }>('state', 'readwrite', (s, done, fail) => {
       const r = s.get(STATE_KEY);
       r.onsuccess = () => {
+        if (unreadableIndex(r.result)) return fail(new Error(NEWER));
         const state = normalizeState(r.result);
         const result = fn(state);
         const next = normalizeState(state);
-        s.put(next, STATE_KEY);
+        // Items and libraries this version cannot read go back where they were.
+        s.put({ ...next, index: storedIndex(next.index) }, STATE_KEY);
         done({ state: next, result });
       };
     });
@@ -190,7 +203,7 @@ export class PuterLibraryCloud implements CloudLibraryStore {
     return index;
   }
   async writeIndex(index: LibraryIndex) {
-    const blob = new Blob([JSON.stringify(index)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(storedIndex(index))], { type: 'application/json' });
     await withTimeout(this.fs.write(`${this.root}/index.json`, blob, { overwrite: true, createMissingParents: true }), this.timeout, 'Writing to Puter');
   }
   readAsset(hash: string) {

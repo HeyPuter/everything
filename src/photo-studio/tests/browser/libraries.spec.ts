@@ -286,3 +286,45 @@ test('library item commands from the keyboard keep the focus on the items', asyn
   await expect(items(page)).toHaveCount(2);
   await expect(items(page).nth(1)).toBeFocused();
 });
+
+test('libraries stored by a newer version keep what this one cannot read', async ({ page }) => {
+  await boot(page);
+  await freshLibraries(page);
+  const T = '2026-01-01T00:00:00.000Z';
+  const newer = { id: 'n', type: 'swatch-group', name: 'Brand set', created: T, modified: T, data: {} };
+  const red = { id: 'a', type: 'color', name: 'Red', created: T, modified: T, data: { hex: '#ff0000' } };
+  // Seed the browser's working copy as a newer version would leave it.
+  await page.evaluate(async ({ red, newer, T }) => {
+    const { IndexedDbLibraryStore } = await import('/src/features/libraries/storage.ts');
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      new IndexedDbLibraryStore().read().then(() => {
+        const r = indexedDB.open('photo-studio-libraries', 1);
+        r.onsuccess = () => resolve(r.result);
+      });
+    });
+    await new Promise((resolve) => {
+      const t = db.transaction('state', 'readwrite');
+      t.objectStore('state').put({ index: { version: 1, revision: 1, libraries: [{ id: 'L', name: 'Brand', created: T, modified: T, items: [red, newer] }], deleted: {} }, pending: [], cloudKnown: [], uploaded: [], recent: [] }, 'local');
+      t.oncomplete = resolve;
+    });
+    db.close();
+  }, { red, newer, T });
+  await openImage(page, 40, 30, '#00ff00');
+  await panel(page, 'Libraries');
+  // The readable item shows (the library used to load empty) and the unknown one does not.
+  await expect(items(page)).toHaveCount(1);
+  await page.evaluate(() => window.photoStudio.runCommand('libraries.add-foreground'));
+  await expect(items(page)).toHaveCount(2);
+  const stored = await page.evaluate(
+    () =>
+      new Promise<{ items: { id: string }[] }[]>((resolve) => {
+        const r = indexedDB.open('photo-studio-libraries', 1);
+        r.onsuccess = () => {
+          const g = r.result.transaction('state').objectStore('state').get('local');
+          g.onsuccess = () => resolve(g.result.index.libraries);
+        };
+      }),
+  );
+  expect(stored[0].items.map((i) => i.id)).toContain('n');
+  expect(stored[0].items).toHaveLength(3);
+});
