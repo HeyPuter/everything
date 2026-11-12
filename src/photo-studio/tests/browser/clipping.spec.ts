@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { layer, newDocument } from '../../src/model/document';
-import { boot, canvasDrag, compositePixel, openProject, run, type Backend } from './helpers';
+import { boot, canvasDrag, compositePixel, openProject, run, selectRect, type Backend } from './helpers';
 
 for (const backend of ['default', 'WebGL'] as Backend[])
   test(`a solid-color shape clips to the layer below (${backend})`, async ({ page }) => {
@@ -64,4 +64,43 @@ test('Release Clipping Mask in the middle of a group releases the layers above t
   expect(await compositePixel(page, 70, 10)).toEqual([255, 255, 255, 255]);
   await run(page, 'edit.undo');
   expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => !!l.clipped))).toEqual([false, true, true, true]);
+});
+
+// Layer via Copy above the base of a clipping group used to insert the piece
+// unclipped, so the clipped layers clipped to the piece instead of the base.
+test('Layer via Copy on the base of a clipping group joins the group', async ({ page }) => {
+  await boot(page);
+  const doc = newDocument(100, 40, 'Via');
+  const back = layer('solid', 'Back', 100, 40);
+  back.color = '#ffffff';
+  doc.layers = [back];
+  await openProject(page, doc, [], 'via.photo');
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { layer, insertLayerAt } = await import('/src/model/document.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const data = new Uint8ClampedArray(40 * 40 * 4);
+    for (let i = 0; i < 1600; i++) data.set([255, 0, 0, 255], i * 4);
+    const base = newPixelLayer('Base', e.doc, gridFromImage(e.assets.tiles, { width: 40, height: 40, data }, 0, 0));
+    const clipped = layer('solid', 'Clipped', 100, 40);
+    clipped.color = '#0000ff';
+    clipped.clipped = true;
+    e.command('Setup', (d) => {
+      insertLayerAt(d.layers, 1, base);
+      d.layers.push(clipped);
+    });
+    e.selected = base.id;
+    e.update();
+  });
+  await selectRect(page, { x: 0, y: 0, width: 20, height: 40 });
+  await run(page, 'layer.via-copy');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => [l.name, !!l.clipped]))).toEqual([
+    ['Back', false],
+    ['Base', false],
+    ['Base copy', true],
+    ['Clipped', true],
+  ]);
+  // The clipped layer still covers the whole base, not only the copied piece.
+  expect(await compositePixel(page, 30, 20)).toEqual([0, 0, 255, 255]);
 });

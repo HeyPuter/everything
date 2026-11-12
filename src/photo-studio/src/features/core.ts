@@ -2,7 +2,7 @@ import type { Editor } from '../editor';
 import { registerCommand, commands, type Command } from '../app/registry';
 import { performAction } from '../ui/actions';
 import { formDialog, information } from '../ui/dialog';
-import { findLayer, containerOf, allLayers, layer, replaceDocument, type Layer, type PhotoDocument, cropDocument } from '../model/document';
+import { findLayer, containerOf, allLayers, insertLayerAt, layer, replaceDocument, type Layer, type PhotoDocument, cropDocument } from '../model/document';
 import { newPixelLayer, setLayerPixels } from '../model/pixel-layer';
 import { gridFromImage, readRGBA, readMask, writeRect, emptyGrid } from '../model/tiles';
 import { canvasRect, selectionGrid, selectionBounds, applySelection } from '../model/selection';
@@ -485,7 +485,8 @@ async function layerVia(e: Editor, cut: boolean) {
   e.command(cut ? 'Layer via Cut' : 'Layer via Copy', (d) => {
     if (remaining) setLayerPixels(findLayer(d.layers, id)!, remaining, d);
     const list = containerOf(d.layers, id)!;
-    list.splice(list.findIndex((x) => x.id === id) + 1, 0, nl);
+    // Above the base of a clipping group the new layer joins the group.
+    insertLayerAt(list, list.findIndex((x) => x.id === id) + 1, nl);
   });
   e.selected = nl.id;
   e.update();
