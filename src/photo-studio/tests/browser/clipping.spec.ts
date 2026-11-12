@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { layer, newDocument } from '../../src/model/document';
-import { boot, canvasDrag, compositePixel, openProject, run, selectRect, type Backend } from './helpers';
+import { boot, canvasDrag, compositePixel, openImage, openProject, run, selectRect, type Backend } from './helpers';
 
 for (const backend of ['default', 'WebGL'] as Backend[])
   test(`a solid-color shape clips to the layer below (${backend})`, async ({ page }) => {
@@ -124,4 +124,52 @@ for (const backend of ['default', 'WebGL'] as Backend[])
     await openProject(page, doc, [], 'pass.photo');
     expect(await compositePixel(page, 15, 15)).toEqual([0, 0, 255, 255]);
     expect((await compositePixel(page, 2, 2))[3]).toBe(0);
+  });
+
+// Fill fades only the base layer's own pixels; its shape still clips. A base
+// at Fill 0% used to hide its clipped layers (and a lower Fill faded them).
+for (const backend of ['default', 'WebGL'] as Backend[])
+  test(`clipped layers show inside a base with a low Fill, as the CPU reference composites them (${backend})`, async ({ page }) => {
+    await boot(page, backend);
+    await openImage(page, 60, 40, '#ffffff', 'white.png');
+    const result = await page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { layer } = await import('/src/model/document.ts');
+      const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+      const { gridFromImage } = await import('/src/model/tiles.ts');
+      const { compositeRGBA8 } = await import('/src/imaging/blend/composite.ts');
+      const solidImage = (w: number, h: number, rgba: number[]) => {
+        const data = new Uint8ClampedArray(w * h * 4);
+        for (let i = 0; i < w * h; i++) data.set(rgba, i * 4);
+        return { width: w, height: h, data };
+      };
+      const out: Record<string, number[][]> = {};
+      for (const fill of [0, 0.5]) {
+        const base = newPixelLayer('Base', e.doc, gridFromImage(e.assets.tiles, solidImage(20, 20, [255, 0, 0, 255]), 10, 10));
+        base.fillOpacity = fill;
+        const clipped = layer('solid', 'Clipped', 60, 40);
+        clipped.color = '#3080c0';
+        clipped.clipped = true;
+        clipped.opacity = 0.6;
+        clipped.blend = 'multiply';
+        e.command('Layers', (d) => {
+          d.layers = [d.layers[0], base, clipped];
+        });
+        const pixels = await e.renderer.documentPixels(e.doc, e.assets);
+        const at = (x: number, y: number) => Array.from(pixels.slice((y * 60 + x) * 4, (y * 60 + x) * 4 + 4));
+        // CPU reference for a pixel inside the base: base at its Fill, the
+        // clipped layer over it, then the group over the white background.
+        const group = solidImage(1, 1, [0, 0, 0, 0]);
+        compositeRGBA8(group, solidImage(1, 1, [255, 0, 0, 255]), 'normal', fill);
+        compositeRGBA8(group, solidImage(1, 1, [0x30, 0x80, 0xc0, 255]), 'multiply', 0.6);
+        const expected = solidImage(1, 1, [255, 255, 255, 255]);
+        compositeRGBA8(expected, group, 'normal', 1);
+        out[fill] = [at(15, 15), Array.from(expected.data), at(2, 2)];
+      }
+      return out;
+    });
+    for (const [inside, expected, outside] of Object.values(result)) {
+      for (let c = 0; c < 4; c++) expect(Math.abs(inside[c] - expected[c])).toBeLessThanOrEqual(2);
+      expect(outside).toEqual([255, 255, 255, 255]);
+    }
   });

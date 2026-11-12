@@ -1162,8 +1162,12 @@ export class Renderer {
       // Shallow knockouts of clipped layers stop at the base.
       if (knocks) this.knockStack.push(this.copyOf(groupBack));
       try {
-        for (const c of clippedRun)
-          [groupBack, groupNext] = await this.drawLayer(c, doc, assets, groupBack, groupNext, true);
+        // Fill fades only the base's own pixels: its full-fill shape still
+        // decides where the clipped layers show.
+        if ((l.fillOpacity ?? 1) < 1) [groupBack, groupNext] = await this.clipToShape(l, clippedRun, doc, assets, groupBack, groupNext);
+        else
+          for (const c of clippedRun)
+            [groupBack, groupNext] = await this.drawLayer(c, doc, assets, groupBack, groupNext, true);
       } finally {
         if (knocks) this.knockStack.pop();
       }
@@ -1186,6 +1190,11 @@ export class Renderer {
    * kept inside the base's shape. */
   private async clipSeparately(base: Layer, run: Layer[], doc: PhotoDocument, assets: Assets, back: Texture, next: Texture): Promise<[Texture, Texture]> {
     [back, next] = await this.drawLayer(base, doc, assets, back, next);
+    return this.clipToShape(base, run, doc, assets, back, next);
+  }
+  /** Draw `run` over `back`, each kept inside the shape of `base` drawn
+   * alone at full opacity and fill (its mask applies; its effects do not). */
+  private async clipToShape(base: Layer, run: Layer[], doc: PhotoDocument, assets: Assets, back: Texture, next: Texture): Promise<[Texture, Texture]> {
     const mark = this.cursor;
     try {
       let shape = this.target(doc.width, doc.height), scratch = this.target(doc.width, doc.height);
