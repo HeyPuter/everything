@@ -303,3 +303,16 @@ describe('Layers panel drop into a locked layer', () => {
     expect(ed.selection.has(a)).toBe(true);
   });
 });
+
+describe('isolating a layer', () => {
+  it('leaves nothing selected on exit, never the layer itself', async () => {
+    const { app, ed, doc, layer, add } = setup(await bootAppWithFeatures());
+    add(0);
+    ed.clearSelection();
+    await app.commands.run('layers.isolate');
+    expect(ed.isolation).toBe(layer.id);
+    await app.commands.run('object.exitIsolation');
+    expect(ed.isolation).toBe(null);
+    expect([...ed.selection].map((id) => doc.get(id).type)).not.toContain('layer');
+  });
+});

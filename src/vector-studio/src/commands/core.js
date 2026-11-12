@@ -219,9 +219,14 @@ export function registerCoreCommands(app) {
         const id = ed().isolation;
         ed().isolation = null;
         ed().isolationLeaf = null;
-        // The isolated object ends up selected, unless it was hidden or locked meanwhile (from the Layers panel).
+        // The isolated object ends up selected, unless it was hidden or locked meanwhile (from the Layers panel)
+        // or is a layer (layers are never part of the artwork selection).
         const doc = ed().doc;
-        ed().select(doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id) ? [id] : []);
+        ed().select(
+          doc.has(id) && doc.get(id).type !== 'layer' && !doc.isHidden(id) && !doc.isLocked(id)
+            ? [id]
+            : [],
+        );
         ed().emit('isolation');
         ed().invalidate();
       },
