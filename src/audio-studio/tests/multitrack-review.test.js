@@ -167,3 +167,60 @@ describe('pasting and inserting with hidden tracks', () => {
     expect(tracks).toEqual([t0, t2]);
   });
 });
+
+describe('saving a session to Puter', () => {
+  function fakePuter() {
+    const writes = [];
+    let release;
+    const gate = { open: Promise.resolve() };
+    window.puter = {
+      env: 'web',
+      auth: { isSignedIn: () => true },
+      fs: {
+        write: async (path, data) => {
+          writes.push(path);
+          await gate.open;
+          return { path };
+        },
+      },
+    };
+    return {
+      writes,
+      hold: () => (gate.open = new Promise((r) => (release = r))),
+      release: () => release(),
+    };
+  }
+
+  it('keeps edits made while the media uploads unsaved, and writes changed media at the next save', async () => {
+    const { app, doc } = await appWithSession();
+    const p = fakePuter();
+    try {
+      const t = doc.state.tracks[0];
+      const src = doc.addSource({
+        name: 'a.wav',
+        channels: [Channel.fromSamples(new Float32Array(100).fill(0.1))],
+      });
+      doc.apply(
+        'Add',
+        S.addClips(doc.state, [S.createClip({ trackId: t.id, sourceId: src, length: 100 })]),
+      );
+      doc.source = { type: 'puter', path: '/u/AudioStudio/Test.asesx' };
+      p.hold();
+      const saving = app.commands.run('file.save');
+      await new Promise((r) => setTimeout(r, 0));
+      // While the media file uploads: a clip edit and an edit of the source audio.
+      doc.apply('Rename Track', S.updateTrack(doc.state, t.id, { name: 'Edited' }));
+      doc.updateSource(src, { channels: [Channel.fromSamples(new Float32Array(100).fill(0.2))] });
+      p.release();
+      await saving;
+      expect(doc.dirty).toBe(true);
+      // The next save writes the changed media again.
+      p.writes.length = 0;
+      await app.commands.run('file.save');
+      expect(p.writes.some((w) => w.endsWith('.wav'))).toBe(true);
+      expect(doc.dirty).toBe(false);
+    } finally {
+      delete window.puter;
+    }
+  });
+});
