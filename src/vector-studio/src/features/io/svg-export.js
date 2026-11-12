@@ -546,7 +546,11 @@ class SVGWriter {
       return l && l !== baseLang ? ` xml:lang="${escapeXml(l)}"` : '';
     };
     const common = `${attrs}${baseLang ? ` xml:lang="${escapeXml(baseLang)}"` : ''}`;
-    const barRect = (x, y, w, h, paint, fill, space) => `${d1}<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${this.fillAttrs(node, paint || fill, space)}/>`;
+    // Bars in their own color are filled with it; the others are painted like the glyphs.
+    const barPaint = (st, paint, space) =>
+      paint ? this.fillAttrs(node, paint, space) : this.textPaintAttrs(node, st, space || null);
+    const barRect = (x, y, w, h, paint, st, space) =>
+      `${d1}<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${barPaint(st, paint, space)}/>`;
     if (mode === 'segments') {
       // Unscaled pieces share ONE <text> as <tspan>s positioned from the
       // layout (baseline shifts as dy from the line's baseline), so SVG
@@ -556,7 +560,6 @@ class SVGWriter {
       let preserve = false;
       for (const it of items) {
         const st = it.style;
-        const fill = st.fill === undefined ? node.fill : st.fill;
         const scaled = it.hs !== 1 || it.vs !== 1;
         const ls = it.track ? ` letter-spacing="${this.n(scaled ? it.track / it.hs : it.track)}"` : '';
         // Spacing the layout set (tracking, kerning pairs) is kept by giving the piece its laid-out length.
@@ -568,14 +571,20 @@ class SVGWriter {
           const deco = plain ? [st.underline && 'underline', st.strike && 'line-through'].filter(Boolean).join(' ') : '';
           spans.push({ it, dy, attrs: `${this.fontAttrs(st, it.size)}${ls}${tl}${this.textPaintAttrs(node, st, null)}${deco ? ` text-decoration="${deco}"` : ''}${langAttr(st)}`, deco, str: escapeXml(it.str) });
           // Bars with their own weight, offset, color or dashes are drawn as rectangles.
-          if (!plain) for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) kids.push(barRect(x, y, w, h, paint, fill, false));
+          if (!plain) {
+            for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) {
+              kids.push(barRect(x, y, w, h, paint, st, false));
+            }
+          }
           continue;
         }
         if (it.str) {
           const pre = /^\s|\s$|\s{2}/.test(it.str) ? ' xml:space="preserve"' : '';
           kids.push(`${d1}<text transform="translate(${this.n(it.x)} ${this.n(it.y)}) scale(${this.n(it.hs)} ${this.n(it.vs)})"${this.fontAttrs(st, it.size)}${ls}${tl}${this.textPaintAttrs(node, st, [it.hs, 0, 0, it.vs, it.x, it.y])}${langAttr(st)}${pre}>${escapeXml(it.str)}</text>`);
         }
-        for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) kids.push(barRect(x, y, w, h, paint, fill, false));
+        for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) {
+          kids.push(barRect(x, y, w, h, paint, st, false));
+        }
       }
       const pre = preserve ? ' xml:space="preserve"' : '';
       if (!spans.length && !kids.length) return '';
@@ -594,7 +603,12 @@ class SVGWriter {
     for (const it of items) {
       const st = it.style;
       const m = it.m.map((v, i) => (i < 4 ? numberFormatter(6, this.o.minify)(v) : this.n(v))).join(' ');
-      const deco = decoRects(st, it.size, it.deco).map(([x, y, w, h, paint]) => `<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${this.fillAttrs(node, paint || (st.fill === undefined ? node.fill : st.fill), it.m)}/>`).join('');
+      const deco = decoRects(st, it.size, it.deco)
+        .map(
+          ([x, y, w, h, paint]) =>
+            `<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${barPaint(st, paint, it.m)}/>`,
+        )
+        .join('');
       kids.push(`${d1}<g transform="matrix(${m})"><text${this.fontAttrs(st, it.size)}${this.textPaintAttrs(node, st, it.m)}${langAttr(st)}>${escapeXml(it.str)}</text>${deco}</g>`);
     }
     if (!kids.length) return '';

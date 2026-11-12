@@ -338,13 +338,22 @@ function textPaint(ctx, doc, node, paint, cache, seg = null) {
   return v;
 }
 
-/** Underline and strikethrough bars; `paintOf(paint)` gives the canvas style of a bar with its own color. */
-function decorate(ctx, st, size, x0, x1, base, fill, paintOf) {
+/**
+ * Underline and strikethrough bars, painted like the glyphs: filled with `fill` and outlined with
+ * `stroke` (its width and dashes already set on ctx). `paintOf(paint)` gives the canvas style of a
+ * bar with its own color, which is only filled.
+ */
+function decorate(ctx, st, size, x0, x1, base, fill, paintOf, stroke = null) {
   for (const r of decorationRects(st, size, x0, x1, base)) {
     const f = r.paint ? paintOf(r.paint) : fill;
-    if (!f) continue;
-    ctx.fillStyle = f;
-    ctx.fillRect(r.x, r.y, r.w, r.h);
+    if (f) {
+      ctx.fillStyle = f;
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+    }
+    if (stroke && !r.paint) {
+      ctx.strokeStyle = stroke;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+    }
   }
 }
 
@@ -443,6 +452,15 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
       ctx.stroke(path);
     }
   };
+  const decorateRun = (st, size, x0, x1, base, seg = null) => {
+    const s = strokeOf(st, seg);
+    if (s) {
+      setStrokeProps(ctx, { ...node, strokeWidth: st.strokeWidth, dash: node.dash });
+      ctx.lineJoin = node.strokeJoin || 'miter';
+    }
+    const paintOf = (p) => textPaint(ctx, doc, node, p, cache, seg);
+    decorate(ctx, st, size, x0, x1, base, fillOf(st, seg), paintOf, s);
+  };
   if (outline && node.kind === 'area' && node.areaPath?.length > 2) {
     ctx.strokeStyle = opts.outlineColor || '#000';
     ctx.lineWidth = opts.hairline / Math.max(1e-6, Math.hypot(m[0], m[1]));
@@ -479,7 +497,7 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
         }
         if ((st.underline || st.strike) && !outline) {
           const x1 = j >= end ? line.xs[end - line.start] - ((st.tracking || 0) / 1000) * st.fontSize : line.xs[j - line.start];
-          decorate(ctx, st, size, line.xs[i - line.start], x1, line.y - riseOf(st, lay.chars.tm), fillOf(st), (p) => textPaint(ctx, doc, node, p, cache));
+          decorateRun(st, size, line.xs[i - line.start], x1, line.y - riseOf(st, lay.chars.tm));
         }
         i = j;
       }
@@ -507,7 +525,9 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
       const gp = g.glyph != null ? textHooks.glyphPath?.(g.style, g.glyph, g.size) : null;
       if (gp) paintGlyph(g.style, gp, gm);
       else paintText(g.style, g.ch, 0, 0, gm);
-      if ((g.style.underline || g.style.strike) && !outline && !lay.vertical) decorate(ctx, g.style, g.size, 0, g.w, 0, fillOf(g.style, gm), (p) => textPaint(ctx, doc, node, p, cache, gm));
+      if ((g.style.underline || g.style.strike) && !outline && !lay.vertical) {
+        decorateRun(g.style, g.size, 0, g.w, 0, gm);
+      }
       ctx.restore();
     }
   }

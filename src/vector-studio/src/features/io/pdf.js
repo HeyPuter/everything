@@ -851,9 +851,10 @@ class PDFRenderer {
         out += `BT\n/${font} ${this.f(it.size)} Tf\n${fill && stroke ? 2 : stroke ? 1 : 0} Tr\n${tc ? `${this.f(tc)} Tc\n` : ''}${this.f(hs)} 0 0 ${this.f(-vs)} ${this.f(x)} ${this.f(y)} Tm\n${winAnsiString(it.str)} Tj\nET\n`;
       }
       for (const [rx, ry, rw, rh, paint] of decoRects(st, it.size, it.deco)) {
-        // Bars in their own color set it for themselves.
-        if (paint) out += `q\n${this.colorOps(res, solid(paint))}\n${this.f(rx)} ${this.f(ry)} ${this.f(rw)} ${this.f(rh)} re f\nQ\n`;
-        else if (fill) out += `${this.f(rx)} ${this.f(ry)} ${this.f(rw)} ${this.f(rh)} re f\n`;
+        const re = `${this.f(rx)} ${this.f(ry)} ${this.f(rw)} ${this.f(rh)} re`;
+        // Bars in their own color set it for themselves; the others are painted like the glyphs.
+        if (paint) out += `q\n${this.colorOps(res, solid(paint))}\n${re} f\nQ\n`;
+        else if (fill || stroke) out += `${re} ${fill && stroke ? 'B' : fill ? 'f' : 'S'}\n`;
       }
       out += 'Q\n';
     }

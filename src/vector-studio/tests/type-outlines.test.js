@@ -116,6 +116,15 @@ describe('outline conversion', () => {
     expect(comp.children).toHaveLength(2);
   });
 
+  it('gives underline bars the stroke of type with no fill, like its glyphs', async () => {
+    const red = { type: 'solid', color: '#ff0000' };
+    const char = { fontFamily: 'Inter', fontSize: 20, fontWeight: 400, fontStyle: 'normal', underline: true };
+    const n = createText('o_', 0, 0, { fill: null, stroke: red, strokeWidth: 2, char });
+    const bars = (await textToPathData(n)).filter((g) => g.contours.length === 1 && g.contours[0].anchors.length === 4);
+    expect(bars.length).toBeGreaterThan(0);
+    for (const b of bars) expect(b).toMatchObject({ fill: null, stroke: red, strokeWidth: 2 });
+  });
+
   it('keeps a gradient spanning the whole text on every outlined glyph', async () => {
     const { nodeBounds } = await import('../src/model/geometry.js');
     const fill = { type: 'linear', angle: 0, stops: [{ offset: 0, color: '#ff0000', opacity: 1 }, { offset: 1, color: '#0000ff', opacity: 1 }] };

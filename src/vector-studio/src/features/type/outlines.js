@@ -227,7 +227,17 @@ function glyphOutlines(node, lay, fonts) {
             if (!byPaint.has(k)) byPaint.set(k, { paint: r.paint, contours: [] });
             byPaint.get(k).contours.push(rectContour(base, r.x, r.y, r.x + r.w, r.y + r.h));
           }
-          for (const g of byPaint.values()) out.push({ index: i, fill: g.paint ?? st.fill ?? null, stroke: null, strokeWidth: 0, contours: g.contours });
+          // Bars in the text's colors are painted like the glyphs, with its fill and stroke.
+          for (const g of byPaint.values()) {
+            const own = Boolean(g.paint);
+            out.push({
+              index: i,
+              fill: g.paint ?? st.fill ?? null,
+              stroke: own ? null : (st.stroke ?? null),
+              strokeWidth: own ? 0 : (st.strokeWidth ?? 0),
+              contours: g.contours,
+            });
+          }
         }
         i = j;
       }
