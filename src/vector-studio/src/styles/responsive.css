@@ -287,4 +287,24 @@
   .layer-row {
     height: 36px;
   }
+
+  /* The status bar's controls (the Panels button opens the panels on phones) at a touch size. */
+  .status-row {
+    height: 40px;
+  }
+
+  .status-row .icon-btn.small {
+    width: 34px;
+    height: 34px;
+  }
+
+  .status-row .status-zoom,
+  .status-row .status-select,
+  .status-zoom-menu {
+    min-height: 32px;
+  }
+
+  .status-zoom-menu {
+    width: 28px;
+  }
 }
