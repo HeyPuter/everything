@@ -49,6 +49,8 @@
   --muted: #d6d6d6;
   --muted-selected: #ececec;
   --accent: #7db4ff;
+  /* The lighter accent needs more darkening to keep 4.5:1 with white text. */
+  --accent-fill: color-mix(in srgb, var(--accent) 60%, #000);
   --accent-bg: #666;
   --selected: #6a6a6a;
   --row-selected: #4d6c8e;
@@ -126,7 +128,7 @@ input[type='range'] { accent-color: var(--accent); padding: 0; border: 0; backgr
 select { padding-right: 2px; }
 kbd { font-family: inherit; color: var(--muted); font-size: 11px; }
 .primary { background: var(--accent-fill); color: var(--accent-text); border-color: var(--accent-fill); }
-.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-fill) 88%, white); }
+.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-fill) 94%, white); }
 .secondary { border-color: var(--input-line); }
 .icon-button { padding: 2px; min-width: 24px; }
 .icon-button.toggle[aria-pressed='true'], .segmented button[aria-pressed='true'] { background: var(--selected); border-color: var(--input-line); }
@@ -190,7 +192,7 @@ puter-user-menu::part(sign-in) {
   height: 22px; padding: 0 9px; border: 1px solid var(--accent-fill); border-radius: 3px;
   background: var(--accent-fill); color: var(--accent-text); font-size: 12px; white-space: nowrap;
 }
-puter-user-menu::part(sign-in):hover { background: color-mix(in srgb, var(--accent-fill) 88%, white); }
+puter-user-menu::part(sign-in):hover { background: color-mix(in srgb, var(--accent-fill) 94%, white); }
 puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
   background: var(--menu); border-color: var(--line-soft);
   --caret-border: var(--line-soft); --caret-fill: var(--menu);

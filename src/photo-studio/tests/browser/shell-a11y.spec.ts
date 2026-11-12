@@ -243,3 +243,39 @@ test('a message is announced once, by the status bar or (when it is hidden) the 
   await page.evaluate(() => window.photoStudio.message('Hello there again'));
   expect(await speaking()).toEqual(['toast']);
 });
+
+test('white text on the accent color (buttons, menu highlights) keeps 4.5:1 contrast in every theme, also on hover', async ({ page }) => {
+  await page.evaluate(() => {
+    const b = document.createElement('button');
+    b.className = 'primary contrast-probe';
+    b.textContent = 'Apply';
+    b.style.cssText = 'position:fixed;left:600px;top:400px;z-index:999';
+    document.body.append(b);
+  });
+  const contrast = () =>
+    page.evaluate(() => {
+      const rgb = (c: string) => {
+        const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+        x.fillStyle = c;
+        x.fillRect(0, 0, 1, 1);
+        return [...x.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+      };
+      const lum = (c: string) => {
+        const [r, g, b] = rgb(c).map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const ratio = (el: Element) => {
+        const cs = getComputedStyle(el);
+        const [a, b] = [lum(cs.backgroundColor), lum(cs.color)];
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      };
+      return ratio(document.querySelector('.contrast-probe')!);
+    });
+  for (const theme of ['dark', 'medium', 'light']) {
+    await page.locator('#theme').selectOption(theme);
+    await page.mouse.move(10, 500);
+    expect(await contrast(), `${theme} button`).toBeGreaterThanOrEqual(4.5);
+    await page.locator('.contrast-probe').hover();
+    expect(await contrast(), `${theme} button hover`).toBeGreaterThanOrEqual(4.5);
+  }
+});
