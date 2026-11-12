@@ -229,3 +229,32 @@ describe('theme color', () => {
     style.remove();
   });
 });
+
+describe('dialog dragging', () => {
+  it('keeps the title bar on screen', async () => {
+    const { installCanvasStub } = await import('./helpers.js');
+    installCanvasStub();
+    const { openDialog } = await import('../src/ui/dialogs/dialog.js');
+    const p = openDialog({
+      title: 'Drag me',
+      body: document.createElement('p'),
+      buttons: [{ label: 'OK', value: true, primary: true }],
+    });
+    const dialog = document.querySelector('dialog.dialog');
+    const header = dialog.querySelector('.dialog-header');
+    header.setPointerCapture = () => {};
+    Object.defineProperty(header, 'offsetHeight', { configurable: true, value: 40 });
+    const pe = (type, x, y) => {
+      const e = new MouseEvent(type, { clientX: x, clientY: y, bubbles: true });
+      Object.defineProperty(e, 'pointerId', { value: 1 });
+      header.dispatchEvent(e);
+    };
+    pe('pointerdown', 10, 10);
+    pe('pointermove', 5000, 5000);
+    pe('pointerup', 5000, 5000);
+    expect(parseFloat(dialog.style.left)).toBe(window.innerWidth - 80);
+    expect(parseFloat(dialog.style.top)).toBe(window.innerHeight - 40);
+    dialog.querySelector('.btn.primary').click();
+    expect(await p).toBe(true);
+  });
+});

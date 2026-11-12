@@ -125,8 +125,11 @@ function makeDraggable(dialog, handle) {
   handle.addEventListener('pointermove', (e) => {
     if (!start) return;
     dialog.style.margin = '0';
-    dialog.style.left = `${Math.max(0, start.left + e.clientX - start.x)}px`;
-    dialog.style.top = `${Math.max(0, start.top + e.clientY - start.y)}px`;
+    // The title bar stays on screen, so the dialog can always be dragged back.
+    const maxLeft = Math.max(0, window.innerWidth - 80);
+    const maxTop = Math.max(0, window.innerHeight - handle.offsetHeight);
+    dialog.style.left = `${Math.min(maxLeft, Math.max(0, start.left + e.clientX - start.x))}px`;
+    dialog.style.top = `${Math.min(maxTop, Math.max(0, start.top + e.clientY - start.y))}px`;
   });
   handle.addEventListener('pointerup', () => {
     start = null;
