@@ -98,6 +98,7 @@ export class Editor extends Emitter {
         this.emit('selection');
       },
     };
+    this.on('selection', () => doc.selectionChanged());
     doc.on('change', (e) => {
       if (e.structural) this.#pruneSelection();
       if (e.commit && this.isolation && !doc.has(this.isolation)) this.#lostIsolation();

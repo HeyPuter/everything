@@ -494,6 +494,7 @@ export class VDocument extends Emitter {
       last.selectionAfter = this.selection ? this.selection.get() : null;
       last.time = Date.now();
       last.rev = this.revision = this.#nextRevision();
+      this.#justCommitted(last);
       this.emit('transaction', { label: tx.label, before: tx.before, after });
       this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
       this.emit('history');
@@ -515,9 +516,31 @@ export class VDocument extends Emitter {
     while (this.undoStack.length > (this.historyLimit || HISTORY_LIMIT)) this.undoStack.shift();
     this.redoStack.length = 0;
     this.revision = record.rev;
+    this.#justCommitted(record);
     this.emit('transaction', { label: tx.label, before: tx.before, after });
     this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
     this.emit('history');
+  }
+
+  /**
+   * Many commands pick what they made just after their transaction ends:
+   * a selection change in the same task as a commit (before any await)
+   * belongs to that step, so Redo restores it.
+   */
+  #fresh = null;
+
+  #justCommitted(record) {
+    this.#fresh = record;
+    queueMicrotask(() => {
+      if (this.#fresh === record) this.#fresh = null;
+    });
+  }
+
+  /** The editor selection changed (see #justCommitted). */
+  selectionChanged() {
+    const rec = this.#fresh;
+    if (rec && !this.tx && this.selection && this.undoStack[this.undoStack.length - 1] === rec)
+      rec.selectionAfter = this.selection.get();
   }
 
   #cancel(tx) {

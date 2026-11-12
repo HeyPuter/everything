@@ -1,12 +1,11 @@
 // Editing core, layers and undo: regressions found in the second review.
 import { describe, it, expect } from 'vitest';
-import { bootApp } from './helpers.js';
+import { bootApp, bootAppWithFeatures } from './helpers.js';
 import { createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { insertLayer } from '../src/ops/layer-ops.js';
 
-function setup() {
-  const app = bootApp();
+function setup(app = bootApp()) {
   const ed = app.newDocument();
   const doc = ed.doc;
   const layer = doc.layers()[0];
@@ -73,5 +72,46 @@ describe('New Layer', () => {
     expect(doc.root.children).toHaveLength(3);
     expect(doc.root.children[0]).toBe(layer.id);
     expect(doc.root.children[2]).toBe(top.id);
+  });
+});
+
+describe('Redo selection for commands that select after their step', () => {
+  it('Layers panel Duplicate selects the copies again on Redo', async () => {
+    const { app, ed, doc, add } = setup(await bootAppWithFeatures());
+    const a = add(0);
+    ed.select([a]);
+    await app.commands.run('layers.duplicate');
+    const copies = [...ed.selection];
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).not.toBe(a);
+    doc.undo();
+    expect([...ed.selection]).toEqual([a]);
+    doc.redo();
+    expect([...ed.selection]).toEqual(copies);
+  });
+
+  it('Template leaves nothing selected on Redo', async () => {
+    const { app, ed, doc, add } = setup(await bootAppWithFeatures());
+    const a = add(0);
+    ed.select([a]);
+    await app.commands.run('layers.template');
+    expect(ed.selection.size).toBe(0);
+    doc.undo();
+    doc.redo();
+    expect(ed.selection.size).toBe(0);
+  });
+
+  it('a selection made later, in another task, does not change the step', async () => {
+    const { ed, doc, add } = setup();
+    const a = add(0);
+    const b = add(20);
+    ed.select([a]);
+    doc.transact('Move', () => doc.update(a, { name: 'moved' }));
+    ed.select([a, b]); // same task: part of the step
+    await Promise.resolve();
+    ed.select([b]); // later: just a new selection
+    doc.undo();
+    doc.redo();
+    expect([...ed.selection].sort()).toEqual([a, b].sort());
   });
 });
