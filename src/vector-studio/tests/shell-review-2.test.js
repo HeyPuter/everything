@@ -49,3 +49,31 @@ describe('arrow keys on sliders', () => {
     expect(ed.doc.get(id).anchors[0].x).toBe(99);
   });
 });
+
+describe('popup menu Escape', () => {
+  it('puts focus back on the button that opened a panel menu', async () => {
+    const { app } = await appWithRect();
+    const btn = document.createElement('button');
+    btn.setAttribute('aria-haspopup', 'menu');
+    document.body.append(btn);
+    btn.focus();
+    app.showMenuAt(btn, ['edit.copy', 'edit.paste'], 'Test menu');
+    const item = document.querySelector('.menu .menu-item');
+    expect(document.activeElement).toBe(item);
+    item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('.menu')).toBe(null);
+    expect(document.activeElement).toBe(btn);
+    btn.remove();
+  });
+
+  it('puts focus back on the canvas after a context menu', async () => {
+    const { app } = await appWithRect();
+    app.canvasHost.focus();
+    expect(document.activeElement).toBe(app.canvasHost);
+    app.showContextMenu(200, 200);
+    const item = document.querySelector('.menu .menu-item');
+    expect(document.activeElement).toBe(item);
+    item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.activeElement).toBe(app.canvasHost);
+  });
+});

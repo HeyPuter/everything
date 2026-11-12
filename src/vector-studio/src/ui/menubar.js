@@ -197,6 +197,11 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         e.preventDefault();
         close('escape');
         if (parentMenu) parentMenu.refocus();
+        else {
+          // Back to the button that opened the menu (or what had focus before a context menu).
+          const back = anchor?.isConnected ? anchor : returnFocus;
+          if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true });
+        }
         break;
       case 'Tab': {
         // Close the menus and put focus back on the menu's button without
