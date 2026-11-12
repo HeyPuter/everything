@@ -68,6 +68,64 @@ export function envelopeAt(points, t, fallback = 1) {
   return a.v + ((b.v - a.v) * (t - a.t)) / (b.t - a.t || 1);
 }
 
+/**
+ * Writes envelopeAt(points, pos + i, fallback) for i in [0, frames) into `out`
+ * (walking the breakpoints once instead of searching per frame). Returns `out`.
+ */
+export function envelopeFill(points, pos, frames, out, fallback = 1) {
+  if (!points || !points.length) {
+    out.fill(fallback, 0, frames);
+    return out;
+  }
+  const last = points.length - 1;
+  // j: the first breakpoint after the current frame.
+  let lo = 0;
+  let hi = points.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].t <= pos) lo = mid + 1;
+    else hi = mid;
+  }
+  // One segment at a time: before the first breakpoint, between two, or after the last.
+  let j = lo;
+  let i = 0;
+  while (i < frames) {
+    const end = j <= last ? Math.min(frames, Math.ceil(points[j].t - pos)) : frames;
+    if (j === 0 || j > last) out.fill(points[j === 0 ? 0 : last].v, i, end);
+    else {
+      const a = points[j - 1];
+      const b = points[j];
+      const slope = (b.v - a.v) / (b.t - a.t);
+      for (let k = i; k < end; k++) out[k] = a.v + slope * (pos + k - a.t);
+    }
+    i = end;
+    while (j <= last && points[j].t <= pos + i) j++;
+  }
+  return out;
+}
+
+/**
+ * Per-frame values of an envelope over the block [pos, pos + frames) (in
+ * scratch buffer `i`), or null when no breakpoint falls inside it: the
+ * envelope is then one straight line from envelopeAt(pos) to
+ * envelopeAt(pos + frames), which callers interpolate themselves. Evaluating
+ * breakpoints inside a block keeps automation exact whatever the block size
+ * (a mixdown renders 8192-frame blocks, playback 128).
+ */
+function envelopeFrames(points, pos, frames, scratch, i, fallback) {
+  if (!points || !points.length) return null;
+  let lo = 0;
+  let hi = points.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].t <= pos) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo === points.length || points[lo].t >= pos + frames) return null;
+  if (!scratch.env || scratch.env[0].length < frames) scratch.env = [0, 1].map(() => new Float32Array(Math.max(frames, scratch.gains.length)));
+  return envelopeFill(points, pos, frames, scratch.env[i], fallback);
+}
+
 /** Fade gain for position x in [0, 1] with curve (0 linear, + log, - exp, 2 = cosine). */
 export function fadeShape(x, curve = 0) {
   if (x <= 0) return 0;
@@ -531,6 +589,8 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
     const to = plan.dest(track);
     // Feeding a 6-channel destination, the surround panner places the track instead of the stereo pan.
     const toSix = surround && (to ? plan.six.has(to) : true);
+    const vol = envelopeFrames(track.volumeEnv, pos, frames, scratch, 0, 1);
+    const pan = toSix ? null : envelopeFrames(track.panEnv, pos, frames, scratch, 1, 0);
     const v0 = track.gain * envelopeAt(track.volumeEnv, pos);
     const v1 = track.gain * envelopeAt(track.volumeEnv, pos + frames);
     const p0 = Math.max(-1, Math.min(1, track.pan + envelopeAt(track.panEnv, pos, 0)));
@@ -539,13 +599,13 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
     let pkR = 0;
     const L = tbuf[0];
     const R = tbuf[1];
-    const steady = toSix || p0 === p1;
+    const steady = toSix || (!pan && p0 === p1);
     if (toSix) pg[0] = pg[1] = 1;
     else if (steady) panGains(p0, law, pg);
     for (let i = 0; i < frames; i++) {
       const x = i / frames;
-      const v = v0 + (v1 - v0) * x;
-      if (!steady) panGains(p0 + (p1 - p0) * x, law, pg);
+      const v = vol ? track.gain * vol[i] : v0 + (v1 - v0) * x;
+      if (!steady) panGains(pan ? Math.max(-1, Math.min(1, track.pan + pan[i])) : p0 + (p1 - p0) * x, law, pg);
       const l = L[i] * v * pg[0];
       const r = R[i] * v * pg[1];
       L[i] = l;
@@ -576,9 +636,16 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
   }
   const m = graph.master || {};
   if (m.fx && m.fx.length && runFx) runChain(m, surround ? master.slice(0, 6) : master, frames, scratch, runFx);
-  const mg = (m.invert ? -1 : 1) * (m.gain ?? 1) * (m.volumeEnv ? envelopeAt(m.volumeEnv, pos) : 1);
-  if (mg !== 1) {
-    for (const c of master) for (let i = 0; i < frames; i++) c[i] *= mg;
+  const mg = (m.invert ? -1 : 1) * (m.gain ?? 1);
+  const mvol = envelopeFrames(m.volumeEnv, pos, frames, scratch, 0, 1);
+  const m0 = mg * envelopeAt(m.volumeEnv, pos);
+  const m1 = mg * envelopeAt(m.volumeEnv, pos + frames);
+  if (mvol) {
+    for (const c of master) for (let i = 0; i < frames; i++) c[i] *= mg * mvol[i];
+  } else if (m0 !== m1) {
+    for (const c of master) for (let i = 0; i < frames; i++) c[i] *= m0 + ((m1 - m0) * i) / frames;
+  } else if (m0 !== 1) {
+    for (const c of master) for (let i = 0; i < frames; i++) c[i] *= m0;
   }
   if (m.mono && !surround) {
     for (let i = 0; i < frames; i++) master[0][i] = master[1][i] = (master[0][i] + master[1][i]) * 0.5;
@@ -638,15 +705,17 @@ function renderSix(graph, store, pos, frames, track, plan, master, scratch, { me
   }
   // Surround-capable effects (the stereo ones are left out on six channels).
   if (track.fx?.length && runFx) runChain(track, buf, frames, scratch, runFx);
-  const v0 = (track.invert ? -1 : 1) * track.gain * envelopeAt(track.volumeEnv, pos);
-  const v1 = (track.invert ? -1 : 1) * track.gain * envelopeAt(track.volumeEnv, pos + frames);
+  const g = (track.invert ? -1 : 1) * track.gain;
+  const vol = envelopeFrames(track.volumeEnv, pos, frames, scratch, 0, 1);
+  const v0 = g * envelopeAt(track.volumeEnv, pos);
+  const v1 = g * envelopeAt(track.volumeEnv, pos + frames);
   let pkL = 0;
   let pkR = 0;
   for (let c = 0; c < 6; c++) {
     const x = buf[c];
     let pk = 0;
     for (let i = 0; i < frames; i++) {
-      const y = x[i] * (v0 + ((v1 - v0) * i) / frames);
+      const y = x[i] * (vol ? g * vol[i] : v0 + ((v1 - v0) * i) / frames);
       x[i] = y;
       const ay = y < 0 ? -y : y;
       if (ay > pk) pk = ay;
