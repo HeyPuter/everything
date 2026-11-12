@@ -56,7 +56,10 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   const support = await webCodecsSupport();
   const sdk = Boolean(puter.sdk());
   let locationType = mode === 'download' || !sdk ? 'download' : app.prefs.get('exportLocation') === 'download' ? 'download' : 'puter';
-  let dir = app.prefs.get('exportFolder') || null;
+  // Save As and Save a Copy start in the folder of the document's own Puter file.
+  const ownPath = doc.source?.type === 'puter' ? doc.source.path : null;
+  const ownDir = (mode === 'saveAs' || mode === 'copy') && ownPath ? puter.dirname(ownPath) : null;
+  let dir = ownDir || app.prefs.get('exportFolder') || null;
   let notes = [];
 
   // ---------------------------------------------------------------- controls
