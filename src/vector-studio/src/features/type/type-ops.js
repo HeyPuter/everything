@@ -9,6 +9,7 @@ import { DEFAULT_CHAR, DEFAULT_PARA, NEW_PARA } from '../../model/nodes.js';
 import {
   rangeStyle,
   styledRuns,
+  baseStyle,
   applyRunStyle,
   wholeStylePatch,
   paraStylePatch,
@@ -205,6 +206,24 @@ export function stepCharStyle(app, key, step, { label = 'Character', coalesce = 
     },
     { coalesce },
   );
+}
+
+/** Every distinct value of a character attribute in the current text (the selection, the selected objects, or new type). */
+export function charValues(app, key) {
+  const s = session(app);
+  const ed = app.editor;
+  const runsIn = (node, a, b) => styledRuns(node).filter((r) => r.end > a && r.start < b);
+  if (s) {
+    const node = s.node();
+    if (!node) return [];
+    const [a, b] = s.range();
+    if (a < b) return runsIn(node, a, b).map((r) => r.style[key]);
+  } else {
+    const nodes = ed ? storyNodes(ed) : [];
+    if (nodes.length) return nodes.flatMap((n) => (n.text.length ? runsIn(n, 0, n.text.length) : [{ style: baseStyle(n) }]).map((r) => r.style[key]));
+  }
+  const cur = currentCharStyle(app);
+  return cur ? [cur[key]] : [];
 }
 
 /** Apply a paragraph patch to the paragraphs of the current text. */
