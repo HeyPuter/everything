@@ -554,7 +554,7 @@ export class ScriptHost {
       // ----- Dialogs and files -----
       'ui.alert': (m, t) => this.ui.alert(text(m, 'message', 4000), opt(t, (v) => text(v, 'title', 120)) ?? this.label),
       'ui.confirm': (m, t) => this.ui.confirm(text(m, 'message', 4000), opt(t, (v) => text(v, 'title', 120)) ?? this.label),
-      'ui.prompt': (m, v, t) => this.ui.prompt(text(m, 'message', 4000), opt(v, (x) => String(x)) ?? '', opt(t, (x) => text(x, 'title', 120)) ?? this.label),
+      'ui.prompt': (m, v, t) => this.ui.prompt(text(m, 'message', 4000), opt(v, (x) => String(x).slice(0, 10_000)) ?? '', opt(t, (x) => text(x, 'title', 120)) ?? this.label),
       'ui.form': (t, f, o) => {
         const opts = isObj(o) ? o : {};
         return this.ui.form(text(t, 'title', 120), formFields(f), opt(opts.submit, (v) => text(v, 'submit', 40)) ?? 'OK', opt(opts.message, (v) => text(v, 'message', 2000)) ?? '');
@@ -789,8 +789,10 @@ function formFields(v: unknown): ScriptField[] {
     const type = (f.type === undefined ? 'text' : text(f.type, 'field type', 20)) as ScriptField['type'];
     if (!types.includes(type)) fail(`Field type must be one of ${types.join(', ')}.`);
     const name = text(f.name, 'field name', 60);
-    const options = type === 'select' ? (Array.isArray(f.options) ? (f.options as unknown[]) : fail(`Select field “${name}” needs options.`)).slice(0, 200).map((o) => (Array.isArray(o) ? ([String(o[0]), String(o[1] ?? o[0])] as [string, string]) : ([String(o), String(o)] as [string, string]))) : undefined;
-    const value = f.value === undefined ? (type === 'checkbox' ? false : type === 'number' || type === 'range' ? (typeof f.min === 'number' ? f.min : 0) : type === 'select' ? (options?.[0]?.[0] ?? '') : type === 'color' ? '#000000' : '') : f.value;
+    const cut = (v: unknown) => String(v).slice(0, 200);
+    const options = type === 'select' ? (Array.isArray(f.options) ? (f.options as unknown[]) : fail(`Select field “${name}” needs options.`)).slice(0, 200).map((o) => (Array.isArray(o) ? ([cut(o[0]), cut(o[1] ?? o[0])] as [string, string]) : ([cut(o), cut(o)] as [string, string]))) : undefined;
+    let value = f.value === undefined ? (type === 'checkbox' ? false : type === 'number' || type === 'range' ? (typeof f.min === 'number' ? f.min : 0) : type === 'select' ? (options?.[0]?.[0] ?? '') : type === 'color' ? '#000000' : '') : f.value;
+    if (typeof value === 'string') value = value.slice(0, 10_000);
     if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') fail(`Field “${name}” has an invalid value.`);
     return {
       name,

@@ -282,6 +282,19 @@ describe('scripting API host', () => {
     expect(((await host.call('layers.get', [id, p.id])) as { parentId: string }).parentId).toBe(inner.id);
     host.finish();
   });
+  it('keeps the texts of script dialogs to a readable length', async () => {
+    const e = mockEditor();
+    const seen: { fields?: { options?: [string, string][]; value: unknown }[]; prompt?: string } = {};
+    const u = { ...ui(), form: async (_t: string, fields: never) => ((seen.fields = fields), null), prompt: async (_m: string, v: string) => ((seen.prompt = v), null) };
+    const host = new ScriptHost(e as unknown as Editor, u, 'Dialogs');
+    const huge = 'x'.repeat(1_000_000);
+    await host.call('ui.form', ['T', [{ name: 's', type: 'select', options: [huge, [huge, huge]] }, { name: 't', value: huge }]]);
+    expect(Math.max(...seen.fields![0].options!.flat().map((o) => o.length))).toBeLessThanOrEqual(200);
+    expect(String(seen.fields![1].value).length).toBeLessThanOrEqual(10_000);
+    await host.call('ui.prompt', ['Q', huge]);
+    expect(seen.prompt!.length).toBeLessThanOrEqual(10_000);
+    host.finish();
+  });
   it('lists layers top to bottom with children after their group', () => {
     const doc = newDocument(10, 10);
     const a = newPixelLayer('A', doc),
