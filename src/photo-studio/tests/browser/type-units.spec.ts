@@ -31,3 +31,23 @@ test('Paragraph and Character fields follow the type unit, with limits in that u
   await size.press('Enter');
   await expect.poll(async () => (await defaults()).style.size).toBeCloseTo(1296.5 * 72 / 300, 6);
 });
+
+test.describe('phone width', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+  test('the commit and cancel buttons stay visible in the options bar while editing', async ({ page }) => {
+    await boot(page);
+    await openImage(page, 400, 300, '#ffffff');
+    await tool(page, 'Horizontal Type Tool');
+    const [cx, cy] = await page.evaluate(() => window.photoStudio.clientPoint(100, 100));
+    await page.mouse.click(cx, cy);
+    await idle(page);
+    const bar = (await page.locator('#tool-options').boundingBox())!;
+    for (const name of ['Commit text', 'Cancel editing']) {
+      const b = (await page.locator('#tool-options').getByRole('button', { name }).boundingBox())!;
+      expect(b.x).toBeGreaterThanOrEqual(bar.x - 0.5);
+      expect(b.x + b.width).toBeLessThanOrEqual(bar.x + bar.width + 0.5);
+    }
+    await page.locator('#tool-options').getByRole('button', { name: 'Cancel editing' }).click();
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession())).toBe(false);
+  });
+});
