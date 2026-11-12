@@ -2,7 +2,13 @@
 // with latent effects (lookahead limiters, FFT effects) is latency-compensated
 // like the multitrack engine's track racks, at any wet/dry mix.
 import { describe, it, expect } from 'vitest';
-import { ChunkStore, renderBlock, createScratch, CHUNK } from '../src/engine/mixcore.js';
+import {
+  ChunkStore,
+  renderBlock,
+  createScratch,
+  graphLength,
+  CHUNK,
+} from '../src/engine/mixcore.js';
 import { FxHost } from '../src/engine/fxhost.js';
 import { createRack, fitSlots, makeSlot, decorateGraph } from '../src/effects/rack.js';
 import { Channel } from '../src/audio/channel.js';
@@ -85,6 +91,13 @@ describe('waveform Effects Rack latency compensation', () => {
     const L = render(fileGraph(rackWith({ mix: 0.5 })));
     expect(peaks(L)).toEqual([IMPULSE]);
     expect(Math.abs(L[IMPULSE])).toBeGreaterThan(0.4); // wet and dry add up in one peak
+  });
+  it('keeps the end of the content where the file ends', () => {
+    // Playing to the end follows graph changes (engine setGraph): switching on a latent
+    // effect while the file plays must not move the end earlier and cut off its last frames.
+    for (const rack of [createRack(), rackWith(), rackWith({ mix: 0.5 })]) {
+      expect(graphLength(fileGraph(rack).graph)).toBe(RATE);
+    }
   });
   it('adds no delay with the limiter switched off or the rack powered off', () => {
     const off = { ...createRack(), slots: fitSlots([makeSlot('hardLimiter', LIMITER, false)]) };

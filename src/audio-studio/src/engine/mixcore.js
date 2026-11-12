@@ -866,9 +866,15 @@ export function createScratch(frames = QUANTUM) {
   };
 }
 
-/** Timeline frame where the graph's last clip ends. */
+/**
+ * Timeline frame where the graph's last clip ends (where it is heard: a
+ * latency-compensated track reads its clips `latency + envShift` frames early).
+ */
 export function graphLength(graph) {
   let end = 0;
-  for (const t of graph.tracks) for (const c of t.clips) end = Math.max(end, c.start + c.length);
+  for (const t of graph.tracks) {
+    const ahead = t.clips.length ? Math.max(0, Math.round(t.latency || 0)) + (t.envShift || 0) : 0;
+    for (const c of t.clips) end = Math.max(end, c.start + c.length + ahead);
+  }
   return end;
 }
