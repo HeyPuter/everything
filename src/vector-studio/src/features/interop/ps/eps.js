@@ -55,7 +55,8 @@ export function dscInfo(ps) {
       const m = re.exec(s);
       if (m && !/atend/.test(m[0])) {
         const v = m[1].trim().split(/\s+/).map(Number);
-        if (v.length === 4 && v.every(Number.isFinite) && v[2] > v[0] && v[3] > v[1]) return { x: v[0], y: v[1], w: v[2] - v[0], h: v[3] - v[1] };
+        // Boxes past 1,000,000 pt (damaged or hostile files) would make an artboard the canvas cannot show.
+        if (v.length === 4 && v.every((n) => Number.isFinite(n) && Math.abs(n) <= 1e6) && v[2] > v[0] && v[3] > v[1]) return { x: v[0], y: v[1], w: v[2] - v[0], h: v[3] - v[1] };
       }
     }
     return null;
