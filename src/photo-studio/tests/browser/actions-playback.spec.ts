@@ -51,3 +51,35 @@ test('an adjustment confirmed in its dialog replays its settings without the dia
   await expect(page.locator('dialog[open]')).toHaveCount(0);
   expect(await layerPixel(page, 5, 5)).toEqual(recorded);
 });
+
+test('Shadows/Highlights and Replace Color replay their recorded settings', async ({ page }) => {
+  await openImage(page, 40, 30, '#c83c32', 'a.png');
+  await newAction(page, 'Replace');
+  await start(page, 'adjust.replace-color');
+  const dialog = page.locator('dialog.adj-dialog[open]');
+  await expect(dialog).toBeVisible();
+  const hue = dialog.getByRole('spinbutton', { name: 'Hue value' });
+  await hue.fill('120');
+  await hue.press('Tab');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await idle(page);
+  await start(page, 'adjust.shadows-highlights');
+  await expect(dialog).toBeVisible();
+  const amount = dialog.getByRole('spinbutton', { name: 'Shadows Amount value' });
+  await amount.fill('80');
+  await amount.press('Tab');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await idle(page);
+  await run(page, 'actions.stop');
+  const recorded = await layerPixel(page, 5, 5);
+  const steps = await recordedSteps(page);
+  expect(steps).toMatchObject([
+    { command: 'adjust.replace-color', arg: { params: { hue: 120, color: '#c83c32' } } },
+    { command: 'adjust.shadows-highlights', arg: { params: { shadowsAmount: 80 } } },
+  ]);
+
+  await openImage(page, 40, 30, '#c83c32', 'b.png');
+  await play(page);
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  expect(await layerPixel(page, 5, 5)).toEqual(recorded);
+});

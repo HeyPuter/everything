@@ -273,14 +273,35 @@ export async function applyAdjustment(e: Editor, kind: AdjustmentKind, params: R
 
 // ----- Parameter dialogs (operations that are not adjustment kinds) -----
 
-export async function operationDialog(e: Editor, op: { id: string; label: string; params: ParamSpec[] }, extra?: (body: HTMLElement, values: ParamValues, changed: () => void, pick: () => Promise<[number, number, number] | null>) => void) {
+/** Settings from an action step or a script, checked against the operation's
+ * parameters; anything missing or out of range falls back to the default. */
+function operationValues(specs: ParamSpec[], given: Record<string, unknown>): ParamValues {
+  const out: ParamValues = {};
+  for (const s of specs) {
+    const v = given[s.key];
+    if (s.type === 'number') out[s.key] = typeof v === 'number' && Number.isFinite(v) ? Math.min(s.max, Math.max(s.min, v)) : s.default;
+    else if (s.type === 'checkbox') out[s.key] = typeof v === 'boolean' ? v : s.default;
+    else if (s.type === 'select') out[s.key] = typeof v === 'string' && s.options.some((o) => o.value === v) ? v : s.default;
+    else if (s.type === 'color') out[s.key] = typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : s.default;
+    else out[s.key] = s.default;
+  }
+  return out;
+}
+
+/** An operation's dialog; with `given` settings (actions, scripts) it applies them directly. */
+export async function operationDialog(e: Editor, op: { id: string; label: string; params: ParamSpec[] }, extra?: (body: HTMLElement, values: ParamValues, changed: () => void, pick: () => Promise<[number, number, number] | null>) => void, given?: Record<string, unknown>) {
+  const context = (): OperationContext => ({ foreground: hexRgb(e.color), background: hexRgb(e.background), scale: 1 });
+  if (given) {
+    const v = operationValues(op.params, given);
+    await applyToLayer(e, op.label.replace(/…$/, ''), (image) => operationInWorker(image, op.id, v, context()));
+    return;
+  }
   const target = await pixelTarget(e, { create: false });
   if (!target) return;
   const src = readTarget(e, target);
   if (!src) return e.message('The layer is empty.');
   const shell = openShell(e, op.label.replace(/…$/, ''));
   const values: ParamValues = Object.fromEntries(op.params.map((p) => [p.key, p.default]));
-  const context = (): OperationContext => ({ foreground: hexRgb(e.color), background: hexRgb(e.background), scale: 1 });
   const schedule = latest();
   const refresh = () => {
     if (!shell.preview.checked) return;
@@ -321,6 +342,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
   if (!ok) return;
   const v = { ...values };
   await applyToLayer(e, op.label.replace(/…$/, ''), (image) => operationInWorker(image, op.id, v, context()));
+  recordStep(e, op.id, { params: v });
 }
 
 /** Sampled-color control for Replace Color: swatch, color field and eyedropper. */

@@ -105,16 +105,18 @@ export function registerDestructiveCommands(e: Editor) {
     id: 'adjust.shadows-highlights',
     label: 'Shadows/Highlights…',
     enabled: canAdjust,
-    run: async (ed) => (await dialogs()).operationDialog(ed, op('adjust.shadows-highlights')),
+    run: async (ed, arg) => (await dialogs()).operationDialog(ed, op('adjust.shadows-highlights'), undefined, paramsOf(arg)),
     prefetch: dialogs.prefetch,
   });
+  deferRecording('adjust.shadows-highlights');
+  deferRecording('adjust.replace-color');
   registerCommand({
     id: 'adjust.replace-color',
     label: 'Replace Color…',
     enabled: canAdjust,
-    run: async (ed) => {
+    run: async (ed, arg) => {
       const m = await dialogs();
-      return m.operationDialog(ed, op('adjust.replace-color'), m.sampledColorControl('color'));
+      return m.operationDialog(ed, op('adjust.replace-color'), m.sampledColorControl('color'), paramsOf(arg));
     },
     prefetch: dialogs.prefetch,
   });
