@@ -10,7 +10,7 @@ import { selectionBounds } from '../../model/geometry.js';
 import { svgToDocumentAsync, svgToNodes, svgToNodesAsync } from './svg-import.js';
 import { withProgress } from './progress.js';
 import { editorSVG, exportSVG } from './svg-export.js';
-import { writePDF } from './pdf.js';
+import { writePDF, textBeyondStandardFonts } from './pdf.js';
 import { rasterExport, renderRegion } from './raster.js';
 import { collectTextOutlines, normalizeTextOutlines } from './outlines.js';
 import { imageNodeData, reportWarnings, placeFile, placeSVG, placeText } from './place.js';
@@ -83,7 +83,10 @@ export async function pdf(app, editor, opts = {}) {
     rects = idx.map((i) => doc.artboards[i]).filter(Boolean);
   }
   const wantOutlines = opts.textOutlines !== false && Boolean(app.textOutlines);
-  const outlines = wantOutlines ? await collectTextOutlines(app, doc, ids || doc.root.children, { images: true }) : null;
+  // The standard fonts have only Western characters: type with others is outlined anyway.
+  const roots = ids || doc.root.children;
+  const pick = wantOutlines ? roots : app.textOutlines ? textBeyondStandardFonts(doc, roots) : [];
+  const outlines = pick.length ? await collectTextOutlines(app, doc, pick, { images: true }) : null;
   const { bytes } = await writePDF(doc, rects, { bleed: opts.bleed || 0, ids, outlines, outlinesWanted: wantOutlines, title: opts.title || doc.name, background: opts.background });
   return bytes;
 }

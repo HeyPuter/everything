@@ -4,7 +4,7 @@
  * `app.exporters`.
  */
 import { editorSVG } from './svg-export.js';
-import { writePDF } from './pdf.js';
+import { writePDF, textBeyondStandardFonts } from './pdf.js';
 import { rasterExport, exportRegion } from './raster.js';
 import { collectTextOutlines } from './outlines.js';
 import { selectionBounds } from '../../model/geometry.js';
@@ -59,11 +59,17 @@ export function artworkBounds(doc) {
   return selectionBounds(doc, ids, true);
 }
 
-/** Text outlines Map for a region when the user wants outlines and the type module supports it. */
-export async function outlinesFor(app, editor, ids, wanted) {
-  if (!wanted || !app.textOutlines) return null;
+/**
+ * Text outlines Map for a region when the user wants outlines and the type module supports it.
+ * PDF text kept as text is written with the standard fonts, which have only Western characters:
+ * with `pdf`, type with other characters is outlined anyway.
+ */
+export async function outlinesFor(app, editor, ids, wanted, { pdf = false } = {}) {
+  if (!app.textOutlines) return null;
   const roots = ids || editor.doc.root.children;
-  const map = await collectTextOutlines(app, editor.doc, roots, { images: true });
+  const pick = wanted ? roots : pdf ? textBeyondStandardFonts(editor.doc, roots) : [];
+  if (!pick.length) return null;
+  const map = await collectTextOutlines(app, editor.doc, pick, { images: true });
   return map.size ? map : null;
 }
 
@@ -181,7 +187,7 @@ export async function renderFile(app, editor, format, region, options = {}) {
   if (format === 'pdf') {
     const rects = region.rects || [exportRegion(editor, region).rect];
     const ids = region.ids || (region.selection ? exportRegion(editor, region).ids : null);
-    const outlines = await outlinesFor(app, editor, ids, options.textOutlines !== false);
+    const outlines = await outlinesFor(app, editor, ids, options.textOutlines !== false, { pdf: true });
     const wo = pdfWriterOptions(app, doc, options);
     const { bytes, warnings } = await writePDF(doc, rects, { ...wo, bleed: pdfBleed(doc, options), ids, outlines, outlinesWanted: options.textOutlines !== false && Boolean(app.textOutlines), title: options.title || doc.name });
     // PDF/X files are checked after writing; problems are reported with the other warnings.
