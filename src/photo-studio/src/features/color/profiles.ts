@@ -232,7 +232,10 @@ export function docCmykProfile(doc: PhotoDocument): Profile {
   return profileFromRef('builtin:generic-coated-cmyk');
 }
 export function docGrayProfile(doc: PhotoDocument): Profile {
-  const ref = doc.mode === 'grayscale' && doc.modeData?.profile ? doc.modeData.profile : colorSettings().gray;
+  // Duotones keep the gray profile they were made with: their inks apply in
+  // that gray encoding, so the look must not follow the working gray.
+  const own = (doc.mode === 'grayscale' || doc.mode === 'duotone') && doc.modeData?.profile;
+  const ref = own || colorSettings().gray;
   try {
     const p = profileFromRef(ref);
     if (p.colorSpace === 'GRAY') return p;
