@@ -195,6 +195,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
     },
     deactivate: (e) => {
       closePopover?.(false);
+      endStroke(e, id);
       e.screenOverlayContent = '';
       e.screenOverlay();
       delete e.settings.numberKey;
@@ -290,6 +291,14 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
     },
     ...extra,
   };
+}
+/** Another tool or document is taking over mid-stroke: the stroke is stored
+ * in the document it was painted in (a stroke still starting is dropped). */
+function endStroke(e: Editor, id: string) {
+  const a = active;
+  if (!a) return;
+  if (a.session) finish(e, a, id);
+  else active = undefined;
 }
 function addSample(e: Editor, a: Active, p: CanvasPointer) {
   const s = brushFor(e.tool);

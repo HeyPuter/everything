@@ -120,6 +120,10 @@ export function artHistoryTool(): Tool {
       e.screenOverlayContent = '';
       e.screenOverlay();
       delete e.settings.numberKey;
+      // A stroke in progress is stored in its own document first.
+      const d = drag;
+      if (d?.session) finish(e, d);
+      else drag = undefined;
     },
     pointerDown: async (e, p) => {
       const d: Drag = { color: [0, 0, 0], travelled: 0, seed: (Math.random() * 2 ** 31) | 0, queue: [[p.x, p.y]], done: false };

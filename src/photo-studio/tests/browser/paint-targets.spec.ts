@@ -333,3 +333,61 @@ test('Quick Mask strokes, entering and leaving are undoable steps', async ({ pag
   await expect(history).toContainText('Edit in Quick Mask Mode');
   await expect(history).toContainText('Brush Tool');
 });
+
+for (const id of ['brush', 'healing-brush', 'spot-healing', 'quick-mask']) {
+  test(`switching documents mid-stroke keeps the ${id} stroke in its own document`, async ({ page }) => {
+    // beforeEach opened gray.png; open a second document.
+    await openImage(page, 200, 120, '#404040', 'second.png');
+    const show = (name: string) =>
+      page.evaluate(async (name) => {
+        const e = window.photoStudio;
+        const s = e.sessions.find((x) => x.doc.name === name)!;
+        await e.showView(e.viewsOf(s).at(-1)!);
+      }, name);
+    await show('gray');
+    await idle(page);
+    // A red bar under the stroke gives the healing tools something to change.
+    await page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { writeRect } = await import('/src/model/tiles.ts');
+      const { setLayerPixels } = await import('/src/model/pixel-layer.ts');
+      const data = new Uint8ClampedArray(120 * 20 * 4);
+      for (let i = 0; i < data.length; i += 4) data.set([230, 20, 20, 255], i);
+      const l = e.doc.layers[0];
+      const grid = writeRect(e.assets.tiles, l.pixels!, 40, 50, { width: 120, height: 20, data });
+      e.command('Red Bar', (d) => setLayerPixels(d.layers[0], grid, d));
+    });
+    await idle(page);
+    const tool = id === 'quick-mask' ? 'brush' : id;
+    await page.evaluate(async ({ id, tool }) => {
+      const e = window.photoStudio;
+      if (id === 'quick-mask') await e.runCommand('select.quick-mask');
+      e.setTool(tool);
+      e.activeTool!.brush?.set(e, { size: 20, smoothing: 0 });
+      e.setForeground('#ffffff');
+    }, { id, tool });
+    await idle(page);
+    if (id === 'healing-brush') {
+      const src = await client(page, 20, 20);
+      await page.keyboard.down('Alt');
+      await page.mouse.click(...src);
+      await page.keyboard.up('Alt');
+      await idle(page);
+    }
+    const before = await page.evaluate(() => window.photoStudio.sessions.map((s) => s.history.labels.length));
+    await page.mouse.move(...(await client(page, 40, 60)));
+    await page.mouse.down();
+    await page.mouse.move(...(await client(page, 100, 60)), { steps: 5 });
+    // A second pointer (or a script) shows the other document mid-stroke.
+    await show('second');
+    await page.mouse.move(...(await client(page, 160, 60)), { steps: 5 });
+    await page.mouse.up();
+    await idle(page);
+    const after = await page.evaluate(() =>
+      window.photoStudio.sessions.map((s) => ({ name: s.doc.name, steps: s.history.labels.length, quick: !!s.doc.quickMask })),
+    );
+    // The stroke is one step in the first document; the second is untouched.
+    expect(after[0]).toMatchObject({ name: 'gray', steps: before[0] + 1, quick: id === 'quick-mask' });
+    expect(after[1]).toMatchObject({ name: 'second', steps: before[1], quick: false });
+  });
+}

@@ -88,6 +88,12 @@ const cloneTool = (): Tool => {
       base.activate?.(e);
       warmSource(e, sampleMode(e, 'clone'));
     },
+    deactivate: (e, reason) => {
+      // A stroke still preparing its source never starts.
+      clonePreparing = undefined;
+      cloneStroke = undefined;
+      return base.deactivate?.(e, reason);
+    },
     pointerDown: async (e, p) => {
       if (p.alt) {
         await setSource(e, p.x, p.y, 'clone');

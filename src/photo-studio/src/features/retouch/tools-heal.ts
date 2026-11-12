@@ -86,9 +86,16 @@ function collectingTool(base: Omit<Tool, 'pointerDown' | 'pointerMove' | 'pointe
     ...base,
     cursor: () => 'none',
     hover: (e, p) => cursor(e, base.id, p),
-    deactivate: (e, reason) => {
+    deactivate: async (e, reason) => {
       e.screenOverlayContent = '';
       e.screenOverlay();
+      // A stroke in progress is applied to its own document first.
+      const s = current.s;
+      if (s && !s.done) {
+        s.done = true;
+        if (s.ready) await end(e, s);
+        else current.s = undefined;
+      }
       return base.deactivate?.(e, reason);
     },
     pointerDown: async (e, p) => {
@@ -115,7 +122,7 @@ function collectingTool(base: Omit<Tool, 'pointerDown' | 'pointerMove' | 'pointe
     },
     pointerUp: async (e) => {
       const s = current.s;
-      if (!s) return;
+      if (!s || s.done) return;
       s.done = true;
       if (s.ready) await end(e, s);
     },
@@ -321,9 +328,15 @@ const healingBrushTool: Tool = {
     cursor(e, HEAL, p);
     if (activeSource()) e.overlay();
   },
-  deactivate: (e) => {
+  deactivate: async (e) => {
     e.screenOverlayContent = '';
     e.screenOverlay();
+    // A stroke in progress is applied to its own document first.
+    const st = healStroke;
+    if (!st || st.done) return;
+    st.done = true;
+    if (st.session) await finishHealing(e);
+    else healStroke = undefined;
   },
   keyDown: (e, ev) => {
     if (ev.key === 'Escape' && healStroke?.session) {
