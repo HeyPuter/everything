@@ -226,3 +226,23 @@ test('the Smudge tool drags color along the stroke', async ({ page }) => {
   // Red reaches the end of the stroke; beyond it the white is untouched.
   expect(green).toEqual([30, 30, 255]);
 });
+
+test('painting refuses a layer inside a hidden group', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { layer } = await import('/src/model/document.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const inner = newPixelLayer('Inner', e.doc);
+    const group = layer('group', 'Hidden Group', e.doc.width, e.doc.height);
+    group.visible = false;
+    group.children = [inner];
+    e.command('New Group', (d) => d.layers.push(group));
+    e.selected = inner.id;
+  });
+  await idle(page);
+  const before = await page.evaluate(() => window.photoStudio.history.labels.length);
+  await tool(page, 'Brush Tool');
+  await canvasDrag(page, [[50, 60], [120, 60]]);
+  await expect(page.locator('#status')).toHaveText('The target layer is in a hidden group. Show the group to paint on it.');
+  expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(before);
+});

@@ -155,6 +155,10 @@ export async function pixelTarget(e: Editor, opts: { allowMask?: boolean; create
     e.message('The target layer is hidden. Show it to paint on it.');
     return;
   }
+  if (inHiddenGroup(e.doc.layers, l.id)) {
+    e.message('The target layer is in a hidden group. Show the group to paint on it.');
+    return;
+  }
   if (l.kind !== 'pixel') {
     if (layerLock(e.doc.layers, l.id, 'all')) {
       e.message('Unlock this layer to rasterize it.');
@@ -176,6 +180,14 @@ export async function pixelTarget(e: Editor, opts: { allowMask?: boolean; create
   // Destructive edits keep the rendered result and drop the filter list (see setLayerPixels).
   if (l.liveFilters) e.message('Editing pixels rasterizes this layer’s Live Filters (undo restores them).');
   return { kind: 'pixels', layer: l, grid: l.pixels! };
+}
+/** True when a group containing the layer is hidden. */
+function inHiddenGroup(layers: Layer[], id: string, hidden = false): boolean | undefined {
+  for (const l of layers) {
+    if (l.id === id) return hidden;
+    const found = inHiddenGroup(l.children, id, hidden || !l.visible);
+    if (found !== undefined) return found;
+  }
 }
 export function nextLayerName(doc: PhotoDocument) {
   let n = 1;
