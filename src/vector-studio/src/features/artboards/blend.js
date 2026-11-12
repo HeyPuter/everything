@@ -120,7 +120,7 @@ export function replaceSpine(doc, blendId, pathId) {
 /**
  * Reverse Spine (inside a transaction): the keys trade places along the
  * spine (front key to the start, back key to the end, and so on); a spine
- * path is reversed with them.
+ * path is reversed with them (a closed one keeps its start point).
  */
 export function reverseSpine(doc, blendId) {
   const g = doc.get(blendId);
@@ -131,7 +131,9 @@ export function reverseSpine(doc, blendId) {
   const moves = new Map();
   if (spine) {
     const before = pathSampler(spine.anchors, spine.closed);
-    const anchors = reverseAnchors(spine.anchors);
+    let anchors = reverseAnchors(spine.anchors);
+    // A closed spine keeps its start point (where the first and last keys meet).
+    if (spine.closed) anchors = [anchors[anchors.length - 1], ...anchors.slice(0, -1)];
     const after = pathSampler(anchors, spine.closed);
     doc.update(spine.id, { anchors });
     keys.forEach((k, i) => {

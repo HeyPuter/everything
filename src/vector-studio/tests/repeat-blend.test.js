@@ -111,6 +111,42 @@ describe('blend spine', () => {
     expect(nodeBounds(s2.doc, s2.doc.get(s2.b)).x).toBeCloseTo(0);
   });
 
+  it('reverses a closed spine: the keys trade places on the same loop', () => {
+    const doc = VDocument.create({ width: 600, height: 600 });
+    const layer = doc.layers()[0].id;
+    const red = { fill: solid('#ff0000'), stroke: null };
+    const keys = [0, 1, 2].map((i) => createPath(rectangle(i * 100, 300, 20, 20), true, red));
+    // A closed square spine starting at its top-left corner (100, 100).
+    const square = [anchor(100, 100), anchor(300, 100), anchor(300, 300), anchor(100, 300)];
+    const line = { fill: null, stroke: solid('#000000'), strokeWidth: 1 };
+    const spine = createPath(square, true, line);
+    let g;
+    doc.transact('add', () => {
+      for (const k of keys) doc.insert(k, layer);
+      doc.insert(spine, layer);
+      g = makeBlend(doc, keys.map((k) => k.id), { spacing: 'steps', steps: 2 });
+    });
+    doc.transact('spine', () => replaceSpine(doc, g, spine.id));
+    const center = (id) => {
+      const b = nodeBounds(doc, doc.get(id));
+      return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    };
+    const before = keys.map((k) => center(k.id));
+    // The first and last keys sit where the loop starts and ends, the middle one half way round.
+    expect(before[0]).toEqual({ x: 100, y: 100 });
+    expect(before[1].x).toBeCloseTo(300);
+    expect(before[1].y).toBeCloseTo(300);
+    doc.transact('rev', () => reverseSpine(doc, g));
+    const after = keys.map((k) => center(k.id));
+    for (let i = 0; i < 3; i++) {
+      expect(after[i].x).toBeCloseTo(before[2 - i].x);
+      expect(after[i].y).toBeCloseTo(before[2 - i].y);
+    }
+    // The loop keeps its start point and runs the other way round.
+    const rev = doc.get(spine.id).anchors;
+    expect(rev.map((p) => [p.x, p.y])).toEqual([[100, 100], [100, 300], [300, 300], [300, 100]]);
+  });
+
   it('releases the spine with its paint and drops it on expand', () => {
     const { doc, g, spine, layer } = setup();
     doc.transact('spine', () => replaceSpine(doc, g, spine));
