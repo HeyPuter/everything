@@ -115,7 +115,8 @@ export class TrackHeader {
     this.body = h('div.mt-th-body', this.rowName, this.rowLevel, this.rowIo, this.rowFx, this.rowSends, this.rowEq, this.rowAuto);
     this.el = h(
       `div.mt-th${isMaster ? '.master' : ''}${isBus ? '.bus' : ''}`,
-      { role: 'group', dataset: { id: this.id }, onpointerdown: () => doc.selectTrack(this.id) },
+      // Focus selects the track too, so keyboard users act on the track they are in, as a click does.
+      { role: 'group', dataset: { id: this.id }, onpointerdown: () => doc.selectTrack(this.id), onfocusin: () => doc.selectTrack(this.id) },
       this.colorBtn,
       this.body,
       this.meter.el,

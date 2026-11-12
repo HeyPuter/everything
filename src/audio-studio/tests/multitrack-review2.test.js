@@ -170,3 +170,37 @@ describe('session templates with buses of the same name', () => {
     expect(b2.output).toBe('master');
   });
 });
+
+describe('keyboard focus in track headers and Mixer strips', () => {
+  it('selects the track, as a click does', async () => {
+    HTMLCanvasElement.prototype.getContext = () => null;
+    if (!globalThis.ResizeObserver) {
+      globalThis.ResizeObserver = class {
+        observe() {}
+        disconnect() {}
+      };
+    }
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { installMultitrack } = await import('../src/features/multitrack.js');
+    const { Session } = await import('../src/model/session.js');
+    const { mixerPanel } = await import('../src/panels/mixer.js');
+    const app = new App();
+    installCore(app);
+    installMultitrack(app);
+    app.syncGraph = () => {};
+    const doc = new Session({ name: 'K.asesx', sampleRate: 48000, tracks: 3 });
+    app.addDocument(doc);
+    const view = app.documentKinds.get('session').view(app, doc);
+    const mixer = mixerPanel(app);
+    document.body.replaceChildren(view.el, mixer.el);
+    mixer.show();
+    const [t0, t1, t2] = doc.state.tracks.map((t) => t.id);
+    expect(doc.selectedTrack).toBe(t0);
+    view.headers.get(t1).volNum.focus();
+    expect(doc.selectedTrack).toBe(t1);
+    mixer.el.querySelector(`.mx-strip[data-id="${t2}"] .mx-fader`).focus();
+    expect(doc.selectedTrack).toBe(t2);
+  });
+});
