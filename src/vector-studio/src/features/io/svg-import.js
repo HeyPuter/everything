@@ -17,7 +17,7 @@
 import { UserError } from '../../lib/errors.js';
 import { VDocument } from '../../model/document.js';
 import { createPath, createCompound, createGroup, createText, createImage, createLayer, DEFAULT_CHAR, DEFAULT_PARA, LAYER_COLORS } from '../../model/nodes.js';
-import { transformAnchors, pathBounds } from '../../model/bezier.js';
+import { transformAnchors, pathBounds, pathLength } from '../../model/bezier.js';
 import { rectangle, ellipse as ellipseAnchors } from '../../model/shapes.js';
 import { nodeBounds, unionRect, transformRect, inflate as inflateRect } from '../../model/geometry.js';
 import { multiply, invert, apply, decompose, identity, translate, rotate, scale as scaleM } from '../../lib/matrix.js';
@@ -1559,7 +1559,6 @@ class Importer {
       if (nst.display === 'none') return;
       // baseline-shift is not inherited but nested shifts add up (positive = up, like riseOf).
       const rise = isRoot ? 0 : parentRise + baselineShiftOf(nst['baseline-shift'], nst['font-size']);
-      if (node.localName === 'textPath') this.warn('Text on a path was imported as straight text.');
       const fs = nst['font-size'] || 16;
       const x = first(node.getAttribute('x'), ctx.vw, fs);
       const y = first(node.getAttribute('y'), ctx.vh, fs);
@@ -1711,8 +1710,75 @@ class Importer {
       });
       ids.push(this.add(node));
     }
+    const onPath = this.textPathOf(el);
+    if (onPath) {
+      if (ids.length === 1 && !this.nodes.get(ids[0]).text.includes('\n') && this.toPathType(ids[0], onPath, st, items[0].width)) return ids;
+      this.warn('Text on a path was imported as straight text.');
+    }
     if (ids.length === 1) return ids;
     return [this.add(createGroup(ids))];
+  }
+
+  /** The <textPath> of a text element whose content is all on it (null otherwise). */
+  textPathOf(el) {
+    let tp = null;
+    for (const child of el.childNodes) {
+      if (child.nodeType === 1 && child.localName === 'textPath' && !tp) tp = child;
+      else if (child.nodeType === 1 && !NON_ART.has(child.localName)) return null;
+      else if ((child.nodeType === 3 || child.nodeType === 4) && /\S/.test(child.nodeValue || '')) return null;
+    }
+    return tp;
+  }
+
+  /**
+   * Make an imported text object type on a path: the textPath's path (its
+   * href target, with that element's transform, or its own path data),
+   * startOffset and text-anchor (middle centers the text on the offset,
+   * end ends it there) and side="right" (the path reversed).
+   */
+  toPathType(id, tp, st, width) {
+    let subpaths = null;
+    const own = tp.getAttribute('path');
+    if (own) subpaths = parsePathData(own);
+    else {
+      const ref = (hrefOf(tp).match(/#(.+)$/) || [])[1];
+      const target = ref ? this.ids.get(decodeURIComponent(ref)) : null;
+      if (!target || !SHAPE_TAGS.has(target.localName)) return false;
+      subpaths = this.geometry(target, target.localName, { vw: this.vw, vh: this.vh }).subpaths;
+      const tf = target.getAttribute('transform');
+      if (tf && subpaths?.length) subpaths = subpaths.map((sp) => ({ ...sp, anchors: transformAnchors(sp.anchors, parseTransform(tf)) }));
+    }
+    const sp = subpaths?.[0];
+    if (!sp || sp.anchors.length < 2) return false;
+    const L = pathLength(sp.anchors, sp.closed);
+    if (!(L > 0)) return false;
+    const tst = this.computeStyle(tp, st);
+    const off = String(tp.getAttribute('startOffset') || '0').trim();
+    let at = /%$/.test(off) ? (parseFloat(off) / 100) * L : parseLength(off, { fontSize: tst['font-size'] || 16, fallback: 0 });
+    if (!Number.isFinite(at)) at = 0;
+    const anchor = String(tst['text-anchor'] || 'start').trim();
+    let align = 'left';
+    let start = at;
+    if (anchor === 'middle') {
+      if (2 * at - L >= -1e-6) [align, start] = ['center', Math.max(0, 2 * at - L)];
+      else start = Math.max(0, at - width / 2);
+    } else if (anchor === 'end') {
+      if (Math.abs(at - L) < 1e-6) [align, start] = ['right', 0];
+      else start = Math.max(0, at - width);
+    }
+    const n = this.nodes.get(id);
+    const flip = String(tp.getAttribute('side') || '').trim() === 'right';
+    this.nodes.set(id, {
+      ...n,
+      kind: 'path',
+      x: sp.anchors[0].x,
+      y: sp.anchors[0].y,
+      pathAnchors: sp.anchors,
+      pathClosed: Boolean(sp.closed),
+      pathOptions: { effect: 'rainbow', align: 'baseline', start: Math.round(start * 1000) / 1000, ...(flip ? { flip: true } : {}) },
+      para: { ...n.para, align },
+    });
+    return true;
   }
 
   // ---- images ----

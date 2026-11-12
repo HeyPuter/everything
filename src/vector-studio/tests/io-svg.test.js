@@ -838,3 +838,24 @@ describe('SVG text positions in em', () => {
     expect(wide.x).toBe(40);
   });
 });
+
+describe('SVG text on a path', () => {
+  it('imports as type on a path with its offset, anchor and side', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="300" height="300">
+      <defs><path id="line" d="M0 0 H200" transform="translate(50 100)"/></defs>
+      <text font-size="20"><textPath xlink:href="#line" startOffset="50%" text-anchor="middle">Mid</textPath></text>
+      <text font-size="20"><textPath href="#line" startOffset="30" side="right">Two <tspan fill="#ff0000">runs</tspan></textPath></text>
+      <text font-size="20"><textPath path="M0 200 L100 200" text-anchor="end" startOffset="100%">End</textPath></text>
+      <text font-size="20"><textPath href="#missing">Lost</textPath></text>
+    </svg>`);
+    const [mid, two, end, lost] = doc.leaves();
+    expect(mid).toMatchObject({ kind: 'path', text: 'Mid', pathClosed: false, pathOptions: { start: 0, align: 'baseline' }, para: { align: 'center' } });
+    // The target's transform is part of the path.
+    expect(mid.pathAnchors.map((a) => [a.x, a.y])).toEqual([[50, 100], [250, 100]]);
+    expect(two).toMatchObject({ kind: 'path', text: 'Two runs', pathOptions: { start: 30, flip: true }, para: { align: 'left' } });
+    expect(two.runs.some((r) => r.fill?.color === '#ff0000')).toBe(true);
+    expect(end).toMatchObject({ kind: 'path', pathOptions: { start: 0 }, para: { align: 'right' } });
+    expect(lost.kind).toBe('point');
+    expect(doc.importWarnings).toEqual(['Text on a path was imported as straight text.']);
+  });
+});
