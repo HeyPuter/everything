@@ -607,6 +607,7 @@ export class ScriptHost {
       if (o.fill !== undefined) {
         const [r, g, b] = color(o.fill, 'fill');
         const area = opt(o.rect, rect) ?? canvasRect(doc);
+        if (area.width * area.height > 24_000_000) fail('Fill at most 24 megapixels at once.');
         const data = new Uint8ClampedArray(area.width * area.height * 4);
         for (let i = 0; i < data.length; i += 4) ((data[i] = r), (data[i + 1] = g), (data[i + 2] = b), (data[i + 3] = 255));
         setLayerPixels(l, writeRect(s.assets.tiles, emptyGrid(4), area.x, area.y, { width: area.width, height: area.height, data }), doc);

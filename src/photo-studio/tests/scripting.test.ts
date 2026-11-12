@@ -247,6 +247,9 @@ describe('scripting API host', () => {
     await expect(host.call('constructor', [])).rejects.toThrow('Unknown API method');
     await expect(host.call('layers.create', [id, { kind: 'pixel', opacity: 'high' }])).rejects.toThrow('opacity must be a finite number');
     await expect(host.call('layers.set', [id, 'missing', {}])).rejects.toThrow('no longer exists');
+    // A filled area is limited like a read, before anything is allocated (30000 × 30000 was 3.6 GB).
+    await expect(host.call('layers.create', [id, { fill: '#ff0000', rect: { x: 0, y: 0, width: 6000, height: 6000 } }])).rejects.toThrow('at most 24 megapixels');
+    expect(e.doc.layers).toHaveLength(1);
     await expect(host.call('documents.get', ['nope'])).rejects.toThrow('no longer open');
     await expect(host.call('layers.set', [id, e.doc.layers[0].id, { blendMode: 'sparkle' }])).rejects.toThrow('Unknown blend mode');
     expect(await host.call('ui.form', ['T', [{ name: 'n', type: 'number', value: 3 }, { name: 'c', type: 'checkbox' }]])).toEqual({ n: 3, c: false });
