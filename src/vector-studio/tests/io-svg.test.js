@@ -815,3 +815,13 @@ describe('SVG transform-box', () => {
     for (const [k, want] of Object.entries({ x: 80, y: 100, w: 20, h: 40 })) close(v[k], want, 1e-6);
   });
 });
+
+describe('SVG switch', () => {
+  it('skips branches for languages the user does not read', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <switch><rect systemLanguage="xx-YY" width="10" height="10" fill="#ff0000"/><rect systemLanguage="" width="10" height="10" fill="#0000ff"/><rect width="10" height="10" fill="#00ff00"/></switch>
+      <switch><rect systemLanguage="xx, ${navigator.language.split('-')[0]}" width="10" height="10" fill="#00ff00"/><rect width="10" height="10" fill="#ff0000"/></switch>
+    </svg>`);
+    expect(doc.leaves().map((n) => n.fill.color)).toEqual(['#00ff00', '#00ff00']);
+  });
+});

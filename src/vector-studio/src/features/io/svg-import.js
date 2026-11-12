@@ -110,6 +110,17 @@ function hrefOf(el) {
   return el.getAttribute('href') || el.getAttributeNS?.(XLINK, 'href') || el.getAttribute('xlink:href') || '';
 }
 
+/** A systemLanguage test (null when absent): one of the listed languages is a user language, or a user language's prefix. */
+function languageMatches(attr) {
+  if (attr == null) return true;
+  const user = (typeof navigator !== 'undefined' && navigator.languages?.length ? navigator.languages : [typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en']).map((l) => String(l).toLowerCase());
+  return attr
+    .split(',')
+    .map((l) => l.trim().toLowerCase())
+    .filter(Boolean)
+    .some((l) => user.some((u) => u === l || l.startsWith(`${u}-`) || u.startsWith(`${l}-`)));
+}
+
 const VARS = Symbol('custom properties');
 
 /** Substitute var(--name[, fallback]) references; null when one has no value and no fallback. */
@@ -486,7 +497,7 @@ class Importer {
       case 'switch': {
         for (const child of el.children) {
           // Like browsers, no extensions are supported (the editor-private branches of exporters).
-          if (child.hasAttribute('requiredExtensions')) continue;
+          if (child.hasAttribute('requiredExtensions') || !languageMatches(child.getAttribute('systemLanguage'))) continue;
           const r = this.convert(child, { ...ctx, ctm: M, style: st });
           if (r.length) {
             ids = r;
