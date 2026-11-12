@@ -335,6 +335,11 @@ export function amplitudePanel(app) {
           progress.setAttribute('aria-valuenow', String(Math.round(f * 100)));
         },
       });
+      if (app.active !== doc) {
+        // Another file became active during the scan (which cleared the results).
+        caption.textContent = '';
+        return;
+      }
       const n = state.channels.length;
       const names = n === 1 ? ['Mono'] : state.channels.map((_, i) => NAMES[i] || `Channel ${i + 1}`);
       const title = `${doc.name}, ${selectionOnly && doc.hasSelection ? `selection ${app.formatTime(start)} to ${app.formatTime(end)}` : 'entire file'}`;
