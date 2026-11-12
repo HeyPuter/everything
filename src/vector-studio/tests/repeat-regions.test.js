@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import { installCanvasStub, bootAppWithFeatures } from './helpers.js';
 import { VDocument } from '../src/model/document.js';
-import { createPath } from '../src/model/nodes.js';
+import { createPath, createGroup } from '../src/model/nodes.js';
 import { rectangle, ellipse } from '../src/model/shapes.js';
 import { anchor } from '../src/model/bezier.js';
 import { liveArtwork, expandLive, isLive } from '../src/model/live.js';
@@ -199,6 +199,33 @@ describe('paint regions tools and commands', () => {
   });
 
   const add = (node) => addTo(doc, node);
+
+  it('the bucket leaves regions outside the isolated group alone', async () => {
+    const white = { fill: solid('#ffffff'), stroke: black };
+    const a = add(createPath(rectangle(100, 100, 100, 100), true, white));
+    const b = add(createPath(rectangle(150, 150, 100, 100), true, white));
+    app.editor.select([a, b]);
+    await app.commands.run('paintRegions.make');
+    const g = app.editor.topSelection()[0];
+    const other = createGroup([]);
+    doc.transact('group', () => {
+      doc.insert(other, doc.layers()[0].id);
+      doc.insert(createPath(rectangle(500, 500, 10, 10), true), other.id);
+    });
+    app.commands.run('object.isolate', { id: other.id });
+    app.setTool('paint-bucket');
+    app.editor.setStyle({ fill: solid('#ff0000') });
+    const steps = doc.undoStack.length;
+    app.tool.onPointerDown(ev(app, 175, 175));
+    app.tool.onPointerUp(ev(app, 175, 175));
+    expect(fillAt(doc, g, 175, 175).color).toBe('#ffffff');
+    expect(doc.undoStack.length).toBe(steps);
+    // Isolating the regions group itself paints it.
+    app.commands.run('object.isolate', { id: g });
+    app.tool.onPointerDown(ev(app, 175, 175));
+    app.tool.onPointerUp(ev(app, 175, 175));
+    expect(fillAt(doc, g, 175, 175).color).toBe('#ff0000');
+  });
 
   it('Make from the menu shortcut command, then paint with the bucket', async () => {
     const a = add(createPath(rectangle(100, 100, 100, 100), true, { fill: solid('#ffffff'), stroke: black }));
