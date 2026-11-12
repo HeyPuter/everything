@@ -96,7 +96,7 @@ export class PenTool extends Tool {
     this.drag = null;
     const p = this.pathId ? this.doc?.get(this.pathId) : null;
     // A lone anchor is not a path: remove it.
-    if (p && p.anchors.length < 2) this.doc.transact('Delete', () => this.doc.remove(p.id));
+    if (p && p.anchors.length < 2) dropLoneAnchor(this.doc, p.id);
     this.pathId = null;
     this.cursorPt = null;
     this.overlay();
@@ -366,6 +366,25 @@ export class PenTool extends Tool {
   }
 }
 
+/**
+ * Remove a path that never got past its first anchor. When the last undo
+ * step is the click that made it (nothing changed since), that step is
+ * taken back instead of recording a deletion, which Undo would turn back
+ * into an invisible one-point path.
+ */
+function dropLoneAnchor(doc, id) {
+  const last = doc.undoStack[doc.undoStack.length - 1];
+  const made = last && last.before.has(id) && last.before.get(id) === undefined;
+  const untouched = made && last.after.get(id) === doc.get(id) && last.rev === doc.revision;
+  if (untouched && !doc.tx && !doc.redoStack.length) {
+    doc.undo();
+    doc.redoStack.length = 0;
+    doc.emit('history');
+    return;
+  }
+  doc.transact('Delete', () => doc.remove(id));
+}
+
 /** Remove an anchor; deleting below two anchors removes the path. */
 export function deleteAnchor(editor, path, index) {
   const doc = editor.doc;
@@ -553,7 +572,7 @@ export class CurvatureTool extends Tool {
     if (this.drag?.tx) this.drag.tx.commit();
     this.drag = null;
     const p = this.pathId && this.doc?.get(this.pathId);
-    if (p && p.anchors.length < 2) this.doc.transact('Delete', () => this.doc.remove(p.id));
+    if (p && p.anchors.length < 2) dropLoneAnchor(this.doc, p.id);
     this.pathId = null;
     this.corners = [];
     this.overlay();
