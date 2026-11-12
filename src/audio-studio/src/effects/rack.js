@@ -253,7 +253,8 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
     if (!slot) return chooser(i);
     if (onEdit) return onEdit(i, slot);
     const def = getEffect(slot.effect);
-    if (!def) return;
+    // An effect that is not available has no settings: offer to replace or remove it.
+    if (!def) return chooser(i);
     await openEffectDialog(app, def, {
       mode: 'edit',
       values: slot.values,

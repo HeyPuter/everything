@@ -694,6 +694,21 @@ describe('rack slot list focus', () => {
     expect(document.activeElement).toBe(row(0).querySelector('.rack-name'));
     ed.el.remove();
   });
+  it('offers to replace or remove an effect that is not available when its slot is opened', async () => {
+    const app = fakeApp();
+    let menu = null;
+    app.openMenu = (items) => (menu = items);
+    let slots = [rackSlot('noSuchEffect')];
+    const ed = createRackEditor({ app, getSlots: () => slots, setSlots: (next) => (slots = next) });
+    document.body.append(ed.el);
+    const name = ed.el.querySelector('.rack-name');
+    expect(name.textContent).toMatch(/not available/);
+    name.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(menu?.find((it) => it.label === 'Remove Effect')).toBeTruthy();
+    expect(menu.find((it) => it.label === 'Edit Effect...').enabled).toBe(false);
+    ed.el.remove();
+  });
   it('leaves the focus in the settings dialog that adding an effect opens', async () => {
     const app = fakeApp();
     app.prefs.set('fxOpenOnAdd', true);
