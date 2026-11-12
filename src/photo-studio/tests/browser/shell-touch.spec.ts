@@ -161,3 +161,18 @@ test.describe('on a 375×812 phone', () => {
     await expect(dialog).toHaveCount(0);
   });
 });
+
+test.describe('on a 375×812 phone, Layer Style', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+  test('the contour row shows all of Anti-aliased', async ({ page }) => {
+    await start(page, 'layer.style-bevel');
+    const dialog = page.locator('dialog.layer-style-dialog[open]');
+    const label = dialog.locator('.fx-contour .fx-inline').first();
+    await expect(label).toBeVisible();
+    // Not cut off by the scrolling settings pane.
+    const [l, pane] = [(await label.boundingBox())!, (await dialog.locator('.ls-panel').boundingBox())!];
+    expect(l.x + l.width).toBeLessThanOrEqual(pane.x + pane.width);
+    expect(await dialog.locator('.ls-panel').evaluate((p) => p.scrollWidth - p.clientWidth)).toBe(0);
+    await page.keyboard.press('Escape');
+  });
+});

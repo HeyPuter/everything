@@ -1457,6 +1457,8 @@ dialog.gradient-editor { width: min(560px, calc(100vw - 24px)); max-width: none;
   .ls-list { max-height: 160px; }
   .fx-row { grid-template-columns: 96px minmax(60px, 1fr) 54px 18px; }
   .fx-row.fx-check, .fx-row.fx-buttons { padding-left: 0; }
+  /* The contour's Anti-aliased box moves under the picker instead of past the edge. */
+  .fx-row .fx-contour { flex-wrap: wrap; }
 }
 /* ----- transform ----- */
 .ts-frame { stroke: #356faa; fill: none; pointer-events: none; }
