@@ -275,6 +275,9 @@ export function scriptAPI(app, editor, name) {
     },
     command: async (id) => {
       if (!app.commands.get(id)) throw new Error(`Unknown command "${id}".`);
+      // Commands act on the active document: make it the script's again if another tab was chosen.
+      if (!app.editors.includes(editor)) throw new Error('The document the script runs on was closed.');
+      if (app.editor !== editor) app.activate(editor);
       await app.commands.run(id);
       changes++;
       asOneStep();

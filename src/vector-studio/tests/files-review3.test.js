@@ -296,3 +296,36 @@ describe('recovery copies', () => {
     expect(recoverableEntries(await store.list(), new Set(), 'next-session')).toHaveLength(0);
   });
 });
+
+describe('scripts and tabs', () => {
+  it('a menu command a script runs acts on its document after another tab is chosen', async () => {
+    const app = await bootAppWithFeatures();
+    const ed = app.newDocument({ name: 'Script doc' });
+    const doc = ed.doc;
+    const a = createPath(rectangle(0, 0, 10, 10), true);
+    const b = createPath(rectangle(20, 0, 10, 10), true);
+    doc.transact('add', () => {
+      doc.insert(a, ed.targetLayer().id);
+      doc.insert(b, ed.targetLayer().id);
+    });
+    const { api } = scriptAPI(app, ed, 'Group');
+    api.select([a.id, b.id]);
+    // The user opens another document while the script runs.
+    const other = app.newDocument({ name: 'Other' });
+    const c = createPath(rectangle(0, 0, 10, 10), true);
+    const d = createPath(rectangle(20, 0, 10, 10), true);
+    other.doc.transact('add', () => {
+      other.doc.insert(c, other.targetLayer().id);
+      other.doc.insert(d, other.targetLayer().id);
+    });
+    other.select([c.id, d.id]);
+    expect(app.editor).toBe(other);
+    await api.command('object.group');
+    expect(doc.get(doc.get(a.id).parent).type).toBe('group');
+    expect(other.doc.get(c.id).parent).toBe(other.targetLayer().id);
+    // A closed document cannot take commands.
+    await app.closeDocument(other, { force: true });
+    const third = scriptAPI(app, other, 'Late').api;
+    await expect(third.command('object.group')).rejects.toThrow(/closed/);
+  });
+});
