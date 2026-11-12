@@ -773,6 +773,10 @@ describe('SVG masks with gray levels', () => {
     expect(artPaths).toHaveLength(1);
     expect(pathBounds(artPaths[0].anchors, true).x).toBeCloseTo(15, 3);
     expect(back.importWarnings).toEqual([]);
+    // Further round trips write the same file (the mask art doesn't gain a group each time).
+    const again = exportSVG(back, { rect: { x: 0, y: 0, w: 200, h: 100 } });
+    expect(exportSVG(svgToDocument(again), { rect: { x: 0, y: 0, w: 200, h: 100 } })).toBe(again);
+    expect(nodes[0].opacityMask.art.nodes.filter((n) => n.type === 'group').length).toBeLessThanOrEqual(1);
   });
 });
 

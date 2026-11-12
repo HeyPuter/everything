@@ -1432,7 +1432,10 @@ class Importer {
       // Nothing in the mask: the object is hidden (or shown when outside counts as white).
       return clip ? [] : ids;
     }
-    const art = this.add(createGroup(artIds));
+    // One plain group in the mask (how the export writes mask art) is the art's root itself, so round trips don't nest.
+    const lone = artIds.length === 1 ? this.nodes.get(artIds[0]) : null;
+    const plain = lone?.type === 'group' && !lone.clip && !lone.name && (lone.opacity ?? 1) === 1 && !lone.effects?.length && (!lone.blendMode || lone.blendMode === 'normal') && !lone.opacityMask;
+    const art = plain ? lone.id : this.add(createGroup(artIds));
     const list = [];
     const take = (id, parent) => {
       const n = this.nodes.get(id);
