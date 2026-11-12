@@ -770,3 +770,30 @@ describe('clip effect chains on 5.1 tracks', () => {
     expect(g2.clips[0].start).toBeLessThan(10000);
   });
 });
+
+describe('grid snapping in the multitrack editor', () => {
+  it('snaps to the first sample of a video frame or beat', async () => {
+    const { formatTime } = await import('../src/lib/time.js');
+    const { app, doc } = await appWithSession();
+    const view = app.documentKinds.get('session').view(app, doc);
+    view.width = 1000;
+    view.height = 600;
+    view.computeRows();
+    doc.setView(0, RATE * 2);
+    app.prefs.set('snapping', true);
+    app.prefs.set('snap', { frames: true });
+    for (const format of ['smpte2997', 'smpte2398', 'smpte5994df']) {
+      app.prefs.set('timeFormat', format);
+      const den = format === 'smpte2398' ? 24000 : format === 'smpte2997' ? 30000 : 60000;
+      for (let k = 1; k < 40; k++) {
+        const boundary = (k * RATE * 1001) / den;
+        const f = view.snap(boundary + 0.3);
+        expect(f).toBe(Math.ceil(boundary - 1e-4));
+        expect(formatTime(f, RATE, format)).not.toBe(formatTime(f - 1, RATE, format));
+        // Moving clip edges snap to the same sample.
+        const sn = view.snapDelta([boundary + 0.3], new Set(), false);
+        expect(boundary + 0.3 + sn.delta).toBe(Math.ceil(boundary - 1e-4));
+      }
+    }
+  });
+});

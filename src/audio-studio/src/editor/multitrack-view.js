@@ -36,6 +36,11 @@ const HEADER_BAR = 16;
 const AUTO_H = 46;
 const MIN_ROW = 28;
 const EDGE = 5;
+/**
+ * The first sample at or after a grid line between samples (a video frame or beat): the
+ * time display rounds down, so the nearest sample could show as the previous frame.
+ */
+const firstSampleOf = (frame) => Math.ceil(frame - 1e-4);
 /** Size of the stretch handles in a clip's top corners (Move tool, global clip stretching on). */
 const STRETCH_HANDLE = 10;
 /** Longest remix the right edge of a remixed clip can ask for (seconds). */
@@ -411,7 +416,7 @@ export class MultitrackView {
       for (const m of this.doc.state.markers) if (m.id !== exclude) consider(m.start);
       consider(0);
     }
-    if (bestD === tol) for (const step of this.gridSteps()) consider(Math.round(Math.round(frame / step) * step));
+    if (bestD === tol) for (const step of this.gridSteps()) consider(firstSampleOf(Math.round(frame / step) * step));
     return Math.round(best);
   }
 
@@ -432,7 +437,7 @@ export class MultitrackView {
     const tol = this.fpp * 8;
     let best = { delta: 0, at: null, d: tol };
     const targets = this.snapTargets(exclude);
-    for (const step of this.gridSteps()) for (const e of edges) targets.push(Math.round(Math.round(e / step) * step));
+    for (const step of this.gridSteps()) for (const e of edges) targets.push(firstSampleOf(Math.round(e / step) * step));
     for (const e of edges) {
       for (const t of targets) {
         const d = Math.abs(t - e);
