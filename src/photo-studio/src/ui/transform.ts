@@ -89,7 +89,14 @@ export class FreeTransform {
   private replayingPick = false;
   private abortPicks?: () => void;
   private guides: MoveGuides = {};
-  snapping = true;
+  /** View > Snap (remembered with the other view settings). */
+  get snapping() {
+    return this.e.preferences.snap !== false;
+  }
+  set snapping(on: boolean) {
+    this.e.preferences.snap = on;
+    this.e.savePreferences();
+  }
   proportional = true;
   constructor(private e: Editor) {
     // Tiles of pixels being moved survive tile cleanup until they are put back.

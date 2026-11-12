@@ -64,3 +64,13 @@ test('View > Snap off lets a Free Transform move go anywhere', async ({ page }) 
   // …and with View > Snap off it stays where it was dropped.
   expect(await drag()).toBeCloseTo(149, 0);
 });
+
+test('View > Snap is remembered after a reload', async ({ page }) => {
+  await run(page, 'view.snap');
+  expect(await page.evaluate(() => window.photoStudio.transform.snapping)).toBe(false);
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  expect(await page.evaluate(() => window.photoStudio.transform.snapping)).toBe(false);
+  await run(page, 'view.snap');
+  expect(await page.evaluate(() => window.photoStudio.transform.snapping)).toBe(true);
+});
