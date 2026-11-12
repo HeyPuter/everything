@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Office Hub — open Documents, Spreadsheet, Presentation, and PDF apps. Installable PWA for Android and desktop." />
+    <meta name="theme-color" content="#5b4bdb" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <link rel="apple-touch-icon" href="icon-128.png" />
+    <title>Office Hub</title>
+  </head>
+  <body>
+    <div id="app">
+      <div class="brand">
+        <img src="icon-128.png" width="32" height="32" alt="" />
+        <h1>Office Hub</h1>
+      </div>
+      <p class="lead">
+        One place to launch Everything’s office apps — Documents, Spreadsheet, Presentation, and PDF —
+        and route files by extension. Install this page as an app on Android (Chrome → Install app / Add to Home screen).
+      </p>
+      <div class="actions">
+        <label class="btn" style="display:inline-block">
+          Open file…
+          <input id="file" type="file" hidden />
+        </label>
+      </div>
+      <p id="status" role="status"></p>
+      <div id="apps"></div>
+      <details class="help">
+        <summary>About / #31</summary>
+        <p>
+          Addresses <a href="https://github.com/HeyPuter/everything/issues/31">#31</a> (WPS-like office on Android)
+          via an installable web hub over the existing suite. A single &gt;500&nbsp;MB native Android APK bundling
+          Collabora/LibreOffice engines is <strong>out of scope</strong> for this monorepo’s Vite apps (blocked on
+          packaging model); format depth lives in each linked app.
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
