@@ -719,3 +719,26 @@ describe('closing a session while it records', () => {
     expect(app.documents.some((d) => d.kind === 'audio' && d.length === 4096)).toBe(true);
   });
 });
+
+describe('closing a session during a long command', () => {
+  it('does not reopen it when merging clips finishes', async () => {
+    const { app, doc } = await appWithSession();
+    const other = new Session({ name: 'Other.asesx', sampleRate: RATE, tracks: 1 });
+    app.addDocument(other);
+    app.activate(doc);
+    const src = doc.addSource({
+      name: 'dc.wav',
+      channels: [Channel.fromSamples(new Float32Array(RATE).fill(0.25))],
+    });
+    const t = doc.state.tracks[0].id;
+    const a = S.createClip({ trackId: t, sourceId: src, start: 0, length: 1000 });
+    const b = S.createClip({ trackId: t, sourceId: src, start: 1000, length: 1000 });
+    doc.apply('Add', S.addClips(doc.state, [a, b]));
+    doc.selectClips([a.id, b.id]);
+    const merging = app.commands.run('clip.merge');
+    await app.closeDocument(doc, { force: true });
+    await merging;
+    expect(app.active).toBe(other);
+    expect(app.documents).not.toContain(doc);
+  });
+});

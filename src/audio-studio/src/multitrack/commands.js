@@ -48,6 +48,8 @@ const selTrack = (app, args) => {
   return S.findTrack(doc.state, args?.id || doc.selectedTrack);
 };
 const view = (app) => app.currentView?.();
+/** False once a session was closed (while a command awaited audio work): it must not be reopened. */
+const isOpen = (app, doc) => app.documents.includes(doc);
 const audioDoc = (app) => (app.active?.kind === 'audio' ? app.active : null);
 
 const COLOR_NAMES = ['Green', 'Blue', 'Amber', 'Red', 'Violet', 'Cyan', 'Pink', 'Lime', 'Orange', 'Indigo', 'Olive', 'Slate'];
@@ -353,6 +355,7 @@ async function speechAlign(app, doc) {
     if (err?.name === 'AbortError') return;
     throw err;
   }
+  if (!isOpen(app, doc)) return;
   const file = new AudioFile({ name: app.uniqueName(`${o.unaligned.name} Aligned`, '.wav'), sampleRate: doc.sampleRate, channels: result.channels.map((d) => Channel.fromSamples(d)) });
   app.addDocument(file, { activate: false });
   app.activate(doc);
@@ -447,6 +450,7 @@ async function pasteClips(app, doc, clip) {
   if (clip.type === 'audio') {
     // Waveform audio becomes a new file in the Files panel and a clip.
     const channels = clip.sampleRate === doc.sampleRate ? clip.channels : await channelsAtRate(clip.channels, clip.sampleRate, doc.sampleRate);
+    if (!isOpen(app, doc)) return;
     const file = new AudioFile({ name: app.uniqueName('Pasted Audio', '.wav'), sampleRate: doc.sampleRate, channels });
     app.addDocument(file, { activate: false });
     app.activate(doc);
@@ -1062,6 +1066,7 @@ export function installMultitrackCommands(app) {
         const dry = { volume: 0, pan: 0, fx: [], mode: 'off', mute: false, solo: false, output: 'master', invert: false, eq: { on: false, values: {} }, sends: [] };
         const tmp = { ...doc.state, tracks: doc.state.tracks.map((t) => (t.id === trackId ? { ...t, ...dry } : t)) };
         const data = await renderSession(app, doc, { state: tmp, start: a, end: b, clipIds: graphClips, trackId, master: false, label: 'Merging clips' });
+        if (!isOpen(app, doc)) return;
         const file = renderedDoc(app, doc, data, `${clips[0].name} Merged`);
         app.addDocument(file, { activate: false });
         app.activate(doc);
@@ -1084,6 +1089,7 @@ export function installMultitrackCommands(app) {
         const doc = session(app);
         await stretchIdle(doc);
         await remixIdle(doc);
+        if (!isOpen(app, doc)) return;
         let state = doc.state;
         const made = [];
         for (const c of doc.clipSelection) {
