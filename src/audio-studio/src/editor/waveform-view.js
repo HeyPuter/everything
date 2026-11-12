@@ -7,7 +7,7 @@
 // view.layers entries { id, el, layout(rect), draw(), pointer(e, phase) }.
 
 import { h, announce } from '../lib/dom.js';
-import { TimeRuler, rulerTicks } from './time-ruler.js';
+import { TimeRuler, rulerTicks, rulerFps } from './time-ruler.js';
 import { Overview } from './overview.js';
 import { WaveformRenderer } from '../render/waveform-gl.js';
 import { channelColumns } from '../audio/peaks.js';
@@ -687,7 +687,8 @@ export class WaveformView {
     }
     const t0 = v.start / rate;
     const t1 = v.end / rate;
-    return rulerTicks(t0, t1, W).ticks.map((sec) => Math.round(((sec - t0) / (t1 - t0)) * W));
+    const { ticks } = rulerTicks(t0, t1, W, 70, rulerFps(this.app));
+    return ticks.map((sec) => Math.round(((sec - t0) / (t1 - t0)) * W));
   }
 
   #drawAmp() {

@@ -6,7 +6,7 @@
 //   host.seek(frame), host.moveMarker(id, start), host.renameMarker(id), host.snap(frame)
 
 import { h } from '../lib/dom.js';
-import { rulerStep, rulerLabel, formatTime, musicalStep } from '../lib/time.js';
+import { rulerStep, rulerLabel, formatTime, musicalStep, frameRateOf } from '../lib/time.js';
 import { cssVar, CANVAS_FONT } from '../ui/theme.js';
 import { markerColor } from '../ui/appearance.js';
 
@@ -27,13 +27,31 @@ export function minorStep(step) {
   return step / 2;
 }
 
-/** Labelled tick positions (seconds) for the view: { step, minor, ticks: [seconds...] }. */
-export function rulerTicks(t0, t1, width, minPx = 70) {
+/** Frame rate the ruler counts in for a timecode or custom-frames time format, else 0. */
+export function rulerFps(app) {
+  const format = app.prefs.get('timeFormat') || '';
+  if (format !== 'frames' && !format.startsWith('smpte')) return 0;
+  return frameRateOf(format, app.timeOptions?.() || {}).real;
+}
+
+/**
+ * Labelled tick positions (seconds) for the view: { step, minor, ticks: [seconds...] }.
+ * With a frame rate (timecode), ticks closer than a second fall on frames a whole number of
+ * frames apart, so their labels count up evenly instead of skipping frames unevenly.
+ */
+export function rulerTicks(t0, t1, width, minPx = 70, fps = 0) {
   if (!(t1 > t0) || width <= 0) return { step: 1, minor: 0.5, ticks: [] };
-  const step = rulerStep((t1 - t0) / width, minPx);
+  let step = rulerStep((t1 - t0) / width, minPx);
+  let minor = minorStep(step);
+  // (Zoomed in past a frame, ticks stay where they were: every label is then one frame.)
+  if (fps > 0 && step < 1 && step * fps > 1) {
+    const frames = Math.ceil(step * fps - 1e-9);
+    step = frames / fps;
+    minor = frames > 1 ? 1 / fps : step;
+  }
   const ticks = [];
   for (let s = Math.ceil(t0 / step - 1e-9) * step; s <= t1 + 1e-9; s += step) ticks.push(s || 0);
-  return { step, minor: minorStep(step), ticks };
+  return { step, minor, ticks };
 }
 
 export class TimeRuler {
@@ -178,7 +196,8 @@ export class TimeRuler {
     if (format === 'bars') {
       this.#drawMusical(t, W, H, textColor, tickColor, unitRight);
     } else {
-      const { step, minor, ticks } = rulerTicks(t0, t1, W);
+      const fps = rulerFps(this.app);
+      const { step, minor, ticks } = rulerTicks(t0, t1, W, 70, fps);
       ctx.fillStyle = tickColor;
       for (let s = Math.ceil(t0 / minor - 1e-9) * minor; s <= t1; s += minor) {
         const x = Math.round(((s - t0) / (t1 - t0)) * W) + 0.5;
@@ -188,10 +207,12 @@ export class TimeRuler {
         const x = Math.round(((s - t0) / (t1 - t0)) * W) + 0.5;
         ctx.fillStyle = tickColor;
         ctx.fillRect(x, H - 9, 1, 9);
+        // A tick on a frame reads as its first sample (the nearest can show the frame before).
+        const at = fps ? Math.ceil(s * rate - 1e-4) : Math.round(s * rate);
         const label =
           format === 'decimal' || format === 'compact'
             ? rulerLabel(Math.max(0, s), step)
-            : formatTime(Math.round(s * rate), rate, format, this.app.timeOptions?.() || {});
+            : formatTime(at, rate, format, this.app.timeOptions?.() || {});
         // Labels centre on their tick, kept inside the ruler.
         const lw = ctx.measureText(label).width;
         const lx = Math.min(W - lw - 1, x - lw / 2);

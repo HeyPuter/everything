@@ -321,3 +321,30 @@ describe('Markers panel', () => {
     view.destroy();
   });
 });
+
+describe('timecode ruler ticks', () => {
+  it('fall on whole frames, evenly apart, when closer than a second', async () => {
+    const { rulerTicks } = await import('../src/editor/time-ruler.js');
+    const { formatTime, timecodeToFrames, frameRateOf } = await import('../src/lib/time.js');
+    for (const format of ['smpte30', 'smpte2997', 'smpte25', 'smpte2398']) {
+      const fr = frameRateOf(format);
+      for (const [t0, t1] of [
+        [1, 1.2],
+        [10.05, 10.9],
+        [61.3, 63],
+      ]) {
+        const { ticks } = rulerTicks(t0, t1, 300, 70, fr.real);
+        expect(ticks.length).toBeGreaterThan(1);
+        const frames = ticks.map((s) => {
+          const text = formatTime(Math.ceil(s * 48000 - 1e-4), 48000, format);
+          const [h, m, sec, f] = text.split(/[:;]/).map(Number);
+          expect(Math.abs(s * fr.real - Math.round(s * fr.real))).toBeLessThan(1e-6);
+          return timecodeToFrames(h, m, sec, f, fr);
+        });
+        const gaps = new Set(frames.slice(1).map((f, i) => f - frames[i]));
+        expect(gaps.size).toBe(1);
+        expect([...gaps][0]).toBeGreaterThan(0);
+      }
+    }
+  });
+});
