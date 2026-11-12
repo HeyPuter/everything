@@ -22,7 +22,7 @@ import { geomEffectsOf, effectiveSubpaths, paintParts } from '../model/geom-effe
 import { liveDef, liveArtwork } from '../model/live.js';
 import '../model/live-effects.js';
 import { hasAppearanceStack, layerAppearanceArtwork } from '../model/appearance.js';
-import { rasterEffects, compositeWithEffects, regionPool, deviceRegion, effectsMargin } from './effects.js';
+import { rasterEffects, compositeWithEffects, regionPool, smallRegionPool, deviceRegion, effectsMargin } from './effects.js';
 
 const pathCache = new WeakMap();
 const compoundCache = new WeakMap();
@@ -582,6 +582,10 @@ function drawImage(ctx, doc, node, opts) {
   ctx.restore();
 }
 
+function plainPaint(p) {
+  return !p || p.type === 'solid' || p.type === 'linear' || p.type === 'radial';
+}
+
 /**
  * Draw one node. `opts`:
  *   viewRect   document-space rect to cull against (null = no culling)
@@ -619,7 +623,18 @@ export function drawNode(ctx, doc, node, opts) {
     // through each other and effects see the finished artwork.
     const region = deviceRegion(ctx, visualBounds(doc, node), fx ? effectsMargin(fx, opts.scale || 1) : undefined);
     if (!region) return;
-    const pool = regionPool;
+    // A small effected shape draws, blurs and composites faster in memory
+    // (effects.js); a drop shadow's own blur runs faster on the GPU beyond ~64 x 64 px.
+    const pool =
+      fx &&
+      !om &&
+      !grouped &&
+      node.type !== 'image' &&
+      region.w * region.h <= (fx.some((e) => e.type === 'dropShadow') ? 64 * 64 : 256 * 256) &&
+      plainPaint(node.fill) &&
+      plainPaint(node.stroke)
+        ? smallRegionPool
+        : regionPool;
     const layer = pool.acquire(region.w, region.h);
     const lctx = layer.ctx;
     const m = ctx.getTransform();

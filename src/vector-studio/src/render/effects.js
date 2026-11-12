@@ -295,10 +295,11 @@ export function compositeWithEffects(ctx, layer, effects, scale, pool, x = 0, y 
  * shadow cost grows with the area they process.
  */
 export class RegionPool {
-  constructor(limit = 24) {
+  constructor(limit = 24, contextOptions = undefined) {
     this.free = new Map();
     this.count = 0;
     this.limit = limit;
+    this.contextOptions = contextOptions;
   }
 
   acquire(w, h) {
@@ -319,7 +320,7 @@ export class RegionPool {
       c.clearRect(0, 0, W, H);
     } else {
       const canvas = makeCanvas(W, H);
-      layer = { canvas, ctx: canvas.getContext('2d'), key };
+      layer = { canvas, ctx: canvas.getContext('2d', this.contextOptions), key };
     }
     return layer;
   }
@@ -334,6 +335,13 @@ export class RegionPool {
 }
 
 export const regionPool = new RegionPool();
+
+/**
+ * Small layers kept in memory instead of on the GPU: copying a GPU layer
+ * onto the canvas costs a fixed ~50 µs, several times what drawing (and
+ * blurring) a small object and uploading its pixels costs.
+ */
+export const smallRegionPool = new RegionPool(24, { willReadFrequently: true });
 
 /**
  * Integer device-pixel region covering document rect `r` under ctx's
