@@ -120,10 +120,23 @@ export function remixClip(clip, settings, segments, derivedId) {
   };
 }
 
-/** The clip back on its original media and range (Revert Remix). */
+/**
+ * The clip back on its original media and range (Revert Remix). A clip that plays only part
+ * of its remix (split or trimmed) gets the same share of the original range, so the pieces of a
+ * split remix together hold the original once instead of each holding all of it.
+ */
 export function unremixClip(clip) {
   if (!clip.remix) return clip;
-  const { sourceId, offset, length } = clip.remix;
+  const { sourceId } = clip.remix;
+  let { offset, length } = clip.remix;
+  const total = remixLength(clip.remix.segments || []);
+  if (total > 0 && (clip.offset > 0 || clip.length < total)) {
+    const end = offset + length;
+    const a = Math.min(end - 1, offset + Math.round((clip.offset * length) / total));
+    const b = Math.min(end, offset + Math.round(((clip.offset + clip.length) * length) / total));
+    offset = a;
+    length = Math.max(1, b - a);
+  }
   return { ...clip, sourceId, offset, ...fitTo(clip, length), remix: null };
 }
 
