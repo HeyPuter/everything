@@ -143,6 +143,33 @@ describe('dialog chrome', () => {
     expect(await p).toBeNull();
   });
 
+  it('repeats an effect without its dialog through the channel map it was applied with', async () => {
+    const { installEffectCommands } = await import('../src/effects/commands.js');
+    const { rememberRoute } = await import('../src/effects/routing.js');
+    const { app, doc } = setup();
+    installEffectCommands(app);
+    const run = app.commands.run('fx.chromeTest');
+    const dlg = document.querySelector('.fx-dialog');
+    dlg.querySelector('.fx-map-btn').click();
+    const selects = dlg.querySelectorAll('.fx-chmap select');
+    // The right file channel stays unprocessed.
+    selects[3].value = '-1';
+    selects[3].dispatchEvent(new Event('change'));
+    dlg.querySelector('.btn.primary').click();
+    await run;
+    const at = (c) => doc.state.channels[c].toArray(10, 11)[0];
+    expect([at(0), at(1)]).toEqual([0.5, -0.5]);
+    await app.commands.run('fx.chromeTest', { repeat: true });
+    expect([at(0), at(1)]).toEqual([1, -0.5]);
+    // Applied with settings given directly (a favorite), it runs on every channel, and so
+    // does repeating that.
+    await app.commands.run('fx.chromeTest', { values: {} });
+    expect([at(0), at(1)]).toEqual([2, -1]);
+    await app.commands.run('fx.chromeTest', { repeat: true });
+    expect([at(0), at(1)]).toEqual([4, -2]);
+    rememberRoute('chromeTest', null);
+  });
+
   it('closes an open channel map or info popover on Escape before the dialog', async () => {
     const { app, doc } = setup();
     const p = openEffectDialog(app, getEffect('amplify'), { doc, routing: {} });
