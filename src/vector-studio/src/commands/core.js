@@ -15,6 +15,32 @@ const hasDoc = (app) => Boolean(app.editor);
 const hasSel = (app) => Boolean(app.editor?.selection.size);
 const selCount = (n) => (app) => (app.editor?.topSelection().length || 0) >= n;
 const selHas = (pred) => (app) => Boolean(app.editor?.selectedNodes().some(pred));
+/** Join acts on the open paths among the selected objects. */
+const canJoin = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  return e.memo('canJoin', () =>
+    e.topSelection().some((id) => {
+      const n = e.doc.get(id);
+      return n?.type === 'path' && !n.closed;
+    }),
+  );
+};
+/** Average needs two or more selected anchor points. */
+const canAverage = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  return e.memo('canAverage', () => {
+    let count = 0;
+    for (const id of e.selection) {
+      const n = e.doc.get(id);
+      if (n?.type !== 'path') continue;
+      count += e.anchors.get(id)?.size ?? n.anchors.length;
+      if (count >= 2) return true;
+    }
+    return false;
+  });
+};
 
 /** What Isolate acts on: a selected group, else a single selected object that is not already isolated. */
 function isolateTarget(app) {
@@ -193,8 +219,20 @@ export function registerCoreCommands(app) {
     { id: 'object.clipRelease', label: 'Release', shortcut: 'Alt+Mod+7', enabled: hasSel, run: () => O.releaseClipMask(ed()) },
     { id: 'object.compoundMake', label: 'Make', shortcut: 'Mod+8', enabled: hasSel, run: () => O.makeCompound(ed()) },
     { id: 'object.compoundRelease', label: 'Release', shortcut: 'Alt+Shift+Mod+8', enabled: selHas((n) => n.type === 'compound'), run: () => O.releaseCompound(ed()) },
-    { id: 'path.join', label: 'Join', shortcut: 'Mod+J', enabled: hasSel, run: () => O.join(ed()) },
-    { id: 'path.average', label: 'Average...', shortcut: 'Alt+Mod+J', enabled: hasSel, run: (a) => a.dialogs.average() },
+    {
+      id: 'path.join',
+      label: 'Join',
+      shortcut: 'Mod+J',
+      enabled: canJoin,
+      run: () => O.join(ed()),
+    },
+    {
+      id: 'path.average',
+      label: 'Average...',
+      shortcut: 'Alt+Mod+J',
+      enabled: canAverage,
+      run: (a) => a.dialogs.average(),
+    },
     { id: 'path.reverse', label: 'Reverse Path Direction', enabled: selHas((n) => n.type === 'path' || n.type === 'compound'), run: () => O.reversePaths(ed()) },
     {
       id: 'object.isolate',
@@ -354,7 +392,7 @@ export function registerCoreCommands(app) {
       id: 'path.averageJoin',
       label: 'Average & Join',
       shortcut: 'Alt+Shift+Mod+J',
-      enabled: hasSel,
+      enabled: (a) => canAverage(a) && canJoin(a),
       // One undo step: the nested transactions join this one.
       run: () =>
         ed().doc.transact('Average & Join', () => {
