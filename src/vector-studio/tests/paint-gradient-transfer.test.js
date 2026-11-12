@@ -134,3 +134,34 @@ describe('Gradient swatches made from a dragged gradient', () => {
     expect(doc.get(src).fill).toEqual(dragged);
   });
 });
+
+describe('Graphic styles made from a dragged gradient', () => {
+  it('fit each object they are applied to and stay linked to their source', async () => {
+    const { paintSetup } = await import('./panels-paint-helpers.js');
+    const { graphicStylesOf, linkedStyle, setGraphicStyles } =
+      await import('../src/features/paint/graphic-styles.js');
+    const { app, ed, doc, add, panel } = await paintSetup();
+    const src = add({ fill: dragged }, [0, 0, 100, 100]);
+    const dst = add({ fill: blue }, [400, 300, 200, 100]);
+    const gp = panel('graphicStyles');
+    app.dialogs.form = async () => ({ name: 'Dragged' });
+    ed.select([src]);
+    await gp.newStyle();
+    const gs = graphicStylesOf(doc).find((g) => g.name === 'Dragged');
+    expect(gs.style.fill).toEqual({ type: 'linear', angle: 0, stops });
+    expect(linkedStyle(doc, doc.get(src))?.id).toBe(gs.id);
+    ed.select([dst]);
+    gp.onClick(gs, {});
+    expect(doc.get(dst).fill).toEqual({ type: 'linear', angle: 0, stops });
+    expect(linkedStyle(doc, doc.get(dst))?.id).toBe(gs.id);
+    // Styles saved with end points by earlier versions apply the same way, also when added (Alt).
+    const old = { id: 'gs-old', name: 'Old', style: { fill: dragged } };
+    doc.transact('Add Style', () => setGraphicStyles(doc, [...graphicStylesOf(doc), old]));
+    gp.onClick(old, {});
+    expect(doc.get(dst).fill).toEqual({ type: 'linear', angle: 0, stops });
+    ed.select([dst]);
+    gp.apply(old, true);
+    expect(doc.get(dst).fill).toEqual({ type: 'linear', angle: 0, stops });
+    expect(doc.get(src).fill).toEqual(dragged);
+  });
+});

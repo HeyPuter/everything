@@ -122,6 +122,13 @@ function normPaint(p) {
   delete out.swatchId;
   delete out.cmyk;
   delete out.mode;
+  // Where a gradient was dragged on the object is not part of its style.
+  if (out.type === 'linear' || out.type === 'radial') {
+    delete out.x1;
+    delete out.y1;
+    delete out.x2;
+    delete out.y2;
+  }
   return out;
 }
 

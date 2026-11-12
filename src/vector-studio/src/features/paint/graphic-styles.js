@@ -15,7 +15,8 @@
  * opacity apply to the whole type object.
  */
 import { pickStyle } from '../../model/nodes.js';
-import { stackItems, itemPaint, itemStrokeAttrs, normalizeAppearance } from '../../model/appearance.js';
+import { stackItems, itemPaint, itemStrokeAttrs, normalizeAppearance, mapStackPaints } from '../../model/appearance.js';
+import { moveGradient } from '../../model/gradients.js';
 import { applyStyleDeep } from '../../tools/navigation.js';
 import { uid } from '../../lib/ids.js';
 import { createEffect } from './effects-model.js';
@@ -84,8 +85,26 @@ export function overridesCharColor(prefs) {
   return prefs?.get?.(OVERRIDE_CHAR_COLOR) !== false;
 }
 
+/**
+ * A style without gradient end points: they were dragged on the object
+ * the style came from (document coordinates), so the style's gradients
+ * fit each object they are applied to instead.
+ */
+export function portableStyle(style) {
+  if (!style) return style;
+  const out = { ...style };
+  for (const k of ['fill', 'stroke']) if (out[k]) out[k] = moveGradient(out[k]);
+  for (const k of ['appearance', 'groupAppearance']) {
+    const stack = out[k] && { type: 'group', appearance: out[k] };
+    const items = stack && mapStackPaints(stack, (p) => moveGradient(p));
+    if (items) out[k] = items;
+  }
+  return out;
+}
+
 /** Apply a graphic style to the top-level selection, linking it when `id` is given. */
 export function applyGraphicStyle(editor, style, id = null) {
+  style = portableStyle(style);
   const doc = editor.doc;
   const top = editor.topSelection().map((nid) => doc.get(nid)).filter((n) => n && n.type !== 'layer');
   editor.setStyle(structuredClone(style));
