@@ -618,11 +618,17 @@ export function average(editor, axis = 'both') {
 
 export function reversePaths(editor) {
   const { doc } = editor;
+  // Each path once, even when both it and its compound path are selected.
+  const paths = new Set();
+  for (const id of editor.selection) {
+    const n = doc.get(id);
+    if (n?.type === 'path') paths.add(id);
+    if (n?.type === 'compound') for (const c of n.children) paths.add(c);
+  }
   doc.transact('Reverse Path Direction', () => {
-    for (const id of editor.selection) {
+    for (const id of paths) {
       const n = doc.get(id);
       if (n?.type === 'path') doc.update(id, { anchors: reverseAnchors(n.anchors) });
-      if (n?.type === 'compound') for (const c of n.children) doc.update(c, { anchors: reverseAnchors(doc.get(c).anchors) });
     }
   });
 }
