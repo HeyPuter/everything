@@ -15,7 +15,7 @@ import { pickLocalFiles, saveDocument, downloadBlob } from '../storage/files.js'
 import { AUDIO_ACCEPT, VIDEO_EXTENSIONS, baseName } from '../audio/decode.js';
 import { videoClip } from '../model/session-video.js';
 import * as puter from '../storage/puter.js';
-import { insertDocs, insertFiles, linkSource, newTrack, channelsAtRate, placementOptions, freeTrackShift } from './insert.js';
+import { insertDocs, insertFiles, linkSource, newTrack, channelsAtRate, placementOptions, freeTrackShift, shownAudioTracks } from './insert.js';
 import { renderSession, renderedDoc, clipsRange } from './render.js';
 import { saveSession, exportSession, sessionZip } from './storage.js';
 import { prepareVideoBytes } from '../video/session-media.js';
@@ -403,7 +403,8 @@ async function targetSession(app, rate) {
 /** Clips cut/copied from a session: { type: 'clips', sampleRate, clips (relative), pool } */
 function clipboardFrom(doc, clips, range) {
   const t0 = range ? range[0] : Math.min(...clips.map((c) => c.start));
-  const audio = S.audioTracks(doc.state);
+  // Track offsets count shown tracks, as pasting does (clips never land on hidden tracks).
+  const audio = shownAudioTracks(doc.state);
   const idx = new Map(audio.map((t, i) => [t.id, i]));
   let parts = clips;
   if (range) {
@@ -435,7 +436,7 @@ function clipboardFrom(doc, clips, range) {
 async function pasteClips(app, doc, clip) {
   const at = doc.cursor;
   let state = doc.state;
-  const audio = () => S.audioTracks(state);
+  const audio = () => shownAudioTracks(state);
   let base = audio().findIndex((t) => t.id === doc.selectedTrack);
   if (base < 0) base = 0;
   const ids = [];

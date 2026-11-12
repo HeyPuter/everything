@@ -82,13 +82,16 @@ export function trackIsFree(state, trackId, start, end) {
   return !state.clips.some((c) => c.trackId === trackId && c.start < end && S.clipEnd(c) > start);
 }
 
+/** Audio tracks that are shown (not hidden): where inserted and pasted clips land. */
+export const shownAudioTracks = (state) => S.audioTracks(state).filter((t) => !t.hidden);
+
 /**
- * Smallest shift (in audio tracks, from 0) that lets clips placed at
+ * Smallest shift (in shown audio tracks, from 0) that lets clips placed at
  * `base + trackOffset` and times [start, end) land without overlapping
  * existing clips. Tracks past the end count as free (they get created).
  */
 export function freeTrackShift(state, base, spans) {
-  const audio = S.audioTracks(state);
+  const audio = shownAudioTracks(state);
   for (let k = 0; k < 1000; k++) {
     const ok = spans.every(({ trackOffset, start, end }) => {
       const t = audio[base + trackOffset + k];
@@ -117,7 +120,8 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
   if (!docs.length) return [];
   at = Math.max(0, Math.round(at ?? session.cursor));
   let state = session.state;
-  const audio = () => S.audioTracks(state);
+  // Clips never land on hidden tracks, where they could not be seen.
+  const audio = () => shownAudioTracks(state);
   // trackId null means "a new track"; undefined means the selected track.
   let index = trackId === null ? -1 : audio().findIndex((t) => t.id === (trackId ?? session.selectedTrack));
   const ids = [];

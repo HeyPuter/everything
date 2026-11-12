@@ -101,3 +101,69 @@ describe('merging clips', () => {
     expect(merged.length).toBe(8000);
   });
 });
+
+describe('pasting and inserting with hidden tracks', () => {
+  const dc = (doc) =>
+    doc.addSource({
+      name: 'dc.wav',
+      channels: [Channel.fromSamples(new Float32Array(RATE).fill(0.25))],
+    });
+
+  it('pastes clips copied from two tracks onto shown tracks only', async () => {
+    const { app, doc } = await appWithSession({ tracks: 4 });
+    const [t0, t1, t2, t3] = doc.state.tracks.map((t) => t.id);
+    const src = dc(doc);
+    const a = S.createClip({ trackId: t0, sourceId: src, start: 0, length: 1000 });
+    const b = S.createClip({ trackId: t2, sourceId: src, start: 0, length: 1000 });
+    doc.apply('Add', S.addClips(doc.state, [a, b]));
+    // Track 2 (between the two copied clips) is hidden: they sit on adjacent shown rows.
+    doc.amendView((st) => S.updateTrack(st, t1, { hidden: true }));
+    doc.selectClips([a.id, b.id]);
+    await app.commands.run('edit.copy');
+    doc.selectClips([]);
+    doc.selectTrack(t2);
+    doc.setCursor(RATE / 2);
+    await app.commands.run('edit.paste');
+    const pasted = doc.clipSelection;
+    expect(pasted.length).toBe(2);
+    // The top clip lands on the selected track, the other on the next shown track (not a hidden one).
+    expect(pasted.map((c) => c.trackId).sort()).toEqual([t2, t3].sort());
+  });
+
+  it('pastes onto the next shown track when the one below is hidden', async () => {
+    const { app, doc } = await appWithSession({ tracks: 3 });
+    const [t0, t1, t2] = doc.state.tracks.map((t) => t.id);
+    const src = dc(doc);
+    const a = S.createClip({ trackId: t0, sourceId: src, start: 0, length: 1000 });
+    const b = S.createClip({ trackId: t1, sourceId: src, start: 0, length: 1000 });
+    doc.apply('Add', S.addClips(doc.state, [a, b]));
+    doc.selectClips([a.id, b.id]);
+    await app.commands.run('edit.copy');
+    doc.amendView((st) => S.updateTrack(st, t1, { hidden: true }));
+    doc.selectClips([]);
+    doc.selectTrack(t0);
+    doc.setCursor(RATE);
+    await app.commands.run('edit.paste');
+    const pasted = doc.clipSelection;
+    expect(pasted.map((c) => c.trackId).sort()).toEqual([t0, t2].sort());
+    expect(pasted.every((c) => !S.findTrack(doc.state, c.trackId).hidden)).toBe(true);
+  });
+
+  it('inserts several files onto shown tracks only', async () => {
+    const { app, doc } = await appWithSession({ tracks: 3 });
+    const [t0, t1, t2] = doc.state.tracks.map((t) => t.id);
+    doc.amendView((st) => S.updateTrack(st, t1, { hidden: true }));
+    doc.selectTrack(t0);
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { insertDocs } = await import('../src/multitrack/insert.js');
+    const file = (name) =>
+      new AudioFile({
+        name,
+        sampleRate: RATE,
+        channels: [Channel.fromSamples(new Float32Array(1000).fill(0.1))],
+      });
+    const ids = await insertDocs(app, doc, [file('a.wav'), file('b.wav')], { at: 0 });
+    const tracks = ids.map((id) => S.findClip(doc.state, id).trackId);
+    expect(tracks).toEqual([t0, t2]);
+  });
+});
