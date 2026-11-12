@@ -136,12 +136,17 @@ export function createSessionState({ sampleRate = 48000, bitDepth = 32, tracks =
   let list;
   if (Array.isArray(template)) list = template.map((t, i) => createTrack({ color: TRACK_COLORS[i % TRACK_COLORS.length], ...t }));
   else list = Array.from({ length: tracks }, (_, i) => createTrack({ name: `Track ${i + 1}`, color: TRACK_COLORS[i % TRACK_COLORS.length] }));
-  // Template tracks may name a bus by its name for their output and sends.
+  // Template tracks may name a bus by its name for their output and sends; saved templates also
+  // give its position among the tracks (outputIndex, targetIndex), which tells same-named buses apart.
   const busId = (name) => list.find((b) => b.type === 'bus' && b.name === name)?.id;
-  for (const t of list) {
-    if (t.output !== 'master' && !list.some((b) => b.id === t.output)) t.output = busId(t.output) || 'master';
-    for (const x of t.sends) if (x.target && !list.some((b) => b.id === x.target)) x.target = busId(x.target) || null;
-  }
+  const busAt = (i, self) => (Number.isInteger(i) && list[i]?.type === 'bus' && list[i] !== self ? list[i].id : undefined);
+  list.forEach((t, i) => {
+    const raw = Array.isArray(template) ? template[i] : null;
+    if (t.output !== 'master' && !list.some((b) => b.id === t.output)) t.output = busAt(raw?.outputIndex, t) || busId(t.output) || 'master';
+    t.sends.forEach((x, k) => {
+      if (x.target && !list.some((b) => b.id === x.target)) x.target = busAt(raw?.sends?.[k]?.targetIndex, t) || busId(x.target) || null;
+    });
+  });
   return {
     sampleRate,
     bitDepth,

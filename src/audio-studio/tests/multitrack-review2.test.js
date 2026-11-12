@@ -149,3 +149,24 @@ describe('multitrack stylesheet', () => {
     expect(css).toMatch(/\.mx-eq-curve \{[^{}]*cursor: pointer;\s*\}/);
   });
 });
+
+describe('session templates with buses of the same name', () => {
+  it('keep each output and send on the bus it used', async () => {
+    const { templateFromState, stateFromTemplate } = await import('../src/multitrack/templates.js');
+    let s = S.createSessionState({
+      tracks: 0,
+      template: [{ name: 'Vox' }, { name: 'FX', type: 'bus' }, { name: 'FX', type: 'bus' }],
+    });
+    const [vox, fx1, fx2] = s.tracks;
+    s = S.updateTrack(s, vox.id, { output: fx2.id });
+    s = S.setSend(s, vox.id, 0, { target: fx2.id, level: -6 });
+    s = S.updateTrack(s, fx1.id, { output: fx2.id });
+    const t = JSON.parse(JSON.stringify(templateFromState(s, 'Dup')));
+    const n = stateFromTemplate(t, { sampleRate: 48000, bitDepth: 32, autoCrossfade: true });
+    const [v, b1, b2] = n.tracks;
+    expect(v.output).toBe(b2.id);
+    expect(v.sends[0].target).toBe(b2.id);
+    expect(b1.output).toBe(b2.id);
+    expect(b2.output).toBe('master');
+  });
+});
