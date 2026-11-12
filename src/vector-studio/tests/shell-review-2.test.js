@@ -324,3 +324,32 @@ describe('menu bar on touch screens', () => {
     expect(app.root.contains(document.activeElement)).toBe(true);
   });
 });
+
+describe('number field scrubbing', () => {
+  it('a cancelled pointer ends the scrub, so later pointer moves leave the value alone', async () => {
+    const { numberField } = await import('../src/ui/widgets.js');
+    const seen = [];
+    const f = numberField({
+      label: 'X',
+      kind: 'number',
+      value: 100,
+      onCommit: (v) => seen.push(v),
+    });
+    document.body.append(f.el);
+    const lab = f.el.querySelector('.num-label');
+    lab.setPointerCapture = () => {};
+    const pe = (type, x) => {
+      const e = new MouseEvent(type, { clientX: x, clientY: 5, bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'pointerId', { value: 1 });
+      lab.dispatchEvent(e);
+    };
+    pe('pointerdown', 10);
+    pe('pointermove', 30);
+    expect(seen).toEqual([110]);
+    pe('pointercancel', 30);
+    pe('pointermove', 60);
+    expect(seen).toEqual([110]);
+    expect(document.activeElement).not.toBe(f.input);
+    f.el.remove();
+  });
+});

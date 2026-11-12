@@ -190,13 +190,17 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
       current = v;
       onCommit?.(v, { live: true });
     };
-    const up = () => {
+    // A cancelled pointer (the browser taking a touch for scrolling) ends the scrub too:
+    // left listening, the next mouse pass over the label went on changing the value.
+    const up = (ev) => {
       lab.removeEventListener('pointermove', move);
       lab.removeEventListener('pointerup', up);
-      if (!moved) input.focus();
+      lab.removeEventListener('pointercancel', up);
+      if (!moved && ev.type === 'pointerup') input.focus();
     };
     lab.addEventListener('pointermove', move);
     lab.addEventListener('pointerup', up);
+    lab.addEventListener('pointercancel', up);
   });
   set(value);
   const el = h('div.num-field', lab, input);
