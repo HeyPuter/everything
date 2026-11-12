@@ -12,7 +12,7 @@ import {
   wholeStylePatch,
   paraStylePatch,
   rangeParaStyle,
-  paragraphIndexAt,
+  selectedParagraphs,
   paragraphRanges,
   replaceRange,
   RUN_KEYS,
@@ -91,7 +91,7 @@ export function currentParaStyle(app) {
     const node = s.node();
     if (!node) return null;
     const [a, b] = s.range();
-    return rangeParaStyle(node, paragraphIndexAt(node.text, a), paragraphIndexAt(node.text, b));
+    return rangeParaStyle(node, ...selectedParagraphs(node.text, a, b));
   }
   const ed = app.editor;
   const nodes = ed ? storyNodes(ed) : [];
@@ -159,8 +159,7 @@ export function applyParaStyle(app, patch, { label = 'Paragraph', coalesce = nul
     const node = s.node();
     if (!node) return;
     const [a, b] = s.range();
-    const p0 = paragraphIndexAt(node.text, a);
-    const p1 = paragraphIndexAt(node.text, b);
+    const [p0, p1] = selectedParagraphs(node.text, a, b);
     ed.doc.transact(label, () => ed.doc.update(node.id, paraStylePatch(node, p0, p1, patch)), { coalesce });
     s.changed();
     return;

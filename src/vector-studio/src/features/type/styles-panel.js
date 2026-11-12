@@ -12,7 +12,7 @@ import { Panel } from '../../ui/panels/panel.js';
 import { iconButton } from '../../ui/widgets.js';
 import { registerIcons } from '../../ui/icons.js';
 import { formatLength, parseLength, parseNumber } from '../../lib/units.js';
-import { paragraphIndexAt, paragraphRanges, rangeStyle, rangeParaStyle, styleAt, paraAt, MIXED } from '../../model/text-runs.js';
+import { paragraphIndexAt, paragraphRanges, selectedParagraphs, rangeStyle, rangeParaStyle, styleAt, paraAt, MIXED } from '../../model/text-runs.js';
 import { session, currentTextNodes, typeDefaults, applyCharStyle } from './type-ops.js';
 import { allFamilies, familyFaces, styleName } from './fonts.js';
 import {
@@ -86,7 +86,7 @@ export function currentStyleState(app, kind) {
       if (a === b && s.pending && 'charStyle' in s.pending) return { id: s.pending.charStyle || NORMAL, override: false, mode: t.mode };
       return { ...st, mode: t.mode };
     }
-    return { ...paraStyleState(lists, node, paragraphIndexAt(node.text, a), paragraphIndexAt(node.text, b)), mode: t.mode };
+    return { ...paraStyleState(lists, node, ...selectedParagraphs(node.text, a, b)), mode: t.mode };
   }
   let id;
   let override = false;
@@ -104,8 +104,7 @@ function restyleTarget(app, t, lists, { paraTarget = null, charTarget = null }) 
   const doc = app.editor.doc;
   if (t.mode === 'session') {
     const { node, a, b } = t;
-    const p0 = paragraphIndexAt(node.text, a);
-    const p1 = paragraphIndexAt(node.text, b);
+    const [p0, p1] = selectedParagraphs(node.text, a, b);
     const patch = restyleNode(node, {
       oldLists: lists,
       paraTarget: paraTarget ? (pi, cur) => (pi >= p0 && pi <= p1 ? paraTarget(pi, cur) : null) : null,
@@ -201,9 +200,9 @@ function currentAttrs(app) {
   if (t.mode === 'defaults') return { char: { ...d.char, fill: d.fill, stroke: d.stroke, strokeWidth: d.strokeWidth }, para: { ...d.para }, paraId: d.para.paraStyle || null };
   if (t.mode === 'session') {
     const { node, a, b } = t;
-    const p0 = paragraphIndexAt(node.text, a);
+    const [p0, p1] = selectedParagraphs(node.text, a, b);
     const char = b > a ? rangeStyle(node, a, b) : { ...styleAt(node, a > 0 ? a - 1 : 0), ...(t.s.pending || {}) };
-    return { char, para: rangeParaStyle(node, p0, paragraphIndexAt(node.text, b)), paraId: paraAt(node, p0).paraStyle || null };
+    return { char, para: rangeParaStyle(node, p0, p1), paraId: paraAt(node, p0).paraStyle || null };
   }
   const n = t.nodes[0];
   return { char: rangeStyle(n, 0, Math.max(1, n.text.length)), para: rangeParaStyle(n, 0, paragraphRanges(n.text).length - 1), paraId: paraAt(n, 0).paraStyle || null };

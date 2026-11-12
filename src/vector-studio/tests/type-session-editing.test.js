@@ -308,4 +308,20 @@ describe('type editing session', () => {
     expect(s.range()).toEqual([0, 24]);
     tool.onPointerUp(at(16));
   });
+
+  it('paragraph settings for a triple-clicked paragraph leave the next paragraph alone', async () => {
+    const { applyParaStyle, currentParaStyle } = await import('../src/features/type/type-ops.js');
+    const { paraAt } = await import('../src/model/text-runs.js');
+    const id = add('first\nsecond\nthird');
+    const s = edit(id, 0);
+    s.selectParagraph(1);
+    expect(s.range()).toEqual([0, 6]);
+    applyParaStyle(app, { align: 'center' });
+    expect(paraAt(doc.get(id), 0).align).toBe('center');
+    expect(paraAt(doc.get(id), 1).align).toBe('left');
+    expect(currentParaStyle(app).align).toBe('center');
+    // A selection reaching into the next paragraph still includes it.
+    s.setSelection(0, 7);
+    expect(currentParaStyle(app).align).toBe('mixed');
+  });
 });

@@ -282,6 +282,17 @@ export function paragraphIndexAt(text, i) {
   return n;
 }
 
+/**
+ * First and last paragraph index of the selection [a, b). A selection that
+ * ends just after a paragraph's return (a triple-click, or Shift+Down to the
+ * start of the next line) does not include the paragraph after it.
+ */
+export function selectedParagraphs(text, a, b) {
+  const s = String(text ?? '');
+  const p0 = paragraphIndexAt(s, a);
+  return [p0, Math.max(p0, paragraphIndexAt(s, b > a && s[b - 1] === '\n' ? b - 1 : b))];
+}
+
 /** Full paragraph style of paragraph pi. */
 export function paraAt(node, pi) {
   const o = node.paras?.[pi];

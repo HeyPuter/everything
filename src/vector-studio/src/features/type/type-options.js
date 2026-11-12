@@ -14,7 +14,7 @@ import { session, applyCharStyle, applyParaStyle, currentCharStyle, currentParaS
 import { selectedTextNodes } from './outlines.js';
 import { headOf, threadFrames } from './thread-model.js';
 import { fontEvents } from './fonts.js';
-import { paraStylePatch, paragraphIndexAt, paragraphRanges } from '../../model/text-runs.js';
+import { paraStylePatch, paragraphRanges, selectedParagraphs } from '../../model/text-runs.js';
 
 const hasText = (app) => Boolean(session(app)) || (app.editor ? selectedTextNodes(app.editor).length > 0 : false);
 const hasDoc = (app) => Boolean(app.editor);
@@ -74,7 +74,8 @@ function paraPreview(app, label) {
   if (doc && s?.node()) {
     const n = s.node();
     const [a, b] = s.range();
-    targets = [{ id: n.id, p0: paragraphIndexAt(n.text, a), p1: paragraphIndexAt(n.text, b) }];
+    const [p0, p1] = selectedParagraphs(n.text, a, b);
+    targets = [{ id: n.id, p0, p1 }];
   } else if (doc) {
     targets = [...new Map(currentTextNodes(app).map((n) => [headOf(doc, n).id, headOf(doc, n)])).values()].map((n) => ({ id: n.id, p0: 0, p1: Infinity }));
   }
