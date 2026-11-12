@@ -144,7 +144,11 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         submenu.row = row;
       };
       // Hovering opens the submenu and keeps focus on its row, so Right or Enter moves into it.
-      row.addEventListener('pointerenter', () => {
+      // A touch opens it with the tap instead: opened as the finger lands, the
+      // submenu (which covers its menu on a phone) took the tap and opened the
+      // row under the finger too.
+      row.addEventListener('pointerenter', (e) => {
+        if (e.pointerType === 'touch') return;
         row.focus();
         openSub(false);
       });

@@ -285,3 +285,23 @@ describe('workspace dock tab', () => {
     expect(app.prefs.get('dockTab')).toBe('paragraph');
   });
 });
+
+describe('submenus on touch screens', () => {
+  it('open with the tap, not as the finger lands', async () => {
+    const { openMenu } = await import('../src/ui/menubar.js');
+    const run = () => {};
+    const items = [
+      { type: 'sub', label: 'More', items: [{ type: 'cmd', label: 'Inner', enabled: true, run }] },
+    ];
+    const m = openMenu({}, items, { x: 10, y: 10 });
+    const row = m.el.querySelector('.menu-item');
+    const enter = new Event('pointerenter');
+    enter.pointerType = 'touch';
+    row.dispatchEvent(enter);
+    expect(document.querySelectorAll('.menu').length).toBe(1);
+    row.click();
+    expect(document.querySelectorAll('.menu').length).toBe(2);
+    expect(document.activeElement.textContent).toContain('Inner');
+    m.close();
+  });
+});
