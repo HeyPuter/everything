@@ -34,13 +34,16 @@ function load<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
+/** Store a value; false when the browser refused it (full or blocked storage). */
 function store(key: string, value: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    /* Optional. */
+    return false;
   }
 }
+const UNSTORED = 'This browser could not store it (its storage is full or turned off), so it lasts until the page is closed.';
 const registered = (): [string, PanelLocation][] => [...panels.values()].map((p) => [p.id, p.location]);
 
 export function installWorkspace(e: Editor) {
@@ -128,9 +131,9 @@ export function installWorkspace(e: Editor) {
         if (v.toolbar === 'yes') snapshot.toolbar = structuredClone(toolbarLayout());
         if (v.menus === 'yes') snapshot.menus = structuredClone(menuCustomization());
         state = saveWorkspace(state, name, snapshot, `user-${crypto.randomUUID()}`);
-        save();
+        const stored = save();
         refreshLabels();
-        e.message(`Workspace “${name}” saved.`);
+        e.message(stored ? `Workspace “${name}” saved.` : `Workspace “${name}” set up. ${UNSTORED}`);
       },
     },
     {

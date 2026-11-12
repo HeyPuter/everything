@@ -1,7 +1,7 @@
 // The workspace chrome on touch screens, tablets and phones, plus menus and
 // states that are easy to leave behind (listeners, errors, empty states).
 import { test, expect } from '@playwright/test';
-import { boot, openImage } from './helpers';
+import { boot, openImage, start } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -113,4 +113,34 @@ test.describe('at 200% zoom on a 1440×900 screen', () => {
       expect(b.y + b.height).toBeLessThanOrEqual(450);
     }
   });
+});
+
+test('settings the browser cannot store still apply, and the message says they will not last', async ({ page }) => {
+  await page.evaluate(() => {
+    Storage.prototype.setItem = () => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    };
+  });
+  const status = page.locator('#status');
+  // Keyboard shortcuts.
+  await start(page, 'edit.keyboard-shortcuts');
+  const shortcuts = page.getByRole('dialog', { name: 'Keyboard Shortcuts' });
+  await shortcuts.locator('[data-shortcut="edit.undo"]').click();
+  await page.keyboard.press('Alt+Shift+U');
+  await shortcuts.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(status).toContainText('could not store');
+  // It applies in this session all the same.
+  expect(await page.evaluate(async () => (await import('/src/app/registry.ts')).commands.get('edit.undo')!.shortcut)).toBe('Alt+Shift+U');
+  // A new workspace.
+  await start(page, 'window.workspace-new');
+  const ws = page.getByRole('dialog', { name: 'New Workspace' });
+  await ws.locator('input[name="name"]').fill('Touch');
+  await ws.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(status).toHaveText(/Workspace “Touch” set up\. .*could not store/);
+  // Preferences.
+  await start(page, 'edit.preferences');
+  const prefs = page.getByRole('dialog', { name: 'Preferences' });
+  await prefs.locator('#pref-general-animatedZoom').click();
+  await prefs.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(status).toHaveText(/^Preferences changed\. .*could not store/);
 });

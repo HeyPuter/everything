@@ -241,7 +241,7 @@ export function openPreferences(e: Editor, page?: PageId) {
       Object.assign(e.preferences, before);
       saveColorSettings(colorBefore);
       changed();
-    }
+    } else if (!e.savePreferences()) e.message('Preferences changed. This browser could not store them (its storage is full or turned off), so they last until the page is closed.');
     d.close();
     d.remove();
   }

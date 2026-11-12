@@ -813,11 +813,13 @@ export class Editor {
   pointerHooks: ((e: Editor, p: CanvasPointer | undefined) => void)[] = [];
   // Run after preferences change (features/preferences applies them).
   preferenceHooks: ((e: Editor) => void)[] = [];
+  /** Store the preferences; false when the browser refused (full or blocked storage). */
   savePreferences() {
     try {
       localStorage.setItem(PREFERENCES_KEY, JSON.stringify(this.preferences));
+      return true;
     } catch {
-      /* Optional. */
+      return false;
     }
   }
   /** Save and apply changed preferences. */

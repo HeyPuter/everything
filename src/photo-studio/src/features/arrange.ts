@@ -178,10 +178,27 @@ function openSearch(e: Editor) {
 
 // ----- Keyboard shortcut customization -----
 const shortcutKey = 'photo-studio-shortcuts';
+const NOTE = 'This browser could not store them (its storage is full or turned off), so they last until the page is closed.';
 // Shortcuts as registered, recorded before a customization replaces them so
 // a reset or a workspace switch can restore them without reloading.
 const defaultShortcuts = new Map<string, Command['shortcut']>();
+// Shortcuts the browser refused to store (full or blocked storage): they
+// still apply until the page closes.
+let unstored: Record<string, string> | undefined;
+/** Store the custom shortcut set; false when the browser refused it. */
+function storeShortcuts(custom: Record<string, string>) {
+  try {
+    if (Object.keys(custom).length) localStorage.setItem(shortcutKey, JSON.stringify(custom));
+    else localStorage.removeItem(shortcutKey);
+    unstored = undefined;
+    return true;
+  } catch {
+    unstored = { ...custom };
+    return false;
+  }
+}
 export function customShortcuts(): Record<string, string> {
+  if (unstored) return { ...unstored };
   try {
     const v = JSON.parse(localStorage.getItem(shortcutKey) ?? '{}');
     if (v && typeof v === 'object' && !Array.isArray(v)) return Object.fromEntries(Object.entries(v).filter(([, s]) => typeof s === 'string')) as Record<string, string>;
@@ -204,22 +221,13 @@ export function applyCustomShortcuts() {
 }
 /** Replace the custom shortcut set (an empty set restores the defaults). */
 export function setCustomShortcuts(custom: Record<string, string>) {
-  try {
-    if (Object.keys(custom).length) localStorage.setItem(shortcutKey, JSON.stringify(custom));
-    else localStorage.removeItem(shortcutKey);
-  } catch {
-    /* Optional. */
-  }
+  const stored = storeShortcuts(custom);
   applyCustomShortcuts();
+  return stored;
 }
 function shortcutEditor(e: Editor) {
   const d = document.querySelector<HTMLDialogElement>('#dialog')!;
-  let custom: Record<string, string> = {};
-  try {
-    custom = JSON.parse(localStorage.getItem(shortcutKey) ?? '{}');
-  } catch {
-    /* Optional. */
-  }
+  const custom = customShortcuts();
   const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.') || true).sort((a, b) => a.id.localeCompare(b.id));
   d.innerHTML = `<form method="dialog" class="shortcut-editor"><h2>Keyboard Shortcuts</h2><p class="muted">Click a shortcut field (or press Enter on it) and press the new key combination; Escape stops recording. Backspace clears it. Conflicts are shown in red.</p><input type="search" class="shortcut-filter" placeholder="Filter" aria-label="Filter commands"><div class="shortcut-table">${list
     .map((c) => `<label class="shortcut-entry" data-id="${c.id}"><span>${escapeXML(c.label)} <small class="muted">${escapeXML(c.id)}</small></span><input readonly data-shortcut="${c.id}" value="${escapeXML(Array.isArray(c.shortcut) ? c.shortcut[0] : (c.shortcut ?? ''))}" aria-label="Shortcut for ${escapeXML(c.label)}"></label>`)
@@ -287,14 +295,9 @@ function shortcutEditor(e: Editor) {
   d.querySelector('#cancel-dialog')!.addEventListener('click', () => d.close());
   form.onsubmit = (ev) => {
     ev.preventDefault();
-    try {
-      localStorage.setItem(shortcutKey, JSON.stringify(custom));
-    } catch {
-      /* Optional. */
-    }
-    applyCustomShortcuts();
+    const stored = setCustomShortcuts(custom);
     d.close();
-    e.message('Keyboard shortcuts updated.');
+    e.message(stored ? 'Keyboard shortcuts updated.' : `Keyboard shortcuts updated. ${NOTE}`);
   };
   conflicts();
   d.showModal();
