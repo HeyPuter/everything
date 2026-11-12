@@ -48,3 +48,21 @@ test('swatches are buttons that the keyboard can use, set as background and remo
   await expect(swatch('#bfbfbf')).toBeFocused();
   await page.evaluate(() => window.photoStudio.runCommand('swatches.reset'));
 });
+
+test('a changed Color Table entry announces its new color', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.setForeground('#3366cc'));
+  await page.evaluate(() => void window.photoStudio.runCommand('image.mode-indexed'));
+  await page.locator('#dialog button[type=submit]').click();
+  await page.waitForFunction(() => window.photoStudio.doc.mode === 'indexed' && !window.photoStudio.busy);
+  const palette = await page.evaluate(() => window.photoStudio.doc.modeData!.palette!);
+  await page.evaluate(() => void window.photoStudio.runCommand('image.color-table'));
+  const entry = page.locator('.color-table-dialog .ct-swatch').first();
+  await expect(entry).toHaveAccessibleName(`Palette entry 0 ${palette[0]}`);
+  await entry.click();
+  await page.locator('.color-picker-dialog [data-f=hex]').fill('ff0000');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.color-picker-dialog')).toHaveCount(0);
+  await expect(entry).toHaveAccessibleName('Palette entry 0 #ff0000');
+  await page.locator('.color-table-dialog button[type=submit]').click();
+  await page.waitForFunction(() => window.photoStudio.doc.modeData?.palette?.[0] === '#ff0000');
+});

@@ -197,6 +197,7 @@ export async function colorTableDialog(e: Editor) {
         next[i] = c;
         b.style.setProperty('--swatch', c);
         b.title = `${i}: ${c}`;
+        b.setAttribute('aria-label', `Palette entry ${i} ${c}`);
       }
     });
     dialog.querySelector('.ct-cancel')!.addEventListener('click', () => resolve(false));
