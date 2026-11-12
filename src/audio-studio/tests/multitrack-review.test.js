@@ -224,3 +224,31 @@ describe('saving a session to Puter', () => {
     }
   });
 });
+
+describe('sends picked out of order', () => {
+  it('fills the sends before a picked one, so the session saves and opens again', async () => {
+    const { serializeSession, parseSession } = await import('../src/model/session-io.js');
+    const doc = new Session({
+      name: 'R.asesx',
+      tracks: 0,
+      template: [{ name: 'A' }, { name: 'B', type: 'bus' }, { name: 'C', type: 'bus' }],
+    });
+    const [a, b, c] = doc.state.tracks;
+    // The send selector shows S1..S8: editing S4 of a track without sends.
+    let st = S.setSend(doc.state, a.id, 3, { target: b.id, level: -6 });
+    const sends = st.tracks[0].sends;
+    expect(sends.length).toBe(4);
+    expect([0, 1, 2].every((i) => i in sends && sends[i].target === null)).toBe(true);
+    expect(sends[3]).toMatchObject({ target: b.id, level: -6 });
+    expect(S.wouldCycle(st, c.id, a.id)).toBe(false);
+    doc.apply('Send', st);
+    const back = parseSession(serializeSession(doc).text).state;
+    expect(back.tracks[0].sends[3]).toMatchObject({ target: b.id, level: -6 });
+    // Sessions saved with gaps (null entries) open too.
+    const text = serializeSession(doc).text.replace(/"sends": \[/, '"sends": [null, ');
+    const gaps = parseSession(text).state.tracks[0].sends;
+    expect(gaps.length).toBe(5);
+    expect(gaps[0].target).toBe(null);
+    expect(gaps[4].target).toBe(b.id);
+  });
+});

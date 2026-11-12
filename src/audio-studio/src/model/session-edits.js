@@ -81,7 +81,8 @@ export function createTrack(o = {}) {
     height: o.height || 124,
     minimized: Boolean(o.minimized),
     hidden: Boolean(o.hidden),
-    sends: type === 'master' ? [] : (o.sends || []).map(createSend),
+    // Empty entries (from sessions saved with gaps between sends) become unrouted sends.
+    sends: type === 'master' ? [] : Array.from(o.sends || [], (x) => createSend(x || {})),
     eq: { on: Boolean(o.eq?.on), values: { ...(o.eq?.values || {}) } },
     // Surround panner settings for 5.1 sessions (see engine/surround.js); null = defaults.
     surround: o.surround ? { ...o.surround } : null,
@@ -223,7 +224,7 @@ export function wouldCycle(state, trackId, output) {
     const t = state.tracks.find((x) => x.id === cur);
     if (!t) continue;
     stack.push(t.output);
-    for (const snd of t.sends || []) stack.push(snd.target);
+    for (const snd of t.sends || []) stack.push(snd?.target);
   }
   return false;
 }
@@ -231,8 +232,9 @@ export function wouldCycle(state, trackId, output) {
 /** Replaces one send of a track (or adds it when `index` is past the end). */
 export function setSend(state, trackId, index, patch) {
   return updateTrack(state, trackId, (t) => {
-    const sends = (t.sends || []).slice();
-    sends[index] = createSend({ ...(sends[index] || {}), ...patch });
+    // Sends before `index` that do not exist yet are added unrouted, so the list has no gaps.
+    const sends = Array.from({ length: Math.max(index + 1, t.sends?.length || 0) }, (_, i) => t.sends?.[i] || createSend());
+    sends[index] = createSend({ ...sends[index], ...patch });
     return { sends: sends.slice(0, MAX_SENDS) };
   });
 }
