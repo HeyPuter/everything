@@ -31,9 +31,10 @@ describe('PSD preflight', () => {
     expect(() => validatePsdHeader(new Uint8Array(25))).toThrow('Invalid PSD');
     for (const [offset, value, message] of [
       [4, 3, 'version'],
-      [22, 24, 'RGB'],
-      [24, 4, 'RGB'],
-      [12, 5, 'auxiliary channels'],
+      [22, 24, 'This file has 24 bits per channel. Only 8, 16 and 32-bit RGB files open'],
+      [24, 4, 'This file is in CMYK color mode. Only RGB files open; convert it to RGB Color'],
+      [24, 1, 'This file is in Grayscale color mode.'],
+      [12, 5, 'This file has extra channels (saved selections or spot colors)'],
     ] as const) {
       const bytes = header();
       new DataView(bytes.buffer).setUint16(offset, value);
