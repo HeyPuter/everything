@@ -474,6 +474,12 @@ export class Engine extends Emitter {
     this.input = null;
   }
 
+  /** Input latency (frames) the open input device reports (0 when unknown). */
+  get inputLatencyFrames() {
+    const settings = this.input?.stream?.getAudioTracks?.()[0]?.getSettings?.();
+    return Math.round((Number(settings?.latency) || 0) * this.rate);
+  }
+
   /** Context time to wall-clock conversion for latency-compensated recording. */
   get outputLatencyFrames() {
     if (!this.ctx) return 0;

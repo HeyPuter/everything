@@ -126,7 +126,9 @@ export class SessionRecorder {
     take.offClose();
     engine.stop();
     const rate = engine.rate;
-    const latency = engine.outputLatencyFrames;
+    // What the player heard left the speakers output latency late, and their
+    // performance reached the capture input latency late: both come off the take.
+    const latency = engine.outputLatencyFrames + (engine.inputLatencyFrames || 0);
     engine.closeInput();
     app.recording = false;
     app.playStart = null;
@@ -144,7 +146,7 @@ export class SessionRecorder {
       for (let ch = 0; ch < nch; ch++) data[ch].set(c[Math.min(ch, c.length - 1)], at);
       at += c[0].length;
     }
-    // Compensate for output latency: the take starts when the player heard the playhead.
+    // Compensate for the round trip: the take starts when the player heard the playhead.
     const trimmed = data.map((d) => d.subarray(Math.min(latency, d.length - 1)));
     let channels = trimmed.map((d) => Channel.fromSamples(d.slice()));
     channels = await channelsAtRate(channels, rate, doc.sampleRate);
