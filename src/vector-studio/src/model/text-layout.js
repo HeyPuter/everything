@@ -1751,8 +1751,11 @@ function pathFrame(node) {
   const cum = zeros(pts.length);
   for (let i = 1; i < pts.length; i++) cum[i] = cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   const length = pts.length ? cum[pts.length - 1] : 0;
+  const closed = Boolean(node.pathClosed) && length > 0;
   const at = (u) => {
     if (pts.length < 2) return { x: pts[0]?.x || 0, y: pts[0]?.y || 0, tx: 1, ty: 0 };
+    // A closed path has no ends: positions past its seam continue round the loop.
+    if (closed && (u < 0 || u > length)) u -= Math.floor(u / length) * length;
     const uu = Math.max(0, Math.min(length, u));
     let lo = 0;
     let hi = pts.length - 1;
@@ -1804,7 +1807,7 @@ function pathFrame(node) {
     }
     center = { x: sx / pts.length, y: sy / pts.length };
   }
-  return { pts, length, at, project, center, closed: Boolean(node.pathClosed) };
+  return { pts, length, at, project, center, closed };
 }
 
 function flowPath(node, text, ch, frame, vertical) {
@@ -1835,16 +1838,18 @@ function flowPath(node, text, ch, frame, vertical) {
     adj[n] = add;
   }
   const width = rel[n] + adj[n];
+  // Type on a closed path runs once round the loop from the start, across the path's seam.
+  const end = frame.closed ? start + L : L;
   let u0 = start;
   const align = para.align || 'left';
-  if (align === 'center' || align === 'justify-center') u0 = start + (L - start - width) / 2;
-  else if (align === 'right' || align === 'justify-right') u0 = L - width;
+  if (align === 'center' || align === 'justify-center') u0 = start + (end - start - width) / 2;
+  else if (align === 'right' || align === 'justify-right') u0 = end - width;
   const xs = zeros(n + 1);
   for (let k = 0; k <= n; k++) xs[k] = u0 + rel[k] + adj[k];
   // Characters whose center falls beyond the path end overflow.
   let visibleEnd = n;
   for (let i = 0; i < n; i++) {
-    if (xs[i] + ch.adv[i] / 2 > L + 0.01) {
+    if (xs[i] + ch.adv[i] / 2 > end + 0.01) {
       visibleEnd = i;
       break;
     }
@@ -1942,9 +1947,13 @@ function buildLayout(node, wraps, tm) {
       const p = path.at(u);
       return { x: p.x - p.ty * v, y: p.y + p.tx * v };
     };
+    const xs = flow.lines[0].xs;
+    const off = (u) => Math.max(0, xs[0] - u, u - xs[xs.length - 1]);
     fromLocal = (x, y) => {
       const pr = path.project(x, y);
-      return { u: pr.u, v: pr.v ?? 0 };
+      // On a closed path the text can run past the seam: use the loop position nearer the text.
+      const u = path.closed && off(pr.u + path.length) < off(pr.u) ? pr.u + path.length : pr.u;
+      return { u, v: pr.v ?? 0 };
     };
   } else if (kind === 'area') {
     flow = flowArea(node, text, ch, vertical, [node], wraps ? [wraps] : null, markers);

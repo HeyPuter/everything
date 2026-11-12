@@ -248,4 +248,30 @@ describe('type on a path', () => {
     const w1 = layoutText(n(8)).lines[0].width;
     expect(w1).not.toBeCloseTo(w0);
   });
+
+  it('type on a closed path runs on past the seam instead of overflowing there', () => {
+    // A 400 x 400 square starting at its top-left corner: 1600 long.
+    const sq = [
+      [0, 0],
+      [400, 0],
+      [400, 400],
+      [0, 400],
+    ].map(([x, y]) => ({ x, y, ix: x, iy: y, ox: x, oy: y }));
+    // 20 letters, 110 wide, starting 50 before the seam.
+    const n = createText('aaaaaaaaaaaaaaaaaaaa', 0, 0, { kind: 'path', pathAnchors: sq, pathClosed: true, pathOptions: { start: 1550 }, char: { ...CHAR } });
+    const lay = layoutText(n);
+    expect(lay.overflow).toBe(false);
+    const g = glyphPlacements(lay);
+    expect(g).toHaveLength(20);
+    // The last letters sit along the top edge, just past the corner where the path starts.
+    expect(g[19].m[5]).toBeCloseTo(0);
+    expect(g[19].m[4]).toBeGreaterThan(40);
+    expect(g[19].m[4]).toBeLessThan(70);
+    // Clicking there puts the caret among those letters, and the caret draws there.
+    const i = hitTestText(lay, 55, 0);
+    expect(i).toBeGreaterThan(15);
+    expect(caretPosition(lay, i).y).toBeCloseTo(0);
+    // Text longer than the loop still overflows.
+    expect(layoutText({ ...n, text: 'a'.repeat(400) }).overflow).toBe(true);
+  });
 });

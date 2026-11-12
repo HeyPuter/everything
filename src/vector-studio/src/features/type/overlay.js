@@ -46,7 +46,8 @@ function portsFor(editor, node) {
   if (lay.kind === 'path' && lay.path) {
     const start = node.pathOptions?.start || 0;
     const a = lay.path.at(start);
-    const z = lay.path.at(lay.path.length);
+    // A closed path's text ends where it started, one loop on.
+    const z = lay.path.at(lay.path.closed ? start + lay.path.length : lay.path.length);
     return { lay, inPort: toScreen(editor, node, a.x, a.y), outPort: toScreen(editor, node, z.x, z.y), path: true };
   }
   return { lay, inPort: null, outPort: null };
