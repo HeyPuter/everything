@@ -62,6 +62,16 @@ export function patchList(container: Element, fragments: string[]) {
     else pool.set(entry.html, [entry]);
   }
   const entries: Entry[] = fragments.map((html) => pool.get(html)?.shift() ?? { html, nodes: parse(html) });
+  // Drop nodes that are not reused first: otherwise the first one stays the
+  // insertion point and every node after it is moved (and restyled and laid
+  // out again) to land before it.
+  const kept = new Set<ChildNode>();
+  for (const entry of entries) for (const n of entry.nodes) kept.add(n);
+  for (let n = container.firstChild; n; ) {
+    const next = n.nextSibling;
+    if (!kept.has(n)) n.remove();
+    n = next;
+  }
   // Move nodes into place; unchanged runs are left alone.
   let ref = container.firstChild;
   for (const entry of entries)
