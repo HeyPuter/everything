@@ -133,7 +133,10 @@ export type LayoutOptions = {
   span?: number;
 };
 
-const quote = (family: string) => (/^[\w-]+$/.test(family) && !/^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/.test(family) ? family : `"${family.replace(/"/g, '\\"')}"`);
+// Unquoted names must be CSS identifiers (not starting with a digit or "--")
+// and not keywords, in any case; otherwise the whole font string is ignored.
+const KEYWORD = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|math|emoji|fangsong|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|inherit|initial|unset|revert|revert-layer|default)$/i;
+const quote = (family: string) => (/^-?[A-Za-z_][\w-]*$/.test(family) && !KEYWORD.test(family) ? family : `"${family.replace(/"/g, '\\"')}"`);
 export function cssFont(style: Pick<CharStyle, 'family' | 'weight' | 'italic'> & { features?: string }, sizePx: number, fallback = 'sans-serif'): string {
   const size = Math.round(sizePx * 1000) / 1000;
   // OpenType features use an alias family of the same file (see fonts.ts),
