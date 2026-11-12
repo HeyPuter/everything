@@ -116,10 +116,29 @@ export function uniqueName(name, taken) {
   return candidate;
 }
 
-/** Output names for items in order, unique within the batch. */
-export function plannedNames(items, settings) {
+/**
+ * Output names for items in order, unique within the batch. With the Puter output
+ * folder `dir`, names of Puter files queued from that folder are kept free except
+ * for the item's own file: with "Replace the existing file" an earlier output would
+ * otherwise overwrite a later item's source before it was read.
+ */
+export function plannedNames(items, settings, { dir = null } = {}) {
+  const folder = dir ? String(dir).replace(/\/+$/, '') : null;
+  const sourceName = (i) => {
+    const path = i.source?.type === 'puter' ? String(i.source.path || '') : '';
+    const at = path.lastIndexOf('/');
+    if (!folder || at < 0 || path.slice(0, at) !== folder) return null;
+    return path.slice(at + 1).toLowerCase();
+  };
+  const sources = items.map(sourceName);
   const taken = new Set();
-  return items.map((i) => uniqueName(outputName(i.name, settings), taken));
+  return items.map((i, k) => {
+    const blocked = new Set(taken);
+    for (const n of sources) if (n && n !== sources[k]) blocked.add(n);
+    const name = uniqueName(outputName(i.name, settings), blocked);
+    taken.add(name.toLowerCase());
+    return name;
+  });
 }
 
 /** Sample type of a queued source when known without decoding: open files, and local files once probed (item.probe). */
