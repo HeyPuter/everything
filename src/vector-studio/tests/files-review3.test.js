@@ -6,7 +6,16 @@ import { versionKey } from '../src/features/panels/file-commands.js';
 import { scriptAPI } from '../src/features/scripts/runner.js';
 import { LibraryStore } from '../src/features/libraries/store.js';
 import { memoryOutbox } from '../src/features/collab/outbox.js';
-import { network, joinClient, shareNew, settle, rect, alice, bob } from './collab-helpers.js';
+import {
+  network,
+  joinClient,
+  shareNew,
+  settle,
+  rect,
+  alice,
+  bob,
+  SERVER,
+} from './collab-helpers.js';
 
 /** Saves in this browser download the file (no cloud, no File System Access): capture the bytes. */
 function captureDownloads() {
@@ -345,5 +354,25 @@ describe('opening', () => {
     expect(a).toBeTruthy();
     expect(b).toBe(a);
     expect(app.editors.length).toBe(count + 1);
+  });
+});
+
+describe('opening shared documents', () => {
+  it('a shared document clicked twice quickly opens in one tab with one session', async () => {
+    const net = network();
+    const { room } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    await net.service.call(bob, { op: 'join', room, invite: token });
+    const app = await bootAppWithFeatures({ user: bob });
+    app.collab.transportFor = () => net.transport(bob);
+    app.collab.outbox = memoryOutbox();
+    app.collab.sessionOptions = { timers: false };
+    const count = app.editors.length;
+    const link = { server: SERVER, room, invite: null };
+    const [a, b] = await Promise.all([app.collab.open(link), app.collab.open(link)]);
+    expect(b).toBe(a);
+    expect(app.editors.length).toBe(count + 1);
+    expect(app.collab.sessions.size).toBe(1);
+    for (const s of app.collab.sessions.values()) s.close({ leave: false });
   });
 });

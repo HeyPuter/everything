@@ -107,6 +107,21 @@ export class CollabManager extends Emitter {
         return editor;
       }
     }
+    // Opened twice while it loads (a double click): one tab, one session.
+    const key = `${link.server}|${link.room}`;
+    this.opening ||= new Map();
+    const busy = this.opening.get(key);
+    if (busy) {
+      const editor = await busy;
+      if (activate) this.app.activate(editor);
+      return editor;
+    }
+    const job = this.#join(link, activate).finally(() => this.opening.delete(key));
+    this.opening.set(key, job);
+    return job;
+  }
+
+  async #join(link, activate) {
     const user = this.identity();
     if (!user) throw new CollabError('Sign in with Puter to open shared documents.');
     const session = new CollabSession({ transport: this.transport(link.server), server: link.server, room: link.room, user, puter: this.puter, outbox: this.outbox, ...this.sessionOptions });
