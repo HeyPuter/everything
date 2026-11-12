@@ -100,6 +100,23 @@ describe('geometry tools on live objects', () => {
     app.setTool('selection');
   });
 
+  it('Eraser keeps the rest of the selection selected', async () => {
+    const { ed, doc, g, plain } = setup();
+    app.setTool('eraser');
+    ed.select([g, plain]);
+    // Through the plain square only.
+    await stroke(app.tool, [[10, 90], [10, 130]]);
+    expect(doc.has(plain)).toBe(false);
+    const sel = [...ed.selection];
+    expect(sel).toContain(g);
+    const pieces = sel.filter((id) => id !== g);
+    expect(pieces.length).toBe(2);
+    for (const id of pieces) expect(doc.get(id).fill).toEqual(solid('#00ff00'));
+    doc.undo();
+    expect([...ed.selection].sort()).toEqual([g, plain].sort());
+    app.setTool('selection');
+  });
+
   it('Join does not join the open paths of a blend, selected or not', async () => {
     const ed = app.newDocument();
     ed.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });

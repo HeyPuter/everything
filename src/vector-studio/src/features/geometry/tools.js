@@ -717,7 +717,10 @@ export class EraserTool extends RoundBrushTool {
           ids.push(...replaceWith(doc, [n], items, { parentId: parent.id, index: parent.children.indexOf(n.id) + 1 }));
         });
       });
-      if (changed && hadSelection) editor.select(ids.filter((id) => doc.has(id)));
+      // Erased objects give way to their pieces; the rest of the selection stays selected.
+      if (changed && hadSelection) {
+        editor.select([...editor.selection, ...ids].filter((id) => doc.has(id)));
+      }
     } finally {
       this.pts = null;
       this.alt = false;
