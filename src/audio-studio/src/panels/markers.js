@@ -145,6 +145,18 @@ export function markersPanel(app) {
     input.select();
   };
 
+  /**
+   * The editor's ruler shows the panel's selection. The editor keeps one set and reports it
+   * back (marker-selection), so it gets the whole set: adding only the clicked marker made
+   * a Shift-click range select just its two ends and a Ctrl/Cmd-click never deselect.
+   */
+  const showOnRuler = () => {
+    const view = app.currentView?.();
+    if (!view?.selectMarker) return;
+    view.selectedMarkers = new Set(selected);
+    view.selectMarker(null, { add: true });
+  };
+
   const select = (m, e, visible) => {
     const d = doc();
     const before = [...selected].join();
@@ -175,7 +187,7 @@ export function markersPanel(app) {
         d.setView(m.start - span / 3, m.start - span / 3 + span);
       }
     }
-    app.currentView?.()?.selectMarker?.(m.id, { add: e.metaKey || e.ctrlKey || e.shiftKey });
+    showOnRuler();
     // Re-render only when the selection changed, so the second click of a
     // double-click lands on the same row and the double-click reaches it.
     if ([...selected].join() !== before) render();
@@ -234,6 +246,7 @@ export function markersPanel(app) {
             else if (e.key === 'Delete' || e.key === 'Backspace') app.commands.run('marker.deleteSelected', ids());
             else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) {
               for (const x of markers) selected.add(x.id);
+              showOnRuler();
               render();
             } else return;
             e.preventDefault();

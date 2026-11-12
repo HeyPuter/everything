@@ -273,6 +273,22 @@ describe('Markers panel', () => {
     return { ...env, panel, rows, ms };
   }
 
+  it('selects a Shift-click range and toggles with Ctrl/Cmd-click, on the ruler too', async () => {
+    const { app, rows, view, ms } = await panelWith();
+    const click = (i, init = {}) =>
+      rows()[i].dispatchEvent(new MouseEvent('click', { bubbles: true, ...init }));
+    click(1);
+    click(4, { shiftKey: true });
+    const ids = (from, to) => ms.slice(from, to + 1).map((m) => m.id);
+    expect(app.selectedMarkerIds()).toEqual(ids(1, 4));
+    expect([...view.selectedMarkers]).toEqual(ids(1, 4));
+    click(2, { metaKey: true });
+    expect(app.selectedMarkerIds()).toEqual([ms[1].id, ms[3].id, ms[4].id]);
+    expect([...view.selectedMarkers]).toEqual([ms[1].id, ms[3].id, ms[4].id]);
+    expect(rows().filter((r) => r.getAttribute('aria-selected') === 'true')).toHaveLength(3);
+    view.destroy();
+  });
+
   it('keeps its rows through edits that leave the markers alone', async () => {
     const { doc, rows, view } = await panelWith();
     const first = rows()[0];
