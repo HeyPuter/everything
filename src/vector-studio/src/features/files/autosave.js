@@ -47,6 +47,7 @@ export class Autosaver {
     this.storeKey = null;
     this.cached = null;
     this.saved = new WeakMap(); // document -> revision last written
+    this.watched = new WeakSet(); // documents whose saved event removes their copy
     this.stashed = new Map(); // recovery id -> revision kept in localStorage at page close
     this.timer = 0;
     this.busy = null;
@@ -199,6 +200,7 @@ export class Autosaver {
         const id = this.recoveryId(editor);
         await store.put(id, { ...this.#entry(editor), data, revision: rev, session: this.session });
         this.saved.set(doc, rev);
+        this.#watchShared(doc);
         this.#unstash(id, rev);
         n++;
       } catch (err) {
@@ -206,6 +208,19 @@ export class Autosaver {
       }
     }
     return n;
+  }
+
+  /**
+   * A shared document counts as saved when the server has every edit (not
+   * through Save, which removes the copy itself): its copy goes then.
+   */
+  #watchShared(doc) {
+    if (this.watched.has(doc)) return;
+    this.watched.add(doc);
+    doc.on('saved', () => {
+      const ed = this.app.editors.find((e) => e.doc === doc);
+      if (ed?.file?.kind === 'shared' && !doc.dirty) this.discard(ed);
+    });
   }
 
   /** Forget a document's recovery copy (saved, or closed without saving). */

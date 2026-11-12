@@ -274,3 +274,25 @@ describe('shared documents kept on this device', () => {
     expect(outbox.rows.size).toBe(0);
   });
 });
+
+describe('recovery copies', () => {
+  it('a shared document leaves no recovery copy once the server has its edits', async () => {
+    const { RecoveryStore, recoverableEntries } = await import('../src/features/files/recovery.js');
+    const { memoryBackend } = await import('../src/features/files/backends.js');
+    const app = await bootAppWithFeatures();
+    const store = new RecoveryStore([memoryBackend()]);
+    app.files.autosaver.fixedStore = store;
+    const ed = app.newDocument({ name: 'Team' });
+    ed.file = { kind: 'shared', name: 'Team', server: 'https://x.puter.work', room: 'r1' };
+    const doc = ed.doc;
+    doc.transact('Add', () =>
+      doc.insert(createPath(rectangle(0, 0, 10, 10), true), ed.targetLayer().id),
+    );
+    // Autosave runs while the edit is on its way to the server.
+    await app.files.autosaver.flush();
+    // The server has every edit.
+    doc.markSaved();
+    await store.queue;
+    expect(recoverableEntries(await store.list(), new Set(), 'next-session')).toHaveLength(0);
+  });
+});
