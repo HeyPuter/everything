@@ -182,6 +182,9 @@ export function markersPanel(app) {
     body.querySelector(`tr[data-id="${m.id}"]`)?.focus();
   };
 
+  /** What the rows were last built from: edits that leave the markers alone keep them. */
+  let shown = null;
+
   const render = () => {
     // A focused row that goes away (deleted, filtered) hands focus to the row now in its
     // place, so keys such as Delete stay in the list instead of reaching the editor.
@@ -189,6 +192,7 @@ export function markersPanel(app) {
     const focusedAt = focusedRow ? [...body.querySelectorAll('tr[data-id]')].indexOf(focusedRow) : -1;
     renderHead();
     const d = doc();
+    shown = d ? { doc: d, markers: d.state.markers, rate: d.sampleRate } : null;
     body.replaceChildren();
     filterBtn.classList.toggle('on', Boolean(types));
     if (!d) {
@@ -348,7 +352,10 @@ export function markersPanel(app) {
     render();
   });
   app.on('doc-change', (d, e) => {
-    if (d === app.active && (e.kind === 'edit' || e.kind === 'history')) render();
+    if (d !== app.active || (e.kind !== 'edit' && e.kind !== 'history')) return;
+    // Rebuilding every row is slow with thousands of markers; most edits do not touch them.
+    if (shown && shown.doc === d && shown.markers === d.state.markers && shown.rate === d.sampleRate) updateButtons();
+    else render();
   });
   app.on('marker-selection', (d, list) => {
     const next = [...list];

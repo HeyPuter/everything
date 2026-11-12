@@ -257,3 +257,31 @@ describe('time ruler with many markers', () => {
     expect(calls).toBeLessThanOrEqual(2);
   });
 });
+
+describe('Markers panel', () => {
+  async function panelWith(count = 6) {
+    const { createMarker } = await import('../src/model/markers.js');
+    const { markersPanel } = await import('../src/panels/markers.js');
+    const env = await makeView({ frames: 48000 * 4 });
+    const ms = Array.from({ length: count }, (_, i) =>
+      createMarker({ start: i * 4800, name: `M${i}` }),
+    );
+    env.doc.apply('Markers', { ...env.doc.state, markers: ms });
+    const panel = markersPanel(env.app);
+    env.view.el.after(panel.el);
+    const rows = () => [...panel.el.querySelectorAll('tbody tr[data-id]')];
+    return { ...env, panel, rows, ms };
+  }
+
+  it('keeps its rows through edits that leave the markers alone', async () => {
+    const { doc, rows, view } = await panelWith();
+    const first = rows()[0];
+    doc.apply('Fade In', E.fadeRange(doc.state, 0, 4800, 'in'));
+    doc.history.undo();
+    expect(rows()[0]).toBe(first);
+    doc.apply('Delete', E.deleteRange(doc.state, 0, 2400));
+    expect(rows()[0]).not.toBe(first);
+    expect(rows()[1].querySelector('[data-field="start"]').textContent).toBe('0:00.050');
+    view.destroy();
+  });
+});
