@@ -296,3 +296,24 @@ test('the History list stays where it was scrolled when an update adds no step',
   await idle(page);
   expect(await page.locator('[data-panel="history"] .history-entries').evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
 });
+
+test('command search keeps the highlighted result in view and tells screen readers which it is', async ({ page }) => {
+  await page.locator('#viewport').focus();
+  await page.evaluate(() => window.photoStudio.runCommand('edit.search'));
+  const input = page.getByRole('combobox', { name: 'Search commands' });
+  await expect(input).toBeFocused();
+  await input.fill('a');
+  const list = page.locator('.search-results');
+  expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowDown');
+  const active = page.locator('.search-item.active');
+  const [a, l] = [(await active.boundingBox())!, (await list.boundingBox())!];
+  expect(a.y).toBeGreaterThanOrEqual(l.y - 1);
+  expect(a.y + a.height).toBeLessThanOrEqual(l.y + l.height + 1);
+  expect(await input.getAttribute('aria-activedescendant')).toBe(await active.getAttribute('id'));
+  expect(await input.getAttribute('aria-expanded')).toBe('true');
+  // Escape closes the search and gives the focus back.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.command-search')).toHaveCount(0);
+  await expect(page.locator('#viewport')).toBeFocused();
+});

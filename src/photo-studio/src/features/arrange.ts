@@ -105,7 +105,10 @@ function openSearch(e: Editor) {
   pop.className = 'command-search popover';
   pop.setAttribute('role', 'dialog');
   pop.setAttribute('aria-label', 'Search');
-  pop.innerHTML = `<input type="search" placeholder="Search commands, tools and panels" aria-label="Search commands"><div class="search-results" role="listbox"></div>`;
+  // A combobox: the focus stays in the field and the highlighted result is
+  // its active descendant, so screen readers say each result as it is reached.
+  pop.innerHTML = `<input type="search" placeholder="Search commands, tools and panels" aria-label="Search commands" role="combobox" aria-autocomplete="list" aria-controls="command-search-results" aria-expanded="false"><div class="search-results" id="command-search-results" role="listbox" aria-label="Results"></div>`;
+  const opener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
   document.body.append(pop);
   const input = pop.querySelector('input')!,
     list = pop.querySelector<HTMLElement>('.search-results')!;
@@ -124,8 +127,12 @@ function openSearch(e: Editor) {
       .slice(0, 40);
     active = Math.min(active, Math.max(0, shown.length - 1));
     list.innerHTML = shown
-      .map((i, k) => `<div class="search-item ${k === active ? 'active' : ''}" role="option" aria-selected="${k === active}" data-k="${k}">${svg(i.icon, 14)}<span>${escapeXML(i.label)}</span><small>${i.kind}</small><kbd>${escapeXML(i.detail)}</kbd></div>`)
+      .map((i, k) => `<div class="search-item ${k === active ? 'active' : ''}" role="option" id="command-search-${k}" aria-selected="${k === active}" data-k="${k}">${svg(i.icon, 14)}<span>${escapeXML(i.label)}</span><small>${i.kind}</small><kbd>${escapeXML(i.detail)}</kbd></div>`)
       .join('') || (q ? '<p class="muted">No results</p>' : '<p class="muted">Type to search menus, tools and panels.</p>');
+    input.setAttribute('aria-expanded', String(shown.length > 0));
+    if (shown.length) input.setAttribute('aria-activedescendant', `command-search-${active}`);
+    else input.removeAttribute('aria-activedescendant');
+    list.querySelector('.search-item.active')?.scrollIntoView({ block: 'nearest' });
   };
   const close = () => {
     pop.remove();
@@ -143,10 +150,13 @@ function openSearch(e: Editor) {
     else if (ev.key === 'ArrowUp') active = Math.max(0, active - 1);
     else if (ev.key === 'Enter' && shown[active]) {
       close();
+      // The focus goes back first, so a dialog the command opens returns it there.
+      opener?.focus({ preventScroll: true });
       shown[active].run();
       return;
     } else if (ev.key === 'Escape') {
       close();
+      opener?.focus({ preventScroll: true });
       return;
     } else return;
     ev.preventDefault();
@@ -156,6 +166,7 @@ function openSearch(e: Editor) {
     const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-k]');
     if (!row) return;
     close();
+    opener?.focus({ preventScroll: true });
     shown[Number(row.dataset.k)].run();
   });
   document.addEventListener('pointerdown', outside, true);
