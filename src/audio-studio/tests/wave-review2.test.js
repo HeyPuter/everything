@@ -83,3 +83,35 @@ describe('waveform keys', () => {
     expect(doc.cursor).toBeGreaterThan(1000);
   });
 });
+
+describe('typed times', () => {
+  it('reads timecode and bars as the first sample of the frame they name', async () => {
+    const { formatTime, parseTime } = await import('../src/lib/time.js');
+    const music = { tempo: 97, beatsPerBar: 3, beatNote: 4, subdivisions: 16, fps: 12 };
+    const formats = [
+      'smpte30',
+      'smpte2997',
+      'smpte2997df',
+      'smpte5994df',
+      'smpte2398',
+      'frames',
+      'bars',
+    ];
+    for (const rate of [8000, 44100, 48000, 192000]) {
+      for (const format of formats) {
+        // Every frame (or subdivision) step across a stretch an hour in.
+        const step = rate / 61;
+        for (let k = 0; k < 400; k++) {
+          const at = Math.round(rate * 3600 + k * step);
+          const text = formatTime(at, rate, format, music);
+          const frame = parseTime(text, rate, format, music);
+          expect(formatTime(frame, rate, format, music), `${format} ${rate} ${text}`).toBe(text);
+          expect(formatTime(frame - 1, rate, format, music)).not.toBe(text);
+        }
+      }
+    }
+    expect(parseTime('00:00:01:00', 48000, 'smpte30')).toBe(48000);
+    expect(parseTime('-00:00:01:00', 48000, 'smpte30')).toBe(-48000);
+    expect(parseTime('1.5', 48000, 'smpte30')).toBe(72000);
+  });
+});
